@@ -106,9 +106,11 @@ def test_stand_roof_is_a_low_canopy_from_covering_parts_only():
 
 def test_top_row_keeps_its_clearance_under_a_canopy_sloping_to_the_back():
     v = venue()
-    b = stand_building()
-    b.roof_parts = [(b.footprint, np.array([0.0, 1.0, -27.0]))]  # 29 m at the front, 13 m at the back
-    by = {m.object_id.split(":", 2)[2]: m for m in V.grandstand(b, v.fields, lambda x, z: 10.0)}
-    roof, seats = by["roof:roof"], by["seat:stair_slope"]
-    lowest_top = roof.positions[:, 1].min() + V.ROOF_THICK
-    assert lowest_top >= seats.positions[:, 1].max() + V.ROOF_CLEAR - 0.05
+    # 29 m at the front, 13 m at the back; then a rake-like surface too low for two tiers of rows.
+    for plane in ([0.0, 1.0, -27.0], [0.0, 1.0, -32.0]):
+        b = stand_building()
+        b.roof_parts = [(b.footprint, np.array(plane))]
+        by = {m.object_id.split(":", 2)[2]: m for m in V.grandstand(b, v.fields, lambda x, z: 10.0)}
+        roof, seats = by["roof:roof"], by["seat:stair_slope"]
+        lowest_top = roof.positions[:, 1].min() + V.ROOF_THICK
+        assert lowest_top >= seats.positions[:, 1].max() + V.ROOF_CLEAR - 0.05, plane

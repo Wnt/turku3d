@@ -392,6 +392,13 @@ def grandstand(b, fields, height_at):
     # The top row keeps its clearance where a sloped canopy is lowest over the back of the stand.
     roof_low = min(roof_mid, roof_at(u0, seat_depth), roof_at(u1, seat_depth))
     podium, rows, roofed = _stand_profile(seat_depth, roof_low - base)
+    # A roof never cuts the rows: where a low LoD2 surface (often the seating rake itself) leaves
+    # less than the clearance over the top row, the canopy rises with its slope kept.
+    lift = max(0.0, base + rows[-1][2] + ROOF_CLEAR - roof_low) if roofed else 0.0
+    if lift > 1e-6:
+        canopy = roof_at
+        roof_at = lambda a, bb: canopy(a, bb) + lift  # noqa: E731
+        roof_mid += lift
     sink = base - STRUCTURE_SINK
     s = Builder(f"venue:{b.key}")
     count = max(1, int(round((u1 - u0) / AISLE_SPACING)))
