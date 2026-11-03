@@ -124,12 +124,16 @@ def audit(visual, collision, query, expected, *, support=None, openings=None):
     defects['blocked_openings'] = []
     if openings is not None and openings.floors:
         # Count actual area removed by the authoritative 3D clearance prisms.
-        p = collision.reshape(-1, 3)
+        # A face of at most 2000 mm² cannot lose more than that, so only larger
+        # faces are carved; each face's carve is independent of the others.
+        original = np.linalg.norm(normals(collision), axis=1) / 2
+        large = np.flatnonzero(original > .002)
+        p = collision[large].reshape(-1, 3)
         ix = np.arange(len(p)).reshape(-1, 3)
         cp, ci, _, owners = openings.carve(p, ix)
-        original = np.linalg.norm(normals(collision), axis=1) / 2
-        remaining = np.zeros(len(collision))
-        np.add.at(remaining, owners, np.linalg.norm(normals(cp[ci]), axis=1) / 2)
+        remaining = original.copy()
+        remaining[large] = 0
+        np.add.at(remaining, large[owners], np.linalg.norm(normals(cp[ci]), axis=1) / 2)
         blocked = original - remaining > .002
         defects['blocked_openings'] = records(collision[blocked].mean(axis=1),
                                                area_m2=(original - remaining)[blocked])
