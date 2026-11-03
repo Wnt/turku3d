@@ -566,28 +566,55 @@ def survey_paths(tile) -> dict | None:
     return paths
 
 
-def survey(paths, bbox):
-    """(engine xyz, classes) of the returns inside ``bbox``, streamed from the LAZ blocks once.
+CHUNK = 2_000_000  # returns per LAZ read
+# Decoded LAZ blocks kept per process, most recent last. 0 for a build (it reads each block once); the city pass
+# keeps the blocks of neighbouring tiles (scripts/dev/tile_city_pass.py), about 260 MB each.
+BLOCKS = 0
+_decoded: dict[str, list] = {}
 
-    Nothing is cached or written: a city migration reads each block a few times instead of
-    keeping decoded copies on the farm's disk."""
+
+def _chunks(path):
+    """(scales, offsets, X, Y, Z, classification) per CHUNK returns of one LAZ block, raw integers as stored."""
     import laspy
 
+    key = str(path)
+    if key in _decoded:
+        _decoded[key] = _decoded.pop(key)  # most recent last
+        yield from _decoded[key]
+        return
+    kept = []
+    with laspy.open(path) as reader:
+        scales, offsets = reader.header.scales, reader.header.offsets
+        for chunk in reader.chunk_iterator(CHUNK):
+            part = (scales, offsets, np.asarray(chunk.X), np.asarray(chunk.Y), np.asarray(chunk.Z),
+                    np.asarray(chunk.classification))
+            if BLOCKS > 0:
+                kept.append(part)
+            yield part
+    if BLOCKS > 0:
+        _decoded[key] = kept
+        while len(_decoded) > BLOCKS:
+            del _decoded[next(iter(_decoded))]
+
+
+def survey(paths, bbox):
+    """(engine xyz, classes) of the returns inside ``bbox``, read from the LAZ blocks.
+
+    Nothing is written to disk. With ``BLOCKS`` > 0 the decoded blocks stay in memory for the next tiles; the
+    result is the same either way."""
     from turku3d import config as C
 
     xyz, classes = [], []
     for name in sorted(paths):
-        with laspy.open(paths[name]) as reader:
-            (sx, sy, sz), (ox, oy, oz) = reader.header.scales, reader.header.offsets
-            for chunk in reader.chunk_iterator(2_000_000):
-                x = np.asarray(chunk.X) * sx + ox - C.ORIGIN_E
-                z = C.ORIGIN_N - (np.asarray(chunk.Y) * sy + oy)
-                keep = (x >= bbox.xmin) & (x < bbox.xmax) & (z >= bbox.zmin) & (z < bbox.zmax)
-                if not keep.any():
-                    continue
-                y = np.asarray(chunk.Z)[keep] * sz + oz - C.ORIGIN_H
-                xyz.append(np.c_[x[keep], y, z[keep]])
-                classes.append(np.asarray(chunk.classification)[keep])
+        for (sx, sy, sz), (ox, oy, oz), cx, cy, cz, cc in _chunks(paths[name]):
+            x = cx * sx + ox - C.ORIGIN_E
+            z = C.ORIGIN_N - (cy * sy + oy)
+            keep = (x >= bbox.xmin) & (x < bbox.xmax) & (z >= bbox.zmin) & (z < bbox.zmax)
+            if not keep.any():
+                continue
+            y = cz[keep] * sz + oz - C.ORIGIN_H
+            xyz.append(np.c_[x[keep], y, z[keep]])
+            classes.append(cc[keep])
     if not xyz:
         return np.empty((0, 3)), np.empty(0, np.uint8)
     return np.concatenate(xyz), np.concatenate(classes)

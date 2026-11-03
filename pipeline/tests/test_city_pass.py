@@ -19,7 +19,7 @@ def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city, "surveyed", lambda tile: False)
-    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0", "--no-survey-wait"]
+    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0", "--no-survey-wait", "--blocks", "0"]
     monkeypatch.setattr(sys, "argv", argv)
     assert city.main() == 0
     log = root / "migrations" / meta["generation"]
@@ -49,7 +49,7 @@ def test_a_checkpoint_stores_the_prefix_that_a_changed_tail_resumes_from(tmp_pat
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city, "surveyed", lambda tile: False)
     argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
-            "--no-survey-wait", "--checkpoint", "test-tint@1"]
+            "--no-survey-wait", "--blocks", "0", "--checkpoint", "test-tint@1"]
     monkeypatch.setattr(sys, "argv", argv)
     assert city.main() == 0
     prefix = meta["migrations"][0]["generation"]
@@ -85,3 +85,14 @@ def test_a_tile_waits_for_catalogued_survey_blocks_and_takes_verified_ones(tmp_p
     (supply / f"{names[-1]}.laz").unlink()
     (supply / f"{names[-1]}.laz").write_bytes(blocks[names[-1]])
     assert survey.missing("t0_0_0") == []
+
+
+def test_a_lane_walks_its_ring_from_block_to_neighbouring_block():
+    pending = sorted(["t0_0_0", "t0_1_1", "t0_-1_0", "t0_2_0", "t0_3_1", "t0_-2_-2", "t0_2_2"],
+                     key=lambda t: (city.ring(t), t))
+    assert city.pick(pending, None) == 0  # the innermost ring first
+    outer = [t for t in pending if city.ring(t) >= 2]  # ['t0_-2_-2', 't0_2_0', 't0_2_2', 't0_3_1']
+    # In ring 2 the tile of the lane's own block wins over the first in order; ring 3 waits.
+    assert outer[city.pick(outer, city.home("t0_3_1"))] == "t0_2_0"
+    assert outer[city.pick(outer, city.home("t0_2_3"))] == "t0_2_2"
+    assert city.home("t0_-1_-1") == (-1, -1) and city.home("t0_1_0") == (0, 0)

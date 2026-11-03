@@ -7,7 +7,9 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   tile_city_pass.py --farm-root ROOT --revision DERIVED [--max-jobs 6] [--high 3.5] [--low 2.5]
                     [--interval 30] [--radius RINGS] [--checkpoint STEP] [--supply DIR] [--estimate] [tiles ...]
 
-* Order: rings of tiles round t0_0_0, nearest first (the order players see them), or the given tiles.
+* Order: rings of tiles round t0_0_0, nearest first (the order players see them), or the given tiles. Each worker
+  is a lane that keeps ``--blocks`` decoded LAZ blocks and walks round the ring from block to neighbouring block,
+  so the wires step decodes each block about once per lane instead of once per tile (same output).
 * Load: every ``--interval`` seconds the cap moves by one: down while the one-minute load per core is above
   ``--high`` (0: no new tile starts), up while it is below ``--low``, between 0 and ``--max-jobs``. Running tiles
   always finish. Workers run at nice 19, under the farm's serving and builds.
@@ -29,7 +31,6 @@ import json
 import os
 import sys
 import time
-from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
 
@@ -52,11 +53,14 @@ def _timed(cls):
     cls.apply = apply
 
 
-def _init():
-    """Worker: nice 19, and every step's apply timed (the transforms and their code hashes are untouched)."""
+def _init(blocks=0):
+    """Worker: nice 19, every step's apply timed (the transforms and their code hashes are untouched), and the wires
+    step keeping ``blocks`` decoded LAZ blocks for the next tiles of its lane (same output, fewer decodes)."""
     os.nice(max(0, 19 - os.nice(0)))
+    from turku3d.coarse import wires
     from turku3d.migrations import core
 
+    wires.BLOCKS = blocks
     _timed(core.Migration)
     _timed(core.Rebuild)
 
@@ -77,7 +81,7 @@ class Survey:
     block is hard-linked in from there once its size and SHA-256 match the catalog (the same bytes the version names,
     as the bulk generation had them)."""
 
-    def __init__(self, supply=()):
+    def __init__(self, supply=(), log: Path | None = None):
         from turku3d import config as C
 
         self.C = C
@@ -86,6 +90,7 @@ class Survey:
         self.catalog = {Path(k).stem: v for k, v in catalog.items() if k.startswith("raw/laz/pistepilvi/")}
         self.supply = [Path(d) for d in supply]
         self.linked = 0
+        self.log = log
 
     def missing(self, tile: str) -> list[str]:
         from turku3d.coarse import wires
@@ -113,6 +118,11 @@ class Survey:
             except FileExistsError:
                 pass
             self.linked += 1
+            if self.log is not None:
+                with self.log.open("a") as out:
+                    out.write(json.dumps(dict(block=name, bytes=want["bytes"], sha256=want["sha256"], source=str(path),
+                                              target=str(self.root / f"{name}.laz"),
+                                              at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))) + "\n")
             return True
         return False
 
@@ -131,6 +141,42 @@ def _work(args):
 
 def ring(tile: str) -> int:
     return max(abs(int(v)) for v in tile.split('_')[1:])
+
+
+def home(tile: str) -> tuple[int, int]:
+    """The 500 m LAZ block holding the tile (two 250 m tiles a side)."""
+    i, j = (int(v) for v in tile.split('_')[1:])
+    return i // 2, j // 2
+
+
+def pick(pending: list[str], last: tuple[int, int] | None) -> int:
+    """Index of the next tile for a lane: in the innermost ring left, the one nearest the lane's last block
+    (its own block first), so a lane walks round the ring and reuses the blocks it has decoded."""
+    r0 = ring(pending[0])
+    best, score = 0, None
+    for k, tile in enumerate(pending):
+        if ring(tile) != r0:
+            break
+        if last is None:
+            return k
+        b = home(tile)
+        d = max(abs(b[0] - last[0]), abs(b[1] - last[1]))
+        if score is None or d < score:
+            best, score = k, d
+            if d == 0:
+                break
+    return best
+
+
+class Lane:
+    """One worker process that keeps its decoded blocks between tiles."""
+
+    def __init__(self, blocks: int):
+        self.pool = ProcessPoolExecutor(max_workers=1, initializer=_init, initargs=(blocks,))
+        self.future = None
+        self.tile = None
+        self.last = None
+        self.at = (0, 0.0)
 
 
 def logged(path: Path) -> list[dict]:
@@ -181,6 +227,7 @@ def main():
     parser.add_argument('--no-survey-wait', action='store_true', help='migrate tiles whose survey blocks are missing')
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')
+    parser.add_argument('--blocks', type=int, default=9, help='decoded LAZ blocks each lane keeps (~260 MB each)')
     parser.add_argument('--checkpoint', help='also store the product after this step (e.g. wires@2), so a later '
                         'chain that changes only the steps after it resumes from there')
     args = parser.parse_args()
@@ -201,65 +248,78 @@ def main():
         print(json.dumps(estimate(rows, tiles, share), indent=1))
         return 0
     finished = {r['tile'] for r in rows if r['state'] in ('migrated', 'kept')}
-    pending = deque(t for t in tiles if t not in finished)
+    pending = [t for t in tiles if t not in finished]
+    pending.sort(key=lambda t: (ring(t), t))
     cores = os.cpu_count() or 1
-    cap, running, started_at, next_adjust = 1, {}, time.monotonic(), 0.0
-    survey = None if args.no_survey_wait else Survey(args.supply)
+    cap, started_at, next_adjust = 1, time.monotonic(), 0.0
+    survey = None if args.no_survey_wait else Survey(args.supply, log_dir / 'supply.jsonl')
     waiting: list[str] = []
     next_survey = time.monotonic() + args.survey_interval
     done_now = 0
-    with ProcessPoolExecutor(max_workers=max(1, args.max_jobs), initializer=_init) as pool, journal.open('a') as log:
-        while pending or running or waiting:
-            now = time.monotonic()
-            load = os.getloadavg()[0] / cores
-            if now >= next_adjust:
-                next_adjust = now + args.interval
-                if load > args.high:
-                    cap = max(0, cap - 1)
-                elif load < args.low:
-                    cap = min(args.max_jobs, cap + 1)
-                rate = done_now / max(1.0, now - started_at)
-                state = dict(revision=meta['revision'], generation=meta['generation'], pid=os.getpid(),
-                             cap=cap, running=sorted(t for t, *_ in running.values()), load_per_core=round(load, 2),
-                             waiting_for_survey=len(waiting), survey_linked=survey.linked if survey else 0,
-                             updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                             rate_tiles_per_hour=round(rate * 3600, 1),
-                             eta_hours=round(len(pending) / rate / 3600, 1) if rate else None,
-                             **estimate(rows, tiles))
-                atomic_json(progress, state)
-            if waiting and now >= next_survey:  # Blocks may have arrived (lidarpc's downloads): look again.
-                next_survey = now + args.survey_interval
-                pending.extend(waiting)
-                waiting.clear()
-            while pending and len(running) < cap:
-                tile = pending.popleft()
-                if survey is not None and survey.missing(tile):
-                    waiting.append(tile)
+    lanes = [Lane(args.blocks) for _ in range(max(1, args.max_jobs))]
+    try:
+        with journal.open('a') as log:
+            while pending or waiting or any(lane.future for lane in lanes):
+                now = time.monotonic()
+                load = os.getloadavg()[0] / cores
+                busy = [lane for lane in lanes if lane.future]
+                if now >= next_adjust:
+                    next_adjust = now + args.interval
+                    if load > args.high:
+                        cap = max(0, cap - 1)
+                    elif load < args.low:
+                        cap = min(len(lanes), cap + 1)
+                    rate = done_now / max(1.0, now - started_at)
+                    atomic_json(progress, dict(
+                        revision=meta['revision'], generation=meta['generation'], pid=os.getpid(), cap=cap,
+                        running=sorted(lane.tile for lane in busy), load_per_core=round(load, 2),
+                        waiting_for_survey=len(waiting), survey_linked=survey.linked if survey else 0,
+                        updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                        rate_tiles_per_hour=round(rate * 3600, 1),
+                        eta_hours=round(len(pending) / rate / 3600, 1) if rate else None, **estimate(rows, tiles)))
+                if waiting and now >= next_survey:  # Blocks may have arrived (lidarpc's downloads): look again.
+                    next_survey = now + args.survey_interval
+                    pending.extend(waiting)
+                    pending.sort(key=lambda t: (ring(t), t))
+                    waiting.clear()
+                for lane in lanes:
+                    if lane.future or not pending or len([x for x in lanes if x.future]) >= cap:
+                        continue
+                    while pending:
+                        tile = pending.pop(pick(pending, lane.last))
+                        if survey is not None and survey.missing(tile):
+                            waiting.append(tile)
+                            continue
+                        lane.future = lane.pool.submit(_work, (str(root), meta, tile, args.checkpoint))
+                        lane.tile, lane.last, lane.at = tile, home(tile), (cap, round(load, 2))
+                        break
+                busy = [lane for lane in lanes if lane.future]
+                if not busy:
+                    if not pending and waiting and now - started_at > args.wait_hours * 3600:
+                        break  # The rest stays waiting for survey blocks; a later pass picks them up.
+                    time.sleep(min(args.interval, 5) if args.interval else 0.01)
                     continue
-                future = pool.submit(_work, (str(root), meta, tile, args.checkpoint))
-                running[future] = (tile, cap, round(load, 2))
-            if not pending and not running and waiting:
-                if now - started_at > args.wait_hours * 3600:
-                    break  # The rest stays waiting for survey blocks; a later pass picks them up.
-                time.sleep(min(args.interval, 5))
-                continue
-            if not running:
-                time.sleep(min(args.interval, 5))
-                continue
-            for future in wait(running, timeout=5, return_when=FIRST_COMPLETED).done:
-                tile, at_cap, at_load = running.pop(future)
-                try:
-                    row = future.result()
-                except Exception as error:  # A worker crash is reported; the pass continues.
-                    row = dict(tile=tile, state='failed', error=f'{type(error).__name__}: {error}'[-1000:])
-                row.update(cap=at_cap, load_per_core=at_load, at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
-                log.write(json.dumps(row) + '\n')
-                log.flush()
-                rows.append(row)
-                done_now += row['state'] == 'migrated'
-        atomic_json(progress, dict(revision=meta['revision'], generation=meta['generation'], finished=not waiting,
-                                   waiting_for_survey=sorted(waiting),
-                                   updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), **estimate(rows, tiles)))
+                done = wait([lane.future for lane in busy], timeout=5, return_when=FIRST_COMPLETED).done
+                for lane in busy:
+                    if lane.future not in done:
+                        continue
+                    try:
+                        row = lane.future.result()
+                    except Exception as error:  # A worker crash is reported; the pass continues.
+                        row = dict(tile=lane.tile, state='failed', error=f'{type(error).__name__}: {error}'[-1000:])
+                    row.update(cap=lane.at[0], load_per_core=lane.at[1],
+                               at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                    log.write(json.dumps(row) + '\n')
+                    log.flush()
+                    rows.append(row)
+                    done_now += row['state'] == 'migrated'
+                    lane.future = lane.tile = None
+    finally:
+        for lane in lanes:
+            lane.pool.shutdown(wait=True, cancel_futures=True)
+    atomic_json(progress, dict(revision=meta['revision'], generation=meta['generation'], finished=not waiting,
+                               waiting_for_survey=sorted(waiting),
+                               updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), **estimate(rows, tiles)))
     return 0
 
 

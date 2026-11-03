@@ -117,3 +117,34 @@ def test_migration_adds_the_wires_beside_the_light_list(monkeypatch, tmp_path):
     bare = Product(tmp_path, {"tile": "t0_0_0"})
     migration.transform(bare)
     assert "lights" not in bare.manifest
+
+
+def test_kept_blocks_read_the_same_returns_without_reopening(tmp_path, monkeypatch):
+    import laspy
+    from turku3d import config as C
+
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    header.scales, header.offsets = np.array([0.01, 0.01, 0.01]), np.array([C.ORIGIN_E, C.ORIGIN_N - 500, 0.0])
+    las = laspy.LasData(header)
+    n = 5000
+    las.x = C.ORIGIN_E + RNG.uniform(0, 500, n)
+    las.y = C.ORIGIN_N - RNG.uniform(0, 500, n)
+    las.z = RNG.uniform(0, 30, n)
+    las.classification = RNG.integers(1, 7, n).astype(np.uint8)
+    path = tmp_path / "block.laz"
+    las.write(path)
+    bbox = C.BBoxLocal(100.0, 100.0, 300.0, 350.0)
+    monkeypatch.setattr(W, "CHUNK", 777)
+    monkeypatch.setattr(W, "BLOCKS", 0)
+    streamed = W.survey({"b": path}, bbox)
+    monkeypatch.setattr(W, "BLOCKS", 2)
+    monkeypatch.setattr(W, "_decoded", {})
+    first = W.survey({"b": path}, bbox)
+    opened = []
+    real = laspy.open
+    monkeypatch.setattr(laspy, "open", lambda *a, **k: opened.append(a) or real(*a, **k))
+    again = W.survey({"b": path}, bbox)
+    assert opened == []
+    for got in (first, again):
+        assert np.array_equal(got[0], streamed[0]) and np.array_equal(got[1], streamed[1])
+    assert len(streamed[0]) > 0
