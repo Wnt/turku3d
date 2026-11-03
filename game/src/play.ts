@@ -611,7 +611,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (!startScreen.active && !saveGame.loading) releaseStarts();
     const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
-    coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel);
+    coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel, true, camera.position.y);
     parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)), world.sharedNow());
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);

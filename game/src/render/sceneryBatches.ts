@@ -79,7 +79,7 @@ export class SceneryBatches {
       const revision = ++this.revision;
       const groups = new Map<string, Source[]>();
       // A dissolving model draws its own meshes: a merged cell has no per-model coverage.
-      if (model.visible && !model.userData.lodHandover) {
+      if (model.visible && !model.userData.lodFading) {
         const b = sceneryBounds(id);
         // Detailed facades keep kilometre culling. Low-poly survey shells and
         // regional terrain need fewer draw submissions, including the prepass.

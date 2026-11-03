@@ -1,8 +1,8 @@
 import type { Object3D } from 'three/webgpu';
 
 interface Resident { model?: Object3D }
-interface Nearby extends Resident { preview?: unknown; cachedAt?: number }
-interface State extends Resident { visible?: boolean; regional?: boolean; preview?: boolean; cached?: boolean }
+interface Nearby extends Resident { preview?: unknown; cachedAt?: number; distant?: boolean }
+interface State extends Resident { visible?: boolean; regional?: boolean; preview?: boolean; cached?: boolean; distant?: boolean }
 
 /** Detect ownership changes without allocating a per-frame scene signature.
  * Polling/busy timestamps do not change the visible quadtree cut. */
@@ -27,7 +27,7 @@ export class SceneryCutState {
     for (const [id, entry] of nearby) {
       const old = this.nearby.get(id);
       if (!old || old.model !== entry.model || old.visible !== entry.model?.visible
-        || old.preview !== !!entry.preview || old.cached !== (entry.cachedAt !== undefined)) return true;
+        || old.preview !== !!entry.preview || old.cached !== (entry.cachedAt !== undefined) || old.distant !== !!entry.distant) return true;
     }
     return false;
   }
@@ -40,6 +40,7 @@ export class SceneryCutState {
     });
     for (const [id, entry] of nearby) this.nearby.set(id, {
       model: entry.model, visible: entry.model?.visible, preview: !!entry.preview, cached: entry.cachedAt !== undefined,
+      distant: !!entry.distant,
     });
     this.valid = true;
   }

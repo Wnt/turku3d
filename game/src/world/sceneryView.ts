@@ -37,6 +37,15 @@ export function sceneryDetailDistance(view: SceneryView) {
   return Math.max(350, Math.min(2000, (view.focalPixels ?? 600) * 1.5 / 2));
 }
 
+/** Engine height (m) of the city's ground for 3D refinement; Turku's centre lies at about 0-40 m. */
+const SCENERY_GROUND = 30;
+/** Camera distance (3D, m, with hysteresis) beyond which a resident full tile's visual yields to its scenery cell.
+ *  Every tile of the 3x3 window is within 354 m of a camera on the ground, so this only acts on a high camera. */
+export const TILE_DETAIL = { distance: 450, band: 40 } as const;
+/** L0 refinement always reaches past any full tile still drawing (plus slack for tiles up to 120 m tall, whose
+ *  vertical gap is smaller than the node's), so a 1 km node never draws over HD squares. */
+const DETAIL_FLOOR = TILE_DETAIL.distance + TILE_DETAIL.band + 90;
+
 /** Non-overlapping quadtree cut: authored shells nearby, source-built kilometre groups farther out. */
 export function sceneryTiles(radius: number, view: SceneryView, previous: readonly string[] = []) {
   const length = Math.hypot(view.dx, view.dz) || 1, dx = view.dx / length, dz = view.dz / length;
@@ -58,8 +67,10 @@ export function sceneryTiles(radius: number, view: SceneryView, previous: readon
     // the viewed middle distance; the old cut remains until all replacements load.
     // A 20% hysteresis band avoids switching whole city blocks back and forth
     // as adaptive resolution or a moving camera crosses the pixel threshold.
-    const detailLimit = detailDistance * (detailedParents.has(id) ? 1.2 : 1);
-    const refine = level === 4 ? distance < 4500 : level === 2 ? distance < detailLimit && inView : false;
+    const detailLimit = Math.max(DETAIL_FLOOR, detailDistance * (detailedParents.has(id) ? 1.2 : 1));
+    // Refinement distance is 3D above the city's ground, so a high camera refines less of the plain below it.
+    const reach = Math.hypot(distance, Math.max(0, view.y - SCENERY_GROUND));
+    const refine = level === 4 ? reach < 4500 : level === 2 ? reach < detailLimit && inView : false;
     if (!refine) { result.push(id); return; }
     const childLevel = level - 2;
     for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) visit(childLevel, i * 4 + a, j * 4 + b);

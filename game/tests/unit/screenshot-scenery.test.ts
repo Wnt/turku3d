@@ -327,8 +327,14 @@ test('loaded parent covers refinement until all selected children arrive, withou
   state.entries.set('t2_0_0', entry(parent)); state.entries.set('t0_0_0', entry(left));
   scenery.update(100, 100, 1000, true);
   expect(parent.visible).toBe(true); expect(left.visible).toBe(false);
+  right.visible = false; // as poll() installs a live-view model, until the cut commits it
   state.entries.set('t0_1_0', entry(right));
   scenery.update(100, 100, 1100, true);
+  // The children dissolve in over the parent, which stays opaque underneath until they land.
+  expect(left.visible).toBe(true); expect(right.visible).toBe(true); expect(parent.visible).toBe(true);
+  expect(lodFades.has(left) && lodFades.has(right)).toBe(true);
+  lodFades.update(1100 + LOD_FADE_SECONDS * 1000);
+  scenery.update(100, 100, 1100 + LOD_FADE_SECONDS * 1000, true);
   expect(parent.visible).toBe(false); expect(left.visible).toBe(true); expect(right.visible).toBe(true);
   scenery.update(100, 100, 7000, true);
   expect(parent.parent).toBeNull();
