@@ -568,6 +568,11 @@ def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints(
     assert ribbon["bounds"] == [0.0, 0.0, 1.0, 1 / 3]  # narrow strip at the base, full width
     assert len(wall["render_sections"]) == 2  # doors and foreground structures are not glazing
     assert wall["panel_grid"]["value"] == [2.23, 1.22, 0.03]
+    # A size measured on this wall's own photograph wins over the class prior.
+    reading["structure"]["facade_observations"]["sections"][0]["features"] = [
+        "panel grid 1.50 x 1.21 m with joints about 3 cm"]
+    facade_monolith.reviewed_wall(wall, reading, 2, True, m)
+    assert wall["panel_grid"]["value"] == [1.5, 1.21, 0.03]
 
 
 def test_monolith_channel_glass_reading_becomes_tinted_profiled_cladding():

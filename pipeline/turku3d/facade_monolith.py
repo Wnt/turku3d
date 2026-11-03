@@ -147,6 +147,18 @@ CHANNEL_GLASS = re.compile(r"\bchannel glass\b|\bprofiled glass\b|\bu-(profile|g
 GLAZING_STRIP = re.compile(r"\b(glazing|glazed|glass)\b.*\b(strip|band|ribbon)\b|\bribbon\b")
 
 
+PANEL_SIZE = re.compile(r"panel grid (\d+(?:\.\d+)?) x (\d+(?:\.\d+)?) m")
+
+
+def measured_panel(reading):
+    """A panel size measured on this wall (metres), when its reading records one."""
+    for text in _texts(reading):
+        match = PANEL_SIZE.search(text.lower())
+        if match and all(0.3 <= float(x) <= 6 for x in match.groups()):
+            return [float(match[1]), float(match[2])]
+    return None
+
+
 def reviewed_wall(wall, reading, floors, panels, m):
     """Uncounted glazing strips/bands of a reviewed monolith wall become one ribbon each.
 
@@ -160,8 +172,11 @@ def reviewed_wall(wall, reading, floors, panels, m):
     from turkutex.facade_sections import bounds
 
     if panels:
-        wall["panel_grid"] = m([MONOLITH_PANEL["width_m"], MONOLITH_PANEL["height_m"],
-                                MONOLITH_PANEL["joint_m"]], "reference-measured panel joint grid")
+        size = measured_panel(reading)
+        wall["panel_grid"] = m(
+            [*size, MONOLITH_PANEL["joint_m"]] if size
+            else [MONOLITH_PANEL["width_m"], MONOLITH_PANEL["height_m"], MONOLITH_PANEL["joint_m"]],
+            "same-wall measured panel grid" if size else "reference-measured panel joint grid")
     if "render_sections" not in wall:
         return
     from turkutex.facade_archetypes import MONOLITH_CHANNEL_GLASS as CHANNEL

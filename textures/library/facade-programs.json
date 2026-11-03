@@ -63831,7 +63831,10 @@
             "sections": [
               {
                 "position": "upper majority",
-                "kind": "blank grey rectangular panel cladding"
+                "kind": "blank grey rectangular panel cladding",
+                "features": [
+                  "panel grid 2.23 x 1.22 m with joints about 3 cm (rectified frontal view)"
+                ]
               },
               {
                 "position": "lower",
@@ -63903,7 +63906,10 @@
             "sections": [
               {
                 "position": "upper",
-                "kind": "blank large pale panel cladding"
+                "kind": "blank large pale panel cladding",
+                "features": [
+                  "panel grid 1.50 x 1.21 m with joints about 3 cm (rectified frontal view)"
+                ]
               },
               {
                 "position": "middle",
