@@ -220,6 +220,7 @@ def enrich(tile, records, osm, paths):
     store = TileStore(source_paths={p.stem:p for p in paths})
     available = {p.stem for p in paths}
     result = []
+    clearance = None  # buildings.buffer(0.2), built and prepared once for every line
     for geometry, tags, on_road in pending:
         if tags["barrier"] == "retaining_wall":
             result.extend(retaining_steps(geometry, tags, on_road, store, available, buildings))
@@ -236,8 +237,11 @@ def enrich(tile, records, osm, paths):
             if all(b.name in available for b in C.laz_tiles_for_bbox(bounds)):
                 cloud = store.query(bounds).query(last_return=True)
                 if not buildings.is_empty:
+                    if clearance is None:
+                        clearance = buildings.buffer(0.2)
+                        shapely.prepare(clearance)
                     cloud = PointCloud(cloud.records[~shapely.intersects_xy(
-                        buildings.buffer(0.2), cloud.points[:,0], cloud.points[:,2])])
+                        clearance, cloud.points[:,0], cloud.points[:,2])])
             if cloud is None:
                 if not tags.get("_inferred_gap"):
                     result.append((line,tags,on_road))
@@ -250,8 +254,17 @@ def enrich(tile, records, osm, paths):
             spans = [line] if tags.get("_inferred_gap") else [
                 substring(line, start, end) for start, end in zip(edges[:-1], edges[1:])
             ]
+            # Spans crop one line's cloud many times: find each box's returns in
+            # x-sorted order, then keep them in their original order.
+            order = np.argsort(cloud.points[:, 0], kind="stable")
+            xs = cloud.points[order, 0]
             for span in spans:
-                local = cloud.query(C.BBoxLocal(*span.buffer(2).bounds))
+                box = C.BBoxLocal(*span.buffer(2).bounds)
+                picked = np.sort(order[np.searchsorted(xs, box.xmin, "left"):np.searchsorted(xs, box.xmax, "left")])
+                at = cloud.points[picked]
+                picked = picked[(at[:, 0] >= box.xmin) & (at[:, 0] < box.xmax)
+                                & (at[:, 2] >= box.zmin) & (at[:, 2] < box.zmax)]
+                local = PointCloud(cloud.records[picked])
                 measured = profile(span,local)
                 if measured is None and tags["barrier"] in ("wall","city_wall"):
                     measured = low_profile(span,local)

@@ -42,15 +42,14 @@ def measure(buildings, points, classes, context=()):
     footprints = shapely.union_all([b.footprint for b in [*buildings, *context]])
     outside = ~shapely.contains_xy(footprints, points[:, 0], points[:, 2])
     points, classes = points[outside], classes[outside]
+    reach = {b.key: b.footprint.buffer(REACH + 2) for b in buildings}
     ground = ground_points(SimpleNamespace(points=points, records={"classification": classes}))
     records = []
     for building in sorted(buildings, key=lambda b: b.key):
         footprint = shapely.orient_polygons(building.footprint)
-        near = shapely.intersects_xy(footprint.buffer(REACH + 2), points[:, 0], points[:, 2])
+        near = shapely.intersects_xy(reach[building.key], points[:, 0], points[:, 2])
         cloud, labels = points[near], classes[near]
-        lower_ground = ground[
-            shapely.intersects_xy(footprint.buffer(REACH + 2), ground[:, 0], ground[:, 2])
-        ]
+        lower_ground = ground[shapely.intersects_xy(reach[building.key], ground[:, 0], ground[:, 2])]
         if len(cloud) < 20:
             continue
         accepted = []
@@ -116,7 +115,11 @@ def measure(buildings, points, classes, context=()):
                         region = shapely.make_valid(region.difference(footprints))
                         if region.is_empty or region.area < 0.5:
                             continue
-                        observations = q[band & shapely.intersects_xy(region, q[:, 0], q[:, 2])]
+                        # Region membership of the height band's returns only.
+                        observed = np.zeros(len(q), bool)
+                        rows = np.flatnonzero(band)
+                        observed[rows] = shapely.intersects_xy(region, q[rows, 0], q[rows, 2])
+                        observations = q[observed]
                         if len(observations) < 12:
                             continue
                         height = float(np.median(observations[:, 1]))
@@ -129,7 +132,6 @@ def measure(buildings, points, classes, context=()):
                         plane = np.linalg.lstsq(design, observations[:, 1], rcond=None)[0]
                         if np.linalg.norm(plane[:2]) > 0.04:
                             continue  # A clipped height band on a ramp is not a tread.
-                        observed = band & shapely.intersects_xy(region, q[:, 0], q[:, 2])
                         if np.mean(np.isin(cls[observed], (2, 6, 8, 12, 17))) < 0.6:
                             continue  # Unclassified car roofs/furniture cannot seed decks.
                         candidates.append((region, height, len(observations)))
@@ -160,10 +162,8 @@ def measure(buildings, points, classes, context=()):
                     )
                     if region.area < 3:
                         continue
-                    under = cloud[
-                        shapely.contains_xy(region.buffer(-0.2), cloud[:, 0], cloud[:, 2])
-                        & (cloud[:, 1] < height - 2.3)
-                    ]
+                    low = cloud[cloud[:, 1] < height - 2.3]
+                    under = low[shapely.contains_xy(region.buffer(-0.2), low[:, 0], low[:, 2])]
                     suspended = len(under) >= 12
                     bottom = height - 0.22 if suspended else float(np.median(lower[:, 1]))
                     records.append(
@@ -231,7 +231,7 @@ def prepare(tile, vector, paths):
     buildings = read_buildings(vector, tile, context=True)
     survey = {p.stem: p for p in paths}
     store = TileStore(source_paths=survey)
-    records = []
+    records, code = [], None
     # Query complete buildings canonically on both sides of a tile edge.
     window = shapely.box(*tile.bbox.as_tuple())
     for building in buildings:
@@ -244,10 +244,11 @@ def prepare(tile, vector, paths):
         context = [b for b in buildings if b.footprint.distance(building.footprint) < REACH + 2]
         identity = hashlib.sha256(building.key.encode()).hexdigest()[:20]
         cache = StageCache(C.work_root() / ".stages" / "building-attachments" / identity)
+        code = code or source_key(measure, support_region, ground_points)
         records.extend(
             cache.run(
                 "survey",
-                source_key(measure, support_region, ground_points),
+                code,
                 [
                     CELL,
                     REACH,

@@ -62,8 +62,14 @@ def dimensions(line, points, classes):
     return round(top, 2), round(width, 2), level, round(shift, 2)
 
 
-def crossing_mask(line, paths):
+def crossing_mask(line, paths, bounds=None):
+    """``bounds`` (shapely.bounds of the paths) skips paths whose box misses the line's:
+    their intersection is empty, so the cuts and their union are unchanged."""
     cuts = []
+    if bounds is not None:
+        x0, z0, x1, z1 = line.bounds
+        near = (bounds[:, 0] <= x1) & (bounds[:, 2] >= x0) & (bounds[:, 1] <= z1) & (bounds[:, 3] >= z0)
+        paths = [paths[i] for i in np.flatnonzero(near | ~np.isfinite(bounds).all(axis=1))]
     for path, width in paths:
         # Wide path polygons often overlap a parallel hedge. Only the measured
         # centreline crossing justifies removing an existing mapped hedge.
@@ -92,6 +98,7 @@ def measure(tile, records, osm, paths):
         except ValueError:
             width = 2.5
         network.append((geom, float(np.clip(width, .3, 15))))
+    network_bounds = shapely.bounds([g for g, _ in network]).reshape(-1, 4)
     by_name = {p.stem: p for p in paths}
     store = TileStore(source_paths=by_name) if paths else None
     result = []
@@ -103,7 +110,7 @@ def measure(tile, records, osm, paths):
             if line.geom_type != 'LineString':
                 result.append((line, tags, on_road))
                 continue
-            meta = dict(tags, _hedge_openings=crossing_mask(line, network))
+            meta = dict(tags, _hedge_openings=crossing_mask(line, network, network_bounds))
             bounds = C.BBoxLocal(*line.buffer(2.2).bounds)
             if store and all(block.name in by_name for block in C.laz_tiles_for_bbox(bounds)):
                 cloud = store.query(bounds, classes=[2, 3, 4, 5])
@@ -115,7 +122,7 @@ def measure(tile, records, osm, paths):
                     shifted = line.offset_curve(measured[3], join_style='mitre')
                     if not shifted.is_empty:
                         line = shifted
-                    meta['_hedge_openings'] = crossing_mask(line, network)
+                    meta['_hedge_openings'] = crossing_mask(line, network, network_bounds)
             result.append((line, meta, on_road))
     return result
 

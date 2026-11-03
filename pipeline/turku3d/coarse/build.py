@@ -171,6 +171,20 @@ def grid_height(tile: C.VisualTile, grid_pos: np.ndarray, x: float, z: float) ->
     return surfaces.grid_height(tile, heights, x, z)
 
 
+class GridHeight:
+    """grid_height of one tile as a sampler; ``many`` samples arrays of points at once."""
+
+    def __init__(self, tile, grid_pos):
+        n = CELLS + 1
+        self.tile, self.heights = tile, grid_pos[:, 1].reshape(n, n)
+
+    def __call__(self, x, z):
+        return surfaces.grid_height(self.tile, self.heights, x, z)
+
+    def many(self, x, z):
+        return surfaces.grid_heights(self.tile, self.heights, x, z)
+
+
 def default_library() -> Path:
     """Shared generated materials, independent of full-tile releases."""
     from turku3d.facade_assets import material_library
@@ -458,7 +472,7 @@ def build(
             lambda: produce(
                 tile,
                 inputs,
-                lambda x, z: grid_height(tile, grid_pos, x, z),
+                GridHeight(tile, grid_pos),
                 draft_trees(tile, grid_pos, inputs.trees, water, shells),
                 carried_mask,
             ),
