@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   abs, attribute, cameraPosition, diffuseColor, dot, float, Fn, fwidth, interleavedGradientNoise, log2, max, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, screenCoordinate, select, sin, smoothstep,
-  renderGroup, texture, uniform, uv, vec2, vec3, vec4,
+  texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 
 const imageWidth = (map: THREE.Texture) => (map.image as { width?: number } | null)?.width ?? 2048;
@@ -20,13 +20,13 @@ export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_imp
  */
 export class NatureMaterials {
   /** All wind frequencies are multiples of 0.01 rad/s, so this wrap preserves their phases. */
-  readonly windTime = uniform(0).setGroup(renderGroup);
+  readonly windTime = uniform(0);
   /** 0 = calm, 1 = a breezy Turku afternoon. */
-  readonly windStrength = uniform(1).setGroup(renderGroup);
+  readonly windStrength = uniform(1);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
-  readonly windDirection = uniform(new THREE.Vector2(0.8, 0.6)).setGroup(renderGroup);
+  readonly windDirection = uniform(new THREE.Vector2(0.8, 0.6));
   /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
-  readonly grassRange = uniform(new THREE.Vector2(20, 35)).setGroup(renderGroup);
+  readonly grassRange = uniform(new THREE.Vector2(20, 35));
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
   readonly grass: THREE.MeshStandardNodeMaterial;
@@ -76,9 +76,8 @@ export class NatureMaterials {
     this.grass.positionNode = wind(0.06);
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
-      // Scene-wide values in the shared render group: the per-object default rewrote each tree pool's buffer per pass.
-      const sunDir = uniform(lighting.sunDir).setGroup(renderGroup), sunColor = uniform(lighting.sun.color).setGroup(renderGroup);
-      const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity).setGroup(renderGroup);
+      const sunDir = uniform(lighting.sunDir), sunColor = uniform(lighting.sun.color);
+      const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity);
       const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
       this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.grass.emissiveNode = this.leaves.emissiveNode;
