@@ -2,23 +2,32 @@
 // GTA V water study (loops/techstudy REPORT.md §8, W1-W9); each token selects the path a technique replaced, for the
 // coordinator's winperf (reduced) and airperf (medium) A/B runs and Jonni's look checks. Owner: water loop. Each token
 // is removed with its losing path once its A/B is decided, at most ten merges after it was added.
-//   oldsun   W5 off: the earlier broad sun highlight (Phong powers 240/36) and flat body colour
+//   oldsun    W5 off: the earlier broad sun highlight (Phong powers 240/36) and flat body colour
+//   nodepth   W3 off: no bank fade; the river is opaque and writes depth again
+//   nomotion  W7 off: river pixels keep the motion vector of whatever lies below them
 export interface WaterSwitches {
   /** W5: a tight, energy-normalised sun lobe (GTA's falloff 1,600-2,000) and wrap-diffuse wave relief. */
   tightSun: boolean;
+  /** W3: the body colour thickens with the depth of water over the previous frame's opaque bed and walls. */
+  depth: boolean;
+  /** W7: the river writes its own TRAA motion vectors. */
+  motion: boolean;
 }
 
-export const WATER_SWITCHES: WaterSwitches = { tightSun: true };
+const DEFAULTS: WaterSwitches = { tightSun: true, depth: true, motion: true };
+export const WATER_SWITCHES: WaterSwitches = { ...DEFAULTS };
 
-const TOKENS = ['oldsun'] as const;
+const TOKENS = ['oldsun', 'nodepth', 'nomotion'] as const;
 
 /** Parse `?water=`; unknown tokens throw, as other URL parameters do. Absent keeps the defaults. */
 export function parseWaterSwitches(value: string | null): WaterSwitches {
-  const switches: WaterSwitches = { tightSun: true };
+  const switches: WaterSwitches = { ...DEFAULTS };
   if (!value) return switches;
   for (const token of value.split(',').map(t => t.trim()).filter(Boolean)) {
     if (!(TOKENS as readonly string[]).includes(token)) throw new Error(`bad ?water= token (${TOKENS.join('|')}): ${token}`);
     if (token === 'oldsun') switches.tightSun = false;
+    if (token === 'nodepth') switches.depth = false;
+    if (token === 'nomotion') switches.motion = false;
   }
   return switches;
 }

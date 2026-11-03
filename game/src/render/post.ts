@@ -14,6 +14,7 @@ import { fxaa } from 'three/addons/tsl/display/FXAANode.js';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { QUALITY, type QualityTier } from './quality';
 import { MESOPIC, type TimecycleSample } from './timecycle';
+import { WATER_HISTORY } from './waterHistory';
 
 // r186 exposes this public method; the corresponding DefinitelyTyped declaration omits it.
 const flowContext = (node: THREE.WebGPURenderer['contextNode']) =>
@@ -132,6 +133,11 @@ export class PostProcessing {
       .add(puddleLight.rgb), beauty.a), null, null, { depthBuffer: false }) : null;
     const temporal = taa ? traa(reflected ?? beauty, geometry.getTextureNode('depth'), geometry.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
+    // River pixels read the previous frame from TRAA's history (render/waterHistory.ts); r186 keeps it private.
+    const history = temporal ? (temporal as unknown as { _historyRenderTarget: THREE.RenderTarget })._historyRenderTarget : null;
+    WATER_HISTORY.depth = history?.depthTexture ?? null;
+    WATER_HISTORY.color = history?.texture ?? null;
+    WATER_HISTORY.beautyVelocity = !!temporal && !pre;
     const color = temporal ?? reflected ?? beauty;
     const glow = this.glow = q.bloomStrength > 0 ? bloom(color, q.bloomStrength, 0.3, 1.5) : null;
     this.bloomScale = q.bloomStrength / QUALITY.medium.bloomStrength;

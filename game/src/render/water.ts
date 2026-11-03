@@ -1,12 +1,14 @@
 import { compileModel, nextRenderDepth, isPrecompiling } from './compileModel';
 import * as THREE from 'three/webgpu';
-import { reflector } from 'three/tsl';
+import { mrt, reflector, vec4, velocity } from 'three/tsl';
 import { labelGpuPass } from './gpuPasses';
 import { REFLECTION_LAYER, ReflectionShadows, ReflectionCadence, WaterCoverage, type WaterReflection } from './reflections';
 import { QUALITY, type QualityTier } from './quality';
 import type { Environment } from './environment';
 import { riverSurface } from './riverSurface';
 import { waterColour } from './waterAppearance';
+import { WATER_SWITCHES } from './waterSwitches';
+import { WATER_HISTORY, type WaterHistory } from './waterHistory';
 
 const liveRivers = new Set<RiverMaterial>();
 
@@ -40,6 +42,8 @@ export class RiverMaterial {
   private bodyColour: THREE.Color;
   private reflectionDepth = 3;
   private reflection: ReturnType<typeof reflector> | null;
+  /** The previous frame TRAA keeps, for the bank fade (W3); null keeps an opaque, depth-writing river. */
+  private history: WaterHistory | null;
 
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
     const rgb = waterColour(mesh.userData);
@@ -81,10 +85,17 @@ export class RiverMaterial {
       };
       this.attach(mesh);
     }
+    this.history = WATER_SWITCHES.depth && WATER_HISTORY.depth ? WATER_HISTORY : null;
     this.setSurface(activeSurface);
     liveRivers.add(this);
     // Opaque colour, but exclude the river from the opaque normal/velocity prepass and its recursive reflection.
     this.material.transparent = true;
+    // W3: the depth buffer keeps the opaque bed and walls below the surface for next frame's bank fade; nothing drawn
+    // later needs the water's depth (rain draws without a depth test, the light sprites are above the surface).
+    if (this.history) this.material.depthWrite = false;
+    // W7: TRAA reprojects river pixels with the water's own motion. Without it they carried whatever was below the
+    // surface (mostly the sky box's rotation-only motion), and ripples smeared while the camera moved along the river.
+    if (WATER_SWITCHES.motion && WATER_HISTORY.beautyVelocity) this.material.mrtNode = mrt({ velocity: vec4(velocity as unknown as THREE.Node<'vec2'>, 0, 1) });
     this.material.name = reflection ? 'river-planar' : 'river-sky';
   }
 
@@ -92,7 +103,7 @@ export class RiverMaterial {
   setSurface(factory: typeof riverSurface) {
     this.disposeSurface();
     if (this.reflection) this.reflection.uvNode = this.reflectionUV;
-    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour);
+    this.disposeSurface = factory(this.material, this.env, this.deterministic, this.reflection, this.bodyColour, this.history);
     this.material.needsUpdate = true;
   }
 

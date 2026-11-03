@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu';
-import { cameraPosition, cameraViewMatrix, dot, float, length, luminance, max, mix, normalize, positionWorld, pow, reflect,
-  reflector, smoothstep, texture, uniform, vec2, vec3, vec4, pmremTexture } from 'three/tsl';
+import { cameraFar, cameraNear, cameraPosition, cameraViewMatrix, dot, exp, float, length, luminance, max, mix, normalize,
+  perspectiveDepthToViewZ, positionView, positionWorld, pow, reflect, reflector, screenUV, smoothstep, texture, uniform, vec2,
+  vec3, vec4, velocity, pmremTexture } from 'three/tsl';
 import type { Environment } from './environment';
 import { nightUniforms } from './nightLights';
 import { riverClock, riverWaveOffsets, riverWavePixels } from './riverWaves';
 import { WATER_SWITCHES } from './waterSwitches';
+import type { WaterHistory } from './waterHistory';
 
 /** W5 (GTA V water study, loops/techstudy REPORT.md §8): GTA's river shader uses a very tight Phong sun lobe (falloff
  *  1,600-2,000, intensity 4-10) and wrap diffuse. The lobe is energy-normalised ((n + 2) / 2pi) so the sun path keeps
@@ -14,6 +16,12 @@ import { WATER_SWITCHES } from './waterSwitches';
 export const RIVER_SUN = { near: 1800, far: 220, nearDistance: 25, farDistance: 450, energy: 0.025, broad: 0.018,
   /** Wrap-diffuse wrap and the share of the body colour that follows the sun-facing wave slopes by day. */
   wrap: 0.6, relief: 0.6 };
+
+/** W3: GTA bakes a depth/colour texture per water body; our river reads the previous frame's opaque depth instead (the
+ *  river itself writes none), so the measured body colour thickens over this many metres of water below the surface
+ *  (1 - exp(-d / visibility)): quay walls and banks show through a soft, murky band at the waterline. The Aura is
+ *  turbid clay water; the band is a few tens of centimetres deep. */
+export const RIVER_DEPTH = { visibility: 0.45 };
 
 /** One tiny mipmapped slope field, sampled at crossing scales for long ripples and fine capillary detail. */
 function waveTexture() {
@@ -27,7 +35,8 @@ function waveTexture() {
 
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
 export function riverSurface(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
-  reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035)): () => void {
+  reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035),
+  history: WaterHistory | null = null): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
   let disposeSurface = () => waves.dispose();
@@ -77,12 +86,31 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
     // Fine wave normals break the sun path into glints; a faint broad lobe retains the smaller unresolved ripples.
     specular = pow(alignment, 240).mul(0.6).add(pow(alignment, 36).mul(0.018)).mul(uniform(env.sun.color)).mul(sunIntensity);
   }
-  material.colorNode = mix(sediment, reflected, fresnel).add(specular);
+  if (history?.depth) {
+    // The opaque depth behind this pixel one frame ago, where the water surface was then (its own motion vector). On
+    // the same view ray, a point at view depth z_bed lies h * (z_bed / z_surface - 1) below the surface, h being the
+    // camera's height above it. Something in front of the surface there (a boat, the player) means no bed reading.
+    const previous = screenUV.sub((velocity as unknown as THREE.Node<'vec2'>).mul(vec2(0.5, -0.5)));
+    const bed = perspectiveDepthToViewZ(texture(history.depth, previous).r, cameraNear, cameraFar).negate();
+    const ratio = bed.div(positionView.z.negate().max(0.01));
+    const height = cameraPosition.y.sub(positionWorld.y).max(0.05);
+    const seen = previous.greaterThanEqual(0).all().and(previous.lessThanEqual(1).all()).and(ratio.greaterThan(0.995));
+    const opacity = seen.select(float(1).sub(exp(height.mul(ratio.sub(1)).max(0).div(-RIVER_DEPTH.visibility))), float(1));
+    // Reflection and highlight stay whole; only the body colour thins over the bank, blended onto it:
+    // out = F * reflected + specular + (1 - F) * (opacity * body + (1 - opacity) * behind).
+    const alpha = float(1).sub(float(1).sub(fresnel).mul(float(1).sub(opacity)));
+    const lit = reflected.mul(fresnel).add(specular).add(sediment.mul(float(1).sub(fresnel)).mul(opacity));
+    material.colorNode = lit.div(max(alpha, 0.001));
+    material.opacityNode = alpha;
+  } else {
+    material.colorNode = mix(sediment, reflected, fresnel).add(specular);
+    material.opacityNode = null;
+  }
   // The loop's per-pose A/B driver swaps only this graph; streamed geometry stays resident.
   if (import.meta.hot) material.userData.setRiverSurface = (factory: typeof riverSurface) => {
     disposeSurface();
     if (reflection) reflection.uvNode = baseUV!;
-    disposeSurface = factory(material, env, deterministic, reflection, bodyColour);
+    disposeSurface = factory(material, env, deterministic, reflection, bodyColour, history);
     material.needsUpdate = true;
   };
   return () => { delete material.userData.setRiverSurface; disposeSurface(); };
