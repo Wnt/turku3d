@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from scipy.ndimage import map_coordinates
 from turku3d import config as C
+from .far_ground import survey_colours
 
 @lru_cache(maxsize=2)
 def grid(path):
@@ -32,7 +33,7 @@ def mesh(tile, path):
     h[cover==80]=0
     p=np.c_[gx.ravel(),h,gz.ravel()]
     palette={10:(.12,.19,.08),20:(.20,.25,.12),30:(.24,.29,.16),40:(.32,.34,.16),
-             50:(.34,.34,.32),60:(.38,.35,.28),70:(.75,.78,.80),80:(.10,.19,.24),90:(.18,.26,.16),95:(.12,.19,.08),100:(.24,.29,.16)}
+             50:survey_colours()['built'],60:(.38,.35,.28),70:(.75,.78,.80),80:(.10,.19,.24),90:(.18,.26,.16),95:(.12,.19,.08),100:(.24,.29,.16)}
     if not np.isin(cover,list(palette)).all(): raise ValueError('Unknown regional land-cover category')
     colours=np.array([palette[int(kind)] for kind in cover],dtype=np.float32)
     a=(np.arange(count)[:,None]*(count+1)+np.arange(count)[None,:]).ravel()
