@@ -30,8 +30,8 @@ export interface FloodlightsField { version: number; venues: FloodVenue[]; masts
 export interface FloodTile { venues: FloodVenue[]; masts: FloodMast[] }
 
 export const FLOOD = {
-  /** Linear colour of the LED floodlights (about 5000 K) and HDR intensity of one lamp head. */
-  color: [1.0, 0.95, 0.86] as const, intensity: 30,
+  /** Linear colour of the LED floodlights (about 5700 K: a white wash) and HDR intensity of one lamp head. */
+  color: [1.0, 0.97, 0.92] as const, intensity: 30,
   /** Corona radius of one lamp head (m) and spacing of the heads on their frame. */
   radius: 1.5, spacing: 1.0, perRow: 5,
 } as const;

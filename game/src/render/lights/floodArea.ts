@@ -20,14 +20,16 @@ import { nearest } from './pools';
 export const AREA = {
   /** Venues lit at once (uniform slots). */
   slots: 4,
-  /** Direct irradiance on the field of a level-1 venue at full night (the ground map's former field patch). */
-  field: 1.6,
-  /** Unshadowed share of the venue's light arriving from all directions. */
-  ambient: 0,
-  /** Spill length as a share of the lamp height: E halves this far outside the field. */
-  spill: 0.4,
+  /** Direct irradiance on the field of a level-1 venue at full night. A street pool under its lamp is about 0.6
+   *  (point slot plus the ground map), open ground in daylight about 5: a floodlit pitch is the brightest ground of a
+   *  night view, with daylight colour. */
+  field: 2.6,
+  /** Unshadowed share of the venue's light arriving from all directions: players' and stands' vertical faces. */
+  ambient: 0.3,
+  /** Spill length as a share of the lamp height: E halves this far outside the field (stands, track, fences). */
+  spill: 1.0,
   /** The venue lights nothing beyond this distance outside its field (metres); the tail fades as (1 - (r/reach)^4)^2. */
-  reach: 60,
+  reach: 120,
   /** Field share between the centre and the point's projection where the light comes from. */
   source: 0.85,
   /** Rank distance (camera to field) beyond which a venue gets no slot, and the fade before a slot is handed on. */

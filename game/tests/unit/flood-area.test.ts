@@ -16,9 +16,11 @@ const at = (x: number, z: number, y = 0, n = UP) => venueLight(V, 1, { x, y, z }
 const total = (l: { direct: number; ambient: number }) => l.direct + l.ambient;
 
 describe('floodlit area light', () => {
-  test('the pitch is one even wash', () => {
+  test('the pitch is one even, bright wash', () => {
     const centre = total(at(0, 0)), touchline = total(at(52, 32)), wing = total(at(0, 32));
     expect(centre).toBeCloseTo(AREA.field * (1 + AREA.ambient), 1);
+    // Over five times a street pool under its lamp (about 0.6), well over half of open ground by day (about 5).
+    expect(centre).toBeGreaterThan(3);
     expect(touchline / centre).toBeGreaterThan(0.8);
     expect(wing / centre).toBeGreaterThan(0.85);
   });
@@ -26,8 +28,10 @@ describe('floodlit area light', () => {
   test('light falls off softly onto stands and track', () => {
     const field = at(0, 0).direct;
     const stand = at(0, 32 + 12, 4, { x: 0, y: 0.7, z: -0.71 });
-    expect(stand.direct / field).toBeGreaterThan(0.35);
+    expect(stand.direct / field).toBeGreaterThan(0.6);
     expect(at(0, 32 + 30).direct / field).toBeLessThan(0.5);
+    // A player's vertical face on the pitch still gets the all-direction share.
+    expect(at(0, 0, 1, { x: 1, y: 0, z: 0 }).ambient).toBeGreaterThan(0.7);
     // A facade facing away from the venue gets only the unshadowed share.
     expect(at(0, 32 + 20, 10, { x: 0, y: 0, z: 1 }).direct).toBe(0);
     expect(total(at(0, 32 + AREA.reach + 1))).toBe(0);
