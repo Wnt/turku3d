@@ -44,6 +44,14 @@ def revision_meta(root: Path, selector: str) -> dict:
     return dict(meta, revision=meta.get('revision', revision))
 
 
+def use_base_data(root: Path, meta: dict) -> None:
+    """Source reads see the base's own source version (its ``data_root``), as on the farm daemon's on-request
+    migrations; the runner's default TURKU3D_DATA is the combined working data, which can differ."""
+    data = revision_meta(root, meta['base_revision']).get('data_root')
+    if data:
+        os.environ['TURKU3D_DATA'] = data
+
+
 def rebuild_revision(root: Path, code: str, source_version) -> dict:
     """The generator of the code snapshot with the base's source version (farm overlay ids)."""
     code_meta = revision_meta(root, code)
@@ -354,6 +362,7 @@ def main(argv=None):
     if args.action == 'status':
         print(json.dumps(status(root, meta)))
         return 0
+    use_base_data(root, meta)
     if args.action == 'parity':
         results = [parity(root, meta, args.generated, tile) for tile in args.tiles]
         for result in results:
