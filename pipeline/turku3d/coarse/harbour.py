@@ -2,9 +2,10 @@
 
 import json
 from functools import lru_cache
+
 import numpy as np
 import shapely
-from scipy.ndimage import label, maximum_filter1d
+from scipy.ndimage import grey_opening, label, maximum_filter1d, median_filter
 
 from turku3d import config as C
 
@@ -86,8 +87,15 @@ def survey_ship(boat, points, classes):
         masts.append((point, float(top)))
     if masts:
         boat["masts"] = sorted(masts, key=lambda item: item[0].x)
+    hull_profile(boat, p, local)
+    deck = boat["deck"]
+    parts = deck_parts(boat, p, local, direction, normal, centre)
+    # Funnels and boats are their own parts, never cabin boxes.
+    owned = [shapely.Point(f["centre"]).buffer(max(f["length"], f["width"]) / 2 + .6) for f in parts]
+    taken = (shapely.intersects_xy(shapely.union_all(owned), p[:, 0], p[:, 2])
+             if owned else np.zeros(len(p), bool))
     # Cabin occupancy must have dense roof evidence; sparse yards/wires don't become walls.
-    high = (p[:, 1] > deck + 1.8) & (p[:, 1] < deck + 12)
+    high = (p[:, 1] > deck + 1.8) & (p[:, 1] < deck + 12) & ~taken
     xy = p[high][:, [0, 2]]
     if len(xy):
         origin = np.floor(xy.min(axis=0))
@@ -117,6 +125,150 @@ def survey_ship(boat, points, classes):
         if cabins:
             boat["cabins"] = cabins
     boat["survey"] = dict(source="classified city lidar", points=len(p), top=float(p[:, 1].max()))
+
+
+def hull_profile(boat, p, local):
+    """Sheer line and bow from the lowest dense deck level per station.
+
+    Superstructure tiers shorter than a third of the hull are opened away, so forecastles,
+    main decks and low sterns keep their measured heights under the white upper works.
+    """
+    water = boat.get("water", .2)
+    u = local[:, 0]
+    start, stop = float(u.min()), float(u.max())
+    length = stop - start
+    if length < 12:
+        return
+    step = 3.0
+    stations = np.arange(start, stop, step)
+    floors = np.full(len(stations), np.nan)
+    # Side decks run along the hull edges; deckhouses are usually set in from them.
+    edge = shapely.distance(boat["outline"].exterior, shapely.points(p[:, [0, 2]])) < 1.5
+    for i, s in enumerate(stations):
+        h = p[(u >= s) & (u < s + step) & edge, 1]
+        h = h[h > water + 1.5]
+        hist, edges = np.histogram(h, bins=np.arange(water + 1.5, water + 30, .3))
+        dense = np.flatnonzero(hist >= max(8, .04 * len(h)))
+        if len(dense):
+            floors[i] = np.median(h[(h >= edges[dense[0]]) & (h < edges[dense[0]] + .3)])
+    if np.isfinite(floors).mean() < .5:
+        return
+    floors = np.interp(stations, stations[np.isfinite(floors)], floors[np.isfinite(floors)])
+    window = max(3, int(round(length * .5 / step)) | 1)
+    base = grey_opening(floors, size=window, mode="nearest")
+    hull = floors - base < 1.6
+    # Raised decks reaching an end are forecastles and poops of the hull itself;
+    # raised plateaus amidships are white superstructure tiers.
+    reach = int(.3 * len(floors))
+    for order in (range(reach), range(len(floors) - 1, len(floors) - 1 - reach, -1)):
+        for i in order:
+            if hull[i] or floors[i] - base[i] > 4.5:
+                break
+            hull[i] = True
+    top = np.interp(stations, stations[hull], floors[hull])
+    top = np.convolve(np.pad(top, 1, mode="edge"), np.ones(3) / 3, mode="valid")
+    top = np.clip(top, water + .9, water + 14)
+    top = np.round(top, 3)
+    boat["deck"] = float(np.median(top))
+    boat["sheer"] = [(float(s + step / 2), float(h)) for s, h in zip(stations, top, strict=True)]
+    # The finer end is the bow; equal ends fall back to the higher (forecastle) end.
+    ring = (np.asarray(boat["outline"].exterior.coords)[:, :2]
+            - np.asarray(boat["outline"].centroid.coords[0])) @ np.array([axis(boat["outline"]),
+                                                                        [-axis(boat["outline"])[1], axis(boat["outline"])[0]]]).T
+    lo, hi = ring[:, 0].min(), ring[:, 0].max()
+    def width(at):
+        line = shapely.LineString([(at, -100), (at, 100)]).intersection(shapely.Polygon(ring))
+        return line.length
+    aft, fore = width(lo + .06 * (hi - lo)), width(hi - .06 * (hi - lo))
+    if abs(aft - fore) > .1 * max(aft, fore):
+        boat["bow"] = 1 if fore < aft else -1
+    else:
+        boat["bow"] = 1 if top[-1] >= top[0] else -1
+    # A raked stem: the deck-level bow reaches further forward than the lower stem.
+    tip = (lo, hi)[boat["bow"] > 0]
+    fore = boat["bow"] * local[:, 0]
+    near = (np.abs(local[:, 1]) < 1.5) & (fore > abs(tip) - 10)
+    crest = top[(0, -1)[boat["bow"] > 0]]
+    def reach(y0, y1):
+        m = near & (p[:, 1] >= y0) & (p[:, 1] < y1)
+        return (np.max(fore[m]), y0) if m.sum() >= 10 else None
+    upper = reach(crest - 1, crest + .5)
+    lower = next((r for y in np.arange(water + 1.5, crest - 2.5, .5) if (r := reach(y, y + .5))), None)
+    rake = 0.
+    if upper and lower:
+        rake = float(np.clip(upper[0] - lower[0], 0, .9 * (crest - lower[1])))
+    boat["rake"] = rake if rake > .5 else 0.
+    boat["bow_tip"] = float(tip)
+
+
+def deck_parts(boat, p, local, direction, normal, centre):
+    """Funnels (tall solid ovals on deck) and lifeboats (small boats along the deck edges)."""
+    res = .5
+    origin = local.min(axis=0)
+    cells = np.floor((local - origin) / res).astype(int)
+    shape = tuple(cells.max(axis=0) + 1)
+    if min(shape) < 6:
+        return []
+    order = np.lexsort((p[:, 1], cells[:, 1], cells[:, 0]))
+    key = cells[order, 0] * shape[1] + cells[order, 1]
+    heights = p[order, 1]
+    starts = np.r_[0, np.flatnonzero(np.diff(key)) + 1]
+    ends = np.r_[starts[1:], len(key)]
+    top = np.full(shape, np.nan)
+    solid = (ends - starts) >= 3
+    top.flat[key[starts[solid]]] = heights[(starts + ((ends - starts - 1) * .8).astype(int))[solid]]
+    hull = np.isfinite(top)
+    filled = np.where(hull, top, boat["deck"])
+    filled = np.where(hull, filled, median_filter(filled, 3))
+    base = grey_opening(filled, size=(int(7 / res), int(7 / res)), mode="nearest")
+    rise = np.where(hull, filled - base, 0)
+    beam = float(np.ptp(local[:, 1]))
+    masts = [np.asarray(q.coords[0]) for q, _ in boat["masts"]]
+    sailing = len(masts) >= 3 or boat.get("tags", {}).get("building:material") == "wood"
+    found = []
+    claimed = np.zeros(shape, bool)
+    for kind, lo, hi in (("funnel", 4., 40.), ("lifeboat", .8, 3.)):
+        if kind == "funnel" and sailing:
+            continue
+        regions, count = label((rise > lo) & (rise < hi) & ~claimed)
+        for i in range(1, count + 1):
+            ids = np.argwhere(regions == i)
+            uv = ids * res + origin + res / 2
+            area = len(ids) * res * res
+            if area < 2.5:
+                continue
+            sigma = uv.std(axis=0)
+            length, width = 4 * sigma[0] + res, 4 * sigma[1] + res
+            mid = uv.mean(axis=0)
+            world = centre + direction * mid[0] + normal * mid[1]
+            cell_top = top[regions == i]
+            cell_base = base[regions == i]
+            item = dict(kind=kind, centre=tuple(map(float, world)), along=float(mid[0]),
+                        side=float(mid[1]), length=float(length), width=float(width),
+                        base=float(np.median(cell_base)), top=float(np.percentile(cell_top, 90)))
+            if kind == "funnel":
+                fill = area / (np.pi / 4 * length * width)
+                if not (2.5 <= length <= 12 and 2 <= width <= 8 and length / width <= 2.6
+                        and fill >= .6 and abs(mid[1]) < beam / 4
+                        and item["top"] - item["base"] >= 4
+                        and all(np.linalg.norm(world - m) > 3 for m in masts)):
+                    continue
+                claimed |= median_filter(regions == i, 3) | (regions == i)
+            else:
+                length = float(np.clip(length, 4, 9))
+                if not (3 <= np.ptp(uv[:, 0]) + res <= 11 and np.ptp(uv[:, 1]) + res <= 3.5
+                        and abs(mid[1]) >= beam / 2 - 3.2):
+                    continue
+                item.update(length=length, width=float(np.clip(width, 1.8, 2.8)))
+            found.append(item)
+    funnels = [f for f in found if f["kind"] == "funnel"]
+    # Lifeboats hang on one deck level, in rows along both sides.
+    boats = [b for b in found if b["kind"] == "lifeboat"]
+    # Davit boats are carried by sea-going ships, in rows on both sides.
+    if np.ptp(local[:, 0]) < 45 or {np.sign(b["side"]) for b in boats} != {-1., 1.}:
+        boats = []
+    boat["funnels"], boat["lifeboats"] = funnels, boats
+    return funnels + boats
 
 
 def prepare(tile, osm, paths, water=None):

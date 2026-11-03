@@ -28,6 +28,9 @@ def frame(vertices):
     return tangent, np.array([tangent[2], 0, -tangent[0]])
 
 
+ADDITIVE = {"slab_band", "awning", "panel"}
+
+
 def measured_columns(desc, offset, sign, width):
     """Reviewed metric column rhythm: first centre and pitch in surveyed-wall metres.
 
@@ -106,6 +109,25 @@ def plan(vertices, wall):
         bottom, top = bottom + 0.04, top - 0.04
         source_left, source_right = left, right
         source_bottom, source_top = bottom, top
+        if desc["kind"] in ADDITIVE:
+            # Additive solids never cut paint, so they clip to each shell fragment
+            # and may overlap cut components; levels stay in surveyed-wall metres.
+            left, right = max(left, 0), min(right, length)
+            bottom = max(bottom, float(vertices[:2, 1].min()))
+            top = min(top, float(vertices[2:, 1].max()))
+            if right - left >= 0.3 and top > bottom:
+                admitted.append(
+                    {
+                        **desc,
+                        "rect": shapely.box(left, bottom, right, top),
+                        "metric": [left, bottom, right, top],
+                        "tangent": tangent,
+                        "normal": normal,
+                        "base_y": float(a[1]),
+                        "shell": [float(vertices[:2, 1].min()), float(vertices[2:, 1].max())],
+                    }
+                )
+            continue
         columns = None
         if desc["kind"] == "arcade":
             # A long arcade crosses roof/passage fragments. Clip its surface,
@@ -196,12 +218,12 @@ def surface_parts(points, uv, plans, *, collision=False):
             yield out, np.c_[xy, np.ones(len(xy))] @ transform
 
 
-def quad_mesh(points, name, material, building, origin, **extras):
+def quad_mesh(points, name, material, building, origin, colour=None, **extras):
     return GlbMesh(
         name,
         np.asarray(points) - origin,
         TRI.copy(),
-        color=COLOURS[material],
+        color=linear_rgba(colour) if colour else COLOURS[material],
         roughness=0.28 if material == "glass" else 0.85,
         extras=dict(
             layer="buildings",
@@ -234,7 +256,7 @@ def geometry(vertices, plans, building, origin):
         out[:, 1] = xyz[:, 1]
         return out
 
-    def face(coords, material="wall", *, component_return=False):
+    def face(coords, material="wall", *, component_return=False, colour=None):
         meshes.append(
             quad_mesh(
                 world(coords),
@@ -242,11 +264,12 @@ def geometry(vertices, plans, building, origin):
                 material,
                 building,
                 origin,
+                colour,
                 component_return=component_return,
             )
         )
 
-    def box(x0, y0, z0, x1, y1, z1, material="slab", solid=True):
+    def box(x0, y0, z0, x1, y1, z1, material="slab", solid=True, colour=None):
         if min(x1 - x0, y1 - y0, z1 - z0) <= 0.001:
             return
         # Each face has flat normals. Winding faces outside in wall-local x/y/outward.
@@ -271,7 +294,7 @@ def geometry(vertices, plans, building, origin):
             f"{identity}_{len(meshes)}",
             points - origin,
             np.concatenate([TRI + i * 4 for i in range(6)]),
-            color=COLOURS[material],
+            color=linear_rgba(colour) if colour else COLOURS[material],
             roughness=0.28 if material == "glass" else 0.85,
             extras=dict(
                 layer="buildings",
@@ -363,7 +386,7 @@ def geometry(vertices, plans, building, origin):
     for p in plans:
         p["origin"] = reference
         left, y, r, t = p["metric"]
-        d, kind = p["depth_m"], p["kind"]
+        d, kind = p.get("depth_m", 0), p["kind"]
         if kind in {"bay", "recess", "loggia", "arcade"}:
             z = d if kind == "bay" else -d
             # The original wall patch is removed; only its returns and moved face exist.
@@ -451,6 +474,33 @@ def geometry(vertices, plans, building, origin):
                         box(b - 0.06, bottom + 0.12, back, b, top - 0.1, outward - 0.06, "rail")
                     else:
                         rail(a, b, bottom + 0.12, outward + 0.08)
+        if kind == "slab_band":
+            # Continuous cantilevered slabs with an optional solid parapet fascia.
+            # A slab belongs to the one shell fragment containing its mid-thickness.
+            low, high = p["shell"]
+            thickness, parapet = p["thickness_m"], p.get("parapet_m", 0)
+            for level in p["levels_m"]:
+                level = p["base_y"] + level
+                middle = level - thickness / 2
+                if not (low - 0.01 <= middle < high):
+                    continue
+                box(left, level - thickness, 0.0, r, level, d, solid=False, colour=p.get("colour"))
+                if parapet > 0:
+                    box(left, level, d - 0.1, r, level + parapet, d, solid=False, colour=p.get("colour"))
+        if kind == "awning":
+            # Double-sided sloped fabric and a front valance; visual only.
+            attach = p["base_y"] + p["attach_m"]
+            if p["shell"][0] <= attach <= p["shell"][1] + 0.01:
+                drop, colour = p.get("drop_m", 0.5), p.get("colour")
+                for coords in (
+                    [[left, attach, 0.02], [r, attach, 0.02], [r, attach - drop, d], [left, attach - drop, d]],
+                    [[left, attach - drop, d], [r, attach - drop, d], [r, attach - drop - 0.3, d], [left, attach - drop - 0.3, d]],
+                ):
+                    face(coords, "slab", colour=colour)
+                    face(coords[::-1], "slab", colour=colour)
+        if kind == "panel":
+            box(left, y, 0.0, r, t, p.get("outward_m", 0.06), "glass" if p.get("glass") else "slab",
+                solid=False, colour=p.get("colour"))
         if kind == "stairs":
             rise, run = float(p["rise_m"]), float(p["run_m"])
             if run > r - left or rise > t - y:

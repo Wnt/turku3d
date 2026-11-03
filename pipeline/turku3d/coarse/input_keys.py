@@ -18,43 +18,6 @@ HELPERS = {
     "trees": ("prepare_trees",),
 }
 
-# Preparation must not depend on downstream mesh emitters in the same module.
-# Other modules remain explicit transitive dependencies in inputs.DEPENDENCIES.
-PREPARERS = {
-    ("vegetation_canopy", "canopy_trees.py"): ("canopy_points",),
-    ("vegetation_canopy", "trees.py"): ("reduced_points",),
-    ("ground", "trees.py"): ("highest_per_cell",),
-    ("wfs", "reconstruct.py"): ("class6",),
-    ("wfs", "inputs.py"): ("read_points",),
-    ("surfaces", "surfaces.py"): ("osm_surfaces",),
-    ("markings", "surfaces.py"): ("mapped_paint",),
-    ("kerbs", "kerbs.py"): ("prepare",),
-    ("stairs", "stairs.py"): ("prepare",),
-    ("attachments", "attachments.py"): ("prepare",),
-    ("walkable", "walkable.py"): ("prepare",),
-    ("forests", "forests.py"): ("read_areas",),
-    ("barriers", "fences.py"): ("prepare",),
-    ("boats", "boat_inputs.py"): ("prepare",),
-    **{(dataset, "retaining.py"): ("sections",)
-       for dataset in ("attachments", "retaining", "barriers")},
-}
-
-
-def dependency_code(path, dataset):
-    """Hash a preparer's local call graph, constants and imports in source order.
-
-    Follow all referenced module bindings, including defaults and decorators.
-    Imported implementations are still covered by the explicit dependency list.
-    A module with dynamic global lookup must retain its whole-file dependency.
-    """
-    source = path.read_bytes()
-    roots = PREPARERS.get((dataset.removesuffix("-first"), path.name))
-    if roots is None:
-        return source
-    from turku3d.source_code import selected_source
-
-    return selected_source(source, roots)
-
 
 @lru_cache(maxsize=2)
 def definitions(source):
@@ -65,10 +28,10 @@ def definitions(source):
     }
 
 
-def producer_code(dataset):
+def _selected(dataset):
+    """The ``_prepare_one`` statements and inputs.py helpers that produce one dataset."""
     from . import inputs
 
-    dataset = dataset.removesuffix("-first")
     nodes = definitions(Path(inputs.__file__).read_bytes())
     prefix, branch, fallback = [], None, []
     seen_dispatch = False
@@ -81,11 +44,18 @@ def producer_code(dataset):
                     branch = node.body
                 continue
         (fallback if seen_dispatch else prefix).append(node)
-    selected = [
+    return [
         *prefix,
         *(branch if branch is not None else fallback),
         *(nodes[name] for name in HELPERS.get(dataset, ())),
     ]
+
+
+def producer_code(dataset):
+    from . import inputs
+
+    dataset = dataset.removesuffix("-first")
+    selected = _selected(dataset)
     constants = ({"ground": (inputs.CELLS, inputs.POINT_MARGIN), "ortho": (inputs.ORTHO_PX,)}).get(
         dataset, ()
     )
@@ -94,6 +64,7 @@ def producer_code(dataset):
     own = definitions(Path(__file__).read_bytes())
     h = hashlib.sha256(ast.dump(own['producer_code'], include_attributes=False).encode())
     h.update(ast.dump(own['definitions'], include_attributes=False).encode())
+    h.update(ast.dump(own['_selected'], include_attributes=False).encode())
     h.update(Path(C.__file__).read_bytes())
     h.update(repr(constants).encode())
     for node in selected:
@@ -105,4 +76,25 @@ def producer_code(dataset):
         finish = definitions(Path(street_materials.__file__).read_bytes())['street_finish']
         h.update(ast.dump(finish, include_attributes=False).encode())
         h.update(repr((street_materials.FIELDSTONE, street_materials.RED_ASPHALT)).encode())
+    return h.digest()
+
+
+def closure_code(dataset):
+    """Hash every local definition the producer can reach, plus its declared data files.
+
+    Edits to unrelated functions in shared modules keep the prepared dataset; any
+    reachable definition, constant, import or resource change replaces it.
+    """
+    from turku3d.source_code import Closure
+
+    from . import inputs
+
+    dataset = dataset.removesuffix("-first")
+    path = Path(inputs.__file__)
+    closure = Closure(path.parents[2])
+    for node in _selected(dataset):
+        closure.seed(path, node)
+    h = hashlib.sha256(closure.digest())
+    for name in inputs.RESOURCES.get(dataset, ()):
+        h.update(name.encode() + b"\0" + (path.parent / name).read_bytes())
     return h.digest()

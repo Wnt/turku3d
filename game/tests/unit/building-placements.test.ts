@@ -201,3 +201,39 @@ test('production preparation and retirement preserve shared packed archetype geo
   tiles.releasePreparedModel(second); disposeModelResources(second, shared); releaseSecond(); await Promise.resolve();
   expect(load).toHaveBeenCalledOnce(); expect(disposed).toHaveBeenCalledOnce();
 });
+
+test('blocks swap all their HD children against one LOD parent, and an all-far tile shows one merged parent', async () => {
+  const lodId = 'b'.repeat(64);
+  const lodRoot = () => {
+    const root = new THREE.Group(), geometry = new THREE.BoxGeometry(20, 10, 20); geometry.clearGroups();
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()); mesh.userData = { layer: 'building_lod', lod: 'walls-glazed' };
+    root.add(mesh); return root;
+  };
+  const roots: Record<string, THREE.Object3D> = { [id]: prototype().root, [lodId]: lodRoot() };
+  const load = vi.fn(async (url: string) => roots[url.includes(lodId) ? lodId : id]), shared = new SharedMaterials();
+  const styled = vi.fn((root: THREE.Object3D) => root.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = new THREE.MeshBasicMaterial(); }));
+  const cache = new BuildingModelCache(load, root => disposeModelResources(root, shared), undefined, undefined, styled);
+  const input = data();
+  input.models.push({ id: lodId, uri: `../shared/${lodId}.glb`, bounds: { min: [-30, 0, -20], max: [30, 30, 20] } });
+  input.placements[0].block = 'b1';
+  input.placements.push({ ...input.placements[0], id: 'neighbour', position: [270, 0, 120] });
+  input.blocks = [{ id: 'b1', position: [260, 0, 120], bounds: { min: [240, 0, 100], max: [280, 30, 140] }, hdDistance: 280,
+    children: ['building', 'neighbour'], lod: lodId }];
+  const owner = new THREE.Group(), release = await cache.attach(owner, input, base);
+  expect(styled).toHaveBeenCalledOnce();
+  const lod = owner.getObjectByName('block-lod:b1')!, merged = owner.getObjectByName('block-lod-tile')!;
+  const houses = owner.children.filter(o => o.userData.archetype);
+  updateBuildingDistances(owner, 260, 300); // 160 m: HD
+  expect(houses.every(h => h.visible)).toBe(true); expect(lod.visible).toBe(false); expect(merged.visible).toBe(false);
+  updateBuildingDistances(owner, 260, 425); // 285 m: inside the hysteresis band, still HD
+  expect(houses.every(h => h.visible)).toBe(true);
+  updateBuildingDistances(owner, 260, 440); // 300 m: the only block is far, so the merged tile parent replaces it
+  expect(houses.some(h => h.visible)).toBe(false); expect(lod.visible).toBe(false); expect(merged.visible).toBe(true);
+  updateBuildingDistances(owner, 260, 425); // 285 m coming back: stays LOD until 270 m
+  expect(merged.visible).toBe(true);
+  updateBuildingDistances(owner, 260, 405);
+  expect(houses.every(h => h.visible)).toBe(true); expect(merged.visible).toBe(false);
+  const tri = (merged as THREE.Mesh).geometry.index!.count / 3;
+  expect(tri).toBe(12);
+  release(); disposeModelResources(owner, shared);
+});

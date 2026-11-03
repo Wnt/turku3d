@@ -79,10 +79,19 @@ export class GroundBindings {
     // Ground can contain hundreds of thousands of vertices: fill its final buffers without temporary JS arrays.
     const vertices = new Float32Array(vertexCount * 3), normals = new Float32Array(vertexCount * 3);
     const indices = vertexCount > 65535 ? new Uint32Array(indexCount) : new Uint16Array(indexCount);
+    // Baked ambient visibility (COLOR_1, UNORM8 RGBA); a source without it stays unoccluded (coverage 0).
+    const baked = sources.some(mesh => mesh.geometry.getAttribute('color_1')) ? new Uint8Array(vertexCount * 4) : null;
     let vertexOffset = 0, indexOffset = 0;
     for (const mesh of sources) {
       const geometry = mesh.geometry;
       const points = geometry.getAttribute('position'), directions = geometry.getAttribute('normal');
+      const visibility = geometry.getAttribute('color_1');
+      if (baked && visibility) {
+        if (visibility.array instanceof Uint8Array && visibility.itemSize === 4 && !(visibility as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute)
+          baked.set(visibility.array.subarray(0, points.count * 4), vertexOffset * 4);
+        else for (let i = 0; i < points.count; i++) for (let c = 0; c < 4; c++)
+          baked[(vertexOffset + i) * 4 + c] = Math.round(THREE.MathUtils.clamp(c < visibility.itemSize ? visibility.getComponent(i, c) : 1, 0, 1) * 255);
+      }
       const matrix = inverse.clone().multiply(mesh.matrixWorld);
       const normalMatrix = new THREE.Matrix3().getNormalMatrix(matrix);
       const offset = vertexOffset;
@@ -100,6 +109,7 @@ export class GroundBindings {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    if (baked) geometry.setAttribute('color_1', new THREE.BufferAttribute(baked, 4, true));
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, material);

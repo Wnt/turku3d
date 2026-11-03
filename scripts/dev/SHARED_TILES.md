@@ -4,6 +4,8 @@ The LAN service at `http://192.168.1.114:7950` builds committed local revisions 
 It never publishes to production. The server uses four workers (maximum twelve; `POST /limits {"workers": N}` changes it live), a bounded
 128-tile queue, and a shared content-addressed stage/input cache. Urgent camera tiles lead, then visible tiles, explicit CLI requests and background demand;
 revisions share turns within each category.
+Explicit requests of a version wait behind all other work once a later-registered version has live
+client demand and no client shows theirs; a full queue drops the oldest of those queued checks first.
 Queued speculative requests expire after three minutes without requests or live demand. Identical requests join
 one job. Renderer-only revisions share completed products; generator edits reuse unchanged
 stage outputs, including packaging when emitted inputs are identical.

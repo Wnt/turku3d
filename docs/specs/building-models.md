@@ -25,10 +25,30 @@ measures horizontal distance from each model AABB. These are provisional HD
 cutoffs; the hierarchy phase replaces disappearance with a resident-parent swap.
 
 Occluders are optional and independent of bounds:
-`{version:1, provenance:"lod2-inset-boxes-v1", boxes:[{min:[x,y,z],max:[x,y,z]}]}`.
-They use the same model frame. Missing or empty boxes confer no occlusion. Bounds
-must never be converted into occluders. Placement roots preserve the object as
-`userData.occluders`, alongside `archetype`, `placementId`, and `modelBounds`.
+`{version:1, provenance:"lod2-inset-boxes-v1", boxes:[{min:[u,y,v], max:[u,y,v], yaw}]}`.
+Each box is given in a frame rotated by `yaw` (radians) about the placement origin:
+world x = position.x + u·cos(yaw) − v·sin(yaw), world z = position.z + u·sin(yaw) + v·cos(yaw),
+world y = position.y + y. Missing or empty boxes confer no occlusion. Bounds must never be
+converted into occluders. `coarse/occluders.py` emits at most 8 boxes per model, inset 0.25 m
+inside the LoD2 footprint and below every roof triangle above them (quarter-metre height bands),
+following the footprint's minimum rotated rectangle like GTA V box occluders (median about 11 m).
+Only models whose surfaces are all opaque (no alpha, no glass) get boxes. Walls render closed except
+tunnel splits (outside the split footprint) and through facade components; a building with any
+through-component keeps its 4 m street storey and the components' full height open, and surveyed
+through-passages are removed as whole columns. Placement roots preserve the object as
+`userData.occluders`, alongside `archetype`, `placementId`, `modelBounds` and `visibilitySlot`.
+
+Runtime occlusion (`game/src/world/placementVisibility.ts`, `visibility.worker.ts`): placement bounds
+and world box corners live in a SharedArrayBuffer (4096 slots); the main thread publishes the camera
+each frame through a seqlock and reads the occluded bitmask the worker computed for the previous
+camera. The worker rasterises the 192 nearest boxes of placements that are in the scene and within
+their own view distance into a 128×64 conservative depth grid: a pixel takes an occluder depth only
+when wholly inside its projected silhouette or face, at that shape's farthest depth; near-plane
+crossings fail open. A placement is hidden when its whole dilated screen rectangle lies behind the
+grid. Results only skip primary-camera beauty and normal-prepass draws (never shadows, reflections or
+shader preparation), static batches only when all their placement owners are hidden, and nothing when
+the camera moved more than 1.5 m or turned more than 3° since the result. Without cross-origin
+isolation the system is off.
 
 Generation partitions after authoritative wall assembly and neighbour admission.
 All facade source metadata, geometry, UVs, colours and component placement data

@@ -243,7 +243,62 @@ ARCHETYPES = {
         corners=(0.20, 0.45),
         plinth=(0.50, 0.95),
     ),
+    # Massive pre-industrial masonry: castles, medieval stone churches, fortifications.
+    # Measured from local reference photographs of a lime-rendered castle (sunlit courtyard
+    # and overcast gate approach), shade cast removed: near-white lime render, ~4-5 m
+    # irregular bays, small 3x3-pane windows (0.24-0.32 of a bay, 0.30-0.38 of a storey,
+    # high sills) in dark green-black or oxblood frames, no cornice, string course, quoins
+    # or plinth band, round-arched ground openings. The shared atlas adds base grime and
+    # sill streaks. Reveals and surrounds stay in the render colour.
+    "massive_masonry": dict(
+        family(
+            ("plaster",),
+            (3.8, 5.2),
+            (0.24, 0.32),
+            (0.30, 0.38),
+            sill=(0.30, 0.40),
+            cornice=(0, 0),
+            courses=(0, 0),
+            corners=(0, 0),
+            surrounds=(0, 0.02),
+            ground=("windows", "doors"),
+            plinth=(0, 0),
+            trim=("#e4e2d9", "#dedcd2"),
+        ),
+        pigments={"plaster": ("#e4e2d9", "#dedcd2", "#e8e6de")},
+        frames=("#34402f", "#34402f", "#3a3d3f", "#6b3a30"),
+        heads=("flat", "flat", "segmental-arch"),
+        door_head="round-arch",
+        panes=[3, 3],
+        reveal_m=0.45,
+    ),
 }
+MASONRY = "massive_masonry"
+# Wall colours from a reference-measured archetype are pigment estimates, not the
+# register's generic material palette.
+MEASURED_PIGMENT = "reference-measured archetype pigment"
+FORTIFICATION = {"castle", "fort", "fortress", "fortification", "citywalls", "city_gate"}
+
+
+def early_year(raw):
+    """Medieval and early-modern dates (1000-1699), which ``parsed_year`` ignores."""
+    match = re.search(r"(?<!\d)(1[0-6]\d{2})(?!\d)", str(raw or ""))
+    return int(match[0]) if match else None
+
+
+def massive_masonry(attrs):
+    """Large footprints dated before 1700, or mapped fortifications, are load-bearing masonry.
+
+    Turku's surviving pre-1700 fabric of this size is stone. Timber and light
+    cladding abstain, and small dated sheds keep their ordinary rules.
+    """
+    if attrs.get("blank") or attrs.get("material_class") in ("wood", "glass", "metal", "concrete"):
+        return False
+    if (attrs.get("footprint_m2") or 0) < 150:
+        return False
+    tags = {str(attrs.get(k) or "").lower() for k in ("historic", "osm_use")}
+    year = early_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
+    return bool(tags & FORTIFICATION) or year is not None
 
 
 # Central cadastral districts I–IX. These are architectural priors, not measured dates.
@@ -306,6 +361,8 @@ def archetype(attrs):
     year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
     levels = attrs.get("levels")
     area = attrs.get("footprint_m2", 0) or 0
+    if massive_masonry(attrs):
+        return MASONRY
     if use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank"):
         return "warehouse"
     if use in ("industrial", "factory", "workshop"):
@@ -393,20 +450,25 @@ def recipe(building_id, attrs):
     }
     material = {"render": "plaster"}.get(attrs.get("material_class"), attrs.get("material_class"))
     material = material if material in PALETTES else rng("material").choice(spec["materials"])
+    pigments = spec.get("pigments", {}).get(material)
     result.update(
         archetype=name,
         material=material,
-        wall=_colour(rng("wall").choice(PALETTES[material]), rng("pigment")),
+        wall=_colour(rng("wall").choice(pigments or PALETTES[material]), rng("pigment")),
+        pigment_measured=bool(pigments),
         trim=rng("trim").choice(spec["trim"]),
         ground=rng("ground").choice(spec["ground"]),
         rhythm=rng("rhythm").choice(spec["rhythm"]),
         balcony=rng("balcony").random() < spec["balconies"],
     )
+    result["frame"] = rng("frame").choice(spec["frames"]) if "frames" in spec else result["trim"]
+    # Metre-thick load-bearing walls carry no shopfronts, whatever trades inside.
+    commerce = name != MASONRY
     # Use a separate, visible shop/frontage observation rather than guessing commerce by year.
-    if attrs.get("ground_floor") == "shops":
+    if commerce and attrs.get("ground_floor") == "shops":
         result["ground"] = "shops"
     # Register business use supports ground commerce, not an entirely glazed historic block.
-    if str(attrs.get("use")) in ("1050", "1080", "1150", "1240"):
+    if commerce and str(attrs.get("use")) in ("1050", "1080", "1150", "1240"):
         result["ground"] = "shops"
     # Shape/frontage adjust the rhythm inside the archetype's bounded distribution.
     if attrs.get("frontage_m", 0) > 25 and attrs.get("compactness", 1) < 0.55:
@@ -434,11 +496,20 @@ def sample(building_id, attrs, geometry):
     if attrs.get("levels_source") == "osm":
         floors = None
     floors = int(floors) if isinstance(floors, (int, float)) and floors > 0 else None
-    heads = ("flat", "segmental-arch", "round-arch") if r["archetype"] in (
+    spec = ARCHETYPES[r["archetype"]]
+    heads = spec.get("heads") or (("flat", "segmental-arch", "round-arch") if r["archetype"] in (
         "neo_renaissance", "jugend", "civic", "empire", "nordic_classicism"
-    ) else ("flat",)
+    ) else ("flat",))
     head = random.Random(stable_seed(seed_id, "head_shape")).choice(heads)
+    door_head = spec.get("door_head", head)
     v = lambda x: value(x, "rule sample")  # noqa: E731
+    # Reference-measured archetype values are priors with stated support, so the
+    # compiler uses them instead of the generic trim/pane/palette fallbacks.
+    measured = lambda x: value(x, MEASURED_PIGMENT, 0.6)  # noqa: E731
+    pigment = measured if r["pigment_measured"] else v
+    frame = measured(r["frame"]) if "frames" in spec else v(r["trim"])
+    panes = measured(spec["panes"]) if "panes" in spec else v(2)
+    recess = value(spec["reveal_m"], "massive wall reveal prior", 0.4) if "reveal_m" in spec else v(0.12)
     walls = []
     for g in geometry:
         width, height = g["width_m"], g.get("layout_height_m", g["height_m"])
@@ -467,7 +538,7 @@ def sample(building_id, attrs, geometry):
                     middle_repeats=max(0, floors - 2) if floors else None,
                     top_height_m=unknown(),
                 ),
-                wall=dict(colour=v(r["wall"]), material=v(r["material"])),
+                wall=dict(colour=pigment(r["wall"]), material=v(r["material"])),
                 bays=dict(
                     count=count,
                     centers_m=centers,
@@ -482,21 +553,21 @@ def sample(building_id, attrs, geometry):
                     aspect=v(pitch * r["window"] / wh),
                     rectangles_m=[],
                     sill_fraction=v(r["sill"]),
-                    frame_colour=v(r["trim"]),
-                    divisions=v(2),
-                    recess_m=v(0.12),
+                    frame_colour=frame,
+                    divisions=panes,
+                    recess_m=recess,
                 ),
                 base=dict(
-                    colour=v(r["wall"]),
+                    colour=pigment(r["wall"]),
                     material=v(r["material"]),
                     plinth_height_m=v(r["plinth"]),
                     glazing_share=unknown(),
                     shopfront=v(r["ground"] == "shops"),
                     variant=v(r["ground"]),
                     openings_m=[],
-                    head_shape=v(head),
+                    head_shape=v(door_head),
                 ),
-                doors=dict(candidates=[], type=v("single"), canopy=unknown(), head_shape=v(head)),
+                doors=dict(candidates=[], type=v("single"), canopy=unknown(), head_shape=v(door_head)),
                 trim=dict(
                     cornice=v(r["cornice"]),
                     string_courses=v(r["courses"]),

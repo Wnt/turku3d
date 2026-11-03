@@ -11,12 +11,13 @@ def prepare(program):
     from turkutex.facade_sections import sections
     from turkutex.facade_structure import compile_structure
 
+    from turku3d.facade_modernist import expand as modernist
     from turku3d.facade_repetition import expand, through_arcade
     from turku3d.facade_components import components
     from turku3d.facade_inference import supported
 
     program = copy.deepcopy(program)
-    program["walls"] = [expand(w) for w in program.get("walls", [])]
+    program["walls"] = [modernist(expand(w)) for w in program.get("walls", [])]
     program["walls"] += [back for w in program["walls"] for back in through_arcade(w)]
     for wall in program["walls"]:
         form = wall.get("structure", {})

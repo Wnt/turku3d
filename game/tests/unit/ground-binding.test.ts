@@ -116,9 +116,28 @@ it('batches indexed and plain ground with local transforms and fallback normals'
   expect(Array.from(batch.geometry.getAttribute('position').array)).toEqual([2, 0, 0, 3, 0, 0, 2, 0, 1, 0, 0, 3, 1, 0, 3, 0, 0, 4]);
   expect(Array.from(batch.geometry.getAttribute('normal').array)).toEqual([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0]);
   expect(Array.from(batch.geometry.getIndex()!.array)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(batch.geometry.getAttribute('color_1')).toBeUndefined();
   expect([a.visible, b.visible]).toEqual([false, false]);
   binding.release(model);
   expect([a.visible, b.visible]).toEqual([true, true]);
   expect(batch.parent).toBeNull();
+  binding.dispose();
+});
+
+it('keeps baked ambient visibility through ground batching; unbaked sources stay unoccluded', async () => {
+  mocks.library.mockResolvedValue({});
+  mocks.tile.mockResolvedValue({ material: new THREE.MeshStandardNodeMaterial(), maps: {}, dispose: vi.fn() });
+  const model = new THREE.Group();
+  model.userData = { ground_binding: { spec: 'ground/t0/material.json', library: 'ground/library/' }, layer: 'ground' };
+  const baked = new THREE.BufferGeometry();
+  baked.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 0, 1], 3));
+  baked.setAttribute('color_1', new THREE.BufferAttribute(new Uint8Array([10, 20, 255, 255, 30, 40, 255, 255, 50, 60, 255, 255]), 4, true));
+  const plain = new THREE.BufferGeometry(); plain.setAttribute('position', baked.getAttribute('position').clone());
+  model.add(new THREE.Mesh(baked), new THREE.Mesh(plain));
+  const binding = new GroundBindings({} as THREE.WebGPURenderer, 'https://tiles.test/tileset.json');
+  await binding.apply(model);
+  const visibility = (model.getObjectByName('ground-batch') as THREE.Mesh).geometry.getAttribute('color_1');
+  expect(visibility.normalized).toBe(true);
+  expect(Array.from(visibility.array)).toEqual([10, 20, 255, 255, 30, 40, 255, 255, 50, 60, 255, 255, ...Array(12).fill(0)]);
   binding.dispose();
 });

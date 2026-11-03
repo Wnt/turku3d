@@ -2,6 +2,7 @@
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
+import { styleBlockLod } from '../render/sceneryMaterial';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
@@ -123,7 +124,8 @@ export class CoarseTiles {
   constructor(private host: CoarseHost) {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
     this.load = host.loadModel ?? this.gltfLoader();
-    this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials));
+    this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
+      undefined, undefined, (root, owner) => styleBlockLod(root, owner, this.materials));
     this.page = host.pageUrl ?? location.href;
     const page = new URL(this.page);
     this.root = draftsUrl(page) ?? '/coarse/';

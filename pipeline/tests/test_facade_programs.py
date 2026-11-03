@@ -33,7 +33,7 @@ def test_seed_survives_order_and_unrelated_attributes_with_visible_neighbour_var
     neighbours = [program(key=str(i))["walls"][0] for i in range(30)]
     assert len({w["wall"]["colour"]["value"] for w in neighbours}) > 20
     assert len({tuple(w["windows"]["size_m"]["value"]) for w in neighbours}) == 30
-    assert len(ARCHETYPES) == 20
+    assert len(ARCHETYPES) == 21
 
 
 @pytest.mark.parametrize("levels", [None, 1, 4, 8, 30])
@@ -171,6 +171,30 @@ def test_program_edit_invalidates_only_its_buildings_tiles(tmp_path, monkeypatch
     altered["walls"][0]["windows"]["size_m"]["value"][0] += 0.1
     target.write_text(json.dumps(altered))
     assert after[0] != parameter_hash(["own"])
+
+
+def test_massive_pre_industrial_masonry_is_a_measured_class_without_shopfronts():
+    from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, early_year
+
+    castle = dict(construction_year=1280, historic="yes", osm_use="yes", use="2120",
+                  ground_floor="shops", levels=4, footprint_m2=4193, register_id="fort")
+    assert early_year("c. 1280") == 1280 and early_year(1700) is None
+    assert archetype(castle) == MASONRY
+    assert archetype(dict(osm_use="castle", footprint_m2=900)) == MASONRY
+    # Small dated sheds, timber and light cladding keep their ordinary rules.
+    assert archetype(dict(castle, footprint_m2=47)) != MASONRY
+    assert archetype(dict(castle, material_class="wood")) == "timber_traditional"
+    assert archetype(dict(construction_year=1733, footprint_m2=443)) == "empire"
+    p = sample("fort", castle, [dict(wall_id="w", width_m=40.0, height_m=21.0)])
+    wall = p["walls"][0]
+    assert wall["base"]["variant"]["value"] != "shops"
+    assert wall["wall"]["colour"]["source"] == MEASURED_PIGMENT
+    assert wall["doors"]["head_shape"]["value"] == "round-arch"
+    style = compile_wall(wall, p["storeys"]["value"])
+    assert style["module"] in (0, 1) and style["bands"] == [0, 0, 0, 0]
+    assert style["glazing"][:2] == [3, 3]
+    assert style["frame"] != style["trim"] and max(int(style["frame"][i:i + 2], 16) for i in (1, 3, 5)) < 120
+    assert min(int(style["wall"][i:i + 2], 16) for i in (1, 3, 5)) > 200
 
 
 def test_fallback_periods_are_seeded_and_explicit_evidence_wins():

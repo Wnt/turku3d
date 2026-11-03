@@ -32,13 +32,15 @@ def prepare(tile, osm, buildings_path, water_path, *lidar_paths):
 
     window = shapely.box(*tile.bbox.buffered(50).as_tuple())
     water = shapely.union_all([g for g, _ in _frame(water_path, tile.bbox.buffered(100))])
-    mapped, amenities, seen = [], [], set()
+    mapped, amenities, lodgings, seen = [], [], [], set()
     for key, row in rows(osm, tile.bbox.buffered(100)):
         tags = json.loads(row["tags"] or "{}")
         geom = shapely.force_2d(row["geometry_local"])
         shape = polygon(geom)
         if tags.get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub"):
             amenities.append((geom, tags))
+        if tags.get("tourism") in ("hostel", "hotel", "guest_house"):
+            lodgings.append(geom)
         identity = str(row.get("osm_id", key))
         if identity in seen or not 10 <= shape.area <= 5000:
             continue
@@ -96,6 +98,8 @@ def prepare(tile, osm, buildings_path, water_path, *lidar_paths):
         ]
         if nearby and boat["kind"] == "ship":
             boat["tags"].update(min(nearby, key=lambda row: row[0])[1])
+        # Hostel and hotel ships keep their own names; their cabins are lived in at night.
+        boat["occupied"] = boat["kind"] == "ship" and any(g.distance(shape) <= 3 for g in lodgings)
         colour = boat["tags"].get("building:colour", "").strip().lower()
         white_cabin = colour in ("white", "ivory", "cream", "#ffffff", "#fff")
         boat["appearance"] = dict(

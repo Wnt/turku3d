@@ -67,3 +67,37 @@ def test_crane_and_mast_are_not_house_or_ship_and_clip_across_seams(tmp_path):
         assert all(m.extras['layer']=='structures' for m in boats.visuals(tile,meshes))
         totals.append(sum(len(m.indices) for m in meshes))
     assert 0 < sum(totals) < 5000
+
+
+def test_lidar_ship_measures_sheer_funnels_and_lifeboats_into_livery_parts():
+    def grid(x0, x1, z0, z1, y, step=.4):
+        return np.array([[x, y, z] for x in np.arange(x0, x1, step) for z in np.arange(z0, z1, step)])
+    # Main deck at 6 m rising to 7.5 m over the bow (+x), a long upper tier at 9 m,
+    # two tall oval funnels and four small boats along both deck edges.
+    # City lidar is dense (~50 returns/m2): every 0.5 m cell holds several returns.
+    deck = np.array([[x, 6 + max(0, x - 70) * .15, z] for x in np.arange(1, 80, .25) for z in np.arange(1, 15, .25)])
+    tier = grid(20, 60, 1, 15, 9., .25)
+    funnels = [np.array([[x, 15., z] for x in np.arange(c - 2.5, c + 2.5, .25) for z in np.arange(6, 10, .25)
+                         if ((x - c) / 2.5) ** 2 + ((z - 8) / 2) ** 2 <= 1]) for c in (32., 44.)]
+    lifeboats = [grid(x, x + 7, z, z + 2.2, 10.6, .25) for x in (22., 50.) for z in (2.2, 11.6)]
+    points = np.concatenate([deck, tier, *funnels, *lifeboats])
+    boat = dict(outline=shapely.Polygon([(0, 0), (72, 0), (80, 8), (72, 16), (0, 16)]),
+                deck=1.5, cabins=[], masts=[], water=.2, tags={})
+    harbour.survey_ship(boat, points, np.ones(len(points)))
+    assert boat['bow'] == 1 and abs(boat['deck'] - 6) < .2
+    heights = dict(boat['sheer'])
+    assert max(heights.values()) > boat['deck'] + .8
+    assert len(boat['funnels']) == 2 and all(14 < f['top'] < 16 for f in boat['funnels'])
+    assert len(boat['lifeboats']) == 4
+    assert not any(abs(top - 15) < 1 for _, top in boat['cabins'])
+    boat.update(id='t', kind='ship', building_keys=[], source_facades=[], owner='t0_0_0',
+                appearance=dict(cabin_surface='white', hull_surface='paint_9c8a6d', stem_rake=.5,
+                                funnel_bands=[[.2, 'paint_2c3238'], [1, 'paint_b69a81']],
+                                lifeboat_surface='paint_b8583d', porthole_rows=[1.2], dress_lights=True))
+    meshes = boats.produce(C.VisualTile(0, 0, 0), [boat])
+    surfaces = {m.metadata['surface'] for m in meshes}
+    assert {'paint_9c8a6d', 'paint_2c3238', 'paint_b69a81', 'paint_b8583d', 'glass'} <= surfaces
+    hull = np.concatenate([m.positions for m in meshes if m.metadata['surface'] == 'paint_9c8a6d'])
+    # The stem rakes: the keel stops short of the deck-level bow.
+    assert hull[hull[:, 1] < 1, 0].max() < hull[hull[:, 1] > 6, 0].max() - 1.5
+    assert all(np.isfinite(m.positions).all() for m in meshes)

@@ -356,8 +356,9 @@ def assemble_structures(meshes, protected=(), *, protected_only=False):
     return result
 
 
-def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None):
-    """Single architectural assembly before any packaged visual can be published."""
+def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache=None, bake=None):
+    """Single architectural assembly before any packaged visual can be published.
+    ``bake`` maps the final assembled static meshes to their lit copies (baked visibility)."""
     import json
     from pathlib import Path
 
@@ -425,6 +426,8 @@ def assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cach
     validate_neighbours(
         wall_layers, shells, tile, out.parent, geometry_key=geometry_key, report_cache=cache
     )
+    if bake is not None:
+        wall_layers = bake(wall_layers)
 
     def architecture(directory):
         write_visual(directory / "architecture.vis.glb", wall_layers, root_translation=tile.origin)

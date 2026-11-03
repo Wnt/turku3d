@@ -53,7 +53,8 @@ def produce(key, boat):
     sailing = (len(tall) >= 3 or boat["tags"].get("building:material") == "wood"
                or boat["tags"].get("ship:type") in ("sailing", "sailboat", "tall_ship"))
     if len(tall) < 2 or not sailing:
-        return [tube(key, [p.x, deck, p.y], [p.x, top, p.y], .055, "white")
+        surface = boat.get("appearance", {}).get("mast_surface", "white")
+        return [tube(key, [p.x, deck, p.y], [p.x, top, p.y], float(np.clip((top - deck) * .007, .055, .16)), surface)
                 for p, top in boat["masts"]]
 
     direction = axis(outline)

@@ -146,10 +146,13 @@ def terrain_stage(tile, inputs):
     """Terrain and deck outputs, including the approaches that mutate the ground grid."""
     from turku3d.col.materials import mat_id
 
-    from . import gardens, surfaces, walkable
+    from . import gardens, roof_returns, surfaces, walkable
     from .build import grid_mesh, water_level, water_mask
 
-    grid_pos, grid_idx = grid_mesh(tile, inputs.heights)
+    heights, _ = roof_returns.terrain_heights(
+        tile, inputs.points, inputs.heights, footprints(inputs), wall_lines(inputs)
+    )
+    grid_pos, grid_idx = grid_mesh(tile, heights)
     grid_pos = gardens.grade(grid_pos, inputs.gardens)
     grid_pos = walkable.grade(grid_pos, inputs.walkable)
     centroids = grid_pos[grid_idx].mean(axis=1)
@@ -166,19 +169,35 @@ def terrain_stage(tile, inputs):
     return grid_pos, grid_idx, materials, wet, level
 
 
+def footprints(inputs):
+    """Complete owned and neighbouring buildings, so seam key points agree."""
+    return [*inputs.buildings, *inputs.wall_context]
+
+
+def wall_lines(inputs):
+    from . import roof_returns
+
+    return roof_returns.guards(inputs.barriers, inputs.retaining)
+
+
 def cached_terrain(cache, tile, inputs, common):
     """Keep the structural terrain cache orchestration outside the tile build body."""
     from pathlib import Path
 
     from turku3d.stage_cache import source_key
 
-    from . import gardens, surfaces, walkable
+    from . import gardens, roof_returns, surfaces, walkable
     from .build import grid_mesh, water_level, water_mask
+    from .inputs import grid_heights
 
     return cache.run(
         "terrain",
         source_key(
             terrain_stage,
+            footprints,
+            wall_lines,
+            Path(roof_returns.__file__),
+            grid_heights,
             grid_mesh,
             water_mask,
             water_level,
@@ -199,6 +218,10 @@ def cached_terrain(cache, tile, inputs, common):
             inputs.surfaces,
             inputs.water,
             bool(inputs.roads and inputs.roads.get("bridge_ways")),
+            [(b.key, b.footprint.wkb, b.base, [(g.wkb, tuple(map(float, plane)))
+                                                for g, plane in b.roof_parts or ()])
+             for b in footprints(inputs)],
+            [g.wkb for g in wall_lines(inputs)],
         ],
         lambda: terrain_stage(tile, inputs),
     )

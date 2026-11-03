@@ -76,3 +76,21 @@ test('placed models merge compatible draws across owners while preserving restor
   for (const { mesh, inner } of placements) expect(mesh.parent).toBe(inner);
   expect(staticBatchPlacements(merged)).toBeUndefined();
 });
+
+test('placements batch per generator block, else per 125 m cell', async () => {
+  const { staticBatchSteps, staticBatchPlacements } = await import('../../src/world/staticBatch');
+  const material = new THREE.MeshStandardMaterial();
+  const model = new THREE.Group();
+  const place = (x: number, block?: string) => {
+    const wrapper = new THREE.Group(); wrapper.position.set(x, 0, 10);
+    wrapper.userData = { archetype: 'a'.repeat(64), placementId: `p${x}`, block };
+    const geometry = new THREE.BoxGeometry(); geometry.clearGroups();
+    const mesh = new THREE.Mesh(geometry, material); mesh.userData.layer = 'buildings';
+    wrapper.add(mesh); model.add(wrapper); return wrapper;
+  };
+  place(10); place(40); place(130); place(140, 'blockA'); place(300, 'blockA'); place(310, 'blockB');
+  for (const _ of staticBatchSteps(model)) void _;
+  const batches = model.children.filter(o => o.name === 'static-placement-batch');
+  const owners = batches.map(b => staticBatchPlacements(b)!.map(p => p.userData.placementId).sort());
+  expect(owners.sort()).toEqual([['p10', 'p40'], ['p140', 'p300']]);
+});

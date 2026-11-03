@@ -135,3 +135,33 @@ class SceneryTest(unittest.TestCase):
             self.assertEqual((folder / 'vis.glb').read_bytes(), raw)
             self.assertTrue((cache.cache / (result['tiles'][0]['key'] + '.source.json')).exists())
             cache.pool.shutdown()
+
+
+class PlacementSceneryTest(unittest.TestCase):
+    def test_new_format_tiles_compose_their_building_models_into_the_derivative(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); folder = root / 't0_2_-1'; folder.mkdir(); shared = root / 'shared'; shared.mkdir()
+            raw = b'terrain'; digest = hashlib.sha256(raw).hexdigest(); name = f'vis.{digest}.glb'
+            (folder / name).write_bytes(raw)
+            model = b'whole building'; mid = hashlib.sha256(model).hexdigest(); (shared / f'{mid}.glb').write_bytes(model)
+            lod = 'c' * 64
+            placements = dict(version=1, models=[dict(id=mid, uri=f'../shared/{mid}.glb'), dict(id=lod, uri=f'../shared/{lod}.glb', kind='block-lod')],
+                              placements=[dict(id='b', model=mid, position=[510, 0, -120])])
+            full = dict(pass_kind='full', visual={folder.name: dict(url=name, sha256=digest)}, buildingPlacements=placements)
+            (folder / 'manifest.json').write_text(json.dumps(full))
+            cache = Scenery(root)
+            row = cache.catalogue([folder.name])['tiles'][0]
+            (folder / 'manifest.json').write_text(json.dumps({**full, 'buildingPlacements': None}))
+            self.assertNotEqual(cache.catalogue([folder.name])['tiles'][0]['key'], row['key'])
+            commands = []
+            def convert(command, **kwargs):
+                commands.append(command); Path(command[3]).write_bytes(b'glTF')
+                return type('R', (), {'stdout': json.dumps(dict(bytes=4, triangles=2))})()
+            with patch('scenery.subprocess.run', convert):
+                cache._build(row['key'])
+            spec = json.loads(Path(commands[0][4]).read_text())
+            self.assertEqual(spec, [dict(path=str((shared / f'{mid}.glb').resolve()), position=[510, 0, -120])])
+            (shared / f'{mid}.glb').write_bytes(b'edited')
+            with patch('scenery.subprocess.run', convert), self.assertRaises(ValueError):
+                cache._build(row['key'])
+            cache.pool.shutdown()

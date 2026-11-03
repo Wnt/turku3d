@@ -133,11 +133,21 @@ def align_upper(mesh, source, target):
         return mesh
     from turku3d.structures.geometry import Faces
 
-    floor = target.positions[target.indices]
+    floor = np.asarray(target.positions[target.indices], float)
     normal = np.cross(floor[:, 1] - floor[:, 0], floor[:, 2] - floor[:, 0])
-    floor = floor[normal[:, 1] > np.linalg.norm(normal, axis=1) * 0.01]
+    b, c = (floor[:, i, [0, 2]] - floor[:, 0, [0, 2]] for i in (1, 2))
+    # Plan determinant; slivers that are collinear in plan carry rounding
+    # noise in every normal component, so test it against the edge lengths.
+    plan = b[:, 0] * c[:, 1] - b[:, 1] * c[:, 0]
+    scale = np.linalg.norm(b, axis=1) * np.linalg.norm(c, axis=1)
+    upward = normal[:, 1] > np.linalg.norm(normal, axis=1) * 0.01
+    keep = upward & (abs(plan) > np.maximum(scale * 1e-9, 1e-12))
+    floor, b, c, plan = floor[keep], b[keep], c[keep], plan[keep]
     if not len(floor):
         return mesh
+    # Height gradient of each floor plane in plan (Cramer's rule, never singular).
+    dy_b, dy_c = floor[:, 1, 1] - floor[:, 0, 1], floor[:, 2, 1] - floor[:, 0, 1]
+    gradients = np.c_[dy_b * c[:, 1] - dy_c * b[:, 1], dy_c * b[:, 0] - dy_b * c[:, 0]] / plan[:, None]
     polygons = shapely.polygons(floor[:, :, [0, 2]])
     tree = shapely.STRtree(polygons)
     old_floor = HeightQuery(source, tolerance=1e-7)
@@ -188,11 +198,7 @@ def align_upper(mesh, source, target):
                 continue  # Explicit end of floor coverage; never bridge a portal/gap.
             tri = floor[candidates]
             a = tri[:, 0, [0, 2]]
-            b, c = tri[:, 1, [0, 2]] - a, tri[:, 2, [0, 2]] - a
-            basis = np.stack([b, c], axis=2)
-            coefficients = np.linalg.solve(
-                basis.transpose(0, 2, 1), (tri[:, 1:, 1] - tri[:, :1, 1])[:, :, None]
-            )[:, :, 0]
+            coefficients = gradients[candidates]
             query = np.asarray(middle.coords)[0]
             levels = tri[:, 0, 1] + np.sum((query - a) * coefficients, axis=1)
             owner = int(np.argmin(levels))

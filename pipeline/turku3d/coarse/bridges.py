@@ -497,9 +497,11 @@ def produce(tile, grid_pos, inputs):
     from .tunnels import ground_sampler
 
     full_ground = ground_sampler(lambda x, z: float(ground([[x, z]])[0]))
-    from .bridge_join import terrain_sampler
+    from .bridge_join import terrain_sampler, walk_levels
 
     join_ground = terrain_sampler(points)
+    # Separately mapped walks and flights keep their measured lower level.
+    levels = walk_levels(getattr(inputs, "walkable", ()), (getattr(inputs, "stairs", None) or ((),))[0])
 
     def sample_ground(xz):
         return np.asarray([full_ground(x, z) for x, z in xz])
@@ -684,7 +686,7 @@ def produce(tile, grid_pos, inputs):
         aprons = approach_patches(
             way, line, (start_ramp, end_ramp), height_at,
             walk_sampler(full_ground, getattr(inputs, "walkable", ())),
-            protected, 2 * tile.size / CELLS,
+            protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]

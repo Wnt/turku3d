@@ -92,6 +92,7 @@ def cached_stage(cache, tile, grid_pos, grid_idx, materials, wet, inputs):
             inputs.roads,
             inputs.water,
             inputs.walkable,
+            inputs.stairs,
             [b.footprint for b in inputs.buildings],
         ],
         lambda: deck_stage(tile, grid_pos, grid_idx, materials, wet, inputs),

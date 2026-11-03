@@ -132,6 +132,8 @@ class Farm:
         self.jobs, self.active, self.failures = {}, set(), {}
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.turns, self.closing, self.last_saved = {}, False, 0.0
+        self.registrations, self.registrations_scanned = {}, float('-inf')
+        self.viewed = {}  # generation -> last game manifest request (carries a distance)
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0)
         self.version = time.time_ns() // 1000000
@@ -197,6 +199,7 @@ class Farm:
                 self.aliases[alias] = revision
                 atomic_json(self.root / 'aliases.json', self.aliases)
                 self.version += 1
+            self.registrations_scanned = float('-inf')
         self.event('register', revision=revision, alias=alias, generation=meta['generation'])
         return dict(revision=revision, commit=meta.get('commit', revision),
                     generation=meta['generation'], source_version=meta.get('source_version'), alias=alias)
@@ -360,6 +363,8 @@ class Farm:
             return 422, dict(state='revision-retired', revision=revision, error=reason)
         with self.lock:
             self.metrics['requests'] += 1
+            if distance is not None:
+                self.viewed[generation] = time.time()
             root = self.output(generation)
             receipt = root / tile / 'ready.json'
             if receipt.exists():
@@ -378,7 +383,8 @@ class Farm:
             failed = self.failures.get(key)
             if failed and time.time() - failed['t'] < 60:
                 return 422, failed
-            if len(self.jobs) >= self.queue_limit:
+            if len(self.jobs) >= self.queue_limit and (
+                    self.superseded(generation) or not self.evict_superseded()):
                 return 429, dict(state='queue-full')
             # Reservation covers concurrent builders as well as the hard free-space floor.
             if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
@@ -397,6 +403,31 @@ class Farm:
             atomic_json(self.root / 'pending.json', list(self.queue_info.values()))
             self.last_saved = time.monotonic()
 
+    def registered(self, generation):
+        """Latest registration of any revision that produces this generation."""
+        if time.monotonic() - self.registrations_scanned > 10:
+            times = {}
+            for path in (self.root / 'revisions').glob('*/revision.json'):
+                produced = read_json(path, {}).get('generation')
+                if produced:
+                    times[produced] = max(times.get(produced, 0), path.stat().st_mtime)
+            self.registrations, self.registrations_scanned = times, time.monotonic()
+        return self.registrations.get(generation)
+
+    def superseded(self, generation):
+        """No client shows this generation, and one registered after it has live demand.
+
+        Game clients report demand while playing and request manifests with a distance while
+        loading; CLI checks never carry a distance.
+        """
+        now = time.time()
+        live = {g for (g, _client), demand in self.demands.items() if now - demand['seen'] < 120}
+        live |= {g for g, seen in self.viewed.items() if now - seen < 120}
+        own = self.registered(generation)
+        if generation in live or own is None:
+            return False
+        return any((self.registered(g) or 0) > own for g in live)
+
     def priority(self, key):
         info = self.queue_info[key]
         if info.get('pid') and process_alive(info['pid'], info.get('start_ticks')):
@@ -405,7 +436,21 @@ class Farm:
         for (generation, _client), demand in self.demands.items():
             if generation == key[0] and time.time() - demand['seen'] < 120 and key[1] in demand['tiles']:
                 category = min(category, demand['tiles'][key[1]])
+        if category == 1 and self.superseded(key[0]):
+            category = 4  # Explicit checks of replaced versions build only when nothing else waits.
         return (category, max(self.turns.get(key[0], 0), info['requested']), distance, info['requested'])
+
+    def evict_superseded(self):
+        """A full queue admits current work by dropping the oldest queued superseded check."""
+        waiting = [key for key in self.jobs if key not in self.dispatched
+                   and not self.queue_info[key].get('pid') and self.priority(key)[0] == 4]
+        if not waiting:
+            return False
+        key = min(waiting, key=lambda k: self.queue_info[k]['requested'])
+        self.event('dropped', revision=self.jobs[key], tile=key[1], reason='superseded, queue full')
+        self.jobs.pop(key)
+        self.queue_info.pop(key)
+        return True
 
     def demand(self, revision, client, tiles, urgent, visible):
         generation = self.revision(revision)['generation']

@@ -1,3 +1,4 @@
+import { placementVisibility } from './world/placementVisibility';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
@@ -67,7 +68,7 @@ declare global {
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
-      beforeFrame?: () => boolean; afterFrame?: () => void };
+      beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility };
   }
 }
 
@@ -148,7 +149,7 @@ const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Came
 } } : lights?.sprites;
 let post = idPass ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay);
 Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
-window.__render = { camera, environment: env, renderer, perf, post, setTime: (iso: string) => {
+window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility, setTime: (iso: string) => {
   const date = new Date(iso);
   if (!Number.isFinite(date.getTime())) throw new Error('invalid render time');
   dayClock.set(date);
@@ -236,6 +237,7 @@ const renderFrame = () => {
   vegetation?.update(camera);
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
+  if (!idPass) placementVisibility.update(camera);
   if (post) post.render(); else renderer.render(scene, camera);
   frameSubmitted(renderer);
 };

@@ -97,6 +97,35 @@ def measure(key, line, width, points, window):
     return dict(key=key, line=line, width=width, knots=knots, cross=cross, heights=heights)
 
 
+def area_strips(identity, geom):
+    """Complete paved areas use their principal axis; keep holes and exact
+    outlines as constraints rather than triangulating individual returns.
+
+    A principal-axis strip describes only a strip-like area. For a ring sidewalk
+    around a block, an L shape or a curved quay, area/chord length is not a width:
+    the strip would grade a 30 m ruled plane over the plazas and stairs inside the
+    ring. 4A/P is the width of a square or a long strip; a strip mostly outside its
+    own area is no survey of it.
+    """
+    strips = []
+    for i, area in enumerate(shapely.get_parts(geom)):
+        rectangle = np.asarray(area.minimum_rotated_rectangle.exterior.coords)
+        edges = np.diff(rectangle, axis=0)
+        direction = edges[np.argmax(np.linalg.norm(edges, axis=1))]
+        direction /= np.linalg.norm(direction)
+        centre = np.asarray(area.centroid.coords)[0]
+        axis = shapely.LineString([centre - direction * area.length, centre + direction * area.length])
+        for j, line in enumerate(shapely.get_parts(axis.intersection(area))):
+            if line.geom_type != "LineString" or line.length < 8:
+                continue
+            width = min(area.area / line.length, 4 * area.area / area.length, 30)
+            strip = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+            if strip.intersection(area).area < 0.75 * strip.area:
+                continue
+            strips.append((f"{identity}:{i}:{j}", line, max(width, 1)))
+    return strips
+
+
 def prepare(tile, osm, water_path, paths):
     from turku3d.ground.inputs import read_returns
     from turku3d.spatial import frame, rows
@@ -160,22 +189,7 @@ def prepare(tile, osm, water_path, paths):
                 continue
             ways.append((identity, geom, width))
         else:
-            # Complete paved areas use their principal axis; keep holes and exact
-            # outlines as constraints rather than triangulating individual returns.
-            for i, area in enumerate(shapely.get_parts(geom)):
-                rectangle = np.asarray(area.minimum_rotated_rectangle.exterior.coords)
-                edges = np.diff(rectangle, axis=0)
-                direction = edges[np.argmax(np.linalg.norm(edges, axis=1))]
-                direction /= np.linalg.norm(direction)
-                centre = np.asarray(area.centroid.coords)[0]
-                axis = shapely.LineString(
-                    [centre - direction * area.length, centre + direction * area.length]
-                )
-                for j, line in enumerate(shapely.get_parts(axis.intersection(area))):
-                    if line.geom_type == "LineString" and line.length >= 8:
-                        ways.append(
-                            (f"{identity}:{i}:{j}", line, np.clip(area.area / line.length, 1, 30))
-                        )
+            ways.extend(area_strips(identity, geom))
     if not ways:
         return []
     bounds = tile.bbox.buffered(60)

@@ -42,86 +42,20 @@ from .sources import permit_sources
 CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # Each prepared dataset depends only on its own producers. A surface fix must
 # not decode classified roof/bridge lidar again for every surrounding tile.
-DEPENDENCIES = {
-    "ground": ("../lidar/decoded.py", "../vegetation/trees.py"),
-    "water": ("water.py", "../spatial.py", "../ground/mesh.py"),
-    "walkable": (
-        "walkable.py",
-        "retaining_survey.py",
-        "underpasses.py",
-        "bridge_details.py",
-        "tunnels.py",
-        "../spatial.py",
-        "../ground/inputs.py",
-        "../lidar/cache.py",
-    ),
-    "wfs": (
-        "roofs.py",
-        "street_materials.py",
-        "../buildings/source_surfaces.py",
-        "../buildings/reconstruct.py",
-        "../buildings/inputs.py",
-        "../ground/materials.py",
-        "../spatial.py",
-    ),
-    "roads": (
-        "bridges.py",
-        "bridge_join.py",
-        "bridge_survey.py",
-        "bridge_access.py",
-        "tunnels.py",
-        "portals.py",
-        "bridge_details.py",
-        "underpasses.py",
-        "area.py",
-        "../spatial.py",
-        "../roads/__init__.py",
-        "../roads/attributes.py",
-        "../roads/tile_graph.py",
-        "../roads/access.py",
-    ),
-    "parking": ("parked.py", "../parked/placement.py", "../spatial.py"),
-    "kerb_parking": ("../parked/kerbs.py", "../spatial.py"),
-    "trees": ("tree_inputs.py", "../spatial.py"),
-    "attachments": ("attachments.py", "retaining_survey.py", "retaining.py", "../lidar/cache.py", "../spatial.py"),
-    "retaining": ("retaining_survey.py", "retaining.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
-    "vegetation_canopy": ("canopy_trees.py", "../vegetation/trees.py"),
-    "barriers": ("fences.py", "fence_survey.py", "retaining_survey.py", "retaining.py", "../roads/access.py", "../lidar/profiles.py", "../lidar/cache.py", "../spatial.py"),
-    "forests": ("forests.py", "../spatial.py"),
-    "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
-    "vegetation_roads": ("tree_inputs.py", "../spatial.py"),
-    "quay_lighting": ("quay_lighting.py", "quay_lighting_observations.json", "../spatial.py"),
-    "tunnels": (
-        "road_top.py",
-        "tunnels.py",
-        "portals.py",
-        "bridge_details.py",
-        "underpasses.py",
-        "area.py",
-        "../spatial.py",
-    ),
-    "stairs": ("stairs.py", "stair_survey.py", "stair_rails.py", "../lidar/cache.py", "../spatial.py"),
-    "surfaces": ("surfaces.py", "../spatial.py"),
-    "gardens": ("garden_inputs.py", "../spatial.py", "../ground/inputs.py"),
-    "boats": ("piers.py", "bridge_survey.py", "../ground/inputs.py", "boat_inputs.py", "harbour.py", "vessel_observations.json", "garden_inputs.py", "roofs.py", "water.py", "../lidar/cache.py", "../spatial.py"),
-    "markings": ("surfaces.py", "../spatial.py"),
-    "kerbs": ("kerbs.py", "../spatial.py"),
-    "street_profiles": ("street_survey.py", "../spatial.py",
-                        "../ground/curbs.py", "../ground/points.py", "../ground/inputs.py"),
-    "appearance": ("register.py", "../spatial.py"),
-    "register": ("register.py",),
-    "poles": (
-        "../night_lighting.py",
-        "../night_lighting.json",
-        "../props/__init__.py",
-        "../props/models.py",
-        "../props/orientation.py",
-        "../spatial.py",
-    ),
+# Prepared datasets besides ortho. Their code identities come from the static
+# closure of each producer (input_keys.closure_code), not from hand-kept file lists.
+DATASETS = (
+    "ground", "water", "walkable", "wfs", "roads", "parking", "kerb_parking", "trees",
+    "attachments", "retaining", "vegetation_canopy", "barriers", "forests", "vegetation_paths",
+    "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
+    "markings", "kerbs", "street_profiles", "appearance", "register", "poles",
+)
+# Data files a producer opens by a computed path the static closure cannot see.
+RESOURCES = {
+    "quay_lighting": ("quay_lighting_observations.json",),
+    "boats": ("vessel_observations.json",),
+    "poles": ("../night_lighting.json",),
 }
-for _dataset in ("walkable", "wfs", "attachments", "retaining", "vegetation_canopy",
-                 "barriers", "stairs", "gardens", "boats", "street_profiles"):
-    DEPENDENCIES[_dataset] += ("../lidar/decoded.py",)
 
 
 __all__ = ["CELLS", "Building", "Inputs", "MissingInputs", "NoCoverage", "gather", "prepare"]
@@ -450,11 +384,10 @@ def prepare_trees(
 
 
 def _key(paths: list[Path], dataset: str = "") -> str:
-    from .input_keys import dependency_code, producer_code
+    from .input_keys import closure_code, producer_code
 
     h = hashlib.sha256(producer_code(dataset))
-    for name in DEPENDENCIES.get(dataset.removesuffix("-first"), ()):
-        h.update(dependency_code(Path(__file__).parent / name, dataset))
+    h.update(closure_code(dataset))
     from turku3d.tile_layer import identities
 
     from .sources import content_paths

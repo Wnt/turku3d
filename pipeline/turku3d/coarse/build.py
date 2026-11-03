@@ -487,11 +487,25 @@ def build(
     closure_structures = [*stair_meshes, *kerb_meshes,
                           *[m for m in tunnels.meshes if m.object_id != "tunnel:ground-edge"]]
     closure_decks = [m for deck in osm_decks for m in deck.meshes]
-    dry, solid, closure_report = surface_closure.stage(
-        cache, source_ground, dry, solid, closure_structures, closure_decks,
+    dry, solid, seam_meshes, closure_report = surface_closure.stage(
+        cache, tile, dry, solid, closure_structures, closure_decks, bank,
         tunnels.openings, shapely.union_all([*water, *[b.footprint for b in inputs.buildings]])
     )
+    stair_meshes = [*stair_meshes, *seam_meshes]
     seconds["surface_closure"] = cache.metrics["surface_closure"]["seconds"]
+    from . import footings
+
+    passages = [line for _, line, _ in inputs.tunnels]
+    footing_meshes = cache.run(
+        "footings",
+        source_key(Path(footings.__file__), Path(__file__).with_name("walkable_audit.py"),
+                   base / "structures/geometry.py"),
+        [[(b.key, b.footprint.wkb, b.base) for b in inputs.buildings], dry,
+         [g.wkb for g in passages]],
+        lambda: footings.produce(inputs.buildings, dry, passages),
+    )
+    stair_meshes = [*stair_meshes, *footing_meshes]
+    seconds["footings"] = cache.metrics["footings"]["seconds"]
     # Street furniture and lights (G1): before collision, which merges their static primitives.
     from . import furniture
 
@@ -554,7 +568,7 @@ def build(
 
     surface_report = surface_audit.gate(
         out, tile, inputs, source_ground, tunnels.openings,
-        [dry, bank, *closure_structures, *closure_decks], navigation_cells
+        [dry, bank, *closure_structures, *seam_meshes, *closure_decks], navigation_cells
     )
     seconds["surface_audit"] = surface_report.get("seconds", 0.)
 
@@ -753,8 +767,15 @@ def build(
     )
     from turku3d.wall_assembly import assemble_layers
 
+    from . import visibility
+
+    context = [*blds, *inputs.wall_context]
     with cache.measure("wall_assembly"):
-        layer_files = assemble_layers(tile, layer_files, building_meshes, shells, out, stage, cache)
+        layer_files = assemble_layers(
+            tile, layer_files, building_meshes, shells, out, stage, cache,
+            bake=lambda meshes: visibility.stage(cache, tile, meshes, context, inputs.heights),
+        )
+    seconds["visibility"] = cache.metrics["visibility"]["seconds"]
 
     surface_channels = surfaces.channels(ground_meshes)
     seconds["visual_geometry"] = time.perf_counter() - t

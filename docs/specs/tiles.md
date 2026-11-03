@@ -46,13 +46,15 @@ URLs are relative to `dist/tiles/` and use `/` separators. Ids are case-sensitiv
 - The tile origin is carried as the **translation of a single root node** (doubles in JSON). Do not put the offset in `tileset.json` `transform`.
 - Steps: KTX2 first, then meshopt (no simplify, no join, no `KHR_mesh_quantization` on positions for L0).
 - `COLOR_0` remains authored linear RGB pigment. Optional `COLOR_1` carries baked static visibility as
-  float32 `VEC3`: R = local ambient visibility, G = sky visibility, B = bake coverage. All components
-  are finite and in `[0,1]`; visibility 1 means unoccluded, coverage 0 means unbaked and 1 fully baked.
+  normalized unsigned-byte `VEC4` (4 bytes per vertex): R = local ambient visibility, G = sky visibility,
+  B = bake coverage, A unused (1). Visibility 1 means unoccluded, coverage 0 means unbaked and 1 fully baked.
+  The coarse generator bakes it from a 2.5D height field of terrain and LOD2 roof parts
+  (`pipeline/turku3d/coarse/visibility.py`); the client multiplies indirect light by `min(R, G)` weighted by
+  coverage (`game/src/render/bakedVisibility.ts`).
   These values are lighting data, not albedo or direct-sun shadows. Absence means unbaked, not dark.
   Bake after final surface assembly; preserve both attributes through per-building extraction and packing.
   Translation into model-local coordinates preserves visibility. Rotation or context changes require a new
   bake; the upstream key must include occluder geometry and recipe, and the model key includes emitted bytes.
-  The transport contract alone does not enable runtime lighting or allow removal of SSAO/prepass coverage.
 - The offline `turku3d.baked_visibility.bake_meshes` kernel requires `pipeline[bake]` (pinned Embree).
   Supply final static targets, explicitly opaque occluders and a complete XZ context extent in one metric
   frame. Owned tile meshes alone cannot establish that completeness. Defaults are 64 fixed sphere directions,
