@@ -1,70 +1,5 @@
 [
   {
-    "name": "Kakola Spa",
-    "source": [
-      "node",
-      11257527216
-    ],
-    "fallback": {
-      "point": [
-        -1196.23,
-        837.16
-      ],
-      "street": [
-        -1199.48,
-        838.46
-      ],
-      "foot": 1674.9,
-      "car": 2756
-    }
-  },
-  {
-    "name": "Turun linna",
-    "source": [
-      "way",
-      466736288
-    ],
-    "entrance": [
-      "node",
-      9107548150
-    ],
-    "fallback": {
-      "point": [
-        -1917.92,
-        1632.26
-      ],
-      "street": [
-        -1917.99,
-        1628.76
-      ],
-      "foot": 2480.1,
-      "car": 2473.6
-    }
-  },
-  {
-    "name": "Turun tuomiokirkko",
-    "source": [
-      "way",
-      437169589
-    ],
-    "entrance": [
-      "node",
-      3687986134
-    ],
-    "fallback": {
-      "point": [
-        724.74,
-        -210.62
-      ],
-      "street": [
-        721.58,
-        -212.12
-      ],
-      "foot": 873.8,
-      "car": 1244.8
-    }
-  },
-  {
     "name": "Vanha rautatieasema, Ratapihankatu 37",
     "source": [
       "way",
@@ -88,72 +23,22 @@
     }
   },
   {
-    "name": "Kupittaan urheiluhalli",
+    "name": "Kakola Spa",
     "source": [
-      "way",
-      48381043
-    ],
-    "entrance": [
       "node",
-      4749496246
+      11257527216
     ],
     "fallback": {
       "point": [
-        1532.71,
-        492.32
+        -1196.23,
+        837.16
       ],
       "street": [
-        1529.41,
-        493.48
+        -1199.48,
+        838.46
       ],
-      "foot": 1814.8,
-      "car": 2765.3
-    }
-  },
-  {
-    "name": "Forum Marinum",
-    "source": [
-      "relation",
-      7626601
-    ],
-    "entrance": [
-      "node",
-      7954121175
-    ],
-    "fallback": {
-      "point": [
-        -1598.66,
-        1531.75
-      ],
-      "street": [
-        -1602.1,
-        1532.4
-      ],
-      "foot": 2218.5,
-      "car": 2465.6
-    }
-  },
-  {
-    "name": "Wäinö Aaltosen museo",
-    "source": [
-      "relation",
-      14702073
-    ],
-    "entrance": [
-      "node",
-      10106889121
-    ],
-    "fallback": {
-      "point": [
-        -235.3,
-        597.82
-      ],
-      "street": [
-        -237.26,
-        594.92
-      ],
-      "foot": 663.7,
-      "car": 1133.9
+      "foot": 1674.9,
+      "car": 2756
     }
   },
   {
@@ -180,6 +65,25 @@
     }
   },
   {
+    "name": "Turun biologinen museo",
+    "source": [
+      "way",
+      88333824
+    ],
+    "fallback": {
+      "point": [
+        23.5,
+        689.1
+      ],
+      "street": [
+        23.5,
+        689.1
+      ],
+      "foot": 646,
+      "car": 1499.5
+    }
+  },
+  {
     "name": "Sibelius-museo",
     "source": [
       "way",
@@ -203,60 +107,198 @@
     }
   },
   {
-    "name": "Turun biologinen museo",
+    "name": "Kupittaan urheiluhalli",
     "source": [
       "way",
-      88333824
+      48381043
     ],
-    "fallback": {
-      "point": [
-        23.5,
-        689.1
-      ],
-      "street": [
-        23.5,
-        689.1
-      ],
-      "foot": 646,
-      "car": 1499.5
-    }
-  },
-  {
-    "name": "Aboa Vetus Ars Nova",
-    "source": [
+    "entrance": [
       "node",
-      7216913870
+      4749496246
     ],
     "fallback": {
       "point": [
-        550.69,
-        95.99
+        1532.71,
+        492.32
       ],
       "street": [
-        553.7,
-        94.2
+        1529.41,
+        493.48
       ],
-      "foot": 692.7,
-      "car": 745.7
+      "foot": 1814.8,
+      "car": 2765.3
     }
   },
   {
-    "name": "Kuralan Kylämäki",
+    "name": "Turun tuomiokirkko",
     "source": [
       "way",
-      737669487
+      437169589
+    ],
+    "entrance": [
+      "node",
+      3687986134
     ],
     "fallback": {
       "point": [
-        3913.21,
-        -1229.7
+        724.74,
+        -210.62
       ],
       "street": [
-        3916.65,
-        -1230.32
+        721.58,
+        -212.12
       ],
-      "foot": 4438.9,
-      "car": 4580.3
+      "foot": 873.8,
+      "car": 1244.8
+    }
+  },
+  {
+    "name": "Ruissalon telakka",
+    "source": [
+      "relation",
+      18173388
+    ],
+    "fallback": {
+      "point": [
+        -3321.73,
+        1614.59
+      ],
+      "street": [
+        -3325.03,
+        1613.43
+      ],
+      "foot": 5339.7,
+      "car": 5659.9
+    }
+  },
+  {
+    "name": "Luolavuoren vesitorni",
+    "source": [
+      "way",
+      202453931
+    ],
+    "entrance": [
+      "node",
+      2935147791
+    ],
+    "fallback": {
+      "point": [
+        833.68,
+        2198.42
+      ],
+      "street": [
+        834.8,
+        2195.1
+      ],
+      "foot": 2496.4,
+      "car": 2779.4
+    }
+  },
+  {
+    "name": "Jaanin paloasema",
+    "source": [
+      "way",
+      94402909
+    ],
+    "fallback": {
+      "point": [
+        3094.64,
+        1155.65
+      ],
+      "street": [
+        3098.1,
+        1155.1
+      ],
+      "foot": 3922.5,
+      "car": 4262.2
+    }
+  },
+  {
+    "name": "Vesilinna",
+    "source": [
+      "way",
+      28173746
+    ],
+    "entrance": [
+      "node",
+      5903594137
+    ],
+    "fallback": {
+      "point": [
+        1117.41,
+        -527.94
+      ],
+      "street": [
+        1115.9,
+        -524.78
+      ],
+      "foot": 1528.9,
+      "car": 1878.9
+    }
+  },
+  {
+    "name": "Vartiovuoren tähtitorni",
+    "source": [
+      "way",
+      17037200
+    ],
+    "entrance": [
+      "node",
+      12009673402
+    ],
+    "fallback": {
+      "point": [
+        685.88,
+        193.7
+      ],
+      "street": [
+        685.92,
+        191.7
+      ],
+      "foot": 818.3,
+      "car": 1418.1
+    }
+  },
+  {
+    "name": "Mikaelinkirkko",
+    "source": [
+      "way",
+      34204417
+    ],
+    "entrance": [
+      "node",
+      5580660979
+    ],
+    "fallback": {
+      "point": [
+        -869.42,
+        177.93
+      ],
+      "street": [
+        -866.51,
+        175.99
+      ],
+      "foot": 1278.4,
+      "car": 1421.1
+    }
+  },
+  {
+    "name": "Juhannuskukkulan vesilinna",
+    "source": [
+      "way",
+      770661224
+    ],
+    "fallback": {
+      "point": [
+        -380.03,
+        -932.07
+      ],
+      "street": [
+        -378.13,
+        -929.13
+      ],
+      "foot": 1816.8,
+      "car": 2694.5
     }
   }
 ]
