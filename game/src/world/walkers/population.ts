@@ -28,6 +28,9 @@ export const WALKER = {
   /** Share of lives that stand on the pavement for their whole life (waiting, chatting: GTA's dense stand and phone
    *  scenarios), the share of those who stand in a face-to-face pair, the pair's spacing and the standers' offset. */
   stand: 0.16, pair: 0.55, spacing: 0.85, standSide: [0.5, 1.0] as const,
+  /** Seconds a route continues past the end of its life: a client keeps drawing a walker whose life ends in view
+   *  until it leaves the view (rendering only; nothing shared depends on it). */
+  linger: 30,
 };
 /** The farthest a walker can be from its birth point. */
 export const MAX_TRAVEL = WALKER.life[1] * WALKER.speed[1];
@@ -167,15 +170,16 @@ export class Population {
     }
   }
 
-  /** The same life at another time; null once it ended or its route is unknown here. */
-  at(walker: Walker, utcMs: number): Walker | null {
-    return this.walker(walker.cell, walker.slot, walker.lifeId, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000, undefined, walker.member);
+  /** The same life at another time; null once it ended (with `linger`, up to WALKER.linger later: rendering only) or its
+   *  route is unknown here. */
+  at(walker: Walker, utcMs: number, linger = false): Walker | null {
+    return this.walker(walker.cell, walker.slot, walker.lifeId, walker.life, walker.born, (utcMs - CYCLE_EPOCH) / 1000, undefined, walker.member, linger);
   }
 
   private walker(cell: Cell, slot: number, id: number, life: number, born: number, t: number,
-    near?: { x: number; z: number; radius: number }, member = 0): Walker | null {
+    near?: { x: number; z: number; radius: number }, member = 0, linger = false): Walker | null {
     const age = t - born;
-    if (age < 0 || age >= life) return null;
+    if (age < 0 || age >= (linger ? life + WALKER.linger : life)) return null;
     let entry = this.routes.get(id);
     if (!entry) { entry = { route: this.route(cell, id, life, born), used: 0 }; this.routes.set(id, entry); }
     entry.used = this.generation;
@@ -211,7 +215,7 @@ export class Population {
       id: person, lifeId: id, member, slot, variant: hash32(person, 8) % WALKER.variants, scale: HUMAN_MODELS[hash32(person, 8) % WALKER.variants].height,
       x: tmp.x - fz * side, z: tmp.z + fx * side, y: tmp.y, yaw: Math.atan2(fx, fz) + (member ? Math.PI : 0), chain: leg.chain, s,
       moving: !leg.idle, speed: route.speed, distance: leg.d0 + walked, idleTime: leg.idle ? elapsed : 0,
-      fade: Math.max(0, Math.min(1, age / WALKER.fade, (life - age) / WALKER.fade)), age, cell, life, born,
+      fade: Math.max(0, Math.min(1, age / WALKER.fade, ((linger ? life + WALKER.linger : life) - age) / WALKER.fade)), age, cell, life, born,
     };
   }
 
@@ -236,16 +240,17 @@ export class Population {
       if ((dir > 0 ? chains[c].length - s : s) < reach) dir = dir > 0 ? -1 : 1;
       if ((dir > 0 ? chains[c].length - s : s) >= reach) {
         const side = WALKER.standSide[0] + (WALKER.standSide[1] - WALKER.standSide[0]) * unit(hash32(id, 18));
-        legs.push({ chain: c, dir, s0: s, t0: 0, t1: life, d0: 0, idle: true, side, taper0: false, taper1: false });
-        return { legs, known: life, speed, life, offset: side, box: this.box(legs, speed, reach), group };
+        legs.push({ chain: c, dir, s0: s, t0: 0, t1: life + WALKER.linger, d0: 0, idle: true, side, taper0: false, taper1: false });
+        return { legs, known: life + WALKER.linger, speed, life, offset: side, box: this.box(legs, speed, reach), group };
       }
     }
     const pause = (duration: number) => { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + duration, d0: d, idle: true, taper0: false, taper1: false }); t += duration; };
     pause(WALKER.birthIdle * unit(hash32(id, 10)));
-    for (let guard = 0; t < life && guard < 256; guard++) {
+    const horizon = life + WALKER.linger;
+    for (let guard = 0; t < horizon && guard < 256; guard++) {
       // Signalised crossings ahead on this chain: walk to the kerb, wait for the walk phase, then cross.
       const gates = chains[c].gates;
-      for (let g = dir > 0 ? 0 : gates.length - 1; g >= 0 && g < gates.length && t < life; g += dir) {
+      for (let g = dir > 0 ? 0 : gates.length - 1; g >= 0 && g < gates.length && t < horizon; g += dir) {
         const gate = gates[g], back = WALKER.queue * unit(hash32(id, g, 14));
         const kerb = gate.s - dir * (gate.half + WALKER.kerb + back);
         if ((kerb - s) * dir < 0.2 || (gate.s - s) * dir <= 0) continue;
@@ -253,15 +258,15 @@ export class Population {
         legs.push({ chain: c, dir, s0: s, t0: t, t1: t + reach / speed, d0: d, idle: false, taper0, taper1: false });
         t += reach / speed; d += reach; s = kerb; taper0 = false;
         const wait = unit(hash32(id, g, 15)) < WALKER.jaywalk ? 0 : this.signalWait(gate, born + t, speed);
-        if (wait > 0 && t < life) { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + wait, d0: d, idle: true, side: offset, taper0: false, taper1: false }); t += wait; }
+        if (wait > 0 && t < horizon) { legs.push({ chain: c, dir, s0: s, t0: t, t1: t + wait, d0: d, idle: true, side: offset, taper0: false, taper1: false }); t += wait; }
       }
-      if (t >= life) break;
+      if (t >= horizon) break;
       const length = dir > 0 ? chains[c].length - s : s;
       const nodeIndex = dir > 0 ? chains[c].b : chains[c].a, node = nodes[nodeIndex];
       legs.push({ chain: c, dir, s0: s, t0: t, t1: t + length / speed, d0: d, idle: false, taper0, taper1: true });
       t += length / speed; d += length;
-      if (t >= life) break;
-      if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed), group: 1 };
+      if (t >= horizon) break;
+      if (!node.complete) return { legs, known: t, speed, life, offset, box: this.box(legs, speed, 0, life), group: 1 };
       const arriving = node.exits.findIndex(e => e.chain === c && e.atStart === (dir < 0));
       let exit = node.exits[arriving];
       if (node.exits.length === 2) exit = node.exits[1 - arriving];
@@ -276,13 +281,14 @@ export class Population {
       }
       c = exit.chain; dir = exit.atStart ? 1 : -1; s = exit.atStart ? 0 : chains[c].length; taper0 = true;
     }
-    return { legs, known: life, speed, life, offset, box: this.box(legs, speed), group: 1 };
+    return { legs, known: horizon, speed, life, offset, box: this.box(legs, speed, 0, life), group: 1 };
   }
 
   /** Bounds of the walked arcs, padded by the keep-right offset. */
-  private box(legs: Leg[], speed: number, reach = 0): [number, number, number, number] {
+  private box(legs: Leg[], speed: number, reach = 0, until = Infinity): [number, number, number, number] {
     const box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const leg of legs) {
+      if (leg.t0 >= until) break;
       const chain = this.network.chains[leg.chain], c = chain.cumulative, p = chain.points;
       const s1 = leg.s0 + leg.dir * (leg.idle ? reach : (leg.t1 - leg.t0) * speed);
       const lo = Math.min(leg.s0, s1), hi = Math.max(leg.s0, s1);

@@ -10,7 +10,7 @@ import { loadWalkerAsset, type WalkerAsset } from './asset';
 import { GroundHeights } from './heights';
 import { buildWalkNetwork, hash32, type WalkNetwork } from './network';
 import { Population, type BirthClock, type Walker } from './population';
-import { RING, Ring, type RingView } from './ring';
+import { RING, Ring, inView, type RingView } from './ring';
 import { WalkerMeshes, type WalkerInstance } from './visuals';
 import { humanAppearance } from './appearance';
 import { REACT, Reactions, type Threat } from './reactions';
@@ -50,6 +50,9 @@ const systems: Set<Walkers> = import.meta.hot?.data.systems ?? new Set<Walkers>(
 export function liveWalkerCount(): number { let n = 0; for (const s of systems) n += s.count; return n; }
 
 const SCAN_MS = 400, GRAPH_POLL_MS = 1000, RAYS_PER_FRAME = 24, YAW_RATE = 8, IDLE_SECONDS = 2.5;
+/** A birth closer than RING.popFree in view stays hidden until it is out of view; a drawn walker whose life ends in
+ *  view keeps walking its continued route until it is out of view or this far (m). */
+const BIRTH_SEEN = 1, LINGER_UNTIL = 80;
 /** Moving walkers keep this clearance from other drawn walkers (m, centre to centre) and look this far for them. */
 const CROWD_PERSONAL = 0.6, CROWD_REACH = 2.5;
 
@@ -65,6 +68,9 @@ export class Walkers {
   private ring = new Ring<Walker>();
   private reactions = new Reactions();
   private wide: Walker[] = [];
+  /** Births hidden from view, and drawn walkers past the end of their life (rendering only). */
+  private hidden = new Set<number>();
+  private lingering = new Map<number, Walker>();
   private lastScan = -Infinity;
   private lastGraphPoll = -Infinity;
   private request = 0;
@@ -144,7 +150,7 @@ export class Walkers {
   reset() {
     this.syncGraphs(); ++this.request;
     this.install(buildWalkNetwork(this.graphs), 0);
-    this.ring.clear(); this.wide = []; this.poses = []; this.reactions.clear();
+    this.ring.clear(); this.wide = []; this.poses = []; this.reactions.clear(); this.hidden.clear(); this.lingering.clear();
     this.lastScan = this.lastGraphPoll = -Infinity;
   }
 
@@ -172,9 +178,22 @@ export class Walkers {
       this.scanMs = performance.now() - scan;
     }
     const candidates: Walker[] = [];
+    const sight = (w: Walker, reach: number) => inView(view, w.x, w.z) && Math.hypot(w.x - view.x, w.z - view.z) < reach;
+    for (const old of this.lingering.values()) if (!this.wide.includes(old)) this.wide.push(old);
+    const hidden = new Set<number>();
     for (const old of this.wide) {
-      const walker = population.at(old, utc);
-      if (!walker) continue;
+      // A drawn walker never fades out in sight at the end of its life: it walks on, out of view, then goes.
+      const drawnNow = this.ring.has(old.id);
+      const walker = population.at(old, utc, drawnNow);
+      if (!walker) { this.lingering.delete(old.id); continue; }
+      if (walker.age >= walker.life) {
+        if (!drawnNow || !sight(walker, LINGER_UNTIL)) { this.lingering.delete(old.id); continue; }
+        this.lingering.set(old.id, old);
+      }
+      // A birth in plain sight is not drawn until the walker is out of view.
+      if ((walker.age < BIRTH_SEEN && !drawnNow && sight(walker, RING.popFree)) || this.hidden.has(walker.id) && sight(walker, RING.popFree + 10)) {
+        hidden.add(walker.id); continue;
+      }
       if (!Number.isFinite(walker.y)) {
         const chain = population.network.chains[walker.chain];
         const y = this.heights.height(chain, walker.s);
@@ -183,6 +202,7 @@ export class Walkers {
       }
       candidates.push(walker);
     }
+    this.hidden = hidden;
     const drawn = this.ring.select(candidates, view, this.options.cap, dt);
     const instances: WalkerInstance[] = [];
     this.poses = [];
@@ -285,7 +305,7 @@ export class Walkers {
     return { cap: this.options.cap, drawn: this.count, candidates: this.wide.length, chains: this.network?.chains.length ?? 0,
       cells: this.network?.cells.size ?? 0, graphs: this.graphs.length, heightsPending: this.heights.pending, rays: this.heights.rays,
       buildMs: Number(this.buildMs.toFixed(2)), updateMs: Number(this.updateMs.toFixed(3)), scanMs: Number(this.scanMs.toFixed(3)),
-      reacting: this.reactions.active, variants: this.meshes?.meshes.map(m => m.count) ?? [] };
+      reacting: this.reactions.active, hidden: this.hidden.size, lingering: this.lingering.size, variants: this.meshes?.meshes.map(m => m.count) ?? [] };
   }
 
   debugPoses() { return this.poses; }

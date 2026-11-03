@@ -52,7 +52,10 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
 The ring scores walkers by distance in view (camera cone plus 12°) and 2.5× distance out of view: drawn to 100 m
 ahead and 40 m behind, 10 ring metres of hysteresis, incumbents win ties by 6 m. The cap picks the lowest scores.
 A walker entering or leaving the drawn set closer than 55 m in view fades over 0.6 s (vertex scale, no discard);
-elsewhere it switches instantly. Caps: mobile 0, low 10, medium 60, high 100; `?walkers=N` (0–200) overrides.
+elsewhere it switches instantly. A birth closer than 55 m in view is not drawn until that walker is out of view; a drawn walker whose life ends in
+view walks on along its continued route (`Population.at(…, linger)`, up to 30 s) until it leaves the view or is 80 m
+away, so nobody appears or vanishes in plain sight. Caps: mobile 0, low 10, medium 60, high 100; `?walkers=N` (0–200)
+overrides.
 Yaw is smoothed per drawn walker. None of this changes where a walker is.
 
 ## Reactions to players (local)
@@ -93,7 +96,7 @@ planned for Phase 3 traffic would gate it). Walkers have no physics; they react 
 
 ```sh
 cd game
-npx vitest run tests/unit/walkers.test.ts tests/unit/walker-reactions.test.ts tests/unit/walker-signals.test.ts tests/unit/audio.test.ts
+npx vitest run tests/unit/walkers.test.ts tests/unit/walker-reactions.test.ts tests/unit/walker-signals.test.ts tests/unit/walker-sight.test.ts tests/unit/audio.test.ts
 npx tsc --noEmit -p tsconfig.json
 ```
 

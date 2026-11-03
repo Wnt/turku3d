@@ -113,3 +113,24 @@ describe('standing walkers', () => {
     for (const life of standing) for (const m of life.members.values()) expect(Math.abs(m.x - 115) < 1 && Math.abs(m.z - 125) < 3.5).toBe(false);
   });
 });
+
+describe('lives past their end (rendering only)', () => {
+  test('a lingering walker continues its route smoothly past the end of its life; the shared model drops it', () => {
+    const population = new Population(buildWalkNetwork([junction()]), () => 13);
+    const t0 = CYCLE_EPOCH + 3_600_000;
+    const walkers = population.near(100, 125, 60, t0).filter(w => w.moving);
+    expect(walkers.length).toBeGreaterThan(0);
+    let checked = 0;
+    for (const first of walkers) {
+      const end = first.born + first.life, endMs = CYCLE_EPOCH + end * 1000;
+      const before = population.at(first, endMs - 50, true), after = population.at(first, endMs + 50, true);
+      if (!before || !after) continue;
+      expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThan(0.2);
+      expect(after.fade).toBe(1);
+      expect(population.at(first, endMs + 50)).toBeNull();
+      expect(population.near(after.x, after.z, 1, endMs + 50).some(w => w.id === first.id)).toBe(false);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+});
