@@ -282,37 +282,9 @@ def produce(tile, records):
         # Separate blue bulwark and slim white bars around the open working deck.
         edge = outline.buffer(-0.12)
         parts.extend(rails(key, edge, deck, surface=boat["appearance"].get("rail_surface", "blue")))
-        for point, top in boat["masts"]:
-            parts.append(
-                tube(key, [point.x, deck, point.y], [point.x, top, point.y], 0.055, "white")
-            )
-        # Multiple tall measured masts on a low-cabin hull describe sailing rigging.
-        tall = [(p, h) for p, h in boat["masts"] if h > deck + 10]
-        sailing = (len(tall) >= 3 or boat["tags"].get("building:material") == "wood"
-                   or boat["tags"].get("ship:type") in ("sailing", "sailboat", "tall_ship"))
-        if len(tall) >= 2 and sailing:
-            from .harbour import axis
+        from .rigging import produce as produce_rigging
 
-            direction = axis(outline)
-            normal = np.array([-direction[1], direction[0]])
-            beam = outline.minimum_rotated_rectangle.area / max(outline.length / 2, 1)
-            rigging_start = len(parts)
-            for point, top in tall:
-                xy = np.asarray(point.coords[0])
-                for fraction in (.48, .65, .8, .92):
-                    y = deck + (top-deck)*fraction
-                    half = beam * (1.15 - fraction*.65)
-                    a, b = xy-normal*half, xy+normal*half
-                    parts.append(tube(key, [a[0], y, a[1]], [b[0], y, b[1]], .065, "wood"))
-                for end in (-1, 1):
-                    anchor = xy + direction * end * min(12, (top-deck)*.45)
-                    if outline.buffer(.1).covers(shapely.Point(anchor)):
-                        for side in (-1, 1):
-                            foot = anchor + normal * side * beam*.35
-                            parts.append(tube(key, [point.x, top, point.y],
-                                              [foot[0], deck+.5, foot[1]], .018, "hull"))
-            for part in parts[rigging_start:]:
-                part.metadata["collision"] = False
+        parts.extend(produce_rigging(key, boat))
         if boat["tags"].get("amenity") in ("restaurant", "bar", "cafe", "pub", "nightclub"):
             parts.extend(furniture(key, boat, outline.difference(cabins.buffer(0.6))))
         for part in combine(parts, key):
@@ -386,6 +358,7 @@ def stage(cache, tile, records):
             Path(__file__).with_name("bridge_details.py"),
             Path(__file__).with_name("gardens.py"),
             Path(__file__).with_name("harbour.py"),
+            Path(__file__).with_name("rigging.py"),
             Path(C.__file__),
             Path(__file__).parents[1] / "structures/geometry.py",
         ),

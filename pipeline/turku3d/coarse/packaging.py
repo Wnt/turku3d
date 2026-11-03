@@ -24,6 +24,7 @@ PRODUCERS = (
     "piers",
     "yard_cover",
     "harbour",
+    "rigging",
     "boat_inputs",
     "walkable",
     "gardens",
