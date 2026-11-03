@@ -26,6 +26,7 @@ function compressed(value: THREE.Texture | null): value is Compressed {
     && typeof texture.userData.sharedAsset === 'string' && Array.isArray(texture.mipmaps) && texture.mipmaps.length > 0
     && texture.mipmaps.every(mip => mip.data && ArrayBuffer.isView(mip.data)) && texture.channel === 0;
 }
+const arrayNode = (array: THREE.CompressedArrayTexture) => texture(array);
 const transform = (t: THREE.Texture) => [...t.offset.toArray(), ...t.repeat.toArray(), ...t.center.toArray(), t.rotation].join(',');
 /** Everything that must match for two textures to be slices of one array. */
 const layout = (t: Compressed) => JSON.stringify([t.format, t.type, t.colorSpace, t.wrapS, t.wrapT, t.magFilter, t.minFilter, t.flipY,
@@ -65,7 +66,7 @@ export class SurfaceArrays {
   private slices: SurfaceSlice[] = [];
   private layouts: string[] | null = null;
   private arrays: THREE.CompressedArrayTexture[] = [];
-  private nodes: ReturnType<typeof texture>[] = [];
+  private nodes: ReturnType<typeof arrayNode>[] = [];
   private factors = [Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()), Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4()),
     Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4())];
   private materials = new Map<boolean, THREE.MeshStandardNodeMaterial>();
@@ -108,7 +109,7 @@ export class SurfaceArrays {
       await Promise.all(next.map(texture => this.upload(texture)));
       const previous = this.arrays;
       this.arrays = next;
-      next.forEach((texture, channel) => { if (this.nodes[channel]) this.nodes[channel].value = texture; });
+      next.forEach((texture, channel) => { if (this.nodes[channel]) this.nodes[channel].value = texture; }); // every material
       for (const texture of previous) texture.dispose();
     }).catch(error => console.warn(`[surface arrays] ${error}`));
   }
@@ -116,7 +117,8 @@ export class SurfaceArrays {
   /** Resolves once every layer handed out so far is in the arrays the material samples (MaterialStyler.prepare). */
   ready() { return this.pending; }
 
-  /** Power-of-two capacity, every current slice copied from its own compressed mips. */
+  /** Power-of-two capacity, every current slice copied from its own compressed mips. Sets are never patched with
+   * addLayerUpdate: r186 then uploads only the listed layers, even on a texture's first upload (the rest stay black). */
   private build() {
     const capacity = Math.max(4, 2 ** Math.ceil(Math.log2(this.slices.length)));
     return [0, 1, 2].map(channel => {
@@ -148,7 +150,9 @@ export class SurfaceArrays {
     if (existing) return existing;
     const material = new THREE.MeshStandardNodeMaterial({ name: wet ? 'surface-array' : 'surface-array-dry' });
     const layer = int(attribute(SURFACE_LAYER, 'float').add(0.5));
-    const [albedo, normal, orm] = this.nodes = this.arrays.map(array => texture(array));
+    // One base node per channel shared by the wet and dry materials (their .depth() clones read its value), so a
+    // swap reaches both. Per-material nodes left the first family on the released set: black sidewalks and kerbs.
+    const [albedo, normal, orm] = [0, 1, 2].map(channel => this.nodes[channel] ??= arrayNode(this.arrays[channel]));
     const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4'));
     const element = (values: ReturnType<typeof uniformArray>) => values.element(layer) as unknown as THREE.Node<'vec4'>;
     const colour = vec4(element(colours)), surface = vec4(element(pbr)), scale = vec4(element(scales));

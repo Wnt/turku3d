@@ -7,6 +7,7 @@ import { GameRenderer } from '../../src/render/shadowMaterials';
 import { GameLighting } from '../../src/render/lighting';
 import { Environment } from '../../src/render/environment';
 import { MaterialStyler } from '../../src/render/materials';
+import { modelTextures } from '../../src/render/textureUploads';
 import { QUALITY } from '../../src/render/quality';
 import { SURFACE_LAYER } from '../../src/render/surfaceArrays';
 
@@ -131,4 +132,11 @@ test('a surface first seen later swaps in a complete uploaded array set; the old
   const after = arrays()[0];
   expect(after).not.toBe(before); expect(uploads).toContain(after); expect(released).toBe(true);
   expect((after.mipmaps[0].data as Uint8Array)[32 * 32 * 5]).toBe((19 * 16) & 255); // layer 5: the new cobbles
+  // Both families of the resident tile sample the new set (the wet one stayed on the released set: black kerbs).
+  const families = new Set<THREE.Material>();
+  a.model.traverse(object => { const mesh = object as THREE.Mesh; if (mesh.isMesh && mesh.name.startsWith('surface-array')) families.add(mesh.material as THREE.Material); });
+  expect(families.size).toBe(2);
+  const sampled = [...modelTextures(a.model)].filter(t => (t as THREE.CompressedArrayTexture).isCompressedArrayTexture);
+  expect(new Set(sampled)).toEqual(new Set(arrays()));
+  expect(arrays().every(t => t.layerUpdates.size === 0)).toBe(true);
 });
