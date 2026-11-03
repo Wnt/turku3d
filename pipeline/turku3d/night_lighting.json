@@ -158,6 +158,19 @@
     },
     "night_landmark_wall": {
       "intensity": 1
+    },
+    "night_quay_bar": {
+      "intensity": 8
     }
+  },
+  "quay": {
+    "about": "Lower-quay LED bars (issue 019). Placement policy, tint and wash depth live in coarse/quay_lighting_observations.json; these are renderer-relative intensities only.",
+    "washIntensity": 4,
+    "evidence": [
+      554993,
+      399195,
+      333083,
+      334533
+    ]
   }
 }

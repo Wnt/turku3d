@@ -688,11 +688,14 @@ def build(
     stair_visuals = stairs.visuals(tile, stair_meshes)
     ground_meshes.extend(stair_visuals)
     ground_meshes.extend(boats.visuals(tile, boat_meshes))
-    ground_meshes.extend(
-        surfaces.visuals(
-            tile, bank.positions, bank.indices, bank.material, np.ones(len(bank.indices), bool)
-        )
-    )
+    from . import quay_lighting
+
+    ground_meshes.extend(cache.run(
+        "quay_lighting",
+        source_key(Path(quay_lighting.__file__), quay_lighting.OBSERVATIONS, surfaces.visuals, *common),
+        [tile, bank, inputs.walkable, inputs.quay_lighting, level],
+        lambda: quay_lighting.visuals(tile, bank, inputs.walkable, inputs.quay_lighting, level),
+    ))
     if len(river.indices):
         from . import water_appearance
 

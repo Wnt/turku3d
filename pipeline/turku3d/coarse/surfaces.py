@@ -307,6 +307,8 @@ def channels(meshes):
         if not key.startswith("draft_"):
             continue
         name = key.removeprefix("draft_")
+        if name == "quay_stone_lit":
+            name = "quay_stone"
         if name in KEYS:
             selected.add(KEYS.index(name))
         elif mesh.extras.get("layer") == "ground":
@@ -317,7 +319,13 @@ def channels(meshes):
 def library(root: Path, base: Path, channels):
     from .surface_library import library as shared_library
 
-    return shared_library(root, base, channels)
+    library = shared_library(root, base, channels)
+    if KEYS.index("quay_stone") in channels:
+        try:
+            (library / "draft_quay_stone_lit").symlink_to("draft_quay_stone", target_is_directory=True)
+        except FileExistsError:
+            pass
+    return library
 
 
 def mapped_paint(tile, path):

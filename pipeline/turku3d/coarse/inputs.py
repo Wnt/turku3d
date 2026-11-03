@@ -90,6 +90,7 @@ DEPENDENCIES = {
     "forests": ("forests.py", "../spatial.py"),
     "vegetation_paths": ("forest_paths.py", "../spatial.py", "../roads/__init__.py"),
     "vegetation_roads": ("tree_inputs.py", "../spatial.py"),
+    "quay_lighting": ("quay_lighting.py", "quay_lighting_observations.json", "../spatial.py"),
     "tunnels": (
         "road_top.py",
         "tunnels.py",
@@ -157,6 +158,7 @@ class Inputs:
     forests: list = ()
     vegetation_paths: list | None = None
     vegetation_roads: list = ()  # functional carriageways, independent of paving material
+    quay_lighting: list = ()  # eligible mapped lower-riverside lighting corridors
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
@@ -516,6 +518,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
     ortho = None if first_pass else sources.ortho_source(tile)
     wfs = [sources.wfs_source(name, tile) for name in WFS_LAYERS]
     osm = sources.osm_source(tile)
+    from .quay_lighting import source_paths as quay_light_sources
     return {
         "ground": None if missing else laz,
         "vegetation_canopy": [] if first_pass else roofs.lidar_paths(tile),
@@ -547,6 +550,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "forests": [osm] if osm else None,
         "vegetation_paths": [osm] if osm else None,
         "vegetation_roads": [wfs[1][1]] if wfs[1][0] else [],
+        "quay_lighting": [] if first_pass else quay_light_sources(osm),
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
         "poles": [wfs[3][1], wfs[4][1], wfs[5][1], wfs[1][1], osm, *(p for _, p in wfs[6:])]
@@ -607,6 +611,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .canopy_trees import canopy_points
 
         return canopy_points(tile, paths)
+    if dataset == "quay_lighting":
+        from .quay_lighting import prepare as prepare_quay_lighting
+
+        return prepare_quay_lighting(tile, paths)
     if dataset == "parking":
         from .parked import prepare as prepare_parking
 
@@ -890,6 +898,7 @@ def gather(
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
         vegetation_roads=values["vegetation_roads"] or (),
+        quay_lighting=values["quay_lighting"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),
         vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
         trees=values["trees"] or (),
