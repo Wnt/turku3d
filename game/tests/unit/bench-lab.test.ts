@@ -34,7 +34,7 @@ describe('bench lab URL contract', () => {
     expect(() => parseAblations('shadow')).toThrow(/bad ablation shadow/);
     expect([...parseLab('?bench=install')!.off].sort()).toEqual(['traffic', 'walkers']);
     expect([...parseLab('?bench=fly&on=traffic&off=bloom')!.off].sort()).toEqual(['bloom', 'walkers']);
-    expect([...parseLab(`?bench=static&off=${ABLATIONS.join(',')}`)!.off]).toHaveLength(12);
+    expect([...parseLab(`?bench=static&off=${ABLATIONS.join(',')}`)!.off]).toHaveLength(ABLATIONS.length);
   });
 
   it('takes explicit tiles, poses and sizes and rejects malformed values', () => {

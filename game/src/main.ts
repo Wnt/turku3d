@@ -54,6 +54,7 @@ import { ScenePopulation } from './world/scenePopulation';
 import { GroundIndex } from './world/groundIndex';
 import { drawCensus } from './render/census';
 import { GameRenderer } from './render/shadowMaterials';
+import { StaticBundles } from './render/staticBundles';
 import { ablateScene, ablateSettings } from './qa/lab/ablate';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
@@ -80,7 +81,7 @@ declare global {
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
       /** One frame's draws by pass/group plus the node-program build log (render/census.ts). */
-      census?: () => Promise<unknown> };
+      census?: () => Promise<unknown>; bundles?: StaticBundles | null };
   }
 }
 
@@ -184,6 +185,11 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
+// Resident tiles' unchanging draws replay as static render bundles (WebGPU only; the WebGL2 fallback has none).
+const bundles = idPass || backend !== 'WebGPU' || params.lab?.off.has('bundles') ? null : new StaticBundles(scene);
+window.__render!.bundles = bundles;
+tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.add(model));
+tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => bundles?.remove(model));
 tiles.events.addEventListener('load-model', ({ scene: model }: { scene: THREE.Object3D }) => rain?.exposure.add(model));
 const materials = idPass ? null : new MaterialStyler(renderer, env, params.quality, !!params.qa && !params.motion);
 tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE.Object3D }) => {
@@ -271,6 +277,7 @@ const renderFrame = () => {
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation });
   if (!idPass) placementVisibility.update(camera);
+  bundles?.update();
   if (post) post.render(); else renderer.render(scene, camera);
   frameSubmitted(renderer);
 };

@@ -48,23 +48,30 @@ export interface FrameEnds { install(each: () => void): void; uninstall(): void 
 /** One whole frame's draws and triangles by pass and object family, sorted by draws. */
 export function drawCensus(renderer: THREE.WebGPURenderer, frameEnds: FrameEnds, builds?: BuildLog) {
   return new Promise<{ draws: number; rows: [string, number, number][]; builds?: { inFrame: number; prepared: number; families: BuildFamily[]; recent: BuildEntry[] } }>(resolve => {
-    const host = renderer as unknown as { _renderObjectDirect: Direct };
+    const host = renderer as unknown as { _renderObjectDirect: Direct; bundleDraw?: ((object: THREE.Object3D, camera: THREE.Camera) => void) | null };
     const original = host._renderObjectDirect;
     const rows = new Map<string, { draws: number; tris: number }>();
-    host._renderObjectDirect = function (this: unknown, object, material, scene, camera, ...rest) {
+    const count = (object: THREE.Object3D, camera: THREE.Camera, suffix: string) => {
       const mesh = object as THREE.Mesh, geometry = mesh.geometry;
       let count = geometry?.index ? geometry.index.count : geometry?.attributes.position?.count ?? 0;
       if (geometry?.drawRange && geometry.drawRange.count !== Infinity) count = Math.min(count, geometry.drawRange.count);
       const instances = (mesh as THREE.InstancedMesh).count > 1 ? (mesh as THREE.InstancedMesh).count : 1;
-      const key = `${passLabel(renderer, camera)}\t${objectLabel(object)}`;
+      const key = `${passLabel(renderer, camera)}\t${objectLabel(object)}${suffix}`;
       const row = rows.get(key) ?? { draws: 0, tris: 0 }; row.draws++; row.tris += count / 3 * instances; rows.set(key, row);
+    };
+    host._renderObjectDirect = function (this: unknown, object, material, scene, camera, ...rest) {
+      count(object, camera, '');
       return original.call(this, object, material, scene, camera, ...rest);
     };
+    // Replayed static render bundles (render/staticBundles.ts) encode nothing per draw; they count as `[b]` rows.
+    const bundled = 'bundleDraw' in host;
+    if (bundled) host.bundleDraw = (object, camera) => count(object, camera, ' [b]');
     let ends = 0;
     frameEnds.install(() => {
       if (++ends === 1) { rows.clear(); return; } // the first end closes a partial frame
       frameEnds.uninstall();
       host._renderObjectDirect = original;
+      if (bundled) host.bundleDraw = null;
       const sorted = [...rows].map(([key, row]) => [key, row.draws, Math.round(row.tris)] as [string, number, number]).sort((a, b) => b[1] - a[1]);
       resolve({ draws: sorted.reduce((sum, row) => sum + row[1], 0), rows: sorted,
         builds: builds && { inFrame: builds.inFrameTotal, prepared: builds.preparedTotal, families: builds.top(), recent: builds.entries.slice(-80) } });
