@@ -14,6 +14,9 @@ const GRAIN: Record<string, number> = { asphalt: 4, granite: 2.5, cobblestone: 2
 const WET_STANDARD = /(?:concrete|stone|brick|road_paint|fieldstone)/;
 export const SURFACE_LAYER = '_surface_layer';
 const MAX_LAYERS = 64;
+/** Room for the coarse library's surfaces without growth rebuilds (a layer is ~1.8 MB: 1024² albedo, 512² normal, 256² ORM). */
+const MIN_CAPACITY = 16;
+const capacityFor = (layers: number) => Math.max(MIN_CAPACITY, 2 ** Math.ceil(Math.log2(layers)));
 
 type Compressed = THREE.CompressedTexture & { mipmaps: { data: ArrayBufferView; width: number; height: number }[] };
 export interface SurfaceSlice { key: string; maps: [Compressed, Compressed, Compressed]; grain: number; wet: boolean; patches: number;
@@ -71,9 +74,13 @@ export class SurfaceArrays {
     Array.from({ length: MAX_LAYERS }, () => new THREE.Vector4())];
   private materials = new Map<boolean, THREE.MeshStandardNodeMaterial>();
   private pending: Promise<void> = Promise.resolve();
-  private dirty = false;
+  private writes = new Set<number>();
+  private scheduled = false;
+  /** upload: a complete texture through the budgeted queue; update: change and upload a texture in one budgeted
+   * after-frame task (render/textureUploads.ts). */
   constructor(private tier: QualityTier, private detail: THREE.Texture,
-    private upload: (texture: THREE.Texture) => Promise<void> = async () => {}) {}
+    private upload: (texture: THREE.Texture) => Promise<void> = async () => {},
+    private update: (texture: THREE.Texture, bytes: number, change: () => void) => Promise<void> = async (_texture, _bytes, change) => change()) {}
 
   owns(material: THREE.Material) { return [...this.materials.values()].includes(material as THREE.MeshStandardNodeMaterial); }
   get layers() { return this.slices.length; }
@@ -96,31 +103,51 @@ export class SurfaceArrays {
     return index;
   }
 
-  /** The first arrays are built at once, before anything draws them, and upload with the tile's own preparation.
-   * Every later layer double-buffers: a complete new set uploads through the budgeted queue, then the material's
-   * texture nodes swap to it, so resident tiles never trigger an upload inside a frame. */
+  /** Nothing a resident tile samples changes inside a frame. The first set is built at once (before anything draws
+   * it: the first material asks for it) and uploads with the tile's preparation. A later slice is written in place: one budgeted after-frame task
+   * copies its layer and uploads just that layer (r186 uploads layerUpdates alone, so only after the set's first full
+   * upload). Only growth past the capacity builds a complete larger set, uploaded before the material swaps to it. */
   private rebuild() {
-    if (!this.arrays.length) { this.arrays = this.build(); return; }
-    if (this.dirty) return;
-    this.dirty = true;
+    if (!this.nodes.length) return; // nothing samples the arrays yet: the first material builds them (all slices so far)
+    this.writes.add(this.slices.length - 1);
+    if (this.scheduled) return;
+    this.scheduled = true;
     this.pending = this.pending.then(async () => {
-      this.dirty = false;
-      const next = this.build();
-      await Promise.all(next.map(texture => this.upload(texture)));
-      const previous = this.arrays;
-      this.arrays = next;
-      next.forEach((texture, channel) => { if (this.nodes[channel]) this.nodes[channel].value = texture; }); // every material
-      for (const texture of previous) texture.dispose();
+      this.scheduled = false;
+      const layers = [...this.writes];
+      this.writes.clear();
+      if (capacityFor(this.slices.length) > this.arrays[0].image.depth) {
+        const next = this.build();
+        await Promise.all(next.map(texture => this.upload(texture)));
+        const previous = this.arrays;
+        this.arrays = next;
+        next.forEach((texture, channel) => { if (this.nodes[channel]) this.nodes[channel].value = texture; }); // every material
+        for (const texture of previous) texture.dispose();
+        return;
+      }
+      await Promise.all(this.arrays.map((array, channel) => {
+        const bytes = layers.length * this.slices[0].maps[channel].mipmaps.reduce((sum, mip) => sum + mip.data.byteLength, 0);
+        return this.update(array, bytes, () => {
+          for (const index of layers) { this.copy(array, index, channel); array.addLayerUpdate(index); }
+          array.needsUpdate = true;
+        });
+      }));
     }).catch(error => console.warn(`[surface arrays] ${error}`));
+  }
+
+  private first() {
+    this.arrays = this.build();
+    const first = this.arrays;
+    this.pending = this.pending.then(() => Promise.all(first.map(texture => this.upload(texture)))).then(() => {});
   }
 
   /** Resolves once every layer handed out so far is in the arrays the material samples (MaterialStyler.prepare). */
   ready() { return this.pending; }
 
-  /** Power-of-two capacity, every current slice copied from its own compressed mips. Sets are never patched with
-   * addLayerUpdate: r186 then uploads only the listed layers, even on a texture's first upload (the rest stay black). */
+  /** Every current slice copied from its own compressed mips. A new set is never given layerUpdates: r186 uploads
+   * only the listed layers even on a texture's first upload (the others stay black). */
   private build() {
-    const capacity = Math.max(4, 2 ** Math.ceil(Math.log2(this.slices.length)));
+    const capacity = capacityFor(this.slices.length);
     return [0, 1, 2].map(channel => {
       const first = this.slices[0].maps[channel];
       const mipmaps = first.mipmaps.map(mip => ({ data: new Uint8Array(mip.data.byteLength * capacity), width: mip.width, height: mip.height }));
@@ -152,6 +179,7 @@ export class SurfaceArrays {
     const layer = int(attribute(SURFACE_LAYER, 'float').add(0.5));
     // One base node per channel shared by the wet and dry materials (their .depth() clones read its value), so a
     // swap reaches both. Per-material nodes left the first family on the released set: black sidewalks and kerbs.
+    if (!this.arrays.length) this.first();
     const [albedo, normal, orm] = [0, 1, 2].map(channel => this.nodes[channel] ??= arrayNode(this.arrays[channel]));
     const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4'));
     const element = (values: ReturnType<typeof uniformArray>) => values.element(layer) as unknown as THREE.Node<'vec4'>;
@@ -176,7 +204,11 @@ export class SurfaceArrays {
     return material;
   }
 
-  dispose() { for (const array of this.arrays) array.dispose(); for (const material of this.materials.values()) material.dispose(); this.arrays = []; this.materials.clear(); }
+  dispose() {
+    for (const array of this.arrays) array.dispose();
+    for (const material of this.materials.values()) material.dispose();
+    this.arrays = []; this.nodes = []; this.materials.clear();
+  }
 }
 
 const position = new THREE.Vector3(), normal = new THREE.Vector3(), normalMatrix = new THREE.Matrix3();

@@ -56,10 +56,17 @@ function world() {
   const scene = new THREE.Scene(), env = new Environment(scene, renderer, 'medium');
   scene.environment = Object.assign(new THREE.DataTexture(new Uint8Array(4 * 64 * 64), 64, 64), { mapping: THREE.CubeUVReflectionMapping });
   const styler = new MaterialStyler(renderer, env, 'medium', true);
-  const uploads: THREE.Texture[] = [];
+  const uploads: THREE.Texture[] = [], updates: { texture: THREE.Texture; uploaded: boolean; layers: number[] }[] = [];
   // The real queue uploads in budgeted tasks after rendered frames; record what it would upload.
-  (styler as unknown as { surfaces: { upload: (t: THREE.Texture) => Promise<void> } }).surfaces.upload = async texture => { uploads.push(texture); };
-  return { renderer, scene, env, styler, uploads };
+  const surfaces = (styler as unknown as { surfaces: { upload: (t: THREE.Texture) => Promise<void>;
+    update: (t: THREE.Texture, bytes: number, change: () => void) => Promise<void> } }).surfaces;
+  surfaces.upload = async texture => { uploads.push(texture); };
+  surfaces.update = async (texture, _bytes, change) => {
+    change();
+    updates.push({ texture, uploaded: uploads.includes(texture), layers: [...(texture as THREE.CompressedArrayTexture).layerUpdates] });
+    (texture as THREE.CompressedArrayTexture).clearLayerUpdates(); // as r186's upload does
+  };
+  return { renderer, scene, env, styler, uploads, updates };
 }
 
 test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arrays; others keep their own draw', async () => {
@@ -85,8 +92,7 @@ test('a tile\'s wet library surfaces draw as one mesh over city-wide texture arr
   const albedo = (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays[0];
   const slice = albedo.mipmaps[1].data as Uint8Array, level = 16 * 16;
   expect(slice[level * 1]).toBe((4 * 16 + 1) & 255); // layer 1 (granite), mip 1
-  expect(albedo.image.depth).toBe(8); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]); // 5 layers: capacity 8
-  // Layers after the first set double-buffer: the set the material samples was uploaded before it swapped in.
+  expect(albedo.image.depth).toBe(16); expect(albedo.repeat.toArray()).toEqual([0.5, 0.5]); // room for the library
   expect(uploads).toContain(albedo);
 
   // A second tile with its own texture objects for the same assets adds no layer and shares the program.
@@ -119,24 +125,46 @@ test('the merged surface material builds a WebGPU program with r186\'s CPU build
   expect(dryBuilder.fragmentShader).toMatch(/texture_2d_array/);
 });
 
-test('a surface first seen later swaps in a complete uploaded array set; the old set is released', async () => {
-  const { styler, uploads } = world();
+const arraysOf = (styler: MaterialStyler) => (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays;
+/** Both families of a resident tile sample exactly the current set (the wet one once stayed on a released set). */
+function expectSampled(model: THREE.Object3D, styler: MaterialStyler) {
+  const families = new Set<THREE.Material>();
+  model.traverse(object => { const mesh = object as THREE.Mesh; if (mesh.isMesh && mesh.name.startsWith('surface-array')) families.add(mesh.material as THREE.Material); });
+  expect(families.size).toBe(2);
+  const sampled = [...modelTextures(model)].filter(t => (t as THREE.CompressedArrayTexture).isCompressedArrayTexture);
+  expect(new Set(sampled)).toEqual(new Set(arraysOf(styler)));
+}
+
+test('a surface first seen later is written in place: one layer, uploaded with its change after the first upload', async () => {
+  const { styler, uploads, updates } = world();
   const a = tile(); styler.apply(a.model); await styler.surfacesReady();
-  const arrays = () => (styler as unknown as { surfaces: { arrays: THREE.CompressedArrayTexture[] } }).surfaces.arrays;
-  const before = arrays()[0]; let released = false; before.addEventListener('dispose', () => { released = true; });
+  const before = arraysOf(styler)[0];
   const b = new THREE.Group(), root = new THREE.Group(); b.add(root);
   root.add(surfaceMesh('draft_cobblestone', surfaceMaterial('cobbles', 19), 0), surfaceMesh('draft_asphalt_worn', surfaceMaterial('asphalt', 1), 2));
   styler.apply(b);
-  expect(arrays()[0]).toBe(before); // nothing resident samples a set that is still uploading
+  expect((before.mipmaps[0].data as Uint8Array)[32 * 32 * 5]).toBe(0); // not changed before its budgeted task
   await styler.surfacesReady();
-  const after = arrays()[0];
-  expect(after).not.toBe(before); expect(uploads).toContain(after); expect(released).toBe(true);
-  expect((after.mipmaps[0].data as Uint8Array)[32 * 32 * 5]).toBe((19 * 16) & 255); // layer 5: the new cobbles
-  // Both families of the resident tile sample the new set (the wet one stayed on the released set: black kerbs).
-  const families = new Set<THREE.Material>();
-  a.model.traverse(object => { const mesh = object as THREE.Mesh; if (mesh.isMesh && mesh.name.startsWith('surface-array')) families.add(mesh.material as THREE.Material); });
-  expect(families.size).toBe(2);
-  const sampled = [...modelTextures(a.model)].filter(t => (t as THREE.CompressedArrayTexture).isCompressedArrayTexture);
-  expect(new Set(sampled)).toEqual(new Set(arrays()));
-  expect(arrays().every(t => t.layerUpdates.size === 0)).toBe(true);
+  expect(arraysOf(styler)[0]).toBe(before); // no new set, no full re-upload
+  expect(uploads.filter(t => t === before)).toHaveLength(1);
+  // One task per channel for layer 5 alone, each after that set's full upload; the first tile needed none.
+  expect(updates.map(u => [arraysOf(styler).indexOf(u.texture as THREE.CompressedArrayTexture), u.uploaded, u.layers]))
+    .toEqual([[0, true, [5]], [1, true, [5]], [2, true, [5]]]);
+  expect((before.mipmaps[0].data as Uint8Array)[32 * 32 * 5]).toBe((19 * 16) & 255); // layer 5: the new cobbles
+  expectSampled(a.model, styler);
+});
+
+test('growth past the capacity swaps in a complete uploaded set that every family samples; the old set is released', async () => {
+  const { styler, uploads } = world();
+  const a = tile(); styler.apply(a.model); await styler.surfacesReady();
+  const before = arraysOf(styler)[0]; let released = false; before.addEventListener('dispose', () => { released = true; });
+  const b = new THREE.Group(), root = new THREE.Group(); b.add(root);
+  for (let i = 0; i < 12; i++) root.add(surfaceMesh(`draft_asphalt_${i}`, surfaceMaterial(`asphalt${i}`, 20 + i), i * 2), surfaceMesh(`draft_asphalt_${i}`, surfaceMaterial(`asphalt${i}`, 20 + i), i * 2 + 1));
+  styler.apply(b);
+  expect(arraysOf(styler)[0]).toBe(before); // nothing resident samples a set that is still uploading
+  await styler.surfacesReady();
+  const after = arraysOf(styler)[0];
+  expect(after).not.toBe(before); expect(after.image.depth).toBe(32); expect(uploads).toContain(after); expect(released).toBe(true);
+  expect((after.mipmaps[0].data as Uint8Array)[32 * 32 * 16]).toBe((31 * 16) & 255); // layer 16: the twelfth new surface
+  expectSampled(a.model, styler);
+  expect(arraysOf(styler).every(t => t.layerUpdates.size === 0)).toBe(true);
 });

@@ -71,6 +71,17 @@ class TextureUploads {
     this.schedule();
     return done;
   }
+  /** Changes a texture and uploads it in one budgeted task after a frame: no frame sees the change before its upload
+   * (it would upload inside the frame) or draws a half-written texture. */
+  update(texture: THREE.Texture, bytes: number, change: () => void): Promise<void> {
+    const done = this.budget.enqueue(bytes, () => {
+      change();
+      this.renderer.initTexture(texture);
+      this.versions.set(texture, { version: texture.version, done });
+    });
+    this.schedule();
+    return done;
+  }
   private schedule() {
     if (this.scheduled) return;
     this.scheduled = true;

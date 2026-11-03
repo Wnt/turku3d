@@ -68,7 +68,8 @@ export class MaterialStyler {
   constructor(private renderer: THREE.WebGPURenderer, private env: Environment,
     private tier: QualityTier, private deterministic: boolean, tileset?: string) {
     this.ground = tileset ? new GroundBindings(renderer, new URL(tileset, location.href).href) : null;
-    this.surfaces = new SurfaceArrays(tier, this.detail, texture => textureUploads(renderer).enqueue(texture));
+    this.surfaces = new SurfaceArrays(tier, this.detail, texture => textureUploads(renderer).enqueue(texture),
+      (texture, bytes, change) => textureUploads(renderer).update(texture, bytes, change));
   }
 
   async applyAsync(model: THREE.Object3D) {
