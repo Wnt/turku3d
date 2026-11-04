@@ -8,12 +8,69 @@ from pathlib import Path
 import re
 import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from urllib.request import urlopen
 
 TILE = re.compile(r'^t[024]_-?\d+_-?\d+$')
 KEY = re.compile(r'^[a-f0-9]{64}$')
 VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 MODEL = re.compile(r'^[a-f0-9]{64}\.glb$')
+
+
+def _low():
+    """Derivative builds yield to serving and the farm's builds: lowest CPU priority, idle IO class (Linux)."""
+    import platform
+    import sys
+
+    os.nice(19 - os.nice(0))
+    if sys.platform == 'linux' and platform.machine() == 'x86_64':
+        try:
+            import ctypes
+            ctypes.CDLL(None, use_errno=True).syscall(251, 1, 0, 3 << 13)  # ioprio_set(PROCESS, self, IDLE)
+        except (OSError, AttributeError):
+            pass
+
+
+class FarmChain:
+    """Newest-first product roots of a farm alias family (``train``: trainN ... train1), as the tile proxy follows it.
+
+    A member counts only while it is a migrated revision of ``base`` (the preferred source's generation): the same
+    ground, roads and buildings. Per tile, a member's product is used only once its ready.json is there (the farm
+    writes it last). The farm's aliases are re-read every ``interval`` seconds, so a new train joins on its own."""
+
+    def __init__(self, farm_root, farm_url, family, base, interval=60.0):
+        self.farm_root, self.farm_url, self.family, self.base = Path(farm_root), farm_url, family, base
+        self.interval, self.at, self.members = interval, None, []
+        self.lock = threading.Lock()
+
+    def roots(self) -> list[tuple[str, Path]]:
+        with self.lock:
+            now = time.monotonic()
+            if self.at is None or now - self.at >= self.interval:
+                self.at = now
+                try:
+                    self.members = self._read()
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass  # The farm is busy or restarting: keep the last known chain.
+            return list(self.members)
+
+    def _read(self):
+        with urlopen(f'{self.farm_url}/health', timeout=5) as reply:
+            return self._members(json.load(reply)['aliases'])
+
+    def _members(self, aliases):
+        pattern = re.compile(re.escape(self.family) + r'(\d+)')
+        named = sorted(((int(m.group(1)), name) for name in aliases if (m := pattern.fullmatch(name))), reverse=True)
+        members = []
+        for _, name in named:
+            try:
+                meta = json.loads((self.farm_root / 'revisions' / aliases[name] / 'revision.json').read_text())
+            except (OSError, ValueError):
+                continue
+            if meta.get('kind') == 'migrated' and meta.get('base_generation') == self.base:
+                members.append((name, self.farm_root / 'products' / meta['generation']))
+        return members
 
 
 def lod_sources(data):
@@ -62,9 +119,11 @@ def survey_shells(tile, buildings):
 
 
 class Scenery:
-    def __init__(self, root, cache=None, survey=None, preferred=None, lod=False):
+    def __init__(self, root, cache=None, survey=None, preferred=None, lod=False, chain: FarmChain | None = None):
         self.root = Path(root)
         self.roots = ([Path(preferred)] if preferred else []) + [self.root]
+        # Newest generation first: the chain's members, then the preferred source (their base), then the rest.
+        self.chain = chain
         self.cache = Path(cache) if cache else self.root / '.scenery'
         self.script = Path(__file__).with_suffix('.mjs')
         self.tree_script = Path(__file__).with_name('scenery-trees.mjs')
@@ -95,7 +154,10 @@ class Scenery:
                 continue
             source, chosen = None, {}
             source_root = self.root
-            for root in self.roots:
+            members = [root for _, root in self.chain.roots()] if self.chain else []
+            for root in members + self.roots:
+                if root in members and not (root / tile / 'ready.json').is_file():
+                    continue  # That train has not finished this tile: an older one or the base serves it.
                 for name in ('manifest.json', 'last-full.json'):
                     try:
                         fragment = json.loads((root / tile / name).read_text())
@@ -157,9 +219,15 @@ class Scenery:
         temporary.write_bytes(data)
         temporary.replace(path)
 
+    def _allowed(self) -> list[Path]:
+        """Roots a derivative may read: the configured ones and, with a farm chain, the farm's products (a migrated
+        product links unchanged payloads from earlier generations)."""
+        return [p.resolve() for p in self.roots] + ([(self.chain.farm_root / 'products').resolve()] if self.chain else [])
+
     def _source(self, row):
         root = Path(row.get('source_root', self.root))
-        if root.resolve() not in [p.resolve() for p in self.roots]:
+        allowed = self._allowed()
+        if root.resolve() not in allowed and not any(root.resolve().is_relative_to(a) for a in allowed[len(self.roots):]):
             raise ValueError('Unconfigured scenery source root')
         return (root / row['tile'] / row['source_url']).resolve()
 
@@ -237,7 +305,7 @@ class Scenery:
                 models = []
                 for placement in rows:
                     path = (source.parent / placement['uri']).resolve()
-                    if not any(path.is_relative_to(r.resolve()) for r in self.roots) or not MODEL.fullmatch(path.name):
+                    if not any(path.is_relative_to(r) for r in self._allowed()) or not MODEL.fullmatch(path.name):
                         raise ValueError('Unconfigured building model path')
                     if hashlib.sha256(path.read_bytes()).hexdigest() != placement['model']:
                         raise ValueError('Building model changed')
@@ -255,8 +323,8 @@ class Scenery:
             self._write(spec, json.dumps(value).encode())
             command.append(str(spec))
         try:
-            result = subprocess.run(command,
-                                    check=True, capture_output=True, text=True, timeout=90)
+            result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=90,
+                                    preexec_fn=_low)
             stats = json.loads(result.stdout.strip().splitlines()[-1])
             temporary.replace(output)
         finally:
@@ -305,7 +373,7 @@ class Scenery:
         temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
         try:
             subprocess.run(['node', str(self.tree_script), str(source), str(temporary)],
-                           check=True, capture_output=True, timeout=30)
+                           check=True, capture_output=True, timeout=30, preexec_fn=_low)
             temporary.replace(target)
         finally:
             temporary.unlink(missing_ok=True)
