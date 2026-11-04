@@ -136,8 +136,8 @@ def main(argv=None) -> int:
             meta = json.loads((s / "session.json").read_text())
             r = rows(s)
             summary_file = s / "summary.txt"
-            print(summary_file.read_text().rstrip() if summary_file.exists()
-                  else "(no summary.txt: the session closed before summaries, or it is still open)")
+            text = summary_file.read_text() if summary_file.exists() else meta.get("summary")
+            print(text.rstrip() if text else "(no summary: the session closed before summaries, or it is still open)")
             print(f"folder: {s}")
             print(json.dumps({"session": s.name, "started": meta.get("started"), "ended": meta.get("ended"),
                               "player": meta.get("player"), "build": (meta.get("build") or {}).get("url"),

@@ -6,7 +6,7 @@ EDIT-FORMAT.md §10). Every committed edit goes into an **edit session** for an 
 rules (format and incorporation contract: `~/turku3d/loops/editor/EDIT-FORMAT.md`; reader:
 `scripts/dev/edit_sessions.py list | effective | clusters`). Edits show at once as local
 **previews** only: no tile, collision, physics body, breakable-pole state or multiplayer message changes, so other
-players never see them. On by default on localhost (`?editor=0` turns it off; `?editor=1` elsewhere, including city.lab, never on Pages).
+players never see them. On by default on localhost (`?editor=0` turns it off; `?editor=1` elsewhere, never on Pages or city.lab).
 
 | File | Role |
 |---|---|
@@ -25,9 +25,8 @@ players never see them. On by default on localhost (`?editor=0` turns it off; `?
 | `closeDialog.ts` | The close dialog: session id and summary with one-press copy (✕ summary, △ id, ○ close), selection fallback |
 | `pointCloudHook.ts` | The hook the LiDAR point-cloud overlay (lidarpc loop) registers |
 
-Dev server: `tools/dev/editSessions.mjs` stores `~/turku3d/edits/<session>/` (`TURKU3D_EDITS` overrides); on the city.lab
-share `serve-dist.mjs --edits` stores them write-only on osgallery-dev (`?editor=1` there). Each close writes
-`summary.txt` and opens the close dialog (`docs/handover/editor.md`).
+Dev server: `tools/dev/editSessions.mjs` stores `~/turku3d/edits/<session>/` (`TURKU3D_EDITS` overrides). Each close opens the
+close dialog and stores the summary in `session.json` and as `summary.txt` (`docs/handover/editor.md`).
 
 ## Mapping (DualSense names; Xbox in brackets)
 

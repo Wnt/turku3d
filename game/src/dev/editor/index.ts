@@ -3,7 +3,7 @@
 // generator rules (~/turku3d/loops/editor/EDIT-FORMAT.md). Edits show as local previews only (preview.ts): no tile,
 // collision, physics or multiplayer state changes. Mapping: state.ts; README.md in this folder.
 import * as THREE from 'three/webgpu';
-import { isShareHost, localFeature } from '../../core/localOnly';
+import { localFeature } from '../../core/localOnly';
 import { buildStatus } from '../../core/build';
 import type { Action, Input } from '../../input';
 import type { VisualTiles } from '../../world/tiles';
@@ -45,10 +45,8 @@ export interface EditorHosts {
   store?: KeyValue; transport?: SessionTransport;
 }
 
-/** On localhost by default; elsewhere with ?editor=1, but never in a public release except on the share host
- *  (city.lab: serve-dist --edits stores the sessions there). */
 export const editorAllowed = (loc: { hostname: string; search: string } = location) =>
-  localFeature(loc, 'editor') && (import.meta.env?.VITE_PUBLIC_RELEASE !== '1' || isShareHost(loc.hostname));
+  import.meta.env?.VITE_PUBLIC_RELEASE !== '1' && localFeature(loc, 'editor');
 
 const DEG = 180 / Math.PI;
 const LIDAR_KEY = 'turku3d.editor.lidar';

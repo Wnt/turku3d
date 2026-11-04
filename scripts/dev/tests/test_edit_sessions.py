@@ -74,6 +74,13 @@ class EditSessionTests(unittest.TestCase):
             with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stderr(err):
                 self.assertEqual(edit_sessions.main(["show", "20990101-000000-zzzzzz"]), 1)
             self.assertIn("pull 20990101-000000-zzzzzz", err.getvalue())
+            # A server without summary.txt: the summary comes from session.json.
+            (session / "summary.txt").unlink()
+            (session / "session.json").write_text(json.dumps({"id": session.name, "summary": "Edit session from meta\n"}))
+            out = io.StringIO()
+            with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stdout(out):
+                self.assertEqual(edit_sessions.main(["show", session.name]), 0)
+            self.assertEqual(out.getvalue().splitlines()[0], "Edit session from meta")
 
 
 if __name__ == "__main__":

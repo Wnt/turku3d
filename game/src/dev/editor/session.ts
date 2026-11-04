@@ -56,6 +56,8 @@ export interface SessionMeta {
   tiles: Record<string, unknown>;
   device: Record<string, unknown>;
   counts: { edits: number; undone: number; effective: number };
+  /** The close summary (summary.ts), also written as summary.txt. */
+  summary?: string;
   /** The multiplayer player who edited (editing is per player: each browser keeps its own session), when known. */
   player?: { id: string; nick: string } | null;
 }
@@ -131,7 +133,7 @@ export class EditSession {
   static restore(store: KeyValue, transport: SessionTransport): EditSession | null {
     try {
       const stored = JSON.parse(store.getItem(STORE) ?? 'null') as Stored | null;
-      if (!stored?.meta?.id || (stored.meta.ended && !stored.outbox?.length && !stored.metaDirty && !stored.summaryDirty)) return null;
+      if (!stored?.meta?.id || (stored.meta.ended && !stored.outbox?.length && !stored.metaDirty)) return null;
       return new EditSession(stored.meta, stored, store, transport);
     } catch { return null; }
   }
@@ -190,8 +192,10 @@ export class EditSession {
   }
   setActive(active: boolean) { if (this.active !== active) { this.active = active; this.save(); } }
   end(now = new Date()) { this.meta.ended = now.toISOString(); this.touch(now); }
-  /** Store the close summary: it is sent as summary.txt after session.json. */
-  setSummary(text: string) { this.summary = text; this.summaryDirty = true; this.save(); }
+  /** Store the close summary: in session.json (`summary`, which every server version stores) and as summary.txt after
+   *  it. summary.txt is a best-effort copy: a dev server started before it existed answers 405, and that never holds
+   *  the session open. */
+  setSummary(text: string) { this.summary = text; this.meta.summary = text; this.metaDirty = true; this.summaryDirty = true; this.save(); }
 
   private touch(now = new Date()) {
     const effective = this.effective().length, edits = this.rows.filter(isEdit).length;
@@ -210,7 +214,7 @@ export class EditSession {
     } catch { /* A full store keeps the session in memory; the outbox still flushes. */ }
   }
 
-  get pending() { return this.outbox.size + (this.metaDirty ? 1 : 0) + (this.summaryDirty ? 1 : 0); }
+  get pending() { return this.outbox.size + (this.metaDirty ? 1 : 0); }
   /** Rows the dev server has not acknowledged (HUD "n unsaved"). */
   get unsent() { return this.outbox.size; }
   /** Effective edits whose current revision the dev server holds. */
@@ -244,12 +248,9 @@ export class EditSession {
         if (!await this.transport.putJson(this.id, 'session.json', this.meta)) { this.metaDirty = true; this.error = 'edit server unreachable'; return false; }
       }
       if (this.summaryDirty && this.summary !== null) {
-        const text = this.summary;
+        // One try per flush that reaches it; session.json already holds the text.
         this.summaryDirty = false;
-        if (!await this.transport.putBlob(this.id, 'summary.txt', new Blob([text], { type: 'text/plain;charset=utf-8' }))) {
-          this.summaryDirty = true; this.error = 'edit server unreachable'; return false;
-        }
-        if (this.summary !== text) this.summaryDirty = true;
+        await this.transport.putBlob(this.id, 'summary.txt', new Blob([this.summary], { type: 'text/plain;charset=utf-8' }));
       }
       this.error = null;
       return true;

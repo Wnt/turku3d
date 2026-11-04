@@ -96,15 +96,15 @@ describe('edit session summary', () => {
     expect(summary([], { ended: null })).toContain('2026-11-04 22:10 UTC+2, not closed · 0 edited objects\n- no edits\n');
   });
 
-  test('the session sends summary.txt after session.json and keeps it across a reload until stored', async () => {
+  test('the summary rides in session.json and as summary.txt; a server without summary.txt never holds the session', async () => {
     const map = new Map<string, string>();
     const store: KeyValue = { getItem: k => map.get(k) ?? null, setItem: (k, v) => { map.set(k, v); }, removeItem: k => { map.delete(k); } };
     const sent: string[] = [];
-    let ok = false;
+    let ok = false, txt = false;
     const t: SessionTransport = {
-      putJson: async (_s, f) => { if (ok) sent.push(f); return ok; },
+      putJson: async (_s, f, v) => { if (ok) sent.push(`${f}:${(v as SessionMeta).summary}`); return ok; },
       appendRows: async () => ok,
-      putBlob: async (_s, f, blob) => { if (ok) sent.push(`${f}:${await blob.text()}`); return ok; },
+      putBlob: async (_s, f, blob) => { if (ok) sent.push(`${f}:${await blob.text()}`); return ok && txt; },
     };
     const session = EditSession.start(store, t, { build: {}, tiles: {}, device: {} });
     session.end();
@@ -112,9 +112,9 @@ describe('edit session summary', () => {
     expect(await session.flush()).toBe(false);
     const reloaded = EditSession.restore(store, t)!;
     expect(reloaded.summary).toBe('Edit session x\n');
-    ok = true;
+    ok = true; // an old dev server: session.json stored, summary.txt refused (405)
     expect(await reloaded.flush()).toBe(true);
-    expect(sent).toEqual(['session.json', 'summary.txt:Edit session x\n']);
+    expect(sent).toEqual(['session.json:Edit session x\n', 'summary.txt:Edit session x\n']);
     expect(reloaded.pending).toBe(0);
     expect(EditSession.restore(store, t)).toBeNull();
   });

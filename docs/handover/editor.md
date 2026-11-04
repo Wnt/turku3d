@@ -132,23 +132,34 @@ players editing at once make two sessions with two ids.
 | Host | Store | How a Claude session reads it |
 |---|---|---|
 | Mac, Vite dev server (:5220, agents' :53xx) | `~/turku3d/edits/<id>/` (`TURKU3D_EDITS` overrides) | `python3 scripts/dev/edit_sessions.py show <id>`, then `effective <id>` / `clusters <id>` |
-| city.lab (osgallery-dev, `city-web`) | `~/turku3d-local/city/edits/<id>/` on osgallery-dev | from the Mac: `edit_sessions.py pull <id>` (rsync into `~/turku3d/edits/<id>/`), then `show <id>`; on osgallery-dev itself `show <id>` finds it directly |
+| city.lab (osgallery-dev, `city-web`), **off today** | would be `~/turku3d-local/city/edits/<id>/` on osgallery-dev | from the Mac: `edit_sessions.py pull <id>` (rsync into `~/turku3d/edits/<id>/`), then `show <id>`; on osgallery-dev itself `show <id>` finds it directly |
 
-`show` prints `summary.txt`, the folder, the counts, the player and the build URL. Sessions closed before summaries
-existed have no `summary.txt`; for those, use `clusters`.
+`show` prints the summary, the folder, the counts, the player and the build URL. The summary is stored twice: as
+`summary` in `session.json`, which every server version accepts, and as `summary.txt`. A Vite server started before
+2026-11-04 23:20 answers 405 to `summary.txt` until it is restarted (`vite.config.ts` loads the middleware at startup),
+and that never holds a close. Sessions closed before summaries existed have neither copy; use `clusters` for those.
 
 ## Session format and storage
 
 Sessions live in `~/turku3d/edits/<session-id>/`. The Vite dev-server middleware writes them; `TURKU3D_EDITS`
-overrides the root. On city.lab (`?editor=1`; the editor stays off there without it), `serve-dist.mjs --edits`
-mounts the same middleware write-only into `~/turku3d-local/city/edits/` on osgallery-dev. It accepts only PUT and
-POST from the same origin, and it has a 512 MB quota (`--edits-quota-mb`).
+overrides the root. `serve-dist.mjs --edits <dir>` mounts the same middleware. With `--public` it is write-only: PUT
+and POST from the same origin, with a 512 MB quota (`--edits-quota-mb`).
+
+**city.lab: ready, but off.** The editor is off there, and the share stores no edits. Turning it on takes two
+one-line changes, then `tools/share/deploy.sh`:
+
+1. In `editorAllowed` (`dev/editor/index.ts`), let `isShareHost(loc.hostname)` pass despite `VITE_PUBLIC_RELEASE`,
+   still only with `?editor=1`.
+2. Add `--edits %h/turku3d-local/city/edits` to `tools/share/units/city-web.service`.
+
+Same-origin works through the tunnel: the check accepts `Sec-Fetch-Site: same-origin`, because the forwarder rewrites
+`Host`. This was checked on city.lab on 2026-11-04: a same-origin PUT got 200, a cross-site PUT 403, and a GET 405.
 
 | File | Content |
 |---|---|
 | `session.json` | build, the tile generations seen, start/end, device, counts |
 | `edits.jsonl` | one line per row id, sorted by seq |
-| `summary.txt` | the close dialog's summary (written after the final `session.json`) |
+| `summary.txt` | the close dialog's summary, after the final `session.json`, which also holds it as `summary` |
 | `shots/<edit>-before.jpg`, `<edit>-after.jpg` | 384 px screenshots; local evidence, never commit them |
 
 `edits.jsonl` holds three kinds of rows: **edit rows** (move / rotate / delete), **undo rows** and **tag rows**
