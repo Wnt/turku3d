@@ -2,7 +2,8 @@
 // own roads.json (traffic/tileNetwork.ts), joined at seams (traffic/network.ts), with the junction movements the
 // traffic flow builds (traffic/flow.ts routesOf: lane discipline, folded crossing splinters, tangent arcs). A* runs
 // over lanes; neighbouring lanes of one carriageway are joined by lane changes. Every client that holds the same
-// tiles builds the same graph, so a route is the same in single player and multiplayer.
+// tiles builds the same graph, so a route is the same in single player and multiplayer. Unlike ambient traffic it
+// keeps every car edge (service roads and yards too), so lane ids are the router's own.
 import { VISUAL_L0 } from '../../core/origin';
 import type { RoadGraphJson } from '../roadGraph';
 import { TrafficNetwork } from '../../traffic/network';
@@ -72,7 +73,7 @@ export class LaneRouter {
   /** Adds or replaces one tile's lanes. */
   setTile(roads: TileRoads) {
     if (this.hashes.get(roads.tile) === roads.hash) return;
-    this.network.setTile(buildTileTraffic(roads.tile, trafficRoads(roads.json), tileBounds(roads.tile), roads.hash));
+    this.network.setTile(buildTileTraffic(roads.tile, trafficRoads(roads.json, true), tileBounds(roads.tile), roads.hash));
     this.hashes.set(roads.tile, roads.hash);
     this.flow = null;
   }
@@ -160,28 +161,42 @@ export class LaneRouter {
     return best ? { lane: best.lane, s: best.s, distance: best.distance } : null;
   }
 
-  /** Shortest lane route from a pose to a point, or null when the held lanes do not connect them. */
+  /** Shortest lane route from a pose to a point, or null when the held lanes do not connect them. Every lane near
+   *  the start is a candidate source (one pointing against the car's heading or farther away costs extra) and every
+   *  lane near the target a candidate goal, so a car in a yard or a target across the street still routes. */
   route(from: RoutePoint, to: RoutePoint): LaneRoute | null {
-    const start = this.snap(from);
-    // The goal may be reached on any lane near the target (the far side of the street costs its distance twice).
+    const starts = this.near({ x: from.x, z: from.z, y: from.y }, 40, 8).map(c => {
+      let penalty = 2 * c.distance;
+      if (from.hx !== undefined && from.hz !== undefined) {
+        const i = Math.min(c.lane.cum.length - 2, Math.max(0, c.lane.cum.findIndex(v => v >= c.s) - 1));
+        const dx = c.lane.points[2 * i + 2] - c.lane.points[2 * i], dz = c.lane.points[2 * i + 3] - c.lane.points[2 * i + 1];
+        const cos = (dx * from.hx + dz * from.hz) / (Math.hypot(dx, dz) || 1);
+        penalty += (1 - cos) * 15 + (cos < 0.2 ? 30 : 0);
+      }
+      return { ...c, penalty };
+    });
     const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }).map(g => [g.lane, { s: g.s, penalty: 2 * g.distance }]));
-    if (!start || !goals.size) return null;
+    if (!starts.length || !goals.size) return null;
     const flow = this.graph();
-    // g(lane) is the cost at the lane's start; the start lane begins s metres in.
-    const g = new Map<Lane, number>(), prev = new Map<Lane, Step>(), done = new Set<Lane>();
+    // g(lane) is the cost at the lane's start; a start lane begins s metres in.
+    const g = new Map<Lane, number>(), prev = new Map<Lane, Step>(), done = new Set<Lane>(), entry = new Map<Lane, number>();
     const heap = new MinHeap<Lane>();
     const h = (lane: Lane) => Math.hypot(lane.points[0] - to.x, lane.points[1] - to.z);
-    const first: Step = { lane: start.lane, via: 'start', route: null, from: null };
     let goalCost = Infinity, goalStep: Step | null = null, goalS = 0;
-    g.set(start.lane, -start.s); prev.set(start.lane, first);
-    heap.push(start.lane, h(start.lane));
-    const own = goals.get(start.lane);
-    if (own && own.s >= start.s) { goalCost = own.s - start.s + own.penalty; goalStep = first; goalS = own.s; }
+    for (const start of starts) {
+      const cost = start.penalty - start.s;
+      if (cost >= (g.get(start.lane) ?? Infinity)) continue;
+      const first: Step = { lane: start.lane, via: 'start', route: null, from: null };
+      g.set(start.lane, cost); prev.set(start.lane, first); entry.set(start.lane, start.s);
+      heap.push(start.lane, cost + h(start.lane));
+      const own = goals.get(start.lane);
+      if (own && own.s >= start.s && cost + own.s + own.penalty < goalCost) { goalCost = cost + own.s + own.penalty; goalStep = first; goalS = own.s; }
+    }
     const reach = (lane: Lane, cost: number, step: Step) => {
       const goal = goals.get(lane);
       if (goal && cost + goal.s + goal.penalty < goalCost) { goalCost = cost + goal.s + goal.penalty; goalStep = step; goalS = goal.s; }
       if (cost >= (g.get(lane) ?? Infinity)) return;
-      g.set(lane, cost); prev.set(lane, step); heap.push(lane, cost + h(lane));
+      g.set(lane, cost); prev.set(lane, step); entry.delete(lane); heap.push(lane, cost + h(lane));
     };
     while (heap.size) {
       const [lane, key] = heap.pop();
@@ -194,8 +209,9 @@ export class LaneRouter {
       }
       for (const sib of this.siblings!.get(`${lane.tile}|${lane.carriageway}`) ?? []) {
         if (Math.abs(sib.k - lane.k) !== 1) continue;
-        // A change on the start lane needs room ahead of the car.
-        if (lane === start.lane && goals.has(sib) && goals.get(sib)!.s < start.s + CHANGE_LENGTH) continue;
+        // A change on a start lane needs room ahead of the car.
+        const s0 = entry.get(lane);
+        if (s0 !== undefined && goals.has(sib) && goals.get(sib)!.s < s0 + CHANGE_LENGTH) continue;
         reach(sib, at + CHANGE_COST, { lane: sib, via: 'change', route: null, from: lane });
       }
     }
@@ -208,7 +224,8 @@ export class LaneRouter {
     }
     steps.reverse();
     if (steps[0]?.via !== 'start') return null;
-    return assemble(steps, start.s, goalS);
+    const s0 = starts.find(c => c.lane === steps[0].lane)!.s;
+    return assemble(steps, s0, goalS);
   }
 
   /** A path along exactly this lane, extended along its straightest predecessors and successors by `before` and

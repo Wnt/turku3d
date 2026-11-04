@@ -16,6 +16,7 @@ import type { VehicleState } from '../../physics/protocol';
 import type { Actions } from '../../input/bindings';
 import { DriveFollower, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
+export { tilesBetween } from './lanes';
 import { makePath, type Path, type PathPoint } from './path';
 
 export type AutopilotMode = 'drive' | 'walk';
@@ -144,6 +145,8 @@ export class Autopilot {
   constructor(private readonly world: AutopilotWorld) {}
 
   get active(): AutopilotHandle | null { return this.trip; }
+  /** The lane router (drive tests and the dev console plan with it directly). */
+  get lanes(): LaneRouter { return this.world.lanes; }
 
   /** Starts a trip to `target`, cancelling any running one. */
   goTo(target: PathPoint, options: GoToOptions = {}): AutopilotHandle {
@@ -155,7 +158,8 @@ export class Autopilot {
       trip.finish('failed', mode === 'drive' ? 'not in a vehicle' : 'in a vehicle');
       return trip;
     }
-    trip.planning = this.plan(trip).catch(error => trip.finish('failed', `planning: ${(error as Error).message}`));
+    trip.planning = this.plan(trip).catch(error => trip.finish('failed', `planning: ${(error as Error).message}`))
+      .finally(() => { trip.planning = null; });
     return trip;
   }
 
@@ -226,8 +230,8 @@ export class Autopilot {
     if (!trip) return;
     const o = trip.options;
     trip.elapsed += dt;
-    const human = (trip.mode === 'drive' ? DRIVE_AXES : WALK_AXES).some(a => Math.abs(actions[a]) > HUMAN);
-    if (human && o.takeover !== false && trip.elapsed > 0.3) { trip.cancel('takeover'); return; }
+    const human = (trip.mode === 'drive' ? DRIVE_AXES : WALK_AXES).find(a => Math.abs(actions[a]) > HUMAN);
+    if (human && o.takeover !== false && trip.elapsed > 0.3) { trip.cancel(`takeover (${human} ${actions[human].toFixed(2)})`); return; }
     const timeout = o.timeout ?? (trip.path ? 60 + trip.path.length * 0.4 : 120);
     if (trip.elapsed > timeout) { trip.finish('failed', `timeout after ${Math.round(trip.elapsed)} s`); return; }
     if (trip.mode === 'drive') this.drive(trip, actions, dt);

@@ -171,7 +171,7 @@ describe('autopilot controller', () => {
     const human = emptyActions(); human.moveY = 1;
     pilot.control(human, 1 / 60);
     expect((await trip.done).state).toBe('cancelled');
-    expect(trip.reason).toBe('takeover');
+    expect(trip.reason).toMatch(/^takeover/);
   });
   test('driving on foot fails at once', async () => {
     const trip = new Autopilot(world('foot')).goTo({ x: 10, z: 0 }, { mode: 'drive' });
