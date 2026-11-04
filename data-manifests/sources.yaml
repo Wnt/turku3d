@@ -6,7 +6,8 @@ laz:
   index: data-manifests/laz-tiles.csv
   epoch: 2021-04-17
   notes: "use curl -L (opaskartta host 301-redirects); no CRS VLR, EPSG:3877 assumed; 130-150 MB/tile"
-  licence: "Turku open data (CC BY 4.0, Turun kaupunki) [U]"
+  licence: "CC BY 4.0, (c) Turun kaupunki [V]"
+  licence_source: "avoindata.suomi.fi, Turun kaupungin kaupunkitietomalli (checked 2026-11-03)"
 wfs:
   url: "https://turku.asiointi.fi/TeklaOGCWeb/WFS.ashx"
   format: GML only (no JSON)
