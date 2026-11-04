@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Public share of the local next-gen game at https://city.lab.madekivi.fi, served from osgallery-dev without the Mac.
 #
-#   tools/share/deploy.sh [REV]    # default: local/loop-integration of ~/turku3d/wt/loop-integration/repo
+#   tools/share/deploy.sh [--local-build] [REV]    # default: local/loop-integration of ~/turku3d/wt/loop-integration/repo
 #
-# Builds REV on this Mac with VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
+# Default: streams a `git archive` of REV (game, tools/dev, tools/share, server, the tile proxy: ~70 MB) to osgallery-dev
+# and builds it THERE (nice 10, deps cached by game/package-lock.json hash in ~/turku3d-local/city/deps/<hash>), so a
+# deploy costs the Mac only the archive and a few ssh calls. The build, release install and unit restarts run under
+# one flock on osgallery-dev (~/turku3d-local/city/deploy.lock), so concurrent deploys queue instead of colliding.
+# --local-build: build on this Mac instead (when osgallery-dev cannot build) and rsync the dist; same publish step.
+#
+# The build uses VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
 # game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
@@ -24,7 +30,7 @@
 # The farm, scenery and COPC services the share reads run as shared-tiles, local-horizon and lidar-copc user units.
 #
 # Env overrides: TURKU3D_SHARE_REPO, TURKU3D_SHARE_SSH (osgallery-dev), TURKU3D_SHARE_PIN (a tile-service.json),
-# TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir), TURKU3D_SHARE_FOLLOW (alias
+# TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir, --local-build only), TURKU3D_SHARE_FOLLOW (alias
 # family followed per tile, default train; empty for the pin only), TURKU3D_SHARE_EXCLUDE (space-separated aliases of
 # that family never served, e.g. a train Jonni has not accepted).
 set -euo pipefail
@@ -37,6 +43,8 @@ WORK=${TURKU3D_SHARE_WORK:-$HOME/turku3d/loops/cityshare/work}
 FOLLOW=${TURKU3D_SHARE_FOLLOW-train}
 EXCLUDE=${TURKU3D_SHARE_EXCLUDE:-}
 PUBLIC_HOST=city.lab.madekivi.fi
+LOCAL_BUILD=0
+if [ "${1:-}" = "--local-build" ]; then LOCAL_BUILD=1; shift; fi
 REV=${1:-local/loop-integration}
 KEEP=3
 
@@ -45,81 +53,123 @@ SHORT=${SHA:0:8}
 SERVER_TREE=$(git -C "$REPO" rev-parse "$SHA:server")
 say() { printf 'deploy %s: %s\n' "$SHORT" "$*"; }
 
-# 1. Build the committed tree in a detached worktree (vite.config.ts stamps the commit from git).
-BUILD="$WORK/builds/$SHA"
-if [ ! -f "$BUILD/game/index.html" ]; then
-  STAGE="$WORK/stage/$SHA"
-  rm -rf "$STAGE" "$BUILD"
-  git -C "$REPO" worktree prune
-  git -C "$REPO" worktree add -q --detach "$STAGE" "$SHA"
-  trap 'git -C "$REPO" worktree remove --force "$STAGE" >/dev/null 2>&1 || true' EXIT
-  ln -s "$(cd "$REPO/game/node_modules" && pwd -P)" "$STAGE/game/node_modules"
-  say "building (vite, share host $PUBLIC_HOST)"
-  (cd "$STAGE/game" && TURKU3D_WORK="$BUILD/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
-    ./node_modules/.bin/vite build --logLevel warn --outDir "$BUILD/game")
-  git -C "$REPO" worktree remove --force "$STAGE"
-  trap - EXIT
-fi
 VERSION=$(python3 - "$PIN" <<'PY'
 import json, sys
 print(json.load(open(sys.argv[1]))['version'])
 PY
 )
 SUBJECT=$(git -C "$REPO" log -1 --format=%s "$SHA")
-python3 - "$BUILD/game/version.json" "$SHA" "$SUBJECT" "$VERSION" "$FOLLOW" "$EXCLUDE" <<'PY'
+META=$(mktemp -d)
+trap 'rm -rf "$META"' EXIT
+python3 - "$META/version.json" "$SHA" "$SUBJECT" "$VERSION" "$FOLLOW" "$EXCLUDE" <<'PY'
 import json, sys, time
 path, sha, subject, tiles, follow, exclude = sys.argv[1:]
 json.dump(dict(sha=sha, subject=subject, tiles=tiles, follow=follow, exclude=exclude.split(),
                built=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())), open(path, 'w'), indent=1)
 PY
-
-# 2. Upload the dist and the server sources (only what the units run) into a new release.
-R="turku3d-local/city/releases/$SHA"
-ssh "$SSH_HOST" "mkdir -p ~/turku3d-local/city/releases ~/turku3d-local/city/mp-scores ~/turku3d-local/city/work ~/$R/src"
-say "uploading $(du -sh "$BUILD/game" | cut -f1) dist"
-rsync -a --delete --exclude '*.map' "$BUILD/game/" "$SSH_HOST:$R/dist/"
-git -C "$REPO" archive "$SHA" tools/dev scripts/dev/shared-tile-proxy.mjs server tools/share | ssh "$SSH_HOST" "tar -x -C ~/$R/src"
-ssh "$SSH_HOST" "set -e; cd ~/$R/src; echo $SERVER_TREE > server.tree
-  prev=\$(readlink ~/turku3d-local/city/mp 2>/dev/null || true); prev=~/turku3d-local/city/\$prev
-  if [ -d server/node_modules ] && [ \"\$(cat server/node_modules/.lock.sha 2>/dev/null)\" = \"\$(sha256sum < server/package-lock.json)\" ]; then
-    :  # a redeploy of this release
-  elif [ \"\$prev\" != ~/turku3d-local/city/ ] && [ \"\$prev\" != ~/$R ] && [ -d \"\$prev/src/server/node_modules\" ] && cmp -s \"\$prev/src/server/package-lock.json\" server/package-lock.json; then
-    cp -a \"\$prev/src/server/node_modules\" server/
-  else
-    npm ci --prefix server --ignore-scripts --omit=dev --no-audit --no-fund --loglevel=error
-  fi
-  sha256sum < server/package-lock.json > server/node_modules/.lock.sha"
-
-# 3. Tile pin (hot-read by city-tiles): the local game's version on the same farm, the alias family followed per
-#    tile (newest finished compatible train first), scenery from osgallery-dev itself.
-python3 - "$PIN" "$SCENERY" "$FOLLOW" "$EXCLUDE" <<'PY' | ssh "$SSH_HOST" 'cat > ~/turku3d-local/city/tiles.json.tmp && mv ~/turku3d-local/city/tiles.json.tmp ~/turku3d-local/city/tiles.json'
+# Tile pin (hot-read by city-tiles): the local game's version on the same farm, the alias family followed per
+# tile (newest finished compatible train first), scenery from osgallery-dev itself.
+python3 - "$PIN" "$SCENERY" "$FOLLOW" "$EXCLUDE" > "$META/tiles.json" <<'PY'
 import json, sys
 pin = json.load(open(sys.argv[1]))
 print(json.dumps(dict(service=pin['service'], version=pin['version'], scenery=sys.argv[2],
                       **(dict(follow=sys.argv[3], exclude=sys.argv[4].split()) if sys.argv[3] else {}))))
 PY
 
-# 4. Switch, install units, restart what changed, prune old releases (never the ones `current` or `mp` use).
-ssh "$SSH_HOST" "set -e; C=~/turku3d-local/city; U=~/.config/systemd/user
-  ln -sfn releases/$SHA \$C/current.new && mv -T \$C/current.new \$C/current
-  changed=''
-  for f in \$C/current/src/tools/share/units/*.service; do
-    cmp -s \"\$f\" \"\$U/\$(basename \$f)\" || { cp \"\$f\" \$U/; changed=\"\$changed \$(basename \$f .service)\"; }
-  done
-  systemctl --user daemon-reload
-  systemctl --user enable -q city-web city-tiles city-mp city-forwarder
-  mp_tree=\$(cat \$C/mp/src/server.tree 2>/dev/null || true)
-  if [ \"\$mp_tree\" != $SERVER_TREE ] || [[ \" \$changed \" == *' city-mp '* ]] || ! systemctl --user is-active -q city-mp; then
-    ln -sfn releases/$SHA \$C/mp.new && mv -T \$C/mp.new \$C/mp
-    systemctl --user restart city-mp; echo 'city-mp restarted'
+# 1. Ship the committed tree (plus version.json and tiles.json at its root) to a stage dir on osgallery-dev.
+C=turku3d-local/city
+STAGE="$C/stage/$SHORT-$$"
+ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps && rm -rf ~/$STAGE && mkdir -p ~/$STAGE"
+git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
+  game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
+
+if [ "$LOCAL_BUILD" = 1 ]; then
+  # Mac build in a detached worktree (vite.config.ts stamps the commit from git), dist uploaded into the stage.
+  BUILD="$WORK/builds/$SHA"
+  if [ ! -f "$BUILD/game/index.html" ]; then
+    WT="$WORK/stage/$SHA"
+    rm -rf "$WT" "$BUILD"
+    git -C "$REPO" worktree prune
+    git -C "$REPO" worktree add -q --detach "$WT" "$SHA"
+    trap 'git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1 || true; rm -rf "$META"' EXIT
+    ln -s "$(cd "$REPO/game/node_modules" && pwd -P)" "$WT/game/node_modules"
+    say "building on the Mac (vite, share host $PUBLIC_HOST)"
+    (cd "$WT/game" && TURKU3D_WORK="$BUILD/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
+      ./node_modules/.bin/vite build --logLevel warn --outDir "$BUILD/game")
+    git -C "$REPO" worktree remove --force "$WT"
+    trap 'rm -rf "$META"' EXIT
   fi
-  systemctl --user restart city-tiles city-web
-  [[ \" \$changed \" == *' city-forwarder '* ]] && systemctl --user restart city-forwarder || systemctl --user start city-forwarder
-  keep=\"\$(readlink \$C/current) \$(readlink \$C/mp)\"
-  ls -1dt \$C/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
-    case \" \$keep \" in *\" releases/\$(basename \$old) \"*) ;; *) rm -rf \"\$old\";; esac
-  done"
-find "$WORK/builds" -mindepth 1 -maxdepth 1 -type d ! -name "$SHA" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+  cp "$META/version.json" "$BUILD/game/version.json"
+  say "uploading $(du -sh "$BUILD/game" | cut -f1) dist"
+  rsync -a --delete --exclude '*.map' "$BUILD/game/" "$SSH_HOST:$STAGE/dist/"
+  find "$WORK/builds" -mindepth 1 -maxdepth 1 -type d ! -name "$SHA" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
+fi
+
+# 2. On osgallery-dev, under the deploy lock: build (unless --local-build), install the release, switch, restart, prune.
+say "publishing from osgallery-dev$([ "$LOCAL_BUILD" = 1 ] || echo ' (remote build)')"
+ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $SERVER_TREE $STAGE $LOCAL_BUILD $PUBLIC_HOST $KEEP" <<'REMOTE'
+set -euo pipefail
+SHA=$1 SERVER_TREE=$2 STAGE=$HOME/$3 LOCAL_BUILD=$4 PUBLIC_HOST=$5 KEEP=$6
+C=$HOME/turku3d-local/city U=$HOME/.config/systemd/user R=$C/releases/$SHA
+trap 'rm -rf "$STAGE"' EXIT
+if [ "$LOCAL_BUILD" = 0 ]; then
+  # Dependencies cached by lockfile hash; npm ci runs once per distinct lockfile.
+  LOCK=$(sha256sum < "$STAGE/game/package-lock.json" | cut -c1-16)
+  D=$C/deps/$LOCK
+  if [ ! -f "$D/.ok" ]; then
+    rm -rf "$D"; mkdir -p "$D"
+    cp "$STAGE/game/package.json" "$STAGE/game/package-lock.json" "$D/"
+    echo "installing game deps ($LOCK)"
+    (cd "$D" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error)
+    touch "$D/.ok"
+  fi
+  ln -s "$D/node_modules" "$STAGE/game/node_modules"
+  # vite.config.ts stamps the commit from `git rev-parse HEAD`; the archive has no .git, so give it a bare HEAD.
+  git -C "$STAGE" init -q && echo "$SHA" > "$STAGE/.git/HEAD"
+  echo "building (vite, share host $PUBLIC_HOST)"
+  (cd "$STAGE/game" && TURKU3D_WORK="$STAGE/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
+    nice -n 10 ./node_modules/.bin/vite build --logLevel warn --outDir "$STAGE/dist")
+  find "$STAGE/dist" -name '*.map' -delete
+  cp "$STAGE/version.json" "$STAGE/dist/version.json"
+fi
+mkdir -p "$R/dist" "$R/src"
+rsync -a --delete "$STAGE/dist/" "$R/dist/"
+# Server sources (only what the units run); keep an installed server/node_modules across a redeploy of this release.
+rsync -a --delete --exclude /server/node_modules --exclude /game --exclude /pipeline --exclude /dist --exclude /work --exclude /.git \
+  --exclude /version.json --exclude /tiles.json "$STAGE/" "$R/src/"
+cd "$R/src"; echo "$SERVER_TREE" > server.tree
+prev=$C/$(readlink "$C/mp" 2>/dev/null || true)
+if [ -d server/node_modules ] && [ "$(cat server/node_modules/.lock.sha 2>/dev/null)" = "$(sha256sum < server/package-lock.json)" ]; then
+  :  # a redeploy of this release
+elif [ "$prev" != "$C/" ] && [ "$prev" != "$R" ] && [ -d "$prev/src/server/node_modules" ] && cmp -s "$prev/src/server/package-lock.json" server/package-lock.json; then
+  rm -rf server/node_modules; cp -a "$prev/src/server/node_modules" server/
+else
+  rm -rf server/node_modules
+  npm ci --prefix server --ignore-scripts --omit=dev --no-audit --no-fund --loglevel=error
+fi
+sha256sum < server/package-lock.json > server/node_modules/.lock.sha
+# Tile pin (hot-read by city-tiles).
+mv "$STAGE/tiles.json" "$C/tiles.json.tmp" && mv "$C/tiles.json.tmp" "$C/tiles.json"
+# Switch, install units, restart what changed, prune old releases (never the ones `current` or `mp` use).
+ln -sfn "releases/$SHA" "$C/current.new" && mv -T "$C/current.new" "$C/current"
+changed=''
+for f in "$C"/current/src/tools/share/units/*.service; do
+  cmp -s "$f" "$U/$(basename "$f")" || { cp "$f" "$U/"; changed="$changed $(basename "$f" .service)"; }
+done
+systemctl --user daemon-reload
+systemctl --user enable -q city-web city-tiles city-mp city-forwarder
+mp_tree=$(cat "$C/mp/src/server.tree" 2>/dev/null || true)
+if [ "$mp_tree" != "$SERVER_TREE" ] || [[ " $changed " == *' city-mp '* ]] || ! systemctl --user is-active -q city-mp; then
+  ln -sfn "releases/$SHA" "$C/mp.new" && mv -T "$C/mp.new" "$C/mp"
+  systemctl --user restart city-mp; echo 'city-mp restarted'
+fi
+systemctl --user restart city-tiles city-web
+if [[ " $changed " == *' city-forwarder '* ]]; then systemctl --user restart city-forwarder; else systemctl --user start city-forwarder; fi
+keep="$(readlink "$C/current") $(readlink "$C/mp")"
+ls -1dt "$C"/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
+  case " $keep " in *" releases/$(basename "$old") "*) ;; *) rm -rf "$old";; esac
+done
+REMOTE
 
 # 5. The public URL serves this commit and healthy tiles.
 for _ in 1 2 3 4 5 6 7 8 9 10; do
