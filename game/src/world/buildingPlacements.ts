@@ -79,7 +79,7 @@ export class BuildingModelCache {
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
     private dispose: (root: THREE.Object3D) => void, private budget: PreparationBudget = streamingBudget(),
     private visibility: PlacementVisibility = placementVisibility,
-    private styleLod: (root: THREE.Object3D, owner: THREE.Object3D) => void = () => {}) {}
+    private styleLod: (root: THREE.Object3D, owner: THREE.Object3D, block: string) => void = () => {}) {}
 
   private async read(url: string, priority: number, trace: ReadTrace | undefined, wanted: () => boolean) {
     const queued = trace ? performance.now() : 0, waits = this.active >= this.reads;
@@ -243,7 +243,7 @@ export class BuildingModelCache {
       if (!block.lod) continue;
       const root = templates.get(block.lod)!.clone(true);
       root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
-      this.styleLod(root, owner);
+      this.styleLod(root, owner, block.id);
       const wrapper = new StaticGroup();
       wrapper.name = `block-lod:${block.id}`;
       wrapper.position.fromArray(block.position);
