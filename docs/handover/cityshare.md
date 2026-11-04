@@ -41,8 +41,8 @@ it is public like Pages. Unit tests: `game/tests/unit/share-host.test.ts`.
 
 - Same-origin `/coarse/` tiles, `./pointcloud/` and `wss://<host>/` multiplayer. The published server is never
   used.
-- None of the local-only features run there (telemetry, editor, capture, dev HUD); `?dev=1` still opens the
-  dev menu.
+- None of the local-only features run there (telemetry, capture, dev HUD); `?dev=1` still opens the dev menu.
+  `?editor=1` turns on the object editor (`editorAllowed`), with its sessions stored on osgallery-dev.
 
 ## Units, ports and hardening (osgallery-dev, `systemctl --user`)
 
@@ -64,6 +64,9 @@ The last three units replaced the hand-started processes with the same commands.
 Public hardening in `serve-dist --public`:
 
 - GET and HEAD only: POST, PUT and OPTIONS get 405, so there are no capture, telemetry or other uploads.
+  - The one exception is the object editor's edit sessions under `/__edits/` (`--edits`). They are write-only (no
+    reads back), same-origin only, capped at 512 MB, and stored in `~/turku3d-local/city/edits/`.
+  - The editor runs there only with `?editor=1`. See `editor.md` for the close dialog and finding a session by id.
 - No facade candidates, `/__localhost`, `/healthz`, dotfiles or directory listings.
 - `/coarse` takes plain path segments only (dot segments and percent escapes get 404), so nothing reaches the
   farm's root status or management routes.
