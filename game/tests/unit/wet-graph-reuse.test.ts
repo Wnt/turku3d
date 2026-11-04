@@ -84,9 +84,11 @@ test('distinct textures, base expressions, mineral masks and facades keep indepe
     () => new THREE.MeshStandardNodeMaterial({ roughnessNode: float(.7) }),
     () => new THREE.MeshStandardNodeMaterial({ normalNode: vec3(0, 0, 1) }),
   ];
-  for (const create of variants) {
+  for (const [i, create] of variants.entries()) {
     const a = wetSurface(create()), b = wetSurface(create());
-    expect(a.colorNode).not.toBe(common.colorNode); expect(a.colorNode).not.toBe(b.colorNode);
+    expect(a.colorNode).not.toBe(common.colorNode);
+    // Texture-only variants share by what the texture changes in code (textureCode); authored nodes never share.
+    if (i < 3) expect(a.colorNode).toBe(b.colorNode); else expect(a.colorNode).not.toBe(b.colorNode);
   }
   expect(wetSurface(new THREE.MeshStandardNodeMaterial(), true).colorNode).not.toBe(common.colorNode);
   expect(wetSurface(new THREE.MeshStandardNodeMaterial(), false, float(.5)).colorNode).not.toBe(common.colorNode);
@@ -109,15 +111,18 @@ test('same canonical bridge texture with roughness .95/.92 shares one built grap
   map.dispose();
 });
 
-test('texture role, secondary maps and UV/sampler variants remain distinct recipe identities', () => {
+test('texture slots, UV channel and sampler variants remain distinct recipes; other texture copies share one', () => {
   const map = new THREE.Texture(), normal = new THREE.Texture(), light = new THREE.Texture();
   const base = () => wetSurface(new THREE.MeshStandardNodeMaterial({ map, normalMap: normal }));
   const common = base(); expect(base().colorNode).toBe(common.colorNode);
   const uv = map.clone(); uv.channel = 1; uv.offset.set(.3, .6); uv.repeat.set(2, 3);
   const sampler = map.clone(); sampler.magFilter = THREE.NearestFilter;
+  // Every streamed tile and building brings its own texture objects: equal-code copies (offset and repeat are uniforms)
+  // share the recipe, so a bollard or facade component builds its program once, not once per tile.
+  const copy = map.clone(); copy.offset.set(.3, .6); copy.repeat.set(2, 3);
+  expect(wetSurface(new THREE.MeshStandardNodeMaterial({ map: copy, normalMap: normal.clone() })).colorNode).toBe(common.colorNode);
   for (const variant of [
-    new THREE.MeshStandardNodeMaterial({ map, normalMap: new THREE.Texture() }),
-    new THREE.MeshStandardNodeMaterial({ map: normal, normalMap: map }),
+    new THREE.MeshStandardNodeMaterial({ map, normalMap: normal, roughnessMap: new THREE.Texture() }),
     new THREE.MeshStandardNodeMaterial({ map: uv, normalMap: normal }),
     new THREE.MeshStandardNodeMaterial({ map: sampler, normalMap: normal }),
     new THREE.MeshStandardNodeMaterial({ map, normalMap: normal, lightMap: light }),
@@ -159,4 +164,16 @@ test.each([false, true])('dry/wet changes keep native shader code and program id
     weatherUniforms.wetness.value = .85;
     expect(build()).toEqual(dry); expect(material.customProgramCacheKey()).toBe(key);
   } finally { weatherUniforms.wetness.value = previous; }
+});
+
+test('r186 generates the same program for equal-code textures and a different one for another UV channel', () => {
+  const shader = (map: THREE.Texture) => {
+    const { nodes, draw } = fixture();
+    const state = nodes.getForRender(draw(new THREE.MeshStandardNodeMaterial({ map })));
+    return state.vertexShader + state.fragmentShader;
+  };
+  const map = new THREE.Texture(), copy = map.clone(), channel = map.clone();
+  copy.offset.set(.3, .6); copy.repeat.set(2, 3); channel.channel = 1;
+  expect(shader(copy)).toBe(shader(map));
+  expect(shader(channel)).not.toBe(shader(map));
 });

@@ -9,17 +9,28 @@ export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
 const allMineral = float(1);
 type WetGraph = Pick<THREE.MeshStandardNodeMaterial, 'colorNode' | 'roughnessNode' | 'setupLightMap'>;
-type WetRecipes = { textures: Map<string, WeakMap<THREE.Texture, WetRecipes>>; graph?: WetGraph };
+type WetRecipes = { textures: Map<string, Map<string, WetRecipes>>; graph?: WetGraph };
 const wetRecipes: WetRecipes = { textures: new Map() };
-/** Exact sampler/UV variants already have canonical Texture identities. Weak keys leave ownership
- * with the streamed models, including when only one map in a material's texture set changes. */
+/** What a material texture changes in the generated program. The graph reads every map through r186's shared
+ * material references (materialColor and friends), which take each material's own texture at draw time, so
+ * materials whose maps agree on these fields share one program however many texture instances they bring: every
+ * streamed tile and building carries its own copies (a recipe per texture identity built a program per bollard and
+ * per facade component, 26 builds in a drive replay). Sampler fields are part of r186's own material key. */
+function textureCode(texture: THREE.Texture) {
+  const kind = (texture as THREE.Texture & { isArrayTexture?: boolean; isData3DTexture?: boolean; isCubeTexture?: boolean;
+    isDepthTexture?: boolean; isCompressedTexture?: boolean }) ;
+  return [texture.colorSpace, texture.channel, texture.type, texture.format, texture.mapping, texture.matrixAutoUpdate,
+    kind.isArrayTexture === true, kind.isData3DTexture === true, kind.isCubeTexture === true, kind.isDepthTexture === true,
+    kind.isCompressedTexture === true, texture.magFilter, texture.minFilter, texture.wrapS, texture.wrapT].join(':');
+}
 function wetRecipe(material: THREE.MeshStandardNodeMaterial) {
   let recipe = wetRecipes;
   for (const [property, texture] of Object.entries(material).filter(([, value]) => value?.isTexture).sort(([a], [b]) => a.localeCompare(b))) {
     let textures = recipe.textures.get(property);
-    if (!textures) { textures = new WeakMap(); recipe.textures.set(property, textures); }
-    let next = textures.get(texture);
-    if (!next) { next = { textures: new Map() }; textures.set(texture, next); }
+    if (!textures) { textures = new Map(); recipe.textures.set(property, textures); }
+    const code = textureCode(texture as THREE.Texture);
+    let next = textures.get(code);
+    if (!next) { next = { textures: new Map() }; textures.set(code, next); }
     recipe = next;
   }
   return recipe;
