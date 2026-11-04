@@ -466,6 +466,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (window.__render?.beforeFrame?.() === false) return;
     const now = performance.now();
     if (document.hidden || !framePacer.ready(now)) return;
+    physics.beginFrame(now);
     clock.frames++;
     perf.begin();
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -665,7 +666,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       traffic.updatePedestrians(now, () => walkers.trafficObstacles());
       audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
       parkedVisuals.setView(camera, world.dayClock.night);
-      parkedVisuals.update(st.vehicles, parkedVehicles);
+      // The driven car is drawn at its render pose, which the chase camera follows; the others at the latest step.
+      const drivenRender = renderVehicle && drivenId && renderVehicle.id === drivenId ? renderVehicle : null;
+      parkedVisuals.update(drivenRender ? st.vehicles.map(v => v.id === drivenId ? { ...v, pos: drivenRender.pos, rot: drivenRender.rot, wheels: drivenRender.wheels } : v)
+        : st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
         if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
@@ -716,8 +720,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
 
     player.root.visible = !positionHud.characterHidden && (mode === 'foot' || !!seated.of(drivenId));
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    const chaseVehicle = drivenId && drivenId !== 'player' && !seated.of(drivenId)
-      ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
+    // The camera follows the drawn pose of the driven vehicle, never a newer raw physics state.
+    const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
+      : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
       chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
       snapChase = false;

@@ -1,23 +1,22 @@
 import type { CharacterState, Quat, VehicleState } from '../physics/protocol';
 import type { V3 } from '../core/origin';
+import { PoseCorrection, SourceClock, quatConjugate, quatExp, quatLog, quatMultiply } from './renderClock';
 const STEP = 1 / 60;
 /** Longest render extrapolation past the newest physics state (s): a late worker snapshot keeps the player's car
- *  and character moving along their last velocity instead of freezing; beyond this they hold. Render only: the
- *  physics state (and so multiplayer) never sees it. */
+ *  and character moving along their last velocity and turn rate instead of freezing; beyond this they hold.
+ *  Render only: the physics state (and so multiplayer) never sees it. */
 export const MAX_EXTRAPOLATION = 0.15;
-/** A snapshot counts as late only after this many fixed steps beyond its own: until then the pose interpolates
- *  the latest pair and holds at its end (the behaviour before extrapolation), so ordinary delivery jitter never
- *  extrapolates or blends. */
-const LATE_STEPS = 1;
-/** Teleports (resets, seat changes) are never smoothed. */
-const MAX_CORRECTION = 3;
-/** Fixed steps since the state was received: 0..1 interpolates the latest pair, 1..1+LATE_STEPS holds, beyond
- *  that a late snapshot extrapolates. */
-const phase = (now: number, received: number, remainder: number) => Math.max(0, (now - received + remainder) / STEP);
+/** Render delay bounds (s) on top of the fastest recent delivery: SourceClock adds the delivery jitter. */
+const MIN_DELAY = 0.002, MAX_DELAY = 0.1;
+/** Consecutive states farther apart than this are a teleport: no interpolation or smoothing across it. */
+const TELEPORT = 2;
+const KEEP = 0.25;
+
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const angle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 const vector = (a: V3, b: V3, t: number) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t) });
 const ahead = (p: V3, v: V3, s: number) => ({ x: p.x + v.x * s, y: p.y + v.y * s, z: p.z + v.z * s });
+const distance = (a: V3, b: V3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 function rotation(a: Quat, b: Quat, t: number): Quat {
   const sign = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0 ? -1 : 1;
   const q = { x: lerp(a.x, b.x * sign, t), y: lerp(a.y, b.y * sign, t),
@@ -25,129 +24,130 @@ function rotation(a: Quat, b: Quat, t: number): Quat {
   const length = Math.hypot(q.x, q.y, q.z, q.w) || 1;
   return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length };
 }
-const multiply = (a: Quat, b: Quat): Quat => ({
-  x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-  z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z });
-const conjugate = (q: Quat): Quat => ({ x: -q.x, y: -q.y, z: -q.z, w: q.w });
-const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };
-/** `q` raised to the power `t` (t >= 0): the same turn, scaled. */
-function scaleTurn(q: Quat, t: number): Quat {
-  const s = q.w < 0 ? -1 : 1, w = Math.min(1, q.w * s), half = Math.acos(w), sin = Math.sin(half);
-  if (sin < 1e-9) return IDENTITY;
-  const k = Math.sin(half * t) / sin * s;
-  return { x: q.x * k, y: q.y * k, z: q.z * k, w: Math.cos(half * t) };
+
+interface PoseOps<T> {
+  lerp(a: T, b: T, f: number): T;
+  /** `b` carried on for `s` seconds at the rates between `a` (`dt` earlier) and `b`. */
+  extrapolate(a: T, b: T, dt: number, s: number): T;
+  pos(s: T): V3;
+  rot(s: T): Quat | undefined;
+  speed(s: T): number;
+  with(s: T, pos: V3, rot: Quat | undefined): T;
 }
+interface Entry<T> { t: number; s: T }
 
-/** Steps of extrapolation at phase t (0 while interpolating or within the late grace). */
-const lateSteps = (t: number) => Math.min(MAX_EXTRAPOLATION / STEP, Math.max(0, t - 1 - LATE_STEPS));
-
-/** When a state arrives after a late snapshot was extrapolated, the difference between where the drawn pose was
- *  heading (its velocity and turn rate carried on) and the new pose fades out instead of snapping: at most half
- *  the actor's speed is spent closing it, so a correction never moves the car backwards. */
-class Correction {
-  private pos: V3 | null = null;
-  private rot: Quat | null = null;
-  private at = 0;
-  private tau = 0.1;
-  private pending = false;
-  /** The latest drawn pose, when, at what velocity, and whether it was extrapolated. */
-  shown: { pos: V3; rot?: Quat; turn?: Quat; vel: V3; at: number; extrapolated: boolean } | null = null;
-  arrived() { if (this.shown?.extrapolated) this.pending = true; }
-  reset() { this.pos = this.rot = null; this.pending = false; }
-  apply(now: number, pos: V3, rot: Quat | undefined, speed: number): { pos: V3; rot?: Quat } {
-    if (this.pending && this.shown) {
-      this.pending = false;
-      // Where the drawn pose would be now had it kept going, against the new state's pose.
-      const since = Math.max(0, now - this.shown.at);
-      const was = ahead(this.shown.pos, this.shown.vel, since);
-      const d = { x: was.x - pos.x, y: was.y - pos.y, z: was.z - pos.z };
-      const size = Math.hypot(d.x, d.y, d.z);
-      if (size < MAX_CORRECTION) {
-        this.pos = d; this.at = now;
-        this.tau = Math.min(0.4, Math.max(0.08, size / (0.5 * Math.max(speed, 1))));
-        const heading = this.shown.rot && this.shown.turn ? multiply(scaleTurn(this.shown.turn, since / STEP), this.shown.rot) : this.shown.rot;
-        this.rot = rot && heading ? multiply(heading, conjugate(rot)) : null;
-      } else this.reset();
+/** Timestamped states drawn at one SourceClock: interpolated between the two states around the drawn time,
+ *  extrapolated past the newest for up to MAX_EXTRAPOLATION, and a late state's jump against what was drawn is
+ *  blended out by a critically damped PoseCorrection. Local physics actors and network remotes share it. */
+export class PoseTrack<T> {
+  private entries: Entry<T>[] = [];
+  readonly clock: SourceClock;
+  private correction = new PoseCorrection();
+  /** The newest two entries when the last drawn time was past the newest one: what that frame extrapolated from. */
+  private beyond: Entry<T>[] | null = null;
+  /** The last drawn source time and how far past the newest state it was (s), for diagnostics and tests. */
+  drawn = { t: 0, late: 0 };
+  constructor(private readonly ops: PoseOps<T>, minDelay = MIN_DELAY, maxDelay = MAX_DELAY,
+    private readonly maxExtrapolation = MAX_EXTRAPOLATION) { this.clock = new SourceClock(minDelay, maxDelay); }
+  get newest() { return this.entries.at(-1)?.s ?? null; }
+  clear() { this.entries = []; this.beyond = null; this.correction.reset(); }
+  /** Adds the state of source time `t` (s), available since local time `arrival` (s). `observe`: false for an
+   *  older state delivered alongside (it says nothing about delivery time). A teleport clears the track. */
+  push(t: number, state: T, arrival: number, observe = true, continuous = (a: T, b: T) => distance(this.ops.pos(a), this.ops.pos(b)) < TELEPORT) {
+    const last = this.entries.at(-1);
+    if (last && t === last.t) last.s = state;
+    else if (last && t < last.t && t > last.t - 1) return; // an older state than one already held
+    else {
+      // A new epoch (a restarted worker, a rejoin) or a teleport: nothing to interpolate from.
+      if (last && t < last.t) { this.clear(); this.clock.reset(); }
+      else if (last && !continuous(last.s, state)) this.clear();
+      this.entries.push({ t, s: state });
     }
-    if (!this.pos) return { pos, rot };
-    const k = Math.exp(-(now - this.at) / this.tau);
-    if (k < 1e-3) { this.reset(); return { pos, rot }; }
-    return { pos: ahead(pos, this.pos, k), rot: rot && this.rot ? multiply(scaleTurn(this.rot, k), rot) : rot };
+    if (observe) this.clock.observe(t, arrival);
+  }
+  private evaluate(entries: Entry<T>[], t: number): { s: T; late: number } {
+    const first = entries[0], last = entries.at(-1)!;
+    if (t <= first.t) return { s: first.s, late: 0 };
+    for (let i = 1; i < entries.length; i++) {
+      const a = entries[i - 1], b = entries[i];
+      if (t <= b.t) return { s: this.ops.lerp(a.s, b.s, (t - a.t) / (b.t - a.t)), late: 0 };
+    }
+    const late = t - last.t, prev = entries.at(-2);
+    if (!prev) return { s: last.s, late };
+    return { s: this.ops.extrapolate(prev.s, last.s, last.t - prev.t, Math.min(this.maxExtrapolation, late)), late };
+  }
+  /** The pose to draw at local time `now` (s). `extrapolate`: false while the simulation is paused (the newest
+   *  state is then simply held). */
+  sample(now: number, extrapolate = true): T | null {
+    if (!this.entries.length) return null;
+    let t = this.clock.at(now)!;
+    const newest = this.entries.at(-1)!;
+    if (!extrapolate) t = Math.min(t, newest.t);
+    const raw = this.evaluate(this.entries, t);
+    // A state arrived after a frame drawn past the then-newest one: what that frame was heading for, against the
+    // new pose at the same time, fades out instead of snapping.
+    if (this.beyond && this.beyond.at(-1)!.t < newest.t) {
+      const was = extrapolate ? this.evaluate(this.beyond, t).s : this.beyond.at(-1)!.s;
+      const p = this.ops.pos(raw.s), q = this.ops.pos(was), a = this.ops.rot(raw.s), b = this.ops.rot(was);
+      this.correction.add({ x: q.x - p.x, y: q.y - p.y, z: q.z - p.z }, a && b ? quatLog(quatMultiply(b, quatConjugate(a))) : null, this.ops.speed(raw.s));
+    }
+    this.beyond = raw.late > 0 ? this.entries.slice(-2) : null;
+    while (this.entries.length > 2 && this.entries[1].t < t - KEEP) this.entries.shift();
+    this.drawn = { t, late: raw.late };
+    const c = this.correction.apply(now);
+    if (!c) return raw.s;
+    const p = this.ops.pos(raw.s), r = this.ops.rot(raw.s);
+    return this.ops.with(raw.s, ahead(p, c.dp, 1), r ? quatMultiply(c.dr, r) : undefined);
   }
 }
 
-/** One fixed-step of render latency; packets with no new physics tick never reset the clock. A late snapshot
- *  extrapolates along the last velocity for up to MAX_EXTRAPOLATION. */
+const vehicleOps: PoseOps<VehicleState> = {
+  lerp: (p, c, a) => ({ ...c, pos: vector(p.pos, c.pos, a), rot: rotation(p.rot, c.rot, a), linvel: vector(p.linvel, c.linvel, a),
+    wheels: c.wheels.map((w, i) => p.wheels[i] ? { ...w, pos: vector(p.wheels[i].pos, w.pos, a),
+      steer: angle(p.wheels[i].steer, w.steer, a), rotation: angle(p.wheels[i].rotation, w.rotation, a) } : w) }),
+  extrapolate: (p, c, dt, s) => {
+    // The chassis carries on along its velocity and last turn rate, the wheels at their spin (chassis-local).
+    const turn = quatLog(quatMultiply(c.rot, quatConjugate(p.rot))), k = dt > 0 ? s / dt : 0;
+    return { ...c, pos: ahead(c.pos, c.linvel, s), rot: quatMultiply(quatExp({ x: turn.x * k, y: turn.y * k, z: turn.z * k }), c.rot),
+      wheels: c.wheels.map((w, i) => p.wheels[i] ? { ...w, rotation: w.rotation + Math.atan2(Math.sin(w.rotation - p.wheels[i].rotation), Math.cos(w.rotation - p.wheels[i].rotation)) * k } : w) };
+  },
+  pos: s => s.pos, rot: s => s.rot, speed: s => s.speed,
+  with: (s, pos, rot) => ({ ...s, pos, rot: rot ?? s.rot }),
+};
+const characterOps: PoseOps<CharacterState> = {
+  lerp: (p, c, a) => ({ ...c, pos: vector(p.pos, c.pos, a) }),
+  extrapolate: (_p, c, _dt, s) => ({ ...c, pos: ahead(c.pos, c.vel, s) }),
+  pos: s => s.pos, rot: () => undefined, speed: s => Math.hypot(s.vel.x, s.vel.z),
+  with: (s, pos) => ({ ...s, pos }),
+};
+
+/** The render pose of the local character. `push` takes each worker snapshot's newest state and the one a fixed
+ *  step before it, its tick and the local time (s) it was published. */
 export class CharacterInterpolation {
-  private current: CharacterState | null = null;
-  private previous: CharacterState | null = null;
+  readonly track = new PoseTrack(characterOps);
   private tick = -1;
-  private received = 0;
-  private remainder = 0;
-  private correction = new Correction();
-  push(current: CharacterState | null, previous: CharacterState | null, tick: number, remainder: number, now: number) {
+  push(current: CharacterState | null, previous: CharacterState | null, tick: number, arrival: number) {
     if (tick === this.tick) return;
-    this.tick = tick; this.received = now; this.remainder = remainder;
-    this.current = current;
-    this.previous = previous;
-    if (current && previous && (current.enabled !== previous.enabled ||
-      Math.hypot(current.pos.x - previous.pos.x, current.pos.y - previous.pos.y, current.pos.z - previous.pos.z) > 2)) {
-      this.previous = current; this.correction.reset(); this.correction.shown = null;
-    }
-    this.correction.arrived();
+    this.tick = tick;
+    if (!current) { this.track.clear(); return; }
+    const continuous = (a: CharacterState, b: CharacterState) => a.enabled === b.enabled && distance(a.pos, b.pos) < TELEPORT;
+    if (previous) this.track.push((tick - 1) * STEP, previous, arrival, false, continuous);
+    this.track.push(tick * STEP, current, arrival, true, continuous);
   }
-  /** `extrapolate`: false while the simulation is paused (a late state is then simply the latest). */
-  sample(now: number, extrapolate = true): CharacterState | null {
-    const c = this.current, p = this.previous;
-    if (!c || !p) return c;
-    const t = phase(now, this.received, this.remainder), late = extrapolate ? lateSteps(t) : 0;
-    const raw = late > 0 ? ahead(c.pos, c.vel, late * STEP) : vector(p.pos, c.pos, Math.min(1, t));
-    const { pos } = this.correction.apply(now, raw, undefined, Math.hypot(c.vel.x, c.vel.z));
-    this.correction.shown = { pos, vel: c.vel, at: now, extrapolated: late > 0 };
-    return { ...c, pos };
-  }
+  sample(now: number, extrapolate = true): CharacterState | null { return this.track.sample(now, extrapolate); }
 }
 
-/** Render pose from a single pair of adjacent fixed steps, including wheel and chassis motion. A late snapshot
- *  extrapolates the chassis along its velocity and turn rate (and the wheels' spin) for up to MAX_EXTRAPOLATION. */
+/** The render pose of the driven vehicle (the start car while on foot), wheels included. */
 export class VehicleInterpolation {
-  private current: VehicleState | null = null;
-  private previous: VehicleState | null = null;
+  readonly track = new PoseTrack(vehicleOps);
   private tick = -1;
-  private received = 0;
-  private remainder = 0;
-  private correction = new Correction();
-  push(current: VehicleState | null, previous: VehicleState | null, tick: number, remainder: number, now: number) {
+  push(current: VehicleState | null, previous: VehicleState | null, tick: number, arrival: number) {
     if (tick === this.tick) return;
-    this.tick = tick; this.received = now; this.remainder = remainder;
-    this.current = current;
-    const continuous = current && previous && current.wheels.length === previous.wheels.length &&
-      Math.hypot(current.pos.x - previous.pos.x, current.pos.y - previous.pos.y, current.pos.z - previous.pos.z) < 2;
-    this.previous = continuous ? previous : current;
-    if (!continuous) { this.correction.reset(); this.correction.shown = null; }
-    this.correction.arrived();
+    this.tick = tick;
+    if (!current) { this.track.clear(); return; }
+    const continuous = (a: VehicleState, b: VehicleState) => a.id === b.id && a.wheels.length === b.wheels.length && distance(a.pos, b.pos) < TELEPORT;
+    if (previous) this.track.push((tick - 1) * STEP, previous, arrival, false, continuous);
+    this.track.push(tick * STEP, current, arrival, true, continuous);
   }
-  /** `extrapolate`: false while the simulation is paused (a late state is then simply the latest). */
-  sample(now: number, extrapolate = true): VehicleState | null {
-    const c = this.current, p = this.previous;
-    if (!c || !p) return c;
-    const t = phase(now, this.received, this.remainder), late = extrapolate ? lateSteps(t) : 0;
-    const turn = multiply(c.rot, conjugate(p.rot));
-    let pose: VehicleState;
-    if (!late) {
-      const a = Math.min(1, t);
-      pose = { ...c, pos: vector(p.pos, c.pos, a), rot: rotation(p.rot, c.rot, a),
-        wheels: c.wheels.map((w, i) => ({ ...w, pos: vector(p.wheels[i].pos, w.pos, a),
-          steer: angle(p.wheels[i].steer, w.steer, a), rotation: angle(p.wheels[i].rotation, w.rotation, a) })) };
-    } else {
-      // A late snapshot: the last step's turn and wheel spin continue at the same rate (wheel positions are
-      // chassis-local).
-      const steps = late;
-      pose = { ...c, pos: ahead(c.pos, c.linvel, steps * STEP), rot: rotation(c.rot, multiply(scaleTurn(turn, steps), c.rot), 1),
-        wheels: c.wheels.map((w, i) => ({ ...w, rotation: w.rotation + Math.atan2(Math.sin(w.rotation - p.wheels[i].rotation), Math.cos(w.rotation - p.wheels[i].rotation)) * steps })) };
-    }
-    const corrected = this.correction.apply(now, pose.pos, pose.rot, c.speed);
-    this.correction.shown = { pos: corrected.pos, rot: corrected.rot, turn, vel: c.linvel, at: now, extrapolated: late > 0 };
-    return { ...pose, pos: corrected.pos, rot: corrected.rot ?? pose.rot };
-  }
+  sample(now: number, extrapolate = true): VehicleState | null { return this.track.sample(now, extrapolate); }
 }
