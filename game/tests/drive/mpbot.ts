@@ -156,7 +156,8 @@ export class Bot {
         source: null, localId: 'player', half: { x: 2.1, y: 0.3, z: 0.9 }, pose }));
       return;
     }
-    const { carrying: _c, ...vehiclePose } = pose;
+    // The record's pose is the car's (server validPose wants every field, carrying included; no pizza on a parked car).
+    const vehiclePose = { ...pose, carrying: false };
     this.ws.send(JSON.stringify({ v: 2, type: 'pose', ...pose,
       ...(this.vehicleId && this.seat === 'seated' ? { vehicleId: this.vehicleId, vehicles: [{ id: this.vehicleId, epoch: this.epoch, pose: vehiclePose }] } : {}) }));
   }
