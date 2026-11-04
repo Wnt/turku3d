@@ -71,10 +71,10 @@ if (bots) {
 
 // A local browser uses a registered profile (chrome-guard closes unregistered ones first). Clients are tabs of one
 // context: the multiplayer session token is per tab (sessionStorage), so each tab is its own player.
-const shared = cdp ? null : await chromium.launchPersistentContext(path.join(os.homedir(), 'turku3d/loops/autopilot/browser-mp/profile'), {
+const shared = cdp || N === 0 ? null : await chromium.launchPersistentContext(path.join(os.homedir(), 'turku3d/loops/autopilot/browser-mp/profile'), {
   executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs, viewport: { width: 480, height: 270 },
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']) });
-const browser = cdp ? await chromium.connectOverCDP(cdp) : { close: () => shared.close(), contexts: () => [shared] };
+const browser = cdp ? await chromium.connectOverCDP(cdp) : { close: () => shared?.close(), contexts: () => shared ? [shared] : [] };
 const clients = [];
 const samples = [];
 const errors = [];
@@ -156,6 +156,13 @@ try {
   // All clients load at once (each loading tab competes with the others' rendering otherwise).
   await Promise.all(Array.from({ length: N }, (_, i) => new Promise(r => setTimeout(r, i * 3000)).then(() => join(i))));
   clients.sort((a, b) => a.index - b.index);
+  if (N === 0) {
+    // Bots only: start them and let them drive their crossing routes; they leave and join on their own schedule.
+    fs.writeFileSync(goFile, String(Date.now()));
+    log('bots only: go');
+    await new Promise(r => setTimeout(r, (seconds + 20) * 1000));
+    throw Object.assign(new Error('done'), { botsOnly: true });
+  }
   const goal = await targets(clients[0].page);
   log('targets', JSON.stringify(goal.map(p => [Math.round(p.x), Math.round(p.z)])));
   const t0 = Date.now();
@@ -186,12 +193,12 @@ try {
     if (guard('touch') === 2) { log('lease pause requested: ending the run early'); break; }
     await new Promise(r => setTimeout(r, 250));
   }
-} catch (e) { failed = e.message; log('FAILED', e.message); }
+} catch (e) { if (!e.botsOnly) { failed = e.message; log('FAILED', e.message); } }
 finally {
   for (const c of clients) if (c.alive) await c.context.close().catch(() => {});
   if (cdp) { for (const c of browser.contexts()) for (const p of c.pages()) if (p.url().includes(new URL(base).host)) await p.close().catch(() => {}); }
   else await browser.close();
-  guard('release');
+  if (N > 0) guard('release');
   bots?.kill('SIGTERM');
   server.kill('SIGTERM'); fs.rmSync(scores, { recursive: true, force: true });
 }
