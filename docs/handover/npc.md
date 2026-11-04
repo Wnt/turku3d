@@ -64,6 +64,33 @@ Replay and QA (no physics worker) stand cars and walkers on `world/groundIndex.t
   - Node allocation test (`walker-allocation.test.ts`, sampling heap profiler, dense crowd): 134 → about 35 KB per frame, guarded at 60 KB.
   - Bench per 60 Hz step (3 real tiles): p50 0.42 → 0.03 ms, p95 0.83 → 0.31 ms, max 24.6 → 1.2 ms.
 
+## Traffic deadlocks (2026-11-05, `local/traffic-gridlock`)
+
+- **Lane geometry, city-wide** (`traffic/tileNetwork.ts cleanLine`): road data is quantised to 0.1 m, so diagonal
+  streets arrived as 0.1 m staircases. Offsetting each step's mitre threw lanes sideways and back. Each stretch is
+  now Douglas-Peucker simplified (0.25 m across, 0.1 m in height), corners are rounded within 0.8 m of the vertex,
+  and offset segments that run backwards on tight insides are merged. Census over 437 bulkgen2 tiles (9,337 lanes):
+  vertices turning > 45 deg 53,910 -> 63, reversals 11,295 -> 9, lanes with one 6,001 -> 40, arc-length excess
+  16.9 -> 0.7 m/km, lane build 4.7 -> 0.2 s. Junction movements with a reversal 161 -> 39.
+- **Junction movements:** connector handles at most half the chord (no cusps); folded crossing/signal-link
+  movements >= 45 m are smoothed over +-3 m with a per-metre speed profile (`Connector.limits`, optional).
+- **Guard** (`traffic/flow.ts`): 0.05 m contact margin (not 0.25 m) against a car following in the same direction;
+  cars on different levels (data heights > 2.5 m apart) never block each other; poses are checked as they will be
+  drawn (lane-change rate and heading, swerve yaw scaled by speed, past a seam lane's end onto the next tile's
+  lane).
+- **Rules:** a stalled lane change completes at a creep at its stop point; no yield to a car that is itself held
+  (exit, storage, receiving, signal, no exit); after 15 s at the line a driver takes its turn against traffic that
+  waited less and can still stop; a receiving lane gives its next space to the head that has waited longest.
+- **Deterministic unlocks:** two cars stopped by each other's footprint for 6 s: the one behind reverses up to
+  1.5 m (with up to 4 stopped cars behind it, tail first; guard-checked). Cars waiting on each other in a closed
+  cycle (each car's last named blocker since its last 2 m of headway) for 60 s: the lowest key leaves the flow
+  (`stats.cleared`). All pure flow state (checkpointed; `TRAFFIC.version` 12), so every peer agrees.
+- **Evidence:** the 10-min centre repro (t0_0_0, t0_1_0, t0_0_-1): 42 locked > 300 s -> 0, 0 overlaps, exits
+  93 -> 165, flow step mean 4.1 -> 2.3 ms (osgallery-dev, same load, interleaved). Soaks (real tiles, 16:00,
+  locked > 300 s, before -> after): centre 5x5 60 min 1158/1341 -> 214/1393; east 30 min 367 -> 145; south
+  672 -> 136; northwest 231 -> 0; far-east 430 -> 0; overlaps 0 everywhere after (south had 10 before).
+  Opt-in test: `TRAFFIC_TILES_DIR=<roads-*.json dir> npx vitest run tests/unit/traffic-gridlock.test.ts`.
+
 ## Open, ranked
 
 1. **Walker tiers.** Height rays for near walkers only; far walkers at a lower update rate. Walkers are now evaluated within the 110 m ring only, but every candidate still requests chain height rays and is re-evaluated every frame.
@@ -71,11 +98,16 @@ Replay and QA (no physics worker) stand cars and walkers on `world/groundIndex.t
    - about 35 KB per frame of walker code: routes for newly born lives, the 400 ms scan's new life objects, and part of the draw loop (TurboFan-optimised; not yet located);
    - the flow step's own 10 Hz allocations (leader filter/sort, `pedestrianStop` arrays, `routePoint` objects);
    - per-car arrays in the worker's publish.
-3. **Junction gridlock at the centre seam,** near engine (145, −15), controller `3110a1e593cd98cf`. It predates this work.
-   - **Symptom:** 47 of 90 cars lock within 10 min on the real centre tiles.
-   - **Cause:** the lane polyline kinks there, so a leader 8 m ahead along the arc is 5 m away in 2D. Pulling away, it swings its rear into the follower's nose, and the swept-footprint guard stops both for good.
-   - **Tried:** ignoring the follower in the guard caused overlaps and was not merged.
-   - **Needs:** smoothed lane geometry or a follower-aware guard, plus a deterministic unlock. Repro: `~/turku3d/loops/npc/lock-trace.test.ts`.
+3. **Network spillback in dense districts at sustained peak demand.** The centre-seam junction lock (47 of 90
+   cars) is fixed (2026-11-05, branch `local/traffic-gridlock`; see "Traffic deadlocks" below). What remains: in
+   the densest districts, after 30-60 simulated minutes at the 16:00 peak, full exit lanes back queues up through
+   junctions; heads then wait minutes for space. Two concrete patterns:
+   - a car holding a junction reservation, footprint-blocked by the head at a crossing stop line that waits for
+     that reservation (east, near engine (1225, -281)); the cycle breaker misses it because the reservation holder's
+     `stuck` timer keeps restarting (relaxing the member condition made the centre worse and was dropped);
+   - a starved approach at controller `be667405fc048a08` (centre, near (249, -106)): fair turns do not reach it.
+   Likely next steps: keep stop lines out of crossing movements' swept paths (conflict geometry), and gate source
+   inflow on downstream occupancy so a district cannot fill past capacity.
 4. **Smaller items:**
    - walk/idle crossfade (shader; needs a visual check);
    - run/jog/fall clips (walkers.bin rebake);
