@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import datetime as dt
+import gzip
 import hashlib
 import json
 import math
@@ -132,6 +133,9 @@ class Ledger:
         self.data = json.loads(self.path.read_text()) if self.path.exists() else {"files": {}}
 
     def done(self, path: Path) -> bool:
+        if self.path.exists() and self.path.stat().st_mtime_ns != getattr(self, "_seen", None):
+            self._seen = self.path.stat().st_mtime_ns
+            self.data = json.loads(self.path.read_text())
         rec = self.data["files"].get(str(path.relative_to(self.path.parent)))
         return bool(rec) and path.exists() and path.stat().st_size == rec["bytes"]
 
@@ -145,9 +149,15 @@ class Ledger:
             "fetched": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
             **extra,
         }
-        with _lock:
+        import fcntl
+
+        # Several processes (a 5 km fetch, on-demand builds) share one ledger: merge under a lock.
+        with _lock, open(self.path.with_suffix(".lock"), "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if self.path.exists():
+                self.data = json.loads(self.path.read_text())
             self.data["files"][str(path.relative_to(self.path.parent))] = rec
-            tmp = self.path.with_suffix(".tmp")
+            tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.tmp")
             tmp.write_text(json.dumps(self.data, indent=1, sort_keys=True))
             tmp.replace(self.path)
 
@@ -241,7 +251,7 @@ def fetch_3dbag(area, root, ledger, plan, log):
         if plan:
             return head_size(url) or 0
         curl(url, dest)
-        got = hashlib.sha256(__import__("gzip").open(dest).read()).hexdigest()
+        got = hashlib.sha256(gzip.open(dest).read()).hexdigest()
         if got != digest and sha256(dest) != digest:
             raise RuntimeError(f"3dbag {tile_id}: sha256 mismatch")
         ledger.record(dest, "3dbag", url, tile=tile_id, bbox_rd=list(bounds), version=BAG_VERSION)
@@ -287,26 +297,33 @@ def fetch_bgt(area, root, ledger, plan, log, origin):
     if plan:
         # Count one central block fully and scale by the number of blocks.
         sample = sorted(blocks, key=lambda b: abs(b[0] - origin[0]) + abs(b[1] - origin[1]))[0]
-        per_block = 0
+        per_block = served = 0
         for name in collections:
             feats, _ = bgt_items(name, sample)
-            per_block += len(json.dumps({"type": "FeatureCollection", "features": feats}))
+            served += len(json.dumps({"type": "FeatureCollection", "features": feats}))
+            feats = [f for f in feats if not (f.get("properties") or {}).get("eind_registratie")]
+            per_block += len(gzip.compress(json.dumps({"type": "FeatureCollection", "features": feats}).encode(), 6))
         return {"blocks": len(blocks), "collections": len(collections), "bytes": per_block * len(blocks),
-                "note": "scaled from the densest (central) block"}
+                "transfer_bytes": served * len(blocks),
+                "note": "scaled from the densest (central) block; stored gzipped, current objects only"}
     jobs = [(name, b) for b in blocks for name in collections]
 
     def one(job):
         name, b = job
-        dest = root / "bgt" / name / f"{int(b[0])}_{int(b[3])}.geojson"
+        dest = root / "bgt" / name / f"{int(b[0])}_{int(b[3])}.geojson.gz"
         if ledger.done(dest):
             return dest.stat().st_size
         feats, pages = bgt_items(name, b)
+        served = len(feats)
+        # The API also serves ended object versions (eind_registratie): keep only current objects.
+        feats = [f for f in feats if not (f.get("properties") or {}).get("eind_registratie")]
         dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"type": "FeatureCollection", "features": feats}))
+        tmp = dest.with_name(dest.name + ".tmp")
+        tmp.write_bytes(gzip.compress(json.dumps({"type": "FeatureCollection", "features": feats}).encode(), 6))
         tmp.replace(dest)
         url = f"{BGT_API}/collections/{name}/items?bbox={','.join(f'{v:.0f}' for v in b)}"
-        ledger.record(dest, "bgt", url, collection=name, bbox_rd=list(b), features=len(feats), pages=pages)
+        ledger.record(dest, "bgt", url, collection=name, bbox_rd=list(b), features=len(feats),
+                      served=served, pages=pages)
         return dest.stat().st_size
 
     with cf.ThreadPoolExecutor(4) as pool:

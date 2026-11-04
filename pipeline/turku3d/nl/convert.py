@@ -148,7 +148,7 @@ def bgt_features(collections, bbox, log=print):
     seen, out = set(), []
     for collection in collections:
         for path in _files("bgt", bbox, collection):
-            for f in json.loads(path.read_text())["features"]:
+            for f in json.loads(gzip.open(path).read() if path.suffix == ".gz" else path.read_bytes())["features"]:
                 p = f["properties"]
                 key = p.get("lokaal_id") or f.get("id")
                 if key in seen or p.get("eind_registratie") or not f.get("geometry"):
@@ -176,6 +176,30 @@ def _lowest_per_cell(xyz, cell):
     return xyz[order[first]]
 
 
+def subtile_points(path: Path):
+    """(ground, water) points of one AHN sub-tile on the absolute GROUND_CELL / WATER_CELL grids,
+    decoded once and kept next to the sub-tile (``<name>.keypoints.npz``); blocks crop from it."""
+    import laspy
+
+    cache = path.with_name(f"{path.stem}.keypoints-{GROUND_CELL}-{WATER_CELL}.npz")
+    if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
+        with np.load(cache) as z:
+            return z["ground"], z["water"]
+    ground, water = [], []
+    with laspy.open(path) as reader:
+        for chunk in reader.chunk_iterator(4_000_000):
+            cls = np.asarray(chunk.classification)
+            xyz = np.column_stack([np.asarray(chunk.x), np.asarray(chunk.y), np.asarray(chunk.z)])
+            ground.append(_lowest_per_cell(xyz[cls == 2], GROUND_CELL))
+            water.append(_lowest_per_cell(xyz[cls == 9], WATER_CELL))
+    ground = _lowest_per_cell(np.concatenate(ground), GROUND_CELL)
+    water = _lowest_per_cell(np.concatenate(water), WATER_CELL)
+    tmp = cache.with_name(cache.name + ".tmp.npz")
+    np.savez(tmp, ground=ground, water=water)
+    tmp.replace(cache)
+    return ground, water
+
+
 def ground_block(block: C.LazTile, log=print) -> Path:
     """Write ``raw/laz/maanpinta/<block>.laz`` from AHN (+ BGT water) and record it."""
     import laspy
@@ -193,18 +217,12 @@ def ground_block(block: C.LazTile, log=print) -> Path:
         raise NoCoverage(f"{block.name}: no AHN sub-tile")
     ground, water = [], []
     for path in sources:
-        with laspy.open(path) as reader:
-            for chunk in reader.chunk_iterator(4_000_000):
-                x, y = np.asarray(chunk.x), np.asarray(chunk.y)
-                keep = (x >= b.emin) & (x < b.emax) & (y > b.nmin) & (y <= b.nmax)
-                if not keep.any():
-                    continue
-                cls = np.asarray(chunk.classification)[keep]
-                xyz = np.column_stack([x[keep], y[keep], np.asarray(chunk.z)[keep]])
-                ground.append(_lowest_per_cell(xyz[cls == 2], GROUND_CELL))
-                water.append(_lowest_per_cell(xyz[cls == 9], WATER_CELL))
-    ground = _lowest_per_cell(np.concatenate(ground) if ground else np.empty((0, 3)), GROUND_CELL)
-    water = _lowest_per_cell(np.concatenate(water) if water else np.empty((0, 3)), WATER_CELL)
+        g, w = subtile_points(path)
+        for xyz, out in ((g, ground), (w, water)):
+            keep = (xyz[:, 0] >= b.emin) & (xyz[:, 0] < b.emax) & (xyz[:, 1] > b.nmin) & (xyz[:, 1] <= b.nmax)
+            out.append(xyz[keep])
+    ground = _lowest_per_cell(np.concatenate(ground), GROUND_CELL)
+    water = _lowest_per_cell(np.concatenate(water), WATER_CELL)
     # Open water without returns: key points at the city's water level on a WATER_CELL grid.
     polys = [g for _, _, _, g in bgt_features(WATER_COLLECTIONS, bbox, log)]
     synthetic = np.empty((0, 3))
