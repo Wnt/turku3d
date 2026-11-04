@@ -27,8 +27,9 @@ export interface AddressJson {
     foot: number; car: number | null; landmark?: boolean }[];
 }
 
-/** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. */
-const ORIGIN_TOLERANCE_M = 1;
+/** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. The published
+ *  pools were built from the pizzeria's first point (77.1, 187.6), 2.2 m along the same sidewalk from PIZZERIA. */
+const ORIGIN_TOLERANCE_M = 3;
 
 /** Same slug as the pipeline (`turku3d.content.addresses.slug`): `Läntinen Rantakatu 13a` -> `lantinen-rantakatu-13a`. */
 export function addressSlug(address: string): string {

@@ -7,8 +7,8 @@ export interface Place { id: string; label: string; E: number; N: number; headin
 export const PLACES: readonly Place[] = [
   // The published start (manifest spawn) on the street in front of Läntinen Rantakatu 15.
   { id: 'office', label: 'Office', E: 23459673.3, N: 6704247.5, headingDeg: 331 },
-  // The pizzeria's zone (content/locations.ts PIZZERIA, engine 77.1, 187.6).
-  { id: 'pizzeria', label: 'Pizzeria', E: 23459577.1, N: 6704312.4, headingDeg: 0 },
+  // The pizzeria's zone (content/locations.ts PIZZERIA, engine 78.92, 186.36).
+  { id: 'pizzeria', label: 'Pizzeria', E: 23459578.92, N: 6704313.64, headingDeg: 0 },
   // Tuomiokirkkotori, 30 m in front of the west tower.
   { id: 'tuomiokirkko', label: 'Tuomiokirkko', E: 23460215.6, N: 6704686.0, headingDeg: 90 },
   // North-east of the castle (60.4353 N, 22.2289 E), facing it.

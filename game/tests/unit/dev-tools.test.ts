@@ -364,7 +364,7 @@ describe('Developer pages', () => {
     expect(page.items.find(i => i.id === 'place-turun-linna')!.detail).toBe('Not built: arrives flying');
     pick(page, 'place-pizzeria');
     pick(page, 'enter');
-    expect(calls).toEqual(['teleport 23459577.1,6704312.4,0', 'teleport 23459700,6704300,45']);
+    expect(calls).toEqual(['teleport 23459578.92,6704313.64,0', 'teleport 23459700,6704300,45']);
     const bad = setup('nonsense');
     bad.pick(bad.flow.teleport(), 'enter');
     expect(bad.last().text).toBe('Not E,N: nonsense');
