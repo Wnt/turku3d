@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CharacterInterpolation, MAX_EXTRAPOLATION, VehicleInterpolation } from '../../src/actors/interpolation';
+import { CharacterInterpolation, MAX_EXTRAPOLATION, RENDER_MIN_DELAY, VehicleInterpolation } from '../../src/actors/interpolation';
 import { ChaseCamera } from '../../src/vehicle/chaseCamera';
 import { OrbitCamera } from '../../src/actors/camera';
 import type { CharacterState, VehicleState } from '../../src/physics/protocol';
@@ -35,11 +35,12 @@ test('walking and driving sample adjacent physics ticks with one bounded render 
   const dt = 1 / 60;
   for (let tick = 1; tick <= 20; tick++) {
     const now = tick * dt;
-    walker.push(character(now * 3), character((tick - 1) * dt * 3), tick, 0, now);
-    car.push(vehicle(now * 3), vehicle((tick - 1) * dt * 3), tick, 0, now);
+    walker.push(character(now * 3), character((tick - 1) * dt * 3), tick, now);
+    car.push(vehicle(now * 3), vehicle((tick - 1) * dt * 3), tick, now);
     for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
       const time = now + fraction * dt;
-      const expected = ((tick - 1) + fraction) * dt * 3;
+      // On-time delivery: drawn at the minimum render delay behind the newest state, past it along the velocity.
+      const expected = (time - RENDER_MIN_DELAY) * 3;
       expect(walker.sample(time)!.pos.x).toBeCloseTo(expected, 6);
       expect(car.sample(time)!.pos.x).toBeCloseTo(expected, 6);
       expect(car.sample(time)!.wheels[0].rotation).toBeCloseTo(expected, 6);

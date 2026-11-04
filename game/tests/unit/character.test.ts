@@ -6,13 +6,14 @@ import type { CharacterState } from '../../src/physics/protocol';
 const state = (x: number): CharacterState => ({ pos: { x, y: 2, z: 0 }, vel: { x: 1, y: 0, z: 0 }, grounded: true, enabled: true, groundMaterial: 1 });
 for (const hz of [120, 240]) test(`interpolation advances evenly at ${hz} Hz and ignores duplicate ticks`, () => {
   const i = new CharacterInterpolation();
-  i.push(state(1 / 60), state(0), 1, 0, 0);
+  i.push(state(1 / 60), state(0), 1, 0);
+  const start = i.sample(0)!.pos.x;
   for (let frame = 0; frame <= hz / 60; frame++) {
     const now = frame / hz;
-    i.push(state(1 / 60), state(0), 1, 0, now);
-    expect(i.sample(now)!.pos.x).toBeCloseTo(now, 6);
+    i.push(state(1 / 60), state(0), 1, now);
+    expect(i.sample(now)!.pos.x - start).toBeCloseTo(now, 6);
   }
-  i.push(state(30), state(1 / 60), 2, 0, 1 / 60);
+  i.push(state(30), state(1 / 60), 2, 1 / 60);
   expect(i.sample(1 / 60)!.pos.x).toBe(30);
 });
 test('two-bone IK reaches both sides of a curb without changing bone lengths', () => {
