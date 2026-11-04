@@ -39,7 +39,13 @@ programs. `appearance.roof_mesh` follows the same contract. A tile hashes only i
 own buildings' descriptions; texture output is deterministic from parameters.
 Physical-scale brick bonds, irregular fieldstone, metal seams and slate courses
 produce albedo, tangent normal and ORM (occlusion/roughness/metalness). Wall
-openings, trim bands and clocks have independent positions in metres. Descriptions
+openings, trim bands and clocks have independent positions in metres.
+An empty `windows.rows_m` is the estimator's "uncertain rows" answer, never a
+blank facade: `procedural.window_rows` then places one row per register storey
+through the measured sill. Survey walls break into pieces at every roof part;
+pieces on one simplified footprint line share that line's texture in line metres
+(`appearance.line_mesh`), so narrow pieces keep their facade's openings instead of
+the plain 4 m material, within a three-page texel budget per landmark. Descriptions
 record uncertainty; only source-supported parameters should be promoted.
 
 Landmark visual closure walls are trimmed where all three outward probes find a
