@@ -11,15 +11,19 @@
 //  - --public: a public share (tools/share/deploy.sh) answers only GET/HEAD for the game, its mounts and the tile routes
 //    the game uses; no capture, telemetry, facade candidates, dotfiles or service internals (a status answers
 //    {state, version}); /coarse payloads are compressed for the tunnel
+//  - --edits <dir>: the object editor's edit sessions under /__edits/ (editSessions.mjs). With --public they are
+//    write-only (PUT/POST, same origin, 512 MB quota, --edits-quota-mb), for `?editor=1` on the share host
 //  - --mp http://127.0.0.1:PORT: WebSocket upgrades and GET /live.json, /scores/* go to that multiplayer server, so
 //    a share host's game plays on its own origin (game/src/net/config.ts)
 // No dependencies (Node >= 20).
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
 //          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>] [--public] [--mp http://127.0.0.1:PORT]
+//          [--edits <dir> [--edits-quota-mb N]]
 import http from 'node:http';
 import net from 'node:net';
 import { captureMiddleware } from './capture.mjs';
+import { editSessionsMiddleware } from './editSessions.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -51,6 +55,10 @@ const STATUS = /^\/coarse\/(?:_v\/[a-f0-9]{40,64}\/)?(?:status|health|want|deman
 const publicStatus = publicProxy(COARSE, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) });
 const publicCoarse = publicProxy(COARSE);
 const mp = MP && publicProxy(MP);
+const EDITS = opt('--edits') ? expand(opt('--edits')) : null;
+const edits = EDITS && editSessionsMiddleware(EDITS, PUBLIC
+  ? { writeOnly: true, quotaBytes: Number(opt('--edits-quota-mb', 512)) * 1024 * 1024 } : {});
+const noEdits = (_req, res) => { res.writeHead(404); res.end(); };
 
 function resolvePath(urlPath) {
   let p = urlPath.split('?')[0];
@@ -62,6 +70,7 @@ function resolvePath(urlPath) {
 const capture = captureMiddleware();
 async function publicHandler(req, res) {
   const pathname = req.url.split('?')[0];
+  if (edits && pathname.startsWith('/__edits/')) return edits(req, res, () => noEdits(req, res));
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }); return res.end(); }
   if (mp && (pathname === '/live.json' || pathname.startsWith('/scores/'))) return mp(req, res);
   if (pathname === '/coarse' || pathname.startsWith('/coarse/')) {
@@ -78,6 +87,7 @@ async function handler(req, res) {
   res.setHeader('Document-Policy', 'js-profiling');
   if (PUBLIC) return publicHandler(req, res);
   if (req.url.startsWith('/__capture/')) return capture(req, res, () => { res.writeHead(404); res.end(); });
+  if (edits && req.url.startsWith('/__edits/')) return edits(req, res, () => noEdits(req, res));
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Range, If-None-Match, Content-Type', 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS' });
     return res.end();

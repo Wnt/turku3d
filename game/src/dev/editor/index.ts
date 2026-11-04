@@ -3,7 +3,7 @@
 // generator rules (~/turku3d/loops/editor/EDIT-FORMAT.md). Edits show as local previews only (preview.ts): no tile,
 // collision, physics or multiplayer state changes. Mapping: state.ts; README.md in this folder.
 import * as THREE from 'three/webgpu';
-import { localFeature } from '../../core/localOnly';
+import { isShareHost, localFeature } from '../../core/localOnly';
 import { buildStatus } from '../../core/build';
 import type { Action, Input } from '../../input';
 import type { VisualTiles } from '../../world/tiles';
@@ -21,6 +21,8 @@ import { framesOf } from './geodesy';
 import { STANDING, groundUnder, measureContext, type Raycast } from './context';
 import { provenanceOf } from './provenance';
 import { EditorHud } from './hud';
+import { SessionDialog } from './closeDialog';
+import { summarizeSession } from './summary';
 import { FrameShots } from './shots';
 import { COLOR_MODES, lidarVisibility, pointCloudOverlay } from './pointCloudHook';
 import { MATERIALS } from '../../shared/col/materials';
@@ -38,11 +40,15 @@ export interface EditorHosts {
   coarse: CoarseTiles | null;
   /** Ambient facts for session.json (backend, viewport…). */
   device?: () => Record<string, unknown>;
+  /** The multiplayer player while in a multiplayer session (session.json `player`, the summary header). */
+  player?: () => { id: string; nick: string } | null;
   store?: KeyValue; transport?: SessionTransport;
 }
 
+/** On localhost by default; elsewhere with ?editor=1, but never in a public release except on the share host
+ *  (city.lab: serve-dist --edits stores the sessions there). */
 export const editorAllowed = (loc: { hostname: string; search: string } = location) =>
-  import.meta.env?.VITE_PUBLIC_RELEASE !== '1' && localFeature(loc, 'editor');
+  localFeature(loc, 'editor') && (import.meta.env?.VITE_PUBLIC_RELEASE !== '1' || isShareHost(loc.hostname));
 
 const DEG = 180 / Math.PI;
 const LIDAR_KEY = 'turku3d.editor.lidar';
@@ -97,6 +103,9 @@ export class ObjectEditor {
   private raycast: Raycast;
   private input: Input | null = null;
   private unsavedBadge: HTMLElement | null = null;
+  /** The close dialog (id + summary), and a closed session whose session.json or summary.txt is still unsent. */
+  private dialog: SessionDialog | null = null;
+  private tail: EditSession | null = null;
   /** The point cloud's visibility in the mode (kept across exits and reloads); outside the mode it is hidden unless
    *  the page asked for it (`?pointcloud=1` or a colour mode). Opacity and filters stay with the overlay. */
   private readonly lidarPinned = (() => { const v = new URLSearchParams(location.search).get('pointcloud'); return v !== null && v !== '0'; })();
@@ -141,6 +150,12 @@ export class ObjectEditor {
   handle(input: Input, playing: boolean, now: number) {
     if (!this.enabled) return;
     this.input = input;
+    if (this.dialog?.handle(input)) {
+      // The dialog is modal: its buttons take ✕ ○ △ (Enter, Esc, F); the editor toggle waits until it closes.
+      input.consume('editToggle');
+      input.layer = 'game';
+      return;
+    }
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
     input.layer = this.machine.active && playing ? 'editor' : 'game';
@@ -191,7 +206,7 @@ export class ObjectEditor {
     this.hud.show(true);
     if (!this.session) this.session = EditSession.start(this.store, this.transport, {
       build: { ...buildStatus(), url: location.href }, tiles: { manifest: this.hosts.coarse?.manifestUrl('TILE') ?? null, generations: {} },
-      device: { userAgent: navigator.userAgent, ...this.hosts.device?.() },
+      device: { userAgent: navigator.userAgent, ...this.hosts.device?.() }, player: this.hosts.player?.() ?? null,
     });
     this.session.setActive(true);
     this.hud.notify(`Editor on · session ${this.session.id}`, now, 2200);
@@ -221,13 +236,21 @@ export class ObjectEditor {
   private finishClose(now: number) {
     const session = this.session;
     if (!session || !session.closing || !session.closable) return;
-    const edits = session.meta.counts.effective;
-    if (!session.meta.ended) session.end();
+    const edits = session.meta.counts.effective, fresh = !session.meta.ended;
+    if (fresh) { session.meta.player = this.hosts.player?.() ?? session.meta.player ?? null; session.end(); }
+    // The summary (summary.txt) goes out after session.json; a reload of a close still saving keeps the first one.
+    if (session.summary === null)
+      session.setSummary(summarizeSession(session.meta, session.rows, { host: location.host, player: session.meta.player?.nick }));
     void session.flush();
+    this.tail = session;
     this.previews.clear();
     this.session = null;
     this.notify(`Session saved: ${edits} edit${edits === 1 ? '' : 's'} · previews off until the generator incorporates them`, now, 7000);
+    if (fresh) (this.dialog ??= new SessionDialog()).show(session.id, session.summary!, session.latestByKey().size);
   }
+
+  /** Whether the close dialog is up (the game treats it like a menu: no gameplay buttons, no look). */
+  get modal() { return !!this.dialog?.open; }
 
   /** A message that shows with or without the mode's HUD (the badge). */
   private notify(text: string, now: number, ms: number) { this.toast = { text, until: now + ms }; }
@@ -461,7 +484,11 @@ export class ObjectEditor {
     if (!this.enabled) return;
     this.previews.update();
     this.syncLidar();
-    if (this.session && now >= this.flushAt) { this.flushAt = now + 2000; if (this.session.pending) void this.session.flush(); }
+    if (now >= this.flushAt) {
+      this.flushAt = now + 2000;
+      if (this.session?.pending) void this.session.flush();
+      if (this.tail?.pending) void this.tail.flush(); else this.tail = null;
+    }
     this.finishClose(now);
     this.showUnsaved(now);
     if (!this.machine.active) return;
@@ -581,6 +608,7 @@ export class ObjectEditor {
     this.shots.dispose();
     this.hud?.dispose();
     this.unsavedBadge?.remove();
+    this.dialog?.dispose();
     if (this.highlight) { this.highlight.removeFromParent(); this.highlight.geometry.dispose(); (this.highlight.material as THREE.Material).dispose(); }
     // Previews stay with the world until the session closes; a hot swap restores them from the store.
     this.previews.clear();

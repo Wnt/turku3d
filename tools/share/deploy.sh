@@ -4,7 +4,7 @@
 #   tools/share/deploy.sh [REV]    # default: local/loop-integration of ~/turku3d/wt/loop-integration/repo
 #
 # Builds REV on this Mac with VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
-# game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no editor or capture), copies the dist
+# game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; the editor only with ?editor=1), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
 # changed and checks the public URL. /version.json names the deployed commit.
@@ -15,7 +15,8 @@
 #
 # systemd --user units on osgallery-dev (linger; Restart=always; enabled for boot), sources in tools/share/units:
 #   city-web        tools/dev/serve-dist.mjs --public, 127.0.0.1:7780: the game, /pointcloud -> /bulk/turku3d/lidarpc/copc,
-#                   /coarse -> city-tiles, WebSocket + /live.json + /scores/ -> city-mp; GET/HEAD only
+#                   /coarse -> city-tiles, WebSocket + /live.json + /scores/ -> city-mp; GET/HEAD only,
+#                   except write-only edit sessions under /__edits/ -> ~/turku3d-local/city/edits (512 MB quota)
 #   city-tiles      scripts/dev/shared-tile-proxy.mjs, 127.0.0.1:7781 -> farm 192.168.1.114:7950 (/v/<pin>) and the
 #                   scenery server 127.0.0.1:7947; pin in ~/turku3d-local/city/tiles.json (hot-read)
 #   city-mp         server/index.js, 127.0.0.1:7782, TURKU_MP_ORIGINS=https://city.lab.madekivi.fi, own scores dir;
@@ -75,7 +76,7 @@ PY
 
 # 2. Upload the dist and the server sources (only what the units run) into a new release.
 R="turku3d-local/city/releases/$SHA"
-ssh "$SSH_HOST" "mkdir -p ~/turku3d-local/city/releases ~/turku3d-local/city/mp-scores ~/turku3d-local/city/work ~/$R/src"
+ssh "$SSH_HOST" "mkdir -p ~/turku3d-local/city/releases ~/turku3d-local/city/mp-scores ~/turku3d-local/city/work ~/turku3d-local/city/edits ~/$R/src"
 say "uploading $(du -sh "$BUILD/game" | cut -f1) dist"
 rsync -a --delete --exclude '*.map' "$BUILD/game/" "$SSH_HOST:$R/dist/"
 git -C "$REPO" archive "$SHA" tools/dev scripts/dev/shared-tile-proxy.mjs server tools/share | ssh "$SSH_HOST" "tar -x -C ~/$R/src"

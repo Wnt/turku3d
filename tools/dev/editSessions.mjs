@@ -1,6 +1,7 @@
 // Local Vite/preview storage for the in-game object editor's edit sessions (game/src/dev/editor/session.ts).
-// ~/turku3d/edits/<session>/session.json, edits.jsonl and shots/<edit>-before.jpg|after.jpg.
-// Format: ~/turku3d/loops/editor/EDIT-FORMAT.md. No production endpoint.
+// ~/turku3d/edits/<session>/session.json, edits.jsonl, summary.txt (the close dialog's text, summary.ts) and
+// shots/<edit>-before.jpg|after.jpg. Format: ~/turku3d/loops/editor/EDIT-FORMAT.md. Also mounted by serve-dist.mjs
+// --edits (the city.lab share: write-only, with a disk quota). Never on GitHub Pages.
 // edits.jsonl holds one line per row id, in seq order. Appends are idempotent: a row already stored is replaced only
 // by the same or a higher `rev` (a retried or queued older copy never clobbers a newer one or duplicates a line).
 import fs from 'node:fs/promises';
@@ -9,7 +10,7 @@ import os from 'node:os';
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/;
 const SHOT = /^shots\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}\.(jpg|png)$/;
-const MAX_JSON = 4 * 1024 * 1024, MAX_SHOT = 2 * 1024 * 1024;
+const MAX_JSON = 4 * 1024 * 1024, MAX_SHOT = 2 * 1024 * 1024, MAX_TEXT = 64 * 1024;
 
 async function body(req, limit) {
   const chunks = []; let size = 0;
@@ -45,8 +46,24 @@ export async function mergeRows(file, rows) {
   return { rows: ordered.length, stale: kept };
 }
 
-export function editSessionsMiddleware(root = process.env.TURKU3D_EDITS ?? path.join(os.homedir(), 'turku3d/edits')) {
+async function usage(dir) {
+  let total = 0;
+  for (const entry of await fs.readdir(dir, { withFileTypes: true, recursive: true }).catch(() => [])) {
+    if (entry.isFile()) total += (await fs.stat(path.join(entry.parentPath ?? entry.path, entry.name)).catch(() => ({ size: 0 }))).size;
+  }
+  return total;
+}
+
+/** `writeOnly`: no reads back (a public share); `quotaBytes`: refuse writes (507) once the root holds this much. */
+export function editSessionsMiddleware(root = process.env.TURKU3D_EDITS ?? path.join(os.homedir(), 'turku3d/edits'), { writeOnly = false, quotaBytes = Infinity } = {}) {
   const queues = new Map();
+  // Bytes under the root: measured once, then grown by every write (overwrites count again, so it errs high).
+  let used = Number.isFinite(quotaBytes) ? usage(root) : Promise.resolve(0);
+  const spend = async (bytes) => {
+    const now = await used;
+    if (now + bytes > quotaBytes) throw Object.assign(new Error('Edit storage full'), { status: 507 });
+    used = Promise.resolve(now + bytes);
+  };
   const serial = (id, operation) => {
     const task = (queues.get(id) ?? Promise.resolve()).catch(() => {}).then(operation);
     queues.set(id, task);
@@ -59,28 +76,39 @@ export function editSessionsMiddleware(root = process.env.TURKU3D_EDITS ?? path.
     const [id, ...rest] = url.pathname.slice('/__edits/'.length).split('/');
     const file = rest.join('/');
     if (!ID.test(id ?? '')) return reply(400, { error: 'Invalid session id' });
-    if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return reply(403, { error: 'Same origin required' });
+    // Same origin: the Origin's host is ours, or (behind a tunnel that rewrites Host) the browser says so itself.
+    if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host && req.headers['sec-fetch-site'] !== 'same-origin')
+      return reply(403, { error: 'Same origin required' });
     const dir = path.join(root, id);
     try {
-      if (req.method === 'GET' && (file === 'session.json' || file === 'edits.jsonl')) {
+      if (req.method === 'GET' && !writeOnly && (file === 'session.json' || file === 'edits.jsonl' || file === 'summary.txt')) {
         const data = await fs.readFile(path.join(dir, file));
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); return res.end(data);
+        res.writeHead(200, { 'Content-Type': file.endsWith('.txt') ? 'text/plain; charset=utf-8' : 'application/json', 'Cache-Control': 'no-store' }); return res.end(data);
       }
       if (req.method === 'PUT' && file === 'session.json') {
-        const meta = JSON.parse((await body(req, MAX_JSON)).toString('utf8'));
+        const raw = await body(req, MAX_JSON), meta = JSON.parse(raw.toString('utf8'));
         if (meta?.id !== id) return reply(400, { error: 'Session id mismatch' });
+        await spend(raw.length);
         await serial(id, () => atomicWrite(path.join(dir, 'session.json'), JSON.stringify(meta, null, 1) + '\n'));
         return reply(200, { id });
       }
       if (req.method === 'POST' && file === 'edits.jsonl') {
-        const rows = JSON.parse((await body(req, MAX_JSON)).toString('utf8'));
+        const raw = await body(req, MAX_JSON), rows = JSON.parse(raw.toString('utf8'));
         if (!Array.isArray(rows) || rows.some(r => !r || typeof r.id !== 'string' || r.session !== id || !Number.isSafeInteger(r.seq)))
           return reply(400, { error: 'Invalid rows' });
+        await spend(raw.length);
         const { rows: count, stale } = await serial(id, () => mergeRows(path.join(dir, 'edits.jsonl'), rows));
         return reply(200, { id, rows: count, stale });
       }
+      if (req.method === 'PUT' && file === 'summary.txt') {
+        const data = await body(req, MAX_TEXT);
+        await spend(data.length);
+        await serial(id, () => atomicWrite(path.join(dir, file), data));
+        return reply(200, { id, file });
+      }
       if (req.method === 'PUT' && SHOT.test(file)) {
         const data = await body(req, MAX_SHOT);
+        await spend(data.length);
         await serial(id, () => atomicWrite(path.join(dir, file), data));
         return reply(200, { id, file });
       }

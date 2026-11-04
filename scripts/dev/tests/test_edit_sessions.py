@@ -54,6 +54,27 @@ class EditSessionTests(unittest.TestCase):
             self.assertEqual(clusters[0]["original_surface"], {"road": 2})
             self.assertEqual(clusters[1]["action"], "delete")
 
+    def test_show_prints_the_summary_by_id(self):
+        with tempfile.TemporaryDirectory() as temp:
+            session = Path(temp) / "20261104-201000-abc123"
+            session.mkdir()
+            (session / "session.json").write_text(json.dumps({"id": session.name, "started": "t", "ended": "u",
+                                                              "player": {"id": "p1", "nick": "Jonni"}}))
+            (session / "edits.jsonl").write_text(json.dumps(edit(1, "prop:t0_0_0:GIS_Penkit:a")) + "\n")
+            (session / "summary.txt").write_text(f"Edit session {session.name} · city.lab.madekivi.fi\n- 1 bench moved 1.0 m\n")
+            out = io.StringIO()
+            with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stdout(out):
+                self.assertEqual(edit_sessions.main(["show", session.name]), 0)
+            lines = out.getvalue().splitlines()
+            self.assertEqual(lines[0], f"Edit session {session.name} · city.lab.madekivi.fi")
+            self.assertEqual(lines[2], f"folder: {session}")
+            self.assertEqual(json.loads(lines[3])["player"]["nick"], "Jonni")
+            self.assertEqual(json.loads(lines[3])["objects"], 1)
+            err = io.StringIO()
+            with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stderr(err):
+                self.assertEqual(edit_sessions.main(["show", "20990101-000000-zzzzzz"]), 1)
+            self.assertIn("pull 20990101-000000-zzzzzz", err.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

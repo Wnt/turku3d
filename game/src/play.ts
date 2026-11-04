@@ -157,7 +157,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
   const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
     signals: () => traffic.signals,
-    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }) });
+    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }),
+    // Editing is per player: each browser keeps its own session; in multiplayer the session names the player.
+    player: () => { const you = multiplayerPlaying ? multiplayer?.state.you : null; return you ? { id: you.id, nick: you.nick } : null; } });
   Object.assign(window.__game!, { editor });
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
@@ -476,6 +478,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     devLayers.handle(input, !startScreen.active);
     timePanel?.handle(input, !startScreen.active);
     editor.handle(input, !startScreen.active && !paused && !shopMenu.open && !introDialog.open && !saveGame.loading, now);
+    if (editor.modal) {
+      for (const action of LOCKED_IN_MENU) input.consume(action);
+      input.lookX = input.lookY = input.zoom = 0;
+    }
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.

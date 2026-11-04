@@ -1,5 +1,6 @@
 # Installed by tools/share/deploy.sh. The public share's only listener: the game, /pointcloud (COPC), /coarse (via
-# city-tiles) and the multiplayer socket and scores (via city-mp), GET/HEAD only (serve-dist.mjs --public).
+# city-tiles), the multiplayer socket and scores (via city-mp), GET/HEAD only (serve-dist.mjs --public), except the
+# write-only edit sessions of `?editor=1` under /__edits/ (~/turku3d-local/city/edits, 512 MB quota).
 [Unit]
 Description=Turku3D city share: public game server on 127.0.0.1:7780
 After=city-tiles.service city-mp.service
@@ -9,7 +10,7 @@ Wants=city-tiles.service city-mp.service
 Type=simple
 WorkingDirectory=%h/turku3d-local/city/current/src
 Environment=NODE_ENV=production TURKU3D_WORK=%h/turku3d-local/city/work
-ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc
+ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc --edits %h/turku3d-local/city/edits
 Restart=always
 RestartSec=3
 TimeoutStopSec=10
