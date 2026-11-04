@@ -65,8 +65,8 @@ airperf's A/B on the M1 Air showed a frozen screen-door stipple on some crowns a
 
 ## Switches (bench lab only, `qa/lab/params.ts`)
 
-- `lodfade=S`: the timed dissolve length in seconds; 0 swaps at once. The default stays 0.6 s until Jonni decides on
-  the look. In the round-7 replay, dissolves ran in 46.5 % of frames at 0.6 s and would in 14.2 % at 0.15 s.
+- `lodfade=S`: the timed dissolve length in seconds; 0 swaps at once. The default stays 0.6 s: it won the lodfade blind
+  judge against 0-1.0 s (see lodfade.md). In the round-7 replay, dissolves ran in 46.5 % of frames at 0.6 s and would in 14.2 % at 0.15 s.
 - `treefade=S`: scales the tree bands; 0 gives instant swaps.
   - The cost simulation at the riverside flight pose: +2.7 % vegetation triangles with the bands, +5.7 % on the
     ground, with the same draws.

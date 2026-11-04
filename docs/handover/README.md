@@ -30,6 +30,7 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 | [water](water.md) | river W1–W8 (SSR on medium and reduced, sun glint, bank fade, night, rain) |
 | [floodlights2](floodlights2.md) | lit venues: field wash, spill, dome, beams |
 | [techstudy](techstudy.md) | GTA V / Bodycam studies on the Windows host |
+| [lodfade](lodfade.md) | GTA V LOD hand-over study, shell roof/wall parity, fade-length decision, forced-swap method |
 | [editor](editor.md) | in-game object editor (DualSense), edit sessions |
 | [rulesmith](rulesmith.md) | edit sessions → generator rules (`furniture@1`) |
 | [lidarpc](lidarpc.md) | LiDAR COPC product, overlay, wire layer |
