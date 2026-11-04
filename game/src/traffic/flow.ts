@@ -210,7 +210,16 @@ export class TrafficFlow {
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
 
-  setWatchers(watchers: TrafficWatcher[] | null) { this.watchers = watchers; }
+  /** Single player: the watchers from now on. */
+  setWatchers(watchers: TrafficWatcher[] | null) { this.watchers = watchers; this.schedule = null; }
+  /** Multiplayer: watchers for ticks [from, until) (a server-stamped list every peer schedules alike). Outside every
+   *  window there are none, so a peer that missed a list recycles nothing rather than something else. */
+  scheduleWatch(from: number, until: number, watchers: TrafficWatcher[]) {
+    (this.schedule ??= []).push({ from, until, watchers });
+    this.schedule.sort((a, b) => a.from - b.from);
+    while (this.schedule.length > 8) this.schedule.shift();
+  }
+  private schedule: { from: number; until: number; watchers: TrafficWatcher[] }[] | null = null;
 
   setPedestrians(people: TrafficPedestrian[], time: number) { this.pedestrians = { time, people }; }
   /** Every player this client knows of: on foot (the local character, remote walkers) and their vehicles (the
@@ -714,7 +723,10 @@ export class TrafficFlow {
       if (this.cars.has(car.key)) this.occupy(car);
     }
     if (this.tick % 10 === 0) this.clearDeadlocks();
-    if (this.tick % 10 === 5) this.recycle(t);
+    if (this.tick % 10 === 5) {
+      if (this.schedule) this.watchers = this.schedule.filter(w => w.from <= this.tick && this.tick < w.until).at(-1)?.watchers ?? null;
+      this.recycle(t);
+    }
   }
 
   /** Out-of-view recycling (RECYCLE_HEAD / RECYCLE_ANY): the head of every chain of stuck cars, then any long-stuck

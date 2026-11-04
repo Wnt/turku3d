@@ -313,6 +313,30 @@ describe('out-of-view recycling (GTA-style)', () => {
     for (const r of away.flow.recycledLog) expect(unseen([{ x: at.x + 150 * at.hx, z: at.z + 150 * at.hz, fx: at.hx, fz: at.hz, halfFov: 0.6 }], r.x, r.z)).toBe(true);
   });
 
+  test('multiplayer: peers given the same stamped watch recycle the same cars; a missed watch recycles nothing', () => {
+    const run = (schedule: boolean) => {
+      const net = flowNetwork(), flow = new TrafficFlow(net, 0);
+      flow.reset(0);
+      const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
+      const at = pointAt(lane.points, lane.cum, 70);
+      const truck = { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.5 };
+      for (let step = 1; step <= 4000; step++) {
+        // A watch every second: the player stands 400 m away (sees nothing here).
+        if (schedule && step % 10 === 0) flow.scheduleWatch(step + 20, step + 35, [{ x: at.x + 400, z: at.z }]);
+        flow.setPlayers([], [truck], step / 10); flow.update(step / 10);
+      }
+      return flow;
+    };
+    const a = run(true), b = run(true);
+    expect(a.stats.recycled).toBeGreaterThan(0);
+    expect(a.recycledLog.map(r => r.key)).toEqual(b.recycledLog.map(r => r.key));
+    expect(JSON.stringify(a.checkpoint())).toBe(JSON.stringify(b.checkpoint()));
+    const missed = new TrafficFlow(flowNetwork(), 0);
+    missed.scheduleWatch(0, 1, []);
+    for (let step = 1; step <= 2000; step++) missed.update(step / 10);
+    expect(missed.stats.recycled).toBe(0);
+  });
+
   test('nobody watching (a headless area): locked cars are recycled', () => {
     const { flow, queue } = locked([]);
     expect(flow.stats.recycled).toBeGreaterThan(0);
