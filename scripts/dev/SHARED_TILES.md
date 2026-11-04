@@ -46,11 +46,13 @@ Forward GET `/coarse/demand` and `/coarse/want`; they require no POST. The deman
 carries the existing client ID, tiles, urgent tiles and visible tiles. Manifest GETs queue
 builds independently; GETs without the browser distance `d` are explicit requests.
 The proxy pins every payload to its manifest's commit; changing an alias cannot mix versions.
-An optional `"prefer": ["train1"]` serves each tile's manifest/collision fragment from the first
-listed version that has finished that tile (a HEAD of its `ready.json`, written last and
-atomically), else from `version`. Preferred versions are only read: they never queue a build or
-migration, and status, demand, want and navigation go to `version`. The public share uses this
-to serve a migration train's finished tiles while its city pass runs (`tools/share/deploy.sh`).
+An optional `"follow": "train"` (with `"exclude": [aliases]`) serves each tile's manifest/collision
+fragment from the newest farm alias `train<N>` (highest N first, aliases re-read every 30 s) that
+has finished that tile, else from `version`. Finished means its `ready.json` exists (written last
+and atomically). A train is mixed in only when its tile receipt names the pin's base generation;
+a structurally different generation needs a repin. Trains are only read: they never queue a build
+or migration, and status, demand, want and navigation go to `version`. The public share uses this
+so city-pass tiles of every train show up as they finish (`tools/share/deploy.sh`).
 A cache miss returns the newest complete retained farm product, or an accepted fallback
 listed in `farm/fallbacks.json`, while the requested version builds. Its manifest explicitly
 sets `stale: true`, `requested_revision`, actual `revision`, and `source_kind`; payload URLs
