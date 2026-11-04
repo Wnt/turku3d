@@ -67,6 +67,7 @@ class Evidence:
 
     zones: list = field(default_factory=list)  # (polygon, attrs) renovated paved street parts
     structures: list = field(default_factory=list)  # stairs, bridges, ramps, tunnels: never filled
+    streets: list = field(default_factory=list)  # every other street part, of any year: where sites grow
     spots: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # x, z, height after EPOCH
     footprints: list = field(default_factory=list)  # building footprint polygons
     points: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # key points x, y, z
@@ -79,10 +80,11 @@ class Evidence:
 # -- sources ----------------------------------------------------------------------------------------
 
 
-def zone_rows(frame) -> tuple[list, list]:
-    """(zones, structures): (polygon, attrs) of the finished-state zones in a GIS:Katualueet frame,
-    and the polygons of every stair, bridge, ramp, tunnel and underpass part."""
-    out, structures = [], []
+def zone_rows(frame) -> tuple[list, list, list]:
+    """(zones, structures, streets): (polygon, attrs) of the finished-state zones in a GIS:Katualueet
+    frame, the polygons of every stair, bridge, ramp, tunnel and underpass part, and of every other
+    street part whatever its year."""
+    out, structures, streets = [], [], []
     for geom, kind, built, renovated, material, key in zip(
         frame.geometry_local, frame.Katuosalaji, frame.Valmistumisvuosi, frame.Peruskorjausvuosi,
         frame.Pintamateriaali, frame.feature_key, strict=True
@@ -95,11 +97,12 @@ def zone_rows(frame) -> tuple[list, list]:
         if str(kind) in STRUCTURES:
             structures.extend(polys)
             continue
+        streets.extend(polys)
         if year < EPOCH_YEAR:
             continue
         for poly in polys:
             out.append((poly, {"key": str(key), "kind": str(kind), "year": year, "material": str(material)}))
-    return out, structures
+    return out, structures, streets
 
 
 def _year(value) -> int:
@@ -152,11 +155,14 @@ def load(tile: C.VisualTile, streets, spots, buildings, laz) -> Evidence:
             return None
         merged = pd.concat(frames, ignore_index=True)
         subset = ["feature_key", "geom_index"] if "geom_index" in merged else ["feature_key"]
-        return merged.drop_duplicates(subset=subset).sort_values(subset, kind="stable")
+        # A feature fetched in several areas keeps one canonical copy, whichever files a tile reads.
+        merged["_wkb"] = [g.wkb if g is not None else b"" for g in merged.geometry_local]
+        merged = merged.sort_values([*subset, "_wkb"], kind="stable")
+        return merged.drop_duplicates(subset=subset).reset_index(drop=True)
 
     street_frame = rows(streets)
-    zones, structures = zone_rows(street_frame) if street_frame is not None else ([], [])
-    evidence = Evidence(zones=zones, structures=structures)
+    zones, structures, streets = zone_rows(street_frame) if street_frame is not None else ([], [], [])
+    evidence = Evidence(zones=zones, structures=structures, streets=streets)
     if not evidence.near(tile.bbox.buffered(BAND + REACH + 1)):
         return evidence  # no zone reaches the tile: nothing else is read
     spot_frame = rows(spots)
@@ -333,7 +339,11 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     mask = keep[labels]
     if not mask.any():
         return Window(xs[0], zs[0], h, h, [])
-    blocked = _inside([g for g in evidence.structures if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
+    window_box = shapely.box(*b.as_tuple())
+    blocked = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs)
+    # Sites grow only in street space: any street part (whatever its year) and the strip to the facades.
+    street = _inside([g for g in evidence.streets if g.intersects(window_box)], xs, zs) | zone
+    space = ndi.binary_dilation(street, structure=_disk(REACH)) & ~blocked
     buildings, _ = ndi.label(footprints)
 
     def touching(region):
@@ -343,7 +353,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
         return np.isin(buildings, ids[ids > 0])
 
     for _ in range(GROW_ROUNDS):
-        band = ndi.binary_dilation(mask, structure=_disk(FREE_REACH)) & ~mask & ~blocked
+        band = ndi.binary_dilation(mask, structure=_disk(FREE_REACH)) & ~mask & space
         trial = _biharmonic(h, mask | band | touching(band), spots_rc)
         join = band & ~footprints & (trial - h > DEPTH)
         join = ndi.binary_propagation(mask, mask=mask | join) & join
@@ -372,6 +382,7 @@ def _ramp(v, low, high):
 
 
 def windows(tile: C.VisualTile):
+    """The windows blended over a tile, in one city-wide order (identical sums in every tile)."""
     return [C.VisualTile(0, tile.i + di, tile.j + dj) for dj in (-1, 0, 1) for di in (-1, 0, 1)]
 
 
