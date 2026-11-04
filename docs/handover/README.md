@@ -64,7 +64,9 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 - **Kristiinankatu 1 has no windows** (and other bulk-generated buildings may share it): yesterday's frozen build
   6098c5bd shows the same, so it is in the bulk tile generation, not today's client changes. Fix via a facade
   migration with generator parity.
-- The pizzeria mission point sits 1.24 m from a lamp post (`game/src/gameplay/content/locations.ts`).
+- Fixed 2026-11-04: the pizzeria mission point moved 2.2 m along its facade, now 3.1 m from the lamp post
+  (`game/src/gameplay/content/locations.ts`). The pipeline's address-pool origin (`content/addresses.py`) still names
+  the old point; the game accepts it within 3 m.
 - Junction gridlock at the centre seam ([npc](npc.md)).
 
 ## Measurement method that held up
