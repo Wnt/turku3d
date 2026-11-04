@@ -20,14 +20,18 @@ const weight = e => e ? (['fall', 'stuck', 'incomplete'].includes(e.kind) ? 100 
 const fmt = (v, d = 2) => v === undefined || v === null || Number.isNaN(v) ? '-' : Number(v).toFixed(d);
 const label = s => `${s.name || '(unnamed)'} — ${s.kind}${s.over ? ` under ${s.over.name || s.over.mode} (way ${s.over.way})` : ''}, ${s.highway || 'road'}, OSM way ${s.way}`;
 
+// Rows from before the not-covered rule: a stop before the window is an approach problem, not the structure's.
+const covered = r => !r.outcome.startsWith('not covered') && !(r.outcome !== 'arrived'
+  && r.events.some(e => (e.kind === 'stuck' || e.kind === 'incomplete') && e.s < r.window[0]));
 const byStructure = new Map();
 for (const r of rows) { const list = byStructure.get(r.structure) ?? []; list.push(r); byStructure.set(r.structure, list); }
 const counts = { structures: structures.length, driven: byStructure.size, lanes: rows.length,
   byKind: Object.fromEntries(['bridge', 'tunnel', 'underpass'].map(k => [k, { structures: structures.filter(s => s.kind === k).length,
     driven: [...byStructure.keys()].filter(id => id.startsWith(k === 'underpass' ? 'under' : k)).length,
-    lanes: rows.filter(r => r.kind === k).length, fail: rows.filter(r => r.kind === k && r.severity === 'fail').length,
-    warn: rows.filter(r => r.kind === k && r.severity === 'warn').length }])) };
-const failures = rows.filter(r => r.severity === 'fail').sort((a, b) => weight(b.worst) - weight(a.worst));
+    lanes: rows.filter(r => r.kind === k).length, notCovered: rows.filter(r => r.kind === k && !covered(r)).length,
+    fail: rows.filter(r => r.kind === k && covered(r) && r.severity === 'fail').length,
+    warn: rows.filter(r => r.kind === k && covered(r) && r.severity === 'warn').length }])) };
+const failures = rows.filter(r => r.severity === 'fail' && covered(r)).sort((a, b) => weight(b.worst) - weight(a.worst));
 const kinds = {};
 for (const r of failures) kinds[r.worst?.kind ?? '?'] = (kinds[r.worst?.kind ?? '?'] ?? 0) + 1;
 
@@ -35,8 +39,9 @@ let md = `# Drive sweep: bridges, tunnels and underpasses\n\n`;
 md += `Tile version \`${JSON.parse(fs.readFileSync(path.join(dir, 'tile-service.json'), 'utf8')).version}\`, ${new Date().toISOString().slice(0, 16)} UTC. `;
 md += `Each lane driven in its own direction at its posted limit (capped at 80 km/h) by the autopilot on the real vehicle physics over the tile's collision. `;
 md += `Limits: tools/drivetest/README.md.\n\n`;
-md += `| Kind | Structures found | Driven | Lanes | Fail | Warn |\n|---|---:|---:|---:|---:|---:|\n`;
-for (const [k, c] of Object.entries(counts.byKind)) md += `| ${k} | ${c.structures} | ${c.driven} | ${c.lanes} | ${c.fail} | ${c.warn} |\n`;
+md += `| Kind | Structures found | Driven | Lanes | Not covered | Fail | Warn | Pass |\n|---|---:|---:|---:|---:|---:|---:|---:|\n`;
+for (const [k, c] of Object.entries(counts.byKind)) md += `| ${k} | ${c.structures} | ${c.driven} | ${c.lanes} | ${c.notCovered} | ${c.fail} | ${c.warn} | ${c.lanes - c.notCovered - c.fail - c.warn} |\n`;
+md += `\nNot covered: the car stopped before reaching the structure (an approach junction or kerb), so the lane was not measured.\n`;
 md += `\nFailures by worst cause: ${Object.entries(kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}.\n\n`;
 md += `## Failures, worst first\n\n| # | Structure | Lane | Worst | Value | At (E, N) | Outcome | Shot |\n|---:|---|---|---|---:|---|---|---|\n`;
 failures.slice(0, 300).forEach((r, i) => {

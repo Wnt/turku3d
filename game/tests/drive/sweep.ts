@@ -7,6 +7,7 @@ import path from 'node:path';
 import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from '../../src/physics/world';
 import { DT } from '../../src/physics/constants';
+import { MATERIALS } from '../../src/shared/col/materials';
 import { COLLISION_TILE, engineToEN } from '../../src/core/origin';
 import { DriveFollower } from '../../src/gameplay/autopilot/follow';
 import { LaneRouter, tilesBetween } from '../../src/gameplay/autopilot/lanes';
@@ -45,8 +46,11 @@ function cellsAlong(p: Path): string[] {
 }
 
 /** Ground steps under both wheel tracks: collision rays every 10 cm through the window. */
+/** Carriageway materials: a wheel track on anything else means the lane runs over a kerb, a sidewalk or verge. */
+const CARRIAGEWAY = new Set(['road', 'crossing', 'bridge_deck', 'cobblestone', 'paving_slab', 'ramp', 'unknown']);
 function groundSteps(pw: PhysicsWorld, p: Path, from: number, to: number, half = 0.8) {
   const steps: { s: number; x: number; y: number; z: number; height: number; track: string }[] = [];
+  const surfaces: Record<string, number> = {};
   for (const [track, side] of [['left', -half], ['right', half]] as const) {
     const ys: (number | null)[] = [], at: { s: number; x: number; z: number }[] = [];
     for (let s = Math.max(0, from); s <= Math.min(p.length, to); s += 0.1) {
@@ -54,6 +58,8 @@ function groundSteps(pw: PhysicsWorld, p: Path, from: number, to: number, half =
       const top = (q.y ?? 50) + 1.5;
       const hit = pw.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, 4, 'solid');
       ys.push(hit ? top - hit.toi : null); at.push({ s, x, z });
+      const name = hit ? MATERIALS[hit.material]?.name ?? 'unknown' : 'none';
+      surfaces[name] = (surfaces[name] ?? 0) + 1;
     }
     let last = -Infinity;
     for (let k = 5; k < ys.length - 7; k++) {
@@ -72,14 +78,16 @@ function groundSteps(pw: PhysicsWorld, p: Path, from: number, to: number, half =
       else if (height >= 0.02 && steps.length && height > steps.at(-1)!.height && at[k].s - last <= 1) { Object.assign(steps.at(-1)!, { ...at[k], y: y0, height }); last = at[k].s; }
     }
   }
-  return steps;
+  const total = Object.values(surfaces).reduce((a, b) => a + b, 0) || 1;
+  const off = Object.entries(surfaces).filter(([k]) => !CARRIAGEWAY.has(k)).reduce((a, [, n]) => a + n, 0) / total;
+  return { steps, surfaces, offRoad: off };
 }
 
 export interface LaneResult {
   key: string; structure: string; kind: Structure['kind']; name: string; way: number; highway: string; over?: Structure['over'];
   lane: string; k: number; laneCount: number; heading: number; limitKmh: number;
   center: Structure['center']; severity: string; peaks: Record<string, number>; worst: unknown; events: unknown[];
-  driven: number; window: [number, number]; seconds: number; recoveries: number; outcome: string; wallMs: number;
+  driven: number; window: [number, number]; surfaces: Record<string, number>; offRoad: number; seconds: number; recoveries: number; outcome: string; wallMs: number;
   /** The worst point as a pose for a screenshot: engine x,y,z and heading, ETRS-TM35FIN. */
   view: { x: number; y: number; z: number; hx: number; hz: number; E: number; N: number } | null;
 }
@@ -114,7 +122,8 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
       for (const id of cellsAlong(route.path)) { const b = await cache.cell(id); if (b) await pw.loadTile(id, b); }
       pw.world.step();
       const trace = new DriveTrace(window);
-      trace.addGround(groundSteps(pw, route.path, window[0], window[1]));
+      const ground0 = groundSteps(pw, route.path, window[0], window[1]);
+      trace.addGround(ground0.steps);
       const start = sampleAt(route.path, 0);
       const ground = pw.raycast({ x: start.x, y: (start.y ?? 50) + 3, z: start.z }, { x: 0, y: -1, z: 0 }, 10, 'solid');
       const limit = route.limit(route.laneStart);
@@ -141,6 +150,7 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
         else if (recoveries > 0) { outcome = `stuck (${recoveries} recoveries)`; trace.fail('stuck', outcome, follower.s); }
         else if (status !== 'arrived' && follower.s < window[1]) { outcome = 'timeout'; trace.fail('incomplete', outcome, follower.s); }
       }
+      if (outcome !== 'arrived' && trace.events.some(e => (e.kind === 'stuck' || e.kind === 'incomplete') && e.severity === 'warn')) outcome = `not covered: ${outcome} before the structure`;
       pw.world.free();
       const summary = trace.summary();
       const worst = summary.worst as { s: number; x: number; y: number; z: number } | null;
@@ -152,7 +162,7 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
         heading: Math.round((Math.atan2(h.hx, -h.hz) * 180 / Math.PI + 360) % 360), limitKmh: Math.round(limit * 3.6),
         center: structure.center, severity: summary.severity, peaks: summary.peaks, worst: summary.worst,
         events: [...summary.events].sort((a, b) => (b.severity === 'fail' ? 1 : 0) - (a.severity === 'fail' ? 1 : 0)).slice(0, 40).map(e => ({ ...e, ...(() => { const en = engineToEN(e.x, e.y, e.z); return { E: Math.round(en.E * 10) / 10, N: Math.round(en.N * 10) / 10 }; })() })),
-        driven: route.path.length, window, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view };
+        driven: route.path.length, window, surfaces: ground0.surfaces, offRoad: Math.round(ground0.offRoad * 1000) / 1000, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view };
       fs.appendFileSync(out, JSON.stringify(row) + '\n');
       done++;
       log(`${structure.id} ${structure.name || ''} lane ${lane.k + 1}/${lane.laneCount} ${row.heading}°: ${summary.severity} ${outcome}` +

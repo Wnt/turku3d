@@ -147,9 +147,12 @@ export class DriveTrace {
     }
   }
 
+  /** The drive ended early. Inside the window (or past it) that is the structure's failure; before it, the car never
+   *  reached the structure (an approach problem): a warning, and the lane counts as not covered. */
   fail(kind: 'stuck' | 'incomplete', detail: string, s: number) {
     const at = this.samples.at(-1) ?? { x: 0, y: 0, z: 0 };
-    this.events.push({ kind, severity: 'fail', value: 1, s, x: at.x, y: at.y, z: at.z, detail });
+    const before = s < this.window[0];
+    this.events.push({ kind, severity: before ? 'warn' : 'fail', value: 1, s, x: at.x, y: at.y, z: at.z, detail: before ? `${detail}, before the structure` : detail });
   }
 
   summary() {
