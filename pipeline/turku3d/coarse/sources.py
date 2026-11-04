@@ -352,9 +352,8 @@ class Sources:
         return record is not None and record.get("bytes") == size
 
     # -- ortho -----------------------------------------------------------------------------------
-    def ortho_source(self, tile: C.VisualTile) -> Path | None:
-        """The first ortho mosaic (by name: the 512 px coarse ones before the 5 cm areas) whose
-        extent covers the tile. NoCoverage when the block's coarse fetch found no imagery there."""
+    def ortho_mosaics(self, tile: C.VisualTile):
+        """Every ortho mosaic whose extent covers the tile, in ``ortho_source`` order."""
         t = tile.bbox.to_en()
         for vrt, bounds in self.mosaics.items():
             if (
@@ -363,7 +362,13 @@ class Sources:
                 and bounds[2] >= t.emax
                 and bounds[3] >= t.nmax
             ):
-                return vrt
+                yield vrt
+
+    def ortho_source(self, tile: C.VisualTile) -> Path | None:
+        """The first ortho mosaic (by name: the 512 px coarse ones before the 5 cm areas) whose
+        extent covers the tile. NoCoverage when the block's coarse fetch found no imagery there."""
+        for vrt in self.ortho_mosaics(tile):
+            return vrt
         own = f"{AREA_PREFIX}{block_of(tile).name}.chunks.json"
         for state_path, state in self.ortho.items():
             if (

@@ -71,7 +71,8 @@ class ImagerySources(Sources):
                 raise
             return None  # Try the newer imagery before declaring this tile unavailable.
         if path is not None and not protected and blank(tile, path):
-            return None
+            # A blank or pruned earlier mosaic must not hide a later one that covers the tile.
+            return next((other for other in self.ortho_mosaics(tile) if not blank(tile, other)), None)
         return path
 
 

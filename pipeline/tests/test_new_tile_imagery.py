@@ -109,3 +109,15 @@ def test_new_tile_fallback_preserves_warm_neighbours(
     for path, digest in before.items():
         if path.name not in {"MANIFEST.jsonl", "SHA256SUMS"}:
             assert hashlib.sha256(path.read_bytes()).hexdigest() == digest, path
+
+
+def test_a_blank_or_pruned_earlier_mosaic_yields_to_a_later_covering_one(tmp_path, monkeypatch):
+    import turku3d.coarse.imagery as imagery
+
+    tile = C.VisualTile(0, 0, 1)
+    pruned, whole = tmp_path / "office-block.vrt", tmp_path / "work-3x3.vrt"
+    monkeypatch.setattr(Sources, "ortho_mosaics", lambda self, t: iter([pruned, whole]))
+    monkeypatch.setattr(imagery, "blank", lambda t, path: path == pruned)
+    assert ImagerySources(tmp_path / "coarse").ortho_source(tile) == whole
+    monkeypatch.setattr(imagery, "blank", lambda t, path: True)
+    assert ImagerySources(tmp_path / "coarse").ortho_source(tile) is None  # nothing usable: fetch new imagery
