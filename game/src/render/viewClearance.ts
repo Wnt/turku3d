@@ -21,14 +21,14 @@ import { clamp, dot, float, max, mix, positionView, renderGroup, smoothstep, uni
  * still cast their full shadows.
  */
 export const VIEW_CLEARANCE = {
-  /** Clear radius around the body (m) on foot and in a vehicle; the core inside `core` of it fades by `maxFade`. */
+  /** Clear radius around the body (m) on foot and in a vehicle; inside `core` of it the fade reaches `maxFade`. */
   radius: { foot: 1.15, car: 2.6 },
   /** The point ahead: base metres, seconds of travel at the current speed, and a cap (m). */
   ahead: { foot: [2.5, 0.6, 7], car: [6, 0.8, 26] },
   /** The ahead end's world radius relative to the body's. */
   aheadRadius: 1.4,
-  core: 0.45,
-  maxFade: 0.92,
+  core: 0.4,
+  maxFade: 1,
   /** Fragments fade only when nearer than the capsule's depth less `depthMargin` (m), over a further `depthBand`. */
   depthMargin: 0.6,
   depthBand: 1.6,
@@ -87,7 +87,10 @@ class ViewClearance {
       this.want.normalize();
     }
     // Direction, length and radius ease too: a turn or a mode change sweeps the region instead of jumping it.
-    this.direction.lerp(this.want, k).normalize();
+    // By angle: a lerp through a reversal would pass through zero length and lose the direction.
+    const from = Math.atan2(this.direction.x, this.direction.z), to = Math.atan2(this.want.x, this.want.z);
+    const turn = Math.atan2(Math.sin(to - from), Math.cos(to - from)), heading = from + turn * k;
+    this.direction.set(Math.sin(heading), 0, Math.cos(heading));
     this.aheadLength += (Math.min(cap, base + seconds * speed) - this.aheadLength) * k;
     this.radius += (VIEW_CLEARANCE.radius[target.mode] - this.radius) * k;
     const view = camera.matrixWorldInverse;
