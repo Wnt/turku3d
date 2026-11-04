@@ -105,9 +105,11 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
           result.assign(vec4(soft(read, spread), confidence));
         });
       });
-      // Off the image: the colour where the ray left it fills what the hit leaves (all of a miss).
-      If(span.lessThan(0.999).and(result.a.lessThan(0.999)), () => {
-        const exit = startUV.add(deltaUV).clamp(0.01, 0.99).toVar();
+      // Off the image at a side: the colour where the ray left it fills what the hit leaves (all of a miss). A ray that
+      // leaves through the top meets the sky there, which the fallback already shows: it skips the extra reads.
+      const leaving = startUV.add(deltaUV).toVar();
+      If(span.lessThan(0.999).and(result.a.lessThan(0.999)).and(leaving.x.sub(0.5).abs().greaterThan(0.49)), () => {
+        const exit = leaving.clamp(0.01, 0.99).toVar();
         // Only what stands above the water: at an exit on the water itself (or its bed) last frame shows this same
         // reflection, which would copy the sky fallback back in. Sky pixels lie far above and pass.
         const exitZ = sceneZ(exit);
