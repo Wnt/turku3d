@@ -300,3 +300,19 @@ def test_narrow_survey_pieces_share_their_facade_line_openings(tmp_path):
     # Atlas UVs stay continuous across the piece seams: no two pieces repeat the same strip.
     centres = sorted(lit[0].uvs.reshape(12, 4, 2)[:, :, 0].mean(axis=1))
     assert np.all(np.diff(centres) > 0)
+
+
+def test_landmark_window_rebuild_selects_only_tiles_with_described_landmarks():
+    from turku3d import config as C
+    from turku3d.landmarks.descriptions import ROOT
+    from turku3d.migrations import landmark_windows, registry
+
+    assert registry.CHAIN[-1] is landmark_windows.MIGRATION
+    store = C.work_root() / "landmark-descriptions"
+    store.mkdir(parents=True)
+    (store / "shown.json").write_text(
+        json.dumps(dict(json.loads((ROOT / "103371570S.json").read_text()), building_id="shown")))
+    affected = landmark_windows.MIGRATION.affected
+    assert affected({"landmark_buildings": [["plain", ""], ["shown", "way/1"]]})
+    assert not affected({"landmark_buildings": [["plain", ""], ["other", "way/2"]]})
+    assert not affected({})

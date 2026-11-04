@@ -818,6 +818,9 @@ def build(
         parameter_hash as landmark_hash,
     )
     from turku3d.landmarks.descriptions import (
+        described as landmarks_described,
+    )
+    from turku3d.landmarks.descriptions import (
         source_paths as landmark_sources,
     )
 
@@ -834,7 +837,8 @@ def build(
             base / "facade_kit.py",
             *palette_sources(),
             *facade_program_sources(),
-            *landmark_sources(),
+            # A landmark code change re-runs this stage only on tiles holding a described landmark.
+            *(landmark_sources() if landmarks_described(blds) else ()),
             paint_partition,
             trapezoids,
             jpeg,
