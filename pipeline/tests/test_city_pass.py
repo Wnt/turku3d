@@ -34,6 +34,27 @@ def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
     assert len((log / "pass.jsonl").read_text().splitlines()) == 1
 
 
+def test_a_tile_waiting_for_its_spot_rebuild_asks_the_farm_and_is_retried(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CHAIN", (TINT,))
+    root, meta, _ = farm(tmp_path)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city.os, "nice", lambda increment: 0)
+    monkeypatch.setattr(city, "surveyed", lambda tile: False)
+    migrate, asked = city.M._worker, []
+    calls = iter([dict(tile="t0_0_0", state="missing-rebuild", rebuild_revision="r1", error="needs it")] * 2)
+    monkeypatch.setattr(city.M, "_worker", lambda args: next(calls, None) or migrate(args))
+    monkeypatch.setattr(city.M, "request_rebuild", lambda url, row: asked.append((url, row["rebuild_revision"])))
+    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
+            "--no-survey-wait", "--blocks", "0", "--rebuild-interval", "0", "--farm-url", "http://farm"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert city.main() == 0
+    rows = [json.loads(line) for line in (root / "migrations" / meta["generation"] / "pass.jsonl").read_text().splitlines()]
+    # The wait is logged once, the farm is asked on every try, and the tile migrates once its build is there.
+    assert [r["state"] for r in rows] == ["missing-rebuild", "migrated"]
+    assert asked == [("http://farm", "r1")] * 2
+    assert json.loads((root / "migrations" / meta["generation"] / "pass.json").read_text())["finished"]
+
+
 def test_estimate_weights_surveyed_and_unsurveyed_tiles():
     rows = [dict(tile="a", state="migrated", survey=True, cpu=100.0, wall=120.0, steps={"wires@2": [90, 80]}),
             dict(tile="b", state="migrated", survey=False, cpu=2.0, wall=3.0, steps={"wires@2": [1, 1]})]
