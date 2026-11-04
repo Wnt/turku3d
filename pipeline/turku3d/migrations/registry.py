@@ -2,7 +2,7 @@
 
 Each entry runs at the end of every generator build and over existing farm products."""
 
-from . import chain_record, floodlights, furniture, landmark_windows, racks, signals, signs, shell_look, stand_roofs, trees_lidar, wires
+from . import chain_record, floodlights, furniture, landmark_windows, racks, shell_look, signals, signs, stand_roofs, trees_lidar, wires
 
 CHAIN = (
     chain_record.MIGRATION,
