@@ -26,7 +26,7 @@ test.skipIf(!DIR)('real tiles: no car stays locked and no two cars overlap', () 
     const cars = [...flow.cars.values()];
     for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
       const a = cars[i], b = cars[j];
-      if (Math.abs(a.pose.x - b.pose.x) < 7 && Math.abs(a.pose.z - b.pose.z) < 7 && bodyOverlap(a.pose, a, b.pose, b, -0.05)) overlaps++;
+      if (Math.abs(a.pose.x - b.pose.x) < 7 && Math.abs(a.pose.z - b.pose.z) < 7 && bodyOverlap(a.pose, a, b.pose, b, -0.05) && !flow.levelApart(a, b)) overlaps++;
     }
   }
   const locked = [...flow.cars.values()].filter(c => c.stuck > 120).map(c => `${c.key} by ${c.blockedBy}`);
