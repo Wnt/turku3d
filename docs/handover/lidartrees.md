@@ -25,16 +25,17 @@ Two smaller findings:
 - Class 12 (the overlap flight line) adds only 1.1-1.4 % to the class-5 crown surface, so the measurement uses class 5
   alone, as the generator does.
 
-## Crown fill and the `?crowns=` A/B (game, F5)
+## Crown fill (game, F5)
 - Each tree model is widened per fifth of its crown height, 1.14-1.47x on average.
 - One fit reshapes every LOD, the shadow proxies and the impostors alike. lodblend's fades and its alpha-coverage match
   are therefore unchanged.
 - Modes (`crownMode` in `crowns.ts`):
   - `stretch`, the default on medium/high: leaf cards widen with the crown, about +30 % leaf fragments;
-  - `spread`, the default on reduced/low/mobile: each card moves out at its own size, the same leaf fragments as before;
-  - `asset`: the old models.
-- Registered A/B: `?crowns=stretch|spread|asset`, owner lidartrees, removal within ten merges.
-- **Air result (airperf): +0.1 ms on medium.** winperf's Windows (Radeon 560X) result may follow in its notes.
+  - `spread`, the default on reduced/low/mobile: each card moves out at its own size, the same leaf fragments as before.
+- **Decided 2026-11-04 (treelook):** blind judges against Street View crops at five tree-rich poses preferred `stretch`
+  on medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops). Beauty cost at medium: none measurable on
+  the M1 Max, +0.1 ms on the Air, +1.1 ms on the 560X (both of which run reduced). The `?crowns=` A/B and the `asset`
+  mode are removed.
 
 ## The migration `trees-lidar@1` and its cost
 - **Order:** in the chain after `wires@2` and before rulesmith's `furniture@1`. The generator runs the chain at the end
@@ -72,7 +73,7 @@ Two smaller findings:
   so coverage follows lidarpc's LAZ downloads.
 
 ## Look check (:5221 preview, or :5220 after the pin switch; F5)
-Compare `&crowns=asset` (old models) and `&pointcloud=1` (survey).
+Compare `&pointcloud=1` (survey).
 - River park (Jonni's recording pose): `?cam=23459907.05,6704298.34,5.65,45,4,60`.
 - River park from above: `?cam=23459820,6704230,32,45,-22,60`.
 - Avenue (register maples, t0_0_0): `?cam=23459514,6704413,6.7,55,3,60`.
@@ -87,9 +88,7 @@ Compare `&crowns=asset` (old models) and `&pointcloud=1` (survey).
    migration step with generator parity.
 2. **Branch skeletons per tree.** Today the branches follow the crown only through the species fit and the per-tree
    shape (size, lean, ellipse). Space-colonisation or fitted skeletons per tree are not done.
-3. **Remove the losing `?crowns=` path** once winperf reports. The Air shows +0.1 ms on medium, which favours keeping
-   `stretch` on medium/high.
-4. **The two willow deletes from Jonni's editor session.** Two `lidar:` trees drawn as willows were deleted in the
+3. **The two willow deletes from Jonni's editor session.** Two `lidar:` trees drawn as willows were deleted in the
    editor; rulesmith handed them to lidartrees (`~/turku3d/loops/rulesmith/STATUS.md`, "Not done"). Fix the rule: why
    those canopy detections became trees, and why they were drawn as willows (`natureAsset` near water). Do not fix the
    two trees by hand. Check the same pattern in 2-3 other riverside places.

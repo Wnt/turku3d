@@ -72,7 +72,8 @@ id: `~/turku3d/loops/winperf/STATUS.md` (local).
   - Along the river: 55.2 FPS against 46.6 for planar, and beauty p95 11.8 ms against 18.2.
   - Look: across the river the screen-space version shows a bright, streaky sky-fallback patch.
 - **Leaves, earlier probes:** single-sided -1.3 ms, unshadowed -1.0 ms, alpha test 0.65 -0.4 ms, texture bias about 0.
-  None is invisible; they are available as `?leaves=` for Jonni.
+  Decided 2026-11-04 (treelook, blind judges against Street View): none ships and `?leaves=` is removed. Single-sided
+  cards and alpha 0.65 thin the crowns visibly; `noshadow` drew pixel-identical frames in the bench lab.
 - **Crowns (lidartrees), riverside static, round 1 only (stopped at the wrap-up):**
 
   | Tier | Mode | Beauty p50 | Leaf cost |
@@ -135,6 +136,5 @@ id: `~/turku3d/loops/winperf/STATUS.md` (local).
    floor. A goal-based target would only lower resolution when needed. Measure on the Air and the 560X with
    `?resolutionTarget=40`. The Mac must stay on 60 unless Jonni decides otherwise.
 4. **Governor on the Air:** measure thermal-throttled sessions with and without `?governor=0`. On Windows it is neutral.
-5. **Look checks for Jonni:** the screen-space water's sky-fallback patch, the crown `stretch` vs `spread`, and the
-   `?leaves=` variants.
-6. Remove the decided A/B paths within ten merges: `resolutionTarget`, `governor`, `leaves`, `crowns`.
+5. **Look check for Jonni:** the screen-space water's sky-fallback patch.
+6. Remove the decided A/B paths within ten merges: `resolutionTarget`, `governor`.

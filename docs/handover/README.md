@@ -55,8 +55,9 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
    osgallery-dev has ~28 GB free and the city pass writes to that disk (its guard holds new tiles below 12 GB free).
    The protected 2e6515f4 products have a verified read-only copy at `bulk/turku3d-protected`. See [storage](storage.md).
 2. Whether LiDAR absence should delete register benches ([rulesmith](rulesmith.md)).
-3. Look decisions: LOD fade length (0.6 s default), crown `stretch` vs `spread` on medium (+1.2 ms beauty on the 560X),
-   cheaper leaves (`?leaves=`), SSR fallback look on reduced (re-shoot pending).
+3. Look decisions: LOD fade length (0.6 s default), SSR fallback look on reduced (re-shoot pending). Decided on
+   2026-11-04 by blind judges against Street View (treelook): crowns `stretch` on medium/high (spread stays on the
+   reduced tiers) and the full leaf path; `?crowns=` and `?leaves=` are removed.
 4. Storage: `private/gmaps-data` local copy, other Mac candidates, `copies=2` on the single-HDD `bulk` pool.
 
 ## Known issues not yet assigned
