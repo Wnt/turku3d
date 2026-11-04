@@ -59,13 +59,28 @@ await page.evaluate(() => {
   const g = window.__game, r = window.__render, s = g.state(), [x, , z] = s.feet;
   g.autopilot.goTo({ x: x + 600, z: z - 400 }, { mode: 'drive', speed: 14 });
   const out = window.__jitter = { rows: [] };
+  // Solo: the taken car is parkedVisuals' driven actor. Multiplayer: it is a shared vehicle this player owns, drawn by
+  // the remote-player renderer (a `remote/<model>` mesh at the car).
+  const V = r.camera.position.constructor, p = new V();
+  let remoteMesh = null;
+  const drawnCar = id => {
+    if (g.parkedVisuals.renders(id)) return g.parkedVisuals.inspect(id, r.camera);
+    if (!remoteMesh) {
+      const car = g.physics.latest?.vehicles.find(v => v.id === id); if (!car) return null;
+      let best = 5; const at = new V(car.pos.x, car.pos.y, car.pos.z);
+      r.post.scene.traverse(o => { if (o.visible && /^remote\//.test(o.name)) { const d = o.getWorldPosition(p).distanceTo(at); if (d < best) { best = d; remoteMesh = o; } } });
+      if (!remoteMesh) return null;
+    }
+    remoteMesh.getWorldPosition(p);
+    return { position: p.toArray(), projected: p.clone().project(r.camera).toArray() };
+  };
   let lastFrame = r.renderer.info.frame, lastCall = performance.now();
   const before = r.beforeFrame;
   r.beforeFrame = () => {
     const now = performance.now(), frame = r.renderer.info.frame;
     // A frame was rendered since the last call: record what it drew, at the time it started.
     if (frame !== lastFrame) {
-      const id = g.state().drivenId, seen = id ? g.parkedVisuals.inspect(id, r.camera) : null;
+      const id = g.state().drivenId, seen = id ? drawnCar(id) : null;
       if (seen) out.rows.push([lastCall, ...seen.position, ...r.camera.position.toArray(), seen.projected[0], seen.projected[1], g.state().vehicle?.speed ?? 0]);
     }
     lastFrame = frame; lastCall = now;
