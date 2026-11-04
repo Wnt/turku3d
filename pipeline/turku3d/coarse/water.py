@@ -6,12 +6,13 @@ from pathlib import Path
 
 import shapely
 
+from turku3d import config as C
 from turku3d.ground.mesh import parts
 from turku3d.spatial import frame
 
 # The tidal river and sea share one datum. Tile-local lidar percentiles describe
 # different banks, boats and bridges, not independent water surfaces.
-LEVEL = 0.0
+LEVEL = C.CITY.water_level  # Turku and Espoo: N2000 0 m; Amsterdam: canal level NAP -0.40
 INTERIOR_MARGIN = 3.0
 
 
