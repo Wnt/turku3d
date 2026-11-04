@@ -30,8 +30,7 @@ hour assignment. The client must handle a new timestamp epoch after rejoin.
 
 Earned cash is the sum of validated positive delivery pay, tips and bonuses in this
 hour. It is separate from the local wallet: fines, purchases and other spending never
-reduce it; that includes the pizzeria's loaner-scooter fee and the base pay that repays a permit rented
-on credit, so a delivery's `payout` is always the earned pay the envelope below validates.
+reduce it; that includes the base pay that repays a permit rented on credit, so a delivery's `payout` is always the earned pay the envelope below validates.
 Starting cash, developer grants and asset sales are not earnings. Future
 reward events must be validated server-side before contributing to this total.
 Ranking uses earned cash descending, then paid deliveries descending, then the earliest

@@ -4,14 +4,14 @@
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   basePay, LIMITED_COOLDOWN_SECONDS, LIMITED_OFFER_SECONDS, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
-  CREDIT_PERMIT_DEBT, debtRepayment, HEIST_CASH, LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
+  CREDIT_PERMIT_DEBT, debtRepayment, HEIST_CASH, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
-import { DEALER, HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../content/locations';
+import { DEALER, HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
 import { drawLimitedOrder, drawOrder, openingOrder } from './orders';
 import type { ShopView } from './shopView';
@@ -36,11 +36,6 @@ export const OWN_VEHICLE_ID = 'player';
 export const SCOOTER_ID = 'scooter';
 export const TRUCK_ID = 'truck';
 const OWNED_IDS: Record<VehicleOwnership, string | null> = { none: null, scooter: SCOOTER_ID, car: OWN_VEHICLE_ID, truck: TRUCK_ID };
-/** The pizzeria's loaner: the scooter's physics vehicle, standing at PIZZERIA_VEHICLE_SPOT while the player owns no
- *  vehicle (buying the scooter makes it the player's own). */
-export const LOANER_ID = SCOOTER_ID;
-/** Taking a short order on foot returns the loaner to the kerb unless it already stands within this many metres. */
-export const LOANER_AT_KERB_M = 8;
 /** The physics vehicle that a vehicle ownership class drives. */
 export const ownedVehicleId = (vehicle: VehicleOwnership) => OWNED_IDS[vehicle];
 /** "Bring my vehicle" at the pizzeria is greyed out while the vehicle already stands this close (m) to the pizzeria. */
@@ -136,8 +131,6 @@ export class MissionSystem implements MissionHudSource {
   private hintCache: { key: string; said: Said } | null = null;
   /** Seconds until "Bring my vehicle here" works again (not saved). */
   private bringCooldown = 0;
-  /** The loaner's hint was spoken this session. */
-  private loanerHinted = false;
   /** This frame asked for the player's vehicle at the pizzeria kerb (returned by update). */
   private parkAtPizzeria = false;
   /** The vehicle driven in the previous frame: leaving the truck at the heist drop-off finishes the job. */
@@ -187,8 +180,8 @@ export class MissionSystem implements MissionHudSource {
   /** Euros still owed for permits rented on credit. */
   get debt(): number { return this.s.debt ?? 0; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
-  /** The physics vehicle the player delivers with: the owned one, or the pizzeria's loaner while owning none. */
-  get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? LOANER_ID; }
+  /** The physics vehicle the player delivers with: the owned one (the start car while owning none). */
+  get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? OWN_VEHICLE_ID; }
   get plates(): boolean { return this.s.plates; }
   get kidney(): boolean { return this.s.kidney; }
   /** Pizzas handed over. */
@@ -271,7 +264,6 @@ export class MissionSystem implements MissionHudSource {
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
     }
-    if (this.s.phase === 'carrying' && frame.vehicleId === LOANER_ID && this.loanerTerms(this.s.job)) this.s.loaner = true;
     if (this.s.phase === 'carrying' && dt > 0) {
       this.s.elapsed += dt;
       if (this.s.elapsed > deliveryDeadline(this.s.par)) this.fail();
@@ -339,8 +331,7 @@ export class MissionSystem implements MissionHudSource {
 
   /** Why the player's vehicle cannot be brought to the pizzeria kerb (`pizzeria`) or beside the player now. */
   private bringReason(pizzeria: boolean): string | null {
-    // Owning none, the pause menu fetches the loaner; at the pizzeria it is outside already, or comes with the next order.
-    if (pizzeria && this.s.vehicle === 'none') return 'reason_no_own_vehicle';
+    if (this.s.vehicle === 'none') return 'reason_no_own_vehicle';
     if (this.frame?.vehicleId === this.rideId) return 'reason_riding_it';
     if (!pizzeria) return this.bringCooldown > 0 ? 'reason_bring_cooldown' : null;
     const at = this.frame?.rideAt;
@@ -349,11 +340,7 @@ export class MissionSystem implements MissionHudSource {
 
   // ----------------------------------------------------------------------------------------------- actions
   private owns(vehicleId: string) { return vehicleId === ownedVehicleId(this.s.vehicle); }
-  private mayDeliverWith(vehicleId: string | null, job: DeliveryJob = this.s.job) {
-    return vehicleId === null || this.owns(vehicleId) || this.s.plates || (vehicleId === LOANER_ID && this.loanerTerms(job));
-  }
-  /** Owning no vehicle, a short order goes on the pizzeria's loaner: scooter par, LOANER_FEE when ridden. */
-  private loanerTerms(job: DeliveryJob) { return this.s.vehicle === 'none' && job === 'short'; }
+  private mayDeliverWith(vehicleId: string | null) { return vehicleId === null || this.owns(vehicleId) || this.s.plates; }
   private restPhase(): Phase { return this.s.permit > 0 ? 'at_pizzeria' : 'permit_needed'; }
 
   private dropoffTarget(): RouteTarget {
@@ -479,14 +466,13 @@ export class MissionSystem implements MissionHudSource {
       case 'take_limited_order':
       case 'take_order': {
         const long = id !== 'take_order';
-        const job: DeliveryJob = id === 'take_order' ? 'short' : id === 'take_long_order' ? 'long' : 'limited';
         const quote = id === 'take_long_order' ? this.longQuote() : id === 'take_limited_order' ? this.limitedQuote() : this.quote();
         const reason = long && !this.longUnlocked ? 'reason_long_locked'
           : long && !quote ? (id === 'take_long_order' ? 'reason_no_long_route' : 'reason_no_limited')
-          : long && this.parVehicle(job) === 'none' ? 'reason_long_vehicle'
+          : long && this.parVehicle() === 'none' ? 'reason_long_vehicle'
           : s.heist ? 'reason_heist_active'
           : s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
-          : !this.mayDeliverWith(this.frame?.vehicleId ?? null, job) ? 'reason_own_vehicle_only' : null;
+          : !this.mayDeliverWith(this.frame?.vehicleId ?? null) ? 'reason_own_vehicle_only' : null;
         return { price: null, reason, quote: quote ?? undefined };
       }
       case 'slice': return money(SLICE_PRICE);
@@ -542,7 +528,7 @@ export class MissionSystem implements MissionHudSource {
         this.s.job = 'limited'; this.s.order = [...this.s.limited.stops]; this.quoteCache = this.limitedQuoteCache = null;
         this.s.limited = { ...this.s.limited, stops: [], left: LIMITED_COOLDOWN_SECONDS };
         this.pickUp(); this.open = null; break;
-      case 'take_order': this.s.job = 'short'; this.returnLoaner(); this.pickUp(); this.open = null; break;
+      case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
       case 'bring_vehicle': this.parkAtPizzeria = true; this.reply('pizzeria_bring_vehicle'); break;
@@ -556,13 +542,6 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_vehicle': this.s.vehicle = 'none'; this.reply('dealer_bought_back'); break;
     }
     if (price !== null) this.checkpoint = 'purchase';
-  }
-
-  /** Owning no vehicle, a short order taken off the loaner brings it back to the kerb when it is not there. */
-  private returnLoaner() {
-    if (!this.loanerTerms('short') || this.frame?.vehicleId === LOANER_ID) return;
-    const at = this.frame?.rideAt;
-    if (!at || distance(at, PIZZERIA_VEHICLE_SPOT) > LOANER_AT_KERB_M) this.parkAtPizzeria = true;
   }
 
   /** The shopkeeper answers inside the open menu; the line is also the HUD message, so it is voiced. */
@@ -593,7 +572,7 @@ export class MissionSystem implements MissionHudSource {
   private longQuote(): OrderQuote | null {
     const ids = this.longOrder();
     if (!ids) return null;
-    const vehicle = this.parVehicle('long');
+    const vehicle = this.parVehicle();
     const key = `${ids.join(',')}|${vehicle}`;
     if (this.longQuoteCache?.key !== key) {
       const stops = ids.map(id => this.stops.resolve(id)!);
@@ -607,7 +586,7 @@ export class MissionSystem implements MissionHudSource {
   private limitedQuote(): OrderQuote | null {
     const { stops: ids, left } = this.s.limited;
     if (!ids.length) return null;
-    const vehicle = this.parVehicle('limited');
+    const vehicle = this.parVehicle();
     const key = `${ids.join(',')}|${vehicle}`;
     if (this.limitedQuoteCache?.key !== key) {
       const stops = ids.map(id => this.stops.resolve(id)!);
@@ -622,8 +601,7 @@ export class MissionSystem implements MissionHudSource {
     const vehicle = this.parVehicle();
     const key = `${this.s.job}|${this.s.order.join(',')}|${vehicle}`;
     if (this.quoteCache?.key !== key) {
-      const { quote, firstPar } = orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job));
-      this.quoteCache = { key, firstPar, quote: this.loanerTerms(this.s.job) ? { ...quote, fee: LOANER_FEE } : quote };
+      this.quoteCache = { key, ...orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job)) };
     }
     return this.quoteCache.quote;
   }
@@ -640,13 +618,10 @@ export class MissionSystem implements MissionHudSource {
     return path ? this.options.router.distance(path) : distance(from, to);
   }
 
-  /** Par speed class of a `job`: the owned vehicle, a car when a borrowed car is used with forged plates, or owning
-   *  none the loaner scooter for a short order. */
-  private parVehicle(job: DeliveryJob = this.s.job): VehicleOwnership {
+  /** Par speed class: the owned vehicle, or a car when a borrowed car is used with forged plates. */
+  private parVehicle(): VehicleOwnership {
     const id = this.frame?.vehicleId ?? null;
-    const loaner = this.loanerTerms(job);
-    if (id !== null && !this.owns(id) && this.s.plates && !(loaner && id === LOANER_ID)) return 'car';
-    return loaner ? 'scooter' : this.s.vehicle;
+    return id !== null && !this.owns(id) && this.s.plates ? 'car' : this.s.vehicle;
   }
 
   private pickUp() {
@@ -657,15 +632,9 @@ export class MissionSystem implements MissionHudSource {
     this.s.elapsed = 0;
     this.s.permit -= 1;
     this.s.phase = 'carrying';
-    const onLoaner = this.frame?.vehicleId === LOANER_ID;
-    this.s.loaner = onLoaner && this.loanerTerms(this.s.job);
     const [first, second] = stops;
-    // The first loaner order of a session says where the scooter is.
-    const hint = this.loanerTerms(this.s.job) && !onLoaner && !this.loanerHinted;
-    if (hint) this.loanerHinted = true;
     this.say({ id: second ? 'order_double' : 'order_single',
-      text: addressSentence(this.phrase(second ? 'double' : 'order'), first.address, second?.address) },
-    ...(hint ? ['pizzeria_loaner'] : []));
+      text: addressSentence(this.phrase(second ? 'double' : 'order'), first.address, second?.address) });
   }
 
   private handOver() {
@@ -678,10 +647,9 @@ export class MissionSystem implements MissionHudSource {
     const metres = this.legMetres(stops)[this.s.stop];
     const pay = basePay(metres, this.s.job);
     // Spending, like the permit: the multiplayer payout below stays the earned pay.
-    const fee = last && this.s.loaner ? LOANER_FEE : 0;
-    const repaid = debtRepayment(this.debt, pay - fee);
+    const repaid = debtRepayment(this.debt, pay);
     this.s.debt = this.debt - repaid;
-    this.s.money += pay + t + bonus - fee - repaid;
+    this.s.money += pay + t + bonus - repaid;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
       addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t, routeMeters: metres });
     this.s.pizzas += 1;
@@ -690,7 +658,6 @@ export class MissionSystem implements MissionHudSource {
     const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
     const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }]
       : this.s.job === 'limited' ? [{ id: 'paid_limited', text: `Limited-time delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : []),
-      ...(fee ? ['paid_loaner_fee'] : []),
       ...(repaid ? [{ id: 'paid_debt', text: this.s.debt > 0 ? `Debt: ${repaid} € of the base pay repaid, ${this.s.debt} € left.`
         : `Debt: ${repaid} € repaid. The market is paid off.` }] : [])];
     if (!last) {
@@ -723,7 +690,6 @@ export class MissionSystem implements MissionHudSource {
     this.s.order = [];
     this.s.stop = 0;
     this.s.elapsed = this.s.par = this.s.firstPar = 0;
-    this.s.loaner = false;
     this.lastResult = result;
     this.checkpoint = 'delivery';
   }

@@ -1,16 +1,15 @@
 // Getting un-stuck in the delivery career (docs/design/story.md, "Economy"): each dead end is reached, then the player
-// starts a vehicle delivery again without running.
+// starts a delivery again: on the own vehicle when one is owned, otherwise on foot.
 import { describe, expect, it } from 'vitest';
 import { DEALER, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../../src/gameplay/content/locations';
 import { bringSpots, kerbSpots, offScreen } from '../../src/gameplay/kerbSpots';
-import { CREDIT_PERMIT_DEBT, LOANER_FEE, PERMIT_DELIVERIES, PERMIT_PRICE, debtRepayment, deliveryDeadline, parSeconds,
+import { CREDIT_PERMIT_DEBT, PERMIT_DELIVERIES, PERMIT_PRICE, debtRepayment, deliveryDeadline,
   sellBackPrice } from '../../src/gameplay/economy';
 import type { OptionId } from '../../src/gameplay/content/shops';
 import { lineText } from '../../src/gameplay/content/dialogue';
-import { BRING_COOLDOWN_SECONDS, BRING_NEAR_M, LOANER_ID, SCOOTER_ID } from '../../src/gameplay/missions/missions';
+import { BRING_COOLDOWN_SECONDS, BRING_NEAR_M, SCOOTER_ID } from '../../src/gameplay/missions/missions';
 import { CAR, FOOT, mergeRoadGraphs, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { SaveMenuFlow, type GameHooks, type MenuPage } from '../../src/ui/menu';
-import { optionDetail } from '../../src/ui/shopMenu';
 import { far, harness, near } from './missionHarness';
 
 /** A two-way street (class 2, 6.5 m wide in v1) from (0, 0) to (100, 0) and a junction at its east end. */
@@ -140,75 +139,6 @@ describe('bring my vehicle', () => {
   });
 });
 
-describe('the pizzeria loaner scooter', () => {
-  /** A new game that rented its permit: 40 € left, too little for the 60 € scooter. */
-  function broke() {
-    const h = harness();
-    h.missions.begin();
-    h.choose(MARKET.point, 'rent_permit'); h.leave(MARKET.point);
-    expect(h.missions.money).toBe(40);
-    return h;
-  }
-
-  it('dead end 2: no vehicle and no money for one: the order goes out on the loaner at scooter par, 2 € less', () => {
-    const h = broke();
-    h.press(near(PIZZERIA.point), { rideAt: far });
-    const quote = h.option('take_order').quote!;
-    expect(h.option('take_order').enabled).toBe(true);
-    expect(quote.fee).toBe(LOANER_FEE);
-    expect(quote.par).toBeCloseTo(parSeconds(quote.metres, 'scooter'));
-    expect(optionDetail(h.option('take_order'))).toContain('· 6 € + tip · loaner scooter −2 €');
-    // The loaner was left far away: taking the order brings it back to the kerb.
-    expect(h.at(near(PIZZERIA.point), 0.1, { choose: 'take_order', rideAt: far }).park).toBe(true);
-    expect(h.missions.snapshot().dialogue).toContain('pizzeria_loaner');
-    expect(h.missions.mayDrive(LOANER_ID)).toBe(true);
-    expect(h.missions.mayDrive('parked-car')).toBe(false);
-    h.at(near(PIZZERIA.point), 0.1, { vehicleId: LOANER_ID });
-    // A reload mid-order keeps the fee.
-    const resumed = harness(h.missions.serialize());
-    resumed.press(near(resumed.missions.currentStop.point));
-    expect(resumed.missions.money).toBe(40 + 6 + 8 - LOANER_FEE);
-    expect(resumed.missions.snapshot().dialogue).toContain('paid_loaner_fee');
-  });
-
-  it('charges nothing when the order is run on foot, and leaves a loaner at the kerb where it is', () => {
-    const h = broke();
-    h.press(near(PIZZERIA.point), { rideAt: PIZZERIA_VEHICLE_SPOT });
-    expect(h.at(near(PIZZERIA.point), 0.1, { choose: 'take_order', rideAt: PIZZERIA_VEHICLE_SPOT }).park).toBe(false);
-    h.press(near(h.missions.currentStop.point));
-    expect(h.missions.money).toBe(40 + 6 + 8);
-    expect(h.missions.snapshot().dialogue).not.toContain('paid_loaner_fee');
-  });
-
-  it('takes no long or limited job, and is no delivery vehicle once a car is owned', () => {
-    const h = broke();
-    for (let i = 0; i < 4; i++) { h.choose(PIZZERIA.point, 'take_order', { vehicleId: LOANER_ID }); h.press(near(h.missions.currentStop.point)); }
-    h.press(near(PIZZERIA.point), { vehicleId: LOANER_ID });
-    expect(h.option('take_long_order').reason).toMatch(/^(Buy a delivery vehicle|No drivable)/);
-    h.leave(PIZZERIA.point);
-    h.missions.grantDevMoney(400);
-    h.choose(DEALER.point, 'buy_car');
-    h.wait(DEALER.point, 10);
-    expect(h.missions.rideId).toBe('player');
-    h.press(near(PIZZERIA.point), { vehicleId: LOANER_ID });
-    expect(h.option('take_order').reason).toBe('Only on foot or in your own vehicle, unless you have forged plates.');
-    expect(h.option('take_order').quote!.fee).toBeUndefined();
-  });
-
-  it('becomes the player\'s own scooter when bought: no fee after that', () => {
-    const h = broke();
-    expect(h.missions.rideId).toBe(LOANER_ID);
-    h.missions.grantDevMoney(30);
-    h.choose(DEALER.point, 'buy_scooter');
-    h.wait(DEALER.point, 10);
-    expect(h.missions.rideId).toBe(SCOOTER_ID);
-    h.choose(PIZZERIA.point, 'take_order', { vehicleId: SCOOTER_ID });
-    const before = h.missions.money;
-    h.press(near(h.missions.currentStop.point), { vehicleId: SCOOTER_ID });
-    expect(h.missions.money).toBe(before + 6 + 8);
-  });
-});
-
 describe('permit on credit', () => {
   /** Fails the carried order by waiting out its deadline away from the drop-off. */
   const failOrder = (h: ReturnType<typeof harness>) => {
@@ -247,9 +177,8 @@ describe('permit on credit', () => {
     expect(harness(h.missions.serialize()).missions.debt).toBe(CREDIT_PERMIT_DEBT - 6);
   });
 
-  it('quotes the credit and the loaner fee from the economy constants', () => {
+  it('quotes the credit from the economy constants', () => {
     expect(lineText('detail_permit_on_credit')).toContain(`${PERMIT_DELIVERIES} delivery orders now, ${CREDIT_PERMIT_DEBT} € of debt`);
-    expect(lineText('paid_loaner_fee')).toContain(`${LOANER_FEE} €`);
   });
 
   it('repays only base pay, never more than is owed', () => {
@@ -265,7 +194,7 @@ describe('permit on credit', () => {
     h.press(near(MARKET.point));
     expect(h.option('permit_on_credit')).toMatchObject({ enabled: false, reason: 'You have the cash. Pay it.' });
     const old = JSON.parse(h.missions.serialize());
-    delete old.debt; delete old.loaner;
+    delete old.debt;
     expect(harness(JSON.stringify(old)).missions.debt).toBe(0);
   });
 });
@@ -283,7 +212,7 @@ function rng(seed: number) {
 }
 
 describe('never stuck', () => {
-  it('random purchases, sales and deliveries always leave a vehicle order or a permit within reach', () => {
+  it('random purchases, sales and deliveries always leave an order or a permit within reach', () => {
     const market: OptionId[] = ['rent_permit', 'permit_on_credit', 'forged_plates', 'sell_kidney', 'expiry_warning'];
     const dealer: OptionId[] = ['buy_scooter', 'buy_car', 'buy_truck', 'sell_vehicle'];
     let checks = 0;
@@ -298,8 +227,9 @@ describe('never stuck', () => {
         else if (kind < 0.32) { h.choose(PIZZERIA.point, 'slice'); h.leave(PIZZERIA.point); }
         else if (m.permit === 0) { h.choose(MARKET.point, pick(['rent_permit', 'permit_on_credit'])); h.leave(MARKET.point); }
         else {
-          // A delivery on the vehicle the player has (own or loaner), after bringing it if it was left far away.
-          const ride = { vehicleId: m.rideId, rideAt: random() < 0.3 ? far : PIZZERIA_VEHICLE_SPOT };
+          // A delivery on the own vehicle, after bringing it if it was left far away; owning none, on foot.
+          const vehicleId = m.vehicle === 'none' ? null : m.rideId;
+          const ride = { vehicleId, rideAt: random() < 0.3 ? far : PIZZERIA_VEHICLE_SPOT };
           h.choose(PIZZERIA.point, 'bring_vehicle', ride);
           h.at(near(PIZZERIA.point), 0.1, { ...ride, choose: 'take_order' });
           if (m.shop) h.leave(PIZZERIA.point);
@@ -307,16 +237,17 @@ describe('never stuck', () => {
           const outcome = random();
           if (outcome < 0.2) { const deadline = deliveryDeadline(m.snapshot().par); for (let t = 0; t <= deadline + 1; t += 5) h.at(far, 5); }
           else {
-            if (outcome < 0.5) h.at(far, 0.9 * m.snapshot().par, { vehicleId: m.rideId });
-            while (m.phase === 'carrying') h.press(near(m.currentStop.point), { vehicleId: m.rideId });
+            if (outcome < 0.5) h.at(far, 0.9 * m.snapshot().par, { vehicleId });
+            while (m.phase === 'carrying') h.press(near(m.currentStop.point), { vehicleId });
           }
         }
         h.wait(far, 8);
         expect(m.money).toBeGreaterThanOrEqual(0);
         expect(m.debt).toBeGreaterThanOrEqual(0);
-        // The invariant: an order on a vehicle at the pizzeria, or a permit at the market (cash or credit).
+        // The invariant: an order at the pizzeria (on the own vehicle, or on foot owning none), or a permit at the
+        // market (cash or credit).
         if (m.permit > 0) {
-          h.press(near(PIZZERIA.point), { vehicleId: m.rideId, rideAt: PIZZERIA_VEHICLE_SPOT });
+          h.press(near(PIZZERIA.point), { vehicleId: m.vehicle === 'none' ? null : m.rideId, rideAt: PIZZERIA_VEHICLE_SPOT });
           expect(h.option('take_order'), `seed ${seed} step ${step}`).toMatchObject({ enabled: true });
           h.leave(PIZZERIA.point);
         } else {

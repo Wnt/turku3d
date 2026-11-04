@@ -48,7 +48,7 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { LOANER_ID, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
@@ -87,8 +87,8 @@ import { CROWD_RADIUS } from './audio/mix';
 /** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
  *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
-/** Seconds between attempts to put a missing loaner scooter at the pizzeria kerb. */
-const LOANER_RETRY_MS = 2000;
+/** Milliseconds between attempts to place the heist's trophy truck in its yard. */
+const HEIST_RETRY_MS = 2000;
 /** The truck heist's reward car parks at a road-graph kerb spot this far from the drop-off (first within the near
  *  radius, else the far one), out of the drop zone and at the drop-off's road level, not on the bridge above. */
 const HEIST_CAR_MIN_M = 10, HEIST_CAR_NEAR_M = 30, HEIST_CAR_FAR_M = 60, HEIST_CAR_LEVEL_M = 1.5;
@@ -425,7 +425,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let lastCrowd = -1;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
-  let loanerRetryAt = 0;
   // The truck heist's trophy truck (TRUCK_ID; offered only to a player who owns no truck): placed in the yard once its
   // collision cell is resident, taken away when the job ends. After a game is loaded it is placed again.
   let heistTruck = false, heistRetryAt = 0, wasLoading = saveGame.loading;
@@ -580,8 +579,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
-    const st0 = physics.latest;
-    const ride = st0?.vehicles.find(v => v.id === missions.rideId);
+    const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
@@ -595,7 +593,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     wasLoading = saveGame.loading;
     if (heistWanted && !heistTruck && !saveGame.loading && now >= heistRetryAt && physics.loaded.has(`c_${heistTile.i}_${heistTile.j}`)) {
-      heistRetryAt = now + LOANER_RETRY_MS;
+      heistRetryAt = now + HEIST_RETRY_MS;
       void placeHeistTruck().then(placed => {
         if (!placed) return;
         if (missions.heist !== null) heistTruck = true;
@@ -627,19 +625,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (saveGame.loading) owned = missions.vehicle;
     else if (missions.vehicle !== owned) {
       owned = missions.vehicle;
-      // A bought scooter is the loaner's body: unless the player rides it, it too moves to the dealer kerb. Selling
-      // the vehicle puts the loaner (the scooter's body, spawned if missing) back at the pizzeria kerb.
-      const id = missions.rideId, spot = owned === 'none' ? PIZZERIA_VEHICLE_SPOT : DEALER_VEHICLE_SPOT;
-      if (drivenId !== id) void parkRide(id, spot).catch(fail);
-    }
-    // Owning no vehicle, the pizzeria's loaner stands at its kerb once its tile is loaded; in multiplayer never while
-    // another player holds it (net/sharedVehicles.ts would remove the copy).
-    const loanerTile = collisionTileAt(PIZZERIA_VEHICLE_SPOT.x, PIZZERIA_VEHICLE_SPOT.z);
-    if (!saveGame.loading && !startScreen.active && missions.vehicle === 'none' && now >= loanerRetryAt && st0
-      && !st0.vehicles.some(v => v.id === LOANER_ID) && physics.loaded.has(`c_${loanerTile.i}_${loanerTile.j}`)
-      && !(multiplayerPlaying && sharedVehicles?.record(LOANER_ID))) {
-      loanerRetryAt = now + LOANER_RETRY_MS;
-      void parkRide(LOANER_ID, PIZZERIA_VEHICLE_SPOT).catch(fail);
+      const id = ownedVehicleId(owned);
+      if (id && drivenId !== id) void parkRide(id, DEALER_VEHICLE_SPOT).catch(fail);
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
