@@ -33,6 +33,7 @@ export const CROWN_LIMITS = { min: 0.8, max: 1.6, core: [0.04, 0.14] as const, b
  * medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops), for fuller crowns with less sky and bare
  * branch. Its beauty cost at medium: none measurable on the M1 Max (4.39 against 4.41 ms p50, riverside static, three
  * interleaved runs), +0.1 ms on the Air and +1.1 ms on the Radeon 560X; the Air and the 560X run reduced (spread).
+ * That judging predates the TRAA fix (e156e3ba); Jonni re-judges both modes live (treeLook.ts A/B, ?crowns=).
  */
 export type CrownMode = 'stretch' | 'spread';
 export function crownMode(tier: string): CrownMode {

@@ -7,6 +7,7 @@ import {
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { viewClearance } from '../../render/viewClearance';
 import type { NatureKind } from './library';
+import type { LeafVariant } from './treeLook';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -100,10 +101,10 @@ export class NatureMaterials {
 
     const leafMap = sources.nature_leaves.map!;
     const leaf = texture(leafMap, uv());
-    // Double-sided, alpha test 0.5, shadow-receiving on every tier. Decided 2026-11-04 (treelook) against Street View
-    // crops at five tree-rich poses: single-sided cards lost every view (sparse, see-through crowns) and alpha test
-    // 0.65 lost 9 of 15 calls against 3 (thinner crowns; 3 ties); unshadowed pooled leaves drew pixel-identical frames.
-    // None differed beyond noise on the M1 Max (medium, riverside static).
+    // Double-sided, alpha test 0.5, shadow-receiving on every tier by default. On 2026-11-04 (treelook, before the TRAA
+    // fix) vision judges against Street View crops at five tree-rich poses rejected single-sided cards (sparse,
+    // see-through crowns) and alpha test 0.65 (9 of 15 calls against 3); Jonni re-judges both live (treeLook.ts A/B,
+    // setLeafVariant). None differed beyond noise on the M1 Max (medium, riverside static).
     this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: THREE.DoubleSide,
       alphaTest: 0.5, roughness: 0.92, metalness: 0, vertexColors: true });
     this.leaves.colorNode = vec4(leaf.rgb, leaf.a);
@@ -210,6 +211,16 @@ export class NatureMaterials {
    *  (wood, metal, chain), hedges, shrubs and impostors stay solid (Jonni, 2026-11-05: fences and trunks must not hide). */
   clearsView(kind: NatureKind, material: THREE.Material, impostor: boolean) {
     return kind === 'tree' && !impostor && material === this.leaves;
+  }
+
+  /** The leaf path of the tree look A/B (treeLook.ts): `full` double-sided cards with alpha test 0.5, `single`
+   *  front faces only, `alpha65` alpha test 0.65. Switches the leaves and every LOD variant made from them live. */
+  setLeafVariant(variant: LeafVariant) {
+    const side = variant === 'single' ? THREE.FrontSide : THREE.DoubleSide, alphaTest = variant === 'alpha65' ? 0.65 : 0.5;
+    for (const material of [this.leaves, ...(this.variants.get(this.leaves) ?? [])]) {
+      if (!material || (material.side === side && material.alphaTest === alphaTest)) continue;
+      material.side = side; material.alphaTest = alphaTest; material.needsUpdate = true;
+    }
   }
 
   /** The shared material a LOD variant was made from (itself for a base material). */
