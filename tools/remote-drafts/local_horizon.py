@@ -33,11 +33,12 @@ class Activity:
 
 def health(scenery, activity, regional=None):
     """Real state of inputs and cache; ready only when every configured input exists and the cache is writable."""
-    inputs = {str(root): root.is_dir() for root in scenery.roots}
+    # Names and booleans only: the reply is public through city.lab, so no server paths.
+    inputs = dict(zip(('preferred', 'sources') if len(scenery.roots) == 2 else ('sources',),
+                      (root.is_dir() for root in scenery.roots)))
     if regional:
-        inputs[str(regional)] = Path(regional).is_file()
-    cache = scenery.cache
-    cache_ok = cache.is_dir() and os.access(cache, os.W_OK)
+        inputs['regional'] = Path(regional).is_file()
+    cache_ok = scenery.cache.is_dir() and os.access(scenery.cache, os.W_OK)
     now = time.time()
     with activity.lock:
         served = dict(count=activity.served, last=activity.last_served,
@@ -48,7 +49,7 @@ def health(scenery, activity, regional=None):
     ok = cache_ok and all(inputs.values())
     return dict(state='ready' if ok else 'degraded', service='scenery', recipe=scenery.recipe,
                 uptime_s=round(now - activity.started), inputs=inputs,
-                cache=dict(path=str(cache), writable=cache_ok, pending_builds=pending),
+                cache=dict(writable=cache_ok, pending_builds=pending),
                 served=served, errors=errors)
 
 

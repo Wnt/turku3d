@@ -55,7 +55,7 @@ All units are enabled for boot with `Restart=always`. The city units' sources ar
 | `city-mp` | 127.0.0.1:7782 | `server/index.js`: its own room and scores (`~/turku3d-local/city/mp-scores`); `TURKU_MP_ORIGINS=https://city.lab.madekivi.fi`; no producer pings |
 | `city-forwarder` | outbound only | `forwarder-agent --tunnel city:http:city.lab.madekivi.fi:7780`; the token is the existing `~/.config/turku3d/forwarder.env` |
 | `shared-tiles` | 192.168.1.114:7950 | the shared tile farm, 4 workers; also used by the local game and agents |
-| `local-horizon` | 127.0.0.1:7947 | the scenery server (gen2arch 932a4311 checkout, `PYTHONPATH=…/pipeline`) |
+| `local-horizon` | 127.0.0.1:7947 | the scenery server (checkout `~/turku3d-local/loops/gen2arch/scenery-server/<sha>/repo` named in the unit's `WorkingDirectory`, `PYTHONPATH=…/pipeline`); `/coarse/scenery/health` reports inputs, cache and last served |
 | `lidar-copc` | 0.0.0.0:7960 | the COPC server for the LAN |
 
 The last three units replaced the hand-started processes with the same commands. Their logs still go to
