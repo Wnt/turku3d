@@ -6,7 +6,7 @@ import type { QualityTier } from '../render/quality';
 export const TRAFFIC = {
   /** Algorithm version, part of every agreed road hash. Bump it with any change to positions, identities or which
    *  slots carry cars (traffic/density.ts). */
-  version: 12,
+  version: 13,
   /** Shared clock origin: traffic time is seconds since this UTC instant (plus the server offset in multiplayer). */
   epochMs: Date.UTC(2026, 0, 1),
   /** Time headway between consecutive slots on every lane (s). One global value keeps lanes phase-locked. */
@@ -26,6 +26,8 @@ export const TRAFFIC = {
   /** A stop-line wait never exceeds the headway minus this (s): the next car would roll up behind a car that is
    *  only pulling away. The rest of the wait is spent driving slower. */
   queueGap: 1.5,
+  /** A server traffic watch (server/watch.js WATCH) applies from this long after its stamp, for this long (ms). */
+  watchDelayMs: 2000, watchValidMs: 1500,
 } as const;
 
 /** Worker publication: handle/model/paint, pose, velocity, appearance seed, indicator, lamps (bit 0 brake, bit 1 horn), speed,

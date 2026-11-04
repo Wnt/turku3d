@@ -31,6 +31,8 @@ export interface TrafficMultiplayer {
   agreed: ReadonlyMap<string, string> | null;
   /** Registry sources of claimed traffic slots (`tr:<key>`). */
   sources: Iterable<string>;
+  /** The server's latest traffic watch, for out-of-view recycling that every client decides alike. */
+  watch?: { at: number; points: [number, number][] } | null;
 }
 
 interface Drawn { handle: number; model: number; paint: number; x: number; y: number; z: number; q: { x: number; y: number; z: number; w: number }; vx: number; vz: number; horn: boolean }
@@ -41,7 +43,7 @@ export class TrafficClient {
   readonly local = new Map<string, string>();
   private nextSync = 0;
   private nextPedestrians = 0;
-  private sent = { enabled: '', claims: '', offset: NaN, shared: false, clock: '' };
+  private sent = { enabled: '', claims: '', offset: NaN, shared: false, clock: '', watch: NaN };
   private multiplayer: TrafficMultiplayer | null = null;
   private handled = new Set<string>();
   private claims = new Map<string, TrafficClaimEvent>();
@@ -198,6 +200,7 @@ export class TrafficClient {
     if (claimsKey !== this.sent.claims) { change.claims = claims; this.sent.claims = claimsKey; }
     if (shared !== this.sent.shared) { change.shared = shared; this.sent.shared = shared; }
     if (!(Math.abs(offset - this.sent.offset) < 20)) { change.offsetMs = offset; this.sent.offset = offset; }
+    if (mp?.watch && mp.watch.at !== this.sent.watch) { change.watch = mp.watch; this.sent.watch = mp.watch.at; }
     // An hour is sent to the minute: ?time= and the developer clock move it (a running one in DayClock.trafficClock's
     // steps); the shared cycle is a period the worker evaluates itself.
     const clock = this.clock(), clockKey = JSON.stringify(clock.kind === 'hour' ? { ...clock, hour: Math.round(clock.hour * 60) / 60 } : clock);
