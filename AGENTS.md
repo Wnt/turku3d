@@ -10,6 +10,8 @@ Use English for code, comments, documentation, commits, progress updates and fin
   under one hard 30-second wall budget; a failure or timeout leaves integration unchanged. Nothing is forced: no
   blanket build, no boot check as a gate. Slower runs (full build, boot smoke, heavy suites on osgallery-dev over ssh)
   go in `--async-test CMD --async-reason TEXT`, which starts after the merge and never blocks or rolls back.
+  Example selections: `--test 'cd game && npx vitest run tests/unit/<file>.test.ts'`,
+  `--test 'python3 scripts/dev/tests/run.py <file>.py'`, `--test 'pytest -q <file>'`.
 - The published game and its tiles are frozen. Never merge into `main`, never push, never run
   `codex-task finish` or `land`, never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is merged
   into `local/loop-integration` (by you or the integrator).
