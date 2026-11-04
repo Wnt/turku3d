@@ -43,6 +43,15 @@ export class Bot {
   /** Sent in the pose (a pizza on the roof); the delivery bots set it while carrying. */
   carrying = false;
   session: string | null = null;
+  /** The car as a shared registry vehicle (server/PROTOCOL.md "Shared vehicles"): the server computes car-to-car
+   *  contact impulses only between registry vehicles, so an unregistered pose would be a ghost others drive through. */
+  vehicleId: string | null = null;
+  epoch = 0;
+  private impulseSeq = 0;
+  private requests = 0;
+  private lastRequest = 0;
+  /** register → acquire → seated; a request resent each pose interval until its result arrives. */
+  seat: 'register' | 'acquire' | 'seated' = 'register';
   constructor(readonly index: number) {}
 
   async connect(url: string, origin: string) {
@@ -52,12 +61,25 @@ export class Bot {
       const msg = JSON.parse(String(raw));
       if (msg.type === 'welcome') {
         this.id = msg.you.id; this.nick = msg.you.nick; this.spawn = msg.you.spawn; this.session = msg.session ?? this.session;
+        // After a (re)join the seat is reclaimed with the next pose (claim()).
+        this.vehicleId = `${this.id}:player`; this.seat = 'register'; this.epoch = 0;
         for (const p of msg.players ?? []) { this.nicks.set(p.id, p.nick); if (p.pose && p.id !== this.id) this.remotes.set(p.id, { nick: p.nick, pose: p.pose, at: Date.now() }); }
         resolve();
       } else if (msg.type === 'players') {
         const ids = new Set<string>();
         for (const p of msg.players ?? []) { ids.add(p.id); this.nicks.set(p.id, p.nick); }
         for (const id of [...this.remotes.keys()]) if (!ids.has(id)) this.remotes.delete(id);
+      } else if (msg.type === 'vehicle_result') {
+        if (msg.ok && msg.vehicle && msg.vehicle.id === this.vehicleId) {
+          this.epoch = msg.vehicle.epoch;
+          this.seat = this.seat === 'register' ? 'acquire' : 'seated';
+        }
+      } else if (msg.type === 'vehicle_impulse') {
+        // The server's share of a car contact: apply once, like net/sharedVehicles.ts.
+        if (msg.id === this.vehicleId && msg.epoch === this.epoch && msg.sequence > this.impulseSeq && this.pw) {
+          this.impulseSeq = msg.sequence;
+          this.pw.vehicleImpulse('player', { x: msg.E, y: 0, z: -msg.N });
+        }
       } else if (msg.type === 'poses') {
         for (const p of msg.poses ?? []) if (p.id !== this.id) this.remotes.set(p.id, { nick: this.nicks.get(p.id) ?? p.id, pose: p, at: Date.now() });
       }
@@ -113,15 +135,30 @@ export class Bot {
     this.pw.fixedStep(null, this.state === 'driving' ? step.command : { throttle: 0, steer: 0, brake: 0, handbrake: true });
   }
 
+  private pose(now: number) {
+    const v = this.pw!.vehicleState()!;
+    const { x, y, z, w } = v.rot, fx = 1 - 2 * (y * y + z * z), fz = 2 * (x * z - w * y);
+    const yaw = Math.atan2(-fz, fx) - Math.PI / 2;
+    return { t: now, E: v.pos.x, N: -v.pos.z, H: v.pos.y - VEHICLE_POSE_HEIGHT,
+      yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), vE: v.linvel.x, vN: -v.linvel.z, vH: v.linvel.y, mode: 'car', vehicle: 'player',
+      carrying: this.carrying, rot: v.rot, wheels: v.wheels.map(wh => ({ pos: wh.pos, steer: wh.steer, rotation: wh.rotation, contact: wh.contact, suspension: wh.suspension })) };
+  }
+
   sendPose(now: number) {
     if (!this.pw || !this.alive || this.ws.readyState !== WebSocket.OPEN || now - this.lastPose < POSE_MS) return;
     this.lastPose = now;
-    const v = this.pw.vehicleState()!;
-    const { x, y, z, w } = v.rot, fx = 1 - 2 * (y * y + z * z), fz = 2 * (x * z - w * y);
-    const yaw = Math.atan2(-fz, fx) - Math.PI / 2;
-    this.ws.send(JSON.stringify({ v: 2, type: 'pose', t: now, E: v.pos.x, N: -v.pos.z, H: v.pos.y - VEHICLE_POSE_HEIGHT,
-      yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), vE: v.linvel.x, vN: -v.linvel.z, vH: v.linvel.y, mode: 'car', vehicle: 'player',
-      carrying: this.carrying, rot: v.rot, wheels: v.wheels.map(wh => ({ pos: wh.pos, steer: wh.steer, rotation: wh.rotation, contact: wh.contact, suspension: wh.suspension })) }));
+    const pose = this.pose(now);
+    // Register and take the seat of our own car first (register/acquire replace a pose send, PROTOCOL.md).
+    if (this.seat !== 'seated' && this.vehicleId && now - this.lastRequest > 500) {
+      this.lastRequest = now;
+      const request = `bot-${this.index}-${++this.requests}`;
+      this.ws.send(JSON.stringify({ v: 2, type: 'vehicle', action: this.seat, request, id: this.vehicleId,
+        source: null, localId: 'player', half: { x: 2.1, y: 0.3, z: 0.9 }, pose }));
+      return;
+    }
+    const { carrying: _c, ...vehiclePose } = pose;
+    this.ws.send(JSON.stringify({ v: 2, type: 'pose', ...pose,
+      ...(this.vehicleId && this.seat === 'seated' ? { vehicleId: this.vehicleId, vehicles: [{ id: this.vehicleId, epoch: this.epoch, pose: vehiclePose }] } : {}) }));
   }
 
   sample() {

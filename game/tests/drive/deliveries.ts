@@ -183,7 +183,7 @@ export async function runDeliveries(o: DeliveryOptions) {
           connected: bots.filter(b => b.ws.readyState === 1).length, bots: bots.length,
           deliveries: bots.reduce((a, b) => a + b.deliveries, 0), stuck: bots.reduce((a, b) => a + b.stuck, 0),
           respawns: bots.reduce((a, b) => a + b.respawns, 0),
-          list: bots.map(b => { const v = b.pw?.vehicleState(); return { nick: b.nick, state: b.state, to: b.leg?.label ?? null, carrying: b.carrying,
+          list: bots.map(b => { const v = b.pw?.vehicleState(); return { nick: b.nick, state: b.state, seat: b.seat, to: b.leg?.label ?? null, carrying: b.carrying,
             deliveries: b.deliveries, stuck: b.stuck, respawns: b.respawns, speedKmh: v ? Math.round(v.speed * 3.6) : null,
             at: v ? [Math.round(v.pos.x), Math.round(v.pos.z)] : null }; }) };
         fs.writeFileSync(o.status + '.tmp', JSON.stringify(status, null, 1)); fs.renameSync(o.status + '.tmp', o.status);
