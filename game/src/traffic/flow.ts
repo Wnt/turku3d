@@ -20,6 +20,11 @@ const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
  *  corridor clear for the pass plus PASS_LOOKAHEAD seconds of oncoming travel (pulling out and driving past from a
  *  standstill takes about eight). */
 const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
+/** A pass must end this far (m) before the lane's end (never into a junction); a footprint-locked car ahead counts as
+ *  an obstacle after PASS_LOCKED seconds without headway; a standing player is a PERSON_BODY m square. */
+const PASS_CLEAR_LINE = 15, PASS_LOCKED = 20, PERSON_BODY = 0.8;
+/** An obstacle's footprint; `car` names it when it is a flow car (not counted against the pass corridor). */
+interface Body { x: number; z: number; hx: number; hz: number; length: number; width: number; car?: FlowCar }
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
 /** Swept-footprint guard: the margin a moving car keeps from others, and the smaller contact margin it keeps from a
@@ -491,7 +496,7 @@ export class TrafficFlow {
     let n = 0;
     for (const routes of graph.values()) { if ((++n & 255) === 0) yield; for (const r of routes) routeById.set(`${r.tile}:${r.id}`, r); }
     return () => {
-      this.ids = { laneById, routeById };
+      this.ids = { laneById, routeById }; this.fronts.clear();
       if (this.conflictCache.size > 400_000) this.conflictCache.clear();
       this.movements = graph; this.conflicts = new Map(); this.baseOf = baseOf; this.builtTiles = tileKeys; this.lanes = lanes;
       this.index = { movements, order, grid, keyOf, kept, previous: previousConflicts, samples: new Map(), seen: new Uint32Array(movements.length), stamp: 0 };
@@ -570,7 +575,7 @@ export class TrafficFlow {
             if (remaining <= car.length / 2 + 1.2 + car.speed * FLOW_STEP) {
               car.reservation = lane; reservations.push(car);
             }
-          } else stop = lane.length - car.length / 2 - 0.8;
+          } else stop = Math.min(lane.length - 0.8, this.safeFront(car.lane)) - car.length / 2;
         }
       }
       if (car.change) {
@@ -595,7 +600,9 @@ export class TrafficFlow {
       // Stay behind the actual predecessor, including its rear on the outgoing lane.
       const position = (c: FlowCar) => c.lane === car.lane ? c.s : c.s / c.lane.length * car.lane.length;
       const leader = [...this.byLane.get(car.lane) ?? [], ...this.departing.get(car.lane) ?? []]
-        .filter(c => c !== car && position(c) > car.s && (c.route === car.route || position(c) < lane.length + c.length / 2 + GAP))
+        .filter(c => c !== car && position(c) > car.s && (c.route === car.route || position(c) < lane.length + c.length / 2 + GAP)
+          // Going round it: a car the swerve already clears sideways is not followed (the guard still checks contact).
+          && !(car.swerveTarget && c.s < car.swerveEnd && Math.abs(car.swerve - c.swerve) >= (car.width + c.width) / 2 + 0.3))
         .sort((a, b) => position(a) - position(b))[0];
       if (leader) {
         stop = Math.min(stop, position(leader) - (car.length + leader.length) / 2 - GAP);
@@ -612,10 +619,20 @@ export class TrafficFlow {
       const byPlayer = playerStop < stop;
       stop = Math.min(stop, playerStop);
       if (byPlayer && stop - car.s < 0.5) car.blockedBy = 'player';
-      // Held up long enough behind a stopped car: go round it when the corridor beside it is clear.
-      if (byPlayer && blocker && !car.change && !car.swerveTarget && Math.hypot(blocker.vx, blocker.vz) < 0.5
-        && car.held > PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) {
-        const plan = this.passPlan(car, lane, blocker);
+      // Held up long enough behind an obstacle: go round it when the corridor beside it is clear.
+      const patience = PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key));
+      if (!car.change && !car.swerveTarget && !car.swerve) {
+        let obstacles: Body[] | null = null;
+        if (byPlayer && car.held > patience) {
+          // A stopped player's vehicle, or a player standing in the lane (a walker that does not move on).
+          if (blocker && Math.hypot(blocker.vx, blocker.vz) < 0.5) obstacles = [blocker];
+          else if (!blocker && car.held > 1.5 * patience) obstacles = this.standingPlayers(car, lane);
+        } else if (leader && car.stopped > patience && leader.stopped > patience && car.s < lane.length - PASS_CLEAR_LINE) {
+          // A queue that is not a queue: the car ahead stands mid-block because a player's car or a footprint lock
+          // holds it. Go round the car and what holds it.
+          obstacles = this.stalled(leader, lane);
+        }
+        const plan = obstacles?.length ? this.passPlan(car, lane, obstacles) : null;
         if (plan) { car.swerveTarget = plan.offset; car.swerveEnd = plan.end; car.swerveStall = 0; }
       }
       const gap = Math.max(0, stop - car.s);
@@ -745,6 +762,40 @@ export class TrafficFlow {
   }
   /** Car spaces per tile: its lanes' length over JAM_CAR (built with the graph). */
   private storage = new Map<string, number>();
+  /** Per approach lane: how far along it (m) a waiting car's front may stand without reaching into the path of any
+   *  movement from another approach through the junction (STOP_CLEAR). Cleared with each graph build. */
+  private fronts = new Map<Lane, number>();
+  private safeFront(approach: Lane): number {
+    let front = this.fronts.get(approach);
+    if (front !== undefined) return front;
+    const line = approach.length - 0.8, others: PathSamples[] = [];
+    const y = dataHeight(approach, approach.length);
+    for (const route of this.movements.get(approach) ?? []) {
+      if (!route.connector) continue;
+      for (const m of this.conflictsOf(route)) {
+        const base = this.baseOf.get(m) ?? m;
+        if (base === approach || base.tile === approach.tile && base.end.node === approach.end.node) continue;
+        if (Math.abs(dataHeight(m, m.length) - y) > LEVEL_APART) continue;
+        let samples = this.index?.samples.get(m);
+        if (!samples) { samples = pathSamples(m); this.index?.samples.set(m, samples); }
+        others.push(samples);
+      }
+    }
+    front = line;
+    for (let back = 0; back <= STOP_CLEAR_MAX && others.length; back += 0.5) {
+      const p = routePoint(approach, line - back - CONFLICT_BODY.length / 2);
+      const body = { x: p.x, z: p.z, hx: p.hx, hz: p.hz };
+      // Only the other movement's part inside the junction (its own approach is not a crossing path).
+      const hit = others.some(o => { for (let k = 6; k < o.x.length; k++) {
+        poseB.x = o.x[k]; poseB.z = o.z[k]; poseB.hx = o.hx[k]; poseB.hz = o.hz[k];
+        if (bodyOverlap(body, CONFLICT_BODY, poseB, CONFLICT_BODY, STOP_CLEAR)) return true;
+      } return false; });
+      if (!hit) { front = line - back; break; }
+      if (back + 0.5 > STOP_CLEAR_MAX) front = line;
+    }
+    this.fronts.set(approach, front);
+    return front;
+  }
   /** The current graph's lanes and movements by `tile:id` (checkpoints, graph refreshes). */
   private ids: { laneById: Map<string, Lane>; routeById: Map<string, Lane> } | null = null;
 
@@ -768,21 +819,24 @@ export class TrafficFlow {
   /** Lateral offset that clears a stopped vehicle, and the arc length to steer back at; null when the pass would
    *  leave the lane by more than PASS_MAX, run into the junction, or meet another car in the corridor. Prefers the
    *  left (towards oncoming traffic) on a tie. */
-  private passPlan(car: FlowCar, lane: Lane, v: TrafficVehicle): { offset: number; end: number } | null {
+  private passPlan(car: FlowCar, lane: Lane, obstacles: readonly Body[]): { offset: number; end: number } | null {
     const here = routePoint(lane, car.s);
-    const sv = car.s + (v.x - here.x) * here.hx + (v.z - here.z) * here.hz, at = routePoint(lane, sv);
-    let lo = Infinity, hi = -Infinity;
-    for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) {
-      const x = v.x + v.hx * a * v.length - v.hz * b * v.width, z = v.z + v.hz * a * v.length + v.hx * b * v.width;
-      const across = -(x - at.x) * at.hz + (z - at.z) * at.hx;
-      lo = Math.min(lo, across); hi = Math.max(hi, across);
+    let lo = Infinity, hi = -Infinity, end = -Infinity;
+    for (const v of obstacles) {
+      const sv = car.s + (v.x - here.x) * here.hx + (v.z - here.z) * here.hz, at = routePoint(lane, sv);
+      for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) {
+        const x = v.x + v.hx * a * v.length - v.hz * b * v.width, z = v.z + v.hz * a * v.length + v.hx * b * v.width;
+        const across = -(x - at.x) * at.hz + (z - at.z) * at.hx;
+        lo = Math.min(lo, across); hi = Math.max(hi, across);
+      }
+      end = Math.max(end, sv + v.length / 2 + car.length / 2 + 3);
     }
     const left = lo - car.width / 2 - PASS_MARGIN, right = hi + car.width / 2 + PASS_MARGIN;
     const offset = Math.abs(left) <= Math.abs(right) ? left : right;
-    const end = sv + v.length / 2 + car.length / 2 + 3;
-    if (Math.abs(offset) > PASS_MAX || end + 15 > lane.length) return null;
+    if (Math.abs(offset) > PASS_MAX || end + PASS_CLEAR_LINE > lane.length) return null;
+    const skip = new Set(obstacles.map(o => o.car));
     for (const other of this.cars.values()) {
-      if (other === car) continue;
+      if (other === car || skip.has(other)) continue;
       const dx = other.pose.x - here.x, dz = other.pose.z - here.z;
       const along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
       const oncoming = Math.max(0, -(other.pose.hx * here.hx + other.pose.hz * here.hz) * other.speed);
@@ -790,6 +844,40 @@ export class TrafficFlow {
       if (Math.abs(across - offset) < (car.width + other.width) / 2 + 0.8) return null;
     }
     return { offset, end };
+  }
+
+  /** Players on foot standing in the car's path just ahead (they do not move on), as small bodies. */
+  private standingPlayers(car: FlowCar, lane: Lane): Body[] {
+    const out: Body[] = [], here = routePoint(lane, car.s);
+    for (const p of this.players?.people ?? []) {
+      if (Math.hypot(p.vx, p.vz) > 0.3) continue;
+      const dx = p.x - here.x, dz = p.z - here.z, along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
+      if (along > 0 && along < car.length / 2 + 12 && Math.abs(across) < car.width / 2 + 1.2)
+        out.push({ x: p.x, z: p.z, hx: here.hx, hz: here.hz, length: PERSON_BODY, width: PERSON_BODY });
+    }
+    return out;
+  }
+
+  /** The stopped car ahead and what holds it mid-block (a player's vehicle or person in its path, or the car whose
+   *  footprint locks it), or null when it waits in an ordinary queue or at a junction. */
+  private stalled(leader: FlowCar, lane: Lane): Body[] | null {
+    const by = leader.blockedBy;
+    if (leader.lane !== lane || leader.s > lane.length - PASS_CLEAR_LINE || !by) return null;
+    const body = (c: FlowCar): Body => ({ x: c.pose.x, z: c.pose.z, hx: c.pose.hx, hz: c.pose.hz, length: c.length, width: c.width, car: c });
+    if (by === 'player') {
+      const ahead = routePoint(lane, leader.s), out = [body(leader)];
+      for (const v of this.playerVehicles?.vehicles ?? []) {
+        const along = (v.x - ahead.x) * ahead.hx + (v.z - ahead.z) * ahead.hz;
+        if (along > 0 && along < leader.length / 2 + v.length / 2 + 6 && Math.hypot(v.vx, v.vz) < 0.5) out.push(v);
+      }
+      out.push(...this.standingPlayers(leader, lane));
+      return out.length > 1 ? out : null;
+    }
+    if (by.startsWith('footprint:') && leader.stuck > PASS_LOCKED) {
+      const other = this.cars.get(by.slice(10));
+      return other ? [body(leader), body(other)] : null;
+    }
+    return null;
   }
 
   private spawn(lane: Lane, n: number, t: number) {
@@ -1041,6 +1129,9 @@ function pathSamples(lane: Lane): PathSamples {
   return out;
 }
 const CONFLICT_BODY = { length: 5, width: 2 }, CONFLICT_MARGIN = 0.6;
+/** A waiting car's body keeps this clearance (m) from crossing movements' paths, moving its stop point back by at most
+ *  STOP_CLEAR_MAX m (geometry that needs more keeps the drawn line). */
+const STOP_CLEAR = 0.3, STOP_CLEAR_MAX = 6;
 /** Bodies further apart than this cannot overlap (sum of the padded and unpadded half diagonals). */
 const CONFLICT_REACH = Math.sqrt((2.5 + CONFLICT_MARGIN) ** 2 + (1 + CONFLICT_MARGIN) ** 2) + Math.sqrt(2.5 ** 2 + 1 ** 2);
 const poseA = { x: 0, z: 0, hx: 1, hz: 0 }, poseB = { x: 0, z: 0, hx: 1, hz: 0 };
