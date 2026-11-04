@@ -124,7 +124,21 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
   storage. On south 30 min it cost exits (71.5 against 90.9 per minute without it, both with 0 locked); a stricter
   rule never triggered.
 
-SOAK_TABLE
+- **Evidence** (real tiles at 16:00 on osgallery-dev; probe `~/turku3d/loops/traffic-gta/probe/gridlock.ts`, launcher
+  `soak.sh`). A watcher stands at the district centre and turns its camera once every 120 s. Recycles are checked
+  against that camera by the probe's own rule (85 m all round, 300 m in the cone + 0.2 rad).
+
+  | district (sim) | locked > 300 s | exits/min, last half | recycled (in view) | overlaps |
+  |---|---|---|---|---|
+  | centre 5x5 (60 min) | 214 -> pending | 122 -> pending | pending | 0 -> pending |
+  | east 3x3 (30 min) | 145 -> 0 | 95.0 -> 100.1 | 182 (0) | 0 -> 0 |
+  | south 3x3 (30 min) | 136 -> 0 (no-throttle A/B run) | 84.1 -> 90.9 | 563 (0) | 0 -> 0 |
+  | northwest 3x3 (30 min) | 0 -> pending | 46.3 -> pending | pending | 0 |
+  | far-east 3x3 (30 min) | 0 -> 0 | 43.3 -> 45.0 | 82 (0) | 0 -> 0 |
+
+  The centre baseline is the `f-centre` run of `local/traffic-gridlock` (its district baselines reproduce exactly).
+  Flow step mean on the loaded host (load ~55 on 16 cores), before -> after: east 15.4 -> 18.6 ms, far-east
+  13.2 -> 15.2 ms. Recycled cars count as removals, not exits.
 
 ## Open, ranked
 
