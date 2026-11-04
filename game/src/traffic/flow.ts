@@ -32,6 +32,13 @@ const UNLOCK_AFTER = 6, UNLOCK_SPEED = 0.5, UNLOCK_BACK = 1.5, UNLOCK_CHAIN = 4;
 /** Last resort: cars that have waited on each other in a closed cycle (blockedBy) for CLEAR_AFTER seconds cannot all
  *  move again; the cycle's lowest key leaves the flow. Checked once per second; pure flow state, so MP-safe. */
 const CLEAR_AFTER = 60, CLEAR_CYCLE = 12, STUCK_PROGRESS = 2;
+/** Share of the normal lane-change rate a car keeps while held at its change's stop point. */
+const CHANGE_CREEP = 0.3;
+/** Seconds at the stop line after which a driver no longer yields to traffic that waited less (a give-way merge into
+ *  a stream that shares its green could otherwise wait for good). */
+const STARVE_AFTER = 15;
+/** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
+const HELD = /^(exit|storage|receiving|leader|footprint|signal|no-exit|player)/;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -535,7 +542,10 @@ export class TrafficFlow {
       } else car.swerveRate = 0;
       if (car.change) {
         const progress = car.change.progress;
-        car.change.rate = Math.min(1, car.speed / 3) / car.change.duration;
+        // Held at the change's stop point (8 m before the line) with the move unfinished: finish it at a creep.
+        // Progress tied to speed alone never completed there, and the car waited for good.
+        const held = car.s > lane.length - 9;
+        car.change.rate = Math.max(Math.min(1, car.speed / 3), held ? CHANGE_CREEP : 0) / car.change.duration;
         car.change.progress = Math.min(1, progress + FLOW_STEP * car.change.rate);
         if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { car.change.progress = progress; car.change.rate = 0; }
       }
@@ -801,6 +811,13 @@ export class TrafficFlow {
       if (!other || other.route !== otherLane || other === car || other.reservation || signalState(otherLane, t) !== 'green') continue;
       const distance = otherLane.length - other.s - other.length / 2;
       if (distance > Math.max(12, other.speed * 2.5)) continue;
+      // Never yield to a car that cannot go itself (its exit is full, it waits for a reservation or a signal): a
+      // yield to a held car never ends. Its own yields to others still count, so priority chains stay intact.
+      if (other.waiting > 2 && other.blockedBy !== null && HELD.test(other.blockedBy)) continue;
+      // A driver kept at its line for STARVE_AFTER seconds by a stream with priority takes its turn: drivers
+      // that waited longest are evaluated first, so it reserves first and the stream stops for its reservation.
+      if (car.waiting > STARVE_AFTER && other.waiting < car.waiting) continue;
+      if (other.waiting > STARVE_AFTER && other.waiting > car.waiting) return blocked(`starved:${other.key}`);
       if (lane.priority !== 'normal' && otherLane.priority === 'normal') return blocked(`give-way:${other.key}`);
       if (lane.priority === 'normal' && otherLane.priority !== 'normal') continue;
       const o = heading(otherLane), cross = h[0] * o[1] - h[1] * o[0], dot = h[0] * o[0] + h[1] * o[1];
