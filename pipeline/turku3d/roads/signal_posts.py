@@ -106,8 +106,9 @@ def heads(graph: dict):
                 yield k, n // 3, direction, x - dz * side, z + dx * side, dx, dz
 
 
-def kerb_post(x, z, road: shapely.Geometry, boundary=None) -> tuple[float, float, str]:
-    """Where a post at (x, z) stands: just past the nearest carriageway edge, or where it is."""
+def kerb_post(x, z, road: shapely.Geometry, boundary=None, reach=REACH) -> tuple[float, float, str]:
+    """Where a post at (x, z) stands: just past the nearest carriageway edge (at most ``reach``
+    inside), or where it is. Traffic-sign posts use the same rule (``props.signposts``)."""
     if road.is_empty:
         return x, z, "no_survey"
     point = shapely.Point(x, z)
@@ -116,7 +117,7 @@ def kerb_post(x, z, road: shapely.Geometry, boundary=None) -> tuple[float, float
     boundary = road.boundary if boundary is None else boundary
     edge = shapely.ops.nearest_points(boundary, point)[0]
     depth = edge.distance(point)
-    if depth > REACH:
+    if depth > reach:
         return x, z, "deep"
     ux, uz = edge.x - x, edge.y - z
     length = math.hypot(ux, uz) or 1.0
