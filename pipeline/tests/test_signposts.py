@@ -40,6 +40,8 @@ def test_a_post_on_the_carriageway_moves_past_its_nearest_kerb():
     posts, stats = sp.posts([S("1", "C38", 0, 4.0), S("2", "E1", 0, 9)], road)
     moved = next(p for p in posts if p.rule)
     assert math.isclose(moved.z, 6 + 0.35) and stats["sign_post_kerb"] == 1
+    posts, _ = sp.posts([S("1", "D3.1", 0, 4.0)], road)
+    assert not posts[0].rule  # an island sign marks an island the register drew as carriageway
     posts, stats = sp.posts([S("1", "C38", 0, 0)], shapely.box(-50, -20, 50, 20))
     assert not posts[0].rule and stats["sign_post_deep"] == 1
 

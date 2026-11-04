@@ -13,7 +13,8 @@ became visible doubles. In Jonni's edit sessions every sign delete was such a do
    not already on a post joins the nearest main sign within ``PLATE_REACH``. Plates hang top down:
    main signs in code order, additional plates below them, ``STACK`` apart.
 3. ``kerb``: a post inside the surveyed carriageway by at most ``KERB_REACH`` moves just past its
-   nearest edge (``roads.signal_posts.kerb_post``, the rule of the signal posts).
+   nearest edge (``roads.signal_posts.kerb_post``, the rule of the signal posts). Island signs
+   (``ISLAND``) stay: they mark an island the register drew as carriageway.
 
 The first plate's row is the post; the other plates turn to its facing. ``migrations/signs.py``
 (``signs@1``) applies it to the drawn sign batch; the chain runs at the end of every generator build.
@@ -35,6 +36,9 @@ PLATE_REACH = 1.0  # m: an additional plate this close to a main sign hangs unde
 STACK = 0.7  # m between plate centres on one post (the plate model is 0.66 m tall)
 PLATES = 3  # plates one post carries; a longer stack keeps its lower plates on posts of their own
 KERB_REACH = 6.0  # m: a sign deeper inside the carriageway (a gantry, a register gap) stays
+# Island signs (keep right / left / either side) mark a traffic island the street register often leaves inside
+# the carriageway polygon: they stay where the register put them.
+ISLAND = ("D3.1", "D3.2", "D3.3")
 
 
 @dataclass
@@ -131,7 +135,7 @@ def posts(signs, road: shapely.Geometry | None = None) -> tuple[list[Post], Coun
                 stats["sign_stacked"] += len(plates) - 1
             if start:
                 stats["sign_stack_overflow"] += len(plates)
-            if road is not None:
+            if road is not None and not any(s.code in ISLAND for s in plates):
                 x, z, rule = kerb_post(top.x, top.z, road, boundary, reach=KERB_REACH)
                 if rule == "kerb":
                     post.x, post.z, post.rule = x, z, "kerb"
