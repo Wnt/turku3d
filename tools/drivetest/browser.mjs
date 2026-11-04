@@ -15,7 +15,9 @@ const args = process.argv.slice(2);
 const dir = args[0];
 const opt = name => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : undefined; };
 const base = opt('base') ?? 'http://127.0.0.1:5480/';
-const guard = cmd => { try { execFileSync('python3', [path.join(process.env.HOME, 'turku3d/tools/chrome-guard/guard.py'), cmd, 'autopilot'], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
+// Chrome leases on the shared hosts (~/turku3d/tools/host-lease/lease.py): acquire 0 granted / 3 queued, touch 2 = pause.
+const LEASE_HOST = process.env.LEASE_HOST ?? 'mac';
+const guard = cmd => { try { execFileSync('python3', [path.join(process.env.HOME, 'turku3d/tools/host-lease/lease.py'), cmd === 'acquire' ? 'acquire' : cmd, ...(cmd === 'acquire' ? [LEASE_HOST, 'autopilot', '--kind', 'func', '--ttl', '40m'] : ['autopilot', LEASE_HOST])], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
 
 const rows = [];
 for (const f of fs.readdirSync(path.join(dir, 'results')).filter(f => f.endsWith('.jsonl')))
@@ -28,7 +30,7 @@ const drive = !args.includes('--no-drive');
 fs.mkdirSync(path.join(dir, 'shots'), { recursive: true });
 const out = path.join(dir, 'browser.jsonl');
 
-if (guard('acquire') === 3) { console.log('browser slots full; try again later'); process.exit(3); }
+for (let i = 0; guard('acquire') === 3; i++) { if (i > 60) { console.log('no browser lease for 30 min'); process.exit(3); } await new Promise(r => setTimeout(r, 30000)); }
 const ctx = await chromium.launchPersistentContext(path.join(process.env.HOME, 'turku3d/loops/autopilot/browser/profile'), {
   executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']), viewport: { width: 1280, height: 720 } });

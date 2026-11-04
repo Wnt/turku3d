@@ -41,17 +41,25 @@ def test_a_tile_waiting_for_its_spot_rebuild_asks_the_farm_and_is_retried(tmp_pa
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city, "surveyed", lambda tile: False)
     migrate, asked = city.M._worker, []
-    calls = iter([dict(tile="t0_0_0", state="missing-rebuild", rebuild_revision="r1", error="needs it")] * 2)
+    calls = iter([dict(tile="t0_0_0", state="missing-rebuild", rebuild_revision="r1", rebuild_generation="g1",
+                       error="needs it")] * 2)
     monkeypatch.setattr(city.M, "_worker", lambda args: next(calls, None) or migrate(args))
-    monkeypatch.setattr(city.M, "request_rebuild", lambda url, row: asked.append((url, row["rebuild_revision"])))
+
+    def request(url, row):  # The farm finishes the build after the second request.
+        asked.append((url, row["rebuild_revision"]))
+        if len(asked) == 2:
+            (root / "products" / "g1" / "t0_0_0").mkdir(parents=True)
+            (root / "products" / "g1" / "t0_0_0" / "ready.json").write_text("{}")
+    monkeypatch.setattr(city.M, "request_rebuild", request)
     argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
             "--no-survey-wait", "--blocks", "0", "--rebuild-interval", "0", "--farm-url", "http://farm"]
     monkeypatch.setattr(sys, "argv", argv)
     assert city.main() == 0
     rows = [json.loads(line) for line in (root / "migrations" / meta["generation"] / "pass.jsonl").read_text().splitlines()]
-    # The wait is logged once, the farm is asked on every try, and the tile migrates once its build is there.
+    # The wait is logged once, the farm is asked again until the build is there, then the tile is retried: the
+    # second try (still missing in this fake) is not logged, the third migrates.
     assert [r["state"] for r in rows] == ["missing-rebuild", "migrated"]
-    assert asked == [("http://farm", "r1")] * 2
+    assert asked[:2] == [("http://farm", "r1")] * 2
     assert json.loads((root / "migrations" / meta["generation"] / "pass.json").read_text())["finished"]
 
 

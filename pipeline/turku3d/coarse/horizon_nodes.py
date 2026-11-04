@@ -47,11 +47,14 @@ def describe(service, tile):
                 blocks.append(dict(tile=block.id,regional=service.regional,buildings=[]))
                 files.add(service.regional)
             continue
+        from .roof_pigment import ortho_inputs
         row = dict(tile=block.id, ground=list(map(str, ground)), buildings=sorted(buildings),
-                   water=sorted(water), streets=sorted(streets), osm=sorted(osm))
+                   water=sorted(water), streets=sorted(streets), osm=sorted(osm),
+                   ortho=ortho_inputs(service.sources, block.children()))
         blocks.append(row)
         for paths in (row[k] for k in ('ground', 'buildings', 'water', 'streets', 'osm')):
             files.update(paths)
+        files.update(row['ortho'].values())
     if not blocks:
         return None
     hashes = {p: digest(p) for p in sorted(files)}
@@ -89,8 +92,10 @@ def face_triangles(polygon):
     return p, indices
 
 
-def survey_shells(tile, paths, appearance):
+def survey_shells(tile, paths, appearance, ortho=None):
     from .horizon import layer_mesh
+    from .roof_pigment import ROOF, RoofPigments
+    roofs = RoofPigments(ortho)
     positions, faces, colours, owned, footprints = [], [], [], set(), []
     for path in sorted(paths):
         data = classify_surfaces(frame(path, tile.bbox.buffered(100), whole_features=True))
@@ -119,7 +124,8 @@ def survey_shells(tile, paths, appearance):
                     flip = shapely.contains_xy(footprint, probe[:, 0], probe[:, 1])
                 ix[flip] = ix[flip][:, [0, 2, 1]]
                 faces.extend(ix + len(positions)); positions.extend(p)
-                colours.extend([(.20, .23, .22) if row.surface_type == 'RoofSurface' else wall_colour] * len(p))
+                roof = row.surface_type == 'RoofSurface'
+                colours.extend([((roofs.mean(p, ix) or ROOF) if roof else wall_colour)] * len(p))
     mesh = layer_mesh('buildings', positions, faces, colours, np.asarray(tile.origin)) if faces else None
     return mesh, len(owned), shapely.union_all(footprints)
 
@@ -220,7 +226,8 @@ def clusters(block, woods, height, far):
 
 def build_node(tile, blocks, appearance):
     from .horizon import layer_mesh
-    meshes, buildings, footprints = survey_shells(tile, {p for row in blocks for p in row['buildings']}, appearance)
+    ortho = {k: v for row in blocks for k, v in row.get('ortho', {}).items()}
+    meshes, buildings, footprints = survey_shells(tile, {p for row in blocks for p in row['buildings']}, appearance, ortho)
     groups = {'ground': [], 'vegetation': []}
     for row in blocks:
         if 'regional' in row:

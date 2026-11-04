@@ -26,7 +26,11 @@ const B = Number(opt('bots', 6)), sweepDir = opt('sweep', path.join(os.homedir()
 const N = Number(opt('clients', 2)), base = opt('base', 'http://localhost:5480/'), mpPort = Number(opt('port', 5482));
 const seconds = Number(opt('seconds', 150));
 fs.mkdirSync(out, { recursive: true });
-const guard = cmd => { try { execFileSync('python3', [path.join(os.homedir(), 'turku3d/tools/chrome-guard/guard.py'), cmd, 'autopilot'], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
+// Chrome leases on the shared hosts (~/turku3d/tools/host-lease/lease.py): acquire 0 granted / 3 queued, touch 2 = pause.
+const LEASE_HOST = process.env.LEASE_HOST ?? 'mac';
+// One slot per small window: the browser clients (and the mid-drive joiner).
+const LEASE_SLOTS = Math.min(LEASE_HOST === 'mac' ? 2 : 4, Number(process.argv[process.argv.indexOf('--clients') + 1] ?? 2) || 2);
+const guard = cmd => { try { execFileSync('python3', [path.join(process.env.HOME, 'turku3d/tools/host-lease/lease.py'), cmd === 'acquire' ? 'acquire' : cmd, ...(cmd === 'acquire' ? [LEASE_HOST, 'autopilot', '--kind', 'func', '--slots', String(LEASE_SLOTS), '--ttl', '40m'] : ['autopilot', LEASE_HOST])], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // The multiplayer server, isolated: own port, temporary scores, no tile producer pings.
@@ -39,6 +43,16 @@ let healthy = false;
 for (let i = 0; i < 100 && !(healthy = await fetch(`http://127.0.0.1:${mpPort}/healthz`).then(r => r.ok, () => false)); i++) await new Promise(r => setTimeout(r, 100));
 if (!healthy) { console.log(`multiplayer server did not start (npm ci --prefix server?):\n${serverLog.slice(-1500)}`); process.exit(2); }
 
+// A local browser waits for a chrome-guard slot (up to 30 min) before anything starts.
+const cdp = opt('cdp');
+{
+  let queued = 0;
+  while (guard('acquire') === 3) {
+    if (++queued > 60) { console.log('browser slots full for 30 min'); server.kill(); process.exit(3); }
+    if (queued === 1) log(`browser lease on ${LEASE_HOST} queued`);
+    await new Promise(r => setTimeout(r, 30000));
+  }
+}
 // The bots join first (cheap), then the browsers.
 const botFile = path.join(out, 'mp-bots.jsonl'), goFile = path.join(out, 'go');
 fs.rmSync(botFile, { force: true }); fs.rmSync(goFile, { force: true });
@@ -54,18 +68,21 @@ if (bots) {
   console.log(new Date().toISOString().slice(11, 19), `${B} bots driving`);
 }
 
-const cdp = opt('cdp');
-if (!cdp && guard('acquire') === 3) { console.log('browser slots full'); server.kill(); process.exit(3); }
-const browser = cdp ? await chromium.connectOverCDP(cdp) : await chromium.launch({ executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
+
+// A local browser uses a registered profile (chrome-guard closes unregistered ones first). Clients are tabs of one
+// context: the multiplayer session token is per tab (sessionStorage), so each tab is its own player.
+const shared = cdp || N === 0 ? null : await chromium.launchPersistentContext(path.join(os.homedir(), 'turku3d/loops/autopilot/browser-mp/profile'), {
+  executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs, viewport: { width: 480, height: 270 },
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']) });
+const browser = cdp ? await chromium.connectOverCDP(cdp) : { close: () => shared?.close(), contexts: () => shared ? [shared] : [] };
 const clients = [];
 const samples = [];
 const errors = [];
 const events = [];
 
 async function join(index) {
-  const context = await browser.newContext({ viewport: { width: 480, height: 270 } });
-  const page = await context.newPage();
+  const context = shared ? { page: await shared.newPage(), close() { return this.page.close(); } } : await browser.newContext({ viewport: { width: 480, height: 270 } });
+  const page = shared ? context.page : await context.newPage();
   const client = { index, context, page, nick: null, alive: true };
   page.on('pageerror', e => errors.push({ client: index, t: Date.now(), error: e.message }));
   await page.goto(`${base}?quality=low&telemetry=0&time=13:00&traffic=0&walkers=0&mp=ws://127.0.0.1:${mpPort}/`);
@@ -75,9 +92,19 @@ async function join(index) {
   client.nick = await page.evaluate(() => window.__game.state().multiplayer.nick);
   // The own car next to the character (test setup), entered with the interact key like a player.
   await page.evaluate(async i => {
-    const g = window.__game, f = g.state().feet;
-    const hit = await g.physics.raycast({ x: f[0] + 3, y: f[1] + 4, z: f[2] + 2 * (i % 4) }, { x: 0, y: -1, z: 0 }, 12);
-    g.physics.resetVehicle({ x: f[0] + 3, y: (hit?.point.y ?? f[1]) + 0.9, z: f[2] + 2 * (i % 4) }, 0);
+    // On the nearest street lane, 20 m apart per client, facing along it (test setup, not the autopilot).
+    const g = window.__game, f = g.state().feet, ap = g.autopilot;
+    const { tilesBetween } = await import('/src/gameplay/autopilot/lanes.ts');
+    const { sampleAt } = await import('/src/gameplay/autopilot/path.ts');
+    await ap.lanes.ensure(tilesBetween({ x: f[0], z: f[2] }, { x: f[0], z: f[2] }, 1));
+    const lane = ap.lanes.near({ x: f[0], z: f[2] }, 80, 12).map(c => c.lane).find(l => l.length > 60) ?? null;
+    const at = lane ? sampleAt({ points: lane.points, ys: lane.ys, cum: lane.cum, length: lane.length }, Math.min(lane.length - 5, 8 + 20 * (i % 3)))
+      : { x: f[0] + 3, z: f[2], y: f[1], hx: 1, hz: 0 };
+    await new Promise(r => setTimeout(r, 1500));
+    const hit = await g.physics.raycast({ x: at.x, y: (at.y ?? f[1]) + 4, z: at.z }, { x: 0, y: -1, z: 0 }, 12);
+    g.physics.resetVehicle({ x: at.x, y: (hit?.point.y ?? at.y ?? f[1]) + 0.9, z: at.z }, Math.atan2(-at.hz, at.hx));
+    // The character walks to the car's door side for the interact key.
+    g.physics.setCharacterEnabled?.(true, { x: at.x - at.hz * 2, y: (hit?.point.y ?? f[1]) + 0.2, z: at.z + at.hx * 2 });
   }, index);
   await page.waitForTimeout(800);
   await page.keyboard.press('KeyF');
@@ -129,6 +156,13 @@ try {
   // All clients load at once (each loading tab competes with the others' rendering otherwise).
   await Promise.all(Array.from({ length: N }, (_, i) => new Promise(r => setTimeout(r, i * 3000)).then(() => join(i))));
   clients.sort((a, b) => a.index - b.index);
+  if (N === 0) {
+    // Bots only: start them and let them drive their crossing routes; they leave and join on their own schedule.
+    fs.writeFileSync(goFile, String(Date.now()));
+    log('bots only: go');
+    await new Promise(r => setTimeout(r, (seconds + 20) * 1000));
+    throw Object.assign(new Error('done'), { botsOnly: true });
+  }
   const goal = await targets(clients[0].page);
   log('targets', JSON.stringify(goal.map(p => [Math.round(p.x), Math.round(p.z)])));
   const t0 = Date.now();
@@ -156,14 +190,15 @@ try {
       rejoined = true;
       void join(N).then(c => drive(c, goal[(N + 1) % 4])).catch(e => { errors.push({ client: N, t: Date.now(), error: `join: ${e.message}` }); });
     }
-    if (!cdp) guard('touch');
+    if (guard('touch') === 2) { log('lease pause requested: ending the run early'); break; }
     await new Promise(r => setTimeout(r, 250));
   }
-} catch (e) { failed = e.message; log('FAILED', e.message); }
+} catch (e) { if (!e.botsOnly) { failed = e.message; log('FAILED', e.message); } }
 finally {
   for (const c of clients) if (c.alive) await c.context.close().catch(() => {});
   if (cdp) { for (const c of browser.contexts()) for (const p of c.pages()) if (p.url().includes(new URL(base).host)) await p.close().catch(() => {}); }
-  else { await browser.close(); guard('release'); }
+  else await browser.close();
+  if (N > 0) guard('release');
   bots?.kill('SIGTERM');
   server.kill('SIGTERM'); fs.rmSync(scores, { recursive: true, force: true });
 }
@@ -189,7 +224,8 @@ const pct = (list, p) => { const s = [...list].sort((a, b) => a - b); return s.l
 const pairs = [];
 for (const s of samples) for (const r of s.remotes ?? []) {
   const truth = at(r.nick, s.wall);
-  if (truth) pairs.push({ observer: s.nick, subject: r.nick, wall: s.wall, d: Math.hypot(r.x - truth.x, r.z - truth.z), speed: truth.speed, r });
+  // The server relays driven poses only within 250 m: a farther player is shown at a stale pose by design.
+  if (truth && Math.hypot(truth.x - s.self.x, truth.z - s.self.z) < 200) pairs.push({ observer: s.nick, subject: r.nick, wall: s.wall, d: Math.hypot(r.x - truth.x, r.z - truth.z), speed: truth.speed, r });
 }
 // Latency: the delay that best explains the observations (moving subjects only).
 let bestLag = 0, bestErr = Infinity;
@@ -232,3 +268,4 @@ const result = { browsers: N + 1, bots: B + 1, seconds,
 fs.writeFileSync(path.join(out, 'mp-result.json'), JSON.stringify(result, null, 1));
 fs.writeFileSync(path.join(out, 'mp-samples.jsonl'), samples.map(s => JSON.stringify(s)).join('\n'));
 console.log(JSON.stringify({ ...result, contacts: { total: result.contacts.total, nearPlayer: result.contacts.nearPlayer }, serverLog: undefined, errors: errors.length }, null, 1));
+process.exit(failed ? 1 : 0); // a CDP connection or a bot child would otherwise keep the process alive

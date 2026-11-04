@@ -132,7 +132,7 @@ players editing at once make two sessions with two ids.
 | Host | Store | How a Claude session reads it |
 |---|---|---|
 | Mac, Vite dev server (:5220, agents' :53xx) | `~/turku3d/edits/<id>/` (`TURKU3D_EDITS` overrides) | `python3 scripts/dev/edit_sessions.py show <id>`, then `effective <id>` / `clusters <id>` |
-| city.lab (osgallery-dev, `city-web`), **off today** | would be `~/turku3d-local/city/edits/<id>/` on osgallery-dev | from the Mac: `edit_sessions.py pull <id>` (rsync into `~/turku3d/edits/<id>/`), then `show <id>`; on osgallery-dev itself `show <id>` finds it directly |
+| city.lab (`?editor=1`, local only) | nowhere on a server: Jonni's browser only | Jonni hands over the dialog's session JSON; `edit_sessions.py import FILE`, then `show <id>` |
 
 `show` prints the summary, the folder, the counts, the player and the build URL. The summary is stored twice: as
 `summary` in `session.json`, which every server version accepts, and as `summary.txt`. A Vite server started before
@@ -145,49 +145,25 @@ Sessions live in `~/turku3d/edits/<session-id>/`. The Vite dev-server middleware
 overrides the root. `serve-dist.mjs --edits <dir>` mounts the same middleware. With `--public` it is write-only: PUT
 and POST from the same origin, with a 512 MB quota (`--edits-quota-mb`).
 
-**city.lab: ready, but off.** The editor is off there, and the share stores no edits. Turning it on takes two
-one-line changes, then `tools/share/deploy.sh`:
+**city.lab: the editor runs there, and edits stay local.** Jonni decided on 2026-11-04 that the public address
+accepts no edits, but the editor works there with `?editor=1` (`editorAllowed`, `editsLocalOnly`).
 
-1. In `editorAllowed` (`dev/editor/index.ts`), let `isShareHost(loc.hostname)` pass despite `VITE_PUBLIC_RELEASE`,
-   still only with `?editor=1`.
-2. Add `--edits %h/turku3d-local/city/edits` to `tools/share/units/city-web.service`.
-
-Same-origin works through the tunnel: the check accepts `Sec-Fetch-Site: same-origin`, because the forwarder rewrites
-`Host`. This was checked on city.lab on 2026-11-04: a same-origin PUT got 200, a cross-site PUT 403, and a GET 405.
-
-| File | Content |
-|---|---|
-| `session.json` | build, the tile generations seen, start/end, device, counts |
-| `edits.jsonl` | one line per row id, sorted by seq |
-| `summary.txt` | the close dialog's summary, after the final `session.json`, which also holds it as `summary` |
-| `shots/<edit>-before.jpg`, `<edit>-after.jpg` | 384 px screenshots; local evidence, never commit them |
-
-`edits.jsonl` holds three kinds of rows: **edit rows** (move / rotate / delete), **undo rows** and **tag rows**
-(the reason, which arrives after the commit).
-
-An edit row carries:
-
-- the object's category, type, tile and generator placement id;
-- provenance: source dataset and feature, the generator files and named rules, the tile's own record, and what
-  the tile is missing;
-- the original, before and after transforms, each in engine, EPSG:3877 and EPSG:3067 coordinates with yaw and
-  heading;
-- the delta and a preview matrix;
-- the camera pose;
-- the tile's generation pin;
-- automatic context at the original and the new position:
-  - collision surface under the object;
-  - nearest road / kerb / sidewalk surfaces;
-  - facades and walls;
-  - road-graph edge with carriageway distance and side;
-  - nearby props;
-  - LiDAR evidence.
-
-**Effective edits** are the edit rows that no undo row names, each with the reason of its newest tag folded in.
-An object's net change is its last effective edit (`after` against `original`).
-
-The browser also keeps the session, its rows and an outbox of unsent rows in localStorage
-(`turku3d.editor.v1`). A reload restores the previews and resends anything the server hasn't confirmed.
+- **Storage.** The client uses `localTransport`, which sends nothing. The session, its rows and the previews live
+  only in that browser's localStorage, which survives F5. The share's `city-web` has no `--edits`, so `/__edits/`
+  answers 405.
+- **Labels.** On entering, the toast says "local only: edits stay in this browser, nothing is uploaded". The HUD
+  counter reads "Local only: N edits kept in this browser, nothing uploaded".
+- **Close dialog.** It adds a banner, "Copy session JSON" (□ [X] / Space) and "Download JSON"
+  (`edit-session-<id>.json`, mouse). The summary's last line points at the JSON instead of a server folder.
+- **Backup copy.** The last closed export also stays in localStorage (`turku3d.editor.lastClosed`); read it with
+  `__game.editor.lastClosed()` in the console.
+- **Reading it.** A Claude session saves the JSON and runs `python3 scripts/dev/edit_sessions.py import FILE` (or
+  `-` for stdin). That writes `~/turku3d/edits/<id>/` (`session.json` with `imported_from: "export"`,
+  `edits.jsonl`, `summary.txt`), so `show`, `effective` and `clusters` work as usual. Screenshots are not part of the
+  export.
+- **Uploads, if ever wanted.** `serve-dist.mjs --edits` still supports write-only, same-origin, quota-capped
+  uploads. Same-origin is checked with `Sec-Fetch-Site`, because the tunnel rewrites `Host`; on 2026-11-04 a
+  same-origin PUT got 200, a cross-site one 403 and a GET 405.
 
 ## How sessions reach rulesmith
 

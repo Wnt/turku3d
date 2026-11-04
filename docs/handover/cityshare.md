@@ -41,8 +41,8 @@ it is public like Pages. Unit tests: `game/tests/unit/share-host.test.ts`.
 
 - Same-origin `/coarse/` tiles, `./pointcloud/` and `wss://<host>/` multiplayer. The published server is never
   used.
-- None of the local-only features run there (telemetry, editor, capture, dev HUD); `?dev=1` still opens the
-  dev menu.
+- None of the local-only features run there (telemetry, capture, dev HUD); `?dev=1` still opens the dev menu.
+  `?editor=1` runs the object editor with edits kept in the browser only.
 
 ## Units, ports and hardening (osgallery-dev, `systemctl --user`)
 
@@ -64,8 +64,8 @@ The last three units replaced the hand-started processes with the same commands.
 Public hardening in `serve-dist --public`:
 
 - GET and HEAD only: POST, PUT and OPTIONS get 405, so there are no capture, telemetry or other uploads.
-  - `serve-dist --edits` could add write-only, same-origin edit-session uploads (512 MB quota). The share does not
-    use it: the editor is off there (see `editor.md`, "city.lab: ready, but off").
+  - Edit sessions are never uploaded either. With `?editor=1` the editor runs in local-only mode, and its close
+    dialog hands over the session JSON (see `editor.md`).
 - No facade candidates, `/__localhost`, `/healthz`, dotfiles or directory listings.
 - `/coarse` takes plain path segments only (dot segments and percent escapes get 404), so nothing reaches the
   farm's root status or management routes.

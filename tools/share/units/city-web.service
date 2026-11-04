@@ -1,6 +1,6 @@
 # Installed by tools/share/deploy.sh. The public share's only listener: the game, /pointcloud (COPC), /coarse (via
-# city-tiles) and the multiplayer socket and scores (via city-mp), GET/HEAD only (serve-dist.mjs --public). Edit
-# sessions are off; enabling them is `--edits %h/turku3d-local/city/edits` here plus the editor gate (editor.md).
+# city-tiles) and the multiplayer socket and scores (via city-mp), GET/HEAD only (serve-dist.mjs --public). No edit
+# uploads: the editor (?editor=1) keeps its sessions in the browser (docs/handover/editor.md).
 [Unit]
 Description=Turku3D city share: public game server on 127.0.0.1:7780
 After=city-tiles.service city-mp.service

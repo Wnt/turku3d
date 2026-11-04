@@ -84,6 +84,17 @@ export const httpTransport = (base = '/__edits/'): SessionTransport => {
   };
 };
 
+/** A site that stores nothing (the public city.lab share): every row stays in this browser's localStorage until the
+ *  close, and the close dialog hands the whole session over as JSON (sessionExport). */
+export const localTransport = (): SessionTransport => ({ putJson: async () => true, appendRows: async () => true, putBlob: async () => true });
+
+export const EXPORT_FORMAT = 'turku3d-edit-session-export';
+/** The whole session as one JSON document: session.json, every row of edits.jsonl and the summary
+ *  (scripts/dev/edit_sessions.py import turns it back into a session folder). Screenshots are not included. */
+export function sessionExport(meta: SessionMeta, rows: readonly SessionRow[], summary: string | null) {
+  return JSON.stringify({ format: EXPORT_FORMAT, version: 1, session: meta, rows, summary }, null, 1) + '\n';
+}
+
 export interface KeyValue { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 const memory = (): KeyValue => { const m = new Map<string, string>(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => { m.set(k, v); }, removeItem: k => { m.delete(k); } }; };
 export function defaultStore(): KeyValue {

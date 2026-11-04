@@ -22,7 +22,8 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   crowns. ``--supply DIR`` hard-links missing blocks from DIR when size and SHA-256 match the base's catalog, or copies
   them when DIR is on another filesystem (lidarpc's downloads sit on the bulk HDD).
 * Spot rebuilds: a tile a Rebuild step needs a fresh build of (``missing-rebuild``, e.g. landmark-windows@1) asks the
-  farm for that build (``--farm-url``) and is retried every ``--rebuild-interval`` s until the build is there.
+  farm for that build (``--farm-url``, again every ``--rebuild-interval`` s) and is retried once the build's
+  ready.json is there (a landmark build takes 6-25 min; an early retry would redo the steps before it).
 * ``--checkpoint STEP`` stores each tile's product after STEP too (``tile_migrate.checkpoint``): a later chain that
   changes only the steps after STEP resumes from it instead of redoing the costly steps before.
 * Logs in ``farm/migrations/<generation>/``: ``pass.jsonl`` (one line per tile: state, wall and CPU seconds, each
@@ -182,7 +183,8 @@ def _work(args):
         result = M._worker((root, meta, tile))
     return dict(tile=tile, state=result.get('state'), error=result.get('error'), applied=result.get('applied'),
                 wall=round(time.monotonic() - wall, 3), cpu=round(time.process_time() - cpu, 3),
-                steps=dict(STEPS), survey=surveyed(tile), rebuild_revision=result.get('rebuild_revision'))
+                steps=dict(STEPS), survey=surveyed(tile), rebuild_revision=result.get('rebuild_revision'),
+                rebuild_generation=result.get('rebuild_generation'))
 
 
 def ring(tile: str) -> int:
@@ -274,9 +276,10 @@ def main():
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')
     parser.add_argument('--min-free-gb', type=float, default=12, help='no new tile while the farm disk has less free')
-    parser.add_argument('--farm-url', default='http://127.0.0.1:7950', help='farm asked for missing spot rebuilds')
-    parser.add_argument('--rebuild-interval', type=float, default=120, help='seconds between retries of a tile '
-                        'waiting for its spot rebuild')
+    parser.add_argument('--farm-url', default='http://192.168.1.114:7950',
+                        help='farm asked for missing spot rebuilds (it listens on the LAN address only)')
+    parser.add_argument('--rebuild-interval', type=float, default=600, help='seconds between requests for a spot '
+                        'rebuild that is not there yet')
     parser.add_argument('--min-free-mem-gb', type=float, default=8,
                         help='the cap steps down while less memory than this is available')
     parser.add_argument('--blocks', type=int, default=9,
@@ -307,7 +310,7 @@ def main():
     cap, started_at, next_adjust = 1, time.monotonic(), 0.0
     survey = None if args.no_survey_wait else Survey(args.supply, log_dir / 'supply.jsonl')
     waiting: list[str] = []
-    rebuilding: dict[str, float] = {}  # tile -> when to try again (its spot rebuild is building on the farm)
+    rebuilding: dict[str, dict] = {}  # tile -> its missing-rebuild row and when to ask the farm again
     asked: set[str] = set()
     next_survey = time.monotonic() + args.survey_interval
     done_now = 0
@@ -344,7 +347,12 @@ def main():
                     pending.extend(waiting)
                     pending.sort(key=lambda t: (ring(t), t))
                     waiting.clear()
-                due = [t for t, at in rebuilding.items() if now >= at]
+                due = [t for t, w in rebuilding.items() if (root / 'products' / w['row'].get('rebuild_generation', '')
+                                                             / t / 'ready.json').exists()]
+                for tile, w in rebuilding.items():
+                    if tile not in due and now >= w['ask']:
+                        w['ask'] = now + args.rebuild_interval
+                        threading.Thread(target=M.request_rebuild, args=(args.farm_url, w['row']), daemon=True).start()
                 if due:
                     for tile in due:
                         del rebuilding[tile]
@@ -382,7 +390,7 @@ def main():
                         threading.Thread(target=M.request_rebuild, args=(args.farm_url, row), daemon=True).start()
                         first = lane.tile not in asked
                         asked.add(lane.tile)
-                        rebuilding[lane.tile] = now + args.rebuild_interval
+                        rebuilding[lane.tile] = dict(row=row, ask=now + args.rebuild_interval)
                         lane.future = lane.tile = None
                         if not first:
                             continue  # Logged once; the retries stay out of the journal.

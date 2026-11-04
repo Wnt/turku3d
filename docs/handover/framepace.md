@@ -37,10 +37,29 @@ debug census (deleted cache keys, key-part diffs between preparation and live dr
 | `Share the far canopy and regional mask nodes` | One node per tint/mask for all scenery cells | `render/sceneryMaterial.ts` |
 | `Share wet surface programs between equal-code texture copies` | Wet recipes keyed by what a texture changes in WGSL (UV channel, colour space, type, format, sampler, kind), not its identity. The test asserts r186 emits identical WGSL for texture copies with other offset/repeat, and different WGSL for another UV channel. | `render/weather/surfaces.ts`, `tests/unit/wet-graph-reuse.test.ts` |
 | `Pace r186 shader-build yields after frames during play` (+ `8 ms per frame while the 3x3 window waits`) | During play, `self.scheduler.yield` queues continuations and releases them after each frame within a share (3 ms; 8 ms while `streamingAllowance.urgent`); one long stage ends the gap's share. Loading, bench settles and hidden pages keep the native yield. | `render/yieldPacer.ts`, `main.ts` |
+| `Continue paced yields inside the current frame gap` | A yield arriving with budget left in the current gap continues at once. Before, each one waited a frame, so every `compileAsync` of a tile's preparation (cached programs included) cost a frame and one tile's prepare took 10–17 s. | `render/yieldPacer.ts` |
+| `Prepare car batches in an actor lane ahead of queued tile jobs` | `GraphicsPreparation` lanes actor > tile > scenery. A job reaching the head while higher-lane jobs wait goes behind them, and the running job is never interrupted. Parked and traffic car batches and keepers take the actor lane, so they no longer wait for a queue of tile preparations (parked bodies were 39–79 s late). | `render/graphicsPreparation.ts`, `main.ts` `prepareActorGraphics` |
 | goal + tool | [frame-goal.md](frame-goal.md), `tools/perf/frame_pacing.py` | |
 
 No URL switches were added. Each change is a scheduling or sharing change with no look difference, except that a
 first-use draw now appears a few frames late instead of stalling the frame.
+
+## Measuring on the Air and the 560X
+
+- Leases: `~/turku3d/tools/host-lease/lease.py acquire HOST NAME --kind perf`, touch at every run, release after the
+  series. framepace uses `framepace-win` and `framepace-air`; the Windows profile is
+  `C:\Research\turku3d\agents\framepace-win`.
+- **Never serve the builds through the Mac** while it is loaded (load 140–350 tonight). The remote page's tiles and
+  assets then crawl, and coverage collapses or settles time out.
+  - Serve the frozen dists and a tile proxy from osgallery-dev: `~/turku3d-local/framepace/` (serve-dist 7792
+    base3, 7793 fix, proxy 7791, captures written there; `~/turku3d/loops/framepace/pull.sh` copies them back).
+  - The page stays on `localhost` for WebGPU's secure context:
+    - Windows: `netsh interface portproxy` on 127.0.0.1:5690/5692;
+    - Air: `~/turku3d/loops/framepace/fwd.py`, a Python forwarder.
+  - Check `netstat` first: another agent's ssh -R was using 5390.
+- Count a run only if HD coverage and the tile stage times (`tile.glb`, `tile.manifest` p50) match its pair.
+- Scripts: `win9.sh`, `air9.sh` (fix6 = merged head with the in-gap fix, against base3 = 2cd3d67c).
+- `tests/unit/parked-preparation.test.ts` fails identically at 2cd3d67c, before framepace: pre-existing.
 
 ## Results
 

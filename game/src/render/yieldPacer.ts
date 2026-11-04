@@ -15,7 +15,7 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   const native = scheduler.yield.bind(scheduler);
   const queue: (() => void)[] = [];
   const channel = new MessageChannel();
-  let gapStart = 0, waiting = false, released = 0;
+  let gapStart = -Infinity, waiting = false, chained = false, released = 0;
   const live = () => playing() && document.visibilityState === 'visible';
   const step = () => {
     if (!queue.length) return;
@@ -24,9 +24,10 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
     released++;
     queue.shift()!();
     // The continuation runs in this task's microtasks; the next step measures after it.
-    channel.port2.postMessage(0);
+    chain();
   };
-  channel.port1.onmessage = step;
+  const chain = () => { chained = true; channel.port2.postMessage(0); };
+  channel.port1.onmessage = () => { chained = false; step(); };
   const nextGap = () => {
     if (waiting) return;
     waiting = true;
@@ -34,7 +35,15 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   };
   scheduler.yield = () => {
     if (!live()) return native();
-    return new Promise<void>(resolve => { queue.push(resolve); nextGap(); });
+    return new Promise<void>(resolve => {
+      queue.push(resolve);
+      if (chained) return;
+      // Still inside this gap's share (the next frame is further away than any share): continue now. Waiting a frame
+      // for every yield made each compileAsync of a tile's preparation cost a frame, cached programs included, so one
+      // tile's prepare took 10-17 s and held the serial preparation queue (parked cars 39-79 s late).
+      if (!waiting && performance.now() - gapStart < budgetMs()) chain();
+      else nextGap();
+    });
   };
   return {
     get queued() { return queue.length; },

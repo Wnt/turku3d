@@ -119,3 +119,18 @@ test('a scenery job reaching the head while full-tile jobs wait goes behind them
   await queue.enqueue(new THREE.Group(), () => { events.push('scenery-2'); }, undefined, false, 'scenery');
   expect(events.at(-1)).toBe('scenery-2');
 });
+
+test('actor jobs (car batches) go ahead of queued tile and scenery jobs but never interrupt the running one', async () => {
+  const scene = new THREE.Scene(), first = pending(), events: string[] = [];
+  const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {});
+  const head = queue.enqueue(new THREE.Group(), async () => { events.push('tile-a'); await first.promise; });
+  await vi.waitFor(() => expect(events).toEqual(['tile-a'])); // running: nothing overtakes it
+  const b = queue.enqueue(new THREE.Group(), () => { events.push('tile-b'); });
+  const scenery = queue.enqueue(new THREE.Group(), () => { events.push('scenery'); }, undefined, false, 'scenery');
+  const car = queue.enqueue(new THREE.Group(), () => { events.push('car-1'); }, undefined, false, 'actor');
+  const c = queue.enqueue(new THREE.Group(), () => { events.push('tile-c'); });
+  const car2 = queue.enqueue(new THREE.Group(), () => { events.push('car-2'); }, undefined, false, 'actor');
+  first.resolve();
+  await Promise.all([head, b, scenery, car, c, car2]);
+  expect(events).toEqual(['tile-a', 'car-1', 'car-2', 'tile-b', 'tile-c', 'scenery']);
+});
