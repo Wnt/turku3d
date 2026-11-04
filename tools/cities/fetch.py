@@ -52,6 +52,18 @@ def fetch_registers(block, log):
             raise RuntimeError(f"{name} {block.name}: {s}")
 
 
+def regional_osm(blocks):
+    """Clip the snapshot once to the area's squares; later square clips read that extract."""
+    from turku3d.fetch import osm
+
+    areas = [S.osm_area(b).core for b in blocks]
+    core = C.BBoxLocal(min(a.xmin for a in areas), min(a.zmin for a in areas),
+                       max(a.xmax for a in areas), max(a.zmax for a in areas))
+    region = C.Area(f"{C.CITY.name}region", "regional OSM extract", core, 500.0)
+    src = osm.clip(region, osm.fetch_finland(), log=print)
+    osm.fetch_finland = lambda log=print: src
+
+
 def mml_laz(blocks, log):
     """MML 0.5 p LAZ sheets (latest scan per sheet) under the blocks -> raw/mml/laz/<year>/<sheet>.laz."""
     import geopandas as gpd
@@ -94,6 +106,7 @@ def main() -> int:
     blocks = blocks_for(args)
     squares = {S.osm_area(b).name for b in blocks}
     print(f"{C.CITY.name}: {len(blocks)} blocks, {len(squares)} OSM squares", flush=True)
+    # (the ground of the ring of blocks around them is fetched too, see below)
     if args.dry_run:
         return 0
     journal = (C.raw_dir() / "fetch-log.jsonl").open("a")
@@ -118,7 +131,10 @@ def main() -> int:
             lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": f"error: {error}"[:400]}))
         return block, lines
 
-    # OSM squares are shared by blocks: clip each square once before the parallel block fetches.
+    # OSM squares are shared by blocks: clip each square once before the parallel block fetches, from one
+    # regional extract (a clip of the whole Finland snapshot costs ~2 min; of the region, seconds).
+    if len(squares) > 1:
+        regional_osm(blocks)
     seen = set()
     for b in blocks:
         if S.osm_area(b).name not in seen:
@@ -133,6 +149,10 @@ def main() -> int:
                     failures += '"outcome": "ok"' not in line
                 print(f"{block.name} {line}", flush=True)
             journal.flush()
+    # Ground key points are read for a tile plus S.POINT_MARGIN: the edge tiles need the next blocks' ground.
+    ring = sorted({b for t in (t for blk in blocks for t in S.block_tiles(blk)) for b in S.tile_blocks(t)} - set(blocks))
+    for b in ring:
+        S.fetch(S.Unit("lidar", b), log=print)
     if args.mml_laz:
         mml_laz(blocks, print)
     print(f"done: {len(blocks)} blocks, {failures} failed units", flush=True)
