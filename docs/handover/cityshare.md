@@ -25,6 +25,11 @@ The script:
    when `server/` changed.
 5. Checks that `https://city.lab.madekivi.fi/version.json` names the new commit.
 
+Tiles resolve per tile: `tiles.json` carries `prefer: ["train1"]` (deploy.sh, `TURKU3D_SHARE_PREFER`), and
+city-tiles serves a tile's fragment from `train1` once the farm has its `ready.json` (written last, atomically), else
+from the pin. `train1` is only read, never asked to migrate; demand and status go to the pin. Tiles the city pass
+finishes show up without a redeploy (resident tiles within the client's ~30 s refresh). `/version.json` lists `prefer`.
+
 A web restart drops multiplayer sockets for about a second; the client reconnects with its session.
 
 ## Client behaviour
