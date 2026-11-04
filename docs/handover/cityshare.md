@@ -86,6 +86,7 @@ Public hardening in `serve-dist --public`:
 ```sh
 curl -s https://city.lab.madekivi.fi/version.json        # deployed sha, subject, tile pin
 curl -s https://city.lab.madekivi.fi/coarse/health       # {"state":"ready","version":…}
+curl -s https://city.lab.madekivi.fi/coarse/scenery/health  # local-horizon: inputs, cache, last served; 503 if degraded
 curl -s -o /dev/null -w '%{http_code}\n' 'https://city.lab.madekivi.fi/coarse/t0_0_0/manifest.json?d=0'
 curl -s https://city.lab.madekivi.fi/live.json | head -c 200
 ssh osgallery-dev 'systemctl --user is-active city-web city-tiles city-mp city-forwarder shared-tiles local-horizon lidar-copc'
