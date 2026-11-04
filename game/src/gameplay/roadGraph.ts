@@ -105,6 +105,8 @@ export interface RoadGraphJson {
   edgeEvents?: (number[] | null)[];
   nodeFlags?: number[];
   controllers?: [string, number, number][];
+  /** Signal posts at the kerb (pipeline roads/signal_posts.py): [edge, event index, dir ±1, x, z, ground y | null]. */
+  signalPosts?: [number, number, number, number, number, number | null][];
 }
 
 function checkFormat(json: RoadGraphJson) {

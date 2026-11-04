@@ -33,10 +33,11 @@ const BARRIER_STAGE = {
 };
 const SIGNAL_STAGE = {
   stage: 'roads.json signal stop events (generator) + signal-head placement (client)',
-  code: ['pipeline/turku3d/roads/tile_graph.py', 'game/src/traffic/signals.ts'],
+  code: ['pipeline/turku3d/roads/tile_graph.py', 'pipeline/turku3d/roads/signal_posts.py', 'game/src/traffic/signals.ts'],
   rules: ['tile_graph.controllers: OSM highway=traffic_signals / crossing=traffic_signals nodes, single-linkage SIGNAL_LINK 35 m = one junction controller',
     'tile_graph: an undirected signal applies toward a car junction within APPROACH 40 m; traffic_signals:direction picks forward/backward',
-    'signals.signalHeads: one head per signalled direction, at the event, offset lanes.width / 2 + 0.35 m to the right of the approach'],
+    'signals.signalHeads: one head per signalled direction, at the event, offset lanes.width / 2 + 0.35 m to the right of the approach',
+    'roads/signal_posts.place (signals@1): the post moves to KERB_CLEARANCE 0.35 m past the nearest carriageway edge (GIS:Katualueet Ajorata, Pyöräkaista) within REACH 8 m'],
   note: 'Signal phases, stop lines and drivers come from the roads graph: a moved head is visual only.',
 };
 
@@ -88,8 +89,9 @@ export function provenanceOf(e: Editable, models: Iterable<THREE.Object3D>): Rec
     return { dataset: 'osm', feature: null, generator: SIGNAL_STAGE,
       record: { junction: h.controller, approach: h.source ? { edge: h.source.edge, way: h.source.way, s: h.source.s,
         direction: h.source.direction, lanes: h.source.lanes, highway: h.source.highway } : null,
-        head: h.key, left_turn_head: h.left, facing: { hx: h.hx, hz: h.hz } },
-      missing: ['OSM node id of the traffic_signals node behind the stop event', 'per-head placement on the client (side offset rule)'] };
+        head: h.key, left_turn_head: h.left, facing: { hx: h.hx, hz: h.hz }, post: h.source?.post ?? 'nominal' },
+      missing: ['OSM node id of the traffic_signals node behind the stop event',
+        ...(h.source?.post ? [] : ['generator kerb post (tile predates signals@1: client side offset rule)'])] };
   }
   const lamp = e.ref.lamp;
   return { dataset: 'lights', feature: null, generator: LAMP_STAGE,

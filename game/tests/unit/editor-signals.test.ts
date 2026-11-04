@@ -41,3 +41,13 @@ test('a previewed head moves and turns only its drawing; hidden heads leave the 
   expect(listed.every(x => Math.abs(x - 40) < 1e-6)).toBe(true);
   signals.update(12.3); signals.dispose();
 });
+
+test('a head is drawn at the generator kerb post when the graph carries one, keeping its nominal key', () => {
+  const nominal = signalHeads('t0_0_-1', roads);
+  const posted = signalHeads('t0_0_-1', { ...roads, signalPosts: [[0, 0, 1, 40, 5.6, 4.12], [0, 0, -1, 40, -5.6, null]] });
+  expect(posted.map(h => h.key)).toEqual(nominal.map(h => h.key));
+  expect(posted[0]).toMatchObject({ x: 40, z: 5.6, y: 4.12, source: { post: 'kerb' } });
+  // No ground height in the row: the edge's height stays.
+  expect(posted[1]).toMatchObject({ x: 40, z: -5.6, y: 4, source: { post: 'kerb' } });
+  expect(nominal[0].source?.post).toBeUndefined();
+});
