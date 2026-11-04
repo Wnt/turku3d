@@ -129,6 +129,8 @@ an existing alias inherits its source overlay unless another explicit source ver
 The pending queue and running worker PIDs survive daemon restarts. The owner can use
 `shared-tiles-upgrade.py` for a brief scheduler handoff: it preserves build sessions and the
 replacement daemon adopts them instead of duplicating work. Use only the farm's own PID/root.
+The live farm now runs as the `shared-tiles` systemd user unit, whose stop ends its builds as well;
+deploy it as in `docs/handover/cityshare.md` ("Deploy the tile farm from integration").
 Completed payloads have a 15-minute idle grace lease after an alias moves, in addition to
 active-version pins, so in-flight old manifest URLs remain available during a switch.
 

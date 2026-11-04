@@ -70,7 +70,38 @@ Public hardening in `serve-dist --public`:
 - `/coarse` takes plain path segments only (dot segments and percent escapes get 404), so nothing reaches the
   farm's root status or management routes.
 - Tile status routes (`health`, `status`, `demand`, `want`) answer only `{state, version}`.
-- Tile payloads are brotli-compressed for the tunnel, about 3x smaller.
+- Tile payloads are brotli-compressed for the tunnel, about 3x smaller. Encoded immutable (revision-named) payloads
+  stay in a 1 GiB memory cache (`--payload-cache-mb`), so a repeat skips the farm read and another brotli pass.
+- `city-tiles` keeps a finished manifest/collision fragment 15 s per tile (3 s while its tile is being rebuilt) for
+  every player and distance, joins identical concurrent requests and answers polls with an ETag/304. A player's own
+  tile (`d < 1`) still reaches the farm, which tracks where players stand. It resolves a tile's train chain with one
+  `GET /receipts?tile=…&v=…` farm request.
+
+## Deploy the tile farm from integration
+
+The farm daemon (`shared-tiles`) runs `~/turku3d-local/loops/tiles/shared_tiles.py`, a copy of
+`scripts/dev/shared_tiles.py`; `DEPLOYED_FROM` next to it names the integration commit. The copy must not lag
+integration: the city passes rely on its spot rebuilds. Redeploy after every merge that changes
+`scripts/dev/shared_tiles.py` or `scripts/dev/shared_sources.py`. The other files the farm uses
+(`shared-tiles-run.sh`, generator code) come from each registered revision's snapshot, not from this directory.
+
+```sh
+cd ~/turku3d/wt/loop-integration/repo
+H=$(git rev-parse --short HEAD)
+scp scripts/dev/shared_tiles.py scripts/dev/shared_sources.py osgallery-dev:/tmp/
+ssh osgallery-dev "cd ~/turku3d-local/loops/tiles && python3 -m py_compile /tmp/shared_tiles.py &&
+  for f in shared_tiles.py shared_sources.py; do cp \$f \$f.bak-\$(date +%Y%m%d-%H%M); cp /tmp/\$f \$f; done &&
+  echo $H > DEPLOYED_FROM && systemctl --user restart shared-tiles"
+```
+
+- The restart takes about 2 s. The farm's builds run in its unit's control group, so systemd stops them too: they
+  are logged as `failed` ("retry will resume cached stages") and run again on the next request; a city pass asks
+  again by itself. `shared-tiles-upgrade.py` (adopting running builds) predates the unit and does not apply to it.
+- The city passes (`tile_city_pass.py`) run in their own sessions and survive the restart; they treat a busy or
+  missing farm as "ask again".
+- Check: `/health` answers; a built tile's `manifest.json` per generation level (base, pin, each `train<N>`) is
+  byte-identical to before the restart (only a tile whose queue state moved may differ in `queue_state`); a spot
+  rebuild request (`GET /v/<rebuild_revision>/coarse/<tile>/manifest.json`, no `d`) shows up in `/status` `active`.
 
 ## Forwarder limit and bandwidth
 
@@ -79,7 +110,9 @@ Public hardening in `serve-dist --public`:
   - That is about 7 players at 32 parallel tile fetches each. Beyond that, requests get 503 with
     `Retry-After: 5` and the game retries.
   - `turku.lab.madekivi.fi` has 1,024 through `~/forwarder/deploy/hosts.json`.
-- Measured throughput through the tunnel: about 10 MB/s.
+- Measured throughput (2026-11-05): osgallery-dev uploads about 67 MB/s (530 Mbit/s) to the internet; a round trip
+  osgallery-dev → forwarder → osgallery-dev carries 45 MB/s on one stream, 48 MB/s on four. The earlier 10 MB/s
+  figure was a Mac on Wi-Fi, which reaches the LAN box at about 19 MB/s itself.
 - A long drive is about 0.13 GB compressed (0.4 GB raw). A first load is at most about 52 MB of compressible
   assets; voice clips load on demand.
 
