@@ -26,18 +26,15 @@ const CONIFERS = new Set(['pine', 'spruce']);
 export const CROWN_LIMITS = { min: 0.8, max: 1.6, core: [0.04, 0.14] as const, below: 0.12 };
 
 /**
- * How the crowns widen. `stretch` widens every vertex, so leaf cards grow with the crown (as full as the lidar crown;
- * about 1.3x the leaf fragments). `spread` moves each leaf card out with its centre at its own size (the same leaf
- * fragments as the model, a more open crown): the tiers that are fill-rate bound (reduced, low, mobile). `asset` keeps
- * the models' own crowns.
- * `?crowns=stretch|spread|asset` is an A/B of the crown fill's GPU cost: owner lidartrees, measured by winperf and
- * airperf (leaves time). It is removed within ten merges, together with the losing path.
+ * How the crowns widen, by quality tier. `stretch` (medium, high) widens every vertex, so leaf cards grow with the
+ * crown: as full as the lidar crown, about 1.3x the leaf fragments. `spread` (reduced, low, mobile: the fill-rate bound
+ * tiers) moves each leaf card out with its centre at its own size: the model's leaf fragments, a more open crown.
+ * Decided 2026-11-04 (treelook): blind judges against Street View crops at five tree-rich poses preferred `stretch` on
+ * medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops), for fuller crowns with less sky and bare
+ * branch. Its cost is +0.1 ms beauty on the Air and +1.1 ms on the Radeon 560X at medium; both run reduced (spread).
  */
-export type CrownMode = 'stretch' | 'spread' | 'asset';
-export function crownMode(tier: string, search = typeof location === 'undefined' ? '' : location.search): CrownMode {
-  const value = new URLSearchParams(search).get('crowns');
-  if (value === 'stretch' || value === 'spread' || value === 'asset') return value;
-  if (value) throw new Error(`bad ?crowns= (stretch|spread|asset): ${value}`);
+export type CrownMode = 'stretch' | 'spread';
+export function crownMode(tier: string): CrownMode {
   return tier === 'medium' || tier === 'high' ? 'stretch' : 'spread';
 }
 
@@ -122,7 +119,7 @@ export function cards(geometry: THREE.BufferGeometry): Int32Array {
  * reshaped once.
  */
 export function fitCrown(asset: NatureAsset, done = new WeakSet<object>(), mode: CrownMode = 'stretch'): number | null {
-  if (asset.kind !== 'tree' || mode === 'asset') return null;
+  if (asset.kind !== 'tree') return null;
   const shape = crownShape(asset);
   if (!shape) return null;
   const widening = crownWidening(asset, shape);
