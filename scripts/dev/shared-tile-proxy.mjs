@@ -1,39 +1,83 @@
 #!/usr/bin/env node
-// Hot-read config: {service, version, scenery, prefer?}. Vite keeps its existing /coarse proxy.
+// Hot-read config: {service, version, scenery, follow?, exclude?}. Vite keeps its existing /coarse proxy.
 //
-// `prefer` lists newer versions (migrated aliases such as a city pass's `train1`) tried per tile before `version`:
-// a tile's manifest or collision fragment comes from the first of them that has finished that tile (its ready.json,
-// which the farm writes last and atomically), otherwise from `version`, the pin, exactly as without `prefer`. A
-// preferred version is only read, never asked to build or migrate; status, demand and every other route go to the
-// pin. Each fragment names its payloads by revision (/coarse/_v/<sha>/), so neighbouring tiles of different versions
-// never share a cache entry, and a tile switches by itself once its newer version is finished.
+// `follow` names an alias family on the farm (`"train"`: train1, train2, ...). Each tile's manifest or collision
+// fragment comes from the newest member that has finished that tile, else from `version`, the pin, exactly as
+// without `follow`. The chain is the farm's aliases `<follow><N>`, highest N first, re-read every ALIASES_MS, so a
+// new train joins without a deploy; `exclude` drops named aliases (Jonni's call).
+// * Finished: the version's ready.json for the tile, which the farm writes last and atomically, after the product is
+//   in place and validated. A half-written tile has none.
+// * Compatible: a member serves a tile only when its ready.json names the same base generation as the pin's (the
+//   ground, roads and buildings the migrations edit). A train on a structurally different generation is never mixed
+//   in; switching to it is a repin.
+// * A member is only read, never asked to build or migrate; status, demand, want and navigation go to the pin.
+// * Each fragment names its payloads by revision (/coarse/_v/<sha>/), so tiles of different versions never share a
+//   cache entry. Every player resolves through the same farm files, so a tile switches for all of them together.
 import http from 'node:http';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
 const FRAGMENT = /^\/coarse\/(t0_-?\d{1,5}_-?\d{1,5})\/(?:manifest|collision)\.json$/;
+const ALIASES_MS = 30_000;
 
-/** True when `version` has finished `tile` (a read of its ready.json; nothing is queued). */
-function finished(service, version, tile) {
-  const url = new URL(`/v/${encodeURIComponent(version)}/coarse/${tile}/ready.json`, service);
+function getJson(url) {
   return new Promise(resolve => {
-    const probe = http.request(url, { method: 'HEAD', timeout: 5000 }, reply => { reply.resume(); resolve(reply.statusCode === 200); });
-    probe.on('timeout', () => probe.destroy());
-    probe.on('error', () => resolve(false));
-    probe.end();
+    const request = http.get(url, { timeout: 5000 }, reply => {
+      const chunks = [];
+      reply.on('data', chunk => chunks.push(chunk));
+      reply.on('end', () => {
+        if (reply.statusCode !== 200) { resolve(null); return; }
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())); } catch { resolve(null); }
+      });
+      reply.on('error', () => resolve(null));
+    });
+    request.on('timeout', () => request.destroy());
+    request.on('error', () => resolve(null));
   });
 }
 
-/** The version serving this request: per tile the first preferred version that finished it, else the pin. */
-async function versionFor(config, pathname) {
-  const tile = FRAGMENT.exec(pathname)?.[1];
-  const prefer = Array.isArray(config.prefer) ? config.prefer.filter(v => typeof v === 'string' && v !== config.version) : [];
-  if (tile) for (const version of prefer) if (await finished(config.service, version, tile)) return version;
-  return config.version;
+/** The tile's completion receipt for a version (nothing is queued), or null while it is not finished. */
+const receipt = (service, version, tile) => getJson(new URL(`/v/${encodeURIComponent(version)}/coarse/${tile}/ready.json`, service));
+const baseOf = ready => ready?.base_generation ?? ready?.generation;
+
+/** The farm's `<family><N>` aliases, newest (highest N) first. */
+export function chainOf(aliases, family, exclude = []) {
+  const member = new RegExp(`^${family.replace(/[^a-z0-9-]/g, '')}(\\d+)$`);
+  return Object.keys(aliases ?? {}).map(name => [name, member.exec(name)?.[1]]).filter(([name, n]) => n && !exclude.includes(name))
+    .sort((a, b) => Number(b[1]) - Number(a[1])).map(([name]) => name);
+}
+
+function resolver() {
+  const aliases = { service: null, at: 0, names: {}, refreshing: null };
+  const pinBase = new Map();  // pin -> its base generation, learnt from its receipts
+  const known = async service => {
+    if (aliases.service !== service || Date.now() - aliases.at > ALIASES_MS) {
+      aliases.refreshing ??= getJson(new URL('/status', service)).then(status => {
+        if (status?.aliases) Object.assign(aliases, { service, at: Date.now(), names: status.aliases });
+      }).finally(() => { aliases.refreshing = null; });
+      if (aliases.service !== service) await aliases.refreshing;  // first answer; later refreshes run behind requests
+    }
+    return aliases.service === service ? aliases.names : {};
+  };
+  /** The version serving this request: per tile the newest compatible chain member that finished it, else the pin. */
+  return async (config, pathname) => {
+    const tile = FRAGMENT.exec(pathname)?.[1];
+    if (!tile || typeof config.follow !== 'string' || !config.follow) return config.version;
+    const chain = chainOf(await known(config.service), config.follow, Array.isArray(config.exclude) ? config.exclude : [])
+      .filter(name => name !== config.version);
+    if (!chain.length) return config.version;
+    const [pin, ...members] = await Promise.all([config.version, ...chain].map(v => receipt(config.service, v, tile)));
+    if (baseOf(pin)) pinBase.set(config.version, baseOf(pin));
+    const base = pinBase.get(config.version);
+    if (!base) return config.version;  // nothing known to be compatible yet
+    const index = members.findIndex(ready => ready && baseOf(ready) === base);
+    return index < 0 ? config.version : chain[index];
+  };
 }
 
 export function createSharedTileProxy(configFile) {
+  const versionFor = resolver();
   return http.createServer(async (req, res) => {
     let config;
     try { config = JSON.parse(fs.readFileSync(configFile, 'utf8')); }
