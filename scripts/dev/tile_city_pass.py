@@ -23,7 +23,8 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   them when DIR is on another filesystem (lidarpc's downloads sit on the bulk HDD).
 * Spot rebuilds: a tile a Rebuild step needs a fresh build of (``missing-rebuild``, e.g. landmark-windows@1) asks the
   farm for that build (``--farm-url``, again every ``--rebuild-interval`` s) and is retried once the build's
-  ready.json is there (a landmark build takes 6-25 min; an early retry would redo the steps before it).
+  ready.json is there (a landmark build takes 6-25 min; an early retry would redo the steps before it). A tile
+  whose base manifest already shows it in a Rebuild step's class waits for that build before any step runs.
 * ``--checkpoint STEP`` stores each tile's product after STEP too (``tile_migrate.checkpoint``): a later chain that
   changes only the steps after STEP resumes from it instead of redoing the costly steps before.
 * Logs in ``farm/migrations/<generation>/``: ``pass.jsonl`` (one line per tile: state, wall and CPU seconds, each
@@ -171,6 +172,29 @@ def available_memory_gb() -> float | None:
                 return int(line.split()[1]) / 1e6
     except OSError:
         pass
+    return None
+
+
+def pending_rebuild(root: Path, meta: dict, tile: str) -> dict | None:
+    """A ``missing-rebuild`` row for the first Rebuild step whose class the tile's base manifest is in and whose
+    build is not there yet, else None. Only a shortcut: the worker's own check still decides."""
+    from turku3d.migrations import chain
+    from turku3d.migrations.core import Rebuild
+
+    try:
+        manifest = json.loads((M.products(root, meta['base_generation']) / tile / 'manifest.json').read_text())
+    except (OSError, ValueError):
+        return None
+    steps = {m.name: m for m in chain()}
+    for step in meta['migrations']:
+        migration = steps.get(step['name'])
+        generation = step.get('rebuild_generation')
+        if not generation or not isinstance(migration, Rebuild):
+            continue
+        if (M.products(root, generation) / tile / 'ready.json').exists() or not migration.affected(manifest):
+            continue
+        return dict(tile=tile, state='missing-rebuild', rebuild_revision=step['rebuild_revision'],
+                    rebuild_generation=generation, error=f"{tile} needs the {step['name']} rebuild (base manifest)")
     return None
 
 
@@ -365,6 +389,16 @@ def main():
                         tile = pending.pop(pick(pending, lane.last))
                         if survey is not None and survey.missing(tile):
                             waiting.append(tile)
+                            continue
+                        early = pending_rebuild(root, meta, tile)
+                        if early is not None:  # Its build first: the steps before it would run for nothing.
+                            threading.Thread(target=M.request_rebuild, args=(args.farm_url, early), daemon=True).start()
+                            rebuilding[tile] = dict(row=early, ask=now + args.rebuild_interval)
+                            if tile not in asked:
+                                asked.add(tile)
+                                early.update(at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                                log.write(json.dumps(early) + '\n')
+                                log.flush()
                             continue
                         lane.future = lane.pool.submit(_work, (str(root), meta, tile, args.checkpoint))
                         lane.tile, lane.last, lane.at = tile, home(tile), (cap, round(load, 2))
