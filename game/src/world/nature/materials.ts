@@ -80,13 +80,13 @@ export class NatureMaterials {
         return vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8)));
       };
     };
-    // TRAA's motion vectors compare this frame's position with `positionPrevious`, which r186 takes from the geometry
-    // and instance matrices only: without the previous frame's wind every swaying vertex reported its whole wind
-    // offset (up to 0.3 m) as motion, so the history was fetched from the wrong place each frame and crowns and their
-    // reflections shook on a still camera. The previous position gets the wind at the previous frame's time.
+    // TRAA's motion vectors compare this frame's position with `positionPrevious`. Vegetation instances never move
+    // and share programs without previous instance data (render/rigidVelocity.ts), so the wind writes it: the same
+    // instance position swayed at the previous frame's time. Without it every swaying vertex reported its whole
+    // wind offset (up to 0.3 m) as motion and TRAA fetched the crowns' history from the wrong place.
     const wind = (flutterScale: number) => Fn(builder => {
-      if ((builder as unknown as { needsPreviousData(): boolean }).needsPreviousData())
-        positionPrevious.assign(positionPrevious.add(offset(positionPrevious, this.windTimePrevious)(flutterScale)));
+      const mrt = (builder as unknown as { renderer: { getMRT(): { has(name: string): boolean } | null } }).renderer.getMRT();
+      if (mrt?.has('velocity')) positionPrevious.assign(positionLocal.add(offset(positionLocal, this.windTimePrevious)(flutterScale)));
       return positionLocal.add(offset(positionLocal, this.windTime)(flutterScale));
     })();
     // Chain-link mips still need runtime coverage compensation; foliage is calibrated offline per atlas cell.
