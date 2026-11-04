@@ -1,4 +1,4 @@
-"""props.seating: benches against the survey and barriers; furniture@1's collision splice."""
+"""props.seating: benches against the survey, barriers and ways; furniture@2's collision splice."""
 
 import math
 from collections import Counter
@@ -101,6 +101,57 @@ def test_far_from_barriers_a_bench_faces_the_water():
     b = bench(0.0, 0.0, yaw=math.pi)
     seating.place([b], None, water=[river])
     assert b.orientation == "water_view" and angle(b.yaw, 0.0) < 1
+
+
+PATH, STREET = 1, 2 | 1 | 1 << 3  # roads FOOT; CAR | FOOT | class 1
+
+
+def graph(*ways):
+    """An encoded street graph: each way is (flags, (x0, z0), (x1, z1))."""
+    nodes, edges = [], []
+    for flags, a, b in ways:
+        edges.append([len(nodes) // 2, len(nodes) // 2 + 1, flags, 0])
+        nodes += [*a, *b]
+    return {"nodes": nodes, "edges": edges}
+
+
+def test_beside_a_footpath_a_bench_lines_up_with_it_and_faces_it():
+    path = graph((PATH, (-20, 3.0), (20, 3.0)))
+    b = bench(0.0, 0.0, yaw=math.radians(70))  # across the path, the register heading
+    stats = Counter()
+    assert seating.place([b], None, roads=path, stats=stats) == [b]
+    assert b.orientation == "path_side" and angle(b.yaw, 0.0) < 1  # front +z toward the path
+    assert stats["bench_path_side"] == 1
+
+
+def test_an_unconfirmed_bench_is_kept_and_turned_to_the_path():
+    survey = cloud(ground(-8, -8, 8, 8))
+    b = bench(0.0, 0.0, yaw=math.radians(200))
+    stats = Counter()
+    kept = seating.place([b], survey, roads=graph((PATH, (-20, -2.5), (20, -2.5))), stats=stats)
+    assert kept == [b] and stats["bench_lidar_absent_candidate"] == 1
+    assert b.orientation == "path_side" and angle(b.yaw, math.pi) < 1
+
+
+def test_near_a_street_without_a_nearer_path_the_back_is_to_the_kerb():
+    roads = graph((STREET, (-30, 6.0), (30, 6.0)), (PATH, (-30, -7.0), (30, -7.0)))
+    b = bench(0.0, 0.0, yaw=0.4)
+    seating.place([b], None, roads=roads)
+    assert b.orientation == "back_to_kerb" and angle(b.yaw, math.pi) < 1
+
+
+def test_far_from_everything_a_bench_faces_the_nearest_way_square_on():
+    roads = graph((STREET, (10, -30), (60, 20)))  # diagonal street 28 m away
+    b = bench(0.0, 0.0, yaw=0.0)
+    seating.place([b], None, roads=roads)
+    assert b.orientation == "way_view" and angle(b.yaw, math.radians(135)) < 1
+
+
+def test_a_bench_on_a_path_centreline_keeps_its_side():
+    roads = graph((PATH, (-20, 0.0), (20, 0.0)))
+    b = bench(0.0, 0.1, yaw=math.radians(160))  # register point on the path, heading -z-ish
+    seating.place([b], None, roads=roads)
+    assert b.orientation == "path_side" and angle(b.yaw, math.pi) < 1
 
 
 def test_nothing_near_keeps_the_street_heading():
