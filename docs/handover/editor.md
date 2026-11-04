@@ -92,7 +92,7 @@ browser refuses it (Chrome may want a key or click, not a gamepad press, as user
 selected in its field and the dialog says "press ⌘+C / Ctrl+C".
 
 The summary is about ten lines: a header, one line per prop type and net action, and a pointer to the full rows.
-This is the summary of the real session `20261103-222447-fnf9i8` (it was recorded before reasons were saved):
+This is the summary of the real session `20261103-222447-fnf9i8`:
 
 ```
 Edit session 20261103-222447-fnf9i8 · localhost:5220 · build 1b0c2ea8 · 2026-11-04 00:24–00:41 UTC+2 · 42 edited objects
