@@ -17,7 +17,8 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
 * Resumable: a tile finished earlier is kept (``migrate_tile``'s ready check), so a stopped pass resumes.
 * Survey: a tile whose catalog-listed survey blocks are not all on disk waits (re-checked every
   ``--survey-interval`` s, for at most ``--wait-hours``): migrated without them it would stay without wires and
-  crowns. ``--supply DIR`` hard-links missing blocks from DIR when size and SHA-256 match the base's catalog.
+  crowns. ``--supply DIR`` hard-links missing blocks from DIR when size and SHA-256 match the base's catalog, or copies
+  them when DIR is on another filesystem (lidarpc's downloads sit on the bulk HDD).
 * ``--checkpoint STEP`` stores each tile's product after STEP too (``tile_migrate.checkpoint``): a later chain that
   changes only the steps after STEP resumes from it instead of redoing the costly steps before.
 * Logs in ``farm/migrations/<generation>/``: ``pass.jsonl`` (one line per tile: state, wall and CPU seconds, each
@@ -80,8 +81,8 @@ class Survey:
 
     A block the catalog lists but the data root lacks makes the tile wait: migrated without it, the tile would be
     kept without wires or crowns for good (the ready check never looks again). With ``supply`` directories, such a
-    block is hard-linked in from there once its size and SHA-256 match the catalog (the same bytes the version names,
-    as the bulk generation had them)."""
+    block is hard-linked (across filesystems: copied) in from there once its size and SHA-256 match the catalog (the
+    same bytes the version names, as the bulk generation had them)."""
 
     def __init__(self, supply=(), log: Path | None = None):
         from turku3d import config as C
@@ -102,31 +103,58 @@ class Survey:
         return [n for n in names if n in self.catalog and not (self.root / f"{n}.laz").is_file() and not self._link(n)]
 
     def _link(self, name: str) -> bool:
-        import hashlib
-
         want = self.catalog[name]
+        target = self.root / f"{name}.laz"
         for directory in self.supply:
             path = directory / f"{name}.laz"
             if not path.is_file() or path.stat().st_size != want["bytes"]:
                 continue
-            digest = hashlib.sha256()
-            with path.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(1 << 22), b""):
-                    digest.update(chunk)
-            if digest.hexdigest() != want["sha256"]:
+            method = supply_block(path, target, want["sha256"])
+            if method is None:
                 continue
-            try:
-                os.link(path, self.root / f"{name}.laz")
-            except FileExistsError:
-                pass
             self.linked += 1
             if self.log is not None:
                 with self.log.open("a") as out:
                     out.write(json.dumps(dict(block=name, bytes=want["bytes"], sha256=want["sha256"], source=str(path),
-                                              target=str(self.root / f"{name}.laz"),
+                                              target=str(target), method=method,
                                               at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))) + "\n")
             return True
         return False
+
+
+def supply_block(path: Path, target: Path, sha256: str, link: bool | None = None) -> str | None:
+    """Put ``path`` at ``target`` when its SHA-256 is ``sha256``: a hard link on the same filesystem, else a copy
+    hashed as it is written (one read; the supply sits on the bulk HDD, the farm on the SSD). The copy appears under
+    its final name only once complete and verified. Returns ``'link'``, ``'copy'`` or None (digest mismatch)."""
+    import hashlib
+
+    digest = hashlib.sha256()
+    if link is None:
+        link = path.stat().st_dev == target.parent.stat().st_dev
+    if link:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 22), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != sha256:
+            return None
+        try:
+            os.link(path, target)
+        except FileExistsError:
+            pass
+        return "link"
+    partial = target.with_name(f".{target.name}.{os.getpid()}.part")
+    try:
+        with path.open("rb") as stream, partial.open("wb") as out:
+            for chunk in iter(lambda: stream.read(1 << 22), b""):
+                digest.update(chunk)
+                out.write(chunk)
+        if digest.hexdigest() != sha256:
+            return None
+        shutil.copystat(path, partial)
+        os.replace(partial, target)
+        return "copy"
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def _work(args):
@@ -225,7 +253,7 @@ def main():
     parser.add_argument('--radius', type=int, help='only tiles within this many rings of t0_0_0')
     parser.add_argument('--estimate', action='store_true')
     parser.add_argument('--supply', action='append', default=[],
-                        help='directory of pistepilvi LAZ blocks to hard-link in when they match the catalog')
+                        help='directory of pistepilvi LAZ blocks to link (or copy) in when they match the catalog')
     parser.add_argument('--no-survey-wait', action='store_true', help='migrate tiles whose survey blocks are missing')
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')

@@ -87,6 +87,22 @@ def test_a_tile_waits_for_catalogued_survey_blocks_and_takes_verified_ones(tmp_p
     assert survey.missing("t0_0_0") == []
 
 
+def test_a_supplied_block_on_another_filesystem_is_copied_only_when_verified(tmp_path):
+    import hashlib
+
+    source, target = tmp_path / "bulk" / "b.laz", tmp_path / "farm" / "b.laz"
+    source.parent.mkdir()
+    target.parent.mkdir()
+    source.write_bytes(b"block bytes")
+    assert city.supply_block(source, target, hashlib.sha256(b"other").hexdigest(), link=False) is None
+    assert list(target.parent.iterdir()) == []  # no partial copy left behind
+    assert city.supply_block(source, target, hashlib.sha256(b"block bytes").hexdigest(), link=False) == "copy"
+    assert target.read_bytes() == b"block bytes" and target.stat().st_ino != source.stat().st_ino
+    linked = tmp_path / "farm" / "c.laz"
+    assert city.supply_block(source, linked, hashlib.sha256(b"block bytes").hexdigest()) == "link"
+    assert linked.stat().st_ino == source.stat().st_ino
+
+
 def test_a_lane_walks_its_ring_from_block_to_neighbouring_block():
     pending = sorted(["t0_0_0", "t0_1_1", "t0_-1_0", "t0_2_0", "t0_3_1", "t0_-2_-2", "t0_2_2"],
                      key=lambda t: (city.ring(t), t))

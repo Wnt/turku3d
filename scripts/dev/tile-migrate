@@ -75,7 +75,7 @@ def main():
         if name == 'parity':
             p.add_argument('--generated', required=True,
                            help='alias of the generator at the migration commit, same source version')
-        if name in ('apply', 'run'):
+        if name in ('apply', 'run', 'pass'):
             p.add_argument('--code', help='newer runner snapshot (git ref); its transform code must match')
         if name == 'run':
             p.add_argument('--jobs', type=int, default=6)
