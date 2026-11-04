@@ -128,7 +128,7 @@ describe('vegetation LOD', () => {
     const source = (b: THREE.InstancedMesh) => library.asset(b.userData.nature).lods[b.userData.shadowProxy ? 1 : b.userData.level];
     expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === base(b)))).toBe(true);
     // Drawn levels use their cross-fade variant; shadow proxies cast with the plain library material.
-    expect(batches.every(b => b.userData.shadowProxy ? b.material === base(b) : (b.material as THREE.Material).name.endsWith(`@L${b.userData.level}`))).toBe(true);
+    expect(batches.every(b => b.userData.shadowProxy ? b.material === base(b) : /@L(\d)(\+clear)?$/.exec((b.material as THREE.Material).name)?.[1] === String(b.userData.level))).toBe(true);
     const visible = batches.filter(m => m.visible);
     expect(visible.length).toBeGreaterThan(0);
     expect(drawn(batches)).toBeLessThan(mesh.count);
