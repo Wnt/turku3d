@@ -2,7 +2,8 @@
 
 Each entry runs at the end of every generator build and over existing farm products."""
 
-from . import chain_record, floodlights, furniture, landmark_windows, racks, shell_look, signals, signs, stand_roofs, trees_lidar, wires
+from . import (chain_record, finished_ground, floodlights, furniture, landmark_windows, racks, shell_look, signals,
+               signs, stand_roofs, trees_lidar, wires)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -17,4 +18,6 @@ CHAIN = (
     shell_look.MIGRATION,
     signals.MIGRATION,
     signs.MIGRATION,
+    # Spot rebuild of the tiles whose ground the finished-ground rule changes (ground.finished).
+    finished_ground.MIGRATION,
 )

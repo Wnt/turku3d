@@ -52,10 +52,18 @@ def height_sampler(tile, heights, root, sources):
     """Use the owning tile's measured grid on both sides of a visual-tile seam."""
     from turku3d import config as C
 
-    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save
+    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save, finished_sources, with_finished_ground
     from .surfaces import grid_height
 
     grids = {tile.id: heights}
+
+    def prepared(owner, dataset, paths):
+        path, key = _entry(root, owner, dataset, paths)
+        data = _load(path, key)
+        if data is _ABSENT:
+            data = _prepare_one(owner, dataset, paths)
+            _save(path, key, data)
+        return data
 
     def sample(x, z):
         b = tile.bbox
@@ -69,11 +77,10 @@ def height_sampler(tile, heights, root, sources):
                 return grid_height(tile, heights, min(max(x, b.xmin), b.xmax), min(max(z, b.zmin), b.zmax))
             if missing:
                 raise ValueError(f"Kerb seam needs ground inputs for {owner.id}")
-            path, key = _entry(root, owner, "ground", paths)
-            data = _load(path, key)
-            if data is _ABSENT:
-                data = _prepare_one(owner, "ground", paths)
-                _save(path, key, data)
+            # The owner's own grid, over its finished ground like the owner's build.
+            data = with_finished_ground(owner, prepared(owner, "ground", paths),
+                                        prepared(owner, "finished_ground",
+                                                 finished_sources(owner, sources, paths)))
             grids[owner.id] = data["heights"]
         return grid_height(owner, grids[owner.id], x, z)
 

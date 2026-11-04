@@ -1,0 +1,464 @@
+"""Finished ground: construction-era lidar ground replaced by the finished surface.
+
+The city lidar is from 2021-04-17 (``data-manifests/sources.yaml`` ``laz.epoch``). Streets and squares
+rebuilt around then (Kauppatori 2019-2022) were caught mid-construction: trenches, excavations and
+spoil heaps in what the newer city records describe as a finished paved surface. One city-wide rule,
+shared by the generator's ground input (``coarse.inputs``) and the ``finished-ground`` tile step:
+
+1. **Finished-state zones.** ``GIS:Katualueet`` street parts whose completion or renovation year
+   (``Valmistumisvuosi``, ``Peruskorjausvuosi``) is the lidar's year or later, except stairs, bridges,
+   bridge ramps, tunnels and underpasses (their relief is real). The register calls all of them paved
+   (``Olotila``).
+2. **Construction-era ground.** Inside a zone, ground more than ``DEPTH`` below its morphological
+   closing (a pit or trench narrower than the scale; steps and planes are unchanged by a closing) at
+   1, 2 and 4 m rasters up to 40 m radius, or more than ``DEPTH`` above its opening at ``BUMP_RADIUS``
+   (a lump; wider raised areas stay), or more than ``DEPTH`` off a base-map spot height
+   (``kanta:Korkeuspiste``) surveyed after the lidar. Building footprints act as walls at the
+   highest ground next to them, so an excavation against a facade is still a pit. A site is a
+   connected region with at least ``MIN_CORE`` m2 of such ground, grown by ``GROW`` m through ground
+   at least ``EDGE`` off its closing or opening, at most ``REACH`` m outside the zone.
+3. **Finished surface.** The site, the excavation next to it and the ground under nearby footprints
+   are filled by a biharmonic (thin-plate) surface that meets the surrounding lidar with its slope
+   and passes through the post-lidar spot heights inside it. Everything else keeps its lidar.
+
+Seams: the rule runs in canonical windows (one level-0 tile plus ``BAND`` + ``PAD`` m, from the
+complete source rows and the key points in that region) and neighbouring windows are blended with a
+partition of unity over a ``2 * BAND`` m band. Every tile therefore computes identical heights where
+tiles overlap. ``apply`` replaces the tile's key points in changed ground with a 2 m lattice of the
+finished surface; every consumer of the ground key points and grid sees the finished ground.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import numpy as np
+import shapely
+
+from turku3d import config as C
+
+EPOCH = "2021-04-17"  # data-manifests/sources.yaml laz.epoch
+EPOCH_YEAR = 2021
+STRUCTURES = frozenset({"Portaat", "Silta", "Siltaluiska", "Tunneli", "Alikulkukäytävä"})
+DEPTH = 0.4  # m off the finished surface: construction, not paving relief (kerbs are 0.10-0.16 m)
+EDGE = 0.1  # m: a site grows through ground at least this far off
+GROW = 2  # m a site grows from its core
+PIT_SCALES = ((1, (4, 8)), (2, (8, 13)), (4, (10,)))  # (raster step m, closing radii in its cells)
+BUMP_RADIUS = 3  # m: an opening at this radius removes spoil heaps, not raised platforms or quays
+REACH = 6  # m a site may extend past its zone (the excavation reaches the facades)
+FREE_REACH = 15  # m: excavation and footprint ground this near a site is filled with it
+GROW_ROUNDS = 5  # rounds of FREE_REACH in which lower ground next to a site joins it
+WALL_RING = 6  # m: a footprint stands at the highest ground within this of it
+MIN_CORE = 8  # m2 of construction ground per site
+SPOT_WEIGHT = 3.0
+SPOT_SEED = 12  # m around a disagreeing spot height
+BAND = 25.0  # m half width of the blend band between windows
+PAD = 60.0  # m of data around a window's blend band (covers the 40 m closing and the fill)
+POINT_PAD = 10.0  # m of key points beyond a window's raster (the TIN's hull)
+LATTICE = 2  # m spacing of the replacement points
+CHANGED = 0.01  # m: ground that moved less keeps its lidar key points
+MARGIN = 20.0  # m: the tile's key-point window (coarse.sources.POINT_MARGIN)
+REGION = C.visual_tile_size(0) + BAND + PAD + POINT_PAD  # m around a tile: its windows' data
+
+
+@dataclass
+class Evidence:
+    """Source rows for one tile's windows, in engine-local metres."""
+
+    zones: list = field(default_factory=list)  # (polygon, attrs) renovated paved street parts
+    structures: list = field(default_factory=list)  # stairs, bridges, ramps, tunnels: never filled
+    spots: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # x, z, height after EPOCH
+    footprints: list = field(default_factory=list)  # building footprint polygons
+    points: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # key points x, y, z
+
+    def near(self, bbox: C.BBoxLocal) -> bool:
+        box = shapely.box(*bbox.as_tuple())
+        return any(g.intersects(box) for g, _ in self.zones)
+
+
+# -- sources ----------------------------------------------------------------------------------------
+
+
+def zone_rows(frame) -> tuple[list, list]:
+    """(zones, structures): (polygon, attrs) of the finished-state zones in a GIS:Katualueet frame,
+    and the polygons of every stair, bridge, ramp, tunnel and underpass part."""
+    out, structures = [], []
+    for geom, kind, built, renovated, material, key in zip(
+        frame.geometry_local, frame.Katuosalaji, frame.Valmistumisvuosi, frame.Peruskorjausvuosi,
+        frame.Pintamateriaali, frame.feature_key, strict=True
+    ):
+        if geom is None:
+            continue
+        year = max(_year(built), _year(renovated))
+        geom = shapely.make_valid(shapely.force_2d(geom))
+        polys = [g for g in getattr(geom, "geoms", [geom]) if g.geom_type == "Polygon" and g.area > 0]
+        if str(kind) in STRUCTURES:
+            structures.extend(polys)
+            continue
+        if year < EPOCH_YEAR:
+            continue
+        for poly in polys:
+            out.append((poly, {"key": str(key), "kind": str(kind), "year": year, "material": str(material)}))
+    return out, structures
+
+
+def _year(value) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def spot_rows(frame) -> np.ndarray:
+    rows = [
+        (float(p.x), float(p.y), float(z))
+        for p, z, date in zip(frame.geometry_local, frame.korkeus, frame.alkuPvm, strict=True)
+        if p is not None and p.geom_type == "Point" and str(date) > EPOCH and _finite(z)
+    ]
+    return np.asarray(sorted(set(rows)), np.float64).reshape(-1, 3)
+
+
+def _finite(value) -> bool:
+    try:
+        return bool(np.isfinite(float(value)))
+    except (TypeError, ValueError):
+        return False
+
+
+def footprint_rows(frame) -> list:
+    from turku3d.buildings.source_surfaces import classify_surfaces
+
+    frame = classify_surfaces(frame)
+    frame = frame[frame.surface_type == "GroundSurface"]
+    out = []
+    for _, group in frame.groupby("feature_key", sort=True):
+        footprint = shapely.make_valid(shapely.union_all([shapely.force_2d(g) for g in group.geometry_local]))
+        out.extend(g for g in getattr(footprint, "geoms", [footprint]) if g.geom_type == "Polygon")
+    return out
+
+
+def load(tile: C.VisualTile, streets, spots, buildings, laz) -> Evidence:
+    """Evidence for ``tile``'s windows from complete source rows (each feature once)."""
+    import pandas as pd
+
+    from turku3d.spatial import frame as spatial_frame
+
+    bbox = tile.bbox.buffered(REGION)
+
+    def rows(paths, whole=False):
+        frames = [spatial_frame(p, bbox, whole_features=whole) for p in paths if p]
+        frames = [f for f in frames if len(f)]
+        if not frames:
+            return None
+        merged = pd.concat(frames, ignore_index=True)
+        subset = ["feature_key", "geom_index"] if "geom_index" in merged else ["feature_key"]
+        return merged.drop_duplicates(subset=subset).sort_values(subset, kind="stable")
+
+    street_frame = rows(streets)
+    zones, structures = zone_rows(street_frame) if street_frame is not None else ([], [])
+    evidence = Evidence(zones=zones, structures=structures)
+    if not evidence.near(tile.bbox.buffered(BAND + REACH + 1)):
+        return evidence  # no zone reaches the tile: nothing else is read
+    spot_frame = rows(spots)
+    evidence.spots = spot_rows(spot_frame) if spot_frame is not None else evidence.spots
+    building_frame = rows(buildings, whole=True)
+    evidence.footprints = footprint_rows(building_frame) if building_frame is not None else []
+    evidence.points = key_points(laz, bbox)
+    return evidence
+
+
+def key_points(paths, bbox: C.BBoxLocal) -> np.ndarray:
+    """Ground key points (engine x, y, z) in ``bbox``, deduplicated in canonical order."""
+    from turku3d.lidar.decoded import columns, source
+
+    e0, n0, e1, n1 = bbox.to_en().as_tuple()
+    chunks = []
+    for path in sorted(paths):
+        las = columns(source(path))
+        e, n, h = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z)
+        keep = (e >= e0) & (e <= e1) & (n >= n0) & (n <= n1)
+        classes = np.asarray(las.classification)[keep]
+        x, y, z = C.en_to_local(e[keep], n[keep], h[keep])
+        chunks.append(np.column_stack([x, y, z])[~np.isin(classes, [3, 4, 5])])
+    points = np.concatenate(chunks) if chunks else np.empty((0, 3))
+    return np.unique(points, axis=0)
+
+
+# -- one window -------------------------------------------------------------------------------------
+
+
+@dataclass
+class Window:
+    x0: float
+    z0: float
+    base: np.ndarray  # lidar TIN on the window's 1 m lattice (row = z)
+    solved: np.ndarray  # finished surface
+    sites: list  # per site: lattice mask and statistics
+
+
+def _disk(r):
+    yy, xx = np.mgrid[-r : r + 1, -r : r + 1]
+    return xx * xx + yy * yy <= r * r
+
+
+def _inside(geoms, xs, zs):
+    gx, gz = np.meshgrid(xs, zs)
+    out = np.zeros(gx.shape, bool)
+    if geoms:
+        union = shapely.union_all(list(geoms))
+        shapely.prepare(union)
+        out = shapely.contains_xy(union, gx, gz) | shapely.intersects_xy(union, gx, gz)
+    return out
+
+
+def _tin(points, xs, zs):
+    from scipy.interpolate import LinearNDInterpolator
+    from scipy.spatial import cKDTree
+
+    gx, gz = np.meshgrid(xs, zs)
+    query = np.column_stack([gx.ravel(), gz.ravel()])
+    h = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])(query)
+    missing = ~np.isfinite(h)
+    if missing.any():
+        _, nearest = cKDTree(points[:, [0, 2]]).query(query[missing])
+        h[missing] = points[nearest, 1]
+    return h.reshape(gz.shape)
+
+
+def _scaled(h, step, op, radius):
+    from scipy import ndimage as ndi
+
+    coarse = op(h[::step, ::step], footprint=_disk(radius), mode="nearest")
+    return np.repeat(np.repeat(coarse, step, 0), step, 1)[: h.shape[0], : h.shape[1]]
+
+
+def detect(h, zone, footprints, spots_rc):
+    """(pit, bump, core) rasters: construction ground per the rule's step 2."""
+    from scipy import ndimage as ndi
+
+    walls = h.copy()
+    if footprints.any():
+        ring = ndi.grey_dilation(np.where(footprints, -np.inf, h), footprint=_disk(WALL_RING), mode="nearest")
+        walls[footprints] = np.where(np.isfinite(ring[footprints]), ring[footprints], h[footprints])
+    pit = np.zeros_like(h)
+    for step, radii in PIT_SCALES:
+        for r in radii:
+            pit = np.maximum(pit, _scaled(walls, step, ndi.grey_closing, r) - h)
+    bump = np.where(footprints, 0.0, h - ndi.grey_opening(walls, footprint=_disk(BUMP_RADIUS), mode="nearest"))
+    core = zone & ~footprints & ((pit > DEPTH) | (bump > DEPTH))
+    rows, cols = np.ogrid[: h.shape[0], : h.shape[1]]
+    for r, c, level in spots_rc:
+        seed = (rows - r) ** 2 + (cols - c) ** 2 <= SPOT_SEED * SPOT_SEED
+        core |= seed & zone & ~footprints & (np.abs(h - level) > DEPTH)
+    return pit, bump, core
+
+
+def _biharmonic(h, free, spots_rc):
+    """``h`` with the ``free`` cells replaced by the least-squares thin-plate fill (spots as soft rows)."""
+    import scipy.sparse as sp
+    from scipy import ndimage as ndi
+    from scipy.sparse.linalg import spsolve
+
+    rows_n, cols_n = h.shape
+    unknown = np.flatnonzero(free.ravel())
+    index = np.full(h.size, -1)
+    index[unknown] = np.arange(len(unknown))
+    support = np.flatnonzero(ndi.binary_dilation(free, iterations=1).ravel())
+    r, c = np.divmod(support, cols_n)
+    entries_r, entries_c, entries_v = [], [], []
+    for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        rr, cc = np.clip(r + dr, 0, rows_n - 1), np.clip(c + dc, 0, cols_n - 1)
+        entries_r += [np.arange(len(support)), np.arange(len(support))]
+        entries_c += [rr * cols_n + cc, support]
+        entries_v += [np.ones(len(support)), -np.ones(len(support))]
+    lap = sp.csr_matrix(
+        (np.concatenate(entries_v), (np.concatenate(entries_r), np.concatenate(entries_c))),
+        shape=(len(support), h.size),
+    )
+    flat = h.ravel()
+    is_unknown = index >= 0
+    a = lap[:, is_unknown]
+    b = -(lap[:, ~is_unknown] @ flat[~is_unknown])
+    spot_rows = [(index[rr * cols_n + cc], level) for rr, cc, level in spots_rc if free[rr, cc]]
+    if spot_rows:
+        s = sp.csr_matrix(
+            (np.full(len(spot_rows), SPOT_WEIGHT), (np.arange(len(spot_rows)), [k for k, _ in spot_rows])),
+            shape=(len(spot_rows), len(unknown)),
+        )
+        a = sp.vstack([a, s])
+        b = np.r_[b, [SPOT_WEIGHT * level for _, level in spot_rows]]
+    a = a.tocsr()
+    x = spsolve((a.T @ a).tocsc(), a.T @ b)
+    out = flat.copy()
+    out[unknown] = x
+    return out.reshape(h.shape)
+
+
+def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
+    """The rule over one canonical window; None when no zone reaches its blend band."""
+    from scipy import ndimage as ndi
+
+    if not evidence.near(window.bbox.buffered(BAND + REACH + 1)):
+        return None
+    b = window.bbox.buffered(BAND + PAD)
+    xs = np.arange(b.xmin, b.xmax + 0.5, 1.0)
+    zs = np.arange(b.zmin, b.zmax + 0.5, 1.0)
+    p = evidence.points
+    near = (
+        (p[:, 0] >= b.xmin - POINT_PAD) & (p[:, 0] <= b.xmax + POINT_PAD)
+        & (p[:, 2] >= b.zmin - POINT_PAD) & (p[:, 2] <= b.zmax + POINT_PAD)
+    )
+    if near.sum() < 16:
+        return None
+    h = _tin(p[near], xs, zs)
+    zone = _inside([g for g, _ in evidence.zones if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
+    footprints = _inside(
+        [g for g in evidence.footprints if g.intersects(shapely.box(*b.as_tuple()))], xs, zs
+    )
+    s = evidence.spots
+    inside = (s[:, 0] >= xs[0]) & (s[:, 0] <= xs[-1]) & (s[:, 1] >= zs[0]) & (s[:, 1] <= zs[-1])
+    spots_rc = [
+        (int(round(z - zs[0])), int(round(x - xs[0])), float(y)) for x, z, y in s[inside]
+    ]
+    spots_rc = [(r, c, y) for r, c, y in spots_rc if zone[r, c] and not footprints[r, c]]
+    pit, bump, core = detect(h, zone, footprints, spots_rc)
+    reach = ndi.binary_dilation(zone, structure=_disk(REACH)) & ~footprints
+    grown = ndi.binary_dilation(core, structure=_disk(GROW)) & ((pit > EDGE) | (bump > EDGE)) & reach
+    mask = core | grown
+    labels, count = ndi.label(mask)
+    if not count:
+        return Window(xs[0], zs[0], h, h, [])
+    core_area = ndi.sum(core, labels, np.arange(1, count + 1))
+    keep = np.r_[False, core_area >= MIN_CORE]
+    mask = keep[labels]
+    if not mask.any():
+        return Window(xs[0], zs[0], h, h, [])
+    blocked = _inside([g for g in evidence.structures if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
+    buildings, _ = ndi.label(footprints)
+
+    def touching(region):
+        """Whole footprints that reach ``region``: no ground is observed under a building, so its
+        lidar grid is only the interpolation of whatever surrounds it (here, the excavation)."""
+        ids = np.unique(buildings[region & footprints])
+        return np.isin(buildings, ids[ids > 0])
+
+    for _ in range(GROW_ROUNDS):
+        band = ndi.binary_dilation(mask, structure=_disk(FREE_REACH)) & ~mask & ~blocked
+        trial = _biharmonic(h, mask | band | touching(band), spots_rc)
+        join = band & ~footprints & (trial - h > DEPTH)
+        join = ndi.binary_propagation(mask, mask=mask | join) & join
+        if not join.any():
+            break
+        mask |= join
+    near_site = ndi.binary_dilation(mask, structure=_disk(FREE_REACH))
+    free = mask | touching(near_site)
+    solved = _biharmonic(h, free, spots_rc)
+    labels, count = ndi.label(free)
+    sites = []
+    for k in range(1, count + 1):
+        cells = labels == k
+        if not (cells & mask).any():
+            continue
+        sites.append({"cells": cells, "site": cells & mask})
+    return Window(xs[0], zs[0], h, solved, sites)
+
+
+# -- a tile -----------------------------------------------------------------------------------------
+
+
+def _ramp(v, low, high):
+    """Partition-of-unity weight of the window [low, high] along one axis."""
+    return np.clip((v - (low - BAND)) / (2 * BAND), 0, 1) * np.clip(((high + BAND) - v) / (2 * BAND), 0, 1)
+
+
+def windows(tile: C.VisualTile):
+    return [C.VisualTile(0, tile.i + di, tile.j + dj) for dj in (-1, 0, 1) for di in (-1, 0, 1)]
+
+
+def surface(tile: C.VisualTile, evidence: Evidence, xs, zs, solved_windows=None):
+    """(finished heights, lidar heights, changed mask, per-window results) on the nodes xs x zs."""
+    solved_windows = solved_windows if solved_windows is not None else {
+        w.id: solve_window(w, evidence) for w in windows(tile)
+    }
+    gx, gz = np.meshgrid(xs, zs)
+    finished = np.zeros(gx.shape)
+    lidar = np.zeros(gx.shape)
+    weight = np.zeros(gx.shape)
+    delta = np.zeros(gx.shape)
+    for w in windows(tile):
+        b = w.bbox
+        phi = _ramp(gx, b.xmin, b.xmax) * _ramp(gz, b.zmin, b.zmax)
+        result = solved_windows.get(w.id)
+        weight += phi
+        if result is None:
+            continue
+        c = np.clip(np.round(gx - result.x0).astype(int), 0, result.base.shape[1] - 1)
+        r = np.clip(np.round(gz - result.z0).astype(int), 0, result.base.shape[0] - 1)
+        delta += phi * (result.solved[r, c] - result.base[r, c])
+        finished += phi * result.solved[r, c]
+        lidar += phi * result.base[r, c]
+    covered = np.abs(weight - 1) < 1e-9
+    changed = covered & (np.abs(delta) > CHANGED)
+    return finished, lidar, changed, solved_windows
+
+
+def apply(tile: C.VisualTile, points: np.ndarray, evidence: Evidence | None):
+    """(key points, report): ``points`` with the construction-era ground of the tile's key-point
+    window replaced by the finished surface; the same array and None where nothing changes."""
+    from scipy import ndimage as ndi
+
+    if evidence is None or not evidence.zones or not evidence.near(tile.bbox.buffered(MARGIN + BAND + REACH)):
+        return points, None
+    b = tile.bbox.buffered(MARGIN)
+    xs = np.arange(b.xmin, b.xmax + 0.5, 1.0)
+    zs = np.arange(b.zmin, b.zmax + 0.5, 1.0)
+    finished, lidar, changed, results = surface(tile, evidence, xs, zs)
+    if not changed.any():
+        return points, None
+    replaced = ndi.binary_dilation(changed, structure=_disk(LATTICE))
+    c = np.clip(np.round(points[:, 0] - xs[0]).astype(int), 0, len(xs) - 1)
+    r = np.clip(np.round(points[:, 2] - zs[0]).astype(int), 0, len(zs) - 1)
+    inside = (points[:, 0] >= b.xmin) & (points[:, 0] <= b.xmax) & (points[:, 2] >= b.zmin) & (points[:, 2] <= b.zmax)
+    drop = inside & replaced[r, c]
+    lattice = replaced & ((np.round(xs) % LATTICE == 0)[None, :]) & ((np.round(zs) % LATTICE == 0)[:, None])
+    lr, lc = np.nonzero(lattice)
+    added = np.column_stack([xs[lc], np.round(finished[lr, lc], 3), zs[lr]])
+    out = np.concatenate([points[~drop], added])
+    return out, report(tile, xs, zs, finished, lidar, changed, results, int(drop.sum()), len(added))
+
+
+def report(tile, xs, zs, finished, lidar, changed, results, dropped, added):
+    """Per-tile statistics: area changed inside the tile and the sites it touches."""
+    t = tile.bbox
+    own = ((xs >= t.xmin) & (xs < t.xmax))[None, :] & ((zs >= t.zmin) & (zs < t.zmax))[:, None]
+    diff = (finished - lidar)[changed & own]
+    own_window = results.get(tile.id)
+    box = shapely.box(*t.as_tuple())
+    sites = []
+    for site in own_window.sites if own_window is not None else ():
+        rr, cc = np.nonzero(site["site"])
+        x, z = cc + own_window.x0, rr + own_window.z0
+        if not shapely.intersects_xy(box, x, z).any():
+            continue
+        cells = site["cells"]
+        rise = own_window.solved[cells] - own_window.base[cells]
+        e, n, _ = C.local_to_en(float(np.mean(x)), 0.0, float(np.mean(z)))
+        sites.append({
+            "centre_en": [round(float(e)), round(float(n))],
+            "bbox_en": [round(float(v)) for v in (*C.local_to_en(x.min(), 0, z.max())[:2],
+                                                  *C.local_to_en(x.max(), 0, z.min())[:2])],
+            "area_m2": int(site["site"].sum()),
+            "filled_m2": int(cells.sum()),
+            "max_raise_m": round(float(rise.max()), 2),
+            "max_lower_m": round(float(-rise.min()), 2),
+        })
+    return {
+        "changed_m2": int((changed & own).sum()),
+        "raised_m2": int((diff > CHANGED).sum()),
+        "lowered_m2": int((diff < -CHANGED).sum()),
+        "max_raise_m": round(float(diff.max()), 2) if len(diff) else 0.0,
+        "max_lower_m": round(float(-diff.min()), 2) if len(diff) else 0.0,
+        "key_points_replaced": dropped,
+        "lattice_points": added,
+        "sites": sites,
+    }
