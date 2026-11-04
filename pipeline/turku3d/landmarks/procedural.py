@@ -68,11 +68,11 @@ def masonry(width, height, spec, seed, density=40):
     return rgb, relief * 0.008 + grain * 0.00015
 
 
-def fieldstone(width, height, spec, seed):
+def fieldstone(width, height, spec, seed, density=40):
     """Jittered Voronoi rubble, with independent rounded joints and physical scale."""
     from scipy.ndimage import distance_transform_edt
 
-    rgb, relief = masonry(width, height, spec, seed)
+    rgb, relief = masonry(width, height, spec, seed, density)
     ny, nx = relief.shape
     bw, bh = spec["size_m"]
     x, y = np.meshgrid(
@@ -104,22 +104,22 @@ def fieldstone(width, height, spec, seed):
     return rgb, body * 0.025 + grain * 0.0006
 
 
-def wall_surface(width, height, d, seed):
+def wall_surface(width, height, d, seed, density=40):
     kind = d.get("wall_material", "brick")
     if kind == "stone":
-        return fieldstone(width, height, d["stone"], seed)
+        return fieldstone(width, height, d["stone"], seed, density)
     if kind in ("render", "concrete"):
-        rgb, relief = masonry(width, height, d["brick"], seed)
+        rgb, relief = masonry(width, height, d["brick"], seed, density)
         noise = np.random.default_rng(seed).normal(0, 1.5, relief.shape)
         return np.asarray(d["brick"]["colour"]) + noise[:, :, None], noise * 0.0003
     if kind == "wood":
-        return masonry(width, height, dict(d["brick"], size_m=[0.16, 100], mortar_m=0.006), seed)
-    return masonry(width, height, d["brick"], seed)
+        return masonry(width, height, dict(d["brick"], size_m=[0.16, 100], mortar_m=0.006), seed, density)
+    return masonry(width, height, d["brick"], seed, density)
 
 
-def roof_surface(width, height, spec, seed):
+def roof_surface(width, height, spec, seed, density=40):
     if spec["material"] in ("copper", "metal", "zinc"):
-        return copper(width, height, spec, seed)
+        return copper(width, height, spec, seed, density)
     return masonry(
         width,
         height,
@@ -131,10 +131,11 @@ def roof_surface(width, height, spec, seed):
             variation=0.2,
         ),
         seed,
+        density,
     )
 
 
-def copper(width, height, spec, seed):
+def copper(width, height, spec, seed, density=40):
     rgb, relief = masonry(
         width,
         height,
@@ -145,6 +146,7 @@ def copper(width, height, spec, seed):
             mortar_colour=[48, 65, 61],
         ),
         seed,
+        density,
     )
     ny, nx = relief.shape
     x, y = np.meshgrid(np.arange(nx) / max(1, nx), np.arange(ny) / max(1, ny))
@@ -199,10 +201,34 @@ def arch(draw, box, fill, pointed=True, rise=None):
         draw.pieslice((left, top, right, top + 2 * head), 180, 360, fill=fill)
 
 
+def window_rows(windows, body_height, storeys=None):
+    """Sill heights (m above the building base) of the main body's window rows.
+
+    A measured ``rows_m`` list is used as is; without the field the measured sill is the one row.
+    An empty list is the reference estimator's answer for uncertain rows (``references.py``
+    prompt), never a measured blank facade: the rows then follow the building's storeys at the
+    measured window size, through the measured sill, one row per storey (the register's storeys,
+    else one per 3.4 m of body height). The storey pitch never makes rows overlap.
+    """
+    rows = windows.get("rows_m")
+    if rows:
+        return sorted(float(r) for r in rows)
+    sill = float(windows["sill_m"])
+    if rows is None:
+        return [sill]
+    height = float(windows["height_m"])
+    count = int(storeys) if storeys and storeys > 0 else max(1, round(body_height / 3.4))
+    pitch = max(body_height / count, height + 0.6)
+    first = min(int(sill // pitch), count - 1)
+    candidates = (round(sill + (i - first) * pitch, 3) for i in range(count))
+    return [r for r in candidates if r >= 0.6 and r + height <= body_height - 0.3]
+
+
 @lru_cache(maxsize=96)
-def wall_maps(width, height, bottom, description_json, tower, seed=7):
+def wall_maps(width, height, bottom, description_json, tower, seed=7, density=40):
+    """One wall's PBR maps; ``density`` is texels per metre (a building's texel budget may lower it)."""
     d = json.loads(description_json)
-    rgb, relief = wall_surface(width, height, d, seed)
+    rgb, relief = wall_surface(width, height, d, seed, density)
     ny, nx = relief.shape
     sx = nx / width
     sy = ny / height
@@ -210,16 +236,16 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
     heights = bottom + height - (np.arange(ny) + 0.5) / sy
     if tower:
         mask = heights < d["tower"]["stone_top_m"]
-        stone, srelief = fieldstone(width, height, d["stone"], seed)
+        stone, srelief = fieldstone(width, height, d["stone"], seed, density)
         rgb[mask] = stone[mask]
         relief[mask] = srelief[mask]
         mask = heights >= d["tower"]["copper_start_m"]
-        metal, mrelief = roof_surface(width, height, d["roof"], seed)
+        metal, mrelief = roof_surface(width, height, d["roof"], seed, density)
         rgb[mask] = metal[mask]
         relief[mask] = mrelief[mask]
     else:
         mask = heights < 1.5
-        stone, srelief = fieldstone(width, height, d["stone"], seed)
+        stone, srelief = fieldstone(width, height, d["stone"], seed, density)
         rgb[mask] = stone[mask]
         relief[mask] = srelief[mask]
     x, y = np.meshgrid(np.arange(nx) / nx, np.arange(ny) / ny)
@@ -314,7 +340,8 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7):
             else None
         )
         count = max(0, int(width / w["spacing_m"]))
-        for low in w.get("rows_m", [w["sill_m"]]):
+        # The caller resolves rows (``window_rows``); bare descriptions keep the measured sill.
+        for low in w.get("rows_m") or [w["sill_m"]]:
             for i in range(count):
                 opening(width * (i + 0.5) / count, low, w["width_m"], w["height_m"], pointed)
     if d.get("show_entrance"):

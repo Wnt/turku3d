@@ -257,3 +257,46 @@ def test_automatic_seed_yields_to_a_public_monolith_with_photographed_blank_wall
     blank = dict(blank=False, panels=False)
     monkeypatch.setattr(facade_monolith, "evidence", lambda key, observed: blank)
     assert descriptions.resolve(museum)["building_id"] == "museum"  # no blank evidence: seed applies
+
+
+def test_unmeasured_window_rows_follow_the_storeys():
+    from turku3d.landmarks.procedural import window_rows
+
+    windows = dict(sill_m=5.7, height_m=2.6, rows_m=[])
+    # The estimator's empty answer means uncertain rows: one row per register storey through the sill.
+    assert window_rows(windows, 19.6, 4) == [0.8, 5.7, 10.6, 15.5]
+    assert window_rows(windows, 20.4) == [2.3, 5.7, 9.1, 12.5, 15.9]  # 3.4 m storeys without a register value
+    # A one-storey hall keeps its single measured row; tall openings never overlap.
+    assert window_rows(dict(sill_m=3.0, height_m=7.0, rows_m=[]), 14.0, 1) == [3.0]
+    assert window_rows(dict(windows, rows_m=[6, 2]), 19.6, 4) == [2.0, 6.0]
+    assert window_rows(dict(sill_m=4.5, height_m=4.6), 30.0, 2) == [4.5]
+
+
+def test_narrow_survey_pieces_share_their_facade_line_openings(tmp_path):
+    from shapely.geometry import box
+    from turku3d import config as C
+    from turku3d.landmarks.descriptions import ROOT
+
+    d = json.loads((ROOT / "103371570S.json").read_text())
+    d.update(building_id="lined", wall_material="render")
+    d["windows"].update(rows_m=[], sill_m=1.0, width_m=1.0, height_m=1.6, spacing_m=2.0)
+    d["tower"]["minimum_height_m"] = 99
+    store = C.work_root() / "landmark-descriptions"
+    store.mkdir(parents=True)
+    (store / "lined.json").write_text(json.dumps(d))
+    b = SimpleNamespace(facade_key="lined", key="lined", base=0.0, top=9.0, attributes={"levels": 3},
+                        footprint=box(0, -8, 12, 0), roof_parts=[])
+    # Twelve 1 m pieces of the z=0 facade, outward-wound (outward normal +z).
+    walls = np.array([[[x + 1, 0, 0], [x, 0, 0], [x, 9, 0], [x + 1, 9, 0]] for x in range(12)], float)
+    meshes = wall_meshes(b, walls, np.zeros(3))
+    lit = [m for m in meshes if not m.repeat]
+    assert len(lit) == 1 and len(lit[0].positions) == 48, "all pieces sample one facade-line texture"
+    from io import BytesIO
+
+    from PIL import Image
+
+    albedo = np.asarray(Image.open(BytesIO(lit[0].image)).convert("L"), float)
+    assert (albedo < 60).mean() > 0.05, "the shared texture carries window openings"
+    # Atlas UVs stay continuous across the piece seams: no two pieces repeat the same strip.
+    centres = sorted(lit[0].uvs.reshape(12, 4, 2)[:, :, 0].mean(axis=1))
+    assert np.all(np.diff(centres) > 0)
