@@ -88,3 +88,31 @@ it('spreads leaf cards at their own size on fill-rate bound tiers', () => {
   expect(p.getX(1) - p.getX(0)).toBeCloseTo(0.4, 5);
   expect((p.getX(0) + p.getX(1)) / 2).toBeCloseTo(2 * crownFactor(10.2 / 20, 2 / 5, shape, widening), 4);
 });
+
+it('switches the crown fit live from the model positions (tree look A/B)', async () => {
+  const { NatureLibrary } = await import('../../src/world/nature/library');
+  const { TreeLook } = await import('../../src/world/nature/treeLook');
+  const fresh = (mode: 'stretch' | 'spread') => { const a = tree('linden'); fitCrown(a, new WeakSet(), mode); return a; };
+  const positions = (a: NatureAsset) => a.lods.flatMap(l => l.parts.map(p => Array.from(p.geometry.getAttribute('position').array as Float32Array)));
+  const leaves: string[] = [];
+  const asset = tree('linden');
+  const library = new NatureLibrary(new Map([[asset.name, asset]]), { setLeafVariant: (v: string) => leaves.push(v) } as never, null);
+  library.fitCrowns('stretch');
+  const stretched = positions(asset), extent = asset.extent!;
+  expect(stretched).toEqual(positions(fresh('stretch')));
+  library.fitCrowns('spread');
+  expect(positions(asset)).toEqual(positions(fresh('spread')));
+  expect(asset.extent).toBeGreaterThanOrEqual(extent); // built draw bounds never shrink under a switch
+  const look = new TreeLook('?crowns=stretch&leaves=alpha65');
+  look.setTier('reduced');
+  expect([look.crownMode, look.leafVariant]).toEqual(['stretch', 'alpha65']);
+  look.attach(library);
+  expect(positions(asset)).toEqual(stretched);
+  expect(leaves).toEqual(['alpha65']);
+  // No choice keeps the tier defaults.
+  const plain = new TreeLook('');
+  plain.setTier('reduced'); expect([plain.crownMode, plain.leafVariant]).toEqual(['spread', 'full']);
+  plain.setTier('medium'); expect(plain.crownMode).toBe('stretch');
+  expect(() => new TreeLook('?crowns=asset')).toThrow(/crowns/);
+  expect(() => new TreeLook('?leaves=noshadow')).toThrow(/leaves/);
+});
