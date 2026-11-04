@@ -7,13 +7,17 @@ import { Break, Fn, If, Loop, bool, cameraFar, cameraNear, float, getScreenPosit
   perspectiveDepthToViewZ, smoothstep, texture, uniform, vec2, vec4 } from 'three/tsl';
 import type { WaterHistory } from './waterHistory';
 
-/** March length (m) and samples. Twelve screen-space steps find a bracket, four binary steps refine it. The reach covers
- *  the far bank's hillside trees: from near water the mirror ray rises about 12 degrees and meets them 100-250 m away
- *  (a 160 m reach left that water on the sky where the planar pass shows trees). A hit fades out over the screen border
- *  (`border`, UV), towards the end of the march (`far`, share of the reach) and beyond the thickness limit; four taps
- *  `blur` texels apart (more for longer rays) soften it like the planar pass's quarter-resolution image. */
-export const RIVER_SSR = { reach: 400, steps: 12, refine: 4, minFresnel: 0.035, border: [0.01, 0.12], far: [0.8, 1],
-  blur: [1.5, 4] };
+/** March length (m) and samples. Twelve screen-space steps find a bracket, four binary steps and a secant step refine
+ *  it (the secant keeps neighbouring hits continuous: without it lit windows mirrored as stair-stepped blocks). The
+ *  reach covers the far bank's hillside trees: from near water the mirror ray rises about 12 degrees and meets them
+ *  100-250 m away. A hit fades out over the image border (`border`, UV), towards the end of the march (`far`, share of
+ *  the reach) and beyond the thickness limit. A ray that leaves last frame's image without a hit (or a hit fading at
+ *  its border) takes the colour where it left (`edge`, at most that weight): what stands at the image border along the
+ *  ray, not the bright sky. Four taps `blur` texels apart (more for longer rays) soften the read, stretched `stretch`
+ *  times vertically as rippled water stretches reflections; the waves shift the read `ripple` times their planar offset
+ *  (x, y): mostly vertically, so lit windows streak down rather than zig-zag sideways. */
+export const RIVER_SSR = { reach: 400, steps: 12, refine: 4, minFresnel: 0.035, border: [0.002, 0.03], far: [0.8, 1],
+  blur: [1.5, 4], stretch: 2.5, ripple: [0.5, 1.6], edge: 0.7, edgeBlur: [8, 3] };
 
 type Vec3 = THREE.Node<'vec3'>;
 
@@ -31,6 +35,11 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
     return size.set(1 / Math.max(1, image?.width ?? 1), 1 / Math.max(1, image?.height ?? 1));
   });
   const near = cameraNear, far = cameraFar;
+  // Four taps in a vertical streak around `at`, `spread` texels apart.
+  const soft = (at: THREE.Node<'vec2'>, spread: THREE.Node<'vec2'>) => {
+    const tap = (x: number, y: number) => color.sample(at.add(spread.mul(vec2(x, y * RIVER_SSR.stretch)))).level(float(0)).rgb;
+    return tap(-0.75, -1).add(tap(0.75, -0.35)).add(tap(-0.75, 0.35)).add(tap(0.75, 1)).mul(0.25);
+  };
   return Fn(() => {
     const result = vec4(0).toVar();
     // Steep views carry almost no reflection (Schlick's 2 %): skip their march.
@@ -56,39 +65,51 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
       const rayZ = (t: THREE.Node<'float'>) => float(1).div(mix(reciprocalStart, reciprocalEnd, t));
       const sceneZ = (coord: THREE.Node<'vec2'>) => perspectiveDepthToViewZ(depth.sample(coord).r, near, far);
       const found = bool(false).toVar(), low = float(0).toVar(), high = float(1).toVar(), previous = float(0).toVar();
-      const hitUV = vec2(0).toVar(), hitDelta = float(1000).toVar();
+      // The depth gap at the bracket's near end: the water surface itself starts in front of the stored bed and walls.
+      const lowDelta = sceneZ(startUV).sub(start.z).min(-0.001).toVar(), previousDelta = lowDelta.toVar();
+      const hitDelta = float(1000).toVar();
       Loop(RIVER_SSR.steps, ({ i }) => {
         const t = float(i.add(1)).div(RIVER_SSR.steps).toVar(), sampleUV = startUV.add(deltaUV.mul(t)).toVar();
         const delta = sceneZ(sampleUV).sub(rayZ(t)).toVar();
         // The ray passed behind a stored surface: a bracket.
         If(delta.greaterThan(0), () => {
-          low.assign(previous); high.assign(t); hitUV.assign(sampleUV); hitDelta.assign(delta); found.assign(true); Break();
+          low.assign(previous); lowDelta.assign(previousDelta); high.assign(t); hitDelta.assign(delta);
+          found.assign(true); Break();
         });
-        previous.assign(t);
+        previous.assign(t); previousDelta.assign(delta);
       });
       If(found, () => {
         Loop(RIVER_SSR.refine, () => {
           const t = low.add(high).mul(0.5).toVar(), sampleUV = startUV.add(deltaUV.mul(t)).toVar();
           const delta = sceneZ(sampleUV).sub(rayZ(t)).toVar();
-          If(delta.greaterThan(0), () => { high.assign(t); hitUV.assign(sampleUV); hitDelta.assign(delta); })
-            .Else(() => { low.assign(t); });
+          If(delta.greaterThan(0), () => { high.assign(t); hitDelta.assign(delta); })
+            .Else(() => { low.assign(t); lowDelta.assign(delta); });
         });
+        // Secant step: where the depth gap crosses zero between the bracket's ends.
+        const crossing = low.add(high.sub(low).mul(lowDelta.negate().div(hitDelta.sub(lowDelta).max(0.0001)))).clamp(low, high);
         // A hit lies on the stored surface, not far behind a thin one (a lamp post in front of the far bank). Tree crowns
         // are metres deep and full of gaps: the refined bracket often lands a few metres behind their stored front, so
         // hits fade out between one and three thicknesses instead of falling back to the sky at one.
         const thickness = max(0.6, rayZ(high).negate().mul(0.1));
         If(hitDelta.lessThan(thickness.mul(3)), () => {
-          const read = hitUV.add(distortion).toVar();
+          const read = startUV.add(deltaUV.mul(crossing)).add(distortion.mul(vec2(...RIVER_SSR.ripple))).toVar();
           const border = min(min(read.x, float(1).sub(read.x)), min(read.y, float(1).sub(read.y)));
-          const travel = high.mul(span);
+          const travel = crossing.mul(span);
           const confidence = smoothstep(RIVER_SSR.border[0], RIVER_SSR.border[1], border)
             .mul(float(1).sub(smoothstep(RIVER_SSR.far[0], RIVER_SSR.far[1], travel)))
             .mul(float(1).sub(smoothstep(1, 3, hitDelta.div(thickness))));
           const spread = texel.mul(mix(float(RIVER_SSR.blur[0]), float(RIVER_SSR.blur[1]), travel));
-          const tap = (x: number, y: number) => color.sample(read.add(spread.mul(vec2(x, y)))).level(float(0)).rgb;
-          const soft = tap(-1, -1).add(tap(1, -1)).add(tap(-1, 1)).add(tap(1, 1)).mul(0.25);
-          result.assign(vec4(soft, confidence));
+          result.assign(vec4(soft(read, spread), confidence));
         });
+      });
+      // Off the image: the colour where the ray left it fills what the hit leaves (all of a miss).
+      If(span.lessThan(0.999).and(result.a.lessThan(0.999)), () => {
+        const exit = startUV.add(deltaUV).clamp(0.01, 0.99).toVar();
+        const weight = float(RIVER_SSR.edge).mul(float(1).sub(smoothstep(RIVER_SSR.far[0], RIVER_SSR.far[1], span)));
+        const fill = weight.mul(float(1).sub(result.a));
+        const edge = soft(exit, texel.mul(vec2(...RIVER_SSR.edgeBlur)));
+        const alpha = result.a.add(fill);
+        result.assign(vec4(result.rgb.mul(result.a).add(edge.mul(fill)).div(alpha.max(0.0001)), alpha));
       });
     });
     return result;
