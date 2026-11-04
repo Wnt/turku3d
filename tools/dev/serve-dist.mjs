@@ -19,7 +19,7 @@
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
 //          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>] [--public] [--mp http://127.0.0.1:PORT]
-//          [--edits <dir> [--edits-quota-mb N]]
+//          [--edits <dir> [--edits-quota-mb N]] [--payload-cache-mb N]
 import http from 'node:http';
 import net from 'node:net';
 import { captureMiddleware } from './capture.mjs';
@@ -53,7 +53,8 @@ const PUBLIC_COARSE = /^\/coarse(?:\/[A-Za-z0-9_,=+-][A-Za-z0-9_.,=+-]*)*\/?$/;
 const STATUS = /^\/coarse\/(?:_v\/[a-f0-9]{40,64}\/)?(?:status|health|want|demand)$/;
 // The game reads only these of a service status (world/coarseTiles.ts); queues, failures and generations stay inside.
 const publicStatus = publicProxy(COARSE, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) });
-const publicCoarse = publicProxy(COARSE);
+// Encoded revision-named tile payloads for every player (a city's hot set is a few hundred MB compressed).
+const publicCoarse = publicProxy(COARSE, { cacheBytes: Number(opt('--payload-cache-mb', 1024)) * 1024 * 1024 });
 const mp = MP && publicProxy(MP);
 const EDITS = opt('--edits') ? expand(opt('--edits')) : null;
 const edits = EDITS && editSessionsMiddleware(EDITS, PUBLIC

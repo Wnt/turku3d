@@ -185,7 +185,8 @@ test('--public serves only the game and its services: no uploads, internals or d
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify({ state: 'ready', version: 7, building: ['t0_0_0'], failures: [{ error: '/home/x' }] }));
     }
-    res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length });
+    res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length,
+      ...(req.url.includes('/_v/') ? { 'Cache-Control': 'public,max-age=31536000,immutable' } : {}) });
     res.end(glb);
   });
   const mp = http.createServer((req, res) => {
@@ -238,6 +239,19 @@ test('--public serves only the game and its services: no uploads, internals or d
     assert.equal(tile.x.headers['cross-origin-resource-policy'], 'cross-origin');
     assert.ok(tile.body.length < glb.length / 10);
     assert.ok(zlib.brotliDecompressSync(tile.body).equals(glb));
+    // A revision-named (immutable) payload is encoded once and then served from memory for every player.
+    const fetchRaw = (p) => new Promise((res) => http.get({ host: '127.0.0.1', port: new URL(base).port, path: p,
+      headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res({ x, body: Buffer.concat(c) })); }));
+    const pinnedGlb = `/coarse/_v/${'a'.repeat(64)}/t0_0_0/vis.${'b'.repeat(64)}.glb`;
+    const first = await fetchRaw(pinnedGlb);
+    const asked = seen.length;
+    const again = await fetchRaw(pinnedGlb);
+    assert.equal(seen.length, asked);
+    assert.equal(again.x.headers['content-encoding'], 'br');
+    assert.equal(again.x.headers['cache-control'], 'public,max-age=31536000,immutable');
+    assert.ok(again.body.equals(first.body));
+    await fetchRaw('/coarse/t0_0_0/a.glb');
+    assert.equal(seen.length, asked + 1, 'a mutable payload is not kept');
     // Scores and the socket reach the share's own multiplayer server.
     assert.deepEqual(await (await get('/live.json', { headers: { origin: 'https://city.example' } })).json(), { path: '/live.json', origin: 'https://city.example' });
     assert.equal((await (await get('/scores/index.json')).json()).path, '/scores/index.json');

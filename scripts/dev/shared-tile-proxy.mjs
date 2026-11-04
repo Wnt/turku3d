@@ -13,6 +13,12 @@
 // * A member is only read, never asked to build or migrate; status, demand, want and navigation go to the pin.
 // * Each fragment names its payloads by revision (/coarse/_v/<sha>/), so tiles of different versions never share a
 //   cache entry. Every player resolves through the same farm files, so a tile switches for all of them together.
+//
+// A finished fragment is the same for every player and every distance, so it is kept FRAGMENT_MS per tile and served
+// with an ETag (304 for an unchanged poll); one whose tile is being rebuilt is kept UPGRADING_MS. The farm answers fragments one at a time (one Python process): without
+// this, every player's resident-tile polls queue in front of the tiles someone is driving towards. A player's own tile
+// (d < 1) still reaches the farm, which tracks where players stand. Concurrent identical misses share one request.
+import crypto from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -20,6 +26,9 @@ import path from 'node:path';
 
 const FRAGMENT = /^\/coarse\/(t0_-?\d{1,5}_-?\d{1,5})\/(?:manifest|collision)\.json$/;
 const ALIASES_MS = 30_000;
+const FRAGMENT_MS = 15_000;
+const UPGRADING_MS = 3_000;  // a served fragment whose tile is being rebuilt (stale, queued) is polled for its upgrade
+const FRAGMENTS_MAX = 4000;
 
 function getJson(url) {
   return new Promise(resolve => {
@@ -76,8 +85,48 @@ function resolver() {
   };
 }
 
+/** Fragments by config and path (FRAGMENT_MS when finished, UPGRADING_MS while upgrading), plus misses in flight. */
+function fragmentCache() {
+  const done = new Map(), pending = new Map();
+  const sweep = now => { for (const [key, hit] of done) if (hit.until <= now || done.size > FRAGMENTS_MAX) done.delete(key); else break; };
+  return {
+    get(key) {
+      const hit = done.get(key);
+      return hit && hit.until > Date.now() ? hit : pending.get(key);
+    },
+    /** `load()` resolves to {status, headers, body, finished}; errors and 202s are never kept. */
+    join(key, load) {
+      const promise = load().then(answer => {
+        const keep = answer.finished ? FRAGMENT_MS : answer.status === 200 ? UPGRADING_MS : 0;
+        if (keep) { sweep(Date.now()); done.delete(key); done.set(key, { ...answer, until: Date.now() + keep }); }
+        return answer;
+      }).finally(() => pending.delete(key));
+      pending.set(key, promise);
+      return promise;
+    },
+  };
+}
+
+/** The farm's answer is final for this revision: built and current (a queued, stale or migrating one is not kept). */
+function finished(body) {
+  try {
+    const value = JSON.parse(body);
+    return value?.coarse === true && value.stale === false && (value.queue_state ?? 'built') === 'built';
+  } catch { return false; }
+}
+
+const etagOf = body => `W/"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+
+function sendFragment(req, res, { status, headers, body }) {
+  const etag = etagOf(body);
+  if (status === 200 && req.headers['if-none-match'] === etag) { res.writeHead(304, { etag, 'cache-control': headers['cache-control'] ?? 'no-cache' }); res.end(); return; }
+  res.writeHead(status, { ...headers, 'content-length': body.length, ...(status === 200 ? { etag } : {}) });
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
 export function createSharedTileProxy(configFile) {
   const versionFor = resolver();
+  const fragments = fragmentCache();
   return http.createServer(async (req, res) => {
     let config;
     try { config = JSON.parse(fs.readFileSync(configFile, 'utf8')); }
@@ -85,6 +134,11 @@ export function createSharedTileProxy(configFile) {
     const url = new URL(req.url, 'http://local');
     const scenery = /^\/coarse\/scenery(?:\/|$)/.test(url.pathname);
     const pinned = /^\/coarse\/_v\/([a-f0-9]{40,64})(\/.*)$/.exec(url.pathname);
+    const distance = Number(url.searchParams.get('d') ?? Infinity);
+    const cached = !scenery && !pinned && req.method === 'GET' && FRAGMENT.test(url.pathname) && !(distance < 1);
+    const key = cached && JSON.stringify([config.service, config.version, config.follow, config.exclude, url.pathname]);
+    const hit = key && fragments.get(key);
+    if (hit) { sendFragment(req, res, await hit); return; }
     let target;
     if (scenery) {
       if (!config.scenery) { res.writeHead(404); res.end(); return; }
@@ -108,9 +162,19 @@ export function createSharedTileProxy(configFile) {
           const chunks = [];
           reply.on('data', chunk => chunks.push(chunk));
           reply.on('end', () => {
-            const body = Buffer.from(Buffer.concat(chunks).toString().replaceAll(/\/v\/([a-f0-9]{40,64})\/coarse\//g, '/coarse/_v/$1/'));
-            res.writeHead(reply.statusCode, { ...reply.headers, 'content-length': body.length });
-            res.end(body);
+            const text = Buffer.concat(chunks).toString();
+            const body = Buffer.from(text.replaceAll(/\/v\/([a-f0-9]{40,64})\/coarse\//g, '/coarse/_v/$1/'));
+            const { date, connection, 'keep-alive': _, 'content-length': __, ...headers } = reply.headers;
+            const answer = { status: reply.statusCode, headers, body, finished: finished(text) };
+            if (done) done(answer); else sendFragment(req, res, answer);
+          });
+        } else if (done) {
+          // Not a fragment the cache keeps (an error, a 202 while queued): answer it as is.
+          const chunks = [];
+          reply.on('data', chunk => chunks.push(chunk));
+          reply.on('end', () => {
+            const { date, connection, 'keep-alive': _, 'content-length': __, ...headers } = reply.headers;
+            done({ status: reply.statusCode, headers, body: Buffer.concat(chunks), finished: false });
           });
         } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
       });
@@ -119,12 +183,20 @@ export function createSharedTileProxy(configFile) {
           setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
           return;
         }
+        const body = Buffer.from(JSON.stringify({ error: error.message }));
+        if (done) { done({ status: 502, headers: { 'content-type': 'application/json' }, body, finished: false }); return; }
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ error: error.message }));
+        res.end(body);
       });
       if (req.method === 'GET') upstream.end();
       else req.pipe(upstream);
     };
+    // Fragments are collected whole (their payload URLs are rewritten) and shared by concurrent identical requests.
+    let done = null;
+    if (key) {
+      sendFragment(req, res, await fragments.join(key, () => new Promise(resolve => { done = resolve; forward(); })));
+      return;
+    }
     forward();
   });
 }
