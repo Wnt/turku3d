@@ -57,7 +57,7 @@ def _street_parts(tile):
     from turku3d.spatial import frame
 
     found, path = Sources().wfs_source("GIS:Katualueet", tile)
-    if not found:
+    if not found or path is None:
         return shapely.Polygon(), "no survey"
     f = frame(path, tile.bbox.buffered(WINDOW))
     if not len(f):
@@ -72,7 +72,13 @@ def _street_parts(tile):
 
 
 def audit_tile(args):
-    products, tid = args
+    try:
+        return _audit_tile(*args)
+    except Exception as error:  # noqa: BLE001 - one bad tile is a row, not a stopped city run
+        return {"tile": args[1], "error": f"{type(error).__name__}: {error}"}
+
+
+def _audit_tile(products, tid):
     import shapely
     from turku3d import config as C
     from turku3d.props import signposts
