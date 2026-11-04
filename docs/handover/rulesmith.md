@@ -44,9 +44,10 @@ existing tiles. Edits are never replayed as per-object overrides.
 8. **Write sidecars.** Write `~/turku3d/edits/<session>/incorporated.json` (EDIT-FORMAT §7.8). Each edit's value is
    `incorporated: …` or `deferred: <why>`.
 
-## Rules in `furniture@1` (`pipeline/turku3d/props/seating.py`)
+## Rules in `furniture@2` (`pipeline/turku3d/props/seating.py`)
 
-Called by `coarse/furniture.produce` (generator) and by `migrations/furniture.py`, the last step of the chain.
+Called by `coarse/furniture.produce` (generator) and by `migrations/furniture.py` (`furniture@2`, the last step
+of the chain). Both pass the tile's prepared `roads` graph.
 The rules are tried in order:
 
 1. **`lidar_holds`.** The survey shows seat returns at the register point (within `HOLD` 0.8 m, more than 8
@@ -60,16 +61,30 @@ The rules are tried in order:
    the bench turns parallel to it with its back to it, facing the open side. If it overlaps the barrier, it steps
    out to 0.15 m off the face (at most 2 m).
 4. **`water_view`.** Otherwise, within 6 m of a shore, the bench faces the water.
-5. **Street heading.** Otherwise the old heading from `props/orientation.py` stays.
+5. **Survey axis** (`lidar_backrest`, `lidar_way_side`). A bench the survey holds keeps its seat blob's axis
+   (back from the backrest returns, else toward the nearest way), unless the way heading below agrees within
+   `AXIS_AGREE` 20° (`bench_lidar_axis_agrees`; agreeing blobs scatter about 5°). Plaza rings and lawn benches
+   keep their measured angle this way.
+6. **Way heading** from the tile's street graph (`inputs.roads["json"]`, `props.lights.street_edges`), square to
+   the way's normal at the nearest point:
+   - `path_side`: a footpath within 8 m, nearer than the car street (or the car street past 12 m): parallel to
+     it, facing it;
+   - `back_to_kerb`: a car street within 12 m: parallel, back to it;
+   - `way_view`: the nearest path or street within 40 m, facing it.
+   On a centreline (0.3 m) the old heading picks the side.
+7. **Street heading.** Only without any way within 40 m does the old heading from `props/orientation.py` stay.
+   That heading faced the nearest carriageway at any distance; it set most park and path benches before
+   `furniture@2`.
 
-- **Absence is measured, not acted on** (`bench_lidar_absent_candidate` in the tile's `manifest.furniture.benches`
-  counts).
+- **No rule drops a bench.** Absence is counted (`bench_lidar_absent_candidate` in the tile's
+  `manifest.furniture.benches`), and the bench is turned by the same rules (Jonni, 2026-11-04).
 - **Metadata on every prop row:** `yaw_deg`, `orientation`, and `adjusted` when a rule moved it (EDIT-FORMAT §9).
 - **Migration mechanics.** Changed bench rows get new POSITION/NORMAL as plain buffer views. GLBs without a BIN
   chunk get a new shared `.bin` instead. A dropped row collapses to zero-area triangles and leaves `objects`. Bench
   collision boxes are spliced into the cells' PRIM section; the meshopt triangle sections stay byte for byte.
   Drawn rows fit the posed model within 5 cm.
-- **Cost.** About 0 for a tile without bench rows; 13–200 s CPU on tiles with benches (median about 60 s).
+- **Cost.** About 0 for a tile without bench rows; 13–200 s CPU on tiles with benches (median about 60 s), plus
+  9–13 s CPU for the `roads` input in the migration (the generator stage already has it).
 
 ## Incorporated sidecars
 
