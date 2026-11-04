@@ -13,7 +13,7 @@ export const PERMIT_WARN_AT = 2;
 /** With no permit left and less than PERMIT_PRICE in cash, the black market rents the permit on credit for this much
  *  debt (missions/missions.ts `permit_on_credit`), so a courier is never left without work. */
 export const CREDIT_PERMIT_DEBT = PERMIT_PRICE;
-/** The repayment rule: each drop-off's base pay (after the loaner fee) goes to the debt until it is paid; tips and the
+/** The repayment rule: each drop-off's base pay goes to the debt until it is paid; tips and the
  *  double bonus stay with the courier, so cash still visibly grows. Euros of `basePay` that repay `debt`. */
 export const debtRepayment = (debt: number, basePay: number) => Math.max(0, Math.min(debt, basePay));
 export const WARNING_PRICE = 10;
@@ -30,9 +30,6 @@ export const VEHICLE_PRICE: Record<Exclude<VehicleOwnership, 'none'>, number> = 
 export const sellBackPrice = (vehicle: Exclude<VehicleOwnership, 'none'>) => Math.floor(VEHICLE_PRICE[vehicle] / 2);
 export const BASE_PAY = 6;
 export const MAX_TIP = 8;
-/** Owning no vehicle, a short order may be carried on the pizzeria's loaner scooter (at scooter par); an order
- *  carried on it pays this much less, charged with its last drop-off. */
-export const LOANER_FEE = 2;
 /** Paid with the second pizza of a double order unless it is late enough to earn no tip. */
 export const DOUBLE_BONUS = 4;
 

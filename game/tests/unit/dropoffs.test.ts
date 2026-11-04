@@ -86,8 +86,7 @@ describe('scripted drop-offs', () => {
     const { missions, at, pickUp, dropoff } = game(SCRIPTED_POOL);
     OPENING.forEach((d, i) => {
       const quote = pickUp();
-      // Owning no vehicle, the order goes on the loaner scooter: the driving distance (tests/unit/unstuck.test.ts).
-      expect(quote).toMatchObject({ address: d.address, metres: poolOf(i).car ?? poolOf(i).foot });
+      expect(quote).toMatchObject({ address: d.address, metres: poolOf(i).foot });
       expect(missions.currentStop).toMatchObject({ id: d.id, point: poolOf(i).point });
       expect(dropoff().point).toEqual(poolOf(i).point);
       at(near(d.point), { interact: true }); // the fallback point is 8 m off: no hand-over there

@@ -101,16 +101,6 @@
    "fileSha256": "36ad3d0d4d7088b6d8000b2536b31caf9f8faac2d0ae00d6ead8f9b4ff73660c"
   },
   {
-   "id": "pizzeria_loaner",
-   "speaker": "pizzeria",
-   "file": "pizzeria_loaner.ogg",
-   "seconds": 4.79,
-   "text": "No wheels? Take my scooter at the kerb. Two euros a run, if you ride it.",
-   "textSha256": "dbf6d29e843181ba4abbbb84803b77a5554495408b7255c2f3fa799212385e03",
-   "key": "bc5daa7b0647eb4683e35279ad1667a427bdc7815c7b0c43a165d590d0d2b1f7",
-   "fileSha256": "fb9faeae573919de1641f1c0684a03185fcf0c824d1a62952a0b0b122ede949d"
-  },
-  {
    "id": "pole_fine_01",
    "speaker": "officer",
    "file": "pole_fine_01.ogg",
