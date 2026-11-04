@@ -90,6 +90,10 @@ TRAA motion vectors read one render-group projection (`velocityProjection`, rend
 frame with TRAA's unjittered matrix. r186 chose the projection when a program was built, and streaming preparation
 builds outside the post pipeline, so prepared terrain and trees carried the jitter as motion and wandered by up to a
 pixel while the camera stood still. `?taafix=0` restores r186's choice for the A/B.
+Still instances (`shareInstanceProgram(mesh, true)`: trees, facade modules) share programs built without previous
+instance matrices, so they take the rigid velocity path; an animated one (vegetation wind) writes last frame's
+position into `positionPrevious` from its own positionNode. Reading r186's bare-geometry `positionPrevious` there
+reported every tree's placement as motion and TRAA showed raw, shaking leaves (handover/taa.md §3).
 
 These are permanent user quality settings (`?quality=mobile|low|medium|high`). Phones and tablets default to
 **mobile**, including when using a controller; desktops and fixed-camera QA default to **medium**.
