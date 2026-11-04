@@ -276,7 +276,8 @@ once. While lost, Y does not enter or leave a car. After the reset "Back on soli
 3 s. Within 20 m of the area's edge the HUD shows "Edge of the built area" and the minimap's edge
 line turns red; there are no invisible walls. `__game.recovery` and `__game.state().recovery`
 (`armed`, `lost`, `countdown`, `samples`, `resets`, `waterDepth`, `edgeDistance`, `hud`) expose it for tests.
-Each reset logs `[recovery] reset (<reason>) from x,y,z to x,y,z` to the console.
+Each reset logs `[recovery] reset (<reason>) from x,y,z to x,y,z` to the console: the lost reason, `collision`
+for a worker coverage hold (physics/README.md) or `button` for a press.
 
 ```sh
 cd game && npx vitest run tests/unit/recovery.test.ts tests/unit/physics.test.ts

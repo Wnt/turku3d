@@ -224,11 +224,15 @@ node --test server/tests/roads.test.js
 Before each runtime substep, `world.ts` checks the character capsule and every car's
 swept footprint against worker-resident cells. `CollisionStreamer` sends
 `loadingTile` for the lifetime of actual known-cell requests, including worker
-installation, and clears it on success/failure. Queued and retrying cells are not
-active loads. The character and driven car wait at most 2.5 simulated seconds while
-all missing cells actively load. A missing source, stopped request or timeout sets
-`coverageBlock.recover` immediately; `SafeReset` uses the existing safe-sample reset
-without the fall countdown. It keeps the player in their current car and resets its
+installation, and clears it on success/failure. A footprint that reaches into a cell
+with no collision source, while the actor's own cell is resident, is not held: the
+edge wall closes that border and the body stops there (a car's 3.1 m footprint circle
+otherwise reset it before it reached the wall). The character and driven car wait at
+most 2.5 simulated seconds while the missing cells are loading or known (queued or
+retrying). Collision gone from under the actor (no source and its own cell not resident)
+or a timeout sets `coverageBlock.recover`; `SafeReset` uses the existing safe-sample reset
+without the fall countdown, only to a sample whose cell is resident or published (else
+it holds in place), and logs it as `reset (collision)`. It keeps the player in their current car and resets its
 body upright, dynamic and still. Held poses never become safe samples. The request
 is repeated in state snapshots until coverage returns or placement clears it, so
 skipped shared-mailbox frames cannot lose recovery. Flight bypasses character holds.

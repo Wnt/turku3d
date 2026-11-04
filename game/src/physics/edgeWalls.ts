@@ -61,6 +61,12 @@ export class EdgeWalls {
     for (const [i, j] of touched) for (const [di, dj] of SIDES) this.sync(i + di, j + dj);
   }
 
+  /** The cell `c_i_j` has collision in some source (loaded or not), so no wall closes the way into it. */
+  isKnown(id: string): boolean {
+    const m = /^c_(-?\d+)_(-?\d+)$/.exec(id);
+    return !!m && this.known.has(`${m[1]}_${m[2]}`);
+  }
+
   /** Flight ignores only these artificial barriers; real world colliders still block it. */
   isWall(collider: RAPIER_NS.Collider): boolean { return this.wallHandles.has(collider.handle); }
 

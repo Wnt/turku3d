@@ -652,6 +652,24 @@ export class PhysicsWorld {
     });
   }
 
+  /**
+   * Cells an actor at (x, z) may overlap without a hold. Resident cells, and, while the actor's own cell is resident,
+   * cells with no collision source: an edge wall closes that border (edgeWalls.ts), so the body stops there. A car's
+   * footprint circle (half-diagonal + 0.5 m) reaches past the wall, and capture 20261105 (shared car at 122,5,3 with
+   * row j=-1 unpublished) reset the car every time it came within 3.1 m of that edge.
+   */
+  private supported(x: number, z: number): { has(id: string): boolean } {
+    const c = collisionTileAt(x, z);
+    const walled = this.residentCells.has(collisionTileId(c.i, c.j));
+    return { has: id => this.residentCells.has(id) || (walled && !this.edges.isKnown(id)) };
+  }
+
+  /** Cells whose collision is on its way: actively loading, or known to exist (queued by the streamer). */
+  private arriving(x: number, z: number): { has(id: string): boolean } {
+    const supported = this.supported(x, z);
+    return { has: id => supported.has(id) || this.loadingCells.has(id) || this.edges.isKnown(id) };
+  }
+
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null): number {
@@ -666,11 +684,10 @@ export class PhysicsWorld {
       if (character.fly) this.coverageHold.clear('character');
       if (this.charCollider && this.charEnabled && !character.fly) {
         const p = this.charCollider.translation();
-        const covered = collisionCovers(this.residentCells, p.x, p.z,
-          p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin);
+        const r = CHARACTER.radius + CHARACTER.skin, nx = p.x + character.vx * DT, nz = p.z + character.vz * DT;
+        const covered = collisionCovers(this.supported(p.x, p.z), p.x, p.z, nx, nz, r);
         if (!covered) {
-          this.coverageHold.block('character', this.tick * DT, collisionCovers({ has: id => this.residentCells.has(id) || this.loadingCells.has(id) },
-            p.x, p.z, p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin));
+          this.coverageHold.block('character', this.tick * DT, collisionCovers(this.arriving(p.x, p.z), p.x, p.z, nx, nz, r));
           safeCharacter = null;
           this.charVy = 0; this.charVel = { x: 0, y: 0, z: 0 }; this.charGrounded = false;
         } else this.coverageHold.clear('character');
@@ -679,10 +696,10 @@ export class PhysicsWorld {
         const held = this.heldVehicles.get(id);
         const p = car.body.translation(), v = held?.velocity ?? car.body.linvel();
         const radius = this.vehicleRadii.get(id)!;
-        const covered = collisionCovers(this.residentCells, p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius);
+        const nx = p.x + v.x * DT, nz = p.z + v.z * DT;
+        const covered = collisionCovers(this.supported(p.x, p.z), p.x, p.z, nx, nz, radius);
         if (!covered && id === this.drivenId) {
-          this.coverageHold.block(id, this.tick * DT, collisionCovers({ has: cell => this.residentCells.has(cell) || this.loadingCells.has(cell) },
-            p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius));
+          this.coverageHold.block(id, this.tick * DT, collisionCovers(this.arriving(p.x, p.z), p.x, p.z, nx, nz, radius));
         } else if (covered) this.coverageHold.clear(id);
         if (!covered && !held) {
           this.heldVehicles.set(id, { velocity: { ...v }, angular: { ...car.body.angvel() } });

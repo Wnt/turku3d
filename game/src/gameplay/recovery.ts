@@ -186,10 +186,15 @@ export class RecoveryMonitor {
   }
 
   /** The newest sample from `lookBack` seconds before the player stopped being safe (else the oldest one), moved
-   *  inside the edge. Only while lost: an armed monitor always holds a sample. */
-  target(): SafeSample {
+   *  inside the edge. Only while lost: an armed monitor always holds a sample. `usable` narrows the samples to
+   *  those with collision to return to; null when none has. */
+  target(): SafeSample;
+  target(usable: (s: SafeSample) => boolean): SafeSample | null;
+  target(usable: (s: SafeSample) => boolean = () => true): SafeSample | null {
     const before = this.lastSafe - RECOVERY.lookBack;
-    const sample = [...this.samples].reverse().find(s => s.time <= before) ?? this.samples[0];
+    const samples = this.samples.filter(usable);
+    const sample = [...samples].reverse().find(s => s.time <= before) ?? samples[0];
+    if (!sample) return null;
     const margin = RECOVERY.edgeMargin + (sample.inVehicle ? RECOVERY.carMargin : 0);
     return { ...sample, ...this.area.inset(sample, margin) };
   }
