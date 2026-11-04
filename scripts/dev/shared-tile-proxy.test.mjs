@@ -125,3 +125,42 @@ test('each tile comes from the newest compatible train that finished it, else th
     await close(proxy); upstream.closeAllConnections(); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('finished fragments are shared for a while across distances and players; polls revalidate with an ETag', async () => {
+  const calls = [];
+  let state = 'queued';
+  const upstream = http.createServer((req, res) => {
+    calls.push(req.url);
+    res.setHeader('content-type', 'application/json');
+    setTimeout(() => res.end(JSON.stringify({ coarse: true, tile: 't0_0_0', stale: false, queue_state: state })), 20);
+  });
+  await listen(upstream);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-'));
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, JSON.stringify({ service: `http://127.0.0.1:${upstream.address().port}`, version: 'pin' }));
+  const proxy = createSharedTileProxy(file);
+  await listen(proxy);
+  const base = `http://127.0.0.1:${proxy.address().port}/coarse/t0_0_0/manifest.json`;
+  try {
+    await fetch(`${base}?d=50`); await fetch(`${base}?d=50`);
+    assert.equal(calls.length, 1, 'an upgrading answer is shared briefly');
+    state = 'built';
+    await new Promise(resolve => setTimeout(resolve, 3100));
+    calls.length = 0;
+    const answers = await Promise.all([`${base}?d=50`, `${base}?d=80&client=b`, `${base}?d=120`].map(u => fetch(u)));
+    assert.equal(calls.length, 1, 'the upgrade is polled again, and concurrent misses share one farm request');
+    const etag = answers[0].headers.get('etag');
+    assert.match(etag, /^W\/"/);
+    assert.deepEqual(await answers[1].json(), { coarse: true, tile: 't0_0_0', stale: false, queue_state: 'built' });
+    assert.equal((await fetch(`${base}?d=300`)).status, 200);
+    assert.equal((await fetch(`${base}?d=300`, { headers: { 'if-none-match': etag } })).status, 304);
+    assert.equal(calls.length, 1);
+    await fetch(`${base}?d=0`);
+    assert.equal(calls.length, 2, "the player's own tile still reaches the farm");
+    await fetch(base.replace('manifest', 'collision') + '?d=50');
+    assert.equal(calls.length, 3, 'collision and manifest are separate fragments');
+  } finally {
+    proxy.closeAllConnections(); upstream.closeAllConnections();
+    await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
+  }
+});
