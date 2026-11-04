@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
   abs, attribute, bool, cameraPosition, diffuseColor, dot, float, Fn, fract, fwidth, instanceColor, log2, max, modelWorldMatrix,
-  normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, select, sin, smoothstep,
+  normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
@@ -40,6 +40,8 @@ export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_imp
 export class NatureMaterials {
   /** All wind frequencies are multiples of 0.01 rad/s, so this wrap preserves their phases. */
   readonly windTime = uniform(0).setGroup(renderGroup);
+  /** The previous frame's `windTime`, for the swaying vertices' motion vectors. */
+  readonly windTimePrevious = uniform(0).setGroup(renderGroup);
   /** 0 = calm, 1 = a breezy Turku afternoon. */
   readonly windStrength = uniform(1).setGroup(renderGroup);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
@@ -64,18 +66,28 @@ export class NatureMaterials {
   readonly chain: THREE.MeshStandardNodeMaterial;
 
   constructor(sources: NatureSources, lighting: NatureLighting | null, private deterministic: boolean) {
-    const clock = this.windTime;
-    const wind = (flutterScale: number) => Fn(() => {
+    // Gust fronts travel across the city; each branch sways with its own phase; leaf cards flutter at their tips.
+    const offset = (position: THREE.Node<'vec3'>, clock: THREE.Node<'float'>) => {
       const w = attribute('_wind', 'vec4');
-      const world = modelWorldMatrix.mul(vec4(positionLocal, 1)).xyz;
+      const world = modelWorldMatrix.mul(vec4(position, 1)).xyz;
       const dir = this.windDirection;
-      // Gust fronts travel across the city; each branch sways with its own phase; leaf cards flutter at their tips.
       const gust = sin(clock.mul(0.42).sub(dot(world.xz, dir).mul(0.035))).mul(0.3).add(0.75);
       const sway = sin(clock.mul(1.15).add(w.z.mul(6.283)).add(dot(world.xz, vec2(0.031, 0.027)))).mul(0.45).add(0.55);
       const bend = w.x.mul(sway).mul(gust).mul(this.windStrength).mul(0.3);
-      const flutter = sin(clock.mul(7.3).add(w.z.mul(37)).add(world.y.mul(2.1)).add(world.x.mul(1.7)))
-        .mul(w.y).mul(gust).mul(this.windStrength).mul(flutterScale);
-      return positionLocal.add(vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8))));
+      return (flutterScale: number) => {
+        const flutter = sin(clock.mul(7.3).add(w.z.mul(37)).add(world.y.mul(2.1)).add(world.x.mul(1.7)))
+          .mul(w.y).mul(gust).mul(this.windStrength).mul(flutterScale);
+        return vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8)));
+      };
+    };
+    // TRAA's motion vectors compare this frame's position with `positionPrevious`, which r186 takes from the geometry
+    // and instance matrices only: without the previous frame's wind every swaying vertex reported its whole wind
+    // offset (up to 0.3 m) as motion, so the history was fetched from the wrong place each frame and crowns and their
+    // reflections shook on a still camera. The previous position gets the wind at the previous frame's time.
+    const wind = (flutterScale: number) => Fn(builder => {
+      if ((builder as unknown as { needsPreviousData(): boolean }).needsPreviousData())
+        positionPrevious.assign(positionPrevious.add(offset(positionPrevious, this.windTimePrevious)(flutterScale)));
+      return positionLocal.add(offset(positionLocal, this.windTime)(flutterScale));
     })();
     // Chain-link mips still need runtime coverage compensation; foliage is calibrated offline per atlas cell.
     const mipAlpha = (alpha: THREE.Node<'float'>, size: number) => alpha.mul(log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(size), 1)).mul(0.3).add(1));
@@ -152,6 +164,7 @@ export class NatureMaterials {
   /** Bound UTC seconds before uploading a float: epoch-sized floats lose seconds of wind motion. */
   setTime(seconds: number) {
     const period = Math.PI * 200;
+    this.windTimePrevious.value = this.windTime.value;
     this.windTime.value = this.deterministic ? 0 : ((seconds % period) + period) % period;
   }
 
