@@ -262,6 +262,24 @@ def _step_runs(h):
     return out
 
 
+LEDGE = 0.03  # m: a slab's corners at its ends sit on the floor within this
+
+
+def _flush(floor, a, b, width):
+    """Whether a slab from ``a`` to ``b`` meets the floor at all four end corners: a slab across an
+    oblique seam or a cross slope would stand proud of the lower side as a ledge."""
+    a, b = np.asarray(a, np.float64), np.asarray(b, np.float64)
+    along = (b - a)[[0, 2]]
+    norm = np.linalg.norm(along)
+    if norm < 1e-6:
+        return False
+    side = np.array([-along[1], along[0]]) / norm * (width / 2)
+    points = np.array([a[[0, 2]] + side, a[[0, 2]] - side, b[[0, 2]] + side, b[[0, 2]] - side])
+    expected = np.array([a[1], a[1], b[1], b[1]])
+    found, _ = floor.top(points, expected, LEDGE)
+    return bool(np.isfinite(found).all())
+
+
 def _plateau(h):
     """Samples of one continuous surface: finite, and within STEP_MIN of their own straight fit."""
     if len(h) < 2 or not np.isfinite(h).all():
@@ -286,6 +304,9 @@ def slabs(graph, floor, bbox, stats):
     def add(a, b, width, rule):
         key = (rule, *np.round(np.r_[a, b] / 0.1).astype(int).tolist())
         if key in seen:
+            return
+        if not _flush(floor, a, b, width):
+            stats[f"{rule}_ledges_skipped"] += 1
             return
         seen.add(key)
         centre, half, rotation = slab(a, b, width)
