@@ -276,8 +276,11 @@ def _flush(floor, a, b, width):
     side = np.array([-along[1], along[0]]) / norm * (width / 2)
     points = np.array([a[[0, 2]] + side, a[[0, 2]] - side, b[[0, 2]] + side, b[[0, 2]] - side])
     expected = np.array([a[1], a[1], b[1], b[1]])
-    found, _ = floor.top(points, expected, LEDGE)
-    return bool(np.isfinite(found).all())
+    flush, _ = floor.top(points, expected, LEDGE)
+    # A corner over a gap or a deep trench is part of the pit; one over a surface a few
+    # centimetres lower (an oblique seam, a cross slope) would leave the slab standing proud.
+    below, _ = floor.top(points, expected - (LEDGE + STEP_MAX) / 2, (STEP_MAX - LEDGE) / 2)
+    return bool((np.isfinite(flush) | ~np.isfinite(below)).all())
 
 
 def _plateau(h):
