@@ -1,17 +1,19 @@
 // World origin and frames (docs/ARCHITECTURE.md D3, docs/specs/tiles.md). Mirror of pipeline/turku3d/config.py.
-// Engine frame: Y-up metres, x = E - E0, y = H (N2000), z = -(N - N0).
-export const E0 = 23459500;
-export const N0 = 6704500;
+// Engine frame: Y-up metres, x = E - E0, y = H (N2000), z = -(N - N0). E0/N0 are the page's city (core/city.ts).
+import { CITY } from './city';
+
+export const E0 = CITY.E0;
+export const N0 = CITY.N0;
 const H0 = 0;
 export const VISUAL_L0 = 250;
 export const COLLISION_TILE = 62.5;
 
 /** Grid bearing (deg) of TRUE north at O, i.e. the EPSG:3877 meridian convergence (pyproj: 0.640 deg at O,
  *  0.56 deg 7 km south-east). Engine/grid azimuth = true azimuth + this (sun, Street View headings, compass). */
-export const TRUE_NORTH_GRID_BEARING_DEG = 0.64;
+export const TRUE_NORTH_GRID_BEARING_DEG = CITY.trueNorthGridBearingDeg;
 
-/** Office, Läntinen Rantakatu 15 (Phase 1 spawn). */
-export const OFFICE_EN = { E: 23459668, N: 6704254 } as const;
+/** The city's default spawn (Turku: the office, Läntinen Rantakatu 15, the Phase 1 spawn). */
+export const OFFICE_EN = CITY.spawn;
 
 interface EN { E: number; N: number; H: number }
 export interface V3 { x: number; y: number; z: number }

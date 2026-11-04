@@ -1,4 +1,6 @@
-/** EPSG:3877 (ETRS89 / GK23FIN) inverse Transverse Mercator on GRS80.
+import { CITY } from './city';
+
+/** The city's GK zone (Turku EPSG:3877 / GK23FIN, Espoo EPSG:3879 / GK25FIN) inverse Transverse Mercator on GRS80.
  * Uses the conventional ETRS89-to-WGS84 identity mapping (no epoch correction). */
 export function enToLatLon(E: number, N: number): { lat: number; lon: number } {
   const a = 6378137, f = 1 / 298.257222101;
@@ -11,10 +13,10 @@ export function enToLatLon(E: number, N: number): { lat: number; lon: number } {
   const sin = Math.sin(phi), cos = Math.cos(phi), tan = Math.tan(phi);
   const n = a / Math.sqrt(1 - e2 * sin * sin);
   const r = a * (1 - e2) / (1 - e2 * sin * sin) ** 1.5;
-  const t = tan * tan, c = ep2 * cos * cos, d = (E - 23500000) / n;
+  const t = tan * tan, c = ep2 * cos * cos, d = (E - (CITY.gkMeridian * 1e6 + 500000)) / n;
   const lat = phi - n * tan / r * (d ** 2 / 2 - (5 + 3 * t + 10 * c - 4 * c * c - 9 * ep2) * d ** 4 / 24
     + (61 + 90 * t + 298 * c + 45 * t * t - 252 * ep2 - 3 * c * c) * d ** 6 / 720);
   const lon = (d - (1 + 2 * t + c) * d ** 3 / 6
     + (5 - 2 * c + 28 * t - 3 * c * c + 8 * ep2 + 24 * t * t) * d ** 5 / 120) / cos;
-  return { lat: lat * 180 / Math.PI, lon: 23 + lon * 180 / Math.PI };
+  return { lat: lat * 180 / Math.PI, lon: CITY.gkMeridian + lon * 180 / Math.PI };
 }

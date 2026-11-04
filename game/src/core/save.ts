@@ -1,3 +1,4 @@
+import { CITY } from './city';
 import type { VehicleKind } from '../physics/constants';
 import type { ParkedVehicle } from '../world/manifest';
 
@@ -6,7 +7,7 @@ import type { ParkedVehicle } from '../world/manifest';
 // clock and the numbers the slot list shows. A mission save from before the slots (key turku3d.missions) becomes
 // slot 1 on the first run.
 
-export const SAVES_KEY = 'turku3d.saves';
+export const SAVES_KEY = CITY.name === 'turku' ? 'turku3d.saves' : `turku3d.saves.${CITY.name}`;
 /** The unslotted mission save of main before the save menu. */
 export const LEGACY_MISSION_KEY = 'turku3d.missions';
 export const SLOT_IDS = ['auto', 'slot1', 'slot2', 'slot3'] as const;
