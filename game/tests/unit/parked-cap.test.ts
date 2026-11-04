@@ -22,7 +22,7 @@ function world(cars: ParkedVehicle[], cap: number) {
     removeVehicle: vi.fn((id: string) => { bodies.delete(id); physics.latest.vehicles = [...bodies.values()]; }),
   };
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = cars;
-  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {} },
+  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {}, has: () => true },
     { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() }, cap);
   let now = 0;
   const at = async (x: number, z: number) => { stream.update(x, z, null, now += 1000); await settle(); };
@@ -98,6 +98,9 @@ test.each([false, true])('trucks are exempt, claimed slots neither spawn nor res
   const cars = [slot('near', 0, 5), slot('mid', 0, 10), slot('ahead', 0, -20), slot('claimed', 0, 2), slot('truck', 0, 3, 'truck')];
   const { physics, bodies, physical, stream, at } = world(cars, 2);
   stream.setShared(new Set(['claimed']), new Set());
+  await at(0, 0);
+  // The truck's seated appearance loads first; its body follows on the next sync.
+  expect(physical()).toEqual(new Set(['near', 'mid']));
   await at(0, 0);
   expect(physical()).toEqual(new Set(['truck', 'near', 'mid']));
   expect(stream.restingPose(cars[3])).toBeNull();

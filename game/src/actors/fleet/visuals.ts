@@ -67,6 +67,8 @@ export class ParkedCarVisuals {
   setView(camera: THREE.Camera, night=0) { this.camera.copy(camera.position); camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse),camera.coordinateSystem);this.hasView=true;
     fleetNight.value=Math.max(0,Math.min(1,night)); }
+  /** The appearance of parked car `id` is loaded (ParkedVehicles spawns bodies only for these). */
+  has(id:string) { return this.definitions.has(id); }
   renders(id:string) { return this.dynamic.has(id)||this.cars.some(c=>c.object_id===id); }
   private wheelDesigns(model:FleetModel,lod:number):WheelDesign[] {
     const key=`${model.id}/${lod}`,cached=this.designs.get(key);if(cached)return cached;
