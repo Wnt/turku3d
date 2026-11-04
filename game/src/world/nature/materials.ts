@@ -178,10 +178,11 @@ export class NatureMaterials {
       return smoothstep(end.sub(band.mul(2 * VEGETATION_FADE.width[j]).mul(softness)), end, distance);
     };
     const threshold = ditherThreshold();
-    // View clearance (render/viewClearance.ts) shares the threshold: every level of a tree keeps the same pixels, so
-    // the cross-fade stays complementary inside the cleared region. Shadows keep the unfaded mask below.
-    let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(max(fade(level), viewClearance.fade()));
+    let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));
     if (level > 0) keep = keep.and(threshold.lessThan(fade(level - 1)));
+    // View clearance (render/viewClearance.ts) does not depend on the level, so the levels stay complementary inside
+    // the cleared region. Shadows keep the unfaded mask below.
+    keep = keep.and(viewClearance.keep());
     variant.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
     variant.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
     list[level] = variant; this.bases.set(variant, base);

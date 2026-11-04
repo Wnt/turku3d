@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { clamp, dot, float, max, mix, positionView, renderGroup, smoothstep, uniform } from 'three/tsl';
+import { clamp, dot, float, fract, frameId, max, mix, positionView, renderGroup, screenCoordinate, smoothstep, uniform, vec2 } from 'three/tsl';
 
 /**
  * View clearance: vegetation between the camera and the player (and the road just ahead of them) fades to see-through,
@@ -14,8 +14,10 @@ import { clamp, dot, float, max, mix, positionView, renderGroup, smoothstep, uni
  * - everywhere on screen, foliage within NEAR metres of the camera fades (the huge leaf cards a low or tree-side
  *   camera otherwise fills the screen with).
  *
- * The fade is a coverage fraction for the shared per-frame screen-door threshold (`ditherThreshold`), so TRAA resolves
- * it into a blend; it moves continuously with the player and eases in and out over `easeSeconds`, so trees never pop.
+ * The fade is a coverage fraction for a per-frame screen door (interleaved gradient noise, which TRAA resolves into a
+ * fine grain where the LOD fades' ordered pattern left a visible grid over a lasting fade). It is independent of the
+ * LOD level, so the tree cross-fade stays complementary inside the cleared region. The cleared region moves
+ * continuously with the player and eases in and out over `easeSeconds`, so trees never pop.
  * Three vec4 uniforms in the shared render group, written once per frame; no per-instance CPU work. Renders from other
  * cameras (reflections, probes) read zero, and shadow passes keep the unfaded mask (`maskShadowNode`), so faded trees
  * still cast their full shadows.
@@ -27,13 +29,13 @@ export const VIEW_CLEARANCE = {
   ahead: { foot: [2.5, 0.6, 7], car: [6, 0.8, 26] },
   /** The ahead end's world radius relative to the body's. */
   aheadRadius: 1.4,
-  core: 0.4,
+  core: 0.6,
   maxFade: 1,
   /** Fragments fade only when nearer than the capsule's depth less `depthMargin` (m), over a further `depthBand`. */
-  depthMargin: 0.6,
-  depthBand: 1.6,
+  depthMargin: 0.4,
+  depthBand: 1.0,
   /** Foliage nearer than near[0] metres fades by `maxFade`, ramping out by near[1]. */
-  near: [1.2, 3.2],
+  near: [1.4, 2.6],
   easeSeconds: 0.35,
 };
 
@@ -105,7 +107,15 @@ class ViewClearance {
     else project(this.b, this.radius * VIEW_CLEARANCE.aheadRadius, this.end.value);
   }
 
-  /** How much of this fragment to remove (0 keeps it, 1 removes it), for the screen-door test. */
+  /** Whether this fragment survives the clearance screen door. */
+  keep(): THREE.Node<'bool'> {
+    // Interleaved gradient noise (Jimenez 2014), shifted every frame.
+    const pixel = screenCoordinate.xy.add(float(frameId).mod(64).mul(5.588238));
+    const threshold = fract(fract(dot(pixel, vec2(0.06711056, 0.00583715))).mul(52.9829189));
+    return threshold.greaterThanEqual(this.fade());
+  }
+
+  /** How much of this fragment to remove (0 keeps it, 1 removes it). */
   fade(): THREE.Node<'float'> {
     const p = positionView, depth = p.z.negate();
     const q = p.xy.div(max(depth, float(1e-3)));
