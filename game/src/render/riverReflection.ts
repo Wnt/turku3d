@@ -15,9 +15,9 @@ import type { WaterHistory } from './waterHistory';
  *  its border) takes the colour where it left (`edge`, at most that weight): what stands at the image border along the
  *  ray, not the bright sky. Four taps `blur` texels apart (more for longer rays) soften the read, stretched `stretch`
  *  times vertically as rippled water stretches reflections; the waves shift the read `ripple` times their offset
- *  (x, y): mostly vertically, so lit windows streak down rather than zig-zag sideways. */
+ *  (x, y): smaller than the planar pass's, as the march reads a sharp full-resolution image (larger offsets broke lit windows into stepped blocks). */
 export const RIVER_SSR = { reach: 400, steps: 12, refine: 4, minFresnel: 0.035, border: [0.002, 0.03], far: [0.8, 1],
-  blur: [1.5, 4], stretch: 2.5, ripple: [0.5, 1.2], edge: 0.7, edgeBlur: [8, 3] };
+  blur: [1.5, 4], stretch: 2.5, ripple: [0.35, 0.6], edge: 0.7, edgeBlur: [8, 3] };
 
 type Vec3 = THREE.Node<'vec3'>;
 
