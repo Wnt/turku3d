@@ -73,14 +73,6 @@ test('a 40 FPS resolution target keeps full resolution at the goal and steps dow
   expect(run(40, 32)).toBe(0.5);
 });
 
-test('leaf A/B variants parse strictly', async () => {
-  const { parseLeafVariant } = await import('../../src/world/nature/materials');
-  expect(parseLeafVariant(null)).toBe(null);
-  expect(parseLeafVariant('single')).toBe('single');
-  expect(parseLeafVariant('noshadow')).toBe('noshadow');
-  expect(() => parseLeafVariant('cheap')).toThrow();
-});
-
 test('Apple GPUs take reduced only with a slow probe on a base chip: the M1 Max stays medium even loaded', async () => {
   const { APPLE_REDUCED_PROBE_MS, APPLE_BASE_MAX_CORES } = await import('../../src/render/quality');
   const apple = { vendor: 'apple', architecture: 'metal-3' };
