@@ -47,6 +47,9 @@ export class Input {
   private readonly touch = new TouchPad();
   private overlay: TouchOverlay | null = null;
   private touchContext: TouchContext = 'hidden';
+  /** A program producing actions like a controller (gameplay/autopilot): called every update after the devices are
+   *  merged, with the merged actions to read (a human takeover) and overwrite. Edges, sprint and prompts follow. */
+  driver: ((actions: Actions, dt: number) => void) | null = null;
 
   constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}, private readonly copyPosition: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
@@ -148,6 +151,7 @@ export class Input {
     const touch = this.touch.sample();
     if (this.touch.active) this.source = 'touch';
     for (const a of ACTIONS) if (Math.abs(touch.actions[a]) > Math.abs(next[a])) next[a] = touch.actions[a];
+    this.driver?.(next, dt);
     const taps = this.tapped.size ? mapActions(null, this.tapped, bindings) : NO_TAPS;
     this.tapped.clear();
     this.edges.clear();

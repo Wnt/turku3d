@@ -54,6 +54,8 @@ import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
 import { vehicleGround } from './gameplay/vehicleSave';
 import { createGameplay, compassDeg } from './gameplay';
+import { autopilotParam, createAutopilot, type GoToOptions } from './gameplay/autopilot';
+import { DriveMeThere } from './gameplay/missions/driveMeThere';
 import { recoveryVehicle } from './gameplay/flippedCar';
 import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
@@ -379,8 +381,28 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   };
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   // The network handshake runs alongside world loading; a slow/offline room must not delay solo play.
+  // The autopilot (gameplay/autopilot): drives this player through the normal input path, so physics, collisions
+  // and the multiplayer pose sync see a player; missions, the dev console and ?autopilot= start trips.
+  const autopilot = createAutopilot({
+    mode: () => mode,
+    vehicle: () => physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle ?? null,
+    feet: () => ({ x: feet.x, y: feet.y, z: feet.z }),
+    cameraBasis: () => orbit.basis(),
+    footRoute: (a, b) => router.route(a, b, 'foot'),
+    carRoute: (a, b) => router.route(a, b, 'car'),
+  }, coarse);
+  input.driver = (actions, dt) => autopilot.control(actions, dt);
+  const driveMeThere = new DriveMeThere(missions, autopilot);
+  // ?autopilot=target drives to the active mission target, ?autopilot=x,z[,walk|drive][,kmh] to a point, once
+  // the game runs and the ground under the player is resident.
+  let autopilotStart: (() => void) | null = (() => {
+    const raw = new URLSearchParams(location.search).get('autopilot');
+    if (raw === 'target') return () => { driveMeThere.start(); };
+    const at = autopilotParam();
+    return at ? () => { autopilot.goTo({ x: at.x, z: at.z }, { ...(at.mode ? { mode: at.mode } : {}), ...(at.speed ? { speed: at.speed } : {}) }); } : null;
+  })();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
-  Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
+  Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
 
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
@@ -731,7 +753,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamHint.update(!startScreen.active && (saveGame.loading || (!fly?.active && !streamer.supports(feet.x, feet.z))));
     const streamAt = saveGame.streamPoint(feet);
     if (!startScreen.active && !saveGame.loading) releaseStarts();
-    const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
+    if (autopilotStart && !startScreen.active && !saveGame.loading && !paused
+      && (!coarse || coarse.progressAt(feet.x, feet.z).loaded === coarse.progressAt(feet.x, feet.z).total)) { autopilotStart(); autopilotStart = null; }
+    const routeHint = autopilot.hint ?? (missions.phase === 'carrying' ? minimap.routes.route : null);
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel, true, camera.position.y);
     parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)), world.sharedNow());
@@ -782,6 +806,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
 
   return {
     dispose() {
+      autopilot.cancel('session ended'); driveMeThere.dispose(); input.driver = null;
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };
