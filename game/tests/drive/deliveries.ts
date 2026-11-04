@@ -123,6 +123,15 @@ class DeliveryBot extends Bot {
   tick(dt: number) {
     if (!this.pw || !this.alive) return;
     this.pw.pumpInstalls(2);
+    // Parked until the server seats us in our own car: acquiring needs the car within 7 m of its record.
+    if (this.seat !== 'seated') {
+      // Refused twice: the record stayed where it was registered; put the car back there to take the seat.
+      if (this.seatRefusals >= 2 && this.registeredAt) {
+        const r = this.registeredAt; this.pw.resetVehicle({ x: r.x, y: r.y + 0.3, z: r.z }, r.yaw); this.seatRefusals = 0;
+        this.follower = null; this.state = 'parked'; this.leg = null;
+      }
+      this.pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true }); this.movedAt = Date.now(); return;
+    }
     // Hold (like the worker's coverage block) until the ground under and ahead of the car is resident.
     const v0 = this.pw.vehicleState();
     if (v0 && this.state === 'driving') {
@@ -192,4 +201,5 @@ export async function runDeliveries(o: DeliveryOptions) {
     }, 8);
   });
   for (const b of bots) b.leave();
+  await new Promise(r => setTimeout(r, 1000)); // releases and closes go out
 }

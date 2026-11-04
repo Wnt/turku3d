@@ -50,6 +50,9 @@ export class Bot {
   private impulseSeq = 0;
   private requests = 0;
   private lastRequest = 0;
+  seatRefusals = 0;
+  /** Where the record was first registered (acquiring needs the car within 7 m of the record's pose). */
+  registeredAt: { x: number; y: number; z: number; yaw: number } | null = null;
   /** register → acquire → seated; a request resent each pose interval until its result arrives. */
   seat: 'register' | 'acquire' | 'seated' = 'register';
   constructor(readonly index: number) {}
@@ -72,7 +75,12 @@ export class Bot {
       } else if (msg.type === 'vehicle_result') {
         if (msg.ok && msg.vehicle && msg.vehicle.id === this.vehicleId) {
           this.epoch = msg.vehicle.epoch;
+          const p = msg.vehicle.pose;
+          if (this.seat === 'register' && p) this.registeredAt = { x: p.E, y: p.H + VEHICLE_POSE_HEIGHT, z: -p.N, yaw: p.yaw + Math.PI / 2 };
           this.seat = this.seat === 'register' ? 'acquire' : 'seated';
+        } else if (!msg.ok && this.seat === 'acquire') {
+          // Refused (the car is no longer within 7 m of its record): register again where it stands.
+          this.seat = 'register'; this.seatRefusals++;
         }
       } else if (msg.type === 'vehicle_impulse') {
         // The server's share of a car contact: apply once, like net/sharedVehicles.ts.
@@ -171,7 +179,16 @@ export class Bot {
       trip: { state: this.state, reason: null, s: this.follower?.s ?? 0, length: this.path?.length ?? 0 } };
   }
 
-  leave() { this.alive = false; this.ws.close(); this.pw?.world.free(); this.pw = null; }
+  /** Leaves the room and frees the car record (otherwise it stays registered until the server restarts). */
+  leave() {
+    if (this.vehicleId && this.ws.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify({ v: 2, type: 'vehicle', action: 'release', request: `bot-${this.index}-release`, id: this.vehicleId })); } catch { /* closing */ }
+    }
+    this.alive = false;
+    const ws = this.ws;
+    setTimeout(() => ws.close(), 300); // let the release go out first
+    this.pw?.world.free(); this.pw = null;
+  }
 }
 
 export async function runBots(o: BotOptions) {
