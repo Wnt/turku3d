@@ -44,6 +44,10 @@ screen-door threshold, which TRAA resolves into a blend. Each tree's band is off
 of its tint, so a tile never switches at once, and distance moves the fade continuously, with
 no flipping. A full budget moves its boundary closer instead of dropping trees; near trees
 never fall to impostors.
+The same variants clear the view (`render/viewClearance.ts`): trees between the camera and the
+player, or the road just ahead of them, and foliage within about 2 m of the camera, drop out
+through a second per-frame screen door. One set of render-group uniforms per frame drives it;
+shadow casters keep their full mask.
 
 Distant building derivatives retain the same facade instructions (metric UVs, bays,
 floors, blank modules and measured patches) as detailed models. Both LODs call the
