@@ -72,9 +72,8 @@ it('keeps conifer tapers and leaves shrubs and fences alone', () => {
 });
 
 it('spreads leaf cards at their own size on fill-rate bound tiers', () => {
-  expect(crownMode('medium', '')).toBe('stretch'); expect(crownMode('high', '')).toBe('stretch');
-  expect(crownMode('reduced', '')).toBe('spread'); expect(crownMode('low', '')).toBe('spread');
-  expect(crownMode('reduced', '?crowns=asset')).toBe('asset'); expect(() => crownMode('medium', '?crowns=x')).toThrow();
+  expect(crownMode('medium')).toBe('stretch'); expect(crownMode('high')).toBe('stretch');
+  expect(crownMode('reduced')).toBe('spread'); expect(crownMode('low')).toBe('spread'); expect(crownMode('mobile')).toBe('spread');
   // Two leaf cards (quads) in the crown: each moves out with its centre and keeps its size.
   const quad = (x: number, y: number) => [x - 0.2, y, 0, x + 0.2, y, 0, x - 0.2, y + 0.4, 0, x + 0.2, y + 0.4, 0];
   const asset = tree('birch');
@@ -88,5 +87,4 @@ it('spreads leaf cards at their own size on fill-rate bound tiers', () => {
   const p = extra.getAttribute('position');
   expect(p.getX(1) - p.getX(0)).toBeCloseTo(0.4, 5);
   expect((p.getX(0) + p.getX(1)) / 2).toBeCloseTo(2 * crownFactor(10.2 / 20, 2 / 5, shape, widening), 4);
-  expect(fitCrown(tree('oak'), new WeakSet(), 'asset')).toBeNull();
 });
