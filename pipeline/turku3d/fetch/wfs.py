@@ -67,7 +67,7 @@ def request_params(layer: WfsLayer, bbox: tuple[float, float, float, float]) -> 
             service="WFS",
             version="1.1.0",
             request="GetFeature",
-            typeName=layer.name,
+            typeName=layer.remote,
             bbox=f"{x0:.3f},{y0:.3f},{x1:.3f},{y1:.3f}",
         )
     flt = (
@@ -75,7 +75,7 @@ def request_params(layer: WfsLayer, bbox: tuple[float, float, float, float]) -> 
         f"<gml:coordinates>{x0:.3f},{y0:.3f} {x1:.3f},{y1:.3f}</gml:coordinates></gml:Box></BBOX></Filter>"
     )
     return dict(
-        service="WFS", version="1.0.0", request="GetFeature", typeName=layer.name, filter=flt
+        service="WFS", version="1.0.0", request="GetFeature", typeName=layer.remote, filter=flt
     )
 
 
@@ -361,6 +361,62 @@ def pages_to_frame(pages: list[Path], layer: str):
 
 
 def fetch_layer(layer: WfsLayer, area: config.Area, log=print, force_parquet: bool = False) -> dict:
+    if layer.name in config.CITY.wfs_absent:
+        return write_absent(layer, area, config.CITY.wfs_absent[layer.name], log=log)
+    if layer.name in config.CITY.wfs_derived:
+        from .adapters import derive
+
+        return derive(layer, area, config.CITY.wfs_derived[layer.name], log=log)
+    return fetch_remote(layer, area, log=log, force_parquet=force_parquet)
+
+
+def write_frame(layer_name: str, slug: str, area: config.Area, gdf, nfeat: int, **extra) -> dict:
+    """Store a frame as the area's layer parquet with its summary (the coarse sources read both)."""
+    root = kind_dir("wfs")
+    reg = Registry(root)
+    adir = root / area.name
+    adir.mkdir(parents=True, exist_ok=True)
+    out = adir / f"{slug}.parquet"
+    tmp = out.with_name(out.name + ".tmp")
+    gdf.to_parquet(tmp, index=False)
+    tmp.replace(out)
+    reg.record(out, url=None, layer=layer_name, features=nfeat, **extra)
+    s = {
+        "layer": layer_name,
+        "status": "ok" if len(gdf) else "empty",
+        "area": area.name,
+        "bbox_en": list(area.with_margin.to_en().as_tuple()),
+        "features": nfeat,
+        "rows": int(len(gdf)),
+        "parquet_bytes": out.stat().st_size,
+        "geom_types": {k: int(v) for k, v in gdf["geom_type"].value_counts().items()}
+        if len(gdf)
+        else {},
+        "has_z": bool(gdf.geometry.has_z.any()) if len(gdf) else False,
+        **extra,
+    }
+    for col in ("Katuosalaji", "Pintamateriaali"):
+        if col in gdf.columns and len(gdf):
+            vc = gdf.drop_duplicates("feature_key")[col].value_counts()
+            s[f"by_{col}"] = {str(k): int(v) for k, v in vc.head(25).items()}
+    atomic_write_text(adir / f"{slug}.summary.json", json.dumps(s, indent=1, ensure_ascii=False))
+    return s
+
+
+def write_absent(layer: WfsLayer, area: config.Area, reason: str, log=print) -> dict:
+    """A layer the city does not serve openly: an empty layer, so builds do not wait for it."""
+    summary_path = kind_dir("wfs") / area.name / f"{layer.slug}.summary.json"
+    if summary_path.exists():
+        s = json.loads(summary_path.read_text())
+        if s.get("gap") == reason and (summary_path.with_name(f"{layer.slug}.parquet")).exists():
+            return s
+    gdf, _ = pages_to_frame([], layer.name)
+    s = write_frame(layer.name, layer.slug, area, gdf, 0, gap=reason, city=config.CITY.name)
+    log(f"wfs  {layer.name}: not served by {config.CITY.title} ({reason}); empty layer")
+    return s
+
+
+def fetch_remote(layer: WfsLayer, area: config.Area, log=print, force_parquet: bool = False) -> dict:
     root = kind_dir("wfs")
     reg = Registry(root)
     adir = root / area.name
