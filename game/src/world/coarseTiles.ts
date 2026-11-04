@@ -2,7 +2,7 @@
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
-import { shellRoofs, shellWallPigments, styleBlockLod, type ShellRoof } from '../render/sceneryMaterial';
+import { shellRoofs, styleBlockLod, type ShellRoof } from '../render/sceneryMaterial';
 import { LOD_FADE, lodFades } from '../render/lodFade';
 import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
@@ -199,7 +199,7 @@ export class CoarseTiles {
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
   private buildingModels: BuildingModelCache;
-  private shellLooks = new WeakMap<THREE.Object3D, { roofs: Map<string, ShellRoof>; walls: ReturnType<typeof shellWallPigments> }>();
+  private shellRoofs = new WeakMap<THREE.Object3D, Map<string, ShellRoof>>();
   private buildingLeases = new WeakMap<THREE.Object3D, () => void>();
   private comparison: VisualPassComparison;
   readonly screenshotScenery: ScreenshotScenery;
@@ -244,9 +244,9 @@ export class CoarseTiles {
     this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
       undefined, undefined, (root, owner, block) => {
         // The HD roofs are cloned into `owner` before its block shells: fit their roof photos once per tile.
-        let shell = this.shellLooks.get(owner);
-        if (!shell) this.shellLooks.set(owner, shell = { roofs: shellRoofs(owner), walls: shellWallPigments(owner) });
-        styleBlockLod(root, owner, this.materials, shell.roofs.get(block), shell.walls);
+        let roofs = this.shellRoofs.get(owner);
+        if (!roofs) this.shellRoofs.set(owner, roofs = shellRoofs(owner));
+        styleBlockLod(root, owner, this.materials, roofs.get(block));
       });
     this.page = host.pageUrl ?? location.href;
     const page = new URL(this.page);

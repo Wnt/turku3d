@@ -1,6 +1,6 @@
 // Far openings retain the detailed facade's program or baked glazing mask.
 import * as THREE from 'three/webgpu';
-import { attribute, distance, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
+import { attribute, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
 import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
@@ -19,20 +19,37 @@ function regionalMask(coverage: THREE.DataTexture) {
   return mask;
 }
 
-/** Block shell roofs carry this pigment (pipeline/turku3d/coarse/blocks.py ROOF, linear). */
-export const SHELL_ROOF = [0.20, 0.23, 0.22] as const;
 /** The HD roof photo a block shell's roofs sample, and its world-plane mapping: uv = (u . (x, z, 1), v . (x, z, 1)). */
 export interface ShellRoof { map: THREE.Texture; u: readonly [number, number, number]; v: readonly [number, number, number] }
 
 /** The roof pigment of a block shell: its HD children's own roof photo at the same world position (GTA V's LOD
  *  texture is the blurred HD one; here the GPU mip chain does the blurring), so a roof keeps its colour across the
- *  280 m hand-over instead of turning into the fixed grey-green ROOF pigment. Walls keep their vertex pigment. */
+ *  280 m hand-over. Roof faces are the non-wall ones (wallFrame); walls keep their vertex pigment, which the
+ *  shell-look migration sets to the HD facade's mean (pipeline/turku3d/migrations/shell_look.py). */
 function shellPigment(roof?: ShellRoof) {
   if (!roof) return sceneryPigment;
   const p = vec3(positionWorld.x, positionWorld.z, 1);
   const coord = vec2(dot(p, vec3(...roof.u)), dot(p, vec3(...roof.v)));
-  const isRoof = distance(vertexColor().rgb, vec3(...SHELL_ROOF)).lessThan(.012);
-  return isRoof.select(texture(roof.map, coord).rgb, vertexColor().rgb);
+  return mix(texture(roof.map, coord).rgb, vertexColor().rgb, wallFrame().wall);
+}
+
+/** The procedural windows of a glazed shell wall: the HD kit's own bay, storey and opening size where the shell-look
+ *  migration wrote them (`_shell_grid`), else the distant city's 2.6 m x 3.2 m grid with a 0.5 x 0.6 opening. */
+function shellWindows(grid: boolean) {
+  const frame = wallFrame();
+  const g = grid ? varying(attribute('_shell_grid', 'vec4'), 'v_shell_grid').setInterpolation('flat') : null;
+  const known = g ? g.x.greaterThan(.5).and(g.y.greaterThan(1)) : null;
+  const bayM = g && known ? known.select(g.x, float(2.6)) : float(2.6), storeyM = g && known ? known.select(g.y, float(3.2)) : float(3.2);
+  const width = g && known ? known.select(g.z.clamp(.15, .9), float(.5)) : float(.5);
+  const height = g && known ? known.select(g.w.clamp(.15, .9), float(.6)) : float(.6);
+  const storey = positionWorld.y.div(storeyM), bay = frame.along.div(bayM);
+  const across = fract(bay), rise = fract(storey), sill = float(1).sub(height).mul(.45);
+  const half = width.div(2), edge = float(.05);
+  const glass = smoothstep(float(.5).sub(half).sub(edge), float(.5).sub(half).add(edge), across)
+    .mul(smoothstep(float(.5).add(half).add(edge), float(.5).add(half).sub(edge), across))
+    .mul(smoothstep(sill.sub(edge), sill.add(edge), rise)).mul(smoothstep(sill.add(height).add(edge), sill.add(height).sub(edge), rise))
+    .mul(frame.wall);
+  return { frame, glass, bay, storey, rise };
 }
 
 export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map?: THREE.Texture | null, programVersion = 5,
@@ -58,13 +75,10 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
     material.emissiveNode = emission;
     return material;
   }
-  if (layer === 'buildings-lod-glazed') {
+  if (layer === 'buildings-lod-glazed' || layer === 'buildings-lod-glazed-grid') {
     // Block LOD walls whose HD facade program has windows (pipeline/turku3d/coarse/blocks.py): a soft window in each
-    // 2.6 m x 3.2 m cell of the distant city's grid darkens the pigment by day and lights the same windows at night.
-    const frame = wallFrame(), storey = positionWorld.y.div(3.2), bay = frame.along.div(2.6);
-    const across = fract(bay), rise = fract(storey);
-    const glass = smoothstep(.22, .32, across).mul(smoothstep(.78, .68, across))
-      .mul(smoothstep(.25, .35, rise)).mul(smoothstep(.85, .75, rise)).mul(frame.wall);
+    // bay and storey darkens the pigment by day and lights the same windows at night.
+    const { frame, glass, bay, storey, rise } = shellWindows(layer === 'buildings-lod-glazed-grid');
     material.colorNode = mix(shellPigment(roof), vec3(.03, .045, .06), glass.mul(.8));
     material.emissiveNode = windowEmission(frame.plane, floor(bay), floor(storey), rise, glass);
     return material;
@@ -183,64 +197,15 @@ function planeFit(map: THREE.Texture, samples: number[][]): ShellRoof | null {
   return { map, u, v };
 }
 
-type Program = { wall?: string; trim?: string; bay?: number; storey?: number; size?: number[]; opening?: number[]; bands?: number[] };
-const linear = (hex: string) => new THREE.Color(hex).toArray() as [number, number, number]; // THREE.Color is linear
-/** The share of a facade program's wall that its HD shader paints in the trim colour (window surrounds, floor courses,
- *  cornice, corner bands: facadeProgram.ts programPigment), outside the openings. */
-export function trimShare(program: Program) {
-  const bay = program.bay ?? 0, storey = program.storey ?? 0, [ow = 0, oh = 0, , w = 0] = program.opening ?? [];
-  const [, cornice = 0, course = 0, corner = 0] = program.bands ?? [], [width = 0, height = 0] = program.size ?? [];
-  if (!(bay > 0 && storey > 0)) return 0;
-  const open = ow * bay * oh * storey, cell = bay * storey;
-  const surround = w > 0 ? ((ow * bay + 2 * w) * (oh * storey + 2 * w) - open) / cell : 0;
-  const share = surround + course / storey + (height > 0 ? cornice / height : 0) + (width > 0 ? 2 * corner / width : 0);
-  return Math.min(.6, Math.max(0, share / Math.max(.2, 1 - open / cell)));
-}
-
-/** Block shell walls carry their HD building's facade-program wall colour (blocks.py _appearance). Near facades also
- *  paint trim over part of that wall, which at the 280 m hand-over reads as a lighter or darker facade: mix the trim
- *  in by its share, per building, so the shell keeps the HD facade's mean colour. Keyed by the shell's wall pigment. */
-export function shellWallPigments(owner: THREE.Object3D): Map<string, [number, number, number]> {
-  const out = new Map<string, [number, number, number]>();
-  for (const wrapper of owner.children) {
-    if (!wrapper.userData.archetype) continue;
-    wrapper.traverse(o => {
-      const kit = o.userData.facade_kit, walls = o.userData.facade_kit_walls;
-      const program = ((Array.isArray(walls) ? walls : [kit]) as Program[]).find(p => p && typeof p === 'object' && p.wall);
-      if (!program?.wall) return;
-      const key = colourKey(linear(program.wall));
-      if (out.has(key)) return;
-      const k = program.trim ? trimShare(program) : 0, wall = linear(program.wall), trim = program.trim ? linear(program.trim) : wall;
-      out.set(key, wall.map((c, i) => c + (trim[i] - c) * k) as [number, number, number]);
-    });
-  }
-  return out;
-}
-const colourKey = (c: ArrayLike<number>) => Array.from({ length: 3 }, (_, i) => Math.round(c[i] * 255)).join(',');
-const recoloured = new WeakSet<THREE.BufferAttribute | THREE.InterleavedBufferAttribute>();
-/** Replace each shell wall pigment by its building's mean facade colour (shellWallPigments), once per geometry. */
-function recolourShell(mesh: THREE.Mesh, pigments: Map<string, [number, number, number]>) {
-  const colour = mesh.geometry.getAttribute('color');
-  if (!colour || recoloured.has(colour) || !pigments.size) return;
-  recoloured.add(colour);
-  const c = [0, 0, 0];
-  for (let i = 0; i < colour.count; i++) {
-    c[0] = colour.getX(i); c[1] = colour.getY(i); c[2] = colour.getZ(i);
-    const to = pigments.get(colourKey(c));
-    if (to) colour.setXYZ(i, to[0], to[1], to[2]);
-  }
-  colour.needsUpdate = true;
-}
-
 /** Style a block LOD parent clone; pooled materials are released with `owner` (its tile model). `roof` is the HD
- *  roof photo of the block (shellRoofs), so the shell's roofs keep the HD colours. */
-export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, shared?: SharedMaterials, roof?: ShellRoof,
-  walls = new Map<string, [number, number, number]>()) {
+ *  roof photo of the block (shellRoofs), so the shell's roofs keep the HD colours. Wall colours and the window grid
+ *  come with the shell itself (shell-look migration). */
+export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, shared?: SharedMaterials, roof?: ShellRoof) {
   root.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
-    recolourShell(mesh, walls);
-    const layer = mesh.userData.lod === 'walls-glazed' ? 'buildings-lod-glazed' : 'buildings-lod';
+    const glazed = mesh.userData.lod === 'walls-glazed';
+    const layer = !glazed ? 'buildings-lod' : mesh.geometry.hasAttribute('_shell_grid') ? 'buildings-lod-glazed-grid' : 'buildings-lod-glazed';
     const key = roof ? `block-lod:${layer}:${roof.map.uuid}:${[...roof.u, ...roof.v].map(x => x.toPrecision(9)).join(',')}` : `block-lod:${layer}`;
     const create = () => sceneryMaterial(layer, undefined, null, 5, roof);
     mesh.material = shared ? shared.styled.acquire(lodSource, key, owner, create) : create();
