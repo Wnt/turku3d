@@ -1,4 +1,5 @@
 import { placementVisibility } from './world/placementVisibility';
+import { paceYields } from './render/yieldPacer';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
@@ -336,6 +337,9 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
+// During play r186's asynchronous shader-build stages run after each frame within a small budget instead of back to
+// back between two frames (render/yieldPacer.ts); loading and bench settles keep the browser's scheduler.yield.
+paceYields(() => (!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
