@@ -146,6 +146,12 @@ export class SafeReset {
       vy: v.linvel.y, loaded: this.physics.loaded.has(tileId(v.pos.x, v.pos.z)) };
   }
 
+  /** The player's collision cell as the client sees it, for a coverage reset's log line (why did it leave?). */
+  private cellState(at: THREE.Vector3) {
+    const id = tileId(at.x, at.z);
+    return `[cell ${id} manifest=${!!this.manifest.collision[id]} loaded=${this.physics.loaded.has(id)}]`;
+  }
+
   /** Puts the player (or the driven car, upright and still) back at the chosen safe sample. */
   private async recover(player: PlayerFrame, reason: string) {
     // Only a sample whose collision is resident or published can hold the player: a sample in a cell that has
@@ -155,7 +161,7 @@ export class SafeReset {
       return this.physics.loaded.has(id) || !!this.manifest.collision[id];
     });
     if (!sample) {
-      if (this.noTarget !== reason) console.warn(`[recovery] ${reason}: no safe sample with collision, holding in place`);
+      if (this.noTarget !== reason) console.warn(`[recovery] ${reason}: no safe sample with collision, holding in place ${this.cellState(player.feet)}`);
       this.noTarget = reason;
       return;
     }
@@ -163,7 +169,7 @@ export class SafeReset {
     this.recovering = true;
     const target = { ...sample, ...this.area.inset(sample, RECOVERY.edgeMargin + (player.mode === 'car' ? RECOVERY.carMargin : 0)) };
     console.info(`[recovery] reset (${reason}) from ${player.feet.x.toFixed(1)},${player.feet.y.toFixed(1)},${player.feet.z.toFixed(1)} `
-      + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}`);
+      + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}${reason === 'collision' ? ` ${this.cellState(player.feet)}` : ''}`);
     const id = tileId(target.x, target.z);
     this.streamer.update(target.x, target.z, true);
     for (let i = 0; i < 600 && this.manifest.collision[id] && !this.physics.loaded.has(id); i++) {
