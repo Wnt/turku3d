@@ -775,6 +775,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         : chaseVehicle ? clearanceBody.set(chaseVehicle.pos.x, chaseVehicle.pos.y + 0.3, chaseVehicle.pos.z) : clearanceBody.copy(feet).setY(feet.y + 0.9),
       velocity: vel, mode };
     viewClearance.update(camera, clearing, dt);
+    if (multiplayerPlaying) remotePlayers.fadeLabels(camera);
     renderFrame();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
