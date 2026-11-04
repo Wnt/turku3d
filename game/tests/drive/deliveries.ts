@@ -103,7 +103,9 @@ class DeliveryBot extends Bot {
     if (!this.pw || !this.alive) return;
     if (this.state !== 'driving' || !this.follower) {
       this.pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
-      if (!this.planning && (this.state === 'parked' || this.state === 'replan' || this.state === 'arrived')) void this.plan();
+      // A re-plan keeps the current stop; arrival or a fresh spawn picks the next one.
+      if (!this.planning && (this.state === 'parked' || this.state === 'arrived')) void this.plan();
+      else if (!this.planning && this.state === 'replan') void this.plan(this.leg ?? undefined);
       return;
     }
     this.step(dt);
