@@ -85,4 +85,16 @@ export class GameLighting extends DynamicLighting {
     if (this.slots.point > 0) data.set('PointLight', new ActivePointLights(this.slots.point));
     return node.setLights(lights);
   }
+
+  /** r186 puts a scene's lights back after each render to the set it had before (`beginRender`), and a scene's
+   * lights node starts with none, so between frames the world's lights node held no lights at all. Every node
+   * program built there (a deferred first-use build after the frame, render/asyncNodeBuilds.ts; a compileAsync
+   * stage resumed in a later frame gap, render/yieldPacer.ts) then compiled without the sun, its cascaded shadows
+   * and the lamps: lit by the environment alone, parked and traffic car paint came out pale and nearly white.
+   * An empty saved set is never restored over the lights this render found. */
+  override finishRender(scene: THREE.Scene) {
+    const saved = (this as unknown as { _cache: THREE.Light[][] })._cache;
+    if (saved.at(-1)?.length === 0) { saved.pop(); return; }
+    super.finishRender(scene);
+  }
 }
