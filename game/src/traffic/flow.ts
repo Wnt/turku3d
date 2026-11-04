@@ -4,7 +4,7 @@
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
-import { connector, cumulative, type Connector, type Lane } from './tileNetwork';
+import { connector, cumulative, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
@@ -38,7 +38,7 @@ const CHANGE_CREEP = 0.3;
  *  a stream that shares its green could otherwise wait for good). */
 const STARVE_AFTER = 15;
 /** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
-const HELD = /^(exit|storage|receiving|leader|footprint|signal|no-exit|player)/;
+const HELD = /^(exit|storage|receiving|signal|no-exit)/;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -352,6 +352,8 @@ export class TrafficFlow {
         }
         // One physical junction gets one tangent arc; chaining stop-line splinters produced tight S bends.
         if (visited.size > 1 && curve.length < 45) curve = this.link(lane, next);
+        // A longer fold keeps its path, cleaned like a lane (its links' kinks set the 1.5 m/s floor speed before).
+        else if (visited.size > 1) curve = { ...smoothPath(curve.points, Math.min(lane.speed, next.speed, Math.abs(curve.turn) > 0.5 ? 7 : Infinity)), turn: curve.turn };
         const turn = Math.atan2(Math.sin(curve.turn), Math.cos(curve.turn));
         if (curve.turn !== turn) curve = { ...curve, turn }; // cached connectors are shared, never mutated
         if (next.length < 12 && !next.end.seam) continue;
@@ -464,8 +466,9 @@ export class TrafficFlow {
       const crossing = lane.connector && lane.next === next;
       const remaining = lane.length - car.s;
       if (crossing) {
-        const turnSpeed = lane.connector!.speed;
-        desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
+        const turnSpeed = lane.connector!.speed, limits = lane.connector!.limits;
+        if (limits && car.s > lane.length) desired = Math.min(desired, limits[Math.min(limits.length - 1, Math.floor(car.s - lane.length))]);
+        if (!limits || car.s <= lane.length) desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
         if (!car.change && !car.reservation && remaining < Math.max(30, car.speed * car.speed / (2 * BRAKE) + 8)) {
           if (this.mayEnter(car, heads, reservations, t)) {
             // Evaluate the gap while braking, but only lock the box when the nose is about to enter it.
@@ -813,11 +816,14 @@ export class TrafficFlow {
       if (distance > Math.max(12, other.speed * 2.5)) continue;
       // Never yield to a car that cannot go itself (its exit is full, it waits for a reservation or a signal): a
       // yield to a held car never ends. Its own yields to others still count, so priority chains stay intact.
-      if (other.waiting > 2 && other.blockedBy !== null && HELD.test(other.blockedBy)) continue;
+      if (other.waiting > 2 && other.speed < 0.2 && other.blockedBy !== null && HELD.test(other.blockedBy)) continue;
       // A driver kept at its line for STARVE_AFTER seconds by a stream with priority takes its turn: drivers
       // that waited longest are evaluated first, so it reserves first and the stream stops for its reservation.
-      if (car.waiting > STARVE_AFTER && other.waiting < car.waiting) continue;
-      if (other.waiting > STARVE_AFTER && other.waiting > car.waiting) return blocked(`starved:${other.key}`);
+      // Only traffic that can still stop before its line, and never while a player holds either car up.
+      if (car.waiting > STARVE_AFTER && !car.held && other.waiting < car.waiting
+        && distance > other.speed * other.speed / (2 * BRAKE) + 1) continue;
+      if (other.waiting > STARVE_AFTER && !other.held && other.waiting > car.waiting
+        && lane.length - car.s - car.length / 2 > car.speed * car.speed / (2 * BRAKE) + 1) return blocked(`starved:${other.key}`);
       if (lane.priority !== 'normal' && otherLane.priority === 'normal') return blocked(`give-way:${other.key}`);
       if (lane.priority === 'normal' && otherLane.priority !== 'normal') continue;
       const o = heading(otherLane), cross = h[0] * o[1] - h[1] * o[0], dot = h[0] * o[0] + h[1] * o[1];
@@ -956,7 +962,10 @@ export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, 
   if (car.swerve) {
     // Going round a stopped car: shifted off the lane centre, nose turned along the lateral motion.
     out.x -= out.hz * car.swerve; out.z += out.hx * car.swerve;
-    const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * car.swerveRate, hz = out.hz * forward + out.hx * car.swerveRate;
+    // The nose follows the lateral motion only as fast as the car rolls: a car at standstill cannot yaw, and
+    // swinging its corners while edging aside locked a passing car and the oncoming one squeezing for it.
+    const yaw = car.swerveRate * Math.min(1, out.speed / 3);
+    const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * yaw, hz = out.hz * forward + out.hx * yaw;
     const d = Math.sqrt(hx * hx + hz * hz);
     out.hx = hx / d; out.hz = hz / d;
   }
