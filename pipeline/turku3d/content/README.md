@@ -42,7 +42,7 @@ ASCII slug of the address (`lantinen-rantakatu-13a`), stable across rebuilds, so
 their delivered set.
 
 ```json
-{"format": "turku3d-addresses", "version": 1, "frame": "engine-xz", "origin": [77.1, 187.6],
+{"format": "turku3d-addresses", "version": 1, "frame": "engine-xz", "origin": [78.92, 186.36],
  "tiles": {"t0_0_0": 31, ...},
  "addresses": [{"id", "address", "building", "tile", "point": [x, z], "door": "entrance" | "wall",
                 "street": [x, z], "foot": metres, "car": metres | null}, ...]}

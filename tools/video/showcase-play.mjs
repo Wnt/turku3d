@@ -56,7 +56,7 @@ try {
    async function interact(){await page.evaluate(()=>window.__game.input.tapped.add('KeyE'));for(let i=0;i<10;i++)await frame();}
    async function choose(id){await page.evaluate(id=>window.__game.shopMenu.chosen=id,id);for(let i=0;i<10;i++)await frame();}
    await place(290,210.84,1.2);await interact();await choose('rent_permit');await choose('leave');
-   await place(77.1,187.6);await interact();await choose('take_order');
+   await place(78.92,186.36);await interact();await choose('take_order');
    const target=await page.evaluate(()=>window.__game.missions.snapshot().hud.targets.find(t=>t.kind==='dropoff').point);
    console.log('Delivery target',target);
    await place(target.x,target.z+2.5);

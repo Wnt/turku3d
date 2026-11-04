@@ -37,7 +37,7 @@ FORMAT = "turku3d-addresses"
 VERSION = 1
 # Pizzeria Linnanportti, Linnankatu 17 (game/src/gameplay/content/locations.ts PIZZERIA.point). The game
 # rejects a pool whose origin differs, so the two cannot drift apart silently.
-PIZZERIA = (77.1, 187.6)
+PIZZERIA = (78.92, 186.36)
 SIDEWALK_M = 2.5
 FALLBACK_OFFSETS_M = (SIDEWALK_M, 4.0, 1.5)
 MAX_STREET_M = 40.0
