@@ -51,7 +51,8 @@ class LocalHorizonTest(unittest.TestCase):
             base = self.serve(root, regional=str(root / 'moved-away.npz'))
             status, state = self.get(base + '/health')
             self.assertEqual((status, state['state']), (503, 'degraded'))
-            self.assertFalse(state['inputs'][str(root / 'moved-away.npz')])
+            self.assertEqual(state['inputs'], dict(sources=True, regional=False))
+            self.assertNotIn(temp, json.dumps(state))
             self.assertEqual(self.get(base + '/'), (404, {'state': 'missing'}))
             self.assertEqual(self.get(base + '/coarse/tiles/t0_0_0/manifest.json')[0], 404)
 
