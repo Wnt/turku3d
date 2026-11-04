@@ -645,7 +645,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
       if (drivenId && seatExit) leaveCar(seatExit);
-      remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
     const simulating = !paused && (!multiplayerPlaying || !!multiplayer?.state.connected);
     const extrapolating = simulating && RENDER_EXTRAPOLATION;
@@ -655,6 +654,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000, extrapolating);
     if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
+    // A shared vehicle this player owns is drawn by the remote-player renderer from its local body: the driven one at
+    // the same render pose as everything else (the chase camera follows it), never the newer raw worker state.
+    if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
+      remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined,
+        id => renderVehicle && id === drivenId && renderVehicle.id === id ? renderVehicle : null);
+    }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
       if (st.character && st.character.enabled) {
