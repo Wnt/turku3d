@@ -13,7 +13,6 @@ import { facadeKitMaterial } from './facadeKit';
 import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial, waterSurface } from './water';
-import { WATER_SWITCHES } from './waterSwitches';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
 import { streamingBudget } from './preparationBudget';
@@ -215,7 +214,7 @@ export class MaterialStyler {
       };
       sources.set(mesh, mesh.material);
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(style) : style(mesh.material);
-      if (reflectionSurface(mesh, WATER_SWITCHES.lod)) mesh.layers.enable(REFLECTION_LAYER);
+      if (reflectionSurface(mesh)) mesh.layers.enable(REFLECTION_LAYER);
       else mesh.layers.disable(REFLECTION_LAYER);
       yield;
       if (!live()) return undefined;

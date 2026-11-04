@@ -138,7 +138,6 @@ previous frame's opaque bed and walls, a soft band at quays and banks without an
 its own motion vectors (W7, `nomotion`); reduced reflects by a screen-space march over TRAA's history instead of the
 planar pass (W1, `riverReflection.ts`; `planar|ssr|sky` choose any path); rain roughens it, rings it with drops and
 dulls the mirror (W8); light sprites have a mirrored, streaked image on the sea-level water (W6, `lights/sprites.ts`);
-`quarter` and `lod` are medium's planar-pass A/Bs (W2: 0.25 scale with a mip blur; no straight-up ground in the pass).
 Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
 vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.
 A moving camera re-renders the reflection every frame (an older image visibly trails the view); only a still

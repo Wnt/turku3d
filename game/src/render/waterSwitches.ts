@@ -7,8 +7,6 @@
 //   nomotion  W7 off: river pixels keep the motion vector of whatever lies below them
 //   planar | ssr | sky   W1: the river's reflection on every tier that has one: the planar reflector pass, the
 //            screen-space march over TRAA's last frame (reduced's default), or the sky alone
-//   quarter  W2: the planar reflection at 0.25 scale (medium's is 0.5), mipmapped and read one level down
-//   lod      W2: the planar pass leaves out ground and road surfaces that face straight up (seen only from behind)
 import type { RiverReflection } from './quality';
 
 export interface WaterSwitches {
@@ -20,16 +18,12 @@ export interface WaterSwitches {
   motion: boolean;
   /** W1: the reflection every reflecting tier uses instead of its own (render/water.ts riverReflection). */
   reflect: RiverReflection | null;
-  /** W2: a quarter-scale, mip-blurred planar reflection. */
-  quarter: boolean;
-  /** W2: no straight-up ground or road surfaces in the planar pass. */
-  lod: boolean;
 }
 
-const DEFAULTS: WaterSwitches = { tightSun: true, depth: true, motion: true, reflect: null, quarter: false, lod: false };
+const DEFAULTS: WaterSwitches = { tightSun: true, depth: true, motion: true, reflect: null };
 export const WATER_SWITCHES: WaterSwitches = { ...DEFAULTS };
 
-const TOKENS = ['oldsun', 'nodepth', 'nomotion', 'planar', 'ssr', 'sky', 'quarter', 'lod'] as const;
+const TOKENS = ['oldsun', 'nodepth', 'nomotion', 'planar', 'ssr', 'sky'] as const;
 
 /** Parse `?water=`; unknown tokens throw, as other URL parameters do. Absent keeps the defaults. */
 export function parseWaterSwitches(value: string | null): WaterSwitches {
@@ -41,8 +35,6 @@ export function parseWaterSwitches(value: string | null): WaterSwitches {
     if (token === 'nodepth') switches.depth = false;
     if (token === 'nomotion') switches.motion = false;
     if (token === 'planar' || token === 'ssr' || token === 'sky') switches.reflect = token;
-    if (token === 'quarter') switches.quarter = true;
-    if (token === 'lod') switches.lod = true;
   }
   return switches;
 }
