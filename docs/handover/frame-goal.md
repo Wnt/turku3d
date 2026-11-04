@@ -7,7 +7,7 @@ Jonni's OK.
 ## Targets
 
 Measured on the standard drive replay `20261103-144904-0rb85a` segment 1 (about 96 s), play phase only, from the
-frame intervals in `frames.jsonl` (`~/turku3d/loops/framepace/frames.py` prints every column below).
+frame intervals in `frames.jsonl` (`python3 tools/perf/frame_pacing.py CAPTURE` prints every column below and PASS/FAIL per tier).
 
 | Tier (reference machine) | Mean FPS | p99 frame | Frames > 33.4 ms | Frames > 50 ms | Frames > 100 ms |
 |---|---|---|---|---|---|
