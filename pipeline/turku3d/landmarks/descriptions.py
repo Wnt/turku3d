@@ -36,6 +36,22 @@ def parameter_hash(buildings):
     return fingerprint(building_refs(buildings))
 
 
+def described(buildings):
+    """Whether any of these buildings has a landmark description: only then does the landmark
+    appearance code shape their walls and roofs (the stage cache keys it in for those tiles only)."""
+    return described_refs(building_refs(buildings))
+
+
+def described_refs(refs):
+    """``described`` for a manifest's ``landmark_buildings`` refs ([facade key, OSM id] pairs)."""
+    from types import SimpleNamespace
+
+    return any(
+        resolve(SimpleNamespace(facade_key=key, attributes={"osm_id": osm})) is not None
+        for key, osm in refs
+    )
+
+
 def manifest_current(manifest):
     return "landmark_buildings" not in manifest or manifest.get("landmark_params") == fingerprint(
         manifest["landmark_buildings"]
