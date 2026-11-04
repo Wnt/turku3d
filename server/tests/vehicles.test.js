@@ -241,3 +241,26 @@ test('changed replicas use shallow patches; unchanged wheels and metadata do not
   assert.deepEqual(delta.patches[0].pose, { t: 2, E: v.pose.E + 1 });
   assert.equal(a.messages.some(m => m.type === 'vehicles'), false);
 });
+
+test('bot cars never pile up: gone when empty for a while or when their bot is offline; player cars stay', () => {
+  const f = fixture(), bot = f.connect(undefined, { bot: true }), player = f.connect();
+  bot.send(pose); player.send(pose);
+  bot.send(car(bot, { action: 'acquire' })); player.send(car(player, { action: 'acquire' }));
+  const botCar = result(bot).vehicle.id, playerCar = result(player).vehicle.id;
+  // Seated and connected: kept.
+  f.advance(VEHICLE_LIMITS.botEmptyMs + 1);
+  assert.ok(f.room.vehicles.entries.has(botCar));
+  // Released: removed once empty for botEmptyMs; the player's released car stays.
+  bot.send({ type: 'vehicle', action: 'release', id: botCar, request: 'leave' });
+  player.send({ type: 'vehicle', action: 'release', id: playerCar, request: 'leave' });
+  f.advance(VEHICLE_LIMITS.botEmptyMs + 1);
+  assert.equal(f.room.vehicles.entries.has(botCar), false);
+  assert.ok(f.room.vehicles.entries.has(playerCar));
+  // A bot that crashes (disconnects) while seated: its car goes after botOfflineMs, not the 5 min reservation.
+  const crashed = f.connect(undefined, { bot: true }); crashed.send(pose);
+  crashed.send(car(crashed, { action: 'acquire' }));
+  const crashedCar = result(crashed).vehicle.id;
+  f.room.disconnect(crashed.c);
+  f.advance(VEHICLE_LIMITS.botOfflineMs + 1);
+  assert.equal(f.room.vehicles.entries.has(crashedCar), false);
+});

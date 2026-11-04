@@ -10,15 +10,19 @@ connected, no console errors.
 From the Mac:
 
 ```sh
-~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh [REV]   # default: local/loop-integration
+~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh [--local-build] [REV]   # default: local/loop-integration
 ```
 
 The script:
 
-1. Builds REV in a detached worktree with `VITE_SHARE_HOSTS=city.lab.madekivi.fi` and `VITE_PUBLIC_RELEASE=1`
-   (the Pages start menu, Multiplayer only).
-2. Uploads the dist and the server sources to `~/turku3d-local/city/releases/<sha>` on osgallery-dev and keeps
-   the last 3 releases.
+1. Streams a `git archive` of REV (about 70 MB) to osgallery-dev and builds it there with `VITE_SHARE_HOSTS=city.lab.madekivi.fi`
+   and `VITE_PUBLIC_RELEASE=1` (the Pages start menu, Multiplayer only), `nice -n 10`. Dependencies are cached in
+   `~/turku3d-local/city/deps/<hash of game/package-lock.json>`. The Mac does almost no work (about 1 CPU-second
+   per deploy). The whole deploy runs under `flock ~/turku3d-local/city/deploy.lock` on osgallery-dev, so concurrent
+   deploys queue (up to 30 min). `--local-build` builds on the Mac instead and rsyncs the dist (use when osgallery-dev
+   cannot build). A build prints `fatal: bad object HEAD` once: vite's `git status` stamp runs in the archive's bare
+   HEAD; the stamp itself (`turku3d-build`) is the right sha.
+2. Installs dist and server sources in `~/turku3d-local/city/releases/<sha>` and keeps the last 3 releases.
 3. Re-pins the tile proxy to the local game's tile version (`~/turku3d/loops/integrator/tile-service.json` on
    the Mac). Rerun the script after a tile repin; it works for the same commit too.
 4. Switches `current`, installs changed units, restarts `city-web` and `city-tiles`, and restarts `city-mp` only

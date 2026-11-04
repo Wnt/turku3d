@@ -1,7 +1,10 @@
 import { validPose, cleanPose } from './pose.js';
 import { contactImpulse, TUNING } from './vehicle-contact.js';
 
-export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, reconnectMs: 300_000, radius: 250, updates: 8 };
+export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, reconnectMs: 300_000, radius: 250, updates: 8,
+  // A car registered by a bot client (hello bot:true, the delivery bots of tools/drivetest/bots.sh) is gone once it is
+  // empty this long, or once its bot has been offline this long, seated or not: bot cars never pile up.
+  botEmptyMs: 30_000, botOfflineMs: 10_000 };
 const idOK = id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(id);
 const distance = (a, b) => Math.hypot(a.E - b.E, a.N - b.N);
 const publicVehicle = v => ({ id: v.id, source: v.source, creator: v.creator, localId: v.localId,
@@ -46,7 +49,7 @@ export class VehicleRegistry {
         if (!oldest) { reply(false); return; }
         this.entries.delete(oldest.id);
       }
-      v = { id: m.id, source, localId: m.localId, creator: p.id, owner: p.id, occupant: null,
+      v = { id: m.id, source, localId: m.localId, creator: p.id, owner: p.id, occupant: null, bot: p.bot === true,
         pose: cleanPose(m.pose), half, epoch: 1, updated: now, used: now, revision: 0, impulseAt: -Infinity };
       this.entries.set(v.id, v); this.changed(v);
     }
@@ -102,7 +105,12 @@ export class VehicleRegistry {
       }
       const owner = this.room.players.get(v.owner);
       const reconnecting = owner && !owner.connection && now - owner.disconnectedAt < VEHICLE_LIMITS.reconnectMs;
-      if (!v.occupant && !reconnecting && now - v.used >= VEHICLE_LIMITS.lifetime) this.entries.delete(id);
+      if (!v.occupant && !reconnecting && now - v.used >= VEHICLE_LIMITS.lifetime) { this.entries.delete(id); continue; }
+      if (v.bot) {
+        const creator = this.room.players.get(v.creator);
+        const offline = !creator || (!creator.connection && now - (creator.disconnectedAt ?? now) >= VEHICLE_LIMITS.botOfflineMs);
+        if (offline || (!v.occupant && now - v.used >= VEHICLE_LIMITS.botEmptyMs)) this.entries.delete(id);
+      }
     }
     for (const [key, at] of this.contacts) if (now - at > 1000) this.contacts.delete(key);
   }
