@@ -1,5 +1,6 @@
 import { placementVisibility } from './world/placementVisibility';
 import { paceYields } from './render/yieldPacer';
+import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
@@ -339,7 +340,9 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 let benchSettled = () => false;
 // During play r186's asynchronous shader-build stages run after each frame within a small budget instead of back to
 // back between two frames (render/yieldPacer.ts); loading and bench settles keep the browser's scheduler.yield.
-paceYields(() => (!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled());
+// 3 ms per frame, 8 ms while the 3x3 window waits for full tiles: a flat 3 ms cost the Air 5-7 HD points.
+paceYields(() => (!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled(),
+  () => streamingAllowance.urgent ? 8 : 3);
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {

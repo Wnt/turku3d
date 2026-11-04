@@ -10,7 +10,7 @@ test('during play shader-build continuations run after frames within a budget; o
   vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { frames.push(callback); return 0; });
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
   let playing = false;
-  const pacer = paceYields(() => playing, 3)!;
+  const pacer = paceYields(() => playing, () => 3)!;
   const scheduler = (globalThis as unknown as { scheduler: { yield(): Promise<void> } }).scheduler;
   await scheduler.yield();
   expect(nativeCalls).toBe(1);                 // loading: the browser's own yield
