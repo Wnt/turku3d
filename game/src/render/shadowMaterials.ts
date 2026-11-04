@@ -4,6 +4,7 @@ import { placementVisibility } from '../world/placementVisibility';
 import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
 import { asyncFirstUsePipelines } from './asyncPipelines';
+import { asyncFirstUseBuilds, type DirectDraw } from './asyncNodeBuilds';
 import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
 import { executeBundles, renderBundle, type BundleDrawHook } from './bundleReplay';
@@ -61,6 +62,7 @@ export function hasDrawVertices(geometry: THREE.BufferGeometry, group: Draw[5]) 
 }
 const base = THREE.WebGPURenderer.prototype as unknown as { _renderScene(scene: THREE.Object3D, camera: THREE.Camera, useFrameBufferTarget?: boolean): unknown };
 type Internals = { _isPreCompiling?: boolean; _currentRenderBundle: unknown };
+const directDraw = (base as unknown as { _renderObjectDirect: DirectDraw })._renderObjectDirect;
 export class GameRenderer extends THREE.WebGPURenderer {
   readonly normalPrepass = new NormalPrepass();
   /** Every node-program build, for `__render.census()`. */
@@ -85,7 +87,9 @@ export class GameRenderer extends THREE.WebGPURenderer {
   private instanceSharing?: ReturnType<typeof shareInstancePrograms>;
   private asyncPipelines?: ReturnType<typeof asyncFirstUsePipelines>;
   /** Every first-use pipeline requested asynchronously so far is compiled. */
-  pipelinesSettled() { return this.asyncPipelines?.settled() ?? Promise.resolve(); }
+  pipelinesSettled() { return Promise.all([this.asyncPipelines?.settled(), this.asyncBuilds?.settled()]).then(() => {}); }
+  /** First-use node programs of the live frame build after it instead of inside it (render/asyncNodeBuilds.ts). */
+  asyncBuilds?: ReturnType<typeof asyncFirstUseBuilds>;
   /** Set by PostProcessing.render around the per-frame pipeline: first-use draws compile their pipeline asynchronously. */
   liveFrame = false;
   /** Uniform buffers sub-allocated from shared pages (render/uniformPool.ts); set before init. */
@@ -105,7 +109,13 @@ export class GameRenderer extends THREE.WebGPURenderer {
     this.instanceSharing ??= shareInstancePrograms(this);
     this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
       () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
+    this.asyncBuilds ??= asyncFirstUseBuilds(this, () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
     return this;
+  }
+  _renderObjectDirect(object: THREE.Object3D, material: THREE.Material, scene: THREE.Scene, camera: THREE.Camera,
+    lightsNode: unknown, group: unknown, clippingContext: unknown, passId?: string) {
+    if (this.asyncBuilds && !this.asyncBuilds.ready(object, material, scene, camera, lightsNode, group, clippingContext, passId)) return;
+    directDraw.call(this, object, material, scene, camera, lightsNode, group, clippingContext, passId);
   }
   /** Census hook: every replayed draw of a static render bundle (render/staticBundles.ts, render/census.ts). */
   bundleDraw: BundleDrawHook | null = null;
