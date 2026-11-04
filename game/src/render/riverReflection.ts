@@ -7,11 +7,12 @@ import { Break, Fn, If, Loop, bool, cameraFar, cameraNear, float, getScreenPosit
   perspectiveDepthToViewZ, smoothstep, texture, uniform, vec2, vec4 } from 'three/tsl';
 import type { WaterHistory } from './waterHistory';
 
-/** March length (m) and samples. Twelve screen-space steps find a bracket, four binary steps refine it: across the
- *  Aura (40-80 m) a step spans about the height of a storey at the far bank. A hit fades out over the screen border
- *  (`border`, UV), towards the end of the march (`far`, share of the reach) and as it nears the thickness limit; four
- *  taps `blur` texels apart (more for longer rays) soften it like the planar pass's quarter-resolution image. */
-export const RIVER_SSR = { reach: 160, steps: 12, refine: 4, minFresnel: 0.035, border: [0.01, 0.12], far: [0.55, 1],
+/** March length (m) and samples. Twelve screen-space steps find a bracket, four binary steps refine it. The reach covers
+ *  the far bank's hillside trees: from near water the mirror ray rises about 12 degrees and meets them 100-250 m away
+ *  (a 160 m reach left that water on the sky where the planar pass shows trees). A hit fades out over the screen border
+ *  (`border`, UV), towards the end of the march (`far`, share of the reach) and beyond the thickness limit; four taps
+ *  `blur` texels apart (more for longer rays) soften it like the planar pass's quarter-resolution image. */
+export const RIVER_SSR = { reach: 400, steps: 12, refine: 4, minFresnel: 0.035, border: [0.01, 0.12], far: [0.8, 1],
   blur: [1.5, 4] };
 
 type Vec3 = THREE.Node<'vec3'>;
@@ -72,15 +73,17 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
           If(delta.greaterThan(0), () => { high.assign(t); hitUV.assign(sampleUV); hitDelta.assign(delta); })
             .Else(() => { low.assign(t); });
         });
-        // A hit lies on the stored surface, not far behind a thin one (a lamp post in front of the far bank).
-        const thickness = max(0.6, rayZ(high).negate().mul(0.04));
-        If(hitDelta.lessThan(thickness), () => {
+        // A hit lies on the stored surface, not far behind a thin one (a lamp post in front of the far bank). Tree crowns
+        // are metres deep and full of gaps: the refined bracket often lands a few metres behind their stored front, so
+        // hits fade out between one and three thicknesses instead of falling back to the sky at one.
+        const thickness = max(0.6, rayZ(high).negate().mul(0.1));
+        If(hitDelta.lessThan(thickness.mul(3)), () => {
           const read = hitUV.add(distortion).toVar();
           const border = min(min(read.x, float(1).sub(read.x)), min(read.y, float(1).sub(read.y)));
           const travel = high.mul(span);
           const confidence = smoothstep(RIVER_SSR.border[0], RIVER_SSR.border[1], border)
             .mul(float(1).sub(smoothstep(RIVER_SSR.far[0], RIVER_SSR.far[1], travel)))
-            .mul(float(1).sub(smoothstep(0.5, 1, hitDelta.div(thickness))));
+            .mul(float(1).sub(smoothstep(1, 3, hitDelta.div(thickness))));
           const spread = texel.mul(mix(float(RIVER_SSR.blur[0]), float(RIVER_SSR.blur[1]), travel));
           const tap = (x: number, y: number) => color.sample(read.add(spread.mul(vec2(x, y)))).level(float(0)).rgb;
           const soft = tap(-1, -1).add(tap(1, -1)).add(tap(-1, 1)).add(tap(1, 1)).mul(0.25);
