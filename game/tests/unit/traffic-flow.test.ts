@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, type FlowCar } from '../../src/traffic/flow';
+import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, unseen, type FlowCar } from '../../src/traffic/flow';
 import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
 import { honking, vehicleLights } from '../../src/traffic/lights';
@@ -283,6 +283,57 @@ describe('drivers and players', () => {
   });
 });
 
+describe('out-of-view recycling (GTA-style)', () => {
+  // A player's truck across the whole carriageway: nobody can go round it, so the queue behind it locks.
+  const locked = (watchers: Parameters<TrafficFlow['setWatchers']>[0]) => {
+    const net = flowNetwork(), flow = new TrafficFlow(net, 0);
+    flow.reset(0);
+    const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
+    const at = pointAt(lane.points, lane.cum, 70);
+    const truck = { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.5 };
+    flow.setWatchers(watchers);
+    for (let step = 1; step <= 4000; step++) { flow.setPlayers([], [truck], step / 10); flow.update(step / 10); }
+    const queue = [...flow.cars.values()].filter(c => c.lane.id === lane.id && c.s < 70);
+    return { flow, queue, at };
+  };
+
+  test('without a watcher list nothing is recycled, and the queue stays locked', () => {
+    const { flow, queue } = locked(null);
+    expect(flow.stats.recycled).toBe(0);
+    expect(queue.some(c => c.stuck > 300)).toBe(true);
+  });
+
+  test('a camera looking at the queue keeps every car; one looking away from 150 m lets the locked ones go', () => {
+    const { at } = locked(null);
+    const watching = locked([{ x: at.x - 60 * at.hx, z: at.z - 60 * at.hz, fx: at.hx, fz: at.hz, halfFov: 0.6 }]);
+    expect(watching.flow.stats.recycled).toBe(0);
+    const away = locked([{ x: at.x + 150 * at.hx, z: at.z + 150 * at.hz, fx: at.hx, fz: at.hz, halfFov: 0.6 }]);
+    expect(away.flow.stats.recycled).toBeGreaterThan(0);
+    expect(away.queue.every(c => c.stuck < 200)).toBe(true);
+    for (const r of away.flow.recycledLog) expect(unseen([{ x: at.x + 150 * at.hx, z: at.z + 150 * at.hz, fx: at.hx, fz: at.hz, halfFov: 0.6 }], r.x, r.z)).toBe(true);
+  });
+
+  test('nobody watching (a headless area): locked cars are recycled', () => {
+    const { flow, queue } = locked([]);
+    expect(flow.stats.recycled).toBeGreaterThan(0);
+    expect(queue.every(c => c.stuck < 200)).toBe(true);
+  });
+});
+
+describe('junction stop lines', () => {
+  test('a car waiting at a line never stands in a crossing movement\'s path through the junction', () => {
+    const net = flowNetwork(intersection(false, 2)), flow = new TrafficFlow(net, 0);
+    flow.update(60);
+    const x = flow as unknown as { movements: Map<Lane, Lane[]>; safeFront(l: Lane): number };
+    for (const lane of x.movements.keys()) {
+      if (lane.end.kind !== 'junction') continue;
+      const front = x.safeFront(lane);
+      expect(front).toBeLessThanOrEqual(lane.length - 0.8);
+      expect(front).toBeGreaterThanOrEqual(lane.length - 0.8 - 6);
+    }
+  });
+});
+
 describe('incremental graph rebuilds', () => {
   const signature = (f: TrafficFlow) => {
     const x = f as unknown as { movements: Map<Lane, Lane[]> };
@@ -311,6 +362,27 @@ describe('incremental graph rebuilds', () => {
       expect(signature(flow)).toBe(signature(fresh));
       if (before) expect(flow.cars.size).toBeGreaterThan(0);
     }
+  });
+
+  test('a budgeted rebuild runs in slices beside the live graph and ends equal to a fresh build', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../fixtures/roads-v2-seam.json', import.meta.url), 'utf8')) as { a: RoadGraphJson; b: RoadGraphJson };
+    const tile = (id: string, json: RoadGraphJson) => buildTileTraffic(id, trafficRoads(json), json.bbox as [number, number, number, number], id);
+    const net = new TrafficNetwork(); net.density = { hourAt: () => 16, multiplier: 1 };
+    net.setTile(tile('t0_0_0', fixture.a));
+    const flow = new TrafficFlow(net, 0); flow.reset(0); flow.rebuildBudgetMs = 0;
+    let t = 0;
+    for (let k = 0; k < 600; k++) flow.update(t += 0.1);
+    const before = signature(flow), cars = flow.cars.size;
+    net.setTile(tile('t0_1_0', fixture.b));
+    flow.update(t += 0.1);
+    expect(signature(flow)).toBe(before); // one slice: still the live graph, cars still driving
+    expect(flow.cars.size).toBe(cars);
+    let updates = 1;
+    for (; updates < 10_000 && signature(flow) === before; updates++) flow.update(t += 0.1);
+    expect(updates).toBeGreaterThan(2);
+    const fresh = new TrafficFlow(net, 0); fresh.reset(t);
+    expect(signature(flow)).toBe(signature(fresh));
+    if (cars) expect(flow.cars.size).toBeGreaterThan(0);
   });
 });
 
