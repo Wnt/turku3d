@@ -35,7 +35,7 @@ test('reduced changes rendering only: simulation caps and the rest of the tier a
   expect({ grass, splits, lights }).toEqual({ grass: g, splits: sp, lights: l });
   expect(vegetation).toEqual({ ...v, mid: 100 });
   expect({ reflectionScale, reflectionSlowFps, riverReflection, maxPixels }).toEqual({ reflectionScale: 0.25, reflectionSlowFps: 8, riverReflection: 'ssr', maxPixels: 1920 * 1080 });
-  expect(QUALITY.medium.riverReflection).toBe('planar');
+  expect([QUALITY.medium.riverReflection, QUALITY.high.riverReflection]).toEqual(['ssr', 'planar']);
   expect(QUALITY.reduced.parkedBodies).toBe(QUALITY.medium.parkedBodies);
   expect(TRAFFIC_CAPS.reduced).toBe(TRAFFIC_CAPS.medium);
   expect(WALKER_CAPS.reduced).toBe(WALKER_CAPS.medium);

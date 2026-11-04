@@ -135,8 +135,9 @@ The GTA V water study (loops/techstudy REPORT.md §8) shapes the rest, each tech
 (`waterSwitches.ts`): a tight energy-normalised sun lobe that fades where the reflected ray meets a building, with
 wrap-diffuse wave relief (W5, `oldsun`); with TRAA the river writes no depth and thickens its body colour over the
 previous frame's opaque bed and walls, a soft band at quays and banks without an extra pass (W3, `nodepth`), and writes
-its own motion vectors (W7, `nomotion`); reduced reflects by a screen-space march over TRAA's history instead of the
-planar pass (W1, `riverReflection.ts`; `planar|ssr|sky` choose any path); rain roughens it, rings it with drops and
+its own motion vectors (W7, `nomotion`); medium and reduced reflect by a screen-space march over TRAA's history
+instead of the planar pass, which only high and low still draw (W1, `riverReflection.ts`; `planar|ssr|sky` choose any
+path); rain roughens it, rings it with drops and
 dulls the mirror (W8); light sprites have a mirrored, streaked image on the sea-level water (W6, `lights/sprites.ts`);
 Reflections render static terrain, buildings, structures and the sky on a dedicated layer, excluding actors,
 vegetation and small props. They use the default lighting context rather than sampling the main camera's GTAO.

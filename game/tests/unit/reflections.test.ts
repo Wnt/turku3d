@@ -27,10 +27,10 @@ test('reflection warmup uses its real target and layer mask without leaking stat
   const getContext = vi.fn((_target?: THREE.RenderTarget | null, _mrt?: unknown, _depth?: number) => ({}));
   const contexts = { get: getContext }; Object.assign(renderer, { _renderContexts: contexts });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
-  const env = new Environment(scene, renderer, 'medium');
+  const env = new Environment(scene, renderer, 'high');
   env.sky.layers.disable(REFLECTION_LAYER);
   const water = new THREE.Mesh(new THREE.PlaneGeometry(10, 10).rotateX(-Math.PI / 2));
-  const river = new RiverMaterial(water, env, 'medium', true, renderer);
+  const river = new RiverMaterial(water, env, 'high', true, renderer);
   const model = new THREE.Group(), surface = new THREE.Mesh();
   model.add(surface); scene.add(model); model.visible = false; surface.layers.enable(REFLECTION_LAYER);
   let complete!: () => void;

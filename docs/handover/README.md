@@ -27,7 +27,7 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 | [winperf](winperf.md) | Windows measurements, tiering (probe + cores), governor |
 | [airperf](airperf.md) | Air measurements, heap findings |
 | [benchlab](benchlab.md) | bench modes and A/B method (warm-up, interleave, frozen port, fresh tab) |
-| [water](water.md) | river W1–W8 (SSR on reduced, sun glint, bank fade, night, rain) |
+| [water](water.md) | river W1–W8 (SSR on medium and reduced, sun glint, bank fade, night, rain) |
 | [floodlights2](floodlights2.md) | lit venues: field wash, spill, dome, beams |
 | [techstudy](techstudy.md) | GTA V / Bodycam studies on the Windows host |
 | [editor](editor.md) | in-game object editor (DualSense), edit sessions |
@@ -55,9 +55,10 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
    osgallery-dev has ~28 GB free and the city pass writes to that disk (its guard holds new tiles below 12 GB free).
    The protected 2e6515f4 products have a verified read-only copy at `bulk/turku3d-protected`. See [storage](storage.md).
 2. Whether LiDAR absence should delete register benches ([rulesmith](rulesmith.md)).
-3. Look decisions: LOD fade length (0.6 s default), SSR fallback look on reduced (re-shoot pending). Decided on
-   2026-11-04 by blind judges against Street View (treelook): crowns `stretch` on medium/high (spread stays on the
-   reduced tiers) and the full leaf path; `?crowns=` and `?leaves=` are removed.
+3. Look decisions: LOD fade length (0.6 s default). Decided on 2026-11-04 by blind judges against Street View
+   (treelook): crowns `stretch` on medium/high (spread stays on the reduced tiers) and the full leaf path; `?crowns=`
+   and `?leaves=` are removed. The SSR water passed a blind A/B against planar on 2026-11-04 and is now medium's
+   default too (see [water](water.md)).
 4. Storage: `private/gmaps-data` local copy, other Mac candidates, `copies=2` on the single-HDD `bulk` pool.
 
 ## Known issues not yet assigned
