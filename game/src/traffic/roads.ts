@@ -55,8 +55,9 @@ const LIMIT_SHARE = 0.85;
 /** A signal stop position this close to an edge end belongs to the junction there (m). */
 const SIGNAL_REACH = 40;
 
-/** Traffic view of one tile's street graph. Throws on an unknown format: such a tile spawns nothing. */
-export function trafficRoads(json: RoadGraphJson): TrafficRoads {
+/** Traffic view of one tile's street graph. Throws on an unknown format: such a tile spawns nothing. `every` keeps
+ *  every car edge (service roads, yards, streets without ambient cars), each with a nominal flow. */
+export function trafficRoads(json: RoadGraphJson, every = false): TrafficRoads {
   const graph = parseRoadGraph(json);
   const revision = (json.revision ?? 1) >= 2 && json.edgeIds ? 2 : 1;
   const signals = new Map<number, string>();
@@ -64,8 +65,9 @@ export function trafficRoads(json: RoadGraphJson): TrafficRoads {
   const edges: TrafficEdge[] = [];
   const seen = new Map<string, number>();
   for (const edge of graph.edges) {
-    if (!(edge.flags & CAR) || edge.carDensity <= 0 || edge.eflags & EDGE.PSV_ONLY) continue;
-    const flow = edgeFlow(edge, revision);
+    if (!(edge.flags & CAR) || (edge.carDensity <= 0 && !every) || edge.eflags & EDGE.PSV_ONLY) continue;
+    // `every` (the autopilot's lane router, gameplay/autopilot/lanes.ts) keeps service roads and yards too.
+    const flow = every ? Math.max(1, edgeFlow(edge, revision) || 0) : edgeFlow(edge, revision);
     if (!(flow > 0)) continue;
     const forward = Math.max(0, Math.min(4, edge.lanes.fwd | 0)), backward = Math.max(0, Math.min(4, edge.lanes.bwd | 0));
     if (!forward && !backward) continue;

@@ -8,7 +8,7 @@ import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from 
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DT, MAX_SUBSTEPS, VEHICLES } from './constants';
+import { CHARACTER, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -28,6 +28,8 @@ const parseCellId = (id: string) => parseCollisionId(id);
 export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */
+/** A remote proxy moving farther than this in one update is placed, not swept (m). */
+const REMOTE_JUMP_M = 3;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 interface ColliderInfo { tile: string; triMat: Uint8Array | null; mat: number; locator: TriLocator | null }
@@ -345,7 +347,7 @@ export class PhysicsWorld {
       this.cc = cc;
       this.charCollider = this.world.createCollider(
         R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius)
-          .setCollisionGroups(groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC)),
+          .setCollisionGroups(groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | REMOTE_VEHICLE)),
       );
     }
     this.coverageHold.clear('character');
@@ -371,7 +373,7 @@ export class PhysicsWorld {
 
   private stepCharacter(input: CharacterInput) {
     const cc = this.cc!, col = this.charCollider!;
-    const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC);
+    const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | REMOTE_VEHICLE);
     const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
     const p0 = col.translation();
     if (input.fly) {
@@ -517,7 +519,10 @@ export class PhysicsWorld {
     car.reset(pos, yaw);
     this.vehicleSnapshots.delete(id);
   }
-  vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
+  vehicleState(): VehicleState | null {
+    const id = this.drivenId ?? 'player', vehicle = this.vehicles.get(id);
+    return vehicle ? { id, ...vehicle.state() } : null;
+  }
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
@@ -537,7 +542,9 @@ export class PhysicsWorld {
     vehicle.recordImpact(size * scale);
   }
 
-  /** Remote proxies block walking only. The server mirrors bounded car contact impulses to both owners. */
+  /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks
+   *  the local chassis like a moving wall, so cars never pass through each other between the server's contact impulses
+   *  (which push the other owner's car). Wheel rays and ground queries do not see remote cars. */
   setRemotes(bodies: RemoteBody[]) {
     const incoming = new Set(bodies.map(b => b.id));
     for (const [id, remote] of this.remotes) if (!incoming.has(id)) {
@@ -554,7 +561,7 @@ export class PhysicsWorld {
         const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt;
         const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
-        desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER));
+        desc.setCollisionGroups(half ? groups(REMOTE_VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE) : groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
         remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now() };
         this.remotes.set(p.id, remote);
@@ -568,10 +575,17 @@ export class PhysicsWorld {
         remote.pos = { ...p.pos }; remote.at = now;
       }
       const y = p.pos.y + remoteColliderHeight(p.mode);
-      remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
       const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
       remote.rot = p.mode !== 'foot' && p.rot ? p.rot : { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-      remote.body.setNextKinematicRotation(remote.rot);
+      // A jump (teleport, respawn, a late snapshot) is placed, never swept: a kinematic sweep through a local car would
+      // launch it. Ordinary motion sweeps, so a remote car pushes and blocks like a moving wall.
+      const at = remote.body.translation();
+      if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > REMOTE_JUMP_M) {
+        remote.body.setTranslation({ x: p.pos.x, y, z: p.pos.z }, true); remote.body.setRotation(remote.rot, true);
+      } else {
+        remote.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
+        remote.body.setNextKinematicRotation(remote.rot);
+      }
     }
   }
 
@@ -638,6 +652,24 @@ export class PhysicsWorld {
     });
   }
 
+  /**
+   * Cells an actor at (x, z) may overlap without a hold. Resident cells, and, while the actor's own cell is resident,
+   * cells with no collision source: an edge wall closes that border (edgeWalls.ts), so the body stops there. A car's
+   * footprint circle (half-diagonal + 0.5 m) reaches past the wall, and capture 20261105 (shared car at 122,5,3 with
+   * row j=-1 unpublished) reset the car every time it came within 3.1 m of that edge.
+   */
+  private supported(x: number, z: number): { has(id: string): boolean } {
+    const c = collisionTileAt(x, z);
+    const walled = this.residentCells.has(collisionTileId(c.i, c.j));
+    return { has: id => this.residentCells.has(id) || (walled && !this.edges.isKnown(id)) };
+  }
+
+  /** Cells whose collision is on its way: actively loading, or known to exist (queued by the streamer). */
+  private arriving(x: number, z: number): { has(id: string): boolean } {
+    const supported = this.supported(x, z);
+    return { has: id => supported.has(id) || this.loadingCells.has(id) || this.edges.isKnown(id) };
+  }
+
   // ------------------------------------------------------------------ stepping
   /** Advances real time dt with fixed 60 Hz substeps. Returns the number of substeps run. */
   step(dt: number, character: CharacterInput, vehicle: VehicleInput | null): number {
@@ -652,11 +684,10 @@ export class PhysicsWorld {
       if (character.fly) this.coverageHold.clear('character');
       if (this.charCollider && this.charEnabled && !character.fly) {
         const p = this.charCollider.translation();
-        const covered = collisionCovers(this.residentCells, p.x, p.z,
-          p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin);
+        const r = CHARACTER.radius + CHARACTER.skin, nx = p.x + character.vx * DT, nz = p.z + character.vz * DT;
+        const covered = collisionCovers(this.supported(p.x, p.z), p.x, p.z, nx, nz, r);
         if (!covered) {
-          this.coverageHold.block('character', this.tick * DT, collisionCovers({ has: id => this.residentCells.has(id) || this.loadingCells.has(id) },
-            p.x, p.z, p.x + character.vx * DT, p.z + character.vz * DT, CHARACTER.radius + CHARACTER.skin));
+          this.coverageHold.block('character', this.tick * DT, collisionCovers(this.arriving(p.x, p.z), p.x, p.z, nx, nz, r));
           safeCharacter = null;
           this.charVy = 0; this.charVel = { x: 0, y: 0, z: 0 }; this.charGrounded = false;
         } else this.coverageHold.clear('character');
@@ -665,10 +696,10 @@ export class PhysicsWorld {
         const held = this.heldVehicles.get(id);
         const p = car.body.translation(), v = held?.velocity ?? car.body.linvel();
         const radius = this.vehicleRadii.get(id)!;
-        const covered = collisionCovers(this.residentCells, p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius);
+        const nx = p.x + v.x * DT, nz = p.z + v.z * DT;
+        const covered = collisionCovers(this.supported(p.x, p.z), p.x, p.z, nx, nz, radius);
         if (!covered && id === this.drivenId) {
-          this.coverageHold.block(id, this.tick * DT, collisionCovers({ has: cell => this.residentCells.has(cell) || this.loadingCells.has(cell) },
-            p.x, p.z, p.x + v.x * DT, p.z + v.z * DT, radius));
+          this.coverageHold.block(id, this.tick * DT, collisionCovers(this.arriving(p.x, p.z), p.x, p.z, nx, nz, radius));
         } else if (covered) this.coverageHold.clear(id);
         if (!covered && !held) {
           this.heldVehicles.set(id, { velocity: { ...v }, angular: { ...car.body.angvel() } });

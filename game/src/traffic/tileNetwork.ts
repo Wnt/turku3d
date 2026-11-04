@@ -42,8 +42,10 @@ export interface Connector {
   points: Float64Array; cum: Float64Array; length: number;
   /** Signed turn in engine x/z: positive is right. */
   turn: number;
-  /** Curvature-limited crossing speed (m/s). */
+  /** Curvature-limited crossing speed (m/s): the entry speed when `limits` is set. */
   speed: number;
+  /** Folded movements only: speed limit per metre of the path, braking included (flow follows it on the path). */
+  limits?: Float32Array;
 }
 
 export interface Lane {
@@ -193,6 +195,10 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       if (next === undefined) break;
       e = next;
     }
+    const raw = polylineLength(s.points);
+    ({ points: s.points, ys: s.ys } = cleanLine(s.points, s.ys));
+    const ratio = raw > 0 ? polylineLength(s.points) / raw : 1;
+    for (const event of s.events) event.s *= ratio;
     stretches.push(s);
   };
   for (let n = 0; n < count; n++) {
@@ -235,12 +241,12 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
       const keys = dir > 0 ? s.keys : [...s.keys].reverse();
       for (let k = 0; k < m; k++) {
         const offset = (dir > 0 ? divider : -divider) + (k + 0.5) * w;
-        const shifted = offsetLine(centre, offset);
+        const { points: shifted, ys: shiftedYs } = offsetLine(centre, offset, ys);
         const full = polylineLength(shifted);
         if (full < 0.5) continue;
         const r0 = Math.min(trimAt(startNode, dir > 0 ? s.setStart : s.setEnd), full * 0.35);
         const r1 = Math.min(trimAt(endNode, dir > 0 ? s.setEnd : s.setStart), full * 0.35);
-        const { points, ys: trimmedYs } = trim(shifted, ys, r0, full - r1);
+        const { points, ys: trimmedYs } = trim(shifted, shiftedYs, r0, full - r1);
         const cum = cumulative(points);
         const length = cum[cum.length - 1];
         if (length < 0.3) continue;
@@ -453,16 +459,16 @@ function reversePairs(p: readonly number[]): number[] {
 }
 
 /** Offsets a polyline to the right of travel ((-dz, dx) in engine x/z), with mitred, clamped corners. */
-function offsetLine(p: readonly number[], offset: number): number[] {
+function offsetLine(p: readonly number[], offset: number, ys: Float64Array | null): { points: number[]; ys: Float64Array | null } {
   const n = p.length / 2;
   // Drop repeated vertices so every segment has a direction.
-  const xs: number[] = [], zs: number[] = [];
+  const xs: number[] = [], zs: number[] = [], hs: number[] = [];
   for (let i = 0; i < n; i++) {
     if (xs.length && Math.hypot(p[2 * i] - xs[xs.length - 1], p[2 * i + 1] - zs[zs.length - 1]) < 1e-3) continue;
-    xs.push(p[2 * i]); zs.push(p[2 * i + 1]);
+    xs.push(p[2 * i]); zs.push(p[2 * i + 1]); if (ys) hs.push(ys[i]);
   }
   const m = xs.length;
-  if (m < 2) return [...p];
+  if (m < 2) return { points: [...p], ys };
   const out: number[] = [];
   for (let i = 0; i < m; i++) {
     const a = Math.max(0, i - 1), b = Math.min(m - 1, i + 1);
@@ -483,6 +489,125 @@ function offsetLine(p: readonly number[], offset: number): number[] {
     }
     out.push(xs[i] + nx * offset * scale, zs[i] + nz * offset * scale);
   }
+  // On the inside of a corner tighter than the offset, offset segments run backwards: merge each reversed segment's
+  // ends until the lane only moves forward along its centreline.
+  const cx = xs.slice(), cz = zs.slice();
+  for (let i = 0; i + 1 < out.length / 2 && out.length > 4;) {
+    const ox = out[2 * i + 2] - out[2 * i], oz = out[2 * i + 3] - out[2 * i + 1];
+    if (ox * (cx[i + 1] - cx[i]) + oz * (cz[i + 1] - cz[i]) > 0) { i++; continue; }
+    const last = i + 1 === out.length / 2 - 1, first = i === 0;
+    // Keep the lane's ends where they are: merge into the end point, else into the midpoint.
+    const mx = first ? out[0] : last ? out[2 * i + 2] : (out[2 * i] + out[2 * i + 2]) / 2;
+    const mz = first ? out[1] : last ? out[2 * i + 3] : (out[2 * i + 1] + out[2 * i + 3]) / 2;
+    out.splice(2 * i, 4, mx, mz);
+    if (ys) hs.splice(i, 2, first ? hs[i] : last ? hs[i + 1] : (hs[i] + hs[i + 1]) / 2);
+    cx.splice(i, 2, first ? cx[i] : last ? cx[i + 1] : (cx[i] + cx[i + 1]) / 2);
+    cz.splice(i, 2, first ? cz[i] : last ? cz[i + 1] : (cz[i] + cz[i + 1]) / 2);
+    i = Math.max(0, i - 1);
+  }
+  return { points: out, ys: ys ? Float64Array.from(hs) : null };
+}
+
+/** Road data is quantised to 0.1 m, so a diagonal street arrives as a staircase of 0.1 m steps. Offset by a lane's
+ *  half width, each step's mitre threw the lane up to a metre sideways and back: lanes zig-zagged and reversed, arc
+ *  length ran up to 30 % over the distance driven, and a leader 8 m ahead along the arc could be 5 m away, its rear
+ *  swinging into its follower. Every stretch is simplified (Douglas–Peucker, SIMPLIFY_XZ across, SIMPLIFY_Y in
+ *  height) and its remaining sharp corners are rounded within CORNER_SHIFT of the vertex, before any lane is offset. */
+const SIMPLIFY_XZ = 0.25, SIMPLIFY_Y = 0.1, CORNER_ANGLE = 0.35, CORNER_SHIFT = 0.8, CORNER_RADIUS = 14;
+function cleanLine(p: readonly number[], ys: readonly (number | null)[]): { points: number[]; ys: (number | null)[] } {
+  const n = p.length / 2;
+  if (n < 3) return { points: [...p], ys: [...ys] };
+  const keep = new Uint8Array(n); keep[0] = keep[n - 1] = 1;
+  const heights = ys.every(y => y !== null);
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    if (b - a < 2) continue;
+    const ax = p[2 * a], az = p[2 * a + 1], dx = p[2 * b] - ax, dz = p[2 * b + 1] - az, l2 = dx * dx + dz * dz;
+    let worst = -1, at = -1;
+    for (let i = a + 1; i < b; i++) {
+      const px = p[2 * i] - ax, pz = p[2 * i + 1] - az, f = l2 > 1e-12 ? Math.max(0, Math.min(1, (px * dx + pz * dz) / l2)) : 0;
+      let e = Math.hypot(px - dx * f, pz - dz * f) / SIMPLIFY_XZ;
+      if (heights) e = Math.max(e, Math.abs(ys[i]! - (ys[a]! + (ys[b]! - ys[a]!) * f)) / SIMPLIFY_Y);
+      if (e > worst) { worst = e; at = i; }
+    }
+    if (worst > 1) { keep[at] = 1; stack.push([a, at], [at, b]); }
+  }
+  const xs: number[] = [], zs: number[] = [], hs: (number | null)[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) { xs.push(p[2 * i]); zs.push(p[2 * i + 1]); hs.push(ys[i]); }
+  // Round the corners left: an arc tangent to both segments, at most CORNER_SHIFT inside the vertex and using at most
+  // half of each adjacent segment, so consecutive corners never overlap.
+  const points: number[] = [xs[0], zs[0]], out: (number | null)[] = [hs[0]];
+  const m = xs.length;
+  for (let i = 1; i < m - 1; i++) {
+    const ux = xs[i] - xs[i - 1], uz = zs[i] - zs[i - 1], vx = xs[i + 1] - xs[i], vz = zs[i + 1] - zs[i];
+    const lu = Math.hypot(ux, uz), lv = Math.hypot(vx, vz);
+    const theta = Math.abs(Math.atan2(ux * vz - uz * vx, ux * vx + uz * vz));
+    if (theta < CORNER_ANGLE || theta > 2.6 || lu < 1e-6 || lv < 1e-6) { points.push(xs[i], zs[i]); out.push(hs[i]); continue; }
+    const half = theta / 2, tan = Math.tan(half);
+    const radius = Math.min(CORNER_RADIUS, CORNER_SHIFT / (1 / Math.cos(half) - 1), 0.5 * Math.min(lu, lv) / tan);
+    const reach = radius * tan, steps = Math.max(2, Math.ceil(theta / 0.15));
+    // Quadratic Bézier through the corner's tangent points (close to the arc at these angles).
+    const x0 = xs[i] - ux / lu * reach, z0 = zs[i] - uz / lu * reach, x2 = xs[i] + vx / lv * reach, z2 = zs[i] + vz / lv * reach;
+    const y0 = hs[i] === null || hs[i - 1] === null ? null : hs[i]! + (hs[i - 1]! - hs[i]!) * reach / lu;
+    const y2 = hs[i] === null || hs[i + 1] === null ? null : hs[i]! + (hs[i + 1]! - hs[i]!) * reach / lv;
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps, w = 1 - t;
+      points.push(w * w * x0 + 2 * w * t * xs[i] + t * t * x2, w * w * z0 + 2 * w * t * zs[i] + t * t * z2);
+      out.push(y0 === null || y2 === null ? hs[i] : w * w * y0 + 2 * w * t * hs[i]! + t * t * y2);
+    }
+  }
+  points.push(xs[m - 1], zs[m - 1]); out.push(hs[m - 1]);
+  return { points, ys: out };
+}
+
+/** A folded junction movement's path (connector + short links + connector) and its speed. The links' own corners
+ *  can turn 90° within a metre (a stop line a metre before a crossing link): resampled every 0.5 m and averaged over
+ *  ±SMOOTH_WINDOW metres of path (tapering to nothing at both ends, so it still meets its lanes), twice. */
+const SMOOTH_WINDOW = 3;
+export function smoothPath(points: ArrayLike<number>, cap: number): { points: Float64Array; cum: Float64Array; length: number; speed: number; limits: Float32Array } {
+  const src = Float64Array.from(points), srcCum = cumulative(src), total = srcCum[srcCum.length - 1];
+  const n = Math.max(2, Math.ceil(total / 0.5) + 1), step = total / (n - 1), q = { x: 0, z: 0, hx: 0, hz: 0 };
+  let xs = new Float64Array(n), zs = new Float64Array(n);
+  for (let i = 0; i < n; i++) { pointOn(src, srcCum, i * step, q); xs[i] = q.x; zs[i] = q.z; }
+  for (let pass = 0; pass < 2; pass++) {
+    const nx = xs.slice(), nz = zs.slice();
+    for (let i = 1; i < n - 1; i++) {
+      const w = Math.min(Math.round(SMOOTH_WINDOW / step), i, n - 1 - i);
+      let sx = 0, sz = 0;
+      for (let j = i - w; j <= i + w; j++) { sx += xs[j]; sz += zs[j]; }
+      nx[i] = sx / (2 * w + 1); nz[i] = sz / (2 * w + 1);
+    }
+    xs = nx; zs = nz;
+  }
+  const out = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) { out[2 * i] = xs[i]; out[2 * i + 1] = zs[i]; }
+  const cum = cumulative(out), length = Math.max(0.01, cum[cum.length - 1]);
+  const limits = speedProfile(out, cum, cap);
+  return { points: out, cum, length, speed: limits[0], limits };
+}
+
+/** Curvature-limited speed (about 0.2 g) for every metre of a path, curvature measured over a 2 m chord either side
+ *  (the scale a car body follows, not the vertex spacing), then lowered so a car can brake (PROFILE_BRAKE) into
+ *  each tight part from the metre before. */
+const PROFILE_BRAKE = 3.5;
+function speedProfile(p: Float64Array, cum: Float64Array, cap: number): Float32Array {
+  const length = cum[cum.length - 1], n = Math.max(1, Math.ceil(length) + 1), out = new Float32Array(n);
+  const a = { x: 0, z: 0, hx: 0, hz: 0 }, b = { ...a }, c = { ...a };
+  for (let i = 0; i < n; i++) {
+    const s = Math.min(Math.max(i, 2), Math.max(2, length - 2));
+    pointOn(p, cum, s - 2, a); pointOn(p, cum, s, b); pointOn(p, cum, s + 2, c);
+    const abx = b.x - a.x, abz = b.z - a.z, bcx = c.x - b.x, bcz = c.z - b.z, acx = c.x - a.x, acz = c.z - a.z;
+    const k = 2 * Math.abs(abx * bcz - abz * bcx) / Math.max(1e-6, Math.hypot(abx, abz) * Math.hypot(bcx, bcz) * Math.hypot(acx, acz));
+    out[i] = Math.max(1.5, Math.min(cap, Math.sqrt(2 / Math.max(0.001, k))));
+  }
+  for (let i = n - 2; i >= 0; i--) out[i] = Math.min(out[i], Math.sqrt(out[i + 1] * out[i + 1] + 2 * PROFILE_BRAKE));
+  return out;
+}
+function pointOn(p: Float64Array, cum: Float64Array, s: number, out: { x: number; z: number; hx: number; hz: number }) {
+  let i = 1; while (i < cum.length - 1 && cum[i] < s) i++;
+  const f = Math.max(0, Math.min(1, (s - cum[i - 1]) / Math.max(1e-9, cum[i] - cum[i - 1])));
+  out.x = p[2 * i - 2] + (p[2 * i] - p[2 * i - 2]) * f; out.z = p[2 * i - 1] + (p[2 * i + 1] - p[2 * i - 1]) * f;
   return out;
 }
 
@@ -530,7 +655,9 @@ export function connector(a: Lane, b: Lane): Connector {
   const n = a.points.length / 2;
   const x0 = a.points[2 * n - 2], z0 = a.points[2 * n - 1], x3 = b.points[0], z3 = b.points[1];
   const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
-  const d = Math.hypot(x3 - x0, z3 - z0), k = Math.max(1.2, d * 0.4);
+  // Handles at most half the chord: lanes that nearly touch (folded crossing and signal-head links, 0.1–1 m apart)
+  // otherwise got a forward-and-back cusp, near-infinite curvature and the 1.5 m/s floor speed.
+  const d = Math.hypot(x3 - x0, z3 - z0), k = Math.min(Math.max(1.2, d * 0.4), d * 0.5);
   const x1 = x0 + ax * k, z1 = z0 + az * k, x2 = x3 - bx * k, z2 = z3 - bz * k;
   const steps = Math.max(16, Math.ceil(d * 1.5)), points = new Float64Array(2 * (steps + 1));
   for (let i = 0; i <= steps; i++) {

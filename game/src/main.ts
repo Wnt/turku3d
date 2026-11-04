@@ -1,4 +1,6 @@
 import { placementVisibility } from './world/placementVisibility';
+import { paceYields } from './render/yieldPacer';
+import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
@@ -302,7 +304,7 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
 // builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
 // draws, and holds its block LOD shells), other models' block shells, the level's bias tiers of a scenery cell.
-const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
+const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') =>
   queueGraphics(model, async () => {
     await materials?.prepare(model, scene, camera, signal);
     const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
@@ -311,7 +313,9 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal) =>
       await post!.prepare(root);
       await materials?.prepareReflections(root, scene, camera);
     });
-  }, signal);
+  }, signal, priority);
+/** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
+const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
 const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
   await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
@@ -336,6 +340,11 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
+// During play r186's asynchronous shader-build stages run after each frame within a 3 ms share instead of back to
+// back between two frames (render/yieldPacer.ts), but only once the 3x3 window has its full tiles: while it waits
+// (streamingAllowance.urgent) they run at native speed. Pacing those too starved HD installs on the Radeon 560X
+// (tile.prepare p50 2 -> 27 s, HD 62 -> 34 %) and cost the M1 Air 5 points. Loading and bench settles are not paced.
+paceYields(() => ((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled()) && !streamingAllowance.urgent);
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
@@ -537,7 +546,7 @@ async function runQa() {
   const population = !idPass && (!!params.drive || (params.traffic ?? 0) > 0 || (params.walkers ?? 0) > 0)
     ? new ScenePopulation(scene, coarse, camera, qaManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
-      prepare: model => prepareGraphics(model) }) : null;
+      prepare: prepareActorGraphics }) : null;
   if (population) { await population.load(); population.reset(clock.epochMs, 20261102); }
   // Drive-bench captures read the tile streamer here (stats.coarse, 1 Hz coverage snapshots), as in play sessions.
   window.__game!.population = population; window.__game!.coarse = coarse;
@@ -720,7 +729,7 @@ async function runLab() {
   const population = !idPass && (params.traffic !== 0 || params.walkers !== 0)
     ? new ScenePopulation(scene, coarse, camera, labManifest, ground, { quality: params.quality, traffic: params.traffic,
       walkers: params.walkers, density: params.trafficDensity, hour: () => dayClock.hour, night: () => dayClock.night,
-      prepare: model => prepareGraphics(model) }) : null;
+      prepare: prepareActorGraphics }) : null;
   if (population) await population.load();
   const game = window.__game!;
   const pipelines = () => (renderer as unknown as { _pipelines?: { caches?: Map<unknown, unknown> } })._pipelines?.caches?.size ?? null;
@@ -825,7 +834,7 @@ async function runPlay() {
   const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
   physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
   const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
-    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics, groundAt,
+    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
     loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
     trafficClock: () => dayClock.trafficClock(),
     setClock: date => dayClock.restore(date),

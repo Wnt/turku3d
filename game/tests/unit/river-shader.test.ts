@@ -51,7 +51,7 @@ test('?water= parses known tokens and rejects unknown ones', () => {
   expect(() => parseWaterSwitches('glass')).toThrow(/bad \?water=/);
 });
 
-test.each([['medium', 'river-planar'], ['mobile', 'river-sky']] as const)('the %s river builds its tight sun lobe and wrap diffuse', (tier, name) => {
+test.each([['high', 'river-planar'], ['mobile', 'river-sky']] as const)('the %s river builds its tight sun lobe and wrap diffuse', (tier, name) => {
   const tight = riverShader(tier, null), old = riverShader(tier, 'oldsun');
   expect(tight.name).toBe(name);
   // The lobe's near exponent (1800) and the earlier lobe's 240 are both literal constants of their graphs.
@@ -65,7 +65,7 @@ test('with TRAA the river fades over the previous frame\'s bed depth and writes 
   expect(faded.depthWrite).toBe(false);
   expect(faded.motion).toBe(true);
   expect(faded.fragment).toMatch(/texture_depth_2d/);
-  const opaque = riverShader('medium', 'nodepth,nomotion', true);
+  const opaque = riverShader('medium', 'planar,nodepth,nomotion', true);
   expect(opaque.depthWrite).toBe(true);
   expect(opaque.motion).toBe(false);
   expect(opaque.fragment).not.toMatch(/texture_depth_2d/);
@@ -74,9 +74,11 @@ test('with TRAA the river fades over the previous frame\'s bed depth and writes 
   expect([plain.depthWrite, plain.motion]).toEqual([true, false]);
 });
 
-test('reduced reflects by a screen-space march over TRAA\'s last frame instead of the planar pass', () => {
+test('medium and reduced reflect by a screen-space march over TRAA\'s last frame instead of the planar pass', () => {
   const ssr = riverShader('reduced', null, true);
   expect(ssr.name).toBe('river-ssr');
+  expect(riverShader('medium', null, true).name).toBe('river-ssr');
+  expect(riverShader('high', null, true).name).toBe('river-planar');
   expect(ssr.depthWrite).toBe(false);
   // The march's loop and its colour fetch from the history (a filtered sample at level 0).
   expect(ssr.fragment).toMatch(/for \(/);
@@ -98,15 +100,11 @@ test('rain rings build behind a uniform branch, so dry water skips their arithme
   expect(fragment).toMatch(/if \( \( render\.\w+ > 0\.0 \) \)/);
 });
 
-test('?water=quarter renders the planar reflection at 0.25 with mipmaps and reads it a level down', () => {
-  const { fragment } = riverShader('medium', 'quarter', true);
-  expect(fragment).toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
-  expect(riverShader('medium', null, true).fragment).not.toMatch(/textureSampleLevel\( \w+, \w+_sampler, [^;]*, 1\.0 \)/);
-});
-
 test('sloped reaches flow downhill from their own triangles and break white where steep; flat reaches do not', () => {
-  const sloped = riverShader('medium', null, true, true), flat = riverShader('medium', null, true);
+  const sloped = riverShader('high', null, true, true), flat = riverShader('high', null, true);
   expect(sloped.name).toBe('river-sky');
+  // Medium's march needs no mirror plane: its sloped reaches keep their screen-space reflection.
+  expect(riverShader('medium', null, true, true).name).toBe('river-ssr');
   expect(sloped.fragment).toMatch(/dpdx/);
   expect(flat.fragment).not.toMatch(/dpdx/);
 });

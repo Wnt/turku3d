@@ -58,7 +58,7 @@ ground with no building above it.
 
 | Target id | Kind | Fiction | Real place | x, z | EPSG:3877 E, N | Ground |
 |---|---|---|---|---|---|---|
-| `pizzeria` | `pickup` | Pizzeria Linnanportti, an old family pizzeria | Linnankatu 17 street front (the OSM extract has a pizza restaurant at this address, inside the area) | 77.1, 187.6 | 23459577.1, 6704312.4 | sidewalk, H 3.96 |
+| `pizzeria` | `pickup` | Pizzeria Linnanportti, an old family pizzeria | Linnankatu 17 street front (the OSM extract has a pizza restaurant at this address, inside the area) | 78.92, 186.36 | 23459578.92, 6704313.64 | sidewalk, H 3.94 |
 | `market` | `market` | Black market seller, no name | Lower quay under the west end of Auransilta; reached by the stairs at x 296, z 198 or the ramp under the deck | 297.0, 205.5 | 23459797.0, 6704294.5 | paving at H 1.1, deck above at H 5.7 |
 | `dealer` | `shop` | Rantakadun Kulkine, a used-vehicle dealer | Corner of Kristiinankatu and Läntinen Rantakatu at the riverbank | 101.5, 290.5 | 23459601.5, 6704209.5 | sidewalk, H 3.45 |
 
@@ -84,8 +84,7 @@ euros. A unit test checks that dialogue lines quoting a price or pay match these
 | Car | 350 € |
 | Trophy truck | 600 € |
 | Vehicle sold back | half the price, rounded down: 30 € / 175 € / 300 € |
-| Permit on credit | with no permit left and under 80 € in cash: 10 deliveries now for 80 € of debt (`CREDIT_PERMIT_DEBT`); each drop-off's base pay (after the loaner fee) repays it, tips and the double bonus stay in cash (`debtRepayment`) |
-| Pizzeria loaner scooter | free to use while owning no vehicle; an order carried on it pays 2 € less (`LOANER_FEE`) |
+| Permit on credit | with no permit left and under 80 € in cash: 10 deliveries now for 80 € of debt (`CREDIT_PERMIT_DEBT`); each drop-off's base pay repays it, tips and the double bonus stay in cash (`debtRepayment`) |
 | Base pay per delivery | 6 € |
 | Tip | 0–8 €: 8 € up to 70 % of the par time, falling linearly to 0 € at 130 %, rounded to whole euros |
 | Par time | route distance ÷ speed + 20 s; speed 1.4 m/s on foot, 7 m/s scooter, 9 m/s car, 10.5 m/s trophy truck |
@@ -95,14 +94,14 @@ The route distance is the `Router` path length from the pizzeria to the drop-off
 no path (either end off the graph), the straight-line distance is used.
 
 The par speed is that of the vehicle the player **owns**, or a car's when the order is taken from a
-borrowed car with forged plates; owning none, a short order is timed for the pizzeria's loaner scooter. While carrying a pizza the player may travel only on foot or with
+borrowed car with forged plates. While carrying a pizza the player may travel only on foot or with
 their own vehicle: entering any other car is refused with the notice `notice_own_vehicle_only`, and
 the pizzeria greys out the order in a borrowed car (`reason_own_vehicle_only`). Forged plates lift
 both limits. Free roam outside a delivery is unchanged, so every car stays drivable then. Faster vehicles do not raise the tip (the par is fair
 for each vehicle); they raise the earnings rate, because more deliveries fit in the same time.
 
-**Getting un-stuck.** A courier never has to run for cash: every state keeps a vehicle delivery or a
-permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and plays out of it).
+**Getting un-stuck.** Every state keeps a delivery (on the own vehicle once one is owned, on foot
+before that) or a permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and plays out of it).
 
 - *Bring my vehicle* (pizzeria, free): the own scooter, car or truck is parked at the pizzeria's kerb
   (`PIZZERIA_VEHICLE_SPOT`), wherever it was left or stuck. Greyed without an own vehicle, while riding
@@ -110,21 +109,7 @@ permit within reach (`tests/unit/unstuck.test.ts` reaches each dead end and play
 - *Bring my vehicle here* (pause menu): parks it at the nearest ground-checked kerb beside the player
   (`gameplay/kerbSpots.ts`; within 40 m a spot outside the camera view comes first, then up to 150 m
   nearest first), so a vehicle wrecked or stuck mid-delivery is back in seconds. Not while riding it;
-  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`). Owning no vehicle, it fetches the loaner.
-- *Pizzeria loaner scooter*: while the player owns no vehicle, the scooter's physics vehicle (`LOANER_ID`
-  = `scooter`) stands at the pizzeria's kerb. Short orders may be carried on it and are quoted and timed at
-  scooter par on the driving distance; an order ridden on it at any time pays `LOANER_FEE` (2 €) less,
-  charged with its last drop-off (quote: "loaner scooter −2 €", paid line `paid_loaner_fee`; the
-  multiplayer payout stays the earned pay, the fee is spending like the permit). The first loaner order of
-  a session adds `pizzeria_loaner`. Long and LIMITED TIME jobs still need an own vehicle or plates.
-  Taking a short order off the loaner brings it back to the kerb unless it is already within 8 m
-  (`LOANER_AT_KERB_M`); selling the own vehicle puts it back there too. Buying the scooter makes the
-  loaner's body the player's scooter, and like any purchase it waits at the dealer's kerb (unless the
-  player rides it there). With a car or truck bought, a loaner left in the world is an ordinary scooter.
-  Each player's loaner is their own local `scooter` (in multiplayer the shared vehicle
-  `<player id>:scooter`); it is placed only while no shared record of it exists, so a loaner another
-  player holds is never duplicated. A save keeps it through the last-used vehicle; otherwise it appears
-  at the kerb once that collision tile is loaded.
+  then 60 s of play before the next use (`BRING_COOLDOWN_SECONDS`).
 - *Permit on credit* (black market, `permit_on_credit`): when the permit has run out and the cash is
   under the 80 € rental, the seller rents the ten deliveries on credit (`market_sold_credit`). The debt
   (optional save field `debt`, default 0) is repaid by the base pay of the following drop-offs; tips and
@@ -136,8 +121,8 @@ The dealer sells nothing before the first permit is rented (the start money woul
 short of the permit and no income would be possible). The player owns at most one vehicle: buying
 another needs the current one sold back first.
 
-Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so the permit eats
-most of the margin, and on the pizzeria's loaner (2 € a run) a scooter of one's own takes some fifteen deliveries. The kidney (+400 €) is
+Why these numbers: one rental (80 €) costs about as much as ten fast deliveries pay in tips, so on foot
+the permit eats most of the margin and a scooter takes some twenty deliveries. The kidney (+400 €) is
 the shortcut to a car, and the 15 % run penalty is what it costs for the rest of the game; the slice
 is a cheap way to hide that for two minutes. The trophy truck is the long-term goal: some sixty
 deliveries, or the kidney and a good run.
@@ -353,11 +338,13 @@ play, and the zone disappears until the next order.
 
 ### Truck heist
 
-A black-market job whose reward is the forged plates (`job_truck_heist`; places in
+A repeatable black-market job whose first reward is the forged plates (`job_truck_heist`; places in
 `content/locations.ts`, state in `MissionSystem.heist`, the world side in `play.ts`):
 
-- **Offer.** Free, and offered only while the player has no plates and does not own the trophy
-  truck; greyed while a pizza is carried. Taking it plays the briefing (`heist_briefing`) and marks
+- **Offer.** Free, offered again after every finished or abandoned run, with no cooldown. Greyed
+  while the player owns the trophy truck (`reason_heist_truck_owned`), while a pizza is carried, and
+  while the job already runs (`reason_heist_running`; "Abandon the truck job" is the way out). Its
+  detail names the reward: the plates, or `detail_job_truck_heist_cash` once they are owned. Taking it plays the briefing (`heist_briefing`) and marks
   the inner yard of Rettigin palatsi (Itäinen Rantakatu 4–6, engine 546.9, 122.7) with a `job`
   zone ("Truck job"). While it runs, pizza orders and buying the truck are refused
   (`reason_heist_active`). "Abandon the truck job" at the market ends it (`heist_abandoned`; not
@@ -373,7 +360,10 @@ A black-market job whose reward is the forged plates (`job_truck_heist`; places 
   deck at 14.6–15.5). The zone's ray starts below the deck, the route ends on Ratapihankatu south
   of the bridge (`approach`), and the job counts only when the player gets out of the truck within
   8 m at the road's level (2.5 m), never on the bridge above.
-- **Reward.** `plates = true`, `heist_done` plays and the checkpoint autosaves. The truck is taken
+- **Reward.** Without plates: `plates = true` and `heist_done`. With plates (a repeat run, or
+  plates bought at the market): `HEIST_CASH` (120 €) in cash, `heist_briefing_cash` /
+  `heist_done_cash`. Paid once, as the job ends; the checkpoint autosaves. A repeat places a fresh
+  truck in the yard and marks the yard again. The truck is taken
   out of the world (truck ownership is unchanged), and the start car (the player's own car, when
   they bought the car) is parked for them at the nearest road-graph kerb spot 10–30 m from the
   drop-off (60 m if none) that passes the vehicle ground check at the road's level. With the

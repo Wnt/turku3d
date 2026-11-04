@@ -58,8 +58,10 @@ export function validateBuildingPlacements(data: BuildingPlacements) {
 /** Swap state of one block LOD parent, kept on the tile model's userData. `near` is the band the camera is in;
  *  `hd` whether the HD children draw: it lags `near` while the LOD shell dissolves in over them. */
 interface BlockState { lod: THREE.Object3D; bounds: BuildingBlock['bounds']; hdDistance: number; near: boolean; hd: boolean; settled: boolean }
-/** Metres of hysteresis around a block's HD distance, so a camera on the threshold never flickers. */
-const SWAP_BAND = 10;
+/** Metres of hysteresis around a block's HD distance, so a camera on the threshold never flickers. 20 m: in the
+ *  2026-11-03 drive replay, 5 of 40 block swaps reversed within 10 s at 10 m (a car weaving along a street at
+ *  280 m from a block); each reversal is a second visible dissolve. */
+const SWAP_BAND = 20;
 
 interface Resident { users: number; promise: Promise<THREE.Object3D>; trace?: ReadTrace;
   /** Tiles (or prefetch tokens) holding a lease; the resolved template; whether its render arrays were released. */
@@ -79,7 +81,7 @@ export class BuildingModelCache {
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
     private dispose: (root: THREE.Object3D) => void, private budget: PreparationBudget = streamingBudget(),
     private visibility: PlacementVisibility = placementVisibility,
-    private styleLod: (root: THREE.Object3D, owner: THREE.Object3D) => void = () => {}) {}
+    private styleLod: (root: THREE.Object3D, owner: THREE.Object3D, block: string) => void = () => {}) {}
 
   private async read(url: string, priority: number, trace: ReadTrace | undefined, wanted: () => boolean) {
     const queued = trace ? performance.now() : 0, waits = this.active >= this.reads;
@@ -243,7 +245,7 @@ export class BuildingModelCache {
       if (!block.lod) continue;
       const root = templates.get(block.lod)!.clone(true);
       root.traverse(o => { if ((o as THREE.Mesh).isMesh) geometries.add((o as THREE.Mesh).geometry); });
-      this.styleLod(root, owner);
+      this.styleLod(root, owner, block.id);
       const wrapper = new StaticGroup();
       wrapper.name = `block-lod:${block.id}`;
       wrapper.position.fromArray(block.position);

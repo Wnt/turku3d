@@ -72,14 +72,10 @@ The frame also passes `rideAt`, where `missions.rideId` stands; `update` returns
 pizzeria's "Bring my vehicle" asks for it at `PIZZERIA_VEHICLE_SPOT`, and the pause menu's "Bring my
 vehicle here" (`missions.bringHereReason()`, `broughtHere()`, `bringFailed()`) parks it at the first
 `kerbSpots` candidate that passes `vehicleGround` (`vehicleSave.ts`). Both reuse `play.ts` `parkRide`,
-the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved). Owning no
-vehicle, `rideId` is `LOANER_ID` (the scooter's body as the pizzeria's loaner): `play.ts` spawns it at
-`PIZZERIA_VEHICLE_SPOT` whenever it is missing, the mission system accepts it for short orders at
-scooter par, charges `LOANER_FEE` for an order ridden on it (save field `loaner`) and asks for it at the
-kerb (`park`) when a short order is taken off it. The market's `permit_on_credit` rents a permit when none is left
+the dealer kerb's path: the car is reset, the scooter and the truck are spawned (moved). The market's `permit_on_credit` rents a permit when none is left
 and cash is short; `missions.debt` (save field `debt`) is repaid by base pay (`economy.ts` `debtRepayment`).
 `tests/unit/unstuck.test.ts` plays out of each dead end and runs seeded random careers that must always keep
-a vehicle order or a permit available.
+an order or a permit available.
 The interaction button is the `mission` input action (Xbox A / keyboard E / touch Use); targets act within 3 m.
 At a shop it opens the menu: `missions.shop` is then a `ShopView` that `ui/shopMenu.ts` renders,
 and the menu's `choose` / `leave` go back through the next `update`. While `shopMenu.open`,
@@ -134,7 +130,8 @@ world in step: it places the trophy truck (`TRUCK_ID`) at `HEIST_TRUCK_SPOT` onc
 and the spot passes `vehicleGround`, removes it when the job ends or a game is loaded, and on `delivered` parks the
 start car at the nearest ground-checked `kerbSpots` spot near `HEIST_DROP`. `job` targets (`HEIST_YARD`, `HEIST_DROP`)
 are probed from `ZONE_RAY_TOP` like the market, never checked as delivery drop-offs; `RouteTarget.approach` ends the
-route on the street when the marker is off the graph or under a bridge.
+route on the street when the marker is off the graph or under a bridge. The job is repeatable and per player (its
+state is in the player's own `MissionSave`): the plates on the first run, `HEIST_CASH` on every later one.
 Verify: `npx vitest run tests/unit/truck-heist.test.ts tests/unit/missions.test.ts` from `game/`.
 
 ### Adding a shop option
@@ -279,7 +276,8 @@ once. While lost, Y does not enter or leave a car. After the reset "Back on soli
 3 s. Within 20 m of the area's edge the HUD shows "Edge of the built area" and the minimap's edge
 line turns red; there are no invisible walls. `__game.recovery` and `__game.state().recovery`
 (`armed`, `lost`, `countdown`, `samples`, `resets`, `waterDepth`, `edgeDistance`, `hud`) expose it for tests.
-Each reset logs `[recovery] reset (<reason>) from x,y,z to x,y,z` to the console.
+Each reset logs `[recovery] reset (<reason>) from x,y,z to x,y,z` to the console: the lost reason, `collision`
+for a worker coverage hold (physics/README.md) or `button` for a press.
 
 ```sh
 cd game && npx vitest run tests/unit/recovery.test.ts tests/unit/physics.test.ts

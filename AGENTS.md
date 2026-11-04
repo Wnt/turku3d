@@ -4,6 +4,14 @@ Use English for code, comments, documentation, commits, progress updates and fin
 
 ## Local Gen 2 phase (from 2026-11-02): this section overrides the merge/deploy flow below
 
+- **Merging into `local/loop-integration` (read this first):** merge with
+  `python3 ~/turku3d/tools/codex-loop/merge.py AREA SHA... --what TEXT (--test CMD ... | --no-tests-reason TEXT)`.
+  Before merging, run only the tests you selected for the area you changed (`--test`, repeatable), all in parallel
+  under one hard 30-second wall budget; a failure or timeout leaves integration unchanged. Nothing is forced: no
+  blanket build, no boot check as a gate. Slower runs (full build, boot smoke, heavy suites on osgallery-dev over ssh)
+  go in `--async-test CMD --async-reason TEXT`, which starts after the merge and never blocks or rolls back.
+  Example selections: `--test 'cd game && npx vitest run tests/unit/<file>.test.ts'`,
+  `--test 'python3 scripts/dev/tests/run.py <file>.py'`, `--test 'pytest -q <file>'`.
 - The published game and its tiles are frozen. Never merge into `main`, never push, never run
   `codex-task finish` or `land`, never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is merged
   into `local/loop-integration` (by you or the integrator).
@@ -12,8 +20,8 @@ Use English for code, comments, documentation, commits, progress updates and fin
   Gen 2 target design is `~/turku3d/plans/gen2-architecture.md`.
 - Ambition: visual fidelity rises significantly. Street level, where players spend their time, comes first.
 - Choose your own evidence: tests, same-pose renders, the visual judge (`~/turku3d/tools/visual-judge/judge.py`),
-  tile builds, the bench probe. No fixed time budgets, smoke runs, post-deploy runs, agent register, heads-up or
-  acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`.
+  tile builds, the bench probe. Apart from the 30 s merge budget above, no fixed time budgets, smoke runs,
+  post-deploy runs, agent register, heads-up or acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`.
 - Iterate in a long-lived browser session instead of reloading the game: keep one session per agent alive (close it
   after at most ~2 h idle), connect over the Chrome DevTools Protocol, and switch options and patch code at runtime
   (a shared dev API on `window.__game`/`window.__dev`, Vite HMR, monkey-patching). Prefer runtime toggles over new URL

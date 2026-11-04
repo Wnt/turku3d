@@ -494,3 +494,25 @@ test('a full tile within STANDBY_MARGIN of the camera keeps no hidden cell: its 
   expect(load).not.toHaveBeenCalled();
   expect(STANDBY_MARGIN).toBe(150);
 });
+
+test('a kilometre fallback never draws over a square a full tile draws (Kauppatori tilted-ground regression)', async () => {
+  const { scenery, scene, nearby } = setup();
+  scenery.setRadius(8000, { x: 100, y: 8, z: 190, dx: 1, dz: 0, halfAngle: .5 });
+  await settle();
+  const state = scenery as unknown as { footprint: string[]; unavailable: Set<string>;
+    entries: Map<string, { model: THREE.Group; next: number; seen: number; complete: boolean }> };
+  // Refining the 1 km node t2_-1_0: its western cells are still loading while full tiles draw its eastern squares.
+  state.footprint = ['t0_-1_0', 't0_-3_0']; state.unavailable.clear();
+  const parent = new THREE.Group(); scene.add(parent);
+  state.entries.set('t2_-1_0', { model: parent, next: Infinity, seen: 0, complete: true });
+  scenery.update(100, 190, 1000, true);
+  expect(parent.visible).toBe(true); // nothing HD under it yet: it covers the refinement
+  nearby.set('t0_-1_0', { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() });
+  scenery.nearbyChanged('t0_-1_0');
+  scenery.update(100, 190, 1100, true);
+  expect(parent.visible).toBe(false);
+  expect(state.entries.has('t2_-1_0')).toBe(true); // still loaded: it returns when the full tile leaves
+  nearby.delete('t0_-1_0'); scenery.nearbyChanged('t0_-1_0');
+  scenery.update(100, 190, 1200, true);
+  expect(parent.visible).toBe(true);
+});

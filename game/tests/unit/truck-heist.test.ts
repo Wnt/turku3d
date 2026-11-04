@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { lineText } from '../../src/gameplay/content/dialogue';
 import { HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SHOPS } from '../../src/gameplay/content/shops';
+import { HEIST_CASH } from '../../src/gameplay/economy';
 import { HEIST_DROP_RADIUS, TRUCK_ID } from '../../src/gameplay/missions/missions';
 import { freshSave } from '../../src/gameplay/missions/save';
 import { far, harness, near } from './missionHarness';
@@ -15,18 +16,25 @@ const ready = (extra: Record<string, unknown> = {}) => harness(JSON.stringify({ 
   permit: 5, delivery: 4, shortDeliveries: 4, money: 200, ...extra }));
 
 describe('truck heist', () => {
-  it('is offered at the black market only without plates or a truck, and not while a pizza is carried', () => {
+  it('is offered at the black market unless the truck is owned, the job runs or a pizza is carried', () => {
     expect(SHOPS.market.options.map(o => o.id)).toEqual(expect.arrayContaining(['job_truck_heist', 'abandon_truck_heist']));
     const h = ready();
     h.press(near(MARKET.point));
     expect(h.option('job_truck_heist')).toMatchObject({ enabled: true, price: null });
     expect(h.option('abandon_truck_heist')).toMatchObject({ enabled: false, reason: lineText('reason_no_heist') });
     h.leave(MARKET.point);
-    for (const [extra, reason] of [[{ plates: true }, 'reason_plates_owned'], [{ vehicle: 'truck' }, 'reason_heist_truck_owned']] as const) {
-      const g = ready(extra);
-      g.press(near(MARKET.point));
-      expect(g.option('job_truck_heist')).toMatchObject({ enabled: false, reason: lineText(reason) });
-    }
+    const owned = ready({ vehicle: 'truck' });
+    owned.press(near(MARKET.point));
+    expect(owned.option('job_truck_heist')).toMatchObject({ enabled: false, reason: lineText('reason_heist_truck_owned') });
+    // Bought plates: the job pays cash instead, and says so.
+    const plated = ready({ plates: true });
+    plated.press(near(MARKET.point));
+    expect(plated.option('job_truck_heist')).toMatchObject({ enabled: true, reason: null, detail: lineText('detail_job_truck_heist_cash') });
+    // A running job is not offered again; its own row says it runs, not the plates' text.
+    const running = ready();
+    running.choose(MARKET.point, 'job_truck_heist');
+    expect(running.option('job_truck_heist')).toMatchObject({ enabled: false, reason: lineText('reason_heist_running') });
+    expect(running.option('abandon_truck_heist')).toMatchObject({ enabled: true });
     const c = ready();
     c.choose(PIZZERIA.point, 'take_order');
     expect(c.missions.phase).toBe('carrying');
@@ -70,8 +78,41 @@ describe('truck heist', () => {
     h.wait(far, 15);
     h.choose(PIZZERIA.point, 'take_order', { vehicleId: 'parked-7' });
     expect(h.missions.phase).toBe('carrying'); // the plates let any car deliver
+  });
+
+  it('is offered again after each run: a fresh yard target, the truck back, cash once per run', () => {
+    const h = ready();
+    const run = () => {
+      expect(h.choose(MARKET.point, 'job_truck_heist').heist).toBe('started');
+      h.leave(MARKET.point);
+      expect(h.last()).toMatchObject({ activeTargetId: HEIST_YARD.id });
+      h.at(HEIST_YARD.point, 0.1, { vehicleId: TRUCK_ID });
+      expect(h.missions.heist).toBe('deliver');
+      h.at(under, 0.1, { vehicleId: TRUCK_ID });
+      return h.at(under);
+    };
+    expect(run().heist).toBe('delivered');
+    expect(h.missions).toMatchObject({ heist: null, plates: true, money: 200 });
+    // Offered again, now for cash.
+    h.wait(far, 1);
     h.press(near(MARKET.point));
-    expect(h.option('job_truck_heist')).toMatchObject({ enabled: false, reason: lineText('reason_plates_owned') });
+    expect(h.option('job_truck_heist')).toMatchObject({ enabled: true, reason: null, detail: lineText('detail_job_truck_heist_cash') });
+    h.leave(MARKET.point);
+    expect(run().heist).toBe('delivered');
+    expect(h.missions.shop).toBeNull();
+    expect(h.missions).toMatchObject({ heist: null, plates: true, money: 200 + HEIST_CASH });
+    expect(h.missions.snapshot().dialogue).toEqual(['heist_done_cash']);
+    expect(h.last().targets.some(t => t.kind === 'job')).toBe(false);
+    // Lingering at the drop-off, or getting back in and out, pays nothing more.
+    h.wait(under, 5);
+    h.at(under, 0.1, { vehicleId: TRUCK_ID }); h.at(under);
+    expect(h.missions.money).toBe(200 + HEIST_CASH);
+    // Abandoning a repeat run leaves it on offer as well.
+    h.choose(MARKET.point, 'job_truck_heist');
+    expect(h.missions.shop!.line).toBe(lineText('heist_briefing_cash'));
+    expect(h.choose(MARKET.point, 'abandon_truck_heist').heist).toBe('abandoned');
+    expect(h.option('job_truck_heist')).toMatchObject({ enabled: true });
+    expect(h.missions.money).toBe(200 + HEIST_CASH);
   });
 
   it('can be abandoned at the market, out of the truck, and started again', () => {

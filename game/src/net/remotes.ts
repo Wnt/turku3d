@@ -7,7 +7,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
-import type { RemoteBody } from '../physics/protocol';
+import type { RemoteBody, VehicleState } from '../physics/protocol';
 import { VEHICLES } from '../physics/constants';
 import { chassisForward } from '../traffic/pedestrians';
 import type { WalkerThreat } from '../world/walkers';
@@ -25,12 +25,30 @@ import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
 
 interface Remote {
-  player: NetPlayer; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
+  player: NetPlayer & { occupant?: string | null }; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
   car: THREE.Object3D; scooter: THREE.Object3D; truck: THREE.Object3D; vehicleKey: string;
-  pizza: THREE.Mesh; label: THREE.Sprite; lastT: number; effectSlot: number; receivedAt: number;
+  pizza: THREE.Mesh; label: THREE.Sprite;  lastT: number; effectSlot: number; receivedAt: number;
 }
 
 const FULL_MODEL_DISTANCE = 6;
+
+/** The local player's own name is never drawn in the world: not on foot, nor over a vehicle they occupy or own. */
+export function showsNameTag(p: { id: string; nick: string; occupant?: string | null }, selfId: string | undefined): boolean {
+  return !!p.nick && (!selfId || (p.id !== selfId && p.occupant !== selfId));
+}
+
+const TAG_HIDDEN_WITHIN = 4, TAG_FULL_FROM = 12, TAG_CENTRE_RANGE = 40;
+const TAG_CENTRE_CLEAR = Math.cos(THREE.MathUtils.degToRad(3)), TAG_CENTRE_FULL = Math.cos(THREE.MathUtils.degToRad(8));
+const smooth = (edge0: number, edge1: number, x: number) => { const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0))); return t * t * (3 - 2 * t); };
+
+/** Opacity and scale factor for a remote name tag: faded out close to the camera and off the screen centre,
+ *  grown with distance so it stays readable far away. `cosToCentre` is the cosine between the view direction
+ *  and the direction to the tag. */
+export function nameTagFade(distance: number, cosToCentre: number): { opacity: number; scale: number } {
+  let opacity = smooth(TAG_HIDDEN_WITHIN, TAG_FULL_FROM, distance);
+  if (distance < TAG_CENTRE_RANGE) opacity *= 1 - smooth(TAG_CENTRE_FULL, TAG_CENTRE_CLEAR, cosToCentre);
+  return { opacity, scale: Math.max(1, distance / 30) };
+}
 
 /** A single-draw silhouette for distant players; its colours are baked into vertex attributes. */
 function distantCharacter(): THREE.Mesh {
@@ -70,6 +88,7 @@ function nickname(nick: string): THREE.Sprite {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
   sprite.userData.devLayer = 'People/Name Tags';
   sprite.scale.set(canvas.width / 48 * 0.45, 0.45, 1);
+  sprite.userData.baseScale = sprite.scale.x;
   return sprite;
 }
 
@@ -79,6 +98,9 @@ export class RemotePlayers {
   private readonly pizzaGeometry = new THREE.BoxGeometry(.42, .12, .42);
   private readonly pizzaMaterial = new THREE.MeshStandardMaterial({ color: 0xd8b479, roughness: .9 });
   private readonly distantSource = distantCharacter();
+  private selfId: string | undefined;
+  private readonly toTag = new THREE.Vector3();
+  private readonly view = new THREE.Vector3();
   frameMs = 0;
   readonly horns: HornEmitter[] = [];
   /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
@@ -87,11 +109,14 @@ export class RemotePlayers {
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
-  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles) {
+  /** `drawn`: the render pose of a locally simulated vehicle (the driven one), else its latest physics state is used. */
+  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
+    drawn: (id: string) => VehicleState | null = () => null) {
     const t0 = performance.now();
     this.horns.length = 0; this.threats.length = 0;
     const selfId = client.state.you?.id;
-    const players: (NetPlayer & { locallySimulated?: boolean })[] = client.state.connected
+    this.selfId = selfId;
+    const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
     if (client.state.connected && shared) for (const v of client.state.vehicles.values()) {
       const localId = shared.localId(v);
@@ -99,10 +124,13 @@ export class RemotePlayers {
       // Existing local visuals own native IDs. Acquired foreign vehicles use the
       // same shared renderer as replicas, sampled directly from their local body.
       if (local && localId !== v.id) continue;
-      const state = local ? this.physics.latest?.vehicles.find(s => s.id === localId) : null;
+      const state = local ? drawn(localId) ?? this.physics.latest?.vehicles.find(s => s.id === localId) ?? null : null;
       players.push({ id: v.id, nick: client.state.players.find(p => p.id === v.occupant)?.nick ?? '',
         spawn: { E: v.pose.E, N: v.pose.N, yaw: v.pose.yaw },
-        pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: v.revision }, locallySimulated: local });
+        // A replica is drawn on its owner's own pose clock (net/interpolation.ts times poses by sender `t`, ms);
+        // the record revision is a change counter, which made every remote shared car stutter.
+        pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: Number.isFinite(v.pose.t) && v.pose.t > 0 ? v.pose.t : v.revision }, locallySimulated: local,
+        occupant: v.occupant });
     }
     const present = new Set(players.map(p => p.id));
     for (const [id, remote] of this.remotes) if (!present.has(id)) {
@@ -159,11 +187,12 @@ export class RemotePlayers {
       remote.scooter.visible = visible && pose?.mode === 'scooter';
       remote.truck.visible = visible && pose?.mode === 'truck';
       remote.pizza.visible = visible && pose?.mode === 'foot' && pose.carrying;
-      remote.label.visible = visible && !!p.nick;
+      const tagged = showsNameTag(p, selfId);
+      remote.label.visible = visible && tagged;
       if (p.nick !== remote.label.userData.nick) {
         const label = nickname(p.nick); label.userData.nick = p.nick;
         remote.label.removeFromParent(); (remote.label.material as THREE.SpriteMaterial).map?.dispose(); remote.label.material.dispose();
-        remote.label = label; this.root.add(label); label.visible = visible && !!p.nick;
+        remote.label = label; this.root.add(label); label.visible = visible && tagged;
       }
       if (!pose || !visible) continue;
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
@@ -208,8 +237,23 @@ export class RemotePlayers {
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
   }
 
+  /** Fades and scales the visible name tags for this camera; call once per frame before rendering. */
+  fadeLabels(camera: THREE.Camera) {
+    camera.getWorldDirection(this.view);
+    for (const r of this.remotes.values()) {
+      const label = r.label;
+      if (!label.visible) continue;
+      const distance = this.toTag.subVectors(label.position, camera.position).length();
+      const fade = nameTagFade(distance, distance > 1e-3 ? this.toTag.dot(this.view) / distance : 1);
+      (label.material as THREE.SpriteMaterial).opacity = fade.opacity;
+      if (fade.opacity <= 0.01) { label.visible = false; continue; }
+      const base = label.userData.baseScale as number;
+      label.scale.set(base * fade.scale, 0.45 * fade.scale, 1);
+    }
+  }
+
   markers(): { id: string; nick: string; x: number; z: number }[] {
-    return [...this.remotes.values()].flatMap(r => {
+    return [...this.remotes.values()].filter(r => showsNameTag(r.player, this.selfId) || !r.player.nick).flatMap(r => {
       const p = r.buffer.sample(performance.now());
       return p ? [{ id: r.player.id, nick: r.player.nick, x: p.E, z: -p.N }] : [];
     });

@@ -165,7 +165,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
         placed.append(p)
     if benches:
         cloud = seating.survey_cloud(tile.bbox, benches, list(laz))
-        for p in seating.place(benches, cloud, barriers, footprints, water, stats):
+        for p in seating.place(benches, cloud, barriers, footprints, water, stats, roads):
             if not tile.bbox.contains(p.x, p.z):
                 stats["left_tile:bench"] += 1
                 continue

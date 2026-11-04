@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu';
 import {
   abs, attribute, bool, cameraPosition, diffuseColor, dot, float, Fn, fract, fwidth, instanceColor, log2, max, modelWorldMatrix,
-  normalize, normalViewGeometry, positionLocal, positionView, positionWorld, pow, select, sin, smoothstep,
+  normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
+import { viewClearance } from '../../render/viewClearance';
+import type { NatureKind } from './library';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -39,6 +41,8 @@ export type NatureSources = Record<'nature_bark' | 'nature_leaves' | 'nature_imp
 export class NatureMaterials {
   /** All wind frequencies are multiples of 0.01 rad/s, so this wrap preserves their phases. */
   readonly windTime = uniform(0).setGroup(renderGroup);
+  /** The previous frame's `windTime`, for the swaying vertices' motion vectors. */
+  readonly windTimePrevious = uniform(0).setGroup(renderGroup);
   /** 0 = calm, 1 = a breezy Turku afternoon. */
   readonly windStrength = uniform(1).setGroup(renderGroup);
   /** Unit vector in the XZ plane, the direction the wind blows towards. */
@@ -63,18 +67,28 @@ export class NatureMaterials {
   readonly chain: THREE.MeshStandardNodeMaterial;
 
   constructor(sources: NatureSources, lighting: NatureLighting | null, private deterministic: boolean) {
-    const clock = this.windTime;
-    const wind = (flutterScale: number) => Fn(() => {
+    // Gust fronts travel across the city; each branch sways with its own phase; leaf cards flutter at their tips.
+    const offset = (position: THREE.Node<'vec3'>, clock: THREE.Node<'float'>) => {
       const w = attribute('_wind', 'vec4');
-      const world = modelWorldMatrix.mul(vec4(positionLocal, 1)).xyz;
+      const world = modelWorldMatrix.mul(vec4(position, 1)).xyz;
       const dir = this.windDirection;
-      // Gust fronts travel across the city; each branch sways with its own phase; leaf cards flutter at their tips.
       const gust = sin(clock.mul(0.42).sub(dot(world.xz, dir).mul(0.035))).mul(0.3).add(0.75);
       const sway = sin(clock.mul(1.15).add(w.z.mul(6.283)).add(dot(world.xz, vec2(0.031, 0.027)))).mul(0.45).add(0.55);
       const bend = w.x.mul(sway).mul(gust).mul(this.windStrength).mul(0.3);
-      const flutter = sin(clock.mul(7.3).add(w.z.mul(37)).add(world.y.mul(2.1)).add(world.x.mul(1.7)))
-        .mul(w.y).mul(gust).mul(this.windStrength).mul(flutterScale);
-      return positionLocal.add(vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8))));
+      return (flutterScale: number) => {
+        const flutter = sin(clock.mul(7.3).add(w.z.mul(37)).add(world.y.mul(2.1)).add(world.x.mul(1.7)))
+          .mul(w.y).mul(gust).mul(this.windStrength).mul(flutterScale);
+        return vec3(dir.x.mul(bend).add(flutter), bend.mul(-0.12).add(flutter.mul(0.6)), dir.y.mul(bend).sub(flutter.mul(0.8)));
+      };
+    };
+    // TRAA's motion vectors compare this frame's position with `positionPrevious`. Vegetation instances never move
+    // and share programs without previous instance data (render/rigidVelocity.ts), so the wind writes it: the same
+    // instance position swayed at the previous frame's time. Without it every swaying vertex reported its whole
+    // wind offset (up to 0.3 m) as motion and TRAA fetched the crowns' history from the wrong place.
+    const wind = (flutterScale: number) => Fn(builder => {
+      const mrt = (builder as unknown as { renderer: { getMRT(): { has(name: string): boolean } | null } }).renderer.getMRT();
+      if (mrt?.has('velocity')) positionPrevious.assign(positionLocal.add(offset(positionLocal, this.windTimePrevious)(flutterScale)));
+      return positionLocal.add(offset(positionLocal, this.windTime)(flutterScale));
     })();
     // Chain-link mips still need runtime coverage compensation; foliage is calibrated offline per atlas cell.
     const mipAlpha = (alpha: THREE.Node<'float'>, size: number) => alpha.mul(log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(size), 1)).mul(0.3).add(1));
@@ -151,6 +165,7 @@ export class NatureMaterials {
   /** Bound UTC seconds before uploading a float: epoch-sized floats lose seconds of wind motion. */
   setTime(seconds: number) {
     const period = Math.PI * 200;
+    this.windTimePrevious.value = this.windTime.value;
     this.windTime.value = this.deterministic ? 0 : ((seconds % period) + period) % period;
   }
 
@@ -158,14 +173,17 @@ export class NatureMaterials {
    *  LOD boundaries on either side (lodBands). At a pixel, every level of one tree compares the same per-frame dither
    *  threshold with the same fade value, so exactly one level keeps it: no double coverage, no gap, and TRAA resolves
    *  the door into a cross-fade. The fade is per pixel (3D distance), each tree's band offset by a hash of its tint.
-   *  Shadow casters (the LOD 1 proxies) never fade. Cached per material and level; disposed with the base. */
-  lodVariant(base: THREE.MeshStandardNodeMaterial, level: number): THREE.MeshStandardNodeMaterial {
+   *  Shadow casters (the LOD 1 proxies) never fade. With `clears`, view clearance (render/viewClearance.ts) also
+   *  dithers it out between the camera and the player; only tree crowns take it (`clearsView`). Cached per material,
+   *  level and clearance; disposed with the base. */
+  lodVariant(base: THREE.MeshStandardNodeMaterial, level: number, clears = false): THREE.MeshStandardNodeMaterial {
     let list = this.variants.get(base);
     if (!list) this.variants.set(base, list = []);
-    const cached = list[level];
+    const slot = level * 2 + (clears ? 1 : 0);
+    const cached = list[slot];
     if (cached) return cached;
     const variant = cloneNodeMaterial(base);
-    variant.name = `${base.name}@L${level}`;
+    variant.name = `${base.name}@L${level}${clears ? '+clear' : ''}`;
     const distance = positionWorld.sub(cameraPosition).length();
     const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
     // 0 -> 1 between end - 2 * width and end, where end = boundary * (1 - stagger * seed) <= boundary; the width
@@ -179,10 +197,19 @@ export class NatureMaterials {
     const threshold = ditherThreshold();
     let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));
     if (level > 0) keep = keep.and(threshold.lessThan(fade(level - 1)));
+    // View clearance does not depend on the level, so the levels stay complementary inside the cleared region.
+    // Shadows keep the unfaded mask below.
+    if (clears) keep = keep.and(viewClearance.keep());
     variant.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
     variant.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
-    list[level] = variant; this.bases.set(variant, base);
+    list[slot] = variant; this.bases.set(variant, base);
     return variant;
+  }
+
+  /** Whether a part clears the view: the leaf cards of a tree's mesh levels. Trunks and branches (bark), fences
+   *  (wood, metal, chain), hedges, shrubs and impostors stay solid (Jonni, 2026-11-05: fences and trunks must not hide). */
+  clearsView(kind: NatureKind, material: THREE.Material, impostor: boolean) {
+    return kind === 'tree' && !impostor && material === this.leaves;
   }
 
   /** The shared material a LOD variant was made from (itself for a base material). */

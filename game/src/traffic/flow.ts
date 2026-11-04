@@ -4,7 +4,7 @@
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
-import { connector, cumulative, type Connector, type Lane } from './tileNetwork';
+import { connector, cumulative, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
@@ -22,6 +22,25 @@ const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
 const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
+/** Swept-footprint guard: the margin a moving car keeps from others, and the smaller contact margin it keeps from a
+ *  car following it (the follower keeps its own gap; padding the leader against it let a leader's swinging rear stop
+ *  both for good). */
+const GUARD_MARGIN = 0.25, FOLLOWER_MARGIN = 0.05;
+/** Surface height difference (m) at which two cars are on different levels (bridge over road). */
+const LEVEL_APART = 2.5;
+/** Two cars each stopped by the other's footprint this long: the one behind backs up (UNLOCK_SPEED m/s, at most
+ *  UNLOCK_BACK m per lock) so the one ahead can pull away. Pure flow state, so every peer unlocks the same way. */
+const UNLOCK_AFTER = 6, UNLOCK_SPEED = 0.5, UNLOCK_BACK = 1.5, UNLOCK_CHAIN = 4;
+/** Last resort: cars that have waited on each other in a closed cycle (blockedBy) for CLEAR_AFTER seconds cannot all
+ *  move again; the cycle's lowest key leaves the flow. Checked once per second; pure flow state, so MP-safe. */
+const CLEAR_AFTER = 60, CLEAR_CYCLE = 12, STUCK_PROGRESS = 2;
+/** Share of the normal lane-change rate a car keeps while held at its change's stop point. */
+const CHANGE_CREEP = 0.3;
+/** Seconds at the stop line after which a driver no longer yields to traffic that waited less (a give-way merge into
+ *  a stream that shares its green could otherwise wait for good). */
+const STARVE_AFTER = 15;
+/** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
+const HELD = /^(exit|storage|receiving|signal|no-exit)/;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -30,6 +49,12 @@ export interface FlowCar {
   /** The connector remains reserved until the rear clears the destination lane. */
   reservation: Lane | null;
   stopped: number; waiting: number;
+  /** Metres reversed to break the current footprint deadlock (flow.unlock); 0 once the car moves on. */
+  backed: number;
+  /** Seconds since the car last made STUCK_PROGRESS metres of net headway, and the headway made since (m). */
+  stuck: number; progress: number;
+  /** The last car it waited on since it last made headway (deadlock cycles span red phases), or null. */
+  waitsFor: string | null;
   /** Seconds held up below walking pace by a player (on foot or in a vehicle) in its path: the driver honks. */
   held: number;
   /** Lateral offset from the lane centre (m, + right) while going round a stopped car, its target, its rate (m/s)
@@ -47,7 +72,7 @@ export interface TrafficCheckpoint {
   pedestrians: PedestrianFrame | null;
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
-    born: number; stopped: number; waiting: number; held: number; swerve: number; swerveTarget: number; swerveRate: number;
+    born: number; stopped: number; waiting: number; backed: number; stuck: number; progress: number; waitsFor: string | null; held: number; swerve: number; swerveTarget: number; swerveRate: number;
     swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number;
     change: (Omit<LaneChange, 'from'> & { from: string }) | null;
     signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
@@ -139,10 +164,11 @@ export class TrafficFlow {
   private suppressed = new Set<string>();
   private changer: LaneChangePlanner | null = null;
   private departing = new Map<Lane, FlowCar[]>();
+  private longest = new Map<Lane, FlowCar>();
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
 
@@ -171,7 +197,7 @@ export class TrafficFlow {
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
       cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
         reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
+        stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, waitsFor: c.waitsFor, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
         swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw,
         change: saveChange(c.change), changeCooldown: c.changeCooldown,
         signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null,
@@ -250,7 +276,7 @@ export class TrafficFlow {
     const rebuild = this.revision !== this.network.revision;
     this.tick = Math.floor(t / FLOW_STEP); this.ready = true; this.revision = this.network.revision;
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
     if (!rebuild) {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
@@ -331,6 +357,8 @@ export class TrafficFlow {
         }
         // One physical junction gets one tangent arc; chaining stop-line splinters produced tight S bends.
         if (visited.size > 1 && curve.length < 45) curve = this.link(lane, next);
+        // A longer fold keeps its path, cleaned like a lane (its links' kinks set the 1.5 m/s floor speed before).
+        else if (visited.size > 1) curve = { ...smoothPath(curve.points, Math.min(lane.speed, next.speed, Math.abs(curve.turn) > 0.5 ? 7 : Infinity)), turn: curve.turn };
         const turn = Math.atan2(Math.sin(curve.turn), Math.cos(curve.turn));
         if (curve.turn !== turn) curve = { ...curve, turn }; // cached connectors are shared, never mutated
         if (next.length < 12 && !next.end.seam) continue;
@@ -431,6 +459,14 @@ export class TrafficFlow {
       const front = list.find(c => c.s <= lane.length);
       if (front) heads.set(lane, front);
     }
+    // Per receiving lane, the head that has waited longest (over STARVE_AFTER) for it: it gets the next space there.
+    this.longest.clear();
+    for (const head of heads.values()) {
+      const next = head.route.next;
+      if (!next || head.waiting <= STARVE_AFTER) continue;
+      const best = this.longest.get(next);
+      if (!best || head.waiting > best.waiting || head.waiting === best.waiting && head.key < best.key) this.longest.set(next, head);
+    }
     const ordered = [...this.cars.values()].sort((a, b) =>
       (b.reservation ? 1 : 0) - (a.reservation ? 1 : 0) || b.waiting - a.waiting || cmp(a.key, b.key));
     const reservations = ordered.filter(c => c.reservation !== null);
@@ -443,8 +479,9 @@ export class TrafficFlow {
       const crossing = lane.connector && lane.next === next;
       const remaining = lane.length - car.s;
       if (crossing) {
-        const turnSpeed = lane.connector!.speed;
-        desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
+        const turnSpeed = lane.connector!.speed, limits = lane.connector!.limits;
+        if (limits && car.s > lane.length) desired = Math.min(desired, limits[Math.min(limits.length - 1, Math.floor(car.s - lane.length))]);
+        if (!limits || car.s <= lane.length) desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
         if (!car.change && !car.reservation && remaining < Math.max(30, car.speed * car.speed / (2 * BRAKE) + 8)) {
           if (this.mayEnter(car, heads, reservations, t)) {
             // Evaluate the gap while braking, but only lock the box when the nose is about to enter it.
@@ -520,10 +557,14 @@ export class TrafficFlow {
         car.swerveRate = (car.swerve - before) / FLOW_STEP;
       } else car.swerveRate = 0;
       if (car.change) {
-        const progress = car.change.progress;
-        car.change.rate = Math.min(1, car.speed / 3) / car.change.duration;
+        const progress = car.change.progress, rate0 = car.change.rate;
+        // Held at the change's stop point (8 m before the line) with the move unfinished: finish it at a creep.
+        // Progress tied to speed alone never completed there, and the car waited for good.
+        const held = car.s > lane.length - 9;
+        car.change.rate = Math.max(Math.min(1, car.speed / 3), held ? CHANGE_CREEP : 0) / car.change.duration;
         car.change.progress = Math.min(1, progress + FLOW_STEP * car.change.rate);
-        if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { car.change.progress = progress; car.change.rate = 0; }
+        // A blocked move keeps last tick's progress and rate (the rate turns the nose), i.e. last tick's checked pose.
+        if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { car.change.progress = progress; car.change.rate = rate0; }
       }
       // A final swept-footprint guard also covers malformed/fragmented junctions and cross-tile geometry.
       // It stops before contact; it never resolves an overlap by teleporting or hiding a car.
@@ -542,7 +583,16 @@ export class TrafficFlow {
       }
       car.s = originalS + Math.max(0, step);
       if (step < car.speed * FLOW_STEP - 1e-6) car.speed = step / FLOW_STEP;
-      if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) this.makeRoom(car, lane, this.cars.get(car.blockedBy.slice(10)));
+      if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) {
+        const other = this.cars.get(car.blockedBy.slice(10));
+        this.makeRoom(car, lane, other);
+        if (other) this.unlock(car, other);
+      }
+      if (step > 0.01) car.backed = 0;
+      car.progress += Math.max(0, step);
+      if (car.progress >= STUCK_PROGRESS) { car.progress = 0; car.stuck = 0; car.waitsFor = null; } else car.stuck += FLOW_STEP;
+      const named = car.blockedBy ? car.blockedBy.indexOf(':') : -1;
+      if (named >= 0) car.waitsFor = car.blockedBy!.slice(named + 1);
       car.stopped = car.speed < 0.15 ? car.stopped + FLOW_STEP : 0;
       car.held = byPlayer && car.speed < 1 ? car.held + FLOW_STEP : byPlayer ? car.held : 0;
       car.waiting = remaining < 14 && car.speed < 0.5 ? car.waiting + FLOW_STEP : 0;
@@ -564,6 +614,24 @@ export class TrafficFlow {
       this.unoccupy(car);
       sampleFlowPose(car, 0, () => 0, car.pose);
       if (this.cars.has(car.key)) this.occupy(car);
+    }
+    if (this.tick % 10 === 0) this.clearDeadlocks();
+  }
+
+  /** The key a car waits on (any blockedBy that names one), for deadlock cycles. */
+  private waitsOn(car: FlowCar) { return car.waitsFor ? this.cars.get(car.waitsFor) ?? null : null; }
+  private clearDeadlocks() {
+    const stuck = [...this.cars.values()].filter(c => c.stuck >= CLEAR_AFTER).sort((a, b) => cmp(a.key, b.key));
+    for (const car of stuck) {
+      if (!this.cars.has(car.key)) continue;
+      let at = this.waitsOn(car), lowest = car.key;
+      for (let hop = 0; at && at !== car && hop < CLEAR_CYCLE; hop++) {
+        if (at.stuck < CLEAR_AFTER) { at = null; break; }
+        if (at.key < lowest) lowest = at.key;
+        at = this.waitsOn(at);
+      }
+      if (at !== car || lowest !== car.key) continue;
+      this.unoccupy(car); this.cars.delete(car.key); this.stats.cleared++;
     }
   }
 
@@ -605,7 +673,7 @@ export class TrafficFlow {
     const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
       demandDraw: this.network.demandDraw(lane, n),
       previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0 }, change: null, signal: null, changeCooldown: 0,
-      reservation: null, stopped: 0, waiting: 0, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
+      reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
       blockedBy: null, pose: blankPose() };
     sampleFlowPose(car, 0, () => 0, car.pose);
     if (this.obstructed(car, car.pose)) { this.stats.blocked++; return; }
@@ -648,7 +716,73 @@ export class TrafficFlow {
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
       for (const other of this.occupancy.get(`${x + i},${z + j}`) ?? []) {
         if (car === other) continue;
-        if (bodyOverlap(pose, car, other.pose, other, 0.25)) { car.blockedBy = `footprint:${other.key}`; return true; }
+        if (bodyOverlap(pose, car, other.pose, other, this.follows(other, car, pose) ? FOLLOWER_MARGIN : GUARD_MARGIN)
+          && !this.levelApart(car, other)) {
+          car.blockedBy = `footprint:${other.key}`; return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** On different levels (a bridge or ramp over a road, by the data's surface heights): bodies never meet. */
+  levelApart(a: FlowCar, b: FlowCar) {
+    const ya = dataHeight(a.route, a.s), yb = dataHeight(b.route, b.s);
+    return Math.abs(ya - yb) > LEVEL_APART;
+  }
+
+  /** Whether `other` drives behind `car` in the same direction: its centre behind car's rear and headings within 60°. */
+  private follows(other: FlowCar, car: FlowCar, pose: CarPose) {
+    const o = other.pose;
+    if (o.hx * pose.hx + o.hz * pose.hz < 0.5) return false;
+    return (o.x - pose.x) * pose.hx + (o.z - pose.z) * pose.hz < -car.length / 2;
+  }
+
+  /** A deadlock of two footprints (each car stopped by the other for UNLOCK_AFTER seconds): the car behind, or the
+   *  lower key head-on, reverses along its route. Stopped cars right behind it that keep it from reversing reverse
+   *  with it (up to UNLOCK_CHAIN cars, tail first), so a tight queue makes room too. Every pose is guard-checked:
+   *  nothing reverses into a body, and nothing depends on the camera or a client's clock. */
+  private unlock(car: FlowCar, other: FlowCar) {
+    if (car.stopped < UNLOCK_AFTER || other.stopped < UNLOCK_AFTER || other.blockedBy !== `footprint:${car.key}`) return;
+    const ahead = (other.pose.x - car.pose.x) * car.pose.hx + (other.pose.z - car.pose.z) * car.pose.hz;
+    const behind = (car.pose.x - other.pose.x) * other.pose.hx + (car.pose.z - other.pose.z) * other.pose.hz;
+    if (!(ahead > 0 && behind > 0 ? car.key < other.key : ahead > behind)) return;
+    const back = Math.min(UNLOCK_SPEED * FLOW_STEP, UNLOCK_BACK - car.backed);
+    const can = (c: FlowCar) => !c.change && c.s >= back && c.speed < 0.15 && !c.swerve;
+    if (back <= 0 || !can(car)) return;
+    const chain = [car], label = car.blockedBy;
+    for (;;) {
+      const last = chain[chain.length - 1], s = last.s;
+      last.s = s - back;
+      const clear = !this.reverseObstructed(last, sampleFlowPose(last, 0, () => 0));
+      last.s = s;
+      if (clear) break;
+      const next = this.cars.get(last.blockedBy?.startsWith('footprint:') ? last.blockedBy.slice(10) : '');
+      if (!next || chain.includes(next) || chain.length >= UNLOCK_CHAIN || !can(next)
+        || (next.pose.x - last.pose.x) * last.pose.hx + (next.pose.z - last.pose.z) * last.pose.hz >= 0) { car.blockedBy = label; return; }
+      chain.push(next);
+    }
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const c = chain[i], s = c.s, blocked = c.blockedBy;
+      c.s = s - back;
+      const pose = sampleFlowPose(c, 0, () => 0);
+      if (this.reverseObstructed(c, pose)) { c.s = s; c.blockedBy = blocked; break; }
+      this.unoccupy(c); c.pose = pose; this.occupy(c); c.backed += back; c.progress -= back; c.blockedBy = blocked;
+    }
+    car.blockedBy = label; this.stats.unlocks++;
+  }
+
+  /** The guard for reversing: a pose inside another car's margin is still allowed when it moves away from that car
+   *  (clearance does not shrink) and keeps FOLLOWER_MARGIN of real clearance. */
+  private reverseObstructed(car: FlowCar, pose: CarPose) {
+    const x = Math.floor(pose.x / 8), z = Math.floor(pose.z / 8);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const other of this.occupancy.get(`${x + i},${z + j}`) ?? []) {
+        if (car === other || !bodyOverlap(pose, car, other.pose, other, GUARD_MARGIN) || this.levelApart(car, other)) continue;
+        const after = separation(pose, car, other.pose, other);
+        if (after < FOLLOWER_MARGIN || after < separation(car.pose, car, other.pose, other) - 1e-6) {
+          car.blockedBy = `footprint:${other.key}`; return true;
+        }
       }
     }
     return false;
@@ -678,6 +812,10 @@ export class TrafficFlow {
     if (!next || !lane.connector) return blocked('no-exit');
     if (signalState(lane, t) !== 'green') return blocked('signal');
     if (lane.priority === 'stop' && car.stopped < 1) return blocked('stop-sign');
+    // Fair turns for a receiving lane that fills from several approaches: a driver that has waited longer for it (and
+    // has a green) takes the next space, rather than whichever approach happens to see the space first.
+    const turn = this.longest.get(next);
+    if (turn && turn !== car && turn.waiting > car.waiting + 1 && signalState(turn.route, t) === 'green') return blocked(`turn:${turn.key}`);
     const tail = this.byLane.get(next)?.at(-1);
     if (tail && tail !== car && tail.s < car.length + tail.length / 2 + 2 * GAP + 0.2) return blocked(`exit:${tail.key}`);
     // A car still on a connector already owns space in its receiving lane. The lane's current tail
@@ -700,6 +838,16 @@ export class TrafficFlow {
       if (!other || other.route !== otherLane || other === car || other.reservation || signalState(otherLane, t) !== 'green') continue;
       const distance = otherLane.length - other.s - other.length / 2;
       if (distance > Math.max(12, other.speed * 2.5)) continue;
+      // Never yield to a car that cannot go itself (its exit is full, it waits for a reservation or a signal): a
+      // yield to a held car never ends. Its own yields to others still count, so priority chains stay intact.
+      if (other.waiting > 2 && other.speed < 0.2 && other.blockedBy !== null && HELD.test(other.blockedBy)) continue;
+      // A driver kept at its line for STARVE_AFTER seconds by a stream with priority takes its turn: drivers
+      // that waited longest are evaluated first, so it reserves first and the stream stops for its reservation.
+      // Only traffic that can still stop before its line, and never while a player holds either car up.
+      if (car.waiting > STARVE_AFTER && !car.held && other.waiting < car.waiting
+        && distance > other.speed * other.speed / (2 * BRAKE) + 1) continue;
+      if (other.waiting > STARVE_AFTER && !other.held && other.waiting > car.waiting
+        && lane.length - car.s - car.length / 2 > car.speed * car.speed / (2 * BRAKE) + 1) return blocked(`starved:${other.key}`);
       if (lane.priority !== 'normal' && otherLane.priority === 'normal') return blocked(`give-way:${other.key}`);
       if (lane.priority === 'normal' && otherLane.priority !== 'normal') continue;
       const o = heading(otherLane), cross = h[0] * o[1] - h[1] * o[0], dot = h[0] * o[0] + h[1] * o[1];
@@ -714,6 +862,19 @@ export class TrafficFlow {
     }
     return true;
   }
+}
+
+/** Separating-axis clearance between two car bodies (m; negative when they overlap). */
+function separation(a: CarPose, sa: { length: number; width: number }, b: CarPose, sb: { length: number; width: number }) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  let best = -Infinity;
+  for (let k = 0; k < 4; k++) {
+    const x = k === 0 ? a.hx : k === 1 ? -a.hz : k === 2 ? b.hx : -b.hz, z = k === 0 ? a.hz : k === 1 ? a.hx : k === 2 ? b.hz : b.hx;
+    const ra = Math.abs(a.hx * x + a.hz * z) * sa.length / 2 + Math.abs(-a.hz * x + a.hx * z) * sa.width / 2;
+    const rb = Math.abs(b.hx * x + b.hz * z) * sb.length / 2 + Math.abs(-b.hz * x + b.hx * z) * sb.width / 2;
+    best = Math.max(best, Math.abs(dx * x + dz * z) - ra - rb);
+  }
+  return best;
 }
 
 function heading(lane: Lane): [number, number] {
@@ -785,6 +946,8 @@ function routePoint(lane: Lane, s: number) {
 }
 type Point = { x: number; z: number; hx: number; hz: number };
 function routePointInto(lane: Lane, s: number, out: Point): Point {
+  // Past a seam lane's end the path continues on the next tile's lane (the guard checks the pose a car hops to).
+  if (s > lane.length && !lane.connector && lane.seamNext) return pointAtInto(lane.seamNext.points, lane.seamNext.cum, s - lane.length, out);
   if (s <= lane.length || !lane.connector) return pointAtInto(lane.points, lane.cum, s, out);
   if (s <= lane.length + lane.connector.length || !lane.next) return pointAtInto(lane.connector.points, lane.connector.cum, s - lane.length, out);
   return pointAtInto(lane.next.points, lane.next.cum, s - lane.length - lane.connector.length, out);
@@ -813,19 +976,25 @@ export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, 
     const ratio = change.from.length / lane.length, sourceS = s * ratio;
     const from = pointAtInto(change.from.points, change.from.cum, sourceS, fromPoint);
     const df = 30 * u * u * (1 - u) * (1 - u) * change.rate;
-    const vx = car.speed * (from.hx * ratio * (1 - f) + mid.hx * f) + (mid.x - from.x) * df;
-    const vz = car.speed * (from.hz * ratio * (1 - f) + mid.hz * f) + (mid.z - from.z) * df;
+    // The nose follows the lateral motion as a rolling car's would: below 3 m/s as if at 3 m/s (a car at a
+    // standstill cannot turn sideways; the heading also no longer changes when the guard trims the speed).
+    const fwd = Math.max(3, car.speed);
+    const vx = fwd * (from.hx * ratio * (1 - f) + mid.hx * f) + (mid.x - from.x) * df;
+    const vz = fwd * (from.hz * ratio * (1 - f) + mid.hz * f) + (mid.z - from.z) * df;
     const v = Math.sqrt(vx * vx + vz * vz);
     out.x = from.x + (mid.x - from.x) * f; out.z = from.z + (mid.z - from.z) * f;
     if (v > 0.05) { out.hx = vx / v; out.hz = vz / v; }
     const sourceY = height(change.from, sourceS);
     if (sourceY !== null && Number.isFinite(out.y)) out.y = sourceY + (out.y - sourceY) * f;
-    out.speed = v;
+    out.speed = v * car.speed / fwd;
   }
   if (car.swerve) {
     // Going round a stopped car: shifted off the lane centre, nose turned along the lateral motion.
     out.x -= out.hz * car.swerve; out.z += out.hx * car.swerve;
-    const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * car.swerveRate, hz = out.hz * forward + out.hx * car.swerveRate;
+    // The nose follows the lateral motion only as fast as the car rolls: a car at standstill cannot yaw, and
+    // swinging its corners while edging aside locked a passing car and the oncoming one squeezing for it.
+    const yaw = car.swerveRate * Math.min(1, out.speed / 3);
+    const forward = Math.max(2, out.speed), hx = out.hx * forward - out.hz * yaw, hz = out.hz * forward + out.hx * yaw;
     const d = Math.sqrt(hx * hx + hz * hz);
     out.hx = hx / d; out.hz = hz / d;
   }

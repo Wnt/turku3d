@@ -2,7 +2,7 @@
 
 Each entry runs at the end of every generator build and over existing farm products."""
 
-from . import chain_record, floodlights, furniture, stand_roofs, trees_lidar, wires
+from . import chain_record, floodlights, furniture, landmark_windows, racks, shell_look, signals, signs, stand_roofs, trees_lidar, wires
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -11,4 +11,10 @@ CHAIN = (
     wires.MIGRATION,
     trees_lidar.MIGRATION,
     furniture.MIGRATION,
+    racks.MIGRATION,
+    landmark_windows.MIGRATION,
+    # Measures the HD models as the steps above left them: facade changes must come before it.
+    shell_look.MIGRATION,
+    signals.MIGRATION,
+    signs.MIGRATION,
 )

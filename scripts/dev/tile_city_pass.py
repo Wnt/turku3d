@@ -21,6 +21,10 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   ``--survey-interval`` s, for at most ``--wait-hours``): migrated without them it would stay without wires and
   crowns. ``--supply DIR`` hard-links missing blocks from DIR when size and SHA-256 match the base's catalog, or copies
   them when DIR is on another filesystem (lidarpc's downloads sit on the bulk HDD).
+* Spot rebuilds: a tile a Rebuild step needs a fresh build of (``missing-rebuild``, e.g. landmark-windows@1) asks the
+  farm for that build (``--farm-url``, again every ``--rebuild-interval`` s) and is retried once the build's
+  ready.json is there (a landmark build takes 6-25 min; an early retry would redo the steps before it). A tile
+  whose base manifest already shows it in a Rebuild step's class waits for that build before any step runs.
 * ``--checkpoint STEP`` stores each tile's product after STEP too (``tile_migrate.checkpoint``): a later chain that
   changes only the steps after STEP resumes from it instead of redoing the costly steps before.
 * Logs in ``farm/migrations/<generation>/``: ``pass.jsonl`` (one line per tile: state, wall and CPU seconds, each
@@ -35,6 +39,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from pathlib import Path
@@ -170,6 +175,29 @@ def available_memory_gb() -> float | None:
     return None
 
 
+def pending_rebuild(root: Path, meta: dict, tile: str) -> dict | None:
+    """A ``missing-rebuild`` row for the first Rebuild step whose class the tile's base manifest is in and whose
+    build is not there yet, else None. Only a shortcut: the worker's own check still decides."""
+    from turku3d.migrations import chain
+    from turku3d.migrations.core import Rebuild
+
+    try:
+        manifest = json.loads((M.products(root, meta['base_generation']) / tile / 'manifest.json').read_text())
+    except (OSError, ValueError):
+        return None
+    steps = {m.name: m for m in chain()}
+    for step in meta['migrations']:
+        migration = steps.get(step['name'])
+        generation = step.get('rebuild_generation')
+        if not generation or not isinstance(migration, Rebuild):
+            continue
+        if (M.products(root, generation) / tile / 'ready.json').exists() or not migration.affected(manifest):
+            continue
+        return dict(tile=tile, state='missing-rebuild', rebuild_revision=step['rebuild_revision'],
+                    rebuild_generation=generation, error=f"{tile} needs the {step['name']} rebuild (base manifest)")
+    return None
+
+
 def _work(args):
     root, meta, tile, cut = args
     STEPS.clear()
@@ -179,7 +207,8 @@ def _work(args):
         result = M._worker((root, meta, tile))
     return dict(tile=tile, state=result.get('state'), error=result.get('error'), applied=result.get('applied'),
                 wall=round(time.monotonic() - wall, 3), cpu=round(time.process_time() - cpu, 3),
-                steps=dict(STEPS), survey=surveyed(tile))
+                steps=dict(STEPS), survey=surveyed(tile), rebuild_revision=result.get('rebuild_revision'),
+                rebuild_generation=result.get('rebuild_generation'))
 
 
 def ring(tile: str) -> int:
@@ -271,6 +300,10 @@ def main():
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')
     parser.add_argument('--min-free-gb', type=float, default=12, help='no new tile while the farm disk has less free')
+    parser.add_argument('--farm-url', default='http://192.168.1.114:7950',
+                        help='farm asked for missing spot rebuilds (it listens on the LAN address only)')
+    parser.add_argument('--rebuild-interval', type=float, default=600, help='seconds between requests for a spot '
+                        'rebuild that is not there yet')
     parser.add_argument('--min-free-mem-gb', type=float, default=8,
                         help='the cap steps down while less memory than this is available')
     parser.add_argument('--blocks', type=int, default=9,
@@ -301,12 +334,14 @@ def main():
     cap, started_at, next_adjust = 1, time.monotonic(), 0.0
     survey = None if args.no_survey_wait else Survey(args.supply, log_dir / 'supply.jsonl')
     waiting: list[str] = []
+    rebuilding: dict[str, dict] = {}  # tile -> its missing-rebuild row and when to ask the farm again
+    asked: set[str] = set()
     next_survey = time.monotonic() + args.survey_interval
     done_now = 0
     lanes = [Lane(args.blocks) for _ in range(max(1, args.max_jobs))]
     try:
         with journal.open('a') as log:
-            while pending or waiting or any(lane.future for lane in lanes):
+            while pending or waiting or rebuilding or any(lane.future for lane in lanes):
                 now = time.monotonic()
                 load = os.getloadavg()[0] / cores
                 busy = [lane for lane in lanes if lane.future]
@@ -327,7 +362,7 @@ def main():
                         revision=meta['revision'], generation=meta['generation'], pid=os.getpid(), cap=cap,
                         running=sorted(lane.tile for lane in busy), load_per_core=round(load, 2),
                         disk_free_gb=round(free, 1), memory_available_gb=memory and round(memory, 1),
-                        waiting_for_survey=len(waiting), survey_linked=survey.linked if survey else 0,
+                        waiting_for_survey=len(waiting), waiting_for_rebuild=sorted(rebuilding), survey_linked=survey.linked if survey else 0,
                         updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                         rate_tiles_per_hour=round(rate * 3600, 1),
                         eta_hours=round(len(pending) / rate / 3600, 1) if rate else None, **estimate(rows, tiles)))
@@ -336,6 +371,17 @@ def main():
                     pending.extend(waiting)
                     pending.sort(key=lambda t: (ring(t), t))
                     waiting.clear()
+                due = [t for t, w in rebuilding.items() if (root / 'products' / w['row'].get('rebuild_generation', '')
+                                                             / t / 'ready.json').exists()]
+                for tile, w in rebuilding.items():
+                    if tile not in due and now >= w['ask']:
+                        w['ask'] = now + args.rebuild_interval
+                        threading.Thread(target=M.request_rebuild, args=(args.farm_url, w['row']), daemon=True).start()
+                if due:
+                    for tile in due:
+                        del rebuilding[tile]
+                    pending.extend(due)
+                    pending.sort(key=lambda t: (ring(t), t))
                 for lane in lanes:
                     if lane.future or not pending or len([x for x in lanes if x.future]) >= cap:
                         continue
@@ -344,13 +390,23 @@ def main():
                         if survey is not None and survey.missing(tile):
                             waiting.append(tile)
                             continue
+                        early = pending_rebuild(root, meta, tile)
+                        if early is not None:  # Its build first: the steps before it would run for nothing.
+                            threading.Thread(target=M.request_rebuild, args=(args.farm_url, early), daemon=True).start()
+                            rebuilding[tile] = dict(row=early, ask=now + args.rebuild_interval)
+                            if tile not in asked:
+                                asked.add(tile)
+                                early.update(at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                                log.write(json.dumps(early) + '\n')
+                                log.flush()
+                            continue
                         lane.future = lane.pool.submit(_work, (str(root), meta, tile, args.checkpoint))
                         lane.tile, lane.last, lane.at = tile, home(tile), (cap, round(load, 2))
                         break
                 busy = [lane for lane in lanes if lane.future]
                 if not busy:
-                    if not pending and waiting and now - started_at > args.wait_hours * 3600:
-                        break  # The rest stays waiting for survey blocks; a later pass picks them up.
+                    if not pending and (waiting or rebuilding) and now - started_at > args.wait_hours * 3600:
+                        break  # The rest stays waiting for survey blocks or rebuilds; a later pass picks them up.
                     time.sleep(min(args.interval, 5) if args.interval else 0.01)
                     continue
                 done = wait([lane.future for lane in busy], timeout=5, return_when=FIRST_COMPLETED).done
@@ -363,6 +419,15 @@ def main():
                         row = dict(tile=lane.tile, state='failed', error=f'{type(error).__name__}: {error}'[-1000:])
                     row.update(cap=lane.at[0], load_per_core=lane.at[1],
                                at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                    if row['state'] == 'missing-rebuild':
+                        # Ask the farm for the build off the scheduler thread (it may take up to its timeout).
+                        threading.Thread(target=M.request_rebuild, args=(args.farm_url, row), daemon=True).start()
+                        first = lane.tile not in asked
+                        asked.add(lane.tile)
+                        rebuilding[lane.tile] = dict(row=row, ask=now + args.rebuild_interval)
+                        lane.future = lane.tile = None
+                        if not first:
+                            continue  # Logged once; the retries stay out of the journal.
                     log.write(json.dumps(row) + '\n')
                     log.flush()
                     rows.append(row)
@@ -371,8 +436,8 @@ def main():
     finally:
         for lane in lanes:
             lane.pool.shutdown(wait=True, cancel_futures=True)
-    atomic_json(progress, dict(revision=meta['revision'], generation=meta['generation'], finished=not waiting,
-                               waiting_for_survey=sorted(waiting),
+    atomic_json(progress, dict(revision=meta['revision'], generation=meta['generation'], finished=not waiting and not rebuilding,
+                               waiting_for_survey=sorted(waiting), waiting_for_rebuild=sorted(rebuilding),
                                updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), **estimate(rows, tiles)))
     return 0
 

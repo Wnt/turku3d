@@ -27,9 +27,12 @@ export interface AddressJson {
     foot: number; car: number | null; landmark?: boolean }[];
 }
 
-/** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. The published
- *  pools were built from the pizzeria's first point (77.1, 187.6), 2.2 m along the same sidewalk from PIZZERIA. */
-const ORIGIN_TOLERANCE_M = 3;
+/** The pool's origin must be the game's pizzeria, or every distance would be measured from elsewhere. */
+const ORIGIN_TOLERANCE_M = 1;
+/** Compatibility: the pizzeria's first point, 2.2 m along the same sidewalk. Every served pool still has this origin:
+ *  the farm builds navigation per base revision, so migrated pins and trains (train1, train2) serve the pool of bulk
+ *  generation 2e6515f4. Remove once the pinned base revision's navigation.json carries origin [78.92, 186.36]. */
+const LEGACY_ORIGIN = { x: 77.1, z: 187.6 };
 
 /** Same slug as the pipeline (`turku3d.content.addresses.slug`): `Läntinen Rantakatu 13a` -> `lantinen-rantakatu-13a`. */
 export function addressSlug(address: string): string {
@@ -43,7 +46,7 @@ export function parseAddressPool(json: AddressJson, tiles: (tile: string) => boo
     throw new Error(`address pool: unsupported ${json.format} v${json.version} (${json.frame})`);
   }
   const [x, z] = json.origin;
-  if (Math.hypot(x - PIZZERIA.point.x, z - PIZZERIA.point.z) > ORIGIN_TOLERANCE_M) {
+  if ([PIZZERIA.point, LEGACY_ORIGIN].every(o => Math.hypot(x - o.x, z - o.z) > ORIGIN_TOLERANCE_M)) {
     throw new Error(`address pool: origin ${x}, ${z} is not the pizzeria`);
   }
   return json.addresses.filter(a => tiles(a.tile)).map(a => ({

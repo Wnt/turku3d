@@ -1,9 +1,10 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { cameraProjectionMatrix, renderGroup, velocity } from 'three/tsl';
+import { cameraProjectionMatrix, positionLocal, positionPrevious, renderGroup, velocity } from 'three/tsl';
 import TRAANode from 'three/addons/tsl/display/TRAANode.js';
 import { installRigidVelocity, velocityProjection } from '../../src/render/rigidVelocity';
 import { freezeModel } from '../../src/world/frozenTransforms';
+import { shareInstanceProgram } from '../../src/render/instancePrograms';
 
 type Velocity = typeof velocity & {
   projectionMatrix: THREE.Matrix4 | null;
@@ -96,6 +97,23 @@ test('both velocity paths share one render-group projection uniform', () => {
   }
   node.projectionMatrix = null;
   expect(velocityProjection.groupNode).toBe(renderGroup);
+});
+
+test('still shared instances never read the bare geometry as last frame\'s position', () => {
+  // Shared still-instance programs carry no previous instance matrices (render/instancePrograms.ts), so r186's
+  // positionPrevious there is the untransformed geometry: each tree reported its placement as motion and TRAA
+  // dropped the crowns' history. Rigid still instances take the rigid path; an animated one (vegetation wind)
+  // reads the positionPrevious its own positionNode writes.
+  const tree = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial(), 2);
+  shareInstanceProgram(tree, true);
+  expect(ids(node.setup(builderOf(tree))).has(positionPrevious.id)).toBe(false);
+  const swaying = new THREE.MeshStandardNodeMaterial(); swaying.positionNode = positionLocal;
+  const crown = new THREE.InstancedMesh(new THREE.BoxGeometry(), swaying, 2);
+  shareInstanceProgram(crown, true);
+  expect(ids(node.setup(builderOf(crown))).has(positionPrevious.id)).toBe(true);
+  // Moving instances (cars) keep r186's previous instance matrices.
+  const cars = new THREE.InstancedMesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial(), 2);
+  expect(ids(node.setup(builderOf(cars))).has(positionPrevious.id)).toBe(true);
 });
 
 test('TRAA jitter stays sub-pixel and centred in drawing-buffer pixels at pixel ratios 0.75, 1 and 1.5', () => {

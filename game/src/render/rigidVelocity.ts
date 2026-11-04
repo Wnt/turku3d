@@ -44,7 +44,15 @@ export function installRigidVelocity(buildTimeProjection = false) {
   };
   node.setup = (builder: unknown) => {
     const { object, geometry, material } = builder as Builder;
-    const deformed = !object || object.isInstancedMesh || object.isBatchedMesh || object.isSkinnedMesh || geometry?.isInstancedBufferGeometry
+    // Still instances (render/instancePrograms.ts `staticInstances`: trees, facade modules) share one program per
+    // material across meshes and repacked pools, built without previous instance matrices, so r186's
+    // `positionPrevious` there is the bare geometry: every instance reported its whole placement as motion and TRAA
+    // dropped its history (unresolved, shaking foliage). Their instances never move: without a vertex animation they
+    // are rigid; with one (vegetation wind), the material's positionNode writes last frame's animated position into
+    // `positionPrevious` (world/nature/materials.ts).
+    const still = !!object?.isInstancedMesh && object.userData.staticInstances === true;
+    const deformed = still ? !!(material.positionNode || material.vertexNode || material.userData.vertexProgram)
+      : !object || object.isInstancedMesh || object.isBatchedMesh || object.isSkinnedMesh || geometry?.isInstancedBufferGeometry
       || Object.keys(geometry?.morphAttributes ?? {}).length > 0 || material.positionNode || material.vertexNode || material.userData.vertexProgram;
     const previousModelView = node.previousCameraViewMatrix.mul(node.previousModelWorldMatrix);
     let current: THREE.Node<'vec4'>, previous: THREE.Node<'vec4'>;

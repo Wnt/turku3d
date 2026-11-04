@@ -83,7 +83,10 @@ export function sceneryTiles(radius: number, view: SceneryView, previous: readon
     // Refinement is horizontal up to REFINE_3D_ABOVE: a 1 km node has no streets and raw survey shells, far poorer
     // than the 250 m cells, so a low flier keeps the cells under it; higher up the camera's height counts too.
     const reach = refineDistance(distance, view.y);
-    const refine = level === 4 ? reach < 4500 : level === 2 ? reach < detailLimit && inView : false;
+    // Within detailFloor() a 1 km node refines in every direction: full tiles draw there whatever the view (the
+    // install wedge reaches 400 m and resident tiles stay after a turn), and a kilometre node's coarse ground over them
+    // cuts through the streets as a tilted plane.
+    const refine = level === 4 ? reach < 4500 : level === 2 ? reach < detailLimit && (inView || reach < detailFloor()) : false;
     if (!refine) { result.push(id); return; }
     const childLevel = level - 2;
     for (let a = 0; a < 4; a++) for (let b = 0; b < 4; b++) visit(childLevel, i * 4 + a, j * 4 + b);

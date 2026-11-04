@@ -142,9 +142,19 @@ const ENCODABLE = /^(?:model\/gltf-binary|application\/(?:json|octet-stream)|tex
 
 /** A public share's same-origin GET/HEAD access to `target` (a URL): the upstream answer with the isolation headers,
  *  compressed for the browser (tile payloads shrink about 3x, which is what the tunnel carries). `reduce(json)` rewrites
- *  a JSON answer, e.g. a service status to the fields a game reads. */
-export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'] } = {}) {
+ *  a JSON answer, e.g. a service status to the fields a game reads. `cacheBytes` keeps that many bytes of encoded
+ *  immutable answers in memory, per encoding and URL. */
+export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'], cacheBytes = 0 } = {}) {
+  const cache = encodedCache(cacheBytes);
   return (req, res) => {
+    const ae = String(req.headers['accept-encoding'] ?? '');
+    const wanted = /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null;
+    const key = wanted && !req.headers.range && (req.method === 'GET' || req.method === 'HEAD') ? `${wanted} ${req.url}` : null;
+    const hit = key && cache.get(key);
+    if (hit) {
+      res.writeHead(200, { ...hit.headers, 'content-length': hit.body.length });
+      return res.end(req.method === 'HEAD' ? undefined : hit.body);
+    }
     const headers = Object.fromEntries(forwarded.filter((h) => req.headers[h] !== undefined).map((h) => [h, req.headers[h]]));
     const upstream = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers }, (up) => {
       const out = { ...up.headers, ...ISOLATION };
@@ -161,14 +171,24 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
         });
         return;
       }
-      const ae = String(req.headers['accept-encoding'] ?? '');
       const encoding = req.method === 'GET' && up.statusCode === 200 && !up.headers['content-encoding'] && !req.headers.range
-        && ENCODABLE.test(up.headers['content-type'] ?? '') ? (/\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : null) : null;
+        && ENCODABLE.test(up.headers['content-type'] ?? '') ? wanted : null;
       if (!encoding) { res.writeHead(up.statusCode ?? 502, out); return up.pipe(res); }
       delete out['content-length'];
-      res.writeHead(up.statusCode, { ...out, 'content-encoding': encoding, vary: 'Accept-Encoding' });
-      up.pipe(encoding === 'br' ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
-        : zlib.createGzip({ level: 6 })).pipe(res);
+      delete out.date;
+      const sent = { ...out, 'content-encoding': encoding, vary: 'Accept-Encoding' };
+      res.writeHead(up.statusCode, sent);
+      const encoder = up.pipe(encoding === 'br' ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
+        : zlib.createGzip({ level: 6 }));
+      // An immutable payload (revision-named) is the same for every player: keep its encoded bytes, so a repeat
+      // costs neither the farm's read nor another compression on the shared host.
+      if (key && cache.max && /\bimmutable\b/.test(up.headers['cache-control'] ?? '')) {
+        const chunks = [];
+        let bytes = 0;
+        encoder.on('data', (c) => { bytes += c.length; if (bytes <= cache.max / 8) chunks.push(c); });
+        encoder.on('end', () => { if (up.complete && bytes <= cache.max / 8) cache.set(key, { headers: sent, body: Buffer.concat(chunks) }); });
+      }
+      encoder.pipe(res);
     });
     upstream.on('error', () => {
       if (res.headersSent) return res.destroy();
@@ -177,6 +197,28 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
     });
     res.on('close', () => { if (!res.writableFinished) upstream.destroy(); }); // the player moved on
     upstream.end();
+  };
+}
+
+/** A least-recently-used map of encoded answers holding at most `max` body bytes (0 disables it). */
+function encodedCache(max) {
+  const entries = new Map();
+  let bytes = 0;
+  return {
+    max,
+    get(key) {
+      const hit = entries.get(key);
+      if (hit) { entries.delete(key); entries.set(key, hit); }
+      return hit;
+    },
+    set(key, value) {
+      if (!max || entries.has(key)) return;
+      entries.set(key, value); bytes += value.body.length;
+      for (const [old, entry] of entries) {
+        if (bytes <= max) break;
+        entries.delete(old); bytes -= entry.body.length;
+      }
+    },
   };
 }
 

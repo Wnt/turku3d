@@ -33,6 +33,8 @@ export class SafeReset {
   waterDepth: number | null = null;
   recovering = false;
   private waterBusy = false;
+  /** The reason last refused for want of a usable sample (logged once). */
+  private noTarget: string | null = null;
   private lastWaterProbe = -Infinity;
   /** The physics placement (`PhysicsClient.placement.seq`) already accounted for, and the last probed position. */
   private placementSeen = 0;
@@ -65,7 +67,7 @@ export class SafeReset {
     // Do not record held poses as safe samples, even if stale wheel contacts still say grounded.
     const block = this.physics.latest?.coverageBlock;
     if (block?.actor === (player.mode === 'car' ? player.drivenId : 'character')) {
-      if (block.recover && this.monitor.samples.length) void this.recover(player);
+      if (block.recover && this.monitor.samples.length) void this.recover(player, 'collision');
       return;
     }
     const probe = this.probe(player);
@@ -79,7 +81,8 @@ export class SafeReset {
       }).finally(() => { this.waterBusy = false; });
     }
     const ground = lowestGround(this.physics.loaded.keys(), this.manifest.collision);
-    if (this.monitor.update(probe, Number.isFinite(ground) ? ground : this.lowestManifestGround) || resetNow) void this.recover(player);
+    const due = this.monitor.update(probe, Number.isFinite(ground) ? ground : this.lowestManifestGround);
+    if (due || resetNow) void this.recover(player, due ? this.monitor.lost?.reason ?? 'lost' : 'button');
   }
 
   /** A loaded or new game placed the player: start sampling afresh at the new place. */
@@ -143,13 +146,30 @@ export class SafeReset {
       vy: v.linvel.y, loaded: this.physics.loaded.has(tileId(v.pos.x, v.pos.z)) };
   }
 
+  /** The player's collision cell as the client sees it, for a coverage reset's log line (why did it leave?). */
+  private cellState(at: THREE.Vector3) {
+    const id = tileId(at.x, at.z);
+    return `[cell ${id} manifest=${!!this.manifest.collision[id]} loaded=${this.physics.loaded.has(id)}]`;
+  }
+
   /** Puts the player (or the driven car, upright and still) back at the chosen safe sample. */
-  private async recover(player: PlayerFrame) {
+  private async recover(player: PlayerFrame, reason: string) {
+    // Only a sample whose collision is resident or published can hold the player: a sample in a cell that has
+    // since left the manifest (a dropped draft) would put them back into the same hole every frame.
+    const sample = this.monitor.target(s => {
+      const id = tileId(s.x, s.z);
+      return this.physics.loaded.has(id) || !!this.manifest.collision[id];
+    });
+    if (!sample) {
+      if (this.noTarget !== reason) console.warn(`[recovery] ${reason}: no safe sample with collision, holding in place ${this.cellState(player.feet)}`);
+      this.noTarget = reason;
+      return;
+    }
+    this.noTarget = null;
     this.recovering = true;
-    const sample = this.monitor.target();
     const target = { ...sample, ...this.area.inset(sample, RECOVERY.edgeMargin + (player.mode === 'car' ? RECOVERY.carMargin : 0)) };
-    console.info(`[recovery] reset (${this.monitor.lost?.reason ?? 'button'}) from ${player.feet.x.toFixed(1)},${player.feet.y.toFixed(1)},${player.feet.z.toFixed(1)} `
-      + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}`);
+    console.info(`[recovery] reset (${reason}) from ${player.feet.x.toFixed(1)},${player.feet.y.toFixed(1)},${player.feet.z.toFixed(1)} `
+      + `to ${target.x.toFixed(1)},${target.y.toFixed(1)},${target.z.toFixed(1)}${reason === 'collision' ? ` ${this.cellState(player.feet)}` : ''}`);
     const id = tileId(target.x, target.z);
     this.streamer.update(target.x, target.z, true);
     for (let i = 0; i < 600 && this.manifest.collision[id] && !this.physics.loaded.has(id); i++) {

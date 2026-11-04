@@ -101,16 +101,6 @@
    "fileSha256": "36ad3d0d4d7088b6d8000b2536b31caf9f8faac2d0ae00d6ead8f9b4ff73660c"
   },
   {
-   "id": "pizzeria_loaner",
-   "speaker": "pizzeria",
-   "file": "pizzeria_loaner.ogg",
-   "seconds": 4.79,
-   "text": "No wheels? Take my scooter at the kerb. Two euros a run, if you ride it.",
-   "textSha256": "dbf6d29e843181ba4abbbb84803b77a5554495408b7255c2f3fa799212385e03",
-   "key": "bc5daa7b0647eb4683e35279ad1667a427bdc7815c7b0c43a165d590d0d2b1f7",
-   "fileSha256": "fb9faeae573919de1641f1c0684a03185fcf0c824d1a62952a0b0b122ede949d"
-  },
-  {
    "id": "pole_fine_01",
    "speaker": "officer",
    "file": "pole_fine_01.ogg",
@@ -251,6 +241,16 @@
    "fileSha256": "33977ffb750c5fae300e1d15cffd7cbdac0ef1150adc055c4607f35f86293ce0"
   },
   {
+   "id": "heist_briefing_cash",
+   "speaker": "market",
+   "file": "heist_briefing_cash.ogg",
+   "seconds": 9.944,
+   "text": "A trophy truck is waiting in the inner yard of Rettigin palatsi. Leave it on the road under Aninkaistensilta and a hundred and twenty in cash is yours.",
+   "textSha256": "3fae25b3a41e0884c00c2059c9addadc0c2f520ff7f2b270fc1673c5b69acaf3",
+   "key": "f178c8d7462b9383a5296568bb4aa207581cebaabad06ee156604ef621875858",
+   "fileSha256": "589e62d714e4a79d4802affd47369531a9ba1522a56aa7840e08d425053b94ab"
+  },
+  {
    "id": "heist_in_truck",
    "speaker": "market",
    "file": "heist_in_truck.ogg",
@@ -269,6 +269,16 @@
    "textSha256": "50498e5943c7cc892910677dbddc25fc976a488daf65b94b94b1f3b0d5356fc7",
    "key": "68bfc181b4dfa7c235e77d6b168eafaf6b4e714e891f13c22f69019706054ac2",
    "fileSha256": "194ced53f35bc71bfe6ca4f57dce529ca93fcac7b9ede83b88d0845250347b50"
+  },
+  {
+   "id": "heist_done_cash",
+   "speaker": "market",
+   "file": "heist_done_cash.ogg",
+   "seconds": 5.208,
+   "text": "The truck is gone. A hundred and twenty, cash. There is a car parked by the road. Use it.",
+   "textSha256": "e22dcf7d0b4ba815496ff790db0f889c5e070e0b009351f20752d1f0ea7bcf66",
+   "key": "664206ce6c900e90978e045e820753dcda88b23f09f6c15185d51b525ebd5e6b",
+   "fileSha256": "c2dff182e68149545fa00cdc38b348648056df71f9e3d2e3890e257f602ff9b6"
   },
   {
    "id": "heist_abandoned",

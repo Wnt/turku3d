@@ -27,10 +27,10 @@ test('reflection warmup uses its real target and layer mask without leaking stat
   const getContext = vi.fn((_target?: THREE.RenderTarget | null, _mrt?: unknown, _depth?: number) => ({}));
   const contexts = { get: getContext }; Object.assign(renderer, { _renderContexts: contexts });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
-  const env = new Environment(scene, renderer, 'medium');
+  const env = new Environment(scene, renderer, 'high');
   env.sky.layers.disable(REFLECTION_LAYER);
   const water = new THREE.Mesh(new THREE.PlaneGeometry(10, 10).rotateX(-Math.PI / 2));
-  const river = new RiverMaterial(water, env, 'medium', true, renderer);
+  const river = new RiverMaterial(water, env, 'high', true, renderer);
   const model = new THREE.Group(), surface = new THREE.Mesh();
   model.add(surface); scene.add(model); model.visible = false; surface.layers.enable(REFLECTION_LAYER);
   let complete!: () => void;
@@ -109,22 +109,3 @@ test('small opaque quay light strips participate in the actual river pass', () =
   expect(reflectionSurface(mesh)).toBe(false);
 });
 
-
-test('?water=lod leaves straight-up ground and roads out of the river pass, never walls, slopes or two-sided faces', async () => {
-  const { faceUpOnly } = await import('../../src/render/reflections');
-  const owner = new THREE.Group();
-  const flat = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2));
-  const slope = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2 + 0.1));
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 6, 2));
-  const twoSided = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
-  for (const mesh of [flat, slope, wall, twoSided]) owner.add(mesh);
-  expect([flat, slope, wall, twoSided].map(faceUpOnly)).toEqual([true, false, false, false]);
-  for (const layer of ['ground', 'roads']) {
-    owner.userData.layer = layer;
-    expect([flat, slope, wall, twoSided].map(mesh => reflectionSurface(mesh, true))).toEqual([false, true, true, true]);
-    expect(reflectionSurface(flat)).toBe(true);
-  }
-  // A roof-like flat face on a building stays: only ground and road layers are filtered.
-  owner.userData.layer = 'buildings';
-  expect(reflectionSurface(flat, true)).toBe(true);
-});

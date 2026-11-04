@@ -25,6 +25,40 @@ class SceneryTest(unittest.TestCase):
             self.assertNotEqual(cache.catalogue([tile])['tiles'][0]['key'],row['key'])
             cache.pool.shutdown()
 
+    def test_a_farm_train_chain_serves_each_cell_from_the_newest_train_that_finished_it(self):
+        from scenery import FarmChain
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp); farm = base / 'farm'; tile = 't0_3_-1'
+            def product(generation, raw, ready=True):
+                directory = farm / 'products' / generation / tile; directory.mkdir(parents=True)
+                (directory / 'vis.glb').write_bytes(raw)
+                (directory / 'manifest.json').write_text(json.dumps(dict(pass_kind='full', visual={tile: dict(
+                    url='vis.glb', sha256=hashlib.sha256(raw).hexdigest())})))
+                if ready:
+                    (directory / 'ready.json').write_text('{}')
+            product('basegen', b'base')
+            product('g1', b'train1')
+            product('g2', b'train2', ready=False)  # train2 has not finished this tile
+            product('g9', b'other base')
+            for name, generation, base_generation in (('r1', 'g1', 'basegen'), ('r2', 'g2', 'basegen'),
+                                                      ('r9', 'g9', 'elsewhere')):
+                (farm / 'revisions' / name).mkdir(parents=True)
+                (farm / 'revisions' / name / 'revision.json').write_text(json.dumps(dict(
+                    kind='migrated', generation=generation, base_generation=base_generation)))
+            chain = FarmChain(farm, 'http://farm', 'train', 'basegen')
+            aliases = dict(train1='r1', train2='r2', train10='r9', other='r1')
+            with patch.object(FarmChain, '_read', lambda self: FarmChain._members(self, aliases)):
+                cache = Scenery(base / 'sources', base / 'derived', preferred=farm / 'products' / 'basegen', chain=chain)
+                self.assertEqual([name for name, _ in chain.roots()], ['train2', 'train1'])  # train10: another base
+                row = cache.catalogue([tile])['tiles'][0]
+                source = json.loads((cache.cache / f"{row['key']}.source.json").read_text())
+                self.assertEqual(cache._source(source), (farm / 'products' / 'g1' / tile / 'vis.glb').resolve())
+                (farm / 'products' / 'g2' / tile / 'ready.json').write_text('{}')
+                newer = cache.catalogue([tile])['tiles'][0]
+                self.assertEqual(newer['source_sha256'], hashlib.sha256(b'train2').hexdigest())
+                self.assertNotEqual(newer['key'], row['key'])  # a changed source is a new derivative, the rest stay
+            cache.pool.shutdown()
+
     def test_empty_coastal_cell_falls_back_in_worker_without_catalogue_io(self):
         from types import SimpleNamespace
         from turku3d.coarse.sources import NoCoverage

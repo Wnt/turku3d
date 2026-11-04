@@ -49,7 +49,7 @@ test('an empty slot draws no car and gets no body; a resting body leaves when it
     loaded: { has: () => true }, latest: { vehicles: [] as VehicleState[] },
     spawnVehicle: vi.fn((pos: V3, yaw: number, spec: Partial<VehicleSpec>) => {
       const rot: Quat = spec.rot ?? { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-      bodies.set(spec.id!, { id: spec.id, pos: { ...pos }, rot, linvel: { x: 0, y: 0, z: 0 }, speed: 0 } as VehicleState);
+      bodies.set(spec.id!, { id: spec.id, pos: { ...pos }, rot, linvel: { x: 0, y: 0, z: 0 }, speed: 0, wheels: [] } as unknown as VehicleState);
       physics.latest.vehicles = [...bodies.values()];
     }),
     removeVehicle: vi.fn((id: string) => { bodies.delete(id); physics.latest.vehicles = [...bodies.values()]; }),
@@ -58,7 +58,7 @@ test('an empty slot draws no car and gets no body; a resting body leaves when it
   const office = slot('office', 'centre-kerb', 0.8, 0), home = slot('home', 'residential-kerb', 0.8, 10);
   const always = slot('always', 'centre-kerb', 0.1, 20);
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = [office, home, always];
-  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {} },
+  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {}, has: () => true },
     { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() }, 60);
   let now = 0;
   const at = async (night: number) => { stream.setNight(night); stream.update(0, 0, null, now += 1000); await settle(); };

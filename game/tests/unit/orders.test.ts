@@ -5,7 +5,7 @@ import { DIALOGUE, lineText } from '../../src/gameplay/content/dialogue';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
-import { BASE_PAY, DOUBLE_BONUS, LOANER_FEE, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
+import { BASE_PAY, DOUBLE_BONUS, MAX_TIP, parSeconds } from '../../src/gameplay/economy';
 import { houseNumber } from '../../src/gameplay/minimap';
 import {
   DOUBLE_EVERY, LADDER_MAX_M, LADDER_START_M, LADDER_STEP_M, drawOrder, isDouble, ladderMetres, openingOrder,
@@ -161,8 +161,9 @@ describe('address pool asset', () => {
     expect(pool).toEqual([{ id: 'linnankatu-9b', address: 'Linnankatu 9b', tile: 't0_0_0', point: { x: 274.8, z: 54.3 },
       street: { x: 274.1, z: 52.0 }, foot: 244, car: 239 }]);
     expect(() => parseAddressPool(json([0, 0]), () => true)).toThrow(/not the pizzeria/);
-    // Pools built from the pizzeria's first point, 2.2 m along the same sidewalk, stay valid.
+    // Pools built from the pizzeria's first point (still served by every pin) stay valid; nothing between is.
     expect(parseAddressPool(json([77.1, 187.6]), tile => tile === 't0_0_0')).toHaveLength(1);
+    expect(() => parseAddressPool(json([78.0, 187.0]), () => true)).toThrow(/not the pizzeria/);
     expect(() => parseAddressPool({ ...json([77.1, 187.6]), version: 2 }, () => true)).toThrow(/unsupported/);
   });
   it('slugs like the pipeline and labels the big map with the house number', () => {
@@ -219,8 +220,7 @@ describe('pool orders in the mission system', () => {
     g.choose(MARKET.point, 'rent_permit');
     g.at(near(PIZZERIA.point), { interact: true });
     const quote = g.missions.shop!.options.find(o => o.id === 'take_order')!.quote!;
-    // Owning no vehicle, the order is timed for the pizzeria's loaner scooter on the driving route.
-    expect(quote).toEqual({ address: 'Testikatu 11', metres: 308, par: parSeconds(308, 'scooter'), stops: 1, pay: BASE_PAY, fee: LOANER_FEE });
+    expect(quote).toEqual({ address: 'Testikatu 11', metres: 280, par: parSeconds(280, 'none'), stops: 1, pay: BASE_PAY });
     expect(g.missions.shop!.delivered).toBe(DELIVERIES.length);
     g.at(near(PIZZERIA.point), { choose: 'take_order' });
     expect(g.missions.snapshot().dialogue).toEqual(['order_single']);

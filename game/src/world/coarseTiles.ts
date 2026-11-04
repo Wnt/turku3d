@@ -2,7 +2,7 @@
 // Requests are checked against the current generator version; resident tiles swap only after
 // their replacement geometry and collision have been validated.
 import { BuildingModelCache, updateBuildingDistances } from './buildingPlacements';
-import { styleBlockLod } from '../render/sceneryMaterial';
+import { shellRoofs, styleBlockLod, type ShellRoof } from '../render/sceneryMaterial';
 import { LOD_FADE, lodFades } from '../render/lodFade';
 import { streamTrace, tileDistance } from '../telemetry/streamTrace';
 import { ownedGeometryBytes } from './modelGeometry';
@@ -199,6 +199,7 @@ export class CoarseTiles {
   private at = { x: NaN, z: NaN };
   private materials = new SharedMaterials();
   private buildingModels: BuildingModelCache;
+  private shellRoofs = new WeakMap<THREE.Object3D, Map<string, ShellRoof>>();
   private buildingLeases = new WeakMap<THREE.Object3D, () => void>();
   private comparison: VisualPassComparison;
   readonly screenshotScenery: ScreenshotScenery;
@@ -241,7 +242,12 @@ export class CoarseTiles {
     this.load = host.loadModel ?? this.gltfLoader();
     if (!host.keepArrays && (host.renderer as unknown as { backend?: unknown })?.backend) this.arrays = new TileArrays(rendererUploaded(host.renderer));
     this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
-      undefined, undefined, (root, owner) => styleBlockLod(root, owner, this.materials));
+      undefined, undefined, (root, owner, block) => {
+        // The HD roofs are cloned into `owner` before its block shells: fit their roof photos once per tile.
+        let roofs = this.shellRoofs.get(owner);
+        if (!roofs) this.shellRoofs.set(owner, roofs = shellRoofs(owner));
+        styleBlockLod(root, owner, this.materials, roofs.get(block));
+      });
     this.page = host.pageUrl ?? location.href;
     const page = new URL(this.page);
     this.root = draftsUrl(page) ?? '/coarse/';

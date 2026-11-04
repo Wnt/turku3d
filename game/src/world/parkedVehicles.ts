@@ -54,14 +54,16 @@ export class ParkedVehicles {
   private shared = new Set<string>();
   private owned = new Set<string>();
   private inventory = '';
-  private busy = false;
+  private appearing = false;
+  /** Trucks whose seated appearance is loaded (`appear`). */
+  private trucks = new Set<string>();
   private saturated = false;
   private last = -Infinity;
   private night = 0;
   private sharedUtcMs: number | undefined;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'> & Partial<Pick<PhysicsClient,'raycast'>>, 
-    private visuals: Pick<ParkedCarVisuals, 'load'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
+    private visuals: Pick<ParkedCarVisuals, 'load' | 'has'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
     private readonly cap = 60) {}
 
   resetRound() {
@@ -132,64 +134,76 @@ export class ParkedVehicles {
       const car = this.manifest.vehicles?.find(v => v.object_id === driven) ?? this.spawned.get(driven);
       if (car) this.borrowed.set(driven, car);
     }
-    if (this.busy || now - this.last < (this.saturated ? SATURATED_SYNC_MS : SYNC_MS)) return;
+    if (now - this.last < (this.saturated ? SATURATED_SYNC_MS : SYNC_MS)) return;
     this.last = now;
-    void this.sync(x, z).catch(error => console.warn('[parked]', error));
+    try { this.sync(x, z); } catch (error) { console.warn('[parked]', error); }
   }
 
-  private async sync(x: number, z: number) {
-    this.busy = true;
-    try {
-      const cars = new Map((this.manifest.vehicles ?? []).map(v => [v.object_id, v]));
-      for (const [id, car] of this.borrowed) if (!cars.has(id)) cars.set(id, car);
-      this.manifest.vehicles = [...cars.values()];
-      const key = [...cars.values()].map(v => `${v.object_id}/${v.model}/${v.color}`).sort().join('|');
-      if (key !== this.inventory) {
-        await this.visuals.load(this.manifest);
-        await Promise.all([...cars.values()].filter(v => v.model === 'truck').map(v => this.seated.addTruck(v.object_id)));
-        this.seated.retainTrucks(new Set(cars.keys()));
-        this.inventory = key;
-      }
-      const states = new Map((this.physics.latest?.vehicles ?? []).map(v => [v.id, v]));
-      const distance = (id: string, car: ParkedVehicle) => {
-        const at = states.get(id)?.pos ?? this.rest.get(id)?.pos ?? car;
-        return Math.hypot(at.x - x, at.z - z);
-      };
-      for (const [id, car] of this.spawned) {
-        if (this.owned.has(id) || this.borrowed.has(id)) continue;
-        const rolling = (states.get(id)?.speed ?? 0) >= RESTING_SPEED;
-        if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS && (rolling || this.shown(car))) continue;
-        this.despawn(id, states);
-      }
-      for (const id of this.rest.keys()) if (!cars.has(id)) this.rest.delete(id);
+  private sync(x: number, z: number) {
+    const cars = new Map((this.manifest.vehicles ?? []).map(v => [v.object_id, v]));
+    for (const [id, car] of this.borrowed) if (!cars.has(id)) cars.set(id, car);
+    this.manifest.vehicles = [...cars.values()];
+    const key = [...cars.values()].map(v => `${v.object_id}/${v.model}/${v.color}`).sort().join('|');
+    if (key !== this.inventory && !this.appearing) this.appear(key, cars);
+    const states = new Map((this.physics.latest?.vehicles ?? []).map(v => [v.id, v]));
+    const distance = (id: string, car: ParkedVehicle) => {
+      const at = states.get(id)?.pos ?? this.rest.get(id)?.pos ?? car;
+      return Math.hypot(at.x - x, at.z - z);
+    };
+    for (const [id, car] of this.spawned) {
+      if (this.owned.has(id) || this.borrowed.has(id)) continue;
+      const rolling = (states.get(id)?.speed ?? 0) >= RESTING_SPEED;
+      if (cars.has(id) && distance(id, car) < DESPAWN_RADIUS && (rolling || this.shown(car))) continue;
+      this.despawn(id, states);
+    }
+    for (const id of this.rest.keys()) if (!cars.has(id)) this.rest.delete(id);
 
-      const candidates: { id: string; car: ParkedVehicle; d: number }[] = [];
-      for (const [id, car] of cars) {
-        if (this.shared.has(id) || this.spawned.has(id) || states.has(id) || this.borrowed.has(id)) continue;
-        if (!this.shown(car)) continue;
-        const d = distance(id, car);
-        if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d });
-      }
-      candidates.sort((a, b) => a.d - b.d);
-      for (const { id, car } of candidates) if (car.model === 'truck') this.spawn(id, car);
+    const candidates: { id: string; car: ParkedVehicle; d: number }[] = [];
+    for (const [id, car] of cars) {
+      if (this.shared.has(id) || this.spawned.has(id) || states.has(id) || this.borrowed.has(id)) continue;
+      if (!this.shown(car) || !this.drawn(id, car)) continue;
+      const d = distance(id, car);
+      if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d });
+    }
+    candidates.sort((a, b) => a.d - b.d);
+    for (const { id, car } of candidates) if (car.model === 'truck') this.spawn(id, car);
 
-      // Bodies under the cap, farthest first; rolling cars are not offered for eviction.
-      const capped = [...this.spawned].filter(([id, car]) => !this.owned.has(id) && !this.borrowed.has(id) && car.model !== 'truck');
-      let count = capped.length;
-      const evictable = capped.filter(([id]) => (states.get(id)?.speed ?? 0) < RESTING_SPEED)
-        .map(([id, car]) => ({ id, d: distance(id, car) })).sort((a, b) => b.d - a.d);
-      for (; count > this.cap && evictable.length; count--) this.despawn(evictable.shift()!.id, states);
-      this.saturated = false;
-      for (const { id, car, d } of candidates) {
-        if (car.model === 'truck') continue;
-        if (count < this.cap) { this.spawn(id, car); count++; continue; }
-        const far = evictable[0];
-        if (!far || d >= Math.min(far.d * SWAP_RATIO, far.d - SWAP_MARGIN)) { this.saturated = true; break; }
-        evictable.shift();
-        this.despawn(far.id, states);
-        this.spawn(id, car);
-      }
-    } finally { this.busy = false; }
+    // Bodies under the cap, farthest first; rolling cars are not offered for eviction.
+    const capped = [...this.spawned].filter(([id, car]) => !this.owned.has(id) && !this.borrowed.has(id) && car.model !== 'truck');
+    let count = capped.length;
+    const evictable = capped.filter(([id]) => (states.get(id)?.speed ?? 0) < RESTING_SPEED)
+      .map(([id, car]) => ({ id, d: distance(id, car) })).sort((a, b) => b.d - a.d);
+    for (; count > this.cap && evictable.length; count--) this.despawn(evictable.shift()!.id, states);
+    this.saturated = false;
+    for (const { id, car, d } of candidates) {
+      if (car.model === 'truck') continue;
+      if (count < this.cap) { this.spawn(id, car); count++; continue; }
+      const far = evictable[0];
+      if (!far || d >= Math.min(far.d * SWAP_RATIO, far.d - SWAP_MARGIN)) { this.saturated = true; break; }
+      evictable.shift();
+      this.despawn(far.id, states);
+      this.spawn(id, car);
+    }
+  }
+
+  /** Load the appearance of every car in `cars` (fleet batches, seated trucks) without holding the body sync: the
+   *  batches wait in the shared GPU preparation queue behind every streamed tile's install, often tens of seconds
+   *  while the player moves. Bodies of cars already drawn keep spawning, colliding and accepting F meanwhile. */
+  private appear(key: string, cars: ReadonlyMap<string, ParkedVehicle>) {
+    this.appearing = true;
+    const trucks = [...cars.values()].filter(v => v.model === 'truck').map(v => v.object_id);
+    void (async () => {
+      await this.visuals.load(this.manifest);
+      await Promise.all(trucks.map(id => this.seated.addTruck(id)));
+      this.seated.retainTrucks(new Set(cars.keys()));
+      this.trucks = new Set(trucks);
+      this.inventory = key;
+    })().catch(error => console.warn('[parked] appearance', error)).finally(() => { this.appearing = false; });
+  }
+
+  /** A body spawns only for a car whose appearance is loaded, so no car collides unseen. */
+  private drawn(id: string, car: ParkedVehicle) {
+    return car.model === 'truck' ? this.trucks.has(id) : this.visuals.has(id);
   }
 
   /** All footprint corners must have resident collision before the worker can settle it. */

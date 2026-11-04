@@ -128,7 +128,7 @@ describe('vegetation LOD', () => {
     const source = (b: THREE.InstancedMesh) => library.asset(b.userData.nature).lods[b.userData.shadowProxy ? 1 : b.userData.level];
     expect(batches.every(b => source(b).parts.some(p => p.geometry === b.geometry && p.material === base(b)))).toBe(true);
     // Drawn levels use their cross-fade variant; shadow proxies cast with the plain library material.
-    expect(batches.every(b => b.userData.shadowProxy ? b.material === base(b) : (b.material as THREE.Material).name.endsWith(`@L${b.userData.level}`))).toBe(true);
+    expect(batches.every(b => b.userData.shadowProxy ? b.material === base(b) : /@L(\d)(\+clear)?$/.exec((b.material as THREE.Material).name)?.[1] === String(b.userData.level))).toBe(true);
     const visible = batches.filter(m => m.visible);
     expect(visible.length).toBeGreaterThan(0);
     expect(drawn(batches)).toBeLessThan(mesh.count);
@@ -241,6 +241,31 @@ describe('vegetation LOD', () => {
     for (const v of [a, b, c]) { expect(v.maskNode).toBeTruthy(); expect(v.maskShadowNode).toBeTruthy(); expect(v.maskShadowNode).not.toBe(v.maskNode); }
     // Same surface as the base: alpha test, side, textures and wind.
     expect([b.alphaTest, b.side, b.colorNode, b.positionNode]).toEqual([m.leaves.alphaTest, m.leaves.side, m.leaves.colorNode, m.leaves.positionNode]);
+  });
+
+  it('clears the view through tree crowns only: trunks, fences, hedges, shrubs and impostors never fade', () => {
+    const m = library.materials;
+    const kinds = new Set<string>();
+    for (const asset of library.assets.values()) {
+      asset.lods.forEach((lod, level) => {
+        const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
+        for (const part of lod.parts) {
+          kinds.add(asset.kind);
+          expect(m.clearsView(asset.kind, part.material, impostor), `${asset.name} L${level} ${part.material.name}`)
+            .toBe(asset.kind === 'tree' && !impostor && part.material === m.leaves);
+        }
+      });
+    }
+    expect([...kinds]).toEqual(expect.arrayContaining(['tree', 'fence', 'hedge']));
+    // Drawn tree batches: leaf cards take the clearing variant, bark keeps the plain cross-fade.
+    const { model, mesh } = tile(4, 'tree_detailed_fall', i => new THREE.Vector3(i * 3, 0, -20));
+    const lod = new VegetationLod('medium', library); lod.add(model); lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+    const drawn = generated(model, mesh).filter(b => !b.userData.shadowProxy);
+    const clearing = (b: THREE.InstancedMesh) => (b.material as THREE.Material).name.endsWith('+clear');
+    expect(drawn.some(b => base(b) === m.leaves && clearing(b))).toBe(true);
+    expect(drawn.filter(b => base(b) !== m.leaves).every(b => !clearing(b))).toBe(true);
+    expect(m.lodVariant(m.leaves, 0, true)).not.toBe(m.lodVariant(m.leaves, 0));
+    lod.dispose();
   });
 
   it('never expands vegetation instances into a static tile shadow mesh', () => {

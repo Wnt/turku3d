@@ -37,7 +37,7 @@ async function setup(car: boolean) {
 for (const car of [true, false]) {
   const actor = car ? 'player' : 'character';
   const label = car ? 'sliding driven car' : 'character';
-  test(`${label}: never-loaded cell requests immediate safe reset, preserving the seat`, async () => {
+  test(`${label}: collision gone from under the actor requests immediate safe reset, preserving the seat`, async () => {
     const { pw, step } = await setup(car);
     const collision = { c_3_2: { h: [2, 2] } };
     const frame = { mode: car ? 'car' as const : 'foot' as const, drivenId: car ? 'player' : null,
@@ -56,6 +56,7 @@ for (const car of [true, false]) {
     for (let time = 0; time <= 4; time++) reset.monitor.update({ time, x: 220 + time, y: 2.8, z: 156,
       heading: 0.5, inVehicle: car, grounded: true, loaded: true, steady: true, vy: 0, waterDepth: null }, 2);
     const target = reset.monitor.target();
+    pw.unloadTile('c_3_2');
     step();
     expect(pw.coverageBlock).toEqual({ actor, recover: true });
     reset.update(DT, frame, false);
@@ -70,6 +71,7 @@ for (const car of [true, false]) {
       expect(pw.vehicleState()!.rot.x).toBe(0); expect(pw.vehicleState()!.rot.z).toBe(0);
       expect(pw.characterState()!.enabled).toBe(false);
     } else expect(physics.setCharacterEnabled).toHaveBeenCalledWith(true, { x: target.x, y: 2.05, z: target.z });
+    await pw.loadTile('c_3_2', col('c_3_2'));
     step();
     expect(pw.coverageBlock).toBeNull();
   });
@@ -93,8 +95,9 @@ for (const car of [true, false]) {
     }
   });
 
-  test(`${label}: stalled load times out; failed/deferred loads do not wait`, async () => {
+  test(`${label}: stalled load times out`, async () => {
     const { pw, step } = await setup(car);
+    pw.edges.setKnown(['c_4_2'], []);
     pw.setTileLoading('c_4_2', true);
     step(COVERAGE_HOLD_SECONDS);
     expect(pw.coverageBlock).toEqual({ actor, recover: false });
@@ -105,21 +108,78 @@ for (const car of [true, false]) {
     expect(pw.coverageBlock).toEqual({ actor, recover: true });
   });
 
-  test(`${label}: a failed active request hands over immediately instead of waiting for a retry`, async () => {
+  test(`${label}: a known cell between requests (queued or retrying) gets the bounded wait, not an instant reset`, async () => {
     const { pw, step } = await setup(car);
     pw.edges.setKnown(['c_4_2'], []);
     pw.setTileLoading('c_4_2', true); step();
     expect(pw.coverageBlock?.recover).toBe(false);
     pw.setTileLoading('c_4_2', false); step();
+    expect(pw.coverageBlock).toEqual({ actor, recover: false });
+    step(COVERAGE_HOLD_SECONDS);
     expect(pw.coverageBlock).toEqual({ actor, recover: true });
+  });
+
+  test(`${label}: a neighbour with no collision source is closed by its edge wall, never held or reset`, async () => {
+    // Capture 20261105: a shared car on a resident cell 3.0 m from an unpublished row (z < 0) was reset every
+    // time its 3.1 m footprint circle touched that row, before the body could even reach the wall.
+    const { pw, step } = await setup(car);
+    step(2);
+    expect(pw.coverageBlock).toBeNull();
+    if (car) expect(pw.vehicle!.body.bodyType()).toBe(R.RigidBodyType.Dynamic);
+    const x = car ? pw.vehicleState()!.pos.x : pw.characterState()!.pos.x;
+    expect(x).toBeLessThan(250);
+    expect(x).toBeGreaterThan(car ? 245 : 249);
+    // A cell whose load failed for good leaves the known set (collisionStreaming.ts): the wall returns, no hold.
+    pw.edges.setKnown(['c_4_2'], []); step();
+    expect(pw.coverageBlock?.recover).toBe(false);
+    pw.edges.setKnown([], ['c_4_2']); step();
+    expect(pw.coverageBlock).toBeNull();
   });
 }
 
 test('parked vehicles can remain held without requesting a player reset', async () => {
   const { pw, step } = await setup(true);
+  pw.edges.setKnown(['c_4_2'], []);
   pw.driveVehicle(null); step(4);
   expect(pw.vehicle!.body.bodyType()).toBe(R.RigidBodyType.Fixed);
   expect(pw.coverageBlock).toBeNull();
   pw.driveVehicle('player'); step();
+  expect(pw.coverageBlock).toEqual({ actor: 'player', recover: false });
+  step(COVERAGE_HOLD_SECONDS);
   expect(pw.coverageBlock).toEqual({ actor: 'player', recover: true });
+});
+
+test('safe reset never returns the player to a sample whose collision left the manifest, and logs the real reason', async () => {
+  const { pw, step } = await setup(true);
+  const collision: Record<string, { h: number[] }> = { c_3_2: { h: [2, 2] } };
+  const frame = { mode: 'car' as const, drivenId: 'player', feet: new THREE.Vector3(247, 2.8, 156), vel: new THREE.Vector3(),
+    grounded: false, facing: 0, flying: false };
+  const loaded = new Map([['c_3_2', {}]]);
+  const physics = {
+    get latest() { return { coverageBlock: pw.coverageBlock }; }, loaded,
+    placement: { seq: 0, actor: '', pos: { x: 0, y: 0, z: 0 } },
+    raycast: vi.fn(async () => ({ point: { y: 2 } })),
+    resetVehicle: vi.fn((pos, yaw, id) => pw.resetVehicle(pos, yaw, id)), setCharacterEnabled: vi.fn(),
+  };
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const reset = new SafeReset(new PlayableArea(collision), { collision } as never, physics as never,
+    { update: vi.fn() } as never, { recovered: vi.fn() } as never, vi.fn());
+  for (let time = 0; time <= 4; time++) reset.monitor.update({ time, x: 220 + time, y: 2.8, z: 156, heading: 0,
+    inVehicle: true, grounded: true, loaded: true, steady: true, vy: 0, waterDepth: null }, 2);
+  // The draft that held every sample is dropped: no sample has collision to return to.
+  pw.unloadTile('c_3_2'); loaded.delete('c_3_2'); delete collision.c_3_2;
+  step();
+  expect(pw.coverageBlock).toEqual({ actor: 'player', recover: true });
+  for (let k = 0; k < 5; k++) reset.update(DT, frame, false);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  expect(physics.resetVehicle).not.toHaveBeenCalled();
+  expect(reset.monitor.resets).toBe(0);
+  expect(warn).toHaveBeenCalledTimes(1);
+  // Collision returns: the reset happens and says why.
+  collision.c_3_2 = { h: [2, 2] }; loaded.set('c_3_2', {});
+  reset.update(DT, frame, false);
+  await vi.waitFor(() => expect(reset.monitor.resets).toBe(1));
+  expect(info.mock.calls.at(-1)![0]).toMatch(/^\[recovery\] reset \(collision\) from /);
+  info.mockRestore(); warn.mockRestore();
 });

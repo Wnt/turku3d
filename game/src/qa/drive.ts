@@ -6,6 +6,7 @@ import type { LightState } from '../vehicle/signals';
 import { CAR } from '../physics/constants';
 import { BENCH_SETTLE_MS } from './bench';
 import type { ClockMode } from '../render/dayClock';
+import { viewClearance } from '../render/viewClearance';
 
 export interface DrivePose {
   t: number; paused: boolean; mode: string; id: string | null; E: number; N: number; H: number;
@@ -106,6 +107,9 @@ export class DriveBench {
   private recorder: DriveCapture | null = null;
   private drive!: LoadedDrive;
   private pose!: DrivePose;
+  private clearanceBody = new THREE.Vector3();
+  private clearanceVelocity = new THREE.Vector3();
+  private lastBefore = 0;
   private phase = 'loading';
   private stableSince = 0;
   private settleStart = 0;
@@ -148,6 +152,13 @@ export class DriveBench {
     while (this.index < poses.length - 2 && poses[this.index + 1].t <= t) this.index++;
     this.pose = interpolateDrive(poses[this.index], poses[this.index + 1], t);
     this.apply(this.pose); this.host.seek(elapsed / 1000);
+    // Replays clear the view as play does, so their frame costs include it.
+    const p = this.pose, now = performance.now();
+    this.clearanceBody.set(p.car?.[0] ?? p.feet[0], p.car ? p.car[1] : p.feet[1] + 1, p.car?.[2] ?? p.feet[2]);
+    this.clearanceVelocity.fromArray(p.vel);
+    viewClearance.update(this.host.camera, { body: this.clearanceBody, velocity: this.clearanceVelocity, mode: p.car ? 'car' : 'foot' },
+      (now - (this.lastBefore || now)) / 1000);
+    this.lastBefore = now;
   }
   after() {
     if (window.__qaError && this.phase !== 'error') { this.fail(Error(window.__qaError)); return; }

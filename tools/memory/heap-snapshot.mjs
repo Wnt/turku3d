@@ -4,7 +4,7 @@
 // that holds them (survives minified class names) and duplicate strings. Also records `__render.memory()` and the
 // V8 heap usage of the page and each worker at the same moment.
 //
-//   # Chrome started with --remote-debugging-port=9222, a drive replay open (?bench=drive&capture=ID&segment=N):
+//   # Chrome started through chromeArgs() with a CDP port 9222, a drive replay open (?bench=drive&capture=ID&segment=N):
 //   node tools/memory/heap-snapshot.mjs take --cdp http://127.0.0.1:9222 --url bench=drive --out /tmp/heap-end
 //   # or let it open the replay itself:
 //   node tools/memory/heap-snapshot.mjs take --cdp http://127.0.0.1:9222 --open 'http://localhost:5241/?bench=drive&capture=ID&segment=1'

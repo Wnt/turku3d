@@ -48,6 +48,39 @@ Jonni's report: when standing still, the landscape and trees wandered a few pixe
   velocity is 0.
 - **Probe scripts** (scratch, not in git): `~/turku3d/loops/taa/probes/`.
 
+## 3. Shaking trees and their reflections: still-instance motion vectors (foliage-stable)
+
+Jonni's report (2026-11-04, city.lab, M1 Max medium, Aurajoki by the main library, 14:34, camera and player still):
+"The trees and some reflections shake around." Every crown and its river reflection flickered per pixel.
+
+- **Cause:** c528e55a (2026-11-03) let still instances (`shareInstanceProgram(mesh, true)`: tree pools and tile draws,
+  facade modules) share programs in TRAA's velocity passes, built without previous instance data
+  (`needsPreviousData` returns false). r186's `positionPrevious` is then the bare geometry, not the instance-placed
+  vertex, so every tree reported its whole placement as motion. TRAA's history UV left the screen or landed
+  elsewhere, its weight went to 1, and the crowns showed the raw, jittered alpha-tested leaves each frame. The SSR
+  river reflection reads TRAA's history, so the reflected trees shook too.
+- **Not the cause:** the wind (the shake stayed with `motion=0`, wind frozen), the LOD dither, the SSR march itself.
+- **Fix** (`render/rigidVelocity.ts`): still instances take the rigid path (camera motion only). Still instances
+  with a vertex animation (vegetation wind, `world/nature/materials.ts`) keep the deformed path and their
+  positionNode writes `positionPrevious`: the same placed vertex swayed at the previous frame's wind time
+  (`windTimePrevious`), so wind sway gets its true frame-to-frame motion instead of its whole offset.
+- **Test:** `tests/unit/traa-velocity.test.ts` "still shared instances never read the bare geometry…".
+- **Measurement** (probe: `~/turku3d/loops/foliagestable/probe.mjs`, 90 consecutive frames read back in
+  `afterFrame` at Jonni's pose, 1300x708, medium, wind on). Mean |luma change| between consecutive frames (0-255):
+
+  | run | foliage pixels | other pixels | p99 |
+  |---|---|---|---|
+  | before, Mac M1 Max | 6.99 | 0.90 | 32.3 |
+  | before, Windows (Radeon 560X, ~14 fps) | 6.91 | 0.90 | 31.3 |
+  | after, Mac M1 Max | 0.45 | 0.10 | 2.3 |
+
+  The temporal high-pass (|L_t - (L_t-1 + L_t+1)/2|) falls alike, 6.62 -> 0.37: the change was per-frame noise, not
+  sway. GPU frame p50 15.2 -> 15.1 ms (no cost: the rigid path is cheaper than the deformed one). A blind Claude
+  judge on 4-frame strips: after 7/10, before 4/10 ("shimmer over every crown" vs "calm, artifact-free"); its
+  remaining note is a softer, slightly hazier crown than the aliased before, i.e. resolved alpha coverage.
+- **Note for treelook:** the 2026-11-04 crown and leaf decisions (stretch crowns, alpha test 0.5, double-sided) were
+  judged on unresolved, aliased crowns; resolved crowns read softer and denser.
+
 ## Open: the `?taafix=0` A/B
 
 - `?taafix=0` restores r186's build-time projection choice, which is the old wandering behaviour.

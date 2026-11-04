@@ -18,6 +18,8 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 
 | Note | Area |
 |---|---|
+| [frame-goal](frame-goal.md) | **the frame pacing release goal per tier**: every perf agent measures against it (`tools/perf/frame_pacing.py`) |
+| [framepace](framepace.md) | slow-frame causes, no in-frame shader builds, paced build stages, shared programs |
 | [perf3](perf3.md) | render CPU: frozen matrices, reflection scope, shadow mesh, uniform/geometry pools (hang fixed), warm-ups |
 | [stream2](stream2.md) | streaming budgets, GPU/memory residency per tier, memory census, releases |
 | [lodblend](lodblend.md) | LOD bands, dissolves, tree cross-fades, settle rule |
@@ -27,9 +29,10 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 | [winperf](winperf.md) | Windows measurements, tiering (probe + cores), governor |
 | [airperf](airperf.md) | Air measurements, heap findings |
 | [benchlab](benchlab.md) | bench modes and A/B method (warm-up, interleave, frozen port, fresh tab) |
-| [water](water.md) | river W1–W8 (SSR on reduced, sun glint, bank fade, night, rain) |
+| [water](water.md) | river W1–W8 (SSR on medium and reduced, sun glint, bank fade, night, rain) |
 | [floodlights2](floodlights2.md) | lit venues: field wash, spill, dome, beams |
 | [techstudy](techstudy.md) | GTA V / Bodycam studies on the Windows host |
+| [lodfade](lodfade.md) | GTA V LOD hand-over study, shell roof/wall parity, fade-length decision, forced-swap method |
 | [editor](editor.md) | in-game object editor (DualSense), edit sessions |
 | [rulesmith](rulesmith.md) | edit sessions → generator rules (`furniture@1`) |
 | [lidarpc](lidarpc.md) | LiDAR COPC product, overlay, wire layer |
@@ -55,9 +58,10 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
    osgallery-dev has ~28 GB free and the city pass writes to that disk (its guard holds new tiles below 12 GB free).
    The protected 2e6515f4 products have a verified read-only copy at `bulk/turku3d-protected`. See [storage](storage.md).
 2. Whether LiDAR absence should delete register benches ([rulesmith](rulesmith.md)).
-3. Look decisions: LOD fade length (0.6 s default), SSR fallback look on reduced (re-shoot pending). Decided on
-   2026-11-04 by blind judges against Street View (treelook): crowns `stretch` on medium/high (spread stays on the
-   reduced tiers) and the full leaf path; `?crowns=` and `?leaves=` are removed.
+3. Look decisions: LOD fade length (0.6 s default). Decided on 2026-11-04 by blind judges against Street View
+   (treelook): crowns `stretch` on medium/high (spread stays on the reduced tiers) and the full leaf path; `?crowns=`
+   and `?leaves=` are removed. The SSR water passed a blind A/B against planar on 2026-11-04 and is now medium's
+   default too (see [water](water.md)).
 4. Storage: `private/gmaps-data` local copy, other Mac candidates, `copies=2` on the single-HDD `bulk` pool.
 
 ## Known issues not yet assigned
@@ -66,9 +70,9 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
   6098c5bd shows the same, so it is in the bulk tile generation, not today's client changes. Fix via a facade
   migration with generator parity.
 - Fixed 2026-11-04: the pizzeria mission point moved 2.2 m along its facade, now 3.1 m from the lamp post
-  (`game/src/gameplay/content/locations.ts`). The pipeline's address-pool origin (`content/addresses.py`) still names
-  the old point; the game accepts it within 3 m.
-- Junction gridlock at the centre seam ([npc](npc.md)).
+  (`game/src/gameplay/content/locations.ts`). The pipeline's pool origin (`content/addresses.py`) follows; served pools
+  keep the old origin until a new base revision is pinned, so the game also accepts it (`addresses.ts` LEGACY_ORIGIN).
+- Traffic spillback in dense districts at sustained peak (the centre-seam junction lock is fixed) ([npc](npc.md)).
 
 ## Measurement method that held up
 

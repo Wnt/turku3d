@@ -5,7 +5,7 @@ export type RapierModule = typeof Rapier;
 type RapierApi = Pick<RapierModule, 'RigidBodyDesc' | 'ColliderDesc' | 'QueryFilterFlags' | 'Ray'>;
 import type { V3 } from '../core/origin.ts';
 import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
-import { VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
+import { REMOTE_VEHICLE, VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
 import { GROUP } from '../shared/col/materials.ts';
 import { BumpDetector } from './bumps.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
@@ -64,7 +64,7 @@ export class Vehicle {
       }, { x: 0, y: 0, z: 0, w: 1 });
     } else chassis.setMass(mass);
     world.createCollider(chassis
-      .setCollisionGroups((GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00), this.body);
+      .setCollisionGroups((GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | REMOTE_VEHICLE | 0xff00), this.body);
     const v = this.controller = world.createVehicleController(this.body);
     v.indexUpAxis = 1;
     // Rapier exposes this setter under the name setIndexForwardAxis.

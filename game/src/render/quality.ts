@@ -16,8 +16,14 @@ export type RiverReflection = 'planar' | 'ssr' | 'sky';
 // `maxPixels` caps desktop play's drawing buffer before AdaptiveResolution scales it (mobile devices always use 720p);
 // `governor` lets render/settingGovernor.ts step rendering settings down when frames miss the 40 FPS goal at the
 // resolution floor (tiers below medium only: medium and high never change at runtime).
+// Medium and reduced draw no planar water pass, as GTA V's lower presets (loops/techstudy REPORT.md §8, W1): the river
+// reflects what TRAA's last frame shows by a screen-space march in its own fragments (render/riverReflection.ts), the
+// sky where it finds nothing. Blind A/B against planar on the Radeon 560X, the M1 Max and the M1 Air (2026-11-04): as
+// close or closer to the Aura references in every pair, for 3-11 ms less GPU p95 on the Air; `?water=planar` is the A/B.
+// High and low keep the planar pass; without TRAA history (`aa=fxaa|off`) the march has nothing to read and the river
+// shows the sky (render/water.ts riverReflection).
 const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
-  bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, riverReflection: 'planar', detail: 0.055, saturation: 0.97,
+  bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, riverReflection: 'ssr', detail: 0.055, saturation: 0.97,
   lights: { point: 4 }, maxPixels: 2560 * 1440, governor: false } as const;
 export const QUALITY = {
   mobile: { parkedBodies: 24, vegetation: { near: 18, mid: 90, far: 350, nearInstances: 64, farInstances: 3000, barrierInstances: 400 }, grass: { density: 0, range: 0, instances: 0 }, shadowSize: 1024, splits: [90], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
@@ -31,12 +37,10 @@ export const QUALITY = {
   // Trees hand over to impostors at 100 m instead of 180, the river reflection renders at a quarter of the view and
   // refreshes at 8 FPS while the camera is still, and the drawing buffer is capped at 1080p instead of 1440p (at 1440p
   // its 4 GB of VRAM thrashed: 200 ms frames in the 2880x1800 window).
-  // GTA V's lowest preset draws no planar water pass (loops/techstudy REPORT.md §8, W1): the river reflects what TRAA's
-  // last frame shows by a screen-space march in its own fragments (render/riverReflection.ts), the sky elsewhere. The
-  // planar pass was the 560X's spikiest (p95 8.9-15.3 ms); `?water=planar` keeps it at 0.25 and 8 FPS for the A/B.
+  // Its river reflects by medium's screen-space march (see MEDIUM); `?water=planar` keeps the planar pass at 0.25 and 8 FPS.
   // Everything else, simulation included (parked bodies, traffic and walker caps), is medium's.
   reduced: { ...MEDIUM, vegetation: { ...MEDIUM.vegetation, mid: 100 }, grass: { ...MEDIUM.grass }, splits: [...MEDIUM.splits], lights: { ...MEDIUM.lights },
-    reflectionScale: 0.25, reflectionSlowFps: 8, riverReflection: 'ssr', maxPixels: 1920 * 1080, governor: true },
+    reflectionScale: 0.25, reflectionSlowFps: 8, maxPixels: 1920 * 1080, governor: true },
   medium: MEDIUM,
   high: { parkedBodies: 80, vegetation: { near: 70, mid: 260, far: 850, nearInstances: 600, farInstances: 16000, barrierInstances: 5000 }, grass: { density: 3.5, range: 48, instances: 24000 }, shadowSize: 2048, splits: [12, 32, 80, 240], aoScale: 0.75, aoSamples: 16, aoStrength: 0.3,
     bloomScale: 0.5, bloomStrength: 0.05, temporalSubpixel: true, reflectionScale: 0.75, reflectionSlowFps: 20, riverReflection: 'planar', detail: 0.07, saturation: 0.97,

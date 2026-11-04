@@ -48,12 +48,14 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
-import { LOANER_ID, MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary } from './gameplay/missions/missions';
+import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
 import { vehicleGround } from './gameplay/vehicleSave';
 import { createGameplay, compassDeg } from './gameplay';
+import { autopilotParam, createAutopilot, type GoToOptions } from './gameplay/autopilot';
+import { DriveMeThere } from './gameplay/missions/driveMeThere';
 import { recoveryVehicle } from './gameplay/flippedCar';
 import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
@@ -81,12 +83,13 @@ import { QUALITY } from './render/quality';
 import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
 import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
+import { viewClearance } from './render/viewClearance';
 
 /** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
  *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
-/** Seconds between attempts to put a missing loaner scooter at the pizzeria kerb. */
-const LOANER_RETRY_MS = 2000;
+/** Milliseconds between attempts to place the heist's trophy truck in its yard. */
+const HEIST_RETRY_MS = 2000;
 /** The truck heist's reward car parks at a road-graph kerb spot this far from the drop-off (first within the near
  *  radius, else the far one), out of the drop zone and at the drop-off's road level, not on the bridge above. */
 const HEIST_CAR_MIN_M = 10, HEIST_CAR_NEAR_M = 30, HEIST_CAR_FAR_M = 60, HEIST_CAR_LEVEL_M = 1.5;
@@ -155,7 +158,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
   const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
     signals: () => traffic.signals,
-    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }) });
+    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }),
+    // Editing is per player: each browser keeps its own session; in multiplayer the session names the player.
+    player: () => { const you = multiplayerPlaying ? multiplayer?.state.you : null; return you ? { id: you.id, nick: you.nick } : null; } });
   Object.assign(window.__game!, { editor });
   traffic.attach(coarse);
   // Ambient walkers: shared clock + resident FOOT network; the camera ring only picks which to draw (world/walkers).
@@ -220,6 +225,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let last = performance.now();
   let camRayBusy = false;
   const tmp = new THREE.Vector3();
+  const clearanceBody = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
   let snapChase = false;
@@ -379,9 +385,29 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   };
   orbit.update(1, feet.clone().add(new THREE.Vector3(0, 1.5, 0)));
   // The network handshake runs alongside world loading; a slow/offline room must not delay solo play.
+  // The autopilot (gameplay/autopilot): drives this player through the normal input path, so physics, collisions
+  // and the multiplayer pose sync see a player; missions, the dev console and ?autopilot= start trips.
+  const autopilot = createAutopilot({
+    mode: () => mode,
+    vehicle: () => physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle ?? null,
+    feet: () => ({ x: feet.x, y: feet.y, z: feet.z }),
+    cameraBasis: () => orbit.basis(),
+    footRoute: (a, b) => router.route(a, b, 'foot'),
+    carRoute: (a, b) => router.route(a, b, 'car'),
+  }, coarse);
+  input.driver = (actions, dt) => autopilot.control(actions, dt);
+  const driveMeThere = new DriveMeThere(missions, autopilot);
+  // ?autopilot=target drives to the active mission target, ?autopilot=x,z[,walk|drive][,kmh] to a point, once
+  // the game runs and the ground under the player is resident.
+  let autopilotStart: (() => void) | null = (() => {
+    const raw = new URLSearchParams(location.search).get('autopilot');
+    if (raw === 'target') return () => { driveMeThere.start(); };
+    const at = autopilotParam();
+    return at ? () => { autopilot.goTo({ x: at.x, z: at.z }, { ...(at.mode ? { mode: at.mode } : {}), ...(at.speed ? { speed: at.speed } : {}) }); } : null;
+  })();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
-  Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery,
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
+  Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
     population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
@@ -403,7 +429,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let lastCrowd = -1;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
-  let loanerRetryAt = 0;
   // The truck heist's trophy truck (TRUCK_ID; offered only to a player who owns no truck): placed in the yard once its
   // collision cell is resident, taken away when the job ends. After a game is loaded it is placed again.
   let heistTruck = false, heistRetryAt = 0, wasLoading = saveGame.loading;
@@ -441,6 +466,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (window.__render?.beforeFrame?.() === false) return;
     const now = performance.now();
     if (document.hidden || !framePacer.ready(now)) return;
+    physics.beginFrame(now);
     clock.frames++;
     perf.begin();
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -455,6 +481,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     devLayers.handle(input, !startScreen.active);
     timePanel?.handle(input, !startScreen.active);
     editor.handle(input, !startScreen.active && !paused && !shopMenu.open && !introDialog.open && !saveGame.loading, now);
+    if (editor.modal) {
+      for (const action of LOCKED_IN_MENU) input.consume(action);
+      input.lookX = input.lookY = input.zoom = 0;
+    }
     if (startScreen.active) {
       startScreen.update(input);
       // Let gravity settle both actors, but discard actions used to dismiss the screen.
@@ -558,8 +588,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
-    const st0 = physics.latest;
-    const ride = st0?.vehicles.find(v => v.id === missions.rideId);
+    const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
@@ -573,7 +602,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     wasLoading = saveGame.loading;
     if (heistWanted && !heistTruck && !saveGame.loading && now >= heistRetryAt && physics.loaded.has(`c_${heistTile.i}_${heistTile.j}`)) {
-      heistRetryAt = now + LOANER_RETRY_MS;
+      heistRetryAt = now + HEIST_RETRY_MS;
       void placeHeistTruck().then(placed => {
         if (!placed) return;
         if (missions.heist !== null) heistTruck = true;
@@ -605,19 +634,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (saveGame.loading) owned = missions.vehicle;
     else if (missions.vehicle !== owned) {
       owned = missions.vehicle;
-      // A bought scooter is the loaner's body: unless the player rides it, it too moves to the dealer kerb. Selling
-      // the vehicle puts the loaner (the scooter's body, spawned if missing) back at the pizzeria kerb.
-      const id = missions.rideId, spot = owned === 'none' ? PIZZERIA_VEHICLE_SPOT : DEALER_VEHICLE_SPOT;
-      if (drivenId !== id) void parkRide(id, spot).catch(fail);
-    }
-    // Owning no vehicle, the pizzeria's loaner stands at its kerb once its tile is loaded; in multiplayer never while
-    // another player holds it (net/sharedVehicles.ts would remove the copy).
-    const loanerTile = collisionTileAt(PIZZERIA_VEHICLE_SPOT.x, PIZZERIA_VEHICLE_SPOT.z);
-    if (!saveGame.loading && !startScreen.active && missions.vehicle === 'none' && now >= loanerRetryAt && st0
-      && !st0.vehicles.some(v => v.id === LOANER_ID) && physics.loaded.has(`c_${loanerTile.i}_${loanerTile.j}`)
-      && !(multiplayerPlaying && sharedVehicles?.record(LOANER_ID))) {
-      loanerRetryAt = now + LOANER_RETRY_MS;
-      void parkRide(LOANER_ID, PIZZERIA_VEHICLE_SPOT).catch(fail);
+      const id = ownedVehicleId(owned);
+      if (id && drivenId !== id) void parkRide(id, DEALER_VEHICLE_SPOT).catch(fail);
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
@@ -627,7 +645,6 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);
       if (drivenId && seatExit) leaveCar(seatExit);
-      remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined);
     }
     const simulating = !paused && (!multiplayerPlaying || !!multiplayer?.state.connected);
     const extrapolating = simulating && RENDER_EXTRAPOLATION;
@@ -637,6 +654,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000, extrapolating);
     if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
+    // A shared vehicle this player owns is drawn by the remote-player renderer from its local body: the driven one at
+    // the same render pose as everything else (the chase camera follows it), never the newer raw worker state.
+    if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
+      remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined,
+        id => renderVehicle && id === drivenId && renderVehicle.id === id ? renderVehicle : null);
+    }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
       if (st.character && st.character.enabled) {
@@ -648,7 +671,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       traffic.updatePedestrians(now, () => walkers.trafficObstacles());
       audio.emit({ type: 'traffic', ...traffic.audible(camera.position, TRAFFIC_VOICES) });
       parkedVisuals.setView(camera, world.dayClock.night);
-      parkedVisuals.update(st.vehicles, parkedVehicles);
+      // The driven car is drawn at its render pose, which the chase camera follows; the others at the latest step.
+      const drivenRender = renderVehicle && drivenId && renderVehicle.id === drivenId ? renderVehicle : null;
+      parkedVisuals.update(drivenRender ? st.vehicles.map(v => v.id === drivenId ? { ...v, pos: drivenRender.pos, rot: drivenRender.rot, wheels: drivenRender.wheels } : v)
+        : st.vehicles, parkedVehicles);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
         if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {
@@ -699,8 +725,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
 
     player.root.visible = !positionHud.characterHidden && (mode === 'foot' || !!seated.of(drivenId));
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
-    const chaseVehicle = drivenId && drivenId !== 'player' && !seated.of(drivenId)
-      ? physics.latest?.vehicles.find(v => v.id === drivenId) : renderVehicle;
+    // The camera follows the drawn pose of the driven vehicle, never a newer raw physics state.
+    const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
+      : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
       chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
       snapChase = false;
@@ -731,7 +758,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     streamHint.update(!startScreen.active && (saveGame.loading || (!fly?.active && !streamer.supports(feet.x, feet.z))));
     const streamAt = saveGame.streamPoint(feet);
     if (!startScreen.active && !saveGame.loading) releaseStarts();
-    const routeHint = missions.phase === 'carrying' ? minimap.routes.route : null;
+    if (autopilotStart && !startScreen.active && !saveGame.loading && !paused
+      && (!coarse || coarse.progressAt(feet.x, feet.z).loaded === coarse.progressAt(feet.x, feet.z).total)) { autopilotStart(); autopilotStart = null; }
+    const routeHint = autopilot.hint ?? (missions.phase === 'carrying' ? minimap.routes.route : null);
     if (routeHint !== draftRoute) { coarse?.setRouteHint(routeHint); draftRoute = routeHint; }
     coarse?.update(streamAt.x, streamAt.z, now, saveGame.loading ? undefined : vel, true, camera.position.y);
     parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)), world.sharedNow());
@@ -745,6 +774,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     editor.update(now);
     positionHud.update(now, !startScreen.active);
     devLayers.update();
+    // Vegetation between the camera and the player (or the road ahead) fades; none in fly mode or on the start screen.
+    const clearing = startScreen.active || fly?.active || !(mode === 'car' || player.root.visible) ? null
+      : { body: mode === 'foot' ? clearanceBody.copy(player.root.position).setY(player.root.position.y + 1)
+        : chaseVehicle ? clearanceBody.set(chaseVehicle.pos.x, chaseVehicle.pos.y + 0.3, chaseVehicle.pos.z) : clearanceBody.copy(feet).setY(feet.y + 0.9),
+      velocity: vel, mode };
+    viewClearance.update(camera, clearing, dt);
+    if (multiplayerPlaying) remotePlayers.fadeLabels(camera);
     renderFrame();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
@@ -782,6 +818,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
 
   return {
     dispose() {
+      autopilot.cancel('session ended'); driveMeThere.dispose(); input.driver = null;
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };

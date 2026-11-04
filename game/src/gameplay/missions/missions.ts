@@ -4,14 +4,14 @@
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   basePay, LIMITED_COOLDOWN_SECONDS, LIMITED_OFFER_SECONDS, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
-  CREDIT_PERMIT_DEBT, debtRepayment, LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
+  CREDIT_PERMIT_DEBT, debtRepayment, HEIST_CASH, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
-import { DEALER, HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA, PIZZERIA_VEHICLE_SPOT } from '../content/locations';
+import { DEALER, HEIST_DROP, HEIST_YARD, MARKET, PIZZERIA } from '../content/locations';
 import { SHOPS, optionDetail, optionLabel, type OptionId, type Shop, type ShopId } from '../content/shops';
 import { drawLimitedOrder, drawOrder, openingOrder } from './orders';
 import type { ShopView } from './shopView';
@@ -36,11 +36,6 @@ export const OWN_VEHICLE_ID = 'player';
 export const SCOOTER_ID = 'scooter';
 export const TRUCK_ID = 'truck';
 const OWNED_IDS: Record<VehicleOwnership, string | null> = { none: null, scooter: SCOOTER_ID, car: OWN_VEHICLE_ID, truck: TRUCK_ID };
-/** The pizzeria's loaner: the scooter's physics vehicle, standing at PIZZERIA_VEHICLE_SPOT while the player owns no
- *  vehicle (buying the scooter makes it the player's own). */
-export const LOANER_ID = SCOOTER_ID;
-/** Taking a short order on foot returns the loaner to the kerb unless it already stands within this many metres. */
-export const LOANER_AT_KERB_M = 8;
 /** The physics vehicle that a vehicle ownership class drives. */
 export const ownedVehicleId = (vehicle: VehicleOwnership) => OWNED_IDS[vehicle];
 /** "Bring my vehicle" at the pizzeria is greyed out while the vehicle already stands this close (m) to the pizzeria. */
@@ -91,7 +86,8 @@ interface Action {
   run: () => void;
 }
 
-interface OptionState { price: number | null; reason: string | null; quote?: OrderQuote }
+/** `detail` replaces the option's static detail line (optionDetail) when its offer depends on the state. */
+interface OptionState { price: number | null; reason: string | null; quote?: OrderQuote; detail?: string }
 
 const SHOP_SPEAKER: Record<ShopId, string> = { market: 'market', pizzeria: 'pizzeria', dealer: 'dealer' };
 const SHOP_PROMPT: Record<ShopId, string> = {
@@ -135,8 +131,6 @@ export class MissionSystem implements MissionHudSource {
   private hintCache: { key: string; said: Said } | null = null;
   /** Seconds until "Bring my vehicle here" works again (not saved). */
   private bringCooldown = 0;
-  /** The loaner's hint was spoken this session. */
-  private loanerHinted = false;
   /** This frame asked for the player's vehicle at the pizzeria kerb (returned by update). */
   private parkAtPizzeria = false;
   /** The vehicle driven in the previous frame: leaving the truck at the heist drop-off finishes the job. */
@@ -186,8 +180,8 @@ export class MissionSystem implements MissionHudSource {
   /** Euros still owed for permits rented on credit. */
   get debt(): number { return this.s.debt ?? 0; }
   get vehicle(): VehicleOwnership { return this.s.vehicle; }
-  /** The physics vehicle the player delivers with: the owned one, or the pizzeria's loaner while owning none. */
-  get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? LOANER_ID; }
+  /** The physics vehicle the player delivers with: the owned one (the start car while owning none). */
+  get rideId(): string { return ownedVehicleId(this.s.vehicle) ?? OWN_VEHICLE_ID; }
   get plates(): boolean { return this.s.plates; }
   get kidney(): boolean { return this.s.kidney; }
   /** Pizzas handed over. */
@@ -270,7 +264,6 @@ export class MissionSystem implements MissionHudSource {
     if ((this.s.phase === 'delivered' || this.s.phase === 'failed') && this.queue.length === 0) {
       this.s.phase = this.restPhase();
     }
-    if (this.s.phase === 'carrying' && frame.vehicleId === LOANER_ID && this.loanerTerms(this.s.job)) this.s.loaner = true;
     if (this.s.phase === 'carrying' && dt > 0) {
       this.s.elapsed += dt;
       if (this.s.elapsed > deliveryDeadline(this.s.par)) this.fail();
@@ -298,7 +291,7 @@ export class MissionSystem implements MissionHudSource {
   get heist(): HeistStage | null { return this.s.heist ?? null; }
 
   /** Getting into the trophy truck sends it to the bridge; stopping it under the bridge and getting out finishes the
-   *  job: the forged plates are the reward, and play.ts takes the truck away and parks a car nearby. */
+   *  job: the forged plates are the first reward (HEIST_CASH on later runs), and play.ts takes the truck away and parks a car nearby. */
   private heistStep(frame: MissionFrame) {
     const was = this.lastVehicleId;
     this.lastVehicleId = frame.vehicleId;
@@ -307,9 +300,11 @@ export class MissionSystem implements MissionHudSource {
       this.say('heist_in_truck');
     } else if (this.s.heist === 'deliver' && was === TRUCK_ID && frame.vehicleId === null && atHeistDrop(frame.position)) {
       this.s.heist = null;
+      // The first run earns the plates; every later run (the job is repeatable) pays HEIST_CASH instead.
+      if (this.s.plates) this.s.money += HEIST_CASH;
+      this.say(this.s.plates ? 'heist_done_cash' : 'heist_done');
       this.s.plates = true;
       this.heistEvent = 'delivered';
-      this.say('heist_done');
       this.checkpoint = 'purchase';
     }
   }
@@ -336,8 +331,7 @@ export class MissionSystem implements MissionHudSource {
 
   /** Why the player's vehicle cannot be brought to the pizzeria kerb (`pizzeria`) or beside the player now. */
   private bringReason(pizzeria: boolean): string | null {
-    // Owning none, the pause menu fetches the loaner; at the pizzeria it is outside already, or comes with the next order.
-    if (pizzeria && this.s.vehicle === 'none') return 'reason_no_own_vehicle';
+    if (this.s.vehicle === 'none') return 'reason_no_own_vehicle';
     if (this.frame?.vehicleId === this.rideId) return 'reason_riding_it';
     if (!pizzeria) return this.bringCooldown > 0 ? 'reason_bring_cooldown' : null;
     const at = this.frame?.rideAt;
@@ -346,11 +340,7 @@ export class MissionSystem implements MissionHudSource {
 
   // ----------------------------------------------------------------------------------------------- actions
   private owns(vehicleId: string) { return vehicleId === ownedVehicleId(this.s.vehicle); }
-  private mayDeliverWith(vehicleId: string | null, job: DeliveryJob = this.s.job) {
-    return vehicleId === null || this.owns(vehicleId) || this.s.plates || (vehicleId === LOANER_ID && this.loanerTerms(job));
-  }
-  /** Owning no vehicle, a short order goes on the pizzeria's loaner: scooter par, LOANER_FEE when ridden. */
-  private loanerTerms(job: DeliveryJob) { return this.s.vehicle === 'none' && job === 'short'; }
+  private mayDeliverWith(vehicleId: string | null) { return vehicleId === null || this.owns(vehicleId) || this.s.plates; }
   private restPhase(): Phase { return this.s.permit > 0 ? 'at_pizzeria' : 'permit_needed'; }
 
   private dropoffTarget(): RouteTarget {
@@ -467,22 +457,22 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
       case 'job_truck_heist':
-        return { price: null, reason: s.heist ? 'reason_heist_active' : s.plates ? 'reason_plates_owned'
-          : s.vehicle === 'truck' ? 'reason_heist_truck_owned' : s.phase === 'carrying' ? 'reason_carrying' : null };
+        return { price: null, reason: s.heist ? 'reason_heist_running'
+          : s.vehicle === 'truck' ? 'reason_heist_truck_owned' : s.phase === 'carrying' ? 'reason_carrying' : null,
+          detail: s.plates ? 'detail_job_truck_heist_cash' : undefined };
       case 'abandon_truck_heist':
         return { price: null, reason: !s.heist ? 'reason_no_heist' : this.frame?.vehicleId === TRUCK_ID ? 'reason_heist_in_truck' : null };
       case 'take_long_order':
       case 'take_limited_order':
       case 'take_order': {
         const long = id !== 'take_order';
-        const job: DeliveryJob = id === 'take_order' ? 'short' : id === 'take_long_order' ? 'long' : 'limited';
         const quote = id === 'take_long_order' ? this.longQuote() : id === 'take_limited_order' ? this.limitedQuote() : this.quote();
         const reason = long && !this.longUnlocked ? 'reason_long_locked'
           : long && !quote ? (id === 'take_long_order' ? 'reason_no_long_route' : 'reason_no_limited')
-          : long && this.parVehicle(job) === 'none' ? 'reason_long_vehicle'
+          : long && this.parVehicle() === 'none' ? 'reason_long_vehicle'
           : s.heist ? 'reason_heist_active'
           : s.phase === 'carrying' ? 'reason_carrying' : s.permit === 0 ? 'reason_no_permit'
-          : !this.mayDeliverWith(this.frame?.vehicleId ?? null, job) ? 'reason_own_vehicle_only' : null;
+          : !this.mayDeliverWith(this.frame?.vehicleId ?? null) ? 'reason_own_vehicle_only' : null;
         return { price: null, reason, quote: quote ?? undefined };
       }
       case 'slice': return money(SLICE_PRICE);
@@ -529,7 +519,7 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': this.s.plates = true; this.reply('market_sold_plates'); break;
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
       case 'expiry_warning': this.s.warning = true; this.reply('market_sold_warning'); break;
-      case 'job_truck_heist': this.s.heist = 'pickup'; this.heistEvent = 'started'; this.reply('heist_briefing'); break;
+      case 'job_truck_heist': this.s.heist = 'pickup'; this.heistEvent = 'started'; this.reply(this.s.plates ? 'heist_briefing_cash' : 'heist_briefing'); break;
       case 'abandon_truck_heist': this.s.heist = null; this.heistEvent = 'abandoned'; this.reply('heist_abandoned'); break;
       case 'take_long_order':
         this.s.job = 'long'; this.s.order = this.longOrder()!; this.quoteCache = null;
@@ -538,7 +528,7 @@ export class MissionSystem implements MissionHudSource {
         this.s.job = 'limited'; this.s.order = [...this.s.limited.stops]; this.quoteCache = this.limitedQuoteCache = null;
         this.s.limited = { ...this.s.limited, stops: [], left: LIMITED_COOLDOWN_SECONDS };
         this.pickUp(); this.open = null; break;
-      case 'take_order': this.s.job = 'short'; this.returnLoaner(); this.pickUp(); this.open = null; break;
+      case 'take_order': this.s.job = 'short'; this.pickUp(); this.open = null; break;
       case 'slice': this.energy = SLICE_SECONDS; this.reply('pizzeria_slice'); break;
       case 'tip_rules': this.reply('pizzeria_tip_rules'); break;
       case 'bring_vehicle': this.parkAtPizzeria = true; this.reply('pizzeria_bring_vehicle'); break;
@@ -552,13 +542,6 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_vehicle': this.s.vehicle = 'none'; this.reply('dealer_bought_back'); break;
     }
     if (price !== null) this.checkpoint = 'purchase';
-  }
-
-  /** Owning no vehicle, a short order taken off the loaner brings it back to the kerb when it is not there. */
-  private returnLoaner() {
-    if (!this.loanerTerms('short') || this.frame?.vehicleId === LOANER_ID) return;
-    const at = this.frame?.rideAt;
-    if (!at || distance(at, PIZZERIA_VEHICLE_SPOT) > LOANER_AT_KERB_M) this.parkAtPizzeria = true;
   }
 
   /** The shopkeeper answers inside the open menu; the line is also the HUD message, so it is voiced. */
@@ -589,7 +572,7 @@ export class MissionSystem implements MissionHudSource {
   private longQuote(): OrderQuote | null {
     const ids = this.longOrder();
     if (!ids) return null;
-    const vehicle = this.parVehicle('long');
+    const vehicle = this.parVehicle();
     const key = `${ids.join(',')}|${vehicle}`;
     if (this.longQuoteCache?.key !== key) {
       const stops = ids.map(id => this.stops.resolve(id)!);
@@ -603,7 +586,7 @@ export class MissionSystem implements MissionHudSource {
   private limitedQuote(): OrderQuote | null {
     const { stops: ids, left } = this.s.limited;
     if (!ids.length) return null;
-    const vehicle = this.parVehicle('limited');
+    const vehicle = this.parVehicle();
     const key = `${ids.join(',')}|${vehicle}`;
     if (this.limitedQuoteCache?.key !== key) {
       const stops = ids.map(id => this.stops.resolve(id)!);
@@ -618,8 +601,7 @@ export class MissionSystem implements MissionHudSource {
     const vehicle = this.parVehicle();
     const key = `${this.s.job}|${this.s.order.join(',')}|${vehicle}`;
     if (this.quoteCache?.key !== key) {
-      const { quote, firstPar } = orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job));
-      this.quoteCache = { key, firstPar, quote: this.loanerTerms(this.s.job) ? { ...quote, fee: LOANER_FEE } : quote };
+      this.quoteCache = { key, ...orderQuote(stops, vehicle, this.s.job, (a, b) => this.streetMetres(a, b), this.stopLeg(this.s.job)) };
     }
     return this.quoteCache.quote;
   }
@@ -636,13 +618,10 @@ export class MissionSystem implements MissionHudSource {
     return path ? this.options.router.distance(path) : distance(from, to);
   }
 
-  /** Par speed class of a `job`: the owned vehicle, a car when a borrowed car is used with forged plates, or owning
-   *  none the loaner scooter for a short order. */
-  private parVehicle(job: DeliveryJob = this.s.job): VehicleOwnership {
+  /** Par speed class: the owned vehicle, or a car when a borrowed car is used with forged plates. */
+  private parVehicle(): VehicleOwnership {
     const id = this.frame?.vehicleId ?? null;
-    const loaner = this.loanerTerms(job);
-    if (id !== null && !this.owns(id) && this.s.plates && !(loaner && id === LOANER_ID)) return 'car';
-    return loaner ? 'scooter' : this.s.vehicle;
+    return id !== null && !this.owns(id) && this.s.plates ? 'car' : this.s.vehicle;
   }
 
   private pickUp() {
@@ -653,15 +632,9 @@ export class MissionSystem implements MissionHudSource {
     this.s.elapsed = 0;
     this.s.permit -= 1;
     this.s.phase = 'carrying';
-    const onLoaner = this.frame?.vehicleId === LOANER_ID;
-    this.s.loaner = onLoaner && this.loanerTerms(this.s.job);
     const [first, second] = stops;
-    // The first loaner order of a session says where the scooter is.
-    const hint = this.loanerTerms(this.s.job) && !onLoaner && !this.loanerHinted;
-    if (hint) this.loanerHinted = true;
     this.say({ id: second ? 'order_double' : 'order_single',
-      text: addressSentence(this.phrase(second ? 'double' : 'order'), first.address, second?.address) },
-    ...(hint ? ['pizzeria_loaner'] : []));
+      text: addressSentence(this.phrase(second ? 'double' : 'order'), first.address, second?.address) });
   }
 
   private handOver() {
@@ -674,10 +647,9 @@ export class MissionSystem implements MissionHudSource {
     const metres = this.legMetres(stops)[this.s.stop];
     const pay = basePay(metres, this.s.job);
     // Spending, like the permit: the multiplayer payout below stays the earned pay.
-    const fee = last && this.s.loaner ? LOANER_FEE : 0;
-    const repaid = debtRepayment(this.debt, pay - fee);
+    const repaid = debtRepayment(this.debt, pay);
     this.s.debt = this.debt - repaid;
-    this.s.money += pay + t + bonus - fee - repaid;
+    this.s.money += pay + t + bonus - repaid;
     this.options.onPaid?.({ orderIndex: this.s.delivery, stopIndex: this.s.stop,
       addressId: stop.pool?.id ?? stop.id, job: this.s.job, payout: pay + bonus, tip: t, routeMeters: metres });
     this.s.pizzas += 1;
@@ -686,7 +658,6 @@ export class MissionSystem implements MissionHudSource {
     const customer: Said = { id: `customer_${band}`, text: this.phrase(`customer_${band}`) };
     const lines: (string | Said)[] = [customer, ...(this.s.job === 'long' ? [{ id: 'paid_long', text: `Long delivery: ${pay} € + tip ${t} €` }]
       : this.s.job === 'limited' ? [{ id: 'paid_limited', text: `Limited-time delivery: ${pay} € + tip ${t} €` }] : [`paid_tip_${t}`]), ...(bonus ? ['paid_double_bonus'] : []),
-      ...(fee ? ['paid_loaner_fee'] : []),
       ...(repaid ? [{ id: 'paid_debt', text: this.s.debt > 0 ? `Debt: ${repaid} € of the base pay repaid, ${this.s.debt} € left.`
         : `Debt: ${repaid} € repaid. The market is paid off.` }] : [])];
     if (!last) {
@@ -719,7 +690,6 @@ export class MissionSystem implements MissionHudSource {
     this.s.order = [];
     this.s.stop = 0;
     this.s.elapsed = this.s.par = this.s.firstPar = 0;
-    this.s.loaner = false;
     this.lastResult = result;
     this.checkpoint = 'delivery';
   }
@@ -779,7 +749,7 @@ export class MissionSystem implements MissionHudSource {
     const { shop, line } = this.open;
     const options = shop.options.map(o => {
       const state = this.optionState(o.id);
-      const detail = optionDetail(o.id);
+      const detail = state.detail ?? optionDetail(o.id);
       return { id: o.id, label: lineText(optionLabel(o.id)), detail: detail ? lineText(detail) : null, price: state.price,
         icon: o.icon, enabled: state.reason === null, reason: state.reason ? lineText(state.reason) : null,
         quote: state.quote ?? null };

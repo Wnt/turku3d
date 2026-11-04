@@ -10,7 +10,9 @@
 import * as THREE from 'three/webgpu';
 import { bool, dot, float, floor, fract, frameId, screenCoordinate, uniform, vec2 } from 'three/tsl';
 
-/** Default seconds a band hand-over takes to dissolve in or out (Jonni: seamless blending). */
+/** Seconds a band hand-over takes to dissolve in or out (Jonni: seamless blending). 0.6 s won the blind judge over
+ *  0, 0.15, 0.3 and 1.0 s on forced block swaps (docs/handover/lodfade.md): GTA V swaps in a frame because its LODs
+ *  carry the HD colours, while ours still change window pattern, which a short dissolve softens. */
 export const LOD_FADE_SECONDS = 0.6;
 /** The dissolve length the engine runs with: LOD_FADE_SECONDS unless the bench lab's `lodfade=` sets another
  *  (qa/lab/overrides.ts); 0 swaps at once, like GTA V's hand-over (techstudy REPORT §7 L2). */

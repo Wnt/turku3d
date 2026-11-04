@@ -84,3 +84,12 @@ test('the 250 m cell band never shrinks below 580 m when the full-tile switch mo
     detail.distance = 800; expect(detailFloor()).toBe(930);
   } finally { detail.distance = saved; }
 });
+
+test('no kilometre node is cut within the full-tile range, even behind the camera (Kauppatori tilted-ground regression)', () => {
+  // Jonni's 2026-11-05 multiplayer pose: driving east past Kauppatori; t2_-1_0 behind him held full tiles.
+  for (const [dx, dz] of [[1, 0], [0, -1], [-1, 0], [0, 1]]) {
+    const ids = sceneryTiles(4000, { x: 150, y: 8, z: 143, dx, dz, halfAngle: .5, focalPixels: 900 });
+    expect(ids.filter(id => sceneryBounds(id).level > 0 && sceneryDistance(id, 150, 143) < detailFloor())).toEqual([]);
+    expect(ids).toContain('t0_-1_0');
+  }
+});
