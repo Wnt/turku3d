@@ -436,8 +436,14 @@ export class ScreenshotScenery {
     const outside: [string, Scenery][] = [];
     // Keep the old cut during refinement AND coarsening until its replacement is ready.
     const fallback = new Set<string>();
+    // A coarser city node never draws over a square a full tile draws: its kilometre ground cuts through the HD
+    // streets as a tilted plane. Its other squares show the (coverage-masked) regional terrain until the cells land.
+    const detail = [...this.nearby.keys()].filter(id => this.detailed(id));
+    const overDetail = (id: string) => sceneryBounds(id).level > 0 && !this.sources.get(id)?.regional
+      && detail.some(square => sceneryContains(id, square));
     // A cell under a resident full tile (standby or dissolving) never stands in as a fallback: HD already draws there.
     for (const [id, e] of this.entries) if (e.model && !this.sources.get(id)?.regional && !keep.has(id) && !this.detailed(id)
+      && !overDetail(id)
       && this.wanted.some(next => (sceneryContains(id, next) || sceneryContains(next, id))
         && !this.sources.get(next)?.regional && !this.entries.get(next)?.model)) fallback.add(id);
     // Target visibility of the new cut. A newly shown model dissolves in over whatever drew there (the coarser or
@@ -445,7 +451,8 @@ export class ScreenshotScenery {
     const parents = [...fallback];
     const target = new Map<string, boolean>();
     for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading)
-      target.set(id, !parents.some(parent => sceneryContains(parent, id) && parent !== id) && (keep.has(id) || fallback.has(id)));
+      target.set(id, !parents.some(parent => sceneryContains(parent, id) && parent !== id) && (keep.has(id) || fallback.has(id))
+        && !overDetail(id));
     const hiding = [...target].filter(([id, show]) => !show && this.entries.get(id)!.model!.visible).map(([id]) => id);
     const until = now + LOD_FADE.seconds * 1000;
     for (const [id, show] of target) {
@@ -481,7 +488,7 @@ export class ScreenshotScenery {
     for (const end of this.outgoing.values()) this.nextCutExpiry = Math.min(this.nextCutExpiry, end);
     let shown = 0, hidden = 0;
     for (const [id, e] of this.entries) if (e.model && !e.model.userData.lodFading) {
-      const visible = (target.get(id) ?? false) || this.outgoing.has(id);
+      const visible = (target.get(id) ?? false) || (this.outgoing.has(id) && !overDetail(id));
       if (visible !== e.model.visible) { if (visible) shown++; else hidden++; }
       e.model.visible = visible;
     }
