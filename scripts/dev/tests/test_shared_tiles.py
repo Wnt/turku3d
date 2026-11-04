@@ -818,6 +818,38 @@ class FarmTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_http_built_fragment_is_rendered_once_and_byte_identical(self):
+        farm = self.farm()
+        farm.register(REV, 'train1')
+        farm.request(REV, 't0_0_0'); self.wait(farm)
+        server = farm_module.ThreadingHTTPServer(('127.0.0.1', 0), farm_module.Handler)
+        server.farm = farm
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base = f'http://127.0.0.1:{server.server_port}'
+        url = base + '/v/train1/coarse/t0_0_0/manifest.json?d=40'
+        try:
+            first = urlopen(url).read()
+            self.assertEqual(len(farm.fragments), 1)
+            self.assertEqual(urlopen(url).read(), first)
+            self.assertEqual(urlopen(url.replace('manifest', 'collision')).read(), first)
+            farm.fragments.clear()
+            self.assertEqual(urlopen(url).read(), first, 'a cached answer is the rendered answer')
+            # A rewritten product renders again; an evicted bundle is derived again.
+            manifest = farm_module.read_json(farm.output(GEN) / 't0_0_0/manifest.json')
+            manifest['pass_kind'] = 'draft'
+            farm_module.atomic_json(farm.output(GEN) / 't0_0_0/manifest.json', manifest)
+            self.assertEqual(json.loads(urlopen(url).read())['pass_kind'], 'draft')
+            bundle = json.loads(urlopen(url).read())['collision_bundle']
+            (self.root / 'delivery/shared' / bundle['url'].rsplit('/', 1)[-1]).unlink()
+            farm.bundles.clear()
+            self.assertEqual(urlopen(base + json.loads(urlopen(url).read())['collision_bundle']['url']).read(), b'col' * 16)
+            receipts = json.load(urlopen(base + f'/receipts?tile=t0_0_0&v=train1,{REV2},missing'))
+            self.assertEqual(receipts['train1'], json.loads(urlopen(base + '/v/train1/coarse/t0_0_0/ready.json').read()))
+            self.assertIsNone(receipts[REV2]); self.assertIsNone(receipts['missing'])
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()
         def build(revision, tile, root):

@@ -76,7 +76,11 @@ function resolver() {
     const chain = chainOf(await known(config.service), config.follow, Array.isArray(config.exclude) ? config.exclude : [])
       .filter(name => name !== config.version);
     if (!chain.length) return config.version;
-    const [pin, ...members] = await Promise.all([config.version, ...chain].map(v => receipt(config.service, v, tile)));
+    const versions = [config.version, ...chain];
+    // One farm request for the whole chain; a farm without /receipts is asked per version.
+    const batch = await getJson(new URL(`/receipts?tile=${tile}&v=${versions.map(encodeURIComponent).join(',')}`, config.service));
+    const [pin, ...members] = batch ? versions.map(v => batch[v] ?? null)
+      : await Promise.all(versions.map(v => receipt(config.service, v, tile)));
     if (baseOf(pin)) pinBase.set(config.version, baseOf(pin));
     const base = pinBase.get(config.version);
     if (!base) return config.version;  // nothing known to be compatible yet

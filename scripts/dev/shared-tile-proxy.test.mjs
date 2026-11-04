@@ -80,6 +80,7 @@ test('recovers transient asset failures without retrying writes or retrying inde
 
 test('each tile comes from the newest compatible train that finished it, else the pin', async () => {
   const calls = [];
+  let batched = false;
   const base = 'a'.repeat(64), other = 'f'.repeat(64);
   const aliases = { pin: 'p', train1: 't1', train2: 't2', 'train0-probe': 'x', train9: 't9', lidarwires: 'l' };
   // finished[version] = tiles with a ready.json; train9 sits on another (structural) generation.
@@ -89,6 +90,14 @@ test('each tile comes from the newest compatible train that finished it, else th
     calls.push(`${req.method} ${req.url}`);
     res.setHeader('content-type', 'application/json');
     if (req.url === '/status') { res.end(JSON.stringify({ aliases })); return; }
+    const receipt = (version, tile) => finished[version]?.includes(tile)
+      ? { generation: version, base_generation: version === 'train9' ? other : base } : null;
+    const batch = new URL(req.url, 'http://x');
+    if (batch.pathname === '/receipts') {
+      if (!batched) { res.writeHead(404); res.end('{}'); return; }
+      const tile = batch.searchParams.get('tile');
+      res.end(JSON.stringify(Object.fromEntries(batch.searchParams.get('v').split(',').map(v => [v, receipt(v, tile)])))); return;
+    }
     const ready = /^\/v\/([^/]+)\/coarse\/([^/]+)\/ready\.json$/.exec(req.url);
     if (ready) {
       const [, version, tile] = ready;
@@ -112,7 +121,7 @@ test('each tile comes from the newest compatible train that finished it, else th
     assert.equal(await served('t0_1_0'), 'train1');
     assert.equal(await served('t0_2_0'), 'pin');  // train0-probe is not a train
     assert.ok(calls.every(c => !c.includes('train0-probe')));
-    assert.ok(calls.filter(c => !c.endsWith('ready.json') && c !== 'GET /status').every(c => /^GET \/v\/(pin|train1|train2)\/coarse\/t0_\d_0\/manifest\.json\?d=0$/.test(c)));
+    assert.ok(calls.filter(c => !c.endsWith('ready.json') && !c.startsWith('GET /receipts?') && c !== 'GET /status').every(c => /^GET \/v\/(pin|train1|train2)\/coarse\/t0_\d_0\/manifest\.json\?d=0$/.test(c)));
     write({});  // not excluded: a train on another base generation is still never mixed in
     assert.equal(await served('t0_1_0'), 'train1');
     calls.length = 0;
@@ -121,6 +130,12 @@ test('each tile comes from the newest compatible train that finished it, else th
     assert.deepEqual(calls, ['GET /v/pin/coarse/demand?client=play&tiles=t0_0_0', 'GET /v/pin/coarse/navigation.json']);
     const fragment = await (await fetch(`${origin}/coarse/t0_0_0/collision.json?d=0`)).json();
     assert.equal(fragment.url, `/coarse/_v/${'b'.repeat(64)}/t/mesh.glb`);
+    // A farm with /receipts answers the whole chain in one request, with the same choice.
+    batched = true; calls.length = 0;
+    write({ exclude: ['train9'] });
+    assert.deepEqual([await served('t0_0_0'), await served('t0_1_0'), await served('t0_2_0')], ['train2', 'train1', 'pin']);
+    assert.equal(calls.filter(c => c.endsWith('ready.json')).length, 0);
+    assert.equal(calls.filter(c => c.startsWith('GET /receipts?')).length, 3);
   } finally {
     await close(proxy); upstream.closeAllConnections(); await close(upstream); fs.rmSync(dir, { recursive: true });
   }

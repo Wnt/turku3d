@@ -51,6 +51,8 @@ RAW_PRODUCERS = {
     'buildings/reconstruct.py': ('class6',),
     'buildings/inputs.py': ('read_points',),
 }
+BUNDLES_MAX = 8192  # descriptors (~200 B each): a city's resident tiles must not rebuild their bundles in turn
+FRAGMENTS_MAX_BYTES = 384 * 1024 * 1024
 PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicles',
           'lights', 'vehicle_models', 'buildingPlacements', 'generation',
           'migrations', 'migration_base')
@@ -150,6 +152,9 @@ class Farm:
         # Navigation builds by source revision: 'building', or the last failure row.
         self.navigations = {}
         self.lock = threading.RLock()
+        # Serialised fragments of built tiles: (revision, tile, manifest stamp) -> (bytes, bundle path or None).
+        # A built tile's fragment depends only on its immutable products, so it is rendered once, outside the lock.
+        self.fragments, self.fragment_bytes, self.fragments_lock = OrderedDict(), 0, threading.Lock()
         self.adoption_lock = threading.Lock()
         self.adopting = set()
         self.bundles = OrderedDict()
@@ -327,9 +332,30 @@ class Farm:
             descriptor = dict(url=f'/v/{BUNDLE_SOURCE}/coarse/shared/{name}', sha256=digest,
                               bytes=len(body), format='sorted-col-v1')
             self.bundles[key] = descriptor
-            while len(self.bundles) > 256:
+            while len(self.bundles) > BUNDLES_MAX:
                 self.bundles.popitem(last=False)
             return descriptor
+
+    def cached_fragment(self, key):
+        with self.fragments_lock:
+            hit = self.fragments.get(key)
+            if hit:
+                self.fragments.move_to_end(key)
+        # The collision bundle is farm-derived and evictable: a hit is good only while its file is there.
+        if hit and (hit[1] is None or hit[1].is_file()):
+            return hit[0]
+        return None
+
+    def remember_fragment(self, key, payload, bundle):
+        with self.fragments_lock:
+            old = self.fragments.pop(key, None)
+            if old:
+                self.fragment_bytes -= len(old[0])
+            self.fragments[key] = (payload, bundle)
+            self.fragment_bytes += len(payload)
+            while self.fragment_bytes > FRAGMENTS_MAX_BYTES and self.fragments:
+                _, (dropped, _) = self.fragments.popitem(last=False)
+                self.fragment_bytes -= len(dropped)
 
     @contextmanager
     def payload(self, root, rel):
@@ -1345,7 +1371,9 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def json(self, status, value):
-        payload = json.dumps(value).encode()
+        self.raw(status, json.dumps(value).encode())
+
+    def raw(self, status, payload):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(payload)))
@@ -1416,6 +1444,22 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError('invalid path')
         if parts == ['health'] or parts == ['status']:
             return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
+        if parts == ['receipts']:
+            # One tile's completion receipts for several versions at once (the share proxy's train chain), the
+            # same bytes as each version's coarse/<tile>/ready.json; null while that version has not finished it.
+            query = parse_qs(url.query)
+            tile = query.get('tile', [''])[0]
+            if not TILE.fullmatch(tile):
+                raise ValueError('invalid tile')
+            receipts = {}
+            for name in query.get('v', [''])[0].split(',')[:32]:
+                try:
+                    generation = farm.revision(farm.resolve(name))['generation']
+                except (ValueError, KeyError):
+                    receipts[name] = None
+                    continue
+                receipts[name] = read_json(farm.output(generation) / tile / 'ready.json')
+            return self.json(200, receipts)
         if len(parts) >= 4 and parts[0] == 'v' and parts[2] == 'coarse':
             if parts[1] == BUNDLE_SOURCE:
                 return self.file(farm.root / 'delivery', parts[3:])
@@ -1439,10 +1483,8 @@ class Handler(BaseHTTPRequestHandler):
         if TILE.fullmatch(rel[0]) and rel[1:] in (['manifest.json'], ['collision.json']):
             query = parse_qs(url.query)
             distance = max(0, min(100000, float(query['d'][0]))) if 'd' in query else None
-            with farm.lock:
-                status, value = self.fragment(farm, revision, meta, rel[0], distance,
-                                              query.get('client', [None])[0])
-            return self.json(status, value)
+            # Only the queue decision holds the farm lock; a built tile's products are immutable.
+            return self.raw(*self.fragment(farm, revision, meta, rel[0], distance, query.get('client', [None])[0]))
         if rel == ['navigation.json']:
             path = farm.navigation(revision)
             if path is None:
@@ -1454,7 +1496,28 @@ class Handler(BaseHTTPRequestHandler):
         return self.file(farm.output(meta['generation']), rel)
 
     def fragment(self, farm, revision, meta, tile, distance, player=None):
+        """(status, JSON bytes) of a tile's manifest/collision fragment."""
         status, value = farm.request(revision, tile, distance, self.client_address[0], player)
+        key = None
+        if status == 200:
+            try:
+                stamp = os.stat(farm.output(meta['generation']) / tile / 'manifest.json')
+            except FileNotFoundError:
+                stamp = None
+            if stamp:
+                key = (revision, tile, stamp.st_mtime_ns, stamp.st_size)
+                hit = farm.cached_fragment(key)
+                if hit is not None:
+                    return 200, hit
+        status, value = self.render_fragment(farm, revision, meta, tile, distance, status, value)
+        payload = json.dumps(value).encode()
+        if key and status == 200 and value.get('stale') is False:
+            bundle = value.get('collision_bundle')
+            farm.remember_fragment(key, payload, farm.root / 'delivery/shared' / bundle['url'].rsplit('/', 1)[-1]
+                                   if bundle else None)
+        return status, payload
+
+    def render_fragment(self, farm, revision, meta, tile, distance, status, value):
         queue = dict(queue_status=status, queue_state=value.get('state'))
         if distance is None and status >= 400:
             # A CLI check must see its rejection; games keep the retained tile below.
