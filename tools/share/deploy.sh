@@ -9,6 +9,10 @@
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
 # changed and checks the public URL. /version.json names the deployed commit.
 #
+# Tiles resolve per tile (scripts/dev/shared-tile-proxy.mjs `prefer`): a tile the newest migration train has finished
+# (TURKU3D_SHARE_PREFER, default train1) is served from it, any other tile from the pin. Tiles the train's city pass
+# finishes later show up on their own, with no redeploy.
+#
 # systemd --user units on osgallery-dev (linger; Restart=always; enabled for boot), sources in tools/share/units:
 #   city-web        tools/dev/serve-dist.mjs --public, 127.0.0.1:7780: the game, /pointcloud -> /bulk/turku3d/lidarpc/copc,
 #                   /coarse -> city-tiles, WebSocket + /live.json + /scores/ -> city-mp; GET/HEAD only
@@ -20,7 +24,8 @@
 # The farm, scenery and COPC services the share reads run as shared-tiles, local-horizon and lidar-copc user units.
 #
 # Env overrides: TURKU3D_SHARE_REPO, TURKU3D_SHARE_SSH (osgallery-dev), TURKU3D_SHARE_PIN (a tile-service.json),
-# TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir).
+# TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir), TURKU3D_SHARE_PREFER (versions
+# preferred per tile over the pin, space-separated, first wins; empty for the pin only).
 set -euo pipefail
 
 REPO=${TURKU3D_SHARE_REPO:-$HOME/turku3d/wt/loop-integration/repo}
@@ -28,6 +33,7 @@ SSH_HOST=${TURKU3D_SHARE_SSH:-osgallery-dev}
 PIN=${TURKU3D_SHARE_PIN:-$HOME/turku3d/loops/integrator/tile-service.json}
 SCENERY=${TURKU3D_SHARE_SCENERY:-http://127.0.0.1:7947}
 WORK=${TURKU3D_SHARE_WORK:-$HOME/turku3d/loops/cityshare/work}
+PREFER=${TURKU3D_SHARE_PREFER-train1}
 PUBLIC_HOST=city.lab.madekivi.fi
 REV=${1:-local/loop-integration}
 KEEP=3
@@ -58,11 +64,11 @@ print(json.load(open(sys.argv[1]))['version'])
 PY
 )
 SUBJECT=$(git -C "$REPO" log -1 --format=%s "$SHA")
-python3 - "$BUILD/game/version.json" "$SHA" "$SUBJECT" "$VERSION" <<'PY'
+python3 - "$BUILD/game/version.json" "$SHA" "$SUBJECT" "$VERSION" "$PREFER" <<'PY'
 import json, sys, time
-path, sha, subject, tiles = sys.argv[1:]
-json.dump(dict(sha=sha, subject=subject, tiles=tiles, built=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())),
-          open(path, 'w'), indent=1)
+path, sha, subject, tiles, prefer = sys.argv[1:]
+json.dump(dict(sha=sha, subject=subject, tiles=tiles, prefer=prefer.split(),
+               built=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())), open(path, 'w'), indent=1)
 PY
 
 # 2. Upload the dist and the server sources (only what the units run) into a new release.
@@ -82,11 +88,13 @@ ssh "$SSH_HOST" "set -e; cd ~/$R/src; echo $SERVER_TREE > server.tree
   fi
   sha256sum < server/package-lock.json > server/node_modules/.lock.sha"
 
-# 3. Tile pin (hot-read by city-tiles): the local game's version on the same farm; scenery from osgallery-dev itself.
-python3 - "$PIN" "$SCENERY" <<'PY' | ssh "$SSH_HOST" 'cat > ~/turku3d-local/city/tiles.json.tmp && mv ~/turku3d-local/city/tiles.json.tmp ~/turku3d-local/city/tiles.json'
+# 3. Tile pin (hot-read by city-tiles): the local game's version on the same farm, the preferred newer versions per
+#    tile, scenery from osgallery-dev itself.
+python3 - "$PIN" "$SCENERY" "$PREFER" <<'PY' | ssh "$SSH_HOST" 'cat > ~/turku3d-local/city/tiles.json.tmp && mv ~/turku3d-local/city/tiles.json.tmp ~/turku3d-local/city/tiles.json'
 import json, sys
 pin = json.load(open(sys.argv[1]))
-print(json.dumps(dict(service=pin['service'], version=pin['version'], scenery=sys.argv[2])))
+print(json.dumps(dict(service=pin['service'], version=pin['version'], scenery=sys.argv[2],
+                      prefer=[v for v in sys.argv[3].split() if v != pin['version']])))
 PY
 
 # 4. Switch, install units, restart what changed, prune old releases (never the ones `current` or `mp` use).
@@ -119,4 +127,4 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "$live" = "$SHA" ] || { say "FAILED: https://$PUBLIC_HOST/version.json serves '${live:-nothing}'"; exit 1; }
 health=$(curl -fsS -m 5 "https://$PUBLIC_HOST/coarse/health" || true)
-say "live at https://$PUBLIC_HOST/ (tiles $VERSION, /coarse/health $health)"
+say "live at https://$PUBLIC_HOST/ (tiles ${PREFER:+$PREFER per finished tile, else }$VERSION, /coarse/health $health)"

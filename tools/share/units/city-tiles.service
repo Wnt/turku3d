@@ -1,5 +1,6 @@
 # Installed by tools/share/deploy.sh. /coarse/* to the shared farm at the local game's pinned tile version and
 # /coarse/scenery to the scenery server; the pin is ~/turku3d-local/city/tiles.json (hot-read, written by deploy.sh).
+# Its `prefer` versions (the newest migration train) serve each tile they have finished; the pin serves the rest.
 [Unit]
 Description=Turku3D city share: tile proxy on 127.0.0.1:7781
 

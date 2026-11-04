@@ -1,12 +1,40 @@
 #!/usr/bin/env node
-// Hot-read config: {service, version, scenery}. Vite keeps its existing /coarse proxy.
+// Hot-read config: {service, version, scenery, prefer?}. Vite keeps its existing /coarse proxy.
+//
+// `prefer` lists newer versions (migrated aliases such as a city pass's `train1`) tried per tile before `version`:
+// a tile's manifest or collision fragment comes from the first of them that has finished that tile (its ready.json,
+// which the farm writes last and atomically), otherwise from `version`, the pin, exactly as without `prefer`. A
+// preferred version is only read, never asked to build or migrate; status, demand and every other route go to the
+// pin. Each fragment names its payloads by revision (/coarse/_v/<sha>/), so neighbouring tiles of different versions
+// never share a cache entry, and a tile switches by itself once its newer version is finished.
 import http from 'node:http';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
+const FRAGMENT = /^\/coarse\/(t0_-?\d{1,5}_-?\d{1,5})\/(?:manifest|collision)\.json$/;
+
+/** True when `version` has finished `tile` (a read of its ready.json; nothing is queued). */
+function finished(service, version, tile) {
+  const url = new URL(`/v/${encodeURIComponent(version)}/coarse/${tile}/ready.json`, service);
+  return new Promise(resolve => {
+    const probe = http.request(url, { method: 'HEAD', timeout: 5000 }, reply => { reply.resume(); resolve(reply.statusCode === 200); });
+    probe.on('timeout', () => probe.destroy());
+    probe.on('error', () => resolve(false));
+    probe.end();
+  });
+}
+
+/** The version serving this request: per tile the first preferred version that finished it, else the pin. */
+async function versionFor(config, pathname) {
+  const tile = FRAGMENT.exec(pathname)?.[1];
+  const prefer = Array.isArray(config.prefer) ? config.prefer.filter(v => typeof v === 'string' && v !== config.version) : [];
+  if (tile) for (const version of prefer) if (await finished(config.service, version, tile)) return version;
+  return config.version;
+}
+
 export function createSharedTileProxy(configFile) {
-  return http.createServer((req, res) => {
+  return http.createServer(async (req, res) => {
     let config;
     try { config = JSON.parse(fs.readFileSync(configFile, 'utf8')); }
     catch (error) { res.writeHead(503); res.end(JSON.stringify({ error: error.message })); return; }
@@ -19,7 +47,7 @@ export function createSharedTileProxy(configFile) {
       target = new URL(req.url, config.scenery);
     } else {
       const suffix = pinned ? pinned[2] : url.pathname.replace(/^\/coarse/, '');
-      const version = pinned ? pinned[1] : config.version;
+      const version = pinned ? pinned[1] : await versionFor(config, url.pathname);
       target = new URL(`/v/${encodeURIComponent(version)}/coarse${suffix}${url.search}`, config.service);
     }
     const forward = (attempt = 0) => {
