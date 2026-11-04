@@ -94,6 +94,21 @@ class ScoreTests(unittest.TestCase):
             self.assertEqual(score.main(["--before", "missing", "--after", "worktree"]), 0)
         self.assertIn("nothing scored", out.getvalue())
 
+    def test_data_moved_to_bulk_skips_with_restore_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = Path(tmp) / "gmaps-data"
+            data.mkdir()
+            (data / "MOVED-TO-BULK.txt").write_text("moved\n")
+            with (
+                patch.object(score, "PRIVATE_DATA", data),
+                patch.dict("os.environ", {"GMAPS": sys.executable}),
+                contextlib.redirect_stderr(io.StringIO()) as err,
+            ):
+                self.assertIsNone(score.private_tool())
+                (data / "MOVED-TO-BULK.txt").unlink()
+                self.assertEqual(score.private_tool(), sys.executable)
+        self.assertIn(f"rsync -aH {score.BULK_DATA}", err.getvalue())
+
     def test_ref_and_dirty_snapshot_capture_deletions_and_untracked_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

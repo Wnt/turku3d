@@ -47,9 +47,22 @@ def metric_priority(name):
     return METRIC_ORDER.index(name) if name in METRIC_ORDER else len(METRIC_ORDER)
 
 
+PRIVATE_DATA = Path.home() / "turku3d/private/gmaps-data"
+BULK_DATA = "osgallery-dev:/bulk/turku3d/mac/private/gmaps-data/"
+
+
 def private_tool():
     value = os.environ.get("GMAPS", str(Path.home() / "turku3d/private/gmaps-extract/gmaps"))
-    return shutil.which(value)
+    tool = shutil.which(value)
+    if tool and (PRIVATE_DATA / "MOVED-TO-BULK.txt").exists():
+        print(
+            f"Private gmaps data is on bulk storage ({BULK_DATA}), not in {PRIVATE_DATA}.\n"
+            f"Restore it before scoring: rsync -aH {BULK_DATA} {PRIVATE_DATA}/ "
+            f"&& rm {PRIVATE_DATA}/MOVED-TO-BULK.txt",
+            file=sys.stderr,
+        )
+        return None
+    return tool
 
 
 def git(repo, *args):

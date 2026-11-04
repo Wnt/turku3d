@@ -53,8 +53,7 @@ Destination is `osgallery-dev:/bulk/turku3d/mac/<path>`, 70.87 GB in total. Each
   - The cloned `node_modules` and `.venv` were not copied: they are APFS clones of a sandbox install and rebuildable.
     The frozen source is also git commit `<sha>`.
   - `codex-task checks` and `--fix-for` read only `wt/.registry/checks.jsonl`, so they are unaffected.
-- **Staged, not deleted:** `private/gmaps-data`, a verified copy on bulk (1676986 paths; `du` 21.2G because of
-  hardlinks). The local copy is kept.
+- **`private/gmaps-data`:** 1676986 files; `du` 21.2G because of hardlinks. Staged at 00:25, local copy deleted at 01:45.
 
 Free space: Mac 7.1G before; 57G when the queue ended at 00:25; 50G now because other agents are writing.
 osgallery-dev is unchanged, see below.
@@ -85,9 +84,12 @@ To run more moves:
    - Its purpose, the original 2e6515f4 products, has a verified read-only copy in `bulk/turku3d-protected`.
    - Destroying it frees about 141G now: `zfs destroy data/subvol-950-disk-0@bulkgen2-2e6515f4-20261103` on
      pve-nvme. Not done, because snapshots are only destroyed with Jonni's OK.
-2. **`private/gmaps-data` (Mac, 21.2G).** The verified copy is on bulk. Delete it locally? It is used by the private
-   scorer (not running) and by the integrator advisory hook, which writes `requests/pending/`. Restore with
-   `rsync -aH osgallery-dev:/bulk/turku3d/mac/private/gmaps-data/ ~/turku3d/private/gmaps-data/`.
+2. **`private/gmaps-data` (Mac, 21.2G): done 2026-11-04.** The local copy is deleted; only `MOVED-TO-BULK.txt`
+   remains. The bulk copy was re-checked on 2026-11-04 (1676986 files, 57763271548 bytes, hardlinks kept, pool
+   healthy). The private `gmaps` tool and `scripts/dev/draft_reference_score.py` print the restore command and skip
+   while the marker exists. The integrator advisory hook was already removed on 2026-10-28 (db77419b). Restore with
+   `rsync -aH osgallery-dev:/bulk/turku3d/mac/private/gmaps-data/ ~/turku3d/private/gmaps-data/ && rm
+   ~/turku3d/private/gmaps-data/MOVED-TO-BULK.txt`.
 3. **Other Mac candidates.** Unique sizes, so deleting them frees this much. Each still has a reader or an unclear
    owner:
    - `tools/cv`, 9.0G: Hugging Face weights, qwen 7G. `textures/turkutex/facade_cv.py` and `facade_models.py` read
