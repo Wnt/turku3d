@@ -28,7 +28,9 @@ const seconds = Number(opt('seconds', 150));
 fs.mkdirSync(out, { recursive: true });
 // Chrome leases on the shared hosts (~/turku3d/tools/host-lease/lease.py): acquire 0 granted / 3 queued, touch 2 = pause.
 const LEASE_HOST = process.env.LEASE_HOST ?? 'mac';
-const guard = cmd => { try { execFileSync('python3', [path.join(process.env.HOME, 'turku3d/tools/host-lease/lease.py'), cmd === 'acquire' ? 'acquire' : cmd, ...(cmd === 'acquire' ? [LEASE_HOST, 'autopilot', '--kind', 'func', '--ttl', '40m'] : ['autopilot', LEASE_HOST])], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
+// One slot per small window: the browser clients (and the mid-drive joiner).
+const LEASE_SLOTS = Math.min(LEASE_HOST === 'mac' ? 2 : 4, Number(process.argv[process.argv.indexOf('--clients') + 1] ?? 2) || 2);
+const guard = cmd => { try { execFileSync('python3', [path.join(process.env.HOME, 'turku3d/tools/host-lease/lease.py'), cmd === 'acquire' ? 'acquire' : cmd, ...(cmd === 'acquire' ? [LEASE_HOST, 'autopilot', '--kind', 'func', '--slots', String(LEASE_SLOTS), '--ttl', '40m'] : ['autopilot', LEASE_HOST])], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
 // The multiplayer server, isolated: own port, temporary scores, no tile producer pings.
@@ -181,7 +183,7 @@ try {
       rejoined = true;
       void join(N).then(c => drive(c, goal[(N + 1) % 4])).catch(e => { errors.push({ client: N, t: Date.now(), error: `join: ${e.message}` }); });
     }
-    guard('touch');
+    if (guard('touch') === 2) { log('lease pause requested: ending the run early'); break; }
     await new Promise(r => setTimeout(r, 250));
   }
 } catch (e) { failed = e.message; log('FAILED', e.message); }

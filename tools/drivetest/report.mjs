@@ -71,11 +71,18 @@ for (const [id, list] of byStructure) {
   }
 }
 bugs.sort((a, b) => a.ci - b.ci || b.lanes / b.of - a.lanes / a.of || b.lanes - a.lanes);
+// One road under several tracks is several underpass structures with the same lanes: one bug row, all overpasses named.
+for (let i = 0; i < bugs.length; i++) for (let j = bugs.length - 1; j > i; j--) {
+  const a = bugs[i], b = bugs[j];
+  if (a.ci === b.ci && a.s.way === b.s.way && Math.hypot((a.worst.E ?? 0) - (b.worst.E ?? 0), (a.worst.N ?? 0) - (b.worst.N ?? 0)) < 5) {
+    a.also = [...(a.also ?? []), b.s.over?.name || b.s.over?.mode || b.s.kind]; bugs.splice(j, 1);
+  }
+}
 md += `\n## Geometry bugs, ranked\n\nOne row per structure: its most severe class, how many of its measured lanes show it, the worst point. ` +
   `"Off carriageway" is the largest share of a lane's wheel-track samples on kerb, sidewalk or verge materials: a high share means the lane ` +
   `line itself misses the built road (a lane-geometry bug) rather than a rough surface.\n\n` +
   `| # | Class | Structure | Lanes | Worst | At (E, N) | Off carriageway |\n|---:|---|---|---:|---|---|---:|\n`;
-bugs.forEach((b, i) => { md += `| ${i + 1} | ${b.name} | ${label(b.s)} | ${b.lanes}/${b.of} | ${b.worst.kind} ${fmt(b.worst.value, 3)}${b.worst.detail ? ` (${b.worst.detail})` : ''} | ${fmt(b.worst.E, 1)}, ${fmt(b.worst.N, 1)} | ${fmt(b.offRoad * 100, 0)} % |\n`; });
+bugs.forEach((b, i) => { md += `| ${i + 1} | ${b.name} | ${label(b.s)}${b.also ? ` (also under ${[...new Set(b.also)].join(', ')})` : ''} | ${b.lanes}/${b.of} | ${b.worst.kind} ${fmt(b.worst.value, 3)}${b.worst.detail ? ` (${b.worst.detail})` : ''} | ${fmt(b.worst.E, 1)}, ${fmt(b.worst.N, 1)} | ${fmt(b.offRoad * 100, 0)} % |\n`; });
 md += `\n## Per structure\n\n`;
 const ordered = [...byStructure.entries()].sort((a, b) => Math.max(...b[1].map(r => weight(r.worst))) - Math.max(...a[1].map(r => weight(r.worst))));
 for (const [id, list] of ordered) {
