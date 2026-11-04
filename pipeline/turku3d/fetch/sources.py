@@ -151,7 +151,21 @@ ESPOO_WMS_LAYERS: tuple[WmsLayer, ...] = (
         "Espoo orthophoto (open data page: 30 cm); the draft ortho",
     ),
 )
-CITY_WMS_LAYERS = {"turku": TURKU_WMS_LAYERS, "espoo": ESPOO_WMS_LAYERS}
+# PDOK Luchtfoto RGB (CC BY 4.0): the 2025 national 8 cm orthophoto, in RD New.
+NL_WMS_LAYERS: tuple[WmsLayer, ...] = (
+    WmsLayer(
+        "2025_orthoHR", "ortho2025hr", 0.08, 8.0, "2025", "DEFLATE",
+        "PDOK national 8 cm orthophoto (not true ortho: buildings lean); the draft ortho",
+    ),
+)
+CITY_WMS_LAYERS = {
+    "turku": TURKU_WMS_LAYERS,
+    "espoo": ESPOO_WMS_LAYERS,
+    "amsterdam": NL_WMS_LAYERS,
+    "rotterdam": NL_WMS_LAYERS,
+}
+# Second imagery source when the draft ortho is blank over a tile (Turku: the 2025 flight).
+FALLBACK_WMS = {"turku": "ortho2025"}.get(CITY.name)
 WMS_LAYERS: tuple[WmsLayer, ...] = CITY_WMS_LAYERS[CITY.name]
 
 

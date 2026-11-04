@@ -102,6 +102,10 @@ def derive(layer: WfsLayer, area: config.Area, adapter: str, log=print) -> dict:
     from .common import kind_dir
     from .wfs import fetch_remote, write_frame
 
+    if config.CITY.ground == "nl-ahn":
+        from turku3d.nl import convert
+
+        return convert.derive(layer, area, adapter, log=log)
     if adapter != "infstreet":
         raise ValueError(f"unknown WFS adapter {adapter!r} for {layer.name}")
     s = fetch_remote(INFSTREET, area, log=log)

@@ -56,6 +56,9 @@ class City:
     wfs_derived: dict[str, str] = field(default_factory=dict)  # internal -> adapter name
     water_level: float = 0.0  # m in the city's height datum: open sea/river surface (N2000 0 m in Finland)
     datasets: tuple[dict, ...] = ()  # sources manifest rows (licence, date) of a non-default city
+    # Appended for the Dutch cities (turku3d.nl); defaults keep the Finnish profiles unchanged.
+    projection: str = "gk"  # client inverse projection: "gk" (gk_meridian) or "rd" (EPSG:28992)
+    sample_bbox: tuple[float, float, float, float] | None = None  # first playable area (E/N)
 
     def remote_layer(self, name: str) -> str:
         return self.wfs_names.get(name, name)
@@ -172,7 +175,120 @@ ESPOO = City(
     ),
 )
 
-CITIES: dict[str, City] = {c.name: c for c in (TURKU, ESPOO)}
+# -- Netherlands (turku3d.nl): RD New + NAP. Ground, buildings, street surfaces and water are converted
+# from AHN, 3DBAG and BGT into the internal raw layout by ``python -m turku3d.nl.convert``.
+PDOK_WMS = "https://service.pdok.nl/hwh/luchtfotorgb/wms/v1_0"
+NL_DATASETS = (
+    dict(
+        name="AHN point cloud (GeoTiles 1 x 1.25 km sub-tiles)",
+        url="https://geotiles.citg.tudelft.nl/AHN5_T/",
+        layers="AHN5 (2023 flight over Amsterdam/Rotterdam), AHN4 where AHN5 is missing",
+        date="AHN5 2023; fetched 2026-11-05",
+        licence="CC0 1.0, Rijkswaterstaat / Het Waterschapshuis; tiling GeoTiles (TU Delft)",
+        licence_source="ahn.nl open data; geotiles.citg.tudelft.nl (checked 2026-11-05)",
+    ),
+    dict(
+        name="3DBAG",
+        url="https://data.3dbag.nl/v20250903/tile_index.fgb",
+        layers="CityJSON tiles, LoD2.2 BuildingPart solids with semantic surfaces",
+        date="release v2025.09.03",
+        licence="CC BY 4.0, 3DBAG by tudelft3d and 3DGI",
+        licence_source="docs.3dbag.nl/en/copyright (checked 2026-11-05)",
+    ),
+    dict(
+        name="BGT (Basisregistratie Grootschalige Topografie)",
+        url="https://api.pdok.nl/lv/bgt/ogc/v1",
+        layers="all 49 collections; wegdeel/ondersteunendwegdeel -> street areas, waterdeel -> water",
+        date="live register, fetched 2026-11-05",
+        licence="CC0 1.0, Kadaster / PDOK",
+        licence_source="pdok.nl BGT OGC API (checked 2026-11-03)",
+    ),
+    dict(
+        name="PDOK Luchtfoto RGB",
+        url=PDOK_WMS,
+        layers="2025_orthoHR (8 cm), Actueel_orthoHR fallback",
+        date="2025 flight",
+        licence="CC BY 4.0, Beeldmateriaal Nederland",
+        licence_source="pdok.nl/introductie/-/article/pdok-luchtfoto-rgb-open- (checked 2026-11-03)",
+    ),
+)
+
+
+def _nl(name, title, origin, spawn, latlon, label, osm, sample, water):
+    e, n = origin
+    return City(
+        name=name,
+        title=title,
+        crs_horizontal="EPSG:28992",  # Amersfoort / RD New, NAP heights
+        gk_meridian=0.0,
+        origin_e=e,
+        origin_n=n,
+        spawn_e=spawn[0],
+        spawn_n=spawn[1],
+        spawn_latlon=latlon,
+        spawn_label=label,
+        work_3x3=(e - 500, n - 1000, e + 1000, n + 500),
+        wfs_url="",
+        wms_url=PDOK_WMS,
+        wms_referer="",
+        ortho_layer="2025_orthoHR",
+        ortho_slug="ortho2025hr",
+        ground="nl-ahn",
+        osm_url=osm,
+        wfs_derived={
+            "bldg:Building_LOD2": "3dbag",
+            "GIS:Katualueet": "bgt-streets",
+            "kanta:Vesikohde": "bgt-water",
+        },
+        wfs_absent={
+            "GIS:Liikennemerkit": "BGT bord has no sign codes yet; OSM traffic_sign tags",
+            "kanta:Pysakki": "OSM highway=bus_stop / railway=tram_stop",
+            "GIS:Keskilinjat": "street graph from OSM",
+            "GIS:Varusteet": "BGT straatmeubilair not mapped yet",
+            "frn:CityFurniture_LOD2": "no 3D furniture register",
+            "GIS:Polkupyoraparkki": "OSM amenity=bicycle_parking",
+            "GIS:Pysakointiautomaatit": "OSM vending=parking_tickets",
+            "GIS:Follariasemat": "OSM bicycle_rental",
+            "GIS:Puut": "BGT vegetatieobject_punt not mapped yet; OSM natural=tree",
+            "kanta:Korkeuspiste": "AHN ground points are the height source",
+            "kanta:Rakenne": "BGT scheiding/kunstwerkdeel not mapped yet",
+            "GIS:Lupapysakointipaikat": "no permit-parking kerbs",
+        },
+        datasets=NL_DATASETS
+        + (
+            dict(
+                name="OpenStreetMap",
+                url=osm,
+                layers="Geofabrik province extract, osmium clip per 2 km square",
+                date="dated snapshot, see raw/osm",
+                licence="ODbL 1.0 (c) OpenStreetMap contributors",
+                licence_source="openstreetmap.org/copyright",
+            ),
+        ),
+        projection="rd",
+        water_level=water,
+        sample_bbox=sample,
+    )
+
+
+# Amsterdam: O = NW corner of the block holding Dam square; the sample is the Grachtengordel-West
+# between Singel and Prinsengracht with Dam and the Westerkerk (t0_-2_-2 .. t0_1_1).
+AMSTERDAM = _nl(
+    "amsterdam", "Amsterdam", (121000.0, 487500.0), (121318.0, 487362.0), (52.37310, 4.89260),
+    "Dam", "https://download.geofabrik.de/europe/netherlands/noord-holland-latest.osm.pbf",
+    (120500.0, 487000.0, 121500.0, 488000.0),
+    -0.40,  # NAP: the Amsterdam canal level (stadspeil)
+)
+# Rotterdam: O = NW corner of the block holding the Markthal; the sample holds Markthal, Blaak,
+# Oude Haven, Leuvehaven and the Maas quays at the north end of the Erasmusbrug.
+ROTTERDAM = _nl(
+    "rotterdam", "Rotterdam", (93000.0, 437500.0), (93058.0, 437219.0), (51.92000, 4.48680),
+    "Markthal", "https://download.geofabrik.de/europe/netherlands/zuid-holland-latest.osm.pbf",
+    (92500.0, 436500.0, 93500.0, 437500.0),
+    0.0,  # NAP: tidal Nieuwe Maas, about mean level
+)
+
+CITIES: dict[str, City] = {c.name: c for c in (TURKU, ESPOO, AMSTERDAM, ROTTERDAM)}
 DEFAULT = TURKU.name
 MARKER = "city.json"
 

@@ -495,7 +495,11 @@ class Sources:
 
 def fetch(unit: Unit, log=print) -> None:
     """Download one unit into the shared raw cache with the read-through fetchers."""
-    if unit.dataset == "lidar" and C.CITY.ground == "mml-dem2m":
+    if unit.dataset == "lidar" and C.CITY.ground == "nl-ahn":
+        from turku3d.nl import convert
+
+        convert.ground_block(unit.block, log=log)
+    elif unit.dataset == "lidar" and C.CITY.ground == "mml-dem2m":
         from turku3d.fetch import dem
 
         dem.fetch_blocks([unit.block], log=log)
