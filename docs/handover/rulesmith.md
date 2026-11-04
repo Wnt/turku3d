@@ -99,9 +99,9 @@ bin, the lifebuoy and the trees.
 ## Open items, ranked
 
 1. **`furniture@2`: bike racks, then signs.**
-   - Bike racks: 8 of 9 edits turn a rack about 90° (mod 180°) from the `kerb_parallel` heading in
-     `props/orientation.py`, on 4 tiles. The likely rule is racks perpendicular to the kerb; check it in other
-     districts first.
+   - Bike racks: done in `racks@1` (integration 95328b7b, `props/racks.py`): rows run along the nearest way, each U
+     across it. All 13 rack/station edits of sessions 2 and `20261104-201907-o2bcyj` are within 5.1° on the served
+     test alias `bikeracks-m1`; their moves (1.2–5.2 m, 6 edits) share no rule yet and stay deferred.
    - Signs: 7 moves of 2–9 m, mostly from the kerb or carriageway toward the sidewalk or facade, plus 1 delete. They
      need clustering against `GIS_Liikennemerkit` placement and `props.roadside`.
    - Also open: the paired benches on a square (session 2 rows 15–23, which became back-to-back double benches; this
