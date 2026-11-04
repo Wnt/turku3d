@@ -5,7 +5,11 @@
 // with that player's own pose at the same wall time (divergence), finds the delay that fits best (latency), and
 // counts car contacts near another player.
 //
-//   node tools/drivetest/mp.mjs OUT_DIR [--clients 6] [--base http://localhost:5480/] [--port 5482] [--seconds 150]
+// Node bots (game/tests/drive/mpbot.ts: the same follower on the real vehicle physics, protocol v2) fill the room
+// beyond the browser clients at a fraction of a browser's cost; their own poses are ground truth too.
+//
+//   node tools/drivetest/mp.mjs OUT_DIR [--clients 2] [--bots 6] [--base http://localhost:5480/] [--port 5482]
+//     [--seconds 150] [--sweep ~/turku3d/loops/autopilot/sweep]   (the bots' tile copy and tile-service.json)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,7 +20,8 @@ import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../dev/ch
 const args = process.argv.slice(2);
 const out = args[0];
 const opt = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 ? args[i + 1] : d; };
-const N = Number(opt('clients', 6)), base = opt('base', 'http://localhost:5480/'), mpPort = Number(opt('port', 5482));
+const B = Number(opt('bots', 6)), sweepDir = opt('sweep', path.join(os.homedir(), 'turku3d/loops/autopilot/sweep'));
+const N = Number(opt('clients', 2)), base = opt('base', 'http://localhost:5480/'), mpPort = Number(opt('port', 5482));
 const seconds = Number(opt('seconds', 150));
 fs.mkdirSync(out, { recursive: true });
 const guard = cmd => { try { execFileSync('python3', [path.join(os.homedir(), 'turku3d/tools/chrome-guard/guard.py'), cmd, 'autopilot'], { stdio: 'ignore' }); return 0; } catch (e) { return e.status ?? 1; } };
@@ -28,7 +33,24 @@ const server = spawn(process.execPath, ['server/index.js'], { cwd: path.resolve(
   env: { ...process.env, TURKU_MP_PORT: String(mpPort), TURKU_MP_SCORES: scores, TURKU_MP_PRODUCER_PORTS: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = '';
 server.stdout.on('data', d => { serverLog += d; }); server.stderr.on('data', d => { serverLog += d; });
-for (let i = 0; i < 100 && !(await fetch(`http://127.0.0.1:${mpPort}/healthz`).then(r => r.ok, () => false)); i++) await new Promise(r => setTimeout(r, 100));
+let healthy = false;
+for (let i = 0; i < 100 && !(healthy = await fetch(`http://127.0.0.1:${mpPort}/healthz`).then(r => r.ok, () => false)); i++) await new Promise(r => setTimeout(r, 100));
+if (!healthy) { console.log(`multiplayer server did not start (npm ci --prefix server?):\n${serverLog.slice(-1500)}`); process.exit(2); }
+
+// The bots join first (cheap), then the browsers.
+const botFile = path.join(out, 'mp-bots.jsonl'), goFile = path.join(out, 'go');
+fs.rmSync(botFile, { force: true }); fs.rmSync(goFile, { force: true });
+const bots = B > 0 ? spawn('npx', ['vitest', 'run', '-c', 'vitest.drive.config.ts', 'tests/drive/mpbot.test.ts'], { cwd: path.resolve(import.meta.dirname, '../../game'),
+  env: { ...process.env, MP_URL: `ws://127.0.0.1:${mpPort}/`, MP_ORIGIN: new URL(base).origin, DRIVE_DIR: sweepDir, MP_OUT: botFile, MP_BOTS: String(B),
+    MP_SECONDS: String(seconds), MP_GO: goFile }, stdio: ['ignore', 'pipe', 'pipe'] }) : null;
+let botLog = '';
+bots?.stdout.on('data', d => { botLog += d; }); bots?.stderr.on('data', d => { botLog += d; });
+const botRows = () => fs.existsSync(botFile) ? fs.readFileSync(botFile, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : [];
+if (bots) {
+  for (let i = 0; i < 1200 && !botRows().some(r => r.event === 'ready') && bots.exitCode === null; i++) await new Promise(r => setTimeout(r, 500));
+  if (!botRows().some(r => r.event === 'ready')) { console.log(`bots did not start:\n${botLog.slice(-2000)}`); bots.kill(); server.kill(); process.exit(2); }
+  console.log(new Date().toISOString().slice(11, 19), `${B} bots driving`);
+}
 
 if (guard('acquire') === 3) { console.log('browser slots full'); server.kill(); process.exit(3); }
 const browser = await chromium.launch({ executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
@@ -44,9 +66,9 @@ async function join(index) {
   const client = { index, context, page, nick: null, alive: true };
   page.on('pageerror', e => errors.push({ client: index, t: Date.now(), error: e.message }));
   await page.goto(`${base}?quality=low&telemetry=0&time=13:00&traffic=0&walkers=0&mp=ws://127.0.0.1:${mpPort}/`);
-  await page.waitForFunction(() => window.__game?.ready, null, { timeout: 240000 });
+  await page.waitForFunction(() => window.__game?.ready, null, { timeout: 480000 });
   await page.getByRole('option', { name: /Multiplayer/ }).click({ timeout: 60000 });
-  await page.waitForFunction(() => { const s = window.__game.state(); return !s.loading && !s.startScreen && s.multiplayer?.connected; }, null, { timeout: 240000 });
+  await page.waitForFunction(() => { const s = window.__game.state(); return !s.loading && !s.startScreen && s.multiplayer?.connected; }, null, { timeout: 480000 });
   client.nick = await page.evaluate(() => window.__game.state().multiplayer.nick);
   // The own car next to the character (test setup), entered with the interact key like a player.
   await page.evaluate(async i => {
@@ -101,10 +123,13 @@ async function sample(client) {
 let failed = null;
 try {
   log(`server on ${mpPort}; joining ${N} clients`);
-  for (let i = 0; i < N; i++) await join(i);
+  // All clients load at once (each loading tab competes with the others' rendering otherwise).
+  await Promise.all(Array.from({ length: N }, (_, i) => new Promise(r => setTimeout(r, i * 3000)).then(() => join(i))));
+  clients.sort((a, b) => a.index - b.index);
   const goal = await targets(clients[0].page);
   log('targets', JSON.stringify(goal.map(p => [Math.round(p.x), Math.round(p.z)])));
   const t0 = Date.now();
+  fs.writeFileSync(goFile, String(t0));
   let phase = 0, left = false, rejoined = false;
   for (const c of clients) { await drive(c, goal[c.index % 4]); await new Promise(r => setTimeout(r, 600)); }
   events.push({ t: Date.now(), kind: 'phase', phase: 1 });
@@ -112,7 +137,7 @@ try {
     await Promise.all(clients.map(sample));
     const now = Date.now() - t0;
     if (!left && now > seconds * 250 && clients.length > 2) {
-      const c = clients[clients.length - 1];
+      const c = clients.filter(c => c.index < N).at(-1);
       c.alive = false; events.push({ t: Date.now(), kind: 'leave', client: c.index, nick: c.nick });
       log(`client ${c.index} (${c.nick}) leaves mid-drive`);
       await c.context.close(); left = true;
@@ -123,10 +148,10 @@ try {
       log('phase 2: across');
       for (const c of clients.filter(c => c.alive)) void drive(c, goal[(c.index + 2) % 4]);
     }
-    if (!rejoined && now > seconds * 550) {
+    if (!rejoined && now > seconds * 300) {
+      // Joins while the others drive; sampling goes on meanwhile.
       rejoined = true;
-      const c = await join(N);
-      void drive(c, goal[(N + 1) % 4]);
+      void join(N).then(c => drive(c, goal[(N + 1) % 4])).catch(e => { errors.push({ client: N, t: Date.now(), error: `join: ${e.message}` }); });
     }
     guard('touch');
     await new Promise(r => setTimeout(r, 250));
@@ -135,9 +160,16 @@ try {
 finally {
   for (const c of clients) if (c.alive) await c.context.close().catch(() => {});
   await browser.close(); guard('release');
+  bots?.kill('SIGTERM');
   server.kill('SIGTERM'); fs.rmSync(scores, { recursive: true, force: true });
 }
 
+for (const r of botRows()) {
+  if (r.event === 'join' || r.event === 'leave') events.push({ t: r.t, kind: r.event, client: r.client, nick: r.nick, bot: true });
+  else if (r.event === 'error') errors.push({ client: 'bots', t: r.t, error: r.error });
+  else if (!r.event) samples.push(r);
+}
+samples.sort((a, b) => a.wall - b.wall);
 // Analysis: own trajectories by nick, every remote observation against them.
 const own = new Map();
 for (const s of samples) if (s.self && !s.error) { const l = own.get(s.nick) ?? []; l.push(s); own.set(s.nick, l); }
@@ -186,7 +218,10 @@ const trips = [...new Set(samples.map(s => s.client))].map(c => {
   return { client: c, nick: l[0]?.nick, end: l.at(-1)?.trip ?? null, states: [...new Set(l.map(s => s.trip.state))] };
 });
 const frames = samples.filter(s => s.frameMs).map(s => s.frameMs);
-const result = { clients: N + 1, seconds, failed, samples: samples.length,
+// Divergence by observer kind: browsers show interpolated remotes (100 ms buffer); bots hold the latest raw pose.
+const byObserver = kind => pairs.filter(p => p.speed >= 3 && (samples.find(s => s.nick === p.observer)?.bot ? 'bot' : 'browser') === kind).map(p => p.d);
+const result = { browsers: N + 1, bots: B + 1, seconds,
+  divergenceByObserver: Object.fromEntries(['browser', 'bot'].map(k => { const l = byObserver(k); return [k, { n: l.length, p50: pct(l, 0.5), p95: pct(l, 0.95), max: pct(l, 1) }]; })), failed, samples: samples.length,
   divergence: { moving: { n: moving.length, p50: pct(moving, 0.5), p95: pct(moving, 0.95), max: pct(moving, 1) }, all: { n: pairs.length, p95: pct(pairs.map(p => p.d), 0.95) } },
   latency: { bestLagMs: bestLag, residualM: bestErr }, presence, contacts: { total: contacts.length, nearPlayer: contacts.filter(c => c.nearPlayer).length, list: contacts.slice(0, 30) },
   trips, frameMs: { p50: pct(frames, 0.5), p95: pct(frames, 0.95) }, errors: errors.slice(0, 30), serverLog: serverLog.slice(-2000) };

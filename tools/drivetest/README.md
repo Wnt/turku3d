@@ -25,7 +25,7 @@ node tools/drivetest/report.mjs $D             # $D/report.md, $D/report.json
 - **Physics:** each lane is driven by `physics/world.ts` (the worker's own code) over the pinned version's
   collision cells, at the posted limit (capped at 80 km/h).
 - **Resuming:** results append to `$D/results/*.jsonl`, and a rerun skips the lanes already there. Cell, roads and
-  manifest downloads are cached in `$D/cache`.
+  manifest downloads are kept in `$D/tiles`.
 
 ## Pass/fail (`game/src/qa/drivetest/trace.ts LIMITS`)
 

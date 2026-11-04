@@ -1,15 +1,16 @@
-// Lane-level routing for the autopilot over the same lane graph the ambient cars drive: each tile's lanes from its
-// own roads.json (traffic/tileNetwork.ts), joined at seams (traffic/network.ts), with the junction movements the
-// traffic flow builds (traffic/flow.ts routesOf: lane discipline, folded crossing splinters, tangent arcs). A* runs
-// over lanes; neighbouring lanes of one carriageway are joined by lane changes. Every client that holds the same
+// Lane-level routing for the autopilot over the ambient traffic's lanes: each tile's lanes from its own roads.json
+// (traffic/tileNetwork.ts), joined at seams (traffic/network.ts). At a junction every lane leaving the node is an
+// exit (no U-turns except at a dead end), on the same tangent connector curves the traffic uses. The traffic flow's
+// own movements are not used: they fold the short crossing links and keep only the straightest way through them,
+// which suits ambient cars but leaves most central junctions straight-on only. A* runs over lanes; neighbouring
+// lanes of one carriageway are joined by lane changes. Every client that holds the same
 // tiles builds the same graph, so a route is the same in single player and multiplayer. Unlike ambient traffic it
 // keeps every car edge (service roads and yards too), so lane ids are the router's own.
 import { VISUAL_L0 } from '../../core/origin';
 import type { RoadGraphJson } from '../roadGraph';
 import { TrafficNetwork } from '../../traffic/network';
-import { TrafficFlow } from '../../traffic/flow';
 import { trafficRoads } from '../../traffic/roads';
-import { buildTileTraffic, type Lane } from '../../traffic/tileNetwork';
+import { buildTileTraffic, connector, type Connector, type Lane } from '../../traffic/tileNetwork';
 import { makePath, project, type Path, type PathPoint } from './path';
 
 export interface TileRoads { tile: string; json: RoadGraphJson; hash: string }
@@ -58,14 +59,20 @@ export function tilesBetween(a: { x: number; z: number }, b: { x: number; z: num
   return out.sort((p, q) => off(p) - off(q)).slice(0, max);
 }
 
-interface Step { lane: Lane; via: 'start' | 'move' | 'seam' | 'change'; route: Lane | null; from: Lane | null }
+/** A junction movement onto a lane: its connector curve from the stop line. */
+/** `penalty`: extra cost (m) of a near-start join that the lane data does not link (lanes.ts nearStarts). */
+interface Move { connector: Connector; penalty?: number }
+interface Step { lane: Lane; via: 'start' | 'move' | 'seam' | 'change'; route: Move | null; from: Lane | null }
+/** A turn sharper than this (rad) is a U-turn: only at a dead end. */
+const U_TURN = 2.6;
+/** A lane start this close to a lane end (m), heading within 60°, continues it even where the data has no link. */
+const NEAR_JOIN = 8, NEAR_PENALTY = 15;
 
 export class LaneRouter {
   readonly network = new TrafficNetwork();
-  private flow: TrafficFlow | null = null;
+  private exitMap: Map<Lane, { lane: Lane; route: Move | null }[]> | null = null;
   private readonly hashes = new Map<string, string>();
   private readonly pending = new Map<string, Promise<void>>();
-  private incoming: Map<Lane, { from: Lane; route: Lane | null }[]> | null = null;
   private siblings: Map<string, Lane[]> | null = null;
 
   constructor(private readonly load: RoadsLoader | null = null) {}
@@ -73,11 +80,13 @@ export class LaneRouter {
   /** Adds or replaces one tile's lanes. */
   setTile(roads: TileRoads) {
     if (this.hashes.get(roads.tile) === roads.hash) return;
-    this.network.setTile(buildTileTraffic(roads.tile, trafficRoads(roads.json, true), tileBounds(roads.tile), roads.hash));
+    const view = trafficRoads(roads.json, true);
+    this.nodes.set(roads.tile, view.nodes);
+    this.network.setTile(buildTileTraffic(roads.tile, view, tileBounds(roads.tile), roads.hash));
     this.hashes.set(roads.tile, roads.hash);
-    this.flow = null;
+    this.exitMap = null; this.seamStarts = null; this.starts = null;
   }
-  removeTile(tile: string) { if (this.hashes.delete(tile)) { this.network.removeTile(tile); this.flow = null; } }
+  removeTile(tile: string) { if (this.hashes.delete(tile)) { this.nodes.delete(tile); this.network.removeTile(tile); this.exitMap = null; this.seamStarts = null; this.starts = null; } }
   has(tile: string) { return this.hashes.has(tile); }
   get tiles(): string[] { return [...this.hashes.keys()]; }
 
@@ -94,30 +103,112 @@ export class LaneRouter {
     }));
   }
 
-  private graph(): TrafficFlow {
-    if (this.flow) return this.flow;
-    const flow = new TrafficFlow(this.network);
-    flow.reset(0); // builds the movement graph (no cars matter here)
-    const incoming = new Map<Lane, { from: Lane; route: Lane | null }[]>(), siblings = new Map<string, Lane[]>();
-    const add = (to: Lane, from: Lane, route: Lane | null) => { const list = incoming.get(to); if (list) list.push({ from, route }); else incoming.set(to, [{ from, route }]); };
+  /** Node x,z per tile: junctions are keyed by position, so a junction on a tile seam joins both tiles' lanes. */
+  private readonly nodes = new Map<string, Float64Array>();
+  private nodeKey(tile: string, node: number) {
+    const n = this.nodes.get(tile)!;
+    return `${Math.round(n[2 * node] * 2)},${Math.round(n[2 * node + 1] * 2)}`;
+  }
+  private startsAt: Map<string, Lane[]> | null = null;
+  private endsAt: Map<string, Lane[]> | null = null;
+  /** Indexes only; each lane's exits (and their connector curves) are built on first use. */
+  private graph(): this {
+    if (this.exitMap) return this;
+    const siblings = new Map<string, Lane[]>(), startsAt = new Map<string, Lane[]>(), endsAt = new Map<string, Lane[]>();
+    const push = (map: Map<string, Lane[]>, key: string, lane: Lane) => { const list = map.get(key); if (list) list.push(lane); else map.set(key, [lane]); };
     for (const tile of this.network.tiles.values()) for (const lane of tile.lanes) {
-      const key = `${tile.tile}|${lane.carriageway}`, list = siblings.get(key);
-      if (list) list.push(lane); else siblings.set(key, [lane]);
-      for (const { lane: next, route } of this.exits(lane, flow)) add(next, lane, route);
+      push(siblings, `${tile.tile}|${lane.carriageway}`, lane);
+      if (lane.start.kind === 'junction') push(startsAt, this.nodeKey(tile.tile, lane.start.node), lane);
+      if (lane.end.kind === 'junction') push(endsAt, this.nodeKey(tile.tile, lane.end.node), lane);
     }
-    this.incoming = incoming; this.siblings = siblings;
-    return this.flow = flow;
+    this.siblings = siblings; this.startsAt = startsAt; this.endsAt = endsAt; this.exitMap = new Map();
+    return this;
   }
 
-  /** Where a car on `lane` can go at its end: junction movements (with their connector) or the seam successor. */
-  private exits(lane: Lane, flow: TrafficFlow): { lane: Lane; route: Lane | null }[] {
-    const out: { lane: Lane; route: Lane | null }[] = [];
-    for (const route of flow.routesOf(lane)) if (route.next && route.connector && route !== lane) out.push({ lane: route.next, route });
-    if (!out.length) {
-      const next = this.network.successor(lane);
-      if (next) out.push({ lane: next, route: null });
+  /** Where a car on `lane` can go at its end: every lane leaving its junction (with a connector), or the seam successor. */
+  private exits(lane: Lane, _graph?: unknown): { lane: Lane; route: Move | null }[] {
+    const map = this.graph().exitMap!;
+    let out = map.get(lane);
+    if (out) return out;
+    out = [];
+    if (lane.end.kind === 'junction') {
+      const curves = (this.startsAt!.get(this.nodeKey(lane.tile, lane.end.node)) ?? []).map(next => ({ next, curve: connector(lane, next) }));
+      const deadEnd = curves.every(c => Math.abs(c.curve.turn) > U_TURN);
+      for (const { next, curve } of curves) if (deadEnd || Math.abs(curve.turn) <= U_TURN) out.push({ lane: next, route: { connector: curve } });
+    } else {
+      const next = this.network.successor(lane) ?? this.seamJoin(lane);
+      if (next) out.push({ lane: next, route: next === this.network.successor(lane) ? null : { connector: connector(lane, next) } });
+    }
+    // Gaps in the lane data (setbacks that miss, renumbered or cornered seams, clipped stubs) would split the graph
+    // into one-way pockets: any lane starting within NEAR_JOIN m of this end, heading the same way, also continues.
+    const n = lane.points.length, x = lane.points[n - 2], z = lane.points[n - 1];
+    const hx = x - lane.points[n - 4], hz = z - lane.points[n - 3], h = Math.hypot(hx, hz) || 1;
+    for (const l of this.startsNear(x, z)) {
+      if (l === lane || out.some(o => o.lane === l)) continue;
+      const lx = l.points[2] - l.points[0], lz = l.points[3] - l.points[1];
+      if (Math.hypot(l.points[0] - x, l.points[1] - z) > NEAR_JOIN || (hx * lx + hz * lz) / (h * (Math.hypot(lx, lz) || 1)) < 0.5) continue;
+      out.push({ lane: l, route: { connector: connector(lane, l), penalty: NEAR_PENALTY } });
+    }
+    map.set(lane, out);
+    return out;
+  }
+
+  private starts: Map<string, Lane[]> | null = null;
+  private startsNear(x: number, z: number): Lane[] {
+    if (!this.starts) {
+      this.starts = new Map();
+      for (const tile of this.network.tiles.values()) for (const l of tile.lanes) {
+        const key = `${Math.floor(l.points[0] / 10)},${Math.floor(l.points[1] / 10)}`;
+        (this.starts.get(key) ?? this.starts.set(key, []).get(key)!).push(l);
+      }
+    }
+    const out: Lane[] = [];
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) out.push(...this.starts.get(`${Math.floor(x / 10) + i},${Math.floor(z / 10) + j}`) ?? []);
+    return out;
+  }
+
+  /** Seam lanes of other tiles that join onto a seam start (the network's predecessor or a seamJoin match). */
+  private seamEnds(lane: Lane): Lane[] {
+    const own = this.network.predecessor(lane);
+    if (own) return [own];
+    const out: Lane[] = [];
+    for (const tile of this.network.tiles.values()) if (tile.tile !== lane.tile) for (const l of tile.lanes) {
+      if (l.end.kind !== 'seam' || this.network.successor(l)) continue;
+      const n = l.points.length;
+      if (Math.hypot(l.points[n - 2] - lane.points[0], l.points[n - 1] - lane.points[1]) < 2.5 && this.seamJoin(l) === lane) out.push(l);
     }
     return out;
+  }
+  /** Seam starts by 5 m cell, for seamJoin. */
+  private seamStarts: Map<string, Lane[]> | null = null;
+  /** A lane ending on a seam the network did not join (the lane count or numbering changes at the seam, or the seam
+   *  is a tile corner): the other tile's lane starting within 2.5 m of its end, heading the same way. */
+  private seamJoin(lane: Lane): Lane | null {
+    if (!this.seamStarts) {
+      this.seamStarts = new Map();
+      for (const tile of this.network.tiles.values()) for (const l of tile.lanes) if (l.start.kind === 'seam') {
+        const key = `${Math.floor(l.points[0] / 5)},${Math.floor(l.points[1] / 5)}`;
+        (this.seamStarts.get(key) ?? this.seamStarts.set(key, []).get(key)!).push(l);
+      }
+    }
+    const n = lane.points.length, x = lane.points[n - 2], z = lane.points[n - 1];
+    const hx = x - lane.points[n - 4], hz = z - lane.points[n - 3], h = Math.hypot(hx, hz) || 1;
+    let best: Lane | null = null, bestD = 2.5;
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const l of this.seamStarts.get(`${Math.floor(x / 5) + i},${Math.floor(z / 5) + j}`) ?? []) {
+      if (l.tile === lane.tile) continue;
+      const d = Math.hypot(l.points[0] - x, l.points[1] - z);
+      const lx = l.points[2] - l.points[0], lz = l.points[3] - l.points[1];
+      if (d < bestD && (hx * lx + hz * lz) / (h * (Math.hypot(lx, lz) || 1)) > 0.7) { best = l; bestD = d; }
+    }
+    return best;
+  }
+
+  /** Lanes that lead onto `lane` and the movement they take (follow() extends backwards along them). */
+  private entries(lane: Lane): { from: Lane; route: Move | null }[] {
+    this.graph();
+    const from = lane.start.kind === 'junction' ? this.endsAt!.get(this.nodeKey(lane.tile, lane.start.node)) ?? []
+      : this.seamEnds(lane);
+    return from.flatMap(f => this.exits(f).filter(e => e.lane === lane).map(e => ({ from: f, route: e.route })));
   }
 
   lane(ref: LaneRef): Lane | null { return this.network.tiles.get(ref.tile)?.byId.get(ref.id) ?? null; }
@@ -175,7 +266,7 @@ export class LaneRouter {
       }
       return { ...c, penalty };
     });
-    const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }).map(g => [g.lane, { s: g.s, penalty: 2 * g.distance }]));
+    const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }, 60, 12).map(g => [g.lane, { s: g.s, penalty: 2 * g.distance }]));
     if (!starts.length || !goals.size) return null;
     const flow = this.graph();
     // g(lane) is the cost at the lane's start; a start lane begins s metres in.
@@ -205,7 +296,7 @@ export class LaneRouter {
       done.add(lane);
       const at = g.get(lane)!;
       for (const { lane: next, route } of this.exits(lane, flow)) {
-        reach(next, at + lane.length + (route?.connector?.length ?? 0), { lane: next, via: route ? 'move' : 'seam', route, from: lane });
+        reach(next, at + lane.length + (route?.connector?.length ?? 0) + (route?.penalty ?? 0), { lane: next, via: route ? 'move' : 'seam', route, from: lane });
       }
       for (const sib of this.siblings!.get(`${lane.tile}|${lane.carriageway}`) ?? []) {
         if (Math.abs(sib.k - lane.k) !== 1) continue;
@@ -235,12 +326,12 @@ export class LaneRouter {
     const lane = this.lane(ref);
     if (!lane) return null;
     const flow = this.graph();
-    const turnOf = (route: Lane | null) => Math.abs(route?.connector?.turn ?? 0);
+    const turnOf = (route: Move | null) => Math.abs(route?.connector?.turn ?? 0);
     const used = new Set<Lane>([lane]);
     const back: Step[] = [];
     let need = before, at = lane, s0 = 0;
     for (let guard = 0; need > 0 && guard < 50; guard++) {
-      const options = (this.incoming!.get(at) ?? []).filter(o => !used.has(o.from));
+      const options = this.entries(at).filter(o => !used.has(o.from));
       if (!options.length) break;
       const pick = options.sort((a, b) => turnOf(a.route) - turnOf(b.route) || (a.from.id < b.from.id ? -1 : 1))[0];
       back.push({ lane: at, via: pick.route ? 'move' : 'seam', route: pick.route, from: pick.from });

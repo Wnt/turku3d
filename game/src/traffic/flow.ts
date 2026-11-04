@@ -107,10 +107,6 @@ export class TrafficFlow {
     return set;
   }
 
-  /** The movements a car on `lane` may take at its end (the autopilot's lane router reads them; empty before the
-   *  first update or reset builds the graph). */
-  routesOf(lane: Lane): readonly Lane[] { return this.movements.get(lane) ?? []; }
-
   /** Every movement's conflict set (QA and tests; play builds them as cars reach junctions). */
   allConflicts(): Map<Lane, Set<Lane>> {
     for (const m of this.index?.movements ?? []) if (m.connector) this.conflictsOf(m);

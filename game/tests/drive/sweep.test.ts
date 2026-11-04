@@ -4,7 +4,7 @@
 import { test } from 'vitest';
 import { sweep } from './sweep';
 
-test('drive sweep', async () => {
+test.runIf(!!process.env.DRIVE_DIR && !process.env.MP_URL)('drive sweep', async () => {
   const [k, n] = (process.env.DRIVE_SHARD ?? '0/1').split('/').map(Number);
   const result = await sweep({ dir: process.env.DRIVE_DIR!, shard: [k, n],
     limit: process.env.DRIVE_LIMIT ? Number(process.env.DRIVE_LIMIT) : undefined,

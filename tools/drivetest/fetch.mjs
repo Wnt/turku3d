@@ -1,5 +1,5 @@
 // Read-only cache of the pinned tile version for the drive sweep: which tiles are finished (ready.json HEAD probes,
-// never a build request), their manifests, roads.json and collision cells. Files land under DIR/cache and are
+// never a build request), their manifests, roads.json and collision cells. Files land under DIR/tiles and are
 // reused across shards and resumed runs (payload names carry their sha256).
 //
 //   node tools/drivetest/fetch.mjs DIR [TILE_SERVICE_JSON] [--tiles i0,j0,i1,j1]
@@ -32,7 +32,7 @@ async function pool(items, n, fn) {
 }
 
 export class TileCache {
-  constructor(dir, source = farm()) { this.dir = path.join(dir, 'cache'); this.source = source; fs.mkdirSync(this.dir, { recursive: true }); }
+  constructor(dir, source = farm()) { this.dir = path.join(dir, 'tiles'); this.source = source; fs.mkdirSync(this.dir, { recursive: true }); }
   file(...p) { const f = path.join(this.dir, ...p); fs.mkdirSync(path.dirname(f), { recursive: true }); return f; }
   async ready(tile) {
     const r = await fetch(new URL(`${tile}/ready.json`, this.source.root), { method: 'HEAD', signal: AbortSignal.timeout(10000) }).catch(() => null);
