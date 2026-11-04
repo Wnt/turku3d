@@ -41,6 +41,17 @@ const CHANGE_CREEP = 0.3;
 const STARVE_AFTER = 15;
 /** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
 const HELD = /^(exit|storage|receiving|signal|no-exit)/;
+/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, a car that has made no headway for
+ *  RECYCLE_HEAD seconds and heads a chain of stuck cars, or any car stuck for RECYCLE_ANY seconds, leaves the flow when
+ *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
+const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
+/** Hidden from a watcher: beyond HIDE_FAR m, or beyond HIDE_NEAR m outside its view cone widened by HIDE_MARGIN rad.
+ *  The near radius sits beyond the ring's out-of-view draw radius (RING.removeOutOfView 85 m), the far one beyond its
+ *  in-view radius (RING.removeInView 300 m), so a recycled car was not drawn by that client. */
+const HIDE_FAR = 320, HIDE_NEAR = 90, HIDE_MARGIN = 0.35;
+/** Source throttling: a source admits no car while more than JAM_SHARE of its tile's storage (lane metres / JAM_CAR)
+ *  is held by cars stuck for JAM_STUCK seconds. Recomputed once a second. */
+const JAM_SHARE = 0.08, JAM_CAR = 7, JAM_STUCK = 30;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -64,6 +75,21 @@ export interface FlowCar {
   change: LaneChange | null; signal: LaneSignal | null; changeCooldown: number;
   previous: { route: Lane; s: number; speed: number; change: LaneChange | null; swerve: number; swerveRate: number };
   pose: CarPose;
+}
+
+/** Someone who can see cars: a camera (position, unit forward, half field of view) or a position seen all round. */
+export interface TrafficWatcher { x: number; z: number; fx?: number; fz?: number; halfFov?: number }
+
+/** True when no watcher can see (x, z) (see HIDE_FAR / HIDE_NEAR). */
+export function unseen(watchers: readonly TrafficWatcher[], x: number, z: number): boolean {
+  for (const w of watchers) {
+    const dx = x - w.x, dz = z - w.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (d <= HIDE_NEAR) return false;
+    if (d > HIDE_FAR) continue;
+    if (w.fx === undefined || w.fz === undefined || w.halfFov === undefined) return false;
+    if ((dx * w.fx + dz * w.fz) / d >= Math.cos(Math.min(Math.PI, w.halfFov + HIDE_MARGIN))) return false;
+  }
+  return true;
 }
 
 export interface TrafficCheckpoint {
@@ -168,9 +194,18 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, throttled: 0 };
+  /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
+   *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
+  private watchers: TrafficWatcher[] | null = null;
+  /** Tiles whose sources are throttled (JAM_SHARE), recomputed once a second. */
+  private saturated = new Set<string>();
+  /** Recycled cars since the host last drained this list (diagnostics and tests). */
+  readonly recycledLog: { key: string; x: number; z: number; t: number }[] = [];
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
+
+  setWatchers(watchers: TrafficWatcher[] | null) { this.watchers = watchers; }
 
   setPedestrians(people: TrafficPedestrian[], time: number) { this.pedestrians = { time, people }; }
   /** Every player this client knows of: on foot (the local character, remote walkers) and their vehicles (the
@@ -276,7 +311,8 @@ export class TrafficFlow {
     const rebuild = this.revision !== this.network.revision;
     this.tick = Math.floor(t / FLOW_STEP); this.ready = true; this.revision = this.network.revision;
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, throttled: 0 };
+    this.saturated.clear();
     if (!rebuild) {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
@@ -418,6 +454,8 @@ export class TrafficFlow {
       if (next) inbound.add(next);
     }
     this.sources = this.lanes.filter(l => l.length >= 12 && !inbound.has(l));
+    this.storage.clear();
+    for (const l of this.lanes) this.storage.set(l.tile, (this.storage.get(l.tile) ?? 0) + l.length / JAM_CAR);
     for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
   }
 
@@ -446,10 +484,13 @@ export class TrafficFlow {
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
     // the next free slot admits a car, rather than placing another body inside an existing queue.
+    this.throttle();
     for (const lane of this.sources) {
       let n = this.demand.get(lane)!;
       while (entryTime(lane, n) <= t + 1e-7) {
-        if (this.network.present(lane, n)) this.spawn(lane, n, t);
+        if (this.network.present(lane, n)) {
+          if (this.saturated.has(lane.tile)) this.stats.throttled++; else this.spawn(lane, n, t);
+        }
         n++;
       }
       this.demand.set(lane, n);
@@ -616,7 +657,54 @@ export class TrafficFlow {
       if (this.cars.has(car.key)) this.occupy(car);
     }
     if (this.tick % 10 === 0) this.clearDeadlocks();
+    if (this.tick % 10 === 5) this.recycle(t);
   }
+
+  /** Out-of-view recycling (RECYCLE_HEAD / RECYCLE_ANY): the head of every chain of stuck cars, then any long-stuck
+   *  car, leaves the flow when no watcher sees it. Canonical key order and pure flow state plus the watcher list, so
+   *  peers that share the list agree. */
+  private recycle(t: number) {
+    const watchers = this.watchers;
+    if (!watchers) return;
+    const stuck = [...this.cars.values()].filter(c => c.stuck >= RECYCLE_HEAD).sort((a, b) => cmp(a.key, b.key));
+    const heads = new Set<FlowCar>();
+    for (const car of stuck) {
+      let at = car;
+      const seen = new Set<FlowCar>([car]);
+      for (let hop = 0; hop < RECYCLE_CHAIN; hop++) {
+        const next = this.waitsOn(at);
+        if (!next || seen.has(next) || next.stuck < JAM_STUCK) break;
+        seen.add(next); at = next;
+      }
+      heads.add(at);
+    }
+    for (const car of stuck) if (car.stuck >= RECYCLE_ANY) heads.add(car);
+    for (const car of [...heads].sort((a, b) => cmp(a.key, b.key))) {
+      if (!this.cars.has(car.key) || !unseen(watchers, car.pose.x, car.pose.z)) continue;
+      this.unoccupy(car); this.cars.delete(car.key); this.stats.recycled++;
+      if (this.recycledLog.length < 10_000) this.recycledLog.push({ key: car.key, x: car.pose.x, z: car.pose.z, t });
+    }
+  }
+
+  /** Tiles whose 3×3 neighbourhood has more than JAM_SHARE of its storage held by stuck cars: their sources feed no
+   *  more cars for now. Pure car state, evaluated before every step's spawns (so a restored checkpoint agrees). */
+  private throttle() {
+    const jammed = new Map<string, number>();
+    for (const car of this.cars.values()) if (car.stuck >= JAM_STUCK) jammed.set(car.lane.tile, (jammed.get(car.lane.tile) ?? 0) + 1);
+    this.saturated.clear();
+    if (!jammed.size) return;
+    for (const tile of this.storage.keys()) {
+      const m = /^t0_(-?\d+)_(-?\d+)$/.exec(tile);
+      let n = 0, storage = 0;
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+        const id = m ? `t0_${+m[1] + i}_${+m[2] + j}` : i || j ? '' : tile;
+        n += jammed.get(id) ?? 0; storage += this.storage.get(id) ?? 0;
+      }
+      if (n > JAM_SHARE * storage) this.saturated.add(tile);
+    }
+  }
+  /** Car spaces per tile: its lanes' length over JAM_CAR (built with the graph). */
+  private storage = new Map<string, number>();
 
   /** The key a car waits on (any blockedBy that names one), for deadlock cycles. */
   private waitsOn(car: FlowCar) { return car.waitsFor ? this.cars.get(car.waitsFor) ?? null : null; }
