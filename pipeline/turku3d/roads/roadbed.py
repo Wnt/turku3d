@@ -262,6 +262,15 @@ def _step_runs(h):
     return out
 
 
+def _plateau(h):
+    """Samples of one continuous surface: finite, and within STEP_MIN of their own straight fit."""
+    if len(h) < 2 or not np.isfinite(h).all():
+        return False
+    x = np.arange(len(h))
+    fit = np.polyval(np.polyfit(x, h, 1), x)
+    return bool(np.abs(h - fit).max() <= STEP_MIN)
+
+
 def slabs(graph, floor, bbox, stats):
     """Rules 2 and 3: the slabs for the tile's car edges, as (centre, half, rotation, rule)."""
     from turku3d.col.materials import mat_id
@@ -317,6 +326,10 @@ def slabs(graph, floor, bbox, stats):
                 if not (np.isfinite(track[foot]) and inside[t, foot] and inside[t, top]
                         and paved[t, top] and paved[t, foot] and paved[t, i] and paved[t, i + 1]):
                     continue
+                low = track[min(i + 1, foot) : max(i + 1, foot) + 1] if rise < 0 \
+                    else track[min(foot, i) : max(foot, i) + 1]
+                if not _plateau(low):
+                    continue  # the low side is a hole or another step, not a surface to ramp onto
                 a = (points[t, top, 0], track[top], points[t, top, 1])
                 b = (points[t, foot, 0], track[foot], points[t, foot, 1])
                 add(a, b, TRACK + 0.1, "step")
