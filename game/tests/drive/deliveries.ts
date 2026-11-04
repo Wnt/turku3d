@@ -30,6 +30,8 @@ class DeliveryBot extends Bot {
   private planning = false;
   private failures = 0;
   started = Date.now();
+  /** Last time the car moved (watchdog: a minute without moving respawns it at the pizzeria). */
+  movedAt = Date.now();
 
   constructor(index: number, private readonly cache: InstanceType<typeof TileCache>, private readonly router: LaneRouter,
     private readonly stops: Stop[]) { super(index); }
@@ -58,14 +60,17 @@ class DeliveryBot extends Bot {
   /** At the pizzeria kerb, facing along its street. */
   async spawnAtPizzeria() {
     if (!this.pw) this.pw = new PhysicsWorld(RAPIER);
-    const at = { x: PIZZERIA_VEHICLE_SPOT.x + 6 * (this.index % 4) * Math.cos(PIZZERIA_VEHICLE_SPOT.yaw), z: PIZZERIA_VEHICLE_SPOT.z - 6 * (this.index % 4) * Math.sin(PIZZERIA_VEHICLE_SPOT.yaw) };
+    // Kerb slots 6 m apart along the street (a respawn takes the next one), a second row 3 m out past five.
+    const slot = (this.index + this.respawns) % 10, along = 6 * (slot % 5), out = slot >= 5 ? 3 : 0;
+    const cy = Math.cos(PIZZERIA_VEHICLE_SPOT.yaw), sy = Math.sin(PIZZERIA_VEHICLE_SPOT.yaw);
+    const at = { x: PIZZERIA_VEHICLE_SPOT.x + along * cy + out * sy, z: PIZZERIA_VEHICLE_SPOT.z - along * sy + out * cy };
     await this.ensureCells([at]);
     for (let k = 0; k < 400 && !this.ready(at.x, at.z, 0, 0); k++) { this.pw.pumpInstalls(20); await new Promise(r => setTimeout(r, 5)); }
     this.pw.world.step();
     const hit = this.pw.raycast({ x: at.x, y: 40, z: at.z }, { x: 0, y: -1, z: 0 }, 80, 'solid');
     this.pw.spawnVehicle({ x: at.x, y: (hit?.point.y ?? 5) + 0.9, z: at.z }, PIZZERIA_VEHICLE_SPOT.yaw);
     for (let k = 0; k < 30; k++) this.pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
-    this.follower = null; this.leg = null; this.state = 'parked';
+    this.follower = null; this.leg = null; this.state = 'parked'; this.movedAt = Date.now();
   }
 
   /** The next stop: home when away, else an address (every fourth trip the market or the dealer). */
@@ -140,8 +145,10 @@ class DeliveryBot extends Bot {
       this.stuck++; this.state = 'replan'; this.failures++;
       if (this.failures >= 3) { this.respawns++; this.failures = 0; void this.spawnAtPizzeria(); }
     }
-    // Driven off the world (fell through): back to the pizzeria.
+    // Driven off the world (fell through), or not moved for a minute: back to the pizzeria.
     const v = this.pw.vehicleState();
+    if (v && v.speed > 1) this.movedAt = Date.now();
+    if (Date.now() - this.movedAt > 60_000 && !this.planning) { this.stuck++; this.respawns++; void this.spawnAtPizzeria(); return; }
     if (v && v.pos.y < -30) { this.respawns++; void this.spawnAtPizzeria(); }
   }
 }
