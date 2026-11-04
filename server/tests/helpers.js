@@ -5,11 +5,11 @@ export function fixture(start = '2026-10-27T12:00:00Z') {
   const records = [];
   const store = { write: (hour, players) => records.push({ hour, players }), prune() {} };
   const room = new Room({ store, now: () => time });
-  function connect(session) {
+  function connect(session, hello = {}) {
     const messages = [], closes = [];
     const c = room.connect(data => messages.push(JSON.parse(data)), (...args) => closes.push(args));
     const send = m => room.receive(c, JSON.stringify({ v: 2, ...m }));
-    send({ type: 'hello', ...(session ? { session } : {}) });
+    send({ type: 'hello', ...(session ? { session } : {}), ...hello });
     return { c, messages, closes, send, get welcome() { return messages.find(m => m.type === 'welcome'); } };
   }
   return { room, records, connect, advance: ms => { time += ms; room.tick(); },

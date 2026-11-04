@@ -91,6 +91,55 @@ Replay and QA (no physics worker) stand cars and walkers on `world/groundIndex.t
   672 -> 136; northwest 231 -> 0; far-east 430 -> 0; overlaps 0 everywhere after (south had 10 before).
   Opt-in test: `TRAFFIC_TILES_DIR=<roads-*.json dir> npx vitest run tests/unit/traffic-gridlock.test.ts`.
 
+## GTA-style recycling, junctions, passes, budgeted rebuilds (2026-11-05, `local/traffic-gta`)
+
+Spec: `docs/handover/gta-traffic-study.md` (clean-room study of GTA V's own files, scripts and observations). Its main
+finding is that GTA never dissolves jams: any car no player sees is disposable (off-screen cull at 150 m against about
+435 m on screen, zone/hour budgets, spawning on a hidden ring). In view, GTA tolerates jams. We built:
+
+- **Out-of-view recycling** (`traffic/flow.ts recycle`, once a second). The head of every chain of stuck cars (no 2 m
+  of headway for 90 s; the chain follows `waitsFor` through cars stuck for 30 s or more), and any car stuck for 180 s,
+  leaves the flow when no watcher sees it. `unseen()`: beyond 320 m, or beyond 90 m outside the view cone widened by
+  0.35 rad. Both radii sit beyond the ring's draw radii (85 m out of view, 300 m in view), so a recycled car was not
+  drawn. With no watcher list (`null`) nothing is recycled. Sources keep their timetable. `stats.recycled`,
+  `recycledLog`.
+- **Watchers:**
+  - single player: the camera view (`physics/traffic.ts`);
+  - multiplayer: the server's `watch` message (`server/watch.js`, once a second), which carries every online player's
+    position rounded to 1 m and is stamped with the server second. Every peer schedules it at the same tick (stamp +
+    2 s, valid 1.5 s; `flow.scheduleWatch`) as all-round watchers, so peers recycle the same cars. A peer that misses
+    a list recycles nothing in that window. `TRAFFIC.version` is 13.
+- **Stop lines out of crossing paths** (`safeFront`): a waiting head's front stops where its body keeps 0.3 m from
+  every other approach's movement path through the junction (moved back at most 6 m). This is the east pattern,
+  where a reservation holder was footprint-blocked by a head at another stop line.
+- **Going round obstacles** (`passPlan` takes a list of bodies): a player's stopped vehicle (as before), a player
+  standing in the lane, or a car stopped mid-block, together with what holds it there (a player's car or person, or
+  a footprint lock that has lasted 20 s). Queues at a junction (within 15 m of the line) are never passed. While a car
+  passes, a lane leader it already clears sideways is not followed; the guard still checks contact.
+- **Budgeted graph rebuilds** (`buildGraph` generator, `rebuildBudgetMs`): a tile install or release builds the new
+  graph in slices beside the live one (3 ms per worker step, `REBUILD_MS_PER_STEP`) and swaps it in at a step
+  boundary, remapping cars through id maps built in the job. Before, one step paid 16-140 ms on 25 loaded centre
+  tiles (osgallery-dev). Initial builds, clock jumps and checkpoint restores stay synchronous.
+- **Source throttling (A/B, removed).** Sources fed no cars while a district's stuck cars held more than 8 % of its
+  storage. On south 30 min it cost exits (71.5 against 90.9 per minute without it, both with 0 locked); a stricter
+  rule never triggered.
+
+- **Evidence** (real tiles at 16:00 on osgallery-dev; probe `~/turku3d/loops/traffic-gta/probe/gridlock.ts`, launcher
+  `soak.sh`). A watcher stands at the district centre and turns its camera once every 120 s. Recycles are checked
+  against that camera by the probe's own rule (85 m all round, 300 m in the cone + 0.2 rad).
+
+  | district (sim) | locked > 300 s | exits/min, last half | recycled (in view) | overlaps |
+  |---|---|---|---|---|
+  | centre 5x5 (60 min) | 214 -> pending | 122 -> pending | pending | 0 -> pending |
+  | east 3x3 (30 min) | 145 -> 0 | 95.0 -> 100.1 | 182 (0) | 0 -> 0 |
+  | south 3x3 (30 min) | 136 -> 0 (no-throttle A/B run) | 84.1 -> 90.9 | 563 (0) | 0 -> 0 |
+  | northwest 3x3 (30 min) | 0 -> pending | 46.3 -> pending | pending | 0 |
+  | far-east 3x3 (30 min) | 0 -> 0 | 43.3 -> 45.0 | 82 (0) | 0 -> 0 |
+
+  The centre baseline is the `f-centre` run of `local/traffic-gridlock` (its district baselines reproduce exactly).
+  Flow step mean on the loaded host (load ~55 on 16 cores), before -> after: east 15.4 -> 18.6 ms, far-east
+  13.2 -> 15.2 ms. Recycled cars count as removals, not exits.
+
 ## Open, ranked
 
 1. **Walker tiers.** Height rays for near walkers only; far walkers at a lower update rate. Walkers are now evaluated within the 110 m ring only, but every candidate still requests chain height rays and is re-evaluated every frame.

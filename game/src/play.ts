@@ -640,7 +640,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
     traffic.setMultiplayer(multiplayerPlaying && multiplayer ? { offsetMs: multiplayer.serverNow() - (performance.timeOrigin + performance.now()),
-      agreed: multiplayer.state.roads, sources: multiplayer.state.vehicleSources } : null);
+      agreed: multiplayer.state.roads, sources: multiplayer.state.vehicleSources, watch: multiplayer.state.watch } : null);
     if (multiplayerPlaying && multiplayer?.state.connected) multiplayer.reportRoads(traffic.local, traffic.revision);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);

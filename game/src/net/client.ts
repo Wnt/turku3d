@@ -25,6 +25,8 @@ interface MultiplayerState {
   /** Road-graph hashes all reporting players share, for the traffic gate (traffic/gate.ts); null until the server
    *  answers this connection's report (older servers never do: multiplayer traffic then spawns nothing). */
   roads: Map<string, string> | null;
+  /** The server's latest traffic watch (server/watch.js): every online player's rounded position, stamped. */
+  watch: { at: number; points: [number, number][] } | null;
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
@@ -50,7 +52,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
 export class MultiplayerClient extends EventTarget {
   readonly url: string;
   readonly httpUrl: string;
-  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
+  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, watch: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private serverOffset = 0;
   serverNow() { return performance.now() + this.serverOffset; }
   /** Server-issued token shared with the mission-progress snapshot for this tab. */
@@ -247,6 +249,11 @@ export class MultiplayerClient extends EventTarget {
         this.state.countdown = null; this.changed(); break;
       case 'round_result': this.dispatchEvent(new CustomEvent('roundResult', { detail: msg.result })); break;
       case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
+      case 'watch': if (Number.isFinite(msg.at) && Array.isArray(msg.points)) {
+        const points = (msg.points as unknown[]).filter((p): p is [number, number] => Array.isArray(p) && p.length === 2
+          && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+        this.state.watch = { at: Number(msg.at), points };
+      } break;
       case 'roads': if (msg.agreed && typeof msg.agreed === 'object') {
         this.state.roads = new Map(Object.entries(msg.agreed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
         this.dispatchEvent(new Event('roads'));

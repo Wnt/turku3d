@@ -53,8 +53,12 @@ The live roster includes self; match self by `you.id`. It contains no session to
 ### hello
 
 ```json
-{"v":2,"type":"hello","session":"optional 64-character lowercase hex token"}
+{"v":2,"type":"hello","session":"optional 64-character lowercase hex token","bot":false}
 ```
+
+`bot:true` marks an automated client (the delivery bots, `tools/drivetest/bots.sh`). A car it registers is removed
+30 s after it becomes empty, or 10 s after the bot goes offline, seated or not, so bot cars never accumulate; a
+player's own cars keep the normal lifetime below.
 
 Send once within 5 seconds of connecting; omit `session` on first join. A current
 hour token rejoins the same ID, nickname, spawn, score and paid-order set. It

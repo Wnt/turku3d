@@ -18,7 +18,7 @@ import { GROUP } from '../shared/col/materials';
 import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
-import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
+import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar, type TrafficWatcher } from '../traffic/flow';
 import { honking, vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
@@ -94,6 +94,9 @@ interface ActiveCar {
   groundAt?: {x:number;z:number;yaw:number};
 }
 
+/** Wall time (ms) a physics step may spend on a traffic graph rebuild. */
+const REBUILD_MS_PER_STEP = 3;
+
 export class TrafficSim {
   readonly network = new TrafficNetwork();
   readonly flow = new TrafficFlow(this.network);
@@ -130,6 +133,8 @@ export class TrafficSim {
 
   constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {
     this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
+    // A tile install rebuilds the traffic graph over several steps instead of stalling one (worker step budget).
+    this.flow.rebuildBudgetMs = REBUILD_MS_PER_STEP;
   }
 
   /** Clock hour at traffic time t. Multiplayer: the shared cycle, so every client thins alike. Single player: the
@@ -161,6 +166,12 @@ export class TrafficSim {
   configure(change: Partial<TrafficConfig>) {
     if (change.enabled !== undefined) this.network.setEnabled(change.enabled ? new Set(change.enabled) : null);
     if (change.claims) { this.claims.setRemote(change.claims); for (const key of change.claims) this.flow.suppress(key); }
+    if (change.watch) {
+      // Every client turns the same stamped list into the same tick window and engine positions (x = E, z = -N).
+      const from = Math.ceil((change.watch.at + TRAFFIC.watchDelayMs - TRAFFIC.epochMs) / 1000 / FLOW_STEP - 1e-9);
+      this.flow.scheduleWatch(from, from + Math.round(TRAFFIC.watchValidMs / 1000 / FLOW_STEP),
+        change.watch.points.map(([E, N]) => ({ x: E, z: -N })));
+    }
     this.config = { ...this.config, ...change };
     this.network.density!.multiplier = Math.max(0, this.config.density);
     this.resync();
@@ -175,7 +186,10 @@ export class TrafficSim {
     }
   }
 
+  /** The camera; in single player also the flow's watcher for out-of-view recycling (its 90 m all-round radius covers
+   *  the player it follows). Multiplayer recycles only on the server-stamped watch (configure `watch`). */
   setView(view: View | null) { this.view = view; }
+
 
   /** Shared traffic time for a wall-clock instant. Single player freezes it while paused; multiplayer never does. */
   clock(wallMs: number, running: boolean): number {
@@ -193,6 +207,7 @@ export class TrafficSim {
     this.time = t;
     const players = this.host.players();
     this.flow.setPlayers(players.people, players.vehicles, t);
+    if (!this.config.shared) this.flow.setWatchers(this.view ? [{ ...this.view }] : null);
     this.flow.update(t);
     if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; this.stats.active = this.stats.bodies = 0; return; }
     if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {

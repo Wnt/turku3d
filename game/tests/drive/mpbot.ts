@@ -99,7 +99,7 @@ export class Bot {
         for (const p of msg.poses ?? []) if (p.id !== this.id) this.remotes.set(p.id, { nick: this.nicks.get(p.id) ?? p.id, pose: p, at: Date.now() });
       }
     }));
-    this.ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.session ? { session: this.session } : {}) }));
+    this.ws.send(JSON.stringify({ v: 2, type: 'hello', bot: true, ...(this.session ? { session: this.session } : {}) }));
     await welcome;
   }
 

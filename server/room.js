@@ -7,6 +7,7 @@ import { validDelivery } from './economy.js';
 import { validPose, cleanPose } from './pose.js';
 import { VehicleRegistry, VEHICLE_LIMITS } from './vehicles.js';
 import { RoadAgreement } from './roads.js';
+import { TrafficWatch } from './watch.js';
 
 export const VERSION = 2;
 export const LIMITS = Object.freeze({ connections: 32, acceptedPerSecond: 20, disconnectPerSecond: 25,
@@ -27,6 +28,7 @@ export class Room {
     this.brokenPoles = new Map();
     this.vehicles = new VehicleRegistry(this);
     this.roads = new RoadAgreement(this);
+    this.watch = new TrafficWatch(this);
     this.rounds = new TimedRounds(this);
     this.spawnIndex = 0;
     this.warned = false;
@@ -128,7 +130,7 @@ export class Room {
       this.usedNicks.add(nick);
       p = { id: randomUUID(), session: randomBytes(32).toString('hex'), nick,
         spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], earned: 0, deliveries: 0, reachedAt: now,
-        orders: new Set(), finedPoles: new Set(), pose: null, dirty: false };
+        orders: new Set(), finedPoles: new Set(), pose: null, dirty: false, bot: m.bot === true };
       this.players.set(p.id, p);
       this.sessions.set(p.session, p);
     }
@@ -224,6 +226,7 @@ export class Room {
 
   tick(now = this.now()) {
     this.rounds.tick(now);
+    this.watch.tick(now);
     this.vehicles.expire(now);
     while (!this.rounds.active && now >= Date.parse(this.hour.end)) {
       this.store.write(this.hour, this.scores().map(({ nick, earned, deliveries, rank }) => ({ nick, earned, deliveries, rank })));

@@ -12,6 +12,8 @@ import { bodyOverlap, pedestrianStop, vehicleStop, type PedestrianFrame, type Tr
   type TrafficVehicle } from './pedestrians';
 export { bodyOverlap } from './pedestrians';
 import { slotShare } from './density';
+import { PASS_CLEAR_LINE, planPass, unseen, type Obstacle, type PassPlan, type TrafficWatcher } from './driver';
+export { unseen, type TrafficWatcher } from './driver';
 
 export const FLOW_STEP = 0.1;
 const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
@@ -19,7 +21,11 @@ const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
  *  patience), keeps PASS_MARGIN metres beside it, never leaves the lane by more than PASS_MAX metres, and needs the
  *  corridor clear for the pass plus PASS_LOOKAHEAD seconds of oncoming travel (pulling out and driving past from a
  *  standstill takes about eight). */
-const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
+const PASS_AFTER = 4;
+/** A footprint-locked car ahead counts as an obstacle after PASS_LOCKED seconds without headway; a standing player is
+ *  a PERSON_BODY m square. */
+const PASS_LOCKED = 20, PERSON_BODY = 0.8;
+type Body = Obstacle<FlowCar>;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
 /** Swept-footprint guard: the margin a moving car keeps from others, and the smaller contact margin it keeps from a
@@ -41,6 +47,12 @@ const CHANGE_CREEP = 0.3;
 const STARVE_AFTER = 15;
 /** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
 const HELD = /^(exit|storage|receiving|signal|no-exit)/;
+/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, a car that has made no headway for
+ *  RECYCLE_HEAD seconds and heads a chain of stuck cars, or any car stuck for RECYCLE_ANY seconds, leaves the flow when
+ *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
+const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
+/** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
+const JAM_STUCK = 30;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -65,6 +77,8 @@ export interface FlowCar {
   previous: { route: Lane; s: number; speed: number; change: LaneChange | null; swerve: number; swerveRate: number };
   pose: CarPose;
 }
+
+
 
 export interface TrafficCheckpoint {
   version: number; roads: string; tick: number; epoch: number;
@@ -168,9 +182,25 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
+  /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
+   *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
+  private watchers: TrafficWatcher[] | null = null;
+  /** Recycled cars since the host last drained this list (diagnostics and tests). */
+  readonly recycledLog: { key: string; x: number; z: number; t: number }[] = [];
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
+
+  /** Single player: the watchers from now on. */
+  setWatchers(watchers: TrafficWatcher[] | null) { this.watchers = watchers; this.schedule = null; }
+  /** Multiplayer: watchers for ticks [from, until) (a server-stamped list every peer schedules alike). Outside every
+   *  window there are none, so a peer that missed a list recycles nothing rather than something else. */
+  scheduleWatch(from: number, until: number, watchers: TrafficWatcher[]) {
+    (this.schedule ??= []).push({ from, until, watchers });
+    this.schedule.sort((a, b) => a.from - b.from);
+    while (this.schedule.length > 8) this.schedule.shift();
+  }
+  private schedule: { from: number; until: number; watchers: TrafficWatcher[] }[] | null = null;
 
   setPedestrians(people: TrafficPedestrian[], time: number) { this.pedestrians = { time, people }; }
   /** Every player this client knows of: on foot (the local character, remote walkers) and their vehicles (the
@@ -207,8 +237,7 @@ export class TrafficFlow {
   restore(state: TrafficCheckpoint) {
     if (state.version !== TRAFFIC.version || state.roads !== this.roadIdentity()) throw new Error('Traffic checkpoint road generation mismatch');
     this.epoch = state.epoch; this.reset(state.tick * FLOW_STEP);
-    const lanes = new Map(this.lanes.map(l => [`${l.tile}:${l.id}`, l]));
-    const routes = new Map([...this.movements.values()].flat().map(r => [`${r.tile}:${r.id}`, r]));
+    const { laneById: lanes, routeById: routes } = this.ids!;
     const loadChange = (change: TrafficCheckpoint['cars'][number]['change']): LaneChange | null =>
       change ? { ...change, from: lanes.get(change.from)! } : null;
     this.suppressed = new Set(state.suppressed);
@@ -236,22 +265,39 @@ export class TrafficFlow {
    * A generation-pinned multiplayer world can call reset(epoch) once and advance the same fixed ticks. */
   update(t: number) {
     const target = Math.floor((t + 1e-7) / FLOW_STEP);
-    if (this.ready && this.revision !== this.network.revision && target >= this.tick) this.refreshGraph();
+    if (this.ready && (this.job || this.revision !== this.network.revision) && target >= this.tick) this.advanceRebuild();
     if (!this.ready || target < this.tick) {
       this.epoch ??= Math.floor(t / 60) * 60 - 90;
+      this.job = null;
       this.reset(this.epoch);
     }
     while (this.tick < target) this.step();
   }
 
+  /** Wall time (ms) one update may spend rebuilding the graph after a tile change; the live graph keeps running
+   *  until the new one is complete (the physics worker sets a few ms). Infinity rebuilds within the update that
+   *  sees the change. */
+  rebuildBudgetMs = Infinity;
+  private job: { revision: number; gen: Generator<void, () => void> } | null = null;
+  private advanceRebuild() {
+    // A tile change during a build does not restart it (streaming could starve it): the next build picks it up.
+    this.job ??= { revision: this.network.revision, gen: this.buildGraph() };
+    const end = performance.now() + this.rebuildBudgetMs;
+    for (;;) {
+      const r = this.job.gen.next();
+      if (r.done) { const revision = this.job.revision; this.job = null; this.refreshGraph(r.value, revision); return; }
+      if (performance.now() >= end) return;
+    }
+  }
+
   /** Streaming is a tick-stamped graph event. Keep existing drivers instead of replaying an ever-growing
    * session every time one neighbour loads. A shared-world host publishes the same event/checkpoint to peers. */
-  private refreshGraph() {
+  private refreshGraph(commit: () => void, revision: number) {
     const existing = [...this.cars.values()], demand = new Map([...this.demand].map(([l, n]) => [`${l.tile}:${l.id}`, n]));
-    const t = this.tick * FLOW_STEP;
-    this.reset(t);
-    const lanes = new Map(this.lanes.map(l => [`${l.tile}:${l.id}`, l]));
-    const routes = new Map([...this.movements.values()].flat().map(r => [`${r.tile}:${r.id}`, r]));
+    commit();
+    this.revision = revision;
+    this.clearState();
+    const { laneById: lanes, routeById: routes } = this.ids!;
     for (const car of existing) {
       const lane = lanes.get(`${car.lane.tile}:${car.lane.id}`);
       if (!lane || this.suppressed.has(car.key)) continue;
@@ -265,22 +311,34 @@ export class TrafficFlow {
       if (car.signal) car.signal.target = lanes.get(`${car.signal.target.tile}:${car.signal.target.id}`) ?? car.signal.target;
       sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
     }
-    for (const lane of this.sources) {
-      const n = demand.get(`${lane.tile}:${lane.id}`);
-      if (n !== undefined) this.demand.set(lane, n);
-    }
+    const t = this.tick * FLOW_STEP;
+    for (const lane of this.sources) this.demand.set(lane, demand.get(`${lane.tile}:${lane.id}`) ?? Math.ceil((t - lane.phase) / TRAFFIC.headway));
+  }
+
+  private clearState() {
+    this.cars.clear(); this.demand.clear();
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
   }
 
   reset(t: number) {
     this.epoch ??= t;
     const rebuild = this.revision !== this.network.revision;
     this.tick = Math.floor(t / FLOW_STEP); this.ready = true; this.revision = this.network.revision;
-    this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
+    this.clearState();
     if (!rebuild) {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
     }
+    const job = this.buildGraph();
+    let r = job.next();
+    while (!r.done) r = job.next();
+    r.value();
+    for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
+  }
+
+  /** The graph for the network's current tiles, built in slices (each `yield` is a safe pause) without touching the
+   *  live graph; the returned commit installs it. */
+  private *buildGraph(): Generator<void, () => void> {
     // Incremental rebuild: a lane's movements depend on its own tile and, through seams, its neighbours'. Lanes
     // whose tile and neighbours are unchanged keep their movement objects; conflicts between kept movements too.
     const enabled = [...this.network.tiles.values()].filter(tile => this.network.isEnabled(tile.tile)).sort((a, b) => cmp(a.tile, b.tile));
@@ -299,34 +357,34 @@ export class TrafficFlow {
     const keep = (lane: Lane) => !full && !affected.has(lane.tile) && (!stale.has(lane.tile) || !this.seamBound.has(lane));
     const seamBound = new Set<Lane>();
     const previousMovements = this.movements, previousConflicts = this.conflicts;
-    this.movements = new Map(); this.conflicts = new Map(); this.baseOf.clear();
-    this.index = null;
-    this.builtTiles = tileKeys;
-    this.lanes = enabled.flatMap(tile => {
+    const graph = new Map<Lane, Lane[]>(), baseOf = new Map<Lane, Lane>();
+    const lanes = enabled.flatMap(tile => {
       let sorted = this.sortedLanes.get(tile);
       if (!sorted) { sorted = [...tile.lanes].sort((a, b) => cmp(a.id, b.id)); this.sortedLanes.set(tile, sorted); }
       return sorted;
     });
     // Lanes leaving each junction node, in canonical lane order (one pass instead of a scan per lane).
     const startsAt = new Map<string, Lane[]>();
-    for (const b of this.lanes) {
+    for (const b of lanes) {
       if (b.start.kind !== 'junction') continue;
       const key = `${b.tile}|${b.start.node}`, list = startsAt.get(key);
       if (list) list.push(b); else startsAt.set(key, [b]);
     }
     const movements: Lane[] = [];
     const kept = new Set<Lane>();
-    for (const lane of this.lanes) {
+    let work = 0;
+    for (const lane of lanes) {
+      if ((++work & 31) === 0) yield;
       const reuse = keep(lane) ? previousMovements.get(lane) : undefined;
       if (reuse) {
-        if (reuse[0] !== lane) for (const route of reuse) { movements.push(route); this.baseOf.set(route, lane); kept.add(route); }
-        this.movements.set(lane, reuse);
+        if (reuse[0] !== lane) for (const route of reuse) { movements.push(route); baseOf.set(route, lane); kept.add(route); }
+        graph.set(lane, reuse);
         if (this.seamBound.has(lane)) seamBound.add(lane);
         continue;
       }
       if (lane.end.kind === 'seam') seamBound.add(lane);
       const seamNext = lane.end.kind === 'seam' ? this.network.successor(lane) : null;
-      if (lane.end.kind === 'seam' && (!seamNext || seamNext.length >= 12)) { this.movements.set(lane, [lane]); continue; }
+      if (lane.end.kind === 'seam' && (!seamNext || seamNext.length >= 12)) { graph.set(lane, [lane]); continue; }
       const outgoing = seamNext ? [seamNext]
         : startsAt.get(`${lane.tile}|${lane.end.node}`) ?? [];
       const routes: Lane[] = [];
@@ -384,8 +442,8 @@ export class TrafficFlow {
       // Short-link folds can reach the same movement twice. Following, reservations and checkpoints
       // must all refer to one canonical object for that movement ID.
       const unique = [...new Map(routes.map(route => [route.id, route])).values()];
-      for (const route of unique) { movements.push(route); this.baseOf.set(route, lane); }
-      this.movements.set(lane, unique.length ? unique : [lane]);
+      for (const route of unique) { movements.push(route); baseOf.set(route, lane); }
+      graph.set(lane, unique.length ? unique : [lane]);
     }
     // Conflicts depend only on the two movements' geometry. A rebuild only indexes the movements (a grid of their
     // bounds); each movement's set is built when a car first needs it at a junction (conflictsOf), from last build's
@@ -393,8 +451,10 @@ export class TrafficFlow {
     // tile install therefore costs nothing here, and the sets are the same whenever they are built.
     const keyOf = new Map<Lane, string>(), grid = new Map<number, number[]>(), order = new Map<Lane, number>();
     const hashOf = (tile: string) => this.network.tiles.get(tile)?.hash ?? '';
-    movements.forEach((m, i) => {
-      if (!m.connector) return;
+    for (let i = 0; i < movements.length; i++) {
+      const m = movements[i];
+      if ((i & 63) === 63) yield;
+      if (!m.connector) continue;
       order.set(m, i);
       let key = this.movementKeys.get(m);
       if (!key) { key = `${m.tile}#${hashOf(m.tile)}:${m.id}:${m.next ? `${m.next.tile}#${hashOf(m.next.tile)}` : ''}`; this.movementKeys.set(m, key); }
@@ -405,20 +465,30 @@ export class TrafficFlow {
           if (list) list.push(i); else grid.set(key, [i]);
         }
       }
-    });
-    if (this.conflictCache.size > 400_000) this.conflictCache.clear();
-    this.index = { movements, order, grid, keyOf, kept, previous: previousConflicts, samples: new Map(), seen: new Uint32Array(movements.length), stamp: 0 };
-    this.seamBound = seamBound;
-    this.changer = new LaneChangePlanner(this.lanes, this.movements);
+    }
+    yield;
+    const changer = new LaneChangePlanner(lanes, graph);
+    yield;
     // Demand enters at directed graph boundaries. Conveyor matching cycles are not additional portals:
     // injecting cars on every such loop accumulated traffic in cul-de-sacs and invented mid-block sources.
     const inbound = new Set<Lane>();
-    for (const [lane, routes] of this.movements) for (const route of routes) {
+    for (const [lane, routes] of graph) for (const route of routes) {
       const next = route === lane && lane.end.kind === 'seam' ? this.network.successor(lane) : route.next;
       if (next) inbound.add(next);
     }
-    this.sources = this.lanes.filter(l => l.length >= 12 && !inbound.has(l));
-    for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
+    const sources = lanes.filter(l => l.length >= 12 && !inbound.has(l));
+    yield;
+    const laneById = new Map<string, Lane>(), routeById = new Map<string, Lane>();
+    for (let i = 0; i < lanes.length; i++) { if ((i & 255) === 255) yield; const l = lanes[i]; laneById.set(`${l.tile}:${l.id}`, l); }
+    let n = 0;
+    for (const routes of graph.values()) { if ((++n & 255) === 0) yield; for (const r of routes) routeById.set(`${r.tile}:${r.id}`, r); }
+    return () => {
+      this.ids = { laneById, routeById }; this.fronts.clear();
+      if (this.conflictCache.size > 400_000) this.conflictCache.clear();
+      this.movements = graph; this.conflicts = new Map(); this.baseOf = baseOf; this.builtTiles = tileKeys; this.lanes = lanes;
+      this.index = { movements, order, grid, keyOf, kept, previous: previousConflicts, samples: new Map(), seen: new Uint32Array(movements.length), stamp: 0 };
+      this.seamBound = seamBound; this.changer = changer; this.sources = sources;
+    };
   }
 
   private regroup() {
@@ -489,7 +559,7 @@ export class TrafficFlow {
             if (remaining <= car.length / 2 + 1.2 + car.speed * FLOW_STEP) {
               car.reservation = lane; reservations.push(car);
             }
-          } else stop = lane.length - car.length / 2 - 0.8;
+          } else stop = Math.min(lane.length - 0.8, this.safeFront(car.lane)) - car.length / 2;
         }
       }
       if (car.change) {
@@ -514,7 +584,9 @@ export class TrafficFlow {
       // Stay behind the actual predecessor, including its rear on the outgoing lane.
       const position = (c: FlowCar) => c.lane === car.lane ? c.s : c.s / c.lane.length * car.lane.length;
       const leader = [...this.byLane.get(car.lane) ?? [], ...this.departing.get(car.lane) ?? []]
-        .filter(c => c !== car && position(c) > car.s && (c.route === car.route || position(c) < lane.length + c.length / 2 + GAP))
+        .filter(c => c !== car && position(c) > car.s && (c.route === car.route || position(c) < lane.length + c.length / 2 + GAP)
+          // Going round it: a car the swerve already clears sideways is not followed (the guard still checks contact).
+          && !(car.swerveTarget && c.s < car.swerveEnd && Math.abs(car.swerve - c.swerve) >= (car.width + c.width) / 2 + 0.3))
         .sort((a, b) => position(a) - position(b))[0];
       if (leader) {
         stop = Math.min(stop, position(leader) - (car.length + leader.length) / 2 - GAP);
@@ -531,10 +603,20 @@ export class TrafficFlow {
       const byPlayer = playerStop < stop;
       stop = Math.min(stop, playerStop);
       if (byPlayer && stop - car.s < 0.5) car.blockedBy = 'player';
-      // Held up long enough behind a stopped car: go round it when the corridor beside it is clear.
-      if (byPlayer && blocker && !car.change && !car.swerveTarget && Math.hypot(blocker.vx, blocker.vz) < 0.5
-        && car.held > PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) {
-        const plan = this.passPlan(car, lane, blocker);
+      // Held up long enough behind an obstacle: go round it when the corridor beside it is clear.
+      const patience = PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key));
+      if (!car.change && !car.swerveTarget && !car.swerve) {
+        let obstacles: Body[] | null = null;
+        if (byPlayer && car.held > patience) {
+          // A stopped player's vehicle, or a player standing in the lane (a walker that does not move on).
+          if (blocker && Math.hypot(blocker.vx, blocker.vz) < 0.5) obstacles = [blocker];
+          else if (!blocker && car.held > 1.5 * patience) obstacles = this.standingPlayers(car, lane);
+        } else if (leader && car.stopped > patience && leader.stopped > patience && car.s < lane.length - PASS_CLEAR_LINE) {
+          // A queue that is not a queue: the car ahead stands mid-block because a player's car or a footprint lock
+          // holds it. Go round the car and what holds it.
+          obstacles = this.stalled(leader, lane);
+        }
+        const plan = obstacles?.length ? this.passPlan(car, lane, obstacles) : null;
         if (plan) { car.swerveTarget = plan.offset; car.swerveEnd = plan.end; car.swerveStall = 0; }
       }
       const gap = Math.max(0, stop - car.s);
@@ -616,7 +698,76 @@ export class TrafficFlow {
       if (this.cars.has(car.key)) this.occupy(car);
     }
     if (this.tick % 10 === 0) this.clearDeadlocks();
+    if (this.tick % 10 === 5) {
+      if (this.schedule) this.watchers = this.schedule.filter(w => w.from <= this.tick && this.tick < w.until).at(-1)?.watchers ?? null;
+      this.recycle(t);
+    }
   }
+
+  /** Out-of-view recycling (RECYCLE_HEAD / RECYCLE_ANY): the head of every chain of stuck cars, then any long-stuck
+   *  car, leaves the flow when no watcher sees it. Canonical key order and pure flow state plus the watcher list, so
+   *  peers that share the list agree. */
+  private recycle(t: number) {
+    const watchers = this.watchers;
+    if (!watchers) return;
+    const stuck = [...this.cars.values()].filter(c => c.stuck >= RECYCLE_HEAD).sort((a, b) => cmp(a.key, b.key));
+    const heads = new Set<FlowCar>();
+    for (const car of stuck) {
+      let at = car;
+      const seen = new Set<FlowCar>([car]);
+      for (let hop = 0; hop < RECYCLE_CHAIN; hop++) {
+        const next = this.waitsOn(at);
+        if (!next || seen.has(next) || next.stuck < JAM_STUCK) break;
+        seen.add(next); at = next;
+      }
+      heads.add(at);
+    }
+    for (const car of stuck) if (car.stuck >= RECYCLE_ANY) heads.add(car);
+    for (const car of [...heads].sort((a, b) => cmp(a.key, b.key))) {
+      if (!this.cars.has(car.key) || !unseen(watchers, car.pose.x, car.pose.z)) continue;
+      this.unoccupy(car); this.cars.delete(car.key); this.stats.recycled++;
+      if (this.recycledLog.length < 10_000) this.recycledLog.push({ key: car.key, x: car.pose.x, z: car.pose.z, t });
+    }
+  }
+
+  /** Per approach lane: how far along it (m) a waiting car's front may stand without reaching into the path of any
+   *  movement from another approach through the junction (STOP_CLEAR). Cleared with each graph build. */
+  private fronts = new Map<Lane, number>();
+  /** Where a car waiting at this approach's line may stand (its front, m along the lane): clear of crossing paths. */
+  stopFront(approach: Lane): number { return this.safeFront(approach); }
+  private safeFront(approach: Lane): number {
+    let front = this.fronts.get(approach);
+    if (front !== undefined) return front;
+    const line = approach.length - 0.8, others: PathSamples[] = [];
+    const y = dataHeight(approach, approach.length);
+    for (const route of this.movements.get(approach) ?? []) {
+      if (!route.connector) continue;
+      for (const m of this.conflictsOf(route)) {
+        const base = this.baseOf.get(m) ?? m;
+        if (base === approach || base.tile === approach.tile && base.end.node === approach.end.node) continue;
+        if (Math.abs(dataHeight(m, m.length) - y) > LEVEL_APART) continue;
+        let samples = this.index?.samples.get(m);
+        if (!samples) { samples = pathSamples(m); this.index?.samples.set(m, samples); }
+        others.push(samples);
+      }
+    }
+    front = line;
+    for (let back = 0; back <= STOP_CLEAR_MAX && others.length; back += 0.5) {
+      const p = routePoint(approach, line - back - CONFLICT_BODY.length / 2);
+      const body = { x: p.x, z: p.z, hx: p.hx, hz: p.hz };
+      // Only the other movement's part inside the junction (its own approach is not a crossing path).
+      const hit = others.some(o => { for (let k = 6; k < o.x.length; k++) {
+        poseB.x = o.x[k]; poseB.z = o.z[k]; poseB.hx = o.hx[k]; poseB.hz = o.hz[k];
+        if (bodyOverlap(body, CONFLICT_BODY, poseB, CONFLICT_BODY, STOP_CLEAR)) return true;
+      } return false; });
+      if (!hit) { front = line - back; break; }
+      if (back + 0.5 > STOP_CLEAR_MAX) front = line;
+    }
+    this.fronts.set(approach, front);
+    return front;
+  }
+  /** The current graph's lanes and movements by `tile:id` (checkpoints, graph refreshes). */
+  private ids: { laneById: Map<string, Lane>; routeById: Map<string, Lane> } | null = null;
 
   /** The key a car waits on (any blockedBy that names one), for deadlock cycles. */
   private waitsOn(car: FlowCar) { return car.waitsFor ? this.cars.get(car.waitsFor) ?? null : null; }
@@ -638,28 +789,43 @@ export class TrafficFlow {
   /** Lateral offset that clears a stopped vehicle, and the arc length to steer back at; null when the pass would
    *  leave the lane by more than PASS_MAX, run into the junction, or meet another car in the corridor. Prefers the
    *  left (towards oncoming traffic) on a tie. */
-  private passPlan(car: FlowCar, lane: Lane, v: TrafficVehicle): { offset: number; end: number } | null {
-    const here = routePoint(lane, car.s);
-    const sv = car.s + (v.x - here.x) * here.hx + (v.z - here.z) * here.hz, at = routePoint(lane, sv);
-    let lo = Infinity, hi = -Infinity;
-    for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) {
-      const x = v.x + v.hx * a * v.length - v.hz * b * v.width, z = v.z + v.hz * a * v.length + v.hx * b * v.width;
-      const across = -(x - at.x) * at.hz + (z - at.z) * at.hx;
-      lo = Math.min(lo, across); hi = Math.max(hi, across);
+  private passPlan(car: FlowCar, lane: Lane, obstacles: readonly Body[]): PassPlan | null {
+    return planPass({ s: car.s, length: car.length, width: car.width }, s => routePoint(lane, s), lane.length, obstacles,
+      this.cars.values(), c => c === car);
+  }
+
+  /** Players on foot standing in the car's path just ahead (they do not move on), as small bodies. */
+  private standingPlayers(car: FlowCar, lane: Lane): Body[] {
+    const out: Body[] = [], here = routePoint(lane, car.s);
+    for (const p of this.players?.people ?? []) {
+      if (Math.hypot(p.vx, p.vz) > 0.3) continue;
+      const dx = p.x - here.x, dz = p.z - here.z, along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
+      if (along > 0 && along < car.length / 2 + 12 && Math.abs(across) < car.width / 2 + 1.2)
+        out.push({ x: p.x, z: p.z, hx: here.hx, hz: here.hz, length: PERSON_BODY, width: PERSON_BODY });
     }
-    const left = lo - car.width / 2 - PASS_MARGIN, right = hi + car.width / 2 + PASS_MARGIN;
-    const offset = Math.abs(left) <= Math.abs(right) ? left : right;
-    const end = sv + v.length / 2 + car.length / 2 + 3;
-    if (Math.abs(offset) > PASS_MAX || end + 15 > lane.length) return null;
-    for (const other of this.cars.values()) {
-      if (other === car) continue;
-      const dx = other.pose.x - here.x, dz = other.pose.z - here.z;
-      const along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
-      const oncoming = Math.max(0, -(other.pose.hx * here.hx + other.pose.hz * here.hz) * other.speed);
-      if (along < -car.length || along > end - car.s + 10 + oncoming * PASS_LOOKAHEAD) continue;
-      if (Math.abs(across - offset) < (car.width + other.width) / 2 + 0.8) return null;
+    return out;
+  }
+
+  /** The stopped car ahead and what holds it mid-block (a player's vehicle or person in its path, or the car whose
+   *  footprint locks it), or null when it waits in an ordinary queue or at a junction. */
+  private stalled(leader: FlowCar, lane: Lane): Body[] | null {
+    const by = leader.blockedBy;
+    if (leader.lane !== lane || leader.s > lane.length - PASS_CLEAR_LINE || !by) return null;
+    const body = (c: FlowCar): Body => ({ x: c.pose.x, z: c.pose.z, hx: c.pose.hx, hz: c.pose.hz, length: c.length, width: c.width, car: c });
+    if (by === 'player') {
+      const ahead = routePoint(lane, leader.s), out = [body(leader)];
+      for (const v of this.playerVehicles?.vehicles ?? []) {
+        const along = (v.x - ahead.x) * ahead.hx + (v.z - ahead.z) * ahead.hz;
+        if (along > 0 && along < leader.length / 2 + v.length / 2 + 6 && Math.hypot(v.vx, v.vz) < 0.5) out.push(v);
+      }
+      out.push(...this.standingPlayers(leader, lane));
+      return out.length > 1 ? out : null;
     }
-    return { offset, end };
+    if (by.startsWith('footprint:') && leader.stuck > PASS_LOCKED) {
+      const other = this.cars.get(by.slice(10));
+      return other ? [body(leader), body(other)] : null;
+    }
+    return null;
   }
 
   private spawn(lane: Lane, n: number, t: number) {
@@ -911,6 +1077,9 @@ function pathSamples(lane: Lane): PathSamples {
   return out;
 }
 const CONFLICT_BODY = { length: 5, width: 2 }, CONFLICT_MARGIN = 0.6;
+/** A waiting car's body keeps this clearance (m) from crossing movements' paths, moving its stop point back by at most
+ *  STOP_CLEAR_MAX m (geometry that needs more keeps the drawn line). */
+const STOP_CLEAR = 0.3, STOP_CLEAR_MAX = 6;
 /** Bodies further apart than this cannot overlap (sum of the padded and unpadded half diagonals). */
 const CONFLICT_REACH = Math.sqrt((2.5 + CONFLICT_MARGIN) ** 2 + (1 + CONFLICT_MARGIN) ** 2) + Math.sqrt(2.5 ** 2 + 1 ** 2);
 const poseA = { x: 0, z: 0, hx: 1, hz: 0 }, poseB = { x: 0, z: 0, hx: 1, hz: 0 };

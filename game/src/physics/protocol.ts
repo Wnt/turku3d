@@ -53,7 +53,9 @@ export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour';
  *  multiplier on every street's flow (?trafficDensity=, 1 by default); `clock`: see TrafficClock (multiplayer
  *  always follows the shared cycle). */
 export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[];
-  density: number; clock: TrafficClock }
+  density: number; clock: TrafficClock;
+  /** Multiplayer: the server's traffic watch (server/watch.js), applied at the same tick on every client. */
+  watch?: { at: number; points: [number, number][] } }
 /** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
 export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; seed?: string; model: string; color: string;
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
