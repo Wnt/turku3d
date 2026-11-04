@@ -24,16 +24,16 @@ import { clamp, dot, float, fract, frameId, max, mix, positionView, renderGroup,
  */
 export const VIEW_CLEARANCE = {
   /** Clear radius around the body (m) on foot and in a vehicle; inside `core` of it the fade reaches `maxFade`. */
-  radius: { foot: 1.15, car: 2.6 },
+  radius: { foot: 1.5, car: 3.2 },
   /** The point ahead: base metres, seconds of travel at the current speed, and a cap (m). */
-  ahead: { foot: [2.5, 0.6, 7], car: [6, 0.8, 26] },
+  ahead: { foot: [4, 0.7, 9], car: [7, 0.8, 26] },
   /** The ahead end's world radius relative to the body's. */
   aheadRadius: 1.4,
   core: 0.6,
   maxFade: 1,
   /** Fragments fade only when nearer than the capsule's depth less `depthMargin` (m), over a further `depthBand`. */
-  depthMargin: 0.4,
-  depthBand: 1.0,
+  depthMargin: 0.3,
+  depthBand: 0.8,
   /** Foliage nearer than near[0] metres fades by `maxFade`, ramping out by near[1]. */
   near: [1.4, 2.6],
   easeSeconds: 0.35,
