@@ -35,7 +35,30 @@ Captures, strips, judge outputs and GTA material stay local in `~/turku3d/loops/
    cornice and corner bands as painted by `facadeProgram.ts`. Small effect: most HD walls near the river are
    landmark or atlas facades, not kits.
 3. **Block swap hysteresis 10 -> 20 m** (`SWAP_BAND`).
-4. **Fade length:** see the decision below.
+4. **Fade length: 0.6 s stays** (the open decision). Blind judge, forced swaps at two poses, both directions, overall
+   0-10 summed over the four strips: 0 s 15, 0.15 s 14, 0.3 s 18, **0.6 s 22**, 1.0 s 21. GTA can swap in one frame
+   because its LOD carries the HD colours and the swap hides behind occlusion; ours still changes window pattern
+   and some landmark wall colours, and a 0.6 s dissolve reads as a soft change instead of a pop.
+
+## Judge scores (blind `rank`, domain lod, overall 0-10, 10 = unnoticeable)
+
+| Strip | GTA V (simulated switch size) | Turku3D before | After roofs | After roofs + walls |
+| --- | --- | --- | --- | --- |
+| Riverside, HD -> shell | 1 | 4 | 6 | |
+| Riverside, shell -> HD | 2 | 4 | 7 | |
+| Elevated riverside, HD -> shell | 1 | 5 | | 5 |
+| Elevated riverside, shell -> HD | 2 | 6 | | 6 |
+
+GTA's strips are its own 70 m focus-swap clip downscaled 3.6x to the 250 m screen size: magnified it is a hard pop
+to a blurry facade; in play the same pop is rarely seen (occlusion, motion). Judged the same way, our dissolving
+shells already rate above it; the remaining Turku3D artefacts are the window grid and landmark wall colours.
+
+## Perf (Mac M1 Max, medium, `bench=static` at the elevated riverside pose, frozen builds, 5 interleaved rounds)
+
+FPS 59.9 both (vsync). GPU p50 median delta -0.3 ms (range -1.9..+0.8), draws 382 -> 390 (+2 %: one merged far
+parent per roof photo), triangles +0.4 %. CPU p50 drifted from 9 to 13 ms over the session with host load; paired
+deltas +0.7..+2.7 ms with the base first and -0.6/+1.6 ms reversed, so no reliable CPU effect is resolved. The roof
+fit runs once per tile install (at most 64 samples per roof mesh).
 
 ## Method (reusable)
 
