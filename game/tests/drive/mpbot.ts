@@ -51,6 +51,13 @@ export class Bot {
   private requests = 0;
   private lastRequest = 0;
   seatRefusals = 0;
+  /** Simulated time (ms) since the bot started: pose timestamps follow the physics, not the wall clock at send, so a
+   *  loop that runs several steps in one burst still sends motion consistent with its times (net/interpolation.ts
+   *  draws remote cars by sender timestamps). */
+  simMs = 0;
+  private readonly clock0 = performance.now();
+  /** False when a subclass advances simMs itself for every tick. */
+  protected ownClock = true;
   /** Where the record was first registered (acquiring needs the car within 7 m of the record's pose). */
   registeredAt: { x: number; y: number; z: number; yaw: number } | null = null;
   /** register → acquire → seated; a request resent each pose interval until its result arrives. */
@@ -131,6 +138,7 @@ export class Bot {
 
   step(dt: number) {
     if (!this.pw || !this.follower || !this.alive) return;
+    if (this.ownClock) this.simMs += dt * 1000;
     // Other players' cars as kinematic bodies, like net/remotes.ts.
     const bodies: RemoteBody[] = [];
     for (const [id, r] of this.remotes) if (r.pose.mode !== 'foot') bodies.push({ id, pos: { x: r.pose.E, y: r.pose.H + VEHICLE_POSE_HEIGHT, z: -r.pose.N }, yaw: r.pose.yaw, rot: r.pose.rot, mode: r.pose.mode as 'car' });
@@ -147,7 +155,7 @@ export class Bot {
     const v = this.pw!.vehicleState()!;
     const { x, y, z, w } = v.rot, fx = 1 - 2 * (y * y + z * z), fz = 2 * (x * z - w * y);
     const yaw = Math.atan2(-fz, fx) - Math.PI / 2;
-    return { t: now, E: v.pos.x, N: -v.pos.z, H: v.pos.y - VEHICLE_POSE_HEIGHT,
+    return { t: Math.round(this.clock0 + this.simMs), E: v.pos.x, N: -v.pos.z, H: v.pos.y - VEHICLE_POSE_HEIGHT,
       yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), vE: v.linvel.x, vN: -v.linvel.z, vH: v.linvel.y, mode: 'car', vehicle: 'player',
       carrying: this.carrying, rot: v.rot, wheels: v.wheels.map(wh => ({ pos: wh.pos, steer: wh.steer, rotation: wh.rotation, contact: wh.contact, suspension: wh.suspension })) };
   }

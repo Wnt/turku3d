@@ -35,6 +35,28 @@ test('remote kinematic sweep cannot launch a local car, but bounded server impul
   pw.world.free();
 });
 
+test('a local car cannot drive through a remote car: the proxy blocks the chassis, wheel rays ignore it', async () => {
+  const fs = await import('node:fs'), path = await import('node:path');
+  const dir = path.resolve(__dirname, '../../public/dev-tiles');
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+  const pw = new PhysicsWorld(R);
+  for (const id of Object.keys(manifest.collision)) {
+    const b = fs.readFileSync(path.join(dir, manifest.collision[id].url));
+    await pw.loadTile(id, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+  }
+  pw.world.step();
+  // Flat dev ground at y 2: the local car drives east at full throttle into a remote car parked 12 m ahead.
+  pw.spawnVehicle({ x: 30, y: 2.8, z: 100 }, 0);
+  const remote = [{ id: 'remote', pos: { x: 42, y: 2, z: 100 }, yaw: -Math.PI / 2, mode: 'car' as const }];
+  for (let k = 0; k < 180; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false }); }
+  const car = pw.vehicleState()!;
+  // Stopped short of it (chassis half lengths 2.1 + 2.1), not through it, and still on its wheels on the ground.
+  expect(car.pos.x).toBeLessThan(42 - 3.5);
+  expect(car.pos.y).toBeLessThan(3.2);
+  expect(car.wheels.filter(w => w.contact).length).toBe(4);
+  pw.world.free();
+});
+
 test('ownership transfer removes the old body and restores the new owner with full quaternion/velocity', () => {
   const client = new MultiplayerClient('ws://localhost:5403', null);
   client.state.connected = true; client.state.you = { id: 'self', nick: 'AA', spawn: { E: 170, N: -250, yaw: 0 } };

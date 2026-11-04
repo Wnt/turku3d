@@ -30,6 +30,7 @@ class DeliveryBot extends Bot {
   private planning = false;
   private failures = 0;
   started = Date.now();
+  protected override ownClock = false;
   /** Last time the car moved (watchdog: a minute without moving respawns it at the pizzeria). */
   movedAt = Date.now();
 
@@ -122,6 +123,7 @@ class DeliveryBot extends Bot {
 
   tick(dt: number) {
     if (!this.pw || !this.alive) return;
+    this.simMs += dt * 1000;
     this.pw.pumpInstalls(2);
     // Parked until the server seats us in our own car: acquiring needs the car within 7 m of its record.
     if (this.seat !== 'seated') {

@@ -2,6 +2,9 @@
 
 /** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
 export const DT = 1 / 60;
+/** Collision membership bit of remote players' car proxies (physics/world.ts setRemotes), beside the generated GROUP
+ *  bits (shared/col/materials.ts): the local chassis and the character collide with it; wheel rays never see it. */
+export const REMOTE_VEHICLE = 128;
 /** Hard bound for both wall-clock catch-up and the fixed-step accumulator. */
 export const MAX_SUBSTEPS = 5;
 

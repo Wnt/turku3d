@@ -127,7 +127,9 @@ export class RemotePlayers {
       const state = local ? drawn(localId) ?? this.physics.latest?.vehicles.find(s => s.id === localId) ?? null : null;
       players.push({ id: v.id, nick: client.state.players.find(p => p.id === v.occupant)?.nick ?? '',
         spawn: { E: v.pose.E, N: v.pose.N, yaw: v.pose.yaw },
-        pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: v.revision }, locallySimulated: local,
+        // A replica is drawn on its owner's own pose clock (net/interpolation.ts times poses by sender `t`, ms);
+        // the record revision is a change counter, which made every remote shared car stutter.
+        pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: Number.isFinite(v.pose.t) && v.pose.t > 0 ? v.pose.t : v.revision }, locallySimulated: local,
         occupant: v.occupant });
     }
     const present = new Set(players.map(p => p.id));

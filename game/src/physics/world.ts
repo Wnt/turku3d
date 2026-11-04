@@ -8,7 +8,7 @@ import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from 
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DT, MAX_SUBSTEPS, VEHICLES } from './constants';
+import { CHARACTER, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -28,6 +28,8 @@ const parseCellId = (id: string) => parseCollisionId(id);
 export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */
+/** A remote proxy moving farther than this in one update is placed, not swept (m). */
+const REMOTE_JUMP_M = 3;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 interface ColliderInfo { tile: string; triMat: Uint8Array | null; mat: number; locator: TriLocator | null }
@@ -345,7 +347,7 @@ export class PhysicsWorld {
       this.cc = cc;
       this.charCollider = this.world.createCollider(
         R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius)
-          .setCollisionGroups(groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC)),
+          .setCollisionGroups(groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | REMOTE_VEHICLE)),
       );
     }
     this.coverageHold.clear('character');
@@ -371,7 +373,7 @@ export class PhysicsWorld {
 
   private stepCharacter(input: CharacterInput) {
     const cc = this.cc!, col = this.charCollider!;
-    const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC);
+    const filter = groups(GROUP.CHARACTER, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | REMOTE_VEHICLE);
     const flags = this.R.QueryFilterFlags.EXCLUDE_SENSORS;
     const p0 = col.translation();
     if (input.fly) {
@@ -540,7 +542,9 @@ export class PhysicsWorld {
     vehicle.recordImpact(size * scale);
   }
 
-  /** Remote proxies block walking only. The server mirrors bounded car contact impulses to both owners. */
+  /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks
+   *  the local chassis like a moving wall, so cars never pass through each other between the server's contact impulses
+   *  (which push the other owner's car). Wheel rays and ground queries do not see remote cars. */
   setRemotes(bodies: RemoteBody[]) {
     const incoming = new Set(bodies.map(b => b.id));
     for (const [id, remote] of this.remotes) if (!incoming.has(id)) {
@@ -557,7 +561,7 @@ export class PhysicsWorld {
         const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt;
         const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
-        desc.setCollisionGroups(groups(GROUP.DYNAMIC, GROUP.CHARACTER));
+        desc.setCollisionGroups(half ? groups(REMOTE_VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE) : groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
         remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now() };
         this.remotes.set(p.id, remote);
@@ -571,10 +575,17 @@ export class PhysicsWorld {
         remote.pos = { ...p.pos }; remote.at = now;
       }
       const y = p.pos.y + remoteColliderHeight(p.mode);
-      remote!.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
       const yaw = p.mode === 'foot' ? p.yaw : p.yaw + Math.PI / 2;
       remote.rot = p.mode !== 'foot' && p.rot ? p.rot : { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) };
-      remote.body.setNextKinematicRotation(remote.rot);
+      // A jump (teleport, respawn, a late snapshot) is placed, never swept: a kinematic sweep through a local car would
+      // launch it. Ordinary motion sweeps, so a remote car pushes and blocks like a moving wall.
+      const at = remote.body.translation();
+      if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > REMOTE_JUMP_M) {
+        remote.body.setTranslation({ x: p.pos.x, y, z: p.pos.z }, true); remote.body.setRotation(remote.rot, true);
+      } else {
+        remote.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
+        remote.body.setNextKinematicRotation(remote.rot);
+      }
     }
   }
 
