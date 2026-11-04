@@ -83,6 +83,7 @@ import { QUALITY } from './render/quality';
 import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
 import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
+import { viewClearance } from './render/viewClearance';
 
 /** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
  *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
@@ -224,6 +225,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let last = performance.now();
   let camRayBusy = false;
   const tmp = new THREE.Vector3();
+  const clearanceBody = new THREE.Vector3();
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
   let snapChase = false;
@@ -405,7 +407,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   })();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
     population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
@@ -762,6 +764,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     editor.update(now);
     positionHud.update(now, !startScreen.active);
     devLayers.update();
+    // Vegetation between the camera and the player (or the road ahead) fades; none in fly mode or on the start screen.
+    const clearing = startScreen.active || fly?.active || !(mode === 'car' || player.root.visible) ? null
+      : { body: mode === 'foot' ? clearanceBody.copy(player.root.position).setY(player.root.position.y + 1)
+        : chaseVehicle ? clearanceBody.set(chaseVehicle.pos.x, chaseVehicle.pos.y + 0.3, chaseVehicle.pos.z) : clearanceBody.copy(feet).setY(feet.y + 0.9),
+      velocity: vel, mode };
+    viewClearance.update(camera, clearing, dt);
     renderFrame();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),

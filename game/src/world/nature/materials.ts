@@ -5,6 +5,7 @@ import {
   renderGroup, texture, uniform, uv, vec2, vec3, vec4,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
+import { viewClearance } from '../../render/viewClearance';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -177,7 +178,9 @@ export class NatureMaterials {
       return smoothstep(end.sub(band.mul(2 * VEGETATION_FADE.width[j]).mul(softness)), end, distance);
     };
     const threshold = ditherThreshold();
-    let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));
+    // View clearance (render/viewClearance.ts) shares the threshold: every level of a tree keeps the same pixels, so
+    // the cross-fade stays complementary inside the cleared region. Shadows keep the unfaded mask below.
+    let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(max(fade(level), viewClearance.fade()));
     if (level > 0) keep = keep.and(threshold.lessThan(fade(level - 1)));
     variant.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
     variant.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
