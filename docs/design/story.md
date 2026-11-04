@@ -353,11 +353,13 @@ play, and the zone disappears until the next order.
 
 ### Truck heist
 
-A black-market job whose reward is the forged plates (`job_truck_heist`; places in
+A repeatable black-market job whose first reward is the forged plates (`job_truck_heist`; places in
 `content/locations.ts`, state in `MissionSystem.heist`, the world side in `play.ts`):
 
-- **Offer.** Free, and offered only while the player has no plates and does not own the trophy
-  truck; greyed while a pizza is carried. Taking it plays the briefing (`heist_briefing`) and marks
+- **Offer.** Free, offered again after every finished or abandoned run, with no cooldown. Greyed
+  while the player owns the trophy truck (`reason_heist_truck_owned`), while a pizza is carried, and
+  while the job already runs (`reason_heist_running`; "Abandon the truck job" is the way out). Its
+  detail names the reward: the plates, or `detail_job_truck_heist_cash` once they are owned. Taking it plays the briefing (`heist_briefing`) and marks
   the inner yard of Rettigin palatsi (Itäinen Rantakatu 4–6, engine 546.9, 122.7) with a `job`
   zone ("Truck job"). While it runs, pizza orders and buying the truck are refused
   (`reason_heist_active`). "Abandon the truck job" at the market ends it (`heist_abandoned`; not
@@ -373,7 +375,10 @@ A black-market job whose reward is the forged plates (`job_truck_heist`; places 
   deck at 14.6–15.5). The zone's ray starts below the deck, the route ends on Ratapihankatu south
   of the bridge (`approach`), and the job counts only when the player gets out of the truck within
   8 m at the road's level (2.5 m), never on the bridge above.
-- **Reward.** `plates = true`, `heist_done` plays and the checkpoint autosaves. The truck is taken
+- **Reward.** Without plates: `plates = true` and `heist_done`. With plates (a repeat run, or
+  plates bought at the market): `HEIST_CASH` (120 €) in cash, `heist_briefing_cash` /
+  `heist_done_cash`. Paid once, as the job ends; the checkpoint autosaves. A repeat places a fresh
+  truck in the yard and marks the yard again. The truck is taken
   out of the world (truck ownership is unchanged), and the start car (the player's own car, when
   they bought the car) is parked for them at the nearest road-graph kerb spot 10–30 m from the
   drop-off (60 m if none) that passes the vehicle ground check at the road's level. With the

@@ -110,17 +110,21 @@
     {"id": "reason_no_limited", "speaker": "narrator", "text": "No limited-time job right now. Another one comes in a few minutes.", "voiced": false},
     {"id": "option_job_truck_heist", "speaker": "narrator", "text": "Steal the trophy truck", "voiced": false},
     {"id": "detail_job_truck_heist", "speaker": "narrator", "text": "Take the trophy truck from the inner yard of Rettigin palatsi to the road under Aninkaistensilta. Reward: forged plates.", "voiced": false},
+    {"id": "detail_job_truck_heist_cash", "speaker": "narrator", "text": "Take the trophy truck from the inner yard of Rettigin palatsi to the road under Aninkaistensilta. Reward: 120 € cash.", "voiced": false},
     {"id": "option_abandon_truck_heist", "speaker": "narrator", "text": "Abandon the truck job", "voiced": false},
     {"id": "detail_abandon_truck_heist", "speaker": "narrator", "text": "The truck goes back to its yard; you can start again later.", "voiced": false},
     {"id": "reason_heist_active", "speaker": "narrator", "text": "Finish or abandon the truck job at the black market first.", "voiced": false},
+    {"id": "reason_heist_running", "speaker": "narrator", "text": "Running now. Deliver the truck, or abandon the job below.", "voiced": false},
     {"id": "reason_heist_truck_owned", "speaker": "narrator", "text": "You already own the trophy truck.", "voiced": false},
     {"id": "reason_no_heist", "speaker": "narrator", "text": "No truck job is running.", "voiced": false},
     {"id": "reason_heist_in_truck", "speaker": "narrator", "text": "Get out of the truck first.", "voiced": false},
     {"id": "hint_heist_pickup", "speaker": "narrator", "text": "Steal the trophy truck from the inner yard of Rettigin palatsi.", "voiced": false},
     {"id": "hint_heist_deliver", "speaker": "narrator", "text": "Drive the truck to the road under Aninkaistensilta, stop and get out.", "voiced": false},
     {"id": "heist_briefing", "speaker": "market", "text": "A trophy truck is parked in the inner yard of Rettigin palatsi, by Itäinen Rantakatu. Take it to the road under Aninkaistensilta, leave it there, and the plates are yours."},
+    {"id": "heist_briefing_cash", "speaker": "market", "text": "A trophy truck is waiting in the inner yard of Rettigin palatsi. Leave it on the road under Aninkaistensilta and a hundred and twenty in cash is yours."},
     {"id": "heist_in_truck", "speaker": "market", "text": "Nice wheels. Now under Aninkaistensilta, on the road below the bridge, not on it."},
     {"id": "heist_done", "speaker": "market", "text": "The truck is gone and the plates are yours. There is a car parked by the road. Use it."},
+    {"id": "heist_done_cash", "speaker": "market", "text": "The truck is gone. A hundred and twenty, cash. There is a car parked by the road. Use it."},
     {"id": "heist_abandoned", "speaker": "market", "text": "Fine. The truck stays in its yard. Come back when you have the nerve."}
   ]
 }

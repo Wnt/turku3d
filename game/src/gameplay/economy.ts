@@ -18,6 +18,8 @@ export const CREDIT_PERMIT_DEBT = PERMIT_PRICE;
 export const debtRepayment = (debt: number, basePay: number) => Math.max(0, Math.min(debt, basePay));
 export const WARNING_PRICE = 10;
 export const PLATES_PRICE = 120;
+/** The truck heist pays this in cash on every run after the first, once the player already has the forged plates. */
+export const HEIST_CASH = 120;
 export const KIDNEY_PAYOUT = 400;
 /** Run and sprint speed after the kidney sale, unless a slice is still giving energy. */
 export const KIDNEY_RUN_FACTOR = 0.85;

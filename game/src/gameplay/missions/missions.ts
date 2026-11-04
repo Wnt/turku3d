@@ -4,7 +4,7 @@
 import type { HudStateListener, MissionHudSource, MissionHudState, RouteTarget, Router, WorldPoint } from '../contract';
 import {
   basePay, LIMITED_COOLDOWN_SECONDS, LIMITED_OFFER_SECONDS, LONG_UNLOCK_DELIVERIES, DOUBLE_BONUS, KIDNEY_PAYOUT, KIDNEY_RUN_FACTOR, PERMIT_DELIVERIES, PERMIT_MAX, PERMIT_PRICE, PERMIT_WARN_AT,
-  CREDIT_PERMIT_DEBT, debtRepayment, LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
+  CREDIT_PERMIT_DEBT, debtRepayment, HEIST_CASH, LOANER_FEE, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
 import { DIALOGUE, lineText } from '../content/dialogue';
@@ -91,7 +91,8 @@ interface Action {
   run: () => void;
 }
 
-interface OptionState { price: number | null; reason: string | null; quote?: OrderQuote }
+/** `detail` replaces the option's static detail line (optionDetail) when its offer depends on the state. */
+interface OptionState { price: number | null; reason: string | null; quote?: OrderQuote; detail?: string }
 
 const SHOP_SPEAKER: Record<ShopId, string> = { market: 'market', pizzeria: 'pizzeria', dealer: 'dealer' };
 const SHOP_PROMPT: Record<ShopId, string> = {
@@ -298,7 +299,7 @@ export class MissionSystem implements MissionHudSource {
   get heist(): HeistStage | null { return this.s.heist ?? null; }
 
   /** Getting into the trophy truck sends it to the bridge; stopping it under the bridge and getting out finishes the
-   *  job: the forged plates are the reward, and play.ts takes the truck away and parks a car nearby. */
+   *  job: the forged plates are the first reward (HEIST_CASH on later runs), and play.ts takes the truck away and parks a car nearby. */
   private heistStep(frame: MissionFrame) {
     const was = this.lastVehicleId;
     this.lastVehicleId = frame.vehicleId;
@@ -307,9 +308,11 @@ export class MissionSystem implements MissionHudSource {
       this.say('heist_in_truck');
     } else if (this.s.heist === 'deliver' && was === TRUCK_ID && frame.vehicleId === null && atHeistDrop(frame.position)) {
       this.s.heist = null;
+      // The first run earns the plates; every later run (the job is repeatable) pays HEIST_CASH instead.
+      if (this.s.plates) this.s.money += HEIST_CASH;
+      this.say(this.s.plates ? 'heist_done_cash' : 'heist_done');
       this.s.plates = true;
       this.heistEvent = 'delivered';
-      this.say('heist_done');
       this.checkpoint = 'purchase';
     }
   }
@@ -467,8 +470,9 @@ export class MissionSystem implements MissionHudSource {
       case 'sell_kidney': return { price: -KIDNEY_PAYOUT, reason: s.kidney ? 'reason_kidney_sold' : null };
       case 'expiry_warning': return s.warning ? { price: WARNING_PRICE, reason: 'reason_warning_owned' } : money(WARNING_PRICE);
       case 'job_truck_heist':
-        return { price: null, reason: s.heist ? 'reason_heist_active' : s.plates ? 'reason_plates_owned'
-          : s.vehicle === 'truck' ? 'reason_heist_truck_owned' : s.phase === 'carrying' ? 'reason_carrying' : null };
+        return { price: null, reason: s.heist ? 'reason_heist_running'
+          : s.vehicle === 'truck' ? 'reason_heist_truck_owned' : s.phase === 'carrying' ? 'reason_carrying' : null,
+          detail: s.plates ? 'detail_job_truck_heist_cash' : undefined };
       case 'abandon_truck_heist':
         return { price: null, reason: !s.heist ? 'reason_no_heist' : this.frame?.vehicleId === TRUCK_ID ? 'reason_heist_in_truck' : null };
       case 'take_long_order':
@@ -529,7 +533,7 @@ export class MissionSystem implements MissionHudSource {
       case 'forged_plates': this.s.plates = true; this.reply('market_sold_plates'); break;
       case 'sell_kidney': this.s.kidney = true; this.reply('market_sold_kidney'); break;
       case 'expiry_warning': this.s.warning = true; this.reply('market_sold_warning'); break;
-      case 'job_truck_heist': this.s.heist = 'pickup'; this.heistEvent = 'started'; this.reply('heist_briefing'); break;
+      case 'job_truck_heist': this.s.heist = 'pickup'; this.heistEvent = 'started'; this.reply(this.s.plates ? 'heist_briefing_cash' : 'heist_briefing'); break;
       case 'abandon_truck_heist': this.s.heist = null; this.heistEvent = 'abandoned'; this.reply('heist_abandoned'); break;
       case 'take_long_order':
         this.s.job = 'long'; this.s.order = this.longOrder()!; this.quoteCache = null;
@@ -779,7 +783,7 @@ export class MissionSystem implements MissionHudSource {
     const { shop, line } = this.open;
     const options = shop.options.map(o => {
       const state = this.optionState(o.id);
-      const detail = optionDetail(o.id);
+      const detail = state.detail ?? optionDetail(o.id);
       return { id: o.id, label: lineText(optionLabel(o.id)), detail: detail ? lineText(detail) : null, price: state.price,
         icon: o.icon, enabled: state.reason === null, reason: state.reason ? lineText(state.reason) : null,
         quote: state.quote ?? null };

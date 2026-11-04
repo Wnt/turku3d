@@ -134,7 +134,8 @@ world in step: it places the trophy truck (`TRUCK_ID`) at `HEIST_TRUCK_SPOT` onc
 and the spot passes `vehicleGround`, removes it when the job ends or a game is loaded, and on `delivered` parks the
 start car at the nearest ground-checked `kerbSpots` spot near `HEIST_DROP`. `job` targets (`HEIST_YARD`, `HEIST_DROP`)
 are probed from `ZONE_RAY_TOP` like the market, never checked as delivery drop-offs; `RouteTarget.approach` ends the
-route on the street when the marker is off the graph or under a bridge.
+route on the street when the marker is off the graph or under a bridge. The job is repeatable and per player (its
+state is in the player's own `MissionSave`): the plates on the first run, `HEIST_CASH` on every later one.
 Verify: `npx vitest run tests/unit/truck-heist.test.ts tests/unit/missions.test.ts` from `game/`.
 
 ### Adding a shop option
