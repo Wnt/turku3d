@@ -32,7 +32,7 @@ function rotation(a: Quat, b: Quat, t: number): Quat {
   return { x: q.x / length, y: q.y / length, z: q.z / length, w: q.w / length };
 }
 
-interface PoseOps<T> {
+export interface PoseOps<T> {
   lerp(a: T, b: T, f: number): T;
   /** `b` carried on for `s` seconds at the rates between `a` (`dt` earlier) and `b`. */
   extrapolate(a: T, b: T, dt: number, s: number): T;
@@ -54,8 +54,14 @@ export class PoseTrack<T> {
   private beyond: Entry<T>[] | null = null;
   /** The last drawn source time and how far past the newest state it was (s), for diagnostics and tests. */
   drawn = { t: 0, late: 0 };
-  constructor(private readonly ops: PoseOps<T>, minDelay = MIN_DELAY, maxDelay = MAX_DELAY,
-    private readonly carry = extrapolated) { this.clock = new SourceClock(minDelay, maxDelay); }
+  private readonly carry: (late: number) => number;
+  /** `minDelay`/`maxDelay`: render delay bounds (s) around the delivery jitter; `intervals`: how many median state
+   *  spacings to add to the delay (sparse network poses); `carry`: seconds of motion extrapolated `late` s past the
+   *  newest state. */
+  constructor(private readonly ops: PoseOps<T>, options: { minDelay?: number; maxDelay?: number; intervals?: number; carry?: (late: number) => number } = {}) {
+    this.clock = new SourceClock(options.minDelay ?? MIN_DELAY, options.maxDelay ?? MAX_DELAY, options.intervals ?? 0);
+    this.carry = options.carry ?? extrapolated;
+  }
   get newest() { return this.entries.at(-1)?.s ?? null; }
   clear() { this.entries = []; this.beyond = null; this.correction.reset(); }
   /** Adds the state of source time `t` (s), available since local time `arrival` (s). `observe`: false for an

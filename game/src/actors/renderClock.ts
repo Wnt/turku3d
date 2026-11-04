@@ -7,8 +7,9 @@ import type { Quat } from '../physics/protocol';
  *
  *  - `offset`: the earliest arrival (local s) minus source time over the last WINDOW seconds, i.e. the fastest
  *    delivery seen lately.
- *  - `delay`: that delivery's jitter (the JITTER_QUANTILE of later arrivals) plus `minDelay`, capped at `maxDelay`:
- *    late states within it are still interpolated; rarer, later ones are extrapolated.
+ *  - `delay`: that delivery's jitter (the JITTER_QUANTILE of later arrivals) plus `minDelay` plus `intervals` times
+ *    the median time between states (sparse network poses), capped at `maxDelay`: late states within it are still
+ *    interpolated; rarer, later ones are extrapolated.
  *  - The drawn source time never jumps while running: it runs 0.9-1.1x real time towards `now - offset - delay`.
  *    It only resyncs on a new epoch (pause, rejoin, a change of over RESYNC seconds). */
 const WINDOW = 0.6;
@@ -18,18 +19,18 @@ const SLEW = 0.1;
 const GAIN = 3;
 
 export class SourceClock {
-  private arrivals: { at: number; offset: number }[] = [];
+  private arrivals: { at: number; offset: number; source: number }[] = [];
   private source: number | null = null;
   private last = 0;
   delay = 0;
-  constructor(private readonly minDelay: number, private readonly maxDelay: number) {}
+  constructor(private readonly minDelay: number, private readonly maxDelay: number, private readonly intervals = 0) {}
   reset() { this.arrivals = []; this.source = null; }
   /** A state of `source` time (s) became available at local time `arrival` (s). */
   observe(source: number, arrival: number) {
     const offset = arrival - source, min = this.minOffset();
     // A pause, a rejoin or a clock change: earlier arrivals say nothing about the new epoch.
     if (min !== null && Math.abs(offset - min) > RESYNC) { this.arrivals = []; this.source = null; }
-    this.arrivals.push({ at: arrival, offset });
+    this.arrivals.push({ at: arrival, offset, source });
     while (this.arrivals.length > 1 && this.arrivals[0].at < arrival - WINDOW) this.arrivals.shift();
   }
   private minOffset() {
@@ -43,7 +44,12 @@ export class SourceClock {
     if (min === null) return null;
     const late = this.arrivals.map(a => a.offset - min).sort((a, b) => a - b);
     const jitter = late[Math.min(late.length - 1, Math.floor(late.length * JITTER_QUANTILE))];
-    this.delay = Math.min(this.maxDelay, this.minDelay + jitter);
+    let spacing = 0;
+    if (this.intervals && this.arrivals.length > 1) {
+      const gaps = this.arrivals.slice(1).map((a, i) => a.source - this.arrivals[i].source).sort((a, b) => a - b);
+      spacing = this.intervals * gaps[gaps.length >> 1];
+    }
+    this.delay = Math.min(this.maxDelay, this.minDelay + jitter + spacing);
     const target = now - min - this.delay;
     if (this.source === null || Math.abs(target - this.source) > RESYNC || now < this.last) this.source = target;
     else {
