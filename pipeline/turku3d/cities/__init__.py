@@ -206,7 +206,7 @@ NL_DATASETS = (
     dict(
         name="PDOK Luchtfoto RGB",
         url=PDOK_WMS,
-        layers="2025_orthoHR (8 cm), Actueel_orthoHR fallback",
+        layers="2025_orthoHR (8 cm national orthophoto), requested at 49 cm/px for the draft ortho",
         date="2025 flight",
         licence="CC BY 4.0, Beeldmateriaal Nederland",
         licence_source="pdok.nl/introductie/-/article/pdok-luchtfoto-rgb-open- (checked 2026-11-03)",
