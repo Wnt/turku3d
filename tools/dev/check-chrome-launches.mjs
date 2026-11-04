@@ -58,7 +58,7 @@ export function checkChromeLaunches(name, source) {
         : undefined;
       if (!safe(expression) || ignored !== 'chromeIgnoreDefaultArgs' || !resolver || executable !== 'chromeExecutable()') {
         const line = tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
-        errors.push(`${name}:${line}: Chrome launch must use chromeExecutable(), chromeArgs() and chromeIgnoreDefaultArgs from tools/dev/chrome-args.mjs (including mock keychain/password-store defaults)`);
+        errors.push(`${name}:${line}: Chrome launch must use chromeExecutable(), chromeArgs() and chromeIgnoreDefaultArgs from tools/dev/chrome-args.mjs (including --use-mock-keychain/--password-store=basic)`);
       }
     }
     function visit(node) {
@@ -88,6 +88,12 @@ export function checkChromeLaunches(name, source) {
     && !name.includes('/tests/') && !source.includes('chromeExecutable(')) {
     errors.push(`${name}: native Chrome launcher must use the shared automation browser resolver`);
   }
+  // Any Mac launch of an automation Chrome must carry --use-mock-keychain, or macOS asks Jonni for Keychain access
+  // ("Chromium Safe Storage"). Shared chromeArgs() adds both switches; hand-written lists must spell them out.
+  if (!name.includes('/tests/') && /Chrome for Testing|chrome-mac-arm64|chrome-headless-shell|Chromium\.app|--remote-debugging-(?:port|pipe)|chrome-launcher|puppeteer\.launch|ignoreDefaultArgs\s*:\s*true/.test(source)
+    && !source.includes('chromeArgs(') && !(source.includes('--use-mock-keychain') && source.includes('--password-store=basic'))) {
+    errors.push(`${name}: Mac Chrome launch must pass --use-mock-keychain and --password-store=basic (use chromeArgs() from tools/dev/chrome-args.mjs)`);
+  }
   if (/channel\s*:\s*['"]chrome['"]|\/Applications\/Google Chrome\.app/.test(source)) {
     errors.push(`${name}: desktop Chrome path/channel is forbidden`);
   }
@@ -96,6 +102,10 @@ export function checkChromeLaunches(name, source) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const files = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8' }).split('\0');
+  // Optional extra roots for untracked agent scripts: node check-chrome-launches.mjs --scan ~/turku3d/loops/NAME
+  for (let i = 2; i < process.argv.length - 1; i++) if (process.argv[i] === '--scan') {
+    files.push(...execFileSync('find', [process.argv[++i], '(', '-name', 'node_modules', '-o', '-name', 'profile', '-o', '-name', 'repo', ')', '-prune', '-o', '-type', 'f', '-print0'], { encoding: 'utf8', maxBuffer: 1 << 28 }).split('\0').filter(Boolean));
+  }
   const errors = [];
   if (!chromeArgs().includes('--use-mock-keychain') || !chromeArgs().includes('--password-store=basic')) {
     errors.push('Shared Chrome arguments must isolate keychain access with --use-mock-keychain and --password-store=basic');
