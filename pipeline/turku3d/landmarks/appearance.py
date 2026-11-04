@@ -8,7 +8,7 @@ from turku3d.package.gltf import GlbMesh, vertex_normals
 
 from .atlas import batch, merge
 from .descriptions import resolve
-from .procedural import maps, material_maps, roof_surface, wall_maps
+from .procedural import maps, material_maps, roof_surface, wall_maps, window_rows
 
 
 def visible_walls(building, walls):
@@ -86,6 +86,51 @@ def material_wall_parts(building, walls, description):
                 yield points, kind
 
 
+def facade_lines(building, tolerance=0.5):
+    """The footprint rings simplified to their facade lines: (start, unit axis, length) in x/z."""
+    footprint = getattr(building, "footprint", None)
+    lines = []
+    if footprint is None:
+        return lines
+    for polygon in getattr(footprint, "geoms", [footprint]):
+        for ring in [polygon.exterior, *polygon.interiors]:
+            points = np.asarray(ring.simplify(tolerance).coords)[:, :2]
+            for a, b in zip(points[:-1], points[1:], strict=True):
+                length = float(np.linalg.norm(b - a))
+                if length > 1e-3:
+                    lines.append((a, (b - a) / length, length))
+    return lines
+
+
+def facade_line(vertices, lines, tolerance=0.6):
+    """Index of the facade line a wall piece lies on (parallel, within ``tolerance`` m), or None."""
+    a, b = vertices[0, [0, 2]], vertices[1, [0, 2]]
+    width = np.linalg.norm(b - a)
+    best = None
+    for index, (start, axis, length) in enumerate(lines):
+        if abs((b - a) @ axis) < 0.94 * width:
+            continue
+        normal = np.array([-axis[1], axis[0]])
+        offset = max(abs((a - start) @ normal), abs((b - start) @ normal))
+        along = sorted([(a - start) @ axis, (b - start) @ axis])
+        if offset < tolerance and along[0] > -tolerance and along[1] < length + tolerance:
+            if best is None or offset < best[0]:
+                best = (offset, index)
+    return None if best is None else best[1]
+
+
+def body_height(building, walls):
+    """Width-weighted median top of the visible walls above the base: the main body's height."""
+    walls = np.asarray(walls).reshape(-1, 4, 3)
+    if not len(walls):
+        return 0.0
+    widths = np.linalg.norm(walls[:, 1, [0, 2]] - walls[:, 0, [0, 2]], axis=1)
+    tops = walls[:, :, 1].max(axis=1) - building.base
+    order = np.argsort(tops)
+    cumulative = np.cumsum(widths[order])
+    return float(tops[order][np.searchsorted(cumulative, cumulative[-1] / 2)])
+
+
 def wall_meshes(building, walls, origin, description=None):
     d = description or resolve(building)
     if d is None or "wall" not in d.get("surfaces", ["wall", "roof"]):
@@ -121,8 +166,14 @@ def wall_meshes(building, walls, origin, description=None):
         for mesh in result:
             groups.setdefault((mesh.image, mesh.repeat), []).append(mesh)
         return batch([merge(group) for group in groups.values()])
-    result = []
-    for index, (vertices, band_kind) in enumerate(material_wall_parts(building, walls, d)):
+    parts = list(material_wall_parts(building, walls, d))
+    windows = dict(d["windows"], rows_m=window_rows(
+        d["windows"], body_height(building, [q for q, _ in parts]),
+        getattr(building, "attributes", {}).get("levels")))
+    d = dict(d, windows=windows)
+    lines = facade_lines(building)
+    result, shared = [], {}
+    for index, (vertices, band_kind) in enumerate(parts):
         width = float(np.linalg.norm(vertices[1, [0, 2]] - vertices[0, [0, 2]]))
         low, high = float(vertices[:, 1].min()), float(vertices[:, 1].max())
         if width < 0.08 or high - low < 0.08:
@@ -131,6 +182,23 @@ def wall_meshes(building, walls, origin, description=None):
             high - building.base > d["tower"]["minimum_height_m"]
             and width < d["tower"]["maximum_width_m"]
         )
+        extras = dict(
+            layer="buildings",
+            object_id=f"landmark_{building.key}_{index}",
+            building_id=building.facade_key,
+            material_key="landmark_procedural",
+            surface="wall",
+            texture_uv="normalized",
+            landmark_description=d["content_hash"],
+            landmark_tower=tower,
+        )
+        # Survey walls break into pieces at every roof part; the pieces of one facade line share
+        # that line's openings instead of each narrow piece falling back to plain material.
+        if not tower and band_kind in (None, "wall"):
+            line = facade_line(vertices, lines)
+            if line is not None and lines[line][2] >= 3:
+                shared.setdefault(line, []).append((vertices, extras))
+                continue
         repeat = width < 3 or high - low < 1.5
         direction = vertices[1, [0, 2]] - vertices[0, [0, 2]]
         outward = np.array([direction[1], -direction[0]]) / width
@@ -156,7 +224,6 @@ def wall_meshes(building, walls, origin, description=None):
                 [0, (high - vertices[3, 1]) / (high - low)],
             ]
         )
-        repeat = width < 3 or high - low < 1.5
         if repeat:
             kind = band_kind or (
                 "roof"
@@ -178,19 +245,46 @@ def wall_meshes(building, walls, origin, description=None):
                 normal_image=normal,
                 orm_image=orm,
                 repeat=repeat,
-                extras=dict(
-                    layer="buildings",
-                    object_id=f"landmark_{building.key}_{index}",
-                    building_id=building.facade_key,
-                    material_key="landmark_procedural",
-                    surface="wall",
-                    texture_uv="normalized",
-                    landmark_description=d["content_hash"],
-                    landmark_tower=tower,
-                ),
+                extras=extras,
             )
         )
+    # Shared lines span whole facades: one texel budget per building bounds their atlas pages.
+    extent = sum(lines[line][2] * (max(v[:, 1].max() for v, _ in members) - min(v[:, 1].min() for v, _ in members))
+                 for line, members in shared.items())
+    density = int(np.clip(np.sqrt(LINE_TEXELS / max(extent, 1e-6)), 16, 40))
+    for line, members in sorted(shared.items()):
+        result.append(line_mesh(building, lines[line], members, origin, d, density))
     return night_wash(batch(result), building, origin, d)
+
+
+LINE_TEXELS = 3 * 2048 * 2048  # three atlas pages of facade lines per landmark
+
+
+def line_mesh(building, line, members, origin, description, density=40):
+    """One facade line's pieces as one mesh sampling one texture in line metres."""
+    start, axis, length = line
+    # Outward-wound pieces: texture x runs along their own direction, so it reads from outside.
+    if sum((v[1, [0, 2]] - v[0, [0, 2]]) @ axis for v, _ in members) < 0:
+        start, axis = start + axis * length, -axis
+    low = min(float(v[:, 1].min()) for v, _ in members)
+    high = max(float(v[:, 1].max()) for v, _ in members)
+    albedo, normal, orm = wall_maps(
+        round(length, 3),
+        round(high - low, 3),
+        round(low - building.base, 3),
+        json.dumps(dict(description, show_entrance=False), sort_keys=True),
+        False,
+        density=density,
+    )
+    meshes = []
+    for vertices, extras in members:
+        x = (vertices[:, [0, 2]] - start) @ axis / length
+        uv = np.c_[np.clip(x, 0, 1), (high - vertices[:, 1]) / (high - low)]
+        meshes.append(GlbMesh(
+            extras["object_id"], vertices - origin, np.array([[0, 3, 2], [0, 2, 1]], np.uint32),
+            uvs=uv, image=albedo, normal_image=normal, orm_image=orm, repeat=False, extras=extras,
+        ))
+    return merge(meshes)
 
 
 def roof_mesh(building, roof, indices, origin, description=None):
