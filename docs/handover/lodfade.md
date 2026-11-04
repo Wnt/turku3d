@@ -70,6 +70,30 @@ fit runs once per tile install (at most 64 samples per roof mesh).
 - Judge: `~/turku3d/tools/visual-judge/judge.py --domain lod rank --img A --img B ...` (new blind multi-image
   mode and LOD prompt; falls back to the Claude CLI while the Codex quota is out).
 
+## Round 2: shell-look@1 migration and orthophoto roofs (generator parity, for train3)
+
+- **`pipeline/turku3d/migrations/shell_look.py` (registered last in `CHAIN`).** For each HD placement the measurer
+  `shell_colours.mjs` (Node, the repo's own Basis transcoder in `game/public/basis`, gltf-transform from
+  `TURKU3D_GLTF_TOOLS` or `~/turku3d/tools/npm`) reads the HD model as the chain left it and returns the area-weighted
+  roof texture mean, the wall mean (textured walls: texture mean; facade kits: the module atlas cell tinted by wall and
+  trim, trim bands mixed in), the kit grid (bay, storey, opening width and height fractions) and the footprint. Each
+  block-shell triangle takes its building's roof or wall mean; wall vertices gain `_SHELL_GRID`. The JS file's hash is
+  pinned in `MEASURER_SHA256`, so editing it changes the generation id. About 4-5 s per tile.
+- **Order:** it measures the HD models after every earlier step, so a facade migration (e.g. landmark windows) must
+  sit **before** `shell-look` in `CHAIN`, or shells keep the old facade colours.
+- **Scenery cells** copy the farm block shells' COLOR_0 (`tools/remote-drafts/scenery.mjs`), so they inherit the new
+  colours once they rebuild from migrated products.
+- **Survey shells** (250 m survey cells, `horizon.shells`; 1 km nodes, `horizon_nodes.survey_shells`) take each
+  roof's orthophoto mean (`coarse/roof_pigment.py`, about 2 m per pixel) instead of ROOF. The orthophoto paths join
+  the rows' inputs and hashes; `roof_pigment.py` joins the horizon recipe, so local-horizon rebuilds nodes on demand
+  after its restart from this code (not done: that is the coordinator's switch).
+- **Client:** shell roofs still sample the HD roof photo where its UVs are a planar projection, now found by face
+  normal; glazed shells with `_shell_grid` draw their windows on the real bays, storeys and opening sizes
+  (`buildings-lod-glazed-grid`). The client-side trim recolouring moved into the migration.
+- **Test alias:** `lodfade-m1` (registered from bbe15120, base `bulkgen2-3d1445b2`), applied to t0_1_-2, t0_1_0 and
+  t0_1_-1, t0_2_-1, t0_2_0. Serve it with `follow: "lodfade-m"` in a sandbox `tile-service.json`. The full chain on a
+  fresh tile takes about 170 s (lidar steps); a chain that extends train2's products only runs this step.
+
 ## Open, ranked
 
 1. **Landmark and atlas facade walls** keep a shell pigment far from their HD texture (the judge's top artefact at
