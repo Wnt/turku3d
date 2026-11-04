@@ -340,11 +340,11 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
-// During play r186's asynchronous shader-build stages run after each frame within a small budget instead of back to
-// back between two frames (render/yieldPacer.ts); loading and bench settles keep the browser's scheduler.yield.
-// 3 ms per frame, 8 ms while the 3x3 window waits for full tiles: a flat 3 ms cost the Air 5-7 HD points.
-paceYields(() => (!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled(),
-  () => streamingAllowance.urgent ? 8 : 3);
+// During play r186's asynchronous shader-build stages run after each frame within a 3 ms share instead of back to
+// back between two frames (render/yieldPacer.ts), but only once the 3x3 window has its full tiles: while it waits
+// (streamingAllowance.urgent) they run at native speed. Pacing those too starved HD installs on the Radeon 560X
+// (tile.prepare p50 2 -> 27 s, HD 62 -> 34 %) and cost the M1 Air 5 points. Loading and bench settles are not paced.
+paceYields(() => ((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled()) && !streamingAllowance.urgent);
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
