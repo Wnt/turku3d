@@ -1,4 +1,4 @@
-"""furniture@1: benches placed by ``props.seating`` (lidar snap, absence, barrier back) on existing tiles.
+"""furniture@2: benches placed by ``props.seating`` (lidar snap, barrier back, water view, way heading) on existing tiles.
 
 The rule is the furniture stage's (``coarse.furniture.produce`` calls the same ``seating.place``), so
 a regeneration matches. Inputs come from the tile itself and the pipeline's own loaders over the
@@ -6,7 +6,7 @@ base's source version:
 
 * each drawn bench row of the props batch (its pose: the generator's yaw from the tile's prepared
   ``poles`` input, its drawn origin fitted to the row's vertices);
-* the tile's prepared ``barriers`` and ``water`` inputs, the LOD2 footprints and the survey LAZ.
+* the tile's prepared ``barriers``, ``water`` and ``roads`` inputs, the LOD2 footprints and the survey LAZ.
 
 Changed benches are rewritten in place: their batch vertices and normals (moved and turned about
 their origin; a dropped bench's triangles collapse and its row leaves ``objects``), and their
@@ -122,7 +122,8 @@ def _tile_inputs(tile):
     water = _prepare_one(tile, "water", paths["water"]) if paths.get("water") is not None else []
     found, bldg = sources.wfs_source("bldg:Building_LOD2", tile)
     footprints = [b.footprint for b in buildings(bldg, tile, context=True)] if found and bldg else []
-    return poles, barriers, water, footprints
+    roads = _prepare_one(tile, "roads", paths["roads"]) if paths.get("roads") is not None else None
+    return poles, barriers, water, footprints, (roads or {}).get("json")
 
 
 def _bench_boxes(p):
@@ -198,7 +199,7 @@ def transform(product: Product) -> None:
     if not any(o.get("prop_type") == "bench" for i in batches for o in document["nodes"][i]["extras"]["objects"]):
         return
     tile = C.VisualTile.parse(product.tile)
-    poles, barriers, water, footprints = _tile_inputs(tile)
+    poles, barriers, water, footprints, roads = _tile_inputs(tile)
     by_id = {p.object_id: p for p in poles}
     local = _bench_model()
     stats = Counter()
@@ -234,7 +235,7 @@ def transform(product: Product) -> None:
     from turku3d.ground.inputs import laz_paths
 
     cloud = seating.survey_cloud(tile.bbox, benches, laz_paths(tile.bbox.buffered(seating.WINDOW)))
-    kept = {id(b): b for b in seating.place(benches, cloud, barriers, footprints, water, stats)}
+    kept = {id(b): b for b in seating.place(benches, cloud, barriers, footprints, water, stats, roads)}
 
     changed_nodes, dropped_rows, collision_edits = set(), set(), []
     positions = {i: decoded[i][1].astype(np.float64) for i in batches}
@@ -351,4 +352,4 @@ def _collision(product, manifest, edits, stats):
         entry["prims"] = entry.get("prims", 0) - found.count(True) + len(additions.get(cell_id, []))
 
 
-MIGRATION = Migration("furniture", 1, transform)
+MIGRATION = Migration("furniture", 2, transform)
