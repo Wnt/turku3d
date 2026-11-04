@@ -47,7 +47,9 @@ test('a local car cannot drive through a remote car: the proxy blocks the chassi
   pw.world.step();
   // Flat dev ground at y 2: the local car drives east at full throttle into a remote car parked 12 m ahead.
   pw.spawnVehicle({ x: 30, y: 2.8, z: 100 }, 0);
-  const remote = [{ id: 'remote', pos: { x: 42, y: 2, z: 100 }, yaw: -Math.PI / 2, mode: 'car' as const }];
+  for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+  // A remote car's proxy sits at its chassis centre (net/remotes.ts adds VEHICLE_POSE_HEIGHT to the network H).
+  const remote = [{ id: 'remote', pos: { x: 42, y: pw.vehicleState()!.pos.y, z: 100 }, yaw: -Math.PI / 2, mode: 'car' as const }];
   for (let k = 0; k < 180; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false }); }
   const car = pw.vehicleState()!;
   // Stopped short of it (chassis half lengths 2.1 + 2.1), not through it, and still on its wheels on the ground.
