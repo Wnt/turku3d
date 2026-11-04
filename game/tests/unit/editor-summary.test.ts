@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { finalEdits, kindOf, summarizeSession } from '../../src/dev/editor/summary';
-import { EditSession, type EditRecord, type KeyValue, type SessionMeta, type SessionRow, type SessionTransport } from '../../src/dev/editor/session';
+import { EditSession, EXPORT_FORMAT, localTransport, sessionExport, type EditRecord, type KeyValue, type SessionMeta, type SessionRow, type SessionTransport } from '../../src/dev/editor/session';
 import { editSessionsMiddleware } from '../../../tools/dev/editSessions.mjs';
+import { editorAllowed, editsLocalOnly } from '../../src/dev/editor';
 
 const ID = '20261104-201000-abc123';
 const at = (E: number, N: number) => ({ engine: { x: 0, y: 0, z: 0 }, epsg3877: { E, N, H: 5 }, epsg3067: { E: 0, N: 0, H: 5 } });
@@ -117,6 +118,31 @@ describe('edit session summary', () => {
     expect(sent).toEqual(['session.json:Edit session x\n', 'summary.txt:Edit session x\n']);
     expect(reloaded.pending).toBe(0);
     expect(EditSession.restore(store, t)).toBeNull();
+  });
+
+  test('local only (city.lab): nothing is sent, the close still completes, and the export carries every row', async () => {
+    seq = 0;
+    const map = new Map<string, string>();
+    const store: KeyValue = { getItem: k => map.get(k) ?? null, setItem: (k, v) => { map.set(k, v); }, removeItem: k => { map.delete(k); } };
+    const session = EditSession.start(store, localTransport(), { build: { loaded: 'abc' }, tiles: {}, device: {} });
+    const e = edit({ type: 'bench', turn: 90 });
+    session.commit({ ...e, id: session.rowId(1), seq: 1, session: session.id });
+    session.tag(session.rowId(1), 'wrong_facing');
+    expect(await session.flush()).toBe(true);
+    expect(session.closable).toBe(true);
+    session.end();
+    const text = summarizeSession(session.meta, session.rows, { host: 'city.lab.madekivi.fi', utcOffsetMin: 120, localOnly: true });
+    expect(text).toMatch(/- 1 bench turned ~90° ccw \(reason: wrong facing\)/);
+    expect(text.trimEnd().split('\n').at(-1)).toBe(`Full details: session ${session.id} JSON from the close dialog (local only, not on any server; scripts/dev/edit_sessions.py import FILE)`);
+    const exported = JSON.parse(sessionExport(session.meta, session.rows, text));
+    expect(exported).toMatchObject({ format: EXPORT_FORMAT, version: 1, session: { id: session.id }, summary: text });
+    expect(exported.rows.map((r: SessionRow) => r.action)).toEqual(['rotate', 'tag']);
+  });
+
+  test('the editor runs on the share host only with ?editor=1 and stores nothing there', () => {
+    expect(editorAllowed({ hostname: 'localhost', search: '' })).toBe(true);
+    expect(editorAllowed({ hostname: 'wnt.github.io', search: '?editor=1' })).toBe(false);
+    expect(editsLocalOnly({ hostname: 'localhost' })).toBe(false);
   });
 
   test('the server stores summary.txt; a public share is write-only, same-origin and within its quota', async () => {

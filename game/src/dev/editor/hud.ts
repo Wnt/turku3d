@@ -44,6 +44,8 @@ export interface HudView {
   status: string;
   /** Edits the dev server holds and rows still waiting (always shown in the mode). */
   counts: { saved: number; pending: number } | null;
+  /** The site stores nothing (city.lab): the counts say the edits stay in this browser. */
+  localOnly?: boolean;
 }
 
 export class EditorHud {
@@ -77,7 +79,8 @@ export class EditorHud {
     this.element.classList.toggle('hover', view.hover && view.mode === 'aim');
     this.element.classList.toggle('holding', view.mode === 'hold');
     if (this.label.textContent !== view.label) this.label.textContent = view.label;
-    const counts = view.counts ? `Edits saved ${view.counts.saved} · pending ${view.counts.pending}` : 'No session yet';
+    const counts = view.localOnly ? `Local only: ${view.counts?.saved ?? 0} edits kept in this browser, nothing uploaded`
+      : view.counts ? `Edits saved ${view.counts.saved} · pending ${view.counts.pending}` : 'No session yet';
     if (this.counts.textContent !== counts) this.counts.textContent = counts;
     this.counts.classList.toggle('pending', !!view.counts?.pending);
     this.bar.hidden = view.deleting === null;

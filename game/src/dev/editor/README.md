@@ -6,7 +6,7 @@ EDIT-FORMAT.md §10). Every committed edit goes into an **edit session** for an 
 rules (format and incorporation contract: `~/turku3d/loops/editor/EDIT-FORMAT.md`; reader:
 `scripts/dev/edit_sessions.py list | effective | clusters`). Edits show at once as local
 **previews** only: no tile, collision, physics body, breakable-pole state or multiplayer message changes, so other
-players never see them. On by default on localhost (`?editor=0` turns it off; `?editor=1` elsewhere, never on Pages or city.lab).
+players never see them. On by default on localhost (`?editor=0` turns it off; `?editor=1` elsewhere, never on Pages; on city.lab it stores nothing: edits stay in the browser and leave it as the close dialog's JSON).
 
 | File | Role |
 |---|---|
