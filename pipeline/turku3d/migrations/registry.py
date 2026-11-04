@@ -2,7 +2,8 @@
 
 Each entry runs at the end of every generator build and over existing farm products."""
 
-from . import chain_record, floodlights, furniture, landmark_windows, racks, shell_look, signals, signs, stand_roofs, trees_lidar, wires
+from . import (bridge_ends, chain_record, floodlights, furniture, landmark_windows, racks, roadbed, shell_look,
+               signals, signs, stand_roofs, trees_lidar, wires)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -17,4 +18,7 @@ CHAIN = (
     shell_look.MIGRATION,
     signals.MIGRATION,
     signs.MIGRATION,
+    # Ground and deck rebuild of the tiles that build a bridge, then the roadbed over every tile's lanes.
+    bridge_ends.MIGRATION,
+    roadbed.MIGRATION,
 )
