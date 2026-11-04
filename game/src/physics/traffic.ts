@@ -94,6 +94,9 @@ interface ActiveCar {
   groundAt?: {x:number;z:number;yaw:number};
 }
 
+/** Wall time (ms) a physics step may spend on a traffic graph rebuild. */
+const REBUILD_MS_PER_STEP = 3;
+
 export class TrafficSim {
   readonly network = new TrafficNetwork();
   readonly flow = new TrafficFlow(this.network);
@@ -130,6 +133,8 @@ export class TrafficSim {
 
   constructor(private readonly R: R, private readonly world: RAPIER_NS.World, private readonly host: TrafficHost) {
     this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
+    // A tile install rebuilds the traffic graph over several steps instead of stalling one (worker step budget).
+    this.flow.rebuildBudgetMs = REBUILD_MS_PER_STEP;
   }
 
   /** Clock hour at traffic time t. Multiplayer: the shared cycle, so every client thins alike. Single player: the
