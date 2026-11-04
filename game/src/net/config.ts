@@ -1,9 +1,12 @@
 import { isShareHost, sameOriginServices } from '../core/localOnly';
+import { CITY, isHome, type CityProfile } from '../core/city';
 
-/** Local and share-host drafts stay same-origin; Pages uses the build-time serving endpoint. */
-export function draftsUrl(page: Pick<Location, 'hostname'> = location): string | null {
+/** Local and share-host drafts stay same-origin; Pages uses the build-time serving endpoint. The page always asks for
+ *  `/coarse/`: another city's mount on the same origin receives those requests (core/city.ts installCityFetch). Pages
+ *  serves Turku only. */
+export function draftsUrl(page: Pick<Location, 'hostname'> = location, city: CityProfile = CITY): string | null {
   if (sameOriginServices(page.hostname)) return '/coarse/';
-  if (page.hostname !== 'wnt.github.io') return null;
+  if (page.hostname !== 'wnt.github.io' || !isHome(city)) return null;
   const url = new URL(import.meta.env.VITE_DRAFT_URL ?? 'https://turku.lab.madekivi.fi/coarse/');
   if (url.protocol !== 'https:') throw new Error('draft endpoint must use HTTPS');
   return url.href.endsWith('/') ? url.href : `${url.href}/`;
@@ -11,16 +14,19 @@ export function draftsUrl(page: Pick<Location, 'hostname'> = location): string |
 
 /** Multiplayer endpoint is selected at runtime so the same static build works locally and on Pages. A share host's
  *  own server proxies the socket (and the scores) to its multiplayer server, never to the published one. */
-export function multiplayerUrl(page: Pick<Location, 'hostname' | 'search'> & Partial<Pick<Location, 'host' | 'protocol'>> = location): string {
+export function multiplayerUrl(page: Pick<Location, 'hostname' | 'search'> & Partial<Pick<Location, 'host' | 'protocol'>> = location,
+  city: CityProfile = CITY): string {
   const override = new URLSearchParams(page.search).get('mp');
+  // Each city is its own room: the socket path names it (server/http.js), `/` is Turku.
+  const room = (base: string) => new URL(city.room, base).href;
   if (override) {
     const url = new URL(override);
     if (url.protocol !== 'ws:' && url.protocol !== 'wss:') throw new Error('mp must be a WebSocket URL');
-    return url.href;
+    return isHome(city) ? url.href : room(url.href);
   }
-  if (page.hostname === 'localhost') return 'ws://127.0.0.1:7700/';
-  if (isShareHost(page.hostname)) return `${page.protocol === 'http:' ? 'ws:' : 'wss:'}//${page.host ?? page.hostname}/`;
-  return 'wss://turku.lab.madekivi.fi/';
+  if (page.hostname === 'localhost') return room('ws://127.0.0.1:7700/');
+  if (isShareHost(page.hostname)) return room(`${page.protocol === 'http:' ? 'ws:' : 'wss:'}//${page.host ?? page.hostname}/`);
+  return room('wss://turku.lab.madekivi.fi/');
 }
 
 export function scoresUrl(wsUrl: string): string {

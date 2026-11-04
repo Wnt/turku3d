@@ -21,7 +21,10 @@
 #
 # systemd --user units on osgallery-dev (linger; Restart=always; enabled for boot), sources in tools/share/units:
 #   city-web        tools/dev/serve-dist.mjs --public, 127.0.0.1:7780: the game, /pointcloud -> /bulk/turku3d/lidarpc/copc,
-#                   /coarse -> city-tiles, WebSocket + /live.json + /scores/ -> city-mp; GET/HEAD only
+#                   /coarse -> city-tiles, /cities/<name>/coarse -> that city's tile service as named in
+#                   ~/turku3d-local/city/cities.json ({"espoo": "http://127.0.0.1:7970"}, re-read on change: adding a
+#                   line opens that city's portals without a redeploy), WebSocket + /live.json + /scores/ -> city-mp;
+#                   GET/HEAD only
 #   city-tiles      scripts/dev/shared-tile-proxy.mjs, 127.0.0.1:7781 -> farm 192.168.1.114:7950 (/v/<pin>) and the
 #                   scenery server 127.0.0.1:7947; pin in ~/turku3d-local/city/tiles.json (hot-read)
 #   city-mp         server/index.js, 127.0.0.1:7782, TURKU_MP_ORIGINS=https://city.lab.madekivi.fi, own scores dir;
@@ -79,7 +82,8 @@ PY
 # 1. Ship the committed tree (plus version.json and tiles.json at its root) to a stage dir on osgallery-dev.
 C=turku3d-local/city
 STAGE="$C/stage/$SHORT-$$"
-ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps && rm -rf ~/$STAGE && mkdir -p ~/$STAGE"
+ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps && rm -rf ~/$STAGE && mkdir -p ~/$STAGE
+  [ -f ~/$C/cities.json ] || echo '{}' > ~/$C/cities.json"
 git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
   game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
 

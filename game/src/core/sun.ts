@@ -1,10 +1,11 @@
-// Solar position (NOAA simplified algorithm, ~0.5 deg) for the Turku origin.
+// Solar position (NOAA simplified algorithm, ~0.5 deg) at the active city's centre (core/city.ts).
+import { CITY } from './city';
 import { TRUE_NORTH_GRID_BEARING_DEG } from './origin';
-export const TURKU_LAT = 60.448;
-const TURKU_LON = 22.267;
+export const CITY_LAT = CITY.latLon.lat;
+const CITY_LON = CITY.latLon.lon;
 
 /** Returns azimuth (deg, clockwise from north) and elevation (deg) of the sun. */
-export function sunPosition(date: Date, lat = TURKU_LAT, lon = TURKU_LON): { azimuth: number; elevation: number } {
+export function sunPosition(date: Date, lat = CITY_LAT, lon = CITY_LON): { azimuth: number; elevation: number } {
   const rad = Math.PI / 180;
   const jd = date.getTime() / 86400000 + 2440587.5;
   const n = jd - 2451545.0;

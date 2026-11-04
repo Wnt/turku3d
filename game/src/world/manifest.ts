@@ -1,6 +1,6 @@
-import { CITY } from '../core/city';
 // dist/tiles/manifest.json (docs/specs/tiles.md §5).
 import { E0, N0, COLLISION_TILE, VISUAL_L0 } from '../core/origin';
+import { CITY } from '../core/city';
 
 export interface ManifestEntry { url: string; sha256: string; bytes: number; tris: number; h: [number, number]; prims?: number; flags?: number; level?: number }
 /** A draft parking slot and its car. `pitch` (nose up) and `roll` (leaning right) follow the ground, in
@@ -29,7 +29,7 @@ export interface Manifest {
 /** Mutable residency inventory filled only by validated draft fragments. No published tile request. */
 export function draftManifest(baseUrl: string): Manifest {
   return { format: 'turku3d-manifest', version: 1, built: '', code: '',
-    origin_en: [E0, N0, 0], crs: CITY.epsg,
+    origin_en: [E0, N0, 0], crs: CITY.crs,
     grid: { visual_l0: VISUAL_L0, collision: COLLISION_TILE, levels: 1 },
     materials_version: 1, col_version: [1, 0], visual: {}, collision: {}, baseUrl };
 }

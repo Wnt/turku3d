@@ -223,6 +223,8 @@ export interface GameHooks {
   respawn(): void;
   /** "Bring my vehicle here": why it is unavailable now (null: available), and the action, which resumes play. */
   bringVehicle?: { reason(): string | null; run(): void };
+  /** In a city other than Turku: "Return to Turku" through the portal the player came by (gameplay/travel.ts). */
+  returnHome?: { detail: string; run(): void };
 }
 
 /** A slot row: its name and label, and the details line, or "Empty". */
@@ -268,6 +270,8 @@ export class SaveMenuFlow {
     const root = () => this.pause();
     return { id: 'pause', title: 'Paused', text, back: () => this.game.resume(), items: [
       { id: 'resume', label: 'Resume', detail: null, enabled: true, run: () => this.game.resume() },
+      ...(this.game.returnHome ? [{ id: 'return-home', label: 'Return to Turku', detail: this.game.returnHome.detail, enabled: true,
+        run: this.game.returnHome.run }] : []),
       { id: 'respawn', label: 'Respawn at the start', detail: null, enabled: true,
         run: () => this.host.show(this.confirmRespawn()) },
       ...(this.game.bringVehicle ? [this.bringItem(this.game.bringVehicle)] : []),

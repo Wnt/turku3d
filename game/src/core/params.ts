@@ -1,5 +1,5 @@
 // URL parameters. See game/README.md for the contract.
-import { OFFICE_EN } from './origin';
+import { CITY } from './city';
 import { mobileDevice, parseQuality, type QualityTier } from '../render/quality';
 import type { Antialiasing } from '../render/post';
 import { benchPose, type BenchPose } from '../qa/bench';
@@ -134,7 +134,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     hour,
     cycleMinutes,
     spawnGiven: sp !== null,
-    spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
+    spawn: { E: sp?.[0] ?? CITY.spawn.E, N: sp?.[1] ?? CITY.spawn.N, headingDeg: sp?.[2] ?? CITY.spawn.headingDeg },
     hud: p.get('hud') !== '0',
     test: p.has('test'),
     collisionRadius: colRadius,
