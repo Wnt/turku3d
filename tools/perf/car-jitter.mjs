@@ -1,6 +1,7 @@
 // Pose discontinuity of the driven car in a real game (not the QA replay): takes a parked car next to the start,
 // drives it with the autopilot on real physics, and records the drawn car and the camera every rendered frame.
-//   CDP=http://127.0.0.1:9332 node tools/perf/car-jitter.mjs LABEL [URL] [SECONDS]
+//   CDP=http://127.0.0.1:9332 node tools/perf/car-jitter.mjs LABEL [URL] [SECONDS]   (a Chrome you started)
+//   PROFILE=~/turku3d/loops/NAME/browser/profile node tools/perf/car-jitter.mjs LABEL ...  (headless Chrome here)
 // URL defaults to https://city.lab.madekivi.fi/. Prints one JSON line and writes it to
 // ~/turku3d/loops/carjitter/runs/LABEL.json. Run Chrome under a host lease (tools/host-lease); never Jonni's.
 // Metrics per rendered frame (see game/tests/perf/carjitter.test.ts for the replay version):
@@ -13,23 +14,33 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [label, url = 'https://city.lab.madekivi.fi/', seconds = '30'] = process.argv.slice(2);
-if (!label || !process.env.CDP) throw new Error('Usage: CDP=http://127.0.0.1:PORT node tools/perf/car-jitter.mjs LABEL [URL] [SECONDS]');
+if (!label || !(process.env.CDP || process.env.PROFILE)) throw new Error('Usage: CDP=http://127.0.0.1:PORT|PROFILE=DIR node tools/perf/car-jitter.mjs LABEL [URL] [SECONDS]');
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const { chromium } = await import(pathToFileURL(path.join(repo, 'game/node_modules/@playwright/test/index.mjs')).href);
-const browser = await chromium.connectOverCDP(process.env.CDP);
-const context = browser.contexts()[0] ?? await browser.newContext();
+const { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } = await import(pathToFileURL(path.join(repo, 'tools/dev/chrome-args.mjs')).href);
+const browser = process.env.CDP ? await chromium.connectOverCDP(process.env.CDP) : null;
+const context = browser ? browser.contexts()[0] ?? await browser.newContext() : await chromium.launchPersistentContext(process.env.PROFILE, {
+  executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true, viewport: { width: 1280, height: 720 },
+  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']) });
 const page = await context.newPage();
 const errors = [];
+const step = what => console.error(`[car-jitter ${label}] ${what}`);
+const dir = path.join(os.homedir(), 'turku3d/loops/carjitter/runs');
+fs.mkdirSync(dir, { recursive: true });
+process.on('unhandledRejection', async e => { await page.screenshot({ path: path.join(dir, `${label}-fail.png`) }).catch(() => {}); console.error(e); process.exit(1); });
 page.on('pageerror', e => errors.push(e.message.slice(0, 300)));
 await page.goto(`${url}${url.includes('?') ? '&' : '?'}car_jitter=${label}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-await page.waitForFunction(() => window.__game?.ready, null, { timeout: 180000 });
+step('loading'); await page.waitForFunction(() => window.__game?.ready, null, { timeout: 180000 }); step('ready');
 const version = await page.evaluate(() => fetch('/version.json').then(r => r.json()).then(v => v.sha).catch(() => null));
-for (let k = 0; k < 3 && await page.evaluate(() => window.__game.state().startScreen); k++) {
-  await page.locator('[data-option="new"], [data-option="continue"]').first().click().catch(() => {});
+for (let k = 0; k < 6 && await page.evaluate(() => window.__game.state().startScreen); k++) {
+  step(`menu: ${await page.evaluate(() => [...document.querySelectorAll('[data-option]')].map(e => `${e.dataset.option}${e.getAttribute('aria-disabled') === 'true' ? '(off)' : ''}`).join(' '))}`);
+  // A browser warning (weak GPU, not desktop Chrome) gates the menu until dismissed.
+  await page.evaluate(() => { for (const b of document.querySelectorAll('.browser-warning button, [class*="warning"] button')) if (b.offsetParent) b.click(); });
+  await page.locator('[data-option="new"], [data-option="continue"]').first().click({ timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(1500);
   await page.locator('[data-option="yes"], [data-option="confirm"], [data-option="new"]').first().click({ timeout: 1000 }).catch(() => {});
 }
-await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 240000 });
+step('start'); await page.screenshot({ path: path.join(dir, `${label}-start.png`) }).catch(() => {}); await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 240000 }); step('playing');
 await page.waitForTimeout(8000);
 // The nearest parked car with a body, as Jonni drove a taken car.
 const taken = await page.evaluate(async () => {
@@ -64,7 +75,7 @@ await page.evaluate(() => {
 await page.waitForTimeout(Number(seconds) * 1000);
 const rows = await page.evaluate(() => window.__jitter.rows);
 await page.close();
-await browser.close();
+await (browser ?? context).close();
 
 const pct = (a, q) => { const s = a.toSorted((x, y) => x - y); return +(s[Math.min(s.length - 1, Math.floor(q * s.length))] ?? 0).toFixed(2); };
 const world = [], relative = [], screen = [];
@@ -83,7 +94,5 @@ const result = { label, version, url, taken: taken.id, frames: rows.length, movi
   worldP50: pct(world, 0.5), worldP99: pct(world, 0.99), worldOver100: world.filter(a => a > 100).length,
   relativeP50: pct(relative, 0.5), relativeP99: pct(relative, 0.99), relativeOver100: relative.filter(a => a > 100).length,
   screenP50: pct(screen, 0.5), screenP99: pct(screen, 0.99), screenOver2px: screen.filter(s => s > 2).length, errors: errors.slice(0, 3) };
-const dir = path.join(os.homedir(), 'turku3d/loops/carjitter/runs');
-fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, `${label}.json`), JSON.stringify({ result, rows }));
 console.log(JSON.stringify(result));
