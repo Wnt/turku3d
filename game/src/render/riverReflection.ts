@@ -3,8 +3,8 @@
 // TRAA's history (render/waterHistory.ts): no second city draw and no extra pass. The river writes no depth (W3), so the
 // stored depth holds only what stands above and around the water, never the water itself.
 import * as THREE from 'three/webgpu';
-import { Break, Fn, If, Loop, bool, cameraFar, cameraNear, float, getScreenPosition, max, min, mix, normalize,
-  perspectiveDepthToViewZ, smoothstep, texture, uniform, vec2, vec4 } from 'three/tsl';
+import { Break, Fn, If, Loop, bool, cameraFar, cameraNear, dot, float, getScreenPosition, max, min, mix, normalize,
+  perspectiveDepthToViewZ, smoothstep, texture, uniform, vec2, vec3, vec4 } from 'three/tsl';
 import type { WaterHistory } from './waterHistory';
 
 /** March length (m) and samples. Twelve screen-space steps find a bracket, four binary steps and a secant step refine
@@ -14,10 +14,10 @@ import type { WaterHistory } from './waterHistory';
  *  the reach) and beyond the thickness limit. A ray that leaves last frame's image without a hit (or a hit fading at
  *  its border) takes the colour where it left (`edge`, at most that weight): what stands at the image border along the
  *  ray, not the bright sky. Four taps `blur` texels apart (more for longer rays) soften the read, stretched `stretch`
- *  times vertically as rippled water stretches reflections; the waves shift the read `ripple` times their planar offset
+ *  times vertically as rippled water stretches reflections; the waves shift the read `ripple` times their offset
  *  (x, y): mostly vertically, so lit windows streak down rather than zig-zag sideways. */
 export const RIVER_SSR = { reach: 400, steps: 12, refine: 4, minFresnel: 0.035, border: [0.002, 0.03], far: [0.8, 1],
-  blur: [1.5, 4], stretch: 2.5, ripple: [0.5, 1.6], edge: 0.7, edgeBlur: [8, 3] };
+  blur: [1.5, 4], stretch: 2.5, ripple: [0.5, 1.2], edge: 0.7, edgeBlur: [8, 3] };
 
 type Vec3 = THREE.Node<'vec3'>;
 
@@ -35,6 +35,9 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
     return size.set(1 / Math.max(1, image?.width ?? 1), 1 / Math.max(1, image?.height ?? 1));
   });
   const near = cameraNear, far = cameraFar;
+  // The projection's focal scales, to place a stored pixel in view space.
+  const focalScale = new THREE.Vector2(1, 1);
+  const focal = uniform(focalScale).onRenderUpdate(() => focalScale.set(camera.projection.elements[0], camera.projection.elements[5]));
   // Four taps in a vertical streak around `at`, `spread` texels apart.
   const soft = (at: THREE.Node<'vec2'>, spread: THREE.Node<'vec2'>) => {
     const tap = (x: number, y: number) => color.sample(at.add(spread.mul(vec2(x, y * RIVER_SSR.stretch)))).level(float(0)).rgb;
@@ -105,7 +108,13 @@ export function riverScreenReflection(history: WaterHistory & { depth: THREE.Dep
       // Off the image: the colour where the ray left it fills what the hit leaves (all of a miss).
       If(span.lessThan(0.999).and(result.a.lessThan(0.999)), () => {
         const exit = startUV.add(deltaUV).clamp(0.01, 0.99).toVar();
-        const weight = float(RIVER_SSR.edge).mul(float(1).sub(smoothstep(RIVER_SSR.far[0], RIVER_SSR.far[1], span)));
+        // Only what stands above the water: at an exit on the water itself (or its bed) last frame shows this same
+        // reflection, which would copy the sky fallback back in. Sky pixels lie far above and pass.
+        const exitZ = sceneZ(exit);
+        const exitView = vec3(exit.x.mul(2).sub(1).mul(exitZ.negate()).div(focal.x), float(1).sub(exit.y.mul(2)).mul(exitZ.negate()).div(focal.y), exitZ);
+        const height = dot(exitView.sub(start), normalize(view.mul(vec4(0, 1, 0, 0)).xyz));
+        const weight = float(RIVER_SSR.edge).mul(float(1).sub(smoothstep(RIVER_SSR.far[0], RIVER_SSR.far[1], span)))
+          .mul(smoothstep(0.3, 1.5, height));
         const fill = weight.mul(float(1).sub(result.a));
         const edge = soft(exit, texel.mul(vec2(...RIVER_SSR.edgeBlur)));
         const alpha = result.a.add(fill);
