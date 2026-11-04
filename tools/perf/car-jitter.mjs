@@ -29,18 +29,21 @@ const dir = path.join(os.homedir(), 'turku3d/loops/carjitter/runs');
 fs.mkdirSync(dir, { recursive: true });
 process.on('unhandledRejection', async e => { await page.screenshot({ path: path.join(dir, `${label}-fail.png`) }).catch(() => {}); console.error(e); process.exit(1); });
 page.on('pageerror', e => errors.push(e.message.slice(0, 300)));
-await page.goto(`${url}${url.includes('?') ? '&' : '?'}car_jitter=${label}`, { waitUntil: 'domcontentloaded', timeout: 120000 });
-step('loading'); await page.waitForFunction(() => window.__game?.ready, null, { timeout: 180000 }); step('ready');
+// Reach play within LOAD_LIMIT or give up (the caller closes Chrome and releases its lease).
+const LOAD_LIMIT = 90000, loadStart = Date.now(), left = () => Math.max(1000, LOAD_LIMIT - (Date.now() - loadStart));
+await page.goto(`${url}${url.includes('?') ? '&' : '?'}car_jitter=${label}`, { waitUntil: 'domcontentloaded', timeout: left() });
+step('loading'); await page.waitForFunction(() => window.__game?.ready, null, { timeout: left() }); step('ready');
 const version = await page.evaluate(() => fetch('/version.json').then(r => r.json()).then(v => v.sha).catch(() => null));
 for (let k = 0; k < 6 && await page.evaluate(() => window.__game.state().startScreen); k++) {
   step(`menu: ${await page.evaluate(() => [...document.querySelectorAll('[data-option]')].map(e => `${e.dataset.option}${e.getAttribute('aria-disabled') === 'true' ? '(off)' : ''}`).join(' '))}`);
   // A browser warning (weak GPU, not desktop Chrome) gates the menu until dismissed.
   await page.evaluate(() => { for (const b of document.querySelectorAll('.browser-warning button, [class*="warning"] button')) if (b.offsetParent) b.click(); });
+  // Solo only: never join a live multiplayer room as a measuring bot.
   await page.locator('[data-option="new"], [data-option="continue"]').first().click({ timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(1500);
   await page.locator('[data-option="yes"], [data-option="confirm"], [data-option="new"]').first().click({ timeout: 1000 }).catch(() => {});
 }
-step('start'); await page.screenshot({ path: path.join(dir, `${label}-start.png`) }).catch(() => {}); await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: 240000 }); step('playing');
+step('start'); await page.screenshot({ path: path.join(dir, `${label}-start.png`) }).catch(() => {}); await page.waitForFunction(() => !window.__game.state().startScreen && !window.__game.state().loading, null, { timeout: left() }); step('playing');
 await page.waitForTimeout(8000);
 // The nearest parked car with a body, as Jonni drove a taken car.
 const taken = await page.evaluate(async () => {
