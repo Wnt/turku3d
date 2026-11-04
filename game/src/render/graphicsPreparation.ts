@@ -4,9 +4,12 @@ import { compileStats } from './compileModel';
 import { streamTrace } from '../telemetry/streamTrace';
 
 type Job = { model: THREE.Object3D; prepare: () => void | Promise<unknown>; signal?: AbortSignal };
-/** Full tiles (and everything else) before distant scenery: scenery cells and merged scenery batches must never hold
- *  a near tile's HD install behind them. */
-export type PreparationPriority = 'tile' | 'scenery';
+/** Actors (parked and traffic car batches, driven-car keepers: a few programs each) before full tiles, and full tiles
+ *  before distant scenery. A job reaching the head while jobs of a higher lane wait goes behind them, so a car body
+ *  never waits for a queue of multi-second tile preparations (parked cars were 39-79 s late), and scenery cells and
+ *  merged scenery batches never hold a near tile's HD install behind them. The running job is never interrupted. */
+export type PreparationPriority = 'actor' | 'tile' | 'scenery';
+const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
 
 /** One paced queue for incoming models and the resident models skipped by initial-view warmup. */
 export class GraphicsPreparation {
@@ -14,8 +17,8 @@ export class GraphicsPreparation {
   private queued = Promise.resolve();
   private active: Promise<void> | null = null;
   private retiring = Promise.resolve();
-  /** Tile jobs queued and not started yet; a scenery job reaching the head while any wait goes behind them. */
-  private urgent = 0;
+  /** Jobs queued and not started yet, per lane (actor, tile, scenery). */
+  private waiting = [0, 0, 0];
   constructor(private scene: THREE.Scene, private prepareView: (model: THREE.Object3D) => void | Promise<void>,
     private retireFrame: (release: () => void) => void,
     private nextTask = () => new Promise<void>(resolve => afterRender(resolve))) {}
@@ -34,13 +37,15 @@ export class GraphicsPreparation {
   enqueue(model: THREE.Object3D, prepare: Job['prepare'], signal?: AbortSignal, residentOnly = false,
     priority: PreparationPriority = 'tile'): Promise<void> {
     const current = () => !signal?.aborted && (!residentOnly || this.resident(model));
-    const queuedAt = performance.now(), tile = priority === 'tile';
-    if (tile) this.urgent++;
+    const queuedAt = performance.now(), lane = LANE[priority];
+    this.waiting[lane]++;
     let requeued: Promise<void> | undefined;
     const prepared = this.queued.then(async () => {
-      if (tile) this.urgent--;
-      // Never awaited here: the chain moves on to the tile jobs while this scenery job waits behind them.
-      else if (this.urgent > 0) { requeued = this.enqueue(model, prepare, signal, residentOnly, priority); return; }
+      this.waiting[lane]--;
+      // Never awaited here: the chain moves on to the higher-lane jobs while this one waits behind them.
+      if (this.waiting.slice(0, lane).some(count => count > 0)) {
+        requeued = this.enqueue(model, prepare, signal, residentOnly, priority); return;
+      }
       // Preparations can visit cross-model resources (notably registered river targets).
       // Recheck because another retirement may join while its preceding fence resolves.
       let barrier: Promise<void>;
