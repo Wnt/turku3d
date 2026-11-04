@@ -18,6 +18,8 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 
 | Note | Area |
 |---|---|
+| [frame-goal](frame-goal.md) | **the frame pacing release goal per tier**: every perf agent measures against it (`tools/perf/frame_pacing.py`) |
+| [framepace](framepace.md) | slow-frame causes, no in-frame shader builds, paced build stages, shared programs |
 | [perf3](perf3.md) | render CPU: frozen matrices, reflection scope, shadow mesh, uniform/geometry pools (hang fixed), warm-ups |
 | [stream2](stream2.md) | streaming budgets, GPU/memory residency per tier, memory census, releases |
 | [lodblend](lodblend.md) | LOD bands, dissolves, tree cross-fades, settle rule |
