@@ -10,6 +10,14 @@ const source = new THREE.MeshStandardMaterial({ name: 'distant-city-pigment', ro
 // Node identity participates in the program key. Ground and plain shells have the
 // same pigment expression; share it without sharing their material lifetimes.
 const sceneryPigment = vertexColor().rgb;
+// The far canopy's summer tint, one node for every cell's material (fresh nodes gave each cell its own program).
+const sceneryCanopy = vec3(.45, .78, .30).mul(luminance(vertexColor().rgb));
+const regionalMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
+function regionalMask(coverage: THREE.DataTexture) {
+  let mask = regionalMasks.get(coverage);
+  if (!mask) regionalMasks.set(coverage, mask = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5));
+  return mask;
+}
 
 /** Block shell roofs carry this pigment (pipeline/turku3d/coarse/blocks.py ROOF, linear). */
 export const SHELL_ROOF = [0.20, 0.23, 0.22] as const;
@@ -34,10 +42,10 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
   material.colorNode = sceneryPigment;
   material.name = `distant-city-${layer}`;
   material.flatShading = true;
-  if (layer === 'regional' && coverage) material.maskNode = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5);
+  if (layer === 'regional' && coverage) material.maskNode = regionalMask(coverage);
   // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
   // retaining their tonal variation without turning the far skyline into bright orange spikes.
-  if (layer === 'vegetation') material.colorNode = vec3(.45, .78, .30).mul(luminance(vertexColor().rgb));
+  if (layer === 'vegetation') material.colorNode = sceneryCanopy;
   if (layer === 'night-architecture') {
     const light = attribute('_night_irradiance', 'vec4');
     material.emissiveNode = light.rgb.mul(nightUniforms.night).mul(mix(float(1), nightUniforms.useLevels.y.clamp(0, 1), light.w));
