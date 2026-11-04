@@ -86,6 +86,42 @@ def test_a_tile_in_a_rebuild_class_waits_for_its_build_before_any_step(tmp_path,
     assert city.pending_rebuild(root, meta, "t0_0_0") is None  # its build is there: the steps run
 
 
+def test_an_inherited_spot_rebuild_takes_the_steps_appended_after_its_chain(tmp_path):
+    from turku3d.migrations import core
+
+    class Step:  # a plain step: marks the product it ran on
+        def __init__(self, name):
+            self.name, self.version = name, 1
+
+        def apply(self, product):
+            product.manifest.setdefault("ran", []).append(self.name)
+            return False
+
+    class Product:
+        def __init__(self, manifest):
+            self.manifest, self.tile, self.rebuilds = manifest, "t0_0_0", {"rb": tmp_path / "rb"}
+
+        def adopt(self, directory, manifest):
+            self.manifest = manifest
+
+    rebuild = core.Rebuild("rb", 1, affected=lambda manifest: True)
+    chain = [Step("a"), rebuild, Step("b"), Step("c")]
+    record = [dict(name=m.name, version=1) for m in chain]
+    (tmp_path / "rb" / "t0_0_0").mkdir(parents=True)
+    (tmp_path / "rb" / "t0_0_0" / "ready.json").write_text("{}")
+    manifest = tmp_path / "rb" / "t0_0_0" / "manifest.json"
+    # Built by an earlier chain that ended at the rebuild: b and c still run on it.
+    manifest.write_text(json.dumps(dict(tile="t0_0_0", migrations=record[:2], ran=["built"])))
+    product = Product({})
+    tile_migrate.run_chain(core, product, chain, 0)
+    assert product.manifest["migrations"] == record and product.manifest["ran"] == ["built", "b", "c"]
+    # Built by this chain's commit: it already is the whole chain, nothing runs after it.
+    manifest.write_text(json.dumps(dict(tile="t0_0_0", migrations=record, ran=["built"])))
+    product = Product({})
+    tile_migrate.run_chain(core, product, chain, 0)
+    assert product.manifest["migrations"] == record and product.manifest["ran"] == ["built"]
+
+
 def test_estimate_weights_surveyed_and_unsurveyed_tiles():
     rows = [dict(tile="a", state="migrated", survey=True, cpu=100.0, wall=120.0, steps={"wires@2": [90, 80]}),
             dict(tile="b", state="migrated", survey=False, cpu=2.0, wall=3.0, steps={"wires@2": [1, 1]})]

@@ -167,6 +167,31 @@ def verified_chain(meta: dict):
     return _VERIFIED[theirs]
 
 
+def run_chain(core, product, migrations, done: int) -> None:
+    """``core.run`` from step ``done``, segment by segment up to each spot-rebuild step.
+
+    A rebuild built by this chain's commit records the whole chain, and ``core.run`` stops there. A rebuild
+    inherited from an earlier, shorter chain (``--rebuilds-from``, same step code) records that chain only, a prefix
+    of this one through the rebuild step: the steps after that prefix are then applied to the adopted product, as
+    on every other tile, instead of failing on the shorter record."""
+    keys = [dict(name=m.name, version=m.version) for m in migrations]
+    while done < len(migrations):
+        end = next((i + 1 for i in range(done, len(migrations)) if isinstance(migrations[i], core.Rebuild)),
+                   len(migrations))
+        full = migrations
+        step = migrations[end - 1]
+        if isinstance(step, core.Rebuild) and product.rebuilds and step.name in product.rebuilds:
+            path = product.rebuilds[step.name] / product.tile / 'manifest.json'
+            recorded = read_json(path, {}).get('migrations') if path.exists() else None
+            if recorded and end <= len(recorded) < len(keys) and recorded == keys[:len(recorded)]:
+                full = migrations[:len(recorded)]
+        core.run(product, migrations[done:end], full=full)
+        reached = len(product.manifest.get('migrations') or [])
+        if product.manifest.get('migrations') != keys[:reached] or reached < end:
+            raise RuntimeError(f"product records {product.manifest.get('migrations')}, not a prefix of {keys}")
+        done = reached
+
+
 def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
     """Migrate one finished base tile into the derived generation. Idempotent and resumable."""
     from turku3d.migrations import core
@@ -196,7 +221,7 @@ def migrate_tile(root: Path, meta: dict, tile: str) -> dict:
         product = core.Product(source / tile, json.loads((source / tile / 'manifest.json').read_bytes()))
         product.rebuilds = {step['name']: products(root, step['rebuild_generation'])
                             for step in meta['migrations'] if step.get('rebuild_generation')}
-        core.run(product, migrations[done:], full=migrations)
+        run_chain(core, product, migrations, done)
         product.manifest['migration_base'] = dict(
             revision=meta['base_revision'], generation=meta['base_generation'], manifest_sha256=base_sha)
         target_root.mkdir(parents=True, exist_ok=True)
