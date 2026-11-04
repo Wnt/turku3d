@@ -38,6 +38,7 @@ def health(scenery, activity, regional=None):
                       (root.is_dir() for root in scenery.roots)))
     if regional:
         inputs['regional'] = Path(regional).is_file()
+    follow = [name for name, _ in scenery.chain.roots()] if scenery.chain else None
     cache_ok = scenery.cache.is_dir() and os.access(scenery.cache, os.W_OK)
     now = time.time()
     with activity.lock:
@@ -49,7 +50,7 @@ def health(scenery, activity, regional=None):
     ok = cache_ok and all(inputs.values())
     return dict(state='ready' if ok else 'degraded', service='scenery', recipe=scenery.recipe,
                 uptime_s=round(now - activity.started), inputs=inputs,
-                cache=dict(writable=cache_ok, pending_builds=pending),
+                cache=dict(writable=cache_ok, pending_builds=pending), **({'follow': follow} if follow is not None else {}),
                 served=served, errors=errors)
 
 
@@ -95,6 +96,10 @@ if __name__ == '__main__':
     parser.add_argument('--source', required=True)
     parser.add_argument('--preferred-source', help='Prepared native full tiles; retained sources fill remaining cells')
     parser.add_argument('--cache', required=True)
+    parser.add_argument('--follow', help='farm alias family to prefer, newest first (train: trainN ... train1), '
+                        'over --preferred-source, which must be their base generation\'s products')
+    parser.add_argument('--farm-root', default=str(Path.home() / 'turku3d-local/loops/tiles/farm'))
+    parser.add_argument('--farm-url', default='http://192.168.1.114:7950')
     parser.add_argument('--survey', action='store_true', help='Fill missing far tiles directly from cached survey inputs')
     parser.add_argument('--regional', help='Immutable public regional.npz terrain grid')
     parser.add_argument('--lod-buildings', action='store_true', help='Distant buildings as LoD2 block parents (gen2arch)')
@@ -103,7 +108,14 @@ if __name__ == '__main__':
     if args.survey:
         from turku3d.coarse.horizon import SurveyScenery
         survey = SurveyScenery(args.regional)
-    scenery = Scenery(args.source, args.cache, survey=survey, preferred=args.preferred_source, lod=args.lod_buildings)
+    chain = None
+    if args.follow:
+        if not args.preferred_source:
+            parser.error('--follow needs --preferred-source (the base generation the trains migrate)')
+        from scenery import FarmChain
+        chain = FarmChain(args.farm_root, args.farm_url, args.follow, Path(args.preferred_source).name)
+    scenery = Scenery(args.source, args.cache, survey=survey, preferred=args.preferred_source, lod=args.lod_buildings,
+                      chain=chain)
     scenery.cache.mkdir(parents=True, exist_ok=True)
     activity = Activity()
     Server(('127.0.0.1', args.port), Handler).serve_forever()
