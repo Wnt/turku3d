@@ -7,7 +7,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
-import type { RemoteBody } from '../physics/protocol';
+import type { RemoteBody, VehicleState } from '../physics/protocol';
 import { VEHICLES } from '../physics/constants';
 import { chassisForward } from '../traffic/pedestrians';
 import type { WalkerThreat } from '../world/walkers';
@@ -109,7 +109,9 @@ export class RemotePlayers {
     private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
-  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles) {
+  /** `drawn`: the render pose of a locally simulated vehicle (the driven one), else its latest physics state is used. */
+  update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
+    drawn: (id: string) => VehicleState | null = () => null) {
     const t0 = performance.now();
     this.horns.length = 0; this.threats.length = 0;
     const selfId = client.state.you?.id;
@@ -122,7 +124,7 @@ export class RemotePlayers {
       // Existing local visuals own native IDs. Acquired foreign vehicles use the
       // same shared renderer as replicas, sampled directly from their local body.
       if (local && localId !== v.id) continue;
-      const state = local ? this.physics.latest?.vehicles.find(s => s.id === localId) : null;
+      const state = local ? drawn(localId) ?? this.physics.latest?.vehicles.find(s => s.id === localId) ?? null : null;
       players.push({ id: v.id, nick: client.state.players.find(p => p.id === v.occupant)?.nick ?? '',
         spawn: { E: v.pose.E, N: v.pose.N, yaw: v.pose.yaw },
         pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: v.revision }, locallySimulated: local,
