@@ -36,9 +36,16 @@ test('policy checks each launch, shared args, configs and embedded previews', ()
   assert.equal(checkChromeLaunches('native.mjs', prelude + 'const args=chromeArgs(); spawn("/tmp/chrome", args);').length, 1);
   assert.deepEqual(checkChromeLaunches('playwright.render-dev.config.ts', "import base from './playwright.render.config'; defineConfig({...base, webServer:{}});"), []);
   assert.equal(checkChromeLaunches('playwright.render-dev.config.ts', 'defineConfig({...unknown});').length, 1);
-  assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222').length, 1);
-  assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222 --disable-features=MacAppCodeSignClone').length, 1);
+  assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222').length, 2); // resolver + keychain
+  assert.equal(checkChromeLaunches('a.sh', 'chrome --remote-debugging-port=9222 --disable-features=MacAppCodeSignClone').length, 2);
   assert.equal(checkChromeLaunches('native.mjs', 'spawn("/tmp/chrome", []);').length, 1);
+  // Keychain flags: hand-written Mac launches without --use-mock-keychain fail even with the clone-safe feature switch.
+  const cft = '/Users/x/turku3d/browsers/1/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
+  assert(checkChromeLaunches('b.py', `subprocess.Popen(["${cft}", "--headless"])`).some(e => e.includes('--use-mock-keychain')));
+  assert(checkChromeLaunches('b.sh', `"${cft}" --remote-debugging-port=9222 --disable-features=MacAppCodeSignClone`).some(e => e.includes('--use-mock-keychain')));
+  assert(checkChromeLaunches('b.mjs', prelude + 'chromium.launch({ignoreDefaultArgs:true});').some(e => e.includes('--use-mock-keychain')));
+  assert(!checkChromeLaunches('b.sh', `"${cft}" --use-mock-keychain --password-store=basic`).some(e => e.includes('--use-mock-keychain')));
+  assert(!checkChromeLaunches('b.mjs', prelude + safe).some(e => e.includes('--use-mock-keychain')));
 });
 
 // Keep the versioned compatibility switch exact: a Playwright upgrade must update the helper.
