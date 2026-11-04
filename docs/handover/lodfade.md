@@ -94,6 +94,21 @@ fit runs once per tile install (at most 64 samples per roof mesh).
   t0_1_-1, t0_2_-1, t0_2_0. Serve it with `follow: "lodfade-m"` in a sandbox `tile-service.json`. The full chain on a
   fresh tile takes about 170 s (lidar steps); a chain that extends train2's products only runs this step.
 
+### Round 2 results (forced swaps, Mac headless on a host lease, migrated tiles via `follow: lodfade-m`)
+
+Blind judge, overall 0-10 (GTA V / before = integration + pin tiles / after = shell-look + client):
+
+| Strip | GTA V | Before | After |
+| --- | --- | --- | --- |
+| Riverside, HD -> shell | 1 | 6 | 7 |
+| Riverside, shell -> HD | 2 | 5 | 6 |
+| Elevated riverside, HD -> shell | 1 | 4 | 6 |
+| Elevated riverside, shell -> HD | 1 | 6 | 8 |
+
+Measured: the mean colour of each swapping block against its HD render, pixel-weighted over 27 blocks at both
+poses, went from dE 1.49 to 0.63. The judge's remaining artefacts: window rows change contrast during the fade, and
+some mid-distance buildings lose contrast (shells are flat-shaded and roughness 1).
+
 ## Open, ranked
 
 1. **Landmark and atlas facade walls** keep a shell pigment far from their HD texture (the judge's top artefact at
