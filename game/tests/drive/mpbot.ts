@@ -27,7 +27,7 @@ const POSE_MS = 55;
 
 interface Remote { nick: string; pose: { E: number; N: number; H: number; yaw: number; rot?: { x: number; y: number; z: number; w: number }; mode: string }; at: number }
 
-class Bot {
+export class Bot {
   ws!: WebSocket;
   nick = '';
   id = '';
@@ -40,6 +40,9 @@ class Bot {
   state = 'joining';
   alive = true;
   lastPose = 0;
+  /** Sent in the pose (a pizza on the roof); the delivery bots set it while carrying. */
+  carrying = false;
+  session: string | null = null;
   constructor(readonly index: number) {}
 
   async connect(url: string, origin: string) {
@@ -48,7 +51,7 @@ class Bot {
     const welcome = new Promise<void>(resolve => this.ws.on('message', raw => {
       const msg = JSON.parse(String(raw));
       if (msg.type === 'welcome') {
-        this.id = msg.you.id; this.nick = msg.you.nick; this.spawn = msg.you.spawn;
+        this.id = msg.you.id; this.nick = msg.you.nick; this.spawn = msg.you.spawn; this.session = msg.session ?? this.session;
         for (const p of msg.players ?? []) { this.nicks.set(p.id, p.nick); if (p.pose && p.id !== this.id) this.remotes.set(p.id, { nick: p.nick, pose: p.pose, at: Date.now() }); }
         resolve();
       } else if (msg.type === 'players') {
@@ -59,7 +62,7 @@ class Bot {
         for (const p of msg.poses ?? []) if (p.id !== this.id) this.remotes.set(p.id, { nick: this.nicks.get(p.id) ?? p.id, pose: p, at: Date.now() });
       }
     }));
-    this.ws.send(JSON.stringify({ v: 2, type: 'hello' }));
+    this.ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.session ? { session: this.session } : {}) }));
     await welcome;
   }
 
@@ -118,7 +121,7 @@ class Bot {
     const yaw = Math.atan2(-fz, fx) - Math.PI / 2;
     this.ws.send(JSON.stringify({ v: 2, type: 'pose', t: now, E: v.pos.x, N: -v.pos.z, H: v.pos.y - VEHICLE_POSE_HEIGHT,
       yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), vE: v.linvel.x, vN: -v.linvel.z, vH: v.linvel.y, mode: 'car', vehicle: 'player',
-      carrying: false, rot: v.rot, wheels: v.wheels.map(wh => ({ pos: wh.pos, steer: wh.steer, rotation: wh.rotation, contact: wh.contact, suspension: wh.suspension })) }));
+      carrying: this.carrying, rot: v.rot, wheels: v.wheels.map(wh => ({ pos: wh.pos, steer: wh.steer, rotation: wh.rotation, contact: wh.contact, suspension: wh.suspension })) }));
   }
 
   sample() {
