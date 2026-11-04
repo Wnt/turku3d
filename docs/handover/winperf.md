@@ -70,7 +70,7 @@ id: `~/turku3d/loops/winperf/STATUS.md` (local).
   - No WGSL or validation errors.
   - The planar reflection pass (1.8 ms across the river, 5.1 ms along it) is gone.
   - Along the river: 55.2 FPS against 46.6 for planar, and beauty p95 11.8 ms against 18.2.
-  - Look: fixed (1e5cc203, 1144e53f) and judged on 2026-11-04 (water.md): SSR is as close or closer to the Aura references than planar.
+  - Look: fixed (1e5cc203, a0ebdee9) and judged on 2026-11-04 (water.md): SSR is as close or closer to the Aura references than planar.
 - **Leaves, earlier probes:** single-sided -1.3 ms, unshadowed -1.0 ms, alpha test 0.65 -0.4 ms, texture bias about 0.
   Decided 2026-11-04 (treelook, blind judges against Street View): none ships and `?leaves=` is removed. Single-sided
   cards and alpha 0.65 thin the crowns visibly; `noshadow` drew pixel-identical frames in the bench lab.

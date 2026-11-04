@@ -13,7 +13,7 @@ Everything is client code: no tile rebuild, F5 is enough. Each step has a `?wate
 | W5 sun | Tight sun glints (energy-normalised Phong, exponent 1800 near, relaxing to 220 by 450 m). They fade where the planar image shows a building rather than sky along the reflected ray. Wrap diffuse gives wave facets facing the sun a lighter body colour. | 2a3dcc7d | `oldsun` |
 | W3 bank fade | With TRAA on, the river writes no depth and reads the previous frame's opaque depth from TRAA's history, with no extra pass. The body colour thickens over 0.45 m of water, so quay walls and banks fade into murky water. | ec5e5220 | `nodepth` |
 | W7 motion | The river writes its own TRAA motion vectors. Before, it took the sky box's motion, and ripples smeared while moving. Medium and reduced only: on high, TRAA motion comes from the GTAO prepass, which excludes the river. | ec5e5220 | `nomotion` |
-| W1 SSR (medium, reduced) | Medium and reduced have no planar pass. Each river fragment marches the flat mirror ray (12 + 4 steps, 400 m) over TRAA's history depth and reads its resolved colour, with the sky where nothing is hit. High and low keep the planar pass. | 163ff960, fixes 1e5cc203 and 1144e53f, medium default on 2026-11-04 | `planar`; `ssr` and `sky` force a path on any reflecting tier |
+| W1 SSR (medium, reduced) | Medium and reduced have no planar pass. Each river fragment marches the flat mirror ray (12 + 4 steps, 400 m) over TRAA's history depth and reads its resolved colour, with the sky where nothing is hit. High and low keep the planar pass. | 163ff960, fixes 1e5cc203 and a0ebdee9, medium default on 2026-11-04 | `planar`; `ssr` and `sky` force a path on any reflecting tier |
 | W8 rain | Rougher waves, drop rings within 35 m (behind a uniform branch, so dry water skips the arithmetic), and a duller, weaker mirror. | e9f99856 | none |
 | W6 night | Light sprites (street lamps, floodlight heads) are mirrored about the sea-level plane at half size and half intensity, stretched 3x vertically. Depth-tested where the line of sight crosses the water plane. One more instanced draw. | b6682081 | none |
 | W4 sloped reaches | Streams and weirs (`water_slope`, 144 served tiles) flow downhill through a two-phase flow, with the slope taken from each triangle. Gradients of 8-25 % foam white. | bc74c42c | none |
@@ -31,7 +31,7 @@ the boot check only compiles medium's default path.
     draws at night. The planar reflection pass (5.1 ms) is gone, and the march costs under 0.1 ms.
   - Looking across the river (cam `23459674.21,6704241.83,5.39,152,-6,60`): all variants are vsync-capped.
 - **M1 Air, medium (airperf, `docs/handover/airperf.md`):**
-  - `quarter` (about -0.1 ms, blocky) and `lod` (no change) lost their A/Bs and are removed (f0061256).
+  - `quarter` (about -0.1 ms, blocky) and `lod` (no change) lost their A/Bs and are removed (510ec9fc).
   - `nodepth` saves about 0.1 ms, which is the bank fade's cost. `oldsun` shows no measurable difference.
   - Reflection off saves 8 ms of GPU p95 on the Air.
 
@@ -40,13 +40,13 @@ the boot check only compiles medium's default path.
 1e5cc203 removed the bright streaky patch (sky at the visible display scale, coherent flat-ray march, 4-tap soft
 reads). The re-shoot showed a second miss: from near water the mirror ray meets the far bank's hillside trees 100-250 m
 away, past the 160 m reach (which faded from 88 m), so that water showed the sky where planar shows trees, and the
-along-river view was washed out with ghostly trees. 1144e53f reaches 400 m (fading from 320 m), and tree-crown hits a
+along-river view was washed out with ghostly trees. a0ebdee9 reaches 400 m (fading from 320 m), and tree-crown hits a
 few metres behind the stored front fade out over 1-3 thicknesses (10 % of view depth) instead of dropping at 4 %.
 
 **Blind A/B** (randomised pairs, refs vastavalo 1055994 and 330386; the Codex judge was out of quota until 2026-11-09,
 so a fresh Claude subagent ran judge.py's A/B prompt): the fixed SSR is as close or closer to the references than
 planar in all 10 pairs (9 wins, 1 tie: Mac night along the river), on the 560X (reduced), the M1 Max and the M1 Air
-(medium). Before 1144e53f, planar won the along-river day pair. Poses: across `cam=23459674.21,6704241.83,5.39,152,-6,60`,
+(medium). Before a0ebdee9, planar won the along-river day pair. Poses: across `cam=23459674.21,6704241.83,5.39,152,-6,60`,
 along `cam=23459674.21,6704241.83,5.39,242,-6,60`; static bench, 14:00 and 22:00.
 
 **Cost** (static bench, SSR against planar; GPU p95 over 240 in-page frames):
