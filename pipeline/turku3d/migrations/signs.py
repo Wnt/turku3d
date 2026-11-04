@@ -75,7 +75,7 @@ def transform(product: Product) -> None:
         return
     tile = C.VisualTile.parse(product.tile)
     found, path = Sources().wfs_source("GIS:Katualueet", tile)
-    road = load_carriageway(path if found else None, tile.bbox.buffered(WINDOW))
+    road = load_carriageway(path if found and path else None, tile.bbox.buffered(WINDOW))
     ground = collision_ground(m.get("collision") or {}, product.read)
     stats = Counter()
     inline = "uri" not in document["buffers"][0]

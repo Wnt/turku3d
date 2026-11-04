@@ -32,7 +32,7 @@ def transform(product: Product) -> None:
         return
     tile = C.VisualTile.parse(product.tile)
     found, path = Sources().wfs_source("GIS:Katualueet", tile)
-    road = signal_posts.load_carriageway(path if found else None, tile.bbox.buffered(WINDOW))
+    road = signal_posts.load_carriageway(path if found and path else None, tile.bbox.buffered(WINDOW))
     ground = collision_ground(m.get("collision") or {}, product.read)
     rows, stats = signal_posts.place(graph, road, ground)
     graph["signalPosts"] = rows
