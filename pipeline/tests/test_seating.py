@@ -147,6 +147,20 @@ def test_far_from_everything_a_bench_faces_the_nearest_way_square_on():
     assert b.orientation == "way_view" and angle(b.yaw, math.radians(135)) < 1
 
 
+def test_a_surveyed_seat_keeps_its_measured_axis_unless_the_way_agrees():
+    path = graph((PATH, (-20, 3.0), (20, 3.0)))
+    across = cloud(ground(-8, -8, 8, 8), bench_returns(0.0, 0.0, math.pi / 2))  # a plaza ring seat
+    b = bench(0.1, 0.0, yaw=0.0)
+    seating.place([b], across, roads=path)
+    assert b.orientation == "lidar_backrest" and angle(b.yaw, math.pi / 2) < 5
+    along = cloud(ground(-8, -8, 8, 8), bench_returns(0.0, 0.0, math.radians(8)))
+    b = bench(0.1, 0.0, yaw=math.pi)
+    stats = Counter()
+    seating.place([b], along, roads=path, stats=stats)
+    assert b.orientation == "path_side" and angle(b.yaw, 0.0) < 1
+    assert stats["bench_lidar_axis_agrees"] == 1
+
+
 def test_a_bench_on_a_path_centreline_keeps_its_side():
     roads = graph((PATH, (-20, 0.0), (20, 0.0)))
     b = bench(0.0, 0.1, yaw=math.radians(160))  # register point on the path, heading -z-ish
