@@ -54,9 +54,8 @@ const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
  *  The near radius sits beyond the ring's out-of-view draw radius (RING.removeOutOfView 85 m), the far one beyond its
  *  in-view radius (RING.removeInView 300 m), so a recycled car was not drawn by that client. */
 const HIDE_FAR = 320, HIDE_NEAR = 90, HIDE_MARGIN = 0.35;
-/** Source throttling: a source admits no car while more than JAM_SHARE of its tile's storage (lane metres / JAM_CAR)
- *  is held by cars stuck for JAM_STUCK seconds. Recomputed once a second. */
-const JAM_SHARE = 0.08, JAM_CAR = 7, JAM_STUCK = 30;
+/** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
+const JAM_STUCK = 30;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -199,12 +198,10 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, throttled: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
-  /** Tiles whose sources are throttled (JAM_SHARE), recomputed once a second. */
-  private saturated = new Set<string>();
   /** Recycled cars since the host last drained this list (diagnostics and tests). */
   readonly recycledLog: { key: string; x: number; z: number; t: number }[] = [];
 
@@ -336,8 +333,7 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, throttled: 0 };
-    this.saturated.clear();
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
   }
 
   reset(t: number) {
@@ -497,8 +493,6 @@ export class TrafficFlow {
       if (next) inbound.add(next);
     }
     const sources = lanes.filter(l => l.length >= 12 && !inbound.has(l));
-    const storage = new Map<string, number>();
-    for (const l of lanes) storage.set(l.tile, (storage.get(l.tile) ?? 0) + l.length / JAM_CAR);
     yield;
     const laneById = new Map<string, Lane>(), routeById = new Map<string, Lane>();
     for (let i = 0; i < lanes.length; i++) { if ((i & 255) === 255) yield; const l = lanes[i]; laneById.set(`${l.tile}:${l.id}`, l); }
@@ -509,7 +503,7 @@ export class TrafficFlow {
       if (this.conflictCache.size > 400_000) this.conflictCache.clear();
       this.movements = graph; this.conflicts = new Map(); this.baseOf = baseOf; this.builtTiles = tileKeys; this.lanes = lanes;
       this.index = { movements, order, grid, keyOf, kept, previous: previousConflicts, samples: new Map(), seen: new Uint32Array(movements.length), stamp: 0 };
-      this.seamBound = seamBound; this.changer = changer; this.sources = sources; this.storage = storage;
+      this.seamBound = seamBound; this.changer = changer; this.sources = sources;
     };
   }
 
@@ -538,13 +532,10 @@ export class TrafficFlow {
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
     // the next free slot admits a car, rather than placing another body inside an existing queue.
-    this.throttle();
     for (const lane of this.sources) {
       let n = this.demand.get(lane)!;
       while (entryTime(lane, n) <= t + 1e-7) {
-        if (this.network.present(lane, n)) {
-          if (this.saturated.has(lane.tile)) this.stats.throttled++; else this.spawn(lane, n, t);
-        }
+        if (this.network.present(lane, n)) this.spawn(lane, n, t);
         n++;
       }
       this.demand.set(lane, n);
@@ -755,25 +746,6 @@ export class TrafficFlow {
     }
   }
 
-  /** Tiles whose 3×3 neighbourhood has more than JAM_SHARE of its storage held by stuck cars: their sources feed no
-   *  more cars for now. Pure car state, evaluated before every step's spawns (so a restored checkpoint agrees). */
-  private throttle() {
-    const jammed = new Map<string, number>();
-    for (const car of this.cars.values()) if (car.stuck >= JAM_STUCK) jammed.set(car.lane.tile, (jammed.get(car.lane.tile) ?? 0) + 1);
-    this.saturated.clear();
-    if (!jammed.size) return;
-    for (const tile of this.storage.keys()) {
-      const m = /^t0_(-?\d+)_(-?\d+)$/.exec(tile);
-      let n = 0, storage = 0;
-      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-        const id = m ? `t0_${+m[1] + i}_${+m[2] + j}` : i || j ? '' : tile;
-        n += jammed.get(id) ?? 0; storage += this.storage.get(id) ?? 0;
-      }
-      if (n > JAM_SHARE * storage) this.saturated.add(tile);
-    }
-  }
-  /** Car spaces per tile: its lanes' length over JAM_CAR (built with the graph). */
-  private storage = new Map<string, number>();
   /** Per approach lane: how far along it (m) a waiting car's front may stand without reaching into the path of any
    *  movement from another approach through the junction (STOP_CLEAR). Cleared with each graph build. */
   private fronts = new Map<Lane, number>();
