@@ -31,7 +31,18 @@ export class PhysicsClient {
   private state: StateMsg | null = null;
   private vehicles = new ActorCache<VehicleState>();
   private poles = new ActorCache<PoleState>();
+  private frameAt = -Infinity;
+  /** Reads the newest worker state for this render frame. `latest` keeps returning it until the next frame, so
+   *  everything one frame draws (the car, the camera following it, the HUD) comes from the same snapshot. */
+  beginFrame(now = performance.now()): StateMsg | null {
+    this.frameAt = now;
+    return this.read();
+  }
+  /** The frame's state; outside a running frame loop (start screen, tools, tests) the newest one. */
   get latest(): StateMsg | null {
+    return performance.now() - this.frameAt > 100 ? this.read() : this.state;
+  }
+  private read() {
     const m = this.stateMailbox?.read();
     if (m) this.acceptState(m);
     return this.state;
@@ -49,8 +60,8 @@ export class PhysicsClient {
       poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false) };
     const now = performance.now() / 1000;
     const published = m.publishedAt === undefined ? now : (m.publishedAt - performance.timeOrigin) / 1000;
-    this.characterRender.push(m.character, m.previousCharacter, m.tick, m.remainder, published);
-    this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, m.remainder, published);
+    this.characterRender.push(m.character, m.previousCharacter, m.tick, published);
+    this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, published);
   }
   readonly loaded = new Map<string, TileStats>();
   /** The newest explicit placement of the character (`actor` 'character') or a vehicle (its id): a teleport, a reset

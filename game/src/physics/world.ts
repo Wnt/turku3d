@@ -517,7 +517,10 @@ export class PhysicsWorld {
     car.reset(pos, yaw);
     this.vehicleSnapshots.delete(id);
   }
-  vehicleState(): VehicleState | null { return this.vehicles.get(this.drivenId ?? 'player')?.state() ?? null; }
+  vehicleState(): VehicleState | null {
+    const id = this.drivenId ?? 'player', vehicle = this.vehicles.get(id);
+    return vehicle ? { id, ...vehicle.state() } : null;
+  }
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
