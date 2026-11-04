@@ -49,6 +49,33 @@ failures.slice(0, 300).forEach((r, i) => {
   const shot = shotOf(r.key);
   md += `| ${i + 1} | ${r.name || '(unnamed)'} (${r.kind}${r.over ? ` under ${r.over.name || r.over.mode}` : ''}) | ${r.k + 1}/${r.laneCount} → ${r.heading}° | ${w.kind}${w.detail ? ` (${w.detail})` : ''} | ${fmt(w.value, 3)} | ${fmt(e.E, 1)}, ${fmt(e.N, 1)} | ${r.outcome} | ${shot ? `![](${shot})` : ''} |\n`;
 });
+// Geometry bugs, one per structure, ranked by class then by how many of its lanes show it. The class is what a player
+// would hit: a hole or fall-through, an obstacle on the lane (stuck, collision), a wheel leaving the deck or a hard
+// jolt, a step, then roughness.
+const CLASSES = [
+  ['hole or fall-through', e => e.kind === 'fall' || (e.kind === 'step' && (e.value > 0.3 || /no ground/.test(e.detail ?? '')))],
+  ['obstacle on the lane', e => e.kind === 'stuck' || e.kind === 'impact' || e.kind === 'curb'],
+  ['wheel off the ground / hard jolt', e => e.kind === 'contact' || e.kind === 'jolt' || (e.kind === 'vertical' && e.value >= 5)],
+  ['step 4-30 cm', e => e.kind === 'step'],
+  ['rough (vertical, jerk, pitch, roll)', e => ['vertical', 'jerk', 'pitch', 'roll'].includes(e.kind)],
+];
+const bugs = [];
+for (const [id, list] of byStructure) {
+  const s = structures.find(x => x.id === id), lanes = list.filter(covered);
+  for (const [ci, [name, test]] of CLASSES.entries()) {
+    const hit = lanes.filter(r => r.events.some(e => e.severity === 'fail' && test(e)));
+    if (!hit.length) continue;
+    const worst = hit.flatMap(r => r.events.filter(e => e.severity === 'fail' && test(e))).sort((a, b) => weight(b) - weight(a))[0];
+    bugs.push({ id, s, ci, name, lanes: hit.length, of: lanes.length, worst, offRoad: Math.max(...hit.map(r => r.offRoad ?? 0)) });
+    break;
+  }
+}
+bugs.sort((a, b) => a.ci - b.ci || b.lanes / b.of - a.lanes / a.of || b.lanes - a.lanes);
+md += `\n## Geometry bugs, ranked\n\nOne row per structure: its most severe class, how many of its measured lanes show it, the worst point. ` +
+  `"Off carriageway" is the largest share of a lane's wheel-track samples on kerb, sidewalk or verge materials: a high share means the lane ` +
+  `line itself misses the built road (a lane-geometry bug) rather than a rough surface.\n\n` +
+  `| # | Class | Structure | Lanes | Worst | At (E, N) | Off carriageway |\n|---:|---|---|---:|---|---|---:|\n`;
+bugs.forEach((b, i) => { md += `| ${i + 1} | ${b.name} | ${label(b.s)} | ${b.lanes}/${b.of} | ${b.worst.kind} ${fmt(b.worst.value, 3)}${b.worst.detail ? ` (${b.worst.detail})` : ''} | ${fmt(b.worst.E, 1)}, ${fmt(b.worst.N, 1)} | ${fmt(b.offRoad * 100, 0)} % |\n`; });
 md += `\n## Per structure\n\n`;
 const ordered = [...byStructure.entries()].sort((a, b) => Math.max(...b[1].map(r => weight(r.worst))) - Math.max(...a[1].map(r => weight(r.worst))));
 for (const [id, list] of ordered) {
@@ -65,5 +92,5 @@ const missing = structures.filter(s => !byStructure.has(s.id));
 md += `## Not driven (${missing.length})\n\nStructures with no matching car lane in the lane graph (service roads without lanes, private ways, rows too short): ` +
   missing.slice(0, 200).map(s => `${s.name || s.id}`).join(', ') + (missing.length > 200 ? ', …' : '') + '\n';
 fs.writeFileSync(path.join(dir, 'report.md'), md);
-fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify({ counts, kinds, failures: failures.map(r => ({ key: r.key, name: r.name, kind: r.kind, over: r.over, lane: `${r.k + 1}/${r.laneCount}`, heading: r.heading, worst: r.worst, view: r.view, outcome: r.outcome })) }, null, 1));
-console.log(JSON.stringify({ ...counts, kinds }));
+fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify({ counts, kinds, bugs: bugs.map(b => ({ structure: b.id, name: b.s.name, kind: b.s.kind, class: b.name, lanes: b.lanes, of: b.lanes && b.of, worst: b.worst, offRoad: b.offRoad })), failures: failures.map(r => ({ key: r.key, name: r.name, kind: r.kind, over: r.over, lane: `${r.k + 1}/${r.laneCount}`, heading: r.heading, worst: r.worst, view: r.view, outcome: r.outcome })) }, null, 1));
+console.log(JSON.stringify({ ...counts, kinds, bugClasses: Object.fromEntries(CLASSES.map(([n], i) => [n, bugs.filter(b => b.ci === i).length])) }));

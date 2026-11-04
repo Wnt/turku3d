@@ -10,6 +10,8 @@
 //
 //   node tools/drivetest/mp.mjs OUT_DIR [--clients 2] [--bots 6] [--base http://localhost:5480/] [--port 5482]
 //     [--seconds 150] [--sweep ~/turku3d/loops/autopilot/sweep]   (the bots' tile copy and tile-service.json)
+//     [--cdp http://127.0.0.1:9362]   browsers on another host (Windows, the Air) through an SSH tunnel; that host
+//                                     reaches the game and the server through ssh -R of the base and server ports
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,8 +54,9 @@ if (bots) {
   console.log(new Date().toISOString().slice(11, 19), `${B} bots driving`);
 }
 
-if (guard('acquire') === 3) { console.log('browser slots full'); server.kill(); process.exit(3); }
-const browser = await chromium.launch({ executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
+const cdp = opt('cdp');
+if (!cdp && guard('acquire') === 3) { console.log('browser slots full'); server.kill(); process.exit(3); }
+const browser = cdp ? await chromium.connectOverCDP(cdp) : await chromium.launch({ executablePath: chromeExecutable(), headless: true, ignoreDefaultArgs: chromeIgnoreDefaultArgs,
   args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows']) });
 const clients = [];
 const samples = [];
@@ -153,13 +156,14 @@ try {
       rejoined = true;
       void join(N).then(c => drive(c, goal[(N + 1) % 4])).catch(e => { errors.push({ client: N, t: Date.now(), error: `join: ${e.message}` }); });
     }
-    guard('touch');
+    if (!cdp) guard('touch');
     await new Promise(r => setTimeout(r, 250));
   }
 } catch (e) { failed = e.message; log('FAILED', e.message); }
 finally {
   for (const c of clients) if (c.alive) await c.context.close().catch(() => {});
-  await browser.close(); guard('release');
+  if (cdp) { for (const c of browser.contexts()) for (const p of c.pages()) if (p.url().includes(new URL(base).host)) await p.close().catch(() => {}); }
+  else { await browser.close(); guard('release'); }
   bots?.kill('SIGTERM');
   server.kill('SIGTERM'); fs.rmSync(scores, { recursive: true, force: true });
 }

@@ -48,14 +48,18 @@ function cellsAlong(p: Path): string[] {
 /** Ground steps under both wheel tracks: collision rays every 10 cm through the window. */
 /** Carriageway materials: a wheel track on anything else means the lane runs over a kerb, a sidewalk or verge. */
 const CARRIAGEWAY = new Set(['road', 'crossing', 'bridge_deck', 'cobblestone', 'paving_slab', 'ramp', 'unknown']);
-function groundSteps(pw: PhysicsWorld, p: Path, from: number, to: number, half = 0.8) {
+/** `above(s)`: where to start each ray, about 1.7 m over the driven surface (the car's chassis height there), so a
+ *  lane whose surveyed height misses the deck never rays from under it. */
+function groundSteps(pw: PhysicsWorld, p: Path, from: number, to: number, above: (s: number) => number | null, half = 0.8) {
   const steps: { s: number; x: number; y: number; z: number; height: number; track: string }[] = [];
   const surfaces: Record<string, number> = {};
   for (const [track, side] of [['left', -half], ['right', half]] as const) {
     const ys: (number | null)[] = [], at: { s: number; x: number; z: number }[] = [];
     for (let s = Math.max(0, from); s <= Math.min(p.length, to); s += 0.1) {
       const q = sampleAt(p, s), x = q.x - q.hz * side, z = q.z + q.hx * side;
-      const top = (q.y ?? 50) + 1.5;
+      const base = above(s);
+      if (base === null) continue;
+      const top = base + 1.2;
       const hit = pw.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, 4, 'solid');
       ys.push(hit ? top - hit.toi : null); at.push({ s, x, z });
       const name = hit ? MATERIALS[hit.material]?.name ?? 'unknown' : 'none';
@@ -87,7 +91,7 @@ export interface LaneResult {
   key: string; structure: string; kind: Structure['kind']; name: string; way: number; highway: string; over?: Structure['over'];
   lane: string; k: number; laneCount: number; heading: number; limitKmh: number;
   center: Structure['center']; severity: string; peaks: Record<string, number>; worst: unknown; events: unknown[];
-  driven: number; window: [number, number]; surfaces: Record<string, number>; offRoad: number; seconds: number; recoveries: number; outcome: string; wallMs: number;
+  driven: number; window: [number, number]; surfaces: Record<string, number>; offRoad: number; laneHeightOff: number; seconds: number; recoveries: number; outcome: string; wallMs: number;
   /** The worst point as a pose for a screenshot: engine x,y,z and heading, ETRS-TM35FIN. */
   view: { x: number; y: number; z: number; hx: number; hz: number; E: number; N: number } | null;
 }
@@ -122,8 +126,6 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
       for (const id of cellsAlong(route.path)) { const b = await cache.cell(id); if (b) await pw.loadTile(id, b); }
       pw.world.step();
       const trace = new DriveTrace(window);
-      const ground0 = groundSteps(pw, route.path, window[0], window[1]);
-      trace.addGround(ground0.steps);
       const start = sampleAt(route.path, 0);
       const ground = pw.raycast({ x: start.x, y: (start.y ?? 50) + 3, z: start.z }, { x: 0, y: -1, z: 0 }, 10, 'solid');
       const limit = route.limit(route.laneStart);
@@ -150,6 +152,15 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
         else if (recoveries > 0) { outcome = `stuck (${recoveries} recoveries)`; trace.fail('stuck', outcome, follower.s); }
         else if (status !== 'arrived' && follower.s < window[1]) { outcome = 'timeout'; trace.fail('incomplete', outcome, follower.s); }
       }
+      // Ground profile over the part driven, rayed from the car's own height; and how far the lane's surveyed
+      // height is from the surface the car drove on.
+      if (pw.vehicleState()) { pw.removeVehicle('player'); pw.world.step(); } // rays must not hit the car itself
+      const driven = trace.samples.filter(p => p.s >= window[0] && p.s <= window[1]);
+      const chassisAt = (s: number) => { let best: (typeof driven)[number] | null = null; for (const p of driven) if (!best || Math.abs(p.s - s) < Math.abs(best.s - s)) best = p; return best && Math.abs(best.s - s) < 2 ? best.y : null; };
+      const ground0 = driven.length ? groundSteps(pw, route.path, window[0], Math.min(window[1], driven.at(-1)!.s), chassisAt) : { steps: [], surfaces: {}, offRoad: 0 };
+      trace.addGround(ground0.steps);
+      let laneHeightOff = 0;
+      for (const p of driven) { const y = sampleAt(route.path, p.s).y; if (y !== null) laneHeightOff = Math.max(laneHeightOff, Math.abs(p.y - 0.65 - y)); }
       if (outcome !== 'arrived' && trace.events.some(e => (e.kind === 'stuck' || e.kind === 'incomplete') && e.severity === 'warn')) outcome = `not covered: ${outcome} before the structure`;
       pw.world.free();
       const summary = trace.summary();
@@ -162,7 +173,7 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
         heading: Math.round((Math.atan2(h.hx, -h.hz) * 180 / Math.PI + 360) % 360), limitKmh: Math.round(limit * 3.6),
         center: structure.center, severity: summary.severity, peaks: summary.peaks, worst: summary.worst,
         events: [...summary.events].sort((a, b) => (b.severity === 'fail' ? 1 : 0) - (a.severity === 'fail' ? 1 : 0)).slice(0, 40).map(e => ({ ...e, ...(() => { const en = engineToEN(e.x, e.y, e.z); return { E: Math.round(en.E * 10) / 10, N: Math.round(en.N * 10) / 10 }; })() })),
-        driven: route.path.length, window, surfaces: ground0.surfaces, offRoad: Math.round(ground0.offRoad * 1000) / 1000, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view };
+        driven: route.path.length, window, surfaces: ground0.surfaces, laneHeightOff: Math.round(laneHeightOff * 100) / 100, offRoad: Math.round(ground0.offRoad * 1000) / 1000, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view };
       fs.appendFileSync(out, JSON.stringify(row) + '\n');
       done++;
       log(`${structure.id} ${structure.name || ''} lane ${lane.k + 1}/${lane.laneCount} ${row.heading}°: ${summary.severity} ${outcome}` +
