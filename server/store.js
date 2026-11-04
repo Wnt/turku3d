@@ -10,6 +10,12 @@ export class ScoreStore {
     mkdirSync(directory, { recursive: true });
   }
 
+  /** Another city's room keeps its hours apart: `<directory>/cities/<name>/` (http.js CITY_ROOMS). */
+  forCity(name) {
+    if (!/^[a-z]{2,24}$/.test(name)) throw new Error(`bad city name ${name}`);
+    return new ScoreStore(join(this.directory, 'cities', name));
+  }
+
   rounds() {
     try { return JSON.parse(readFileSync(join(this.directory, 'rounds.json'), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return []; throw error; }

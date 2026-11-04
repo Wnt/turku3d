@@ -1,7 +1,11 @@
 # Turku3D multiplayer protocol v2
 
-Public endpoint: `wss://turku.lab.madekivi.fi/`. One room, JSON text WebSocket
-messages. Every message in both directions has `"v":2` and a `"type"` string.
+Public endpoint: `wss://turku.lab.madekivi.fi/`. One room per city, JSON text WebSocket
+messages. Turku's room is the socket path `/`; Espoo, Amsterdam and Rotterdam each have their own at
+`/city/<name>` (`http.js` `CITY_ROOMS`), with `/live.json?city=<name>` and `/scores/...?city=<name>` for
+their scoreboards. Rooms share nothing: a session, pose, vehicle, road report, pole or round of one city is
+unknown in another, so a player who travels (game `gameplay/travel.ts`) joins the target room as a new player
+and carries their mission save (money, permits, vehicle) client-side. Every message in both directions has `"v":2` and a `"type"` string.
 Unknown extra object fields are ignored. Binary messages and malformed/unknown
 messages are dropped and increment `/healthz`'s `stats.rejected` counter.
 The server owns vehicle seats/leases and computes bounded car-contact impulses from replicated poses.
