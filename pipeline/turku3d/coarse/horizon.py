@@ -55,7 +55,7 @@ class SurveyScenery:
         dependencies = ["horizon.py", "horizon_nodes.py", "horizon_identity.py", "horizon_regional.py", "horizon_pack.mjs", "inputs.py", "extrusion.py", "roofs.py", "forests.py",
                         "far_ground.py", "../../../game/src/render/farGroundPalette.json",
                         "sources.py", "../spatial.py", "../config.py", "../package/gltf.py",
-                        "../buildings/source_surfaces.py"]
+                        "../buildings/source_surfaces.py", "roof_pigment.py"]
         from turku3d.facade_assets import root as facade_root
         self.appearance = {}
         for directory in (facade_root() / 'facade-params', C.data_root() / 'facade-params',
@@ -94,7 +94,9 @@ class SurveyScenery:
             paths[kind] = str(path) if path else None
         osm = self.sources.osm_source(tile)
         paths["osm"] = str(osm) if osm else None
-        files = ground + [Path(p) for p in paths.values() if isinstance(p, str)]
+        from .roof_pigment import ortho_inputs
+        paths["ortho"] = ortho_inputs(self.sources, [tile])
+        files = ground + [Path(p) for p in [*paths.values(), *paths["ortho"].values()] if isinstance(p, str)]
         hashes = {str(p): digest(p) for p in sorted(set(files))}
         key = source_key(self.recipe, name, paths, hashes)
         return dict(tile=name, key=key, kind="survey", inputs=paths, hashes=hashes,
@@ -147,8 +149,11 @@ def layer_mesh(layer, positions, faces, colours, origin):
                    extras={"layer": layer, "scenery": True})
 
 
-def shells(buildings, origin, appearance=None):
-    """Survey roof planes and walls before facade tessellation; never emit floors."""
+def shells(buildings, origin, appearance=None, ortho=None):
+    """Survey roof planes and walls before facade tessellation; never emit floors. Roofs take their orthophoto mean
+    (``roof_pigment``), as the HD roofs are cut from that photo."""
+    from .roof_pigment import ROOF, RoofPigments
+    roofs = RoofPigments(ortho)
     positions, faces, colours = [], [], []
     for building in buildings:
         roof, ri, _, _, walls, _, wi = extrusion.extrude(building)
@@ -163,7 +168,8 @@ def shells(buildings, origin, appearance=None):
                 wall_colour = tuple(np.where(rgb <= .04045, rgb / 12.92, ((rgb + .055) / 1.055) ** 2.4))
             except (ValueError, TypeError):
                 pass
-        for p, ix, colour in ((roof, ri, (.20, .23, .22)), (walls, wi, wall_colour)):
+        roof_colour = (roofs.mean(roof, ri) if len(ri) else None) or ROOF
+        for p, ix, colour in ((roof, ri, roof_colour), (walls, wi, wall_colour)):
             if not len(ix):
                 continue
             faces.extend(ix + len(positions))
@@ -243,6 +249,6 @@ def build(tile, paths, appearance=None):
     blocked = shapely.union_all([water.buffer(5), streets.buffer(5),
                                 *[b.footprint.buffer(5) for b in buildings],
                                 *[g for _, g, kind, _ in areas if kind == "open"]])
-    meshes = [m for m in (ground, shells(buildings, np.asarray(tile.origin), appearance),
+    meshes = [m for m in (ground, shells(buildings, np.asarray(tile.origin), appearance, paths.get("ortho")),
                            canopy(tile, areas, blocked, height_at)) if m is not None]
     return meshes, dict(triangles=sum(len(m.indices) for m in meshes), buildings=len(buildings), draws=len(meshes))
