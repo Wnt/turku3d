@@ -14,6 +14,8 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   ``--high`` (0: no new tile starts), up while it is below ``--low``, between 0 and ``--max-jobs``. Running tiles
   always finish. Workers run at nice 19, under the farm's serving and builds.
 * Disk: no new tile starts while the farm's disk has less than ``--min-free-gb`` free (the steps' caches grow there).
+* Memory: the cap also steps down while the host has less than ``--min-free-mem-gb`` available (a lane holds its
+  decoded blocks, several GB; the farm's services share the container's memory).
 * Resumable: a tile finished earlier is kept (``migrate_tile``'s ready check), so a stopped pass resumes.
 * Survey: a tile whose catalog-listed survey blocks are not all on disk waits (re-checked every
   ``--survey-interval`` s, for at most ``--wait-hours``): migrated without them it would stay without wires and
@@ -157,6 +159,17 @@ def supply_block(path: Path, target: Path, sha256: str, link: bool | None = None
         partial.unlink(missing_ok=True)
 
 
+def available_memory_gb() -> float | None:
+    """MemAvailable of this host or container (lxcfs), None where /proc/meminfo is absent."""
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            if line.startswith('MemAvailable:'):
+                return int(line.split()[1]) / 1e6
+    except OSError:
+        pass
+    return None
+
+
 def _work(args):
     root, meta, tile, cut = args
     STEPS.clear()
@@ -258,7 +271,10 @@ def main():
     parser.add_argument('--survey-interval', type=float, default=600, help='seconds between looks for new blocks')
     parser.add_argument('--wait-hours', type=float, default=24, help='give up waiting for blocks after this long')
     parser.add_argument('--min-free-gb', type=float, default=12, help='no new tile while the farm disk has less free')
-    parser.add_argument('--blocks', type=int, default=9, help='decoded LAZ blocks each lane keeps (~260 MB each)')
+    parser.add_argument('--min-free-mem-gb', type=float, default=8,
+                        help='the cap steps down while less memory than this is available')
+    parser.add_argument('--blocks', type=int, default=9,
+                        help='decoded LAZ blocks each lane keeps (0.3-0.6 GB each; a lane with 9 reached 6-8 GB RSS)')
     parser.add_argument('--checkpoint', help='also store the product after this step (e.g. wires@2), so a later '
                         'chain that changes only the steps after it resumes from there')
     args = parser.parse_args()
@@ -297,8 +313,11 @@ def main():
                 if now >= next_adjust:
                     next_adjust = now + args.interval
                     free = shutil.disk_usage(root).free / 1e9
+                    memory = available_memory_gb()
                     if free < args.min_free_gb:
                         cap = 0  # The steps' caches grow on the farm's disk: hold new tiles until space returns.
+                    elif memory is not None and memory < args.min_free_mem_gb:
+                        cap = max(0, min(cap, len(busy)) - 1)  # Lanes grow as they work: keep room for the services.
                     elif load > args.high:
                         cap = max(0, cap - 1)
                     elif load < args.low:
@@ -307,7 +326,7 @@ def main():
                     atomic_json(progress, dict(
                         revision=meta['revision'], generation=meta['generation'], pid=os.getpid(), cap=cap,
                         running=sorted(lane.tile for lane in busy), load_per_core=round(load, 2),
-                        disk_free_gb=round(free, 1),
+                        disk_free_gb=round(free, 1), memory_available_gb=memory and round(memory, 1),
                         waiting_for_survey=len(waiting), survey_linked=survey.linked if survey else 0,
                         updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                         rate_tiles_per_hour=round(rate * 3600, 1),

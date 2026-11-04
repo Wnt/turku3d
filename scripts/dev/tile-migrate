@@ -87,6 +87,7 @@ def main():
             p.add_argument('--radius', type=int, help='only tiles within this many rings of t0_0_0')
             p.add_argument('--estimate', action='store_true', help='print the cost estimate from the pass log')
             p.add_argument('--checkpoint', help='also store each product after this step (e.g. wires@2)')
+            p.add_argument('--blocks', type=int, help='decoded LAZ blocks each lane keeps (memory: 0.3-0.6 GB each)')
             p.add_argument('--supply', action='append', default=[],
                            help='farm directory of pistepilvi blocks to link in when they match the catalog')
     args = parser.parse_args()
@@ -143,6 +144,7 @@ def main():
         extra = ['--revision', revision, '--max-jobs', str(args.max_jobs), '--high', str(args.high),
                  '--low', str(args.low), *(['--radius', str(args.radius)] if args.radius is not None else []),
                  *(['--checkpoint', args.checkpoint] if args.checkpoint else []),
+                 *(['--blocks', str(args.blocks)] if args.blocks is not None else []),
                  *[x for d in args.supply for x in ('--supply', d)], *args.tiles]
         script = 'scripts/dev/tile_city_pass.py'
         if args.estimate:

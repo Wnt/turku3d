@@ -24,7 +24,8 @@ without a regeneration. Status log: `~/turku3d/loops/lidarwires/STATUS.md`; help
   - centre-first rings; nice 19, one lazrs thread per worker;
   - the cap follows the one-minute load per core (`--high`/`--low`), and is 0 while the farm disk has under 12 GB free;
   - resumable; it holds back tiles whose catalogued survey blocks are missing;
-  - `--supply DIR` hard-links blocks whose size and SHA-256 match the base catalogue; every link goes to `supply.jsonl`;
+  - `--supply DIR` hard-links blocks whose size and SHA-256 match the base catalogue, or copies them when DIR is on
+    another filesystem (the bulk HDD); every block goes to `supply.jsonl` with its `method`;
   - each lane keeps 9 decoded LAZ blocks (byte-identical wires);
   - `--checkpoint wires@2` stores each tile after the wires step, so later trees or furniture changes rerun only those steps.
 
@@ -63,7 +64,13 @@ without a regeneration. Status log: `~/turku3d/loops/lidarwires/STATUS.md`; help
   - `$G/supply.jsonl`: every linked block;
   - `~/turku3d-local/loops/tiles/farm/logs/migrate-376cb37b42db-pass.log`: errors;
   - from the Mac: `~/turku3d/loops/lidarwires/train1.sh status` or `estimate`.
-- **Stop**: `ssh osgallery-dev 'kill -TERM -$(ps -o pgid= -p 346874 | tr -d " ")'`. Running tiles are lost and
+- **2026-11-04 restart**: the first pass died at 23:57 UTC after 9 tiles (EXDEV: `os.link` from `/bulk` to the SSD).
+  It was restarted at 17:39 UTC from runner snapshot 1039bea3 (`local/loop-trainspeed`, same chain code hashes);
+  `train1.sh ring2km`/`outward` now use that branch (`tile-migrate pass --code`).
+  - Memory: a lane with `--blocks 9` grows to 6-8 GB RSS (dense blocks are ~0.6 GB decoded, not 260 MB). Six lanes
+    took the 48 GB container to 0.8 GB available, so the pass runs 4 lanes (~30 GB) since 17:52 UTC (pid 565354).
+    The pass now also steps its cap down below `--min-free-mem-gb` (8) available; `--blocks` is passed through.
+- **Stop**: `ssh osgallery-dev 'kill -TERM -$(ps -o pgid= -p PID | tr -d " ")'` with the `pid` in `pass.json`. Running tiles are lost and
   redone on resume; finished ones are kept.
 - **Resume or extend**: `~/turku3d/loops/lidarwires/train1.sh ring2km` (same ring) or `train1.sh outward` (the whole
   city, ring by ring). Held-back tiles are picked up as lidarpc's downloads arrive: rerun the same command. Today
