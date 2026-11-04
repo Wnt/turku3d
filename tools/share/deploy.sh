@@ -4,7 +4,7 @@
 #   tools/share/deploy.sh [REV]    # default: local/loop-integration of ~/turku3d/wt/loop-integration/repo
 #
 # Builds REV on this Mac with VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
-# game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no editor or capture), copies the dist
+# game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
 # changed and checks the public URL. /version.json names the deployed commit.

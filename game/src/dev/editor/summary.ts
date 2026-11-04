@@ -16,6 +16,8 @@ export interface SummaryOptions {
   host: string;
   /** The multiplayer nick, when the session was played in multiplayer. */
   player?: string | null;
+  /** The site stores nothing (city.lab): the full rows travel as the dialog's session JSON. */
+  localOnly?: boolean;
   /** Minutes east of UTC for the times (default: this machine's offset at the session start). */
   utcOffsetMin?: number;
 }
@@ -151,6 +153,8 @@ export function summarizeSession(meta: SessionMeta, rows: readonly SessionRow[],
   const rest = sorted.slice(SUMMARY.maxGroups);
   if (rest.length) lines.push(`- … ${rest.reduce((n, g) => n + g.edits.length, 0)} more edits in ${rest.length} smaller groups (${rest.map(g => g.type).filter((t, i, a) => a.indexOf(t) === i).join(', ')})`);
   if (!edits.length) lines.push('- no edits');
-  lines.push(`Full details: session ${meta.id} (scripts/dev/edit_sessions.py show ${meta.id})`);
+  lines.push(options.localOnly
+    ? `Full details: session ${meta.id} JSON from the close dialog (local only, not on any server; scripts/dev/edit_sessions.py import FILE)`
+    : `Full details: session ${meta.id} (scripts/dev/edit_sessions.py show ${meta.id})`);
   return [header, ...lines].join('\n') + '\n';
 }

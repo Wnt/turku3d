@@ -82,6 +82,25 @@ class EditSessionTests(unittest.TestCase):
                 self.assertEqual(edit_sessions.main(["show", session.name]), 0)
             self.assertEqual(out.getvalue().splitlines()[0], "Edit session from meta")
 
+    def test_import_turns_an_export_into_a_session_folder(self):
+        name = "20261104-233000-loc123"
+        row = {**edit(1, "prop:t0_0_0:GIS_Penkit:a"), "id": f"{name}-0001", "session": name, "rev": 2}
+        export = {"format": "turku3d-edit-session-export", "version": 1, "summary": f"Edit session {name}\n",
+                  "session": {"id": name, "started": "t", "ended": "u"},
+                  "rows": [row, {**row, "id": "other-0001", "session": "other"}]}
+        with tempfile.TemporaryDirectory() as temp:
+            out = io.StringIO()
+            with patch.dict(os.environ, {"TURKU3D_EDITS": temp}), contextlib.redirect_stdout(out), \
+                    patch("sys.stdin", io.StringIO(json.dumps(export))):
+                self.assertEqual(edit_sessions.main(["import", "-"]), 0)
+            folder = Path(temp) / name
+            self.assertEqual(out.getvalue().strip(), str(folder))
+            self.assertEqual([r["id"] for r in edit_sessions.rows(folder)], [f"{name}-0001"])
+            self.assertEqual((folder / "summary.txt").read_text(), f"Edit session {name}\n")
+            self.assertEqual(json.loads((folder / "session.json").read_text())["imported_from"], "export")
+            with self.assertRaises(SystemExit):
+                edit_sessions.import_export(json.dumps({"format": "nope"}))
+
 
 if __name__ == "__main__":
     unittest.main()

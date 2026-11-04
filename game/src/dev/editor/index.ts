@@ -3,7 +3,7 @@
 // generator rules (~/turku3d/loops/editor/EDIT-FORMAT.md). Edits show as local previews only (preview.ts): no tile,
 // collision, physics or multiplayer state changes. Mapping: state.ts; README.md in this folder.
 import * as THREE from 'three/webgpu';
-import { localFeature } from '../../core/localOnly';
+import { isShareHost, localFeature } from '../../core/localOnly';
 import { buildStatus } from '../../core/build';
 import type { Action, Input } from '../../input';
 import type { VisualTiles } from '../../world/tiles';
@@ -16,7 +16,7 @@ import { EditableCatalog, type Editable, type V3 } from './catalog';
 import { CandidateCycle, pickCandidates } from './pick';
 import { EDITOR, EditorMachine, REASONS, idleFrame, type Command, type EditorFrame } from './state';
 import { Previews, previewMatrix, type PreviewState } from './preview';
-import { EditSession, EDIT_FORMAT, EDIT_VERSION, defaultStore, httpTransport, type EditRecord, type SessionTransport, type KeyValue, type Transform } from './session';
+import { EditSession, EDIT_FORMAT, EDIT_VERSION, defaultStore, httpTransport, localTransport, sessionExport, type EditRecord, type SessionTransport, type KeyValue, type Transform } from './session';
 import { framesOf } from './geodesy';
 import { STANDING, groundUnder, measureContext, type Raycast } from './context';
 import { provenanceOf } from './provenance';
@@ -45,8 +45,13 @@ export interface EditorHosts {
   store?: KeyValue; transport?: SessionTransport;
 }
 
+/** On localhost by default; elsewhere with ?editor=1, never in a public release except on the share host (city.lab),
+ *  where it stores nothing (editsLocalOnly). */
 export const editorAllowed = (loc: { hostname: string; search: string } = location) =>
-  import.meta.env?.VITE_PUBLIC_RELEASE !== '1' && localFeature(loc, 'editor');
+  localFeature(loc, 'editor') && (import.meta.env?.VITE_PUBLIC_RELEASE !== '1' || isShareHost(loc.hostname));
+/** The public share accepts no uploads: edits stay in this browser and leave it only through the close dialog. */
+export const editsLocalOnly = (loc: { hostname: string } = location) => isShareHost(loc.hostname);
+const LAST_KEY = 'turku3d.editor.lastClosed';
 
 const DEG = 180 / Math.PI;
 const LIDAR_KEY = 'turku3d.editor.lidar';
@@ -81,6 +86,7 @@ function transform(p: V3, yawDeg: number | null): Transform {
 
 export class ObjectEditor {
   readonly enabled: boolean;
+  readonly localOnly = editsLocalOnly();
   readonly machine = new EditorMachine();
   readonly catalog: EditableCatalog;
   readonly previews: Previews;
@@ -120,7 +126,7 @@ export class ObjectEditor {
   constructor(private hosts: EditorHosts, enabled = editorAllowed()) {
     this.enabled = enabled;
     this.store = hosts.store ?? defaultStore();
-    this.transport = hosts.transport ?? httpTransport();
+    this.transport = hosts.transport ?? (this.localOnly ? localTransport() : httpTransport());
     this.catalog = new EditableCatalog(() => hosts.vegetation(), () => hosts.lights, 150, () => hosts.signals?.() ?? null);
     this.previews = new Previews({ vegetation: () => hosts.vegetation(), lights: hosts.lights, signals: () => hosts.signals?.() ?? null });
     this.shots = new FrameShots(() => hosts.renderer.domElement);
@@ -207,7 +213,8 @@ export class ObjectEditor {
       device: { userAgent: navigator.userAgent, ...this.hosts.device?.() }, player: this.hosts.player?.() ?? null,
     });
     this.session.setActive(true);
-    this.hud.notify(`Editor on · session ${this.session.id}`, now, 2200);
+    this.hud.notify(this.localOnly ? `Editor on · session ${this.session.id} · local only: edits stay in this browser, nothing is uploaded`
+      : `Editor on · session ${this.session.id}`, now, this.localOnly ? 4500 : 2200);
     this.catalog.refresh(this.hosts.camera.position.x, this.hosts.camera.position.z, now, true);
   }
 
@@ -238,14 +245,22 @@ export class ObjectEditor {
     if (fresh) { session.meta.player = this.hosts.player?.() ?? session.meta.player ?? null; session.end(); }
     // The summary (summary.txt) goes out after session.json; a reload of a close still saving keeps the first one.
     if (session.summary === null)
-      session.setSummary(summarizeSession(session.meta, session.rows, { host: location.host, player: session.meta.player?.nick }));
+      session.setSummary(summarizeSession(session.meta, session.rows, { host: location.host, player: session.meta.player?.nick, localOnly: this.localOnly }));
     void session.flush();
     this.tail = session;
     this.previews.clear();
     this.session = null;
-    this.notify(`Session saved: ${edits} edit${edits === 1 ? '' : 's'} · previews off until the generator incorporates them`, now, 7000);
-    if (fresh) (this.dialog ??= new SessionDialog()).show(session.id, session.summary!, session.latestByKey().size);
+    this.notify(this.localOnly ? `Session closed: ${edits} edit${edits === 1 ? '' : 's'}, local only · copy or download the JSON to keep them`
+      : `Session saved: ${edits} edit${edits === 1 ? '' : 's'} · previews off until the generator incorporates them`, now, 7000);
+    if (!fresh) return;
+    // Local only: the dialog's JSON is the only copy, so the last closed session also stays in this browser.
+    const json = this.localOnly ? sessionExport(session.meta, session.rows, session.summary) : null;
+    if (json) try { localStorage.setItem(LAST_KEY, json); } catch { /* full: the dialog still has it */ }
+    (this.dialog ??= new SessionDialog()).show(session.id, session.summary!, session.latestByKey().size, json);
   }
+
+  /** The last session closed on a local-only site, as its export JSON (console: __game.editor.lastClosed()). */
+  lastClosed(): string | null { try { return localStorage.getItem(LAST_KEY); } catch { return null; } }
 
   /** Whether the close dialog is up (the game treats it like a menu: no gameplay buttons, no look). */
   get modal() { return !!this.dialog?.open; }
@@ -593,7 +608,7 @@ export class ObjectEditor {
     const status = [s ? s.id : '', s?.error ?? '', cloud ? `LiDAR ${lidarState}` : 'no LiDAR overlay'].filter(Boolean).join(' · ');
     hud.render({ mode: this.held ? 'hold' : 'aim', label, hover: !!current, deleting: this.machine.deleteHeld > 0 ? this.machine.deleteHeld / EDITOR.deleteHold : null,
       reasonLeft: this.held ? 0 : this.machine.reasonLeft, reasonGlyphs: [g('editUp'), g('editRight'), g('editDown'), g('editLeft')], hints, status,
-      counts: s ? { saved: s.saved, pending: s.unsent } : null }, now);
+      counts: s ? { saved: s.saved, pending: s.unsent } : null, localOnly: this.localOnly }, now);
   }
 
 
