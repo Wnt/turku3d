@@ -67,8 +67,8 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
   6098c5bd shows the same, so it is in the bulk tile generation, not today's client changes. Fix via a facade
   migration with generator parity.
 - Fixed 2026-11-04: the pizzeria mission point moved 2.2 m along its facade, now 3.1 m from the lamp post
-  (`game/src/gameplay/content/locations.ts`). The pipeline's address-pool origin (`content/addresses.py`) still names
-  the old point; the game accepts it within 3 m.
+  (`game/src/gameplay/content/locations.ts`). The pipeline's pool origin (`content/addresses.py`) follows; served pools
+  keep the old origin until a new base revision is pinned, so the game also accepts it (`addresses.ts` LEGACY_ORIGIN).
 - Junction gridlock at the centre seam ([npc](npc.md)).
 
 ## Measurement method that held up

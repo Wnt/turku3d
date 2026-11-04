@@ -161,8 +161,9 @@ describe('address pool asset', () => {
     expect(pool).toEqual([{ id: 'linnankatu-9b', address: 'Linnankatu 9b', tile: 't0_0_0', point: { x: 274.8, z: 54.3 },
       street: { x: 274.1, z: 52.0 }, foot: 244, car: 239 }]);
     expect(() => parseAddressPool(json([0, 0]), () => true)).toThrow(/not the pizzeria/);
-    // Pools built from the pizzeria's first point, 2.2 m along the same sidewalk, stay valid.
+    // Pools built from the pizzeria's first point (still served by every pin) stay valid; nothing between is.
     expect(parseAddressPool(json([77.1, 187.6]), tile => tile === 't0_0_0')).toHaveLength(1);
+    expect(() => parseAddressPool(json([78.0, 187.0]), () => true)).toThrow(/not the pizzeria/);
     expect(() => parseAddressPool({ ...json([77.1, 187.6]), version: 2 }, () => true)).toThrow(/unsupported/);
   });
   it('slugs like the pipeline and labels the big map with the house number', () => {

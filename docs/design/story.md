@@ -58,7 +58,7 @@ ground with no building above it.
 
 | Target id | Kind | Fiction | Real place | x, z | EPSG:3877 E, N | Ground |
 |---|---|---|---|---|---|---|
-| `pizzeria` | `pickup` | Pizzeria Linnanportti, an old family pizzeria | Linnankatu 17 street front (the OSM extract has a pizza restaurant at this address, inside the area) | 77.1, 187.6 | 23459577.1, 6704312.4 | sidewalk, H 3.96 |
+| `pizzeria` | `pickup` | Pizzeria Linnanportti, an old family pizzeria | Linnankatu 17 street front (the OSM extract has a pizza restaurant at this address, inside the area) | 78.92, 186.36 | 23459578.92, 6704313.64 | sidewalk, H 3.94 |
 | `market` | `market` | Black market seller, no name | Lower quay under the west end of Auransilta; reached by the stairs at x 296, z 198 or the ramp under the deck | 297.0, 205.5 | 23459797.0, 6704294.5 | paving at H 1.1, deck above at H 5.7 |
 | `dealer` | `shop` | Rantakadun Kulkine, a used-vehicle dealer | Corner of Kristiinankatu and Läntinen Rantakatu at the riverbank | 101.5, 290.5 | 23459601.5, 6704209.5 | sidewalk, H 3.45 |
 
