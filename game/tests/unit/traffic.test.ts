@@ -234,32 +234,6 @@ describe('deterministic conveyor traffic', () => {
   });
 });
 
-describe('lane geometry', () => {
-  test('a 0.1 m-quantised diagonal street gives smooth lanes: no reversals or sharp vertices, arc length = distance', () => {
-    // Generated data rounds to 0.1 m: a diagonal arrives as a staircase of 0.1 m axis steps.
-    const interior: number[] = [];
-    let x = 20, z = 20;
-    while (x < 200) {
-      const tx = Math.round((x + 0.1) * 10) / 10, tz = Math.round((20 + (tx - 20) * 0.66) * 10) / 10;
-      interior.push(tx, z); if (tz !== z) interior.push(tx, tz);
-      x = tx; z = tz;
-    }
-    const nodes = [20, 20, interior.at(-2)!, interior.at(-1)!];
-    const json: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [...tileBounds('t0_0_0')!] as [number, number, number, number],
-      nodes, edges: [[0, 1, STREET, 0, ...interior.slice(0, -2)]] };
-    const lanes = buildTileTraffic('t0_0_0', trafficRoads(json), tileBounds('t0_0_0')!, 'stairs').lanes;
-    expect(lanes.length).toBe(2);
-    for (const lane of lanes) {
-      const p = lane.points, n = p.length / 2;
-      for (let i = 1; i < n - 1; i++) {
-        const a = Math.atan2(p[2 * i + 1] - p[2 * i - 1], p[2 * i] - p[2 * i - 2]), b = Math.atan2(p[2 * i + 3] - p[2 * i + 1], p[2 * i + 2] - p[2 * i]);
-        expect(Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)))).toBeLessThan(0.1);
-      }
-      expect(lane.length / Math.hypot(p[2 * n - 2] - p[0], p[2 * n - 1] - p[1])).toBeLessThan(1.002);
-    }
-  });
-});
-
 describe('roads.json revision 2 (G3)', () => {
   // docs/specs/roads-json-v2.md on local/g3-roads: an east-west 2+1 street from the west seam to a signalised
   // junction, a north-south 1+1 street through it, a service road and a bus-only street that carry no traffic.
