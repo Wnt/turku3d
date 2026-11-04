@@ -36,9 +36,10 @@ debug census (deleted cache keys, key-part diffs between preparation and live dr
 | `Never build a node program inside a live frame` | Idle node-builder states are retained (LRU, 512). In the live frame, a draw whose program is neither built nor cached is skipped and built after the frame (`getForRenderAsync`), like asyncPipelines does for pipelines. In-frame builds 20–23 → 0 per drive; a deferred draw appears within about 80 ms. | `render/programCache.ts` `retainNodeStates`, `render/asyncNodeBuilds.ts`, `GameRenderer._renderObjectDirect` |
 | `Share the far canopy and regional mask nodes` | One node per tint/mask for all scenery cells | `render/sceneryMaterial.ts` |
 | `Share wet surface programs between equal-code texture copies` | Wet recipes keyed by what a texture changes in WGSL (UV channel, colour space, type, format, sampler, kind), not its identity. The test asserts r186 emits identical WGSL for texture copies with other offset/repeat, and different WGSL for another UV channel. | `render/weather/surfaces.ts`, `tests/unit/wet-graph-reuse.test.ts` |
-| `Pace r186 shader-build yields after frames during play` (+ `8 ms per frame while the 3x3 window waits`) | During play, `self.scheduler.yield` queues continuations and releases them after each frame within a share (3 ms; 8 ms while `streamingAllowance.urgent`); one long stage ends the gap's share. Loading, bench settles and hidden pages keep the native yield. | `render/yieldPacer.ts`, `main.ts` |
+| `Pace r186 shader-build yields after frames during play` (now: only while the 3x3 window is complete, 50b3aabc) | During play, `self.scheduler.yield` queues continuations and releases them after each frame within a share (3 ms; 8 ms while `streamingAllowance.urgent`); one long stage ends the gap's share. Loading, bench settles and hidden pages keep the native yield. | `render/yieldPacer.ts`, `main.ts` |
 | `Continue paced yields inside the current frame gap` | A yield arriving with budget left in the current gap continues at once. Before, each one waited a frame, so every `compileAsync` of a tile's preparation (cached programs included) cost a frame and one tile's prepare took 10–17 s. | `render/yieldPacer.ts` |
 | `Prepare car batches in an actor lane ahead of queued tile jobs` | `GraphicsPreparation` lanes actor > tile > scenery. A job reaching the head while higher-lane jobs wait goes behind them, and the running job is never interrupted. Parked and traffic car batches and keepers take the actor lane, so they no longer wait for a queue of tile preparations (parked bodies were 39–79 s late). | `render/graphicsPreparation.ts`, `main.ts` `prepareActorGraphics` |
+| `Pace shader-build yields only once the 3x3 window has its full tiles` (50b3aabc) | Forward fix: paced stages starved HD installs on the 560X (tile.prepare p50 2 -> 27 s, HD 62 -> 34 %). While `streamingAllowance.urgent`, stages run at native speed. | `main.ts` |
 | goal + tool | [frame-goal.md](frame-goal.md), `tools/perf/frame_pacing.py` | |
 
 No URL switches were added. Each change is a scheduling or sharing change with no look difference, except that a
@@ -92,9 +93,39 @@ Medians of the runs; HD = tile_timeline mean / 3x3 window.
 - The goal is not met on any machine yet. The Mac and Air fix3 runs are close on >50 ms (2 and 7) and p99 (1.9x
   and 2.1x).
 
+
+### Correction (2026-11-05 00:45): coverage-gated 560X numbers
+
+The Windows pacer runs above (fix4/fix5/fix6, 22–58 frames over 50 ms) are **invalid**. They streamed little:
+HD 31–34 % against about 62 %, 6–8 full tiles against 21, and tile.prepare p50 18–27 s against 2 s, all with
+healthy tile serving. The pacer starved HD installs. The same effect, smaller, cost the Air 5 HD points.
+50b3aabc limits pacing to a complete 3x3 window.
+
+Valid 560X series, coverage-matched, builds served from osgallery-dev, exclusive lease. fix7 = 50b3aabc,
+base3 = 2cd3d67c. Medians of 3 interleaved pairs:
+
+| Build | FPS | >50 ms | >33.4 ms | p99 | HD mean / window | tile.prepare p50 | full tiles |
+|---|---|---|---|---|---|---|---|
+| base3 | 39.2 | 208 | 16.8 % | 78.9 ms (3.6x) | 46.2 / 58.2 % | 12.4 s | 15 |
+| fix7 | 40.9 | 196 | 15.8 % | 75.5 ms (3.6x) | 46.5 / 58.9 % | 12.1 s | 16 |
+
+- On the 560X the pacer is now mostly inactive, because the 3x3 window is rarely complete there. The ~200 remaining
+  slow frames are not shader builds: frame callback and GPU frame both stay under 40 ms in most of them.
+  - The next step is a trace of the between-frame tasks (`win9.sh` with `TRACE=1`, own short lease).
+- Absolute HD is lower than in the Mac-served 19:40 runs (62 %) for both builds alike: serving from osgallery-dev
+  at load 42 makes glb p50 about 1 s. Compare only within a series.
+- **Rule from now on:** report every perf run with HD coverage, tile.prepare p50, manifest p50 and full-tile count.
+  Reject a run whose HD mean is under 0.9x its series' base median, or which had settle errors.
+- **Parked cars:** a car batch now waits only for the running tile job, p50 about 60 ms, p95 4.8 s, max 7 s on the
+  560X, instead of the FIFO queue (p50 3–6 s, max 15–20 s). This is from queue data. The drive bench prepares its
+  population before play, so a live first-parked-car stopwatch needs a driving session.
+- **Out-of-frame builds** (deferred first-use builds, paced stages) compiled with r186's empty post-render light set
+  until b1f41f24 (`GameLighting.finishRender`), which gave white cars. Any new build path outside the frame must keep
+  the scene's lights.
+
 ## Open, ranked
 
-1. **Measure fix4 cleanly** (pacer + urgent share) on the Air and the 560X against base2, with HD coverage:
+1. **Measure 50b3aabc on the Air** against base3 with HD coverage (the 560X is done above):
    `~/turku3d/loops/framepace/airseries3.sh` and `winseries3.sh` (wait for a healthy farm: manifest p50 under 200 ms).
    If coverage is still lower, size the share from `StreamingAllowance` headroom instead of a constant.
 2. **Fewer programs.** 94 node programs are built per drive, each 20–60 ms of JS on Windows.
