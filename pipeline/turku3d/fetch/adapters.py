@@ -23,6 +23,10 @@ INFSTREET = WfsLayer("GIS:InfStreet", "1.0.0", "Espoo street parts (source of GI
 PART = {
     ("Ajorata", "Pysäköintialue"): ("Muu liikennealue", "12"),
     ("Ajorata", "Liikenteenjakaja"): ("Välikaista", "13"),
+    ("Ajorata", "Pääkatu"): ("Ajorata", "1"),
+    ("Ajorata", "Kokoojakatu"): ("Ajorata", "1"),
+    ("Ajorata", "Tontti-/asunto-/liityntä-/pihakatu"): ("Ajorata", "1"),
+    ("Ajorata", "Pääväylä - maantie"): ("Ajorata", "1"),
     ("Ajorata", None): ("Ajorata", "1"),
     ("Kevyt liikenne", "Erotus/Välikaista"): ("Välikaista", "13"),
     ("Kevyt liikenne", "Jalkakäytävä"): ("Jalkakäytävä", "2"),

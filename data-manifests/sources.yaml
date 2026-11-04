@@ -67,3 +67,35 @@ osm:
   url: "https://download.geofabrik.de/europe/finland-latest.osm.pbf"
   notes: "latest redirects to a dated file; md5 checked; clipped with osmium extract --strategy smart"
   licence: "ODbL 1.0 (c) OpenStreetMap contributors"
+# Other cities (turku3d.cities; one TURKU3D_DATA root per city). Internal layer -> city layer,
+# layers the city does not serve (empty, filled from OSM) and layers derived by fetch/adapters.py.
+cities:
+  espoo:
+    crs: EPSG:3879+3900
+    origin_en: [25489000.0, 6674000.0, 0.0]
+    ground: mml-dem2m
+    ortho: {layer: "Ortokartta_2024", slug: ortho2024}
+    wfs_names:
+      "bldg:Building_LOD2": "bldg:building_lod2"
+      "bldg:Building_LOD3": "bldg:building_lod3"
+      "frn:CityFurniture_LOD2": "frn:cityfurniture_lod2"
+      "tran:Road_LOD3": "tran:road_lod2"
+      "veg:PlantCover_LOD2": "veg:plantcover_lod2"
+    wfs_absent:
+      "GIS:Liikennemerkit": "401 on 2026-11-05; signs come from OSM traffic_sign tags"
+      "GIS:Viheralueet": "401 on 2026-11-05; green areas come from OSM landuse/leisure and the ortho"
+      "kanta:Pysakki": "not offered; bus stops come from OSM highway=bus_stop"
+      "GIS:Varusteet": "not offered (GIS:InfEquipment is the Espoo register, no adapter yet); OSM furniture"
+      "GIS:Puut": "not offered; OSM natural=tree and kanta:Lehtipuu are the tree sources"
+      "GIS:Polkupyoraparkki": "not offered; OSM amenity=bicycle_parking"
+      "GIS:Pysakointiautomaatit": "not offered; OSM vending=parking_tickets"
+      "GIS:Follariasemat": "not offered (Espoo city bikes are HSL's); OSM bicycle_rental"
+      "GIS:Lupapysakointipaikat": "not offered; no permit-parking kerbs"
+    wfs_derived:
+      "GIS:Katualueet": "infstreet"
+    datasets:
+      - {name: "Espoo WFS (Tekla)", url: "https://kartat.espoo.fi/teklaogcweb/wfs.ashx", layers: "bldg:building_lod2, GIS:Rakennukset, kanta:Rakennus, GIS:InfStreet, GIS:Keskilinjat, kanta:Liikennevayla, kanta:Kevyenliikenteenvayla, kanta:Rakenne, kanta:Vesikohde, kanta:Korkeuspiste", date: "fetched 2026-11-05 (live register)", licence: "CC BY 4.0, (c) Espoon kaupunki", licence_source: "avoindata.suomi.fi, Espoon kaupungin paikkatietoaineistot (checked 2026-11-03)"}
+      - {name: "Espoo orthophoto", url: "https://kartat.espoo.fi/teklaogcweb/wms.ashx", layers: "Ortokartta_2024", date: "2024, 30 cm native; requested at 49 cm/px", licence: "CC BY 4.0, (c) Espoon kaupunki", licence_source: "kartat.espoo.fi/opendata (checked 2026-11-03)"}
+      - {name: "MML 2 m DEM (Korkeusmalli 2 m)", url: "https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/2008_latest/", layers: "dem2m_direct.vrt sheets, EPSG:3067 + N2000", date: "mirror 2026-11-01; sheet L4131H modified 2025-02-09", licence: "CC BY 4.0, (c) Maanmittauslaitos", licence_source: "maanmittauslaitos.fi avoin data licence CC BY 4.0 (checked 2026-11-03)"}
+      - {name: "MML laser scanning 0.5 p", url: "https://mirrors.nic.funet.fi/index/geodata/mml/laserkeilaus/2008_latest/", layers: "2008_latest.shp index; Tapiola sheet L4131H3 is the 2008 scan", date: "2008 scan (the newest 0.5 p over Espoo); index 2026-06-01", licence: "CC BY 4.0, (c) Maanmittauslaitos", licence_source: "maanmittauslaitos.fi avoin data licence CC BY 4.0 (checked 2026-11-03)"}
+      - {name: "OpenStreetMap", url: "https://download.geofabrik.de/europe/finland-latest.osm.pbf", layers: "Geofabrik Finland snapshot, osmium clip per 2 km square", date: "dated snapshot, see raw/osm/MANIFEST.jsonl", licence: "ODbL 1.0 (c) OpenStreetMap contributors", licence_source: "openstreetmap.org/copyright"}
