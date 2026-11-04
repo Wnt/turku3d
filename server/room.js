@@ -128,7 +128,7 @@ export class Room {
       this.usedNicks.add(nick);
       p = { id: randomUUID(), session: randomBytes(32).toString('hex'), nick,
         spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], earned: 0, deliveries: 0, reachedAt: now,
-        orders: new Set(), finedPoles: new Set(), pose: null, dirty: false };
+        orders: new Set(), finedPoles: new Set(), pose: null, dirty: false, bot: m.bot === true };
       this.players.set(p.id, p);
       this.sessions.set(p.session, p);
     }
