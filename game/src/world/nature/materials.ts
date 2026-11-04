@@ -23,18 +23,6 @@ export function scaleVegetationFade(scale: number) {
   for (let j = 0; j < 3; j++) { VEGETATION_FADE.width[j] = Math.max(1e-4, VEGETATION_FADE.width[j] * scale); VEGETATION_FADE.stagger[j] *= scale; }
 }
 
-/** ?leaves=single|alpha65|noshadow: cheaper leaf paths for the reduced tier (A/B, owner winperf). In-page probes on a
- *  Radeon Pro 560X (reduced, 910x569, riverside, beauty 11.0 ms) saved: single-sided cards 1.3 ms, unshadowed leaves
- *  1.0 ms (vegetationLod pools), alpha test 0.65 0.4 ms; all leaves together cost 2.7 ms. Decided by live replays and
- *  Jonni's look check; the losing paths go within ten merges. */
-export type LeafVariant = 'single' | 'alpha65' | 'noshadow' | null;
-export function parseLeafVariant(value: string | null): LeafVariant {
-  if (value === null || value === '') return null;
-  if (value === 'single' || value === 'alpha65' || value === 'noshadow') return value;
-  throw new Error(`bad ?leaves= (single|alpha65|noshadow): ${value}`);
-}
-export const leafVariant: LeafVariant = typeof location === 'undefined' ? null : parseLeafVariant(new URLSearchParams(location.search).get('leaves'));
-
 const imageWidth = (map: THREE.Texture) => (map.image as { width?: number } | null)?.width ?? 2048;
 
 /** What the materials read from the scene's lighting (Environment satisfies it). */
@@ -98,8 +86,12 @@ export class NatureMaterials {
 
     const leafMap = sources.nature_leaves.map!;
     const leaf = texture(leafMap, uv());
-    this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: leafVariant === 'single' ? THREE.FrontSide : THREE.DoubleSide,
-      alphaTest: leafVariant === 'alpha65' ? 0.65 : 0.5, roughness: 0.92, metalness: 0, vertexColors: true });
+    // Double-sided, alpha test 0.5, shadow-receiving on every tier. Decided 2026-11-04 (treelook) against Street View
+    // crops at five tree-rich poses: single-sided cards lost every view (sparse, see-through crowns) and alpha test
+    // 0.65 lost 9 of 15 calls against 3 (thinner crowns; 3 ties); unshadowed pooled leaves drew pixel-identical frames.
+    // None differed beyond noise on the M1 Max (medium, riverside static).
+    this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: THREE.DoubleSide,
+      alphaTest: 0.5, roughness: 0.92, metalness: 0, vertexColors: true });
     this.leaves.colorNode = vec4(leaf.rgb, leaf.a);
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;

@@ -31,7 +31,8 @@ export const CROWN_LIMITS = { min: 0.8, max: 1.6, core: [0.04, 0.14] as const, b
  * tiers) moves each leaf card out with its centre at its own size: the model's leaf fragments, a more open crown.
  * Decided 2026-11-04 (treelook): blind judges against Street View crops at five tree-rich poses preferred `stretch` on
  * medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops), for fuller crowns with less sky and bare
- * branch. Its cost is +0.1 ms beauty on the Air and +1.1 ms on the Radeon 560X at medium; both run reduced (spread).
+ * branch. Its beauty cost at medium: none measurable on the M1 Max (4.39 against 4.41 ms p50, riverside static, three
+ * interleaved runs), +0.1 ms on the Air and +1.1 ms on the Radeon 560X; the Air and the 560X run reduced (spread).
  */
 export type CrownMode = 'stretch' | 'spread';
 export function crownMode(tier: string): CrownMode {
