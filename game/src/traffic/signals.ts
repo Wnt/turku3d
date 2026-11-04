@@ -7,17 +7,20 @@ import { signalState } from './controls';
 import type { Connector, Lane } from './tileNetwork';
 
 export interface SignalHead { key: string; x: number; y: number; z: number; hx: number; hz: number; controller: string; left: boolean;
-  /** Where the roads.json stop event came from (developer object editor provenance). */
-  source?: { edge: string; way: number; s: number; direction: 'forward' | 'backward'; lanes: number; highway: string } }
+  /** Where the roads.json stop event came from (developer object editor provenance); `post` names the generator's
+   *  placement rule when the graph carries a kerb post for the head. */
+  source?: { edge: string; way: number; s: number; direction: 'forward' | 'backward'; lanes: number; highway: string; post?: 'kerb' } }
 /** A visual-only pose of a head (the editor's preview): pole base and yaw (rad, three.js rotation.y). */
 export interface SignalPose { x: number; y: number; z: number; yaw: number }
 interface Drawn { h: SignalHead; p: { x: number; y: number; z: number; hx: number; hz: number } }
 
 export function signalHeads(tile: string, json: RoadGraphJson): SignalHead[] {
   const graph = parseRoadGraph(json), heads: SignalHead[] = [];
-  for (const edge of graph.edges) {
+  // The generator's post of a head (kerb or median, never the carriageway), by edge, event and direction.
+  const posts = new Map((json.signalPosts ?? []).map(([e, n, d, x, z, y]) => [`${e}:${n}:${d}`, { x, z, y }]));
+  for (const [index, edge] of graph.edges.entries()) {
     if (!(edge.flags & CAR) || !edge.heights) continue;
-    for (const event of edge.events) {
+    for (const [n, event] of edge.events.entries()) {
       if ((event.code & 15) !== EVENT.SIGNAL) continue;
       const p = pointAt(edge.points, edge.cumulative, event.s);
       let i = 1;
@@ -29,12 +32,15 @@ export function signalHeads(tile: string, json: RoadGraphJson): SignalHead[] {
         if (!(event.code & (dir > 0 ? EVENT.FORWARD : EVENT.BACKWARD))) continue;
         const lanes = dir > 0 ? edge.lanes.fwd : edge.lanes.bwd;
         if (!lanes) continue;
+        // The nominal head (right of the approach) names the head; tiles without posts still draw it there.
         const hx = p.hx * dir, hz = p.hz * dir, side = edge.lanes.width / 2 + 0.35;
-        const x = p.x - hz * side, z = p.z + hx * side;
+        const nx = p.x - hz * side, nz = p.z + hx * side;
         const bearing = Math.round(Math.atan2(hz, hx) * 8 / Math.PI);
-        heads.push({ key: `${controller}:${Math.round(x / 2)}:${Math.round(z / 2)}:${bearing}`,
-          x, y, z, hx, hz, controller, left: lanes > 1,
-          source: { edge: edge.id, way: edge.way, s: event.s, direction: dir > 0 ? 'forward' : 'backward', lanes, highway: edge.highway } });
+        const post = posts.get(`${index}:${n}:${dir}`);
+        heads.push({ key: `${controller}:${Math.round(nx / 2)}:${Math.round(nz / 2)}:${bearing}`,
+          x: post?.x ?? nx, y: post?.y ?? y, z: post?.z ?? nz, hx, hz, controller, left: lanes > 1,
+          source: { edge: edge.id, way: edge.way, s: event.s, direction: dir > 0 ? 'forward' : 'backward', lanes, highway: edge.highway,
+            ...(post ? { post: 'kerb' as const } : {}) } });
       }
     }
   }
