@@ -60,11 +60,26 @@ along `cam=23459674.21,6704241.83,5.39,242,-6,60`; static bench, 14:00 and 22:00
 The Mac ran at load ~45 (other agents), so its spread is wide; the Air was at thermal level 0 throughout. Planar's pass
 cost on the Air medium is 3.6 ms across, 5.5-8 ms along and 11 ms on the riverside preset.
 
-**Left for SSR:** rays that leave the screen fall back to the sky. The judge still notes hard-edged bright patches at the
-left and right image borders (the 12 % `border` fade on the read point: a boat hull at the left edge loses its
-reflection) and blocky night window reflections (both paths). A narrower border fade, or a dimmer, bank-coloured
-fallback near the borders, would close most of it. Shots and runs: `~/turku3d/loops/ssrwater/{shots,runs,judge}`
-(local).
+**Left for SSR:** rays that leave the screen fall back to the sky, which shows as soft bright patches at the left and
+right image borders where planar shows a hull or bank, and lit windows mirror as stepped blocks at night (both paths).
+
+**Edge fill, tried and lost (2026-11-05, branch `local/ssr-water`, 8353fd5e, parked):**
+- What it did: a 0.2-3 % border fade instead of 12 %; a ray leaving through a side of last frame's image filled what
+  the hit left with the colour where it left (only where that pixel stands 0.3-1.5 m above the water, at up to 0.7);
+  a secant step on the bracket; four taps stretched 2.5x vertically; wave offsets 0.35x sideways, 0.6x vertically.
+- Blind A/B against b4fce70d on the M1 Air (medium, both poses, day and night, refs vastavalo 1055994 / 330386):
+  **the previous version won all 4 pairs** (2 clear, 2 slight). The fill turns the soft sky fade into hard bright
+  vertical seams at the borders and cuts reflections off abruptly; the night windows stayed blocky in both.
+- Cost on the Air: none along the river (35.2 against 35.0 FPS); about +1 ms GPU p95 across it before 8353fd5e
+  limited the fill to side exits (not re-measured).
+- Next idea: instead of copying the border column, fade the hit towards a blurred mean of the river's own reflection
+  row (or the planar pass at 1/8 resolution only near the borders); for the night windows, smooth the wave normal
+  used for the read offset (its low-resolution steps look like the cause), not the offset size.
+- Tooling that held up for remote runs: static builds on osgallery-dev (built there with `VITE_TEST_HOSTS`), one
+  perf lease per series from the Mac, the controller on the host side (osgallery-dev for the Air with the builds
+  reverse-tunnelled to the Air's localhost, since a Chrome started from tmux has no macOS Local Network permission;
+  Python on Windows), raw page CDP instead of Playwright's browser attach (it timed out on Chrome 156.0.8078.80),
+  a 90 s load and 420 s bench timeout, touches only while the run log grows. Scripts: `~/turku3d/loops/ssrwater/`.
 
 ## Open items, ranked
 
