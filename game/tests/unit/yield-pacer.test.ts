@@ -21,9 +21,9 @@ test('during play shader-build continuations run after frames within a budget; o
   const frame = async () => {
     const pending = frames; frames = [];
     for (const callback of pending) callback();
-    await new Promise(resolve => setTimeout(resolve, 5));
+    await new Promise(resolve => setTimeout(resolve, 25));
   };
-  await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 25));
   expect(ran).toEqual([]);                     // nothing runs before the next frame
   await frame(); expect(ran.length).toBe(1);   // one 10 ms stage ends the gap's 3 ms share
   await frame(); expect(ran.length).toBe(2);
@@ -34,4 +34,28 @@ test('during play shader-build continuations run after frames within a budget; o
   await frame(); await late;
   pacer.release();
   expect(scheduler.yield).not.toBe(undefined);
+});
+
+test('cheap continuations, even ones that start later in the same gap, all run inside one frame gap', async () => {
+  let clock = 0, frames: (() => void)[] = [];
+  vi.stubGlobal('scheduler', { yield: () => Promise.resolve() });
+  vi.stubGlobal('document', { visibilityState: 'visible' });
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { frames.push(callback); return 0; });
+  vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const pacer = paceYields(() => true, () => 3)!;
+  const scheduler = (globalThis as unknown as { scheduler: { yield(): Promise<void> } }).scheduler;
+  const frame = async () => { const pending = frames; frames = []; for (const callback of pending) callback(); await new Promise(resolve => setTimeout(resolve, 25)); };
+  // A tile's preparation: compileAsync per mesh, each yielding once for a cached program (no build time).
+  let compiled = 0;
+  const prepare = (async () => { for (let mesh = 0; mesh < 40; mesh++) { await scheduler.yield(); compiled++; } })();
+  await frame();
+  expect(compiled).toBe(40);
+  await prepare;
+  // A second preparation arriving inside the same gap continues at once instead of waiting a frame.
+  clock += 1;
+  const late = (async () => { await scheduler.yield(); compiled++; })();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  expect(compiled).toBe(41);
+  await late;
+  pacer.release();
 });
