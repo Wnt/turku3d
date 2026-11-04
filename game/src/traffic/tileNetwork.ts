@@ -42,8 +42,10 @@ export interface Connector {
   points: Float64Array; cum: Float64Array; length: number;
   /** Signed turn in engine x/z: positive is right. */
   turn: number;
-  /** Curvature-limited crossing speed (m/s). */
+  /** Curvature-limited crossing speed (m/s): the entry speed when `limits` is set. */
   speed: number;
+  /** Folded movements only: speed limit per metre of the path, braking included (flow follows it on the path). */
+  limits?: Float32Array;
 }
 
 export interface Lane {
@@ -559,6 +561,56 @@ function cleanLine(p: readonly number[], ys: readonly (number | null)[]): { poin
   return { points, ys: out };
 }
 
+/** A folded junction movement's path (connector + short links + connector) and its speed. The links' own corners
+ *  can turn 90° within a metre (a stop line a metre before a crossing link): resampled every 0.5 m and averaged over
+ *  ±SMOOTH_WINDOW metres of path (tapering to nothing at both ends, so it still meets its lanes), twice. */
+const SMOOTH_WINDOW = 3;
+export function smoothPath(points: ArrayLike<number>, cap: number): { points: Float64Array; cum: Float64Array; length: number; speed: number; limits: Float32Array } {
+  const src = Float64Array.from(points), srcCum = cumulative(src), total = srcCum[srcCum.length - 1];
+  const n = Math.max(2, Math.ceil(total / 0.5) + 1), step = total / (n - 1), q = { x: 0, z: 0, hx: 0, hz: 0 };
+  let xs = new Float64Array(n), zs = new Float64Array(n);
+  for (let i = 0; i < n; i++) { pointOn(src, srcCum, i * step, q); xs[i] = q.x; zs[i] = q.z; }
+  for (let pass = 0; pass < 2; pass++) {
+    const nx = xs.slice(), nz = zs.slice();
+    for (let i = 1; i < n - 1; i++) {
+      const w = Math.min(Math.round(SMOOTH_WINDOW / step), i, n - 1 - i);
+      let sx = 0, sz = 0;
+      for (let j = i - w; j <= i + w; j++) { sx += xs[j]; sz += zs[j]; }
+      nx[i] = sx / (2 * w + 1); nz[i] = sz / (2 * w + 1);
+    }
+    xs = nx; zs = nz;
+  }
+  const out = new Float64Array(2 * n);
+  for (let i = 0; i < n; i++) { out[2 * i] = xs[i]; out[2 * i + 1] = zs[i]; }
+  const cum = cumulative(out), length = Math.max(0.01, cum[cum.length - 1]);
+  const limits = speedProfile(out, cum, cap);
+  return { points: out, cum, length, speed: limits[0], limits };
+}
+
+/** Curvature-limited speed (about 0.2 g) for every metre of a path, curvature measured over a 2 m chord either side
+ *  (the scale a car body follows, not the vertex spacing), then lowered so a car can brake (PROFILE_BRAKE) into
+ *  each tight part from the metre before. */
+const PROFILE_BRAKE = 3.5;
+function speedProfile(p: Float64Array, cum: Float64Array, cap: number): Float32Array {
+  const length = cum[cum.length - 1], n = Math.max(1, Math.ceil(length) + 1), out = new Float32Array(n);
+  const a = { x: 0, z: 0, hx: 0, hz: 0 }, b = { ...a }, c = { ...a };
+  for (let i = 0; i < n; i++) {
+    const s = Math.min(Math.max(i, 2), Math.max(2, length - 2));
+    pointOn(p, cum, s - 2, a); pointOn(p, cum, s, b); pointOn(p, cum, s + 2, c);
+    const abx = b.x - a.x, abz = b.z - a.z, bcx = c.x - b.x, bcz = c.z - b.z, acx = c.x - a.x, acz = c.z - a.z;
+    const k = 2 * Math.abs(abx * bcz - abz * bcx) / Math.max(1e-6, Math.hypot(abx, abz) * Math.hypot(bcx, bcz) * Math.hypot(acx, acz));
+    out[i] = Math.max(1.5, Math.min(cap, Math.sqrt(2 / Math.max(0.001, k))));
+  }
+  for (let i = n - 2; i >= 0; i--) out[i] = Math.min(out[i], Math.sqrt(out[i + 1] * out[i + 1] + 2 * PROFILE_BRAKE));
+  return out;
+}
+function pointOn(p: Float64Array, cum: Float64Array, s: number, out: { x: number; z: number; hx: number; hz: number }) {
+  let i = 1; while (i < cum.length - 1 && cum[i] < s) i++;
+  const f = Math.max(0, Math.min(1, (s - cum[i - 1]) / Math.max(1e-9, cum[i] - cum[i - 1])));
+  out.x = p[2 * i - 2] + (p[2 * i] - p[2 * i - 2]) * f; out.z = p[2 * i - 1] + (p[2 * i + 1] - p[2 * i - 1]) * f;
+  return out;
+}
+
 function polylineLength(p: readonly number[]) {
   let length = 0;
   for (let i = 2; i < p.length; i += 2) length += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
@@ -603,7 +655,9 @@ export function connector(a: Lane, b: Lane): Connector {
   const n = a.points.length / 2;
   const x0 = a.points[2 * n - 2], z0 = a.points[2 * n - 1], x3 = b.points[0], z3 = b.points[1];
   const [ax, az] = tangentAtEnd(a), [bx, bz] = tangentAtStart(b);
-  const d = Math.hypot(x3 - x0, z3 - z0), k = Math.max(1.2, d * 0.4);
+  // Handles at most half the chord: lanes that nearly touch (folded crossing and signal-head links, 0.1–1 m apart)
+  // otherwise got a forward-and-back cusp, near-infinite curvature and the 1.5 m/s floor speed.
+  const d = Math.hypot(x3 - x0, z3 - z0), k = Math.min(Math.max(1.2, d * 0.4), d * 0.5);
   const x1 = x0 + ax * k, z1 = z0 + az * k, x2 = x3 - bx * k, z2 = z3 - bz * k;
   const steps = Math.max(16, Math.ceil(d * 1.5)), points = new Float64Array(2 * (steps + 1));
   for (let i = 0; i <= steps; i++) {
