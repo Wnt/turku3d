@@ -6,6 +6,7 @@ import {
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { viewClearance } from '../../render/viewClearance';
+import type { NatureKind } from './library';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -172,14 +173,17 @@ export class NatureMaterials {
    *  LOD boundaries on either side (lodBands). At a pixel, every level of one tree compares the same per-frame dither
    *  threshold with the same fade value, so exactly one level keeps it: no double coverage, no gap, and TRAA resolves
    *  the door into a cross-fade. The fade is per pixel (3D distance), each tree's band offset by a hash of its tint.
-   *  Shadow casters (the LOD 1 proxies) never fade. Cached per material and level; disposed with the base. */
-  lodVariant(base: THREE.MeshStandardNodeMaterial, level: number): THREE.MeshStandardNodeMaterial {
+   *  Shadow casters (the LOD 1 proxies) never fade. With `clears`, view clearance (render/viewClearance.ts) also
+   *  dithers it out between the camera and the player; only tree crowns take it (`clearsView`). Cached per material,
+   *  level and clearance; disposed with the base. */
+  lodVariant(base: THREE.MeshStandardNodeMaterial, level: number, clears = false): THREE.MeshStandardNodeMaterial {
     let list = this.variants.get(base);
     if (!list) this.variants.set(base, list = []);
-    const cached = list[level];
+    const slot = level * 2 + (clears ? 1 : 0);
+    const cached = list[slot];
     if (cached) return cached;
     const variant = cloneNodeMaterial(base);
-    variant.name = `${base.name}@L${level}`;
+    variant.name = `${base.name}@L${level}${clears ? '+clear' : ''}`;
     const distance = positionWorld.sub(cameraPosition).length();
     const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
     // 0 -> 1 between end - 2 * width and end, where end = boundary * (1 - stagger * seed) <= boundary; the width
@@ -193,13 +197,19 @@ export class NatureMaterials {
     const threshold = ditherThreshold();
     let keep: THREE.Node<'bool'> = threshold.greaterThanEqual(fade(level));
     if (level > 0) keep = keep.and(threshold.lessThan(fade(level - 1)));
-    // View clearance (render/viewClearance.ts) does not depend on the level, so the levels stay complementary inside
-    // the cleared region. Shadows keep the unfaded mask below.
-    keep = keep.and(viewClearance.keep());
+    // View clearance does not depend on the level, so the levels stay complementary inside the cleared region.
+    // Shadows keep the unfaded mask below.
+    if (clears) keep = keep.and(viewClearance.keep());
     variant.maskNode = base.maskNode ? bool(base.maskNode as THREE.Node<'bool'>).and(keep) : keep;
     variant.maskShadowNode = base.maskShadowNode ?? base.maskNode ?? bool(true);
-    list[level] = variant; this.bases.set(variant, base);
+    list[slot] = variant; this.bases.set(variant, base);
     return variant;
+  }
+
+  /** Whether a part clears the view: the leaf cards of a tree's mesh levels. Trunks and branches (bark), fences
+   *  (wood, metal, chain), hedges, shrubs and impostors stay solid (Jonni, 2026-11-05: fences and trunks must not hide). */
+  clearsView(kind: NatureKind, material: THREE.Material, impostor: boolean) {
+    return kind === 'tree' && !impostor && material === this.leaves;
   }
 
   /** The shared material a LOD variant was made from (itself for a base material). */

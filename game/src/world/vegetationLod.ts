@@ -420,7 +420,10 @@ export class VegetationLod {
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
       const batch = (part: NaturePart, shadowProxy = false) => {
         // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material.
-        const material = shadowProxy || !this.library ? part.material : this.library.materials.lodVariant(part.material, level);
+        // Tree crowns also clear the view between the camera and the player (NatureMaterials.clearsView).
+        const materials = this.library?.materials;
+        const material = shadowProxy || !materials ? part.material
+          : materials.lodVariant(part.material, level, materials.clearsView(asset.kind, part.material, impostor));
         const mesh = new THREE.InstancedMesh(part.geometry, material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
