@@ -79,8 +79,9 @@ export function quatExp(v: V3): Quat {
 export const MAX_CORRECTION = 3;
 
 /** Critically damped error between the drawn pose and the authoritative one. A late state replaces an
- *  extrapolated pose; the difference is added here and decays without overshoot instead of snapping. The rate is
- *  chosen so the correction's peak speed stays under half the actor's speed: it never pulls a moving car backwards. */
+ *  extrapolated pose; the drawn position and velocity carry on through it (the difference is added here as an error
+ *  and its rate) and decay without overshoot instead of snapping. The rate is chosen so the correction's peak speed
+ *  stays under half the actor's speed: it never pulls a moving car backwards. */
 export class PoseCorrection {
   private e = { x: 0, y: 0, z: 0 };
   private v = { x: 0, y: 0, z: 0 };
@@ -88,30 +89,33 @@ export class PoseCorrection {
   private w = { x: 0, y: 0, z: 0 };
   private omega = 10;
   private at: number | null = null;
-  reset() { this.e = { x: 0, y: 0, z: 0 }; this.v = { x: 0, y: 0, z: 0 }; this.r = { x: 0, y: 0, z: 0 }; this.w = { x: 0, y: 0, z: 0 }; this.at = null; }
-  get size() { return Math.hypot(this.e.x, this.e.y, this.e.z); }
-  /** Adds a jump of `dp` (drawn minus authoritative position) and `dr` (rotation vector of drawn * authoritative^-1). */
-  add(dp: V3, dr: V3 | null, speed: number) {
-    const e = { x: this.e.x + dp.x, y: this.e.y + dp.y, z: this.e.z + dp.z };
-    if (Math.hypot(e.x, e.y, e.z) > MAX_CORRECTION) { this.reset(); return; }
-    this.e = e;
-    if (dr) this.r = { x: this.r.x + dr.x, y: this.r.y + dr.y, z: this.r.z + dr.z };
-    // Peak speed of a critically damped decay from rest is omega * e / E.
-    const size = Math.hypot(e.x, e.y, e.z);
-    this.omega = Math.max(4, Math.min(14, size > 1e-6 ? 0.5 * Math.max(speed, 1) * Math.E / size : 14));
-  }
-  /** Advances to local time `now` (s) and returns the position offset and rotation to apply on the authoritative pose. */
-  apply(now: number): { dp: V3; dr: Quat } | null {
+  private active = false;
+  reset() { this.e = { x: 0, y: 0, z: 0 }; this.v = { x: 0, y: 0, z: 0 }; this.r = { x: 0, y: 0, z: 0 }; this.w = { x: 0, y: 0, z: 0 }; this.active = false; }
+  /** Advances the decay to local time `now` (s). */
+  advance(now: number) {
     const h = this.at === null ? 0 : Math.max(0, now - this.at);
     this.at = now;
+    if (!this.active || h === 0) return;
     const o = this.omega, k = Math.exp(-o * h);
     for (const [x, v] of [[this.e, this.v], [this.r, this.w]] as const) for (const c of ['x', 'y', 'z'] as const) {
       const b = v[c] + o * x[c];
       x[c] = (x[c] + b * h) * k; v[c] = (v[c] - o * b * h) * k;
     }
-    if (this.size < 1e-4 && Math.hypot(this.r.x, this.r.y, this.r.z) < 1e-5 && Math.hypot(this.v.x, this.v.y, this.v.z) < 1e-3) {
-      this.reset(); this.at = now; return null;
-    }
-    return { dp: { ...this.e }, dr: quatExp(this.r) };
+    if (Math.hypot(this.e.x, this.e.y, this.e.z) < 1e-4 && Math.hypot(this.v.x, this.v.y, this.v.z) < 1e-3 &&
+      Math.hypot(this.r.x, this.r.y, this.r.z) < 1e-5) this.reset();
   }
+  /** Adds a jump of the authoritative pose at the time of the last `advance`, so the drawn pose and velocity carry
+   *  on through it: `dp` old minus new position, `dv` old minus new velocity, `dr` rotation vector of old * new^-1.
+   *  Beyond MAX_CORRECTION (a teleport) nothing is smoothed. */
+  add(dp: V3, dv: V3, dr: V3 | null, speed: number) {
+    const e = { x: this.e.x + dp.x, y: this.e.y + dp.y, z: this.e.z + dp.z }, size = Math.hypot(e.x, e.y, e.z);
+    if (size > MAX_CORRECTION) { this.reset(); return; }
+    this.e = e; this.v = { x: this.v.x + dv.x, y: this.v.y + dv.y, z: this.v.z + dv.z };
+    if (dr) this.r = { x: this.r.x + dr.x, y: this.r.y + dr.y, z: this.r.z + dr.z };
+    // Peak speed of a critically damped decay from rest is omega * e / E.
+    this.omega = Math.max(4, Math.min(14, size > 1e-6 ? 0.5 * Math.max(speed, 1) * Math.E / size : 14));
+    this.active = true;
+  }
+  /** The position offset and rotation to apply on the authoritative pose, or null when there is none. */
+  value(): { dp: V3; dr: Quat } | null { return this.active ? { dp: { ...this.e }, dr: quatExp(this.r) } : null; }
 }

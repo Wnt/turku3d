@@ -2,12 +2,19 @@ import type { CharacterState, Quat, VehicleState } from '../physics/protocol';
 import type { V3 } from '../core/origin';
 import { PoseCorrection, SourceClock, quatConjugate, quatExp, quatLog, quatMultiply } from './renderClock';
 const STEP = 1 / 60;
-/** Longest render extrapolation past the newest physics state (s): a late worker snapshot keeps the player's car
- *  and character moving along their last velocity and turn rate instead of freezing; beyond this they hold.
- *  Render only: the physics state (and so multiplayer) never sees it. */
-export const MAX_EXTRAPOLATION = 0.15;
+/** Render extrapolation past the newest physics state (s): a late worker snapshot keeps the player's car and
+ *  character moving along their last velocity and turn rate instead of freezing, at full speed for EXTRAPOLATION_FULL,
+ *  then slowing smoothly to a stop at most MAX_EXTRAPOLATION ahead. Render only: the physics state (and so
+ *  multiplayer) never sees it. */
+const EXTRAPOLATION_FULL = 0.15, EXTRAPOLATION_FADE = 0.1;
+export const MAX_EXTRAPOLATION = EXTRAPOLATION_FULL + EXTRAPOLATION_FADE;
+/** Seconds of motion carried on `late` seconds past the newest state (continuous speed, bounded). */
+export function extrapolated(late: number) {
+  return late <= EXTRAPOLATION_FULL ? late : EXTRAPOLATION_FULL + EXTRAPOLATION_FADE * (1 - Math.exp(-(late - EXTRAPOLATION_FULL) / EXTRAPOLATION_FADE));
+}
 /** Render delay bounds (s) on top of the fastest recent delivery: SourceClock adds the delivery jitter. */
-const MIN_DELAY = 0.002, MAX_DELAY = 0.1;
+export const RENDER_MIN_DELAY = 0.002;
+const MIN_DELAY = RENDER_MIN_DELAY, MAX_DELAY = 0.1;
 /** Consecutive states farther apart than this are a teleport: no interpolation or smoothing across it. */
 const TELEPORT = 2;
 const KEEP = 0.25;
@@ -48,7 +55,7 @@ export class PoseTrack<T> {
   /** The last drawn source time and how far past the newest state it was (s), for diagnostics and tests. */
   drawn = { t: 0, late: 0 };
   constructor(private readonly ops: PoseOps<T>, minDelay = MIN_DELAY, maxDelay = MAX_DELAY,
-    private readonly maxExtrapolation = MAX_EXTRAPOLATION) { this.clock = new SourceClock(minDelay, maxDelay); }
+    private readonly carry = extrapolated) { this.clock = new SourceClock(minDelay, maxDelay); }
   get newest() { return this.entries.at(-1)?.s ?? null; }
   clear() { this.entries = []; this.beyond = null; this.correction.reset(); }
   /** Adds the state of source time `t` (s), available since local time `arrival` (s). `observe`: false for an
@@ -74,7 +81,11 @@ export class PoseTrack<T> {
     }
     const late = t - last.t, prev = entries.at(-2);
     if (!prev) return { s: last.s, late };
-    return { s: this.ops.extrapolate(prev.s, last.s, last.t - prev.t, Math.min(this.maxExtrapolation, late)), late };
+    return { s: this.ops.extrapolate(prev.s, last.s, last.t - prev.t, this.carry(late)), late };
+  }
+  private velocity(entries: Entry<T>[], t: number): V3 {
+    const a = this.ops.pos(this.evaluate(entries, t - 0.004).s), b = this.ops.pos(this.evaluate(entries, t).s);
+    return { x: (b.x - a.x) / 0.004, y: (b.y - a.y) / 0.004, z: (b.z - a.z) / 0.004 };
   }
   /** The pose to draw at local time `now` (s). `extrapolate`: false while the simulation is paused (the newest
    *  state is then simply held). */
@@ -84,20 +95,24 @@ export class PoseTrack<T> {
     const newest = this.entries.at(-1)!;
     if (!extrapolate) t = Math.min(t, newest.t);
     const raw = this.evaluate(this.entries, t);
-    // A state arrived after a frame drawn past the then-newest one: what that frame was heading for, against the
-    // new pose at the same time, fades out instead of snapping.
+    this.correction.advance(now);
+    // A state arrived after a frame drawn past the then-newest one: the pose that frame was heading for and the new
+    // one differ at the same time. The difference (position, velocity, rotation) is added to a critically damped
+    // correction, so the drawn pose and its velocity carry on through it instead of snapping.
     if (this.beyond && this.beyond.at(-1)!.t < newest.t) {
-      const was = extrapolate ? this.evaluate(this.beyond, t).s : this.beyond.at(-1)!.s;
-      const p = this.ops.pos(raw.s), q = this.ops.pos(was), a = this.ops.rot(raw.s), b = this.ops.rot(was);
-      this.correction.add({ x: q.x - p.x, y: q.y - p.y, z: q.z - p.z }, a && b ? quatLog(quatMultiply(b, quatConjugate(a))) : null, this.ops.speed(raw.s));
+      const old = extrapolate ? this.evaluate(this.beyond, t).s : this.beyond.at(-1)!.s;
+      const p = this.ops.pos(raw.s), q = this.ops.pos(old), a = this.ops.rot(raw.s), b = this.ops.rot(old);
+      const pv = this.velocity(this.entries, t), qv = extrapolate ? this.velocity(this.beyond, t) : { x: 0, y: 0, z: 0 };
+      this.correction.add({ x: q.x - p.x, y: q.y - p.y, z: q.z - p.z }, { x: qv.x - pv.x, y: qv.y - pv.y, z: qv.z - pv.z },
+        a && b ? quatLog(quatMultiply(b, quatConjugate(a))) : null, this.ops.speed(raw.s));
     }
     this.beyond = raw.late > 0 ? this.entries.slice(-2) : null;
     while (this.entries.length > 2 && this.entries[1].t < t - KEEP) this.entries.shift();
     this.drawn = { t, late: raw.late };
-    const c = this.correction.apply(now);
-    if (!c) return raw.s;
+    const c = this.correction.value();
     const p = this.ops.pos(raw.s), r = this.ops.rot(raw.s);
-    return this.ops.with(raw.s, ahead(p, c.dp, 1), r ? quatMultiply(c.dr, r) : undefined);
+    const out = c ? this.ops.with(raw.s, ahead(p, c.dp, 1), r ? quatMultiply(c.dr, r) : undefined) : raw.s;
+    return out;
   }
 }
 
