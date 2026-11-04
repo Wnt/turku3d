@@ -175,12 +175,63 @@ function planeFit(map: THREE.Texture, samples: number[][]): ShellRoof | null {
   return { map, u, v };
 }
 
+type Program = { wall?: string; trim?: string; bay?: number; storey?: number; size?: number[]; opening?: number[]; bands?: number[] };
+const linear = (hex: string) => new THREE.Color(hex).toArray() as [number, number, number]; // THREE.Color is linear
+/** The share of a facade program's wall that its HD shader paints in the trim colour (window surrounds, floor courses,
+ *  cornice, corner bands: facadeProgram.ts programPigment), outside the openings. */
+export function trimShare(program: Program) {
+  const bay = program.bay ?? 0, storey = program.storey ?? 0, [ow = 0, oh = 0, , w = 0] = program.opening ?? [];
+  const [, cornice = 0, course = 0, corner = 0] = program.bands ?? [], [width = 0, height = 0] = program.size ?? [];
+  if (!(bay > 0 && storey > 0)) return 0;
+  const open = ow * bay * oh * storey, cell = bay * storey;
+  const surround = w > 0 ? ((ow * bay + 2 * w) * (oh * storey + 2 * w) - open) / cell : 0;
+  const share = surround + course / storey + (height > 0 ? cornice / height : 0) + (width > 0 ? 2 * corner / width : 0);
+  return Math.min(.6, Math.max(0, share / Math.max(.2, 1 - open / cell)));
+}
+
+/** Block shell walls carry their HD building's facade-program wall colour (blocks.py _appearance). Near facades also
+ *  paint trim over part of that wall, which at the 280 m hand-over reads as a lighter or darker facade: mix the trim
+ *  in by its share, per building, so the shell keeps the HD facade's mean colour. Keyed by the shell's wall pigment. */
+export function shellWallPigments(owner: THREE.Object3D): Map<string, [number, number, number]> {
+  const out = new Map<string, [number, number, number]>();
+  for (const wrapper of owner.children) {
+    if (!wrapper.userData.archetype) continue;
+    wrapper.traverse(o => {
+      const kit = o.userData.facade_kit, walls = o.userData.facade_kit_walls;
+      const program = ((Array.isArray(walls) ? walls : [kit]) as Program[]).find(p => p && typeof p === 'object' && p.wall);
+      if (!program?.wall) return;
+      const key = colourKey(linear(program.wall));
+      if (out.has(key)) return;
+      const k = program.trim ? trimShare(program) : 0, wall = linear(program.wall), trim = program.trim ? linear(program.trim) : wall;
+      out.set(key, wall.map((c, i) => c + (trim[i] - c) * k) as [number, number, number]);
+    });
+  }
+  return out;
+}
+const colourKey = (c: ArrayLike<number>) => Array.from({ length: 3 }, (_, i) => Math.round(c[i] * 255)).join(',');
+const recoloured = new WeakSet<THREE.BufferAttribute | THREE.InterleavedBufferAttribute>();
+/** Replace each shell wall pigment by its building's mean facade colour (shellWallPigments), once per geometry. */
+function recolourShell(mesh: THREE.Mesh, pigments: Map<string, [number, number, number]>) {
+  const colour = mesh.geometry.getAttribute('color');
+  if (!colour || recoloured.has(colour) || !pigments.size) return;
+  recoloured.add(colour);
+  const c = [0, 0, 0];
+  for (let i = 0; i < colour.count; i++) {
+    c[0] = colour.getX(i); c[1] = colour.getY(i); c[2] = colour.getZ(i);
+    const to = pigments.get(colourKey(c));
+    if (to) colour.setXYZ(i, to[0], to[1], to[2]);
+  }
+  colour.needsUpdate = true;
+}
+
 /** Style a block LOD parent clone; pooled materials are released with `owner` (its tile model). `roof` is the HD
  *  roof photo of the block (shellRoofs), so the shell's roofs keep the HD colours. */
-export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, shared?: SharedMaterials, roof?: ShellRoof) {
+export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, shared?: SharedMaterials, roof?: ShellRoof,
+  walls = new Map<string, [number, number, number]>()) {
   root.traverse(object => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh) return;
+    recolourShell(mesh, walls);
     const layer = mesh.userData.lod === 'walls-glazed' ? 'buildings-lod-glazed' : 'buildings-lod';
     const key = roof ? `block-lod:${layer}:${roof.map.uuid}:${[...roof.u, ...roof.v].map(x => x.toPrecision(9)).join(',')}` : `block-lod:${layer}`;
     const create = () => sceneryMaterial(layer, undefined, null, 5, roof);
