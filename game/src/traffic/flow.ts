@@ -22,6 +22,16 @@ const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
 const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
+/** Swept-footprint guard: the margin a moving car keeps from others, and the smaller contact margin it keeps from a
+ *  car following it (the follower keeps its own gap; padding the leader against it let a leader's swinging rear stop
+ *  both for good). */
+const GUARD_MARGIN = 0.25, FOLLOWER_MARGIN = 0.05;
+/** Two cars each stopped by the other's footprint this long: the one behind backs up (UNLOCK_SPEED m/s, at most
+ *  UNLOCK_BACK m per lock) so the one ahead can pull away. Pure flow state, so every peer unlocks the same way. */
+const UNLOCK_AFTER = 6, UNLOCK_SPEED = 0.5, UNLOCK_BACK = 1.5, UNLOCK_CHAIN = 4;
+/** Last resort: cars that have waited on each other in a closed cycle (blockedBy) for CLEAR_AFTER seconds cannot all
+ *  move again; the cycle's lowest key leaves the flow. Checked once per second; pure flow state, so MP-safe. */
+const CLEAR_AFTER = 60, CLEAR_CYCLE = 12, STUCK_PROGRESS = 2;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -30,6 +40,10 @@ export interface FlowCar {
   /** The connector remains reserved until the rear clears the destination lane. */
   reservation: Lane | null;
   stopped: number; waiting: number;
+  /** Metres reversed to break the current footprint deadlock (flow.unlock); 0 once the car moves on. */
+  backed: number;
+  /** Seconds since the car last made STUCK_PROGRESS metres of net headway, and the headway made since (m). */
+  stuck: number; progress: number;
   /** Seconds held up below walking pace by a player (on foot or in a vehicle) in its path: the driver honks. */
   held: number;
   /** Lateral offset from the lane centre (m, + right) while going round a stopped car, its target, its rate (m/s)
@@ -47,7 +61,7 @@ export interface TrafficCheckpoint {
   pedestrians: PedestrianFrame | null;
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
-    born: number; stopped: number; waiting: number; held: number; swerve: number; swerveTarget: number; swerveRate: number;
+    born: number; stopped: number; waiting: number; backed: number; stuck: number; progress: number; held: number; swerve: number; swerveTarget: number; swerveRate: number;
     swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number;
     change: (Omit<LaneChange, 'from'> & { from: string }) | null;
     signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
@@ -142,7 +156,7 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
 
   constructor(readonly network: TrafficNetwork, epoch?: number) { this.epoch = epoch ?? null; }
 
@@ -171,7 +185,7 @@ export class TrafficFlow {
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
       cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
         reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
+        stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
         swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw,
         change: saveChange(c.change), changeCooldown: c.changeCooldown,
         signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null,
@@ -250,7 +264,7 @@ export class TrafficFlow {
     const rebuild = this.revision !== this.network.revision;
     this.tick = Math.floor(t / FLOW_STEP); this.ready = true; this.revision = this.network.revision;
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0 };
     if (!rebuild) {
       for (const lane of this.sources) this.demand.set(lane, Math.ceil((t - lane.phase) / TRAFFIC.headway));
       return;
@@ -542,7 +556,14 @@ export class TrafficFlow {
       }
       car.s = originalS + Math.max(0, step);
       if (step < car.speed * FLOW_STEP - 1e-6) car.speed = step / FLOW_STEP;
-      if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) this.makeRoom(car, lane, this.cars.get(car.blockedBy.slice(10)));
+      if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) {
+        const other = this.cars.get(car.blockedBy.slice(10));
+        this.makeRoom(car, lane, other);
+        if (other) this.unlock(car, other);
+      }
+      if (step > 0.01) car.backed = 0;
+      car.progress += Math.max(0, step);
+      if (car.progress >= STUCK_PROGRESS) { car.progress = 0; car.stuck = 0; } else car.stuck += FLOW_STEP;
       car.stopped = car.speed < 0.15 ? car.stopped + FLOW_STEP : 0;
       car.held = byPlayer && car.speed < 1 ? car.held + FLOW_STEP : byPlayer ? car.held : 0;
       car.waiting = remaining < 14 && car.speed < 0.5 ? car.waiting + FLOW_STEP : 0;
@@ -564,6 +585,27 @@ export class TrafficFlow {
       this.unoccupy(car);
       sampleFlowPose(car, 0, () => 0, car.pose);
       if (this.cars.has(car.key)) this.occupy(car);
+    }
+    if (this.tick % 10 === 0) this.clearDeadlocks();
+  }
+
+  /** The key a car waits on (any blockedBy that names one), for deadlock cycles. */
+  private waitsOn(car: FlowCar) {
+    const by = car.blockedBy, i = by ? by.indexOf(':') : -1;
+    return i < 0 ? null : this.cars.get(by!.slice(i + 1)) ?? null;
+  }
+  private clearDeadlocks() {
+    const stuck = [...this.cars.values()].filter(c => c.stuck >= CLEAR_AFTER).sort((a, b) => cmp(a.key, b.key));
+    for (const car of stuck) {
+      if (!this.cars.has(car.key)) continue;
+      let at = this.waitsOn(car), lowest = car.key;
+      for (let hop = 0; at && at !== car && hop < CLEAR_CYCLE; hop++) {
+        if (at.stuck < CLEAR_AFTER) { at = null; break; }
+        if (at.key < lowest) lowest = at.key;
+        at = this.waitsOn(at);
+      }
+      if (at !== car || lowest !== car.key) continue;
+      this.unoccupy(car); this.cars.delete(car.key); this.stats.cleared++;
     }
   }
 
@@ -605,7 +647,7 @@ export class TrafficFlow {
     const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
       demandDraw: this.network.demandDraw(lane, n),
       previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0 }, change: null, signal: null, changeCooldown: 0,
-      reservation: null, stopped: 0, waiting: 0, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
+      reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
       blockedBy: null, pose: blankPose() };
     sampleFlowPose(car, 0, () => 0, car.pose);
     if (this.obstructed(car, car.pose)) { this.stats.blocked++; return; }
@@ -648,7 +690,66 @@ export class TrafficFlow {
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
       for (const other of this.occupancy.get(`${x + i},${z + j}`) ?? []) {
         if (car === other) continue;
-        if (bodyOverlap(pose, car, other.pose, other, 0.25)) { car.blockedBy = `footprint:${other.key}`; return true; }
+        if (bodyOverlap(pose, car, other.pose, other, this.follows(other, car, pose) ? FOLLOWER_MARGIN : GUARD_MARGIN)) {
+          car.blockedBy = `footprint:${other.key}`; return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Whether `other` drives behind `car` in the same direction: its centre behind car's rear and headings within 60°. */
+  private follows(other: FlowCar, car: FlowCar, pose: CarPose) {
+    const o = other.pose;
+    if (o.hx * pose.hx + o.hz * pose.hz < 0.5) return false;
+    return (o.x - pose.x) * pose.hx + (o.z - pose.z) * pose.hz < -car.length / 2;
+  }
+
+  /** A deadlock of two footprints (each car stopped by the other for UNLOCK_AFTER seconds): the car behind, or the
+   *  lower key head-on, reverses along its route. Stopped cars right behind it that keep it from reversing reverse
+   *  with it (up to UNLOCK_CHAIN cars, tail first), so a tight queue makes room too. Every pose is guard-checked:
+   *  nothing reverses into a body, and nothing depends on the camera or a client's clock. */
+  private unlock(car: FlowCar, other: FlowCar) {
+    if (car.stopped < UNLOCK_AFTER || other.stopped < UNLOCK_AFTER || other.blockedBy !== `footprint:${car.key}`) return;
+    const ahead = (other.pose.x - car.pose.x) * car.pose.hx + (other.pose.z - car.pose.z) * car.pose.hz;
+    const behind = (car.pose.x - other.pose.x) * other.pose.hx + (car.pose.z - other.pose.z) * other.pose.hz;
+    if (!(ahead > 0 && behind > 0 ? car.key < other.key : ahead > behind)) return;
+    const back = Math.min(UNLOCK_SPEED * FLOW_STEP, UNLOCK_BACK - car.backed);
+    const can = (c: FlowCar) => !c.change && c.s >= back && c.speed < 0.15 && !c.swerve;
+    if (back <= 0 || !can(car)) return;
+    const chain = [car], label = car.blockedBy;
+    for (;;) {
+      const last = chain[chain.length - 1], s = last.s;
+      last.s = s - back;
+      const clear = !this.reverseObstructed(last, sampleFlowPose(last, 0, () => 0));
+      last.s = s;
+      if (clear) break;
+      const next = this.cars.get(last.blockedBy?.startsWith('footprint:') ? last.blockedBy.slice(10) : '');
+      if (!next || chain.includes(next) || chain.length >= UNLOCK_CHAIN || !can(next)
+        || (next.pose.x - last.pose.x) * last.pose.hx + (next.pose.z - last.pose.z) * last.pose.hz >= 0) { car.blockedBy = label; return; }
+      chain.push(next);
+    }
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const c = chain[i], s = c.s, blocked = c.blockedBy;
+      c.s = s - back;
+      const pose = sampleFlowPose(c, 0, () => 0);
+      if (this.reverseObstructed(c, pose)) { c.s = s; c.blockedBy = blocked; break; }
+      this.unoccupy(c); c.pose = pose; this.occupy(c); c.backed += back; c.progress -= back; c.blockedBy = blocked;
+    }
+    car.blockedBy = label; this.stats.unlocks++;
+  }
+
+  /** The guard for reversing: a pose inside another car's margin is still allowed when it moves away from that car
+   *  (clearance does not shrink) and keeps FOLLOWER_MARGIN of real clearance. */
+  private reverseObstructed(car: FlowCar, pose: CarPose) {
+    const x = Math.floor(pose.x / 8), z = Math.floor(pose.z / 8);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const other of this.occupancy.get(`${x + i},${z + j}`) ?? []) {
+        if (car === other || !bodyOverlap(pose, car, other.pose, other, GUARD_MARGIN)) continue;
+        const after = separation(pose, car, other.pose, other);
+        if (after < FOLLOWER_MARGIN || after < separation(car.pose, car, other.pose, other) - 1e-6) {
+          car.blockedBy = `footprint:${other.key}`; return true;
+        }
       }
     }
     return false;
@@ -714,6 +815,19 @@ export class TrafficFlow {
     }
     return true;
   }
+}
+
+/** Separating-axis clearance between two car bodies (m; negative when they overlap). */
+function separation(a: CarPose, sa: { length: number; width: number }, b: CarPose, sb: { length: number; width: number }) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  let best = -Infinity;
+  for (let k = 0; k < 4; k++) {
+    const x = k === 0 ? a.hx : k === 1 ? -a.hz : k === 2 ? b.hx : -b.hz, z = k === 0 ? a.hz : k === 1 ? a.hx : k === 2 ? b.hz : b.hx;
+    const ra = Math.abs(a.hx * x + a.hz * z) * sa.length / 2 + Math.abs(-a.hz * x + a.hx * z) * sa.width / 2;
+    const rb = Math.abs(b.hx * x + b.hz * z) * sb.length / 2 + Math.abs(-b.hz * x + b.hx * z) * sb.width / 2;
+    best = Math.max(best, Math.abs(dx * x + dz * z) - ra - rb);
+  }
+  return best;
 }
 
 function heading(lane: Lane): [number, number] {
