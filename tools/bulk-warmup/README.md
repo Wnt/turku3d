@@ -10,6 +10,13 @@ Use [the Gen 2 staging run book](gen2/README.md) for the current local integrati
 generator. The production procedure below is historical and must not be run for
 this round. The coordinator owns UpCloud operations; resizing requires Jonni’s OK.
 
+## Migration window (gen3, 2026-11-04)
+
+To run a migrated alias's city pass (for example `train4`) on a rented 64-core host, use
+[the gen3 run book](gen3/README.md). One command stages a fresh host from osgallery-dev:
+`gen3/stage.sh all --train ALIAS --smoke-tile TILE` (about 1 h 5 min). The host is deleted with its disk after
+each run, and the 64-core resize needs Jonni's OK.
+
 ## Previous production run book
 
 Order matters; each step names where it runs. `BULK_HOST=root@<ip>` throughout.
