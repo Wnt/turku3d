@@ -12,6 +12,8 @@ import { bodyOverlap, pedestrianStop, vehicleStop, type PedestrianFrame, type Tr
   type TrafficVehicle } from './pedestrians';
 export { bodyOverlap } from './pedestrians';
 import { slotShare } from './density';
+import { PASS_CLEAR_LINE, planPass, unseen, type Obstacle, type PassPlan, type TrafficWatcher } from './driver';
+export { unseen, type TrafficWatcher } from './driver';
 
 export const FLOW_STEP = 0.1;
 const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
@@ -19,12 +21,11 @@ const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
  *  patience), keeps PASS_MARGIN metres beside it, never leaves the lane by more than PASS_MAX metres, and needs the
  *  corridor clear for the pass plus PASS_LOOKAHEAD seconds of oncoming travel (pulling out and driving past from a
  *  standstill takes about eight). */
-const PASS_AFTER = 4, PASS_MARGIN = 0.6, PASS_MAX = 3.8, PASS_LOOKAHEAD = 9;
-/** A pass must end this far (m) before the lane's end (never into a junction); a footprint-locked car ahead counts as
- *  an obstacle after PASS_LOCKED seconds without headway; a standing player is a PERSON_BODY m square. */
-const PASS_CLEAR_LINE = 15, PASS_LOCKED = 20, PERSON_BODY = 0.8;
-/** An obstacle's footprint; `car` names it when it is a flow car (not counted against the pass corridor). */
-interface Body { x: number; z: number; hx: number; hz: number; length: number; width: number; car?: FlowCar }
+const PASS_AFTER = 4;
+/** A footprint-locked car ahead counts as an obstacle after PASS_LOCKED seconds without headway; a standing player is
+ *  a PERSON_BODY m square. */
+const PASS_LOCKED = 20, PERSON_BODY = 0.8;
+type Body = Obstacle<FlowCar>;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
 /** Swept-footprint guard: the margin a moving car keeps from others, and the smaller contact margin it keeps from a
@@ -50,10 +51,6 @@ const HELD = /^(exit|storage|receiving|signal|no-exit)/;
  *  RECYCLE_HEAD seconds and heads a chain of stuck cars, or any car stuck for RECYCLE_ANY seconds, leaves the flow when
  *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
 const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
-/** Hidden from a watcher: beyond HIDE_FAR m, or beyond HIDE_NEAR m outside its view cone widened by HIDE_MARGIN rad.
- *  The near radius sits beyond the ring's out-of-view draw radius (RING.removeOutOfView 85 m), the far one beyond its
- *  in-view radius (RING.removeInView 300 m), so a recycled car was not drawn by that client. */
-const HIDE_FAR = 320, HIDE_NEAR = 90, HIDE_MARGIN = 0.35;
 /** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
 const JAM_STUCK = 30;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -81,20 +78,7 @@ export interface FlowCar {
   pose: CarPose;
 }
 
-/** Someone who can see cars: a camera (position, unit forward, half field of view) or a position seen all round. */
-export interface TrafficWatcher { x: number; z: number; fx?: number; fz?: number; halfFov?: number }
 
-/** True when no watcher can see (x, z) (see HIDE_FAR / HIDE_NEAR). */
-export function unseen(watchers: readonly TrafficWatcher[], x: number, z: number): boolean {
-  for (const w of watchers) {
-    const dx = x - w.x, dz = z - w.z, d = Math.sqrt(dx * dx + dz * dz);
-    if (d <= HIDE_NEAR) return false;
-    if (d > HIDE_FAR) continue;
-    if (w.fx === undefined || w.fz === undefined || w.halfFov === undefined) return false;
-    if ((dx * w.fx + dz * w.fz) / d >= Math.cos(Math.min(Math.PI, w.halfFov + HIDE_MARGIN))) return false;
-  }
-  return true;
-}
 
 export interface TrafficCheckpoint {
   version: number; roads: string; tick: number; epoch: number;
@@ -749,6 +733,8 @@ export class TrafficFlow {
   /** Per approach lane: how far along it (m) a waiting car's front may stand without reaching into the path of any
    *  movement from another approach through the junction (STOP_CLEAR). Cleared with each graph build. */
   private fronts = new Map<Lane, number>();
+  /** Where a car waiting at this approach's line may stand (its front, m along the lane): clear of crossing paths. */
+  stopFront(approach: Lane): number { return this.safeFront(approach); }
   private safeFront(approach: Lane): number {
     let front = this.fronts.get(approach);
     if (front !== undefined) return front;
@@ -803,31 +789,9 @@ export class TrafficFlow {
   /** Lateral offset that clears a stopped vehicle, and the arc length to steer back at; null when the pass would
    *  leave the lane by more than PASS_MAX, run into the junction, or meet another car in the corridor. Prefers the
    *  left (towards oncoming traffic) on a tie. */
-  private passPlan(car: FlowCar, lane: Lane, obstacles: readonly Body[]): { offset: number; end: number } | null {
-    const here = routePoint(lane, car.s);
-    let lo = Infinity, hi = -Infinity, end = -Infinity;
-    for (const v of obstacles) {
-      const sv = car.s + (v.x - here.x) * here.hx + (v.z - here.z) * here.hz, at = routePoint(lane, sv);
-      for (const a of [-0.5, 0.5]) for (const b of [-0.5, 0.5]) {
-        const x = v.x + v.hx * a * v.length - v.hz * b * v.width, z = v.z + v.hz * a * v.length + v.hx * b * v.width;
-        const across = -(x - at.x) * at.hz + (z - at.z) * at.hx;
-        lo = Math.min(lo, across); hi = Math.max(hi, across);
-      }
-      end = Math.max(end, sv + v.length / 2 + car.length / 2 + 3);
-    }
-    const left = lo - car.width / 2 - PASS_MARGIN, right = hi + car.width / 2 + PASS_MARGIN;
-    const offset = Math.abs(left) <= Math.abs(right) ? left : right;
-    if (Math.abs(offset) > PASS_MAX || end + PASS_CLEAR_LINE > lane.length) return null;
-    const skip = new Set(obstacles.map(o => o.car));
-    for (const other of this.cars.values()) {
-      if (other === car || skip.has(other)) continue;
-      const dx = other.pose.x - here.x, dz = other.pose.z - here.z;
-      const along = dx * here.hx + dz * here.hz, across = -dx * here.hz + dz * here.hx;
-      const oncoming = Math.max(0, -(other.pose.hx * here.hx + other.pose.hz * here.hz) * other.speed);
-      if (along < -car.length || along > end - car.s + 10 + oncoming * PASS_LOOKAHEAD) continue;
-      if (Math.abs(across - offset) < (car.width + other.width) / 2 + 0.8) return null;
-    }
-    return { offset, end };
+  private passPlan(car: FlowCar, lane: Lane, obstacles: readonly Body[]): PassPlan | null {
+    return planPass({ s: car.s, length: car.length, width: car.width }, s => routePoint(lane, s), lane.length, obstacles,
+      this.cars.values(), c => c === car);
   }
 
   /** Players on foot standing in the car's path just ahead (they do not move on), as small bodies. */
