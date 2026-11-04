@@ -40,7 +40,13 @@ class DeliveryBot extends Bot {
       const i = Math.floor(q.x / COLLISION_TILE), j = Math.floor(q.z / COLLISION_TILE);
       for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) want.add(`c_${i + a}_${j + b}`);
     }
-    for (const id of want) if (!this.loaded.has(id)) { const b = await this.cache.cell(id); if (b) { await this.pw!.loadTile(id, b); this.loaded.add(id); } }
+    // Queued, not built in place: the worker's budgeted install queue (physics/tileInstall.ts) keeps every bot's
+    // 60 Hz loop and pose stream running while cells build (tick pumps 2 ms per bot).
+    for (const id of want) if (!this.loaded.has(id)) {
+      this.loaded.add(id);
+      const b = await this.cache.cell(id);
+      if (b && this.pw) this.pw.requestTile(id, b, () => {});
+    }
     // Drop cells far from the car (bounded memory on endless trips).
     const v = this.pw!.vehicleState();
     if (v) for (const id of [...this.loaded]) {
@@ -54,6 +60,7 @@ class DeliveryBot extends Bot {
     if (!this.pw) this.pw = new PhysicsWorld(RAPIER);
     const at = { x: PIZZERIA_VEHICLE_SPOT.x + 6 * (this.index % 4) * Math.cos(PIZZERIA_VEHICLE_SPOT.yaw), z: PIZZERIA_VEHICLE_SPOT.z - 6 * (this.index % 4) * Math.sin(PIZZERIA_VEHICLE_SPOT.yaw) };
     await this.ensureCells([at]);
+    for (let k = 0; k < 400 && !this.ready(at.x, at.z, 0, 0); k++) { this.pw.pumpInstalls(20); await new Promise(r => setTimeout(r, 5)); }
     this.pw.world.step();
     const hit = this.pw.raycast({ x: at.x, y: 40, z: at.z }, { x: 0, y: -1, z: 0 }, 80, 'solid');
     this.pw.spawnVehicle({ x: at.x, y: (hit?.point.y ?? 5) + 0.9, z: at.z }, PIZZERIA_VEHICLE_SPOT.yaw);
@@ -99,8 +106,24 @@ class DeliveryBot extends Bot {
     } finally { this.planning = false; }
   }
 
+  /** Collision resident under (x, z) and `ahead` metres along (hx, hz). */
+  ready(x: number, z: number, hx: number, hz: number, ahead = 0) {
+    for (const d of ahead ? [0, ahead / 2, ahead] : [0]) {
+      const id = `c_${Math.floor((x + hx * d) / COLLISION_TILE)}_${Math.floor((z + hz * d) / COLLISION_TILE)}`;
+      if (!this.pw!.hasTile(id)) return false;
+    }
+    return true;
+  }
+
   tick(dt: number) {
     if (!this.pw || !this.alive) return;
+    this.pw.pumpInstalls(2);
+    // Hold (like the worker's coverage block) until the ground under and ahead of the car is resident.
+    const v0 = this.pw.vehicleState();
+    if (v0 && this.state === 'driving') {
+      const p = vehiclePose(v0);
+      if (!this.ready(p.x, p.z, p.hx, p.hz, 30)) { this.pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true }); return; }
+    }
     if (this.state !== 'driving' || !this.follower) {
       this.pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
       // A re-plan keeps the current stop; arrival or a fresh spawn picks the next one.
