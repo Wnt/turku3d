@@ -372,10 +372,10 @@ describe('out-of-view recycling (GTA-style)', () => {
     return { flow, queue, at };
   };
 
-  test('without a watcher list nothing is recycled, and the queue stays locked', () => {
-    const { flow, queue } = locked(null);
+  test('without a watcher list nothing is recycled: front cars turn round instead', () => {
+    const { flow } = locked(null);
     expect(flow.stats.recycled).toBe(0);
-    expect(queue.some(c => c.stuck > 300)).toBe(true);
+    expect(flow.stats.uturns).toBeGreaterThan(0);
   });
 
   test('a camera looking at the queue keeps every car; one looking away from 150 m lets the locked ones go', () => {
