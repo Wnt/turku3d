@@ -163,7 +163,7 @@ class Registry:
         with self._locked():
             with open(self.manifest, "a") as f:
                 f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
-            self._rewrite_sums()
+            self._rewrite_sums(check_files=False)
         return rec
 
     def forget(self, paths) -> None:
@@ -183,9 +183,16 @@ class Registry:
             atomic_write_text(self.manifest, "".join(line + "\n" for line in lines))
             self._rewrite_sums()
 
-    def _rewrite_sums(self) -> None:
+    def _rewrite_sums(self, check_files: bool = True) -> None:
+        """SHA256SUMS from the records. A record() only adds a file it just wrote, so it skips the
+        existence check: stat-ing every registered file under the lock (0.5 s for 7k WFS pages on
+        the bulk pool) serialised parallel fetchers. Deleted files leave through forget()."""
         recs = self.records()
-        lines = [f"{r['sha256']}  {p}" for p, r in sorted(recs.items()) if (self.dir / p).exists()]
+        lines = [
+            f"{r['sha256']}  {p}"
+            for p, r in sorted(recs.items())
+            if not check_files or (self.dir / p).exists()
+        ]
         atomic_write_text(self.sums, "\n".join(lines) + ("\n" if lines else ""))
 
     def verify_all(self) -> list[str]:
