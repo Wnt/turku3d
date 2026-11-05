@@ -40,7 +40,7 @@ test('streets under roofs and decks fall back to the nearest open walkable spot 
   // Every street point is under a roof; open paving starts 20 m east of the requested point, a road 30 m east.
   const probe = async (x: number, z: number) => x < 20 ? ground(x, z, MAT.roof, 40) : ground(x, z, x >= 30 ? MAT.road : MAT.paving_slab);
   expect(await findInitialGround({ x: 10, z: 0 }, roads.map(r => ({ ...r, nodes: [0, 0, 18, 0] })), probe, () => true)).toBeNull();
-  const result = await findInitialGround({ x: 10, z: 0 }, roads.map(r => ({ ...r, nodes: [0, 0, 18, 0] })), probe, () => true, true);
+  const result = await findInitialGround({ x: 10, z: 0 }, roads.map(r => ({ ...r, nodes: [0, 0, 18, 0] })), probe, () => true, { open: true });
   expect(result?.spawn).toMatchObject({ x: 22, z: 0, y: 2 }); // The 0.4 m footprint clears the roof edge.
   expect(result!.car.x).toBeGreaterThanOrEqual(20 + 1.15);
   expect(Math.hypot(result!.spawn.x - result!.car.x, result!.spawn.z - result!.car.z)).toBeGreaterThanOrEqual(4);
@@ -48,10 +48,10 @@ test('streets under roofs and decks fall back to the nearest open walkable spot 
 
 test('with no street surface in reach the car parks on flat walkable ground', async () => {
   const probe = async (x: number, z: number) => ground(x, z, MAT.grass);
-  const result = await findInitialGround({ x: 0, z: 0 }, [], probe, () => true, true);
+  const result = await findInitialGround({ x: 0, z: 0 }, [], probe, () => true, { open: true });
   expect(result?.spawn).toMatchObject({ x: 0, z: 0 });
   expect(Math.hypot(result!.car.x, result!.car.z)).toBeGreaterThanOrEqual(4);
-  expect(await findInitialGround({ x: 0, z: 0 }, [], async (x, z) => ground(x, z, MAT.roof), () => true, true)).toBeNull();
+  expect(await findInitialGround({ x: 0, z: 0 }, [], async (x, z) => ground(x, z, MAT.roof), () => true, { open: true })).toBeNull();
 });
 
 test('a square start keeps the player on the square and parks the car on the street beyond it', async () => {
@@ -59,7 +59,24 @@ test('a square start keeps the player on the square and parks the car on the str
   const far: RoadGraphJson[] = [{ ...roads[0], nodes: [-30, 40, 30, 40] }];
   const probe = async (x: number, z: number) => ground(x, z, z >= 37 ? MAT.road : MAT.paving_slab);
   expect(await findInitialGround({ x: 0, z: 0 }, far, probe, () => true)).toBeNull(); // waits for the start collision
-  const result = await findInitialGround({ x: 0, z: 0 }, far, probe, () => true, true);
+  const result = await findInitialGround({ x: 0, z: 0 }, far, probe, () => true, { open: true });
   expect(result?.spawn).toMatchObject({ x: 0, z: 0 });
   expect(result?.car).toMatchObject({ z: 40 });
+});
+
+test('the car never parks over furniture or a parked car, and the first chase camera is not inside it', async () => {
+  const { cameraInCar, spotClear } = await import('../../src/world/startGround');
+  // A bench across the street where the nearest candidate (x 10) would park.
+  const bench = { minX: 9, maxX: 11, minZ: -0.6, maxZ: 0.6 };
+  const result = await findInitialGround({ x: 10, z: 2 }, roads, async (x, z) => ground(x, z), () => true, { obstacles: [bench] });
+  expect(result).not.toBeNull();
+  expect(spotClear([bench], result!.car, true)).toBe(true);
+  expect(Math.abs(result!.car.x - 10)).toBeGreaterThan(3);
+  // A spot 3.2 m on the -z side of a car on the x axis: looking away from the car (-z) puts the camera behind the
+  // player, in the car; looking at the car (+z) puts it out on the open side.
+  const car = { x: 0, z: 0, yaw: 0 };
+  expect(cameraInCar({ x: 0, z: -3.2 }, car, { dx: 0, dz: -1 })).toBe(true);
+  expect(cameraInCar({ x: 0, z: -3.2 }, car, { dx: 0, dz: 1 })).toBe(false);
+  const viewed = await findInitialGround({ x: 10, z: 2 }, roads, async (x, z) => ground(x, z), () => true, { view: { dx: 0, dz: -1 } });
+  expect(cameraInCar(viewed!.spawn, viewed!.car, { dx: 0, dz: -1 })).toBe(false);
 });

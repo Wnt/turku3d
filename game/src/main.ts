@@ -46,6 +46,9 @@ import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
+import { parkedFootprints, propFootprints } from './world/propLod';
+/** Reach (m) of the start search's obstacle lookup: the street candidates (80 m) plus a car length. */
+const START_SEARCH_M = 90;
 import { draftManifest, type Manifest } from './world/manifest';
 import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './core/city';
 import { cityTitle, showTransition, travelProgress } from './gameplay/travel';
@@ -522,7 +525,7 @@ async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
 
 /** Streams the active city's start (params.spawn) and finds supported ground for the player and the own car there
  *  (world/startGround.ts); the collision radius stays at the startup radius until the session releases its starts. */
-async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles) {
+async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest) {
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
   // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
@@ -541,11 +544,14 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
     loadingScreen.update(false, coarse.status);
     if (streamer.supports(requested.x, requested.z)) {
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
       placed = await findInitialGround(requested, coarse.roadGraphs(),
         (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius),
-        // Open ground once the start's collision is complete: no street near the spawn may support a car.
-        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
+        (x, z, radius) => streamer.supports(x, z, radius), {
+          // Open ground once the start's collision is complete: no street near the spawn may support a car.
+          open: streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending,
+          obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M)],
+          view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) } });
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
@@ -873,7 +879,7 @@ async function runPlay() {
   Object.assign(window.__game!, { physics, coarse, streamer });
   const playWorld = async (city: Pick<CityWorld, 'manifest' | 'streamer' | 'coarse'>, first: boolean): Promise<PlayWorld> => {
     const { manifest, streamer, coarse } = city;
-    const { spawn, car: parking } = await placeStart(physics, streamer, coarse);
+    const { spawn, car: parking } = await placeStart(physics, streamer, coarse, manifest);
     const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
     physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
     const yaw0 = headingToYaw(params.spawn.headingDeg);
