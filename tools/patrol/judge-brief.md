@@ -9,10 +9,10 @@ Inputs in RUN_DIR (paths in candidates.json are relative to it):
   to a heat map; pits show the raised view next to the ground grid, dark = low; pops show frames t-1, t, t+1).
 - `spots/<spot>.png`: contact sheet per spot (h0, h1, h2, raised, then shimmer and wander heat maps).
 
-For every candidate, write one verdict (copy its `image` path so the verdict survives re-numbering):
+For every candidate, write one verdict (copy its `n`, `image`, `spot`, `view` and `detector` so the verdict survives re-numbering):
 
 ```json
-{"n": 12, "image": "crops/x.png", "real": true, "severity": 4, "confidence": 0.8, "title": "short defect name",
+{"n": 12, "image": "crops/x.png", "spot": "kauppatori", "view": "h0", "detector": "pit", "real": true, "severity": 4, "confidence": 0.8, "title": "short defect name",
  "issue": "stable-key-for-this-defect", "description": "what is wrong, one or two sentences",
  "cause": "suspected cause", "owner": "likely owner area"}
 ```
