@@ -326,7 +326,7 @@ def fetch_bgt(area, root, ledger, plan, log, origin):
                       served=served, pages=pages)
         return dest.stat().st_size
 
-    with cf.ThreadPoolExecutor(4) as pool:
+    with cf.ThreadPoolExecutor(12) as pool:  # PDOK serves 16 parallel blocks unthrottled (~9 MB/s)
         sizes = list(pool.map(one, jobs))
     log(f"bgt  {len(jobs)} block layers, {sum(sizes) / 1e6:.0f} MB")
     return {"blocks": len(blocks), "collections": len(collections), "bytes": sum(sizes)}
