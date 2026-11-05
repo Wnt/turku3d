@@ -184,3 +184,18 @@ maps `~/turku3d/loops/roadfix/maps/`.
   38°. That tunnel portal is a separate open fault. Hämeensilta: 0 regressions.
 - Open: Kalevan 449346f1 stall at the south joint s 157.6 (1800.3, −55.9): impact in base too, cause not found;
   a 0.29 m sidewalk-over-road step at s 91–93 on the Kupittaa link junction.
+
+## 2026-11-05 Kalevan joint, Kupittaa kerb and portal (merged 450d2102)
+
+- **Kalevan south joint (lane 449346f1):** the stall was not a slab edge. Lower street w4250695 climbs under the deck and ends there, so
+  `under_profile` extrapolated its north ground flat and cut the climbing ground into a 6 m cliff. The cut now only
+  applies between measured ends of the lower street, joined across OSM splits (`lower_chains`). All three Kalevan lanes
+  now arrive. The 17.5 impact on 449346f1 is the same as in the base.
+- **Kupittaa junction kerb:** deck footways are no longer raised over another member's carriageway. Max step on the
+  link went from 0.29 to 0.15 m.
+- **Tunnel 975600807+… mouth:** the portal floor followed a bank sideways by 10 % of the offset, which raised the corner of a
+  34 m merged mouth by 1.7 m. That crossfall is now capped at 0.35 m. The sill went from 20.5 to 19.1 m.
+  - Still open: the approach ground is 17.6 m, against 18.84 m on the tunnel floor at the mouth. The approach is
+    Helsinginkatu (2311380/531512373), a lower way of deck 525854016. The lane still sticks at s 212.
+- **train8 subset:** the 24 tiles with a branch deck (12 decks), found by `bridges.prepare` over the 301 bridge-ends tiles.
+  The scan script is `tools/branchtiles.py` on osgallery-dev.
