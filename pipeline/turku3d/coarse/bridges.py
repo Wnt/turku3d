@@ -593,9 +593,11 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
     pieces = [(part, fn) for geom, fn in levels for part in shapely.get_parts(geom)]
     # Station cuts triangulate the crown; they are not physical slab edges, and neither are the
     # boundaries between levels. Allow the ring simplification without retaining internal walls.
-    edge = outline if outline is not None else shapely.union_all(
-        [part for part, _ in pieces if part.geom_type == "Polygon"])
-    exterior = edge.boundary.buffer(0.0006)
+    edge = [outline] if outline is not None else [part for part, _ in pieces]
+    exterior = shapely.union_all(
+        [part.boundary for geom in edge for part in shapely.get_parts(geom)
+         if part.geom_type == "Polygon"]
+    ).buffer(0.0006)
     for station in stations[1:-1]:
         a = np.asarray(line.interpolate(max(0, station - 0.01)).coords[0])
         b = np.asarray(line.interpolate(min(line.length, station + 0.01)).coords[0])
