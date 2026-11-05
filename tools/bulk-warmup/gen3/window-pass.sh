@@ -2,6 +2,7 @@
 # Bulk host: run a migrated alias's city pass on this host (all tiles, no radius), from the alias's code
 # snapshot in the mirrored farm, exactly as `tile-migrate pass` does on osgallery-dev.
 #   window-pass.sh ALIAS_OR_REVISION [extra tile_city_pass.py args...]     (background; prints pid and log paths)
+#   TILES_FILE=F takes the tile list from F (one per line; $G/pass-tiles.txt from an earlier EXCLUDE run).
 #   EXCLUDE="t0_0_0 ..." leaves tiles out (e.g. the ones osgallery-dev builds itself); WARM=0 skips window-warm.py.
 #   LANES (default: cores - 8), BLOCKS (default 2; memory, not cores, limits lanes: 2.4 GB at 1 block, 6-8 GB at 9), HIGH/LOW (load per core; default 1.3/1.1).
 # The in-server TTL powers off at boot + 55 min; finished tiles (atomic ready.json) stay on disk, running ones
@@ -10,7 +11,7 @@
 # Hard restart for mid-run tweaks: kill the process group (pid file), then rerun (finished tiles are kept).
 set -euo pipefail
 # Run as wnt (uid 1000), as on the farm: the runner finds its env under $HOME/turku3d-bulk-warmup.
-[ "$(id -u)" = 1000 ] || exec su wnt -c "LANES=${LANES:-} BLOCKS=${BLOCKS:-} HIGH=${HIGH:-} LOW=${LOW:-} FARM_URL=${FARM_URL:-} EXCLUDE='${EXCLUDE:-}' WARM=${WARM:-} $(printf '%q ' "$0" "$@")"
+[ "$(id -u)" = 1000 ] || exec su wnt -c "LANES=${LANES:-} BLOCKS=${BLOCKS:-} HIGH=${HIGH:-} LOW=${LOW:-} FARM_URL=${FARM_URL:-} EXCLUDE='${EXCLUDE:-}' TILES_FILE=${TILES_FILE:-} WARM=${WARM:-} $(printf '%q ' "$0" "$@")"
 SEL=${1:?alias or derived revision}; shift
 F=/home/wnt/turku3d-local/loops/tiles/farm
 REV=$(python3 -c "import json; print(json.load(open('$F/aliases.json')).get('$SEL', '$SEL'))")
@@ -29,7 +30,9 @@ cd $REPO
 LOG=$F/logs/migrate-${CODE:0:12}-pass.log
 RUN="env REPO=$REPO TURKU3D_WORK=$F/work/migrate TURKU3D_THREADS_PER_WORKER=1 /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh"
 TILES=$*
-if [ -n "${EXCLUDE:-}" ]; then
+if [ -n "${TILES_FILE:-}" ]; then
+  TILES="$TILES $(tr '\n' ' ' < "$TILES_FILE")"  # precomputed (listing the base over NFS takes about a minute)
+elif [ -n "${EXCLUDE:-}" ]; then
   # The pass takes an explicit tile list: every finished base tile but the excluded ones, in its own ring order.
   $RUN python -c "import json, sys; sys.path.insert(0, 'scripts/dev'); import tile_migrate as M
 meta = json.load(open('$META')); skip = set('$EXCLUDE'.split())
