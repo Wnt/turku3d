@@ -361,7 +361,21 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # Crown fitting changes trunk dimensions after candidate admission. Apply the
     # final column clearance to every source before visual and collision output.
     trees = structure_clearance(trees, inputs)
-    return deduplicate(trees, 3.5 if len(measured_canopy) else SPACING), bushes
+    trees = deduplicate(trees, 3.5 if len(measured_canopy) else SPACING)
+    return trunk_clearance(tile, inputs, height_at, trees, bushes)
+
+
+def trunk_clearance(tile, inputs, height_at, trees, bushes):
+    """The final step: no trunk on drawn paving (``vegetation.clearance``, also ``path-trees@1``)."""
+    from turku3d.vegetation.clearance import apply_to_trees
+
+    walked = getattr(inputs, "trunk_ground", ())
+    if not walked:
+        return trees, bushes
+    blocked = [*inputs.water, *(b.footprint for b in inputs.buildings)]
+    kept = apply_to_trees([*trees, *bushes], walked, blocked, tile.bbox.as_tuple(), height_at,
+                          trunk_base_radius)
+    return [t for t in kept if t.source != "bush"], [t for t in kept if t.source == "bush"]
 
 
 def trunks(trees, ct):

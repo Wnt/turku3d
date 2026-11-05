@@ -50,6 +50,7 @@ DATASETS = (
     "attachments", "retaining", "vegetation_canopy", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
+    "trunk_ground",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -93,6 +94,7 @@ class Inputs:
     forests: list = ()
     vegetation_paths: list | None = None
     vegetation_roads: list = ()  # functional carriageways, independent of paving material
+    trunk_ground: list = ()  # walked/driven ground no trunk stands on (vegetation.clearance)
     quay_lighting: list = ()  # eligible mapped lower-riverside lighting corridors
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
@@ -486,6 +488,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "vegetation_paths": [osm] if osm else None,
         # An empty street-area layer (found, no parquet) has no carriageways.
         "vegetation_roads": [wfs[1][1]] if wfs[1][0] and wfs[1][1] else [],
+        # Every drawn way (private drives included) and the walked street-area parts.
+        "trunk_ground": [osm, wfs[1][1]] if osm else None,
         "quay_lighting": [] if first_pass else quay_light_sources(osm),
         "tunnels": [osm] if osm else None,
         "stairs": [osm, *bridge_survey.source_paths(tile)] if osm else None,
@@ -625,6 +629,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .forest_paths import read_paths
 
         return read_paths(tile, paths[0])
+    if dataset == "trunk_ground":
+        from turku3d.vegetation.clearance import walked_ground
+
+        return walked_ground(tile, paths[0], paths[1])
     if dataset == "vegetation_roads":
         from .tree_inputs import carriageways
 
@@ -715,6 +723,7 @@ def gather(
             "vegetation_canopy",
             "forests",
             "vegetation_paths",
+            "trunk_ground",
             "poles",
             "surfaces",
             "markings",
@@ -843,6 +852,7 @@ def gather(
         forests=values["forests"] or (),
         vegetation_paths=values["vegetation_paths"] or [],
         vegetation_roads=values["vegetation_roads"] or (),
+        trunk_ground=values["trunk_ground"] or (),
         quay_lighting=values["quay_lighting"] or (),
         canopy=ground.get("canopy", np.empty((0, 3))),
         vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
