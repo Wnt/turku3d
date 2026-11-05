@@ -706,6 +706,13 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                     fragment = state.get("fragment") or collision_fragment(builder, tile)
                     if fragment is not None:
                         return self._json(200, fragment)
+                elif state["state"] != "built":
+                    # Any previous complete build (an older producer, a bulk window's) is served at once,
+                    # marked stale, while the rebuild queued above runs; the client swaps the new one in.
+                    # Only a tile with no complete build waits (202) or reports its failure.
+                    fragment = collision_fragment(builder, tile)
+                    if fragment is not None:
+                        return self._json(200, {**fragment, "stale": True})
                 if state["state"] == "failed":
                     return self._json(404, state)
                 if state["state"] != "built":
