@@ -1050,7 +1050,8 @@ def road_heights(roads, decks):
             projected = shapely.line_locate_point(d.line, shapely.points(coords))
             members = {str(m["id"]) for m in d.way.get("member_ways", [d.way])}
             # A deck's own member (a link leaving the main axis) takes the deck's surface too.
-            member = way_id in members and line.intersection(corridor).length > line.length * 0.5
+            # (its deck runs along the whole member, see branch_profiles).
+            member = way_id in members
             if member or (
                 line.intersection(corridor).length > line.length * 0.9
                 and np.abs(np.diff(projected)).sum() > line.length * 0.85
