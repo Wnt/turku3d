@@ -39,6 +39,7 @@ import { streamingAllowance, streamingBudget } from '../render/preparationBudget
 import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
 import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
 import { renderTier, type QualityTier } from '../render/quality';
+import { StreamStats } from './streamStats';
 
 const POLL_MS = 1000;
 /** A service that answers the demand route with 404 is asked again this often (ms). */
@@ -147,6 +148,8 @@ export interface StartView { x: number; z: number; dx: number; dz: number }
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
+  /** Request-to-draw latency of this session's tiles (window.__perf.stream). */
+  readonly stats = new StreamStats();
   private nextCheck = 0;
   private fetch: typeof fetch;
   private load: (url: string) => Promise<THREE.Object3D>;
@@ -729,6 +732,18 @@ export class CoarseTiles {
     if (this.badge) { this.badge.textContent = alert ? status : ''; this.badge.style.display = alert && status ? '' : 'none'; }
   }
 
+  /** window.__perf.stream: the current window's backlog and the request-to-draw latency (world/streamStats.ts). */
+  streamSnapshot() {
+    const waiting: number[] = [];
+    let previews = 0;
+    for (const id of this.lastWanted) {
+      const e = this.entries.get(id);
+      if (e?.state === 'draft') { if (e.preview) previews++; }
+      else if (e?.requested !== undefined) waiting.push(e.requested);
+    }
+    return { ...this.stats.snapshot(performance.now(), waiting, this.details), previews, outage: !!this.outage };
+  }
+
   /** Ids of the loaded tiles (on demand: `__tiles.loaded()`), sorted. */
   loadedTiles() { return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort(); }
 
@@ -1102,6 +1117,7 @@ export class CoarseTiles {
         if (e.model !== model || this.entries.get(id) !== e) return;
         this.host.scene.add(model);
         this.arrays?.preview(model);
+        this.stats.readyAt(e.requested, performance.now());
       };
       if (!this.host.preparePreview) { show(); return; }
       await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
@@ -1158,6 +1174,8 @@ export class CoarseTiles {
     this.releaseCommitted(model);
     // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
     if (!old || wasPreview) this.dissolveIn(id, model, own, under);
+    if (!old) this.stats.readyAt(e.requested, performance.now());
+    if (!old || wasPreview) this.stats.fullAt(e.requested, performance.now());
     if (installing) {
       streamTrace.slice('install', performance.now() - installing);
       streamTrace.event('tile.full', id, { pass: e.pass, replaced: old ? (wasPreview ? 'preview' : 'model') : null,
@@ -1167,6 +1185,7 @@ export class CoarseTiles {
 
   private async poll(id: string, e: Entry, d: number, load: boolean, role = 'wanted') {
     e.resident = load;
+    if (load) e.requested ??= performance.now();
     e.state = 'loading';
     e.version = this.version;
     const traced = streamTrace.on ? streamTrace.begin('tile.manifest', id, { role, load, demand: Math.round(d), ...this.depth() }) : null;
