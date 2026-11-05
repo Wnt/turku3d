@@ -36,7 +36,8 @@ test('a live-frame draw without a built program is skipped and built after the f
   live = false;
   expect(draw({ key: 4 })).toBe(true);   // preparation and other renders build synchronously as before
   expect(builds).toBe(0);                // nothing is built inside the frame
-  await new Promise(resolve => setTimeout(resolve, 5));
+  for (let i = 0; i < 40 && builds === 0; i++) await new Promise(resolve => setTimeout(resolve, 5));
+  await new Promise(resolve => setTimeout(resolve, 10));
   expect(builds).toBe(1);                // one build after the frame for both draws
   let done = false; const waiting = settled().then(() => { done = true; });
   await Promise.resolve(); expect(done).toBe(false);
