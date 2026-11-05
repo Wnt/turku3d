@@ -359,8 +359,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
     } });
-  // Another city's room hands out Turku's spawn slots: a fresh join there starts at this city's own start.
-  const roomStart = isHome() ? undefined : world.spawn;
+  // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
+  // also carries a portal exit) starts at this page's own ground-checked start.
+  const roomStart = isHome() && !params.spawnGiven ? undefined : world.spawn;
   const multiplayerStartState = prepareMultiplayer(roomStart);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
