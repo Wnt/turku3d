@@ -3,6 +3,7 @@ import type { HornEmitter } from './mix';
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { EngineVoices, type EngineVoiceState } from './engine/voices';
+import { MIX_HZ, POSITION_EPSILON, glide } from './automation';
 import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
@@ -40,6 +41,8 @@ export class GameAudio {
   private traffic: Extract<AudioEvent, { type: 'traffic' }> | null = null;
   /** Pooled engine voices of ambient cars; a car keeps its voice while it stays among the nearest. */
   private trafficVoices: { voice: Voice; car: number | null }[] = [];
+  /** Clock time (s) of the next continuous mix tick (mix()). */
+  private nextMix = -Infinity;
   /** Synthesised truck engines (local and remote), counted against the 24-voice budget. */
   private readonly engines = new EngineVoices({
     context: () => (this.disposed ? null : this.context), bus: () => this.channels.get('vehicle') ?? null,
@@ -55,7 +58,9 @@ export class GameAudio {
 
   constructor(private readonly factory = () => new AudioContext(),
     private readonly fetcher: typeof fetch = (...args) => fetch(...args),
-    private readonly base = `${import.meta.env.BASE_URL}assets/audio/`) {
+    private readonly base = `${import.meta.env.BASE_URL}assets/audio/`,
+    /** Seconds; paces the continuous mix (tests pass a clock that always advances past the interval). */
+    private readonly clock = () => performance.now() / 1000) {
     try {
       const saved = JSON.parse(globalThis.localStorage?.getItem('turku3d.audio') ?? 'null');
       if (saved && typeof saved === 'object') {
@@ -141,29 +146,14 @@ export class GameAudio {
     if (event.type === 'volume') { this.volumes[event.channel] = clamp(event.value); this.applyVolumes(); this.persist(); return; }
     if (event.type === 'listener') {
       this.listener = event; this.paused = event.paused;
-      if (this.context) {
-        const l = this.context.listener;
-        // Firefox still exposes listener positioning through the legacy methods, not AudioParams.
-        if (l.positionX && l.positionY && l.positionZ) {
-          this.vector([l.positionX, l.positionY, l.positionZ], event.position);
-        } else {
-          l.setPosition(event.position.x, event.position.y, event.position.z);
-        }
-        if (l.forwardX && l.forwardY && l.forwardZ && l.upX && l.upY && l.upZ) {
-          this.vector([l.forwardX, l.forwardY, l.forwardZ], event.forward);
-          this.vector([l.upX, l.upY, l.upZ], event.up);
-        } else {
-          l.setOrientation(event.forward.x, event.forward.y, event.forward.z, event.up.x, event.up.y, event.up.z);
-        }
-      }
       this.engines.listen(event.position, event.paused || this.context?.state !== 'running');
-      this.refreshHorns(); this.refreshLoops(); return;
+      this.refreshHorns(false); this.mix(); return;
     }
     if (event.type === 'engine-voice') { this.engineVoice(event.id, event.state); return; }
-    if (event.type === 'horns') { this.hornEmitters = event.vehicles; this.refreshHorns(); return; }
-    if (event.type === 'car') { this.car = event; this.refreshLoops(); return; }
-    if (event.type === 'traffic') { this.traffic = event; this.refreshTraffic(); return; }
-    if (event.type === 'crowd') { this.crowd = event.walkers; this.refreshLoops(); return; }
+    if (event.type === 'horns') { this.hornEmitters = event.vehicles; this.refreshHorns(false); return; }
+    if (event.type === 'car') { this.car = event; this.mix(); return; }
+    if (event.type === 'traffic') { this.traffic = event; this.mix(); return; }
+    if (event.type === 'crowd') { this.crowd = event.walkers; this.mix(); return; }
     if (event.type === 'gamepad-connected' && (!this.buffers.has('connect') || this.context?.state !== 'running')) { this.pendingConnect = true; return; }
     if (this.paused && event.type !== 'gamepad-connected') return;
     const shot = oneShot(event);
@@ -196,7 +186,36 @@ export class GameAudio {
   setMusicVolume(value: number) { this.musicVolume = clamp(value); this.music?.setVolume(this.musicMuted ? 0 : this.musicVolume); this.persist(); }
   setMusicMuted(value: boolean) { this.musicMuted = value; this.music?.setVolume(value ? 0 : this.musicVolume); this.persist(); }
 
-  private refreshHorns() {
+  /** The continuous mix, at most MIX_HZ: its events (listener, car, traffic) arrive every frame, the listener and the
+   *  car several times per frame, and each used to reschedule ~130 AudioParams (automation.ts). The latest state of
+   *  each applies on the next due tick; nothing is scheduled while the context is not running (resuming applies it). */
+  private mix() {
+    const ctx = this.context;
+    if (!ctx || ctx.state !== 'running') return;
+    const now = this.clock();
+    if (now < this.nextMix) return;
+    this.nextMix = now + 1 / MIX_HZ;
+    if (this.listener) this.place(ctx.listener, this.listener);
+    this.refreshHorns(true); this.refreshLoops(); this.refreshTraffic();
+  }
+
+  private place(l: AudioListener, event: Extract<AudioEvent, { type: 'listener' }>) {
+    // Firefox still exposes listener positioning through the legacy methods, not AudioParams.
+    if (l.positionX && l.positionY && l.positionZ) {
+      this.vector([l.positionX, l.positionY, l.positionZ], event.position, POSITION_EPSILON);
+    } else {
+      l.setPosition(event.position.x, event.position.y, event.position.z);
+    }
+    if (l.forwardX && l.forwardY && l.forwardZ && l.upX && l.upY && l.upZ) {
+      this.vector([l.forwardX, l.forwardY, l.forwardZ], event.forward);
+      this.vector([l.upX, l.upY, l.upZ], event.up);
+    } else {
+      l.setOrientation(event.forward.x, event.forward.y, event.forward.z, event.up.x, event.up.y, event.up.z);
+    }
+  }
+
+  /** Starts and stops horn voices for the current emitters; `move` (the mix tick) also follows their positions. */
+  private refreshHorns(move: boolean) {
     const ctx = this.context, bus = this.channels.get('vehicle');
     const audible = !this.paused && ctx?.state === 'running' ? this.hornEmitters : [];
     const ids = new Set(audible.map(v => v.id));
@@ -209,19 +228,21 @@ export class GameAudio {
         entry = { kind: emitter.kind, voice: createHorn(ctx, bus, emitter.kind, emitter.position) };
         this.horns.set(emitter.id, entry);
       }
-      entry.voice.move(emitter.position);
+      if (move) entry.voice.move(emitter.position);
     }
   }
 
   private applyVolumes() {
     for (const [name, node] of this.channels) this.param(node.gain, name === 'master' && this.muted ? 0 : this.volumes[name]);
   }
-  private param(param: AudioParam, value: number) { param.setTargetAtTime(value, this.context!.currentTime, 0.04); }
-  private vector(params: AudioParam[], v: V3) { [v.x, v.y, v.z].forEach((n, i) => this.param(params[i], n)); }
+  private param(param: AudioParam, value: number, epsilon?: number) { glide(param, value, this.context!.currentTime, 0.04, epsilon); }
+  private vector(params: AudioParam[], v: V3, epsilon?: number) {
+    this.param(params[0], v.x, epsilon); this.param(params[1], v.y, epsilon); this.param(params[2], v.z, epsilon);
+  }
 
   private pannerPosition(panner: PannerNode, position: V3) {
     if (panner.positionX && panner.positionY && panner.positionZ) {
-      this.vector([panner.positionX, panner.positionY, panner.positionZ], position);
+      this.vector([panner.positionX, panner.positionY, panner.positionZ], position, POSITION_EPSILON);
     } else {
       panner.setPosition(position.x, position.y, position.z);
     }

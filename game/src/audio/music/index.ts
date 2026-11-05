@@ -76,7 +76,8 @@ export class MusicSystem {
     this.chime(this.context.currentTime + 0.02, TRACKS[this.track], true); this.setDeadline(0);
     this.request('explore', (this.track + 1) % TRACKS.length);
   }
-  setMuffled(amount: number) { this.activeMuffle = clamp(amount); this.applyMuffle(); }
+  /** Called every frame (play.ts); only a changed amount reschedules the filter and gain. */
+  setMuffled(amount: number) { const next = clamp(amount); if (next === this.activeMuffle) return; this.activeMuffle = next; this.applyMuffle(); }
   setVolume(value: number) { this.parameters.volume = clamp(value); this.applyMuffle(); }
   setParameters(patch: Partial<MusicParameters>) {
     this.parameters = { ...this.parameters, ...patch, layerGains: { ...this.parameters.layerGains, ...patch.layerGains } };

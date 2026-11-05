@@ -3,6 +3,7 @@ import type { WheelState } from '../../physics/protocol';
 import { ChassisTracker, type ChassisFrame } from './chassis';
 import type { EngineDrive } from './drivetrain';
 import { V8_PROCESSOR, type V8Message, type V8ProcessorOptions } from './messages';
+import { MIX_HZ, POSITION_EPSILON, frequencyEpsilon, glide } from '../automation';
 
 /** The truck engine voice pool for GameAudio (SPEC §4.6): the local truck plus the nearest audible remote ones, each
  *  an AudioWorkletNode running v8core + chassis, then a distance low-pass and an equal-power panner. */
@@ -50,7 +51,9 @@ const hash = (id: string) => { let h = 2166136261; for (let i = 0; i < id.length
 
 interface Candidate { id: string; state: EngineVoiceState; seen: number; tracker: ChassisTracker; frame: ChassisFrame | null; at: number }
 interface Voice { id: string; node: AudioWorkletNode; gain: GainNode; filter?: BiquadFilterNode; panner?: PannerNode;
-  partials: 16 | 32; local: boolean; releasing: number }
+  partials: 16 | 32; local: boolean; releasing: number;
+  /** Context time of the next panner and cutoff update (at most MIX_HZ; the worklet still gets every frame). */
+  moveAt: number }
 
 export interface EngineVoiceHost {
   context(): AudioContext | null;
@@ -131,7 +134,7 @@ export class EngineVoices {
       const node = new AudioWorkletNode(ctx, V8_PROCESSOR, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: options });
       const gain = ctx.createGain(); gain.gain.value = 0;
       node.connect(gain);
-      const voice: Voice = { id, node, gain, partials, local: c.state.local, releasing: 0 };
+      const voice: Voice = { id, node, gain, partials, local: c.state.local, releasing: 0, moveAt: -Infinity };
       if (c.state.local) gain.connect(bus);
       else {
         const filter = voice.filter = ctx.createBiquadFilter(); filter.type = 'lowpass'; filter.Q.value = 0.5;
@@ -147,7 +150,7 @@ export class EngineVoices {
   private level(v: Voice) {
     const ctx = this.host.context();
     if (!ctx) return;
-    v.gain.gain.setTargetAtTime(this.paused ? 0 : (v.local ? COCKPIT_GAIN : 1) * VOICE_GAIN, ctx.currentTime, 0.05);
+    glide(v.gain.gain, this.paused ? 0 : (v.local ? COCKPIT_GAIN : 1) * VOICE_GAIN, ctx.currentTime, 0.05);
   }
 
   private post(id: string) {
@@ -160,11 +163,15 @@ export class EngineVoices {
     const message: V8Message = { p: { rpm: d.rpm, load: d.load, throttle: d.throttle, limiter: d.limiter, shifting: d.shifting,
       running: true, cockpit: v.local && distance < COCKPIT_RADIUS, partials: v.partials }, c: c.frame ?? undefined };
     v.node.port.postMessage(message);
-    if (v.panner && v.filter) {
-      const t = ctx.currentTime;
-      if (v.panner.positionX) { v.panner.positionX.setTargetAtTime(p.x, t, 0.03); v.panner.positionY.setTargetAtTime(p.y, t, 0.03); v.panner.positionZ.setTargetAtTime(p.z, t, 0.03); }
-      else v.panner.setPosition(p.x, p.y, p.z);
-      v.filter.frequency.setTargetAtTime(distanceCutoff(distance), t, 0.05);
+    const t = ctx.currentTime;
+    if (v.panner && v.filter && ctx.state === 'running' && t >= v.moveAt) {
+      v.moveAt = t + 1 / MIX_HZ;
+      if (v.panner.positionX) {
+        glide(v.panner.positionX, p.x, t, 0.03, POSITION_EPSILON); glide(v.panner.positionY, p.y, t, 0.03, POSITION_EPSILON);
+        glide(v.panner.positionZ, p.z, t, 0.03, POSITION_EPSILON);
+      } else v.panner.setPosition(p.x, p.y, p.z);
+      const cutoff = distanceCutoff(distance);
+      glide(v.filter.frequency, cutoff, t, 0.05, frequencyEpsilon(cutoff));
     }
   }
 
@@ -178,6 +185,7 @@ export class EngineVoices {
     v.releasing = 1;
     v.node.port.postMessage({ p: { rpm: last?.rpm ?? 930, load: -0.3, throttle: 0, limiter: false, shifting: false, running: false,
       cockpit: v.local, partials: v.partials } } satisfies V8Message);
+    v.gain.gain.cancelScheduledValues(ctx.currentTime);
     v.gain.gain.setTargetAtTime(0, ctx.currentTime + (v.local ? 0.5 : 0), 0.15);
     setTimeout(() => this.disconnect(v), 1200);
   }
