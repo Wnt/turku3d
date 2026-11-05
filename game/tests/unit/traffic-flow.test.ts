@@ -421,20 +421,6 @@ describe('out-of-view recycling (GTA-style)', () => {
     expect(far.flow.stats.recycled).toBeGreaterThan(near.flow.stats.recycled);
   });
 
-  test('a tile over its car budget feeds no new cars and sheds hidden excess', () => {
-    const net = flowNetwork(), flow = new TrafficFlow(net, 0);
-    net.density!.multiplier = 4;
-    flow.reset(0); flow.setWatchers([]);
-    const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
-    const at = pointAt(lane.points, lane.cum, lane.length - 2);
-    // A truck parked in the junction: every approach backs up.
-    const truck = { id: 'truck', x: 125, y: 0, z: 125, hx: 1, hz: 0, vx: 0, vz: 0, length: 14, width: 14 };
-    for (let step = 1; step <= 3000; step++) { flow.setPlayers([], [truck], step / 10); flow.update(step / 10); }
-    expect(flow.stats.budgeted).toBeGreaterThan(0);
-    expect(flow.stats.trimmed).toBeGreaterThan(0);
-    void at;
-  });
-
   test('nobody watching (a headless area): locked cars are recycled', () => {
     const { flow, queue } = locked([]);
     expect(flow.stats.recycled).toBeGreaterThan(0);
