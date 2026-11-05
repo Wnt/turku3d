@@ -109,8 +109,10 @@ test('visible builds jump the queue, nearest first; detached objects leave unbui
   await tick(); expect(started).toEqual([3]);
   // Seconds later the camera sees 1 again; 2 and 4 are not drawn, and 4's tile left the scene.
   t = 3000; scene.remove(gone); draw(a);
-  expect(builds.share).toBeGreaterThan(6);
-  expect(builds.share).toBeLessThanOrEqual(40);
+  expect(builds.share).toBe(6);              // visible just now: the base share
+  t = 3400; draw(a);
+  expect(builds.share).toBeGreaterThan(6);   // visible and waiting 0.4 s: more
+  expect(builds.share).toBeLessThanOrEqual(120);
   finish[0](); await tick(); expect(started).toEqual([3, 1]);   // the visible one ahead of 2, queued earlier
   finish[1](); await tick(); expect(started).toEqual([3, 1, 2]);
   finish[2](); await builds.settled();

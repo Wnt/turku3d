@@ -49,13 +49,17 @@ const turn = () => {
 };
 
 /** A deferred build: when its program was first and last asked for by a frame's draw, and how far from the camera. */
-interface Job { key: number; object: THREE.Object3D; run: () => Promise<void>; drop: () => void; firstAsked: number; lastAsked: number; distance: number }
+interface Job { key: number; object: THREE.Object3D; run: () => Promise<void>; drop: () => void; firstAsked: number; lastAsked: number;
+  /** When a draw began asking again after HOT_MS without (became visible this time). */
+  visibleSince: number; distance: number }
 /** A job asked for within this many ms is visible now (a draw of the current frames is waiting for it). */
 export const HOT_MS = 500;
 const STATS_MS = 30_000;
 /** The pacer's share while a visible build waits: SHARE_BASE_MS, plus SHARE_PER_S for each second the oldest visible
- *  build has waited, at most SHARE_MAX_MS (a stage that runs over still ends the gap's share). */
-const SHARE_BASE_MS = 6, SHARE_PER_S = 18, SHARE_MAX_MS = 40;
+ *  build has waited since it became visible, at most SHARE_MAX_MS (a stage that runs over still ends the gap's
+ *  share). The M1 Air's build stages run 50-80 ms, so below ~100 ms a gap holds one stage whatever the share: with a
+ *  40 ms cap a visible build there waited up to 11.5 s after boot. */
+const SHARE_BASE_MS = 6, SHARE_PER_S = 30, SHARE_MAX_MS = 120;
 
 const inScene = (object: THREE.Object3D) => {
   let o: THREE.Object3D = object;
@@ -109,7 +113,10 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
     const at = now(), o = object.matrixWorld?.elements, c = camera.matrixWorld?.elements;
     const distance = o && c ? Math.hypot(o[12] - c[12], o[13] - c[13], o[14] - c[14]) : Infinity;
     const job = waiting.get(key);
-    if (job) { job.lastAsked = at; job.distance = Math.min(distance, job.distance); return false; }
+    if (job) {
+      if (at - job.lastAsked >= HOT_MS) job.visibleSince = at;
+      job.lastAsked = at; job.distance = Math.min(distance, job.distance); return false;
+    }
     if (!pending.has(key)) {
       deferred++;
       // The build reads renderer pass state again after each yield: pin this draw's pass, as compileModel does.
@@ -133,12 +140,14 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
         await promise;
         const end = now();
         built++;
-        waits.push({ at: end, ms: end - job.firstAsked, visible: end - job.lastAsked < HOT_MS });
+        // A visible build's wait counts from when it became visible this time; the first ask may be the boot warm-up.
+        const visible = end - job.lastAsked < HOT_MS;
+        waits.push({ at: end, ms: end - (visible ? job.visibleSince : job.firstAsked), visible });
         while (waits.length && end - waits[0].at > STATS_MS) waits.shift();
         streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - job.firstAsked), ms: Math.round(end - started) });
       };
       let settle: () => void = () => {};
-      const job: Job = { key, object, firstAsked: at, lastAsked: at, distance, run: async () => { try { await build(); } catch (error) { console.warn(`[async node build] ${error}`); } finally { settle(); } },
+      const job: Job = { key, object, firstAsked: at, lastAsked: at, visibleSince: at, distance, run: async () => { try { await build(); } catch (error) { console.warn(`[async node build] ${error}`); } finally { settle(); } },
         drop: () => { dropped++; settle(); } };
       pending.set(key, new Promise<void>(resolve => { settle = () => { pending.delete(key); resolve(); }; }));
       waiting.set(key, job);
@@ -158,16 +167,16 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
       const t = now();
       if (t - shareAt < 16) return shareMs;
       let oldest = -1;
-      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) oldest = Math.max(oldest, t - job.firstAsked);
+      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) oldest = Math.max(oldest, t - job.visibleSince);
       shareAt = t;
       return shareMs = oldest < 0 ? 0 : Math.min(SHARE_MAX_MS, SHARE_BASE_MS + oldest / 1000 * SHARE_PER_S);
     },
-    /** window.__perf.builds: the queue now and the wait from a program's first ask to its build over the last 30 s,
-     *  for programs a draw still wanted when they were built (visible) and for all. */
+    /** window.__perf.builds: the queue now (hot: asked within HOT_MS; oldestHotMs since it became visible) and, over the
+     *  last 30 s, how long built programs waited: visible ones since they became visible, all since their first ask. */
     stats() {
       const t = now();
       let hot = 0, oldestHotMs = 0;
-      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) { hot++; oldestHotMs = Math.max(oldestHotMs, t - job.firstAsked); }
+      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) { hot++; oldestHotMs = Math.max(oldestHotMs, t - job.visibleSince); }
       const recent = waits.filter(w => t - w.at <= STATS_MS), visible = recent.filter(w => w.visible).map(w => w.ms), all = recent.map(w => w.ms);
       return { queued: waiting.size, hot, oldestHotMs: Math.round(oldestHotMs), built, dropped,
         visibleWaitMs: { n: visible.length, p50: percentile(visible, 0.5), p90: percentile(visible, 0.9), max: visible.length ? Math.round(Math.max(...visible)) : null },
