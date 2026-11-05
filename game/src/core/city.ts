@@ -26,6 +26,16 @@ export const CITIES: Record<string, CityFrame> = {
     name: 'espoo', title: 'Espoo', E0: 25489000, N0: 6674000, gkMeridian: 25, epsg: 'EPSG:3879',
     trueNorthGridBearingDeg: 0.17, spawn: { E: 25489150, N: 6673640 }, spawnLabel: 'Tapiontori, Tapiola',
   },
+  // RD New (EPSG:28992) frames of the NL profiles (pipeline/turku3d/cities, branch local/nl-cities). gkMeridian does
+  // not apply to RD: the position HUD's lat/lon is approximate there; tiles, spawn and preview use E/N only.
+  amsterdam: {
+    name: 'amsterdam', title: 'Amsterdam', E0: 121000, N0: 487500, gkMeridian: 0, epsg: 'EPSG:28992',
+    trueNorthGridBearingDeg: 0, spawn: { E: 121318, N: 487362 }, spawnLabel: 'Dam',
+  },
+  rotterdam: {
+    name: 'rotterdam', title: 'Rotterdam', E0: 93000, N0: 437500, gkMeridian: 0, epsg: 'EPSG:28992',
+    trueNorthGridBearingDeg: 0, spawn: { E: 93058, N: 437219 }, spawnLabel: 'Markthal',
+  },
 };
 
 export function cityFromSearch(search: string): CityFrame {
