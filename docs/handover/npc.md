@@ -116,6 +116,22 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
   standing in the lane, or a car stopped mid-block, together with what holds it there (a player's car or person, or
   a footprint lock that has lasted 20 s). Queues at a junction (within 15 m of the line) are never passed. While a car
   passes, a lane leader it already clears sideways is not followed; the guard still checks contact.
+- **Aggressive drivers when the lane is blocked** (Jonni 2026-11-05: "change lanes or reverse a little when their
+  lane is blocked, also change their destination"). Each driver's patience comes from its key
+  (`honk-patience`, 0.8-1.6 × PASS_AFTER).
+  - **Escape lane change** (`LaneChangePlanner.escape`): stopped behind an obstacle, a driver signals for 1 s, then
+    changes into the adjacent same-way lane with the most room ahead (same gap checks as any change; never within
+    ESCAPE_ROOM 20 m of the line). It creeps sideways from a standstill. Otherwise it goes round in its own lane.
+  - **Short reverse** (`backUp`): nose up against the obstacle it can get round, it first backs up 1.5-3 m at
+    0.8 m/s, guarded like an unlock (never into a body; only when the space behind is clear).
+  - **New route at a blocked exit** (`reroute`): a junction head kept at its line by a full exit for 3 × its
+    patience takes another movement its lane allows whose receiving lane has room (at most once per 30 s).
+  - **Stalled lane changes are given up:** a car stopped half-way by another body for 6 s eases back into its
+    old lane (two drivers aiming for the same gap held each other before).
+  - `stats.escapes / reverses / rerouted`; checkpoint fields `reverse`, `rerouted`. East 30 min with these:
+    104.7 exits/min (100.1 without, 95.0 at baseline), 0 locked, 0 overlaps, 78 reroutes, 139 recycled (182 without).
+    Video: `~/turku3d/loops/traffic-gta/capture/pass-topdown-aggressive.mp4` (purple reversing, green changing lanes,
+    orange going round, cyan just rerouted).
 - **Budgeted graph rebuilds** (`buildGraph` generator, `rebuildBudgetMs`): a tile install or release builds the new
   graph in slices beside the live one (3 ms per worker step, `REBUILD_MS_PER_STEP`) and swaps it in at a step
   boundary, remapping cars through id maps built in the job. Before, one step paid 16-140 ms on 25 loaded centre
