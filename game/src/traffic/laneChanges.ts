@@ -12,8 +12,12 @@ export const PLAN_BUDGET = 60;
 
 export interface LaneChange {
   from: Lane; direction: -1 | 1; progress: number; duration: number; rate: number;
+  /** Leaving a lane an obstacle blocks: the move creeps on from a standstill. */
+  escape?: boolean;
 }
-export interface LaneSignal { target: Lane; since: number; reason: 'route' | 'queue' }
+export interface LaneSignal { target: Lane; since: number; reason: 'route' | 'queue' | 'blocked' }
+/** An escape from a blocked lane needs this much lane left (m): never into a junction queue. */
+export const ESCAPE_ROOM = 20;
 const kind = (lane: Lane): -1 | 0 | 1 => {
   const turn = lane.connector?.turn ?? 0;
   return turn < -0.5 ? -1 : turn > 0.5 ? 1 : 0;
@@ -90,23 +94,50 @@ export class LaneChangePlanner {
       car.signal = { target, since: tick, reason }; return null;
     }
     if (tick - car.signal.since < 10) return null;
-    const s = car.s / lane.length * target.length, duration = LANE_CHANGE_SECONDS;
+    if (!this.clear(car, target, byLane)) return null;
+    const s = car.s / lane.length * target.length, front = this.neighbours(car, target, byLane).front;
+    // For a discretionary queue pass require a useful gain, rather than moving into the same queue.
+    if (reason === 'queue' && front && front.speed < car.speed + 1 && front.s - s < 35) return null;
+    return target;
+  }
+
+  /** Leaving a blocked lane (an obstacle the car is stopped behind): the adjacent same-way lane with the most room
+   *  ahead, after one second of signalling and the same gap checks as any change. 'signal' while indicating. */
+  escape(car: FlowCar, tick: number, byLane: ReadonlyMap<Lane, readonly FlowCar[]>): Lane | 'signal' | null {
+    const lane = car.lane;
+    if (car.change || car.reservation || lane.length - car.s < ESCAPE_ROOM || tick < car.changeCooldown) return null;
+    const room = (l: Lane) => this.neighbours(car, l, byLane).front?.s ?? l.length;
+    const target = (this.siblings.get(lane) ?? []).filter(l => Math.abs(l.k - lane.k) === 1)
+      .sort((a, b) => room(b) - room(a) || a.k - b.k).find(l => this.clear(car, l, byLane));
+    if (!target) { if (car.signal?.reason === 'blocked') car.signal = null; return null; }
+    if (!car.signal || car.signal.target !== target || car.signal.reason !== 'blocked') {
+      car.signal = { target, since: tick, reason: 'blocked' }; return 'signal';
+    }
+    return tick - car.signal.since < 10 ? 'signal' : target;
+  }
+
+  private neighbours(car: FlowCar, target: Lane, byLane: ReadonlyMap<Lane, readonly FlowCar[]>) {
+    const s = car.s / car.lane.length * target.length;
     let front: FlowCar | undefined, rear: FlowCar | undefined;
     for (const other of byLane.get(target) ?? []) {
       if (other === car) continue;
       if (other.s >= s && (!front || other.s < front.s)) front = other;
       if (other.s < s && (!rear || other.s > rear.s)) rear = other;
     }
+    return { front, rear, s };
+  }
+
+  /** Safe projected front and rear gaps in `target` for a change starting now. */
+  private clear(car: FlowCar, target: Lane, byLane: ReadonlyMap<Lane, readonly FlowCar[]>): boolean {
+    const { front, rear, s } = this.neighbours(car, target, byLane), duration = LANE_CHANGE_SECONDS;
     if (front) {
       const gap = front.s - s - (front.length + car.length) / 2;
-      if (gap < 3 + car.speed * 1.3 || gap + (front.speed - car.speed) * duration < 3 + car.speed) return null;
+      if (gap < 3 + car.speed * 1.3 || gap + (front.speed - car.speed) * duration < 3 + car.speed) return false;
     }
     if (rear) {
       const gap = s - rear.s - (rear.length + car.length) / 2;
-      if (gap < 3 + rear.speed * 1.6 || gap + (car.speed - rear.speed) * duration < 3 + rear.speed * 1.4) return null;
+      if (gap < 3 + rear.speed * 1.6 || gap + (car.speed - rear.speed) * duration < 3 + rear.speed * 1.4) return false;
     }
-    // For a discretionary queue pass require a useful gain, rather than moving into the same queue.
-    if (reason === 'queue' && front && front.speed < car.speed + 1 && front.s - s < 35) return null;
-    return target;
+    return true;
   }
 }
