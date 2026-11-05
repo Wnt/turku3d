@@ -9,7 +9,7 @@
 #   - the farm's shared stage caches except raw-derived (rebuilds recompute those per block);
 #   - Turku survey blocks of the tiles within RADIUS (the version's own and lidarpc's), copied on the host by
 #     window-warm.py with the catalog size + SHA-256 check, reading the NFS mount as its source;
-#   - the cities' raw trees (host-side rsync from the mount; the warm FS-Cache serves what it already holds).
+#   - the cities' raw trees, rsync from here (resumable; skips what the host already holds).
 # Logs to ~/turku3d-local/loops/bulkgen3/stage-local.log.
 set -uo pipefail
 A=${1:?alias}; RADIUS=${2:-16}
@@ -44,13 +44,16 @@ log "start $A $REV radius $RADIUS: ${#GENS[@]} generations, ${#REVS[@]} revision
 ( $R -R --exclude='/cache/raw-derived/' cache "$H:$F/" && log "cache ok" ) &
 wait
 ssh -i "$HOME/.ssh/bulk_gen3" $H "chown -R 1000:1000 $F"
-# Survey blocks (host side, verified) and the cities' raw trees, in parallel.
+# Survey blocks (host side, verified) and the cities' raw trees (from here), in parallel.
 ssh -i "$HOME/.ssh/bulk_gen3" $H "G=/home/wnt/turku3d-bulk-gen3; V=\$(python3 -c \"import json; m=json.load(open('$F/revisions/$REV/revision.json')); print(json.load(open('$F/revisions/'+m['base_revision']+'/revision.json'))['data_root'])\")
   C=\$(python3 -c \"import json; print(json.load(open('$F/revisions/$REV/revision.json'))['code_revision'])\")
   ( su wnt -c \"cd $F/revisions/\$C/repo && env REPO=$F/revisions/\$C/repo TURKU3D_WORK=$F/work/migrate \
       /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh python \$G/window-warm.py --farm-root $F --revision $REV \
       --radius $RADIUS --ahead 1000000 --threads 4 --supply /srv/osg/farm/\${V#$F/}/raw/laz/pistepilvi \
       --supply /srv/osg/bulk/lidarpc/raw/pistepilvi\" > \$G/logs/stage-blocks.log 2>&1; echo blocks \$? ) &
-  ( rsync -a /srv/osg/bulk/cities/ /bulk/turku3d/cities/ && chown -R 1000:1000 /bulk/turku3d/cities; echo cities \$? ) &
-  wait; tail -1 \$G/logs/stage-blocks.log" >> "$D/stage-local.log" 2>&1
+  wait; tail -1 \$G/logs/stage-blocks.log" >> "$D/stage-local.log" 2>&1 &
+# The cities' raw trees straight from here (a host-side copy through the NFS mount hung on a file replaced meanwhile).
+( cd /bulk/turku3d && $R -R cities/*/raw "$H:/bulk/turku3d/" && log "cities raw ok" ) &
+wait
+ssh -i "$HOME/.ssh/bulk_gen3" $H "chown -R 1000:1000 /bulk/turku3d/cities"
 log "done"
