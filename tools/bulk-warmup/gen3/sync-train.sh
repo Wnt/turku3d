@@ -26,10 +26,16 @@ GEN=$(field "d['aliases']['$A']['generation']"); BASE=$(field "d['aliases']['$A'
 mapfile -t GENS < <(field "'\n'.join(d['products'])")
 cd $F
 if [ "$MODE" = --pull ]; then
+  # The host's farm is either a cached overlay (its own writes in /srv/farm/upper) or a staged local tree ($F).
   SRC=$F
-  ssh -i "$HOME/.ssh/bulk_gen3" "$H" test -d /srv/farm/upper/products && SRC=/srv/farm/upper
+  [ "$(ssh -i "$HOME/.ssh/bulk_gen3" "$H" "findmnt -no FSTYPE $F" 2>/dev/null)" = overlay ] && SRC=/srv/farm/upper
   P="$R --no-D --ignore-existing --link-dest=$F/products/$BASE/"
-  for g in "${GENS[@]}" "$GEN"; do
+  # The alias's own, step and spot-rebuild generations, whether or not they exist here yet (resolve.py lists only
+  # generations present on this farm).
+  mapfile -t MORE < <(python3 -c "
+import json; m = json.load(open('$F/revisions/$REV/revision.json'))
+print('\n'.join([m['generation']] + [s[k] for s in m['migrations'] for k in ('generation', 'rebuild_generation') if s.get(k)]))")
+  for g in $(printf '%s\n' "${GENS[@]}" "$GEN" "${MORE[@]}" | sort -u); do
     [ "$g" = "$BASE" ] && continue
     ssh -i "$HOME/.ssh/bulk_gen3" "$H" test -d "$SRC/products/$g" || continue
     $P --exclude=ready.json "$H:$SRC/products/$g/" "products/$g/" &&
