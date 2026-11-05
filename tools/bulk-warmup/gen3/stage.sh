@@ -75,6 +75,8 @@ print('created', s['uuid'], ip)"
   ssh-keygen -R "$(IP)" > /dev/null 2>&1 || true
   ssh $OSG "ssh-keygen -R $(IP) > /dev/null 2>&1 || true"
   until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "root@$(IP)" true 2>/dev/null; do sleep 5; done
+  # window.py on osgallery-dev uses BatchMode: without the host key its preflight sees no in-server TTL and refuses.
+  ssh $OSG "ssh -i ~/.ssh/bulk_gen3 -o StrictHostKeyChecking=accept-new -o BatchMode=yes root@$(IP) true"
 }
 
 bootstrap() {

@@ -20,7 +20,9 @@ set -euo pipefail
 OSG=10.77.0.1
 F=/home/wnt/turku3d-local/loops/tiles/farm
 B=/bulk/turku3d
-NFS_OPTS=vers=4.2,ro,fsc,hard,nconnect=4,rsize=1048576,actimeo=600,nocto
+# Attribute cache: files 30-60 s, directories 10-30 s, no negative lookups: a revision registered on the farm shows
+# up here within a minute (file data stays in FS-Cache; revalidation is one GETATTR).
+NFS_OPTS=vers=4.2,ro,fsc,hard,nconnect=4,rsize=1048576,acregmin=30,acregmax=60,acdirmin=10,acdirmax=30,lookupcache=positive,nocto
 READAHEAD_KB=16384   # the NFS default is 128 KB: one 1 MB READ in flight per stream
 LOCAL_DIRS=(work locks logs)
 OVL=redirect_dir=off,index=off,metacopy=off
