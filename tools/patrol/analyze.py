@@ -304,6 +304,12 @@ if rc.exists():
         add('all', 'all', 'load-errors', None, {'count': len(bad), 'kinds': dict(kinds), 'sample': bad[:3]}, None, first, 3 if len(bad) > 10 else 2, 1.0, True)
 
 json.dump(cands, open(RUN / 'candidates.json', 'w'), indent=1)
+# Judge index: spot poses for judge-only findings and the sheets to scan
+json.dump({'spots': {k: {'E': v['views'][0]['E'], 'N': v['views'][0]['N'], 'H': v['views'][0]['H'], 'x': round(v['views'][0]['E'] - E0, 2),
+                         'z': round(-(v['views'][0]['N'] - N0), 2), 'centre': spots_cfg.get(k, {}).get('centre', 0.5),
+                         'views': {w['view']: [w['yaw'], w['pitch']] for w in v['views']}, 'sheet': f'spots/{k}.png'}
+                     for k, v in poses.items() if v.get('views')},
+           'drives': sorted(str(p.parent.relative_to(RUN)) for p in RUN.glob('drive-*/trace.json'))}, open(RUN / 'judge-index.json', 'w'), indent=1)
 json.dump({k: v.get('temporal') for k, v in poses.items()}, open(RUN / 'temporal.json', 'w'), indent=1)
 from collections import Counter
 print(len(cands), 'candidates', dict(Counter(c['detector'] for c in cands)))
