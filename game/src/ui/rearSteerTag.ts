@@ -1,7 +1,8 @@
 // Rear-steer tag of a 4WS vehicle (SPEC §3.5): "REAR AUTO / AUTO 50% / LOCK / SIDEWAYS" with a rear-angle tick, shown
 // only in the trophy truck. The lockout tints it while it centres the rear above 30 mph. Above it a key hint
-// ("Ⓐ · Rear steer: AUTO", the sprint binding of the device in use) shows for a few seconds after entering the truck
-// and briefly after each mode change, then fades. Neither takes pointer input.
+// ("✕ · Rear steer: AUTO" on a PlayStation pad, "Ⓐ · …" on an Xbox pad, "Shift · …" on the keyboard: the sprint
+// prompt of the device in use) shows for a few seconds after entering the truck and briefly after each mode change,
+// then fades. Neither takes pointer input.
 import type { VehicleState } from '../physics/protocol';
 import type { RearSteerMode } from '../vehicle/rearSteer';
 import { REAR_MODE_LABEL } from '../vehicle/rearSteerControl';

@@ -94,7 +94,8 @@ export class MenuPanel implements MenuHost {
   page: MenuPage | null = null;
   /** While false (the world is loading) every row is greyed and picks are ignored. */
   private enabled = true;
-  private source: Input['source'] | null = null;
+  /** input.promptRevision of the drawn hints: a device or pad change redraws them. */
+  private prompts = -1;
   private readonly title = document.createElement('h2');
   private readonly text = document.createElement('p');
   private readonly control = document.createElement('div');
@@ -124,7 +125,7 @@ export class MenuPanel implements MenuHost {
 
   /** Per frame while the menu is visible. Returns whether menu back was pressed. */
   handle(input: Input): boolean {
-    if (this.page && input.source !== this.source) this.render(this.list.selected);
+    if (this.page && input.promptRevision !== this.prompts) this.render(this.list.selected);
     const back = this.list.handle(input);
     if (back && this.enabled) this.page?.back?.();
     return back;
@@ -144,7 +145,7 @@ export class MenuPanel implements MenuHost {
       if (item.detail) li.append(Object.assign(document.createElement('small'), { className: 'menu-detail', textContent: item.detail }));
     }, select);
     const i = this.input;
-    this.source = i.source;
+    this.prompts = i.promptRevision;
     this.hints.textContent = i.source === 'touch' ? `Tap an option${page.back ? ` · ${i.prompt('menuBack')} Back` : ''}`
       : `${i.prompt('menuUp')} ${i.prompt('menuDown')} choose · ${i.prompt('menuSelect')} select${page.back ? ` · ${i.prompt('menuBack')} back` : ''}`;
   }

@@ -597,7 +597,7 @@ export class ObjectEditor {
       : `LiDAR ${lidarState} · ${g('editUp')}${g('editDown')} opacity · ${g('editLeft')}${g('editRight')} size ${cloud.getPointSize()} px`
         + `${cloud.setColorMode ? ` · ${g('editPrev')}/${g('editNext')} colour` : ''} · just tap: ${cloud.isVisible() ? 'hide' : 'show'}`;
     const hints: [string, string][] = this.held ? [
-      ['Ⓛ', 'move'], [`${g('editTurnLeft')}/${g('editTurnRight')}`, 'turn'], [`${g('editPrev')}/${g('editNext')}`, '15°'],
+      [g('moveY'), 'move'], [`${g('editTurnLeft')}/${g('editTurnRight')}`, 'turn'], [`${g('editPrev')}/${g('editNext')}`, '15°'],
       [`${g('editUp')}${g('editDown')}`, 'height'], [`${g('editLeft')}${g('editRight')}`, '1°'], [g('editGround'), 'ground'],
       [g('editPick'), 'drop'], [g('editBack'), 'cancel'], [`hold ${g('editDelete')}`, 'delete'],
     ] : [

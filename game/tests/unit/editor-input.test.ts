@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { DEFAULT_BINDINGS, Input, editorBindings, glyph, mapActions } from '../../src/input';
+import { DEFAULT_BINDINGS, Input, editorBindings, mapActions, promptLabel } from '../../src/input';
 import { EDITOR, EditorMachine, type Command, type EditorFrame } from '../../src/dev/editor/state';
 
 /** Standard-mapping pads as Chrome reports them: the DualSense has 18 buttons (16 PS, 17 touchpad), the Xbox 17. */
@@ -58,10 +58,10 @@ describe('editor bindings', () => {
 
   test('PlayStation glyphs for a DualSense, Xbox glyphs otherwise', () => {
     const b = editorBindings(DEFAULT_BINDINGS);
-    expect(glyph('editPick', b, true, true)).toBe('✕'); expect(glyph('editPick', b, true, false)).toBe('Ⓐ');
-    expect(glyph('editToggle', b, true, true)).toBe('Touchpad'); expect(glyph('editToggle', b, true, false)).toBe('L3+R3');
-    expect(glyph('editDelete', b, true, true)).toBe('△'); expect(glyph('editToggle', b, false)).toBe('Y');
-    expect(glyph('editPick', b, false)).toBe('Enter');
+    expect(promptLabel('editPick', b, 'playstation')).toBe('✕'); expect(promptLabel('editPick', b, 'xbox')).toBe('Ⓐ');
+    expect(promptLabel('editToggle', b, 'playstation')).toBe('Touchpad'); expect(promptLabel('editToggle', b, 'xbox')).toBe('L3+R3');
+    expect(promptLabel('editDelete', b, 'playstation')).toBe('△'); expect(promptLabel('editToggle', b, 'keyboard')).toBe('Y');
+    expect(promptLabel('editPick', b, 'keyboard')).toBe('Enter');
   });
 });
 

@@ -24,5 +24,7 @@ export function dialogueLine(id: string): DialogueLine {
 }
 /** The static line shown in a prompt, menu or one-time dialogue. */
 export function lineText(id: string): string { return dialogueLine(id).text; }
+/** A "Press {button} to …" prompt with the button name of the device in use (Input.prompt). */
+export function promptText(id: string, button: string): string { return lineText(id).replace('{button}', button); }
 /** Story intro paragraphs shown in the dialog after every New game action. */
 export const INTRO_LINE_IDS = ['intro_1', 'intro_2', 'intro_3'] as const;

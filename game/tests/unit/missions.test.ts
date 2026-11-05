@@ -5,7 +5,7 @@ import {
   PERMIT_PRICE, PERMIT_WARN_AT, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, START_MONEY, VEHICLE_PRICE, WARNING_PRICE,
   parSeconds, sellBackPrice, tip,
 } from '../../src/gameplay/economy';
-import { DIALOGUE, dialogueLine, lineText } from '../../src/gameplay/content/dialogue';
+import { DIALOGUE, dialogueLine, lineText, promptText } from '../../src/gameplay/content/dialogue';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
@@ -81,7 +81,7 @@ describe('dialogue content', () => {
   it('gives every menu option, reason, zone label and prompt an unvoiced line, and voices the shopkeepers', () => {
     const unvoiced: string[] = Object.values(ZONE_LABELS);
     for (const shop of Object.values(SHOPS)) {
-      for (const input of ['pad', 'key']) unvoiced.push(`prompt_enter_${shop.id}_${input}`);
+      unvoiced.push(`prompt_enter_${shop.id}`);
       for (const o of shop.options) unvoiced.push(optionLabel(o.id), ...(optionDetail(o.id) ? [optionDetail(o.id)!] : []));
     }
     unvoiced.push(...DIALOGUE.lines.filter(l => l.id.startsWith('reason_')).map(l => l.id));
@@ -153,9 +153,9 @@ describe('mission state machine', () => {
     const h = harness();
     h.missions.begin();
     h.at(near(MARKET.point));
-    expect(h.last().message).toBe(lineText('prompt_enter_market_key'));
-    h.at(near(MARKET.point), 0.1, { input: 'gamepad' });
-    expect(h.last().message).toBe(lineText('prompt_enter_market_pad'));
+    expect(h.last().message).toBe('Press E to enter the black market.');
+    h.at(near(MARKET.point), 0.1, { button: '✕' });
+    expect(h.last().message, 'the device button names the prompt').toBe('Press ✕ to enter the black market.');
     expect(h.press(near(MARKET.point)).opened).toBe(true);
     const shop = h.missions.shop!;
     expect(shop).toMatchObject({ id: 'market', title: lineText('zone_market'), line: expect.any(String),
@@ -190,7 +190,7 @@ describe('mission state machine', () => {
     h.choose(MARKET.point, 'leave');
     expect(h.missions.shop).toBeNull();
     h.wait(near(MARKET.point), 8);
-    expect(h.last().message).toBe(lineText('prompt_enter_market_key'));
+    expect(h.last().message).toBe(promptText('prompt_enter_market', 'E'));
     expect(h.last().targets.map(t => t.id)).toContain(MARKET.id);
   });
 
@@ -242,7 +242,7 @@ describe('mission state machine', () => {
     h.leave(PIZZERIA.point);
 
     h.wait(near(d.point, INTERACT_RADIUS - 0.1), 8);
-    expect(h.last().message).toBe(lineText('prompt_hand_over_key'));
+    expect(h.last().message).toBe(promptText('prompt_hand_over', 'E'));
     const elapsed = h.missions.snapshot().elapsed;
     expect(h.press(near(d.point)).opened).toBe(false);
     const expectedTip = tip(elapsed + 0.1, par);
@@ -574,11 +574,11 @@ describe('mission state machine', () => {
     expect(seen).toHaveLength(1);
     missions.begin();
     expect(seen).toHaveLength(2);
-    missions.update(0.016, { position: far, interact: false, input: 'keyboard', vehicleId: null });
-    missions.update(0.016, { position: far, interact: false, input: 'keyboard', vehicleId: null });
+    missions.update(0.016, { position: far, interact: false, button: 'E', vehicleId: null });
+    missions.update(0.016, { position: far, interact: false, button: 'E', vehicleId: null });
     expect(seen).toHaveLength(2);
     off();
-    missions.update(0.1, { position: near(MARKET.point), interact: true, input: 'keyboard', vehicleId: null });
+    missions.update(0.1, { position: near(MARKET.point), interact: true, button: 'E', vehicleId: null });
     expect(seen).toHaveLength(2);
     expect(missions.shop?.id).toBe('market');
   });
