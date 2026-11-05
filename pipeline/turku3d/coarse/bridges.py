@@ -885,6 +885,12 @@ def produce(tile, grid_pos, inputs):
             return np.interp(shapely.line_locate_point(line, shapely.points(xz)), ss, hh)
 
         profiles = branch_profiles(way, main_height, sample_ground)
+        if profiles:
+            # A link mapped as bridge beyond the deck outline still carries its lane: its deck
+            # runs on to the link's end on the branch profile, instead of a cliff to the ground.
+            links = shapely.union_all([line.buffer(half - 1.0, cap_style="flat")
+                                       for line, _, _, half in profiles])
+            footprint_poly = footprint_poly.union(links).difference(obstacles.buffer(0.15))
 
         def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps,
                       profiles=profiles):
