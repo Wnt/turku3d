@@ -1,9 +1,10 @@
 import type { V3 } from '../core/origin';
 import type { VehicleKind } from '../physics/constants';
 import { MATERIALS } from '../shared/col/materials';
+import type { EngineVoiceState } from './engine/voices';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
-  'engine', 'scooter', 'truck', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
+  'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
   'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
@@ -40,20 +41,25 @@ export function ambience(position: V3) {
 export const CROWD_RADIUS = 40;
 export const crowdGain = (walkers: number) => clamp(walkers / 12) * 0.13;
 
-/** Engine loop per vehicle class: the car's low four-stroke rumble, the scooter's buzzing single cylinder or the
- *  trophy truck's V6 with its open exhaust. */
-export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: 'truck' } as const satisfies Record<VehicleKind, Sound>;
+/** The trophy truck's engine, tyres and chassis are synthesised at runtime (audio/engine), not a sample loop. */
+export const SYNTH_ENGINE = 'v8-synth';
+/** Engine sound per vehicle class: the car's low four-stroke rumble and the scooter's buzzing single cylinder as
+ *  sample loops; the trophy truck's NA crossplane V8 from the engine voice pool (GameAudio.engineVoice). */
+export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: SYNTH_ENGINE } as const satisfies Record<VehicleKind, Sound | typeof SYNTH_ENGINE>;
+/** Vehicle classes whose engine, roll and screech come from the sample loops. */
+export type LoopVehicle = Exclude<VehicleKind, 'truck'>;
+export const isLoopVehicle = (kind: VehicleKind): kind is LoopVehicle => ENGINE_SOUND[kind] !== SYNTH_ENGINE;
 
-/** Per class: playback rate at 0 rpm and its rise up to `rpmTop`, engine gain at idle and its rise with throttle,
- *  and the tyre roll gain. The scooter's small engine idles and revs higher with quieter tyres; the truck's V6 is
- *  the loudest layer and its big off-road tyres roar. */
+/** Per sample-loop class: playback rate at 0 rpm and its rise up to `rpmTop`, engine gain at idle and its rise with
+ *  throttle, and the tyre roll gain. The scooter's small engine idles and revs higher with quieter tyres. */
 const ENGINE_MIX = {
   car: { rate: 0.65, rise: 2, rpmTop: 6000, idle: 0.12, throttle: 0.23, roll: 0.22 },
   scooter: { rate: 0.8, rise: 1.6, rpmTop: 9000, idle: 0.1, throttle: 0.2, roll: 0.12 },
-  truck: { rate: 0.6, rise: 1.7, rpmTop: 6000, idle: 0.2, throttle: 0.35, roll: 0.3 },
-} as const satisfies Record<VehicleKind, object>;
+} as const satisfies Record<LoopVehicle, object>;
 
+/** Loop gains of a sample-loop vehicle; the synthesised truck gets silence here (its voice carries everything). */
 export function carMix(rpm: number, throttle: number, speed: number, slip: number, running: boolean, kind: VehicleKind = 'car') {
+  if (!isLoopVehicle(kind)) return { rate: 1, engine: 0, roll: 0, screech: 0 };
   const m = ENGINE_MIX[kind];
   return { rate: m.rate + clamp(rpm / m.rpmTop) * m.rise,
     engine: running ? m.idle + clamp(throttle) * m.throttle : 0,
@@ -85,6 +91,8 @@ export type AudioEvent =
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
   | { type: 'crowd'; walkers: number }
   | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean }
+  /** One frame of a synthesised truck engine voice (GameAudio.engineVoice); `state` null releases it. */
+  | { type: 'engine-voice'; id: string; state: EngineVoiceState | null }
   /** Nearest moving ambient cars (stable `id`s) and the count within 150 m. */
   | { type: 'traffic'; cars: { id: number; position: V3; speed: number }[]; count: number; centre: V3 | null };
 
