@@ -97,9 +97,13 @@ Spec: `docs/handover/gta-traffic-study.md` (clean-room study of GTA V's own file
 finding is that GTA never dissolves jams: any car no player sees is disposable (off-screen cull at 150 m against about
 435 m on screen, zone/hour budgets, spawning on a hidden ring). In view, GTA tolerates jams. We built:
 
-- **Out-of-view recycling** (`traffic/flow.ts recycle`, once a second). The head of every chain of stuck cars (no 2 m
-  of headway for 90 s; the chain follows `waitsFor` through cars stuck for 30 s or more), and any car stuck for 180 s,
-  leaves the flow when no watcher sees it. `unseen()`: beyond 320 m, or beyond 90 m outside the view cone widened by
+- **Out-of-view recycling** (`traffic/flow.ts recycle`, once a second). From every standing car (below 0.15 m/s) that
+  has made no 2 m of headway for a while, the check follows what each car waits on this tick up the queue to its
+  front. A queue that moves anywhere, or whose front is free to go or waits for a red light, is not jammed. The front
+  of a jammed queue (it names what stops it, or it has backed off an obstacle or a player holds it up) leaves the flow
+  when no watcher sees it after standing 20 s with a way to take, 5 s beyond 150 m of every watcher (GTA: hidden
+  stationary cars go within seconds there); a front at its stop line counts only the green it stood through
+  (`controls.greenWithin`). Any car stuck for 180 s (120 s beyond 150 m) also leaves. `unseen()`: beyond 320 m, or beyond 90 m outside the view cone widened by
   0.35 rad. Both radii sit beyond the ring's draw radii (85 m out of view, 300 m in view), so a recycled car was not
   drawn. With no watcher list (`null`) nothing is recycled. Sources keep their timetable. `stats.recycled`,
   `recycledLog`.
@@ -108,7 +112,8 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
   - multiplayer: the server's `watch` message (`server/watch.js`, once a second), which carries every online player's
     position rounded to 1 m and is stamped with the server second. Every peer schedules it at the same tick (stamp +
     2 s, valid 1.5 s; `flow.scheduleWatch`) as all-round watchers, so peers recycle the same cars. A peer that misses
-    a list recycles nothing in that window. `TRAFFIC.version` is 13.
+    a list recycles nothing in that window. `TRAFFIC.version` is 14 (recycling decisions move cars, so mixed
+    builds must not share a flow).
 - **Stop lines out of crossing paths** (`safeFront`): a waiting head's front stops where its body keeps 0.3 m from
   every other approach's movement path through the junction (moved back at most 6 m). This is the east pattern,
   where a reservation holder was footprint-blocked by a head at another stop line.
@@ -142,16 +147,35 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
     turns);
   - in view, 20 min blocked: cars stuck > 300 s 56 -> 2, stuck > 60 s within 200 m 42 -> 13, 14 U-turns; out of
     view the queue never builds (recycling). Both clear within a minute of removing the truck;
-  - hidden jams far from every watcher (> 150 m) go sooner: chain heads after 60 s, others after 120 s. 20/40 s
-    also took cars waiting at red lights (east 98.4 vs 104.7 exits/min);
+  - hidden jams far from every watcher (> 150 m) go sooner (superseded by "A queue at a red light is not a jam"
+    below);
   - a final contact check: the pose a car ends its tick in must not touch another car or a player's vehicle (the
     heading of a pass scales with speed, so a sudden stop turned corners into the oncoming car); otherwise it keeps
     last tick's pose.
 - **Busy-avenue and sprint scenes** (study 4.5, T4/T5): drivers turn off at the last junction before a visible jam
   without stopping, so a car within 45 m of its line whose exit is jammed (last car stuck 10 s, no room) takes another
-  movement (`reroute(…, ahead)`, `stats.reroutedAhead`); U-turns after 30-60 s (GTA 24-114 s); hidden chain heads go
-  after 60 s (45 s beyond 150 m; GTA within seconds, but our ring draws out-of-view cars to 85 m, so 90 m stays the
-  floor). East 30 min: 104.5 exits/min (104.7 before), 0 locked, 0 recycled in view, 72 reroutes ahead.
+  movement (`reroute(…, ahead)`, `stats.reroutedAhead`); U-turns after 30-60 s (GTA 24-114 s). Our ring draws
+  out-of-view cars to 85 m, so 90 m stays the floor for any removal. East 30 min: 104.5 exits/min (104.7 before),
+  0 locked, 0 recycled in view, 72 reroutes ahead.
+- **A queue at a red light is not a jam** (2026-11-06). Timing chain heads by raw stuck time counted red waits, so
+  removal could not go below the longest red (42 s) and still took cars that were pulling away at green: in the
+  30 min soaks of the previous rule (60/45 s), 311 of 574 recycled cars on east and 502 of 1252 on south were already
+  moving and 66/176 had stood mostly at a red. The rule above (fronts only, green time only, 20 s / 5 s beyond
+  150 m), 30 min at 16:00 on osgallery-dev (probe `gridlock.ts`, counts `recycled_moving`/`recycled_red`):
+
+  | district | exits/min | recycled | moving | mostly red | locked > 300 s | in view |
+  |---|---|---|---|---|---|---|
+  | east, before | 104.5 | 574 | 311 | 66 | 0 | 0 |
+  | east, 30/15 s | 107.2 | 77 | 0 | 2 | 0 | 0 |
+  | east, 20/5 s | 107.6 | 72 | 0 | 2 | 0 | 0 |
+  | south, before | 104.2 | 1252 | 502 | 176 | 0 | 0 |
+  | south, 30/15 s | 107.5 | 319 | 0 | 22 | 0 | 0 |
+  | south, 20/5 s | 110.9 | 313 | 0 | 16 | 0 | 0 |
+
+  "Mostly red" is the probe's coarse rule (under 10 s of green while standing); the remaining ones stood through at
+  least 5 s of green without getting in. Sources enter fewer cars (boundary lanes stay fuller; east 3405 vs 3848)
+  while more exit, so density follows the demand model instead of being thinned out of view. Truck blockade
+  (`probe/blockade.ts`, 20 min blocked in t0_0_0): see the blockade table below.
 - **Car budget per tile and hour (A/B, removed):** a tile over 2.5x (or 4x) the cars its lanes carry at free flow
   that hour fed no new cars and shed hidden excess. East 30 min: 93.9 (4x: 102.5) vs 98.4 (later 104.7) exits/min
   without it, 0 locked either way. Demand already follows the hour profile; GTA needs budgets because it spawns
