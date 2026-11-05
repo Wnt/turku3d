@@ -170,7 +170,10 @@ function demandForwarder() {
       reply.on('end', () => {
         if (reply.statusCode === 429) row.until = Date.now() + 1000 * (Number(reply.headers['retry-after']) || 2);
         if (reply.statusCode === 200) {
-          try { const body = JSON.parse(Buffer.concat(chunks).toString()); if (typeof body?.version === 'number') answers.set(version, { version: body.version }); }
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString());
+            if (typeof body?.version === 'number') answers.set(version, { ...(typeof body.state === 'string' ? { state: body.state } : {}), version: body.version });
+          }
           catch { /* not JSON: nothing to remember */ }
         }
         done();
@@ -188,7 +191,8 @@ function demandForwarder() {
       row.next = { target, headers, version };
       if (idle) setTimeout(() => forward(client, row), Math.max(0, row.until - Date.now()));
     },
-    answer: version => answers.get(version) ?? {},
+    /** Before the farm's first answer the service counts as up: the request reached a running proxy. */
+    answer: version => answers.get(version) ?? { state: 'ready' },
   };
 }
 

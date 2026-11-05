@@ -296,6 +296,7 @@ test('demand is answered at once and forwarded one at a time per client; scenery
     assert.equal(new URL(demandCalls[1], origin).searchParams.get('tiles'), 't0_2_0');
     await new Promise(r => setTimeout(r, 50));
     assert.deepEqual(await (await fetch(`${base}/coarse/demand?client=a&tiles=t0_0_0`)).json(), { version: 8 });
+    assert.deepEqual(await (await fetch(`${base}/coarse/demand?client=b&tiles=t0_0_0`)).json(), { version: 8 });
     // Scenery: one upstream ask, the repeat from the cache; a stale answer is served and refreshed behind it.
     const q = `${base}/coarse/scenery?tiles=t2_1_-1`;
     assert.equal((await (await fetch(q)).json()).tiles[0].key, 'k1');
