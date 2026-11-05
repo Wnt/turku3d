@@ -7,7 +7,8 @@ stills (image planes parented to the matched cameras). Nothing was appended or j
 downloaded mesh, sponsor logo, brand mark or photograph is included; the only text is the "19" (Blender's default
 font, converted to mesh). Copyright 2026 Jonni Madekivi; MIT, as the repository.
 
-Source (local, not in git): `~/turku3d/loops/trophy4400/model/blend/scratch-r2.blend`. The per-round tool log is
+Source (local, not in git): `~/turku3d/loops/trophy4400/model/blend/scratch-r3.blend` (parts) and
+`scratch-r3-export.blend` (joined LODs, as exported). The per-round tool log is
 `~/turku3d/loops/trophy4400/model/MCP-LOG.md`, and the overlay/edge/model captures are in
 `~/turku3d/loops/trophy4400/model/previews/mcp-round-N/`.
 
@@ -20,7 +21,7 @@ node game/scripts/prepare-trophy4400.mjs   # ~/turku3d/data/assets-src/trophy440
 
 It validates the node contract, makes every material single-sided except `net-black`, encodes any textures as
 KTX2 ETC1S (cached by content hash in `assets-src/trophy4400/build/ktx2`), meshopt-compresses the geometry
-(positions 14 bit) and writes `hardpoints.json` (SPEC 2.3, plus the spring seats and coil lengths). 0.23 MB;
+(positions 14 bit) and writes `hardpoints.json` (SPEC 2.3, plus the spring seats and coil lengths). 0.57 MB;
 the MCP rebuild uses plain PBR materials and no textures. At load (`src/actors/trophy4400/asset.ts`) every mesh of a LOD is merged per
 material into rigid-skinned meshes whose bones are the rig nodes, so a truck costs 29 / 29 / 25 draws at L0 / L1 / L2
 (was 124 / 122 / 45 as separate nodes); the linkage solver (`linkage.ts`) and rig (`rig.ts`) pose the bones from
@@ -29,12 +30,13 @@ each wheel's synced hub height and steer.
 | quantity | value |
 |---|---|
 | wheelbase / track (wheel-* origins) | 3.160 / 2.180 m (physics layout) |
-| tyre OD x width | 1.075 x 0.31 m: a 0.50 m carcass with two staggered rows of 30 lugs; 17-in-class dark gunmetal wheel with a wide orange beadlock ring (0.40-0.52 m dia) |
-| body | no fenders: slab hull tapered in plan (nose +-0.50..0.55, doors +-0.87, tail +-0.55) with two big wheel cutouts (r 0.67/0.68), a thin hood strip, a dark cavity under it, dark recessed fascia with two round LEDs and a winch, a V skid with the 19, a low tail panel with red-amber-red ovals, a raw tube bumper, vertical 19 plates and the tilted spare between them |
-| cab | flat orange roof x -0.77..0.36 at 1.90 m, light bar on its front edge, A-pillar tubes to the cowl, whip antenna at the roof rear |
-| suspension | boxed square-section A-arms with gusset plates; slotted top plate on the uppers; rear billet portal cases (CV input 0.12 m above the hub); coilovers with wire springs, bypass bodies, CV shafts, tie rods and rack sliders on the rig nodes |
-| triangles L0 / L1 / L2 | 32,693 / 7,553 / 1,388 |
-| sha256 (raw) | 8532a9d4af8e5e666b02112ca2a25c4c7183b3a6d8269abe42e2ea9c171958b5 |
+| tyre OD x width | 1.072 x 0.33 m: a lathed squared-shoulder carcass with 36 x (two staggered tread lugs + two shoulder lugs); dark wheel with a wide orange beadlock ring (0.34-0.52 m dia), 24 bolts and a gold hub |
+| frame | round 3: a tube chassis and cage laid over the undistorted CAD frames (main hoop x -0.70, roof x -0.70..0.50 at 1.84, A-pillars to the cowl node x 0.92, front clip carrying the LCA pivots, rear section to the shock towers at the coil tops and the tail), black powder coat (`cage-powder`) |
+| body | no fenders: a lattice-shaped hull widest at the cockpit (+-0.88) narrowing to the nose (+-0.47) and tail (+-0.60) with tumblehome; front cutouts r 0.66 and rear r 0.56 cut only outboard of the narrow nose/tail, leaving a thin hood strip; open cockpit and rear deck; a dark lower band and door band with abstract white blocks; round LEDs, grille, winch, tube bumper loop and a V skid with the 19; three oval tail lamps (red, amber, red) with bezels, a braced raw bumper, white 19 plates on the corner posts, an alu deck and fan shroud with twin fans, an exhaust, a red tow loop and the spare lying on the rear rails |
+| cab | thin orange roof x -0.70..0.50 at 1.84-1.88 m (measured on the side still through the refit camera), leaning B-pillar panels, orange A-pillar strips, window nets (`net-black`), light bar at the roof front edge, round mirrors on stalks, pod lights, two seats |
+| suspension | unchanged from the MCP rebuild: boxed square-section A-arms with gusset plates; slotted top plate on the uppers; rear billet portal cases (CV input 0.12 m above the hub); coilovers with wire springs, bypass bodies, CV shafts, tie rods and rack sliders on the rig nodes |
+| triangles L0 / L1 / L2 | 83,887 / 22,927 / 2,224 (0.57 MB) |
+| sha256 (raw) | 97cc47fd3199534d31458b1bacecef1308d29fa27309f6c9dd1403ae9f005eac |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,
