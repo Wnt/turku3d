@@ -24,6 +24,8 @@
       .menu-ready h1, .menu-ready .eyebrow, .menu-ready .loading-log { display: none; }
       .menu-ready p { margin: 4px 0; }
       #loading-screen[hidden] { display: none; }
+      .loading-retry { pointer-events: auto; margin: 0 0 12px; padding: 8px 22px; border: 1px solid #a1ebd3; border-radius: 6px; background: #a1ebd3; color: #08191f; font: 600 14px system-ui, sans-serif; cursor: pointer; }
+      .loading-retry[hidden] { display: none; }
       @media (max-width: 1100px) { #loading-screen.menu-ready { visibility: hidden; } }
       .pole-notice { position: fixed; z-index: 90; top: calc(58px + env(safe-area-inset-top)); right: 20px; display: flex; align-items: center; gap: 12px; width: min(370px, calc(100vw - 40px)); padding: 10px; border: 2px solid #d2b979; border-radius: 12px; background: #213d50ed; color: #fff4da; font: 600 15px/1.35 system-ui, sans-serif; box-shadow: 0 8px 30px #0008; pointer-events: none; transform: translateX(calc(100% + 30px)); opacity: 0; transition: transform .3s ease, opacity .3s ease; }
       .pole-notice.visible { transform: translateX(0); opacity: 1; }
@@ -213,6 +215,7 @@
       <div class="loading-panel">
         <span class="eyebrow">TURKU3D / CITY BOOT</span><h1>Bringing Turku to life</h1>
         <p class="loading-active" role="status">Downloading game modules…</p>
+        <button class="loading-retry" type="button" hidden>Retry</button>
         <progress aria-label="City loading progress"></progress><p class="loading-count">Waiting for the engine</p>
         <pre class="loading-log" aria-label="Technical loading log"></pre>
       </div>

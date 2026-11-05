@@ -10,7 +10,9 @@ export const AUTHORED_ESTATE = 'fleet-estate-3';
 export const ESTATE_WHEELS=Object.entries(fleetWheelLayout(AUTHORED_ESTATE)!.pivots).map(([name,p])=>({name,
   pivot:{x:p[0],y:p[1],z:p[2]},radius:.32,width:.205}));
 interface FleetAsset {body:THREE.BufferGeometry;glass:THREE.BufferGeometry|null;parts:AuthoredFleetParts}
-const pending = new Map<string, Promise<FleetAsset>>();
+const pending = new Map<string, Promise<FleetAsset|null>>();
+/** Models whose asset failed after the fetch retries (core/retryFetch.ts): drawn with the procedural fleet geometry. */
+const unavailable = new Set<string>();
 
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
 export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
@@ -63,7 +65,7 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
 
 async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   const entry = AUTHORED_BY_ID.get(model);
-  if (model !== AUTHORED_ESTATE && !entry) return null;
+  if (model !== AUTHORED_ESTATE && !entry || unavailable.has(model)) return null;
   const key = `${model}/${lod}`;
   let request = pending.get(key);
   if (!request) {
@@ -101,7 +103,12 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         }
         return body;
       }, glass, parts };
-    }).catch(error => { pending.delete(key); throw error; });
+    }).catch(error => {
+      // An optional car model never aborts the load: the model drops to the procedural fleet, with one warning.
+      if (!unavailable.has(model)) console.warn(`[fleet] ${url} unavailable, using the procedural car: ${String(error?.message ?? error)}`);
+      unavailable.add(model);
+      return null;
+    });
     pending.set(key, request);
   }
   return request;
