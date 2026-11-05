@@ -33,11 +33,11 @@ each wheel's synced hub height and steer.
 | quantity | value |
 |---|---|
 | wheelbase / track (wheel-* origins) | 3.150 / 2.180 m |
-| tyre OD x width | 1.067 x 0.345 m, mud-terrain on a 72-step round carcass: 34 pitches of two staggered centre rows, rounded shoulder lugs that wrap onto the sidewall and sidewall lugs; 17-in dark gunmetal 8-window centre with a blue cap and an orange beadlock ring (0.432-0.546 m dia) with 24 bolts |
-| L0 bbox (excl. whip) | body x -2.49 .. 2.17 (rear tube bumper .. front flare ends / bumper hoop at the front tyre), width 2.35 over the front flares / 1.60 at the cab, door rocker 0.72 (dark frame and belly at 0.61-0.64), front flare crown 1.373, door top 1.38, hood 1.39-1.41, bumper hoop top 1.44, cage roof 2.03, light bar 2.01-2.12 |
-| triangles L0 / L1 / L2 | 117,142 / 29,066 / 2,454 |
+| tyre OD x width | 1.067 x 0.33 m, mud-terrain on a 72-step round carcass: 40 pitches of two interlocking angled centre rows, staggered shoulder blocks that wrap onto the sidewall and sidewall lugs; 17-in dark beadlock: black ring with 24 bolts and a thin red outer ring (0.516-0.545 m dia), dark gunmetal 8-window centre, small blue cap |
+| L0 bbox (excl. whip) | body x -2.49 .. 2.19 (rear tube bumper .. front bumper hoop), width 2.04 over the front flares / 1.58 at the doors / 1.30 at the roof (cab tumblehome 0.14 per side), belly 0.58, door top 1.33, hood 1.37, front arch top 1.30, roof 1.90, light bar top 2.00 |
+| triangles L0 / L1 / L2 | 121,450 / 28,955 / 3,535 |
 | raw primitives (all LODs) | 225 (before the per-material merge) |
-| sha256 (raw) | ee225487f57e1c2663193447a126c778536a92ca09da31432faa654983ddb9b7 |
+| sha256 (raw) | 8527e75f17267ae61c853c26a0ac95e7012511ef7be0c99720fb983dbbd42cdc |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,
@@ -45,6 +45,21 @@ Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corne
 `steer-wheel`, `spare`, `antenna`, lamp/seat/exit empties and 64 `hp-*` hardpoints under `hardpoints`.
 Rig nodes are empties at the pivots; axial nodes point Blender +Z (glTF +Y) from top/inner to
 bottom/outer. Lamp lenses use `led-optics` / `tail-lens`.
+
+Round 12 (2026-11-05, a new body from the verified dimension sheet, `~/turku3d/loops/trophy4400/model/gen8/`, previews
+`previews/round-10..12/`). The hardpoints and the node contract are unchanged, so `hardpoints.json` is byte-identical.
+- Body: narrow (doors y +-0.79) on the fixed 2.18 m track, so the tyres stand well outboard on exposed arms. The
+  front fenders are crisp flat slabs whose tops slope down to a lip at y +-1.02, with tall arch openings (1.30 m).
+  The nose is short (sheet front x 1.78) with a dark slotted fascia, a slot vent along the hood lip and hood rivets.
+- Cab: a flat-sided orange cab box (x -0.78 .. 0.60) with a sparse net window, leaning in 0.14 m per side to the
+  flat orange roof at 1.90 m (tumblehome from the CAD frames). There is a full-width light bar on the roof front edge.
+- Rear: the quarter tapers and rises to a raised tail with orange corner wraps. The rear is open above a full-width
+  tube bumper with an LED tail bar. The spare is tilted 42 deg on a tube rack (centre x -2.0, z 1.38).
+- Front end: a thin tube bumper hoop (front x 2.17, +-0.68) with the winch, a big fairlead and a soft shackle. Two
+  recessed round 7-in LEDs sit in dark openings in the nose corners. Below them is a tall dark V skid with the 19.
+- Livery: a clean dark door band (z 1.04-1.32, angled leading edge) with three abstract white stripes. There is no
+  text-like graphic. The 19 plates are on the skid and on the cab-rear pillars.
+- Paint: deep satin orange (#B23004, roughness 0.26, full clearcoat).
 
 Round 9 (2026-11-05, on the round-7 body, `~/turku3d/loops/trophy4400/model/gen9/`): the round-8 tyre and an
 orange-ring beadlock on a dark centre; the spare lies across the rear deck tilted 38 deg (centre x -2.0, z 1.30) under a
