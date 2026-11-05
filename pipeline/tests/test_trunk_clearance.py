@@ -176,3 +176,10 @@ def test_migration_matches_the_generator_rule(tmp_path, monkeypatch):
     assert centres == sorted((round(t.x, 2), round(t.z, 2)) for t in expect if C.CollisionTile.at(t.x, t.z) == cell)
     stats = p.manifest["vegetation"]["trunk_clearance"]
     assert stats["dropped_area"] == 1 and stats["moved_lidar"] == 1 and not stats.get("collision_trunks_unmatched")
+
+
+def test_a_tile_without_paving_or_lanes_keeps_its_trees():
+    trees = [trunk("area:1:a", 10, 10), trunk("lidar:b", 30, 30)]
+    assert clearance.place(trees, [(DRIVE, True)]) == {}
+    assert clearance.place(trees, [(shapely.box(0, 200, 5, 205), False)]) == {}
+    assert clearance.place([trunk("area:1:c", 100, 50)], [(DRIVE, False)]) == {"area:1:c": None}

@@ -179,8 +179,10 @@ def place(trunks: list[Trunk], walked, blocked=None, bounds=None, stats=None):
     result = {}
     for trunk in sorted(trunks, key=lambda t: (t.object_id, t.x, t.z)):
         p = shapely.Point(trunk.x, trunk.z)
-        in_lane = lanes.distance(p) < need(trunk)
-        if not in_lane and (trunk.real or wide.distance(p) >= need(trunk)):
+        # The distance to an empty geometry is NaN: no lanes or no paving is nothing to clear.
+        in_lane = not lanes.is_empty and lanes.distance(p) < need(trunk)
+        on_paving = not wide.is_empty and wide.distance(p) < need(trunk)
+        if not in_lane and (trunk.real or not on_paving):
             continue
         stats["on_lane" if in_lane else "on_paving"] += 1
         target = None
