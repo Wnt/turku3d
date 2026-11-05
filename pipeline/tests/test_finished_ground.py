@@ -169,3 +169,14 @@ def test_a_quay_by_the_water_with_a_moored_ship_is_no_site():
     assert ev.footprints == []
     out, report, region = F.apply(TILE, tile_points(TILE, ev), ev)
     assert report is None and region is None
+
+
+def test_kerb_seam_sampler_reads_a_changed_tiles_own_finished_ground_across_the_seam():
+    from turku3d.coarse.inputs import CELLS
+    from turku3d.coarse.kerbs import height_sampler
+
+    points = key_points(TILE.bbox.buffered(F.MARGIN))
+    heights = np.zeros((CELLS + 1, CELLS + 1))
+    sample = height_sampler(TILE, heights, root=None, sources=None, finished_points=points)
+    assert abs(sample(255.0, 125.0) - plane(255.0, 125.0)) < 1e-6  # east neighbour, no inputs needed
+    assert sample(125.0, 125.0) == 0.0  # the tile's own grid stays the tile's own
