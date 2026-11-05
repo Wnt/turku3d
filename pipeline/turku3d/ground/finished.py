@@ -89,9 +89,11 @@ def zone_rows(frame) -> tuple[list, list, list]:
     frame, the polygons of every stair, bridge, ramp, tunnel and underpass part, and of every other
     street part whatever its year."""
     out, structures, streets = [], [], []
+    # A street register without construction years (Espoo InfStreet, NL BGT) has no finished-state zones.
+    none = [None] * len(frame)
     for geom, kind, built, renovated, material, key in zip(
-        frame.geometry_local, frame.Katuosalaji, frame.Valmistumisvuosi, frame.Peruskorjausvuosi,
-        frame.Pintamateriaali, frame.feature_key, strict=True
+        frame.geometry_local, frame.Katuosalaji, frame.get("Valmistumisvuosi", none),
+        frame.get("Peruskorjausvuosi", none), frame.Pintamateriaali, frame.feature_key, strict=True
     ):
         if geom is None:
             continue

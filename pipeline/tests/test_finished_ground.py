@@ -180,3 +180,16 @@ def test_kerb_seam_sampler_reads_a_changed_tiles_own_finished_ground_across_the_
     sample = height_sampler(TILE, heights, root=None, sources=None, finished_points=points)
     assert abs(sample(255.0, 125.0) - plane(255.0, 125.0)) < 1e-6  # east neighbour, no inputs needed
     assert sample(125.0, 125.0) == 0.0  # the tile's own grid stays the tile's own
+
+
+def test_street_register_without_construction_years_has_no_zones():
+    import geopandas as gpd
+    import shapely
+
+    from turku3d.ground.finished import zone_rows
+
+    frame = gpd.GeoDataFrame({"Katuosalaji": ["Ajorata"], "Pintamateriaali": ["Asfalttibetoni"],
+                              "feature_key": ["k"], "geometry_local": [shapely.box(0, 0, 10, 10)]},
+                             geometry="geometry_local")
+    zones, structures, streets = zone_rows(frame)
+    assert zones == [] and structures == []
