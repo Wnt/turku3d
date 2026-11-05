@@ -428,6 +428,18 @@ describe('out-of-view recycling (GTA-style)', () => {
     expect(flow.stats.recycled).toBeGreaterThan(0);
     expect(queue.every(c => c.stuck < 200)).toBe(true);
   });
+
+  test('a queue at a red light is not a jam: a busy signalled junction nobody watches keeps its waiting cars', () => {
+    const flow = new TrafficFlow(flowNetwork(intersection(true, 2)));
+    flow.reset(0); flow.setWatchers([]);
+    let redWaits = 0;
+    for (let step = 1; step <= 3000; step++) {
+      flow.update(step / 10);
+      for (const c of flow.cars.values()) if (c.stuck > 20 && c.waiting > 20 && signalState(c.route, step / 10) !== 'green') redWaits++;
+    }
+    expect(redWaits).toBeGreaterThan(100);
+    expect(flow.stats.recycled).toBe(0);
+  });
 });
 
 describe('junction stop lines', () => {

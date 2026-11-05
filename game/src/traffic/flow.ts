@@ -6,7 +6,7 @@ import { hash01, hash32, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
 import { connector, cumulative, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
-import { signalState, protectedLeft } from './controls';
+import { greenWithin, signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
 import { bodyOverlap, pedestrianStop, vehicleStop, type PedestrianFrame, type TrafficPedestrian, type VehicleFrame,
   type TrafficVehicle } from './pedestrians';
@@ -67,16 +67,20 @@ const CHANGE_CREEP = 0.3;
 const STARVE_AFTER = 15;
 /** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
 const HELD = /^(exit|storage|receiving|signal|no-exit)/;
-/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, a car that has made no headway for
- *  RECYCLE_HEAD seconds and heads a chain of stuck cars, or any car stuck for RECYCLE_ANY seconds, leaves the flow when
- *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
-const RECYCLE_HEAD = 60, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
-/** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA removes hidden cars within seconds there): chain
- *  heads after FAST_HEAD s without headway, any car after FAST_ANY s (just beyond the longest red wait, 42 s: queued at a signal is not stuck). */
-const FAST_FAR = 150, FAST_HEAD = 45, FAST_ANY = 120;
+/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, the head of a chain of stuck cars that
+ *  has stood RECYCLE_HEAD seconds while it had a way to take, or any car stuck for RECYCLE_ANY seconds, leaves the flow
+ *  when no watcher can see it. A head at its line counts only the green: a queue at a red light waits, it is not
+ *  jammed. Its slot's demand is not replayed: the sources keep their own timetable. */
+const RECYCLE_HEAD = 30, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
+/** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA: hidden stationary cars go within seconds there):
+ *  chain heads after FAST_HEAD s (at least STARVE_AFTER, so a driver waiting for a gap takes its turn first), any car
+ *  after FAST_ANY s. */
+const FAST_FAR = 150, FAST_HEAD = 15, FAST_ANY = 120;
 
-/** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
-const JAM_STUCK = 30;
+/** Below this speed (m/s) a car stands (out-of-view recycling follows a queue through such cars). */
+const STANDING = 0.15;
+/** Reasons a driver gives at its stop line (mayEnter) other than a red light: its wait counts only the green. */
+const AT_LINE = /^(queue-head|no-exit|stop-sign|turn|exit|storage|reservation|starved|give-way|right-hand)/;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
 export interface FlowCar {
@@ -809,17 +813,26 @@ export class TrafficFlow {
     const watchers = this.watchers;
     if (!watchers) return;
     const far = (c: FlowCar) => watchDistance(watchers, c.pose.x, c.pose.z) > FAST_FAR;
-    const stuck = [...this.cars.values()].filter(c => c.stuck >= (far(c) ? FAST_HEAD : RECYCLE_HEAD)).sort((a, b) => cmp(a.key, b.key));
+    // Seconds a car has stood while it had a way to take: held at its line, only while its light was green.
+    const jammed = (c: FlowCar) => c.blockedBy && AT_LINE.test(c.blockedBy) ? greenWithin(c.route, t, c.stuck) : c.stuck;
+    // A queue's front holds it: it names what stops it (not a red light), or it has backed off an obstacle or a player
+    // holds it up (it stands clear of what blocks it, so it names nothing).
+    const holds = (c: FlowCar) => c.blockedBy ? c.blockedBy !== 'signal' : c.backed > 0 || c.reverse > 0 || c.held > 0;
+    const stuck = [...this.cars.values()].filter(c => c.speed < STANDING && c.stuck >= Math.min(FAST_HEAD, RECYCLE_HEAD))
+      .sort((a, b) => cmp(a.key, b.key));
     const heads = new Set<FlowCar>();
     for (const car of stuck) {
-      let at = car;
+      // Up the standing queue (what each car waits on now) to its front. A queue that moves anywhere, or whose front
+      // does not hold it (free to go, or waiting for green), is not jammed.
+      let at: FlowCar | null = car;
       const seen = new Set<FlowCar>([car]);
-      for (let hop = 0; hop < RECYCLE_CHAIN; hop++) {
-        const next = this.waitsOn(at);
-        if (!next || seen.has(next) || next.stuck < JAM_STUCK) break;
-        seen.add(next); at = next;
+      for (let hop = 0; at && hop < RECYCLE_CHAIN; hop++) {
+        const next = this.blocker(at);
+        if (!next || seen.has(next)) break;
+        if (next.speed >= STANDING) at = null;
+        else { seen.add(next); at = next; }
       }
-      heads.add(at);
+      if (at && holds(at) && jammed(at) >= (far(at) ? FAST_HEAD : RECYCLE_HEAD)) heads.add(at);
     }
     for (const car of stuck) if (car.stuck >= (far(car) ? FAST_ANY : RECYCLE_ANY)) heads.add(car);
     for (const car of [...heads].sort((a, b) => cmp(a.key, b.key))) {
@@ -871,6 +884,11 @@ export class TrafficFlow {
 
   /** The key a car waits on (any blockedBy that names one), for deadlock cycles. */
   private waitsOn(car: FlowCar) { return car.waitsFor ? this.cars.get(car.waitsFor) ?? null : null; }
+  /** The car a car waits on this tick (a blockedBy that names one), or null. */
+  private blocker(car: FlowCar) {
+    const by = car.blockedBy, at = by ? by.indexOf(':') : -1;
+    return at < 0 ? null : this.cars.get(by!.slice(at + 1)) ?? null;
+  }
   private clearDeadlocks() {
     const stuck = [...this.cars.values()].filter(c => c.stuck >= CLEAR_AFTER).sort((a, b) => cmp(a.key, b.key));
     for (const car of stuck) {
