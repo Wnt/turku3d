@@ -117,6 +117,8 @@ describe('portal trigger', () => {
       expect(portalsIn(CITIES[name])).toEqual([back]);
       const s = { x: CITIES[name].spawn.E - CITIES[name].origin.E, z: CITIES[name].origin.N - CITIES[name].spawn.N };
       expect(Math.hypot(back.x - s.x, back.z - s.z)).toBeCloseTo(12, 6);
+      // Ahead of the spawn heading: the arriving player faces it.
+      expect(portalLocal({ ...back, x: s.x, z: s.z, headingDeg: CITIES[name].spawn.headingDeg }, back.x, back.z).along).toBeCloseTo(12, 6);
     }
   });
 });
@@ -188,7 +190,7 @@ describe('city switch state', () => {
     for (const city of Object.values(CITIES)) near(enToLatLon(city.spawn.E, city.spawn.N, city.projection), city.latLon.lat, city.latLon.lon, 3);
     near(enToLatLon(25489150, 6673640, CITIES.espoo.projection), 60.175482, 24.804519); // pyproj EPSG:3879
     near(enToLatLon(121318, 487362, CITIES.amsterdam.projection), 52.373099, 4.892604); // pyproj EPSG:28992
-    near(enToLatLon(93058, 437219, CITIES.rotterdam.projection), 51.920002, 4.486795);
+    near(enToLatLon(93075, 437390, CITIES.rotterdam.projection), 51.921541, 4.487011); // pyproj EPSG:28992
     near(gkToLatLon(23459668, 6704254, 23), 60.44839, 22.26726);
     near(rdToLatLon(155000, 463000), 52.15517, 5.38721); // Amersfoort, the RD origin
   });

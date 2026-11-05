@@ -59,8 +59,10 @@ export const CITIES: Record<CityName, CityProfile> = {
   rotterdam: {
     name: 'rotterdam', title: 'Rotterdam', crs: 'EPSG:28992', heightDatum: 'NAP', projection: { kind: 'rd' },
     origin: { E: 93000, N: 437500 }, trueNorthGridBearingDeg: 0.711,
-    spawn: { E: 93058, N: 437219, headingDeg: 0, label: 'Markthal' },
-    latLon: { lat: 51.92, lon: 4.4868 }, tiles: '/cities/rotterdam/coarse/', room: '/city/rotterdam',
+    // Binnenrotte, on the open square north of the Markthal (the hall itself is a building), facing south to the
+    // return arch 12 m ahead.
+    spawn: { E: 93075, N: 437390, headingDeg: 180, label: 'Binnenrotte' },
+    latLon: { lat: 51.92154, lon: 4.48701 }, tiles: '/cities/rotterdam/coarse/', room: '/city/rotterdam',
   },
 };
 
