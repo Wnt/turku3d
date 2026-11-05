@@ -171,11 +171,25 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
   | south, before | 104.2 | 1252 | 502 | 176 | 0 | 0 |
   | south, 30/15 s | 107.5 | 319 | 0 | 22 | 0 | 0 |
   | south, 20/5 s | 110.9 | 313 | 0 | 16 | 0 | 0 |
+  | centre 5x5, before | 142.7 | 1789 | 466 | 365 | 0 | 0 |
+  | centre 5x5, 20/5 s | 143.8 | 321 | 2 | 22 | 0 | 0 |
 
   "Mostly red" is the probe's coarse rule (under 10 s of green while standing); the remaining ones stood through at
   least 5 s of green without getting in. Sources enter fewer cars (boundary lanes stay fuller; east 3405 vs 3848)
-  while more exit, so density follows the demand model instead of being thinned out of view. Truck blockade
-  (`probe/blockade.ts`, 20 min blocked in t0_0_0): see the blockade table below.
+  while more exit, so density follows the demand model instead of being thinned out of view. The cost: the centre
+  keeps 21 % more cars (1177 vs 973 at the end) and its flow step mean rose from 37.3 to 42.0 ms (runs side by side
+  on the loaded host, load 50-65 on 16 cores). Truck blockade
+  (`probe/blockade.ts`, `blockade.sh`; 9 centre tiles, 20 min blocked + 10 min cleared, totals at the end):
+
+  | watcher | rule | U-turns | recycled | exits | stuck > 60 s within 200 m (end of block) |
+  |---|---|---|---|---|---|
+  | 25 m, looking at the truck | before | 24 | 478 | 1874 | 15 |
+  | 25 m, looking at the truck | 20/5 s | 24 | 119 | 1836 | 13 |
+  | nobody near | before | 6 | 688 | 1884 | 0 |
+  | nobody near | 20/5 s | 0 | 216 | 1806 | 0 |
+
+  In view nothing near the truck is recycled under either rule; out of view the fronts now go before they reach the
+  U-turn wait, and the queue never builds.
 - **Car budget per tile and hour (A/B, removed):** a tile over 2.5x (or 4x) the cars its lanes carry at free flow
   that hour fed no new cars and shed hidden excess. East 30 min: 93.9 (4x: 102.5) vs 98.4 (later 104.7) exits/min
   without it, 0 locked either way. Demand already follows the hour profile; GTA needs budgets because it spawns
