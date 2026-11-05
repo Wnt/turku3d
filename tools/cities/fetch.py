@@ -94,13 +94,23 @@ def mml_laz(blocks, log):
         log(f"mml  {rel}: {'downloaded' if now else 'cached'} {rec['bytes'] / 1e6:.0f} MB")
 
 
+TRANSIENT = ("Read failed", "name resolution", "timed out", "Connection reset", "truncated")
+
+
+def transient(error: Exception) -> bool:
+    """Network-shaped failures (DNS hiccups, dropped reads, GDAL's "Read failed" on a remote raster)."""
+    import http.client
+
+    return isinstance(error, (OSError, http.client.HTTPException)) or any(t in str(error) for t in TRANSIENT)
+
+
 def retrying(step, log, tries: int = 3, wait: float = 10.0):
-    """Run a fetch step again after a failure (DNS hiccups, dropped reads); the steps resume from cache."""
+    """Run a fetch step again after a transient failure; the steps resume from cache."""
     for attempt in range(tries):
         try:
             return step()
         except Exception as error:
-            if attempt == tries - 1:
+            if attempt == tries - 1 or not transient(error):
                 raise
             log(f"retry {attempt + 1}/{tries - 1} in {wait * (attempt + 1):.0f} s: {str(error)[:200]}")
             time.sleep(wait * (attempt + 1))
