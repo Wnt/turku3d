@@ -184,7 +184,7 @@ def components(form, floors):
                 rows = 1
                 extent = [extent[0], extent[1], extent[2], min(extent[3], 1 / max(1, floors or 3))]
                 if "at least" not in combined and count is None:
-                    match = re.search(rf"\b({NUMBER}) (?:[a-z-]+ ){{0,3}}balcon(?:y|ies)\b", combined)
+                    match = re.search(rf"\b({NUMBER}) (?:(?!(?:behind|with|of|and|between|windows?|groups?|bays?|doors?)\b)[a-z-]+ ){{0,3}}balcon(?:y|ies)\b", combined)
                     if match:
                         count = int(match[1]) if match[1].isdigit() else NUMBERS[match[1]]
             if not kind_of(text) and "stack" in features:
