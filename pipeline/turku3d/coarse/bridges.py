@@ -352,7 +352,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
 
 CUT_REACH = SELECT_MARGIN  # m around a deck where the ground over a lower way is cut down to it
 CUT_ANCHOR = 10.0  # m beyond the deck where the lower way's own ground level is read
-CUT_MARGIN = 0.5  # m beyond the lower way's half width
+CUT_MARGIN = 2.0  # m beyond the lower way's half width: its outer lanes, shoulders and footways
 
 
 def under_profile(bridge, under, sample, step=2.0):
