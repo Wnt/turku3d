@@ -104,7 +104,7 @@ def main():
             counts[city['name']][r] += 1
         print(json.dumps(counts, indent=1))
         return 0
-    started, done, running = time.time(), [], {}
+    started, done, running, tries = time.time(), [], {}, {}
     seen = {(c['name'], t) for _, c, t in jobs}
     stamp = a.plan.stat().st_mtime
     lanes_file = Path(a.lanes_file) if a.lanes_file else None
@@ -159,6 +159,12 @@ def main():
                 except Exception as error:  # a failing tile is logged and skipped; the lane moves on
                     row = dict(city=name, tile=tile, state='failed', error=f'{type(error).__name__}: {error}'[-500:])
                 row.update(ring=r, at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                retry = tries.get((name, tile), 0)
+                if row.get('exit') == 3 and retry < 3:
+                    # Inputs pending (still being staged): back to the tail, at most 3 times.
+                    tries[(name, tile)] = retry + 1
+                    row['state'] = 'pending-retry'
+                    jobs.append((r, next(c for c in cities if c['name'] == name), tile))
                 done.append(row)
                 city = next(c for c in cities if c['name'] == name)
                 with (Path(city['out']).parent / 'window-builds.jsonl').open('a') as log:

@@ -10,7 +10,8 @@
   dispatches. Start the pass with --max-jobs at the most lanes the host could take.
 * A lane survives a dead worker: a lane is a one-process pool, and a killed or crashed worker breaks it for good
   (every later tile on that lane would fail at once). The pool is recreated on the lane's next dispatch; the tile
-  that was running is logged failed by the pass and the lane moves on.
+  that was running is logged failed by the pass and the lane moves on. Idle lanes beyond the target release their
+  worker after 2 min (memory back), and get a new one when dispatched again.
 * Priority queue: $QUEUE_FILE (default /home/wnt/turku3d-bulk-gen3/queue-turku.txt), one tile per line in priority
   order, replaces the pass's Chebyshev rings by priority bands of $QUEUE_BAND tiles (default 16): a lane takes, within
   the first band left, the tile nearest its last survey block (the pass's own pick), so neighbours share decoded
@@ -100,17 +101,44 @@ P.ring, P.pick = band, pick
 _init = P.Lane.__init__
 
 
+LANES = []
+
+
 def lane_init(self, blocks):
     self._blocks = blocks
     _init(self, blocks)
+    LANES.append(self)
+
+
+def release_idle(idle_s=120, every=20):
+    """Idle lanes beyond the target give back their worker (and its decoded blocks): RSS does not creep up after the
+    lane count is lowered. The lane gets a fresh worker on its next dispatch (get_pool)."""
+    import threading
+    import time
+    seen = {}
+
+    def loop():
+        while True:
+            time.sleep(every)
+            now, want = time.monotonic(), target()
+            live = [lane for lane in LANES if getattr(lane.__dict__.get('_pool'), '_processes', None)]
+            for lane in LANES:
+                if lane.future is not None:
+                    seen[id(lane)] = now
+            idle = [lane for lane in live if lane.future is None and now - seen.get(id(lane), now) > idle_s]
+            spare = max(0, len(live) - (want if want is not None else len(live)))
+            for lane in idle[:spare]:
+                lane.__dict__['_pool'].shutdown(wait=False)
+                print(f'pass-run: idle lane worker released (last tile {lane.tile})', file=sys.stderr, flush=True)
+    threading.Thread(target=loop, daemon=True).start()
 
 
 def get_pool(self):
     pool = self.__dict__['_pool']
-    if getattr(pool, '_broken', False):
+    if getattr(pool, '_broken', False) or getattr(pool, '_shutdown_thread', False):
         pool = ProcessPoolExecutor(max_workers=1, initializer=P._init, initargs=(self._blocks,))
         self.__dict__['_pool'] = pool
-        print(f'pass-run: lane pool recreated after a dead worker (last tile {self.tile})', file=sys.stderr, flush=True)
+        print(f'pass-run: lane worker (re)started (last tile {self.tile})', file=sys.stderr, flush=True)
     return pool
 
 
@@ -120,5 +148,6 @@ def set_pool(self, pool):
 
 P.Lane.__init__ = lane_init
 P.Lane.pool = property(get_pool, set_pool)
+release_idle()
 sys.argv = [sys.argv[1]] + argv
 raise SystemExit(P.main())

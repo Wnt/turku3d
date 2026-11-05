@@ -99,7 +99,7 @@ def main():
     plan = js(w.get('plan', G / 'cities-plan.json'), {'cities': []})
     for city in plan['cities']:
         for r in rows(Path(city['out']).parent / 'window-builds.jsonl'):
-            if r.get('at', '') < since:
+            if r.get('at', '') < since or r.get('state') == 'pending-retry':
                 continue
             k = (city['name'], r.get('ring'))
             done.setdefault(k, [0, 0])[r['state'] == 'failed'] += 1
@@ -114,7 +114,8 @@ def main():
     print('done ' + (' | '.join(f"{city}: {' '.join(v)}" for city, v in by_city.items()) or 'none yet'))
     for at, text in sorted(errors)[-3:]:
         print(f"error {at[11:19]} {text}")
-    host_ready = sum(1 for _ in (Path('/srv/farm/upper/products') / meta.get('generation', '-')).glob('*/ready.json'))
+    gen_dir = F / 'products' / meta.get('generation', '-')
+    host_ready = sum(1 for r in gen_dir.glob('*/ready.json') if r.stat().st_mtime >= started)
     city_built = sum(sum(1 for r in rows(Path(cc['out']).parent / 'window-builds.jsonl') if r.get('state') == 'built')
                      for cc in plan['cities'])
     print(f"built here: turku {host_ready} ready, cities {city_built}")

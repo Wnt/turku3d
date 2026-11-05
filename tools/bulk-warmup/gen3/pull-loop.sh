@@ -27,12 +27,14 @@ round() {
     $SSH "$H" "test -f $log" 2>/dev/null || continue
     mkdir -p "$out"
     [ "${out##*/}" = tiles ] && $R "$H:$out/shared/" "$out/shared/" 2>/dev/null
-    while read -r tile; do
-      [ -f "$out/.pulled-$tile" ] && continue
-      $R --link-dest="$out/$tile/" "$H:$out/$tile/" "$out/.incoming-$tile/" || continue
+    while read -r tile at; do
+      # The marker holds the build time: a newer build of the same tile (e.g. on a frozen checkout) comes home again.
+      [ "$(cat "$out/.pulled-$tile" 2>/dev/null)" = "$at" ] && continue
+      link=(); [ -d "$out/$tile" ] && link=(--link-dest="$out/$tile/")
+      $R "${link[@]}" "$H:$out/$tile/" "$out/.incoming-$tile/" || continue
       [ -d "$out/$tile" ] && mv "$out/$tile" "$out/.old-$tile"
-      mv "$out/.incoming-$tile" "$out/$tile" && rm -rf "$out/.old-$tile" && touch "$out/.pulled-$tile" && n=$((n + 1))
-    done < <($SSH "$H" "python3 -c \"import json,sys; [print(r['tile']) for r in map(json.loads, open('$log')) if r['state'] == 'built']\"")
+      mv "$out/.incoming-$tile" "$out/$tile" && rm -rf "$out/.old-$tile" && echo "$at" > "$out/.pulled-$tile" && n=$((n + 1))
+    done < <($SSH "$H" "python3 -c \"import json,sys; last = {r['tile']: r['at'] for r in map(json.loads, open('$log')) if r['state'] == 'built'}; [print(t, a) for t, a in last.items()]\"")
   done
   b1=$(cat /sys/class/net/eth0/statistics/rx_bytes)
   echo "$(date -u +%FT%TZ) turku: $(grep -c pulled "$D/pull-turku.out") generations; cities: $n tiles; $(( (b1 - b0) / 1000000 )) MB in $(( $(date +%s) - t0 )) s" >> "$D/pull.log"
