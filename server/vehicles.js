@@ -4,7 +4,11 @@ import { contactImpulse, TUNING } from './vehicle-contact.js';
 export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, reconnectMs: 300_000, radius: 250, updates: 8,
   // A car registered by a bot client (hello bot:true, the delivery bots of tools/drivetest/bots.sh) is gone once it is
   // empty this long, or once its bot has been offline this long, seated or not: bot cars never pile up.
-  botEmptyMs: 30_000, botOfflineMs: 10_000 };
+  botEmptyMs: 30_000, botOfflineMs: 10_000,
+  // A truck a player spawned (the trophy-truck job, not a parked world vehicle) is gone once it has been empty this
+  // long and its owner is offline past the reconnect grace: job trucks do not pile up across sessions. An empty vehicle below `floor`
+  // (H, m) has fallen out of the world and is removed at once.
+  spawnedTruckEmptyMs: 300_000, floor: -100 };
 const idOK = id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(id);
 const distance = (a, b) => Math.hypot(a.E - b.E, a.N - b.N);
 const publicVehicle = v => ({ id: v.id, source: v.source, creator: v.creator, localId: v.localId,
@@ -106,6 +110,9 @@ export class VehicleRegistry {
       const owner = this.room.players.get(v.owner);
       const reconnecting = owner && !owner.connection && now - owner.disconnectedAt < VEHICLE_LIMITS.reconnectMs;
       if (!v.occupant && !reconnecting && now - v.used >= VEHICLE_LIMITS.lifetime) { this.entries.delete(id); continue; }
+      if (!v.occupant && v.pose.H < VEHICLE_LIMITS.floor) { this.entries.delete(id); continue; }
+      if (!v.occupant && !reconnecting && v.source === null && v.pose.mode === 'truck' && !owner?.connection
+        && now - v.used >= VEHICLE_LIMITS.spawnedTruckEmptyMs) { this.entries.delete(id); continue; }
       if (v.bot) {
         const creator = this.room.players.get(v.creator);
         const offline = !creator || (!creator.connection && now - (creator.disconnectedAt ?? now) >= VEHICLE_LIMITS.botOfflineMs);

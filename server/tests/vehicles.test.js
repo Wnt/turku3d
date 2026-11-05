@@ -264,3 +264,22 @@ test('bot cars never pile up: gone when empty for a while or when their bot is o
   f.advance(VEHICLE_LIMITS.botOfflineMs + 1);
   assert.equal(f.room.vehicles.entries.has(crashedCar), false);
 });
+
+test('player-spawned trucks go once their owner has left; a truck that fell out of the world goes at once', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  a.send(car(a, { id: `${a.welcome.you.id}:truck`, localId: 'truck', pose: { ...pose, mode: 'truck', vehicle: 'truck', vE: 0 } }));
+  a.send(car(a, { id: `${a.welcome.you.id}:car`, localId: 'car', pose: { ...pose, mode: 'car', vehicle: 'player', vE: 0 } }));
+  b.send(car(b, { id: `${b.welcome.you.id}:truck`, localId: 'truck', pose: { ...pose, mode: 'truck', vehicle: 'truck', vE: 0, H: -2037 } }));
+  f.advance(1);
+  // Empty and below the world floor: removed; the connected owner's parked truck stays.
+  assert.equal(f.room.vehicles.entries.has(`${b.welcome.you.id}:truck`), false);
+  f.advance(VEHICLE_LIMITS.spawnedTruckEmptyMs);
+  assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`));
+  f.room.disconnect(a.c);
+  f.advance(VEHICLE_LIMITS.reconnectMs - 1);
+  assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`));
+  f.advance(2);
+  assert.equal(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`), false);
+  // Other personal kinds keep the hour lifetime.
+  assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:car`));
+});
