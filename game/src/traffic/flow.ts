@@ -1013,8 +1013,9 @@ export class TrafficFlow {
       if (!/^(exit|storage|receiving)/.test(by)) return;
       if (car.waiting < REROUTE_AFTER * PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) return;
     }
+    // Turning off ahead takes a real street; only a driver kept at its line turns round through a cul-de-sac.
     const options = (this.movements.get(car.lane) ?? []).filter(m => m !== car.route && m.connector && m.next
-      && room(m.next) >= need && signalState(m, t) !== 'red')
+      && room(m.next) >= need && signalState(m, t) !== 'red' && !(ahead && intoDeadEnd(m)))
       .sort((a, b) => Number(intoDeadEnd(a)) - Number(intoDeadEnd(b)) || room(b.next!) - room(a.next!) || cmp(a.id, b.id));
     if (!options.length) return;
     car.route = options[0]; car.rerouted = this.tick; this.stats.rerouted++; if (ahead) this.stats.reroutedAhead++;
