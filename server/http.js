@@ -113,7 +113,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
       if (!move) { room.receive(c, data, binary); return; }
       const next = roomAt(move.room);
       if (!next) { room.reject(); ws.close(1008, 'unknown room'); return; }
-      room.disconnect(c);
+      room.moveOut(c);
       const moved = next.connect(send, close);
       if (!moved) { ws.close(1013, 'room full'); return; }
       room = next; c = moved;

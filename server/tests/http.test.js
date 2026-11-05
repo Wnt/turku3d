@@ -179,10 +179,18 @@ test('a move carries the socket to another city room: the old room sees the play
   traveller.send(JSON.stringify({ v: 2, type: 'hello' }));
   const turkuSelf = await home;
   assert.equal((await (await fetch(`${app.http}/live.json`)).json()).players.length, 2);
+  // Driving a parked car into the portal: the seat stays in Turku, free for anyone, not reserved for a return.
+  const { E, N } = turkuSelf.you.spawn;
+  const seated = messageOf(traveller, 'vehicle_result');
+  traveller.send(JSON.stringify({ v: 2, type: 'vehicle', action: 'acquire', request: 'enter', id: 'park:bay', source: 'bay',
+    localId: 'bay', pose: { t: 1, E, N, H: 4, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'sedan/red', carrying: false } }));
+  assert.equal((await seated).ok, true);
+  assert.equal(app.room.vehicles.entries.get('park:bay').occupant, turkuSelf.you.id);
   const arrived = messageOf(traveller, 'welcome');
   traveller.send(JSON.stringify({ v: 2, type: 'move', room: '/city/espoo' }));
   traveller.send(JSON.stringify({ v: 2, type: 'hello' }));
   const espooSelf = await arrived;
+  assert.equal(app.room.vehicles.entries.get('park:bay').occupant, null);
   assert.notEqual(espooSelf.you.id, turkuSelf.you.id);
   assert.deepEqual(espooSelf.players.map(p => p.id).sort(), [espooSelf.you.id, ...espooSelf.players.filter(p => p.id !== espooSelf.you.id).map(p => p.id)].sort());
   assert.equal(espooSelf.players.length, 2);

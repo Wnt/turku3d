@@ -108,6 +108,13 @@ export class VehicleRegistry {
       if (v.occupant === p.id) { v.occupant = null; v.used = now; this.changed(v); }
     }
   }
+  /** Frees every seat `p` holds here (the player left for another city's room, or arrived from one): the cars stay
+   *  where they are with their current simulation, empty for anyone. */
+  vacate(p, now) {
+    for (const v of this.entries.values()) if (v.occupant === p.id) {
+      v.occupant = null; v.used = now; this.changed(v);
+    }
+  }
   expire(now) {
     for (const [id, v] of this.entries) {
       const holder = this.room.players.get(v.occupant);

@@ -73,6 +73,13 @@ export class Room {
     c.close(code, reason);
   }
 
+  /** The socket moves to another city's room (http.js `move`): the player leaves this one as on a disconnect, but
+   *  its seats are freed at once instead of reserved for a reconnect. A trip never comes back to a seat. */
+  moveOut(c) {
+    if (c.player?.connection === c) this.vehicles.vacate(c.player, this.now());
+    this.disconnect(c);
+  }
+
   reject() { this.stats.rejected++; }
 
   receive(c, data, binary = false) {
@@ -117,7 +124,8 @@ export class Room {
   }
 
   hello(c, m, now) {
-    if (m.session !== undefined && (typeof m.session !== 'string' || !/^[a-f0-9]{64}$/.test(m.session))) {
+    if ((m.session !== undefined && (typeof m.session !== 'string' || !/^[a-f0-9]{64}$/.test(m.session)))
+      || (m.arrival !== undefined && typeof m.arrival !== 'boolean')) {
       this.reject(); return;
     }
     let p = this.sessions.get(m.session);
@@ -140,6 +148,8 @@ export class Room {
     }
     c.player = p;
     this.vehicles.reconnectPlayer(p, now);
+    // An arrival from another city resumes no seat here: one still held is a release lost when it left.
+    if (m.arrival === true) this.vehicles.vacate(p, now);
     p.connection = c;
     p.disconnectedAt = null;
     p.online = true;
