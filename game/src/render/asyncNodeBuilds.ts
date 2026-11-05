@@ -42,15 +42,36 @@ const turn = () => {
   return scheduler?.yield ? scheduler.yield() : new Promise<void>(resolve => setTimeout(resolve, 0));
 };
 
-export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () => boolean) {
+/** A deferred build: when its program was first and last asked for by a frame's draw, and how far from the camera. */
+interface Job { key: number; run: () => Promise<void>; drop: () => void; firstAsked: number; lastAsked: number; distance: number }
+/** A job asked for within this many ms is visible now (a draw of the current frames is waiting for it). */
+export const HOT_MS = 500;
+const STATS_MS = 30_000;
+
+const percentile = (values: number[], p: number) => {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  return Math.round(sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1))]);
+};
+
+export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () => boolean, now = () => performance.now()) {
   const internal = renderer as unknown as Internals;
   const pending = new Map<number, Promise<void>>();
-  const queue: (() => Promise<void>)[] = [];
+  const waiting = new Map<number, Job>();
   let draining: Promise<void> | null = null;
+  let built = 0, dropped = 0;
+  /** Finished builds: how long each waited from its first ask, and whether a draw still wanted it (visible). */
+  const waits: { at: number; ms: number; visible: boolean }[] = [];
+  /** The next job: the oldest first ask (FIFO). */
+  const next = (): Job | undefined => waiting.values().next().value;
   const drain = () => draining ??= (async () => {
     await new Promise<void>(resolve => afterRender(resolve));
-    while (queue.length) { await queue.shift()!(); await turn(); }
-  })().finally(() => { draining = null; if (queue.length) void drain(); });
+    for (let job = next(); job; job = next()) {
+      waiting.delete(job.key);
+      await job.run();
+      await turn();
+    }
+  })().finally(() => { draining = null; if (waiting.size) void drain(); });
   let deferred = 0;
   /** True when the draw may go ahead now; false when it is skipped while its program builds after the frame. */
   const ready: (...args: Parameters<DirectDraw>) => boolean = (object, material, scene, camera, lightsNode, _group, clippingContext, passId) => {
@@ -60,11 +81,14 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
     if (nodes.get(renderObject).nodeBuilderState !== undefined) return true;
     const key = nodes.getForRenderCacheKey(renderObject);
     if (nodes.nodeBuilderCache.has(key)) return true;
+    const at = now(), o = object.matrixWorld?.elements, c = camera.matrixWorld?.elements;
+    const distance = o && c ? Math.hypot(o[12] - c[12], o[13] - c[13], o[14] - c[14]) : Infinity;
+    const job = waiting.get(key);
+    if (job) { job.lastAsked = at; job.distance = Math.min(distance, job.distance); return false; }
     if (!pending.has(key)) {
       deferred++;
       // The build reads renderer pass state again after each yield: pin this draw's pass, as compileModel does.
       const pass = { target: internal._renderTarget, mrt: internal._mrt, context: internal.contextNode, renderContext: internal._currentRenderContext };
-      const queued = performance.now();
       const build = async () => {
         const removeHook = addNodeBuilderHook(renderer, (builder, draw) => {
           if ((draw as RenderObject) === renderObject) {
@@ -77,15 +101,22 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
             } });
           }
         });
-        const started = performance.now();
+        const started = now();
         let promise: Promise<unknown>;
         try { promise = nodes.getForRenderAsync(renderObject); }
         finally { removeHook(); }
         await promise;
-        streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - queued), ms: Math.round(performance.now() - started) });
+        const end = now();
+        built++;
+        waits.push({ at: end, ms: end - job.firstAsked, visible: end - job.lastAsked < HOT_MS });
+        while (waits.length && end - waits[0].at > STATS_MS) waits.shift();
+        streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - job.firstAsked), ms: Math.round(end - started) });
       };
-      const built = new Promise<void>((resolve, reject) => queue.push(() => build().then(resolve, reject)));
-      pending.set(key, built.catch(error => console.warn(`[async node build] ${error}`)).finally(() => pending.delete(key)));
+      let settle: () => void = () => {};
+      const job: Job = { key, firstAsked: at, lastAsked: at, distance, run: async () => { try { await build(); } catch (error) { console.warn(`[async node build] ${error}`); } finally { settle(); } },
+        drop: () => { dropped++; settle(); } };
+      pending.set(key, new Promise<void>(resolve => { settle = () => { pending.delete(key); resolve(); }; }));
+      waiting.set(key, job);
       void drain();
     }
     return false;
@@ -96,5 +127,16 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
     get deferred() { return deferred; },
     /** Resolves once every deferred build so far is done. */
     settled: async () => { while (pending.size) await Promise.all([...pending.values()]); },
+    /** window.__perf.builds: the queue now and the wait from a program's first ask to its build over the last 30 s,
+     *  for programs a draw still wanted when they were built (visible) and for all. */
+    stats() {
+      const t = now();
+      let hot = 0, oldestHotMs = 0;
+      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) { hot++; oldestHotMs = Math.max(oldestHotMs, t - job.firstAsked); }
+      const recent = waits.filter(w => t - w.at <= STATS_MS), visible = recent.filter(w => w.visible).map(w => w.ms), all = recent.map(w => w.ms);
+      return { queued: waiting.size, hot, oldestHotMs: Math.round(oldestHotMs), built, dropped,
+        visibleWaitMs: { n: visible.length, p50: percentile(visible, 0.5), p90: percentile(visible, 0.9), max: visible.length ? Math.round(Math.max(...visible)) : null },
+        allWaitMs: { n: all.length, p50: percentile(all, 0.5), p90: percentile(all, 0.9) } };
+    },
   };
 }
