@@ -55,6 +55,9 @@ function shellWindows(grid: boolean) {
 /** HD kit wall paint (facadeKit.ts painted band) and a typical roof photo's ORM roughness. */
 const SHELL_WALL_ROUGHNESS = .85;
 const SHELL_ROOF_ROUGHNESS = float(.9);
+/** Glass share of a shell window: at the hand-over the HD kit's centimetre frame bars are sub-pixel, so its openings read as dark
+ *  glass (paired stills: .8 left them mid grey against the HD navy). */
+const SHELL_GLASS = .95;
 
 /** `shaded`: the geometry carries the HD model's own normals (block LOD shells), so it shades like the HD facade
  *  instead of from screen-space derivatives. */
@@ -85,10 +88,10 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
     // Block LOD walls whose HD facade program has windows (pipeline/turku3d/coarse/blocks.py): a soft window in each
     // bay and storey darkens the pigment by day and lights the same windows at night.
     // The glass and paint of the HD kit (render/facadeKit.ts): dark glazing brightening up each pane, roughness .1 on
-    // glass (it mirrors the sky), the kit's painted-band .85 on walls; .8 leaves the kit's frame bars' share.
+    // glass (it mirrors the sky), the kit's painted-band .85 on walls; SHELL_GLASS leaves the frame bars a sliver.
     const { frame, glass, bay, storey, rise } = shellWindows(layer === 'buildings-lod-glazed-grid');
-    material.colorNode = mix(shellPigment(roof), vec3(.016, .028, .04).mul(mix(.8, 1.35, rise)), glass.mul(.8));
-    material.roughnessNode = mix(SHELL_ROOF_ROUGHNESS, mix(float(SHELL_WALL_ROUGHNESS), float(.1), glass.mul(.8)), frame.wall);
+    material.colorNode = mix(shellPigment(roof), vec3(.016, .028, .04).mul(mix(.8, 1.35, rise)), glass.mul(SHELL_GLASS));
+    material.roughnessNode = mix(SHELL_ROOF_ROUGHNESS, mix(float(SHELL_WALL_ROUGHNESS), float(.1), glass.mul(SHELL_GLASS)), frame.wall);
     material.emissiveNode = windowEmission(frame.plane, floor(bay), floor(storey), rise, glass);
     return material;
   }
