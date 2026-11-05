@@ -66,6 +66,7 @@ def is_carriageway(tags):
 
 
 LANE_CLEARANCE = 0.25  # m between a deck post and the traffic lanes' outer edge
+RAIL_LANE_REACH = 2.5  # m each side of a carriageway that a deck-end railing keeps clear
 LAMP_SHIFT = 3.0  # m: the farthest a mapped deck lamp moves to clear the lanes
 
 
@@ -1185,8 +1186,12 @@ def produce(tile, grid_pos, inputs):
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         # A railing never crosses a lane: at a skew deck end the outline edge runs across the
         # carriageway that enters it (service bridge w620102546).
-        lanes = lane_envelope([w for w in [*way.get("member_ways", [way]), *way.get("approaches", [])]
-                               if is_carriageway(w["tags"])])
+        # The car's own width counts, not only the mapped carriageway: a 3 m service way still
+        # carries a car whose corners reach 1.3 m beyond its lane centre.
+        lanes = shapely.union_all([
+            w["line"].buffer(max(RAIL_LANE_REACH, w["width"] / 2 + LANE_CLEARANCE))
+            for w in [*way.get("member_ways", [way]), *way.get("approaches", [])]
+            if is_carriageway(w["tags"])])
         if not lanes.is_empty:
             # Only at the deck's ends: along its sides the railing keeps cars on the deck.
             ends = axis.boundary.buffer(width / 2 + 5.0)
