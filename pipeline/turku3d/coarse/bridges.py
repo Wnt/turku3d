@@ -357,6 +357,7 @@ CUT_ANCHOR = 10.0  # m beyond the deck where the lower way's own ground level is
 # inside the tiles that build the deck (SELECT_MARGIN).
 CUT_FEATHER = SELECT_MARGIN - CUT_REACH
 CUT_MARGIN = 2.0  # m beyond the lower way's half width: its outer lanes, shoulders and footways
+SAG_REACH = 40.0  # m beyond a deck that its clearance dip may reach
 
 
 def under_profile(bridge, line, sample, step=2.0):
@@ -462,6 +463,53 @@ def cut_under(grid_pos, bridge, sample):
         weight *= np.interp(located, stations, bracketed.astype(np.float64)) >= 1.0
         y = result[inside, 1]
         result[inside, 1] = y - weight * np.maximum(0.0, y - level)
+    return result
+
+
+DRIVE_CLEARANCE = 3.0  # m under a deck's soffit that a road keeps when no maxheight is mapped
+WALK_CLEARANCE = 2.3  # m for a path
+SAG_GRADE = 0.08  # steepest grade of the dip that gives a lower road its clearance
+
+
+def mapped_clearance(tags):
+    """Mapped maxheight in metres (``3.4``, ``3.4 m``), or the drive/walk default."""
+    raw = str(tags.get("maxheight", "")).replace("m", "").strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return WALK_CLEARANCE if tags.get("highway") in PATHS else DRIVE_CLEARANCE
+
+
+def clearance_cut(grid_pos, bridge, height_at, thickness, outline):
+    """Lower the ground over each lower road until it keeps its clearance below the deck's
+    soffit, dipping in and out at SAG_GRADE. The ground under a survey-fixed deck (a railway
+    viaduct) can meet its soffit: Puistokatu climbed to 1.2 m under the station tracks."""
+    positions = np.asarray(grid_pos, dtype=np.float64)
+    result = positions.copy()
+    if bridge.get("landing") or outline is None or outline.is_empty:
+        return result
+    lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    region = building_region(bridge)
+    for under in lower.values():
+        if under["tags"].get("highway") in (None, "steps"):
+            continue
+        need = mapped_clearance(under["tags"])
+        # Only inside the tiles that build this deck: the next tile does not know the dip.
+        corridor = under["line"].buffer(under["width"] / 2 + CUT_MARGIN).intersection(
+            outline.buffer(SAG_REACH)).intersection(region)
+        if corridor.is_empty:
+            continue
+        inside = np.flatnonzero(shapely.intersects_xy(corridor, positions[:, 0], positions[:, 2]))
+        if not len(inside):
+            continue
+        xz = positions[inside][:, [0, 2]]
+        points = shapely.points(xz)
+        nearest = shapely.get_coordinates(shapely.shortest_line(outline, points))[0::2]
+        distance = shapely.distance(outline, points)
+        soffit = np.asarray(height_at(nearest), dtype=np.float64) - thickness
+        limit = soffit - need + SAG_GRADE * distance
+        y = result[inside, 1]
+        result[inside, 1] = np.where(soffit > y, np.minimum(y, limit), y)
     return result
 
 
@@ -1162,6 +1210,7 @@ def produce(tile, grid_pos, inputs):
             protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
+        grid_pos[:] = clearance_cut(grid_pos, way, height_at, spec["thickness"], footprint_poly)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:
             decks.append(Deck(way, line, ss, hh, meshes, height_at, tuple(aprons)))
