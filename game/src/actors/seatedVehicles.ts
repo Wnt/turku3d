@@ -7,6 +7,7 @@ import type { VehicleState } from '../physics/protocol';
 import type { PlayerVisual } from './player';
 import { ScooterVisual } from './scooter';
 import { TruckVisual } from './truck';
+import { configureTrophyAsset } from './trophy4400/asset';
 
 /** The bought vehicles whose rider or driver stays visible, seated on its anchor: the scooter and the trophy truck.
  *  Both exist as physics vehicles once bought (a loaded game places them in gameplay/saveGame.ts). */
@@ -23,7 +24,9 @@ export class SeatedVehicles {
     this.byId = { [SCOOTER_ID]: this.scooter, [TRUCK_ID]: this.truck };
   }
 
-  load(base: string) {
+  /** `renderer` decodes the trucks' KTX2 textures (required in the game; tests load without textures). */
+  load(base: string, renderer?: THREE.WebGPURenderer) {
+    configureTrophyAsset(base, renderer);
     return Promise.all([this.scooter.load(`${base}assets/vehicles/scooter.glb`), this.truck.load()]);
   }
 

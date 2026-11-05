@@ -11,6 +11,7 @@ import { modelTuning } from '../vehicle/modelTuning';
 import { CarVisual } from '../actors/car';
 import { ScooterVisual } from '../actors/scooter';
 import { TruckVisual } from '../actors/truck';
+import { configureTrophyAsset } from '../actors/trophy4400/asset';
 import type { VehicleState } from '../physics/protocol';
 import { VehicleSignals, LIGHT_LABELS } from '../vehicle/signals';
 import { VehicleBeams } from '../vehicle/beams';
@@ -115,7 +116,7 @@ async function makeVisual(entry: Entry, index: number): Promise<Visual> {
     return { update: (s, dt) => v.update(dt, s), dispose: () => v.root.removeFromParent() };
   }
   if (entry.kind === 'truck') {
-    const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
+    configureTrophyAsset(import.meta.env.BASE_URL, renderer); const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
     return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
   }
   const model = (entry as Extract<Entry, { kind: 'fleet' }>).entry.fleet, manifest = draftManifest(location.origin + '/');

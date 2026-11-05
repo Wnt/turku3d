@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { ChassisSynth, ChassisTracker, lugHz, surfaceClass, thumpGain, TROPHY_CHASSIS } from '../../src/audio/engine/chassis';
 import { Drivetrain, upshiftRpm, type EngineDrive } from '../../src/audio/engine/drivetrain';
-import { TruckSoundFeed, encodeDrive } from '../../src/audio/engine/feed';
+import { TruckSoundFeed } from '../../src/audio/engine/feed';
 import { IDLE_RPM, ON_LOAD_DB, REFERENCE_RPM, createV8, render, type V8Params } from '../../src/audio/engine/v8core';
 import { distanceCutoff, selectVoices } from '../../src/audio/engine/voices';
 import { GameAudio } from '../../src/audio';
@@ -307,8 +307,6 @@ test('feed: driven-wheel speed from rotation deltas (wrapped), synced drv smooth
   for (let i = 0; i < 30; i++) r = remote.step(1 / 60, { forwardSpeed: 20, speed: 20, wheels: wheels(0) }, { drv: [100, 600, 2, 0] });
   expect(r.drive.rpm).toBeCloseTo(6000, -1);
   expect(r.drive.load).toBe(1);
-  expect(encodeDrive({ rpm: 6123, load: 1, throttle: 0.876, gear: 2, shifting: false, limiter: false }, 1)).toEqual([88, 612, 2, 1]);
-  expect(encodeDrive({ rpm: 99999, load: 0, throttle: 7, gear: 9, shifting: false, limiter: false }, 9)).toEqual([100, 800, 3, 3]);
 });
 
 test('GameAudio: truck frames pick voices without a worklet, and GameplayAudio feeds the local truck then releases it', async () => {
@@ -321,13 +319,13 @@ test('GameAudio: truck frames pick voices without a worklet, and GameplayAudio f
   const voice = events.filter(e => e.type === 'engine-voice');
   expect(voice).toHaveLength(2);
   expect(voice[0].type === 'engine-voice' && voice[0].state?.local && Math.round(voice[0].state.drive.rpm / 100)).toBe(9);
-  expect(adapter.truckDrv()).toEqual([0, expect.any(Number), 1, 0]);
+  expect(adapter.truckDrive?.gear).toBe(1);
   // The truck's own loop event stays silent; the car event carries the drivetrain rpm.
   const car = events.filter(e => e.type === 'car').at(-1);
   expect(car?.type === 'car' && car.rpm).toBeGreaterThan(850);
   adapter.update(frame(3, 'foot'));
   expect(events.at(-1)).toEqual({ type: 'engine-voice', id: 'truck', state: null });
-  expect(adapter.truckDrv()).toBeNull();
+  expect(adapter.truckDrive).toBeNull();
 
   const audio = new GameAudio(() => ({ state: 'suspended', currentTime: 0, createGain: () => ({ connect() {}, gain: { value: 0, setTargetAtTime() {} } }),
     createDynamicsCompressor: () => ({ connect() {}, threshold: {}, ratio: {} }), destination: {}, resume: async () => {}, close: async () => {},

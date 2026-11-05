@@ -2,12 +2,12 @@ import * as T from 'three/webgpu';
 import { TRUCK } from '../physics/constants';
 import { vehicleLamps } from '../vehicle/lamps';
 import type { VehicleState } from '../physics/protocol';
-import { disposeDraw } from '../render/sharedMaterials';
-import { racerModel } from './prerunner/model';
-import { applyRaceWheels, createRaceRig } from './prerunner/rig';
-import { createRaceWheels } from './prerunner/wheels';
+import { instance, trophyAsset } from './trophy4400/asset';
+import { GROUND_Y, applyTrophyRig, staticWheels, useTrophyAsset } from './trophy4400/rig';
 
-/** Original KORPI 440 racer. Immutable shared meshes; per-actor wheel and suspension matrices. */
+/** The #19-style 4400 trophy truck (SPEC; model in public/assets/vehicles/trophy4400). The root follows the chassis
+ *  (physics frame: +X forward, +Y up, wheel order FL/FR/RL/RR); the GLB model sits under it at its ground origin.
+ *  Geometry, materials and textures are shared by every local and remote truck; the rig's bones are per actor. */
 export class TruckVisual {
   readonly root = new T.Group();
   readonly seat = new T.Object3D();
@@ -15,41 +15,28 @@ export class TruckVisual {
 
   constructor(scene: T.Object3D) {
     this.root.name = 'truck'; this.root.visible = false;
-    this.seat.position.set(-.05, 0, -.37); this.seat.rotation.y = Math.PI / 2;
     this.root.add(this.seat); scene.add(this.root);
   }
 
   async load() {
     if (this.loaded) return;
-    const body = new T.LOD(); body.name = 'korpi-body';
-    for (let lod = 0; lod < 3; lod++) {
-      const model = racerModel(lod).body.clone(true);
-      model.getObjectByName('korpi-spare')?.removeFromParent();
-      body.addLevel(model, [0, 35, 90][lod], .1);
-    }
-    this.root.add(body);
-    for (let i = 0; i < TRUCK.wheels.length; i++) {
-      const pivot = new T.Group(); pivot.name = `vehicle-wheel-${i}`;
-      pivot.add(new T.Object3D()); this.root.add(pivot);
-    }
-    this.root.add(createRaceWheels());
-    // Tiny running-gear details disappear beyond 35m; wheel centres remain physical at every LOD.
-    const suspension = new T.LOD(); suspension.name = 'korpi-running-gear';
-    suspension.addLevel(createRaceRig(), 0); suspension.addLevel(new T.Group(), 35, .1);
-    this.root.add(suspension);
-    this.root.traverse(o => { if ((o as T.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    const sag = 9.81 / (4 * TRUCK.suspensionStiffness);
-    applyRaceWheels(this.root, TRUCK.wheels.map(at => ({ pos: { x: at.x, y: at.y - TRUCK.rest + sag, z: at.z }, steer: 0, rotation: 0 })));
+    const asset = await trophyAsset();
+    useTrophyAsset(asset);
+    const model = instance(asset);
+    model.position.y = GROUND_Y;
+    this.root.add(model);
+    // The driver's H-point, facing +X like the chassis (the character model faces +Z).
+    const seat = asset.rest.get('seat-driver')!;
+    this.seat.position.set(seat.p.x, seat.p.y + GROUND_Y, seat.p.z); this.seat.rotation.set(0, Math.PI / 2, 0);
+    // Physical hub markers (remote bounds and checks read `vehicle-wheel-*`).
+    for (let i = 0; i < TRUCK.wheels.length; i++) { const marker = new T.Object3D(); marker.name = `vehicle-wheel-${i}`; this.root.add(marker); }
+    applyTrophyRig(this.root, staticWheels());
     this.loaded = true;
   }
 
   dispose() {
+    // Geometry, materials and textures belong to the shared template; only this actor's bones go.
     this.root.removeFromParent();
-    this.root.traverse(object => {
-      if ((object as T.Mesh).isMesh) disposeDraw(object as T.Mesh);
-      // Only instance matrices belong to this actor. Geometry and materials belong to the library.
-      if ((object as T.InstancedMesh).isInstancedMesh) (object as T.InstancedMesh).dispose();
-    });
   }
 
   update(s: VehicleState) {
@@ -57,6 +44,6 @@ export class TruckVisual {
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
     vehicleLamps(this.root, 'truck', s.lights ?? 0);
-    applyRaceWheels(this.root, s.wheels);
+    applyTrophyRig(this.root, s.wheels);
   }
 }
