@@ -17,7 +17,13 @@ import { streamTrace } from '../telemetry/streamTrace';
  * The deferred builds run one at a time, each starting on its own `scheduler.yield()` turn (render/yieldPacer.ts
  * paces those). Started together after their frame, the boot warm-up's few hundred builds ran their synchronous
  * first stages in one task and the rest back to back: city.lab boot and join froze the page 22-25 s (Jonni's
- * 2026-11-05 drive; 9.6 s of it in those synchronous starts). */
+ * 2026-11-05 drive; 9.6 s of it in those synchronous starts).
+ *
+ * The queue serves what the frames draw first: a program a draw asked for within HOT_MS is visible now and builds
+ * before the others, nearest to the camera first; the rest follow, most recently wanted first, and a job whose object
+ * left the scene leaves unbuilt. While a visible build waits, `share` (the pacer's ms per frame gap, main.ts) grows
+ * with its wait, so on a slow machine the backlog cannot hold what is on screen for minutes: first come, first served,
+ * the M1 Air queued ~1,000 builds after boot at 2.6 builds/s and drew no trophy truck (1,456 of 1,456 draws skipped). */
 type RenderObject = { isRenderObject: true; object: THREE.Object3D; material: THREE.Material; context: unknown };
 interface Nodes {
   nodeBuilderCache: Map<number, unknown>;
@@ -43,10 +49,19 @@ const turn = () => {
 };
 
 /** A deferred build: when its program was first and last asked for by a frame's draw, and how far from the camera. */
-interface Job { key: number; run: () => Promise<void>; drop: () => void; firstAsked: number; lastAsked: number; distance: number }
+interface Job { key: number; object: THREE.Object3D; run: () => Promise<void>; drop: () => void; firstAsked: number; lastAsked: number; distance: number }
 /** A job asked for within this many ms is visible now (a draw of the current frames is waiting for it). */
 export const HOT_MS = 500;
 const STATS_MS = 30_000;
+/** The pacer's share while a visible build waits: SHARE_BASE_MS, plus SHARE_PER_S for each second the oldest visible
+ *  build has waited, at most SHARE_MAX_MS (a stage that runs over still ends the gap's share). */
+const SHARE_BASE_MS = 6, SHARE_PER_S = 18, SHARE_MAX_MS = 40;
+
+const inScene = (object: THREE.Object3D) => {
+  let o: THREE.Object3D = object;
+  while (o.parent) o = o.parent;
+  return (o as THREE.Scene).isScene === true;
+};
 
 const percentile = (values: number[], p: number) => {
   if (!values.length) return null;
@@ -62,8 +77,18 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
   let built = 0, dropped = 0;
   /** Finished builds: how long each waited from its first ask, and whether a draw still wanted it (visible). */
   const waits: { at: number; ms: number; visible: boolean }[] = [];
-  /** The next job: the oldest first ask (FIFO). */
-  const next = (): Job | undefined => waiting.values().next().value;
+  /** The next job: the nearest visible one, else the most recently wanted; jobs whose object left the scene go. */
+  const next = (): Job | undefined => {
+    const t = now();
+    let hot: Job | undefined, cold: Job | undefined;
+    for (const job of waiting.values()) {
+      if (t - job.lastAsked < HOT_MS) { if (!hot || job.distance < hot.distance) hot = job; }
+      else if (!inScene(job.object)) { waiting.delete(job.key); job.drop(); }
+      else if (!cold || job.lastAsked > cold.lastAsked) cold = job;
+    }
+    return hot ?? cold;
+  };
+  let shareAt = -Infinity, shareMs = 0;
   const drain = () => draining ??= (async () => {
     await new Promise<void>(resolve => afterRender(resolve));
     for (let job = next(); job; job = next()) {
@@ -113,7 +138,7 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
         streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - job.firstAsked), ms: Math.round(end - started) });
       };
       let settle: () => void = () => {};
-      const job: Job = { key, firstAsked: at, lastAsked: at, distance, run: async () => { try { await build(); } catch (error) { console.warn(`[async node build] ${error}`); } finally { settle(); } },
+      const job: Job = { key, object, firstAsked: at, lastAsked: at, distance, run: async () => { try { await build(); } catch (error) { console.warn(`[async node build] ${error}`); } finally { settle(); } },
         drop: () => { dropped++; settle(); } };
       pending.set(key, new Promise<void>(resolve => { settle = () => { pending.delete(key); resolve(); }; }));
       waiting.set(key, job);
@@ -127,6 +152,16 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
     get deferred() { return deferred; },
     /** Resolves once every deferred build so far is done. */
     settled: async () => { while (pending.size) await Promise.all([...pending.values()]); },
+    /** Milliseconds per frame gap shader builds may use while a visible build waits (0 when none waits); re-read at
+     *  most once per 16 ms. */
+    get share() {
+      const t = now();
+      if (t - shareAt < 16) return shareMs;
+      let oldest = -1;
+      for (const job of waiting.values()) if (t - job.lastAsked < HOT_MS) oldest = Math.max(oldest, t - job.firstAsked);
+      shareAt = t;
+      return shareMs = oldest < 0 ? 0 : Math.min(SHARE_MAX_MS, SHARE_BASE_MS + oldest / 1000 * SHARE_PER_S);
+    },
     /** window.__perf.builds: the queue now and the wait from a program's first ask to its build over the last 30 s,
      *  for programs a draw still wanted when they were built (visible) and for all. */
     stats() {
