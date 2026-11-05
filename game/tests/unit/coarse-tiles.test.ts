@@ -573,6 +573,30 @@ test('failed drafts under a start or retained car stay required and recover on a
   expect(coarse.progressAt(600, 100).loaded).toBeGreaterThanOrEqual(2);
 });
 
+test('a city service without the demand route is asked once a minute, not every poll', async () => {
+  const urls: URL[] = [];
+  const host: CoarseHost = {
+    scene: new THREE.Scene(), manifest: { visual: {}, collision: {} } as unknown as Manifest,
+    pageUrl: 'https://wnt.github.io/turku-game/game/', renderer: {} as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => {},
+    loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const u = new URL(url); urls.push(u);
+      const demand = u.pathname.endsWith('/demand');
+      return { ok: !demand, status: demand ? 404 : 202, json: async () => ({ state: 'queued', version: 0 }) } as Response;
+    }) as typeof fetch,
+  };
+  const coarse = new CoarseTiles(host);
+  for (let t = 0; t <= 59_000; t += 1000) {
+    coarse.update(490 + t / 1000, 125, t);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  expect(urls.filter(u => u.pathname.endsWith('/demand'))).toHaveLength(1);
+  coarse.update(560, 125, 60_000);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(urls.filter(u => u.pathname.endsWith('/demand'))).toHaveLength(2);
+});
+
 test('Pages sends replaceable anonymous tile demand with priority and no raw motion', async () => {
   const urls: URL[] = [];
   const host: CoarseHost = {
