@@ -34,6 +34,8 @@ export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, 
     face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
     age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
   }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68, wheel:.32 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
+/** Families that parking records and ambient traffic select from; special roles (bus, truck, ambulance) need an exact id. */
+export const SELECTABLE_FAMILIES: ReadonlySet<string> = new Set(['sedan', 'suv', 'hatchback-sports', 'van']);
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export function fleetHash(value: string): number {
   let h = 2166136261;

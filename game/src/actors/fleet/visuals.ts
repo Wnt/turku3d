@@ -5,7 +5,7 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
 import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
-import { FLEET, fleetModel, type FleetModel } from './catalog';
+import { FLEET, SELECTABLE_FAMILIES, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
@@ -25,7 +25,6 @@ interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const embeddedWheels=(id:string)=>id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(id);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
-const SELECTABLE_FAMILIES=new Set(['sedan','suv','hatchback-sports','van']);
 /** Rim detail and tyre radius determine the wheel design, independently of body/paint. */
 export const fleetWheelDesign=(model:FleetModel,lod:number)=>`${lod}/${model.wheel.toFixed(3)}/${lod===0?model.face%3:0}`;
 

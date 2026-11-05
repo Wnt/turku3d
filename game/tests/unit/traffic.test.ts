@@ -1,5 +1,5 @@
 import './fleet-assets.fixture';
-import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { FLEET, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
 import { AUTHORED_BY_ID } from '../../src/actors/fleet/registry';
 import { describe, expect, test, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -409,10 +409,10 @@ describe('rendering', () => {
       await visuals.load(manifest);
       const meshes = [...scene.children] as THREE.InstancedMesh[];
       expect(meshes.filter(m=>m.name.startsWith('parked/')).map(m=>m.name).sort())
-        .toEqual(FLEET.flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)).sort());
+        .toEqual(FLEET.filter(m=>SELECTABLE_FAMILIES.has(m.family)).flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)).sort());
       expect(meshes.filter(m=>m.name.startsWith('wheels/')&&!m.name.startsWith('wheels/authored/')).map(m=>m.name).sort())
         .toEqual([...new Set(FLEET.filter(m=>m.id!=='fleet-estate-3'&&!AUTHORED_BY_ID.has(m.id)).flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
-      for(const model of FLEET.filter(m=>m.id==='fleet-estate-3'||AUTHORED_BY_ID.has(m.id)))for(const lod of [0,1]){
+      for(const model of FLEET.filter(m=>(m.id==='fleet-estate-3'||AUTHORED_BY_ID.has(m.id))&&SELECTABLE_FAMILIES.has(m.family)))for(const lod of [0,1]){
         const designs=meshes.filter(m=>m.name.startsWith(`wheels/authored/${model.id}/${lod}/`));
         expect(designs.length).toBeGreaterThan(0);expect(designs.length).toBeLessThanOrEqual(4);
       }

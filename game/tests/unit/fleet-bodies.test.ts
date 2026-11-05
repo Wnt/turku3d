@@ -16,8 +16,8 @@ test('every authored fleet asset has a full body at every LOD, around its four h
     for (const name of ['normal', 'color', 'fleetSurface']) expect(body.getAttribute(name)?.count, `${id}/${lod} ${name}`).toBe(positions.count);
     body.computeBoundingBox();
     const box = body.boundingBox!;
-    // A real car body, not a hub ring: metres long, wide and tall, sitting at road height.
-    expect(box.max.z - box.min.z, `${id}/${lod} length`).toBeGreaterThan(4);
+    // A real car body, not a hub ring: metres long (superminis are 3.6 m), wide and tall, sitting at road height.
+    expect(box.max.z - box.min.z, `${id}/${lod} length`).toBeGreaterThan(3.4);
     expect(box.max.x - box.min.x, `${id}/${lod} width`).toBeGreaterThan(1.7);
     expect(box.max.y, `${id}/${lod} height`).toBeGreaterThan(1.3);
     if (parts) {

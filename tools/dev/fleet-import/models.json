@@ -188,7 +188,7 @@
     "rideHeightM": 0.12,
     "character": "sport"
    },
-   "weight": 0.2
+   "weight": 0.5
   },
   {
    "id": "s90",
@@ -401,7 +401,7 @@
    "budgets": [
     60000,
     12000,
-    2500
+    4000
    ],
    "spec": {
     "referenceModel": "12 m low-floor city bus",
@@ -439,7 +439,7 @@
    "budgets": [
     60000,
     12000,
-    2500
+    4000
    ],
    "spec": {
     "referenceModel": "Three-axle rear-loader refuse truck",
