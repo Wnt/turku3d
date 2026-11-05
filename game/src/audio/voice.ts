@@ -215,7 +215,10 @@ export class VoicePlayer {
     this.leaveRunning?.(); this.leaveRunning = null;
     this.pending = null;
     this.queue = [];
-    this.unsubscribe?.();
-    if (this.playing) { this.playing.source.stop(); this.playing = null; }
+    this.unsubscribe?.(); this.unsubscribe = null;
+    this.lineEnded = null;
+    // A started source stays a pending activity until its context renders its end (a suspended context never does):
+    // its ended handler must not keep this player, and through it the ended session, alive.
+    if (this.playing) { this.playing.source.onended = null; this.playing.source.stop(); this.playing = null; }
   }
 }
