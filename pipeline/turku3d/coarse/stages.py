@@ -216,6 +216,8 @@ def cached_terrain(cache, tile, inputs, common):
             water_level,
             Path(__file__).with_name("water.py"),
             surfaces.classify,
+            surfaces.cover_classes,
+            surfaces._without_small,
             Path(gardens.__file__),
             Path(walkable.__file__),
             *common,
