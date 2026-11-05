@@ -26,6 +26,7 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import numpy as np
 import shapely
 import shapely.ops
 from shapely.strtree import STRtree
@@ -73,11 +74,12 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
     barriers = list(inputs.barriers or ())
     laz = laz_paths(tile.bbox.buffered(WINDOW))
     overhead = deck_cover(inputs.roads)
+    spans = deck_spans(inputs.roads)
     return cache.run(
         "furniture",
         source_key(*sources(), grid_height, *common),
         [tile, list(inputs.poles), grid_pos, footprints, water, roads, carried, barriers,
-         identities({str(p): p for p in laz}), overhead],
+         identities({str(p): p for p in laz}), overhead, spans],
         lambda: produce(
             tile,
             inputs.poles,
@@ -89,6 +91,7 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
             barriers,
             laz,
             overhead,
+            spans,
         ),
     )
 
@@ -115,6 +118,51 @@ def deck_cover(roads):
     return shapely.union_all(parts) if parts else None
 
 
+POST_REACH = 9.0  # m above its base that a street light post (head and arm) reaches
+DECK_GAP = 0.5  # m between a post's top and the deck's surface it may stand under
+
+
+def deck_spans(roads):
+    """Plan area of every deck that is not an on-grade landing, or None."""
+    decks = [way.get("outline", way["line"].buffer(way["width"] / 2))
+             for way in (roads or {}).get("bridge_ways") or [] if not way.get("landing")]
+    return shapely.union_all(decks) if decks else None
+
+
+def deck_heights(graph_json):
+    """(lines, per-line heights) of the street graph's bridge edges: the deck surfaces above the ground."""
+    import json as _json
+
+    if not graph_json:
+        return []
+    graph = _json.loads(graph_json) if isinstance(graph_json, (str, bytes)) else graph_json
+    bit = graph.get("bits", {}).get("edge_flags", {}).get("BRIDGE")
+    if not bit:
+        return []
+    flags = graph["edgeAttrColumns"].index("flags")
+    nodes = np.asarray(graph["nodes"], dtype=float).reshape(-1, 2)
+    out = []
+    for edge, attrs, heights in zip(graph["edges"], graph["edgeAttrs"], graph.get("edgeHeights") or [], strict=False):
+        if not attrs[flags] & bit or not heights:
+            continue
+        coords = np.asarray([nodes[edge[0]], *np.asarray(edge[4:], dtype=float).reshape(-1, 2), nodes[edge[1]]])
+        if len(coords) == len(heights):
+            out.append((shapely.LineString(coords), np.asarray(heights, dtype=float)))
+    return out
+
+
+def deck_above(decks, point, reach=20.0):
+    """Height of the nearest bridge edge's surface over ``point`` (within ``reach``), else None."""
+    best, height = reach, None
+    for line, heights in decks:
+        d = line.distance(point)
+        if d < best:
+            coords = shapely.get_coordinates(line)
+            stations = np.r_[0, np.cumsum(np.hypot(*np.diff(coords, axis=0).T))]
+            best, height = d, float(np.interp(line.project(point), stations, heights))
+    return height
+
+
 EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
 
 
@@ -126,12 +174,14 @@ def _outside(polygon, point, clearance=CLEARANCE):
     return edge.distance(point), edge.x + dx / length * clearance, edge.y + dz / length * clearance
 
 
-def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=(), overhead=None):
+def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=(), overhead=None,
+            spans=None):
     from turku3d.props import seating, visual_bytes
     from turku3d.props.lights import Light, encode, post_light, street_edges, wall_lights
     from turku3d.night_lighting import lamp_kind, lamp_height
 
     stats = Counter()
+    decks = deck_heights(roads) if spans is not None else []
     buildings = STRtree(footprints) if footprints else None
     wet = STRtree(water) if water else None
     blocked_deck = carried if carried is not None and not carried.is_empty else None
@@ -151,6 +201,13 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
             # into its traffic lanes (Kupittaansilta). The deck carries its own mapped lamps.
             stats["lamp_under_deck"] += 1
             continue
+        if p.kind == "lamp" and spans is not None and spans.covers(point) and decks:
+            # Anywhere else under a deck, a post that would reach up into it (a verge or footway
+            # under the deck, t0_0_-4) stands in the deck's lanes as a pole collider.
+            above = deck_above(decks, point)
+            if above is not None and height_at(p.x, p.z) + POST_REACH > above - DECK_GAP:
+                stats["lamp_through_deck"] += 1
+                continue
         flooded = [water[i] for i in wet.query(point)] if wet is not None else []
         flooded = [w for w in flooded if w.covers(point)]
         if flooded:

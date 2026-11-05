@@ -314,3 +314,22 @@ def test_nearer_quay_footway_owns_short_lamp_even_with_road_within_reach():
     light = post_light(100, 1, 7, edges, trees['car'], trees['path'],
                        {'height': '6', 'lamp_type': 'sodium'})
     assert light.post[4] == .75 and light.kind == 'sodium'
+
+
+def test_a_street_light_under_a_low_deck_is_dropped_but_not_under_a_high_one():
+    from turku3d.coarse.furniture import deck_spans, produce
+
+    nodes, rows = [0, 40, 250, 40, 0, 60, 250, 60], [[0, 1, CAR | 2 << CLASS_SHIFT, 250.0], [2, 3, CAR | 4 | 2 << CLASS_SHIFT, 250.0]]
+
+    def roads(deck_height):
+        return json.dumps({"nodes": nodes, "edges": rows, "bits": {"edge_flags": {"BRIDGE": 4}},
+                           "edgeAttrColumns": ["way", "flags"], "edgeAttrs": [[1, rows[0][2]], [2, rows[1][2]]],
+                           "edgeHeights": [None, [deck_height, deck_height]]})
+
+    deck = dict(line=LineString([(0, 60), (250, 60)]), width=12.0)
+    spans = deck_spans({"bridge_ways": [deck]})
+    lamp = Prop("lamp-under", "lamp", 120, 0, 58)  # on the ground beside the lower street, under the deck
+    low = produce(TILE, [lamp], lambda x, z: 1.0, [], [], roads(7.5), shapely.Polygon(), spans=spans)
+    assert low["stats"].get("lamp_through_deck") == 1 and not low["lights"]
+    high = produce(TILE, [lamp], lambda x, z: 1.0, [], [], roads(25.0), shapely.Polygon(), spans=spans)
+    assert not high["stats"].get("lamp_through_deck") and high["lights"]
