@@ -1183,6 +1183,14 @@ def produce(tile, grid_pos, inputs):
             height_at = levels_height(deck_parts, height_at)
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
+        # A railing never crosses a lane: at a skew deck end the outline edge runs across the
+        # carriageway that enters it (service bridge w620102546).
+        lanes = lane_envelope([w for w in [*way.get("member_ways", [way]), *way.get("approaches", [])]
+                               if is_carriageway(w["tags"])])
+        if not lanes.is_empty:
+            # Only at the deck's ends: along its sides the railing keeps cars on the deck.
+            ends = axis.boundary.buffer(width / 2 + 5.0)
+            rail_lines = rail_lines.difference(lanes.intersection(ends))
         if way.get("on_grade"):
             rail_lines = drop_edges(rail_lines, height_at, sample_ground)
         meshes.extend(
