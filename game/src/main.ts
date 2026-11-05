@@ -267,7 +267,11 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
-(window.__render as unknown as Record<string, unknown>).graphics = () => graphics.stats();
+// Actors (car batches, keepers) have a queue of their own: a single slow program build in the shared queue (on the
+// Air a building's facade program took 24 s, a pine LOD 14 s) no longer keeps the cars from drawing.
+const actorGraphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+const flushGraphics = (onError: (error: unknown) => void) => { graphics.flush(onError); actorGraphics.flush(onError); };
+(window.__render as unknown as Record<string, unknown>).graphics = () => ({ ...graphics.stats(), actors: actorGraphics.stats() });
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 // Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
 // net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
@@ -311,11 +315,12 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
 const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal,
   priority: PreparationPriority = 'tile') => {
   // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
+  const queue = priority === 'actor' ? actorGraphics : graphics;
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
-    graphics.defer(model, prepare, signal);
+    queue.defer(model, prepare, signal);
     return Promise.resolve();
   }
-  return graphics.enqueue(model, prepare, signal, false, priority);
+  return queue.enqueue(model, prepare, signal, false, priority);
 };
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
 // builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
@@ -961,7 +966,7 @@ async function runPlay() {
       world = await playWorld(city, false);
       session = await startPlay(world, null, { audio: kept.audio, socket: kept.socket });
       worldLoad.update({ phase: 'ready' });
-      graphics.flush(fail);
+      flushGraphics(fail);
       clearInterval(progress);
       document.title = cityTitle();
       curtain.classList.remove('shown');
@@ -977,7 +982,7 @@ async function runPlay() {
   const badge = import.meta.hot ? new BuildBadge(document.body) : null;
   let session = await startPlay(world, null);
   worldLoad.update({ phase: 'ready' });
-  graphics.flush(fail);
+  flushGraphics(fail);
   if (import.meta.hot && badge) {
     const onStatus = (status: BuildStatus) => badge.set(status);
     import.meta.hot.on('turku3d:status', onStatus);
@@ -989,7 +994,7 @@ async function runPlay() {
       if (!next) return;
       swapping = swapping.then(async () => {
         session = await (next as unknown as { startPlay: typeof startPlay }).startPlay(world, session.dispose());
-        graphics.flush(fail);
+        flushGraphics(fail);
         badge.applied('hot-swap');
       }).catch(fail);
     });
