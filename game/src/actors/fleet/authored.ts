@@ -8,7 +8,7 @@ import { AUTHORED_BY_ID } from './registry';
 
 interface FleetAsset {body:THREE.BufferGeometry;glass:THREE.BufferGeometry|null;parts:AuthoredFleetParts}
 const pending = new Map<string, Promise<FleetAsset|null>>();
-/** Models whose asset failed after the fetch retries (core/retryFetch.ts): drawn with the procedural fleet geometry. */
+/** Models whose asset failed after the fetch retries (core/retryFetch.ts): drawn as a fallback model (fleet/visuals.ts). */
 const unavailable = new Set<string>();
 
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
@@ -100,8 +100,8 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         return body;
       }, glass, parts };
     }).catch(error => {
-      // An optional car model never aborts the load: the model drops to the procedural fleet, with one warning.
-      if (!unavailable.has(model)) console.warn(`[fleet] ${url} unavailable, using the procedural car: ${String(error?.message ?? error)}`);
+      // An optional car model never aborts the load: it is drawn as a fallback model, with one warning.
+      if (!unavailable.has(model)) console.warn(`[fleet] ${url} unavailable, drawn as a fallback model: ${String(error?.message ?? error)}`);
       unavailable.add(model);
       return null;
     });

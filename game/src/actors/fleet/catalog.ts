@@ -38,17 +38,37 @@ export const fitsSlot = (m: FleetModel, slot?: FleetSlot) => !slot || !Number.is
   || (m.length - slot.length) / 2 <= Math.max(0, Math.min(slot.clear_front_m, slot.clear_rear_m) - .3);
 const weight = (m: FleetModel) => m.weight ?? (m.body === 'pickup' ? .08 : m.body === 'classic' ? .1 : 1);
 
+/** The real models a record family selects from (every slot size); computed once per name, since every traffic
+ *  car of every frame asks (traffic/client.ts). */
+const familyChoices = new Map<string, readonly FleetModel[]>();
+function choicesOf(model: string): readonly FleetModel[] {
+  let choices = familyChoices.get(model);
+  if (!choices) {
+    const family = model === 'suv-luxury' ? 'suv' : model === 'sedan-sports' ? 'sedan' : model;
+    choices = FLEET.filter(m => weight(m) > 0 && (model === 'sedan-sports' ? m.body === 'classic' || m.body === 'sedan' : m.family === family));
+    familyChoices.set(model, choices);
+  }
+  return choices;
+}
+
+/** The always-resident light model drawn for `seed` when its own model is unknown or its asset failed. A catalog
+ *  without the fallbacks (a dev server whose model glob is stale) still yields one of its own models. */
+export function fallbackModel(seed: string): FleetModel {
+  const hash = fleetHash(seed);
+  return FLEET_BY_ID.get(FALLBACK_MODELS[hash % FALLBACK_MODELS.length]) ?? FLEET[hash % FLEET.length];
+}
+
 /** The model for a record or traffic car: an exact model id, or a weighted, stable pick within its body family.
+ *  Ambient traffic picks within its family (traffic/constants.ts TRAFFIC_MODELS) here, in the worker and on the main
+ *  thread alike, so every drawn traffic car carries a real model id.
  *  With a parking slot only fitting models are offered; when none fits the slot stays empty (null). */
 export function fleetModel(model: string, seed: string): FleetModel;
 export function fleetModel(model: string, seed: string, slot?: FleetSlot): FleetModel | null;
 export function fleetModel(model: string, seed: string, slot?: FleetSlot): FleetModel | null {
   const exact = FLEET_BY_ID.get(model);
   if (exact) return fitsSlot(exact, slot) ? exact : null;
-  const family = model === 'suv-luxury' ? 'suv' : model === 'sedan-sports' ? 'sedan' : model;
-  const choices = FLEET.filter(m => weight(m) > 0 && (model === 'sedan-sports' ? m.body === 'classic' || m.body === 'sedan' : m.family === family)
-    && fitsSlot(m, slot));
-  if (!choices.length) return slot ? null : FLEET_BY_ID.get(FALLBACK_MODELS[fleetHash(seed) % FALLBACK_MODELS.length])!;
+  const choices = slot ? choicesOf(model).filter(m => fitsSlot(m, slot)) : choicesOf(model);
+  if (!choices.length) return slot ? null : fallbackModel(seed);
   let pick = fleetHash(seed) / 4294967296 * choices.reduce((s, m) => s + weight(m), 0);
   for (const m of choices) { pick -= weight(m); if (pick < 0) return m; }
   return choices[choices.length - 1];

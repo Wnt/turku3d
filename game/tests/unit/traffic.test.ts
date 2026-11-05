@@ -419,8 +419,9 @@ describe('rendering', () => {
       // All LOD assets are resident before traffic starts changing.
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
-        const moving = Array.from({ length: count }, (_, i) => ({ seed: i === 0 ? 'p1' : String(i), model: TRAFFIC_MODELS[i % 4], color: ['blue', 'white', 'beige'][i % 3],
-          x: i * 7, y: 0.75, z: 3, q: { x: 0, y: 0, z: 0, w: 1 } }));
+        const moving = Array.from({ length: count }, (_, i) => { const seed = i === 0 ? 'p1' : String(i);
+          return { seed, model: fleetModel(TRAFFIC_MODELS[i % 4], seed).id, color: ['blue', 'white', 'beige'][i % 3],
+            x: i * 7, y: 0.75, z: 3, q: { x: 0, y: 0, z: 0, w: 1 } }; });
         visuals.setTraffic(moving);
         visuals.update([], { restingPose: c => ({ pos: { x: c.x, y: c.y + 0.75, z: c.z }, rot: { x: 0, y: 0, z: 0, w: 1 } }) });
         expect(scene.children).toEqual(meshes);

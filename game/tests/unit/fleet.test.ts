@@ -1,9 +1,10 @@
 import './fleet-assets.fixture';
-import { expect,test } from 'vitest';
+import { expect,test,vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
+import { TRAFFIC_MODELS } from '../../src/traffic/constants';
 import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
@@ -45,6 +46,40 @@ test('model assignment is stable and legacy families remain compatible',()=>{
   }
 });
 
+
+// A traffic car carries the real model the catalog picks within its family. A family name or an id this build does
+// not know (a stale dev server's model glob listed 3 models: every frame threw reading `id`) draws as a fallback.
+test('traffic draws real model ids; a family name or unknown id draws as a fallback with one warning, never a throw',async()=>{
+  for(const family of TRAFFIC_MODELS){
+    expect(SELECTABLE_FAMILIES.has(family),family).toBe(true);
+    for(let i=0;i<50;i++)expect(FLEET_BY_ID.get(fleetModel(family,String(i)).id)!.family).toBe(family);
+  }
+  const warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=FALLBACK_MODELS.map((model,i)=>({object_id:`f${i}`,model,color:'silver',x:i*3,y:0,z:0,yaw:0,width:2,length:4.6,height:1.5,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const car=(model:string,seed:string,x:number)=>({seed,model,color:'blue',x,y:.75,z:6,q:{x:0,y:0,z:0,w:1}});
+  visuals.setTraffic([car('sedan','a',0),car('suv','b',4),car('no-such-car','c',8),car(FALLBACK_MODELS[0],'d',12)]);
+  for(let frame=0;frame<3;frame++)expect(()=>visuals.update([])).not.toThrow();
+  // Parked cars have no pose here; all four moving cars draw, each as a resident fallback model.
+  const drawn=visuals.snapshot();
+  expect(drawn.instances).toBe(4);
+  expect(drawn.models.every(id=>(FALLBACK_MODELS as readonly string[]).includes(id))).toBe(true);
+  expect(warn.mock.calls.map(([m])=>String(m)).filter(m=>m.startsWith('[fleet] traffic model')))
+    .toEqual(['sedan','suv','no-such-car'].map(id=>`[fleet] traffic model "${id}" is not in the catalog; drawn as a fallback model`));
+  warn.mockRestore();visuals.dispose();
+});
+
+test('a registry without the traffic families or the fallbacks (a stale dev glob) still yields catalog models',async()=>{
+  const stale=AUTHORED_MODELS.filter(m=>['golf7','garbage-truck','transit-bus'].includes(m.id));
+  vi.resetModules();vi.doMock('../../src/actors/fleet/registry',()=>({AUTHORED_MODELS:stale,AUTHORED_BY_ID:new Map(stale.map(m=>[m.id,m]))}));
+  try{
+    const catalog=await import('../../src/actors/fleet/catalog');
+    expect(catalog.FLEET.map(m=>m.id).sort()).toEqual(['garbage-truck','golf7','transit-bus']);
+    for(const family of TRAFFIC_MODELS)for(let i=0;i<20;i++)expect(catalog.FLEET).toContain(catalog.fleetModel(family,String(i)));
+    for(let i=0;i<20;i++)expect(catalog.FLEET).toContain(catalog.fallbackModel(String(i)));
+  }finally{vi.doUnmock('../../src/actors/fleet/registry');vi.resetModules();}
+});
 
 test('ordinary traffic reaches every selectable real model with only a few pickups and older cars',()=>{
   const models=new Set<string>();let pickups=0,old=0;

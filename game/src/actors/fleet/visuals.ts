@@ -3,9 +3,9 @@ import * as THREE from 'three/webgpu';
 import type { VehicleState, Quat, WheelState } from '../../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
-import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
+import { CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
-import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fleetHash, fleetModel, type FleetModel } from './catalog';
+import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fallbackModel, fleetModel, type FleetModel } from './catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
 import { AUTHORED_BY_ID } from './registry';
@@ -16,6 +16,7 @@ import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
+/** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
 export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
 interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:boolean}
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
@@ -36,6 +37,8 @@ export class ParkedCarVisuals {
   private dynamic=new Map<string,THREE.Mesh>();
   private definitions=new Map<string,{model:FleetModel;color:string;size?:ParkedVehicle}>();
   private failed=new Set<string>();
+  /** Traffic model ids not in the catalog, warned about once each. */
+  private unknown=new Set<string>();
   private traffic: readonly TrafficInstance[]=[];
   private reserve=0;
   private camera=new THREE.Vector3();
@@ -43,11 +46,9 @@ export class ParkedCarVisuals {
   private viewMatrix=new THREE.Matrix4();
   private sphere=new THREE.Sphere(new THREE.Vector3(),6);
   private hasView=false;
-  private variants=new Map<string,FleetModel>();
   private matrix=new THREE.Matrix4(); private position=new THREE.Vector3();
   private rotation=new THREE.Quaternion(); private scale=new THREE.Vector3(1,1,1);
   private loading: Promise<void>=Promise.resolve();
-  private loaded=false;
   /** One detached, prepared driven-car actor per loaded design: r186 keys a plain Mesh's programs apart from the
    *  instanced batches, so the first takeOver of a design built its beauty, prepass, shadow and reflection programs
    *  inside that frame (live play only: replays never take a car over). Held so r186 keeps the builds; never drawn. */
@@ -59,7 +60,6 @@ export class ParkedCarVisuals {
   private remoteRequests=new Map<string,Promise<void>>();
   constructor(private readonly scene: THREE.Object3D, private readonly prepare: (model: THREE.Object3D)=>Promise<void> = async()=>{}) {}
   reserveTraffic(count:number) { this.reserve=Math.max(0,count); }
-  trafficModels(): string[] { return this.loaded ? [...TRAFFIC_MODELS] : []; }
   setTraffic(cars:readonly TrafficInstance[]) { this.traffic=cars; }
   setView(camera: THREE.Camera, night=0) { this.camera.copy(camera.position); camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse),camera.coordinateSystem);this.hasView=true;
@@ -75,11 +75,13 @@ export class ParkedCarVisuals {
     this.designs.set(key,designs);return designs;
   }
   private async authored(model:FleetModel,lod:number) {
-    if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
+    if(!AUTHORED_BY_ID.has(model.id)||this.failed.has(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
     const key=`${model.id}/${lod}`;
     const parts=lod<2?await loadAuthoredFleetParts(model.id,lod):null;
     const body=parts?.body??await loadAuthoredFleet(model.id,lod);
-    if(body)this.geometries.set(key,body);
+    // The asset failed after its fetch retries (authored.ts warned once): the model is drawn as a fallback (resolve).
+    if(!body){this.failed.add(model.id);return;}
+    this.geometries.set(key,body);
     if(parts){
       for(const wheel of parts.wheels){
         // Hash all baked vertex attributes, including material roles. Wheels of one exact
@@ -103,7 +105,14 @@ export class ParkedCarVisuals {
   }
   /** A model whose asset failed to load is drawn as one of the always-resident light fallback models. */
   private resolve(model:FleetModel,seed:string):FleetModel {
-    return this.failed.has(model.id)?FLEET_BY_ID.get(FALLBACK_MODELS[fleetHash(seed)%FALLBACK_MODELS.length])!:model;
+    return this.failed.has(model.id)?fallbackModel(seed):model;
+  }
+  /** A traffic car's model: a model id outside the catalog (a family name, a stale build's id) is drawn as a fallback
+   *  model with one warning per id, never a throw in the frame loop. */
+  private trafficModel(id:string,seed:string):FleetModel {
+    const model=FLEET_BY_ID.get(id);if(model)return model;
+    if(!this.unknown.has(id)){this.unknown.add(id);console.warn(`[fleet] traffic model "${id}" is not in the catalog; drawn as a fallback model`);}
+    return fallbackModel(seed);
   }
   load(manifest:Manifest):Promise<void> {
     // Tile streaming can request another load while GPU preparation yields. Publish serially.
@@ -124,13 +133,10 @@ export class ParkedCarVisuals {
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
-    for(const model of models)for(let lod=0;lod<3;lod++){
-      try{await this.authored(model,lod);}
-      catch(error){
-        if(alwaysLoaded.has(model.id))throw error;
-        console.error(`Fleet model ${model.id} failed to load; drawn as a fallback model`,error);this.failed.add(model.id);
-      }
-    }
+    for(const model of models)for(let lod=0;lod<3;lod++)await this.authored(model,lod);
+    // The fallbacks and the starter car must load; any other model whose asset failed is drawn as a fallback.
+    const required=[...alwaysLoaded].filter(id=>this.failed.has(id));
+    if(required.length)throw Error(`Fleet model ${required.join(', ')} failed to load`);
     models=models.filter(m=>!this.failed.has(m.id));
     for(const model of models)for(const lod of [0,1] as const){
       const uses=new Map<string,number>();
@@ -183,7 +189,7 @@ export class ParkedCarVisuals {
     for(const car of cars){const model=fleetModel(car.model,car.object_id,car);if(model)this.definitions.set(car.object_id,{model,color:car.color,size:car});}
     const resident=new Set(cars.map(c=>c.object_id));
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
-    this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
+    this.cars=cars.filter(c=>!this.dynamic.has(c.object_id));
     void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
   }
   /** Prepare a takeOver actor of each design ahead (see `keepers`); a design whose geometry is not built yet waits for
@@ -222,7 +228,8 @@ export class ParkedCarVisuals {
       const holder=new THREE.Mesh();holder.name=`driven/${id}`;this.scene.add(holder);this.dynamic.set(id,holder);
       void this.authored(model,0).then(()=>{
         if(this.dynamic.get(id)!==holder)return;
-        const actor=this.actor(model,def.color,`driven/${id}`);actor.matrix.copy(holder.matrix);actor.matrixAutoUpdate=holder.matrixAutoUpdate;
+        // An asset that failed meanwhile is drawn as a resident fallback model.
+        const actor=this.actor(this.resolve(model,id),def.color,`driven/${id}`);actor.matrix.copy(holder.matrix);actor.matrixAutoUpdate=holder.matrixAutoUpdate;
         actor.position.copy(holder.position);actor.quaternion.copy(holder.quaternion);
         holder.removeFromParent();this.scene.add(actor);this.dynamic.set(id,actor);
       }).catch(error=>{console.error(`Fleet model ${model.id} failed to load`,error);this.failed.add(model.id);});
@@ -291,9 +298,7 @@ export class ParkedCarVisuals {
     }
     for(let i=0;i<this.traffic.length;i++) {
       const car=this.traffic[i], id=car.seed??`${car.model}/${i}`;
-      const key=car.model+'/'+id;
-      let model=this.variants.get(key);
-      if(!model){model=fleetModel(car.model,id);if(this.variants.size>512)this.variants.clear();this.variants.set(key,model);}
+      const model=this.trafficModel(car.model,id);
       const yaw=headingYaw(car.q);
       let motion=this.wheelMotion.get(id);
       if(!motion){motion={x:car.x,z:car.z,yaw,spin:0,steer:0};this.wheelMotion.set(id,motion);}
