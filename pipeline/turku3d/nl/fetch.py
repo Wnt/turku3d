@@ -97,7 +97,7 @@ class Area:
 # -- http ---------------------------------------------------------------------------------------------
 
 
-def _get(url, *, method="GET", tries=5, timeout=120):
+def _get(url, *, method="GET", tries=8, timeout=120):
     for attempt in range(tries):
         try:
             req = urllib.request.Request(url, method=method, headers={"User-Agent": "turku3d-fetch"})
@@ -111,7 +111,7 @@ def _get(url, *, method="GET", tries=5, timeout=120):
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt == tries - 1:
                 raise
-        time.sleep(2 + 3 * attempt)
+        time.sleep(min(60, 2 + 5 * attempt))  # rides out short DNS or proxy outages
     raise RuntimeError(url)
 
 
