@@ -589,6 +589,12 @@ def surfaces(way, polygon, height_at):
     key = f"draft-bridge:{way['id']}"
     members = way.get("member_ways", [way])
     main_spec = style(way)
+    # A raised pavement never covers another member's carriageway: where a link leaves the deck
+    # across the footway, the lanes cross at road level, not over a kerb.
+    carriageways = shapely.union_all([
+        m["line"].buffer(m["width"] / 2, cap_style="flat", join_style="mitre")
+        for m in members if not style(m)["foot"] and not style(m)["railway"]
+    ])
     for member in members:
         axis, tags = member["line"], member["tags"]
         s, coords = samples(axis, 2)
@@ -597,7 +603,7 @@ def surfaces(way, polygon, height_at):
         if spec["foot"] and not main_spec["foot"]:
             strip = axis.buffer(
                 member["width"] / 2, cap_style="flat", join_style="mitre"
-            ).intersection(polygon.buffer(-0.2))
+            ).intersection(polygon.buffer(-0.2)).difference(carriageways)
             parts = slab(
                 key + ":pavement",
                 strip,
