@@ -48,16 +48,28 @@ def main():
     def passed():
         return len(P.logged(journal)) - base
 
-    started, done = time.monotonic(), 0
+    from turku3d import config as C
+    from turku3d.coarse import wires
+
+    def needed(tile):
+        bbox = C.VisualTile.parse(tile).bbox.buffered(wires.SEARCH)
+        return [b.name for b in C.laz_tiles_for_bbox(bbox)]
+
+    # One supply per block: tiles share blocks, and supply_block's .part name is per process, so two threads must
+    # never copy the same block (the pass, another process, may; its .part differs).
+    started, done, supplied = time.monotonic(), 0, set()
     with ThreadPoolExecutor(a.threads) as pool:
         for start in range(0, len(tiles), a.threads * 4):
             while start - passed() > a.ahead:
                 time.sleep(5)
             batch = tiles[start:start + a.threads * 4]
-            missing = list(pool.map(survey.missing, batch))
+            names = sorted({n for t in batch for n in needed(t)
+                            if n in survey.catalog and n not in supplied and not (survey.root / f'{n}.laz').is_file()})
+            ok = list(pool.map(survey._link, names))
+            supplied.update(n for n, good in zip(names, ok) if good)
             done += len(batch)
             print(json.dumps(dict(t=round(time.monotonic() - started), tiles=done, ring=P.ring(batch[-1]),
-                                  supplied=survey.linked, still_missing=sum(map(len, missing)))), flush=True)
+                                  supplied=len(supplied), not_supplied=sum(1 for g in ok if not g))), flush=True)
     return 0
 
 

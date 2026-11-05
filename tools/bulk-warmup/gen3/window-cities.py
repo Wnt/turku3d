@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Bulk host, during a window: first+full generator builds of other cities' tiles, ring by ring from each centre,
-interleaved across cities, in step with the Turku pass.
+interleaved across cities.
 
-  window-cities.py --plan plan.json [--lanes N] [--turku-journal F/migrations/<gen>/pass.jsonl] [--dry-run]
+  window-cities.py --plan plan.json [--lanes N | --lanes-file F] [--follow] [--dry-run]
 
 plan.json: {"cities": [{"name": "espoo", "checkout": "/home/wnt/turku3d-local/cities/repo", "centre": "t0_0_1",
             "out": "/home/wnt/turku3d-local/cities/espoo/tiles", "tiles": ["t0_0_1", ...]}, ...]}
-Only the listed tiles are built (the city agents' lists of tiles that build without any network fetch). The plan
-file is re-read when it changes, so a city whose list lands mid-window joins the ring queue (--follow keeps waiting).
+Only the listed tiles are built (the city agents' lists of tiles that build without any network fetch).
 
-Order: ring r of every city before ring r+1 of any, cities round-robin within a ring (Chebyshev rings round each
-city's own centre tile; Turku's pass uses the same rings round t0_0_0). A city ring starts only once the Turku pass
-has started that ring too (--turku-journal), so the centres of all four cities come first with equal priority. The
-Turku pass caps its lanes by load per core, so these builds take their lanes and Turku fills the rest of the cores.
+Order: ring r of every city before ring r+1 of any, cities in turn within a ring (Chebyshev rings round each city's
+own centre tile; the Turku pass uses the same rings round t0_0_0, in its own lanes). The CPU split between the
+cities and Turku is the lane counts (window-lanes.sh).
+
+Hot and additive (a window never idles for a change): the plan file is re-read when it changes and only tiles new to
+it are appended to the queue (in ring order); the lane count is re-read from --lanes-file every few seconds; a
+failing tile is logged and skipped and its lane takes the next one. --follow keeps running with an empty queue.
 
 Each tile builds as `tools/cities/run.sh CITY python -m turku3d.coarse build TILE --out OUT/TILE.building` from the
 city's checkout, and is renamed to OUT/TILE only after it exits 0 with a full manifest: a window cut-off loses only
@@ -35,23 +37,6 @@ def ring(tile, centre):
     i, j = (int(v) for v in tile.split('_')[1:])
     ci, cj = (int(v) for v in centre.split('_')[1:])
     return max(abs(i - ci), abs(j - cj))
-
-
-def turku_ring(journal):
-    """The highest ring the Turku pass has started or finished (its journal rows), or None without a journal."""
-    if journal is None:
-        return None
-    best = -1
-    try:
-        for line in journal.open():
-            try:
-                tile = json.loads(line)['tile']
-            except (ValueError, KeyError):
-                continue
-            best = max(best, ring(tile, 't0_0_0'))
-    except FileNotFoundError:
-        pass
-    return best
 
 
 def order(cities):
@@ -98,8 +83,8 @@ def build(city, tile):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--plan', type=Path, required=True)
-    ap.add_argument('--lanes', type=int, default=4)
-    ap.add_argument('--turku-journal', type=Path)
+    ap.add_argument('--lanes', type=int, default=4, help='lanes when --lanes-file is absent or unreadable')
+    ap.add_argument('--lanes-file', help='a file holding the lane count, re-read every few seconds (window-lanes.sh)')
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--follow', action='store_true', help='keep running and pick up tiles added to the plan file')
     a = ap.parse_args()
@@ -113,35 +98,52 @@ def main():
         print(json.dumps(counts, indent=1))
         return 0
     started, done, running = time.time(), [], {}
+    seen = {(c['name'], t) for _, c, t in jobs}
     stamp = a.plan.stat().st_mtime
-    with ThreadPoolExecutor(a.lanes) as pool:
+    lanes_file = Path(a.lanes_file) if a.lanes_file else None
+
+    def lanes():
+        try:
+            return max(0, int(lanes_file.read_text().split()[0]))
+        except (AttributeError, OSError, ValueError, IndexError):
+            return a.lanes
+
+    with ThreadPoolExecutor(64) as pool:
         while jobs or running or a.follow:
-            if a.plan.stat().st_mtime != stamp:
-                # Cities or tiles added mid-window (a city's offline-ready list landed): rebuild the queue in ring order,
-                # without the tiles built or in flight; a tile that failed (e.g. exit 3, inputs pending) is tried again.
-                stamp, cities = a.plan.stat().st_mtime, json.loads(a.plan.read_text())['cities']
-                busy = {(n, t) for _, n, t in running.values()} | {(d['city'], d['tile']) for d in done
-                                                                      if d['state'] == 'built'}
-                jobs = [j for j in order(cities) if (j[1]['name'], j[2]) not in busy]
-            limit = turku_ring(a.turku_journal)
-            while jobs and len(running) < a.lanes and (limit is None or jobs[0][0] <= max(limit, 0)):
+            try:
+                changed = a.plan.stat().st_mtime != stamp
+            except OSError:
+                changed = False
+            if changed:
+                # Append-only: tiles new to the plan join the queue (ring order kept); nothing queued, running or
+                # done is dropped or redone, and lanes keep running.
+                stamp = a.plan.stat().st_mtime
+                cities = json.loads(a.plan.read_text())['cities']
+                new = [j for j in order(cities) if (j[1]['name'], j[2]) not in seen]
+                seen |= {(c['name'], t) for _, c, t in new}
+                jobs = sorted(jobs + new, key=lambda j: (j[0], [c['name'] for c in cities].index(j[1]['name']), j[2]))
+            while jobs and len(running) < lanes():
                 r, city, tile = jobs.pop(0)
                 running[pool.submit(build, city, tile)] = (r, city['name'], tile)
             if not running:
-                time.sleep(10)
+                time.sleep(5)
                 continue
-            finished, _ = wait(list(running), timeout=10, return_when=FIRST_COMPLETED)
+            finished, _ = wait(list(running), timeout=5, return_when=FIRST_COMPLETED)
             for future in finished:
                 r, name, tile = running.pop(future)
-                row = future.result()
+                try:
+                    row = future.result()
+                except Exception as error:  # a failing tile is logged and skipped; the lane moves on
+                    row = dict(city=name, tile=tile, state='failed', error=f'{type(error).__name__}: {error}'[-500:])
                 row.update(ring=r, at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
                 done.append(row)
                 city = next(c for c in cities if c['name'] == name)
                 with (Path(city['out']).parent / 'window-builds.jsonl').open('a') as log:
                     log.write(json.dumps(row) + '\n')
-            summary = dict(updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-                           minutes=round((time.time() - started) / 60, 1), turku_ring=limit,
-                           running=sorted(f'{n}/{t}' for _, n, t in running.values()), left=len(jobs),
+            summary = dict(updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), pid=os.getpid(),
+                           minutes=round((time.time() - started) / 60, 1), lanes=lanes(),
+                           running=sorted(f'{n}/{t}' for _, n, t in running.values()),
+                           left={c['name']: sum(1 for j in jobs if j[1]['name'] == c['name']) for c in cities},
                            built={c['name']: sum(1 for d in done if d['city'] == c['name'] and d['state'] == 'built')
                                   for c in cities},
                            failed=sorted({f"{d['city']}/{d['tile']}" for d in done if d['state'] == 'failed'}))
