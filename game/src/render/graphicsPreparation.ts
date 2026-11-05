@@ -9,6 +9,10 @@ type Job = { model: THREE.Object3D; prepare: () => void | Promise<unknown>; sign
  *  never waits for a queue of multi-second tile preparations (parked cars were 39-79 s late), and scenery cells and
  *  merged scenery batches never hold a near tile's HD install behind them. The running job is never interrupted. */
 export type PreparationPriority = 'actor' | 'tile' | 'scenery';
+/** A job that has gone behind higher lanes for this long (ms) runs at its next turn: on a slow GPU (the Air) the
+ *  tile lane never empties while streaming, and scenery cells waited behind it forever (city.lab: 0 of ~180 distant
+ *  cells after minutes). One aged job per turn keeps the near tiles first in all other cases. */
+const MAX_DEFER_MS = 4000;
 const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
 
 /** One paced queue for incoming models and the resident models skipped by initial-view warmup. */
@@ -40,9 +44,9 @@ export class GraphicsPreparation {
   }
 
   enqueue(model: THREE.Object3D, prepare: Job['prepare'], signal?: AbortSignal, residentOnly = false,
-    priority: PreparationPriority = 'tile'): Promise<void> {
+    priority: PreparationPriority = 'tile', since = performance.now()): Promise<void> {
     const current = () => !signal?.aborted && (!residentOnly || this.resident(model));
-    const queuedAt = performance.now(), lane = LANE[priority];
+    const queuedAt = since, lane = LANE[priority];
     this.waiting[lane]++;
     let requeued: Promise<void> | undefined;
     const prepared = this.queued.then(async () => {
@@ -50,8 +54,8 @@ export class GraphicsPreparation {
       // An aborted job leaves at the head instead of going behind higher lanes again and again.
       if (signal?.aborted) { this.finished++; return; }
       // Never awaited here: the chain moves on to the higher-lane jobs while this one waits behind them.
-      if (this.waiting.slice(0, lane).some(count => count > 0)) {
-        requeued = this.enqueue(model, prepare, signal, residentOnly, priority); return;
+      if (this.waiting.slice(0, lane).some(count => count > 0) && performance.now() - since < MAX_DEFER_MS) {
+        requeued = this.enqueue(model, prepare, signal, residentOnly, priority, since); return;
       }
       // Preparations can visit cross-model resources (notably registered river targets).
       // Recheck because another retirement may join while its preceding fence resolves.

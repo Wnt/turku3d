@@ -174,3 +174,27 @@ test('a queued job of a released city answers its waiter at the abort and never 
   await new Promise(r => setTimeout(r, 5));
   expect(ran).toBe(false);
 });
+
+test('a scenery job behind a tile lane that never empties still runs once it has waited MAX_DEFER_MS', async () => {
+  const { vi } = await import('vitest');
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    const queue = new GraphicsPreparation(new THREE3.Scene(), () => {}, r => r(), () => Promise.resolve());
+    const events: string[] = [];
+    let ranScenery = false;
+    void queue.enqueue(new THREE3.Group(), () => { ranScenery = true; events.push('scenery'); }, undefined, false, 'scenery');
+    // Streaming keeps one tile job waiting at all times: each tile job queues the next one.
+    let tiles = 0;
+    const tile = (): Promise<void> => queue.enqueue(new THREE3.Group(), () => { events.push(`tile-${tiles}`); now += 500;
+      if (++tiles < 30) void tile(); });
+    void tile();
+    for (let i = 0; i < 200 && !ranScenery; i++) await new Promise(r => setTimeout(r, 0));
+    expect(ranScenery).toBe(true);
+    const at = events.indexOf('scenery');
+    expect(at).toBeGreaterThan(4); // tiles still went first for a while
+    expect(at).toBeLessThan(15);
+  } finally { vi.restoreAllMocks(); }
+});
