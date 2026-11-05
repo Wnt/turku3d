@@ -115,11 +115,11 @@
     },
     "[\"wood\",\"pre-1850\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -151,11 +151,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -187,11 +189,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -223,11 +227,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -259,17 +265,20 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"wood\",\"1850-1919\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -301,11 +310,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -337,11 +348,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -373,11 +386,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -409,17 +424,20 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"wood\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -451,11 +469,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -487,11 +507,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -523,11 +545,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -559,9 +583,12 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"render\",\"pre-1850\"]": {
       "buildings": 0,
@@ -1107,11 +1134,11 @@
     },
     "[\"wood\",\"pre-1850\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -1143,11 +1170,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -1179,11 +1208,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -1215,11 +1246,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -1251,17 +1284,20 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"wood\",\"1850-1919\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -1293,11 +1329,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -1329,11 +1367,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -1365,11 +1405,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -1401,17 +1443,20 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"wood\"]": {
       "buildings": 28,
-      "source": "mixture of retained facade-description wall colours of wood-clad buildings (k=4 Lab clusters, add-one weights)",
+      "source": "component colours: k=4 Lab clusters of retained facade-description wall colours of wood-clad buildings (28); weights: OSM building:colour families of 636 wood-clad buildings",
       "components": [
         {
           "buildings": 11,
-          "weight": 0.375,
+          "weight": 0.2956,
           "mean_lab": [
             76.074,
             -2.603,
@@ -1443,11 +1488,13 @@
             87.73,
             3.157,
             16.148
-          ]
+          ],
+          "osm_buildings": 188,
+          "family": "white/grey"
         },
         {
           "buildings": 10,
-          "weight": 0.3438,
+          "weight": 0.1447,
           "mean_lab": [
             64.083,
             -6.117,
@@ -1479,11 +1526,13 @@
             73.404,
             2.629,
             16.188
-          ]
+          ],
+          "osm_buildings": 92,
+          "family": "green/blue"
         },
         {
           "buildings": 6,
-          "weight": 0.2188,
+          "weight": 0.4214,
           "mean_lab": [
             78.056,
             -3.283,
@@ -1515,11 +1564,13 @@
             90.011,
             2.296,
             37.014
-          ]
+          ],
+          "osm_buildings": 268,
+          "family": "yellow ochre"
         },
         {
           "buildings": 1,
-          "weight": 0.0625,
+          "weight": 0.1384,
           "mean_lab": [
             43.579,
             42.97,
@@ -1551,9 +1602,12 @@
             55.24,
             50.453,
             34.31
-          ]
+          ],
+          "osm_buildings": 88,
+          "family": "red ochre"
         }
-      ]
+      ],
+      "osm_colour_buildings": 636
     },
     "[\"render\",\"pre-1850\"]": {
       "buildings": 0,
