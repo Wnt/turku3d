@@ -734,7 +734,10 @@ def branch_profiles(way, main_height, sample_ground):
     members = way.get("member_ways", [])
     # A link diverges slowly, so most of its length can run along the axis: what makes it a
     # branch is a stretch outside the main carriageway.
-    branches = [m for m in members if m["line"].difference(merged).length >= BRANCH_OUTSIDE]
+    # Only carriageways: a cycleway or footway leaving the deck keeps the deck whole (Kalevan's
+    # north cycleway split the main deck and sloped its triangles across the main lanes).
+    branches = [m for m in members if is_carriageway(m["tags"])
+                and m["line"].difference(merged).length >= BRANCH_OUTSIDE]
     # Where a link leaves the deck is where it leaves the other members' own carriageways, not the
     # merged deck's width (which also spans the link while it descends alongside).
     core = shapely.union_all([m["line"].buffer(m["width"] / 2) for m in members if m not in branches]) \
