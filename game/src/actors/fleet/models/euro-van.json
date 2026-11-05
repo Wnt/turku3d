@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/euro-van",
+  "fleet": {
+    "id": "euro-van",
+    "name": "Kaira Kuorma 308",
+    "body": "van",
+    "family": "van",
+    "length": 5.2,
+    "width": 2.575,
+    "height": 2.4338,
+    "wheelbase": 3.2492,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3812,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.6,
+    "weight": 1
+  },
+  "id": "euro-van",
+  "wheels": {
+    "radius": 0.3812,
+    "width": 0.2956,
+    "pivots": {
+      "wheel_FL": [
+        -0.8639,
+        0.3812,
+        1.7332
+      ],
+      "wheel_FR": [
+        0.8639,
+        0.3812,
+        1.7332
+      ],
+      "wheel_RL": [
+        -0.8639,
+        0.3812,
+        -1.516
+      ],
+      "wheel_RR": [
+        0.8639,
+        0.3812,
+        -1.516
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.2169,
+      0
+    ],
+    "half": [
+      1.2875,
+      1.2169,
+      2.6
+    ]
+  },
+  "triangles": [
+    21317,
+    9843,
+    3436
+  ],
+  "source": {
+    "title": "European Delivery Van",
+    "url": "https://sketchfab.com/3d-models/european-delivery-van-0b2f1ad95a79419f9a092420024d329c",
+    "author": "Evan Hiltz",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "euro-van",
+    "referenceModel": "Late-1970s European panel van (Mercedes T1 style)",
+    "massKg": 2600,
+    "powerKW": 70,
+    "torqueNm": 220,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 31,
+    "topSpeedKmh": 125,
+    "turningCircleM": 12.8,
+    "gears": 5,
+    "rideHeightM": 0.2,
+    "character": "utility",
+    "lengthM": 5.2,
+    "widthM": 2.575,
+    "heightM": 2.4338,
+    "wheelbaseM": 3.2492,
+    "trackM": 1.7277,
+    "wheelRadiusM": 0.3812,
+    "wheelWidthM": 0.2956
+  },
+  "accepted": false
+}

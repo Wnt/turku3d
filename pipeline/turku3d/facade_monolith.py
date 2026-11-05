@@ -1,21 +1,26 @@
 """Modern public monoliths: blank volumes, curtain walls and panel grids by photographed wall.
 
-Libraries, museums and halls are composed of blank volumes and a few fully glazed ones.
-A building-wide description or the sampled archetype grid must not paint windows on
-walls nobody photographed with windows. Once a reviewed reading or a wall's own
-description shows a blank wall, every wall keeps only its own evidence:
+Libraries, museums and halls combine blank volumes, fully glazed ones and ordinary
+windowed walls. Once a reviewed reading or a wall's own description shows a blank wall,
+the photographed walls keep their own evidence:
 
-- a wall with its own reference description keeps that description's layout, or becomes
-  a full-height curtain wall when it describes near full-bay glazing;
+- a wall with its own reference description keeps that description's layout, becomes
+  a full-height curtain wall when it describes near full-bay glazing, or a blank volume
+  when it describes no windows;
 - a reviewed wall keeps its reading (applied later by ``resolve``);
-- every other wall is a blank volume in the class material, with a stone base course,
-  and the photographed panel-joint grid when the readings report panel cladding.
+- every unphotographed wall keeps the building's ordinary class layout (``resolve`` with
+  ``monolith=False``). A blank photograph is evidence for its own wall, never for the
+  whole building: blanking every unseen wall left whole theatres and museums windowless.
+
+Blank volumes are in the class material, with a stone base course, and the photographed
+panel-joint grid when the readings report panel cladding.
 
 The measured priors are in ``turkutex.facade_archetypes`` (``MONOLITH_*``).
 """
 
 from __future__ import annotations
 
+import copy
 import re
 
 import numpy as np
@@ -95,8 +100,9 @@ def _own_wall_description(points, prepared):
     return matched[0] if matched else None
 
 
-def apply(program, key, vertices, observed, description):
-    """Re-own every unreviewed wall of a monolith to its own evidence or a blank volume."""
+def apply(program, key, vertices, observed, description, ordinary):
+    """Re-own every photographed wall of a monolith to its own evidence; ``ordinary`` (the
+    building resolved without the class) supplies every unphotographed wall."""
     from turkutex.facade_archetypes import MONOLITH_PANEL, MONOLITH_RENDER
     from turkutex.facade_program import value
 
@@ -132,13 +138,17 @@ def apply(program, key, vertices, observed, description):
         elif own and own.get("window_columns"):
             single = {**program, "walls": [wall]}
             describe(single, own, facade["metadata"]["width_m"])
-        else:
+        elif own:
             blank_wall(wall, blank_colour, blank_material, panels, m)
+            continue
+        else:
+            wall = program["walls"][index] = copy.deepcopy(ordinary["walls"][index])
+            wall["monolith_role"] = "ordinary"
             continue
         wall["monolith_role"] = "curtain" if own and curtain(own) else "own description"
     program["monolith"]["walls"] = {
         role: sum(w.get("monolith_role") == role for w in program["walls"])
-        for role in ("blank", "curtain", "own description")
+        for role in ("blank", "curtain", "own description", "ordinary")
     }
     return program
 

@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/crownvic-taxi",
+  "fleet": {
+    "id": "crownvic-taxi",
+    "name": "Nord Taksi V8",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 5.39,
+    "width": 2.184,
+    "height": 1.662,
+    "wheelbase": 2.9489,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3447,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.04
+  },
+  "id": "crownvic-taxi",
+  "wheels": {
+    "radius": 0.3447,
+    "width": 0.2555,
+    "pivots": {
+      "wheel_FL": [
+        -0.8267,
+        0.3447,
+        1.5954
+      ],
+      "wheel_FR": [
+        0.8267,
+        0.3447,
+        1.5954
+      ],
+      "wheel_RL": [
+        -0.8267,
+        0.3447,
+        -1.3536
+      ],
+      "wheel_RR": [
+        0.8267,
+        0.3447,
+        -1.3536
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.831,
+      0
+    ],
+    "half": [
+      1.092,
+      0.831,
+      2.695
+    ]
+  },
+  "triangles": [
+    33834,
+    9851,
+    3443
+  ],
+  "source": {
+    "title": "2001 Crown Victoria Taxi Game Prop",
+    "url": "https://sketchfab.com/3d-models/2001-crown-victoria-taxi-game-prop-2429a825ff1646568e8e6e1453f9c501",
+    "author": "8sianDude",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "crownvic-taxi",
+    "referenceModel": "Ford Crown Victoria taxi (2001)",
+    "massKg": 1800,
+    "powerKW": 168,
+    "torqueNm": 386,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.5,
+    "topSpeedKmh": 190,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 5.39,
+    "widthM": 2.184,
+    "heightM": 1.662,
+    "wheelbaseM": 2.9489,
+    "trackM": 1.6534,
+    "wheelRadiusM": 0.3447,
+    "wheelWidthM": 0.2555
+  },
+  "accepted": false
+}

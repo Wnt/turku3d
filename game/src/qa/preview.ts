@@ -16,8 +16,11 @@ export function stepEN(headingDeg: number, forward: number, right: number, metre
 interface ServiceStatus { state?: string; building?: string[]; upgrading?: string[]; queue?: string[]; queued?: number; built?: number;
   failed?: Record<string, unknown>; pending?: Record<string, unknown> }
 
-export function statusText(s: ServiceStatus | null, loaded: string[]): string {
-  if (!s) return `service: no answer\ndrawn: ${loaded.length} tiles`;
+/** `late`: seconds since the last answer when the latest poll got none (a busy service, e.g. one computing its road
+ *  graph after a start, answers slowly; that is not an outage). */
+export function statusText(s: ServiceStatus | null, loaded: string[], late = 0): string {
+  if (!s) return `service: starting (no answer yet)\ndrawn: ${loaded.length} tiles`;
+  if (late > 0) s = { ...s, state: `busy, last answer ${Math.round(late)} s ago (${s.state ?? '?'})` };
   const list = (a?: string[]) => (a && a.length ? a.slice(0, 8).join(' ') + (a.length > 8 ? ` +${a.length - 8}` : '') : '-');
   return [`service: ${s.state ?? '?'}`, `building: ${list(s.building)}`, `upgrading: ${list(s.upgrading)}`,
     `queued (${s.queued ?? s.queue?.length ?? 0}): ${list(s.queue)}`,
@@ -48,10 +51,15 @@ export function startPreview(q: PreviewPose, move: Move, loaded: () => string[])
   overlay.style.cssText = 'position:fixed;left:8px;bottom:8px;margin:0;padding:6px 8px;background:rgba(0,0,0,.6);color:#fff;'
     + 'font:11px/1.35 monospace;z-index:20;pointer-events:none;max-width:70vw;white-space:pre-wrap';
   document.body.appendChild(overlay);
-  let status: ServiceStatus | null = null;
+  let status: ServiceStatus | null = null, answered = 0, late = 0, polling = false;
   const root = draftsUrl(location) ?? '/coarse/';
   const poll = async () => {
-    try { status = await (await fetch(`${root}status`, { cache: 'no-store' })).json() as ServiceStatus; } catch { status = null; }
+    if (polling) return;
+    polling = true;
+    try {
+      status = await (await fetch(`${root}status`, { cache: 'no-store', signal: AbortSignal.timeout(15_000) })).json() as ServiceStatus;
+      answered = performance.now(); late = 0;
+    } catch { late = answered ? (performance.now() - answered) / 1000 : 0; } finally { polling = false; }
   };
   void poll();
   setInterval(() => void poll(), 3000);
@@ -69,7 +77,7 @@ export function startPreview(q: PreviewPose, move: Move, loaded: () => string[])
     }
     const en = engineToEN(0, 0, 0);
     overlay.textContent = `PREVIEW  E ${q.E.toFixed(0)} N ${q.N.toFixed(0)} H ${q.H.toFixed(0)}  speed ${speed.toFixed(0)} m/s`
-      + `  (O ${en.E} ${en.N})\n${statusText(status, loaded())}`;
+      + `  (O ${en.E} ${en.N})\n${statusText(status, loaded(), late)}`;
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);

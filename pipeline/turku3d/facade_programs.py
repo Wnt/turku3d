@@ -268,7 +268,9 @@ def classical(program, attrs, evidence):
             base["variant"] = v("windows")
 
 
-def resolve(building, vertices, eaves, *, layout_height=None):
+def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
+    """``monolith=False`` resolves the building's ordinary class: a public monolith's walls
+    without their own photographed evidence take that layout instead of a blank volume."""
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, MONOLITH, sample
 
@@ -355,7 +357,7 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     from turkutex.facade_archetypes import public_monolith
 
     # Photographed blank walls select the public-monolith class (archetype owns the use/era rule).
-    if public_monolith({**attrs, "monolith_blank": True}):
+    if monolith and public_monolith({**attrs, "monolith_blank": True}):
         attrs["monolith_blank"] = facade_monolith.evidence(building.facade_key, observed)["blank"]
     from turku3d.facade_learning import apply as apply_learned
 
@@ -380,8 +382,9 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     if visual_levels:
         program["storeys"].update(source=visual_levels, support=0.4)
     # Donor readings of ordinary city blocks are no prior for a reference-measured
-    # masonry class (they would restore shopfronts and thin-walled layouts).
-    if not d and program["archetype"] not in (MASONRY, MONOLITH):
+    # masonry class (they would restore shopfronts and thin-walled layouts), nor for the
+    # ordinary walls of a monolith (monolith=False).
+    if not d and monolith and program["archetype"] not in (MASONRY, MONOLITH):
         program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
@@ -469,7 +472,8 @@ def resolve(building, vertices, eaves, *, layout_height=None):
             )
         finish_material(wall, family, own, record, d, building.facade_key)
     if program["archetype"] == MONOLITH:
-        facade_monolith.apply(program, building.facade_key, vertices, observed, d)
+        ordinary = resolve(building, vertices, eaves, layout_height=layout_height, monolith=False)
+        facade_monolith.apply(program, building.facade_key, vertices, observed, d, ordinary)
     else:
         classical(program, attrs, order_evidence(observed, d))
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]

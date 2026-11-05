@@ -307,7 +307,7 @@ def test_landmark_window_rebuild_selects_only_tiles_with_described_landmarks():
     from turku3d.landmarks.descriptions import ROOT
     from turku3d.migrations import landmark_windows, registry
 
-    assert registry.CHAIN[-1] is landmark_windows.MIGRATION
+    assert landmark_windows.MIGRATION in registry.CHAIN
     store = C.work_root() / "landmark-descriptions"
     store.mkdir(parents=True)
     (store / "shown.json").write_text(

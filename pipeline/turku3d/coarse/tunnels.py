@@ -309,7 +309,11 @@ class Tunnels:
         # Parallel optional field: one floor-height array per edge, in its vertex order.
         graph["edgeHeights"] = graph.get("edgeHeights", [None] * len(graph["edges"]))
         nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
+        bridge = graph.get("bits", {}).get("edge_flags", {}).get("BRIDGE", 0)
+        flags = graph["edgeAttrColumns"].index("flags") if "flags" in graph.get("edgeAttrColumns", []) else None
         for k, edge in enumerate(graph["edges"]):
+            if bridge and flags is not None and graph["edgeAttrs"][k][flags] & bridge:
+                continue  # a deck above the tunnel (a link over a cutting) is never its floor
             coords = np.vstack(
                 [nodes[edge[0]], np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]]
             )

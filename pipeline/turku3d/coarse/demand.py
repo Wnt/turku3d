@@ -85,15 +85,11 @@ class Demand:
             builder.replay_until.pop(tile, None)
             builder.journal.discard(tile)
             if tile in builder.building and tile not in builder.cancelled:
-                elapsed = now - builder.building[tile]
-                recent = builder.full_recent if tile in builder.upgrading else builder.recent
-                expected = sum(recent) / len(recent) if recent else (30 if tile in builder.upgrading else 8)
-                # Keep a build estimated within its final two seconds; it may publish useful cached bytes.
+                # A started build finishes and is stored even when demand moved: a moving client (a
+                # preview flight, a fast car, a second driver) would otherwise never get a finished tile.
+                # In-flight work stays bounded by the fixed worker slots; it only loses its priority.
                 if hasattr(builder.run, 'deprioritize'):
                     builder.run.deprioritize(tile)
-                if not max(1, expected - 2) <= elapsed <= expected + 2 and hasattr(builder.run, 'cancel'):
-                    if builder.run.cancel(tile):
-                        builder.cancelled.add(tile)
         self.managed.intersection_update(active | {t for _, ts, _, _ in self.clients.values() for t in ts})
 
 

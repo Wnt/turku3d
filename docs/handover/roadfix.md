@@ -123,17 +123,41 @@ maps `~/turku3d/loops/roadfix/maps/`.
 
 ## Open
 
-1. **Ground under bridge decks (Jonni's Lemminkäisensilta and Kalevan silta reports).** The lower road's own
-   surface (`road` material, 24 deg) climbs under the deck to its soffit, so the underpass is closed and parked or
-   driving cars sit on the slope. A cut of the terrain grid over every `way["under"]` corridor inside
-   `bridges.produce` (94dac80a) was rebuilt on t0_10_4 and changed nothing: the raised surface is made later
-   (street profiles or surface stages sampling the survey under the deck, where returns hit the deck). Next: find
-   the stage that writes that `road` surface (`street_profiles.py`, `street_survey.py`, `surfaces.py`) and give it
-   the lower way's level read beyond 10 m of the deck (`under_height`-style), with vertical abutment faces at the
-   corridor edges. Reverted in f9aba535.
-2. **Lane heights far off the deck (Kupittaa link).** `roads.json` heights 2.2 m below the deck: the roadbed rules
-   then measure the wedge under the deck instead of the deck. Bake bridge lane heights from the deck surface
-   (`route_surface.bake` picks the floor nearest a DEM reference) or widen `repair_heights` to whole-edge offsets.
+1. **Ground under bridge decks** — fixed after the first merge (spot fix, `bridge-ends@1` class):
+   - `bridges.passes_under` accepts skew crossings (over 10 deg; Helsinginkatu runs 18 deg off the Rantarata
+     viaduct) and lower ways that OSM splits beneath the deck;
+   - `bridges.below_deck` adds lower carriageways under a deck's whole outline that miss its axis;
+   - `bridges.cut_under` lowers the terrain over each of them to the lower way's own level (read beyond 10 m from
+     the deck) within the way's width plus 2 m and 5 m of the deck.
+   Rebuilt t0_10_4 (`roadfix-m5`): under the rail deck the floor is 15.85 m instead of the 21.7 m slope up to the
+   soffit; 2 of the 3 Helsinginkatu lanes that were stuck now drive through (the third sticks 60 m further on, at
+   2745,1090). Kalevan silta (t0_7_-1, a local build with the first version): the embankment wedge is cut back off
+   the lanes, but its lanes still hit the cut's edge; rebuilds of t0_7_-1 and t0_6_-2 with the final code were
+   requested on the farm (`roadfix-m5`) and are not yet swept. The cut's sides are the 2 m terrain lattice's slope,
+   not vertical abutment walls yet.
+2. **Kupittaa link** — rule merged, not yet verified on a rebuild: `bridges.branch_profiles` gives each deck member
+   that leaves the main axis its own profile (the deck's height where it leaves, then a vertical curve to the ground
+   at its end) instead of a blend by distance from the axis, and `road_heights` gives a deck member's edges the deck
+   surface. A street light under a deck is no longer built as a free-standing post (`coarse/furniture.deck_cover`;
+   its head came up through Kupittaansilta's lane, found at 1761.3, 18.1, -65.7 under the deck at 25.4 m).
+2b. **Status after the spot fixes (helper builds at a8933aec):** Helsinginkatu under Lemminkäisensilta: all 3 lanes
+   drive through (t0_10_4 and t0_11_4 rebuilt). Kalevan silta: 2 of 3; the third sticks on flat road at
+   1749,-127 as before. Kupittaa link: its deck now runs along the whole link (`branch_profiles`, 10 m outside the
+   carriageway makes a branch), but its roads.json heights still bake to the ground under it (18.1 m under a 25.7 m
+   deck): `road_heights` gives the member edge the deck height, yet the baked lane is on the ground. Find which
+   later step (`route_surface.bake` reference, or `tunnels.roads`) replaces it. Lamps: only street lights on a lower
+   road under a deck are dropped (`furniture.deck_cover`). The spot-rebuild set is `bridges > 0` plus
+   `migrations/bridge_ends_tiles.py` (`scripts/dev/bridge_tiles.py`, 310 tiles); rail-only viaducts' lower-road
+   tiles are not in it.
+2c. **Kupittaa, latest (helper builds, sweep):** `Tunnels.roads` no longer gives a BRIDGE edge the tunnel floor
+   profile (55b46dce). The link itself is still not drivable: the merged Hämeensilta outline (33 m wide) spans the
+   link while it descends beside the main carriageway, so the flat main slab covers the descent. Starting the descent
+   where the link leaves the other members' corridors and slabbing it as its own piece (198bd424, 9ac62c91) gave the
+   lane a smooth 25.4 -> 17.6 m profile, but left a wall at the link's start (10 m/s impact) and made a Hämeensilta
+   lane stuck, so both are reverted. Next: split the outline per member level (the link's own corridor out of the
+   main slab only where its profile is below the main deck), with a railing or wall on the cut edge. Kalevan's third
+   lane (449346f1) sticks on flat road at 1749,-127 in both the base and the fix: not the underpass ground.
+   Rail viaducts now join the spot-rebuild set (`bridge_tiles.py --osm`, 301 listed tiles).
 3. **Building passages** (the most common central obstacle): the OSM passage line runs 2-3 m off the opening the
    generator builds (w1196792244: a `covered=yes` driveway carries the walled tube, the `building_passage` one runs
    into the building), or the approach lane cuts the building corner (w994856577). The passage corridor
@@ -141,3 +165,8 @@ maps `~/turku3d/loops/roadfix/maps/`.
 4. Periodic 6-8 cm steps along Aninkaistensilta's approaches and remaining 5-15 cm deck-edge steps on
    Martinsilta: lanes run over the deck's kerbs (lane data).
 5. Re-run the city-wide sweep with the final rules on the train's products.
+6. From the visual patrol (`~/turku3d/loops/patrol/20261105-0209/report.md`), not covered by these rules:
+   Martinsilta deck and pavements flat white (E 23459019 N 6703825, possibly an unfinished load); the Auransilta
+   underpass vault's stretched texture and a flat-disc water exit (E 23459792 N 6704290); Myllyahde road tunnel one
+   flat untextured colour (E 23459205 N 6703754). These are bridge and tunnel materials (`bridge_materials.py`,
+   `tunnels.Tunnels.visuals`), a separate slice.

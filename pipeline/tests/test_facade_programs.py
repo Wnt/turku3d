@@ -523,7 +523,8 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
     fragment = copy.deepcopy(blank)
     fragment["structure"]["facade_observations"]["sections"][0]["position"] = "lower right"
     assert facade_monolith.evidence("k", dict(walls=[fragment]))["blank"] is False
-    # Resolve: the wall with its own curtain-wall description glazes, the unobserved wall is blank.
+    # Resolve: the wall with its own curtain-wall description glazes; the unobserved wall keeps
+    # the building's ordinary class layout (a blank photograph never blanks unseen walls).
     curtain = dict(facade_id="f1", wall_visible=True, problem="", material="glass", wall_colour="#88abb3",
                    trim_colour="#adb5af", storeys=3, window_columns=11, window_width=0.96,
                    window_height=0.93, ground_floor="plain", ground_openings=0, roof_line="none",
@@ -540,15 +541,23 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
     vertices = np.array([[0, 0, 0], [40, 0, 0], [40, 18, 0], [0, 18, 0],
                          [40, 0, 0], [40, 0, 30], [40, 18, 30], [40, 18, 0]], float)
     p = fp.resolve(b, vertices, {})
-    assert p["archetype"] == MONOLITH and p["monolith"]["walls"]["blank"] == 1
-    plain, glazed = [compile_wall(w, 4) for w in p["walls"]]
-    assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
-    assert plain["base"] != plain["wall"]  # granite base course under the render
+    assert p["archetype"] == MONOLITH
+    assert p["monolith"]["walls"] == {"blank": 0, "curtain": 1, "own description": 0, "ordinary": 1}
+    unseen, glazed = [compile_wall(w, 4) for w in p["walls"]]
+    assert p["walls"][0]["bays"]["count"] > 0 and unseen["module"] < 42  # civic windows
     assert glazed["module"] // 6 == 5 and glazed["opening"][0] >= 0.97
     assert glazed["opening"][1] + glazed["opening"][2] >= 0.98 and abs(glazed["bay"] - 2.14) < 0.05
+    # A wall whose own description shows no windows is a blank volume over a granite course.
+    blank_own = dict(curtain, material="render", window_columns=0, window_width=0, window_height=0)
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, blank_own)])
+    p = fp.resolve(b, vertices, {})
+    assert p["monolith"]["walls"]["blank"] == 1 and p["monolith"]["walls"]["ordinary"] == 1
+    plain = compile_wall(p["walls"][1], 4)
+    assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
+    assert plain["base"] != plain["wall"]  # granite base course under the render
     # A panel-clad blank wall carries its joint grid in the opening slot.
-    p["walls"][0]["panel_grid"] = dict(value=[2.23, 1.22, 0.03], source="test", support=0.6)
-    assert compile_wall(p["walls"][0], 4)["opening"] == [2.23, 1.22, 0.03, -1.0]
+    p["walls"][1]["panel_grid"] = dict(value=[2.23, 1.22, 0.03], source="test", support=0.6)
+    assert compile_wall(p["walls"][1], 4)["opening"] == [2.23, 1.22, 0.03, -1.0]
 
 
 def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints():
@@ -605,3 +614,18 @@ def test_classical_order_skips_walls_off_the_footprint_outline():
     classical(program, attrs, "")
     outer, ring = program["walls"]
     assert "order" in outer and "order" not in ring
+
+
+def test_monolith_walls_rebuild_selects_tiles_with_blank_photographed_buildings(monkeypatch):
+    from turku3d import facade_monolith
+    from turku3d import facade_programs as fp
+    from turku3d.migrations import monolith_walls, registry
+
+    assert registry.CHAIN[-1] is monolith_walls.MIGRATION
+    assert monolith_walls.MIGRATION.key == "monolith-walls@1"
+    monkeypatch.setattr(fp, "measured", lambda key: None)
+    monkeypatch.setattr(facade_monolith, "evidence",
+                        lambda key, observed: dict(blank=key == "theatre", panels=False))
+    assert monolith_walls.affected(dict(building_keys=["house", "theatre"]))
+    assert not monolith_walls.affected(dict(building_keys=["house"]))
+    assert not monolith_walls.affected({})

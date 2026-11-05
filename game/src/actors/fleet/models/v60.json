@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/v60",
+  "fleet": {
+    "id": "v60",
+    "name": "Routa Virta D4",
+    "body": "estate",
+    "family": "sedan",
+    "length": 4.63,
+    "width": 2.0651,
+    "height": 1.4799,
+    "wheelbase": 2.7587,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.2627,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "v60",
+  "wheels": {
+    "radius": 0.2627,
+    "width": 0.2126,
+    "pivots": {
+      "wheel_FL": [
+        -0.7833,
+        0.2627,
+        1.3646
+      ],
+      "wheel_FR": [
+        0.7833,
+        0.2627,
+        1.3646
+      ],
+      "wheel_RL": [
+        -0.7833,
+        0.2627,
+        -1.3941
+      ],
+      "wheel_RR": [
+        0.7833,
+        0.2627,
+        -1.3941
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.74,
+      0
+    ],
+    "half": [
+      1.0325,
+      0.74,
+      2.315
+    ]
+  },
+  "triangles": [
+    35383,
+    9848,
+    3442
+  ],
+  "source": {
+    "title": "Volvo V60 Polestar (2013)",
+    "url": "https://sketchfab.com/3d-models/volvo-v60-polestar-2013-504ce39150fe49c7979f702d5f0f8580",
+    "author": "Myedsu",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "v60",
+    "referenceModel": "Volvo V60 D4 (2013)",
+    "massKg": 1660,
+    "powerKW": 120,
+    "torqueNm": 400,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 8.1,
+    "topSpeedKmh": 225,
+    "turningCircleM": 11.9,
+    "gears": 6,
+    "rideHeightM": 0.135,
+    "character": "balanced",
+    "lengthM": 4.63,
+    "widthM": 2.0651,
+    "heightM": 1.4799,
+    "wheelbaseM": 2.7587,
+    "trackM": 1.5666,
+    "wheelRadiusM": 0.2627,
+    "wheelWidthM": 0.2126
+  },
+  "accepted": false
+}

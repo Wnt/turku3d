@@ -8,6 +8,8 @@ export interface FleetModel {
   length: number; width: number; height: number; wheelbase: number;
   hood: number; rear: number; taper: number; wheel: number; belt: number;
   face: number; accessory: 'none' | 'box' | 'rack' | 'taxi'; age: number;
+  /** Selection weight within its family; converted models set it, the procedural fleet uses its body default. */
+  weight?: number;
 }
 // Seven design families per body class: each has its own proportions, glazing and fascia.
 // These are visual art direction, not a claim to replicate a manufacturer's design or sales shares.
@@ -32,6 +34,8 @@ export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, 
     face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
     age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
   }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68, wheel:.32 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
+/** Families that parking records and ambient traffic select from; special roles (bus, truck, ambulance) need an exact id. */
+export const SELECTABLE_FAMILIES: ReadonlySet<string> = new Set(['sedan', 'suv', 'hatchback-sports', 'van']);
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export function fleetHash(value: string): number {
   let h = 2166136261;
@@ -46,7 +50,7 @@ export function fleetModel(model: string, seed: string, includeAuthored=true): F
   const family = model === 'suv-luxury' ? 'suv' : model;
   const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_MODELS.some(a => a.id === m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family));
   if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
-  const weight=(m:FleetModel)=>m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1;
+  const weight=(m:FleetModel)=>m.weight??(m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1);
   let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);
   for(const m of choices){pick-=weight(m);if(pick<0)return m;}
   return choices[choices.length-1];

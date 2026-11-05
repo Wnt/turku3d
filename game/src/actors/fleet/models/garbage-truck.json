@@ -1,0 +1,95 @@
+{
+  "assetBase": "/assets/cars/garbage-truck",
+  "fleet": {
+    "id": "garbage-truck",
+    "name": "Louhi Jäte 26",
+    "body": "van",
+    "family": "truck",
+    "length": 9.5,
+    "width": 3.1961,
+    "height": 3.7018,
+    "wheelbase": 5.227,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.4884,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1
+  },
+  "id": "garbage-truck",
+  "wheels": {
+    "radius": 0.4884,
+    "width": 0.4525,
+    "pivots": {
+      "wheel_FL": [
+        -1.1443,
+        0.4884,
+        2.8925
+      ],
+      "wheel_FR": [
+        1.1443,
+        0.4884,
+        2.8925
+      ],
+      "wheel_RL": [
+        -1.014,
+        0.4884,
+        -2.3345
+      ],
+      "wheel_RR": [
+        1.014,
+        0.4884,
+        -2.3345
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.8509,
+      0
+    ],
+    "half": [
+      1.598,
+      1.8509,
+      4.75
+    ]
+  },
+  "triangles": [
+    58945,
+    11799,
+    3934
+  ],
+  "source": {
+    "title": "GARBAGE TRUCK",
+    "url": "https://sketchfab.com/3d-models/garbage-truck-9aee01b569f043b290cd7dc1abf38b71",
+    "author": "gelber",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "garbage-truck",
+    "referenceModel": "Three-axle rear-loader refuse truck",
+    "massKg": 26000,
+    "powerKW": 235,
+    "torqueNm": 1600,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 90,
+    "turningCircleM": 19,
+    "gears": 12,
+    "rideHeightM": 0.3,
+    "character": "utility",
+    "lengthM": 9.5,
+    "widthM": 3.1961,
+    "heightM": 3.7018,
+    "wheelbaseM": 5.227,
+    "trackM": 2.2885,
+    "wheelRadiusM": 0.4884,
+    "wheelWidthM": 0.4525
+  },
+  "accepted": false
+}

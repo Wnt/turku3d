@@ -44,7 +44,7 @@ def test_ahead_first_then_visible_upgrade_before_background_first(tmp_path):
     b.stop()
 
 
-def test_running_stale_work_cancelled_unless_almost_done(tmp_path):
+def test_running_stale_work_finishes(tmp_path):
     b = Builder(tmp_path, code='test', workers=0)
     cancelled = []
     b.run = SimpleNamespace(cancel=lambda t: cancelled.append(t) or True)
@@ -53,8 +53,8 @@ def test_running_stale_work_cancelled_unless_almost_done(tmp_path):
     b.demand.update('driver-a', list(b.building), [], [])
     b.demand.update('driver-a', [], [], [])
     b.demand.prune(b)
-    assert cancelled == ['t0_0_0']
-    assert b.cancelled == {'t0_0_0'}
+    assert cancelled == [] and not b.cancelled
+    assert set(b.building) == {'t0_0_0', 't0_1_0'}
     b.stop()
 
 
@@ -65,7 +65,7 @@ def test_expired_replay_does_not_resurrect_abandoned_journal(tmp_path):
     b.stop()
 
 
-def test_background_prebuild_yields_running_and_queued_work_to_driver(tmp_path):
+def test_background_work_yields_its_queue_to_the_driver_and_finishes_its_running_build(tmp_path):
     b = Builder(tmp_path, code='test', workers=0)
     cancelled = []
     b.run = SimpleNamespace(cancel=lambda tile: cancelled.append(tile) or True)
@@ -77,7 +77,7 @@ def test_background_prebuild_yields_running_and_queued_work_to_driver(tmp_path):
     b.request('t0_2_0', 0)
     b.demand.prune(b)
     assert b.order() == ['t0_2_0']
-    assert cancelled == ['t0_0_0']
+    assert cancelled == [] and 't0_0_0' in b.building
     b.stop()
 
 

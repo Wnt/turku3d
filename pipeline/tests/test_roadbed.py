@@ -178,3 +178,51 @@ def test_a_bridge_deck_narrower_than_its_lanes_is_widened_at_its_own_level():
         assert abs(centre[1] + half[1] - 8.0) < 1e-3 and 1.0 <= abs(centre[2]) <= 2.7
     street = graph([(2, 0), (38, 0)], [8.0, 8.0], width=4.25)
     assert [f for f in RB.slabs(street, floor, BBOX, stats) if f[3] == "deck"] == []
+
+
+def test_a_skew_road_split_under_a_deck_passes_under_it():
+    from turku3d.coarse.bridges import passes_under
+
+    deck = dict(id="deck", line=shapely.LineString([(0, 0), (100, 0)]), layer=1, bridge=True, width=12.0)
+    # 18 deg off the deck, and OSM split it right under the deck: the crossing is at its end.
+    a = (50 - 30 * np.cos(np.radians(18)), -30 * np.sin(np.radians(18)))
+    road = dict(id="road", tags={"highway": "trunk"}, line=shapely.LineString([a, (50, 0)]), layer=0, bridge=False)
+    longer = dict(road, line=shapely.LineString([a, (50 + 30 * np.cos(np.radians(18)), 30 * np.sin(np.radians(18)))]))
+    assert passes_under(deck, longer)
+    along = dict(road, line=shapely.LineString([(40, -0.5), (60, 0.5)]))  # 3 deg: runs along the deck
+    assert not passes_under(deck, along)
+
+
+def test_a_link_leaving_a_deck_follows_its_own_profile_down_to_the_ground():
+    from turku3d.coarse.bridges import branch_height, branch_profiles
+
+    main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0)
+    link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5)
+    way = dict(main, member_ways=[dict(main), link])
+    profiles = branch_profiles(way, lambda xz: np.full(len(xz), 25.7), lambda xz: np.full(len(xz), 18.0))
+    assert len(profiles) == 1
+    line, stations, heights, _ = profiles[0]
+    assert abs(heights[0] - 25.7) < 1e-9 and abs(heights[-1] - 18.02) < 1e-9
+    assert np.all(np.diff(heights) <= 1e-9)  # one descent, no dip into the ground and back
+    mid = np.asarray(line.interpolate(line.length / 2).coords)
+    assert 18.0 < branch_height(profiles, mid, np.array([0.0]))[0] < 25.7
+
+
+def test_only_lamps_on_a_lower_road_under_a_deck_are_dropped():
+    from turku3d.coarse.furniture import deck_cover
+
+    lower = dict(line=shapely.LineString([(0, -30), (0, 30)]), width=7.0, tags={"highway": "trunk"})
+    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=[lower], below=[])
+    cover = deck_cover({"bridge_ways": [deck]})
+    assert cover.covers(shapely.Point(4.5, 2))  # kerbside of the lower road, under the deck
+    assert not cover.covers(shapely.Point(20, 2))  # on the deck away from the lower road: stays
+    assert deck_cover({"bridge_ways": [dict(deck, under=[])]}) is None
+
+
+def test_bridge_end_rebuilds_include_tiles_with_only_a_lower_road():
+    from turku3d.migrations.bridge_ends import affected
+    from turku3d.migrations.bridge_ends_tiles import TILES
+
+    assert affected({"tile": "t0_99_99", "bridges": 2})
+    assert not affected({"tile": "t0_99_99", "bridges": 0})
+    assert all(affected({"tile": t, "bridges": 0}) for t in list(TILES)[:5])

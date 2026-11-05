@@ -56,3 +56,15 @@ glass and four hub-centred wheel parts. Named pipeline hubs are preferred; the o
 estate uses explicit metadata and a lossless tyre/alloy triangle partition. `wheelLayouts.ts`
 shares native axle offsets and tyre dimensions with ground probes. Wheel design batches
 share identical baked geometry, while dynamic and remote cars use the same four parts.
+
+Converted source cars: `game/scripts/import-fleet-gltf.mjs` turns permissively licensed GLBs (CC BY 4.0, listed in
+`tools/dev/fleet-import/models.json`, sources and their licence pages outside git in `~/turku3d/loops/carmodels/<id>/`)
+into the same articulated LOD format. It maps source materials to fleet roles (tintable paint, fixed liveries for
+taxi/police/ambulance/bus/truck, glass, lamps, indicators, blank plates), samples base-colour textures into vertex
+colours (no images ship; `flattenFleetAsset` multiplies them), drops emblems (small centreline parts at the nose or tail,
+plus per-model boxes), orients to +Z/Y-up metres, splits four hub-centred wheels (front and rear-most axle; middle axles
+stay in the body) and simplifies with meshoptimizer to about 48k/10k/3.5k triangles. Registry entries add the
+source/licence, a collision box, a carphysics `CarSpec` and a selection `weight`. Families outside
+`SELECTABLE_FAMILIES` (bus, truck, ambulance) are not preloaded for traffic and need an exact model id.
+`fleetWorkshop.authored(ids, lod, colour, view)` shows them through `ParkedCarVisuals`;
+`scripts/render-fleet-models.mjs` captures those views over CDP.

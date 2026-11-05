@@ -54,3 +54,29 @@ def test_bright_courtyard_paving_keeps_explicit_road_and_grass_priority():
         np.array([mat_id('road')],np.uint8),np.array([True]),
         [*regions,(shapely.box(0,0,50,50),mat_id('road'))])
     assert np.all(ids == mat_id('road'))
+
+
+def test_ortho_cover_drops_speckle_fills_small_holes_and_traces_straight_edges():
+    from turku3d.coarse import surfaces
+    tile = C.VisualTile(0, 0, 0)
+    asphalt, lawn = [92, 92, 95], [70, 115, 50]
+    rgb = np.full((500, 500, 3), asphalt, np.uint8)  # 0.5 m pixels
+    rgb[40:44, 40:44] = lawn  # 4 m2 of green on a paved lot: noise
+    rgb[100:300, 100:300] = lawn  # 50 m x 50 m lawn ...
+    rgb[150:153, 150:153] = asphalt  # ... with a 2.25 m2 shadow/weed gap in it
+    yy, xx = np.mgrid[:500, :500]
+    rgb[(xx > 320) & (yy > xx + 20)] = lawn  # a diagonal lawn edge (pixel staircase)
+    step = tile.size / 500
+    classes = surfaces.cover_classes(rgb, step)
+    assert classes[42, 42] == mat_id('road') and classes[151, 151] == mat_id('grass')
+    regions = surfaces.cover_regions(tile, rgb)
+    grass = shapely.union_all([g for g, m in regions if m == mat_id('grass')])
+    road = shapely.union_all([g for g, m in regions if m == mat_id('road')])
+    assert not grass.intersects(shapely.Point(21, 21)) and grass.covers(shapely.Point(75.7, 75.7))
+    assert abs(grass.area + road.area - 250 * 250) < 1e-6 and grass.intersection(road).area < 1e-6
+    diagonal = [p for p in shapely.get_parts(grass) if p.bounds[0] > 150][0]
+    # One pixel of simplification: a straight diagonal edge, not a 0.5 m staircase of ~170 steps.
+    assert len(diagonal.exterior.coords) < 20
+    # Per-triangle classification reads the same cleaned classes.
+    centroids = np.array([[21.0, 0, 21.0], [75.7, 0, 75.7], [5.0, 0, 5.0]])
+    assert surfaces.classify(centroids, rgb, tile, []).tolist() == [mat_id('road'), mat_id('grass'), mat_id('road')]

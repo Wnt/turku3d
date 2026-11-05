@@ -21,4 +21,6 @@ def street_finish(surface):
         return FIELDSTONE
     if "asfalt" in value and "punai" in value:
         return RED_ASPHALT
+    if "maatiili" in value:  # clay brick paving (Turku register; Dutch BGT "gebakken klinkers")
+        return BRICK
     return None

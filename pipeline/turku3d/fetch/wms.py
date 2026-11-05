@@ -10,6 +10,7 @@ are recorded as empty in ``<area>.chunks.json`` and not stored, with an expiry s
 
 from __future__ import annotations
 
+from turku3d import cities
 import io
 import json
 import math
@@ -25,7 +26,7 @@ from .sources import WMS_LAYERS, WMS_MAX_PX, WMS_URL, WmsLayer
 
 CHUNK_PX = 2000
 EMPTY_TTL_SECONDS = 3600  # absence of imagery is not permanent proof of no coverage
-REFERER = {"Referer": config.CITY.wms_referer}
+REFERER = {"Referer": cities.current().wms_referer}
 
 
 def chunk_grid(bbox_en: tuple[float, float, float, float], px_m: float, chunk_px: int = CHUNK_PX):

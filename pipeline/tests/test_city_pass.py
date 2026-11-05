@@ -122,6 +122,25 @@ def test_an_inherited_spot_rebuild_takes_the_steps_appended_after_its_chain(tmp_
     assert product.manifest["migrations"] == record and product.manifest["ran"] == ["built"]
 
 
+def test_an_ordered_tiles_file_keeps_its_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CHAIN", (TINT,))
+    root, meta, _ = farm(tmp_path)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city.os, "nice", lambda increment: 0)
+    monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
+    monkeypatch.setattr(city, "surveyed", lambda tile: False)
+    seen = []
+    monkeypatch.setattr(city.M, "_worker", lambda args: seen.append(args[2]) or dict(tile=args[2], state="kept"))
+    listing = tmp_path / "tiles.txt"
+    listing.write_text("t0_3_3\nt0_0_0\nt0_-2_1\nt0_0_0\n")  # far ones first; a repeat runs once
+    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
+            "--no-survey-wait", "--blocks", "0", "--max-jobs", "1", "--ordered", "--tiles-file", str(listing)]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert city.main() == 0
+    assert seen == ["t0_3_3", "t0_0_0", "t0_-2_1"]
+
+
 def test_estimate_weights_surveyed_and_unsurveyed_tiles():
     rows = [dict(tile="a", state="migrated", survey=True, cpu=100.0, wall=120.0, steps={"wires@2": [90, 80]}),
             dict(tile="b", state="migrated", survey=False, cpu=2.0, wall=3.0, steps={"wires@2": [1, 1]})]

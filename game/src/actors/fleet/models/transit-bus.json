@@ -1,0 +1,95 @@
+{
+  "assetBase": "/assets/cars/transit-bus",
+  "fleet": {
+    "id": "transit-bus",
+    "name": "Valo Linja 12",
+    "body": "van",
+    "family": "bus",
+    "length": 11.4655,
+    "width": 2.9268,
+    "height": 3.14,
+    "wheelbase": 5.8115,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.471,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1
+  },
+  "id": "transit-bus",
+  "wheels": {
+    "radius": 0.471,
+    "width": 0.3028,
+    "pivots": {
+      "wheel_FL": [
+        -1.0146,
+        0.471,
+        2.4713
+      ],
+      "wheel_FR": [
+        1.0146,
+        0.471,
+        2.4713
+      ],
+      "wheel_RL": [
+        -1.1196,
+        0.471,
+        -3.3402
+      ],
+      "wheel_RR": [
+        1.1196,
+        0.471,
+        -3.3402
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.57,
+      -0.2672
+    ],
+    "half": [
+      1.4634,
+      1.57,
+      5.7328
+    ]
+  },
+  "triangles": [
+    59185,
+    11677,
+    3934
+  ],
+  "source": {
+    "title": "Transit Bus | Two Service Doors (variant)",
+    "url": "https://sketchfab.com/3d-models/transit-bus-two-service-doors-variant-80ccd0ba61af4c0cbc862db81b85a3e1",
+    "author": "kurtismedia",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "transit-bus",
+    "referenceModel": "12 m low-floor city bus",
+    "massKg": 13500,
+    "powerKW": 220,
+    "torqueNm": 1200,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 85,
+    "turningCircleM": 21,
+    "gears": 6,
+    "rideHeightM": 0.3,
+    "character": "utility",
+    "lengthM": 11.4655,
+    "widthM": 2.9268,
+    "heightM": 3.14,
+    "wheelbaseM": 5.8115,
+    "trackM": 2.0293,
+    "wheelRadiusM": 0.471,
+    "wheelWidthM": 0.3028
+  },
+  "accepted": false
+}

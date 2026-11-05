@@ -5,7 +5,7 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
 import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
-import { FLEET, fleetModel, type FleetModel } from './catalog';
+import { FLEET, SELECTABLE_FAMILIES, fleetModel, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
@@ -117,7 +117,9 @@ export class ParkedCarVisuals {
       const model=fleetModel(car.model,car.object_id);
       counts.set(model.id,(counts.get(model.id)??0)+1);
     }
-    const models=this.reserve?FLEET:FLEET.filter(m=>counts.has(m.id));
+    // Reserved traffic may draw any model of a traffic/parking family; special roles (bus, truck, ambulance) load
+    // only when a record names them, so every client does not download them.
+    const models=FLEET.filter(m=>counts.has(m.id)||this.reserve&&SELECTABLE_FAMILIES.has(m.family));
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();

@@ -20,6 +20,7 @@ GeoParquet output, one row per geometry element (a feature with several geometri
 
 from __future__ import annotations
 
+from turku3d import cities
 import hashlib
 import json
 import xml.etree.ElementTree as ET
@@ -361,12 +362,12 @@ def pages_to_frame(pages: list[Path], layer: str):
 
 
 def fetch_layer(layer: WfsLayer, area: config.Area, log=print, force_parquet: bool = False) -> dict:
-    if layer.name in config.CITY.wfs_absent:
-        return write_absent(layer, area, config.CITY.wfs_absent[layer.name], log=log)
-    if layer.name in config.CITY.wfs_derived:
+    if layer.name in cities.current().wfs_absent:
+        return write_absent(layer, area, cities.current().wfs_absent[layer.name], log=log)
+    if layer.name in cities.current().wfs_derived:
         from .adapters import derive
 
-        return derive(layer, area, config.CITY.wfs_derived[layer.name], log=log)
+        return derive(layer, area, cities.current().wfs_derived[layer.name], log=log)
     return fetch_remote(layer, area, log=log, force_parquet=force_parquet)
 
 
@@ -411,8 +412,8 @@ def write_absent(layer: WfsLayer, area: config.Area, reason: str, log=print) -> 
         if s.get("gap") == reason and (summary_path.with_name(f"{layer.slug}.parquet")).exists():
             return s
     gdf, _ = pages_to_frame([], layer.name)
-    s = write_frame(layer.name, layer.slug, area, gdf, 0, gap=reason, city=config.CITY.name)
-    log(f"wfs  {layer.name}: not served by {config.CITY.title} ({reason}); empty layer")
+    s = write_frame(layer.name, layer.slug, area, gdf, 0, gap=reason, city=cities.current().name)
+    log(f"wfs  {layer.name}: not served by {cities.current().title} ({reason}); empty layer")
     return s
 
 

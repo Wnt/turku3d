@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/crownvic-police",
+  "fleet": {
+    "id": "crownvic-police",
+    "name": "Nord Partio V8",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 5.39,
+    "width": 2.1499,
+    "height": 1.5162,
+    "wheelbase": 2.8989,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3373,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.02
+  },
+  "id": "crownvic-police",
+  "wheels": {
+    "radius": 0.3373,
+    "width": 0.2515,
+    "pivots": {
+      "wheel_FL": [
+        -0.8138,
+        0.3373,
+        1.5244
+      ],
+      "wheel_FR": [
+        0.8138,
+        0.3373,
+        1.5244
+      ],
+      "wheel_RL": [
+        -0.8138,
+        0.3373,
+        -1.3745
+      ],
+      "wheel_RR": [
+        0.8138,
+        0.3373,
+        -1.3745
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7581,
+      0
+    ],
+    "half": [
+      1.075,
+      0.7581,
+      2.695
+    ]
+  },
+  "triangles": [
+    38536,
+    9851,
+    3438
+  ],
+  "source": {
+    "title": "2001 Crown Victoria Police Interceptor Game Prop",
+    "url": "https://sketchfab.com/3d-models/2001-crown-victoria-police-interceptor-game-prop-9f30d360cee343efb5a441978ddb57bd",
+    "author": "8sianDude",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "crownvic-police",
+    "referenceModel": "Ford Crown Victoria Police Interceptor (2001)",
+    "massKg": 1860,
+    "powerKW": 175,
+    "torqueNm": 393,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.5,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "sport",
+    "lengthM": 5.39,
+    "widthM": 2.1499,
+    "heightM": 1.5162,
+    "wheelbaseM": 2.8989,
+    "trackM": 1.6276,
+    "wheelRadiusM": 0.3373,
+    "wheelWidthM": 0.2515
+  },
+  "accepted": false
+}

@@ -102,3 +102,28 @@ def test_canopy_algorithm_changes_invalidate_visual_and_collision_generations(mo
     monkeypatch.setattr(Path, 'read_bytes', lambda p: read(p) + b'\n# changed canopy algorithm\n' if p == path else read(p))
     assert packaging.code_hash() != before[0]
     assert collision_key.code_hash() != before[1]
+
+
+def test_surveyed_trunk_clears_the_walked_line_not_the_estimated_path_width():
+    """A register tree in a pavement grate stays; it only clears the walked line (``walked``)."""
+    known = Tree('puut:grate', 30, 40, 'register', height=8, crown_radius=2)
+    footway = shapely.LineString([(0, 41.5), (60, 41.5)])
+    paths = footway.buffer(1.25)  # the 2.5 m default width covers the trunk
+    result = inventory(VisualTile(0, 0, 0), np.empty((0, 3)), [known], lambda x, z: 0,
+                       shapely.GeometryCollection(), paths, footway)
+    assert [t.object_id for t in result] == ['puut:grate']
+    on_line = Tree('puut:line', 30, 41.5, 'register', height=8, crown_radius=2)
+    result = inventory(VisualTile(0, 0, 0), crowns((30, 41.5, 8, 2)), [on_line], lambda x, z: 0,
+                       shapely.GeometryCollection(), paths, footway)
+    assert 'puut:line' not in [t.object_id for t in result]
+
+
+def test_a_tall_thin_column_is_not_a_lidar_tree():
+    rng = np.random.default_rng(5)
+    column = np.c_[rng.normal(30, 0.35, 400), rng.uniform(4, 16, 400), rng.normal(40, 0.35, 400)]
+    result = inventory(VisualTile(0, 0, 0), column, [], lambda x, z: 0,
+                       shapely.GeometryCollection(), shapely.GeometryCollection())
+    assert result == []
+    crown = crowns((60, 60, 12, 3))
+    assert inventory(VisualTile(0, 0, 0), crown, [], lambda x, z: 0,
+                     shapely.GeometryCollection(), shapely.GeometryCollection())

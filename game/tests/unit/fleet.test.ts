@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import { createHash } from 'node:crypto';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { FLEET, fleetModel } from '../../src/actors/fleet/catalog';
+import { FLEET, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
@@ -68,12 +68,12 @@ test('model assignment is stable and legacy families remain compatible',()=>{
 });
 
 
-test('ordinary traffic reaches all 56 models without overpopulating pickups or old cars',()=>{
+test('ordinary traffic reaches every selectable model without overpopulating pickups or old cars',()=>{
   const models=new Set<string>();let pickups=0,old=0;
   for(const family of ['sedan','suv','van','hatchback-sports'])for(let i=0;i<2000;i++){
     const m=fleetModel(family,`tr:tile:lane:${i}`);models.add(m.id);pickups+=Number(m.body==='pickup');old+=Number(m.body==='classic');
   }
-  expect(models.size).toBe(FLEET.length);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
+  expect(models.size).toBe(FLEET.filter(m=>SELECTABLE_FAMILIES.has(m.family)).length);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
   expect(old/2000).toBeGreaterThan(.07);expect(old/2000).toBeLessThan(.13);
 });
 

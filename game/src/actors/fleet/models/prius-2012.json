@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/prius-2012",
+  "fleet": {
+    "id": "prius-2012",
+    "name": "Valo Hybrid 3",
+    "body": "hatch",
+    "family": "sedan",
+    "length": 4.48,
+    "width": 2.0099,
+    "height": 1.6302,
+    "wheelbase": 2.7156,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3256,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "prius-2012",
+  "wheels": {
+    "radius": 0.3256,
+    "width": 0.2307,
+    "pivots": {
+      "wheel_FL": [
+        -0.7557,
+        0.3256,
+        1.3309
+      ],
+      "wheel_FR": [
+        0.7557,
+        0.3256,
+        1.3309
+      ],
+      "wheel_RL": [
+        -0.7557,
+        0.3256,
+        -1.3847
+      ],
+      "wheel_RR": [
+        0.7557,
+        0.3256,
+        -1.3847
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8151,
+      0
+    ],
+    "half": [
+      1.0049,
+      0.8151,
+      2.24
+    ]
+  },
+  "triangles": [
+    18870,
+    9843,
+    3443
+  ],
+  "source": {
+    "title": "Toyota Prius 2012",
+    "url": "https://sketchfab.com/3d-models/toyota-prius-2012-04eaf6b288cc466785365b7d985e3b29",
+    "author": "Doz3",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "prius-2012",
+    "referenceModel": "Toyota Prius XW30 (2012)",
+    "massKg": 1380,
+    "powerKW": 100,
+    "torqueNm": 207,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.4,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.4,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.48,
+    "widthM": 2.0099,
+    "heightM": 1.6302,
+    "wheelbaseM": 2.7156,
+    "trackM": 1.5115,
+    "wheelRadiusM": 0.3256,
+    "wheelWidthM": 0.2307
+  },
+  "accepted": false
+}

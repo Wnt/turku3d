@@ -39,6 +39,38 @@ so it is fetched as reference only and not used as `pistepilvi` (roof-plane refi
 would fit 2008 objects). Roofs keep their surveyed LoD2 planes, the existing fallback. The MML 5 p scans are
 not on the keyless mirror.
 
+## Point cloud
+
+`fetch/mml_lidar.py` writes `raw/laz/pistepilvi/<block>.laz` from the MML sheets under each block (EPSG:3067 ->
+GK25, N2000; the per-block median of MML ground returns against the ground key points is -0.02 .. 0.00 m).
+MML 2008 has classes 1/2/3/9 only, so each block is reclassified against today's sources: returns inside a
+current LoD2 footprint more than 2 m above ground are building (6) unless that building's returns disagree with
+its LoD2 roof by more than 2.5 m (built or rebuilt since 2008: its returns are dropped; Tapiola centre: 21-22 of
+44-51 buildings per block); other unclassified returns are vegetation by height (3/4/5), dropped over today's
+carriageways and within 1 m of a building. Roof refinement, LiDAR tree crowns and the fence/stair/retaining
+surveys then run unchanged. At ~1 pt/m² (Turku ~30) fewer roof planes reach the refinement's support limits and
+overhead wires are not resolvable. Espoo's own open lidar is ground only ("Maanpintapisteet 2017", model key
+points like Turku's maanpinta) and is downloadable only through the IMS map UI; it would replace the DEM ground.
+
+## Turku's coarse stages and their Espoo inputs
+
+| Stage | Turku input | Espoo input |
+|---|---|---|
+| Ground grid, collision | city lidar maanpinta key points | MML 2 m DEM as key points (Espoo 2017 key points when scriptable) |
+| Ground materials | GIS:Katualueet paving > OSM surface/landuse > ortho green | InfStreet -> GIS:Katualueet paving > the same OSM tags > Ortokartta_2024 |
+| Kerbs, paint, crossings | OSM kerb/crossing/lane ways | same OSM (Espoo kanta:Liikennevayla kerb lines are fetched as in Turku) |
+| Water | kanta:Vesikohde + OSM water, N2000 0 m | same layers, N2000 0 m |
+| Bridges, tunnels | OSM decks/tunnels, GIS:Katualueet Silta, lidar profiles | same OSM; InfStreet has no Silta class; MML ground |
+| Buildings | LoD2 + pistepilvi roof refinement + kanta:Rakennus/GIS:Rakennukset | Espoo LoD2 + reclassified MML returns + the same registers |
+| Facades | facade programs from registers and OSM | same (no Turku per-building characterizations) |
+| Trees | GIS:Puut + OSM natural=tree + LiDAR crowns (trees-lidar@1) | InfVegetationPoint/kanta trees -> GIS:Puut + OSM + crowns from MML class 5 |
+| Furniture, lights | GIS:Varusteet, frn:CityFurniture_LOD2, bike/parking registers, OSM | InfEquipment -> GIS:Varusteet, frn:cityfurniture_lod2, OSM |
+| Signs, stops | GIS:Liikennemerkit, kanta:Pysakki, OSM | OSM only (401 / not offered) |
+| Stairs, retaining walls, spot heights | kanta:Rakenne, kanta:Korkeuspiste, lidar surveys | same layers, MML returns |
+| Barriers, gardens, forests, venues | OSM (+ lidar heights) | same OSM, MML returns |
+| Wires (wires@2) | pistepilvi wire returns | none resolvable at ~1 pt/m² |
+| Playgrounds | Turku survey (private) | OSM leisure=playground only |
+
 ## Gaps and how each is filled
 
 | Internal layer (Turku schema) | Espoo | Filled by |
@@ -47,12 +79,12 @@ not on the keyless mirror.
 | `GIS:Liikennemerkit` signs | 401 | empty layer; OSM `traffic_sign` (the props reader already merges OSM signs) |
 | `GIS:Viheralueet` green areas | 401 | not read by the draft generator; OSM landuse/leisure and the ortho's green pixels |
 | `kanta:Pysakki` stops | not offered | empty layer; OSM `highway=bus_stop` |
-| `GIS:Varusteet` furniture | not offered | empty layer; OSM benches, bins, lamps (`GIS:InfEquipment` is Espoo's register: a later adapter) |
-| `GIS:Puut` trees | not offered | empty layer; OSM `natural=tree` |
+| `GIS:Varusteet` furniture | not offered | **derived** from `GIS:InfEquipment` (Tyyppi/Varustelaji/Malli <- EQUIPMENTCLASSTEXT/EQUIPMENTGROUPTEXT/MODELTEXT; the props reader's label rules classify benches, bins, bike racks, signs posts); OSM where the register has nothing within 3 m |
+| `GIS:Puut` trees | not offered | **derived** from `GIS:InfVegetationPoint` trees (species, planting year) plus `kanta:Lehtipuu`/`kanta:Havupuu` points the register lacks (1.5 m dedupe); OSM trees within 3 m are dropped as in Turku |
 | `GIS:Polkupyoraparkki`, `GIS:Pysakointiautomaatit`, `GIS:Follariasemat` | not offered | empty layers; OSM equivalents |
 | `GIS:Lupapysakointipaikat` | not offered | empty; no permit-parking kerbs |
 | Street lights `frn:CityFurniture_LOD2` | `frn:cityfurniture_lod2` | city layer (renamed) |
-| City lidar `pistepilvi` | none | none (see Ground) |
+| City lidar `pistepilvi` | none open | **derived** from MML 0.5 p (2008, ~1 pt/m²) reclassified to Turku's classes, `fetch/mml_lidar.py` (see Point cloud) |
 
 An empty layer is stored with `status: empty` and its reason in `gap`, so a build does not wait for it.
 

@@ -10,6 +10,7 @@ without OSM, street-area water bridges retain the abutment lift (``bridge_decks`
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import json
@@ -243,6 +244,13 @@ def build(
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
     grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
+    from . import attachments
+
+    # Lidar decks replace the terrain only where they stand above it.
+    decks = len(inputs.attachments)
+    inputs = dataclasses.replace(
+        inputs, attachments=attachments.raised(inputs.attachments, GridHeight(tile, grid_pos).many))
+    ground_cover = dict(version=1, cover_min_m2=surfaces.COVER_MIN, decks_on_terrain=decks - len(inputs.attachments))
     # Retain the pre-bridge TIN so the later constrained apron uses the same
     # absolute target as the initial grid repair, without compounding its blend.
     from turku3d.ground.mesh import Mesh
@@ -450,6 +458,7 @@ def build(
                 Path(__file__).with_name("fences.py"),
                 base / "vegetation/trees.py",
                 base / "vegetation/visual.py",
+                base / "vegetation/clearance.py",
                 *sorted((base / "vegetation/assets").glob("*.glb")),
                 draft_trees,
                 grid_height,
@@ -467,6 +476,7 @@ def build(
                 inputs.forests,
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,
+                inputs.trunk_ground,
                 inputs.retaining,
                 inputs.barriers,
                 inputs.attachments,
@@ -680,7 +690,7 @@ def build(
     t_surface = time.perf_counter()
     forest_paths = path_surfaces(inputs)
     lawn_regions = cache.run(
-        "yard_lawns", source_key(Path(yard_cover.__file__)),
+        "yard_lawns", source_key(Path(yard_cover.__file__), Path(surfaces.__file__)),
         [tile, inputs.ortho, yard_parcels, yard_blocked],
         lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
     )
@@ -694,7 +704,12 @@ def build(
         [tile, inputs.ortho, inputs.surfaces, garden_areas, paving_sources],
         lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas, osm),
     )
-    visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
+    # Unmapped ground takes the traced ortho cover (smooth edges, no speckle) under every mapped
+    # finish; natural ground the terrain stage found (bare rock, sand, soil) keeps its own.
+    natural = np.isin(dry.material, [mat_id(n) for n in ("rock", "sand", "soil")])
+    natural_area = shapely.union_all(shapely.polygons(dry.positions[dry.indices[natural]][:, :, [0, 2]]))
+    cover = surfaces.cover_regions(tile, inputs.ortho, natural_area) if inputs.ortho is not None else []
+    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
@@ -936,6 +951,11 @@ def build(
             sections=len(inputs.street_profiles),
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
+        # Construction-era lidar ground replaced by the finished surface (ground.finished).
+        finished_ground=inputs.finished_ground,
+        finished_ground_rule=2,  # migrations.finished_ground.RULE: which rule decided finished_ground
+        # Cleaned ortho cover with traced edges, lidar decks only above the terrain (ground-cover@1).
+        ground_cover=ground_cover,
         surface_closure=closure_report,
         surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),

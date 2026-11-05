@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/w212",
+  "fleet": {
+    "id": "w212",
+    "name": "Nord Säde 220",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.87,
+    "width": 2.1456,
+    "height": 1.4485,
+    "wheelbase": 2.852,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3355,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "w212",
+  "wheels": {
+    "radius": 0.3355,
+    "width": 0.2543,
+    "pivots": {
+      "wheel_FL": [
+        -0.8017,
+        0.3355,
+        1.5719
+      ],
+      "wheel_FR": [
+        0.8017,
+        0.3355,
+        1.5719
+      ],
+      "wheel_RL": [
+        -0.8023,
+        0.3355,
+        -1.2801
+      ],
+      "wheel_RR": [
+        0.8023,
+        0.3355,
+        -1.2801
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7243,
+      0
+    ],
+    "half": [
+      1.0728,
+      0.7243,
+      2.435
+    ]
+  },
+  "triangles": [
+    47355,
+    9817,
+    3418
+  ],
+  "source": {
+    "title": "Mercedes E Class W212",
+    "url": "https://sketchfab.com/3d-models/mercedes-e-class-w212-119c5e10733142b197aa53b86f6aeb04",
+    "author": "Peter_D",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "w212",
+    "referenceModel": "Mercedes-Benz E 220 CDI W212 (2010)",
+    "massKg": 1735,
+    "powerKW": 125,
+    "torqueNm": 400,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 8.4,
+    "topSpeedKmh": 230,
+    "turningCircleM": 11.25,
+    "gears": 7,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.87,
+    "widthM": 2.1456,
+    "heightM": 1.4485,
+    "wheelbaseM": 2.852,
+    "trackM": 1.6033,
+    "wheelRadiusM": 0.3355,
+    "wheelWidthM": 0.2543
+  },
+  "accepted": false
+}

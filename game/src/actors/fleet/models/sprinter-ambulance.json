@@ -1,0 +1,95 @@
+{
+  "assetBase": "/assets/cars/sprinter-ambulance",
+  "fleet": {
+    "id": "sprinter-ambulance",
+    "name": "Kaira Ensihoito 413",
+    "body": "van",
+    "family": "ambulance",
+    "length": 6.6,
+    "width": 2.9467,
+    "height": 2.9206,
+    "wheelbase": 3.6249,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3614,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1
+  },
+  "id": "sprinter-ambulance",
+  "wheels": {
+    "radius": 0.3614,
+    "width": 0.4358,
+    "pivots": {
+      "wheel_FL": [
+        -0.9953,
+        0.3614,
+        2.3325
+      ],
+      "wheel_FR": [
+        0.9953,
+        0.3614,
+        2.3325
+      ],
+      "wheel_RL": [
+        -0.9243,
+        0.3614,
+        -1.2924
+      ],
+      "wheel_RR": [
+        0.9243,
+        0.3614,
+        -1.2924
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.4603,
+      0
+    ],
+    "half": [
+      1.4734,
+      1.4603,
+      3.3
+    ]
+  },
+  "triangles": [
+    28040,
+    9841,
+    3437
+  ],
+  "source": {
+    "title": "Rettungswagen / Krankenwagen /  Ambulance",
+    "url": "https://sketchfab.com/3d-models/rettungswagen-krankenwagen-ambulance-e6c4858d34f0440394c2aa772ebaca38",
+    "author": "GRIP420",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "sprinter-ambulance",
+    "referenceModel": "Mercedes-Benz Sprinter 413 CDI box ambulance",
+    "massKg": 3600,
+    "powerKW": 95,
+    "torqueNm": 300,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 30,
+    "topSpeedKmh": 145,
+    "turningCircleM": 13.6,
+    "gears": 5,
+    "rideHeightM": 0.2,
+    "character": "utility",
+    "lengthM": 6.6,
+    "widthM": 2.9467,
+    "heightM": 2.9206,
+    "wheelbaseM": 3.6249,
+    "trackM": 1.9906,
+    "wheelRadiusM": 0.3614,
+    "wheelWidthM": 0.4358
+  },
+  "accepted": false
+}

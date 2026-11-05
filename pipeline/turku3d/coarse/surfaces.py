@@ -234,16 +234,86 @@ def osm_surfaces(tile, path):
     return sorted(result, key=lambda row: (row[1] == rock, -row[0].area))
 
 
+# Ortho land cover is evidence of what covers an area, not paint per pixel: a patch of one class
+# smaller than COVER_MIN inside another (a shadow, a parked car, a crown edge, a weed strip on a
+# lot) is noise and takes the surrounding class. Class edges are smoothed over COVER_SMOOTH.
+COVER_MIN = 8.0  # m2
+COVER_SMOOTH = 0.75  # m, gaussian sigma of each class mask
+
+
+def _without_small(mask, cells):
+    """``mask`` without its components of fewer than ``cells`` pixels, and with such holes filled."""
+    from scipy.ndimage import label
+
+    for value in (True, False):
+        labels, count = label(mask == value)
+        if count:
+            small = np.bincount(labels.ravel()) < cells
+            small[0] = False
+            mask = np.where(small[labels], not value, mask)
+    return mask
+
+
+def cover_classes(rgb, step):
+    """Cleaned ortho land cover per pixel: ``road`` (unmapped neutral ground), ``gravel``, ``grass``.
+
+    Each class mask is smoothed and loses patches and holes under ``COVER_MIN`` (at the tile's
+    ortho resolution ``step`` m per pixel), so neither the per-triangle classification
+    nor the traced cover outlines (``cover_regions``) carry pixel speckle or staircase edges.
+    """
+    from scipy.ndimage import gaussian_filter
+
+    r, g, b = (rgb[..., k].astype(np.float32) for k in range(3))
+    # Yellow/dry lawns and fields have little green/red contrast in the true ortho.
+    grass = (g > 0.95 * r) & (g > 1.15 * b) & (g > 25)
+    gravel = (r > 1.05 * g) & (g > 1.1 * b) & (r < 1.6 * np.maximum(b, 1)) & ~grass
+    sigma, cells = COVER_SMOOTH / step, COVER_MIN / step**2
+    out = np.full(rgb.shape[:2], mat_id("road"), np.uint8)
+    grass = _without_small(gaussian_filter(grass.astype(np.float32), sigma) > 0.5, cells)
+    gravel = _without_small(gaussian_filter(gravel.astype(np.float32), sigma) > 0.5, cells) & ~grass
+    out[gravel] = mat_id("gravel")
+    out[grass] = mat_id("grass")
+    return out
+
+
+def cover_regions(tile, rgb, exclude=None):
+    """``(polygon, material)`` outlines of the cleaned ortho cover (``cover_classes``) over the tile.
+
+    Visual finishes cut triangles along these outlines, so land cover edges follow the ground
+    instead of the 2 m terrain grid. ``exclude`` (an area other evidence already owns) is left out.
+    """
+    from affine import Affine
+    from rasterio.features import shapes
+
+    step = tile.size / rgb.shape[0]
+    classes = cover_classes(rgb, step)
+    transform = Affine(step, 0, tile.origin[0], 0, step, tile.origin[2])
+    window = shapely.box(*tile.bbox.as_tuple())
+    if exclude is not None and not exclude.is_empty:
+        window = window.difference(exclude)
+    result = []
+    for name in ("gravel", "grass"):
+        mask = classes == mat_id(name)
+        if not mask.any():
+            continue
+        # One pixel of simplification turns the traced pixel staircase into straight edges.
+        parts = [shapely.geometry.shape(geo).simplify(step) for geo, v in
+                 shapes(mask.astype(np.uint8), mask=mask, transform=transform) if v]
+        area = shapely.make_valid(shapely.union_all(parts)).intersection(window)
+        area = shapely.union_all([p for p in shapely.get_parts(area)
+                                  if p.geom_type == "Polygon" and p.area >= COVER_MIN / 2])
+        if not area.is_empty:
+            result.append((area, mat_id(name)))
+    road = window.difference(shapely.union_all([g for g, _ in result])) if result else window
+    return [(road, mat_id("road")), *result]
+
+
 def classify(centroids, rgb, tile, streets, regions=()):
     # Unmapped neutral ground is paving, not evidence of concrete slab joints.
-    out = np.full(len(centroids), mat_id("road"), np.uint8)
     px = rgb.shape[0]
     col = np.clip(((centroids[:, 0] - tile.origin[0]) / tile.size * px).astype(int), 0, px - 1)
     row = np.clip(((centroids[:, 2] - tile.origin[2]) / tile.size * px).astype(int), 0, px - 1)
-    r, g, b = (rgb[row, col, k].astype(float) for k in range(3))
-    out[(r > 1.05 * g) & (g > 1.1 * b) & (r < 1.6 * np.maximum(b, 1))] = mat_id("gravel")
-    # Yellow/dry lawns and fields have little green/red contrast in the true ortho.
-    out[(g > 0.95 * r) & (g > 1.15 * b) & (g > 25)] = mat_id("grass")
+    out = cover_classes(rgb, tile.size / px)[row, col]
     # Surveyed city paving wins over estimated OSM corridor widths and RGB fallback.
     for polygons in (regions, streets):
         if not polygons:

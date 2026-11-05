@@ -264,6 +264,31 @@ def prepare(tile, vector, paths):
     return records
 
 
+# A deck stands at least this far (median) above the terrain it replaces. Lower, it is a level
+# contour band of the lawn or pavement slope beside a building: the terrain already is that ground,
+# and a horizontal slab cut into it floats on one side and sinks on the other.
+RAISED = 0.15
+
+
+def raised(records, terrain):
+    """``records`` without decks and treads at the height of the terrain (``terrain(x, z)`` arrays)."""
+    kept = []
+    for record in records:
+        if record["kind"] == "balcony":
+            kept.append(record)
+            continue
+        region = record["region"]
+        x0, z0, x1, z1 = region.bounds
+        x, z = np.meshgrid(np.arange(x0, x1, CELL) + CELL / 2, np.arange(z0, z1, CELL) + CELL / 2)
+        inside = shapely.contains_xy(region, x, z)
+        if not inside.any():
+            continue
+        under = np.asarray(terrain(x[inside].astype(np.float64), z[inside].astype(np.float64)))
+        if np.median(record["height"] - under) >= RAISED:
+            kept.append(record)
+    return kept
+
+
 def produce(tile, records):
     from .gardens import horizontal
     from .geometry import clip_mesh

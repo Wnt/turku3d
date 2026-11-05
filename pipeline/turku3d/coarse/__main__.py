@@ -123,12 +123,18 @@ def main(argv=None) -> int:
     if a.fetch:
         for unit in ImagerySources().missing(tile):
             print(json.dumps(fetch_unit(unit.key)), file=sys.stderr)
-    try:
-        manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass,
-                         sources=ImagerySources())
-    except MissingInputs as missing:
-        print(json.dumps({"pending": missing.units}))
-        return PENDING
+    for attempt in range(4 if a.fetch else 1):
+        try:
+            manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass,
+                             sources=ImagerySources())
+            break
+        except MissingInputs as missing:
+            # Inputs found only while building (neighbour ground at a seam): fetch them and retry.
+            if not a.fetch or attempt == 3:
+                print(json.dumps({"pending": missing.units}))
+                return PENDING
+            for key in missing.units:
+                print(json.dumps(fetch_unit(key)), file=sys.stderr)
     print(json.dumps({k: manifest[k] for k in ("tile", "buildings", "seconds")}))
     return 0
 

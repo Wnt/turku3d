@@ -616,3 +616,16 @@ def test_cached_check_missing_inputs_is_read_only(data_root, monkeypatch):
     )
     assert cached.check(config.WORK_3X3)
     assert not data_root.exists()
+
+
+def test_registry_sees_appends_and_rewrites_from_other_instances(tmp_path):
+    a, b = common.Registry(tmp_path), common.Registry(tmp_path)
+    p, q = tmp_path / "p.txt", tmp_path / "q.txt"
+    p.write_text("p")
+    q.write_text("q")
+    a.record(p)
+    assert b.is_complete(p) and not b.is_complete(q)
+    b.record(q)  # appended by another instance (another process in a fetch)
+    assert a.is_complete(q) and set(a.records()) == {"p.txt", "q.txt"}
+    a.forget([p])  # an atomic rewrite: a new inode, parsed again from the start
+    assert set(b.records()) == {"q.txt"} and not b.is_complete(p)

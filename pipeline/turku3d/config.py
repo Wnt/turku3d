@@ -2,11 +2,8 @@
 
 Conventions (docs/ARCHITECTURE.md D3/D4, docs/specs/tiles.md):
 
-* City: one process builds one city (``turku3d.cities``: ``TURKU3D_CITY`` or the data root's
-  ``city.json``; Turku by default). The values below are Turku's; another city has its own.
 * Source CRS: EPSG:3877 (ETRS89 / GK23FIN) horizontal + N2000 (EPSG:3900) heights.
   The LAZ files carry no CRS VLR; this is assumed and consistent with WFS/WMS.
-  (Espoo: EPSG:3879, ETRS89 / GK25FIN.)
 * World origin O = (E 23459500, N 6704500, H 0), the NW corner of LAZ tile 23459500_6704500.
 * Engine ("local") axes, glTF Y-up, metres:
       x = E - E0        (east)
@@ -33,27 +30,24 @@ from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 
-from turku3d import cities
-
 # --------------------------------------------------------------------------------------
 # CRS and origin
 # --------------------------------------------------------------------------------------
 
-CITY = cities.current()
-CRS_HORIZONTAL = CITY.crs_horizontal  # Turku: EPSG:3877, ETRS89 / GK23FIN
+CRS_HORIZONTAL = "EPSG:3877"  # ETRS89 / GK23FIN
 CRS_VERTICAL = "EPSG:3900"  # N2000 height
-CRS_COMPOUND = f"{CRS_HORIZONTAL}+3900"
+CRS_COMPOUND = "EPSG:3877+3900"
 CRS_WGS84 = "EPSG:4326"
 
-ORIGIN_E = CITY.origin_e  # Turku: 23459500
-ORIGIN_N = CITY.origin_n  # Turku: 6704500
+ORIGIN_E = 23459500.0
+ORIGIN_N = 6704500.0
 ORIGIN_H = 0.0
 ORIGIN = (ORIGIN_E, ORIGIN_N, ORIGIN_H)
 
-# The default spawn ("office"). Turku: Läntinen Rantakatu 15 (ARCHITECTURE.md D3, research/ai-textures.md).
-OFFICE_E = CITY.spawn_e
-OFFICE_N = CITY.spawn_n
-OFFICE_LATLON = CITY.spawn_latlon
+# Office: Läntinen Rantakatu 15 (ARCHITECTURE.md D3, research/ai-textures.md).
+OFFICE_E = 23459668.0
+OFFICE_N = 6704254.0
+OFFICE_LATLON = (60.44839, 22.26726)
 
 # --------------------------------------------------------------------------------------
 # Tile sizes
@@ -314,7 +308,7 @@ class CollisionTile:
 # LAZ tiles  <xmin>_<ymax>  (500 m, EPSG:3877)
 # --------------------------------------------------------------------------------------
 
-LAZ_URL = CITY.laz_url or ""  # Turku: turku.asiointi.fi; use curl -L (old host redirects)
+LAZ_URL = "https://turku.asiointi.fi/3d/{dataset}/{name}.laz"  # use curl -L (old host redirects)
 LAZ_DATASETS = ("pistepilvi", "maanpinta")
 
 
@@ -427,7 +421,7 @@ OFFICE_BLOCK = area_centred_on(
 WORK_3X3 = Area(
     "work-3x3",
     "Nine 500 m LAZ tiles around the office; shared input working area",
-    BBoxEN(*CITY.work_3x3).to_local(),
+    BBoxEN(23459000, 6703500, 23460500, 6705000).to_local(),
     margin=0,
 )
 AREAS: dict[str, Area] = {a.name: a for a in (OFFICE_BLOCK, WORK_3X3)}
@@ -630,8 +624,7 @@ def area_yaml(area: Area) -> str:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_MANIFESTS = REPO_ROOT / "data-manifests"
-# The city lidar tile index; a city without one gets a path that never exists (no index: all blocks).
-LAZ_TILES_CSV = DATA_MANIFESTS / (CITY.laz_index or f"laz-tiles-{CITY.name}.none")
+LAZ_TILES_CSV = DATA_MANIFESTS / "laz-tiles.csv"
 SPECS_DIR = REPO_ROOT / "docs" / "specs"
 
 
@@ -685,7 +678,7 @@ def main(argv: list[str] | None = None) -> int:
             f"collision={CollisionTile.at(x, z).id}  laz={LazTile.at_en(e, n).name}"
         )
     else:
-        print(f"city {CITY.name}  origin {ORIGIN}  crs {CRS_COMPOUND}  data_root {data_root()}")
+        print(f"origin {ORIGIN}  crs {CRS_COMPOUND}  data_root {data_root()}")
     return 0
 
 

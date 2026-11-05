@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/prado-2010",
+  "fleet": {
+    "id": "prado-2010",
+    "name": "Salo Vaara D4",
+    "body": "suv",
+    "family": "suv",
+    "length": 4.78,
+    "width": 2.232,
+    "height": 1.8232,
+    "wheelbase": 2.8369,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3926,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1.6
+  },
+  "id": "prado-2010",
+  "wheels": {
+    "radius": 0.3926,
+    "width": 0.276,
+    "pivots": {
+      "wheel_FL": [
+        -0.8389,
+        0.3926,
+        1.4795
+      ],
+      "wheel_FR": [
+        0.8389,
+        0.3926,
+        1.4795
+      ],
+      "wheel_RL": [
+        -0.8389,
+        0.3926,
+        -1.3574
+      ],
+      "wheel_RR": [
+        0.8389,
+        0.3926,
+        -1.3574
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.9116,
+      0
+    ],
+    "half": [
+      1.116,
+      0.9116,
+      2.39
+    ]
+  },
+  "triangles": [
+    47213,
+    9836,
+    3440
+  ],
+  "source": {
+    "title": "Tayota Prado 2010 3D Model",
+    "url": "https://sketchfab.com/3d-models/tayota-prado-2010-3d-model-acca60013e8b4adaaa0823389525b5b2",
+    "author": "Betier Models",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "prado-2010",
+    "referenceModel": "Toyota Land Cruiser Prado J150 3.0 D-4D (2010)",
+    "massKg": 2165,
+    "powerKW": 127,
+    "torqueNm": 410,
+    "drivetrain": "AWD",
+    "fuel": "diesel",
+    "zeroTo100S": 11.7,
+    "topSpeedKmh": 175,
+    "turningCircleM": 11.6,
+    "gears": 5,
+    "rideHeightM": 0.22,
+    "character": "utility",
+    "lengthM": 4.78,
+    "widthM": 2.232,
+    "heightM": 1.8232,
+    "wheelbaseM": 2.8369,
+    "trackM": 1.6777,
+    "wheelRadiusM": 0.3926,
+    "wheelWidthM": 0.276
+  },
+  "accepted": false
+}

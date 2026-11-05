@@ -11,7 +11,7 @@ import shapely
 
 from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 
-from .forest_paths import path_corridors
+from .forest_paths import path_corridors, path_lines
 from .tree_inputs import REGISTER_TREE
 
 # Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
@@ -239,6 +239,11 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # clear the complete carriageway, including its visible flared trunk base.
     paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads, *unsurveyed])
     blocked = shapely.union_all([blocked, paths])
+    # A real trunk (a surveyed one, a measured lidar crown) stands where the survey saw it (a tree grate in a
+    # pavement, a crown over a square): it clears the carriageways and the walked line of a mapped foot/cycle
+    # path, not the path's estimated buffered width. The final trunk clearance (vegetation.clearance) places
+    # it against the drawn paving, as it documents.
+    walked = shapely.union_all([*path_lines(inputs.roads), *inputs.vegetation_roads, *unsurveyed])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
@@ -252,7 +257,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         if not (surveyed if t.object_id.startswith(REGISTER_TREE) else blocked).covers(
             shapely.Point(t.x, t.z)
         )
-        and clears_path(t, paths)
+        and clears_path(t, walked if t.object_id.startswith(REGISTER_TREE) else paths)
     ][:TREE_CAP]
     # Ground key points usually contain no canopy. Use the full classified source,
     # reduced once per source hash and cached independently of the terrain material.
@@ -260,10 +265,10 @@ def produce(tile, inputs, height_at, mapped, carried=None):
 
     measured_canopy = getattr(inputs, "vegetation_canopy", ())
     measured_blocked = shapely.union_all([
-        surveyed, paths, *(b.footprint.buffer(1) for b in inputs.buildings),
+        surveyed, walked, *(b.footprint.buffer(1) for b in inputs.buildings),
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
-    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths)[:TREE_CAP]
+    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked)[:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:
@@ -361,7 +366,21 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # Crown fitting changes trunk dimensions after candidate admission. Apply the
     # final column clearance to every source before visual and collision output.
     trees = structure_clearance(trees, inputs)
-    return deduplicate(trees, 3.5 if len(measured_canopy) else SPACING), bushes
+    trees = deduplicate(trees, 3.5 if len(measured_canopy) else SPACING)
+    return trunk_clearance(tile, inputs, height_at, trees, bushes)
+
+
+def trunk_clearance(tile, inputs, height_at, trees, bushes):
+    """The final step: no trunk on drawn paving (``vegetation.clearance``, also ``path-trees@1``)."""
+    from turku3d.vegetation.clearance import apply_to_trees
+
+    walked = getattr(inputs, "trunk_ground", ())
+    if not walked:
+        return trees, bushes
+    blocked = [*inputs.water, *(b.footprint for b in inputs.buildings)]
+    kept = apply_to_trees([*trees, *bushes], walked, blocked, tile.bbox.as_tuple(), height_at,
+                          trunk_base_radius)
+    return [t for t in kept if t.source != "bush"], [t for t in kept if t.source == "bush"]
 
 
 def trunks(trees, ct):

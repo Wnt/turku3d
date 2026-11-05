@@ -12,6 +12,7 @@ The maps cover every value seen in Tapiola (2026-11-05: 986 parts); an unseen va
 
 from __future__ import annotations
 
+from turku3d import cities
 import re
 
 from .. import config
@@ -96,33 +97,110 @@ def infstreet_rows(frame):
     return out, unmapped
 
 
+INFVEGETATION = WfsLayer("GIS:InfVegetationPoint", "1.0.0", "Espoo plant register points (source of GIS:Puut)")
+LEHTIPUU = WfsLayer("kanta:Lehtipuu", "1.0.0", "base-map deciduous trees")
+HAVUPUU = WfsLayer("kanta:Havupuu", "1.0.0", "base-map conifers")
+INFEQUIPMENT = WfsLayer("GIS:InfEquipment", "1.0.0", "Espoo street equipment register (source of GIS:Varusteet)")
+TREE_GROUPS = ("lehtipuu", "havupuu")  # VEGETATIONGROUPTEXT of trees; shrubs, flowers and areas are not trees
+BASEMAP_TREE_DEDUPE_M = 1.5  # a base-map tree this close to a register tree is the same tree
+
+
+def _text(value):
+    return value if isinstance(value, str) and value not in ("0", "") else ""
+
+
+def puut_rows(register, lehtipuu, havupuu):
+    """GIS:InfVegetationPoint trees plus base-map trees (kanta:Lehtipuu/Havupuu) the register lacks, in
+    Turku's GIS:Puut columns: Kasvilaji (species), Kasviryhma (Lehtipuu/Havupuu), Istutusvuosi."""
+    import geopandas as gpd
+    import pandas as pd
+    import shapely
+
+    parts = []
+    if len(register):
+        group = register.get("VEGETATIONGROUPTEXT").fillna("").str.casefold()
+        trees = register[group.isin(TREE_GROUPS) & (register.geom_type == "Point")].copy()
+        trees["Kasvilaji"] = [_text(v) for v in trees.get("VEGETATIONCLASSTEXT")]
+        trees["Kasviryhma"] = list(trees["VEGETATIONGROUPTEXT"])
+        trees["Istutusvuosi"] = [_text(v) for v in trees.get("PLANTINGYEAR")]
+        trees["source"] = "GIS:InfVegetationPoint"
+        parts.append(trees)
+    known = shapely.STRtree(list(parts[0].geometry_local)) if parts and len(parts[0]) else None
+    for frame, kind in ((lehtipuu, "Lehtipuu"), (havupuu, "Havupuu")):
+        if not len(frame):
+            continue
+        frame = frame[frame.geom_type == "Point"].copy()
+        if known is not None:
+            near = [len(known.query(shapely.force_2d(g), predicate="dwithin", distance=BASEMAP_TREE_DEDUPE_M)) > 0
+                    for g in frame.geometry_local]
+            frame = frame[[not n for n in near]]
+        frame["Kasvilaji"], frame["Kasviryhma"], frame["Istutusvuosi"] = "", kind, ""
+        frame["source"] = frame["layer"]
+        parts.append(frame)
+    if not parts:
+        return register.iloc[:0].copy()
+    out = gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), geometry="geometry", crs=parts[0].crs)
+    out["geometry_local"] = gpd.GeoSeries(shapely.force_2d(list(out["geometry_local"])), crs=None)
+    out["layer"] = "GIS:Puut"
+    for c in ("Kasvilaji", "Kasviryhma", "Istutusvuosi", "source"):
+        out[c] = out[c].astype("string")
+    return out
+
+
+def varusteet_rows(equipment):
+    """GIS:InfEquipment points in Turku's GIS:Varusteet label columns (Tyyppi, Varustelaji, Malli), which the
+    props reader classifies by label fragments (penkki, rosk, pyör, opaste ...)."""
+    out = equipment[equipment.geom_type == "Point"].copy()
+    out["Tyyppi"] = [_text(v) for v in out.get("EQUIPMENTCLASSTEXT")]
+    out["Varustelaji"] = [_text(v) for v in out.get("EQUIPMENTGROUPTEXT")]
+    out["Malli"] = [_text(v) for v in out.get("MODELTEXT")]
+    out["layer"] = "GIS:Varusteet"
+    for c in ("Tyyppi", "Varustelaji", "Malli"):
+        out[c] = out[c].astype("string")
+    return out
+
+
+ADAPTERS = {
+    # adapter -> (source layers, rows(frames...) -> (frame, unmapped))
+    "infstreet": ((INFSTREET,), lambda f: infstreet_rows(f) if len(f) else (f, {})),
+    "inf-vegetation": ((INFVEGETATION, LEHTIPUU, HAVUPUU), lambda *f: (puut_rows(*f), {})),
+    "inf-equipment": ((INFEQUIPMENT,), lambda f: (varusteet_rows(f) if len(f) else f, {})),
+}
+
+
 def derive(layer: WfsLayer, area: config.Area, adapter: str, log=print) -> dict:
+    import json
+
     import geopandas as gpd
 
     from .common import kind_dir
     from .wfs import fetch_remote, write_frame
 
-    if adapter != "infstreet":
-        raise ValueError(f"unknown WFS adapter {adapter!r} for {layer.name}")
-    s = fetch_remote(INFSTREET, area, log=log)
-    if s.get("status") not in ("ok", "empty"):
-        return {"layer": layer.name, "status": s.get("status", "error"), "derived_from": INFSTREET.name}
-    src = kind_dir("wfs") / area.name / f"{INFSTREET.slug}.parquet"
-    summary = kind_dir("wfs") / area.name / f"{layer.slug}.summary.json"
-    marker = s.get("pages_sig")
-    if summary.exists() and (summary.with_name(f"{layer.slug}.parquet")).exists():
-        import json
+    if cities.current().ground == "nl-ahn":
+        from turku3d.nl import convert
 
+        return convert.derive(layer, area, adapter, log=log)
+    if adapter not in ADAPTERS:
+        raise ValueError(f"unknown WFS adapter {adapter!r} for {layer.name}")
+    sources, rows = ADAPTERS[adapter]
+    marks = []
+    for source in sources:
+        s = fetch_remote(source, area, log=log)
+        if s.get("status") not in ("ok", "empty"):
+            return {"layer": layer.name, "status": s.get("status", "error"), "derived_from": source.name}
+        marks.append(s.get("pages_sig"))
+    marker = "|".join(str(m) for m in marks)
+    summary = kind_dir("wfs") / area.name / f"{layer.slug}.summary.json"
+    if summary.exists() and (summary.with_name(f"{layer.slug}.parquet")).exists():
         old = json.loads(summary.read_text())
         if old.get("source_pages_sig") == marker and old.get("adapter") == adapter:
-            log(f"wfs  {layer.name}: cached (from {INFSTREET.name})")
+            log(f"wfs  {layer.name}: cached (from {', '.join(x.name for x in sources)})")
             return old
-    frame = gpd.read_parquet(src)
-    out, unmapped = infstreet_rows(frame) if len(frame) else (frame, {})
+    frames = [gpd.read_parquet(kind_dir("wfs") / area.name / f"{x.slug}.parquet") for x in sources]
+    out, unmapped = rows(*frames)
     nfeat = int(out["feature_key"].nunique()) if len(out) else 0
-    result = write_frame(
-        layer.name, layer.slug, area, out, nfeat,
-        derived_from=INFSTREET.name, adapter=adapter, source_pages_sig=marker, unmapped=unmapped,
-    )
-    log(f"wfs  {layer.name}: {nfeat} parts derived from {INFSTREET.name}; unmapped {unmapped or 'none'}")
+    names = ", ".join(x.name for x in sources)
+    result = write_frame(layer.name, layer.slug, area, out, nfeat,
+                         derived_from=names, adapter=adapter, source_pages_sig=marker, unmapped=unmapped)
+    log(f"wfs  {layer.name}: {nfeat} features derived from {names}; unmapped {unmapped or 'none'}")
     return result

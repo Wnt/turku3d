@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/generic-sedan",
+  "fleet": {
+    "id": "generic-sedan",
+    "name": "Vire Säde 200",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.75,
+    "width": 2.0603,
+    "height": 1.4304,
+    "wheelbase": 2.7823,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3279,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1
+  },
+  "id": "generic-sedan",
+  "wheels": {
+    "radius": 0.3279,
+    "width": 0.3702,
+    "pivots": {
+      "wheel_FL": [
+        -0.7828,
+        0.3279,
+        1.5054
+      ],
+      "wheel_FR": [
+        0.7828,
+        0.3279,
+        1.5054
+      ],
+      "wheel_RL": [
+        -0.7782,
+        0.3279,
+        -1.2769
+      ],
+      "wheel_RR": [
+        0.7782,
+        0.3279,
+        -1.2769
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7152,
+      0
+    ],
+    "half": [
+      1.0301,
+      0.7152,
+      2.375
+    ]
+  },
+  "triangles": [
+    47204,
+    9810,
+    3411
+  ],
+  "source": {
+    "title": "Generic Sedan Car",
+    "url": "https://sketchfab.com/3d-models/generic-sedan-car-58c33766470d46e7b2aed542650494e5",
+    "author": "MMC Works",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "generic-sedan",
+    "referenceModel": "Unbranded mid-size sedan",
+    "massKg": 1500,
+    "powerKW": 120,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9,
+    "topSpeedKmh": 210,
+    "turningCircleM": 11,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "balanced",
+    "lengthM": 4.75,
+    "widthM": 2.0603,
+    "heightM": 1.4304,
+    "wheelbaseM": 2.7823,
+    "trackM": 1.5655,
+    "wheelRadiusM": 0.3279,
+    "wheelWidthM": 0.3702
+  },
+  "accepted": false
+}

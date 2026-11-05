@@ -15,6 +15,7 @@ from turku3d.vegetation.trees import Tree, variant
 CELL = 0.5
 PEAK_DISTANCE = 3.5
 MIN_CROWN_RELIEF = 0.35  # m: a flat elevated patch is not evidence of a tree crown
+MIN_SPREAD = 0.1  # crown radius per metre of height of a lidar-found tree (a 16 m column 1 m across is a mast)
 
 
 def connected_crown(points, x, z):
@@ -52,8 +53,16 @@ def canopy_points(tile, paths):
     return np.concatenate(parts) if parts else np.empty((0, 3))
 
 
-def inventory(tile, canopy, mapped, height_at, blocked, paths):
+def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
+    """Mapped trees plus separated crown maxima. ``walked``: what a real trunk (a register tree or a lidar
+    crown) clears instead of ``paths``: carriageways and the walked lines of mapped paths (``forests.produce``);
+    the final trunk clearance (``vegetation.clearance``) places it against the drawn paving."""
     from .forests import clears_path
+    from .tree_inputs import REGISTER_TREE
+
+    def clear(tree):
+        real = walked is not None and (tree.object_id.startswith(REGISTER_TREE) or tree.source == "lidar")
+        return clears_path(tree, walked if real else paths)
 
     if len(canopy) == 0:
         return mapped
@@ -88,7 +97,7 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths):
         tree = Tree(f"lidar:{x:.2f}:{z:.2f}", float(x), float(z), "lidar",
                     y=height_at(x, z), height=float(chm[i, j]), crown_radius=2)
         tree.variant = variant("", tree.height)
-        if clears_path(tree, paths):
+        if clear(tree):
             trees.append(tree)
     if not trees:
         return trees
@@ -112,8 +121,10 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths):
             tree.measured = True
             tree.trunk_radius = float(np.clip(tree.height * 0.018, 0.09, 0.55))
             tree.variant = variant(tree.species, tree.height)
+            if tree.source == "lidar" and tree.crown_radius < MIN_SPREAD * tree.height:
+                continue  # a mast, lamp column or monument: thin pulses split on it like on twigs
         # Measurements may enlarge a registered tree after its initial clearance
         # check. Every final visible trunk must still clear the path footprint.
-        if (tree.source != "lidar" or tree.measured) and clears_path(tree, paths):
+        if (tree.source != "lidar" or tree.measured) and clear(tree):
             result.append(tree)
     return result

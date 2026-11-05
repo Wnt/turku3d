@@ -72,11 +72,12 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
     roads = inputs.roads["json"] if inputs.roads else None
     barriers = list(inputs.barriers or ())
     laz = laz_paths(tile.bbox.buffered(WINDOW))
+    overhead = deck_cover(inputs.roads)
     return cache.run(
         "furniture",
         source_key(*sources(), grid_height, *common),
         [tile, list(inputs.poles), grid_pos, footprints, water, roads, carried, barriers,
-         identities({str(p): p for p in laz})],
+         identities({str(p): p for p in laz}), overhead],
         lambda: produce(
             tile,
             inputs.poles,
@@ -87,8 +88,31 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
             carried,
             barriers,
             laz,
+            overhead,
         ),
     )
+
+
+LOWER_ROAD_MARGIN = 2.0  # m beyond a lower way's half width: its kerbside where its lamps stand
+
+
+def deck_cover(roads):
+    """Plan area where a deck spans a lower road: each deck's footprint (not on-grade landings) over
+    the corridors of the ways that pass under it, or None. A lamp there stands on the lower road and
+    would reach up through the deck; a register lamp elsewhere on a deck stays, so a deck with no
+    mapped lamps of its own does not go dark."""
+    parts = []
+    for way in (roads or {}).get("bridge_ways") or []:
+        if way.get("landing"):
+            continue
+        lower = [w["line"].buffer(w["width"] / 2 + LOWER_ROAD_MARGIN)
+                 for w in [*way.get("under", []), *way.get("below", [])]
+                 if w.get("tags", {}).get("highway") not in (None, "steps")]
+        if lower:
+            deck = way.get("outline", way["line"].buffer(way["width"] / 2))
+            parts.append(deck.intersection(shapely.union_all(lower)))
+    parts = [p for p in parts if not p.is_empty]
+    return shapely.union_all(parts) if parts else None
 
 
 EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
@@ -102,7 +126,7 @@ def _outside(polygon, point, clearance=CLEARANCE):
     return edge.distance(point), edge.x + dx / length * clearance, edge.y + dz / length * clearance
 
 
-def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=()):
+def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=(), overhead=None):
     from turku3d.props import seating, visual_bytes
     from turku3d.props.lights import Light, encode, post_light, street_edges, wall_lights
     from turku3d.night_lighting import lamp_kind, lamp_height
@@ -121,6 +145,11 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
         point = shapely.Point(p.x, p.z)
         if blocked_deck is not None and blocked_deck.distance(point) <= 0.5:
             stats[f"dropped_on_deck:{p.kind}"] += 1
+            continue
+        if p.kind == "lamp" and overhead is not None and overhead.covers(point):
+            # A street light on the lower road under a deck pokes its head up through the deck
+            # into its traffic lanes (Kupittaansilta). The deck carries its own mapped lamps.
+            stats["lamp_under_deck"] += 1
             continue
         flooded = [water[i] for i in wet.query(point)] if wet is not None else []
         flooded = [w for w in flooded if w.covers(point)]

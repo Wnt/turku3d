@@ -147,7 +147,8 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
     from .tunnels import produce as produce_tunnels
 
     surface_sample = kerbs.height_sampler(
-        tile, grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1), root, sources
+        tile, grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1), root, sources,
+        inputs.points if inputs.finished_ground else None,
     )
     original_surface = surface_sample
     carried_mask = exclusion(inputs.tunnels)
