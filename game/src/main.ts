@@ -320,16 +320,50 @@ const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unkn
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
 // builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
 // draws, and holds its block LOD shells), other models' block shells, the level's bias tiers of a scenery cell.
-const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') =>
-  queueGraphics(model, async () => {
-    await materials?.prepare(model, scene, camera, signal);
-    const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
-    // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
-    if (roots.length && post) await precompileDissolve(roots, [0], async root => {
-      await post!.prepare(root);
-      await materials?.prepareReflections(root, scene, camera);
-    });
-  }, signal, priority);
+// A model with more than PREPARE_PART_MESHES meshes is prepared in parts of whole children (the queue compiles each
+// part's main view after it): one full tile was a single 19-31 s job on the Air at boot, which held the actor lane
+// (car batches) and every other preparation behind it.
+const PREPARE_PART_MESHES = 48;
+const meshCount = (object: THREE.Object3D) => { let n = 0; object.traverse(o => { if ((o as THREE.Mesh).isMesh) n++; }); return n; };
+function preparationParts(model: THREE.Object3D): THREE.Object3D[][] {
+  if (meshCount(model) <= PREPARE_PART_MESHES || !model.children.length) return [[model]];
+  // Subtrees small enough to prepare together; a large group (a tile's building node) is split into its children.
+  const pieces = (object: THREE.Object3D): THREE.Object3D[] =>
+    meshCount(object) <= PREPARE_PART_MESHES || !object.children.length || (object as THREE.Mesh).isMesh ? [object] : object.children.flatMap(pieces);
+  const parts: THREE.Object3D[][] = [];
+  let part: THREE.Object3D[] = [], meshes = 0;
+  for (const child of model.children.flatMap(pieces)) {
+    const n = meshCount(child);
+    if (part.length && meshes + n > PREPARE_PART_MESHES) { parts.push(part); part = []; meshes = 0; }
+    part.push(child); meshes += n;
+  }
+  if (part.length) parts.push(part);
+  return parts;
+}
+const within = (root: THREE.Object3D, objects: readonly THREE.Object3D[]) => {
+  for (let o: THREE.Object3D | null = root; o; o = o.parent) if (objects.includes(o)) return true;
+  return false;
+};
+/** Textures, river reflections and dissolve twins of `objects` (all of `model`, or one part of it). */
+async function prepareObjects(model: THREE.Object3D, objects: readonly THREE.Object3D[], signal?: AbortSignal) {
+  for (const object of objects) await materials?.prepare(object, scene, camera, signal);
+  const whole = objects.length === 1 && objects[0] === model;
+  const roots = model.userData.dissolveIn ? [...objects] : blockLodRoots(model).filter(root => whole || within(root, objects)
+    // A root above the split (a building node cut into several parts) goes with its first part.
+    || objects.length > 0 && within(objects[0], [root]) && !objects.slice(1).some(o => o === root));
+  // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
+  if (roots.length && post) await precompileDissolve(roots, [0], async root => {
+    await post!.prepare(root);
+    await materials?.prepareReflections(root, scene, camera);
+  });
+  // The queue compiles its job model's main view; a part's other children here.
+  for (const object of objects.slice(1)) await post?.prepare(object);
+}
+const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') => {
+  const parts = preparationParts(model);
+  if (parts.length === 1) return queueGraphics(model, () => prepareObjects(model, [model], signal), signal, priority);
+  return Promise.all(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority))).then(() => {});
+};
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
