@@ -26,6 +26,7 @@ const cfg = JSON.parse(fs.readFileSync(spotsPath, 'utf8'));
 const only = args.only ? new Set(args.only.split(',')) : null;
 const [W, H] = (args.size ?? '960x540').split('x').map(Number);
 const FRAMES = Number(args.frames ?? 60);
+const STILLS = !!args.stills; // --stills: stills only (no population mask, collision grid or still-camera sequence)
 const DRIVE_SPEED = Number(args.speed ?? 12); // m/s at a virtual 30 Hz step, independent of the real frame rate
 const E0 = 23459500, N0 = 6704500;
 fs.mkdirSync(out, { recursive: true });
@@ -232,10 +233,11 @@ async function captureSpot(s, attempt = 1) {
         rec.ground = gy;
         Hs = gy === null ? 6 : gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
       }
-      views = [0, 120, 240].map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
-      views.push({ view: 'raised', E, N, H: Hs + 25, yaw: heading, pitch: -22, fov, street: false });
+      // `single`: one view at the spot's own camera (comparison shots such as building walls vs panoramas)
+      views = (s.single ? [0] : [0, 120, 240]).map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
+      if (!s.single) views.push({ view: 'raised', E, N, H: Hs + 25, yaw: heading, pitch: -22, fov, street: false });
       rec.views = views; rec.x = E - E0; rec.z = -(N - N0);
-      const grid = await groundGrid(E, N, Hs - 1.7 + 6);
+      const grid = STILLS ? null : await groundGrid(E, N, Hs - 1.7 + 6);
       if (grid) { fs.writeFileSync(path.join(out, `${s.id}-ground.json`), JSON.stringify(grid)); rec.groundGrid = `${s.id}-ground.json`; }
     }
     for (const v of views) {
@@ -245,14 +247,14 @@ async function captureSpot(s, attempt = 1) {
       const r = await waitSettled(rec.unsettled ? 30000 : Number(args.settle ?? 180000)); (rec.ready ??= []).push({ view: v.view, ...r });
       v.settled = r.settled; if (!r.settled) rec.unsettled = true;
       await still(path.join(out, `${s.id}-${v.view}-${pass}.png`));
-      if (pass === 'color' && v.street) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
+      if (pass === 'color' && v.street && !STILLS) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
     }
-    if (pass === 'color') {
+    if (pass === 'color' && !STILLS) {
       const v = views[0];
       await move({ E: v.E, N: v.N, H: v.H, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
       const rs = await waitSettled(rec.unsettled ? 30000 : 120000);
       rec.sequence = await sequence(path.join(out, `${s.id}-seq`), FRAMES); rec.sequence.settled = rs.settled;
-    } else {
+    } else if (pass === 'id') {
       rec.idTable = `${s.id}-idtable.json`;
       fs.writeFileSync(path.join(out, rec.idTable), JSON.stringify(await page.evaluate(() => window.__qaIdTable ?? {})));
     }
