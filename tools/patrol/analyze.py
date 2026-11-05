@@ -41,6 +41,7 @@ OWNER = {
     'white-car': ('cars (carpaint)', 'car drawn flat white: unlit or unshaded program'),
     'pop': ('streaming / LOD fades (lodfade, lodflicker)', 'geometry appears or swaps within one frame while driving'),
     'stutter': ('frame pacing (framepace, perfstream)', 'long frames while driving'),
+    'load-errors': ('city share delivery (tile proxy / farm)', 'tile or texture requests failed (HTTP 502/503, HTTP/2 errors); textures may be missing'),
     'not-ready': ('streaming / tile service', 'the spot did not settle (QA ready timeout)'),
 }
 
@@ -285,6 +286,17 @@ for tr in sorted(RUN.glob('drive-*/trace.json')):
         add(did, 'all', 'stutter', None, d['analysis'], None, {'E': x + E0, 'N': N0 - z, 'H': y + 1.5, 'yaw': None, 'pitch': -2, 'fov': 60}, 1 + (hitches > 5), 0.9, True)
     json.dump(d['analysis'], open(tr.parent / 'analysis.json', 'w'))
     print(did, d['analysis'])
+
+# --- page errors during the colour pass (failed tile and texture loads)
+rc = RUN / 'run-color.json'
+if rc.exists():
+    errs = json.load(open(rc)).get('errors', [])
+    bad = [e for e in errs if 'Failed to load' in e or "Couldn't load" in e]
+    if bad:
+        from collections import Counter as _C
+        kinds = _C(('texture' if 'texture' in e else e.split('Failed to load resource: ')[-1][:60]) for e in bad)
+        first = next(iter(poses.values()))['views'][0]
+        add('all', 'all', 'load-errors', None, {'count': len(bad), 'kinds': dict(kinds), 'sample': bad[:3]}, None, first, 3 if len(bad) > 10 else 2, 1.0, True)
 
 json.dump(cands, open(RUN / 'candidates.json', 'w'), indent=1)
 json.dump({k: v.get('temporal') for k, v in poses.items()}, open(RUN / 'temporal.json', 'w'), indent=1)
