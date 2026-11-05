@@ -719,6 +719,7 @@ def main(argv=None):
                     x, _, z = C.en_to_local(e + de, n - dn, 0.0)
                     found.add(C.VisualTile.at(x, z).id)
         tiles = sorted(found, key=lambda t: (abs(C.VisualTile.parse(t).i) + abs(C.VisualTile.parse(t).j), t))
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
     if args.out.exists():
         done = {json.loads(line)["tile"] for line in args.out.read_text().splitlines() if line.strip()}
