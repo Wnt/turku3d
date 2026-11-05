@@ -116,3 +116,14 @@ def test_surveyed_trunk_clears_the_walked_line_not_the_estimated_path_width():
     result = inventory(VisualTile(0, 0, 0), crowns((30, 41.5, 8, 2)), [on_line], lambda x, z: 0,
                        shapely.GeometryCollection(), paths, footway)
     assert 'puut:line' not in [t.object_id for t in result]
+
+
+def test_a_tall_thin_column_is_not_a_lidar_tree():
+    rng = np.random.default_rng(5)
+    column = np.c_[rng.normal(30, 0.35, 400), rng.uniform(4, 16, 400), rng.normal(40, 0.35, 400)]
+    result = inventory(VisualTile(0, 0, 0), column, [], lambda x, z: 0,
+                       shapely.GeometryCollection(), shapely.GeometryCollection())
+    assert result == []
+    crown = crowns((60, 60, 12, 3))
+    assert inventory(VisualTile(0, 0, 0), crown, [], lambda x, z: 0,
+                     shapely.GeometryCollection(), shapely.GeometryCollection())
