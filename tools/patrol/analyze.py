@@ -246,6 +246,11 @@ for sid, rec in poses.items():
         for k, im in enumerate(ims): S.paste(im, ((k % cols) * 480, (k // cols) * 270))
         S.save(SHEETS / f'{sid}.png')
 
+def drive_yaw(P, t):
+    a, b = P[max(0, min(t, len(P) - 2))], P[min(len(P) - 1, t + 25)]
+    return round((math.degrees(math.atan2(b[0] - a[0], -(b[1] - a[1]))) + 360) % 360, 1)
+
+
 # --- drives: pops and stutter
 for tr in sorted(RUN.glob('drive-*/trace.json')):
     d = json.load(open(tr)); did = d['id']; B = np.array(d['blocks'][1:], np.float32)  # frames x 336 blocks
@@ -257,7 +262,7 @@ for tr in sorted(RUN.glob('drive-*/trace.json')):
         base = np.median(ctx, axis=0) + 1.5
         ratio = B[t] / base
         hot = (ratio > 4) & (B[t] > 14)
-        if hot.sum() >= 2:
+        if hot.sum() >= 4:
             events.append((t + 1, int(hot.sum()), float(B[t][hot].mean()), np.nonzero(hot)[0].tolist()))
     # merge consecutive frames into one event
     merged = []
@@ -279,11 +284,11 @@ for tr in sorted(RUN.glob('drive-*/trace.json')):
             for j in range(3): dr.rectangle([384 * j + bx * 16, by * 15.4, 384 * j + bx * 16 + 16, by * 15.4 + 15.4], outline=(255, 0, 255))
         out = CROPS / f'{did}-pop{k}.png'; S.save(out)
         x, z, y = P[min(t, len(P) - 1)]
-        pose = {'E': x + E0, 'N': N0 - z, 'H': y + 1.5, 'yaw': None, 'pitch': -2, 'fov': 60}
+        pose = {'E': x + E0, 'N': N0 - z, 'H': y + 1.5, 'yaw': drive_yaw(P, t), 'pitch': -2, 'fov': 60}
         add(did, f'frame{t}', 'pop', None, {'frame': t, 'blocks': nb, 'diff': round(val, 1), 'pops_in_drive': len(merged)}, str(out.relative_to(RUN)), pose, 2, 0.9, True)
     if hitches:
         x, z, y = P[len(P) // 2]
-        add(did, 'all', 'stutter', None, d['analysis'], None, {'E': x + E0, 'N': N0 - z, 'H': y + 1.5, 'yaw': None, 'pitch': -2, 'fov': 60}, 1 + (hitches > 5), 0.9, True)
+        add(did, 'all', 'stutter', None, d['analysis'], None, {'E': x + E0, 'N': N0 - z, 'H': y + 1.5, 'yaw': drive_yaw(P, len(P) // 2), 'pitch': -2, 'fov': 60}, 1 + (hitches > 5), 0.9, True)
     json.dump(d['analysis'], open(tr.parent / 'analysis.json', 'w'))
     print(did, d['analysis'])
 

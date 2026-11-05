@@ -218,6 +218,8 @@ for (const d of drives) {
       const at = s => { s = Math.max(0, Math.min(total - 1e-6, s)); let i = 0; while (s > seg[i]) { s -= seg[i]; i++; } const f = s / seg[i];
         return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f]; };
       const ground = window.__game.population?.ground;
+      const pop = window.__game.population; const shown = pop?.root?.visible;
+      if (pop?.root) pop.root.visible = false; // the camera drives through cars and walkers: only scenery pops count
       const src = document.querySelector('canvas');
       const SW = 384, SH = 216, BX = 24, BY = 14;
       const c = new OffscreenCanvas(SW, SH), g = c.getContext('2d', { willReadFrequently: true });
@@ -247,6 +249,7 @@ for (const d of drives) {
         };
       });
       const enc = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
+      if (pop?.root) pop.root.visible = shown;
       window.__patrolJpgs = jpgs;
       return { blocks, iv: iv.map(v => +v.toFixed(1)), poses: posesOut, frames: jpgs.length, total };
     }, { pts, speed: DRIVE_SPEED, E0, N0, g0 });

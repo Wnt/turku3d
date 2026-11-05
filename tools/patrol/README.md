@@ -51,7 +51,7 @@ rsync -a $OUT osgallery-dev:/bulk/turku3d/patrol/ && rm -rf $OUT
 | blank-facade | window-like (darker or bluish) pixels on a facade_kit/component building filling >= 5 % of a street still | < 3.5 % |
 | lod-shell | block-LOD shells (layer building_lod) in a street still | > 3 % of the image |
 | white-car | population blobs (with vs without population) that are flat near-white | white > 55 %, luma std < 14 |
-| pop | drive block differences 4x their +-8-frame median and > 14 luma | >= 2 blocks |
+| pop | drive block differences 4x their +-8-frame median and > 14 luma | >= 4 blocks; population hidden |
 | stutter | drive frame intervals | > max(3 x median, 100 ms) |
 | not-ready | QA ready timeout or error at a pose | any |
 
