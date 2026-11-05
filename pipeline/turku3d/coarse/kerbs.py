@@ -68,7 +68,11 @@ def height_sampler(tile, heights, root, sources):
                 # this tile's own grid, never a build failure. A seam neighbour still needs its real ground.
                 return grid_height(tile, heights, min(max(x, b.xmin), b.xmax), min(max(z, b.zmin), b.zmax))
             if missing:
-                raise ValueError(f"Kerb seam needs ground inputs for {owner.id}")
+                # A seam or tunnel portal reaching a neighbour whose ground is not on disk yet waits
+                # for it like the tile's own inputs (the prefetcher fetches it; the build retries).
+                from .sources import MissingInputs, Unit
+
+                raise MissingInputs(tile.id, [Unit("lidar", b).key for b in missing])
             path, key = _entry(root, owner, "ground", paths)
             data = _load(path, key)
             if data is _ABSENT:
