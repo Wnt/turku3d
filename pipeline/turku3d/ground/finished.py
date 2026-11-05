@@ -50,7 +50,7 @@ REACH = 6  # m a site may extend past its zone (the excavation reaches the facad
 FREE_REACH = 15  # m: excavation and footprint ground this near a site is filled with it
 GROW_ROUNDS = 5  # rounds of FREE_REACH in which lower ground next to a site joins it
 WALL_RING = 6  # m: a footprint's ring of ground
-WALL_QUANTILE = 0.9  # of that ring: the building's wall height for the closing
+WALL_QUANTILE = 0.5  # of that ring: the building's wall height for the closing
 MIN_CORE = 8  # m2 of construction ground per site
 SPOT_WEIGHT = 3.0
 TENSION = 0.3  # weight of the membrane rows against the thin-plate rows of the fill
@@ -274,7 +274,8 @@ def _scaled(h, step, op, radius):
 
 
 def detect(h, zone, footprints, spots_rc):
-    """(pit, bump, core) rasters: construction ground per the rule's step 2."""
+    """(pit, bump, core, walls) rasters: construction ground per the rule's step 2, and the ground with
+    every building at its wall height."""
     from scipy import ndimage as ndi
 
     walls = h.copy()
@@ -306,7 +307,7 @@ def detect(h, zone, footprints, spots_rc):
     for r, c, level in spots_rc:
         seed = (rows - r) ** 2 + (cols - c) ** 2 <= SPOT_SEED * SPOT_SEED
         core |= seed & zone & ~footprints & (np.abs(h - level) > DEPTH)
-    return pit, bump, core
+    return pit, bump, core, walls
 
 
 def _biharmonic(h, free, spots_rc):
@@ -393,7 +394,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     water = _inside([g for g in evidence.water if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
     zone &= ~water
     spots_rc = [(r, c, y) for r, c, y in spots_rc if zone[r, c] and not footprints[r, c]]
-    pit, bump, core = detect(h, zone, footprints, spots_rc)
+    pit, bump, core, walls = detect(h, zone, footprints, spots_rc)
     reach = _grow(zone, REACH) & ~footprints & ~water
     grown = _grow(core, GROW) & ((pit > EDGE) | (bump > EDGE)) & reach
     mask = core | grown
@@ -420,7 +421,9 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
 
     for _ in range(GROW_ROUNDS):
         band = _grow(mask, FREE_REACH) & ~mask & space
-        trial = _biharmonic(h, mask | band | touching(band), spots_rc)
+        # Buildings stand at their wall height in the trial: cheap, and the continuation never bends
+        # down to the interpolated excavation under a facade.
+        trial = _biharmonic(walls, mask | band, spots_rc)
         join = band & ~footprints & (trial - h > DEPTH) & (pit > EDGE)
         join = ndi.binary_propagation(mask, mask=mask | join) & join
         if not join.any():
@@ -475,8 +478,41 @@ def cached_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     if key not in _WINDOWS:
         if len(_WINDOWS) >= WINDOW_CACHE:
             _WINDOWS.pop(next(iter(_WINDOWS)))
-        _WINDOWS[key] = solve_window(window, evidence)
+        _WINDOWS[key] = _stored(key, lambda: solve_window(window, evidence))
     return _WINDOWS[key]
+
+
+def _store():
+    """Shared on-disk windows beside the prepared inputs: the nine tiles a window serves solve it once."""
+    import os
+    from pathlib import Path
+
+    shared = os.environ.get("TURKU3D_SHARED_CACHE")
+    return (Path(shared) if shared else C.work_root() / "cache") / "finished-ground"
+
+
+def _stored(key, solve):
+    """The window from the store (keyed by its evidence digest and this module's code), else solved and kept."""
+    import hashlib
+    import os
+    import pickle
+    from pathlib import Path
+
+    code = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
+    path = _store() / code / f"{key[0]}.{key[1][:32]}.pkl"
+    try:
+        return pickle.loads(path.read_bytes())
+    except (OSError, pickle.UnpicklingError, EOFError, AttributeError):
+        pass
+    result = solve()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(f".{os.getpid()}.tmp")
+        temp.write_bytes(pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL))
+        temp.replace(path)
+    except OSError:
+        pass  # a read-only or full cache only costs the solve
+    return result
 
 
 def _ramp(v, low, high):
