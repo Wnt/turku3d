@@ -34,6 +34,13 @@ export function unseen(watchers: readonly TrafficWatcher[], x: number, z: number
   return true;
 }
 
+/** Distance (m) from (x, z) to the nearest watcher (Infinity with none). */
+export function watchDistance(watchers: readonly TrafficWatcher[], x: number, z: number): number {
+  let best = Infinity;
+  for (const w of watchers) best = Math.min(best, Math.hypot(x - w.x, z - w.z));
+  return best;
+}
+
 /** A point on the driven lane at arc length s, with its unit heading. */
 export interface LanePoint { x: number; z: number; hx: number; hz: number }
 /** An obstacle's footprint (centre, unit heading, size); `car` identifies it among `traffic` (skipped there). */
