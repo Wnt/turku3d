@@ -2,7 +2,7 @@
 // movement stay in TrafficFlow; the camera and local render cap never participate in a lane-change decision.
 import { hash01, hash32 } from './hash';
 import type { FlowCar } from './flow';
-import type { Lane } from './tileNetwork';
+import { intoDeadEnd, type Lane } from './tileNetwork';
 
 export const LANE_CHANGE_SECONDS = 3.2;
 /** At most this many lane-change evaluations per flow tick (10 Hz): about ten per 60 Hz frame, GTA's per-frame AI
@@ -44,9 +44,13 @@ export class LaneChangePlanner {
   intent(lane: Lane, key: string): -1 | 0 | 1 {
     const available = new Set((this.siblings.get(lane) ?? [lane]).flatMap(l => (this.movements.get(l) ?? []).map(kind)));
     const options = [0, 1, -1].filter(k => available.has(k as -1 | 0 | 1)) as (-1 | 0 | 1)[];
-    const weights = options.map(k => (k === 0 ? 0.65 : k === 1 ? 0.22 : 0.13) * Math.max(0.01,
-      ...((this.siblings.get(lane) ?? [lane]).flatMap(l => (this.movements.get(l) ?? [])
-        .filter(r => kind(r) === k).map(r => Math.min(1, (r.next?.flow ?? lane.flow) / lane.flow))))));
+    // A turn that only leads into cul-de-sacs is not intended while another way exists.
+    const weightsOf = (open: boolean) => options.map(k => {
+      const ratios = (this.siblings.get(lane) ?? [lane]).flatMap(l => (this.movements.get(l) ?? [])
+        .filter(r => kind(r) === k && !(open && intoDeadEnd(r))).map(r => Math.min(1, (r.next?.flow ?? lane.flow) / lane.flow)));
+      return ratios.length ? (k === 0 ? 0.65 : k === 1 ? 0.22 : 0.13) * Math.max(0.01, ...ratios) : 0;
+    });
+    const open = weightsOf(true), weights = open.some(w => w > 0) ? open : weightsOf(false);
     let value = hash01('turn-intent', key, lane.tile, lane.carriageway) * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < options.length; i++) { value -= weights[i]; if (value <= 0) return options[i]; }
     return options.at(-1) ?? 0;

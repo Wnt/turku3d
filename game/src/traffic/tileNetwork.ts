@@ -108,6 +108,17 @@ export interface TileTraffic {
 /** Time from entering a lane to entering the next one (driving, waiting, crossing). */
 export const laneSpan = (lane: Lane) => lane.tau + lane.wait + lane.delta;
 
+/** A cul-de-sac is shorter than this (m); a longer dead-end road leads somewhere (a harbour, a farm) and keeps traffic. */
+const CUL_DE_SAC = 200;
+/** The movement turns into a cul-de-sac: its receiving lane's only way on turns round back to where it started.
+ *  Ambient drivers have no destination there, so they never choose it while another way exists (GTA: wander never
+ *  enters a dead end). */
+export function intoDeadEnd(route: Lane): boolean {
+  const x = route.next, back = x?.next;
+  return !!x && !!back && x.length < CUL_DE_SAC && x.start.kind === 'junction' && x.end.kind === 'junction'
+    && back.tile === x.tile && back.start.node === x.end.node && back.end.node === x.start.node;
+}
+
 /** Phase of a seam crossing: continuous along the seam, so both tiles' copies (to 0.1 m) agree within ~20 ms. */
 export function seamPhase(s: SeamKey): number {
   return mod(s.u / 37.3 + s.coord * 0.00618 + (s.dir > 0 ? 0 : 0.5) + (s.vertical ? 0 : 0.25), 1) * TRAFFIC.headway;
