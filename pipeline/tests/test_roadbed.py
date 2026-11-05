@@ -286,6 +286,10 @@ def test_outline_beside_and_past_a_link_rides_on_the_link_not_the_main_deck():
     assert beyond.any() and top[beyond, 1].max() < 19.5
     beside = (top[:, 0] > 60) & (top[:, 2] > 8.9)
     assert beside.any() and top[beside, 1].max() < 23.0
+    # On the lane, the slab follows the link's profile, not chords between far stations.
+    tris = top[meshes[0].indices.reshape(-1, 3)]
+    on_link = (tris[:, :, 2].min(1) > 0.2) & (tris[:, :, 0].min(1) > 22) & (tris[:, :, 0].max(1) < 80)
+    assert on_link.any() and np.ptp(tris[on_link, :, 0], axis=1).max() <= 2.1
 
 
 def test_a_deck_from_several_outline_parts_builds():
