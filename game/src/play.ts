@@ -252,7 +252,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     vehicleSignals.enter();
     if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
-    if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
+    if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId, manifest.vehicles?.find(v => v.object_id === id));
     mode = 'car';
     orbit.distance = 8;
   };
