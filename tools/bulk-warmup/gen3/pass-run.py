@@ -11,6 +11,11 @@
 * A lane survives a dead worker: a lane is a one-process pool, and a killed or crashed worker breaks it for good
   (every later tile on that lane would fail at once). The pool is recreated on the lane's next dispatch; the tile
   that was running is logged failed by the pass and the lane moves on.
+* Priority queue: $QUEUE_FILE (default /home/wnt/turku3d-bulk-gen3/queue-turku.txt), one tile per line in priority
+  order, replaces the pass's Chebyshev rings by priority bands of $QUEUE_BAND tiles (default 16): a lane takes, within
+  the first band left, the tile nearest its last survey block (the pass's own pick), so neighbours share decoded
+  blocks and stage caches. Tiles not in the file follow it, by ring. When the file changes (write a new one and mv
+  it in place), the not-yet-started tiles are re-sorted at the next dispatch; running tiles are never touched.
 Tile products are untouched: only scheduling is patched, outside the snapshot.
 """
 from concurrent.futures import ProcessPoolExecutor
@@ -57,6 +62,40 @@ def load():
 
 
 os.getloadavg = load
+
+QUEUE = Path(os.environ.get('QUEUE_FILE', '/home/wnt/turku3d-bulk-gen3/queue-turku.txt'))
+BAND = int(os.environ.get('QUEUE_BAND', '16'))
+chebyshev, original_pick = P.ring, P.pick
+queue = dict(stamp=None, rank={})
+
+
+def reload_queue():
+    try:
+        stamp = QUEUE.stat().st_mtime
+    except OSError:
+        stamp = None
+    if stamp == queue['stamp']:
+        return False
+    queue['stamp'] = stamp
+    tiles = QUEUE.read_text().split() if stamp else []
+    queue['rank'] = {t: k for k, t in enumerate(dict.fromkeys(tiles))}
+    print(f'pass-run: priority queue {len(queue["rank"])} tiles from {QUEUE}', file=sys.stderr, flush=True)
+    return True
+
+
+def band(tile):
+    k = queue['rank'].get(tile)
+    return k // BAND if k is not None else 10**6 + chebyshev(tile)
+
+
+def pick(pending, last):
+    if reload_queue():
+        pending.sort(key=lambda t: (band(t), t))  # in place: the pass's own list, not-yet-started tiles only
+    return original_pick(pending, last)
+
+
+reload_queue()
+P.ring, P.pick = band, pick
 
 _init = P.Lane.__init__
 

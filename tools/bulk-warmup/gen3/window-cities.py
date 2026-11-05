@@ -13,7 +13,8 @@ own centre tile; the Turku pass uses the same rings round t0_0_0, in its own lan
 cities and Turku is the lane counts (window-lanes.sh).
 
 Hot and additive (a window never idles for a change): the plan file is re-read when it changes and only tiles new to
-it are appended to the queue (in ring order); the lane count is re-read from --lanes-file every few seconds; a
+it are appended to the queue, and the not-yet-started tail takes the plan's order (a city with "ordered": true
+keeps its list's order, e.g. a priority agent's queue; otherwise rings round its centre); the lane count is re-read from --lanes-file every few seconds; a
 failing tile is logged and skipped and its lane takes the next one. --follow keeps running with an empty queue.
 
 Each tile builds as `tools/cities/run.sh CITY python -m turku3d.coarse build TILE --out OUT/TILE.building` from the
@@ -39,16 +40,22 @@ def ring(tile, centre):
     return max(abs(i - ci), abs(j - cj))
 
 
+def key(city, k, tile):
+    """Queue position: a city with "ordered": true is built in its list's order (a priority agent's queue), else by
+    ring round its centre; cities take turns at each position, so they keep equal priority."""
+    return k if city.get('ordered') else ring(tile, city['centre'])
+
+
 def order(cities):
     jobs = []
-    for k, city in enumerate(cities):
+    for n, city in enumerate(cities):
         out = Path(city['out'])
-        for n, tile in enumerate(sorted(city['tiles'], key=lambda t: (ring(t, city['centre']), t))):
+        for k, tile in enumerate(city['tiles']):
             if (out / tile / 'manifest.json').is_file():
                 continue
-            jobs.append((ring(tile, city['centre']), n, k, tile))
-    jobs.sort()  # ring first, then the n-th tile of each city in turn
-    return [(r, cities[k], tile) for r, _, k, tile in jobs]
+            jobs.append(((key(city, k, tile), n, tile), city, tile))
+    jobs.sort(key=lambda j: j[0])
+    return [(ring(tile, city['centre']), city, tile) for _, city, tile in jobs]
 
 
 def build(city, tile):
@@ -119,9 +126,12 @@ def main():
                 # done is dropped or redone, and lanes keep running.
                 stamp = a.plan.stat().st_mtime
                 cities = json.loads(a.plan.read_text())['cities']
-                new = [j for j in order(cities) if (j[1]['name'], j[2]) not in seen]
+                fresh = order(cities)
+                new = [j for j in fresh if (j[1]['name'], j[2]) not in seen]
                 seen |= {(c['name'], t) for _, c, t in new}
-                jobs = sorted(jobs + new, key=lambda j: (j[0], [c['name'] for c in cities].index(j[1]['name']), j[2]))
+                # The not-yet-started tail takes the plan's new order; nothing running or done is touched.
+                waiting = {(j[1]['name'], j[2]) for j in jobs} | {(c['name'], t) for _, c, t in new}
+                jobs = [j for j in fresh if (j[1]['name'], j[2]) in waiting]
             while jobs and len(running) < lanes():
                 r, city, tile = jobs.pop(0)
                 running[pool.submit(build, city, tile)] = (r, city['name'], tile)
