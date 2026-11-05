@@ -2,7 +2,9 @@ import * as T from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TruckVisual } from '../actors/truck';
-import { TRUCK } from '../physics/constants';
+import { configureTrophyAsset } from '../actors/trophy4400/asset';
+import { GROUND_Y } from '../actors/trophy4400/rig';
+import { TRUCK, TRUCK_STATIC_LENGTH } from '../physics/constants';
 import type { VehicleState } from '../physics/protocol';
 
 const scene=new T.Scene();scene.background=new T.Color(0x728895);scene.fog=new T.Fog(0x728895,35,95);
@@ -17,9 +19,10 @@ const sun=new T.DirectionalLight(0xffe0a7,3.3);sun.position.set(6,10,-7);sun.cas
 Object.assign(sun.shadow.camera,{left:-8,right:8,top:8,bottom:-8,near:.1,far:35});sun.shadow.normalBias=.025;sun.shadow.bias=-.0002;scene.add(sun);
 const ground=new T.Mesh(new T.PlaneGeometry(200,200),new T.MeshStandardMaterial({color:0x4c514a,roughness:1}));ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
 const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.9,0);controls.enableDamping=true;controls.maxDistance=140;controls.minDistance=2;controls.maxPolarAngle=Math.PI*.49;
+configureTrophyAsset(import.meta.env.BASE_URL,renderer);
 let truck=new TruckVisual(scene);await truck.load();
-const staticState=():VehicleState=>({kind:'truck',pos:{x:0,y:TRUCK.wheelRadius+TRUCK.rest-TRUCK.wheels[0].y-9.81/(4*TRUCK.suspensionStiffness),z:0},rot:{x:0,y:0,z:0,w:1},linvel:{x:0,y:0,z:0},speed:0,forwardSpeed:0,impact:null,curbStrike:null,bump:null,
- wheels:TRUCK.wheels.map(p=>({pos:{x:p.x,y:p.y-TRUCK.rest+9.81/(4*TRUCK.suspensionStiffness),z:p.z},steer:0,rotation:0,contact:true,suspension:TRUCK.rest}))});
+const staticState=():VehicleState=>({kind:'truck',pos:{x:0,y:-GROUND_Y,z:0},rot:{x:0,y:0,z:0,w:1},linvel:{x:0,y:0,z:0},speed:0,forwardSpeed:0,impact:null,curbStrike:null,bump:null,
+ wheels:TRUCK.wheels.map(p=>({pos:{x:p.x,y:p.y-TRUCK_STATIC_LENGTH,z:p.z},steer:0,rotation:0,contact:true,suspension:TRUCK_STATIC_LENGTH}))});
 let state=staticState();truck.update(state);
 await renderer.compileAsync(scene,camera);
 let drive:ReturnType<typeof import('./prerunnerCourse').prerunnerCourse>|undefined;

@@ -8,11 +8,12 @@ import { driverSide, yawOf } from '../gameplay/saveGame';
 import { vehicleIdentity } from './identity';
 import { VEHICLE_POSE_HEIGHT } from './height';
 import type { MultiplayerClient, NetPose } from './client';
+import type { Drv } from './drv';
 import type { SharedVehicle, VehicleCommand, VehicleUpdate } from './vehicleTypes';
 
-export function vehiclePose(state: VehicleState, model: string, now: number): NetPose {
+export function vehiclePose(state: VehicleState, model: string, now: number, drv?: Drv): NetPose {
   const yaw = yawOf(state.rot) - Math.PI / 2;
-  return { lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
+  return { ...(drv ? { drv } : {}), lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
     yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), rot: state.rot, wheels: state.wheels,
     vE: state.linvel.x, vN: -state.linvel.z, vH: state.linvel.y,
     mode: state.kind ?? 'car', vehicle: model, carrying: false };
@@ -49,6 +50,8 @@ export class SharedVehicles {
   private entering = false;
   private driving: DrivenSeat | null = null;
   private releaseOnReconnect = new Set<string>();
+  /** The driven truck's `drv` record by local vehicle id (play.ts sets it from the sound drivetrain). */
+  drvOf: (localId: string) => Drv | undefined = () => undefined;
 
   constructor(readonly client: MultiplayerClient, private physics: PhysicsClient,
     private manifest: Manifest, private parked: ParkedVehicles) {
@@ -295,7 +298,7 @@ export class SharedVehicles {
       if (now < (this.blockedUntil.get(id) ?? 0)) continue;
       const v = this.client.state.vehicles.get(id), state = this.physics.latest?.vehicles.find(s => s.id === item.local);
       if (!v || v.owner !== this.client.state.you?.id || !state) continue;
-      const pose = vehiclePose(state, v.pose.vehicle!, now);
+      const pose = vehiclePose(state, v.pose.vehicle!, now, this.drvOf(item.local));
       if (this.sent.get(id) !== vehicleFingerprint(pose)) out.push({ id, epoch: v.epoch, pose });
     }
     return out.slice(0, 8);

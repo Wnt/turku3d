@@ -68,6 +68,7 @@ import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT, VEHICLES, type VehicleKind } from './physics/constants';
 import { RearSteerControl } from './vehicle/rearSteerControl';
 import { RearSteerTag } from './ui/rearSteerTag';
+import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -188,10 +189,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   orbit.yaw = yaw0;
   // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
   await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
-    optional('scooter and truck', seated.load(import.meta.env.BASE_URL), undefined),
+    optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
     optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
+  let remoteEngines = new Set<string>();
   const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
@@ -222,6 +224,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   let multiplayer: MultiplayerClient | null = null;
   let multiplayerPlaying = false;
   let sharedVehicles: SharedVehicles | null = null;
+  /** The `drv` pose record of the driven 4WS truck (SPEC §5): throttle and rear mode from physics, rpm and gear from
+   *  the local sound drivetrain; undefined for every other vehicle or on foot. */
+  const drivenDrv = (id: string | null): Drv | undefined => {
+    const drive = audioGameplay.truckDrive;
+    return id && id === drivenId && drive ? drvOf(physics.latest?.vehicles.find(v => v.id === id), drive.rpm, drive.gear) : undefined;
+  };
   const poles = new PoleSession(tiles, physics, missions, voice, document.body);
   // City portals (gameplay/portals.ts): arches under the Turku bridges, the return arch in the other cities.
   const portalList = portalsIn();
@@ -375,6 +383,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
+  sharedVehicles.drvOf = drivenDrv;
   const rounds = new RoundUI(client, pauseMenu, () => pauseMenu.show(saveGame.pausePage()),
     () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying);
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
@@ -805,6 +814,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: poseMode === 'foot' ? null : shared?.pose.vehicle ?? vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
         ...(poseMode !== 'foot' && shared && sharedVehicles?.hasSeat(drivenId!) ? { vehicleId: shared.id } : {}),
         lights: mode === 'car' ? vs?.lights ?? 1 : 0, horn: mode === 'car' && vehicleSignals.horn,
+        ...(mode === 'car' && drivenDrv(drivenId) ? { drv: drivenDrv(drivenId) } : {}),
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }
@@ -852,6 +862,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       ...(multiplayerPlaying ? remotePlayers.horns : []),
       ...traffic.horns(camera.position),
     ] });
+    // Remote trucks' engine voices from their synced wheels and `drv` (net/remotes.ts); gone ones are released.
+    const engineIds = new Set<string>();
+    if (multiplayerPlaying) for (const e of remotePlayers.engines) { engineIds.add(e.id); audio.engineVoice(e.id, e.state); }
+    for (const id of remoteEngines) if (!engineIds.has(id)) audio.engineVoice(id, null);
+    remoteEngines = engineIds;
     tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,

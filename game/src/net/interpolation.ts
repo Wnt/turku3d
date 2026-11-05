@@ -21,6 +21,8 @@ const ops: PoseOps<NetPose> = {
         return { ...w, pos: { x: mix(prev.pos.x, w.pos.x), y: mix(prev.pos.y, w.pos.y), z: mix(prev.pos.z, w.pos.z) },
           steer: mix(prev.steer, w.steer), rotation: mix(prev.rotation, w.rotation), suspension: mix(prev.suspension, w.suspension) };
       }),
+      // The remote engine voice follows the lerped rpm (SPEC §5); throttle, gear and rear mode are taken as sent.
+      ...(a.drv && b.drv ? { drv: [b.drv[0], Math.round(a.drv[1] + (b.drv[1] - a.drv[1]) * f), b.drv[2], b.drv[3]] as NetPose['drv'] } : {}),
       vE: lerp('vE'), vN: lerp('vN'), vH: lerp('vH') };
   },
   extrapolate: (a, b, dt, s) => {

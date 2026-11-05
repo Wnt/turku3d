@@ -1,19 +1,15 @@
 import type { VehicleState, WheelState } from '../../physics/protocol';
 import { clamp } from './dsp';
 import { Drivetrain, type EngineDrive } from './drivetrain';
+import type { Drv } from '../../net/drv';
 
 /** Turns a truck's VehicleState (local or remote) into the engine voice input of SPEC §4.6, identically on every
  *  client: the driven-wheel speed comes from Δ WheelState.rotation, the rear-steer slew from the rear wheels' synced
  *  steer. The local driver passes its input; a remote truck passes the synced `drv` record, or nothing, in which case
  *  the throttle is estimated from the acceleration. */
 
-/** SPEC §5 wire record: [throttlePct 0..100, rpm10 0..800, gear −1..3, rearMode 0..3]. */
-export type NetDrive = readonly [number, number, number, number];
-
-export function encodeDrive(d: EngineDrive, rearMode = 0): NetDrive {
-  return [Math.round(clamp(d.throttle) * 100), Math.round(clamp(d.rpm / 10, 0, 800)),
-    Math.max(-1, Math.min(3, Math.round(d.gear))), Math.max(0, Math.min(3, Math.round(rearMode)))];
-}
+/** SPEC §5 wire record [throttlePct 0..100, rpm10 0..800, gear −1..3, rearMode 0..3] (net/drv.ts encodes it). */
+export type NetDrive = Readonly<Drv>;
 
 export interface FeedControl {
   /** Local driver: throttle/brake after handling (0..1) and whether reverse is engaged. */

@@ -3,7 +3,7 @@ import type { CharacterState, VehicleInput, VehicleState } from '../physics/prot
 import { VEHICLES, type VehicleKind } from '../physics/constants';
 import { TyreSlipFilter } from '../vehicle/tyreSlip';
 import { clamp, type AudioEvent } from './mix';
-import { TruckSoundFeed, encodeDrive, type NetDrive } from './engine/feed';
+import { TruckSoundFeed } from './engine/feed';
 import type { EngineDrive } from './engine/drivetrain';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
@@ -32,7 +32,7 @@ export class GameplayAudio {
   private truckFeed: TruckSoundFeed | null = null;
   private truckId: string | null = null;
   private truckTick = -1;
-  /** The local truck's latest drivetrain state (HUD, haptics, and the `drv` wire record via `truckDrv`). */
+  /** The local truck's latest drivetrain state (HUD, haptics, and the `drv` wire record: net/drv.ts drvOf). */
   truckDrive: EngineDrive | null = null;
 
   constructor(private readonly emit: (event: AudioEvent) => void) {}
@@ -53,9 +53,6 @@ export class GameplayAudio {
     }
     return this.truckDrive!.rpm;
   }
-
-  /** The local truck's `drv` wire record (SPEC §5), or null when not driving the truck. */
-  truckDrv(rearMode = 0): NetDrive | null { return this.truckDrive ? encodeDrive(this.truckDrive, rearMode) : null; }
 
   update(frame: { tick: number; time: number; paused: boolean; mode: 'foot' | 'car'; connected: boolean;
     character: CharacterState | null; vehicle: VehicleState | null; input: VehicleInput | null;
