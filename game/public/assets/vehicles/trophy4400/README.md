@@ -33,9 +33,9 @@ each wheel's synced hub height and steer.
 | quantity | value |
 |---|---|
 | wheelbase / track (wheel-* origins) | 3.150 / 2.180 m |
-| tyre OD x width | 1.074 x 0.374 m (lugs), square-shouldered mud-terrain: 20 pitches of staggered long/short shoulder lugs (62-66 mm) plus square sidewall blocks; beadlock with 24 bolts and a wide orange wheel face (r 0.118-0.214 m) with a dark centre |
+| tyre OD x width | 1.067 x 0.345 m, mud-terrain on a 72-step round carcass: 34 pitches of two staggered centre rows, rounded shoulder lugs that wrap onto the sidewall and sidewall lugs; 17-in dark gunmetal 8-window centre with a blue cap and an orange beadlock ring (0.432-0.546 m dia) with 24 bolts |
 | L0 bbox (excl. whip) | body x -2.49 .. 2.17 (rear tube bumper .. front flare ends / bumper hoop at the front tyre), width 2.35 over the front flares / 1.60 at the cab, door rocker 0.72 (dark frame and belly at 0.61-0.64), front flare crown 1.373, door top 1.38, hood 1.39-1.41, bumper hoop top 1.44, cage roof 2.03, light bar 2.01-2.12 |
-| triangles L0 / L1 / L2 | 148,496 / 27,454 / 3,818 (body alone 26,858 / 4,328 / 1,222) |
+| triangles L0 / L1 / L2 | 117,142 / 29,066 / 2,454 |
 | raw primitives (all LODs) | 225 (before the per-material merge) |
 | sha256 (raw) | ee225487f57e1c2663193447a126c778536a92ca09da31432faa654983ddb9b7 |
 
@@ -45,6 +45,13 @@ Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corne
 `steer-wheel`, `spare`, `antenna`, lamp/seat/exit empties and 64 `hp-*` hardpoints under `hardpoints`.
 Rig nodes are empties at the pivots; axial nodes point Blender +Z (glTF +Y) from top/inner to
 bottom/outer. Lamp lenses use `led-optics` / `tail-lens`.
+
+Round 9 (2026-11-05, on the round-7 body, `~/turku3d/loops/trophy4400/model/gen9/`): the round-8 tyre and an
+orange-ring beadlock on a dark centre; the spare lies across the rear deck tilted 38 deg (centre x -2.0, z 1.30) under a
+strap; an orange roof skin over the cockpit (x +0.35 .. -0.80) under the light bar; the door band carries abstract
+slanted stripes and a chevron only (the letter-like glyph rows are painted over); gloss deep orange-red paint
+(#C94008 albedo, roughness ~0.25, full clearcoat, no specular/IOR extensions) with chips instead of line scratches;
+dark powder-coated arms (metallic 0.3, roughness 0.52).
 
 Round 7 body (2026-11-05): short nose that stops at the front of the front tyres: a raised hood
 (1.39-1.41 m) that drops steeply into a tall vented face, with a tall upright tube bumper hoop (top 1.44 m)
