@@ -4,7 +4,7 @@
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, hash32, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
-import { connector, cumulative, smoothPath, type Connector, type Lane } from './tileNetwork';
+import { connector, cumulative, intoDeadEnd, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { greenWithin, signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
@@ -1014,7 +1014,7 @@ export class TrafficFlow {
     }
     const options = (this.movements.get(car.lane) ?? []).filter(m => m !== car.route && m.connector && m.next
       && room(m.next) >= need && signalState(m, t) !== 'red')
-      .sort((a, b) => room(b.next!) - room(a.next!) || cmp(a.id, b.id));
+      .sort((a, b) => Number(intoDeadEnd(a)) - Number(intoDeadEnd(b)) || room(b.next!) - room(a.next!) || cmp(a.id, b.id));
     if (!options.length) return;
     car.route = options[0]; car.rerouted = this.tick; this.stats.rerouted++; if (ahead) this.stats.reroutedAhead++;
   }
@@ -1078,8 +1078,11 @@ export class TrafficFlow {
   private chooseRoute(lane: Lane, key: string, hops = 0): Lane {
     const seed = `${key}/${hops}`;
     const routes = this.changer?.routes(lane, seed) ?? this.movements.get(lane) ?? [lane];
-    const weights = routes.map(r => (!r.connector || Math.abs(r.connector.turn) < 0.5 ? 0.65 : r.connector.turn > 0 ? 0.22 : 0.13)
+    const base = routes.map(r => (!r.connector || Math.abs(r.connector.turn) < 0.5 ? 0.65 : r.connector.turn > 0 ? 0.22 : 0.13)
       * Math.min(1, (r.next?.flow ?? lane.flow) / lane.flow));
+    // Never into a cul-de-sac while another way exists.
+    const open = base.map((w, i) => intoDeadEnd(routes[i]) ? 0 : w);
+    const weights = open.some(w => w > 0) ? open : base;
     let value = hash01('route', seed, lane.tile, lane.id) * weights.reduce((a, b) => a + b, 0);
     for (let i = 0; i < routes.length; i++) { value -= weights[i]; if (value <= 0) return routes[i]; }
     return routes[routes.length - 1];

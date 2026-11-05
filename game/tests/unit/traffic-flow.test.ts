@@ -442,6 +442,41 @@ describe('out-of-view recycling (GTA-style)', () => {
   });
 });
 
+describe('dead ends (GTA: wander never enters one)', () => {
+  // A through street west-east with a 65 m cul-de-sac to the north of its junction.
+  const tee = (spur: number): RoadGraphJson => ({ ...intersection(),
+    nodes: [125, 125, 0, 125, 250, 125, 125, 125 - spur], nodeFlags: [0, NODE.SEAM, NODE.SEAM, NODE.DEAD_END],
+    edges: [[1, 0, CAR | FOOT | 3 << 3, 125], [0, 2, CAR | FOOT | 3 << 3, 125], [0, 3, CAR | FOOT | 3 << 3, spur]],
+    edgeIds: ['west', 'east', 'spur'], edgeAttrs: Array.from({ length: 3 }, () => [1, 1, 7, 40, 11, 0, 0, 9]) });
+  const entering = (spur: number) => {
+    const net = flowNetwork(tee(spur)), flow = new TrafficFlow(net, 0);
+    flow.reset(0);
+    const lanes = [...net.tiles.values()][0].lanes, into = lanes.filter(l => l.end.kind === 'junction' && l.end.node === 3);
+    expect(into.length).toBeGreaterThan(0);
+    // Cars that turn in (cars the start population placed on the spur only drive out).
+    const was = new Map<string, Lane>(), seen = new Set<string>();
+    for (let step = 1; step <= 3000; step++) {
+      flow.update(step / 10);
+      for (const c of flow.cars.values()) {
+        const before = was.get(c.key);
+        if (before && before !== c.lane && into.includes(c.lane)) seen.add(c.key);
+        was.set(c.key, c.lane);
+      }
+    }
+    return { seen: seen.size, exited: flow.stats.exited };
+  };
+
+  test('drivers on the through street never turn into a cul-de-sac', () => {
+    const { seen, exited } = entering(65);
+    expect(exited).toBeGreaterThan(20);
+    expect(seen).toBe(0);
+  });
+
+  test('a long dead-end road (it leads somewhere) keeps its traffic', () => {
+    expect(entering(110 + 200).seen).toBeGreaterThan(0);
+  });
+});
+
 describe('junction stop lines', () => {
   test('a car waiting at a line never stands in a crossing movement\'s path through the junction', () => {
     const net = flowNetwork(intersection(false, 2)), flow = new TrafficFlow(net, 0);
