@@ -10,7 +10,11 @@
 # Layout (paths mirrored 1:1 with osgallery-dev, so the pass and its records see the farm's own absolute paths):
 #   /srv/osg/farm   <- 10.77.0.1:/home/wnt/turku3d-local/loops/tiles/farm   (ro, fsc)
 #   /bulk/turku3d   <- 10.77.0.1:/bulk/turku3d                              (ro, fsc; the --supply survey blocks)
-#   /home/wnt/turku3d-local/loops/tiles/farm = overlay(lower /srv/osg/farm, upper /srv/farm/upper): every write
+#   /home/wnt/turku3d-local/loops/tiles/farm = overlay(lower /srv/farm/seed over /srv/osg/farm, upper /srv/farm/upper).
+#     The seed is a local copy of the farm's hot small-file trees (stage.sh seed: the source version without its survey
+#     blocks, ~12 GB in ~100k files, and the code snapshots): an NFSv4 OPEN is a round trip that FS-Cache cannot save,
+#     and a lane opens every source-version WFS file of the city (~24k) per tile. Files not in the seed (survey blocks,
+#     products, stage caches, records) fall through to NFS and FS-Cache. Every write
 #     (new tile products, checkpoints, pass records, linked survey blocks) lands on the local disk; sync-train.sh
 #     --pull sends the new products back. work/, locks/ and logs/ are local directories (bind mounts): the host never
 #     takes the farm's locks or reads its private work trees. cache/ (the farm's shared, content-keyed stage caches,
@@ -44,11 +48,11 @@ EOF
     systemctl enable -q cachefilesd 2>/dev/null; systemctl restart cachefilesd || true; sleep 2
     bound || { echo "cachefilesd did not bind a cache: journalctl -u cachefilesd"; exit 1; }
   fi
-  mkdir -p /srv/osg/farm /bulk/turku3d /srv/farm/upper /srv/farm/ovl-work "$F"
+  mkdir -p /srv/osg/farm /bulk/turku3d /srv/farm/seed /srv/farm/upper /srv/farm/ovl-work "$F"
   mountpoint -q /srv/osg/farm || mount -t nfs4 -o "$NFS_OPTS" "$OSG:$F" /srv/osg/farm
   mountpoint -q /bulk/turku3d || mount -t nfs4 -o "$NFS_OPTS" "$OSG:/bulk/turku3d" /bulk/turku3d
   if ! mountpoint -q "$F"; then
-    mount -t overlay overlay -o lowerdir=/srv/osg/farm,upperdir=/srv/farm/upper,workdir=/srv/farm/ovl-work,redirect_dir=off,index=off,metacopy=off "$F"
+    mount -t overlay overlay -o lowerdir=/srv/farm/seed:/srv/osg/farm,upperdir=/srv/farm/upper,workdir=/srv/farm/ovl-work,redirect_dir=off,index=off,metacopy=off "$F"
   fi
   for d in "${LOCAL_DIRS[@]}"; do
     mkdir -p "/srv/farm/local/$d"; chown 1000:1000 "/srv/farm/local/$d"
@@ -66,7 +70,7 @@ status() {
   df -h / | tail -1 | sed 's/^/  disk /'
   # Data reads served by the cache (Read ok=) against those fetched over the network (Retrv / netfs reads).
   grep -E '^(Cookies|Acquire|Read|Retrvl|IO|RdHelp|Stores|Cache)' /proc/fs/fscache/stats 2>/dev/null | sed 's/^/  /'
-  grep -E '^(Reads|RA|ZeroOps|DownOps|CacheRd|CacheWr)' /proc/fs/netfs/stats 2>/dev/null | sed 's/^/  /'
+  grep -E '^(Reads|RA|ZeroOps|DownOps|CacheRd|CacheWr)' /proc/fs/netfs/stats 2>/dev/null | sed 's/^/  /' || true
 }
 
 prefetch() {
