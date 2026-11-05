@@ -450,7 +450,9 @@ def resolve(building, vertices, eaves, *, layout_height=None):
 
         for wall in program["walls"]:
             # The building's photographed window heads replace the archetype's period draw.
+            # The ground storey's windows share them; door heads keep their own vocabulary.
             wall["windows"]["head_shape"] = value(head, "unopposed reviewed window heads", 0.6)
+            wall["base"]["head_shape"] = value(head, "unopposed reviewed window heads", 0.6)
     for index, wall in enumerate(program["walls"]):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         apply_prior(wall, program["archetype"], attrs, own, record)
