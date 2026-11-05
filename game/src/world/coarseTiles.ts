@@ -114,6 +114,9 @@ function jsHeapBytes(): number | undefined {
 const GPU_MEASURE_MS = 3000;
 /** A window tile still not loaded after this long (ms) shows as waiting in the tile status. */
 const WAITING_MS = 5000;
+/** A tile away from the start points that the service is still building stops holding startup after this long (ms):
+ *  a city whose service rebuilds its tiles must not keep the player on the loading screen for minutes. */
+const START_BUILD_GRACE_MS = 10_000;
 /** At load and spawn the start's view wedge within this distance (m) installs full detail with the ground under it,
  *  so the player never starts looking at scenery cells. Half angle of that wedge (rad). */
 const START_VIEW_M = 300;
@@ -641,15 +644,21 @@ export class CoarseTiles {
       building ? `${building} building` : '', ...problems].filter(Boolean).join(' · '), (!!at && at.state !== 'draft') || problems.length > 0);
   }
 
-  /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed does not
-   *  block startup: it is left out and warned about once, and the world starts without that tile. */
+  /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed, or that the
+   *  service is still building after START_BUILD_GRACE_MS, blocks startup only under a start point: it is left out
+   *  and warned about once, and the world starts without that tile (it streams in when it is built). */
   progressAt(x: number, z: number) {
     const points = [{ x, z }, ...this.retainedStarts, ...this.startup?.points ?? []];
     const critical = new Set(startupDraftTiles(points, 3));
     const wanted = this.wantedStarts(x, z).filter(id => {
       const entry = this.entries.get(id);
-      if (entry?.state !== 'failed' || critical.has(id)) return true;
-      if (!this.skipped.has(id)) { this.skipped.add(id); this.warn(`draft ${id} failed, starting without it: ${entry.error}`); }
+      if (!entry || critical.has(id)) return true;
+      const building = entry.state !== 'draft' && entry.building !== undefined && this.clock - entry.building > START_BUILD_GRACE_MS;
+      if (entry.state !== 'failed' && !building) return true;
+      if (!this.skipped.has(id)) {
+        this.skipped.add(id);
+        this.warn(building ? `draft ${id} is still building, starting without it` : `draft ${id} failed, starting without it: ${entry.error}`);
+      }
       return false;
     });
     const ready = wanted.filter(id => this.entries.get(id)?.state === 'draft');
@@ -1156,8 +1165,10 @@ export class CoarseTiles {
         e.error = body.state === 'pending-data' ? `waiting for ${[...new Set(body.missing?.map(u => u.split('/')[0]))].join(', ')} data`
           : undefined;
         traced?.({ status: 202, state: body.state, eta: body.eta });
+        e.building ??= this.clock;
         e.state = 'pending'; e.nextPoll = this.clock + 2000; return;
       }
+      e.building = undefined;
       if (!res.ok) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;

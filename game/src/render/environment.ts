@@ -8,6 +8,7 @@ import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
 import { REFLECTION_LAYER } from './reflections';
 import { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../world/shadowBatch';
+import type { CasterVolumes } from '../world/vegetationLod';
 
 /** Layers a sun cascade's camera sees: everything on layer 0, the shadow-only layer (vegetation proxies), and of a
  *  tile's shadow batch the per-chunk casters in the nearest cascade (fine culling in a 16 m map), the whole-tile
@@ -260,6 +261,22 @@ export class Environment {
   private shadowFrame = 0;
   /** Frames that render every cascade (after construction and resize). */
   private fullShadowFrames = 2;
+
+  /** The sun's shadow volumes for caster selection (VegetationLod.selectCasters): the direction towards the sun and
+   *  each cascade camera's last volume (r186 updates it when the cascade renders; none before the first render). */
+  casterVolumes(): CasterVolumes {
+    const lights = this.csm.camera ? this.csm.lights : [];
+    while (this.casterFrusta.length < lights.length) this.casterFrusta.push(new THREE.Frustum());
+    this.casterFrusta.length = lights.length;
+    for (let i = 0; i < lights.length; i++) {
+      const camera = lights[i].shadow!.camera;
+      this.casterMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+      this.casterFrusta[i].setFromProjectionMatrix(this.casterMatrix, camera.coordinateSystem, camera.reversedDepth);
+    }
+    return { toSun: this.sunDir, frusta: this.casterFrusta };
+  }
+  private casterFrusta: THREE.Frustum[] = [];
+  private casterMatrix = new THREE.Matrix4();
 
   /** CSM itself snaps each cascade's light-space centre to shadow texels. */
   follow(focus: THREE.Vector3) {

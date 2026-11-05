@@ -250,6 +250,8 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
 } };
 let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
+// Tree shadow casters are selected against the sun's cascade volumes, not the view.
+if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
@@ -438,6 +440,7 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
     const models = vegetation.loadedModels();
     vegetation.dispose();
     const next = new Renderer(params.quality, natureLibrary, scene);
+    next.casters = () => env.casterVolumes();
     vegetation = next;
     window.__game!.vegetation = next;
     for (const model of models) await next.addAsync(model);
@@ -819,14 +822,16 @@ async function runPlay() {
     if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
     coarse.update(requested.x, requested.z, undefined, undefined, false);
     streamer.update(requested.x, requested.z);
-    const progress = coarse.progressAt(requested.x, requested.z);
-    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });
+    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
     loadingScreen.update(false, coarse.status);
     if (streamer.supports(requested.x, requested.z)) {
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
       placed = await findInitialGround(requested, coarse.roadGraphs(),
         (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius));
+        (x, z, radius) => streamer.supports(x, z, radius),
+        // Open ground once the start's collision is complete: no street near the spawn may support a car.
+        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }

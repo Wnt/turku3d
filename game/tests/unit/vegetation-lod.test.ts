@@ -7,6 +7,7 @@ import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
 import { batchTileShadows } from '../../src/world/shadowBatch';
 import { natureFixture } from './natureFixture';
+import { QUALITY } from '../../src/render/quality';
 // @ts-expect-error Internal r186 upload manager has no declaration; exercise the renderer's actual upload policy.
 import Attributes from 'three/src/renderers/common/Attributes.js';
 import { AttributeType } from 'three/src/renderers/common/Constants.js';
@@ -136,7 +137,8 @@ describe('vegetation LOD', () => {
     expect(batches.filter(b => b.castShadow).every(b => b.userData.shadowProxy && b.layers.mask === 2)).toBe(true);
     // Parts of one LOD share one matrix and one tint buffer.
     for (const b of batches) {
-      const sibling = batches.find(o => o !== b && o.userData.nature === b.userData.nature && o.userData.level === b.userData.level && o.parent === b.parent);
+      const sibling = batches.find(o => o !== b && o.userData.nature === b.userData.nature && o.userData.level === b.userData.level
+        && o.userData.shadowProxy === b.userData.shadowProxy && o.parent === b.parent);
       if (sibling) { expect(sibling.instanceMatrix).toBe(b.instanceMatrix); expect(sibling.instanceColor).toBe(b.instanceColor); }
     }
     const versions = batches.map(m => m.instanceMatrix.version);
@@ -157,8 +159,11 @@ describe('vegetation LOD', () => {
       const lod = new VegetationLod(tier, library); lod.add(model); settle(lod, camera);
       const near = generated(model, mesh).filter(b => b.visible && b.userData.level === 0 && base(b) === library.materials.leaves);
       const count = near.filter(b => !b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
-      // Every near tree also casts its shadow through the proxy.
-      expect(near.filter(b => b.userData.shadowProxy).reduce((n, b) => n + b.count, 0)).toBe(count);
+      // Every near tree also casts its shadow through the proxy; casters keep the full near band while the budget
+      // pulls the drawn boundary in (a shadow must not follow it).
+      const casters = near.filter(b => b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
+      expect(casters).toBeGreaterThanOrEqual(count);
+      expect(casters).toBe(Math.floor((QUALITY[tier].vegetation.near - 5) * 10) + 1);
       lod.remove(model);
       return count;
     };
@@ -675,4 +680,61 @@ it('stretches a tree footprint to its lidar ellipse, preserving the area, before
   // The lean is applied after the ellipse: the crown offset per metre of height is the measured shear.
   const both = shapeTree(new THREE.Matrix4(), [10, 4, 0.05, 0, 1.25, 0]).elements;
   expect(both[4]).toBeCloseTo(0.05, 6);
+});
+
+describe('tree shadow casters', () => {
+  // A row of trees beside the road, from 40 m behind the camera to 40 m ahead; the camera looks down -z.
+  const row = () => tile(81, 'tree_detailed_fall', i => new THREE.Vector3(8, 0, 40 - i));
+  const casting = (model: THREE.Object3D, mesh: THREE.Object3D) => generated(model, mesh)
+    .filter(b => b.visible && b.userData.shadowProxy && base(b) === library.materials.leaves).reduce((n, b) => n + b.count, 0);
+  const cascade = (center: THREE.Vector3, half: number) => {
+    const camera = new THREE.OrthographicCamera(-half, half, half, -half, 0.5, 600);
+    camera.position.copy(center).add(new THREE.Vector3(0, 300, 0)); camera.lookAt(center); camera.updateMatrixWorld();
+    return new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  };
+
+  it('culls casters by the light frustum, not the view: trees behind the camera keep their shadows', () => {
+    // 36 trees 10 m to the side and 5-40 m behind a camera that looks down -z: none is in view, all are in the near band.
+    const { model, mesh } = tile(36, 'tree_detailed_fall', i => new THREE.Vector3(10, 0, 5 + i));
+    const scene = new THREE.Scene(); scene.add(model);
+    const camera = new THREE.PerspectiveCamera(40, 16 / 9, 0.1, 1000); camera.position.set(0, 1.7, -5); camera.updateMatrixWorld();
+    const lod = new VegetationLod('medium', library);
+    // A low sun beyond the trees (+z) throws their shadows forward, into the view.
+    const toSun = new THREE.Vector3(0, Math.sin(THREE.MathUtils.degToRad(12)), Math.cos(THREE.MathUtils.degToRad(12)));
+    // A cascade around the camera, wider than the view: the trees behind it are inside the light's volume.
+    let frusta = [cascade(new THREE.Vector3(0, 0, 0), 60)];
+    lod.casters = () => ({ toSun, frusta });
+    lod.add(model); lod.update(camera);
+    const drawn = generated(model, mesh).filter(b => b.visible && !b.userData.shadowProxy).reduce((n, b) => n + b.count, 0);
+    expect(drawn).toBe(0);
+    expect(casting(model, mesh)).toBe(36);
+    // Turning towards them changes what is drawn, not what casts.
+    camera.rotation.y = Math.PI; camera.updateMatrixWorld(); lod.update(camera);
+    expect(casting(model, mesh)).toBe(36);
+    // A light volume elsewhere (ahead of the camera only) drops them.
+    frusta = [cascade(new THREE.Vector3(0, 0, -150), 50)]; camera.position.x += 0.1; camera.updateMatrixWorld(); lod.update(camera);
+    expect(casting(model, mesh)).toBe(0);
+    // At noon their shadows lie under them, out of view: nothing to draw into the map.
+    frusta = [cascade(new THREE.Vector3(0, 0, 0), 60)]; toSun.set(0, 1, 0);
+    camera.rotation.y = 0; camera.position.x -= 0.1; camera.updateMatrixWorld(); lod.update(camera);
+    expect(casting(model, mesh)).toBe(0);
+    lod.remove(model);
+  });
+
+  it('keeps a tree casting while its long low-sun shadow reaches the camera', () => {
+    // Trees 55-65 m behind, beyond the 50 m near band; a low sun beyond them throws their shadows past the camera.
+    const { model, mesh } = tile(5, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, 55 + i * 2.5));
+    const scene = new THREE.Scene(); scene.add(model);
+    const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000); camera.updateMatrixWorld();
+    const lod = new VegetationLod('medium', library);
+    const toSun = new THREE.Vector3(0, 1, 0);
+    lod.casters = () => ({ toSun, frusta: [] });
+    lod.add(model); lod.update(camera);
+    expect(casting(model, mesh)).toBe(0); // noon: short shadows stay far behind
+    // The sun low beyond the trees (+z): their shadows run about 4.7 times their height towards the camera.
+    toSun.set(0, Math.sin(THREE.MathUtils.degToRad(12)), Math.cos(THREE.MathUtils.degToRad(12)));
+    camera.position.x += 0.1; camera.updateMatrixWorld(); lod.update(camera);
+    expect(casting(model, mesh)).toBe(5);
+    lod.remove(model);
+  });
 });
