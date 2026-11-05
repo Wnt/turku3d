@@ -646,6 +646,47 @@ def approach_branches(way):
     return shapely.union_all(branches)
 
 
+def branch_profiles(way, main_height, sample_ground):
+    """(line, stations, heights, half width) of each deck member that leaves the main axis (a link):
+    the deck's height where it leaves, then a vertical curve to the ground at its far end."""
+    from .bridge_join import vertical_curve
+
+    axis, out = way["line"], []
+    core = axis.buffer(way["width"] / 2)
+    for member in way.get("member_ways", []):
+        line = member["line"]
+        along = shapely.line_locate_point(axis, shapely.points(np.asarray(line.coords)))
+        if np.abs(np.diff(along)).sum() >= line.length * 0.85:
+            continue
+        if core.distance(shapely.Point(line.coords[0])) > core.distance(shapely.Point(line.coords[-1])):
+            line = shapely.LineString(list(line.coords)[::-1])  # run from the deck outward
+        stations = np.unique(np.r_[np.arange(0, line.length, 2.0), line.length])
+        points = shapely.line_interpolate_point(line, stations)
+        on_deck = shapely.intersects(core, points)
+        leave = float(stations[np.flatnonzero(on_deck)[-1]]) if on_deck.any() else 0.0
+        top = float(main_height(np.asarray(line.interpolate(leave).coords))[0])
+        end = np.asarray(line.coords[-1])[None]
+        bottom = float(sample_ground(end)[0]) + 0.02
+        heights = np.where(stations <= leave, top, vertical_curve(stations - leave, line.length - leave,
+                                                                    top, bottom, 0.0, 0.0))
+        out.append((line, stations, heights, member["width"] / 2 + 1))
+    return out
+
+
+def branch_height(profiles, xz, fallback):
+    """Height of the nearest branch profile over each point, else ``fallback``."""
+    result = np.asarray(fallback, dtype=np.float64).copy()
+    best = np.full(len(result), np.inf)
+    points = shapely.points(xz)
+    for line, stations, heights, half in profiles:
+        distance = shapely.distance(line, points)
+        use = (distance <= half) & (distance < best)
+        if use.any():
+            result[use] = np.interp(shapely.line_locate_point(line, points[use]), stations, heights)
+            best[use] = distance[use]
+    return result
+
+
 def produce(tile, grid_pos, inputs):
     """Build separate decks; only the landward ramps alter the ground grid."""
     ways = inputs.roads.get("bridge_ways", []) if inputs.roads else []
@@ -817,14 +858,24 @@ def produce(tile, grid_pos, inputs):
 
         ramps = approach_branches(way)
 
-        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps):
+        def main_height(xz, line=line, ss=ss, hh=hh):
+            return np.interp(shapely.line_locate_point(line, shapely.points(xz)), ss, hh)
+
+        profiles = branch_profiles(way, main_height, sample_ground)
+
+        def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps,
+                      profiles=profiles):
             points = shapely.points(xz)
             base = np.interp(shapely.line_locate_point(line, points), ss, hh)
-            # Outline branches are mapped approach ramps. Join the deck to measured ground
-            # across the branch instead of extending the main span's elevation to its tip.
-            blend = np.clip((shapely.distance(axis, points) - width / 2) / 10, 0, 1)
+            # Outline branches are mapped approach ramps: each follows its own way's profile
+            # from the deck to the ground at its end (``branch_profiles``), not a blend by
+            # distance from the main axis, which sloped the deck sideways under its lanes.
+            blend = np.clip((shapely.distance(axis, points) - width / 2) / 2, 0, 1)
             blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
-            return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend
+            if not blend.any():
+                return base
+            branch = branch_height(profiles, xz, sample_ground(xz) + 0.02)
+            return base * (1 - blend) + branch * blend
 
         meshes = slab(
             key + ":deck", footprint_poly, line, ss, hh, material, height_at, spec["thickness"]
@@ -955,10 +1006,15 @@ def road_heights(roads, decks):
         line = shapely.LineString(coords)
         # A crossing lower way must never inherit the bridge height.
         matching = []
+        way_id = (str(graph["edgeAttrs"][edge_index][graph["edgeAttrColumns"].index("way")])
+                  if "way" in graph.get("edgeAttrColumns", []) else None)
         for d in decks:
             corridor = d.way.get("outline", d.line.buffer(d.way["width"] / 2)).buffer(0.3)
             projected = shapely.line_locate_point(d.line, shapely.points(coords))
-            if (
+            members = {str(m["id"]) for m in d.way.get("member_ways", [d.way])}
+            # A deck's own member (a link leaving the main axis) takes the deck's surface too.
+            member = way_id in members and line.intersection(corridor).length > line.length * 0.5
+            if member or (
                 line.intersection(corridor).length > line.length * 0.9
                 and np.abs(np.diff(projected)).sum() > line.length * 0.85
             ):
