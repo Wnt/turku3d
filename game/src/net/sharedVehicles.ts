@@ -23,7 +23,8 @@ export function vehiclePose(state: VehicleState, model: string, now: number): Ne
 export function vehicleFingerprint(p: NetPose): string {
   return JSON.stringify([p.lights, p.horn]) + JSON.stringify([p.E, p.N, p.H, p.vE, p.vN, p.vH].map(v => Math.round(v * 100)))
     + JSON.stringify(p.rot && [p.rot.x, p.rot.y, p.rot.z, p.rot.w].map(v => Math.round(v * 1000)))
-    + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))));
+    + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))))
+    + (p.drv ? JSON.stringify(p.drv) : '');
 }
 
 export const SEAT_CONFLICT_GRACE_MS = 3000;

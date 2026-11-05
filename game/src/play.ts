@@ -66,6 +66,8 @@ import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type 
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT, VEHICLES, type VehicleKind } from './physics/constants';
+import { RearSteerControl } from './vehicle/rearSteerControl';
+import { RearSteerTag } from './ui/rearSteerTag';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -117,6 +119,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   root.name = 'play-session';
   scene.add(root);
   const vehicleSignals = new VehicleSignals();
+  const rearControl = new RearSteerControl();
+  const rearTag = new RearSteerTag(document.body, VEHICLES.truck.rearSteer?.maxAngle ?? 1);
   const vehicleBeams = new VehicleBeams(root, physics);
   const tyreEffects = new TyreEffects(root, params.quality);
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
@@ -272,6 +276,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     fly?.set(false);
     drivenId = id;
     vehicleSignals.enter();
+    rearControl.sync(physics.latest?.vehicles.find(v => v.id === id)?.rearMode);
     if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
     if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId, manifest.vehicles?.find(v => v.object_id === id));
@@ -680,6 +685,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
+    // A 4WS vehicle (the trophy truck): the held rear mode and the MANUAL rocker; the autopilot drives in AUTO.
+    const fourWheelSteer = mode === 'car' && !!VEHICLES[vs?.kind ?? 'car'].rearSteer;
+    if (carIn && fourWheelSteer) {
+      const rear = rearControl.update(dt, menuOpen || paused ? 0 : input.actions.rearMode, input.actions.rearRocker);
+      carIn.rearMode = autopilot.active ? 'auto' : rear.rearMode;
+      carIn.rearSteer = autopilot.active ? 0 : rear.rearSteer;
+    }
+    rearTag.update(fourWheelSteer && !startScreen.active ? vs : null);
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
@@ -821,7 +834,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
       : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
-      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
+      chase.update(dt, chaseVehicle, fourWheelSteer && rearControl.rocking ? 0 : input.lookX, input.lookY, resetCamera || snapChase);
       snapChase = false;
     }
     else if (mode === 'foot') orbit.update(dt, focus);

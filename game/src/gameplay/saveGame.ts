@@ -28,9 +28,9 @@ export function yawOf(rot: Quat) {
 
 /** Sideways distance from the chassis centre to where the player stands after leaving: beside a scooter, outside the
  *  car's door, outside the truck's outboard tyres. */
-const EXIT_OFFSET: Record<VehicleKind, number> = { scooter: 0.9, car: 1.9, truck: 2.1 };
+const EXIT_OFFSET: Record<VehicleKind, number> = { scooter: 0.9, car: 1.9, truck: 1.75 };
 /** Height above the ground at which a parked vehicle is spawned or reset, so it settles onto its wheels. */
-export const SPAWN_HEIGHT: Record<VehicleKind, number> = { scooter: 0.55, car: 0.75, truck: 1.25 };
+export const SPAWN_HEIGHT: Record<VehicleKind, number> = { scooter: 0.55, car: 0.75, truck: 1.0 };
 
 /** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
 export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 {

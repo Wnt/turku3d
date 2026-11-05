@@ -10,6 +10,8 @@ export interface NetPose {
   lights?: 0 | 1 | 2; horn?: boolean;
   vehicleId?: string;
   rot?: Quat; wheels?: WheelState[];
+  /** A driven 4WS truck's throttle, rpm, gear and rear mode (net/drv.ts); absent otherwise. */
+  drv?: import('./drv').Drv;
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
@@ -46,7 +48,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   if (!previous) return true;
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
-  const articulated = JSON.stringify([pose.rot, pose.wheels]) !== JSON.stringify([previous.rot, previous.wheels]);
+  const articulated = JSON.stringify([pose.rot, pose.wheels, pose.drv]) !== JSON.stringify([previous.rot, previous.wheels, previous.drv]);
   const changed = pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;

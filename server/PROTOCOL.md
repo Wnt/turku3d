@@ -87,7 +87,11 @@ Vehicle poses may include `rot:{x,y,z,w}`, a unit chassis quaternion in engine
 axes, and `wheels:[{pos:{x,y,z},steer,rotation,contact,suspension}]` (up to four).
 Wheel positions are chassis-local metres; steering and unwrapped wheel rotation
 are radians. The server validates these fields, strips unknown nested fields and rounds motion values to 0.001 before relaying them. Missing
-rotation falls back to legacy yaw. Receivers slerp the chassis along the shortest
+rotation falls back to legacy yaw. A driven four-wheel-steer truck adds
+`drv:[throttlePct, rpm10, gear, rearMode]`: integers 0..100 (throttle percent),
+0..800 (rpm / 10), -1..3 (gear, -1 reverse) and 0..3 (rear-steer mode AUTO, CRAB,
+MANUAL, LOCK). A pose with a malformed `drv` is rejected; a pose without it stays
+valid. Rear wheels 2 and 3 carry the rear-steer angle in their `steer`. Receivers slerp the chassis along the shortest
 arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
 starter car, scooter and truck roots already use the chassis frame.

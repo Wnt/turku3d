@@ -86,9 +86,9 @@ export interface AutopilotWorld {
 
 export function vehicleGeometry(kind: VehicleKind = 'car'): VehicleGeometry {
   const t = VEHICLES[kind];
-  const steered = t.steered.map(i => t.wheels[i].x), rest = t.wheels.filter((_, i) => !t.steered.includes(i)).map(w => w.x);
-  const front = steered.reduce((a, b) => a + b, 0) / steered.length, rear = Math.min(...rest);
-  return { wheelbase: front - rear, rearOffset: -rear, maxSteer: t.maxSteer, steerHalfSpeed: t.steerHalfSpeed };
+  const axle = t.front.map(i => t.wheels[i].x), rest = t.wheels.filter((_, i) => !t.front.includes(i)).map(w => w.x);
+  const front = axle.reduce((a, b) => a + b, 0) / axle.length, rear = Math.min(...rest);
+  return { wheelbase: front - rear, rearOffset: -rear, maxSteer: t.maxSteer, steerHalfSpeed: t.steerHalfSpeed, rearSteer: t.rearSteer };
 }
 
 /** Chassis pose from a vehicle snapshot: forward is chassis +X rotated by the body quaternion. */
