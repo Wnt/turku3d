@@ -28,15 +28,13 @@ step('playing');
 const taken = await page.evaluate(async () => {
   const g = window.__game;
   for (let k = 0; k < 120; k++) {
-    const [x, y, z] = g.state().feet, near = g.traffic.nearest({ x, y, z });
-    if (near) {
-      // Stand next to it: entering needs the player within reach.
-      const id = await g.traffic.enter(near.handle);
-      if (id) { g.enterVehicle(id); return { id, distance: near.distance }; }
+    // The nearest moving traffic car (claiming needs no reach; the interact key adds a 4 m one).
+    const [x, , z] = g.state().feet, cars = g.traffic.debugCars().cars
+      .map(c => ({ ...c, d: Math.hypot(c.x - x, c.z - z), v: Math.hypot(c.vx, c.vz) })).filter(c => c.v > 3).sort((a, b) => a.d - b.d);
+    if (cars.length) {
+      const id = await g.traffic.enter(cars[0].handle);
+      if (id) { g.enterVehicle(id); return { id, distance: +cars[0].d.toFixed(1), speed: +cars[0].v.toFixed(1) }; }
     }
-    // No car near the start: move the character onto the nearest drawn car's lane.
-    const cars = g.traffic.snapshot().moving_cars;
-    if (cars.length && k % 10 === 5) { const [cx, cz] = cars[0]; g.physics.setCharacterEnabled(true, { x: cx + 3, y: y + 1, z: cz + 3 }); }
     await new Promise(r => setTimeout(r, 500));
   }
   return null;
