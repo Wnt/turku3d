@@ -21,13 +21,15 @@ const { chromium } = await import(pathToFileURL(path.join(repo, 'game/node_modul
 const out = args.out ?? fail('--out DIR is required');
 const pass = args.pass ?? 'color';
 const base = args.base ?? 'https://city.lab.madekivi.fi/';
-const cfg = JSON.parse(fs.readFileSync(args.spots ?? path.join(HERE, 'spots.json'), 'utf8'));
+const spotsPath = args.spots ?? path.join(HERE, 'spots.json');
+const cfg = JSON.parse(fs.readFileSync(spotsPath, 'utf8'));
 const only = args.only ? new Set(args.only.split(',')) : null;
 const [W, H] = (args.size ?? '960x540').split('x').map(Number);
 const FRAMES = Number(args.frames ?? 60);
 const DRIVE_SPEED = Number(args.speed ?? 12); // m/s at a virtual 30 Hz step, independent of the real frame rate
 const E0 = 23459500, N0 = 6704500;
 fs.mkdirSync(out, { recursive: true });
+if (!fs.existsSync(path.join(out, 'spots.json'))) fs.copyFileSync(spotsPath, path.join(out, 'spots.json'));
 const log = (...m) => { const line = `[${new Date().toISOString().slice(11, 19)}] ${m.join(' ')}`; console.error(line); fs.appendFileSync(path.join(out, `capture-${pass}.log`), line + '\n'); };
 function fail(msg) { console.error(msg); process.exit(2); }
 const touch = () => { if (!process.env.LEASE_NAME) return; try { execFileSync('python3', [`${process.env.HOME}/turku3d/tools/host-lease/lease.py`, 'touch', process.env.LEASE_NAME, process.env.LEASE_HOST ?? 'win'], { stdio: 'ignore' }); } catch (e) { if (e.status === 4) { log('lease lost'); process.exit(125); } } };
@@ -66,6 +68,42 @@ async function waitReady(limitMs = 150000) {
   }
 }
 const move = pose => page.evaluate(p => window.__qaMove(p), pose);
+
+// Settled = the QA contract (near tiles loaded and detailed, ground textures) AND the strict coverage the game
+// reports (coarse.viewStatus: every 3x3 tile on its full pass and not stale, every scenery cell in view loaded) AND
+// nothing changed for 3 consecutive 1 s polls (resident triangles, scenery pending, streamer status). Only settled
+// frames are judged; a pose that does not settle in `limitMs` is re-captured at the end of the run.
+async function waitSettled(limitMs = 180000) {
+  const t = Date.now(); let sig = null, same = 0, st = {};
+  for (;;) {
+    st = await page.evaluate(() => {
+      const g = window.__game, p = window.__qaPose;
+      if (!g?.coarse?.viewStatus || !p || typeof window.__qaMove !== 'function') return { boot: false };
+      const vs = g.coarse.viewStatus(p.E - 23459500, -(p.N - 6704500));
+      return { boot: true, qa: !!window.__qaReady, err: window.__qaError ?? null, view: vs.ready, notFull: vs.near.filter(e => !e.ready).map(e => e.id),
+        scenery: { ready: vs.scenery.ready, pending: vs.scenery.pending, errors: vs.scenery.errors, loaded: vs.scenery.loaded, total: vs.scenery.total },
+        status: g.coarse.status, tris: g.tiles?.residentTris ?? null };
+    }).catch(e => ({ boot: false, e: String(e).slice(0, 200) }));
+    if (st.boot) {
+      const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris]);
+      same = k === sig ? same + 1 : 0; sig = k;
+      if ((st.qa || st.err) && st.view && same >= 2) return { settled: true, ms: Date.now() - t, qaErr: st.err ? String(st.err).slice(0, 120) : null };
+    }
+    if (Date.now() - t > limitMs) return { settled: false, ms: Date.now() - t, ...st, err: st.err ? String(st.err).slice(0, 300) : null };
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Every collision cell the page decodes, with all its triangles (the ground index keeps only walkable faces), so
+// gaps in the ground grid can be ray-cast against exactly what the physics worker collides with.
+async function hookCollision() {
+  return page.evaluate(() => {
+    const g = window.__game?.population?.ground; if (!g || g.__patrol) return !!g?.__patrol;
+    const keep = window.__patrolCol = new Map(); const add = g.add.bind(g);
+    g.add = col => { keep.set(col.id, { origin: col.origin, positions: col.positions, indices: col.indices, materials: col.materials }); return add(col); };
+    g.__patrol = true; return true;
+  });
+}
 
 // One still: wait `settle` rendered frames, then read the canvas back as PNG.
 async function still(file, settle = 12, hidePopulation = false) {
@@ -132,7 +170,26 @@ async function groundGrid(E, N, top, half = 40, step = 2) {
     const g = window.__game?.population?.ground; if (!g) return null;
     const rows = [];
     for (let dz = -half; dz <= half + 1e-9; dz += step) { const row = []; for (let dx = -half; dx <= half + 1e-9; dx += step) { const y = g.ground(x0 + dx, top, z0 + dz, 40); row.push(y === null ? null : +y.toFixed(2)); } rows.push(row); }
-    return { half, step, top, rows };
+    // Ray-cast every null point (and its 4 half-step neighbours) against all decoded triangles of its cell.
+    const cells = window.__patrolCol, probes = [];
+    const hit = (x, z) => {
+      const id = `c_${Math.floor(x / 62.5)}_${Math.floor(z / 62.5)}`, c = cells?.get(id);
+      if (!c) return { cell: id, known: false };
+      const p = c.positions, idx = c.indices, [ox, oy, oz] = c.origin, hits = [];
+      for (let t = 0; t < idx.length / 3; t++) {
+        const a = 3 * idx[3 * t], b = 3 * idx[3 * t + 1], d = 3 * idx[3 * t + 2];
+        const ax = p[a] + ox, az = p[a + 2] + oz, bx = p[b] + ox, bz = p[b + 2] + oz, cx = p[d] + ox, cz = p[d + 2] + oz;
+        const den = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz); if (Math.abs(den) < 1e-12) continue;
+        const u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / den, v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / den, w = 1 - u - v;
+        if (u < -1e-6 || v < -1e-6 || w < -1e-6) continue;
+        hits.push([+(u * (p[a + 1] + oy) + v * (p[b + 1] + oy) + w * (p[d + 1] + oy)).toFixed(2), c.materials[t]]);
+      }
+      return { cell: id, known: true, hits };
+    };
+    rows.forEach((row, j) => row.forEach((y, i) => { if (y !== null) return;
+      const x = x0 - half + i * step, z = z0 - half + j * step;
+      probes.push({ i, j, x: +x.toFixed(2), z: +z.toFixed(2), at: [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]].map(([dx, dz]) => hit(x + dx, z + dz)) }); }));
+    return { half, step, top, rows, probes };
   }, [E - E0, -(N - N0), top, half, step]);
 }
 
@@ -146,15 +203,17 @@ async function groundAt(E, N, top = 80, depth = 120) {
   return null;
 }
 
+for (let i = 0; i < 240 && !(await hookCollision().catch(() => false)); i++) await new Promise(r => setTimeout(r, 500));
 const ready0 = await waitReady(240000);
 log('first ready', JSON.stringify(ready0), `${Date.now() - t0} ms`);
 const info = await page.evaluate(() => ({ qaInfo: window.__qaInfo, adapter: window.__game?.backend, build: document.querySelector('meta[name=turku3d-build]')?.content, ua: navigator.userAgent, canvas: [document.querySelector('canvas')?.width, document.querySelector('canvas')?.height] })).catch(e => ({ err: String(e) }));
 fs.writeFileSync(path.join(out, `info-${pass}.json`), JSON.stringify({ url, info, ready0, started: new Date(t0).toISOString() }, null, 1));
 
-for (const s of spots) {
+async function captureSpot(s, attempt = 1) {
   touch();
-  const ts = Date.now(); const rec = pass === 'id' ? poses[s.id] : { id: s.id, views: [], ready: [] };
-  if (!rec) { log(s.id, 'no colour pose, skipped'); continue; }
+  const ts = Date.now(); const rec = pass === 'id' ? poses[s.id] : { id: s.id, views: [], ready: [], attempt, earlier: poses[s.id]?.attempt ? [poses[s.id].ready] : undefined };
+  if (!rec) { log(s.id, 'no colour pose, skipped'); return; }
+  if (pass === 'id') rec.unsettled = false;
   try {
     let views = rec.views;
     if (pass === 'color') {
@@ -163,10 +222,10 @@ for (const s of spots) {
       else {
         E = s.E; N = s.N; heading = s.heading;
         await move({ E, N, H: (s.top ?? 30) + 20, yaw: heading, pitch: -30, fov });
-        const r0 = await waitReady(); rec.ready.push(r0); if (r0.err) rec.unsettled = true;
+        const r0 = await waitSettled(120000); rec.ready.push({ view: 'ground', ...r0 });
         const gy = await groundAt(E, N, s.top ?? 80);
         rec.ground = gy;
-        Hs = gy === null ? 6 : gy + 1.7;
+        Hs = gy === null ? 6 : gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
       }
       views = [0, 120, 240].map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
       views.push({ view: 'raised', E, N, H: Hs + 25, yaw: heading, pitch: -22, fov, street: false });
@@ -178,16 +237,16 @@ for (const s of spots) {
       await move({ E: v.E, N: v.N, H: v.H, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
       // A spot that did not settle once (e.g. its tile never gets detailed) is a finding already: later views
       // there wait 25 s instead of the 120 s QA timeout.
-      const r = await waitReady(rec.unsettled ? 25000 : 150000); (rec.ready ??= []).push({ view: v.view, ...r });
-      if (r.err) rec.unsettled = true;
+      const r = await waitSettled(rec.unsettled ? 30000 : Number(args.settle ?? 180000)); (rec.ready ??= []).push({ view: v.view, ...r });
+      v.settled = r.settled; if (!r.settled) rec.unsettled = true;
       await still(path.join(out, `${s.id}-${v.view}-${pass}.png`));
       if (pass === 'color' && v.street) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
     }
     if (pass === 'color') {
       const v = views[0];
       await move({ E: v.E, N: v.N, H: v.H, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
-      await waitReady();
-      rec.sequence = await sequence(path.join(out, `${s.id}-seq`), FRAMES);
+      const rs = await waitSettled(rec.unsettled ? 30000 : 120000);
+      rec.sequence = await sequence(path.join(out, `${s.id}-seq`), FRAMES); rec.sequence.settled = rs.settled;
     } else {
       rec.idTable = `${s.id}-idtable.json`;
       fs.writeFileSync(path.join(out, rec.idTable), JSON.stringify(await page.evaluate(() => window.__qaIdTable ?? {})));
@@ -198,6 +257,11 @@ for (const s of spots) {
   poses[s.id] = rec;
   if (pass === 'color') fs.writeFileSync(posesFile, JSON.stringify(poses, null, 1));
 }
+for (const s of spots) await captureSpot(s);
+// Re-capture what did not settle, after the rest of the run gave its tiles time to build.
+const retry = spots.filter(s => poses[s.id]?.unsettled);
+if (retry.length) log('re-capturing unsettled', retry.map(s => s.id).join(','));
+for (const s of retry) await captureSpot(s, 2);
 if (pass === 'id') fs.writeFileSync(path.join(out, 'poses-id.json'), JSON.stringify(poses, null, 1));
 
 // Drives: the camera follows the street at eye height 1.5 m, one fixed step per rendered frame. Per frame: a 24x14
@@ -210,10 +274,10 @@ for (const d of drives) {
     const pts = d.path_xz; const p0 = pts[0], p1 = pts[1];
     const h0 = (Math.atan2(p1[0] - p0[0], -(p1[1] - p0[1])) * 180 / Math.PI + 360) % 360;
     await move({ E: p0[0] + E0, N: N0 - p0[1], H: 40, yaw: h0, pitch: -10, fov: 60 });
-    await waitReady();
+    await waitSettled(120000);
     const g0 = await groundAt(p0[0] + E0, N0 - p0[1], 40);
     await move({ E: p0[0] + E0, N: N0 - p0[1], H: (g0 ?? 4) + 1.5, yaw: h0, pitch: -2, fov: 60 });
-    const r0 = await waitReady();
+    const r0 = await waitSettled(150000);
     const res = await page.evaluate(async ({ pts, speed, E0, N0, g0 }) => {
       const seg = []; let total = 0;
       for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(l); total += l; }
