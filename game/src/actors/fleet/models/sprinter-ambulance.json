@@ -77,7 +77,7 @@
     "torqueNm": 300,
     "drivetrain": "RWD",
     "fuel": "diesel",
-    "zeroTo100S": 20,
+    "zeroTo100S": 30,
     "topSpeedKmh": 145,
     "turningCircleM": 13.6,
     "gears": 5,
