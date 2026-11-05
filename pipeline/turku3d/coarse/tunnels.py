@@ -22,6 +22,9 @@ from .portals import grounded_wall
 from .tunnel_ground import ground_cuts, ground_sampler
 
 
+CROSSFALL_MAX = 0.35  # m a portal floor edge may follow the approach sideways
+
+
 def dimensions(tags):
     """Clear box dimensions in metres, with conservative road/path defaults."""
     path = tags.get("highway") in {"footway", "path", "cycleway", "pedestrian", "steps"}
@@ -489,7 +492,9 @@ def produce(
                 road_height = np.array([surface_sample(x, z) for x, z in centre])
                 # Banks and overburden beside the road are not portal floor. Retain
                 # ordinary crossfall, but never pull a floor up the enclosing hillside.
-                crossfall = 0.1 * np.linalg.norm(query[near] - centre, axis=1)
+                # Ordinary crossfall only: 10 % of the offset, at most CROSSFALL_MAX, so the
+                # corner of a wide merged mouth does not climb a bank as a 1-2 m sill.
+                crossfall = np.minimum(0.1 * np.linalg.norm(query[near] - centre, axis=1), CROSSFALL_MAX)
                 endpoint = np.where(ds[near] < line.length / 2, 0, 1)
                 crossfall = np.where(repaired[endpoint], np.minimum(crossfall, 0.1), crossfall)
                 correction = portal_offsets[endpoint] + np.clip(

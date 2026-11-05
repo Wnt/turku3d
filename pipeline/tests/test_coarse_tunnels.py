@@ -413,3 +413,19 @@ def test_tunnel_cuts_building_around_complete_lining_before_facade_paint():
     lining = shapely.box(10, 7.6, 30, 12.4)
     assert sum(p.intersection(lining).area for p in ground_parts) < 1e-8
     assert any(b.base > 2 for b, _ in result.shells)
+
+
+def test_a_wide_mouth_corner_does_not_climb_the_bank_beside_it():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [60, 2, 0], [0, 2, 60], [60, 2, 60]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(10, 30), (40, 30)])
+
+    def surface(x, z):  # the road at 2 m, a bank rising beside it towards one corner
+        return 2.0 + max(0.0, z - 33.0) * 1.5
+
+    result = produce(tile, [("wide", line, {"highway": "service", "tunnel": "yes", "width": "30"})],
+                     pos, idx, [], extrude, lambda x, z: 2, surface)
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    mouth = floor.positions[np.isclose(floor.positions[:, 0], 10)]
+    assert len(mouth) and mouth[:, 1].max() <= 2.0 + 0.35 + 1e-6
