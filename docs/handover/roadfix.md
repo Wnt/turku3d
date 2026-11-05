@@ -170,3 +170,17 @@ maps `~/turku3d/loops/roadfix/maps/`.
    underpass vault's stretched texture and a flat-disc water exit (E 23459792 N 6704290); Myllyahde road tunnel one
    flat untextured colour (E 23459205 N 6703754). These are bridge and tunnel materials (`bridge_materials.py`,
    `tunnels.Tunnels.visuals`), a separate slice.
+
+## 2026-11-05 Kupittaa link levels (merged 5a6814e0)
+
+- The outline beside (LINK_SIDE 3 m) and past the end (LINK_RUNOUT 12 m) of a descending link now rides on
+  the link's level; the main carriageways (branch core) always stay on the main level. Before, outline left
+  at the main deck's height stood as a steep wall where the link meets the ground road.
+- The link level is triangulated in 2 m strips across the link; one big polygon gave chords up to 0.5 m off
+  the descent (a 16° face at s 108).
+- Lanes, surfaces, rails and furniture use `levels_height` over the slab's levels.
+- Sweep t0_6_-2 (build f): w631256465 drives through the structure window (s 74–180); its stuck moved from
+  s 123 on the deck to s 209 at tunnel 975600807+99471822+… portal (1609.7, −310.7), whose floor face rises at
+  38°. That tunnel portal is a separate open fault. Hämeensilta: 0 regressions.
+- Open: Kalevan 449346f1 stall at the south joint s 157.6 (1800.3, −55.9): impact in base too, cause not found;
+  a 0.29 m sidewalk-over-road step at s 91–93 on the Kupittaa link junction.
