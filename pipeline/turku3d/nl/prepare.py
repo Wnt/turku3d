@@ -31,20 +31,26 @@ def main(argv=None) -> int:
     ap.add_argument("centre")
     ap.add_argument("--rings", type=int, default=3)
     ap.add_argument("--seam-ring", type=int, default=1)
+    ap.add_argument("--shard", default="0/1", help="K/N: this process prepares every N-th block from K (run N in parallel)")
     a = ap.parse_args(argv)
     centre = C.VisualTile.parse(a.centre)
     log = lambda *x: print(*x, file=sys.stderr, flush=True)  # noqa: E731
     tiles = [t for r in range(a.rings + 1) for t in ring(centre, r)]
     seams = [t for r in range(a.rings + 1, a.rings + 1 + a.seam_ring) for t in ring(centre, r)]
+    k, n = map(int, a.shard.split("/"))
     done, started = set(), time.monotonic()
     for tile in [*tiles, *seams]:
+        # Shards split by 500 m block (the unit grid); OSM squares are clipped by shard 0 only.
         sources = ImagerySources()
         if tile in seams:
             units = [Unit("lidar", b) for b in tile_blocks(tile) if not sources.lidar_present(b)]
         else:
             units = sources.missing_for_service(tile)
         for unit in units:
-            if unit.key in done:
+            if unit.key in done or (unit.dataset == "osm" and k != 0):
+                continue
+            b = unit.block
+            if (int(b.xmin // C.LAZ_TILE_SIZE) + int(b.ymax // C.LAZ_TILE_SIZE)) % n != k and unit.dataset != "osm":
                 continue
             log(f"prepare {tile.id}: {unit.key}")
             try:
