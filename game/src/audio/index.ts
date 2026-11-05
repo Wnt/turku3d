@@ -50,6 +50,8 @@ export class GameAudio {
   });
   private panel?: HTMLElement;
   private muteButton?: HTMLButtonElement;
+  /** The mute key and pad button names (setMuteHint), shown on the mute button. */
+  private muteHint = 'K';
   private summary?: HTMLElement;
   readonly volumes: Record<Channel, number> = { master: 0.65, footsteps: 0.8, vehicle: 0.8, ambience: 0.7, voice: 0.9, ui: 0.6 };
   muted = false;
@@ -140,7 +142,7 @@ export class GameAudio {
     if (this.disposed) return;
     if (event.type === 'mute') {
       this.muted = !this.muted; this.applyVolumes(); this.persist();
-      if (this.muteButton) this.muteButton.textContent = this.muted ? 'Unmute (K / D-pad down)' : 'Mute (K / D-pad down)';
+      this.labelMute();
       return;
     }
     if (event.type === 'volume') { this.volumes[event.channel] = clamp(event.value); this.applyVolumes(); this.persist(); return; }
@@ -328,6 +330,10 @@ export class GameAudio {
     }
   }
 
+  /** `hint`: the mute key and pad button ("K / ↓"), from the input's prompts. */
+  setMuteHint(hint: string) { this.muteHint = hint; this.labelMute(); }
+  private labelMute() { if (this.muteButton) this.muteButton.textContent = `${this.muted ? 'Unmute' : 'Mute'} (${this.muteHint})`; }
+
   mount(parent: HTMLElement) {
     this.panel?.remove();
     const panel = this.panel = document.createElement('details');
@@ -335,7 +341,7 @@ export class GameAudio {
     panel.style.cssText = 'position:fixed;right:12px;bottom:44px;color:white;background:#18212b;padding:8px;z-index:5;font:12px sans-serif';
     const summary = this.summary = document.createElement('summary');
     summary.textContent = 'Audio · click to enable'; summary.onclick = () => { void this.unlock(); }; panel.append(summary);
-    this.muteButton = document.createElement('button'); this.muteButton.textContent = this.muted ? 'Unmute (K / D-pad down)' : 'Mute (K / D-pad down)';
+    this.muteButton = document.createElement('button'); this.labelMute();
     this.muteButton.onclick = () => this.emit({ type: 'mute' }); panel.append(this.muteButton);
     for (const channel of CHANNELS) {
       const label = document.createElement('label'); label.style.display = 'block'; label.textContent = channel;

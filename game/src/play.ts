@@ -19,7 +19,7 @@ import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
 import { devToolsEnabled } from './core/localOnly';
 import { cycleHour } from './core/dayCycle';
-import { Input } from './input';
+import { Input, type Action } from './input';
 import { GameAudio } from './audio';
 import { showAudioPage } from './audio/menu';
 import { deadlineProgress, musicMuffle, musicScene } from './audio/music/playState';
@@ -138,6 +138,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const input = new Input(renderer.domElement, () => { void audio.unlock(); }, () => fullscreen.toggle(), () => {
     if (!startScreen.active) void positionHud.copy();
   });
+  // Panel buttons name both the key and the pad button, in the names of the pad seen last.
+  input.watchPrompts(() => {
+    const both = (action: Action) => `${input.prompt(action, 'keyboard')} / ${input.prompt(action, input.padFamily)}`;
+    audio.setMuteHint(both('mute'));
+    devLayers.setToggleHint(both('layerPanel'));
+  });
   const haptics = new Haptics(r => void input.rumble(r.duration, r.strong, r.weak));
   const audioGameplay = new GameplayAudio(event => {
     audio.emit(event);
@@ -171,7 +177,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // Developer object editor (localhost; dev/editor/README.md): visual previews and edit sessions, no simulation change.
   const editor = new ObjectEditor({ scene, camera, renderer, tiles, vegetation: world.vegetation, lights: world.lights, physics, coarse,
     signals: () => traffic.signals,
-    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.playstation, viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }),
+    device: () => ({ backend, gamepad: input.gamepadName, playstation: input.padFamily === 'playstation', viewport: [innerWidth, innerHeight], pixelRatio: devicePixelRatio }),
     // Editing is per player: each browser keeps its own session; in multiplayer the session names the player.
     player: () => { const you = multiplayerPlaying ? multiplayer?.state.you : null; return you ? { id: you.id, nick: you.nick } : null; } });
   Object.assign(window.__game!, { editor });
@@ -401,7 +407,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         // A late welcome can point outside the solo preload ring; let safe placement stream that area.
         if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id), undefined, roomStart), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
-        startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
+        startScreen.showNotice('Multiplayer unavailable. Reload to reconnect.');
       }).catch(fail);
     } });
   // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
@@ -414,7 +420,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
   sharedVehicles.drvOf = drivenDrv;
   const rounds = new RoundUI(client, pauseMenu, () => pauseMenu.show(saveGame.pausePage()),
-    () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying);
+    () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying, () => input.prompt('pause'));
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
     multiplayerProgress.clear(client.session);
     multiplayerRunId = crypto.randomUUID(); leaveCar(null); fly?.set(false); remotePlayers.dispose();
@@ -739,7 +745,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     rearTag.update(fourWheelSteer && !startScreen.active ? vs : null, input.source === 'touch' ? '' : input.prompt('sprint'), now);
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
-      position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
+      position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), button: input.prompt('mission'),
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
       rideAt: ride ? { x: ride.pos.x, y: ride.pos.y, z: ride.pos.z } : null,
     }) : { bought: null, opened: false, checkpoint: null, park: false, heist: null };

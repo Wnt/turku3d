@@ -1,7 +1,7 @@
 import { describe, expect, test, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, glyph, mapActions, radial, Input } from '../../src/input';
+import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, mapActions, promptLabel, radial, Input } from '../../src/input';
 const bindings = () => structuredClone(DEFAULT_BINDINGS);
 function pad(axes = [0, 0, 0, 0], buttons: Record<number, number> = {}): Gamepad {
   return { id: 'Xbox Wireless Controller', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes,
@@ -34,14 +34,14 @@ describe('action mapping', () => {
     expect(a.moveX).toBeCloseTo(Math.SQRT1_2); expect(a.moveY).toBeCloseTo(Math.SQRT1_2);
     expect(a.lookX).toBeGreaterThan(0); expect(a.lookY).toBeLessThan(0);
     for (const action of ['sprint', 'jump', 'interact', 'mission', 'handbrake', 'cameraReset', 'pause', 'mute', 'map'] as const) expect(a[action]).toBe(1);
-    expect(glyph('mission', bindings(), true)).toBe('Ⓐ'); expect(glyph('mission', bindings(), false)).toBe('E');
+    expect(promptLabel('mission', bindings(), 'xbox')).toBe('Ⓐ'); expect(promptLabel('mission', bindings(), 'keyboard')).toBe('E');
     expect(a.throttle).toBe(0.8); expect(a.brake).toBe(0.25); expect(a.steer).toBe(a.moveX);
   });
   test('B flips the car without activating another driving control', () => {
     const a = mapActions(pad([0, 0, 0, 0], { 1: 1 }), new Set(), bindings());
     expect(a.vehicleReset).toBe(1);
     for (const action of ['interact', 'mission', 'throttle', 'brake', 'steer', 'handbrake', 'cameraReset', 'pause', 'map', 'mute'] as const) expect(a[action]).toBe(0);
-    expect(glyph('vehicleReset', bindings(), true)).toBe('Ⓑ');
+    expect(promptLabel('vehicleReset', bindings(), 'xbox')).toBe('Ⓑ');
   });
   test('keyboard shares actions, normalizes diagonals, cancels opposites and ignores nonstandard pads', () => {
     const a = mapActions({ ...pad(), mapping: '' } as Gamepad, new Set(['KeyW', 'KeyD', 'ShiftLeft', 'Space', 'KeyF']), bindings());
@@ -54,7 +54,7 @@ describe('action mapping', () => {
     const restored = JSON.parse(JSON.stringify(b));
     expect(mapActions(pad([], { 1: 1 }), new Set(), restored).jump).toBe(1);
     expect(mapActions(null, new Set(['Space']), restored).jump).toBe(0);
-    expect(glyph('jump', restored, true)).toBe('Ⓑ'); expect(glyph('jump', restored, false)).toBe('J');
+    expect(promptLabel('jump', restored, 'xbox')).toBe('Ⓑ'); expect(promptLabel('jump', restored, 'keyboard')).toBe('J');
     expect(ACTIONS.every(a => a in restored)).toBe(true);
   });
 });

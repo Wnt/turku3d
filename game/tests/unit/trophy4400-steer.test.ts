@@ -9,7 +9,7 @@ import { corners, damping, droopLength, schedule, springForce, staticLength } fr
 import { decodeDrv, drvOf, encodeDrv, validDrv } from '../../src/net/drv';
 import { shouldSendPose, type NetPose } from '../../src/net/client';
 import { vehicleFingerprint } from '../../src/net/sharedVehicles';
-import { ACTIONS, DEFAULT_BINDINGS, glyph, mapActions, type Action } from '../../src/input/bindings';
+import { ACTIONS, DEFAULT_BINDINGS, mapActions, promptLabel, type Action } from '../../src/input/bindings';
 import { heaveFollow } from '../../src/vehicle/chaseCamera';
 import { HINT_CHANGE_MS, HINT_ENTER_MS, RearSteerHintTimer, rearSteerHint, rearSteerTag } from '../../src/ui/rearSteerTag';
 import type { VehicleState } from '../../src/physics/protocol';
@@ -291,9 +291,9 @@ describe('controls', () => {
     expect(DEFAULT_BINDINGS.sprint).toEqual([{ kind: 'button', index: 0 }, { kind: 'key', code: 'ShiftLeft', scale: 1 }, { kind: 'key', code: 'ShiftRight', scale: 1 }]);
     expect(ACTIONS as readonly string[]).not.toContain('rearMode');
     expect(ACTIONS as readonly string[]).not.toContain('rearRocker');
-    expect(glyph('sprint', DEFAULT_BINDINGS, true)).toBe('Ⓐ');
-    expect(glyph('sprint', DEFAULT_BINDINGS, true, true)).toBe('✕');
-    expect(glyph('sprint', DEFAULT_BINDINGS, false)).toBe('Shift');
+    expect(promptLabel('sprint', DEFAULT_BINDINGS, 'xbox')).toBe('Ⓐ');
+    expect(promptLabel('sprint', DEFAULT_BINDINGS, 'playstation')).toBe('✕');
+    expect(promptLabel('sprint', DEFAULT_BINDINGS, 'keyboard')).toBe('Shift');
     for (const code of ['ShiftLeft', 'ShiftRight']) expect(mapActions(null, new Set([code]), DEFAULT_BINDINGS).sprint).toBe(1);
     // No driving action shares A or Shift; only `mission` shares A, and play.ts gives a press at a mission target to it.
     const vehicle: Action[] = ['throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'interact', 'cameraReset', 'vehicleReset', 'map', 'pause', 'mute'];

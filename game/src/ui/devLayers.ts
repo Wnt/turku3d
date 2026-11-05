@@ -94,7 +94,7 @@ export class DevLayers {
       this.choices = saved.choices ?? {};
       if (['auto', 'first', 'full'].includes(saved.pass)) pass = saved.pass;
     } catch { /* Storage unavailable: session defaults. */ }
-    this.button.type = 'button'; this.button.textContent = 'Layers · F4 / LB';
+    this.button.type = 'button'; this.setToggleHint('F4');
     this.button.onclick = () => this.toggle();
     this.button.setAttribute('aria-expanded', 'false');
     this.panel.hidden = true;
@@ -193,6 +193,9 @@ export class DevLayers {
     return path;
   }
   get nameTagsVisible() { return this.allowed('People/Name Tags'); }
+  /** `hint`: the panel key and pad button ("F4 / L1"), from the input's prompts. */
+  setToggleHint(hint: string) { this.button.textContent = `Layers · ${hint}`; }
+
   toggle() {
     this.open = !this.open; this.panel.hidden = !this.open;
     this.button.setAttribute('aria-expanded', String(this.open));

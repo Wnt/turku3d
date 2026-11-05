@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
-import { lineText } from '../../src/gameplay/content/dialogue';
+import { lineText, promptText } from '../../src/gameplay/content/dialogue';
 import { PIZZERIA } from '../../src/gameplay/content/locations';
 import { LEGACY_MISSION_KEY, SAVES_KEY } from '../../src/core/save';
 import type { WorldPoint } from '../../src/gameplay/contract';
@@ -95,7 +95,7 @@ test('after the scripted four, orders come from the address pool without repeats
         await page.keyboard.press('KeyM');
       }
       await teleport(page, target.point);
-      await showsMessage(page, lineText('prompt_hand_over_key'));
+      await showsMessage(page, promptText('prompt_hand_over', 'E'));
       await shot(`0${order}-3-dropoff`);
       await page.keyboard.press('KeyE');
       await page.waitForFunction(() => (window.__game!.state as () => { missions: Missions })().missions.phase === 'delivered');

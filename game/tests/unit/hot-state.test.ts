@@ -19,7 +19,7 @@ class MemoryStore {
 function rented() {
   const missions = new MissionSystem({ router });
   missions.begin();
-  const frame = (extra: object) => ({ position: MARKET.point, interact: false, input: 'keyboard' as const, vehicleId: null, ...extra });
+  const frame = (extra: object) => ({ position: MARKET.point, interact: false, button: 'E', vehicleId: null, ...extra });
   missions.update(0, frame({ interact: true }));
   missions.update(0, frame({ choose: 'rent_permit' }));
   missions.update(0, frame({ leave: true }));

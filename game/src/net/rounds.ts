@@ -13,7 +13,9 @@ export class RoundUI {
   private timer: ReturnType<typeof setInterval>;
   constructor(private client: MultiplayerClient, private menu: PauseMenu,
     private back: () => void, private resume: () => void, private pause: () => void,
-    private playing: () => boolean) {
+    private playing: () => boolean,
+    /** Name of the pause button on the device in use (the vote opens from the pause menu). */
+    private pauseButton: () => string) {
     this.banner.id = 'round-banner'; this.banner.setAttribute('role', 'status');
     this.countdown.id = 'round-countdown'; this.countdown.setAttribute('role', 'status');
     this.countdown.hidden = true;
@@ -50,7 +52,7 @@ export class RoundUI {
     const state = this.client.state.rounds, p = state.proposal, active = state.active;
     const now = this.client.serverNow();
     this.banner.hidden = !this.client.state.connected || (!p && !active);
-    this.banner.textContent = p ? `${p.nick} wants a new round · ${p.votes.length}/${p.needed} agree · Esc / Menu to vote`
+    this.banner.textContent = p ? `${p.nick} wants a new round · ${p.votes.length}/${p.needed} agree · ${this.pauseButton()} to vote`
       : active ? `Round · ${roundTime(active.end, now)} remaining` : '';
     this.countdown.hidden = !this.blocking;
     this.countdown.textContent = this.blocking && active ? `New round\n${Math.max(1, Math.ceil((active.start - now) / 1000))}\nGet ready!` : '';

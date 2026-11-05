@@ -2,7 +2,7 @@
 // prices. Greyed options show why they are not available. It renders a MissionSystem ShopView and turns the menu
 // actions (D-pad / left stick, A, B; arrows or W/S, Enter or E, Escape; a tap or click on a row and the touch Back
 // button; the shared MenuList in menu.ts) into the mission frame's choose / leave.
-import type { Input, InputSource } from '../input';
+import type { Input } from '../input';
 import type { OptionId } from '../gameplay/content/shops';
 import type { ShopOptionView, ShopView } from '../gameplay/missions/missions';
 import { formatTimer } from '../gameplay/minimap';
@@ -29,7 +29,8 @@ export function optionDetail(option: ShopOptionView): string | null {
 export class ShopMenu {
   readonly element = document.createElement('section');
   private view: ShopView | null = null;
-  private source: InputSource | null = null;
+  /** input.promptRevision of the drawn hints: a device or pad change redraws them. */
+  private prompts = -1;
   private chosen: OptionId | null = null;
   private readonly list = new MenuList<ShopOptionView>('shop', option => { this.chosen = option.id; });
   private readonly line = document.createElement('p');
@@ -62,9 +63,9 @@ export class ShopMenu {
   /** Shows `view` (null hides the menu). Cheap when nothing changed. */
   render(view: ShopView | null, input: Input) {
     const reopened = view !== null && (this.view === null || this.view.id !== view.id);
-    if (view === this.view && input.source === this.source) return;
+    if (view === this.view && input.promptRevision === this.prompts) return;
     this.view = view;
-    this.source = input.source;
+    this.prompts = input.promptRevision;
     this.element.hidden = view === null;
     if (!view) return;
     this.element.dataset.shop = view.id;

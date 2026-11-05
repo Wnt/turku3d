@@ -26,7 +26,7 @@ export function harness(saved: string | null = null, onPaid?: (drop: PaidDropoff
   const states: MissionHudState[] = [];
   missions.subscribe(s => states.push(s));
   const frame = (position: WorldPoint, extra: Partial<MissionFrame> = {}): MissionFrame =>
-    ({ position, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+    ({ position, interact: false, button: 'E', vehicleId: null, ...extra });
   const at = (position: WorldPoint, dt = 0.1, extra: Partial<MissionFrame> = {}) => missions.update(dt, frame(position, extra));
   const press = (position: WorldPoint, extra: Partial<MissionFrame> = {}) => at(position, 0.1, { ...extra, interact: true });
   /** Lets the dialogue queue drain without moving. */

@@ -73,7 +73,7 @@ async function play(page: Page) {
   await placed(page);
   await page.evaluate(point => {
     const missions = window.__game!.missions as { update(dt: number, frame: object): unknown };
-    const frame = (extra: object) => ({ position: point, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+    const frame = (extra: object) => ({ position: point, interact: false, button: 'E', vehicleId: null, ...extra });
     missions.update(0, frame({ interact: true }));
     missions.update(0, frame({ choose: 'rent_permit' }));
     missions.update(0, frame({ leave: true }));

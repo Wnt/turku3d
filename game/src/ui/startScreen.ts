@@ -1,8 +1,23 @@
 import { CITY } from '../core/city';
 import { devToolsEnabled } from '../core/localOnly';
-import { glyph, type Action } from '../input/bindings';
-import type { Input } from '../input';
+import { FULLSCREEN_KEY, type Action, type Input } from '../input';
 import { MenuPanel, type MenuHost, type MenuPage } from './menu';
+
+/** The controller reference (both columns of #start-bindings); dev-only rows at the end. */
+const PAD_ROWS: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint'],
+  ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],
+  ['horn', 'Horn (hold)'], ['lights', 'Lights: off / driving / long beams'], ['handbrake', 'Handbrake'], ['vehicleReset', 'Flip car (also nearby on foot)'],
+  ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause menu'], ['positionHud', 'Position readout'], ['photoCharacter', 'Hide / show character'],
+  ['layerPanel', 'Layer panel']];
+const DEV_ROWS = new Set<Action>(['positionHud', 'photoCharacter', 'layerPanel', 'copyPosition', 'timePanel']);
+/** The keyboard reference, one line each; an entry of two actions shares one label ("W/S drive/reverse"). */
+const KEY_LINES: [Action | [Action, Action], string][][] = [
+  [['moveY', 'move'], ['lookX', 'look'], ['sprint', 'sprint'], ['jump', 'jump'], ['mission', 'interact']],
+  [['interact', 'enter/exit'], [['throttle', 'brake'], 'drive/reverse'], ['handbrake', 'handbrake'], ['horn', 'horn (hold)'],
+    ['lights', 'lights'], ['vehicleReset', 'flip car'], ['map', 'map'], ['pause', 'pause']],
+  [['positionHud', 'position readout'], ['photoCharacter', 'hide/show character'], ['copyPosition', 'copy camera position'],
+    ['layerPanel', 'layers'], ['timePanel', 'time of day']],
+];
 
 interface StartOptions {
   /** One line under the controls, e.g. how to get fullscreen where the browser cannot provide it. */
@@ -27,6 +42,16 @@ export class StartScreen implements MenuHost {
   private warning: HTMLElement | null = null;
   private menuReady = false;
   private afterWarning: (() => void) | null = null;
+  private readonly input: Input;
+  private readonly bindingList: HTMLElement;
+  private readonly keyLine: HTMLElement;
+  private readonly hint: HTMLElement;
+  /** input.promptRevision the references and the hint were drawn for. */
+  private drawn = -1;
+  /** The hint says "Loading the world…" until the first setMultiplayerReady. */
+  private loaded = false;
+  /** A hint that replaces the ready line (notice). */
+  private notice: string | null = null;
 
   constructor(input: Input, { hint = null, onClose = () => {} }: StartOptions = {}) {
     this.onClose = onClose;
@@ -39,21 +64,16 @@ export class StartScreen implements MenuHost {
       <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
-      <p>Keyboard: WASD move · mouse look · Shift sprint · Space jump · E interact<br>F enter/exit · W/S drive/reverse · Space handbrake · G horn (hold) · L lights · R flip car · M map · Esc pause · F10 fullscreen${devToolsEnabled(location) ? '<br>P position readout · V hide/show character · J copy camera position · F4 / LB layers · T time of day' : ''}</p>
+      <p class="start-keys"></p>
       <p class="start-touch">Touch: left thumb moves and drives · drag right to look · pinch to zoom · buttons bottom right</p>
       <p class="start-fullscreen" hidden></p>
       <p class="start-hint">Loading the world…</p>
       <p class="start-credits">The game world is derived from and modified from: map data, lidar and aerial imagery © City of Turku, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a> · Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>, ODbL · Scooter model by MiniPoly, CC BY 3.0</p>
     </div>`;
-    const actions: [Action, string][] = [['moveY', 'Move / steer'], ['lookX', 'Look'], ['sprint', 'Sprint'],
-      ['jump', 'Jump'], ['mission', 'Interact'], ['interact', 'Enter / exit car'], ['throttle', 'Accelerate'], ['brake', 'Brake / reverse'],
-      ['horn', 'Horn (hold)'], ['lights', 'Lights: off / driving / long beams'], ['handbrake', 'Handbrake'], ['vehicleReset', 'Flip car (also nearby on foot)'], ['cameraReset', 'Reset camera'], ['map', 'Map'], ['pause', 'Pause menu'], ['positionHud', 'Position readout'], ['photoCharacter', 'Hide / show character'], ['layerPanel', 'Layer panel']];
-    for (const [action, label] of actions) {
-      if (['positionHud', 'photoCharacter', 'layerPanel'].includes(action) && !devToolsEnabled(location)) continue;
-      const dt = document.createElement('dt'), dd = document.createElement('dd');
-      dt.textContent = glyph(action, input.bindings, true); dd.textContent = label;
-      this.element.querySelector('dl')!.append(dt, dd);
-    }
+    this.input = input;
+    this.bindingList = this.element.querySelector('#start-bindings')!;
+    this.keyLine = this.element.querySelector('.start-keys')!;
+    this.hint = this.element.querySelector('.start-hint')!;
     const fullscreen = this.element.querySelector<HTMLElement>('.start-fullscreen')!;
     fullscreen.textContent = hint;
     fullscreen.hidden = !hint;
@@ -85,8 +105,38 @@ export class StartScreen implements MenuHost {
     this.menu = new MenuPanel(input);
     this.menu.setEnabled(false);
     this.status.after(this.menu.element);
+    this.drawPrompts();
     document.body.append(this.element);
   }
+
+  /** The controller list in the button names of the pad in use (or seen last), the keyboard line, and the hint in
+   *  the names of the device in use; redrawn when the device or the pad changes. */
+  private drawPrompts() {
+    const input = this.input;
+    if (this.drawn === input.promptRevision) return;
+    this.drawn = input.promptRevision;
+    const dev = devToolsEnabled(location);
+    this.bindingList.replaceChildren(...PAD_ROWS.filter(([action]) => dev || !DEV_ROWS.has(action)).flatMap(([action, label]) => [
+      Object.assign(document.createElement('dt'), { textContent: input.prompt(action, input.padFamily) }),
+      Object.assign(document.createElement('dd'), { textContent: label })]));
+    const key = (action: Action) => input.prompt(action, 'keyboard');
+    const lines = KEY_LINES.filter(line => dev || !line.every(([action]) => DEV_ROWS.has(action as Action)))
+      .map(line => line.map(([actions, label]) => `${typeof actions === 'string' ? key(actions) : actions.map(key).join('/')} ${label}`).join(' · '));
+    lines[1] += ` · ${FULLSCREEN_KEY} fullscreen`;
+    this.keyLine.replaceChildren(`Keyboard: ${lines[0]}`, ...lines.slice(1).flatMap(line => [document.createElement('br'), line]));
+    if (!this.loaded) return;
+    this.hint.textContent = this.notice ?? (this.multiplayerReady === null ? 'Solo play is ready. Multiplayer is connecting…'
+      : !this.multiplayerReady ? 'Multiplayer unavailable. Choose solo play or reload to reconnect.'
+      : input.source === 'touch' ? 'Tap an option.' : `Press ${input.prompt('menuSelect')} or select an option.`);
+  }
+
+  /** `text` replaces the ready hint until the next setMultiplayerReady. */
+  showNotice(text: string) {
+    this.notice = text;
+    this.drawn = -1;
+    this.drawPrompts();
+  }
+
   show(page: MenuPage) {
     this.page = page;
     this.menu.show(this.multiplayerReady ? page : { ...page, items: page.items.map(item => item.id === 'multiplayer'
@@ -123,11 +173,13 @@ export class StartScreen implements MenuHost {
   setMultiplayerReady(multiplayerReady: boolean | null) {
     this.multiplayerReady = multiplayerReady;
     if (this.page) this.show(this.page);
-    this.element.querySelector('.start-hint')!.textContent = multiplayerReady === null
-      ? 'Solo play is ready. Multiplayer is connecting…' : multiplayerReady
-      ? 'Press Ⓐ or select an option.' : 'Multiplayer unavailable. Choose solo play or reload to reconnect.';
+    this.loaded = true;
+    this.notice = null;
+    this.drawn = -1;
+    this.drawPrompts();
   }
   update(input: Input) {
+    this.drawPrompts();
     this.status.textContent = input.gamepadName ? `${input.gamepadName} connected`
       : input.source === 'touch' ? 'Touch controls ready.' : 'No controller detected — connect it and press a button.';
     this.touchLine.hidden = !input.touchDevice;
