@@ -7,8 +7,7 @@ import { sharedKtx } from '../loadingKtx';
 import { textureUploads } from '../../render/textureUploads';
 import { NatureMaterials, type NatureLighting, type NatureSources } from './materials';
 import { hashId } from './species';
-import { fitCrown, type CrownMode } from './crowns';
-import type { LeafVariant, LookTarget } from './treeLook';
+import { fitCrown } from './crowns';
 
 export type NatureKind = 'tree' | 'shrub' | 'hedge' | 'grass' | 'fence';
 export interface NaturePart { geometry: THREE.BufferGeometry; material: THREE.MeshStandardNodeMaterial; triangles: number }
@@ -28,12 +27,9 @@ export interface NatureManifest {
   glb: { bytes: number; sha256: string };
 }
 
-export class NatureLibrary implements LookTarget {
+export class NatureLibrary {
   /** Seeded variants of one model (`tree_birch`, `tree_birch_v2`, ...) by base name. */
   private variants = new Map<string, string[]>();
-  /** The crown fit the trees carry, and their unfitted positions for a live switch (treeLook.ts A/B). */
-  private crowns: CrownMode | null = null;
-  private unfitted = new WeakMap<object, Float32Array>();
   constructor(readonly assets: Map<string, NatureAsset>, readonly materials: NatureMaterials, readonly manifest: NatureManifest | null) {
     for (const name of [...assets.keys()].sort()) {
       const base = name.replace(/_v\d+$/, '');
@@ -52,29 +48,10 @@ export class NatureLibrary implements LookTarget {
     if (!names) throw new Error(`nature library has no asset ${base}`);
     return this.asset(names[hashId(`${key}:variant`) % names.length]);
   }
-  /** Fit every tree's crown in `mode` (nature/crowns.ts). A later call refits from the model's own positions in place:
-   *  the shared attributes the tile pools draw change at once. Extents only grow, so built draw bounds stay safe. */
-  fitCrowns(mode: CrownMode) {
-    if (mode === this.crowns) return;
-    const first = this.crowns === null;
-    this.crowns = mode;
-    const trees = [...this.assets.values()].filter(asset => asset.kind === 'tree');
-    // Restore every attribute before refitting any: assets may share one.
-    for (const asset of trees) for (const lod of asset.lods) for (const part of lod.parts) {
-      const position = part.geometry.getAttribute('position') as THREE.BufferAttribute;
-      const array = position.array as Float32Array, saved = this.unfitted.get(position);
-      if (!saved) this.unfitted.set(position, array.slice());
-      else if (!first) array.set(saved);
-    }
+  /** Fit every tree's crown to the lidar's, once (nature/crowns.ts). Attributes shared between parts reshape once. */
+  fitCrowns() {
     const done = new WeakSet<object>();
-    for (const asset of trees) {
-      const extent = fitCrown(asset, done, mode);
-      if (extent !== null) asset.extent = first ? extent : Math.max(asset.extent ?? 0, extent);
-    }
-  }
-  applyLook(crowns: CrownMode, leaves: LeafVariant) {
-    this.fitCrowns(crowns);
-    this.materials.setLeafVariant(leaves);
+    for (const asset of this.assets.values()) { const extent = fitCrown(asset, done); if (extent !== null) asset.extent = extent; }
   }
 }
 
@@ -99,8 +76,7 @@ function bakeNode(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.
 export const NATURE_URL =`${import.meta.env.BASE_URL}assets/nature/`;
 
 /** Build the library from a parsed nature.glb scene (also used by tests with a synthetic scene). */
-export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLighting | null, deterministic: boolean, manifest: NatureManifest | null = null,
-  crowns: CrownMode = 'stretch') {
+export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLighting | null, deterministic: boolean, manifest: NatureManifest | null = null) {
   const sources = new Map<string, THREE.MeshStandardMaterial>();
   root.traverse(o => {
     const mesh = o as THREE.Mesh;
@@ -135,18 +111,17 @@ export function natureLibraryFromScene(root: THREE.Object3D, lighting: NatureLig
   });
   // Trees fill the crowns the lidar measures, at every LOD (nature/crowns.ts).
   const library = new NatureLibrary(assets, materials, manifest);
-  library.fitCrowns(crowns);
+  library.fitCrowns();
   return library;
 }
 
-export async function loadNatureLibrary(renderer: THREE.WebGPURenderer, lighting: NatureLighting | null, deterministic: boolean,
-  crowns: CrownMode = 'stretch'): Promise<NatureLibrary> {
+export async function loadNatureLibrary(renderer: THREE.WebGPURenderer, lighting: NatureLighting | null, deterministic: boolean): Promise<NatureLibrary> {
   const loader = new GLTFLoader().register(() => textureUploads(renderer).plugin()).setKTX2Loader(sharedKtx(renderer)).setMeshoptDecoder(MeshoptDecoder);
   const [gltf, manifest] = await Promise.all([
     loader.loadAsync(`${NATURE_URL}nature.glb`),
     fetch(`${NATURE_URL}nature.json`).then(r => r.ok ? r.json() as Promise<NatureManifest> : null, () => null),
   ]);
-  return natureLibraryFromScene(gltf.scene, lighting, deterministic, manifest, crowns);
+  return natureLibraryFromScene(gltf.scene, lighting, deterministic, manifest);
 }
 
 if (import.meta.hot) import.meta.hot.accept();
