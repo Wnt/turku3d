@@ -308,6 +308,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     clock: world.dayClock, timePanel: () => timePanel.open, toggleTimePanel: () => timePanel.toggle(),
     nextTrack: () => audio.nextTrack(),
     spawnTruck: () => { void seated.parkAhead('truck', feet, camera).catch(fail); },
+    naming: () => positionHud.naming, setNaming: on => positionHud.setNaming(on),
   }, () => saveGame.pausePage()) : null;
   /** Parks the player's vehicle `id` at `spot`, settled onto the ground `y` (default: the ground under the spot, seen
    *  from the sky): the car is reset there, the scooter and the truck are spawned (or moved) there. */

@@ -1,5 +1,5 @@
 // Developer pages of the pause menu (localhost, or ?dev=1 anywhere including Pages, core/localOnly.ts devToolsEnabled): money, fly mode,
-// spawning the trophy truck, teleport and the time of day. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
+// spawning the trophy truck, teleport, the time of day and the position readout's look-at naming. The pages are MenuPages like the save pages (menu.ts); what a pick does to the
 // running game is in DevHooks (play.ts).
 import { formatClock } from '../core/dayCycle';
 import { CLOCK_SPEEDS } from '../render/dayClock';
@@ -30,6 +30,9 @@ export interface DevHooks {
   nextTrack(): void;
   /** Puts the trophy truck on the ground in front of the camera, without buying it. */
   spawnTruck(): void;
+  /** Whether the position readout names the building at the screen centre (ui/positionHud.ts; off by default). */
+  naming(): boolean;
+  setNaming(on: boolean): void;
 }
 
 const euros = (n: number) => `${n.toLocaleString('en-US').replace(/,/g, ' ')} €`;
@@ -43,7 +46,7 @@ export class DevMenuFlow {
     const back = () => this.host.show(this.back());
     const money = (step: number): MenuItem => ({ id: `money-${step}`, label: `Money +${euros(step)}`, detail: null,
       enabled: true, run: () => { this.dev.addMoney(step); this.host.show(this.root(`Money ${euros(this.dev.money())}.`)); } });
-    const flying = this.dev.flying();
+    const flying = this.dev.flying(), naming = this.dev.naming();
     return { id: 'dev', title: 'Developer', text: text ?? `Money ${euros(this.dev.money())}.`, back, items: [
       ...DEV_MONEY_STEPS.map(money),
       { id: 'fly', label: `Fly mode ${flying ? 'off' : 'on'}`, detail: 'Double-tap jump in the game', enabled: true,
@@ -54,6 +57,8 @@ export class DevMenuFlow {
       { id: 'time', label: 'Time of day', detail: null, enabled: true, run: () => this.host.show(this.time()) },
       { id: 'music-next', label: 'Next music track', detail: null, enabled: true,
         run: () => { this.dev.nextTrack(); this.host.show(this.root('Next track selected.')); } },
+      { id: 'look-at', label: `Look-at naming ${naming ? 'off' : 'on'}`, detail: 'Building at the screen centre in the position readout',
+        enabled: true, run: () => { this.dev.setNaming(!naming); this.host.show(this.root(`Look-at naming ${naming ? 'off' : 'on'}.`)); } },
       { id: 'back', label: 'Back', detail: null, enabled: true, run: back },
     ] };
   }
