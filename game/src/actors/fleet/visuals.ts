@@ -201,8 +201,12 @@ export class ParkedCarVisuals {
     },fleetMaterial());
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;
   }
-  takeOver(id:string) {
+  /** Draws vehicle `id` as its own actor from now on, at the pose `update` is given (the driven car's render pose).
+   *  `record`: its vehicle record, for a car whose batch load has not caught up yet (a just-claimed traffic car):
+   *  without it the car would stay drawn from its raw physics body (traffic/client.ts) until that load. */
+  takeOver(id:string,record?:ParkedVehicle) {
     if(this.dynamic.has(id))return;
+    if(!this.definitions.has(id)&&record)this.definitions.set(id,{model:fleetModel(record.model,record.object_id),color:record.color,size:record});
     const def=this.definitions.get(id);if(!def)return;
     const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
     this.cars=this.cars.filter(c=>c.object_id!==id);
