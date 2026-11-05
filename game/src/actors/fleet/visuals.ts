@@ -185,11 +185,15 @@ export class ParkedCarVisuals {
       const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
       this.wheelGroups.set(key,batch);this.scene.add(batch.mesh);
     }
-    // A slot no real model fits stays empty: no definition, so no body either (world/parkedVehicles.ts).
-    for(const car of cars){const model=fleetModel(car.model,car.object_id,car);if(model)this.definitions.set(car.object_id,{model,color:car.color,size:car});}
-    const resident=new Set(cars.map(c=>c.object_id));
+    // A slot no real model fits stays empty: no definition, so no draw and no body either (world/parkedVehicles.ts),
+    // although ParkedVehicles.restingPose still gives a solo record its slot pose.
+    const resident=new Set<string>();
+    for(const car of cars){
+      const model=fleetModel(car.model,car.object_id,car);
+      if(model){this.definitions.set(car.object_id,{model,color:car.color,size:car});resident.add(car.object_id);}
+    }
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
-    this.cars=cars.filter(c=>!this.dynamic.has(c.object_id));
+    this.cars=cars.filter(c=>resident.has(c.object_id)&&!this.dynamic.has(c.object_id));
     void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
   }
   /** Prepare a takeOver actor of each design ahead (see `keepers`); a design whose geometry is not built yet waits for

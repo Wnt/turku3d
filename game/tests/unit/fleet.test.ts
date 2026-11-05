@@ -40,6 +40,20 @@ test('a parking slot no real model fits stays empty instead of stretching a car'
   for(let i=0;i<50;i++){const m=fleetModel('hatchback-sports',`fit-${i}`,roomy)!;expect((m.length-4.15)/2).toBeLessThanOrEqual(.3+1e-9);}
 });
 
+// Solo play: a slot no model fits has no definition, yet ParkedVehicles.restingPose still gives it its slot pose
+// (in multiplayer the id is a shared vehicle and gets none). Drawing it threw "reading 'id'" every frame.
+test('a parked record no real model fits is never drawn, even with a resting pose',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  const record=(object_id:string,model:string,length:number,gap:number)=>({object_id,model,color:'silver',x:0,y:0,z:0,yaw:0,width:1.8,height:1.5,length,clear_front_m:gap,clear_rear_m:gap});
+  manifest.vehicles=[record('tight','hatchback-sports',3,0),record('fits',FALLBACK_MODELS[0],4,5)];
+  await visuals.load(manifest);
+  const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})};
+  for(let frame=0;frame<2;frame++)expect(()=>visuals.update([],rest)).not.toThrow();
+  expect(visuals.snapshot().instances).toBe(1);
+  expect(visuals.has('tight')).toBe(false);expect(visuals.renders('tight')).toBe(false);
+  visuals.dispose();
+});
+
 test('model assignment is stable and legacy families remain compatible',()=>{
   for(const family of ['sedan','suv','van','hatchback-sports','sedan-sports'])for(let i=0;i<100;i++) {
     const model=fleetModel(family,String(i));expect(model.family).toBe(family==='sedan-sports'?'sedan':family);expect(fleetModel(family,String(i))).toBe(model);
