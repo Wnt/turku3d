@@ -258,3 +258,12 @@ def test_one_outline_carries_a_link_at_its_own_level_behind_a_parapet():
     assert not inner.any()
     walls = level_parapets("t", cuts, main, lower)
     assert walls and max(w.positions[:, 1].max() for w in walls) >= 25.9
+
+
+def test_a_deck_from_several_outline_parts_builds():
+    from turku3d.coarse.bridges import slab
+
+    parts = shapely.GeometryCollection([shapely.box(0, 0, 10, 5), shapely.box(12, 0, 20, 5)])
+    meshes = slab("t", parts, shapely.LineString([(0, 2.5), (20, 2.5)]), np.array([0.0, 20.0]),
+                  np.array([5.0, 5.0]), "road", None, 0.5)
+    assert meshes and abs(meshes[0].positions[:, 1].max() - 5.0) < 1e-9
