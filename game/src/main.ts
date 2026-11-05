@@ -1,3 +1,5 @@
+// First: no texture size ever stores undefined into a Vector3 (render/numericSizes.ts).
+import './render/numericSizes';
 import { placementVisibility } from './world/placementVisibility';
 import { modelTuning } from './vehicle/modelTuning';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
