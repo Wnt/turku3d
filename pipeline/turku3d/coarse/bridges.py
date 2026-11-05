@@ -1090,14 +1090,16 @@ def produce(tile, grid_pos, inputs):
             base = np.interp(shapely.line_locate_point(line, shapely.points(xz)), ss, hh)
             return branch_height(profiles, xz, base) if profiles else base
 
-        def main_only(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps):
-            points = shapely.points(xz)
-            base = np.interp(shapely.line_locate_point(line, points), ss, hh)
-            blend = np.clip((shapely.distance(axis, points) - width / 2) / 2, 0, 1)
-            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
-            return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend if blend.any() else base
-
-        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only, branch_core)
+        # The main level keeps every carriageway that is not a descending link: the members and
+        # their mapped land continuations (a link ending at grade beside the deck's end would
+        # otherwise take the main road's approach down with it, a step across its lanes).
+        level_core = shapely.union_all([branch_core, *[
+            w["line"].buffer(w["width"] / 2, cap_style="flat", join_style="mitre")
+            for w in way.get("approaches", []) if is_carriageway(w["tags"])]])
+        # The main level takes the deck's full height function: the outline drawn along a link
+        # beyond the main deck follows the link there, not the main deck's edge ramp, which put
+        # far vertices at ground level and sloped the triangles across the main lanes.
+        deck_parts, cuts = deck_levels(footprint_poly, profiles, height_at, link_only, level_core)
         if deck_parts[0][1] is None:
             deck_parts = [(footprint_poly, height_at)]
         meshes = slab(
