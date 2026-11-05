@@ -7,8 +7,8 @@
 #                           workers), window-warm.py, window-cities.py --follow, then the watchdog
 #   window-run.sh watchdog  (started by `start`; one loop, every 5 s) samples CPU, tunnel and cache counters for
 #                           window-stat.py; restarts the farm service after 60 s without health, and the pass, the
-#                           cities scheduler or the warmer when their process is gone; hands idle city lanes to Turku
-#                           while the city queues are empty (lanes-turku.effective = lanes-turku + idle city lanes)
+#                           cities scheduler or the warmer when their process is gone; hands city lanes the city queues
+#                           cannot fill to Turku (lanes-turku.effective = lanes-turku + idle city lanes)
 #   window-run.sh stop      stop all of it (finished tiles stay; in-flight ones are lost)
 # Live changes, additive only (window-lanes.sh, or a city list appended to the plan file): never a restart.
 set -uo pipefail
@@ -66,7 +66,7 @@ watchdog() {
         g=$(python3 -c "import json; print(json.load(open('$F/revisions/$(cfg revision)/revision.json'))['generation'])")
         timeout 50 python3 "$G/rebuild-ask.py" "$F" "$g" > "$G/rebuild-ask.out" 2>&1 &
       fi
-      # Idle city lanes go to Turku while every city queue is empty (a city list that lands later takes them back).
+      # City lanes the city queues cannot fill go to Turku (a city list that lands later takes them back).
       python3 - "$G" <<'PY'
 import json, os, sys
 g = sys.argv[1]
@@ -76,7 +76,7 @@ def num(p, d=0):
 base, cities = num(f'{g}/lanes-turku'), num(f'{g}/lanes-cities')
 try: c = json.load(open(f'{g}/cities.json'))
 except (OSError, ValueError): c = {}
-idle = max(0, cities - len(c.get('running', []))) if c and not sum(c.get('left', {}).values()) else 0
+idle = max(0, cities - len(c.get('running', [])) - sum(c.get('left', {}).values())) if c else 0  # lanes no city tile can use
 want = f'{base + idle}\n'
 path = f'{g}/lanes-turku.effective'
 if not os.path.exists(path) or open(path).read() != want:
