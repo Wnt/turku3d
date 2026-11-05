@@ -36,6 +36,9 @@ rsync -a $OUT osgallery-dev:/bulk/turku3d/patrol/ && rm -rf $OUT
 - Per spot: the collision ground height (camera 1.7 m above it), stills at 3 headings and a raised view (+25 m,
   pitch -22), the same street stills with the population hidden (a car/walker mask), an 80 x 80 m collision height
   grid, and a 60-frame still-camera sequence with cars and walkers hidden.
+- Only settled frames are judged: the QA ready contract, `coarse.viewStatus` (3x3 full pass, scenery cells in view), every
+  3x3 cell drawn as full HD alone (`coverageSnapshot` F: no D double-draw, P preview or hole) and 3 quiet 1 s polls;
+  a pose that does not settle is re-captured at the end of the run and otherwise reported under Delivery.
 - 3 drives (400 m each: Aurakatu, Läntinen and Itäinen Rantakatu) with one fixed 0.4 m step per rendered frame, so
   pops are measured per frame independent of the frame rate; stutter comes from the real frame intervals.
 - The id pass (`?pass=id`) renders the same poses as object ids with `__qaIdTable` (kind, layer, material, tile).
