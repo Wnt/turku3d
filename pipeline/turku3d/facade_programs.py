@@ -514,7 +514,7 @@ def resolve(building, vertices, eaves, *, layout_height=None):
         finish_material(wall, family, own, record, d, building.facade_key)
     if program["archetype"] == MONOLITH:
         facade_monolith.apply(program, building.facade_key, vertices, observed, d,
-                              getattr(building, "entrances", ()))
+                              getattr(building, "entrances", ()), building.footprint)
     else:
         classical(program, attrs, order_evidence(observed, d))
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]
