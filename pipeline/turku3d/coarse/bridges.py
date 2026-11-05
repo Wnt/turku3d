@@ -332,6 +332,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         extended_way = {**b, "line": extended(b["line"], 30)}
         under_ids = {w["id"] for w in b["under"]}
         b["below"] = below_deck(b, ways, road_tree)
+        b["lower_continuations"] = lower_continuations(b, ways, road_tree)
         b["approach_under"] = [
             ways[i]
             for i in sorted(road_tree.query(extended_way["line"], predicate="intersects"))
@@ -405,6 +406,27 @@ def below_deck(bridge, ways, tree):
     return out
 
 
+def lower_continuations(bridge, ways, tree):
+    """Open ways that continue a lower way end to end beyond the deck. A street mapped in pieces
+    can end right beside a deck (Helsinginkatu under the Lemminkäisensilta viaducts), and its
+    measured ground on that side lies on the next piece."""
+    lower = [*bridge.get("under", []), *bridge.get("below", [])]
+    if not lower:
+        return []
+    skip = {w.get("id") for w in lower} | {m.get("id") for m in bridge.get("member_ways", [bridge])}
+    ends = shapely.union_all([w["line"].boundary for w in lower]).buffer(0.05)
+    out = []
+    for i in sorted(tree.query(ends, predicate="intersects")):
+        way = ways[i]
+        tags = way["tags"]
+        if (way["id"] in skip or way["bridge"] or way["layer"] >= bridge["layer"]
+                or tags.get("highway") in (None, "steps")
+                or tags.get("tunnel") not in (None, "no") or tags.get("covered") not in (None, "no")):
+            continue
+        out.append(way)
+    return out
+
+
 def cut_under(grid_pos, bridge, sample):
     """Lower the terrain over every way that passes under this deck to that way's own level
     (``under_profile``), within the way's width and CUT_REACH of the deck. Only lowers: a lower way
@@ -416,7 +438,8 @@ def cut_under(grid_pos, bridge, sample):
     outline = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
     deck = outline.buffer(CUT_REACH + CUT_FEATHER)
     lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
-    chains = lower_chains([w for w in lower.values() if w["tags"].get("highway") != "steps"])
+    chains = lower_chains([w for w in [*lower.values(), *bridge.get("lower_continuations", [])]
+                           if w["tags"].get("highway") != "steps"])
     for under in lower.values():
         if under["tags"].get("highway") == "steps":
             continue
