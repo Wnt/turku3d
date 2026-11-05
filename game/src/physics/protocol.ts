@@ -13,10 +13,10 @@ export interface CharacterInput {
    *  vertically, keeping real collisions but ignoring playable-area edge walls. Absent: walking. */
   fly?: { vy: number };
 }
-/** `rearMode`: the rear-steer mode to hold from now on (sent when it changes; the vehicle persists it like `lights`);
- *  `rearSteer`: the MANUAL rear rocker (−1..1, + steers the rear wheels left). Both only act on a 4WS vehicle. */
+/** `rearMode`: the rear-steer mode to hold from now on (the vehicle persists it like `lights`); only a 4WS vehicle
+ *  reads it. */
 export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean; lights?: import('../vehicle/signals').LightState; horn?: boolean;
-  rearMode?: import('../vehicle/rearSteer').RearSteerMode; rearSteer?: number }
+  rearMode?: import('../vehicle/rearSteer').RearSteerMode }
 
 /** `water`: only the water sensor surfaces (the river), which every other filter passes through. */
 export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';

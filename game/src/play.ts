@@ -728,14 +728,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
-    // A 4WS vehicle (the trophy truck): the held rear mode and the MANUAL rocker; the autopilot drives in AUTO.
+    // A 4WS vehicle (the trophy truck): a sprint press (A, Shift) cycles the held rear mode; the autopilot drives in
+    // AUTO. A press of A that is also `mission` at a shop or drop-off opens or hands over there instead.
     const fourWheelSteer = mode === 'car' && !!VEHICLES[vs?.kind ?? 'car'].rearSteer;
     if (carIn && fourWheelSteer) {
-      const rear = rearControl.update(dt, menuOpen || paused ? 0 : input.actions.rearMode, input.actions.rearRocker);
-      carIn.rearMode = autopilot.active ? 'auto' : rear.rearMode;
-      carIn.rearSteer = autopilot.active ? 0 : rear.rearSteer;
+      const press = !paused && !menuOpen && input.consume('sprint');
+      const rearMode = rearControl.update(press && !(storyCity && input.actions.mission > 0.5 && missions.interactable));
+      carIn.rearMode = autopilot.active ? 'auto' : rearMode;
     }
-    rearTag.update(fourWheelSteer && !startScreen.active ? vs : null);
+    rearTag.update(fourWheelSteer && !startScreen.active ? vs : null, input.source === 'touch' ? '' : input.prompt('sprint'), now);
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
@@ -878,7 +879,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
       : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
-      chase.update(dt, chaseVehicle, fourWheelSteer && rearControl.rocking ? 0 : input.lookX, input.lookY, resetCamera || snapChase);
+      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
       snapChase = false;
     }
     else if (mode === 'foot') orbit.update(dt, focus);

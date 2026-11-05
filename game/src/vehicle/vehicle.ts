@@ -130,7 +130,7 @@ export class Vehicle {
     this.horn = input?.horn === true;
     if (input?.lights !== undefined) this.lights = input.lights;
     if (input?.rearMode !== undefined && REAR_STEER_MODES.includes(input.rearMode) && input.rearMode !== this.rear.mode) {
-      this.rear = { ...this.rear, mode: input.rearMode, manual: input.rearMode === 'manual' ? this.rear.angle : 0 };
+      this.rear = { ...this.rear, mode: input.rearMode };
     }
     this.beforeSolve = null;
     if (!input && this.body.isSleeping()) return;
@@ -141,7 +141,7 @@ export class Vehicle {
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
     this.throttleApplied = h.drive;
     const rs = t.rearSteer, axles = this.axles;
-    if (rs) this.rear = rearSteerStep(rs, this.rear, this.steering / t.maxSteer, speed, input?.rearSteer ?? 0, dt);
+    if (rs) this.rear = rearSteerStep(rs, this.rear, this.steering / t.maxSteer, speed, dt);
     // CRAB keeps all four wheels parallel: the front stops at the rear's 32° lock instead of turning on to 42°.
     const front = rs && this.rear.mode === 'crab' ? Math.max(-rs.maxAngle, Math.min(rs.maxAngle, this.steering)) : this.steering;
     for (let i = 0; i < t.wheels.length; i++) {
