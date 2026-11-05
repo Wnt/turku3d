@@ -3,7 +3,8 @@
 Each entry runs at the end of every generator build and over existing farm products."""
 
 from . import (bridge_ends, chain_record, finished_ground, floodlights, furniture, landmark_windows,
-               monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, stand_roofs, trees_lidar, wires)
+               monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, stand_roofs,
+               structure_materials, trees_lidar, wires)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -31,4 +32,6 @@ CHAIN = (
     finished_ground.MIGRATION,
     # Spot rebuild of the tiles building a cultural monolith whose unphotographed walls were blank.
     monolith_walls.MIGRATION,
+    # Spot rebuild of the tiles with tunnels, bridges, stairs or retaining walls: procedural PBR materials.
+    structure_materials.MIGRATION,
 )

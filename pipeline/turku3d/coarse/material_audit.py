@@ -29,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 FLAT_STD = 5.0
 EXEMPT_LAYERS = {"vegetation", "markings"}
 REASONS = ("untextured", "no_uv", "flat")
