@@ -669,6 +669,9 @@ def approach_branches(way):
     return shapely.union_all(branches)
 
 
+BRANCH_OUTSIDE = 10.0  # m of a deck member outside the main carriageway that make it a branch
+
+
 def branch_profiles(way, main_height, sample_ground):
     """(line, stations, heights, half width) of each deck member that leaves the main axis (a link):
     the deck's height where it leaves, then a vertical curve to the ground at its far end."""
@@ -678,8 +681,9 @@ def branch_profiles(way, main_height, sample_ground):
     core = axis.buffer(way["width"] / 2)
     for member in way.get("member_ways", []):
         line = member["line"]
-        along = shapely.line_locate_point(axis, shapely.points(np.asarray(line.coords)))
-        if np.abs(np.diff(along)).sum() >= line.length * 0.85:
+        # A link diverges slowly, so most of its length can run along the axis: what makes it a
+        # branch is a stretch outside the main carriageway.
+        if line.difference(core).length < BRANCH_OUTSIDE:
             continue
         if core.distance(shapely.Point(line.coords[0])) > core.distance(shapely.Point(line.coords[-1])):
             line = shapely.LineString(list(line.coords)[::-1])  # run from the deck outward
@@ -892,15 +896,19 @@ def produce(tile, grid_pos, inputs):
                                        for line, _, _, half in profiles])
             footprint_poly = footprint_poly.union(links).difference(obstacles.buffer(0.15))
 
+        links = shapely.union_all([line.buffer(half, cap_style="flat") for line, _, _, half in profiles]) \
+            if profiles else shapely.Polygon()
+
         def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps,
-                      profiles=profiles):
+                      profiles=profiles, links=links):
             points = shapely.points(xz)
             base = np.interp(shapely.line_locate_point(line, points), ss, hh)
             # Outline branches are mapped approach ramps: each follows its own way's profile
             # from the deck to the ground at its end (``branch_profiles``), not a blend by
             # distance from the main axis, which sloped the deck sideways under its lanes.
             blend = np.clip((shapely.distance(axis, points) - width / 2) / 2, 0, 1)
-            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
+            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1]) | shapely.intersects_xy(
+                links, xz[:, 0], xz[:, 1])
             if not blend.any():
                 return base
             branch = branch_height(profiles, xz, sample_ground(xz) + 0.02)
