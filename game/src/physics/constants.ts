@@ -142,8 +142,9 @@ export const SCOOTER = {
 /** #19-style King of the Hammers 4400 car (~/turku3d/loops/trophy4400/SPEC.md §3): four-wheel steer (42° front and
  *  32° rear inner-wheel lock, passive counter-phase rear steer that tapers to zero and locks out at 30 mph), IFS/IRS
  *  long travel (0.66 m front, 0.71 m rear) on a scheduled dual-rate spring with a hydraulic bump stop and
- *  position-sensitive bypass damping, 4WD with a 40/60 split and ~1000 hp. The chassis origin rides 0.95 m above
- *  the ground at static ride; the hub sits 0.533 m up (static length 0.417). Rapier's `rest` is the longest ray
+ *  position-sensitive bypass damping, 4WD with a 40/60 split and ~1000 hp. The chassis origin rides 0.98 m above
+ *  the ground at static ride (belly 0.56, SPEC C1; wheelbase 3.16); the hub sits 0.533 m up (connection y −0.03,
+ *  static length 0.417). Rapier's `rest` is the longest ray
  *  (full rear droop plus a 3 cm margin); `suspensionStiffness` is the equivalent static rate, so g / (4 k) is the
  *  static sag below `rest` for consumers that still pose the rig from it. */
 export const TRUCK_STATIC_LENGTH = 0.417;
@@ -156,8 +157,8 @@ export const TRUCK = {
   wheelRadius: 0.533,
   rest: TRUCK_REST,
   wheels: [
-    { x: 1.55, y: 0, z: -1.09 }, { x: 1.55, y: 0, z: 1.09 },
-    { x: -1.55, y: 0, z: -1.09 }, { x: -1.55, y: 0, z: 1.09 },
+    { x: 1.58, y: -0.03, z: -1.09 }, { x: 1.58, y: -0.03, z: 1.09 },
+    { x: -1.58, y: -0.03, z: -1.09 }, { x: -1.58, y: -0.03, z: 1.09 },
   ],
   front: [0, 1],
   steered: [0, 1],

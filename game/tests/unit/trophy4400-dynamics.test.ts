@@ -5,6 +5,7 @@ import * as R from '@dimforge/rapier3d';
 import { TRUCK } from '../../src/physics/constants';
 import { MAT } from '../../src/shared/col/materials';
 import { passiveRatio } from '../../src/vehicle/rearSteer';
+import { ackermann4 } from '../../src/vehicle/wheelKinematics';
 import * as S from './trophy4400-scenarios';
 
 const round = (_: string, v: unknown) => typeof v === 'number' ? +v.toFixed(3) : v;
@@ -47,10 +48,10 @@ test('Rapier 0.21 suspension: F = M·(k·(rest − L) + c·ḃ), clamped length,
 });
 
 describe('4400 truck on the headless course', () => {
-  test('D1 static ride: belly 0.53, hub 0.533, bump and droop per §3.3', () => {
+  test('D1 static ride: belly 0.56 (SPEC C1), hub 0.533, bump and droop per §3.3', () => {
     const r = S.staticSettle();
-    log('D1', r, 'belly 0.51–0.56; hub 0.533±0.01; bump 0.36/0.38, droop 0.30/0.33 ±0.015');
-    expect(r.belly).toBeGreaterThan(0.51); expect(r.belly).toBeLessThan(0.56);
+    log('D1', r, 'belly 0.56±0.015 (C1); hub 0.533±0.01; bump 0.36/0.38, droop 0.30/0.33 ±0.015');
+    expect(Math.abs(r.belly - 0.56)).toBeLessThan(0.015);
     for (const h of r.hub) expect(Math.abs(h - 0.533)).toBeLessThan(0.01);
     [0.36, 0.36, 0.38, 0.38].forEach((v, i) => expect(Math.abs(r.bump[i] - v)).toBeLessThan(0.015));
     [0.30, 0.30, 0.33, 0.33].forEach((v, i) => expect(Math.abs(r.droop[i] - v)).toBeLessThan(0.015));
@@ -63,8 +64,11 @@ describe('4400 truck on the headless course', () => {
     expect(Math.abs(r.speed)).toBeLessThan(1);
     expect(Math.abs(r.angles[0] - 42)).toBeLessThan(0.5);
     expect(Math.abs(r.angles[2] + 32)).toBeLessThan(0.5);
-    expect(Math.abs(r.angles[1] - 23.48)).toBeLessThan(0.3);
-    expect(Math.abs(r.angles[3] + 16.78)).toBeLessThan(0.3);
+    const xf = TRUCK.wheels[0].x, xr = TRUCK.wheels[2].x, track = TRUCK.wheels[1].z - TRUCK.wheels[0].z;
+    const outer = (i: number) => ackermann4(TRUCK.maxSteer, -TRUCK.rearSteer.maxAngle, xf, xr, track, TRUCK.wheels[i].x, TRUCK.wheels[i].z,
+      i < 2 ? TRUCK.maxSteer : TRUCK.rearSteer.maxAngle) * 180 / Math.PI;
+    expect(Math.abs(r.angles[1] - outer(1))).toBeLessThan(0.3);
+    expect(Math.abs(r.angles[3] - outer(3))).toBeLessThan(0.3);
   });
 
   test('D3 passive taper, lockout hysteresis and rear slew', () => {
