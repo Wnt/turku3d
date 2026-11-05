@@ -46,3 +46,14 @@ it('the sun follows the active city and tile fetches follow the switch', async (
   await target.fetch('/coarse/health');
   expect(seen).toEqual(['/coarse/health', 'https://city.lab.madekivi.fi/cities/amsterdam/coarse/health', '/coarse/health']);
 });
+
+it('the switch overlay reports streaming, then the graphics warmup; the title names the city', async () => {
+  const { cityTitle, travelProgress } = await import('../../src/gameplay/travel');
+  const base = { phase: 'loading', visual: { loaded: 0, total: 0 }, collision: { loaded: 0, total: 0 }, compile: { done: 0, total: 0 } };
+  expect(travelProgress(base)).toBe('Streaming finding the street');
+  expect(travelProgress({ ...base, visual: { loaded: 2, total: 5 }, collision: { loaded: 6, total: 10 } })).toBe('Streaming 2/5 tiles · 6/10 ground cells');
+  expect(travelProgress({ ...base, phase: 'compiling', compile: { done: 0, total: 1 } })).toBe('Preparing graphics · 0/1');
+  expect(cityTitle()).toBe('Turku3D');
+  setCity('rotterdam');
+  expect(cityTitle()).toBe('Turku3D · Rotterdam');
+});

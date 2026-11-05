@@ -45,7 +45,7 @@ import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
 import { draftManifest, type Manifest } from './world/manifest';
 import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './core/city';
-import { showTransition } from './gameplay/travel';
+import { cityTitle, showTransition, travelProgress } from './gameplay/travel';
 import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
@@ -879,8 +879,12 @@ async function runPlay() {
       const t0 = performance.now();
       const previous = world;
       const kept = session.dispose();
-      // The session's own transition went with its DOM; this one stays until the new session runs.
+      // The session's own transition went with its DOM; this one stays, with the streaming progress, until the new
+      // session runs, then fades out over the first frames.
       const curtain = showTransition(document.body, CITIES[to]);
+      curtain.classList.add('shown');
+      const line = curtain.querySelector<HTMLElement>('.travel-progress')!;
+      const progress = setInterval(() => { line.textContent = travelProgress(worldLoad.snapshot()); }, 250);
       for (const v of physics.latest?.vehicles ?? []) if (v.id && v.id !== OWN_VEHICLE_ID) physics.removeVehicle(v.id);
       previous.coarse?.leaveCity();
       await previous.streamer.dispose();
@@ -895,7 +899,10 @@ async function runPlay() {
       session = await startPlay(world, null, kept.audio ? { audio: kept.audio } : undefined);
       worldLoad.update({ phase: 'ready' });
       graphics.flush(fail);
-      curtain.remove();
+      clearInterval(progress);
+      document.title = cityTitle();
+      curtain.classList.remove('shown');
+      setTimeout(() => curtain.remove(), 700);
       console.info(`[travel] ${CITY.name} ready in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     })().catch(fail).finally(() => { travelling = null; });
     return travelling;

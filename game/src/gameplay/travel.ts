@@ -119,17 +119,32 @@ export function showTransition(parent: HTMLElement, city: CityProfile): HTMLElem
   title.textContent = `Travelling to ${city.title}`;
   const where = document.createElement('p');
   where.textContent = isHome(city) ? 'Back to Turku' : city.spawn.label;
-  el.append(title, where);
+  // An in-place switch (main.ts travel) writes its streaming progress here.
+  const progress = document.createElement('p');
+  progress.className = 'travel-progress';
+  el.append(title, where, progress);
   parent.append(el);
   requestAnimationFrame(() => el.classList.add('shown'));
   return el;
 }
 
+/** The streaming line of an in-place switch: tiles and collision around the start, then the graphics warmup. */
+export function travelProgress(load: { phase: string; visual: { loaded: number; total: number };
+  collision: { loaded: number; total: number }; compile: { done: number; total: number } }): string {
+  if (load.phase === 'compiling') return `Preparing graphics · ${load.compile.done}/${load.compile.total}`;
+  const tiles = load.visual.total ? `${load.visual.loaded}/${load.visual.total} tiles` : 'finding the street';
+  const cells = load.collision.total ? ` · ${load.collision.loaded}/${load.collision.total} ground cells` : '';
+  return `Streaming ${tiles}${cells}`;
+}
+
+/** The page title names the active city (Turku: the game's own name). */
+export function cityTitle(city: CityProfile = CITY) { return isHome(city) ? 'Turku3D' : `Turku3D · ${city.title}`; }
+
 /** The boot screen of an arriving page names the trip (index.html #loading-screen). */
 export function announceArrival(store: KeyValueStore | null, doc: Document = document) {
   let to: string | null = null;
   try { to = (JSON.parse(store?.getItem(TICKET_KEY) ?? 'null') as { to?: string } | null)?.to ?? null; } catch { /* none */ }
-  if (!isHome()) doc.title = `Turku3D · ${CITY.title}`;
+  doc.title = cityTitle();
   const h1 = doc.querySelector('#loading-screen h1');
   if (!h1) return;
   if (to === CITY.name) h1.textContent = `Travelling to ${CITY.title}`;
