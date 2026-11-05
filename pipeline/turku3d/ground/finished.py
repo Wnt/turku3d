@@ -441,6 +441,43 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
 
 # -- a tile -----------------------------------------------------------------------------------------
 
+_WINDOWS: dict = {}  # (window, evidence digest) -> Window: neighbouring tiles share 4-6 of their 9 windows
+WINDOW_CACHE = 24
+
+
+def _digest(window: C.VisualTile, evidence: Evidence) -> str:
+    """The evidence a window reads (its data region), so a cached window is exactly a recomputed one."""
+    import hashlib
+
+    b = window.bbox.buffered(BAND + PAD + POINT_PAD)
+    box = shapely.box(*b.as_tuple())
+    h = hashlib.sha256(window.id.encode())
+    for group in (evidence.zones, evidence.structures, evidence.streets, evidence.footprints, evidence.water):
+        for item in group:
+            g = item[0] if isinstance(item, tuple) else item
+            if g.intersects(box):
+                h.update(g.wkb)
+            h.update(b"|")
+    for array in (evidence.spots, evidence.points):
+        if len(array):
+            x = array[:, 0]
+            z = array[:, 1] if array is evidence.spots else array[:, 2]
+            sel = (x >= b.xmin) & (x <= b.xmax) & (z >= b.zmin) & (z <= b.zmax)
+            h.update(np.ascontiguousarray(array[sel]).tobytes())
+        h.update(b"#")
+    return h.hexdigest()
+
+
+def cached_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
+    if not evidence.near(window.bbox.buffered(BAND + REACH + 1)):
+        return None
+    key = (window.id, _digest(window, evidence))
+    if key not in _WINDOWS:
+        if len(_WINDOWS) >= WINDOW_CACHE:
+            _WINDOWS.pop(next(iter(_WINDOWS)))
+        _WINDOWS[key] = solve_window(window, evidence)
+    return _WINDOWS[key]
+
 
 def _ramp(v, low, high):
     """Partition-of-unity weight of the window [low, high] along one axis."""
@@ -455,7 +492,7 @@ def windows(tile: C.VisualTile):
 def surface(tile: C.VisualTile, evidence: Evidence, xs, zs, solved_windows=None):
     """(finished heights, lidar heights, changed mask, per-window results) on the nodes xs x zs."""
     solved_windows = solved_windows if solved_windows is not None else {
-        w.id: solve_window(w, evidence) for w in windows(tile)
+        w.id: cached_window(w, evidence) for w in windows(tile)
     }
     gx, gz = np.meshgrid(xs, zs)
     finished = np.zeros(gx.shape)
@@ -577,6 +614,10 @@ def _survey_one(tile_id: str) -> dict:
             "cpu_s": round(time.process_time() - started, 1), "report": value["report"]}
 
 
+def _survey_group(tiles) -> list:
+    return [_survey_one(t) for t in tiles]
+
+
 def merge_sites(rows) -> list:
     """City-wide sites: per-tile site rows whose extents overlap are one site."""
     sites = [dict(s, tiles=[r["tile"]]) for r in rows if r.get("report") for s in r["report"]["sites"]]
@@ -606,9 +647,10 @@ def main(argv=None):
     parser.add_argument("command", choices=["survey"])
     parser.add_argument("out", type=Path)
     parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("--tiles-file", type=Path, help="one tile id per line (e.g. the zone-reachable tiles)")
     parser.add_argument("tiles", nargs="*")
     args = parser.parse_args(argv)
-    tiles = args.tiles
+    tiles = args.tiles or (args.tiles_file.read_text().split() if args.tiles_file else [])
     if not tiles:
         from turku3d.fetch.common import Registry
 
@@ -625,9 +667,15 @@ def main(argv=None):
     if args.out.exists():
         done = {json.loads(line)["tile"] for line in args.out.read_text().splitlines() if line.strip()}
     todo = [t for t in tiles if t not in done]
+    # Neighbouring tiles go to one worker in 2x2 groups, so they share its window cache.
+    groups = {}
+    for t in todo:
+        v = C.VisualTile.parse(t)
+        groups.setdefault((v.i // 2, v.j // 2), []).append(t)
     with args.out.open("a") as out, ProcessPoolExecutor(args.jobs) as pool:
-        for row in pool.map(_survey_one, todo, chunksize=1):
-            out.write(json.dumps(row) + "\n")
+        for rows in pool.map(_survey_group, list(groups.values()), chunksize=1):
+            for row in rows:
+                out.write(json.dumps(row) + "\n")
             out.flush()
     rows = [json.loads(line) for line in args.out.read_text().splitlines() if line.strip()]
     sites = merge_sites(rows)
