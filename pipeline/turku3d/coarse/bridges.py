@@ -342,55 +342,6 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
     return result
 
 
-CUT_REACH = SELECT_MARGIN  # m around a deck where the ground over a lower way is cut down to it
-CUT_ANCHOR = 10.0  # m beyond the deck where the lower way's own ground level is read
-CUT_MARGIN = 0.5  # m beyond the lower way's half width
-
-
-def under_profile(bridge, under, sample, step=2.0):
-    """(stations, heights) of a lower way's surface through a crossing: its measured ground beyond
-    CUT_ANCHOR from the deck on either side, interpolated straight under it. Ground under a deck is
-    a survey gap; interpolating the terrain across it buries the lower road in an embankment."""
-    line = under["line"]
-    deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
-    far = deck.buffer(CUT_ANCHOR)
-    stations = np.unique(np.r_[np.arange(0, line.length, step), line.length])
-    points = shapely.line_interpolate_point(line, stations)
-    outside = ~shapely.intersects(far, points)
-    if not outside.any():
-        return None
-    heights = np.array([sample(p.x, p.y) for p in points[outside]], dtype=np.float64)
-    return stations, np.interp(stations, stations[outside], heights)
-
-
-def cut_under(grid_pos, bridge, sample):
-    """Lower the terrain over every way that passes under this deck to that way's own level
-    (``under_profile``), within the way's width and CUT_REACH of the deck. Only lowers: a lower way
-    already in a cutting keeps its ground. Shared by the visual ground and the collision."""
-    positions = np.asarray(grid_pos, dtype=np.float64)
-    result = positions.copy()
-    if bridge.get("landing"):
-        return result
-    deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2)).buffer(CUT_REACH)
-    for under in bridge.get("under", []):
-        if under["tags"].get("highway") == "steps":
-            continue
-        corridor = under["line"].buffer(under["width"] / 2 + CUT_MARGIN).intersection(deck)
-        if corridor.is_empty:
-            continue
-        inside = np.flatnonzero(shapely.intersects_xy(corridor, positions[:, 0], positions[:, 2]))
-        if not len(inside):
-            continue
-        profile = under_profile(bridge, under, sample)
-        if profile is None:
-            continue
-        stations, heights = profile
-        level = np.interp(shapely.line_locate_point(
-            under["line"], shapely.points(positions[inside][:, [0, 2]])), stations, heights)
-        result[inside, 1] = np.minimum(result[inside, 1], level)
-    return result
-
-
 def under_height(bridge, under, point, sample):
     """Interpolate the lower way from outside the deck, which may be in the ground dataset.
 
@@ -858,7 +809,6 @@ def produce(tile, grid_pos, inputs):
             protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
-        grid_pos[:] = cut_under(grid_pos, way, full_ground)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:
             decks.append(Deck(way, line, ss, hh, meshes, height_at, tuple(aprons)))
