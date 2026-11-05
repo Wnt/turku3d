@@ -148,7 +148,8 @@ export const SCOOTER = {
 
 /** #19-style King of the Hammers 4400 car (~/turku3d/loops/trophy4400/SPEC.md §3): four-wheel steer (42° front and
  *  32° rear inner-wheel lock, passive counter-phase rear steer that tapers to zero and locks out at 30 mph), IFS/IRS
- *  long travel (0.66 m front, 0.71 m rear) on a scheduled dual-rate spring with a hydraulic bump stop and
+ *  long travel (0.66 m front, 0.71 m rear) on a scheduled two-stage tender and soft main spring with a hydraulic bump
+ *  stop, high-speed compression and
  *  position-sensitive bypass damping, 4WD with a 40/60 split and ~1000 hp. The chassis origin rides 0.98 m above
  *  the ground at static ride (belly 0.56, SPEC C1; wheelbase 3.16); the hub sits 0.533 m up (connection y −0.03,
  *  static length 0.417). Rapier's `rest` is the longest ray
@@ -183,7 +184,7 @@ export const TRUCK = {
   suspensionRelaxation: 2.6,
   suspensionTravel: TRUCK_REST - (TRUCK_STATIC_LENGTH - 0.38),
   maxSuspensionForce: 60000,
-  rollTransfer: 0.7,
+  rollTransfer: 0.31,
   frontTorque: 0.4,
   curbFeel: 0.2,
   rearSteer: {
@@ -192,9 +193,18 @@ export const TRUCK = {
   suspensionCurve: {
     staticLength: TRUCK_STATIC_LENGTH,
     axles: [
-      { wheels: [0, 1], bump: 0.36, droop: 0.30, frequency: 1.10 },
-      { wheels: [2, 3], bump: 0.38, droop: 0.33, frequency: 1.20 },
+      { wheels: [0, 1], bump: 0.36, droop: 0.30, frequency: 0.76 },
+      { wheels: [2, 3], bump: 0.38, droop: 0.33, frequency: 0.82 },
     ],
+    // Trophy-truck wheel rates (~14 kN/m front): a corner at 85 % bump carries ≈ 1.8 F0, under the half weight a
+    // corner can hold in a cross-axle warp with four wheels down (D8). The soft tender lets the inside wheel hang low
+    // and loaded in a turn; the limit section past 75 % droop firms the roll near the strap (D7). Big landings are
+    // carried by the stiff bypass zones, the high-speed compression circuit and the hydraulic stop (D6, D6b).
+    shape: {
+      droopFloor: 0, droopKnee: [0.75, 0.6], crossover: 0.85, rate2: 1.3, stop: 0.88, fullBump: 7,
+      compression: [0.35, 1.0, 1.6], rebound: 0.9, topOut: 1.2, stopDamping: 25000,
+      highSpeed: { knee: 1.5, coef: 6000 },
+    },
   },
   grip: {
     front: 1.2, rear: 1.1,
@@ -202,7 +212,7 @@ export const TRUCK = {
   },
   drag: 0.8,
   frictionCircle: { floor: 0.45, knee: 0.85, span: 0.5 },
-  airPitch: { damping: 1.5, control: 1.2 },
+  airPitch: { damping: 2.5, control: 1.2 },
 } as const satisfies VehicleTuning;
 
 export type VehicleKind = 'car' | 'scooter' | 'truck';

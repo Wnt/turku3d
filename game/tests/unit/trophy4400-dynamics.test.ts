@@ -131,14 +131,16 @@ describe('4400 truck on the headless course', () => {
     expect(cam.cameraTransient).toBeLessThanOrEqual(0.4 * cam.chassisTransient);
   });
 
-  test('D6b hard 3 m flat drop: bottoms on the hydraulic stop but never strikes the chassis', () => {
-    // Energy bound: m·g·(3 + 0.36) = 77 kJ over 0.36 m of bump on four corners needs ≥ 54 kN per corner from first
-    // touch, against the spec's 60 kN corner limit with a progressive curve, so full bump is reached (measured
-    // 100 %, belly 0.14 m, overshoot ≈ 0.08 m). The guarantee kept: no chassis strike.
+  test('D6b hard 3 m flat drop: soaks up without bottoming or a chassis strike', () => {
+    // m·g·(3 + 0.34) ≈ 77 kJ over the 0.64 m from full droop to 95 % bump needs ≈ 30 kN per corner on average: the
+    // high-speed compression circuit brakes the corner from first touch on the droop side (suspension.ts).
     const drop = S.flatDrop(3);
-    log('D6b-drop3', drop, 'no chassis contact (full bump is the energy bound under the 60 kN corner limit)');
+    log('D6b-drop3', drop, 'peak ≤95% bump, no chassis contact, force < 60 kN, overshoot ≤0.04 m, settle ±0.02 m within 0.9 s');
+    expect(drop.peakCompression).toBeLessThanOrEqual(0.95);
     expect(drop.chassisContact).toBe(false);
-    expect(drop.belly).toBeGreaterThan(0.1);
+    expect(drop.peakForce).toBeLessThan(60000);
+    expect(drop.overshoot).toBeLessThanOrEqual(0.04);
+    expect(drop.settle).toBeLessThanOrEqual(0.9);
   });
 
   test('D7 steady circle roll; D10 skidpad limit and power-on exit', () => {
@@ -149,6 +151,8 @@ describe('4400 truck on the headless course', () => {
     log('D7', { road08: road, dirt06: dirt }, 'dirt 0.6 g roll 5–8°; asphalt 0.8 g roll 6–9° with 4 contacts');
     log('D10', { skidpad: pad, powerOnExit: exit }, 'asphalt 0.80–0.95 g; dirt 0.55–0.68 g; power-on exit rear slip > front by ≥3°');
     expect(dirt).toBeDefined(); expect(dirt!.roll).toBeGreaterThan(5); expect(dirt!.roll).toBeLessThan(8);
+    // Reference 0:45/1:06/1:42: the inside front hangs well down and stays planted; the outside corners compress.
+    expect(dirt!.travel[0]).toBeLessThan(-0.5); expect(dirt!.travel[1]).toBeGreaterThan(0.15); expect(dirt!.contacts).toBe(4);
     expect(road).toBeDefined(); expect(road!.roll).toBeGreaterThan(6); expect(road!.roll).toBeLessThan(9); expect(road!.contacts).toBe(4);
     expect(pad.road).toBeGreaterThan(0.80); expect(pad.road).toBeLessThan(0.95);
     expect(pad.dirt).toBeGreaterThan(0.55); expect(pad.dirt).toBeLessThan(0.68);
@@ -156,9 +160,18 @@ describe('4400 truck on the headless course', () => {
     expect(exit.rearMinusFront).toBeGreaterThanOrEqual(3);
   });
 
-  test('D8 articulation: a 0.6 m step under the front-left wheel keeps four contacts', () => {
-    const r = S.articulation();
+  test('D8 articulation: the 0.6 m diagonal step (FL and RR up) at walking pace', () => {
+    const r = S.diagonalStep();
     log('D8', r, 'all 4 contacts; one corner ≥85% bump while the opposite is ≥70% droop');
+    expect(r.contacts).toBe(4);
+    expect(r.chassisContact).toBe(false);
+    expect(r.FL).toBeGreaterThanOrEqual(0.85);
+    expect(Math.max(-r.FR, -r.RL)).toBeGreaterThanOrEqual(0.70);
+  });
+
+  test('D8 single-wheel step: a 0.6 m step under the front-left wheel keeps four contacts', () => {
+    const r = S.articulation();
+    log('D8-single', r, 'all 4 contacts; no chassis strike; the unloaded corner droops ≥70%');
     expect(r.contacts).toBe(4);
     expect(r.chassisContact).toBe(false);
     expect(Math.max(-r.FR, -r.RL)).toBeGreaterThan(0.70);

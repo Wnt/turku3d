@@ -16,6 +16,8 @@ export function ackermann4(front: number, rear: number, xf: number, xr: number, 
   const own = x > (xf + xr) / 2 ? front : rear;
   if (Math.abs(tf) < 1e-6 && Math.abs(tr) < 1e-6) return 0;
   if (Math.abs(tr - tf) < 1e-4) return Math.max(-limit, Math.min(limit, own));
+  // An axle held straight puts the turn centre on its own line: its wheels stay exactly straight (no rounding in xc).
+  if (own === 0) return 0;
   const xc = (xf * tr - xr * tf) / (tr - tf);
   // Signed distance of the inner wheel line from the centre (+: centre on the left, −Z).
   const inner = Math.abs(tf) >= Math.abs(tr) ? (xf - xc) / tf : (xr - xc) / tr;

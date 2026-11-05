@@ -3,7 +3,7 @@ import { TRUCK } from '../../src/physics/constants';
 import { MAT } from '../../src/shared/col/materials';
 import type { RearSteerMode } from '../../src/vehicle/rearSteer';
 import { heaveFollow } from '../../src/vehicle/chaseCamera';
-import { axes, box, course, cruise, deg, G, heading, idle, pitch, ramp, roll, travel } from './trophy4400-course';
+import { axes, box, course, descent, cruise, deg, G, heading, idle, pitch, ramp, roll, travel } from './trophy4400-course';
 import { vehicleGeometry, vehiclePose } from '../../src/gameplay/autopilot/autopilot';
 import { DriveFollower } from '../../src/gameplay/autopilot/follow';
 import { makePath } from '../../src/gameplay/autopilot/path';
@@ -194,18 +194,21 @@ export function cameraHeave(ys: number[]) {
 /** D7/D10: steady circle; ramps speed on a fixed lock and records roll against lateral acceleration. */
 export function circle(material: number, steer = -0.35) {
   const c = course({ material });
-  const rows: { v: number; ay: number; roll: number; contacts: number; frontSlip: number; rearSlip: number }[] = [];
-  for (let v = 4; v <= 24; v += 1) {
+  const rows: { v: number; ay: number; roll: number; contacts: number; frontSlip: number; rearSlip: number; travel: number[] }[] = [];
+  for (let v = 4; v <= 26; v += 1) {
     c.run(3, s => cruise(s, v, steer, 'auto'));
     let ay = 0, r = 0, n = 0, contacts = 4, fs = 0, rs = 0;
+    const tr = [0, 0, 0, 0];
     c.run(1.5, s => cruise(s, v, steer, 'auto'), s => {
+      for (let i = 0; i < 4; i++) tr[i] += travel(s, i);
       const omega = c.vehicle.body.angvel().y;
       ay += Math.abs(omega * Math.hypot(s.linvel.x, s.linvel.z)); r += Math.abs(roll(s.rot)); n++;
       contacts = Math.min(contacts, s.wheels.filter(w => w.contact).length);
       const slip = (i: number) => s.wheels[i].tyre ? Math.abs(deg(Math.atan2(s.wheels[i].tyre!.lateral, Math.abs(s.wheels[i].tyre!.longitudinal) + 0.1))) : 0;
       fs += (slip(0) + slip(1)) / 2; rs += (slip(2) + slip(3)) / 2;
     });
-    rows.push({ v, ay: ay / n / G, roll: r / n, contacts, frontSlip: fs / n, rearSlip: rs / n });
+    // Per-wheel travel (+ bump / − droop fraction); a left turn, so wheels 0 and 2 are inside.
+    rows.push({ v, ay: ay / n / G, roll: r / n, contacts, frontSlip: fs / n, rearSlip: rs / n, travel: tr.map(x => x / n) });
   }
   c.free();
   return rows;
@@ -234,6 +237,27 @@ export function articulation() {
   const s = c.run(3, { ...idle(), handbrake: true });
   const out = { bumpFL: travel(s, 0), droopRR: -travel(s, 3), FR: travel(s, 1), RL: travel(s, 2),
     contacts: s.wheels.filter(w => w.contact).length, chassisContact: c.chassisContact };
+  c.free();
+  return out;
+}
+
+/** D8 (SPEC §7 "a 0.6 m diagonal step"): the cross-axle test, 0.6 m blocks under the diagonal pair FL and RR (1:2.5
+ *  wedges). The front-right wheel climbs over the right block first; the rear-right then climbs it while the front-left
+ *  climbs the left block, so FL and RR stand 0.6 m up with FR and RL on the ground. Held on the handbrake. */
+export function diagonalStep() {
+  const wb = TRUCK.wheels[0].x - TRUCK.wheels[2].x, L = 1.5, H = 0.6;
+  const left = [-1.6, -0.95] as const, right = [0.95, 1.6] as const;
+  const c = course({ x: -8, build: w => {
+    // Right lane: up to x = 0, plateau to 1.2, down to 2.7 (FR crosses it, RR stops on it).
+    ramp(w, 0, H, L, ...right); box(w, 0.6, H / 2, (right[0] + right[1]) / 2, 0.6, H / 2, (right[1] - right[0]) / 2); descent(w, 1.2, H, L, ...right);
+    // Left lane: up to x = wb, plateau to wb + 1.6 (FL stops on it while RR is on the right plateau).
+    ramp(w, wb, H, L, ...left); box(w, wb + 0.8, H / 2, (left[0] + left[1]) / 2, 0.8, H / 2, (left[1] - left[0]) / 2);
+  } });
+  const fl = (s: ReturnType<typeof c.vehicle.state>) => s.pos.x + TRUCK.wheels[0].x;
+  c.run(20, s => cruise(s, 1.2), s => fl(s) > wb + 0.55);
+  const s = c.run(3, { ...idle(), handbrake: true });
+  const out = { FL: travel(s, 0), FR: travel(s, 1), RL: travel(s, 2), RR: travel(s, 3), flX: fl(s),
+    contacts: s.wheels.filter(w => w.contact).length, chassisContact: c.chassisContact, roll: roll(s.rot), pitch: pitch(s.rot) };
   c.free();
   return out;
 }
@@ -311,13 +335,16 @@ function axleSlip(s: ReturnType<ReturnType<typeof course>['vehicle']['state']>, 
 export function powerOnExit(material = MAT.soil) {
   const c = course({ material });
   c.run(6, s => cruise(s, 9, -0.45, 'auto'));
-  let worst = -Infinity, front = 0, rear = 0;
+  let worst = -Infinity, front = 0, rear = 0, slide = 0;
   c.run(1.2, { ...idle('auto'), throttle: 1, steer: -0.45 }, s => {
     const slip = axleSlip(s, c.vehicle.body.angvel().y);
     if (slip.rear - slip.front > worst) { worst = slip.rear - slip.front; front = slip.front; rear = slip.rear; }
+    // Body slide angle: chassis heading against the travel direction at the centre of mass (the tail stepping out).
+    const f = axes(s.rot).forward, v = s.linvel;
+    if (Math.hypot(v.x, v.z) > 2) slide = Math.max(slide, Math.abs(deg(Math.atan2(f.x * v.z - f.z * v.x, f.x * v.x + f.z * v.z))));
   });
   c.free();
-  return { rearMinusFront: worst, front, rear };
+  return { rearMinusFront: worst, front, rear, slide };
 }
 
 /** D11: the autopilot follower drives the truck round a 10 m radius after a straight. */

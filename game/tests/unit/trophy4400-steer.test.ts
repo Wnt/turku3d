@@ -144,44 +144,59 @@ describe('turning radius', () => {
 describe('suspension travel and force curves', () => {
   const [front, , rear] = corners(TRUCK);
 
-  test('static loads carry the mass 51/49; ride frequencies 1.1 and 1.2 Hz', () => {
+  const shape = TRUCK.suspensionCurve.shape;
+
+  test('static loads carry the mass 51/49; ride frequencies 0.76 and 0.82 Hz (trophy-truck wheel rates)', () => {
     const c = corners(TRUCK);
     expect(c.reduce((s, k) => s + k.F0, 0)).toBeCloseTo(TRUCK.mass * 9.81, 3);
     expect((c[0].F0 + c[1].F0) / (TRUCK.mass * 9.81)).toBeCloseTo(0.51, 2);
-    expect(Math.sqrt(front.K1 / (front.F0 / 9.81)) / (2 * Math.PI)).toBeCloseTo(1.10, 3);
-    expect(Math.sqrt(rear.K1 / (rear.F0 / 9.81)) / (2 * Math.PI)).toBeCloseTo(1.20, 3);
-    expect(front.critical).toBeGreaterThan(8000); expect(front.critical).toBeLessThan(8500);
+    expect(Math.sqrt(front.K1 / (front.F0 / 9.81)) / (2 * Math.PI)).toBeCloseTo(0.76, 3);
+    expect(Math.sqrt(rear.K1 / (rear.F0 / 9.81)) / (2 * Math.PI)).toBeCloseTo(0.82, 3);
+    expect(front.K1).toBeGreaterThan(13000); expect(front.K1).toBeLessThan(14500);
+    expect(front.critical).toBeGreaterThan(5500); expect(front.critical).toBeLessThan(6000);
     expect(corners(CAR)).toEqual([]);
     expect(staticLength(TRUCK)).toBe(0.417);
     expect(staticLength(CAR)).toBeCloseTo(CAR.rest - 9.81 / (4 * CAR.suspensionStiffness), 9);
   });
 
-  test('spring: tender droop, dual rate, hydraulic bump stop at 7 F0; continuous with no force steps', () => {
+  test('spring: two-stage tender droop, main rate, hydraulic bump stop at 7 F0; continuous with no force steps', () => {
+    const [kx, ky] = shape.droopKnee;
     for (const c of [front, rear]) {
       expect(springForce(c, 0)).toBeCloseTo(c.F0, 6);
-      expect(springForce(c, -c.droop)).toBeCloseTo(0.15 * c.F0, 6);
+      expect(springForce(c, -kx * c.droop)).toBeCloseTo(ky * c.F0, 6);
+      expect(springForce(c, -c.droop)).toBeCloseTo(shape.droopFloor * c.F0, 6);
       expect(springForce(c, -c.droop - 0.01)).toBe(0);
       expect(springForce(c, c.bump)).toBeCloseTo(7 * c.F0, 3);
       expect((springForce(c, 0.2 * c.bump) - springForce(c, 0.1 * c.bump)) / (0.1 * c.bump)).toBeCloseTo(c.K1, 3);
-      expect((springForce(c, 0.7 * c.bump) - springForce(c, 0.6 * c.bump)) / (0.1 * c.bump)).toBeCloseTo(2.2 * c.K1, 3);
+      const x = (shape.crossover + shape.stop) / 2;
+      expect((springForce(c, (x + 0.01) * c.bump) - springForce(c, (x - 0.01) * c.bump)) / (0.02 * c.bump)).toBeCloseTo(shape.rate2 * c.K1, 3);
+      const steepest = Math.max(shape.rate2 * c.K1, (ky - shape.droopFloor) * c.F0 / ((1 - kx) * c.droop));
       let last = springForce(c, -c.droop);
       for (let b = -c.droop + 0.001; b <= c.bump; b += 0.001) {
         const f = springForce(c, b);
         expect(f).toBeGreaterThan(last);
-        expect(f - last).toBeLessThan(0.001 * 2.2 * c.K1 + 0.001 * 2 * c.stop * 0.12 * c.bump + 1);
+        expect(f - last).toBeLessThan(0.001 * steepest + 0.001 * 2 * c.stop * (1 - shape.stop) * c.bump + 1);
         last = f;
       }
     }
   });
 
+  test('cross-axle (D8): a corner at 85 % bump plus its neighbour at full droop carry less than half the weight', () => {
+    // Static warp with four wheels down: FL and RR carry the same load A, FR and RL the same B, A + B = m·g / 2, so a
+    // corner can reach 85 % bump only if F(0.85 bump) + F(full droop) < m·g / 2 (necessary; the course test D8 holds it).
+    // The 1.10/1.20 Hz dual-rate curve gave 19 kN at 85 % front bump against an 11.5 kN half weight.
+    const half = TRUCK.mass * 9.81 / 2;
+    for (const c of [front, rear]) expect(springForce(c, 0.85 * c.bump) + springForce(c, -c.droop)).toBeLessThan(0.95 * half);
+  });
+
   test('bypass damping: position zones blended without steps, top-out rebound, bump-stop compression', () => {
-    const c = front;
-    expect(damping(c, 0).compression).toBeCloseTo(0.30 * c.critical, 0);
-    expect(damping(c, 0.6 * c.bump).compression).toBeCloseTo(0.70 * c.critical, 0);
-    expect(damping(c, 0.8 * c.bump).compression).toBeCloseTo(1.10 * c.critical, 0);
-    expect(damping(c, 0.95 * c.bump).compression).toBeCloseTo(1.10 * c.critical + 25000, 0);
-    expect(damping(c, 0).rebound).toBeCloseTo(0.75 * c.critical, 0);
-    expect(damping(c, -0.95 * c.droop).rebound).toBeCloseTo(1.20 * c.critical, 0);
+    const c = front, [z0, z1, z2] = shape.compression;
+    expect(damping(c, 0).compression).toBeCloseTo(z0 * c.critical, 0);
+    expect(damping(c, 0.6 * c.bump).compression).toBeCloseTo(z1 * c.critical, 0);
+    expect(damping(c, 0.8 * c.bump).compression).toBeCloseTo(z2 * c.critical, 0);
+    expect(damping(c, 0.95 * c.bump).compression).toBeCloseTo(z2 * c.critical + shape.stopDamping, 0);
+    expect(damping(c, 0).rebound).toBeCloseTo(shape.rebound * c.critical, 0);
+    expect(damping(c, -0.95 * c.droop).rebound).toBeCloseTo(shape.topOut * c.critical, 0);
     let last = damping(c, -c.droop);
     for (let b = -c.droop; b <= c.bump; b += 0.002) {
       const d = damping(c, b);
@@ -195,13 +210,18 @@ describe('suspension travel and force curves', () => {
     const M = TRUCK.mass, rest = TRUCK.rest, dt = 1 / 60;
     for (const b of [-0.25, -0.1, 0, 0.1, 0.25, 0.33]) {
       const length = front.staticLength - b, k = schedule(front, length, 0, rest, M, dt);
-      const bias = damping(front, b).compression * 0.29 * 9.81 * dt;
+      const bias = damping(front, b).compression * 0.12 * 9.81 * dt;
       expect(k.stiffness * M * (rest - length)).toBeCloseTo(springForce(front, b) - bias, 3);
       expect(k.compression * M).toBeCloseTo(damping(front, b).compression, 3);
     }
     // Moving at 3 m/s into bump: the spring is taken one tick ahead.
     const moving = schedule(front, front.staticLength - 0.1, 3, rest, M, dt);
     expect(moving.compressionFrom).toBeCloseTo(0.15, 9);
+    // High-speed compression: above the knee the circuit adds coef·(v − knee) of force.
+    const hs = shape.highSpeed, landing = schedule(front, front.staticLength + 0.2, 6, rest, M, dt, 57000);
+    expect(landing.compression * M * 6).toBeCloseTo(damping(front, landing.compressionFrom).compression * 6 + hs.coef * (6 - hs.knee), 3);
+    const slow = schedule(front, front.staticLength, hs.knee * 0.9, rest, M, dt);
+    expect(slow.compression * M).toBeCloseTo(damping(front, slow.compressionFrom).compression, 3);
     // Blow-off: spring plus damper stay under the force limit.
     const hard = schedule(front, front.staticLength - 0.33, 6, rest, M, dt, 57000);
     expect(springForce(front, 0.36) + hard.compression * M * 6).toBeLessThanOrEqual(57000 + 1e-6);
