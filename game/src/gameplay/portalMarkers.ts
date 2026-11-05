@@ -19,6 +19,7 @@ const FADE_START = 160;
 const FADE_END = 260;
 const PULSE_SECONDS = 2.2;
 const PROBE_RETRY_SECONDS = 1;
+const PROBE_TIMEOUT_MS = 3000;
 /** Portals of one city closer than this share one map marker. */
 const MAP_MERGE_M = 60;
 
@@ -168,7 +169,9 @@ export class PortalMarkers {
   private probe(arch: Arch) {
     if (arch.probing || this.time < arch.nextProbe) return;
     arch.probing = true;
-    void this.ground(arch.def.x, arch.def.z, arch.def.rayTop).then(y => {
+    // A ray the physics worker never answers (a restart, a dropped query) must not stop the arch from ever standing.
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), PROBE_TIMEOUT_MS));
+    void Promise.race([this.ground(arch.def.x, arch.def.z, arch.def.rayTop), timeout]).then(y => {
       arch.probing = false;
       if (y === null) { arch.nextProbe = this.time + PROBE_RETRY_SECONDS; return; }
       arch.y = y;
