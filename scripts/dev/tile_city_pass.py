@@ -7,7 +7,8 @@ pipeline environment (``shared-tiles-run.sh``), like ``tile_migrate.py``; the Ma
   tile_city_pass.py --farm-root ROOT --revision DERIVED [--max-jobs 6] [--high 3.5] [--low 2.5]
                     [--interval 30] [--radius RINGS] [--checkpoint STEP] [--supply DIR] [--estimate] [tiles ...]
 
-* Order: rings of tiles round t0_0_0, nearest first (the order players see them), or the given tiles. Each worker
+* Order: rings of tiles round t0_0_0, nearest first (the order players see them), or the given tiles; with
+  ``--ordered`` the given order is kept as is (e.g. an interest ranking), first tile first. Each worker
   is a lane that keeps ``--blocks`` decoded LAZ blocks and walks round the ring from block to neighbouring block,
   so the wires step decodes each block about once per lane instead of once per tile (same output).
 * Load: every ``--interval`` seconds the cap moves by one: down while the one-minute load per core is above
@@ -293,6 +294,8 @@ def main():
     parser.add_argument('--low', type=float, default=2.5, help='one-minute load per core that raises the cap')
     parser.add_argument('--interval', type=float, default=30)
     parser.add_argument('--radius', type=int, help='only tiles within this many rings of t0_0_0')
+    parser.add_argument('--ordered', action='store_true', help='keep the given tiles\' order instead of rings')
+    parser.add_argument('--tiles-file', type=Path, help='tiles to migrate, one per line (with --ordered: in order)')
     parser.add_argument('--estimate', action='store_true')
     parser.add_argument('--supply', action='append', default=[],
                         help='directory of pistepilvi LAZ blocks to link (or copy) in when they match the catalog')
@@ -319,7 +322,9 @@ def main():
     log_dir = root / 'migrations' / meta['generation']
     log_dir.mkdir(parents=True, exist_ok=True)
     journal, progress = log_dir / 'pass.jsonl', log_dir / 'pass.json'
-    tiles = args.tiles or M.finished_base_tiles(root, meta)
+    given = [*args.tiles, *([line.strip() for line in args.tiles_file.read_text().splitlines() if line.strip()]
+                            if args.tiles_file else [])]
+    tiles = given or M.finished_base_tiles(root, meta)
     if args.radius is not None:
         tiles = [t for t in tiles if ring(t) <= args.radius]
     rows = logged(journal)
@@ -328,8 +333,10 @@ def main():
         print(json.dumps(estimate(rows, tiles, share), indent=1))
         return 0
     finished = {r['tile'] for r in rows if r['state'] in ('migrated', 'kept')}
-    pending = [t for t in tiles if t not in finished]
-    pending.sort(key=lambda t: (ring(t), t))
+    pending = [t for t in dict.fromkeys(tiles) if t not in finished]
+    order = {t: k for k, t in enumerate(pending)} if args.ordered else None
+    resort = (lambda: pending.sort(key=order.get)) if order else (lambda: pending.sort(key=lambda t: (ring(t), t)))
+    resort()
     cores = os.cpu_count() or 1
     cap, started_at, next_adjust = 1, time.monotonic(), 0.0
     survey = None if args.no_survey_wait else Survey(args.supply, log_dir / 'supply.jsonl')
@@ -369,7 +376,7 @@ def main():
                 if waiting and now >= next_survey:  # Blocks may have arrived (lidarpc's downloads): look again.
                     next_survey = now + args.survey_interval
                     pending.extend(waiting)
-                    pending.sort(key=lambda t: (ring(t), t))
+                    resort()
                     waiting.clear()
                 due = [t for t, w in rebuilding.items() if (root / 'products' / w['row'].get('rebuild_generation', '')
                                                              / t / 'ready.json').exists()]
@@ -381,12 +388,12 @@ def main():
                     for tile in due:
                         del rebuilding[tile]
                     pending.extend(due)
-                    pending.sort(key=lambda t: (ring(t), t))
+                    resort()
                 for lane in lanes:
                     if lane.future or not pending or len([x for x in lanes if x.future]) >= cap:
                         continue
                     while pending:
-                        tile = pending.pop(pick(pending, lane.last))
+                        tile = pending.pop(0 if order else pick(pending, lane.last))
                         if survey is not None and survey.missing(tile):
                             waiting.append(tile)
                             continue
