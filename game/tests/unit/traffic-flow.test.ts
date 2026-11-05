@@ -283,6 +283,59 @@ describe('drivers and players', () => {
   });
 });
 
+describe('aggressive drivers: lane changes, reverses and new routes when blocked', () => {
+  const run = (lanes: number, obstacle: (net: TrafficNetwork) => { lane: Lane; body: Parameters<TrafficFlow['setPlayers']>[1][number] }, seconds = 240) => {
+    const net = flowNetwork(intersection(false, lanes)), flow = new TrafficFlow(net, 0);
+    flow.reset(0);
+    const { lane, body } = obstacle(net);
+    let reversed = 0;
+    const last = new Map<string, { lane: Lane; s: number }>();
+    for (let step = 1; step <= seconds * 10; step++) {
+      flow.setPlayers([], [body], step / 10); flow.update(step / 10);
+      const cars = [...flow.cars.values()].map(c => ({ ...sampleFlowPose(c, 0, () => 0), length: c.length, width: c.width, car: c }));
+      for (const [i, a] of cars.entries()) {
+        if (overlap(a, body)) throw new Error(`${a.car.key} drove into the obstacle at ${step / 10}`);
+        for (const b of cars.slice(i + 1)) if (overlap(a, b)) throw new Error(`${a.car.key} / ${b.car.key} overlap at ${step / 10}`);
+        const before = last.get(a.car.key);
+        if (before && before.lane === a.car.lane && a.car.s < before.s - 0.01) reversed++;
+        last.set(a.car.key, { lane: a.car.lane, s: a.car.s });
+      }
+    }
+    return { flow, lane, reversed };
+  };
+  const parked = (lanes: number) => (net: TrafficNetwork) => {
+    const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100 && l.k === 0 && l.laneCount === lanes)!;
+    const at = pointAt(lane.points, lane.cum, 60);
+    return { lane, body: { id: 'parked', x: at.x, y: 0, z: at.z, hx: at.hx, hz: at.hz, vx: 0, vz: 0, length: 4.5, width: 1.9 } };
+  };
+
+  test('on a two-lane road, drivers stopped behind a parked car get past it in the free lane and nobody locks', () => {
+    const { flow, lane } = run(2, parked(2));
+    expect(flow.stats.escapes + flow.stats.laneChanges).toBeGreaterThan(2);
+    expect([...flow.cars.values()].filter(c => c.stuck > 60).map(c => `${c.key} by ${c.blockedBy}`)).toEqual([]);
+    expect(flow.stats.exited).toBeGreaterThan(40);
+    void lane;
+  });
+
+  test('on a one-lane road, a driver nose up against the parked car backs up a little before pulling out round it', () => {
+    const { flow, reversed } = run(1, parked(1));
+    expect(flow.stats.reverses).toBeGreaterThan(0);
+    expect(flow.stats.reverses).toBeLessThan(80); // once per driver that needs it, not every tick
+    expect(reversed).toBeGreaterThan(0);
+  });
+
+  test('a junction head kept at its line by a blocked exit takes another way', () => {
+    const { flow } = run(1, net => {
+      // A truck across the street the approach would go straight into, just past the junction.
+      const tile = [...net.tiles.values()][0];
+      const exit = tile.lanes.find(l => l.start.kind === 'junction' && l.length > 100)!;
+      const at = pointAt(exit.points, exit.cum, 14);
+      return { lane: exit, body: { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.5 } };
+    });
+    expect(flow.stats.rerouted).toBeGreaterThan(0);
+  });
+});
+
 describe('out-of-view recycling (GTA-style)', () => {
   // A player's truck across the whole carriageway: nobody can go round it, so the queue behind it locks.
   const locked = (watchers: Parameters<TrafficFlow['setWatchers']>[0]) => {
