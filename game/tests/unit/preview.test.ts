@@ -24,4 +24,8 @@ describe('generation preview', () => {
     expect(text).toContain('queued (1): t0_1_1');
     expect(text).toContain('drawn (1): t0_0_0');
   });
+  it('a slow or not yet answering service reads as starting or busy, not as no answer', () => {
+    expect(statusText(null, [])).toContain('service: starting');
+    expect(statusText({ state: 'building' }, [], 12)).toContain('busy, last answer 12 s ago (building)');
+  });
 });
