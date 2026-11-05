@@ -110,14 +110,15 @@ export const laneSpan = (lane: Lane) => lane.tau + lane.wait + lane.delta;
 
 /** A cul-de-sac is shorter than this (m); a longer dead-end road leads somewhere (a harbour, a farm) and keeps traffic. */
 const CUL_DE_SAC = 200;
-/** The movement turns into a cul-de-sac: its receiving lane's only way on turns round back to where it started.
- *  Ambient drivers have no destination there, so they never choose it while another way exists (GTA: wander never
- *  enters a dead end). */
-export function intoDeadEnd(route: Lane): boolean {
-  const x = route.next, back = x?.next;
-  return !!x && !!back && x.length < CUL_DE_SAC && x.start.kind === 'junction' && x.end.kind === 'junction'
-    && back.tile === x.tile && back.start.node === x.end.node && back.end.node === x.start.node;
+/** A cul-de-sac lane: its only way on turns round back to where it started. Ambient drivers have no destination
+ *  there, so they never choose one while another way exists (GTA: wander never enters a dead end). */
+export function deadEnd(lane: Lane): boolean {
+  const back = lane.next;
+  return !!back && lane.length < CUL_DE_SAC && lane.start.kind === 'junction' && lane.end.kind === 'junction'
+    && back.tile === lane.tile && back.start.node === lane.end.node && back.end.node === lane.start.node;
 }
+/** The movement turns into a cul-de-sac. */
+export const intoDeadEnd = (route: Lane) => !!route.next && deadEnd(route.next);
 
 /** Phase of a seam crossing: continuous along the seam, so both tiles' copies (to 0.1 m) agree within ~20 ms. */
 export function seamPhase(s: SeamKey): number {
