@@ -11,7 +11,7 @@ import shapely
 
 from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 
-from .forest_paths import path_corridors
+from .forest_paths import path_corridors, path_lines
 from .tree_inputs import REGISTER_TREE
 
 # Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
@@ -239,6 +239,10 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # clear the complete carriageway, including its visible flared trunk base.
     paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads, *unsurveyed])
     blocked = shapely.union_all([blocked, paths])
+    # A surveyed trunk stands where it was surveyed (a tree grate in a pavement, a tree beside a park path):
+    # it clears the carriageways and the walked line of a mapped foot/cycle path, not the path's estimated
+    # buffered width. The final trunk clearance (vegetation.clearance) places it against the drawn paving.
+    walked = shapely.union_all([*path_lines(inputs.roads), *inputs.vegetation_roads, *unsurveyed])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
     )
@@ -252,7 +256,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         if not (surveyed if t.object_id.startswith(REGISTER_TREE) else blocked).covers(
             shapely.Point(t.x, t.z)
         )
-        and clears_path(t, paths)
+        and clears_path(t, walked if t.object_id.startswith(REGISTER_TREE) else paths)
     ][:TREE_CAP]
     # Ground key points usually contain no canopy. Use the full classified source,
     # reduced once per source hash and cached independently of the terrain material.
@@ -263,7 +267,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         surveyed, paths, *(b.footprint.buffer(1) for b in inputs.buildings),
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
-    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths)[:TREE_CAP]
+    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked)[:TREE_CAP]
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:

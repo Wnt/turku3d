@@ -52,8 +52,15 @@ def canopy_points(tile, paths):
     return np.concatenate(parts) if parts else np.empty((0, 3))
 
 
-def inventory(tile, canopy, mapped, height_at, blocked, paths):
+def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
+    """Mapped trees plus separated crown maxima. ``walked``: what a surveyed (register) trunk clears instead
+    of ``paths`` (carriageways and the walked lines of mapped paths, ``forests.produce``)."""
     from .forests import clears_path
+    from .tree_inputs import REGISTER_TREE
+
+    def clear(tree):
+        surveyed = walked is not None and tree.object_id.startswith(REGISTER_TREE)
+        return clears_path(tree, walked if surveyed else paths)
 
     if len(canopy) == 0:
         return mapped
@@ -114,6 +121,6 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths):
             tree.variant = variant(tree.species, tree.height)
         # Measurements may enlarge a registered tree after its initial clearance
         # check. Every final visible trunk must still clear the path footprint.
-        if (tree.source != "lidar" or tree.measured) and clears_path(tree, paths):
+        if (tree.source != "lidar" or tree.measured) and clear(tree):
             result.append(tree)
     return result
