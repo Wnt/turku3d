@@ -1,4 +1,5 @@
 import { captureAllowed, captureControl } from './telemetry/capture';
+import { optional } from './core/retryFetch';
 import { RoundUI } from './net/rounds';
 import { multiplayerStart } from './gameplay/startPoints';
 import { bindRoundReset } from './net/roundReset';
@@ -180,11 +181,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
-  await loading.track('Player and vehicle models', Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
-    seated.load(import.meta.env.BASE_URL),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest),
-    walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`)]));
-  await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
+  // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
+  await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`), undefined),
+    optional('scooter and truck', seated.load(import.meta.env.BASE_URL), undefined),
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
+    optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
+  await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
   const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);

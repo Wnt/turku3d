@@ -15,6 +15,7 @@ import { collisionPreview } from './world/collisionPreview';
 //   bench lab (?bench=static|install|fly[&tiles=][&cam=][&off=]): isolated scenarios over the real streamer and renderer;
 //   window.__bench is the lab status with .result (qa/lab, tools/perf/README.md)
 import { loading } from './core/loading';
+import { installFetchRetry } from './core/retryFetch';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
@@ -107,6 +108,8 @@ declare global {
   }
 }
 
+// Transient asset failures (a share deploy restarting its server) retry before anything loads.
+installFetchRetry();
 let params: ReturnType<typeof parseParams>;
 try {
   params = parseParams(location.search, navigator);
@@ -173,7 +176,9 @@ const fail = (e: unknown) => {
   window.__qaError = msg;
 };
 addEventListener('error', (e) => { errors.push(String(e.message)); loadingScreen.fail(String(e.message)); });
-addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); loadingScreen.fail(String(e.reason)); });
+// A stray rejection is optional work that failed (a decorative asset, a warmup): logged, never a failed load. Required
+// boot steps reach fail() through runPlay/runQa/runLab, and a top-level await rejection is an 'error' event.
+addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); console.warn(`[boot] unhandled rejection: ${String(e.reason)}`); });
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
