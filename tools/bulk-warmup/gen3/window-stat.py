@@ -79,7 +79,13 @@ def main():
     print(f"lanes turku {len(p.get('running', []))}/{num(G / 'lanes-turku.effective')} (cap {p.get('cap')}, "
           f"{len(p.get('waiting_for_rebuild', []))} waiting rebuild) | cities {len(c.get('running', []))}/{num(G / 'lanes-cities')}"
           f" | farm builds {sum(1 for _ in Path('/proc').glob('[0-9]*') if _cmd(_).startswith('python -m turku3d.coarse build'))}")
-    print(f"queue turku {p.get('left')} | " + ' '.join(f"{k} {v}" for k, v in (c.get('left') or {}).items()))
+    try:
+        prio = len(Path(os.environ.get('QUEUE_FILE', G / 'queue-turku.txt')).read_text().split())
+    except OSError:
+        prio = 0
+    print(f"queue turku {p.get('left')} left of the pass's set, priority list {prio} (queue-turku.txt) | cities left: "
+          + ' '.join(f"{k} {v}" for k, v in (c.get('left') or {}).items())
+          + f" of {sum(len(cc['tiles']) for cc in js(w.get('plan', G / 'cities-plan.json'), {'cities': []})['cities'])} planned")
     since = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(started))
     done = {}
     errors = []

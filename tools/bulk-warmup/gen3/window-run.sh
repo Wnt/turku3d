@@ -61,6 +61,11 @@ watchdog() {
       if ! alive "$G/warm.pid" && ! grep -q '"done"' "$G/logs/warm.log" 2>/dev/null && [ -f "$G/warm.pid" ]; then
         tail -1 "$G/logs/warm.log" | grep -q Traceback && { say "warmer gone: restart"; start_warm; }
       fi
+      # Parked spot rebuilds asked again every 60 s (a farm restart drops its queue; the pass retries only slowly).
+      if [ $((n % 12)) = 0 ]; then
+        g=$(python3 -c "import json; print(json.load(open('$F/revisions/$(cfg revision)/revision.json'))['generation'])")
+        timeout 50 python3 "$G/rebuild-ask.py" "$F" "$g" > "$G/rebuild-ask.out" 2>&1 &
+      fi
       # Idle city lanes go to Turku while every city queue is empty (a city list that lands later takes them back).
       python3 - "$G" <<'PY'
 import json, os, sys
