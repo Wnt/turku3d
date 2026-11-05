@@ -432,7 +432,7 @@ def test_ortho_distinguishes_dry_vegetation_gravel_and_paving():
     ]
 
 
-def test_park_and_field_keep_grass_but_explicit_yard_keeps_paving(tmp_path):
+def test_field_keeps_grass_park_leaves_cover_to_the_ortho_and_explicit_yard_keeps_paving(tmp_path):
     import json
 
     import pyarrow as pa
@@ -449,11 +449,13 @@ def test_park_and_field_keep_grass_but_explicit_yard_keeps_paving(tmp_path):
     ]
     path = tmp_path / "osm.parquet"
     pq.write_table(pa.Table.from_pylist(rows), path)
-    points = np.array([[15, 0, 15], [50, 0, 50], [150, 0, 150]])
+    points = np.array([[15, 0, 15], [50, 0, 50], [150, 0, 150], [220, 0, 220]])
     rgb = np.full((8, 8, 3), 125, np.uint8)
+    rgb[7, 7] = (70, 120, 50)  # a lawn in the park's south-east corner
+    # A park is a use, not a surface: its grey car park is the ortho's, its lawn too.
     assert classify(
         points, rgb, C.VisualTile(0, 0, 0), [], osm_surfaces(C.VisualTile(0, 0, 0), path)
-    ).tolist() == [mat_id(k) for k in ("paving_slab", "grass", "grass")]
+    ).tolist() == [mat_id(k) for k in ("paving_slab", "grass", "road", "grass")]
 
 
 def test_bent_stair_and_landings_cover_the_entire_terrain_cut():
@@ -613,7 +615,7 @@ def test_near_vertical_lawn_and_paving_faces_take_their_material_from_context():
     ]
 
 
-def test_mapped_bare_rock_replaces_park_lawn_but_not_paths_or_grassy_hollows(tmp_path):
+def test_mapped_bare_rock_replaces_mapped_lawn_but_not_paths_or_grassy_hollows(tmp_path):
     import json
 
     import pyarrow as pa
@@ -624,7 +626,7 @@ def test_mapped_bare_rock_replaces_park_lawn_but_not_paths_or_grassy_hollows(tmp
     rows = [
         dict(tags=json.dumps(tags), geometry_local=geom.wkb)
         for tags, geom in (
-            ({"leisure": "park"}, shapely.box(0, 0, 250, 250)),
+            ({"landuse": "grass"}, shapely.box(0, 0, 250, 250)),
             ({"natural": "bare_rock"}, outcrop),
             ({"highway": "footway", "surface": "gravel"}, shapely.LineString([(100, 0), (100, 250)])),
         )

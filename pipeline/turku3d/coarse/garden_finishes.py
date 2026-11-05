@@ -1,4 +1,5 @@
-"""Recover red garden paving from imagery without baking shadows into its material."""
+"""Unit paving finishes: explicit OSM surface tags, and red garden paving recovered from imagery
+without baking shadows into its material."""
 
 import json
 
@@ -6,34 +7,44 @@ import numpy as np
 import shapely
 
 from turku3d.col.materials import mat_id
-from .street_materials import BRICK
+from .street_materials import BRICK, OSM_FINISHES
 
 
-def regions(tile, rgb, surfaces, gardens, osm=None):
+def osm_regions(tile, osm):
+    """Areas and ground-level ways whose OSM ``surface`` names a unit paving (brick, paving stones).
+
+    They lie under the street register's parts, which name the surveyed material and win.
+    """
+    from turku3d.spatial import rows
+    from .garden_inputs import polygon
+
+    result = []
+    for _, row in rows(osm, tile.bbox):
+        tags = json.loads(row['tags'] or '{}')
+        finish = OSM_FINISHES.get(tags.get('surface'))
+        if finish is None or tags.get('bridge', 'no') != 'no' or tags.get('tunnel', 'no') != 'no':
+            continue
+        if tags.get('layer', '0') not in ('0', '') or tags.get('building'):
+            continue
+        geom = shapely.force_2d(row['geometry_local'])
+        area = polygon(geom)
+        if area.is_empty and tags.get('highway') and geom.geom_type in ('LineString', 'MultiLineString'):
+            try:
+                width = float(tags.get('width', 2.5))
+            except ValueError:
+                width = 2.5
+            area = geom.buffer(np.clip(width, .3, 10) / 2, cap_style='flat')
+        if not area.is_empty:
+            result.append((area, finish))
+    return result
+
+
+def regions(tile, rgb, surfaces, gardens):
     from affine import Affine
     from rasterio.features import shapes
     from scipy.ndimage import binary_closing, binary_opening
 
     result = []
-    if osm:
-        from turku3d.spatial import rows
-        from .garden_inputs import polygon
-        for _, row in rows(osm, tile.bbox):
-            tags = json.loads(row['tags'] or '{}')
-            if tags.get('surface') not in ('brick', 'bricks') or tags.get('bridge', 'no') != 'no':
-                continue
-            if tags.get('layer', '0') not in ('0', '') or tags.get('building'):
-                continue
-            geom = shapely.force_2d(row['geometry_local'])
-            area = polygon(geom)
-            if area.is_empty and tags.get('highway') and geom.geom_type in ('LineString', 'MultiLineString'):
-                try:
-                    width = float(tags.get('width', 2.5))
-                except ValueError:
-                    width = 2.5
-                area = geom.buffer(np.clip(width, .3, 10) / 2)
-            if not area.is_empty:
-                result.append((area, BRICK))
     if not gardens:
         return result
     hard = shapely.union_all([g for g, m in surfaces if m in

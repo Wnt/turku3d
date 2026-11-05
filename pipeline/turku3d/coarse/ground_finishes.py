@@ -40,18 +40,22 @@ def maps(key, size=None):
         height = blades * .0008
         ao = .92 + .08 * np.clip(blades, -1, 1)
         roughness = np.full((size, size), .93)
-    elif key == "brick_paving":
-        # Running bond, 200 x 100 mm bricks with narrow sand-filled joints.
+    elif key in ("brick_paving", "concrete_pavers"):
+        # Running bond with narrow sand-filled joints: 200 x 100 mm red-brown pavers
+        # (Turku register Betonikivi, Maatiili), or 200 x 125 mm grey concrete pavers,
+        # what the register's Betonilaatta sidewalks are in street panoramas.
+        depth, tone, joint, spread, patch = ((.1, [160, 134, 122], [145, 132, 114], 7, 0) if key == "brick_paving"
+                                             else (.125, [166, 164, 158], [132, 128, 120], 6, 3))
         y, x = (np.indices((size, size)) + .5) * (period / size)
-        row = np.floor(y / .1).astype(int)
+        row = np.floor(y / depth).astype(int)
         bx = (x + (row % 2) * .1) % .2
-        by = y % .1
-        edge = np.minimum(np.minimum(bx, .2 - bx), np.minimum(by, .1 - by))
+        by = y % depth
+        edge = np.minimum(np.minimum(bx, .2 - bx), np.minimum(by, depth - by))
         crown = np.clip((edge - .002) / .005, 0, 1)
         cell = (np.floor((x + (row % 2) * .1) / .2).astype(int) % 10)
-        tones = rng.normal(0, 7, (20, 10))[row % 20, cell]
-        brick = np.array([160, 134, 122]) + tones[..., None] + grain[..., None] * 3
-        albedo = np.array([145, 132, 114]) + (brick - [145, 132, 114]) * crown[..., None]
+        tones = rng.normal(0, spread, (20, 10))[row % 20, cell]
+        brick = np.array(tone) + tones[..., None] + grain[..., None] * 3
+        albedo = np.array(joint) + (brick - joint) * crown[..., None] + macro[..., None] * patch
         height = crown * .003 + gaussian_filter(grain, .6, mode="wrap") * .0002
         ao = .86 + .14 * crown
         roughness = np.full((size, size), .88)

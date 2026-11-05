@@ -58,3 +58,39 @@ def test_procedural_finishes_are_repeatable_finite_pbr_with_metric_relief(tmp_pa
     library = surfaces.library(tmp_path / 'out', tmp_path / 'empty', channels)
     for key in finishes.FINISH_KEYS.values():
         assert (library / ('draft_' + key) / 'normal.png').exists()
+
+
+def test_register_concrete_paving_is_unit_pavers_and_osm_paving_stones_lie_under_the_register(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse import garden_finishes
+
+    assert finishes.street_finish('Betonilaatta') == finishes.CONCRETE_PAVERS
+    assert finishes.street_finish('Betonikivi') == finishes.BRICK
+    assert finishes.street_finish('Asfalttibetoni') is None
+    rows = [dict(tags=json.dumps(tags), geometry_local=geom.wkb) for tags, geom in (
+        ({'highway': 'footway', 'surface': 'paving_stones'}, shapely.LineString([(10, 5), (40, 5)])),
+        ({'area': 'yes', 'highway': 'pedestrian', 'surface': 'bricks'}, shapely.box(50, 50, 60, 60)),
+        ({'highway': 'footway', 'surface': 'paving_stones', 'bridge': 'yes'}, shapely.LineString([(0, 90), (30, 90)])),
+    )]
+    path = tmp_path / 'osm.parquet'
+    pq.write_table(pa.Table.from_pylist(rows), path)
+    found = garden_finishes.osm_regions(C.VisualTile(0, 0, 0), path)
+    assert [m for _, m in found] == [finishes.CONCRETE_PAVERS, finishes.BRICK]
+    assert abs(found[0][0].area - 30 * 2.5) < 1e-6
+    maps = ground_finishes.maps('concrete_pavers', 256)
+    albedo = maps['albedo'].reshape(-1, 3).astype(float)
+    assert np.ptp(albedo.mean(axis=0)) < 12  # grey, unlike the red-brown brick
+    assert albedo.std() > 4  # visible joints
+
+
+def test_warm_grey_stone_dust_is_gravel_and_neutral_asphalt_is_not():
+    rgb = np.full((64, 64, 3), (186, 188, 189), np.uint8)  # sunlit asphalt: blue at least green
+    rgb[:, 32:] = (190, 192, 180)  # sunlit kivituhka: green/blue 1.07
+    classes = surfaces.cover_classes(rgb, 0.5)
+    assert np.all(classes[:, :24] == mat_id('road'))
+    assert np.all(classes[:, 40:] == mat_id('gravel'))
+    shade = np.full((64, 64, 3), (70, 74, 66), np.uint8)  # the same warm tone in shade decides nothing
+    assert np.all(surfaces.cover_classes(shade, 0.5) == mat_id('road'))
