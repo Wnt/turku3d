@@ -241,6 +241,13 @@ for sid, rec in poses.items():
         g = json.load(open(gp)); a = np.array([[np.nan if y is None else y for y in r] for r in g['rows']], np.float32)
         null = ~np.isfinite(a); nb = ndi.convolve((~null).astype(np.int32), np.ones((3, 3), np.int32), mode='constant')
         gap = null & (nb >= 5)
+        # The ground index keeps only walkable faces flatter than 60 deg, so walls, quays and cuttings read as no
+        # surface by design: a gap counts only inside flat ground (its neighbours within 0.5 m of each other).
+        pad = np.pad(a, 1, constant_values=np.nan)
+        win = np.stack([pad[1 + dy:1 + dy + a.shape[0], 1 + dx:1 + dx + a.shape[1]] for dy in (-1, 0, 1) for dx in (-1, 0, 1)])
+        with np.errstate(all='ignore'):
+            spread = np.nanmax(win, axis=0) - np.nanmin(win, axis=0)
+        gap &= np.nan_to_num(spread, nan=99) < 0.5
         if gap.any():
             n = a.shape[0]; pts = np.argwhere(gap)
             near = [(float((c - n // 2) * g['step']), float((r - n // 2) * g['step'])) for r, c in pts]

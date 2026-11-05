@@ -53,7 +53,7 @@ rsync -a $OUT osgallery-dev:/bulk/turku3d/patrol/ && rm -rf $OUT
 | white-car | population blobs (with vs without population) that are flat near-white | white > 55 %, luma std < 14 |
 | pop | drive block differences 4x their +-8-frame median and > 14 luma | >= 4 blocks; population hidden |
 | stutter | drive frame intervals | > max(3 x median, 100 ms) |
-| collision-gap | collision grid points with no surface at all inside walkable ground (>= 5 of 9 neighbours have one) | any |
+| collision-gap | collision grid points with no surface at all inside flat walkable ground (>= 5 of 9 neighbours have one, within 0.5 m of each other; steep faces are not in the ground index) | any |
 | not-ready | QA ready timeout or error at a pose | any |
 
 ## Judge and ranking
