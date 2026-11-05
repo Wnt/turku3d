@@ -35,6 +35,7 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 | [lodfade](lodfade.md) | GTA V LOD hand-over study, shell roof/wall parity, fade-length decision, forced-swap method |
 | [editor](editor.md) | in-game object editor (DualSense), edit sessions |
 | [rulesmith](rulesmith.md) | edit sessions → generator rules (`furniture@1`) |
+| [finishedground](finishedground.md) | construction-era LiDAR ground (Kauppatori) → finished surface (`finished-ground@2`) |
 | [lidarpc](lidarpc.md) | LiDAR COPC product, overlay, wire layer |
 | [lidartrees](lidartrees.md) | LiDAR-conformed tree crowns (`trees-lidar@1`) |
 | [roadfix](roadfix.md) | drive-sweep faults: roadbed under car lanes (`roadbed@1`), bridge-end ramps and deck lamps (`bridge-ends@1`) |
