@@ -198,6 +198,22 @@ def floor_profile(heights, distance):
     return np.minimum(heights, chord)
 
 
+def tunnel_surface(mesh):
+    """Every visible tunnel surface has a procedural PBR material: vaults keep masonry,
+    carriageway floors asphalt, footway floors and kerbs stone paving, the rest cast concrete."""
+    if mesh.metadata.get("vault"):
+        return "stone"
+    if mesh.object_id.endswith(":floor"):
+        return "asphalt" if mesh.material == "road" else "stone"
+    return "concrete"
+
+
+def surface_key(mesh, surface):
+    if mesh.metadata.get("vault"):
+        return "draft_bridge_stone"
+    return "ground_asphalt" if surface == "asphalt" else "tunnel_concrete" if surface == "concrete" else "draft_bridge_" + surface
+
+
 def passage_footprint(polygon):
     """Remove submillimetre cut slivers before roof triangulation and float32 collision."""
     return polygon.simplify(0.0005, preserve_topology=True)
@@ -231,32 +247,29 @@ class Tunnels:
     openings: Openings = field(default_factory=Openings)
 
     def visuals(self, tile):
-        from .bridge_details import texture
+        from .bridge_materials import surface_material
 
         return [
             GlbMesh(
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
-                uvs=m.uvs,
-                color=(1, 0.92, 0.65, 1)
-                if m.metadata.get("lamp")
-                else (1, 1, 1, 1)
-                if m.metadata.get("vault") or m.metadata.get("portal")
-                else (0.22, 0.23, 0.24, 1),
-                image=texture("stone")
-                if m.metadata.get("vault")
-                else texture("concrete")
-                if m.metadata.get("portal")
-                else None,
+                color=(1, 0.92, 0.65, 1),
+                emissive=(1, 0.85, 0.5),
+                extras=dict(layer="structures", object_id=m.object_id, material_key="tunnel_concrete"),
+            )
+            if m.metadata.get("lamp")
+            else GlbMesh(
+                m.object_id,
+                m.positions - tile.origin,
+                m.indices,
+                color=(1, 1, 1, 1),
                 repeat=True,
-                emissive=(1, 0.85, 0.5) if m.metadata.get("lamp") else (0, 0, 0),
+                **surface_material(surface := tunnel_surface(m), m.uvs),
                 extras=dict(
                     layer="structures",
                     object_id=m.object_id,
-                    material_key="draft_bridge_stone"
-                    if m.metadata.get("vault")
-                    else "tunnel_concrete",
+                    material_key=surface_key(m, surface),
                 ),
             )
             for m in [*self.meshes, *self.ceilings]
