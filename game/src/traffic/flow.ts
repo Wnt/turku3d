@@ -68,8 +68,8 @@ const HELD = /^(exit|storage|receiving|signal|no-exit)/;
  *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
 const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
 /** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA removes hidden cars within seconds there): chain
- *  heads after FAST_HEAD s without headway, any car after FAST_ANY s. */
-const FAST_FAR = 150, FAST_HEAD = 20, FAST_ANY = 40;
+ *  heads after FAST_HEAD s without headway, any car after FAST_ANY s (beyond a red light: queued at a signal is not stuck). */
+const FAST_FAR = 150, FAST_HEAD = 60, FAST_ANY = 120;
 /** Car budget per tile and hour (GTA's zone/hour population caps): BUDGET_HEADROOM × the cars its lanes carry at free
  *  flow at this hour (demand share / headway × travel time) + BUDGET_MIN. A tile over budget feeds no new cars, and
  *  out of view its excess cars go, at most BUDGET_TRIM per tile per second (most stuck first). */
