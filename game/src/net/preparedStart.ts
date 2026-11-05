@@ -2,7 +2,7 @@ import { MultiplayerClient } from './client';
 import { multiplayerStart } from '../gameplay/startPoints';
 
 /** Resolve the assigned/retained position before enabling Multiplayer in the menu. */
-export function prepareMultiplayer() {
+export function prepareMultiplayer(start?: { x: number; y: number; z: number; yaw: number }) {
   const client = new MultiplayerClient();
   let position: ReturnType<typeof multiplayerStart> | null | undefined;
   const ready = new Promise<ReturnType<typeof multiplayerStart> | null>(resolve => {
@@ -11,7 +11,7 @@ export function prepareMultiplayer() {
       clearTimeout(timer);
       const self = client.state.you!.id;
       position = multiplayerStart(client.state.you!, client.state.players.find(p => p.id === self),
-        [...client.state.vehicles.values()].find(v => v.occupant === self && v.owner === self));
+        [...client.state.vehicles.values()].find(v => v.occupant === self && v.owner === self), start);
       resolve(position);
     }, { once: true });
     client.connect();

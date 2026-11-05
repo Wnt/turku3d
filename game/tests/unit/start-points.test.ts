@@ -33,3 +33,10 @@ test('coincident starts share one region and the unowned start car retains its s
     { E: 23461000, N: 6703000, H: 4, yaw: 0, owned: false });
   expect(startPoints(spawn, car, [saved, saved], spawn)).toEqual([spawn, car, { x: 1500, y: 4, z: 1500 }]);
 });
+
+test("another city's fresh join starts at the city's own start, not at Turku's room slot; a retained pose still wins", () => {
+  const you = { spawn: { E: 175, N: -253, yaw: 1 } }, start = { x: 150, y: 11.5, z: 360, yaw: 0 };
+  expect(multiplayerStart(you, undefined, undefined, start)).toEqual(start);
+  expect(multiplayerStart(you, { pose: null }, undefined, start)).toEqual(start);
+  expect(multiplayerStart(you, { pose: { E: 160, N: -370, H: 12, yaw: 2 } }, undefined, start)).toEqual({ x: 160, y: 12, z: 370, yaw: 2 });
+});

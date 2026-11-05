@@ -322,6 +322,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     missions.bringFailed();
   };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
+    tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
     bringVehicle: {
       reason: () => {
@@ -353,12 +354,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
         // A late welcome can point outside the solo preload ring; let safe placement stream that area.
-        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id)), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
+        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id), undefined, roomStart), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
     } });
-  const multiplayerStartState = prepareMultiplayer();
+  // Another city's room hands out Turku's spawn slots: a fresh join there starts at this city's own start.
+  const roomStart = isHome() ? undefined : world.spawn;
+  const multiplayerStartState = prepareMultiplayer(roomStart);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
@@ -367,7 +370,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
     multiplayerProgress.clear(client.session);
     multiplayerRunId = crypto.randomUUID(); leaveCar(null); fly?.set(false); remotePlayers.dispose();
-  }, fail);
+  }, fail, roomStart);
   const syncClock = () => world.syncClock?.(client.state.serverTime);
   client.addEventListener('welcome', syncClock);
   if (client.state.connected) syncClock();
