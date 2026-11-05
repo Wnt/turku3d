@@ -15,6 +15,13 @@ export type PreparationPriority = 'actor' | 'tile' | 'scenery';
 const MAX_DEFER_MS = 4000;
 const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
 
+/** A model's name for diagnostics: its trace id (tile or cell), name and size. */
+function describe(model: THREE.Object3D) {
+  let meshes = 0;
+  model.traverse(o => { if ((o as THREE.Mesh).isMesh) meshes++; });
+  return `${model.userData.traceId ?? ''}|${model.name || model.type}|${model.userData.scenery ? 'scenery' : ''}|meshes=${meshes}`;
+}
+
 /** One paced queue for incoming models and the resident models skipped by initial-view warmup. */
 export class GraphicsPreparation {
   private skipped = new Map<THREE.Object3D, Job>();
@@ -27,7 +34,14 @@ export class GraphicsPreparation {
    *  shows a growing wait with an old start). */
   private finished = 0;
   private activeSince: number | null = null;
-  stats() { return { waiting: [...this.waiting], finished: this.finished, activeMs: this.activeSince === null ? null : performance.now() - this.activeSince }; }
+  private activeModel: THREE.Object3D | null = null;
+  /** The slowest jobs so far (ms, lane, model): which preparation holds the queue. */
+  private slowest: { ms: number; lane: number; model: string }[] = [];
+  stats() {
+    const m = this.activeModel;
+    return { waiting: [...this.waiting], finished: this.finished, activeMs: this.activeSince === null ? null : performance.now() - this.activeSince,
+      active: m ? describe(m) : null, slowest: this.slowest.slice() };
+  }
   constructor(private scene: THREE.Scene, private prepareView: (model: THREE.Object3D) => void | Promise<void>,
     private retireFrame: (release: () => void) => void,
     private nextTask = () => new Promise<void>(resolve => afterRender(resolve))) {}
@@ -63,7 +77,7 @@ export class GraphicsPreparation {
       do { barrier = this.retiring; await barrier; } while (barrier !== this.retiring);
       if (!current()) { this.finished++; return; }
       this.active = prepared;
-      this.activeSince = performance.now();
+      this.activeSince = performance.now(); this.activeModel = model;
       // An aborted job (its city was released) stops waiting at once: a preparation of models that are gone may
       // never settle, and the whole queue waits behind it.
       const aborted = signal ? new Promise<void>(resolve => {
@@ -79,7 +93,13 @@ export class GraphicsPreparation {
         if (current()) await until(Promise.resolve(this.prepareView(model)));
         streamTrace.event('gfx.prepare', model.userData.traceId as string | undefined, { wait: started - queuedAt, ms: performance.now() - started,
           compiles: compileStats.count - compiles, compileMs: compileStats.ms - compileMs, scenery: !!model.userData.scenery });
-      } finally { this.active = null; this.activeSince = null; this.finished++; }
+      } finally {
+        if (this.activeSince !== null) {
+          const ms = performance.now() - this.activeSince;
+          if (ms > 1000) { this.slowest.push({ ms: Math.round(ms), lane, model: describe(model) }); this.slowest.sort((a, b) => b.ms - a.ms); this.slowest.length = Math.min(this.slowest.length, 8); }
+        }
+        this.active = null; this.activeSince = null; this.activeModel = null; this.finished++;
+      }
     });
     this.queued = prepared.catch(() => {});
     const result = prepared.then(() => requeued);
