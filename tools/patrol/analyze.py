@@ -42,6 +42,7 @@ OWNER = {
     'pop': ('streaming / LOD fades (lodfade, lodflicker)', 'geometry appears or swaps within one frame while driving'),
     'stutter': ('frame pacing (framepace, perfstream)', 'long frames while driving'),
     'load-errors': ('city share delivery (tile proxy / farm)', 'tile or texture requests failed (HTTP 502/503, HTTP/2 errors); textures may be missing'),
+    'collision-gap': ('collision (bridges / ground seams: roadfix, groundqa)', 'no collision surface under walkable ground: the player falls through and is reset ("Back on solid ground")'),
     'not-ready': ('streaming / tile service', 'the spot did not settle (QA ready timeout)'),
 }
 
@@ -235,6 +236,22 @@ for sid, rec in poses.items():
                 cam_in = bool(lab[n // 2, n // 2] == i)
                 add(sid, 'raised', 'pit', None, {'area_m2': round(area), 'depth_m': round(depth, 2), 'median_ground': round(med, 2), 'camera_inside': cam_in,
                     'centroid_dx_dz': [round(dx, 1), round(dz, 1)]}, img, pose, 3 if depth > 1.5 and area > 60 else 2, centre, True)
+    # --- collision gaps: grid points with no surface at all although most neighbours have one
+    if gp.exists() and v0:
+        g = json.load(open(gp)); a = np.array([[np.nan if y is None else y for y in r] for r in g['rows']], np.float32)
+        null = ~np.isfinite(a); nb = ndi.convolve((~null).astype(np.int32), np.ones((3, 3), np.int32), mode='constant')
+        gap = null & (nb >= 5)
+        if gap.any():
+            n = a.shape[0]; pts = np.argwhere(gap)
+            near = [(float((c - n // 2) * g['step']), float((r - n // 2) * g['step'])) for r, c in pts]
+            dmin = min(math.hypot(dx, dz) for dx, dz in near)
+            dx, dz = min(near, key=lambda q: math.hypot(*q))
+            med = float(np.nanmedian(a))
+            vis = np.stack([np.nan_to_num(np.clip((a - med + 3) * 40, 0, 255))] * 3, axis=-1).astype(np.uint8); vis[gap] = [255, 0, 0]
+            img = annotate(RUN / f'{sid}-raised-color.png', None, f'{sid}-gap', extra=Image.fromarray(vis).resize((240, 240), Image.NEAREST),
+                           label=f'{int(gap.sum())} collision gaps (red), nearest {dmin:.0f} m')
+            add(sid, 'raised', 'collision-gap', None, {'points': int(gap.sum()), 'nearest_m': round(dmin, 1), 'step_m': g['step'],
+                'points_dx_dz': [[round(x, 1), round(z, 1)] for x, z in near[:12]]}, img, dict(v0, E=v0['E'] + dx, N=v0['N'] - dz), 3 if gap.sum() > 4 else 2, centre, True)
     # contact sheet
     if sheet:
         ims = [Image.open(p).convert('RGB').resize((480, 270)) for p in sheet]
