@@ -42,7 +42,7 @@ def visibility(c):
 groups = {}
 stale = 0
 for v in verdicts:
-    if v.get('n') is not None and v.get('image') and v['image'] not in by_image and v['image'].startswith('crops/'):
+    if v.get('n') is not None and (v.get('image') or '').startswith('crops/') and v['image'] not in by_image:
         stale += 1; continue  # its candidate no longer exists after re-analysis
     if not v.get('real'): continue
     # verdicts match their candidate by image path (stable across re-analysis), else by n; judge-only findings
@@ -69,9 +69,15 @@ for key, g in groups.items():
                    'image': c.get('image'), 'spot': c.get('spot'), 'view': c.get('view'), 'detector': c.get('detector', 'judge'),
                    'E': c.get('E'), 'N': c.get('N'), 'x': c.get('x'), 'z': c.get('z'), 'cam': c.get('cam'),
                    'seen_at': sorted(f'{a}/{b}' for a, b in g['seen'] if a)})
+poses = json.load(open(RUN / 'poses.json')) if (RUN / 'poses.json').exists() else {}
+for r in ranked:  # judge-only findings: camera string and engine x/z from the capture pose of their spot/view
+    pv = next((w for w in poses.get(r['spot'], {}).get('views', []) if w['view'] == r['view']), None)
+    if pv and not r.get('cam'):
+        r['cam'] = ','.join(str(round(pv[k], 2)) for k in ('E', 'N', 'H', 'yaw', 'pitch', 'fov'))
+        r['E'], r['N'] = round(pv['E'], 2), round(pv['N'], 2); r['x'], r['z'] = round(pv['E'] - 23459500, 2), round(6704500 - pv['N'], 2)
 ranked.sort(key=lambda r: -r['impact'])
 json.dump(ranked, open(RUN / 'ranked.json', 'w'), indent=1)
-live = [v for v in verdicts if v.get('n') is not None and not (v.get('image', '').startswith('crops/') and v['image'] not in by_image)]
+live = [v for v in verdicts if v.get('n') is not None and not ((v.get('image') or '').startswith('crops/') and v['image'] not in by_image)]
 judged = len(live)
 fp = len([v for v in live if not v.get('real')])
 lines = [f'# Patrol {RUN.name}: top {TOP}', '',
