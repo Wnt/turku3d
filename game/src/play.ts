@@ -168,7 +168,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
-  const seated = new SeatedVehicles(root, physics, groundAt);
+  const seated = new SeatedVehicles(root, physics, groundAt, world.prepareGraphics);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.

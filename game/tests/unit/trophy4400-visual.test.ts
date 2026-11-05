@@ -8,6 +8,7 @@ import { build, instance, type TrophyAsset } from '../../src/actors/trophy4400/a
 import { GROUND_Y, applyTrophyRig, staticWheels, trophyRigSolves, useTrophyAsset } from '../../src/actors/trophy4400/rig';
 import { TRUCK, TRUCK_STATIC_LENGTH } from '../../src/physics/constants';
 import { vehicleLamps } from '../../src/vehicle/lamps';
+import { SeatedVehicles } from '../../src/actors/seatedVehicles';
 
 const dir = new URL('../../public/assets/vehicles/trophy4400/', import.meta.url);
 let asset: TrophyAsset;
@@ -41,6 +42,43 @@ describe('trophy4400 model (SPEC M1/M2)', () => {
     expect(asset.draws[0]).toBeLessThanOrEqual(40);
     expect(asset.draws[2]).toBeLessThanOrEqual(30);
     expect(statSync(new URL('trophy4400.glb', dir)).size).toBeLessThan(12e6);
+  });
+
+  it('draws the body at the truck size in every LOD', () => {
+    const root = truckRoot();
+    applyTrophyRig(root, staticWheels());
+    root.updateMatrixWorld(true);
+    const levels = (root.getObjectByName('trophy4400-lod') as T.LOD).levels.map(l => l.object);
+    // Every level draws the orange body; L0 also the cage, the tyres and the rims.
+    for (const level of levels) expect(level.children.map(m => (m as T.Mesh).material as T.Material).map(m => m.name)).toContain('paint-orange');
+    const l0 = new Set(levels[0].children.map(m => ((m as T.Mesh).material as T.Material).name));
+    for (const name of ['paint-orange', 'cage-powder', 'rubber', 'wheel-gunmetal']) expect(l0.has(name)).toBe(true);
+    // Skinned L0 bounds in the chassis frame (+X forward, +Z right), as the GPU draws them at the static ride.
+    const box = new T.Box3(), v = new T.Vector3();
+    for (const mesh of levels[0].children as T.SkinnedMesh[]) {
+      mesh.skeleton.update();
+      const position = mesh.geometry.getAttribute('position');
+      for (let i = 0; i < position.count; i++) box.expandByPoint(mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld));
+    }
+    const size = box.getSize(new T.Vector3());
+    // SPEC C1: overall length 4.55 (spare and rear tube included), 2.55 wide at the tyres, light bar top ~1.97.
+    expect(size.x).toBeGreaterThan(4.3); expect(size.x).toBeLessThan(5.0);
+    expect(size.z).toBeGreaterThan(2.4); expect(size.z).toBeLessThan(2.7);
+    expect(Math.abs(box.min.y - GROUND_Y)).toBeLessThan(0.05);
+    expect(box.max.y - GROUND_Y).toBeGreaterThan(1.8);
+    expect(box.min.x).toBeLessThan(-2); expect(box.max.x).toBeGreaterThan(1.8);
+    expect(Math.abs(box.min.z + box.max.z)).toBeLessThan(0.1);
+  });
+
+  it('prepares the seated vehicles as they load, before either is drawn', async () => {
+    const prepared: string[] = [];
+    const seated = new SeatedVehicles(new T.Group(), { spawnVehicle: () => {} }, async () => 0, async model => { prepared.push(model.name); });
+    // The network loads are covered above; here only the hand-over to the actor preparation lane.
+    seated.scooter.load = async () => { seated.scooter.loaded = true; };
+    seated.truck.load = async () => { seated.truck.loaded = true; };
+    await seated.load('/');
+    expect(prepared.sort()).toEqual(['scooter', 'truck']);
+    expect(seated.truck.root.visible).toBe(false);
   });
 
   it('has the wheels on the physics layout and the static ride on the ground', () => {

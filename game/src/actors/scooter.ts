@@ -37,6 +37,8 @@ export class ScooterVisual {
     box.name = 'pizza-box';
     this.lean.add(box, lid);
     this.root.traverse(o => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    // The lamps (and their bezels) exist before the model is prepared (actors/seatedVehicles.ts), so those are drawn.
+    vehicleLamps(this.root, 'scooter', 0);
     this.loaded = true;
   }
 
