@@ -15,6 +15,7 @@ from turku3d.vegetation.trees import Tree, variant
 CELL = 0.5
 PEAK_DISTANCE = 3.5
 MIN_CROWN_RELIEF = 0.35  # m: a flat elevated patch is not evidence of a tree crown
+MIN_SPREAD = 0.1  # crown radius per metre of height of a lidar-found tree (a 16 m column 1 m across is a mast)
 
 
 def connected_crown(points, x, z):
@@ -120,6 +121,8 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
             tree.measured = True
             tree.trunk_radius = float(np.clip(tree.height * 0.018, 0.09, 0.55))
             tree.variant = variant(tree.species, tree.height)
+            if tree.source == "lidar" and tree.crown_radius < MIN_SPREAD * tree.height:
+                continue  # a mast, lamp column or monument: thin pulses split on it like on twigs
         # Measurements may enlarge a registered tree after its initial clearance
         # check. Every final visible trunk must still clear the path footprint.
         if (tree.source != "lidar" or tree.measured) and clear(tree):
