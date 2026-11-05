@@ -6,7 +6,7 @@ import { FLEET_BY_ID, PLAYER_COLOR, PLAYER_MODEL } from './fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from './fleet/authored';
 import { fleetGlassMaterial, fleetMaterial } from './fleet/material';
 import { addAuthoredFleetWheels, applyFleetWheels } from './fleet/wheels';
-import { paintActor } from './parkedPaint';
+import { copyActorPaint, paintActor } from './parkedPaint';
 
 // Concurrent consumers (player, drive replays, remote players' starter cars) share one prepared model;
 // Object3D clones keep their own wheel transforms and share the immutable geometry.
@@ -45,7 +45,8 @@ export class CarVisual {
       pending = prepare(this.model, this.color).catch(error => { prototypes.delete(key); throw error; });
       prototypes.set(key, pending);
     }
-    const instance = (await pending).clone(true);
+    const prototype = await pending, instance = prototype.clone(true);
+    copyActorPaint(prototype, instance);
     this.body = instance.getObjectByName('fleet-actor')!;
     this.root.clear(); this.root.add(instance);
     this.loaded = true;
@@ -54,7 +55,8 @@ export class CarVisual {
   update(s: VehicleState) {
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);
-    vehicleLamps(this.root, 'car', s.lights ?? 0);
+    // The fleet's own lamp tags light up (vehicle/lamps.ts); the root has no lamp meshes of its own.
+    if (this.body) vehicleLamps(this.body, 'car', s.lights ?? 0);
     if (this.body) applyFleetWheels(this.body, s.wheels);
   }
 }
