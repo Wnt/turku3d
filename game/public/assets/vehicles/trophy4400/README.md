@@ -1,4 +1,4 @@
-# trophy4400: #19-style 4400 car (raw Blender export)
+# trophy4400: #19-style 4400 car
 
 Our own model of a four-wheel-steer, fully independent (IFS + IRS) 4400-class car in the style of the
 #19 car, modelled from scratch in Blender 5.2 through the blenderwright 3.1.0 MCP tools (parameterised
@@ -15,9 +15,20 @@ Source (local, not in git): `~/turku3d/data/assets-src/trophy4400/trophy4400.ble
 generators are in `~/turku3d/loops/trophy4400/model/gen/` and the previews in
 `~/turku3d/loops/trophy4400/model/previews/round-N/`.
 
-`trophy4400.glb` is the **raw** export (`export_apply`, no Draco/WebP, Y-up, +X forward, left = -Z,
-ground origin, x = 0 at mid-wheelbase). `scripts/prepare-trophy4400.mjs` (SPEC section 2.6: single-sided
-materials, merge body by material, meshopt, KTX2, `hardpoints.json`) is not written yet.
+`trophy4400.glb` is the **prepared** runtime asset (Y-up, +X forward, left = -Z, ground origin, x = 0 at
+mid-wheelbase), built from the raw Blender export by
+
+```sh
+node game/scripts/prepare-trophy4400.mjs   # ~/turku3d/data/assets-src/trophy4400/trophy4400_raw.glb -> this folder
+```
+
+It validates the node contract, makes every material single-sided except `net-black`, encodes the 9 textures as
+KTX2 ETC1S (cached by content hash in `assets-src/trophy4400/build/ktx2`), meshopt-compresses the geometry
+(positions 14 bit) and writes `hardpoints.json` (SPEC 2.3, plus the spring seats and coil lengths). 2.48 MB,
+textures at most 11.5 MB on the GPU. At load (`src/actors/trophy4400/asset.ts`) every mesh of a LOD is merged per
+material into rigid-skinned meshes whose bones are the rig nodes, so a truck costs 29 / 29 / 25 draws at L0 / L1 / L2
+(was 124 / 122 / 45 as separate nodes); the linkage solver (`linkage.ts`) and rig (`rig.ts`) pose the bones from
+each wheel's synced hub height and steer.
 
 | quantity | value |
 |---|---|

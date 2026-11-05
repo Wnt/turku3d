@@ -11,7 +11,7 @@ Kenney fallback any more.
   with its own tuning from the registry spec (`vehicle/modelTuning.ts`). Parked cars spawn with their model's tuning.
 - Fallback: `FALLBACK_MODELS` are resident in the game; a car whose model fails to load is drawn as one of them.
 - Special roles (bus, trucks, ambulances, fire truck, microcar) are registered but need an exact model id.
-- The trophy truck (KORPI 440, `actors/prerunner/`) is its own original model and stays separate.
+- The trophy truck (#19-style 4400 car, `actors/trophy4400/`, `public/assets/vehicles/trophy4400/`) is its own model and stays separate.
 
 `visuals.ts` keeps one instanced draw per visible model and LOD (shared node material; glazing is a second instanced
 pass), four authored wheel hubs per near car (LOD0/1; LOD2 keeps them merged), paint and lamp state as instance

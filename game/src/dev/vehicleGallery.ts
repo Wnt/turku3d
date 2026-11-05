@@ -76,7 +76,7 @@ const status = document.getElementById('status')!;
 type Entry = { kind: 'fleet'; entry: AuthoredModel } | { kind: 'car' | 'scooter' | 'truck'; name: string };
 const ENTRIES: Entry[] = [
   { kind: 'car', name: `Starter car: ${AUTHORED_MODELS.find(m => m.id === PLAYER_MODEL)?.fleet.name} (${PLAYER_MODEL})` },
-  { kind: 'scooter', name: 'Scooter' }, { kind: 'truck', name: 'Trophy truck (KORPI 440)' },
+  { kind: 'scooter', name: 'Scooter' }, { kind: 'truck', name: 'Trophy truck (#19 4400)' },
   ...[...AUTHORED_MODELS].sort((a, b) => a.fleet.family.localeCompare(b.fleet.family) || a.fleet.name.localeCompare(b.fleet.name))
     .map(entry => ({ kind: 'fleet' as const, entry })),
 ];
