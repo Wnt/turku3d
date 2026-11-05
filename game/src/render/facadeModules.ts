@@ -9,29 +9,39 @@ interface Opening {
   recess: number;
 }
 
-/** Exact UV coverage keeps a frame from bridging a surveyed passage or wall cut. */
+/** Scratch polygons of the clipper (x, y pairs): a triangle clipped by four half-planes has at most 7 vertices. */
+const clipA = new Float64Array(16), clipB = new Float64Array(16);
+
+/** Exact UV coverage keeps a frame from bridging a surveyed passage or wall cut. Each triangle is clipped to the
+ *  rectangle in scratch arrays: the per-triangle and per-edge array literals were most of the facade preparation's
+ *  allocation (city.lab 2026-11-05: 230 MB per 15 s with this and openingSteps' per-vertex objects). */
 function coversRectangle(triangles: number[], x: number, y: number, w: number, h: number) {
   let area=0;
   for (let i=0;i<triangles.length;i+=6) {
-    let polygon=[[triangles[i],triangles[i+1]],[triangles[i+2],triangles[i+3]],[triangles[i+4],triangles[i+5]]];
-    for (const [axis,bound,sign] of [[0,x,1],[0,x+w,-1],[1,y,1],[1,y+h,-1]]) {
-      const clipped: number[][]=[];
-      for (let j=0;j<polygon.length;j++) {
-        const a=polygon[j],b=polygon[(j+1)%polygon.length];
-        const da=(a[axis]-bound)*sign,db=(b[axis]-bound)*sign;
-        if (da>=0) clipped.push(a);
+    let poly=clipA, out=clipB, n=3;
+    for (let k=0;k<6;k++) poly[k]=triangles[i+k];
+    for (let edge=0;edge<4;edge++) {
+      const axis=edge<2?0:1, sign=edge%2===0?1:-1, bound=edge===0?x:edge===1?x+w:edge===2?y:y+h;
+      let m=0;
+      for (let j=0;j<n;j++) {
+        const a=2*j,b=2*((j+1)%n);
+        const da=(poly[a+axis]-bound)*sign,db=(poly[b+axis]-bound)*sign;
+        if (da>=0) { out[2*m]=poly[a]; out[2*m+1]=poly[a+1]; m++; }
         if ((da<0)!==(db<0)) {
-          const t=da/(da-db); clipped.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]);
+          const t=da/(da-db); out[2*m]=poly[a]+(poly[b]-poly[a])*t; out[2*m+1]=poly[a+1]+(poly[b+1]-poly[a+1])*t; m++;
         }
       }
-      polygon=clipped;
+      const swap=poly; poly=out; out=swap; n=m;
     }
     let twice=0;
-    for(let j=0;j<polygon.length;j++){const a=polygon[j],b=polygon[(j+1)%polygon.length];twice+=a[0]*b[1]-a[1]*b[0];}
+    for(let j=0;j<n;j++){const a=2*j,b=2*((j+1)%n);twice+=poly[a]*poly[b+1]-poly[a+1]*poly[b];}
     area+=Math.abs(twice)*.5;
   }
   return area>=w*h-.0001;
 }
+
+const keyed = (v: number) => Math.round(v * 1000);
+const scratchNormal = new THREE.Vector3(), scratchPoint = new THREE.Vector3();
 
 /** Read complete reviewed rectangles and rectangular wall programs.
  * The UV rectangle is in wall metres; partial roof/passage cuts stay untouched. */
@@ -56,14 +66,15 @@ function* openingSteps(geometry: THREE.BufferGeometry): Generator<void,Opening[]
   const owners: (number[] | undefined)[] = new Array(a.position.count);
   for (let i = 0; i < a.position.count; i++) {
     if(i%512===0)yield;
-    if (!direction[i] || ![0, 1].includes(a._kit_detail.getW(i)) || a._kit_layout.getX(i) >= 42 || Math.abs(a.normal.getY(i)) > .01) continue;
-    const normal = new THREE.Vector3().fromBufferAttribute(a.normal, i);
-    const point = new THREE.Vector3().fromBufferAttribute(a.position, i);
+    const detail = a._kit_detail.getW(i);
+    if (!direction[i] || (detail !== 0 && detail !== 1) || a._kit_layout.getX(i) >= 42 || Math.abs(a.normal.getY(i)) > .01) continue;
+    const normal = scratchNormal.fromBufferAttribute(a.normal, i);
+    const point = scratchPoint.fromBufferAttribute(a.position, i);
     const horizontal=Math.hypot(normal.x,normal.z);
     const anchor=(-normal.z*point.x+normal.x*point.z)/horizontal-direction[i]*a.uv.getX(i);
-    const key = [a._kit_extent.getX(i), a._kit_extent.getY(i), a._kit_extent.getZ(i), a._kit_extent.getW(i),
-      normal.x, normal.z, normal.dot(point),anchor,point.y-a.uv.getY(i),direction[i],a._kit_detail.getW(i),a._kit_layout.getX(i),a._kit_layout.getY(i)]
-      .map(v => Math.round(v * 1000)).join('/');
+    const key = `${keyed(a._kit_extent.getX(i))}/${keyed(a._kit_extent.getY(i))}/${keyed(a._kit_extent.getZ(i))}/${keyed(a._kit_extent.getW(i))}/`
+      + `${keyed(normal.x)}/${keyed(normal.z)}/${keyed(normal.dot(point))}/${keyed(anchor)}/${keyed(point.y-a.uv.getY(i))}/`
+      + `${keyed(direction[i])}/${keyed(detail)}/${keyed(a._kit_layout.getX(i))}/${keyed(a._kit_layout.getY(i))}`;
     const group = groups.get(key);
     if (group) group.push(i); else groups.set(key, [i]);
     owners[i]=groups.get(key);
@@ -75,9 +86,9 @@ function* openingSteps(geometry: THREE.BufferGeometry): Generator<void,Opening[]
     if(!group)continue;
     const ib=index?index.getX(t+1):t+1,ic=index?index.getX(t+2):t+2;
     if(owners[ib]!==group||owners[ic]!==group)continue;
-    const uv=triangles.get(group)??[];
-    for(const id of [ia,ib,ic])uv.push(a.uv.getX(id),a.uv.getY(id));
-    triangles.set(group,uv);
+    let uv=triangles.get(group);
+    if(!uv)triangles.set(group,uv=[]);
+    uv.push(a.uv.getX(ia),a.uv.getY(ia),a.uv.getX(ib),a.uv.getY(ib),a.uv.getX(ic),a.uv.getY(ic));
   }
   const openings: Opening[] = [];
   for (const indices of groups.values()) {
@@ -167,7 +178,9 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   model.updateWorldMatrix(true, true);
   const inverse = model.matrixWorld.clone().invert();
   const cells = new Map<string, { matrix: THREE.Matrix4; colour: THREE.Color; plane: THREE.Plane }[]>();
-  const up = new THREE.Vector3(0, 1, 0), scale = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0), scale = new THREE.Vector3(), position = new THREE.Vector3(), centreOf = new THREE.Vector3();
+  const basis = new THREE.Matrix4(), normalMatrix = new THREE.Matrix3(), side = new THREE.Vector3(), back = new THREE.Vector3();
+  const profiles = new Float64Array(35);
   const sources: THREE.Mesh[]=[];
   model.traverse(object => {
     const source = object as THREE.Mesh;
@@ -181,21 +194,21 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
       const { origin, tangent, normal, width:w, height:h } = opening;
       // Box profiles are X-symmetric; derive their orientation from the wall
       // normal so mirrored UVs never create unsupported negative instances.
-      const basis = new THREE.Matrix4().makeBasis(normal.clone().cross(up).normalize(),up,normal.clone().negate());
-      const wallNormal=normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(transform));
-      const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(wallNormal,origin.clone().applyMatrix4(transform));
+      basis.makeBasis(side.copy(normal).cross(up).normalize(),up,back.copy(normal).negate());
+      const wallNormal=normal.clone().applyNormalMatrix(normalMatrix.getNormalMatrix(transform));
+      const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(wallNormal,position.copy(origin).applyMatrix4(transform));
       // Five capped profiles / 50 triangles per opening. Frames sit in the existing reveal;
       // a shallow metal sill extends past its outer face and sheds rain.
       const frame = Math.min(.055, w * .045);
       const depth = opening.recess;
-      for (const [x, y, z, sx, sy, sz, sill] of [
-        [frame/2, h/2, .025, frame, h, .07, 0], [w-frame/2, h/2, .025, frame, h, .07, 0],
-        [w/2, h-frame/2, .025, w-2*frame, frame, .07, 0], [w/2, frame/2, .025, w-2*frame, frame, .07, 0],
-        [w/2, -.025, depth/2, w+.08, .05, depth+.16, 1],
-      ]) {
-        const position = origin.clone().addScaledVector(tangent, x).addScaledVector(up, y).addScaledVector(normal, z);
-        const matrix = basis.clone().scale(scale.set(sx, sy, sz)).setPosition(position).premultiply(transform);
-        const p = new THREE.Vector3().setFromMatrixPosition(matrix);
+      profiles.set([frame/2, h/2, .025, frame, h, .07, 0, w-frame/2, h/2, .025, frame, h, .07, 0,
+        w/2, h-frame/2, .025, w-2*frame, frame, .07, 0, w/2, frame/2, .025, w-2*frame, frame, .07, 0,
+        w/2, -.025, depth/2, w+.08, .05, depth+.16, 1]);
+      for (let k = 0; k < 35; k += 7) {
+        const x = profiles[k], y = profiles[k + 1], z = profiles[k + 2], sill = profiles[k + 6];
+        position.copy(origin).addScaledVector(tangent, x).addScaledVector(up, y).addScaledVector(normal, z);
+        const matrix = new THREE.Matrix4().copy(basis).scale(scale.set(profiles[k + 3], profiles[k + 4], profiles[k + 5])).setPosition(position).premultiply(transform);
+        const p = centreOf.setFromMatrixPosition(matrix);
         const key = `${Math.floor(p.x/64)}/${Math.floor(p.z/64)}`;
         const rows = cells.get(key) ?? []; if (!cells.has(key)) cells.set(key, rows);
         rows.push({matrix, colour:sill ? opening.trim : opening.frame,plane});
