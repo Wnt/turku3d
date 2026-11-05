@@ -332,3 +332,20 @@ def test_a_road_climbing_to_a_deck_keeps_its_ground_past_its_last_measured_end()
     way = dict(id=1, line=shapely.LineString([(0, -60), (0, 4)]), width=7.0, tags={"highway": "primary"})
     grid, cut = _cut([way], ground)
     assert np.allclose(cut[:, 1], grid[:, 1])
+
+
+def test_a_deck_footway_is_not_raised_over_a_link_carriageway_that_crosses_it():
+    from turku3d.coarse import bridge_details as details
+
+    road = dict(id=1, line=shapely.LineString([(0, 0), (60, 0)]), width=8.0, tags={"highway": "trunk"})
+    link = dict(id=2, line=shapely.LineString([(10, 0), (50, 12)]), width=5.0, tags={"highway": "trunk_link"})
+    foot = dict(id=3, line=shapely.LineString([(0, 6), (60, 6)]), width=3.0, tags={"highway": "footway"})
+    way = dict(road, member_ways=[road, link, foot])
+    outline = shapely.box(0, -5, 60, 15)
+    meshes = details.surfaces(way, outline, lambda p: np.full(len(np.asarray(p)), 10.0))
+    positions = np.concatenate([m.positions for m in meshes])
+    top = positions[positions[:, 1] > 10.1]
+    assert len(top)
+    corridor = link["line"].buffer(2.4)
+    centroids = [shapely.Point(p[0], p[2]) for p in top]
+    assert not any(corridor.contains(c) for c in centroids)
