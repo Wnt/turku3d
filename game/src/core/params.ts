@@ -72,7 +72,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
   const preview = p.get('preview') === '1';
   if (preview && !qa) {
     const sp0 = nums(p.get('spawn'));
-    qa = { E: sp0?.[0] ?? OFFICE_EN.E, N: (sp0?.[1] ?? OFFICE_EN.N) - 260, H: 150, yawDeg: 0, pitchDeg: -30, fovDeg: 60, rollDeg: 0 };
+    qa = { E: sp0?.[0] ?? CITY.spawn.E, N: (sp0?.[1] ?? CITY.spawn.N) - 260, H: 150, yawDeg: 0, pitchDeg: -30, fovDeg: 60, rollDeg: 0 };
   }
   let bench: BenchPose | null = null;
   let drive: Params['drive'] = null;
