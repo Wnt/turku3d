@@ -10,6 +10,7 @@ from PIL import Image
 
 from turku3d import config as C
 from turku3d.coarse import bridge_materials as material
+from turku3d.package.gltf import accessor_array, read_glb
 
 
 def test_stone_and_bronze_maps_preserve_physical_channels():
@@ -54,7 +55,9 @@ def test_material_only_changes_invalidate_visuals_but_not_collision():
     assert path not in collision_key.paths()
 
 
-def test_other_crossings_retain_existing_materials(tmp_path):
+def test_every_crossing_takes_metric_pbr(tmp_path):
+    """Outside the weathered heritage set a crossing used a flat 128 px albedo (read as
+    untextured); every crossing now has albedo, normal and ORM maps at the 2 m metric scale."""
     from turku3d.coarse.bridge_kit import tapered_post
     from turku3d.coarse.bridges import visual
 
@@ -62,11 +65,12 @@ def test_other_crossings_retain_existing_materials(tmp_path):
     visual([SimpleNamespace(meshes=[mesh], way={"tags": {"wikidata": "Q5408563"}})],
            C.VisualTile(0, 0, 0), tmp_path, [])
     data = (tmp_path / 'bridges.vis.glb').read_bytes()
-    length = struct.unpack_from('<I', data, 12)[0]
-    gltf = json.loads(data[20:20 + length])
-    assert len(gltf['images']) == 1
-    assert 'normalTexture' not in gltf['materials'][0]
-    assert 'metallicRoughnessTexture' not in gltf['materials'][0]['pbrMetallicRoughness']
+    gltf, binc = read_glb(data)
+    assert len(gltf['images']) == 3
+    assert 'normalTexture' in gltf['materials'][0]
+    assert 'metallicRoughnessTexture' in gltf['materials'][0]['pbrMetallicRoughness']
+    uv = accessor_array(gltf, binc, gltf['meshes'][0]['primitives'][0]['attributes']['TEXCOORD_0'])
+    assert np.allclose(uv, mesh.uvs / material.METRES)
 
 
 def test_wall_assembly_roundtrip_preserves_all_bridge_pbr_channels(tmp_path):

@@ -20,6 +20,8 @@ from turku3d.layers import write_visual
 from turku3d.package.gltf import GlbMesh, read_glb
 from turku3d.structures.geometry import profile_wall
 
+from .bridge_materials import surface_material
+
 DEFAULTS = {
     "fence": 1.6,
     "wall": 1.8,
@@ -43,6 +45,10 @@ STYLES = {
     "rail": ("railing", 0.18, (0.43, 0.47, 0.48, 1)),
     "bollard": ("bollard", 0.22, (0.20, 0.22, 0.23, 1)),
 }
+
+# prototype -> procedural PBR surface (bridge_materials); hedge and chain draw their own images
+SURFACES = {"wood": "wood", "bars": "steel", "stone": "stone", "brick": "brick", "rail": "steel",
+            "bollard": "steel", "chain": "steel"}
 
 
 def style(tags):
@@ -332,13 +338,15 @@ def prototypes(kind):
         idx.extend(mesh.indices + count)
         uv.extend(mesh.uvs)
         count += len(mesh.positions)
+    surface = SURFACES.get(kind)
     meshes = [
         GlbMesh(
             kind,
             np.array(pos),
             np.array(idx),
-            uvs=np.array(uv),
-            color=color,
+            **(surface_material(surface, np.array(uv)) if surface else dict(uvs=np.array(uv))),
+            color=(1, 1, 1, 1) if surface else color,
+            repeat=True,
             extras=dict(layer="structures", object_id=kind, material_key=f"draft_{kind}"),
         )
     ]

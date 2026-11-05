@@ -17,6 +17,7 @@ PALETTE = {
     'steel': (78, 86, 87), 'wood': (109, 91, 69), 'ballast': (107, 103, 95),
     'paint': (194, 196, 184), 'rock': (127, 128, 122),
     'granite': (158, 153, 141), 'bronze': (68, 94, 83),
+    'brick': (150, 74, 52), 'glass': (58, 72, 80), 'corten': (118, 60, 34),
 }
 
 
@@ -54,24 +55,47 @@ def fields(surface):
             ao -= joint * .35
             rough = np.maximum(rough, joint * .96)
         elif surface == 'rock':
-            fissure = np.exp(-np.sin((x + .17 * np.sin(y * np.pi)) * np.pi * 2) ** 2 / .002)
-            height -= fissure * .008
-            color -= fissure[..., None] * 17
-            ao -= fissure * .25
+            # Bedrock: irregular joints along noise ridges at two scales and lichen-dark
+            # patches. A periodic sine fissure read as a regular zig-zag on tall cut faces.
+            joints = np.exp(-_noise(rng, 18.) ** 2 / .004) + .6 * np.exp(-_noise(rng, 7.) ** 2 / .003)
+            lichen = np.clip(_noise(rng, 12.) - .6, 0, 2)
+            height -= joints * .008
+            color -= joints[..., None] * 22 + lichen[..., None] * np.array([10., 6., 9.])
+            color += (macro * 5)[..., None]
+            ao -= np.clip(joints, 0, 1) * .3
     elif surface == 'concrete':
-        # Faint formwork courses and aggregate pores, not dark masonry joints.
+        # Cast-in-place concrete: one 2 x 1 m formwork panel pair per repeat with recessed
+        # joints and tie holes, board courses, cloudy cement tone and short run-off streaks.
+        # Near-uniform grey (std ~4 on 0-255) read as an untextured surface on screen.
         seam = np.exp(-np.sin(y * np.pi * 4) ** 2 / .003)
+        joint = np.exp(-np.minimum(np.minimum(x, METRES - x), np.minimum(y % 1., 1. - y % 1.)) ** 2 / .006 ** 2)
+        tie = np.exp(-(((x % .5) - .25) ** 2 + ((y % .5) - .25) ** 2) / .012 ** 2)
         pore = np.clip(-grain - 1.5, 0, 1)
-        color -= (seam * 4 + pore * 12)[..., None]
-        height = fine * .00035 - seam * .0005 - pore * .001
+        streak = np.clip(_noise(rng, 1.5)[:, ::-1].T * gaussian_filter(_noise(rng, 6.), (40, 1), mode='wrap'), 0, 3)
+        color += (macro * 6 + _noise(rng, 9.) * 3)[..., None]
+        color -= (seam * 4 + pore * 12 + joint * 18 + tie * 30 + streak * 5)[..., None]
+        height = fine * .00035 - seam * .0005 - pore * .001 - joint * .004 - tie * .006
+        ao -= joint * .3 + tie * .4
         rough = np.clip(.88 + grain * .025, .75, .97)
+    elif surface == 'brick':
+        row = np.floor(y / .075)
+        edge_y = np.minimum(y % .075, .075 - y % .075)
+        shifted = (x + (row % 2) * .125) % .25
+        edge_x = np.minimum(shifted, .25 - shifted)
+        mortar = np.exp(-np.minimum(edge_x, edge_y) ** 2 / (.006 ** 2))
+        brick = np.floor((x + (row % 2) * .125) / .25) * 31 + row * 17
+        tone = np.sin(brick * 12.9898) * 43758.5453 % 1
+        color += ((tone - .5) * 26)[..., None] * np.array([1., .7, .55])
+        color = color * (1 - mortar[..., None]) + np.array([172., 166., 152.]) * mortar[..., None]
+        height = grain * .0004 - mortar * .006
+        ao -= mortar * .3
     elif surface in ('steel', 'paint', 'bronze'):
         patina = np.clip(.5 + macro * .22, 0, 1)
         height = fine * .000035 + grain * .00008
         if surface == 'bronze':
             copper = np.array([110., 91., 56.])
             color = tint * patina[..., None] + copper * (1 - patina[..., None])
-            color += grain[..., None] * 2
+            color += (grain * 2 + macro * 7)[..., None]
             metal = .3 + .6 * (1 - patina)
             rough = .48 + patina * .32
         else:
@@ -79,7 +103,8 @@ def fields(surface):
             # Weathered paint is dielectric; tiny exposed flecks remain metallic.
             wear = np.clip((grain - 2.2) * .18, 0, .3)
             metal = wear
-            color += (patina * 3 - wear * 22)[..., None]
+            # Mottled paint/mill scale and grime keep a painted face from reading as flat.
+            color += (patina * 3 - wear * 22 + macro * 4 + grain * 1.5)[..., None]
     elif surface == 'asphalt':
         aggregate = np.clip(grain, -.8, 1.8)
         color += (fine * 5 + aggregate * 8)[..., None]
@@ -88,9 +113,20 @@ def fields(surface):
     elif surface == 'wood':
         fibre = np.sin(x * np.pi * 140 + macro * 1.5)
         seam = np.exp(-np.sin(x * np.pi * 4) ** 2 / .001)
-        color += (fibre * 4 - seam * 24)[..., None]
+        # Boards 0.25 m wide, each its own weathered tone (fine fibre alone averages flat).
+        board = np.floor(x * 4)
+        tone = (np.sin(board * 12.9898 + 3.1) * 43758.5453 % 1 - .5) * 22
+        color += (fibre * 4 - seam * 24 + tone + macro * 4)[..., None]
         height = fibre * .00025 - seam * .004
         ao -= seam * .3
+    elif surface in ('corten', 'glass'):
+        # Weathering steel rusts in blotches and run-off; glass carries grime and wiper arcs.
+        color += (macro * (9 if surface == 'corten' else 5) + grain * 2)[..., None]
+        if surface == 'corten':
+            color -= np.clip(_noise(rng, 4.) - 1., 0, 2)[..., None] * 12
+            rough = np.clip(.75 + macro * .06, .55, .95)
+        else:
+            rough = np.clip(.12 + macro * .04, .05, .3)
     elif surface == 'ballast':
         color += grain[..., None] * 14
         height = grain * .003
@@ -104,7 +140,7 @@ def _png(pixels):
     return out.getvalue()
 
 
-@lru_cache(maxsize=16)
+@lru_cache(maxsize=32)
 def maps(surface):
     height, color, orm = fields(surface)
     dx = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * SIZE / (2 * METRES)
@@ -115,3 +151,12 @@ def maps(surface):
     normal /= np.linalg.norm(normal, axis=-1)[..., None]
     return dict(image=_png(color), normal_image=_png(np.uint8((normal * .5 + .5) * 255)),
                 orm_image=_png(orm))
+
+
+def surface_material(surface, uvs):
+    """GlbMesh keyword arguments of a structure surface: metric PBR maps and their UVs.
+
+    Geometry UVs are metres. Asphalt keeps them: the assembler binds the shared ground
+    asphalt library map, which carries its own scale. Unknown surfaces read as concrete."""
+    surface = surface if surface in PALETTE else 'concrete'
+    return dict(uvs=uvs if surface == 'asphalt' else uvs / METRES, **maps(surface))

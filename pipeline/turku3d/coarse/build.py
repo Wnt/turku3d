@@ -893,6 +893,11 @@ def build(
             tile, layer_files, stage, out.parent, surface_library, first_pass=False
         )
     seconds["package"] = time.perf_counter() - t_package
+    t_audit = time.perf_counter()
+    from . import material_audit
+
+    material_report = material_audit.audit(vis, [path.read_bytes() for path in layer_files])
+    seconds["material_audit"] = time.perf_counter() - t_audit
     seconds.update({"package_" + k: v for k, v in stats.get("seconds", {}).items()})
     seconds["visual"] = time.perf_counter() - t
     if stats["brotli_bytes"] > WIRE_CAP:
@@ -958,6 +963,7 @@ def build(
         ground_cover=ground_cover,
         surface_closure=closure_report,
         surface_audit=surface_report,
+        material_audit=material_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),
         attachments=attachments.stats(tile, inputs.attachments),
         walkable=walkable.stats(tile, inputs.walkable),
