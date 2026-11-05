@@ -231,7 +231,10 @@ async function captureSpot(s, attempt = 1) {
         const r0 = await waitSettled(120000); rec.ready.push({ view: 'ground', ...r0 });
         const gy = await groundAt(E, N, s.top ?? 80);
         rec.ground = gy;
-        Hs = gy === null ? 6 : gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
+        // No collision ground yet: never guess a height (a fixed fallback put the camera under the street at
+        // Lonttinen in iteration 3); the spot counts as unsettled and is re-captured at the end of the run.
+        if (gy === null) { rec.unsettled = true; rec.ready.push({ view: 'ground', settled: false, err: 'no collision ground under the spot' }); throw new Error('no collision ground under the spot'); }
+        Hs = gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
       }
       // `single`: one view at the spot's own camera (comparison shots such as building walls vs panoramas)
       views = (s.single ? [0] : [0, 120, 240]).map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
