@@ -109,3 +109,48 @@ def test_bgt_points_become_register_trees_and_lamps(monkeypatch):
     lamps = convert.lamps_bgt((0, 0, 10, 10))
     assert [t["feature_key"] for t in trees] == ["t1"] and trees[0]["layer"] == "GIS:Puut"
     assert [l["feature_key"] for l in lamps] == ["p1"] and lamps[0]["Tasonimi"].startswith("rr:js")
+
+
+def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
+    """AHN class 1: facades, boats, vehicles and wires stay 1; the crown becomes vegetation by height."""
+    from turku3d.nl import lidar
+
+    rng = np.random.default_rng(3)
+    parts = []
+
+    def add(xyz, cls, hag, street=False, water=False):
+        parts.append((np.asarray(xyz, float), cls, np.asarray(hag, float), street, water))
+
+    gx, gy = np.meshgrid(np.arange(0, 40, 0.5), np.arange(0, 40, 0.5))
+    add(np.c_[gx.ravel(), gy.ravel(), np.zeros(gx.size)], 2, np.zeros(gx.size))
+    rx, ry = np.meshgrid(np.arange(30, 40, 0.5), np.arange(0, 10, 0.5))  # roof at 12 m
+    add(np.c_[rx.ravel(), ry.ravel(), np.full(rx.size, 12.0)], 6, np.full(rx.size, 12.0))
+    fz = np.arange(1, 11, 0.5)
+    facade = np.c_[np.full(fz.size, 29.7), np.full(fz.size, 5.0), fz]
+    add(facade, 1, fz)
+    crown = np.c_[rng.normal(10, 1.5, 400), rng.normal(10, 1.5, 400), rng.uniform(4, 9, 400)]
+    add(crown, 1, crown[:, 2])
+    boat = np.c_[rng.uniform(5, 9, 50), rng.uniform(30, 32, 50), np.full(50, 1.5)]
+    add(boat, 1, boat[:, 2], water=True)
+    car = np.c_[rng.uniform(20, 24, 50), rng.uniform(30, 32, 50), np.full(50, 1.4)]
+    add(car, 1, car[:, 2], street=True)
+    s = np.arange(0, 30, 0.15)
+    wire = np.c_[2 + s, np.full(s.size, 20.0), 6.5 + rng.normal(0, 0.01, s.size)]
+    add(wire, 1, wire[:, 2])
+    xyz = np.concatenate([p[0] for p in parts])
+    cls = np.concatenate([np.full(len(p[0]), p[1], np.uint8) for p in parts])
+    hag = np.concatenate([p[2] for p in parts])
+    street = np.concatenate([np.full(len(p[0]), p[3]) for p in parts])
+    water = np.concatenate([np.full(len(p[0]), p[4]) for p in parts])
+    n = 40
+    tops = lidar.building_tops(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls, np.zeros((n, n), bool), 0.0, 40.0, n, n)
+    col = np.clip(xyz[:, 0].astype(int), 0, n - 1)
+    row = np.clip((40.0 - xyz[:, 1]).astype(int), 0, n - 1)
+    out = lidar.split_unclassified(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls, hag, tops[row, col], street, water,
+                                   origin=(0.0, 0.0))
+    spans = np.cumsum([0] + [len(p[0]) for p in parts])
+    ground, roof, facade, crown, boat, car, wire = (out[a:b] for a, b in zip(spans[:-1], spans[1:]))
+    assert (ground == 2).all() and (roof == 6).all()
+    assert (facade == 1).all() and (boat == 1).all() and (car == 1).all()
+    assert (crown == 5).mean() > 0.95
+    assert (wire == 1).mean() > 0.9
