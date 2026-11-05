@@ -4,7 +4,7 @@
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, hash32, pick } from './hash';
 import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
-import { connector, cumulative, intoDeadEnd, smoothPath, type Connector, type Lane } from './tileNetwork';
+import { connector, cumulative, deadEnd, intoDeadEnd, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { greenWithin, signalState, protectedLeft } from './controls';
 export { signalState } from './controls';
@@ -442,9 +442,10 @@ export class TrafficFlow {
           if (next.priority !== 'normal') priority = next.priority;
           const candidates = next.end.kind === 'seam' ? [this.network.successor(next)].filter((l): l is Lane => !!l)
             : startsAt.get(`${next.tile}|${next.end.node}`) ?? [];
+          // Straightest on, but not into a cul-de-sac while the junction has another way.
           const onward = candidates.filter(b => !visited.has(b)).sort((a, b) => {
             const ca = Math.abs(this.link(next, a).turn), cb = Math.abs(this.link(next, b).turn);
-            return ca - cb || Math.abs(a.k - next.k) - Math.abs(b.k - next.k) || cmp(a.id, b.id);
+            return Number(deadEnd(a)) - Number(deadEnd(b)) || ca - cb || Math.abs(a.k - next.k) - Math.abs(b.k - next.k) || cmp(a.id, b.id);
           })[0];
           if (!onward || visited.has(onward)) break;
           const bend = this.link(next, onward);
