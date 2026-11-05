@@ -93,14 +93,16 @@ def field(section, key, default=None):
     return default if result is None else result
 
 
-def matching_wall(vertices, program):
-    if not program or program.get("needs_review", True):
+def matching_wall(vertices, program, *, unpainted=False):
+    """The program's reviewed wall on this quad. ``unpainted`` also matches readings with
+    nothing renderable, which still count as evidence about the wall (named windows)."""
+    if not program or (program.get("needs_review", True) and not unpainted):
         return None
     from turku3d.coarse.stored_facades import match_prepared, prepare_walls
 
     facades = []
     for wall in program.get("walls", []):
-        if wall.get("observation", {}).get("needs_review", True):
+        if wall.get("observation", {}).get("needs_review", True) and not unpainted:
             continue
         g = wall.get("geometry", {})
         points = g.get("coordinates") or ([g["p0"], g["p1"]] if "p0" in g and "p1" in g else None)
@@ -183,7 +185,7 @@ def described_blank_walls(key, vertices, description, observed=None):
         base = source["base_height"]
         height = source["metadata"].get("height_m", 0)
         if points[:, 1].min() >= base - .25 and points[:, 1].max() <= base + height + .25:
-            if not names_windows(matching_wall(points, observed)):
+            if not names_windows(matching_wall(points, observed, unpainted=True)):
                 result.add(index)
     return result
 
