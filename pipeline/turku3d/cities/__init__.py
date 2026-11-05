@@ -282,8 +282,9 @@ AMSTERDAM = _nl(
 # Rotterdam: O = NW corner of the block holding the Markthal; the sample holds Markthal, Blaak,
 # Oude Haven, Leuvehaven and the Maas quays at the north end of the Erasmusbrug.
 ROTTERDAM = _nl(
-    "rotterdam", "Rotterdam", (93000.0, 437500.0), (93058.0, 437219.0), (51.92000, 4.48680),
-    "Markthal", "https://download.geofabrik.de/europe/netherlands/zuid-holland-latest.osm.pbf",
+    # Spawn on the Binnenrotte square at the Markthal's north arch (the Markthal point itself is inside it).
+    "rotterdam", "Rotterdam", (93000.0, 437500.0), (93075.0, 437390.0), (51.92154, 4.48701),
+    "Binnenrotte (Markthal)", "https://download.geofabrik.de/europe/netherlands/zuid-holland-latest.osm.pbf",
     (92500.0, 436500.0, 93500.0, 437500.0),
     0.0,  # NAP: tidal Nieuwe Maas, about mean level
 )

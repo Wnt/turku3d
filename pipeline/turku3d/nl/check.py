@@ -63,7 +63,7 @@ def main(argv=None) -> int:
         m = json.loads((root / tid / "manifest.json").read_text())
         row = {"tile": tid, "built_buildings": m.get("buildings"), "trees": m.get("trees"),
                "bridges": m.get("bridges"), "water_level": m.get("water_level"),
-               "roads": len((m.get("roads") or {}).get("edges", [])) if isinstance(m.get("roads"), dict) else m.get("roads"),
+               "road_edges": (m.get("roads") or {}).get("edges") if isinstance(m.get("roads"), dict) else None,
                **source_counts(tile)}
         src, built = row["3dbag_buildings"], row["built_buildings"] or 0
         row["ok"] = not src or built >= 0.9 * src
