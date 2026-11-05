@@ -16,6 +16,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 G=${BULK_STATE:-$HOME/turku3d/bulk-gen3}
+TITLE=${BULK_TITLE:-turku3d-bulk3}
 OSG=osgallery-dev
 OD=turku3d-local/loops/bulkgen3                  # on osgallery-dev, relative to its home
 F=/home/wnt/turku3d-local/loops/tiles/farm
@@ -45,13 +46,13 @@ create() {
   if [ -f "$G/server.json" ] && api "$API/server/$(UUID)" > /dev/null 2>&1; then echo "exists: $(UUID) $(IP)"; return; fi
   osg=$(ssh $OSG 'test -f ~/.ssh/bulk_gen3 || ssh-keygen -q -t ed25519 -N "" -C osgallery-dev-bulk -f ~/.ssh/bulk_gen3
                   cat ~/.ssh/bulk_gen3.pub')
-  body=$(python3 - "$osg" "$DISK" <<'PY'
+  body=$(TITLE=$TITLE python3 - "$osg" "$DISK" <<'PY'
 import json, os, sys
 keys = [open(os.path.expanduser('~/.ssh/id_rsa.pub')).read().strip(), sys.argv[1].strip()]
-print(json.dumps({"server": {"zone": "fi-hel1", "title": "turku3d-bulk3", "hostname": "turku3d-bulk3",
+print(json.dumps({"server": {"zone": "fi-hel1", "title": os.environ["TITLE"], "hostname": os.environ["TITLE"],
   "plan": "CLOUDNATIVE-1xCPU-4GB", "metadata": "yes", "firewall": "off",
   "storage_devices": {"storage_device": [{"action": "clone", "storage": "01000000-0000-4000-8000-000030240200",
-    "title": "turku3d-bulk3-disk", "size": int(sys.argv[2]), "tier": "standard"}]},
+    "title": os.environ["TITLE"] + "-disk", "size": int(sys.argv[2]), "tier": "standard"}]},
   "networking": {"interfaces": {"interface": [{"ip_addresses": {"ip_address": [{"family": "IPv4"}]}, "type": "public"}]}},
   "login_user": {"username": "root", "create_password": "no", "ssh_keys": {"ssh_key": keys}}}}))
 PY
