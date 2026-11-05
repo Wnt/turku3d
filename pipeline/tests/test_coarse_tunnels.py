@@ -429,3 +429,23 @@ def test_a_wide_mouth_corner_does_not_climb_the_bank_beside_it():
     floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
     mouth = floor.positions[np.isclose(floor.positions[:, 0], 10)]
     assert len(mouth) and mouth[:, 1].max() <= 2.0 + 0.35 + 1e-6
+
+
+def test_an_approach_below_the_tunnel_floor_ramps_up_to_the_mouth():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [60, 2, 0], [0, 2, 60], [60, 2, 60]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(20, 30), (50, 30)])
+
+    def surface(x, z):  # the street outside the west mouth lies 1.2 m below the floor
+        return 0.8 if x < 20 else 2.0
+
+    result = produce(tile, [("low", line, {"highway": "service", "tunnel": "yes"})],
+                     pos, idx, [], extrude, lambda x, z: 2, surface)
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    tris = floor.positions[floor.indices]
+    outside = tris[:, :, 0].max(1) <= 20 + 1e-6
+    normals = np.cross(tris[outside, 1] - tris[outside, 0], tris[outside, 2] - tris[outside, 0])
+    normals /= np.linalg.norm(normals, axis=1)[:, None]
+    centre = np.abs(tris[outside, :, 2].mean(1) - 30) < 1.5
+    assert outside.any() and np.abs(normals[centre, 1]).min() > 0.97  # the lane ramps at under ~14 deg
