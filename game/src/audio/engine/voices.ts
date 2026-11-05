@@ -172,7 +172,7 @@ export class EngineVoices {
     if (!ctx) { this.disconnect(v); return; }
     const last = this.candidates.get(id)?.state.drive;
     v.releasing = 1;
-    v.node.port.postMessage({ p: { rpm: last?.rpm ?? 920, load: -0.3, throttle: 0, limiter: false, shifting: false, running: false,
+    v.node.port.postMessage({ p: { rpm: last?.rpm ?? 930, load: -0.3, throttle: 0, limiter: false, shifting: false, running: false,
       cockpit: v.local, partials: v.partials } } satisfies V8Message);
     v.gain.gain.setTargetAtTime(0, ctx.currentTime + (v.local ? 0.5 : 0), 0.15);
     setTimeout(() => this.disconnect(v), 1200);

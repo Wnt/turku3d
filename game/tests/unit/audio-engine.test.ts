@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { ChassisSynth, ChassisTracker, lugHz, surfaceClass, thumpGain, TROPHY_CHASSIS } from '../../src/audio/engine/chassis';
 import { Drivetrain, upshiftRpm, type EngineDrive } from '../../src/audio/engine/drivetrain';
 import { TruckSoundFeed, encodeDrive } from '../../src/audio/engine/feed';
-import { SPEC_ON_LOAD_DB, createV8, render, type V8Params } from '../../src/audio/engine/v8core';
+import { IDLE_RPM, ON_LOAD_DB, REFERENCE_RPM, createV8, render, type V8Params } from '../../src/audio/engine/v8core';
 import { distanceCutoff, selectVoices } from '../../src/audio/engine/voices';
 import { GameAudio } from '../../src/audio';
 import { GameplayAudio } from '../../src/audio/gameplay';
@@ -12,7 +12,7 @@ import { MAT } from '../../src/shared/col/materials';
 
 // SPEC §7 S1-S4 and S7 run offline on the pure DSP (no Web Audio). Rendering is deterministic for the seed.
 const SR = 48000;
-const base: V8Params = { rpm: 920, load: 0, throttle: 0, limiter: false, shifting: false, running: true, cockpit: false, partials: 32 };
+const base: V8Params = { rpm: 930, load: 0, throttle: 0, limiter: false, shifting: false, running: true, cockpit: false, partials: 32 };
 
 function synth(seconds: number, params: (t: number) => Partial<V8Params>, seed = 19) {
   const voice = createV8(seed, SR), out = new Float32Array(Math.round(seconds * SR)), block = new Float32Array(128);
@@ -58,24 +58,32 @@ function bands(x: Float32Array) {
     total += P[k]; weighted += P[k] * f;
     edges.forEach(([lo, hi], i) => { if (f >= lo && f < hi) sums[i] += P[k]; });
   }
-  return { shares: sums.map(s => db(s / total)), centroid: weighted / total };
+  const loudest = Math.max(...sums);
+  return { shares: sums.map(s => db(s / total)), reLoudest: sums.map(s => db(s / loudest)), centroid: weighted / total };
 }
 function partials(x: Float32Array, rpm: number, count = 16) {
   const { P, df } = psd(x), fh = rpm / 120;
   const peak = (k: number) => { let m = 0; for (let b = Math.floor((k - 0.3) * fh / df); b <= Math.ceil((k + 0.3) * fh / df); b++) m = Math.max(m, P[b]); return db(m); };
-  const levels = Array.from({ length: count }, (_, i) => peak(i + 1));
-  return levels.map(l => l - levels[2]);
+  const levels = Array.from({ length: count }, (_, i) => peak(i + 1)), top = Math.max(...levels);
+  return levels.map(l => l - top);
 }
 
-test('S1 idle: the firing line sits at 61 ± 1.5 Hz and the lumpy cam lopes the envelope by ≥ 3 dB at 6-8 Hz', () => {
+// Verified targets (ref/REFERENCE.md §5, SPEC Corrections C5): the V2 shop idle and the V1 film pull.
+const IDLE_BANDS = [0, -4, -8.5, -16, -18], PULL_BANDS = [-1, 0, -1, -10.5, -16];
+
+test('S1 idle 930 rpm: firing line 62 ± 1.5 Hz, the verified idle band balance, and a ≥ 3 dB lumpy-cam lope at 6-8 Hz', () => {
   const drive = new Drivetrain();
   let d: EngineDrive = drive.step({ dt: 1 / 60, throttle: 0, brake: 0, forwardSpeed: 0, drivenWheelSpeed: 0, contacts: 4, reverse: false, rearSteerMoving: false });
   const { out } = synth(5, t => { if (Math.floor(t * 60) !== Math.floor((t - 128 / SR) * 60)) d = drive.step({ dt: 1 / 60, throttle: 0, brake: 0,
     forwardSpeed: 0, drivenWheelSpeed: 0, contacts: 4, reverse: false, rearSteerMoving: false }); return { rpm: d.rpm, load: d.load }; });
+  expect(IDLE_RPM).toBe(930);
   const { P, df } = psd(out, 32768);
   let best = 0, bestF = 0;
   for (let k = Math.floor(40 / df); k < 90 / df; k++) if (P[k] > best) { best = P[k]; bestF = k * df; }
-  expect(Math.abs(bestF - 61.3)).toBeLessThan(1.5);
+  expect(Math.abs(bestF - 62)).toBeLessThan(1.5);
+  const { reLoudest, centroid } = bands(out.subarray(SR));
+  IDLE_BANDS.forEach((target, i) => expect(Math.abs(reLoudest[i] - target), `idle band ${i}`).toBeLessThanOrEqual(4));
+  expect(centroid).toBeGreaterThanOrEqual(200); expect(centroid).toBeLessThanOrEqual(260);
   // Envelope in dB over 10 ms frames; the strongest 6-8 Hz component's peak-to-trough depth.
   const hop = 480, env: number[] = [];
   for (let i = 0; i + hop <= out.length; i += hop) { let s = 0; for (let j = 0; j < hop; j++) s += out[i + j] ** 2; env.push(db(s / hop)); }
@@ -89,22 +97,24 @@ test('S1 idle: the firing line sits at 61 ± 1.5 Hz and the lumpy cam lopes the 
   expect(depth).toBeGreaterThanOrEqual(3);
 });
 
-test('S2 6,100 rpm full load: half-order comb, k3 and k8 strongest, partial table, centroid and band balance', () => {
-  const { out } = synth(4, () => ({ rpm: 6100, load: 1, throttle: 1 }));
+test('S2 on load at 6,060 rpm: half-order comb rpm/120 ± 1 %, k5 and k8 strongest, verified band balance and centroid', () => {
+  const rpm = REFERENCE_RPM, fh = rpm / 120;
+  const { out } = synth(4, () => ({ rpm, load: 1, throttle: 1 }));
   const steady = out.subarray(SR, Math.round(3.5 * SR));
-  const levels = partials(steady, 6100);
+  const levels = partials(steady, rpm);
   const order = levels.map((l, i) => [l, i + 1]).sort((a, b) => b[0] - a[0]).slice(0, 2).map(x => x[1]).sort((a, b) => a - b);
-  expect(order).toEqual([3, 8]);
-  for (let k = 1; k <= 12; k++) expect(Math.abs(levels[k - 1] - SPEC_ON_LOAD_DB[k - 1]), `k${k}`).toBeLessThanOrEqual(2.5);
-  // Comb spacing: the half-order partial frequencies k·f/2 fit a line of slope 50.8 ± 0.5 Hz.
+  expect(order).toEqual([5, 8]);
+  // Regression of the design table (SPEC C5: design values, not reference) for k ≤ 12.
+  for (let k = 1; k <= 12; k++) expect(Math.abs(levels[k - 1] - ON_LOAD_DB[k - 1]), `k${k}`).toBeLessThanOrEqual(2.5);
+  // Comb spacing: the half-order partial frequencies k·rpm/120 fit a line of slope rpm/120 ± 1 %.
   const { P, df } = psd(steady);
   const peaks = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(k => {
-    let m = 0, at = 0; for (let b = Math.floor((k * 50.83 - 15) / df); b <= (k * 50.83 + 15) / df; b++) if (P[b] > m) { m = P[b]; at = b * df; } return at; });
+    let m = 0, at = 0; for (let b = Math.floor((k * fh - 15) / df); b <= (k * fh + 15) / df; b++) if (P[b] > m) { m = P[b]; at = b * df; } return at; });
   const spacing = (peaks[9] - peaks[0]) / 9;
-  expect(Math.abs(spacing - 50.8)).toBeLessThanOrEqual(0.5);
-  const { shares, centroid } = bands(steady);
-  expect(centroid).toBeGreaterThanOrEqual(280); expect(centroid).toBeLessThanOrEqual(340);
-  [-16, -2, -5, -19, -31].forEach((target, i) => expect(Math.abs(shares[i] - target), `band ${i}`).toBeLessThanOrEqual(3));
+  expect(Math.abs(spacing - fh) / fh).toBeLessThanOrEqual(0.01);
+  const { reLoudest, centroid } = bands(steady);
+  expect(centroid).toBeGreaterThanOrEqual(300); expect(centroid).toBeLessThanOrEqual(400);
+  PULL_BANDS.forEach((target, i) => expect(Math.abs(reLoudest[i] - target), `band ${i}`).toBeLessThanOrEqual(4));
 });
 
 test('S3 no whine: a 1,000→7,000 rpm sweep has no tonal line in 1-8 kHz outside the engine orders', () => {
@@ -180,7 +190,7 @@ test('drivetrain mapping: idle wander, steering-load dip, converter stall, part-
     return rpms;
   };
   const still = idle(false), loaded = idle(true);
-  expect(Math.min(...still)).toBeGreaterThanOrEqual(920 * 0.97 - 1); expect(Math.max(...still)).toBeLessThanOrEqual(920 * 1.03 + 1);
+  expect(Math.min(...still)).toBeGreaterThanOrEqual(930 * 0.97 - 1); expect(Math.max(...still)).toBeLessThanOrEqual(930 * 1.03 + 1);
   expect(Math.max(...still) - Math.min(...still)).toBeGreaterThan(10);
   const mean = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
   expect(mean(still) - mean(loaded)).toBeGreaterThan(35);
