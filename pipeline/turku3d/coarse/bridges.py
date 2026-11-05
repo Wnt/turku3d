@@ -890,6 +890,11 @@ def produce(tile, grid_pos, inputs):
         blocked.extend(
             w["line"].buffer(w["width"] / 2 + 1.5) for w in way.get("approach_under", [])
         )
+        # Lower roads under the outline that miss the axis are protected from the end ramps too:
+        # an apron raised over their lanes stands as an abutment block in them (Kalevan south joint).
+        blocked.extend(
+            w["line"].buffer(w["width"] / 2 + CUT_MARGIN) for w in way.get("below", [])
+        )
         heights = (
             np.interp(s, [0, axis.length], ends)
             if landing
