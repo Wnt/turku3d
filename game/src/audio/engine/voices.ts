@@ -21,6 +21,8 @@ const FULL_REMOTE = 2;
 const STALE_SECONDS = 0.5;
 export const VOICE_GAIN = 0.9;
 const COCKPIT_GAIN = 0.75;
+/** Listener distance from the truck (m) below which the local truck uses the in-cockpit mix. */
+const COCKPIT_RADIUS = 2.5;
 
 /** Distance low-pass: 8 kHz at 10 m falling (log) to 2 kHz at 100 m. */
 export function distanceCutoff(distance: number) {
@@ -151,15 +153,17 @@ export class EngineVoices {
   private post(id: string) {
     const v = this.voices.get(id), c = this.candidates.get(id), ctx = this.host.context();
     if (!v || !c || !ctx || v.releasing) return;
-    const d = c.state.drive;
+    const d = c.state.drive, p = c.state.position, l = this.listener;
+    const distance = l ? Math.hypot(p.x - l.x, p.y - l.y, p.z - l.z) : 10;
+    // The cockpit mix only with the listener inside the cab (a first-person or hood view); the default chase camera,
+    // 8.8 m behind, hears the exterior mix unpanned (the measured C5 on-load centroid: cockpit 254 Hz, exterior 317 Hz).
     const message: V8Message = { p: { rpm: d.rpm, load: d.load, throttle: d.throttle, limiter: d.limiter, shifting: d.shifting,
-      running: true, cockpit: v.local, partials: v.partials }, c: c.frame ?? undefined };
+      running: true, cockpit: v.local && distance < COCKPIT_RADIUS, partials: v.partials }, c: c.frame ?? undefined };
     v.node.port.postMessage(message);
     if (v.panner && v.filter) {
-      const p = c.state.position, t = ctx.currentTime;
+      const t = ctx.currentTime;
       if (v.panner.positionX) { v.panner.positionX.setTargetAtTime(p.x, t, 0.03); v.panner.positionY.setTargetAtTime(p.y, t, 0.03); v.panner.positionZ.setTargetAtTime(p.z, t, 0.03); }
       else v.panner.setPosition(p.x, p.y, p.z);
-      const l = this.listener, distance = l ? Math.hypot(p.x - l.x, p.y - l.y, p.z - l.z) : 10;
       v.filter.frequency.setTargetAtTime(distanceCutoff(distance), t, 0.05);
     }
   }

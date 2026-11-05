@@ -42,13 +42,13 @@ export class TruckSoundFeed {
 
   step(dt: number, v: Pick<VehicleState, 'forwardSpeed' | 'speed' | 'wheels'>, control: FeedControl = {}): FeedOutput {
     dt = clamp(dt, 1e-3, 0.25);
-    const wheelSpeed = this.wheelSpeed(dt, v.wheels);
+    const forward = Number.isFinite(v.forwardSpeed) ? v.forwardSpeed : 0;
+    const wheelSpeed = this.wheelSpeed(dt, v.wheels, forward);
     const contacts = v.wheels.reduce((n, w) => n + (w?.contact ? 1 : 0), 0);
     // Rear-steer slew from the synced rear steer angles (rad/s, smoothed over ≈ 80 ms).
     const rear = this.rearWheels.reduce((s, i) => s + (v.wheels[i]?.steer ?? 0), 0) / this.rearWheels.length;
     const raw = Number.isFinite(this.rear) ? (rear - this.rear) / dt : 0;
     this.rear = rear; this.slew += (raw - this.slew) * (1 - Math.exp(-dt / 0.08));
-    const forward = Number.isFinite(v.forwardSpeed) ? v.forwardSpeed : 0;
     const accel = Number.isFinite(this.speed) ? (forward - this.speed) / dt : 0;
     this.speed = forward;
 
@@ -75,8 +75,11 @@ export class TruckSoundFeed {
     return { drive, rearSlew: this.slew, drivenWheelSpeed: wheelSpeed };
   }
 
-  /** Mean rolling speed (m/s) of the driven wheels in contact, from the change of their rotation angle. */
-  private wheelSpeed(dt: number, wheels: readonly WheelState[]) {
+  /** Mean rolling speed (m/s) of the driven wheels in contact, from the change of their rotation angle. The angle
+   *  step is unwrapped around the step the body speed predicts, so long frames (hitches, 15 fps, remote poses) do not
+   *  alias once ω·Δt passes π: only the slip part (wheel minus body) has to stay within ±π. */
+  private wheelSpeed(dt: number, wheels: readonly WheelState[], forward: number) {
+    const expected = forward * dt / this.radius;
     let sum = 0, n = 0, any = 0, anyN = 0;
     for (const i of this.driven) {
       const w = wheels[i];
@@ -84,7 +87,7 @@ export class TruckSoundFeed {
       const prev = this.rotations[i];
       this.rotations[i] = w.rotation;
       if (!Number.isFinite(prev)) continue;
-      const speed = wrap(w.rotation - prev) / dt * this.radius;
+      const speed = (expected + wrap(w.rotation - prev - expected)) / dt * this.radius;
       any += speed; anyN++;
       if (w.contact) { sum += speed; n++; }
     }
