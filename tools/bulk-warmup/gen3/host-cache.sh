@@ -1,32 +1,43 @@
 #!/bin/bash
-# Bulk host (root): mount osgallery-dev's farm, survey supply and pipeline env read-only over the WireGuard tunnel,
-# through FS-Cache. The first read of a file crosses the network; later reads come from the local disk. Idempotent.
-#   host-cache.sh up      cachefilesd on /var/cache/fscache, NFSv4.2 mounts with fsc, the farm overlay, local env copy
-#   host-cache.sh status  mounts, cache size and FS-Cache counters (cookies, reads served from cache vs network)
-#   host-cache.sh down    unmount (the cache directory stays; it survives reboots and plan changes)
-#   host-cache.sh prefetch RESOLVED_JSON [GB]   warm the cache on the cheap plan, before a window: the source version,
-#                         the products resolve.py names, then survey blocks nearest the city centre first, up to GB of
-#                         blocks (default all). Reading a cached file again costs only local disk.
-# Layout (paths mirrored 1:1 with osgallery-dev, so the pass and its records see the farm's own absolute paths):
-#   /srv/osg/farm   <- 10.77.0.1:/home/wnt/turku3d-local/loops/tiles/farm   (ro, fsc)
-#   /bulk/turku3d   <- 10.77.0.1:/bulk/turku3d                              (ro, fsc; the --supply survey blocks)
-#   /home/wnt/turku3d-local/loops/tiles/farm = overlay(lower /srv/farm/seed over /srv/osg/farm, upper /srv/farm/upper).
-#     The seed is a local copy of the farm's hot small-file trees (stage.sh seed: the source version without its survey
-#     blocks, ~12 GB in ~100k files, and the code snapshots): an NFSv4 OPEN is a round trip that FS-Cache cannot save,
-#     and a lane opens every source-version WFS file of the city (~24k) per tile. Files not in the seed (survey blocks,
-#     products, stage caches, records) fall through to NFS and FS-Cache. Every write
-#     (new tile products, checkpoints, pass records, linked survey blocks) lands on the local disk; sync-train.sh
-#     --pull sends the new products back. work/, locks/ and logs/ are local directories (bind mounts): the host never
-#     takes the farm's locks or reads its private work trees. cache/ (the farm's shared, content-keyed stage caches,
-#     76 GB, mostly raw-derived lidar) stays in the overlay: a spot rebuild on the host reads the farm's warm entries
-#     through FS-Cache instead of recomputing them, and its new entries land on the host disk.
+# Bulk host (root): mount osgallery-dev's farm and /bulk read-only over the WireGuard tunnel through FS-Cache. The first
+# read of a large file crosses the network; later reads come from the local disk. Idempotent; bulk-cache.service runs
+# `up` at every boot (a plan change is a stop and start).
+#   host-cache.sh up | status | down     (down keeps the cache directory and the seeds; they survive reboots)
+# Layout (paths mirrored 1:1 with osgallery-dev, so tools and records see the farm's own absolute paths):
+#   /srv/osg/farm <- 10.77.0.1:/home/wnt/turku3d-local/loops/tiles/farm   (ro, fsc)
+#   /srv/osg/bulk <- 10.77.0.1:/bulk/turku3d                              (ro, fsc: survey supply, the cities' raw)
+#   /home/wnt/turku3d-local/loops/tiles/farm = overlay(seed /srv/farm/seed, NFS /srv/osg/farm; upper /srv/farm/upper)
+#   /bulk/turku3d                            = overlay(seed /srv/bulk/seed, NFS /srv/osg/bulk; upper /srv/bulk/upper)
+# The seeds are local copies of the hot small-file trees (stage.sh seed): an NFSv4 OPEN is a round trip FS-Cache cannot
+# save (~20 ms with READ and CLOSE over the 5 ms tunnel), and a Turku lane opens every source-version WFS file of the
+# city (~24k) per tile. Large files (survey blocks, rasters, stage caches, products) are not seeded: they fall through
+# to NFS + FS-Cache on first use (window-warm.py reads the upcoming tiles' blocks ahead of the lanes).
+# Every write lands in an upper layer on the local disk (new products, checkpoints, records, supplied survey blocks);
+# sync-train.sh --pull sends products back. work/, locks/ and logs/ of the farm are local directories (bind mounts):
+# the host never takes the farm's locks or reads its private work trees. The farm's shared content-keyed stage caches
+# (cache/, 76 GB, mostly raw-derived lidar) stay in the overlay, so a spot rebuild here reads warm entries.
 set -euo pipefail
 OSG=10.77.0.1
 F=/home/wnt/turku3d-local/loops/tiles/farm
+B=/bulk/turku3d
 NFS_OPTS=vers=4.2,ro,fsc,hard,nconnect=4,rsize=1048576,actimeo=600,nocto
+READAHEAD_KB=16384   # the NFS default is 128 KB: one 1 MB READ in flight per stream
 LOCAL_DIRS=(work locks logs)
+OVL=redirect_dir=off,index=off,metacopy=off
 
 bound() { grep -q turku3d-bulk /proc/fs/fscache/caches 2>/dev/null; }
+
+nfs() {  # nfs EXPORT MOUNTPOINT
+  mountpoint -q "$2" || mount -t nfs4 -o "$NFS_OPTS" "$OSG:$1" "$2"
+  echo "$READAHEAD_KB" > "/sys/class/bdi/$(mountpoint -d "$2")/read_ahead_kb"
+}
+
+overlay() {  # overlay SEED NFS UPPER_ROOT TARGET
+  mkdir -p "$1" "$3/upper" "$3/ovl-work" "$4"
+  mountpoint -q "$4" ||
+    mount -t overlay overlay -o "lowerdir=$1:$2,upperdir=$3/upper,workdir=$3/ovl-work,$OVL" "$4"
+  chown 1000:1000 "$3/upper"
+}
 
 up() {
   # The cache must be bound before the NFS mounts: a volume acquired without a cache never caches (the apt install
@@ -48,65 +59,37 @@ EOF
     systemctl enable -q cachefilesd 2>/dev/null; systemctl restart cachefilesd || true; sleep 2
     bound || { echo "cachefilesd did not bind a cache: journalctl -u cachefilesd"; exit 1; }
   fi
-  mkdir -p /srv/osg/farm /bulk/turku3d /srv/farm/seed /srv/farm/upper /srv/farm/ovl-work "$F"
-  mountpoint -q /srv/osg/farm || mount -t nfs4 -o "$NFS_OPTS" "$OSG:$F" /srv/osg/farm
-  mountpoint -q /bulk/turku3d || mount -t nfs4 -o "$NFS_OPTS" "$OSG:/bulk/turku3d" /bulk/turku3d
-  if ! mountpoint -q "$F"; then
-    mount -t overlay overlay -o lowerdir=/srv/farm/seed:/srv/osg/farm,upperdir=/srv/farm/upper,workdir=/srv/farm/ovl-work,redirect_dir=off,index=off,metacopy=off "$F"
-  fi
+  mkdir -p /srv/osg/farm /srv/osg/bulk
+  # A plain NFS mount left at /bulk/turku3d by an earlier layout must go before the overlay takes the path.
+  [ "$(findmnt -no FSTYPE "$B" 2>/dev/null)" = nfs4 ] && umount "$B"
+  nfs "$F" /srv/osg/farm
+  nfs /bulk/turku3d /srv/osg/bulk
+  overlay /srv/farm/seed /srv/osg/farm /srv/farm "$F"
+  overlay /srv/bulk/seed /srv/osg/bulk /srv/bulk "$B"
   for d in "${LOCAL_DIRS[@]}"; do
     mkdir -p "/srv/farm/local/$d"; chown 1000:1000 "/srv/farm/local/$d"
     mountpoint -q "$F/$d" || mount --bind "/srv/farm/local/$d" "$F/$d"
   done
-  chown 1000:1000 /srv/farm/upper
-  # The pipeline env (venv and tools, ~2 GB in ~60k files) is not mounted: over NFS each small file costs round trips
-  # (1 MB/s measured). stage.sh cache streams it once as a tar (79 s) with the farm runner shared-tiles-run.sh.
+  # The pipeline env (venv and tools, ~2 GB in ~60k files) is not mounted either: stage.sh cache copies it once.
   status
 }
 
 status() {
   findmnt -t nfs4,overlay -o TARGET,SOURCE,FSTYPE | sed 's/^/  /'
-  du -sh /var/cache/fscache /srv/farm/upper /srv/farm/local 2>/dev/null | sed 's/^/  /'
+  du -sh /var/cache/fscache /srv/farm/seed /srv/bulk/seed /srv/farm/upper /srv/bulk/upper /srv/farm/local 2>/dev/null |
+    sed 's/^/  /'
   df -h / | tail -1 | sed 's/^/  disk /'
-  # Data reads served by the cache (Read ok=) against those fetched over the network (Retrv / netfs reads).
-  grep -E '^(Cookies|Acquire|Read|Retrvl|IO|RdHelp|Stores|Cache)' /proc/fs/fscache/stats 2>/dev/null | sed 's/^/  /'
-  grep -E '^(Reads|RA|ZeroOps|DownOps|CacheRd|CacheWr)' /proc/fs/netfs/stats 2>/dev/null | sed 's/^/  /' || true
-}
-
-prefetch() {
-  local resolved=${1:?resolve.py output for the alias}; local limit_gb=${2:-100000}
-  local log=/home/wnt/turku3d-bulk-gen3/logs/prefetch.log; mkdir -p "${log%/*}"
-  read_all() { xargs -0 -r -P4 -n16 cat > /dev/null; }
-  stamp() { echo "$(date -u +%FT%TZ) $* cache=$(du -sb /var/cache/fscache | cut -f1)" >> "$log"; }
-  stamp start
-  V=$(python3 -c "import json,sys; print(next(iter(json.load(open(sys.argv[1]))['source_versions'].values())))" "$resolved")
-  find "/srv/osg/farm/${V#"$F"/}" -type f -print0 | read_all; stamp version
-  python3 -c "import json,sys; print('\n'.join(json.load(open(sys.argv[1]))['products']))" "$resolved" | sort -u |
-    while read -r g; do find "/srv/osg/farm/products/$g" -type f -print0 | read_all; stamp "products $g"; done
-  # Blocks are named by their SW corner (E_N, 500 m); the centre is the pilot office block (E 23459668 N 6704254).
-  find /bulk/turku3d/lidarpc/raw/pistepilvi -maxdepth 1 -name '*.laz' -printf '%s %p\n' | python3 -c "
-import sys
-rows = []
-for line in sys.stdin:
-    size, path = line.split(' ', 1); path = path.strip()
-    e, n = path.rsplit('/', 1)[1][:-4].split('_')[:2]
-    rows.append(((int(e) + 250 - 23459668) ** 2 + (int(n) + 250 - 6704254) ** 2, int(size), path))
-total, limit = 0, float(sys.argv[1]) * 1e9
-for _, size, path in sorted(rows):
-    if total > limit: break
-    total += size; sys.stdout.write(path + '\0')" "$limit_gb" | read_all
-  stamp blocks
+  # IO rd = reads served from the cache, wr = data written into it after a network read.
+  grep -E '^(Cookies|Acquire|IO)' /proc/fs/fscache/stats 2>/dev/null | sed 's/^/  /' || true
 }
 
 down() {
   for d in "${LOCAL_DIRS[@]}" cache; do mountpoint -q "$F/$d" && umount "$F/$d"; done
-  mountpoint -q "$F" && umount "$F"
-  for m in /bulk/turku3d /srv/osg/farm; do mountpoint -q "$m" && umount "$m"; done
+  for m in "$F" "$B" /srv/osg/bulk /srv/osg/farm; do mountpoint -q "$m" && umount "$m"; done
   true
 }
 
 case "${1:-}" in
   up|status|down) "$1" ;;
-  prefetch) shift; prefetch "$@" ;;
-  *) sed -n 2,6p "$0"; exit 2 ;;
+  *) sed -n 2,5p "$0"; exit 2 ;;
 esac

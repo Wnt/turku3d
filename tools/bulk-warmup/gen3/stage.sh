@@ -8,7 +8,8 @@
 #   stage.sh cached               create, bootstrap, cache: the read-through cache instead of upload/verify
 #   stage.sh cache                WireGuard tunnel from osgallery-dev, NFSv4.2 exports there, FS-Cache mounts here
 #                                 (host-cache.sh), pipeline env and farm service (host-farm.sh)
-#   stage.sh seed --train A ...   the cached farm's local seed layer: source version minus survey blocks, code snapshots
+#   stage.sh seed --train A ... [--city C ...]   the local seed layers: the alias's source version minus survey
+#                                 blocks and code snapshots; per city its checkout, data root and raw small files
 #   stage.sh upload --train ...   upload.sh on osgallery-dev (parallel rsync, nice 19/ionice idle); prints the rate
 #   stage.sh verify               catalog + sha256 check on the host (verify_stage.py); writes manifest.json
 #   stage.sh smoke --train A --smoke-tile T   A's whole chain on T from the base, compared with osgallery-dev's T
@@ -27,12 +28,13 @@ F=/home/wnt/turku3d-local/loops/tiles/farm
 API=https://api.upcloud.com/1.3
 TIP=${TIP:-local/loop-integration}
 CMD=${1:-}; shift || true
-TRAINS=(); TILES=(); DISK=260
+TRAINS=(); TILES=(); CITIES=(); DISK=260
 while [ $# -gt 0 ]; do
   case "$1" in
     --train) TRAINS+=("$2"); shift 2 ;;
     --smoke-tile) TILES+=("$2"); shift 2 ;;
     --disk) DISK=$2; shift 2 ;;
+    --city) CITIES+=("$2"); shift 2 ;;
     *) [ "$CMD" = grow ] && [ -z "${GROW:-}" ] && { GROW=$1; shift; continue; }; echo "unknown argument $1"; exit 2 ;;
   esac
 done
@@ -164,9 +166,9 @@ systemctl daemon-reload; systemctl enable -q bulk-cache; systemctl start bulk-ca
 }
 
 # The seed layer of the cached farm (host-cache.sh): the aliases' source version without its survey blocks and the code
-# snapshots of the aliases and of their spot-rebuild revisions, streamed once as tar. The overlay is remounted with it.
+# snapshots of the aliases and of their spot-rebuild revisions. The overlay is remounted with it.
 seed() {
-  need_trains; H=root@$(IP)
+  need_trains; H=root@$(IP); mkdir -p "$G"
   PATHS=(); while read -r p; do PATHS+=("$p"); done < <(ssh $OSG "python3 - $F ${TRAINS[*]}" <<'PY'
 import json, sys
 from pathlib import Path
@@ -183,10 +185,32 @@ print('\n'.join(sorted(paths)))
 PY
 )
   printf 'seed %s\n' "${PATHS[@]}"; t0=$(date +%s)
-  ssh $OSG "cd $F && nice -n19 tar cf - --exclude='sources/versions/*/raw/laz/pistepilvi' ${PATHS[*]} | zstd -1 -T4 -q" |
-    ssh "$H" "mkdir -p /srv/farm/seed && cd /srv/farm/seed && zstd -dq | tar xf - && du -sh /srv/farm/seed &&
-              systemctl stop bulk-cache 2>/dev/null; /home/wnt/turku3d-bulk-gen3/host-cache.sh down;
-              systemctl start bulk-cache && findmnt -no OPTIONS $F | tr , '\n' | grep lowerdir"
+  # Direct from osgallery-dev over the tunnel (rsync: resumable, verified, and once over the home uplink; a tar relayed
+  # through the Mac crossed the uplink twice and was cut twice by a corrupted packet).
+  ssh $OSG "cd $F && nice -n19 rsync -aR --numeric-ids --exclude='sources/versions/*/raw/laz/pistepilvi/' \
+            -e 'ssh -i /home/wnt/.ssh/bulk_gen3 -c aes128-gcm@openssh.com' ${PATHS[*]} root@10.77.0.2:/srv/farm/seed/ --stats |
+            grep -E 'Number of regular files transferred|Total transferred file size'"
+  if [ ${#CITIES[@]} -ge 1 ]; then
+    # Other cities build with plain generator runs (tools/cities/run.sh): their code checkouts, data roots (raw is a
+    # link into /bulk) and the toolchain's generator assets go to the local disk as they are; their raw trees' small
+    # files (under SEED_MAX, default 4 MB) go to the /bulk seed. Large raw files stay on the read-through cache.
+    local c rel=() code=(turku3d-local/cities/repo)
+    for c in "${CITIES[@]}"; do
+      rel+=("cities/$c/raw")
+      case $c in amsterdam|rotterdam) [[ " ${code[*]} " == *nlcities* ]] || code+=(turku3d-local/nlcities/repo) ;; esac
+    done
+    ssh $OSG "cd /home/wnt && nice -n19 rsync -aR --numeric-ids -e 'ssh -i /home/wnt/.ssh/bulk_gen3 -c aes128-gcm@openssh.com' \
+              ${code[*]} ${CITIES[*]/#/turku3d-local/cities/}  --exclude='/turku3d-local/cities/*/work/' \
+              --exclude='/turku3d-local/cities/*/tiles/' --exclude='/turku3d-local/cities/*/logs/' \
+              turku3d-bulk-warmup/data/facade-assets turku3d-bulk-warmup/data/facade-params turku3d-bulk-warmup/data/textures \
+              root@10.77.0.2:/home/wnt/ --stats | grep -E 'Number of regular files transferred|Total transferred file size'
+              cd /bulk/turku3d && nice -n19 rsync -aR --numeric-ids --max-size=${SEED_MAX:-4m} \
+              -e 'ssh -i /home/wnt/.ssh/bulk_gen3 -c aes128-gcm@openssh.com' ${rel[*]} root@10.77.0.2:/srv/bulk/seed/ --stats |
+              grep -E 'Number of regular files transferred|Total transferred file size'"
+    ssh "$H" "chown -R 1000:1000 /home/wnt/turku3d-local/cities /home/wnt/turku3d-local/nlcities /home/wnt/turku3d-bulk-warmup/data 2>/dev/null; true"
+  fi
+  ssh "$H" "du -sh /srv/farm/seed /srv/bulk/seed 2>/dev/null; systemctl stop bulk-cache 2>/dev/null; /home/wnt/turku3d-bulk-gen3/host-cache.sh down;
+            systemctl start bulk-cache && findmnt -no OPTIONS $F | tr , '\n' | grep lowerdir"
   echo "seeded in $(( $(date +%s) - t0 )) s"
 }
 
