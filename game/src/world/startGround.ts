@@ -36,21 +36,28 @@ export function safeSurface(hit: RayHit | null, car = false): hit is RayHit {
     && hit.material !== MAT.roof && hit.material !== MAT.unknown && !(material.flags & MAT_FLAG.NOWALK);
 }
 
-/** Nine support rays cover the chassis footprint, rejecting roofs, walls, water and steep kerbs. */
-export async function supportedSpot(at: Point & { yaw: number }, probe: GroundProbe, car: boolean): Promise<Spot | null> {
+/** Nine support rays cover the chassis footprint, rejecting roofs, walls, water and steep kerbs. `drivable` (default:
+ *  `car`) asks for street surfaces under it; a car parked on open ground passes `false` and stands on any walkable one. */
+export async function supportedSpot(at: Point & { yaw: number }, probe: GroundProbe, car: boolean, drivable = car): Promise<Spot | null> {
   const length = car ? 2.6 : 0.4, width = car ? 1.15 : 0.4;
   const c = Math.cos(at.yaw), s = Math.sin(at.yaw);
   const hits = await Promise.all([-1, 0, 1].flatMap(u => [-1, 0, 1].map(v =>
     probe(at.x + u * length * c + v * width * s, at.z - u * length * s + v * width * c))));
-  if (!hits.every(hit => safeSurface(hit, car))) return null;
+  if (!hits.every(hit => safeSurface(hit, drivable))) return null;
   const heights = hits.map(hit => hit!.point.y);
   if (Math.max(...heights) - Math.min(...heights) > (car ? 0.35 : 0.25)) return null;
   return { ...at, y: heights[4] };
 }
 
 /** The CAR graph limits parking candidates to mapped streets; support rays provide actual clearance. */
+/**
+ * The start next to `desired`: a car on the nearest supported CAR street and the player beside it. When no street
+ * within reach supports a car (a pedestrian centre, streets under decks or canopies: Tapiola, Binnenrotte) and
+ * `open` says the collision around `desired` is complete, the player stands on the nearest open walkable spot
+ * instead and the car on the nearest flat spot around it (openGround).
+ */
 export async function findInitialGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean): Promise<{ spawn: Spot; car: Spot } | null> {
+  covers: (x: number, z: number, radius: number) => boolean, open = false): Promise<{ spawn: Spot; car: Spot } | null> {
   const memo = new Map<string, Promise<RayHit | null>>();
   const sample: GroundProbe = (x, z) => {
     const key = `${x},${z}`;
@@ -70,5 +77,50 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
       if (spawn) return { spawn, car };
     }
   }
+  return open ? openGround(desired, sample, covers) : null;
+}
+
+/** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
+const OPEN_STEP = 2, OPEN_RADIUS = 80;
+/** Points evaluated together: nearest first, each batch in parallel. */
+const OPEN_BATCH = 48;
+const CAR_YAWS = [0, Math.PI / 2, Math.PI / 4, -Math.PI / 4];
+
+/** Grid points within `radius` of `at`, nearest first. */
+export function openPoints(at: Point, radius = OPEN_RADIUS, step = OPEN_STEP): Point[] {
+  const out: Point[] = [];
+  const n = Math.floor(radius / step);
+  for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+    if (Math.hypot(i, j) * step <= radius) out.push({ x: at.x + i * step, z: at.z + j * step });
+  }
+  return out.sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z));
+}
+
+/** The first point (in order) whose `test` returns a spot; batches run in parallel but keep the nearest. */
+async function nearestSpot<T>(points: readonly T[], test: (point: T) => Promise<Spot | null>): Promise<Spot | null> {
+  for (let i = 0; i < points.length; i += OPEN_BATCH) {
+    const found = (await Promise.all(points.slice(i, i + OPEN_BATCH).map(test))).find(spot => spot !== null);
+    if (found) return found;
+  }
   return null;
+}
+
+/** The player on the nearest open walkable spot to `desired` (a sky ray hits walkable ground there), the car on the
+ *  nearest flat street surface around the player, else on the nearest flat walkable one. */
+export async function openGround(desired: Point, probe: GroundProbe, covers: (x: number, z: number, radius: number) => boolean) {
+  const open = (p: Point) => covers(p.x, p.z, 0.5);
+  const spawn = await nearestSpot(openPoints(desired).filter(open), async p =>
+    safeSurface(await probe(p.x, p.z)) ? supportedSpot({ ...p, yaw: 0 }, probe, false) : null);
+  if (!spawn) return null;
+  const around = openPoints(spawn).filter(p => Math.hypot(p.x - spawn.x, p.z - spawn.z) >= 4 && covers(p.x, p.z, 3));
+  const park = (drivable: boolean) => nearestSpot(around, async p => {
+    if (!safeSurface(await probe(p.x, p.z), drivable)) return null;
+    for (const yaw of CAR_YAWS) {
+      const spot = await supportedSpot({ ...p, yaw }, probe, true, drivable);
+      if (spot) return spot;
+    }
+    return null;
+  });
+  const car = await park(true) ?? await park(false);
+  return car ? { spawn, car } : null;
 }

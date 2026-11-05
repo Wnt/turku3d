@@ -819,14 +819,16 @@ async function runPlay() {
     if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
     coarse.update(requested.x, requested.z, undefined, undefined, false);
     streamer.update(requested.x, requested.z);
-    const progress = coarse.progressAt(requested.x, requested.z);
-    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total } });
+    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
     loadingScreen.update(false, coarse.status);
     if (streamer.supports(requested.x, requested.z)) {
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
       placed = await findInitialGround(requested, coarse.roadGraphs(),
         (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius));
+        (x, z, radius) => streamer.supports(x, z, radius),
+        // Open ground once the start's collision is complete: no street near the spawn may support a car.
+        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
