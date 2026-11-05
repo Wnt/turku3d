@@ -247,8 +247,10 @@ def build(
     from . import attachments
 
     # Lidar decks replace the terrain only where they stand above it.
+    decks = len(inputs.attachments)
     inputs = dataclasses.replace(
         inputs, attachments=attachments.raised(inputs.attachments, GridHeight(tile, grid_pos).many))
+    ground_cover = dict(version=1, cover_min_m2=surfaces.COVER_MIN, decks_on_terrain=decks - len(inputs.attachments))
     # Retain the pre-bridge TIN so the later constrained apron uses the same
     # absolute target as the initial grid repair, without compounding its blend.
     from turku3d.ground.mesh import Mesh
@@ -952,6 +954,8 @@ def build(
         # Construction-era lidar ground replaced by the finished surface (ground.finished).
         finished_ground=inputs.finished_ground,
         finished_ground_rule=2,  # migrations.finished_ground.RULE: which rule decided finished_ground
+        # Cleaned ortho cover with traced edges, lidar decks only above the terrain (ground-cover@1).
+        ground_cover=ground_cover,
         surface_closure=closure_report,
         surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),
