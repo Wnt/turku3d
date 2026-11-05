@@ -12,13 +12,15 @@
 #   /bulk/turku3d   <- 10.77.0.1:/bulk/turku3d                              (ro, fsc; the --supply survey blocks)
 #   /home/wnt/turku3d-local/loops/tiles/farm = overlay(lower /srv/osg/farm, upper /srv/farm/upper): every write
 #     (new tile products, checkpoints, pass records, linked survey blocks) lands on the local disk; sync-train.sh
-#     --pull sends the new products back. work/, cache/, locks/ and logs/ are local directories (bind mounts), so
-#     the host never reads the farm's live caches or locks.
+#     --pull sends the new products back. work/, locks/ and logs/ are local directories (bind mounts): the host never
+#     takes the farm's locks or reads its private work trees. cache/ (the farm's shared, content-keyed stage caches,
+#     76 GB, mostly raw-derived lidar) stays in the overlay: a spot rebuild on the host reads the farm's warm entries
+#     through FS-Cache instead of recomputing them, and its new entries land on the host disk.
 set -euo pipefail
 OSG=10.77.0.1
 F=/home/wnt/turku3d-local/loops/tiles/farm
 NFS_OPTS=vers=4.2,ro,fsc,hard,nconnect=4,rsize=1048576,actimeo=600,nocto
-LOCAL_DIRS=(work cache locks logs)
+LOCAL_DIRS=(work locks logs)
 
 bound() { grep -q turku3d-bulk /proc/fs/fscache/caches 2>/dev/null; }
 
@@ -93,7 +95,7 @@ for _, size, path in sorted(rows):
 }
 
 down() {
-  for d in "${LOCAL_DIRS[@]}"; do mountpoint -q "$F/$d" && umount "$F/$d"; done
+  for d in "${LOCAL_DIRS[@]}" cache; do mountpoint -q "$F/$d" && umount "$F/$d"; done
   mountpoint -q "$F" && umount "$F"
   for m in /bulk/turku3d /srv/osg/farm; do mountpoint -q "$m" && umount "$m"; done
   true

@@ -5,6 +5,9 @@
 #   stage.sh create [--disk GB]   CLOUDNATIVE-1xCPU-4GB + GB (default 260) Standard disk in fi-hel1; writes server.json
 #   stage.sh bootstrap            user wnt, swap, rsync, the gen2 TTL kit, host scripts, a $TIP checkout; tools and
 #                                 server.json to osgallery-dev
+#   stage.sh cached               create, bootstrap, cache: the read-through cache instead of upload/verify
+#   stage.sh cache                WireGuard tunnel from osgallery-dev, NFSv4.2 exports there, FS-Cache mounts here
+#                                 (host-cache.sh), pipeline env and farm service (host-farm.sh)
 #   stage.sh upload --train ...   upload.sh on osgallery-dev (parallel rsync, nice 19/ionice idle); prints the rate
 #   stage.sh verify               catalog + sha256 check on the host (verify_stage.py); writes manifest.json
 #   stage.sh smoke --train A --smoke-tile T   A's whole chain on T from the base, compared with osgallery-dev's T
@@ -92,6 +95,71 @@ bootstrap() {
   rsync -a "$G/server.json" "$OSG:$OD/server.json"
 }
 
+# The read-through cache instead of upload: osgallery-dev opens a WireGuard tunnel to the host (it sits behind the
+# home NAT) and serves its farm and /bulk over kernel NFSv4.2 on the tunnel address only; the host mounts them with
+# FS-Cache (host-cache.sh). Idempotent. Keys stay on their machines; only public keys cross.
+cache() {
+  H=root@$(IP); HOMEIP=$(ssh $OSG 'curl -s -4 -m5 https://ifconfig.me')
+  hp=$(ssh "$H" 'export DEBIAN_FRONTEND=noninteractive; apt-get -qq install -y wireguard-tools nfs-common cachefilesd nftables \
+        > /dev/null 2>&1; umask 077; mkdir -p /etc/wireguard; [ -f /etc/wireguard/host.key ] || wg genkey > /etc/wireguard/host.key
+        wg pubkey < /etc/wireguard/host.key' | tail -1)
+  op=$(ssh $OSG 'sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -qq install -y wireguard-tools nfs-kernel-server > /dev/null 2>&1
+        sudo -n sh -c "umask 077; mkdir -p /etc/wireguard; [ -f /etc/wireguard/wgbulk.key ] || wg genkey > /etc/wireguard/wgbulk.key
+        wg pubkey < /etc/wireguard/wgbulk.key"' | tail -1)
+  printf '[Interface]\nAddress = 10.77.0.2/30\nListenPort = 51820\nPostUp = wg set %%i private-key /etc/wireguard/host.key\n\n[Peer]\nPublicKey = %s\nAllowedIPs = 10.77.0.1/32\n' "$op" |
+    ssh "$H" 'umask 077; cat > /etc/wireguard/wg0.conf; systemctl enable -q wg-quick@wg0; systemctl restart wg-quick@wg0'
+  # Host firewall: ssh (keys only) from anywhere, WireGuard only from the home uplink, the rest only inside wg0.
+  ssh "$H" "cat > /etc/nftables.conf <<EOF
+#!/usr/sbin/nft -f
+flush ruleset
+table inet bulk {
+  chain input {
+    type filter hook input priority 0; policy drop;
+    iif lo accept
+    ct state established,related accept
+    iifname \"wg0\" accept
+    tcp dport 22 accept
+    ip saddr $HOMEIP udp dport 51820 accept
+    meta l4proto { icmp, ipv6-icmp } accept
+  }
+}
+EOF
+systemctl enable -q nftables; nft -f /etc/nftables.conf"
+  # osgallery-dev: the tunnel (egress capped at 480 Mbit/s, leaving the home uplink to city.lab), NFSv4.1+ only on
+  # 10.77.0.1, 8 nfsd threads, read-only exports to 10.77.0.2 only.
+  printf '[Interface]\nAddress = 10.77.0.1/30\nPostUp = wg set %%i private-key /etc/wireguard/wgbulk.key; tc qdisc replace dev %%i root tbf rate 480mbit burst 2mb latency 100ms\n\n[Peer]\nPublicKey = %s\nEndpoint = %s:51820\nAllowedIPs = 10.77.0.2/32\nPersistentKeepalive = 25\n' "$hp" "$(IP)" |
+    ssh $OSG 'sudo -n sh -c "umask 077; cat > /etc/wireguard/wgbulk.conf; systemctl enable -q wg-quick@wgbulk; systemctl restart wg-quick@wgbulk"'
+  ssh $OSG "sudo -n sh -c 'mkdir -p /etc/exports.d
+printf \"[nfsd]\nhost=10.77.0.1\nthreads=8\nvers3=n\nvers4.0=n\nvers4.1=y\nvers4.2=y\n\" > /etc/nfs.conf.d/turku3d-bulk.conf
+printf \"$F 10.77.0.2(ro,no_subtree_check,no_root_squash,fsid=7701)\n/bulk/turku3d 10.77.0.2(ro,no_subtree_check,no_root_squash,fsid=7702)\n\" > /etc/exports.d/turku3d-bulk.exports
+systemctl restart nfs-server; exportfs -ra'; ping -c2 -q 10.77.0.2 > /dev/null 2>&1 || sudo -n ping -c2 -q 10.77.0.2 | tail -1"
+  rsync -a "$HERE/host-cache.sh" "$HERE/host-farm.sh" "$H:/home/wnt/turku3d-bulk-gen3/"
+  # Host service: the mounts come back after every boot (a plan change is a stop and start).
+  ssh "$H" 'cat > /etc/systemd/system/bulk-cache.service <<EOF
+[Unit]
+Description=turku3d bulk read-through cache mounts
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/sh -c "for i in \$(seq 60); do ping -c1 -W1 10.77.0.1 >/dev/null && exit 0; sleep 2; done; exit 1"
+ExecStart=/home/wnt/turku3d-bulk-gen3/host-cache.sh up
+ExecStop=/home/wnt/turku3d-bulk-gen3/host-cache.sh down
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload; systemctl enable -q bulk-cache; systemctl start bulk-cache'
+  # The pipeline env (~60k small files) and the farm service as one tar stream each: NFS would pay round trips per file.
+  ssh $OSG 'cd /home/wnt && nice -n19 tar cf - turku3d-bulk-warmup/envs turku3d-bulk-warmup/tools \
+            turku3d-local/loops/tiles/shared-tiles-run.sh turku3d-local/loops/tiles/shared_tiles.py \
+            turku3d-local/loops/tiles/shared_sources.py turku3d-local/loops/tiles/DEPLOYED_FROM | zstd -1 -T4 -q' |
+    ssh "$H" 'cd /home/wnt && zstd -dq | tar xf - && chown -R 1000:1000 turku3d-bulk-warmup turku3d-local/loops/tiles/*.py \
+              turku3d-local/loops/tiles/*.sh; /home/wnt/turku3d-bulk-gen3/host-cache.sh status'
+}
+
 used() { ssh "root@$(IP)" "df -B1 --output=used / | tail -1"; }
 upload() {
   need_trains; a=$(used); t0=$(date +%s)
@@ -155,7 +223,7 @@ os.replace(p+\\\".tmp\\\",p)' \$J ${TILES[*]}\""
      /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh python scripts/dev/tile_city_pass.py --farm-root $F \
      --revision $REV --max-jobs ${SMOKE_LANES:-1} --blocks ${SMOKE_BLOCKS:-1} --high 99 --low 98 --interval 5 \
      --survey-interval 30 --min-free-mem-gb 0.5 --checkpoint wires@2 --supply /bulk/turku3d/lidarpc/raw/pistepilvi \
-     --farm-url http://127.0.0.1:9 ${TILES[*]}' 2>&1 | grep -E 'Elapsed|Maximum resident|Traceback|Error' ;
+     --farm-url ${SMOKE_FARM:-http://127.0.0.1:9} --rebuild-interval 60 ${TILES[*]}' 2>&1 | grep -E 'Elapsed|Maximum resident|Traceback|Error' ;
      tail -${#TILES[@]} $F/migrations/$GEN/pass.jsonl | cut -c1-300"
   t=$(( $(date +%s) - t0 )); b=$(( $(rx) - b0 ))
   python3 -c "print(f'smoke: {len(\"${TILES[*]}\".split())} tiles in {$t} s; tunnel received {$b/1e9:.2f} GB ({$b/max($t,1)/1e6:.1f} MB/s)')"
@@ -190,7 +258,8 @@ delete() {
 }
 
 case "$CMD" in
-  create|bootstrap|upload|verify|smoke|grow|delete) "$CMD" ;;
+  create|bootstrap|cache|upload|verify|smoke|grow|delete) "$CMD" ;;
+  cached) create; bootstrap; cache ;;
   all) create; bootstrap; upload; verify; smoke ;;
   *) sed -n 2,16p "$0"; exit 2 ;;
 esac
