@@ -18,7 +18,7 @@ import type { CoarseTiles } from './coarseTiles';
 import type { Manifest } from './manifest';
 import { Walkers, walkerCap } from './walkers';
 import { populationFocus } from './populationFocus';
-import { fleetModel } from '../actors/fleet/catalog';
+import { FLEET_BY_ID, fleetModel } from '../actors/fleet/catalog';
 import { sampleWheelGround } from '../vehicle/wheelGround';
 import type { GroundIndex } from './groundIndex';
 
@@ -151,8 +151,9 @@ export class ScenePopulation {
       const distance = Math.hypot(p.x - view.x, p.z - view.z), visible = inView(view, p.x, p.z);
       if (this.selected.has(car.key) ? mustRemove(distance, visible) : !mayCreate(distance, visible, this.first)) continue;
       const yaw = Math.atan2(-p.hz, p.hx), sy = Math.sin(yaw / 2), cy = Math.cos(yaw / 2), sp = Math.sin(p.pitch / 2), cp = Math.cos(p.pitch / 2);
+      const seed = String(hash32('appearance', car.key));
       candidates.push({ key: car.key, distance: distance * (visible ? 1 : 4), instance: { id: car.key,
-        seed: String(hash32('appearance', car.key)), model: TRAFFIC_MODELS[car.model],
+        seed, model: fleetModel(TRAFFIC_MODELS[car.model], seed).id,
         color: TRAFFIC_PAINTS[pick(hash01('paint', car.key), PAINT_WEIGHTS)], x: p.x, y: p.y + CHASSIS_LIFT, z: p.z,
         q: { x: sy * sp, y: sy * cp, z: cy * sp, w: cy * cp }, ...vehicleLights(car, time) } });
     }
@@ -160,7 +161,7 @@ export class ScenePopulation {
     const drawn = candidates.slice(0, this.cap); this.selected = new Set(drawn.map(c => c.key)); this.first = false;
     this.cars = drawn.map(c => c.instance);
     for (const car of this.cars) if (Math.hypot(car.x - this.camera.position.x, car.z - this.camera.position.z) < 100) {
-      const model = fleetModel(car.model, car.seed!);
+      const model = FLEET_BY_ID.get(car.model)!;
       const yaw = 2 * Math.atan2(car.q.y, car.q.w);
       const ground = sampleWheelGround({ x: car.x, y: car.y - CHASSIS_LIFT, z: car.z }, yaw,
         { wheelbase: model.wheelbase, track: model.width - .15, radius: model.wheel }, (x, top, z, depth) => this.ground.ground(x, top, z, depth));

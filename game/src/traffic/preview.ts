@@ -4,7 +4,8 @@ import * as THREE from 'three/webgpu';
 import { ParkedCarVisuals, type TrafficInstance } from '../actors/car';
 import type { CoarseTiles } from '../world/coarseTiles';
 import type { Manifest } from '../world/manifest';
-import { CHASSIS_LIFT, PAINT_WEIGHTS, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './constants';
+import { fleetModel } from '../actors/fleet/catalog';
+import { CHASSIS_LIFT, MODEL_WEIGHTS, PAINT_WEIGHTS, TRAFFIC_MODELS, TRAFFIC_PAINTS } from './constants';
 import { hash01, hash32, pick } from './hash';
 import { TrafficNetwork } from './network';
 import { FLOW_STEP, TrafficFlow, interpolateFlowPose } from './flow';
@@ -63,14 +64,16 @@ export async function startTrafficPreview() {
       for (const car of flow.cars.values()) {
         const p = interpolateFlowPose(car, (at - flow.tick * FLOW_STEP) / FLOW_STEP, height);
         if (!Number.isFinite(p.y)) continue;
-        instances.push({ seed: String(hash32('appearance', car.key)), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[pick(hash01('paint', car.key), PAINT_WEIGHTS)],
+        const seed = String(hash32('appearance', car.key));
+        instances.push({ seed, model: fleetModel(TRAFFIC_MODELS[car.model], seed).id, color: TRAFFIC_PAINTS[pick(hash01('paint', car.key), PAINT_WEIGHTS)],
           x: p.x, y: p.y + CHASSIS_LIFT, z: p.z, q: chassisRotation(p), ...vehicleLights(car, at) });
       }
     } else {
       network.enumerate(render.camera.position.x, render.camera.position.z, 250, at, (lane, n) => {
         const p = network.pose(lane, n, at, height), key = network.key(lane, n);
         if (!Number.isFinite(p.y)) return;
-        instances.push({ seed: String(hash32('appearance', key)), model: TRAFFIC_MODELS[pick(hash01('model', key), [0.4, 0.25, 0.22, 0.13])],
+        const seed = String(hash32('appearance', key));
+        instances.push({ seed, model: fleetModel(TRAFFIC_MODELS[pick(hash01('model', key), MODEL_WEIGHTS)], seed).id,
           color: TRAFFIC_PAINTS[pick(hash01('paint', key), PAINT_WEIGHTS)], x: p.x, y: p.y + CHASSIS_LIFT, z: p.z, q: chassisRotation(p) });
       });
     }

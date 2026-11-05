@@ -56,7 +56,8 @@ export const RING = {
   activationPeriod: 0.2,
 } as const;
 
-/** Recolourable parked-car bodies (actors/parkedPaint.ts) and their deterministic shares. */
+/** Ambient traffic families (actors/fleet/catalog.ts SELECTABLE_FAMILIES) and their deterministic shares. A drawn car
+ *  carries the real model the catalog picks within its family (fleetModel with its appearance seed), never the family. */
 export const TRAFFIC_MODELS = ['sedan', 'suv', 'hatchback-sports', 'van'] as const;
 export const MODEL_WEIGHTS = [0.4, 0.25, 0.22, 0.13] as const;
 export const TRAFFIC_PAINTS = ['silver', 'white', 'charcoal', 'blue', 'red', 'beige'] as const;

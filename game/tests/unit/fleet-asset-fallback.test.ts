@@ -5,7 +5,7 @@ import { ParkedCarVisuals } from '../../src/actors/car';
 import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
 import { draftManifest } from '../../src/world/manifest';
 
-test('a car model that still fails after the fetch retries drops to the procedural fleet with one warning', async () => {
+test('a car model that still fails after the fetch retries is drawn as a fallback model, with one warning', async () => {
   const loads = vi.spyOn(GLTFLoader.prototype, 'loadAsync')
     .mockRejectedValue(new Error('fetch for "/assets/cars/x/lod0.glb" responded with 502'));
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -16,10 +16,21 @@ test('a car model that still fails after the fetch retries drops to the procedur
   const visuals = new ParkedCarVisuals(scene);
   await expect(visuals.load(manifest)).resolves.toBeUndefined();
   await visuals.load(manifest); // a later tile load neither refetches nor warns again
+  // The record keeps its body (parkedVehicles.ts); the failed model gets no batch of its own.
   expect(visuals.has('one')).toBe(true);
-  expect(scene.getObjectByName(`parked/${model}/0`)).toBeTruthy();
-  const fleetWarnings = warn.mock.calls.filter(([m]) => String(m).startsWith('[fleet]') && String(m).includes('procedural'));
+  expect(scene.getObjectByName(`parked/${model}/0`)).toBeUndefined();
+  const fleetWarnings = warn.mock.calls.filter(([m]) => String(m).startsWith('[fleet]') && String(m).includes('fallback'));
   expect(fleetWarnings.map(([m]) => String(m).split(' ')[1].split('/lod')[0])).toEqual([AUTHORED_MODELS[0].assetBase]);
   expect(loads.mock.calls.length).toBeLessThanOrEqual(3);
+  loads.mockRestore(); warn.mockRestore();
+});
+
+test('the fallback models are required: when one fails the load fails instead of drawing nothing', async () => {
+  const loads = vi.spyOn(GLTFLoader.prototype, 'loadAsync')
+    .mockRejectedValue(new Error('fetch for "/assets/cars/x/lod0.glb" responded with 502'));
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const visuals = new ParkedCarVisuals(new THREE.Scene());
+  visuals.reserveTraffic(4);
+  await expect(visuals.load(draftManifest('http://localhost/'))).rejects.toThrow(/failed to load/);
   loads.mockRestore(); warn.mockRestore();
 });
