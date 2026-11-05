@@ -167,7 +167,7 @@ export const TRUCK = {
   engineForce: 4400,
   enginePower: 746000,
   brakeForce: 120,
-  maxSteer: 0.7330,
+  maxSteer: 42 * Math.PI / 180,
   steerHalfSpeed: 11,
   steerRate: 2.4,
   suspensionStiffness: 9.81 / (4 * (TRUCK_REST - TRUCK_STATIC_LENGTH)),
@@ -179,7 +179,7 @@ export const TRUCK = {
   frontTorque: 0.4,
   curbFeel: 0.2,
   rearSteer: {
-    wheels: [2, 3], maxAngle: 0.5585, fullBelow: 2.5, lockout: 13.4, unlock: 11.6, rate: 1.4, manualRate: 0.9, frontLock: 0.7330,
+    wheels: [2, 3], maxAngle: 32 * Math.PI / 180, fullBelow: 2.5, lockout: 13.4, unlock: 11.6, rate: 1.4, manualRate: 0.9, frontLock: 42 * Math.PI / 180,
   },
   suspensionCurve: {
     staticLength: TRUCK_STATIC_LENGTH,

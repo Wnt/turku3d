@@ -88,10 +88,9 @@ export function travel(s: VehicleState, i: number) {
 }
 
 /** A static wedge ramp rising `height` over `length` along +X, ending at x = `end`, across z ∈ [z0, z1]. */
-export function ramp(w: R.World, end: number, height: number, length: number, z0 = -6, z1 = 6, material?: number) {
+export function ramp(w: R.World, end: number, height: number, length: number, z0 = -6, z1 = 6) {
   const a = Math.atan2(height, length), slope = Math.hypot(height, length), t = 0.2;
   const cx = end - length / 2 + Math.sin(a) * t / 2, cy = height / 2 - Math.cos(a) * t / 2;
-  void material;
   return w.createCollider(R.ColliderDesc.cuboid(slope / 2, t / 2, (z1 - z0) / 2).setTranslation(cx, cy, (z0 + z1) / 2)
     .setRotation({ x: 0, y: 0, z: Math.sin(a / 2), w: Math.cos(a / 2) }).setCollisionGroups(groups));
 }
