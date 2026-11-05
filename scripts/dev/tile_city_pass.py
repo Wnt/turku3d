@@ -311,6 +311,8 @@ def main():
                         help='farm asked for missing spot rebuilds (it listens on the LAN address only)')
     parser.add_argument('--rebuild-window', type=int, default=12,
                         help='spot rebuilds requested from the farm at a time, the first waiting tiles in pass order')
+    parser.add_argument('--rebuild-hold', type=float, default=3600,
+                        help='seconds a tile asked for twice without its build steps out of the rebuild window')
     parser.add_argument('--rebuild-interval', type=float, default=600, help='seconds between requests for a spot '
                         'rebuild that is not there yet')
     parser.add_argument('--min-free-mem-gb', type=float, default=8,
@@ -389,11 +391,18 @@ def main():
                 # Ask the farm only for the next --rebuild-window waiting tiles (pass order): asking for all of them
                 # filled the farm's queue first-come-first-served, and the ranked tiles waited behind far ones.
                 rank = (lambda t: (order.get(t, len(order)), ring(t), t)) if order else (lambda t: (ring(t), t))
-                window = sorted((t for t in rebuilding if t not in due), key=rank)[:args.rebuild_window]
+                # A tile asked for twice without its build appearing (failing builds, e.g. missing inputs) steps out
+                # of the window for --rebuild-hold s, so it cannot keep the next tiles from being asked for at all.
+                window = sorted((t for t in rebuilding if t not in due and now >= rebuilding[t].get('held', 0)),
+                                key=rank)[:args.rebuild_window]
                 for tile in window:
                     w = rebuilding[tile]
                     if now >= w['ask']:
+                        if w.get('asks', 0) >= 2:
+                            w.update(asks=0, held=now + args.rebuild_hold)
+                            continue
                         w['ask'] = now + args.rebuild_interval
+                        w['asks'] = w.get('asks', 0) + 1
                         threading.Thread(target=M.request_rebuild, args=(args.farm_url, w['row']), daemon=True).start()
                 if due:
                     for tile in due:
