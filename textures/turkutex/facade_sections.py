@@ -90,12 +90,15 @@ def shape(raw, *, surround=False):
     return next((s for s in ("segmental", "round", "pointed", "flat") if s in text), "flat")
 
 
-def opening_kind(text):
-    """Ordered opening class named by a text; an opening word outranks a blank word."""
+def opening_kind(text, *, openings_first=True):
+    """Ordered opening class named by a text. In a section's own kind an opening word
+    outranks a blank word ("row of windows and boarded openings"); in its free-text
+    features a blank field stays blank ("broad blank field; partial window at left")."""
     windows = re.search(r"\b(window|windows|glazing|glazed)\b", text)
-    if re.search(r"\b(blank|opaque|blind|windowless)\b", text) and not windows:
+    outranks = windows if openings_first else None
+    if re.search(r"\b(blank|opaque|blind|windowless)\b", text) and not outranks:
         return "blank"
-    if re.search(r"shutter|garage door|service door|boarded", text) and not windows:
+    if re.search(r"shutter|garage door|service door|boarded", text) and not outranks:
         return "opaque door"
     if re.search(r"portal|arched.*entrance", text):
         return "arched portal"
@@ -137,7 +140,8 @@ def sections(form, floors):
         # The section's own kind names what it is; feature words describe details inside
         # it ("a blind panel under the pediment" in a row of windows). Features classify
         # only a section whose kind is silent, so a local detail never blanks a window row.
-        kind = opening_kind(str(section.get("kind", "")).lower()) or opening_kind(text)
+        kind = (opening_kind(str(section.get("kind", "")).lower())
+                or opening_kind(text, openings_first=False))
         # Separate structures are never collapsed onto the wall or made into windows.
         structure = bool(re.search(r"balcon|loggia|passage|colonnade|stair|veranda|projecting|recessed", text))
         if structure:
