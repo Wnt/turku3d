@@ -51,9 +51,10 @@ watchdog() {
     sample
     n=$((n + 1))
     if [ $((n % 2)) = 0 ]; then
-      if curl -sf -m4 -o /dev/null http://127.0.0.1:7950/health; then farm_bad=0; else farm_bad=$((farm_bad + 1)); fi
-      if [ "$farm_bad" -ge 6 ]; then
-        say "farm unhealthy 60 s: restart"; "$G/host-farm.sh" stop; "$G/host-farm.sh" start "$(cfg farm_workers 12)" >> "$LOG" 2>&1
+      # Generous: at load ~100 a slow health answer is not a dead farm, and a restart orphans its running builds.
+      if curl -sf -m15 -o /dev/null http://127.0.0.1:7950/health || alive "$G/farm.pid"; then farm_bad=0; else farm_bad=$((farm_bad + 1)); fi
+      if [ "$farm_bad" -ge 30 ]; then
+        say "farm unhealthy 5 min: restart"; "$G/host-farm.sh" stop; "$G/host-farm.sh" start "$(cfg farm_workers 12)" >> "$LOG" 2>&1
         farm_bad=0
       fi
       alive "$G/pass.pid" || { say "turku pass gone: restart"; start_pass; }
