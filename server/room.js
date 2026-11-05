@@ -105,6 +105,8 @@ export class Room {
     if (!c.player) { this.reject(); return; }
     if (m.type === 'round') { this.rounds.command(c.player, m, now); return; }
     if (m.type === 'roads') { if (!this.roads.report(c.player, m.tiles)) this.reject(); return; }
+    // Outside the round epoch check: a reset only ever lowers the sender's own standing.
+    if (m.type === 'reset') { this.resetProgress(c.player, now); this.send(c, 'progress_reset'); this.presence(); return; }
     if ((this.rounds.epoch && m.epoch !== this.rounds.epoch) || this.rounds.active?.phase === 'countdown') { this.reject(); return; }
     if (m.type === 'vehicle') { this.vehicles.command(c.player, m, now); return; }
     if (m.type === 'pose') { this.pose(c.player, m, now); return; }
@@ -121,6 +123,8 @@ export class Room {
     let p = this.sessions.get(m.session);
     if (p) {
       if (p.connection) this.drop(p.connection, 4001, 'session replaced');
+      // A reset made while this room was out of reach (another city, a dropped socket) lands before the welcome.
+      if (m.reset === true) this.resetProgress(p, now);
     } else {
       const nick = nickname(this.usedNicks);
       if (!nick) {
@@ -194,6 +198,16 @@ export class Room {
     p.reachedAt = this.now();
     this.stats.deliveries++;
     this.broadcast('scores', { scores: this.scores() });
+  }
+
+  /** "Reset progress" (PROTOCOL.md `reset`): the player is a new player again under the same identity (ID, session,
+   *  nickname, spawn slot): no earnings, deliveries, pose, seat or own vehicles. The paid-order and fine IDs stay, so
+   *  a reset never makes an old claim payable again. Everyone sees the vehicle removals; the caller broadcasts scores. */
+  resetProgress(p, now) {
+    this.vehicles.resetPlayer(p, now);
+    p.earned = 0; p.deliveries = 0; p.reachedAt = now;
+    p.pose = null; p.dirty = false;
+    this.vehicles.flush(now, false);
   }
 
   breakPole(p, m) {

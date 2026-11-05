@@ -39,7 +39,7 @@ test('start wipes gameplay and stale messages; countdown locks play; restart arc
   const f = setup(2), p = f.players[0].c.player;
   f.players[0].send(delivery); f.players[0].send(pose);
   p.finedPoles.add('pole'); f.room.brokenPoles.set('pole', {});
-  f.room.vehicles.entries.set('old', {});
+  f.room.vehicles.entries.set('old', { id: 'old', source: null, pose: { ...pose, mode: 'car' }, used: f.room.now() });
   f.command(0, 'propose'); f.command(0, 'start', 5);
   const epoch = f.room.rounds.epoch;
   assert.equal(p.earned, 0); assert.equal(p.deliveries, 0); assert.equal(p.orders.size, 0);

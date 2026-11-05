@@ -80,6 +80,8 @@ hour token rejoins the same ID, nickname, spawn, score and paid-order set. It
 replaces any earlier socket using that token (old socket closes with code 4001).
 An unknown but well-formed token starts a new player; malformed tokens are rejected.
 The token is a bearer credential; retain it privately, never put it in a URL.
+`reset:true` with a known token applies a progress reset (below) before the welcome: the client reset its progress
+while this room was out of reach (in another city, or with the socket down).
 
 ### Vehicle orientation
 
@@ -246,6 +248,20 @@ must replace a pose transmission in a full-rate stream. Accepted delivery emits
 An order crossing the hour boundary counts in the hour when the server receives
 its delivery, regardless of `t` or when the client started the order.
 
+### reset (progress)
+
+```json
+{"v":2,"type":"reset"}
+```
+
+The pause menu's "Reset progress": the sender becomes a new player again under the same identity. The server zeroes
+its `earned`, `deliveries` and ranking time, drops its retained pose (a rejoin starts at the spawn slot), frees any
+seat it holds and removes the vehicles it registered itself (`source:null`: the start car, a bought scooter or truck)
+unless another player is in one. World cars it moved (`park:` sources) stay where they are. ID, session token,
+nickname, spawn slot and the paid-order and fine IDs are kept, so no earlier claim becomes payable again. The server
+flushes the vehicle removals, answers `progress_reset` to the sender and broadcasts `players` and `scores`. Accepted
+outside the round epoch check, also during a countdown. Archived hours and round results keep their history.
+
 ### world break and fine
 
 A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it records the fine without changing earned cash or leaderboard rank. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
@@ -279,6 +295,7 @@ round epoch check.
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
 | `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |
 | `error` | `code:"protocol",reload:true` | Missing/unsupported `v` in a JSON object; close 1002 follows. Reload a matching client. |
+| `progress_reset` | none | Answer to the sender's `reset`, after its vehicle removals; `players` and `scores` follow. |
 | `error` | `code:"nicknames",reload:false` | All available nicknames used in this hour; close 1013 follows. Retry next hour. |
 
 Nicknames are random friendly adjective + noun combinations in CamelCase. The

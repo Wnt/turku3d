@@ -99,6 +99,15 @@ export class VehicleRegistry {
     // Reload must not consume the last seconds of an empty car's lifetime.
     for (const v of this.entries.values()) if (v.owner === p.id) v.used = now;
   }
+  /** A progress reset (PROTOCOL.md `reset`): the player's seat is free and the vehicles it brought (the start car,
+   *  a bought scooter or truck) are gone, unless another player sits in one. World cars it moved (`park:` sources)
+   *  stay where they are, simulated by their owner. Clients see the removals at the next flush. */
+  resetPlayer(p, now) {
+    for (const [id, v] of this.entries) {
+      if (v.creator === p.id && v.source === null && (!v.occupant || v.occupant === p.id)) { this.entries.delete(id); continue; }
+      if (v.occupant === p.id) { v.occupant = null; v.used = now; this.changed(v); }
+    }
+  }
   expire(now) {
     for (const [id, v] of this.entries) {
       const holder = this.room.players.get(v.occupant);
