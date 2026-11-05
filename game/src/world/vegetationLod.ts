@@ -54,6 +54,14 @@ export function shapeTree(matrix: THREE.Matrix4, crown: readonly number[]) {
   return leanTree(matrix, crown[2] ?? 0, crown[3] ?? 0);
 }
 
+/** Where the sun's shadow map is drawn this frame: the direction towards the sun and each cascade camera's volume
+ *  (Environment.casterVolumes). An empty `frusta` (before the first shadow render) selects by distance alone. */
+export interface CasterVolumes { toSun: THREE.Vector3; frusta: readonly THREE.Frustum[] }
+/** Shadow-caster selection: horizontal shadow run per metre of tree height is capped at this (sun ~ 9 degrees). */
+const MAX_SHADOW_RUN = 6;
+/** Cascade volumes are read one frame (two for alternate-frame cascades) before they render; casters keep this margin. */
+const CASTER_MARGIN = 8;
+
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
   for (let node: THREE.Object3D | null = object; node; node = node.parent) {
@@ -75,6 +83,9 @@ interface Bucket {
   world?: Float32Array;
   /** Bounds in world space, with the instance positions. */
   sphere?: THREE.Sphere;
+  /** Instance heights (m above the base), with the positions: the length of each tree's shadow. */
+  heights?: Float32Array;
+  tallest?: number;
 }
 interface Selection { bucket: Bucket; offset: number; count: number }
 interface Draw {
@@ -83,8 +94,15 @@ interface Draw {
   asset: string;
   id: number;
   root: THREE.Group;
-  /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer. */
+  /** Per LOD level, the parts (bark, leaves, impostor) sharing one matrix and one tint buffer; after the drawn levels,
+   *  the shadow proxies (index `shadow`) as a group of their own. */
   levels: THREE.InstancedMesh[][];
+  /** Drawn LOD levels (the first `lods` groups). */
+  lods: number;
+  /** Index of the shadow-caster group in `levels`, or -1 (barriers, single-LOD assets). */
+  shadow: number;
+  /** The asset's height before the placement scale. */
+  height: number;
   selections: Selection[][];
   previous: number[][];
 }
@@ -126,6 +144,11 @@ export class VegetationLod {
   private position = new THREE.Vector3();
   private treePosition = new THREE.Vector3();
   private visible: Bucket[] = [];
+  private casterBuckets: Bucket[] = [];
+  /** The sun's cascade volumes, read at every selection (main.ts: Environment.casterVolumes). */
+  casters: (() => CasterVolumes | null) | null = null;
+  private lastSun = new THREE.Vector3(NaN, NaN, NaN);
+  private lastFrusta = -1;
   /** The inputs of the last selection: a still camera over an unchanged set of active tiles selects the same trees,
    *  so it is not run again (bench=static and every pause re-ran the full per-tree selection each frame). */
   private dirty = true;
@@ -413,12 +436,13 @@ export class VegetationLod {
     const root = new THREE.Group();
     root.name = `vegetation-lod:${asset.name}`; root.userData.vegetationLod = true;
     root.position.copy(source.position); root.quaternion.copy(source.quaternion); root.scale.copy(source.scale);
-    const levels = asset.lods.map((lod, level) => {
+    // One instance buffer per group: each drawn LOD, and the shadow casters, which are selected on their own.
+    const group = (parts: NaturePart[], level: number, shadowProxy: boolean) => {
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(count * 16), 16);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
       const objectIds: unknown[] = [];
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
-      const batch = (part: NaturePart, shadowProxy = false) => {
+      return parts.map(part => {
         // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material.
         // Tree crowns also clear the view between the camera and the player (NatureMaterials.clearsView).
         const materials = this.library?.materials;
@@ -437,15 +461,18 @@ export class VegetationLod {
         mesh.visible = false; mesh.count = 0;
         root.add(mesh);
         return mesh;
-      };
-      const parts = lod.parts.map(part => batch(part));
-      // Near trees cast their shadow with the reduced LOD on the shadow-only layer: the same canopy cards at about a
-      // third of the triangles, as GTA's per-tree shadow proxies (docs/reports/environment-assets.md).
-      if (shadows && level === 0 && asset.lods.length > 1) parts.push(...asset.lods[1].parts.map(part => batch(part, true)));
-      return parts;
-    });
+      });
+    };
+    const levels = asset.lods.map((lod, level) => group(lod.parts, level, false));
+    // Trees cast their shadow with the reduced LOD on the shadow-only layer: the same canopy cards at about a third of
+    // the triangles, as GTA's per-tree shadow proxies (docs/reports/environment-assets.md). The proxies are a group of
+    // their own, selected against the sun's cascade volumes rather than the view: a tree beside or behind the camera
+    // still shades the road ahead (update, selectCasters).
+    const lods = levels.length;
+    if (shadows && asset.lods.length > 1) levels.push(group(asset.lods[1].parts, 0, true));
     source.parent!.add(root);
-    return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, selections: levels.map(() => []), previous: levels.map(() => []) };
+    return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, lods, shadow: levels.length > lods ? lods : -1, height: asset.height,
+      selections: levels.map(() => []), previous: levels.map(() => []) };
   }
 
   /** A still camera (within 5 cm and 0.1 degrees) with the same lens and screenshot range selects the same trees. */
@@ -478,12 +505,17 @@ export class VegetationLod {
       if (!model.parent || !model.parent.children.includes(model)) active = false;
       if (this.activeTiles.get(model) !== active) { this.activeTiles.set(model, active); changed = true; }
     }
+    const volumes = this.casters?.() ?? null;
+    // The sun drifts with the clock and the cascade volumes appear with the first shadow render.
+    if (volumes && (volumes.toSun.dot(this.lastSun) < 0.99996 || volumes.frusta.length !== this.lastFrusta)) {
+      this.lastSun.copy(volumes.toSun); this.lastFrusta = volumes.frusta.length; changed = true;
+    }
     if (still && !changed) return;
     this.dirty = false;
     this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projection, camera.coordinateSystem);
     const q = QUALITY[this.tier].vegetation;
-    this.visible.length = 0;
+    this.visible.length = 0; this.casterBuckets.length = 0;
     for (const [model, data] of this.models) {
       const active = this.activeTiles.get(model) === true;
       for (const draw of data.draws) {
@@ -496,6 +528,7 @@ export class VegetationLod {
         const sphere = bucket.sphere!;
         bucket.distance = Math.max(0, this.position.distanceTo(sphere.center) - sphere.radius);
         if (bucket.distance <= Math.max(q.far, this.screenshotDistance) && this.frustum.intersectsSphere(sphere)) this.visible.push(bucket);
+        if (bucket.draw.shadow >= 0) this.casterBuckets.push(bucket);
       }
     }
     this.visible.sort((a, b) => a.distance - b.distance);
@@ -515,13 +548,13 @@ export class VegetationLod {
         // Keep their modules out of the tree budgets, including distant fences with colliders.
         const count = Math.min(bucket.count, barriers);
         barriers -= count;
-        if (count) bucket.draw.selections[Math.min(level, bucket.draw.levels.length - 1)].push({ bucket, offset: 0, count });
+        if (count) bucket.draw.selections[Math.min(level, bucket.draw.lods - 1)].push({ bucket, offset: 0, count });
         continue;
       }
       // Cells are only culling units. The tree's own position selects its LODs, in either pass: one level, or two
       // while it is inside a cross-fade band (the shader splits the pixels between them).
       const world = bucket.world!, px = this.position.x, py = this.position.y, pz = this.position.z;
-      const levels = bucket.draw.levels.length;
+      const levels = bucket.draw.lods;
       for (let offset=0;offset<bucket.count;offset++) {
         const dx = world[offset * 3] - px, dy = world[offset * 3 + 1] - py, dz = world[offset * 3 + 2] - pz;
         const distance=Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -537,6 +570,7 @@ export class VegetationLod {
         }
       }
     }
+    this.selectCasters(volumes, q.near, q.nearInstances * 3);
     // Budgets move the boundaries, smoothly: the near one at most to a quarter, the far one no closer than mid + 50 m.
     if (nearDrawn > q.nearInstances) bands[0] = Math.max(q.near * 0.25, bands[0] - 1);
     else if (nearDrawn < q.nearInstances * 0.85) bands[0] = Math.min(q.near, bands[0] + 0.5);
@@ -584,6 +618,48 @@ export class VegetationLod {
     if (this.poolRoot) this.updatePools();
   }
 
+  /** Shadow casters are culled by the sun's cascade volumes, not by the view: a tree beside or behind the camera keeps
+   *  shading the road ahead as the camera turns or drives past it. A tree casts while its shadow (base to the tip of its
+   *  height's run away from the sun) comes within `reach` of the camera, in a fixed band (the drawn near band shrinks
+   *  with its budget; a shadow must not follow it). `cap` instances at most, nearest buckets first. */
+  private selectCasters(volumes: CasterVolumes | null, reach: number, cap: number) {
+    const toSun = volumes?.toSun, frusta = volumes?.frusta ?? [];
+    const up = toSun ? Math.max(0.01, toSun.y) : 1, flat = toSun ? Math.hypot(toSun.x, toSun.z) : 0;
+    const run = Math.min(MAX_SHADOW_RUN, flat / up);
+    // Unit horizontal direction the shadow falls in (away from the sun).
+    const sx = flat > 1e-6 ? -toSun!.x / flat : 0, sz = flat > 1e-6 ? -toSun!.z / flat : 0;
+    const px = this.position.x, pz = this.position.z, reach2 = reach * reach;
+    const buckets = this.casterBuckets, sphere = this.sphere;
+    let kept = 0;
+    for (const bucket of buckets) {
+      if (bucket.distance - run * bucket.tallest! > reach) continue;
+      if (frusta.length) {
+        sphere.copy(bucket.sphere!); sphere.radius += CASTER_MARGIN;
+        let inside = false;
+        for (const frustum of frusta) if (frustum.intersectsSphere(sphere)) { inside = true; break; }
+        if (!inside) continue;
+      }
+      buckets[kept++] = bucket;
+    }
+    buckets.length = kept;
+    buckets.sort((a, b) => a.distance - b.distance);
+    let budget = cap;
+    for (const bucket of buckets) {
+      const world = bucket.world!, heights = bucket.heights!, selections = bucket.draw.selections[bucket.draw.shadow];
+      for (let offset = 0; offset < bucket.count && budget > 0; offset++) {
+        // Horizontal distance from the camera to the shadow segment base..base + length * (sx, sz).
+        const bx = world[offset * 3] - px, bz = world[offset * 3 + 2] - pz, length = heights[offset] * run;
+        const t = Math.min(length, Math.max(0, -(bx * sx + bz * sz)));
+        const dx = bx + t * sx, dz = bz + t * sz;
+        if (dx * dx + dz * dz > reach2) continue;
+        budget--;
+        const last = selections[selections.length - 1];
+        if (last?.bucket === bucket && last.offset + last.count === offset) last.count++;
+        else selections.push({ bucket, offset, count: 1 });
+      }
+    }
+  }
+
   /** Bands cross-fade while the camera moves; 0.25 s after it stops they narrow to a step over 0.5 s (no dither left in
    *  a settled frame), and widen again over 0.25 s when it moves. */
   private settle(still: boolean, now: number) {
@@ -600,10 +676,14 @@ export class VegetationLod {
     const root = bucket.draw.root;
     root.updateWorldMatrix(true, false);
     bucket.sphere = bucket.bounds.clone().applyMatrix4(root.matrixWorld);
-    const world = bucket.world = new Float32Array(bucket.count * 3);
+    const world = bucket.world = new Float32Array(bucket.count * 3), heights = bucket.heights = new Float32Array(bucket.count);
+    const height = bucket.draw.height * root.matrixWorld.getMaxScaleOnAxis();
     for (let i = 0; i < bucket.count; i++) {
       this.treePosition.fromArray(bucket.matrices, i * 16 + 12).applyMatrix4(root.matrixWorld).toArray(world, i * 3);
+      const m = bucket.matrices, o = i * 16 + 4;
+      heights[i] = height * Math.hypot(m[o], m[o + 1], m[o + 2]);
     }
+    bucket.tallest = heights.reduce((a, b) => Math.max(a, b), 0);
   }
 
   /** Repack an asset LOD's city-wide instances only when a contributing tile's selection changed. Tile roots are
