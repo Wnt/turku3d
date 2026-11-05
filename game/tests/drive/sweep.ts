@@ -143,13 +143,15 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
           status = step.status;
           const here = sampleAt(route.path, follower.s);
           trace.step(v, DT, follower.s, here.y);
+          // A stall is reported where it happened (the car's pose now), not where the drive ended after recovering.
+          if (status === 'stuck') trace.fail('stuck', `stuck (recovery ${follower.recoveries})`, follower.s);
           if (status === 'arrived' || status === 'off-path' || follower.recoveries > 2) break;
           pw.fixedStep(null, step.command);
           seconds += DT;
         }
         recoveries = follower.recoveries;
         if (status === 'off-path') { outcome = 'left the lane'; trace.fail('incomplete', outcome, follower.s); }
-        else if (recoveries > 0) { outcome = `stuck (${recoveries} recoveries)`; trace.fail('stuck', outcome, follower.s); }
+        else if (recoveries > 0) outcome = `stuck (${recoveries} recoveries)`;
         else if (status !== 'arrived' && follower.s < window[1]) { outcome = 'timeout'; trace.fail('incomplete', outcome, follower.s); }
       }
       // Ground profile over the part driven, rayed from the car's own height; and how far the lane's surveyed
