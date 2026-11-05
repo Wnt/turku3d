@@ -42,10 +42,11 @@ def maps(key, size=None):
         roughness = np.full((size, size), .93)
     elif key in ("brick_paving", "concrete_pavers"):
         # Running bond with narrow sand-filled joints: 200 x 100 mm red-brown pavers
-        # (Turku register Betonikivi, Maatiili), or 200 x 125 mm grey concrete pavers,
-        # what the register's Betonilaatta sidewalks are in street panoramas.
+        # (Turku register Betonikivi, Maatiili), or 200 x 125 mm warm grey concrete pavers,
+        # what the register's Betonilaatta sidewalks are in street panoramas (aged concrete
+        # reads red/blue 1.12-1.14 beside neutral asphalt at Vähäheikkiläntie and Kokkakatu).
         depth, tone, joint, spread, patch = ((.1, [160, 134, 122], [145, 132, 114], 7, 0) if key == "brick_paving"
-                                             else (.125, [166, 164, 158], [132, 128, 120], 6, 3))
+                                             else (.125, [172, 162, 152], [136, 128, 118], 6, 3))
         y, x = (np.indices((size, size)) + .5) * (period / size)
         row = np.floor(y / depth).astype(int)
         bx = (x + (row % 2) * .1) % .2

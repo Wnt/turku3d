@@ -82,7 +82,9 @@ def test_register_concrete_paving_is_unit_pavers_and_osm_paving_stones_lie_under
     assert abs(found[0][0].area - 30 * 2.5) < 1e-6
     maps = ground_finishes.maps('concrete_pavers', 256)
     albedo = maps['albedo'].reshape(-1, 3).astype(float)
-    assert np.ptp(albedo.mean(axis=0)) < 12  # grey, unlike the red-brown brick
+    brick = ground_finishes.maps('brick_paving', 256)['albedo'].reshape(-1, 3).astype(float).mean(axis=0)
+    mean = albedo.mean(axis=0)
+    assert 1.05 < mean[0] / mean[2] < brick[0] / brick[2]  # warm grey, less red than the brick
     assert albedo.std() > 4  # visible joints
 
 
