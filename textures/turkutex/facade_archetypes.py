@@ -103,7 +103,7 @@ ARCHETYPES = {
         corners=(0.25, 0.50),
     ),
     "neo_renaissance": family(
-        ("plaster", "plaster", "stone"),
+        ("plaster",),
         (2.4, 3.5),
         (0.35, 0.51),
         (0.58, 0.72),
@@ -113,7 +113,7 @@ ARCHETYPES = {
         surrounds=(0.10, 0.18),
     ),
     "jugend": family(
-        ("plaster", "plaster", "stone"),
+        ("plaster",),
         (2.4, 3.8),
         (0.40, 0.58),
         (0.54, 0.68),
@@ -235,7 +235,7 @@ ARCHETYPES = {
         trim=LIGHT_TRIM + DARK_TRIM,
     ),
     "civic": family(
-        ("stone", "brick", "plaster"),
+        ("brick", "plaster"),
         (3.3, 4.8),
         (0.42, 0.65),
         (0.54, 0.70),
@@ -454,6 +454,22 @@ def inferred_period(attrs):
     return None, "plain"
 
 
+# Dwellings: OSM building values and CityGML Annex C residential function codes 1000-1110.
+RESIDENTIAL_USES = {"house", "detached", "residential", "apartments", "terrace", "semidetached_house",
+                    "bungalow", "dormitory", "farm", "cabin", "residential_building",
+                    *(str(c) for c in range(1000, 1111, 10))}
+# OSM values that state only that a building exists; the register's function code then decides.
+UNSPECIFIED_USES = {"", "yes", "building", "unknown"}
+
+
+def building_use(attrs):
+    """OSM use unless it is a bare ``building=yes``, else the register's function code."""
+    use = str(attrs.get("osm_use") or "").lower()
+    if use in UNSPECIFIED_USES:
+        use = str(attrs.get("use") or "").lower()
+    return USE.get(use, use)
+
+
 def archetype(attrs):
     """Ordered rule table: explicit use/cladding, then construction period.
 
@@ -461,8 +477,8 @@ def archetype(attrs):
     use codes deliberately abstain. Shape distinguishes low sheds from housing;
     district/frontage only refine supported urban forms, never invent shop POIs.
     """
-    use = str(attrs.get("osm_use") or attrs.get("use") or "").lower()
-    use = USE.get(use, use)
+    use = building_use(attrs)
+    residential = use in RESIDENTIAL_USES
     material = attrs.get("material_class")
     year = parsed_year(attrs.get("construction_year") or attrs.get("year") or attrs.get("start_date"))
     levels = attrs.get("levels")
@@ -471,7 +487,7 @@ def archetype(attrs):
         return MASONRY
     if public_monolith(attrs):
         return MONOLITH
-    if use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank"):
+    if not residential and (use in ("warehouse", "shed", "garage", "garages") or attrs.get("blank")):
         return "warehouse"
     if use in ("industrial", "factory", "workshop"):
         return "industrial_brick" if material == "brick" or year and year < 1950 else "warehouse"
@@ -482,7 +498,8 @@ def archetype(attrs):
     )
     if use in ("retail", "supermarket", "mall") and not historic_retail:
         return "shopping"
-    if use in ("school", "university", "civic", "church", "museum", "hospital"):
+    # Timber cladding keeps the timber family whatever the building houses.
+    if use in ("school", "university", "civic", "church", "museum", "hospital") and material != "wood":
         return "civic"
     if material == "glass":
         return "glass_office"
@@ -490,7 +507,7 @@ def archetype(attrs):
         return "metal_office" if material == "metal" else "glass_office"
     if material == "wood":
         return "timber_modern" if year and year >= 1980 else "timber_traditional"
-    if material == "metal" and levels and levels <= 2 and area > 300:
+    if material == "metal" and levels and levels <= 2 and area > 300 and not residential:
         return "warehouse"
     if not year:
         era = attrs.get("era")
@@ -520,7 +537,7 @@ def archetype(attrs):
     if attrs.get("monumental"):
         return "civic"
     if levels and levels <= 2 and area < 100 and attrs.get("compactness", 1) > 0.65:
-        return "warehouse" if material == "metal" else "postwar_plaster"
+        return "warehouse" if material == "metal" and not residential else "postwar_plaster"
     if material == "brick":
         return "postwar_brick"
     return "panel_seventies" if material == "concrete" else "contemporary_housing"

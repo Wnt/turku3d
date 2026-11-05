@@ -82,6 +82,18 @@ def sample(building_id, attributes, model=None):
     )
     if group is None:
         return None
+    if group.get("components"):
+        # Multimodal paint families (red ochre, yellow, white/grey, green timber): one stable
+        # component draw, then the ordinary bounded Gaussian inside it. A single Gaussian
+        # over these families has its mean in an unobserved brown.
+        pick = hashlib.sha256(f"{building_id}:palette-component".encode()).digest()
+        u = (int.from_bytes(pick[:8], "big") + 0.5) / 2**64
+        total = sum(c["weight"] for c in group["components"])
+        for component in group["components"]:
+            u -= component["weight"] / total
+            if u <= 0:
+                break
+        group = component
     digest = hashlib.sha256(str(building_id).encode()).digest()
     uniform = [(int.from_bytes(digest[i : i + 8], "big") + 0.5) / 2**64 for i in range(0, 32, 8)]
     # Box-Muller avoids relying on a NumPy random-distribution implementation/version.
