@@ -165,6 +165,7 @@ class Farm:
         self.awaiting = {}  # migrated key -> the spot-rebuild build key it waits for
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.build_seconds = BUILD_SECONDS
+        self._status_snapshot, self._status_refresh = None, threading.Lock()
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         # Live player positions: client -> {tile the player stands on (d=0): last time}.
         self.players, self.durations = {}, {}
@@ -403,6 +404,31 @@ class Farm:
                                for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
                         free_gib=round(self.free() / GIB, 2), floor_gib=self.floor / GIB,
                         failures=list(self.failures.values())[-10:])
+
+    def status_cached(self, max_age=5.0):
+        """``status()`` as of at most ``max_age`` seconds ago, refreshed off the request thread.
+
+        /health and /status are polled by the share proxies, the Mac proxies, watchers and guards; computing
+        status per request (every queued job's priority, under the farm lock) made them queue behind builds
+        and evictions until clients gave up (2026-11-05: 10-40 s answers, hundreds of CLOSE-WAIT sockets).
+        The first call computes it; later calls return the last snapshot at once and start one refresh when
+        it is older than ``max_age``."""
+        snapshot = self._status_snapshot
+        if snapshot is None:
+            return self._refresh_status()
+        if time.monotonic() - snapshot[0] > max_age and self._status_refresh.acquire(blocking=False):
+            def refresh():
+                try:
+                    self._refresh_status()
+                finally:
+                    self._status_refresh.release()
+            threading.Thread(target=refresh, name='status-refresh', daemon=True).start()
+        return dict(snapshot[1], status_age_s=round(time.monotonic() - snapshot[0], 1))
+
+    def _refresh_status(self):
+        value = self.status()
+        self._status_snapshot = (time.monotonic(), value)
+        return dict(value, status_age_s=0.0)
 
     def version_status(self, revision):
         """Game polling describes only the requested generator, not other agents' work."""
@@ -1455,7 +1481,7 @@ class Handler(BaseHTTPRequestHandler):
         if any(p in ('.', '..') or '\\' in p for p in parts):
             raise ValueError('invalid path')
         if parts == ['health'] or parts == ['status']:
-            return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
+            return self.json(200, dict(farm.status_cached(), http_backlog=self.server.request_queue_size))
         if parts == ['receipts']:
             # One tile's completion receipts for several versions at once (the share proxy's train chain), the
             # same bytes as each version's coarse/<tile>/ready.json; null while that version has not finished it.
@@ -1593,6 +1619,12 @@ def main():
     parser.add_argument('--port', type=int, default=7950)
     parser.add_argument('--workers', type=int, default=2, choices=range(1, MAX_WORKERS + 1))
     args = parser.parse_args()
+    import faulthandler
+    # `kill -USR1 <pid>` writes every thread's stack to logs/stacks.log (the container blocks ptrace, so py-spy
+    # cannot attach): the way to see what holds the farm lock or the CPU while it is slow.
+    stacks = (args.root / 'logs').joinpath('stacks.log')
+    stacks.parent.mkdir(exist_ok=True)
+    faulthandler.register(signal.SIGUSR1, file=stacks.open('a'), all_threads=True)
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)
         server = TileHTTPServer((args.host, args.port), Handler)

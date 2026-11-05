@@ -691,6 +691,24 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(receipt['result']['adopted'])
         self.assertEqual(farm.metrics['builds'], 1)
 
+    def test_health_answers_from_a_snapshot_refreshed_off_the_request(self):
+        farm = self.farm(execute=None)
+        calls = []
+        real = farm.status
+        farm.status = lambda: calls.append(1) or real()
+        first = farm.status_cached(max_age=60)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(first['status_age_s'], 0.0)
+        for _ in range(20):  # within max_age: no recomputation at all
+            farm.status_cached(max_age=60)
+        self.assertEqual(len(calls), 1)
+        stale = farm.status_cached(max_age=0)  # old: answers at once from the snapshot, refreshes in the background
+        self.assertIn('status_age_s', stale)
+        deadline = time.monotonic() + 5
+        while len(calls) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(calls), 2)
+
     def test_adopted_workers_keep_disk_and_total_runtime_limits(self):
         from unittest.mock import patch
         farm = self.farm(execute=None)
