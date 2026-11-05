@@ -27,6 +27,12 @@ The recovery notice appears after a second of stillness on the side or roof and 
 F10 toggles desktop fullscreen synchronously from the keyboard gesture; it has no gameplay action.
 The HUD button uses the same toggle. Esc exits fullscreen through the browser; fullscreenchange updates the button.
 
+## Sprint in the trophy truck
+
+`sprint` (Xbox A, Shift) has no driving use in a car; in the trophy truck each press cycles the rear-steer mode
+(`vehicle/README.md` "Rear steer"). A is also `mission`: a press at a shop or drop-off goes to the mission
+(`MissionSystem.interactable`), not to the rear steer. Shift is only `sprint`.
+
 ## Fly mode
 
 `flyUp` (Xbox X, RT, Space) and `flyDown` (Xbox B, LT, Q) are held values read only while the developer fly mode
