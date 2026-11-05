@@ -141,3 +141,8 @@ maps `~/turku3d/loops/roadfix/maps/`.
 4. Periodic 6-8 cm steps along Aninkaistensilta's approaches and remaining 5-15 cm deck-edge steps on
    Martinsilta: lanes run over the deck's kerbs (lane data).
 5. Re-run the city-wide sweep with the final rules on the train's products.
+6. From the visual patrol (`~/turku3d/loops/patrol/20261105-0209/report.md`), not covered by these rules:
+   Martinsilta deck and pavements flat white (E 23459019 N 6703825, possibly an unfinished load); the Auransilta
+   underpass vault's stretched texture and a flat-disc water exit (E 23459792 N 6704290); Myllyahde road tunnel one
+   flat untextured colour (E 23459205 N 6703754). These are bridge and tunnel materials (`bridge_materials.py`,
+   `tunnels.Tunnels.visuals`), a separate slice.
