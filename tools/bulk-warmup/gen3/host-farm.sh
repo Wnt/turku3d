@@ -20,6 +20,9 @@ case "${1:-}" in
     echo '[]' > "$F/pending.json.tmp" && mv -f "$F/pending.json.tmp" "$F/pending.json"
     rm -f "$F/events.jsonl"; : > "$F/events.jsonl"
     mkdir -p "$G/logs"
+    # More concurrent spot rebuilds than the farm's MAX_WORKERS (12, sized for osgallery-dev's 16 cores): on the host's
+    # own copy only, and only that constant (concurrency, not output).
+    w=${2:-1}; [ "$w" -gt 12 ] && sed -i "s/^MAX_WORKERS = [0-9]*$/MAX_WORKERS = $w/" "$T/shared_tiles.py"
     # A background job is not a group leader, so setsid execs in place and $! is the service's own pid.
     setsid nohup python3 "$T/shared_tiles.py" --root "$F" --runner "$T/shared-tiles-run.sh" --host 127.0.0.1 \
       --port 7950 --workers "${2:-1}" >> "$G/logs/farm.log" 2>&1 < /dev/null &
