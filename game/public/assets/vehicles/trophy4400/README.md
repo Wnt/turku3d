@@ -22,10 +22,10 @@ materials, merge body by material, meshopt, KTX2, `hardpoints.json`) is not writ
 |---|---|
 | wheelbase / track (wheel-* origins) | 3.150 / 2.180 m |
 | tyre OD x width | 1.069 x 0.382 m, 36 pitches, beadlock with 24 bolts |
-| L0 bbox (excl. whip) | x -2.48 .. 2.13 (rear tube bumper .. soft shackle), width 2.562, roof panel 1.91, light bar 1.98, whip tip 3.12 |
-| triangles L0 / L1 / L2 | 126,260 / 27,036 / 5,938 (body alone 29,262 / 4,870 / 3,342) |
-| raw primitives L0 / L1 / L2 | 123 / 121 / 44 (before the per-material merge) |
-| sha256 (raw) | 48a93ad6904aeba6d10dc6206f96d47f6daf6e5af9e1dece4a57ac19dae6f551 |
+| L0 bbox (excl. whip) | x -2.48 .. 2.11 (rear tube bumper / spare .. front tyre), width 2.562, body width 1.76 (nose) / 1.55 (cab), rocker 0.62, roof panel 1.90, light bar 1.955 |
+| triangles L0 / L1 / L2 | 125,812 / 26,842 / 3,740 (body alone 28,814 / 4,676 / 1,144) |
+| raw primitives (all LODs) | 223 (before the per-material merge) |
+| sha256 (raw) | 393dc011336407ee97135a239e31dd47acf1c10252ad8768e4223e2c56c5e452 |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,
@@ -34,12 +34,16 @@ Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corne
 Rig nodes are empties at the pivots; axial nodes point Blender +Z (glTF +Y) from top/inner to
 bottom/outer. Lamp lenses use `led-optics` / `tail-lens`.
 
-Round 4 body (2026-11-05): compact, tall-cabbed Ultra4 shape. Planar outline panels (Bezier outlines
-filled and solidified) for the side skins, cab B-panels and a wide flat hood; deep arch shells with
-rolled lips and dark liners over all four tyres; an orange roof panel at 1.91 m with the light bar on
-its leading edge; low round LEDs either side of the winch in a small tube bumper; a dark V skid plate
-with the black-on-white 19; an upright spare leaning forward behind a tall angled rear panel; window
-nets, mirrors, A-pillar cube lights, fender pods, seats with 5-point harnesses. Livery is logo-free:
-orange with a dark-grey upper cab band, a white pinstripe and a dark rocker band. A-arms are heavier
-dark tubes with gusset plates; wheel centres are dark gunmetal (material `anod-blue` keeps its old
-name but is no longer blue).
+Round 5 body (2026-11-05): narrow, high tube-chassis 4400 buggy. The body sits between the tyres
+(cab sides at +-0.76 m, front flare strips at +-0.88 m against a 0.90 m tyre inner face) with the rocker
+at 0.62 m, above the hub line, so the long A-arms, coilovers, tie rods and axles stay exposed. Thin,
+crisp flat flare strips sweep up from a sharp front corner over open dark wheelhouses; the fender tops
+slope down outboard. A short faceted nose box (flat top with vent, angled outer front faces) carries two
+big round LEDs in its outer corners inside a proud tube hoop, with the winch recessed under the nose
+and a tall narrow dark V skid with the 19 high on it. The cage is mostly open with nets of coarse
+straps; the orange roof panel covers the rear of the cab and the light bar sits on the front roof tube.
+The rear quarters have big arches over the exposed IRS and taper to a narrow tail with low red lamps;
+the spare lies back on top of the tail on a tube carrier. Rivet rows run along the door and flare
+edges. Livery is logo-free: orange with a dark band under the window line, a white pin and a dark
+rocker; the 19 is on both cab B-panels and the skid. A-arms are dark tubes with gusset plates; wheel
+centres are dark gunmetal (material `anod-blue` keeps its old name but is no longer blue).
