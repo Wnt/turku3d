@@ -17,7 +17,7 @@ def affected(manifest: dict) -> bool:
     if "finished_ground" in manifest:  # built by a generator that already has the rule
         return False
     from turku3d import config as C
-    from turku3d.coarse.inputs import finished_ground, finished_sources
+    from turku3d.coarse.inputs import _ABSENT, _entry, _input_lock, _load, _prepare_one, _save, finished_sources
     from turku3d.coarse.sources import NoCoverage, Sources
 
     tile = C.VisualTile.parse(manifest["tile"])
@@ -28,7 +28,15 @@ def affected(manifest: dict) -> bool:
         return False
     if missing:
         return False
-    return finished_ground(tile, finished_sources(tile, sources, laz))["report"] is not None
+    # The generator's own prepared dataset (same key, same cache): the spot rebuild reuses it.
+    paths = finished_sources(tile, sources, laz)
+    path, key = _entry(C.work_root() / "build" / "coarse", tile, "finished_ground", paths)
+    with _input_lock(path):
+        value = _load(path, key)
+        if value is _ABSENT:
+            value = _prepare_one(tile, "finished_ground", paths)
+            _save(path, key, value)
+    return value["report"] is not None
 
 
 MIGRATION = Rebuild("finished-ground", 1, affected=affected)
