@@ -66,6 +66,38 @@ describe('trophy4400 linkage (SPEC M4)', () => {
     expect(worstTierod).toBeLessThan(0.06);
   });
 
+  it('is path-independent: any history gives the pose of a direct solve (no branch flips on landings or remote steps)', () => {
+    const fresh = () => new TruckLinkage(hp, hp.springs);
+    const seq = fresh();
+    let rnd = 12345;
+    const r = () => ((rnd = (rnd * 1103515245 + 12345) % 2147483648) / 2147483648);
+    let worstAxis = 0, worstCamber = 0;
+    for (let k = 0; k < 400; k++) {
+      // Large random steps across the whole travel and steer range: droop→bump jumps, resets, 4 Hz remote poses.
+      const wheels = CORNERS.map(c => {
+        const t = c[0] === 'f' ? hp.travel.front : hp.travel.rear, max = c[0] === 'f' ? TRUCK.maxSteer : TRUCK.rearSteer.maxAngle;
+        return { dy: -t.droop + (t.bump + t.droop) * r(), steer: (2 * r() - 1) * max };
+      });
+      const a = seq.solve(wheels), b = fresh().solve(wheels);
+      for (const c of CORNERS) {
+        const side = Math.sign(hp.corners[c].hub[2]) as 1 | -1;
+        expect(a.corners[c].converged).toBe(true);
+        const axA = rotate(a.corners[c].upright.q, [0, 0, side]), axB = rotate(b.corners[c].upright.q, [0, 0, side]);
+        worstAxis = Math.max(worstAxis, dist(axA, axB));
+        // Camber from the spin axis with the steer taken out (rotate back about the vertical).
+        const steer = wheels[CORNERS.indexOf(c)].steer, ax = rotate([0, Math.sin(-steer / 2), 0, Math.cos(-steer / 2)], axA);
+        worstCamber = Math.max(worstCamber, Math.abs(Math.asin(ax[1])) * 180 / Math.PI);
+        // The spin axis stays outboard (no 160° flip shows the wheel's back face).
+        expect(Math.abs(axA[2])).toBeGreaterThan(0.5);
+      }
+    }
+    for (const c of CORNERS) expect(seq.corners[c].failures).toBe(0);
+    console.log(`linkage path independence: spin-axis error ${worstAxis.toExponential(1)}, worst camber ${worstCamber.toFixed(1)}°`);
+    expect(worstAxis).toBeLessThan(1e-6);
+    // Long-arm camber curve plus the kingpin's steer camber stays within a few degrees (SPEC M4), never 16–45°.
+    expect(worstCamber).toBeLessThan(8);
+  });
+
   it('is cheap enough for every changed frame', () => {
     const linkage = new TruckLinkage(hp, hp.springs);
     const t0 = performance.now();
