@@ -333,3 +333,19 @@ def test_a_street_light_under_a_low_deck_is_dropped_but_not_under_a_high_one():
     assert low["stats"].get("lamp_through_deck") == 1 and not low["lights"]
     high = produce(TILE, [lamp], lambda x, z: 1.0, [], [], roads(25.0), shapely.Polygon(), spans=spans)
     assert not high["stats"].get("lamp_through_deck") and high["lights"]
+    unknown = produce(TILE, [lamp], lambda x, z: 1.0, [], [], json.dumps({"nodes": nodes, "edges": rows}),
+                      shapely.Polygon(), spans=spans)
+    assert unknown["stats"].get("lamp_through_deck") == 1  # no deck height: the deck builds its own lamps
+
+
+def test_a_post_in_a_traffic_lane_moves_to_the_kerb_or_is_not_built():
+    from turku3d.coarse.furniture import produce
+
+    roads = json.dumps({"nodes": [0, 50, 250, 50], "edges": [[0, 1, CAR | 2 << CLASS_SHIFT, 250.0]],
+                        "edgeAttrColumns": ["way", "width", "flags"], "edgeAttrs": [[1, 10.0, CAR | 2 << CLASS_SHIFT]]})
+    near = Prop("lamp-kerb", "lamp", 120, 0, 53.5)  # 1.2 m inside the 4.7 m lane edge
+    deep = Prop("lamp-mid", "lamp", 140, 0, 50.0)  # on the centre line: 4.7 m from either kerb
+    result = produce(TILE, [near, deep], lambda x, z: 1.0, [], [], roads, shapely.Polygon())
+    assert result["stats"]["moved_out_of_lane:lamp"] == 1 and result["stats"]["dropped_in_lane:lamp"] == 1
+    moved = next(p for p in result["poles"] if p.object_id == "lamp-kerb")
+    assert moved.z >= 54.7
