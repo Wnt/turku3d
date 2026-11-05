@@ -53,7 +53,9 @@ export default defineConfig({
   worker: { format: 'es', plugins: () => [wasm()] },
   // The vehicle gallery ships with the game (city.lab /vehicle-gallery.html): every real fleet model, drivable.
   build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000,
-    rollupOptions: { input: { main: path.resolve(import.meta.dirname, 'index.html'), 'vehicle-gallery': path.resolve(import.meta.dirname, 'vehicle-gallery.html') } } },
+    rollupOptions: { input: { main: path.resolve(import.meta.dirname, 'index.html'), 'vehicle-gallery': path.resolve(import.meta.dirname, 'vehicle-gallery.html'),
+      // The trophy truck studio (articulation, stills, drive course): city.lab /prerunner-lab.html.
+      'prerunner-lab': path.resolve(import.meta.dirname, 'prerunner-lab.html') } } },
   optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
   // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
   // No HMR: merges land in the served worktree every few minutes and each one used to reload Jonni's test session.

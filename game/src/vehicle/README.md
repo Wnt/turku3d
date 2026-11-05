@@ -104,10 +104,10 @@ driven steered wheels; the rest on the driven rear wheels) and `curbFeel` (scale
 lift impulse). Car and scooter keep their former values (4.8 / 5.5 damping, 0.22 m travel, rear drive, feel 1).
 The handbrake acts on the driven rear wheels only.
 
-The following table records the original handling baseline. Gen 2 uses the original
-KORPI 440 visual with 0.54m tyres, 3.2m wheelbase, 2.3m track, 0.58m suspension rest
-and ±0.36m travel. Current tuning lives in `physics/constants.ts`; power and handling
-changes are measured separately from the original baseline below.
+The following table records the original handling baseline. The trophy truck is now the #19-style 4400 car
+(four-wheel steer, IFS + IRS, 1.067 m tyres, 3.16 m wheelbase, 2.18 m track, 0.36/0.38 m bump and 0.30/0.33 m
+droop; model in `actors/trophy4400/`, SPEC in `~/turku3d/loops/trophy4400/SPEC.md`). Current tuning lives in
+`physics/constants.ts`; power and handling changes are measured separately from the original baseline below.
 
 | | Truck | Car |
 |---|---|---|
@@ -227,7 +227,7 @@ works for a scooter. Keep the existing GLB axis convention of the model pipeline
 transform. Mounted actors and fallback geometry use the physics frame **+X forward, +Y up, +Z right**,
 measured from the chassis centre.
 Materials must expose emissive colour/intensity; each actor clones only its lens materials. Current atlas-only
-sedan and scooter receive attached lenses with dark housings and optical ribs. KORPI uses its existing `led-optics` and `tail-lens`
+sedan and scooter receive attached lenses with dark housings and optical ribs. The trophy truck uses its `led-optics` (headlights, pods and light bar) and `tail-lens`
 materials; `fleet_headlamp` / `fleet_taillamp` remain supported in authored fleet GLBs. Named nodes or materials
 are baked into front/running-tail vertex tags when the fleet is flattened; the generated fleet keeps its existing `fleetSurface` vertex lamp tags and per-object lamp uniform.
 
