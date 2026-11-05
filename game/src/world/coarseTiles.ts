@@ -665,6 +665,12 @@ export class CoarseTiles {
     return { loaded: ready.length, total: wanted.length, errors: [] as string[] };
   }
 
+  /** Whether the L0 tile under (x, z) is settled: drawn, or failed for now. Until then its collision cells are not
+   *  in the manifest, so "no collision entry" there does not mean open space. */
+  resolvedAt(x: number, z: number) {
+    const state = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`)?.state;
+    return state === 'draft' || state === 'failed';
+  }
   /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
   detailedAt(x: number, z: number) {

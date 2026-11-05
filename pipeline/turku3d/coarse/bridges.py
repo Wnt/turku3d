@@ -570,19 +570,25 @@ def approach_lengths(way, ends, sample, obstacles):
     return tuple(result)
 
 
-def slab(key, polygon, line, stations, heights, material, height_at=None, thickness=THICKNESS):
-    """Closed deck over the source outline, with holes for ships and building footprints."""
+def slab(key, polygon, line, stations, heights, material, height_at=None, thickness=THICKNESS,
+         outline=None):
+    """Closed deck over the source outline, with holes for ships and building footprints.
+
+    ``polygon`` may be a list of (polygon, height function) levels (``deck_levels``): each level is
+    triangulated with its own heights, so one outline can carry carriageways at different levels.
+    Only edges on ``outline`` (default: the pieces' own boundary) get the slab's side faces."""
     import mapbox_earcut
 
     faces, body = Faces(), Faces()
     from shapely.ops import split
 
-    pieces = list(shapely.get_parts(polygon))
-    # Station cuts triangulate the crown; they are not physical slab edges.
-    # Allow the ring simplification below without retaining paired internal walls.
-    exterior = shapely.union_all(
-        [part.boundary for part in pieces if part.geom_type == "Polygon"]
-    ).buffer(0.0006)
+    levels = polygon if isinstance(polygon, list) else [(polygon, height_at)]
+    pieces = [(part, fn) for geom, fn in levels for part in shapely.get_parts(geom)]
+    # Station cuts triangulate the crown; they are not physical slab edges, and neither are the
+    # boundaries between levels. Allow the ring simplification without retaining internal walls.
+    edge = outline if outline is not None else shapely.union_all(
+        [part for part, _ in pieces if part.geom_type == "Polygon"])
+    exterior = edge.boundary.buffer(0.0006)
     for station in stations[1:-1]:
         a = np.asarray(line.interpolate(max(0, station - 0.01)).coords[0])
         b = np.asarray(line.interpolate(min(line.length, station + 0.01)).coords[0])
@@ -590,8 +596,8 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
         normal /= np.linalg.norm(normal)
         c = np.asarray(line.interpolate(station).coords[0])
         cut = shapely.LineString([c - normal * 1000, c + normal * 1000])
-        pieces = [part for poly in pieces for part in shapely.get_parts(split(poly, cut))]
-    for poly in pieces:
+        pieces = [(part, fn) for poly, fn in pieces for part in shapely.get_parts(split(poly, cut))]
+    for poly, height_at in pieces:
         if poly.geom_type != "Polygon" or poly.area < 0.01:
             continue
         # Intersected sidewalk strips can leave submillimetre ears that collapse
@@ -678,13 +684,17 @@ def branch_profiles(way, main_height, sample_ground):
     from .bridge_join import vertical_curve
 
     axis, out = way["line"], []
-    core = axis.buffer(way["width"] / 2)
-    for member in way.get("member_ways", []):
+    merged = axis.buffer(way["width"] / 2)
+    members = way.get("member_ways", [])
+    # A link diverges slowly, so most of its length can run along the axis: what makes it a
+    # branch is a stretch outside the main carriageway.
+    branches = [m for m in members if m["line"].difference(merged).length >= BRANCH_OUTSIDE]
+    # Where a link leaves the deck is where it leaves the other members' own carriageways, not the
+    # merged deck's width (which also spans the link while it descends alongside).
+    core = shapely.union_all([m["line"].buffer(m["width"] / 2) for m in members if m not in branches]) \
+        if len(branches) < len(members) else merged
+    for member in branches:
         line = member["line"]
-        # A link diverges slowly, so most of its length can run along the axis: what makes it a
-        # branch is a stretch outside the main carriageway.
-        if line.difference(core).length < BRANCH_OUTSIDE:
-            continue
         if core.distance(shapely.Point(line.coords[0])) > core.distance(shapely.Point(line.coords[-1])):
             line = shapely.LineString(list(line.coords)[::-1])  # run from the deck outward
         stations = np.unique(np.r_[np.arange(0, line.length, 2.0), line.length])
@@ -697,7 +707,64 @@ def branch_profiles(way, main_height, sample_ground):
         heights = np.where(stations <= leave, top, vertical_curve(stations - leave, line.length - leave,
                                                                     top, bottom, 0.0, 0.0))
         out.append((line, stations, heights, member["width"] / 2 + 1))
-    return out
+    return out, core
+
+
+LEVEL_STEP = 0.1  # m: a link this far below the main deck beside it is a separate level, behind a parapet
+PARAPET = 1.0  # m above the higher level, on the cut between two levels
+
+
+def deck_levels(footprint, profiles, main_height, link_height):
+    """(levels, cuts): the deck footprint as (polygon, height function) levels and the cut lines.
+
+    Each link's descent (from where its profile leaves the deck's height) is a level of its own
+    with the link's heights; the rest keeps the main deck's heights, except within LEVEL_STEP of
+    the link where the two meet without a step (the junction, where lanes cross between them).
+    ``cuts`` are the shared boundaries where the levels differ by more than LEVEL_STEP."""
+    from shapely.ops import substring
+
+    descents = []
+    for line, stations, heights, half in profiles:
+        flat = stations[np.isclose(heights, heights[0])]
+        leave = float(flat[-1]) if len(flat) else 0.0
+        if line.length - leave > 1.0:
+            descents.append(substring(line, leave, line.length).buffer(half - 1.0, cap_style="flat"))
+    if not descents:
+        return [(footprint, None)], shapely.MultiLineString()
+    descent = shapely.segmentize(shapely.union_all(descents).intersection(footprint), 2.0)
+    rest = shapely.segmentize(footprint.difference(descent), 2.0)
+
+    def rest_height(xz):
+        main, link = main_height(xz), link_height(xz)
+        return np.where(np.abs(main - link) <= LEVEL_STEP, link, main)
+
+    shared = shapely.intersection(rest.boundary, descent.boundary)
+    cuts = []
+    for part in shapely.get_parts(shapely.line_merge(shapely.union_all(
+            [g for g in shapely.get_parts(shared) if g.geom_type in ("LineString", "MultiLineString")]))):
+        coords = shapely.get_coordinates(shapely.segmentize(part, 1.0))
+        if len(coords) < 2:
+            continue
+        step = np.abs(main_height(coords) - link_height(coords)) > LEVEL_STEP
+        for run in np.split(np.flatnonzero(step), np.flatnonzero(np.diff(np.flatnonzero(step)) > 1) + 1):
+            if len(run) >= 2:
+                cuts.append(shapely.LineString(coords[run]))
+    return [(rest, rest_height), (descent, link_height)], shapely.MultiLineString(cuts)
+
+
+def level_parapets(key, cuts, main_height, link_height):
+    """A wall on each cut between levels, from the lower level up to PARAPET above the higher."""
+    from . import bridge_details as details
+
+    meshes = []
+    for cut in shapely.get_parts(cuts):
+        points = shapely.get_coordinates(cut)
+        if len(points) < 2:
+            continue
+        main, link = main_height(points), link_height(points)
+        meshes.append(details.wall(key + ":level-cut", points, np.minimum(main, link),
+                                   np.maximum(main, link) + PARAPET, 0.25, "concrete"))
+    return meshes
 
 
 def branch_height(profiles, xz, fallback):
@@ -888,34 +955,53 @@ def produce(tile, grid_pos, inputs):
         def main_height(xz, line=line, ss=ss, hh=hh):
             return np.interp(shapely.line_locate_point(line, shapely.points(xz)), ss, hh)
 
-        profiles = branch_profiles(way, main_height, sample_ground)
+        profiles, branch_core = branch_profiles(way, main_height, sample_ground)
         if profiles:
             # A link mapped as bridge beyond the deck outline still carries its lane: its deck
             # runs on to the link's end on the branch profile, instead of a cliff to the ground.
             links = shapely.union_all([line.buffer(half - 1.0, cap_style="flat")
                                        for line, _, _, half in profiles])
-            footprint_poly = footprint_poly.union(links).difference(obstacles.buffer(0.15))
+            # Vertices every 2 m along the link, so the slab follows its descent, not a chord.
+            footprint_poly = shapely.segmentize(footprint_poly.union(links), 2.0).difference(
+                obstacles.buffer(0.15))
 
         links = shapely.union_all([line.buffer(half, cap_style="flat") for line, _, _, half in profiles]) \
             if profiles else shapely.Polygon()
 
         def height_at(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps,
-                      profiles=profiles, links=links):
+                      profiles=profiles, links=links, branch_core=branch_core):
             points = shapely.points(xz)
             base = np.interp(shapely.line_locate_point(line, points), ss, hh)
             # Outline branches are mapped approach ramps: each follows its own way's profile
             # from the deck to the ground at its end (``branch_profiles``), not a blend by
             # distance from the main axis, which sloped the deck sideways under its lanes.
             blend = np.clip((shapely.distance(axis, points) - width / 2) / 2, 0, 1)
-            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1]) | shapely.intersects_xy(
-                links, xz[:, 0], xz[:, 1])
+            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
+            if profiles:
+                on_link = shapely.intersects_xy(links, xz[:, 0], xz[:, 1])
+                blend = np.where(on_link, np.clip(shapely.distance(branch_core, points) / 2, 0, 1), blend)
             if not blend.any():
                 return base
             branch = branch_height(profiles, xz, sample_ground(xz) + 0.02)
             return base * (1 - blend) + branch * blend
 
+        def link_only(xz, line=line, ss=ss, hh=hh, profiles=profiles):
+            base = np.interp(shapely.line_locate_point(line, shapely.points(xz)), ss, hh)
+            return branch_height(profiles, xz, base) if profiles else base
+
+        def main_only(xz, line=line, ss=ss, hh=hh, axis=axis, width=width, ramps=ramps):
+            points = shapely.points(xz)
+            base = np.interp(shapely.line_locate_point(line, points), ss, hh)
+            blend = np.clip((shapely.distance(axis, points) - width / 2) / 2, 0, 1)
+            blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
+            return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend if blend.any() else base
+
+        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only)
+        if deck_parts[0][1] is None:
+            deck_parts = [(footprint_poly, height_at)]
         meshes = slab(
-            key + ":deck", footprint_poly, line, ss, hh, material, height_at, spec["thickness"]
+            key + ":deck", deck_parts, line, ss, hh, material, height_at, spec["thickness"],
+            outline=footprint_poly,
         )
         if meshes:
             details.appearance(meshes[0], spec["surface"])
@@ -924,6 +1010,7 @@ def produce(tile, grid_pos, inputs):
         profile = bridge_profile(way)
         if profile.get("soffit") and len(meshes) > 1:
             meshes[1].metadata["night_soffit"] = True
+        meshes.extend(level_parapets(key, cuts, main_only, link_only))
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         if way.get("on_grade"):

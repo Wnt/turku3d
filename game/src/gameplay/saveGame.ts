@@ -45,8 +45,14 @@ export function kerbBehind(car: Pose): Pose {
   return { x: car.x - 5.5 * Math.cos(car.yaw), y: car.y, z: car.z + 5.5 * Math.sin(car.yaw), yaw: car.yaw };
 }
 
+/** How long (ms) a placement waits for the tile under it to be built before it places like open space. */
+const TILE_WAIT_MS = 30_000;
+
 interface SaveGameOptions {
   physics: PhysicsClient; streamer: CollisionStreamer; manifest: Manifest; missions: MissionSystem; recovery: SafeReset;
+  /** Whether the tile under (x, z) has its collision published (CoarseTiles.resolvedAt; absent: always). A placement far
+   *  from the preloaded starts (a late multiplayer welcome) waits for it while the frame loop streams there. */
+  tileResolved?: (x: number, z: number) => boolean;
   saves: SaveStore; startScreen: StartScreen; pauseMenu: PauseMenu;
   clock: () => Date;
   router: StreetRouter;
@@ -361,8 +367,10 @@ export class SaveGameController {
     streamer.update(x, z, true);
     const t = collisionTileAt(x, z), id = `c_${t.i}_${t.j}`;
     const t0 = performance.now();
-    while (manifest.collision[id] && !physics.loaded.has(id)) {
-      if (performance.now() - t0 > 30000) throw new Error(`collision tile ${id} did not load`);
+    // A tile the service is still building after TILE_WAIT_MS places like open space (the old behaviour).
+    const resolved = this.o.tileResolved ?? (() => true);
+    while ((!resolved(x, z) && performance.now() - t0 < TILE_WAIT_MS) || manifest.collision[id] && !physics.loaded.has(id)) {
+      if (performance.now() - t0 > 30000 + TILE_WAIT_MS) throw new Error(`collision tile ${id} did not load`);
       await new Promise(r => setTimeout(r, 20));
       streamer.update(x, z);
     }
