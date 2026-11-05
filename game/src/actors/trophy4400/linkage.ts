@@ -22,7 +22,7 @@ export interface Hardpoints {
 export interface SpringRest { seat: Vec; length: number }
 
 export interface CornerPose {
-  /** Rotation about the LCA axis (rad) and the UCA swing angle; `converged` false if the solve failed (then held). */
+  /** Rotation about the LCA axis (rad) and the UCA swing angle; `converged` false if the solve failed (counted). */
   theta: number; phi: number; converged: boolean;
   lca: Quat; uca: Quat;
   upright: { p: Vec; q: Quat };
@@ -68,7 +68,9 @@ export function between(a: Vec, b: Vec): Quat {
 const around = (p: Vec, origin: Vec, q: Quat) => add(origin, rotate(q, sub(p, origin)));
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-/** One corner's rigid double-wishbone solve, warm-started from its previous result. */
+const SEED_STEP = 0.02;
+
+/** One corner's rigid double-wishbone solve, a pure function of (dy, steer): no warm start, no history. */
 export class CornerLinkage {
   readonly front: boolean;
   readonly bump: number; readonly droop: number;
@@ -79,7 +81,11 @@ export class CornerLinkage {
   private readonly coilDir0: Vec; private readonly coilLength0: number;
   private readonly bypassDir0: Vec; private readonly bypassLength0: number;
   private readonly cvDir0: Vec; private readonly cvLength0: number;
-  private theta = 0; private phi = 0; private s = 0;
+  private readonly uprightDir0: Vec;
+  /** θ(dy) at zero steer on a 2 cm grid from full droop to full bump: the seed of every solve (no warm start). */
+  private readonly seeds: Float64Array; private readonly seedFrom: number;
+  /** Solves that did not converge (should stay 0; the linkage test asserts it over the whole travel × steer range). */
+  failures = 0;
 
   constructor(readonly p: CornerPoints, rack: { l: Vec; r: Vec }, travel: { bump: number; droop: number },
     private readonly spring: SpringRest) {
@@ -90,12 +96,39 @@ export class CornerLinkage {
     this.cU = add(p.ucaInF, scale(this.axU, dot(sub(p.ucaOut, p.ucaInF), this.axU)));
     const radial = sub(p.ucaOut, this.cU);
     this.rU = len(radial); this.e1 = norm(radial); this.e2 = cross(this.axU, this.e1);
-    this.upright0 = sub(p.ucaOut, p.lcaOut); this.uprightLength = len(this.upright0);
+    this.upright0 = sub(p.ucaOut, p.lcaOut); this.uprightLength = len(this.upright0); this.uprightDir0 = norm(this.upright0);
     this.rackAxis = norm(sub(rack.r, rack.l));
     this.tierodLength = len(sub(p.tierodOut, p.tierodIn)); this.tierodDir0 = norm(sub(p.tierodOut, p.tierodIn));
     this.coilLength0 = len(sub(p.coilBot, p.coilTop)); this.coilDir0 = norm(sub(p.coilBot, p.coilTop));
     this.bypassLength0 = len(sub(p.bypassBot, p.bypassTop)); this.bypassDir0 = norm(sub(p.bypassBot, p.bypassTop));
     this.cvLength0 = len(sub(p.cvOut, p.cvIn)); this.cvDir0 = norm(sub(p.cvOut, p.cvIn));
+    // Seed table: march θ from rest in small steps toward droop and bump; each step bisects inside a narrow bracket
+    // around the previous θ, so the table follows the physical branch continuously.
+    this.seedFrom = -this.droop - 0.04;
+    const n = Math.ceil((this.bump + this.droop + 0.08) / SEED_STEP) + 1;
+    this.seeds = new Float64Array(n);
+    const rest = Math.round(-this.seedFrom / SEED_STEP);
+    this.seeds[rest] = this.bracket(p.hub[1], 0, 0, 0.05) ?? 0;
+    for (let i = rest + 1; i < n; i++) this.seeds[i] = this.bracket(p.hub[1] + this.seedFrom + i * SEED_STEP, 0, this.seeds[i - 1], 0.08) ?? this.seeds[i - 1];
+    for (let i = rest - 1; i >= 0; i--) this.seeds[i] = this.bracket(p.hub[1] + this.seedFrom + i * SEED_STEP, 0, this.seeds[i + 1], 0.08) ?? this.seeds[i + 1];
+  }
+
+  private seed(dy: number) {
+    const x = Math.min(this.seeds.length - 1.001, Math.max(0, (dy - this.seedFrom) / SEED_STEP)), i = Math.floor(x), f = x - i;
+    return this.seeds[i] * (1 - f) + this.seeds[i + 1] * f;
+  }
+
+  /** θ with hub height `target` inside [around − half, around + half] by bisection; null if not bracketed. */
+  private bracket(target: number, steer: number, around: number, half: number): number | null {
+    const at = (t: number) => { const s = this.upright(t, steer); return s ? s.hub[1] - target : NaN; };
+    let lo = around - half, hi = around + half, flo = at(lo), fhi = at(hi);
+    if (!Number.isFinite(flo) || !Number.isFinite(fhi) || Math.sign(flo) === Math.sign(fhi)) return null;
+    for (let i = 0; i < 50 && hi - lo > 1e-8; i++) {
+      const mid = (lo + hi) / 2, fm = at(mid);
+      if (!Number.isFinite(fm)) return null;
+      if (Math.sign(fm) === Math.sign(flo)) { lo = mid; flo = fm; } else hi = mid;
+    }
+    return (lo + hi) / 2;
   }
 
   /** The upright for an LCA angle and a steer angle: ball joints, UCA angle, upright rotation and the hub. */
@@ -109,10 +142,14 @@ export class CornerLinkage {
     if (!(R > 1e-9) || Math.abs(C / R) > 1) return null;
     const base = Math.atan2(B, A), spread = Math.acos(C / R);
     const a = wrap(base + spread), b = wrap(base - spread);
-    const phi = Math.abs(wrap(a - this.phi)) <= Math.abs(wrap(b - this.phi)) ? a : b;
-    const bu = add(this.cU, add(scale(this.e1, r * Math.cos(phi)), scale(this.e2, r * Math.sin(phi))));
+    // Branch by geometry, never by history: the assembly mode whose kingpin stays closest to the rest upright.
+    const joint = (f: number) => add(this.cU, add(scale(this.e1, r * Math.cos(f)), scale(this.e2, r * Math.sin(f))));
+    const ja = joint(a), jb = joint(b);
+    const pick = dot(norm(sub(ja, bl)), this.uprightDir0) >= dot(norm(sub(jb, bl)), this.uprightDir0);
+    const phi = pick ? a : b, bu = pick ? ja : jb;
     const kingpin = norm(sub(bu, bl));
-    const q = qmul(axisAngle(kingpin, steer), between(norm(this.upright0), kingpin));
+    if (bu[1] <= bl[1] || dot(kingpin, this.uprightDir0) <= 0) return null;
+    const q = qmul(axisAngle(kingpin, steer), between(this.uprightDir0, kingpin));
     const hub = add(bl, rotate(q, sub(p.hub, p.lcaOut)));
     return { bl, bu, phi, q, qL, hub };
   }
@@ -120,40 +157,40 @@ export class CornerLinkage {
   /** Solves the corner for a hub displacement `dy` from static (+ up, clamped to the travel) and wheel `steer`. */
   solve(dy: number, steer: number): CornerPose {
     const p = this.p, target = p.hub[1] + Math.min(this.bump, Math.max(-this.droop, dy));
-    let theta = this.theta, sol = this.upright(theta, steer), converged = false;
-    // Newton on the hub height, numeric derivative; bisection fallback over ±1.2 rad.
-    for (let i = 0; i < 10 && sol; i++) {
+    // Path-independent: seed from the zero-steer θ(dy) table, Newton with the steer, kept inside a ±0.15 rad window
+    // around the seed (the other assembly branch lies ≥ 0.4 rad away), bisection in that window if Newton strays.
+    const seed = this.seed(target - p.hub[1]), window = 0.15;
+    let theta = seed, sol = this.upright(theta, steer), converged = false;
+    for (let i = 0; i < 12 && sol; i++) {
       const f = sol.hub[1] - target;
       if (Math.abs(f) < 1e-6) { converged = true; break; }
-      const h = 1e-4, next = this.upright(theta + h, steer);
+      const h = 1e-5, next = this.upright(theta + h, steer);
       if (!next) break;
       const slope = (next.hub[1] - sol.hub[1]) / h;
       if (Math.abs(slope) < 1e-6) break;
-      theta -= f / slope; sol = this.upright(theta, steer);
+      theta -= f / slope;
+      if (Math.abs(theta - seed) > window) break;
+      sol = this.upright(theta, steer);
     }
     if (!converged) {
-      let lo = -1.2, hi = 1.2;
-      const at = (t: number) => { const s = this.upright(t, steer); return s ? s.hub[1] - target : NaN; };
-      let flo = at(lo);
-      for (let i = 0; i < 60; i++) {
-        const mid = (lo + hi) / 2, fm = at(mid);
-        if (!Number.isFinite(fm)) break;
-        if (Math.sign(fm) === Math.sign(flo)) { lo = mid; flo = fm; } else hi = mid;
-        if (hi - lo < 1e-7) { theta = (lo + hi) / 2; sol = this.upright(theta, steer); converged = !!sol && Math.abs(sol.hub[1] - target) < 1e-5; break; }
-      }
+      const t = this.bracket(target, steer, seed, window);
+      if (t !== null) { theta = t; sol = this.upright(theta, steer); converged = !!sol && Math.abs(sol.hub[1] - target) < 1e-5; }
     }
-    if (!sol || !converged) { theta = this.theta; sol = this.upright(theta, steer)!; }
-    this.theta = theta; this.phi = sol.phi;
+    if (!sol || !converged) {
+      // An error, not a silent hold: counted (the linkage test requires none over the travel × steer range) and
+      // reported once; the zero-steer pose at the seed is drawn so the wheel never flips to the other branch.
+      if (this.failures++ === 0) console.error(`trophy4400 linkage: no solve for dy ${dy.toFixed(3)}, steer ${steer.toFixed(3)}`);
+      theta = seed; sol = this.upright(theta, steer) ?? this.upright(theta, 0)!;
+    }
     const { q, qL, bl } = sol;
     const inUpright = (v: Vec) => add(bl, rotate(q, sub(v, p.lcaOut)));
 
     // Tie rod: the rack offset that keeps its length (closed-form quadratic, root nearest the last one).
     const tout = inUpright(p.tierodOut), w = sub(p.tierodIn, tout), wu = dot(w, this.rackAxis);
     const disc = wu * wu - (dot(w, w) - this.tierodLength ** 2);
-    if (disc >= 0) {
-      const r1 = -wu + Math.sqrt(disc), r2 = -wu - Math.sqrt(disc);
-      this.s = Math.abs(r1 - this.s) <= Math.abs(r2 - this.s) ? r1 : r2;
-    }
+    // The root nearer the rest offset (0) is the physical one; the other lies a rack-width away.
+    let rack = 0;
+    if (disc >= 0) { const r1 = -wu + Math.sqrt(disc), r2 = -wu - Math.sqrt(disc); rack = Math.abs(r1) <= Math.abs(r2) ? r1 : r2; }
 
     const shock = (top: Vec, bot0: Vec, dir0: Vec, length0: number) => {
       const bot = around(bot0, p.lcaInF, qL), axis = sub(bot, top), length = len(axis);
@@ -172,13 +209,13 @@ export class CornerLinkage {
       theta, phi: sol.phi, converged,
       lca: qL, uca: axisAngle(this.axU, sol.phi),
       upright: { p: sol.hub, q },
-      tierod: this.tierod(this.s, tout),
+      tierod: this.tierod(rack, tout),
       coil: { body: coil.body, shaft: coil.shaft, length: coil.length,
         spring: { p: around(this.spring.seat, p.coilTop, coil.body), q: coil.body, scale: springLength / this.spring.length } },
       bypass: { body: bypass.body, shaft: bypass.shaft, length: bypass.length },
       cv: { inner: between(this.cvDir0, cvDir), shaft: { q: between(this.cvDir0, cvDir), scale: cvLength / this.cvLength0 },
         outer: { p: cvOut, q }, angle, plunge: cvLength - this.cvLength0 },
-      rack: this.s,
+      rack,
     };
   }
 
