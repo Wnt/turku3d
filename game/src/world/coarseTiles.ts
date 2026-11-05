@@ -41,6 +41,8 @@ import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
 import { renderTier, type QualityTier } from '../render/quality';
 
 const POLL_MS = 1000;
+/** A service that answers the demand route with 404 is asked again this often (ms). */
+const DEMAND_MISSING_MS = 60_000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
  *  is it let go uncovered: a stalled cover never keeps a model alive across the city. */
 const HOLD_FAR_M = 1500;
@@ -934,6 +936,9 @@ export class CoarseTiles {
         this.demandNext = this.clock + Math.max(retryAfter(res), backoff(this.demandRetries++));
         return;
       }
+      // A city service without the demand route (another city's plain tile service): drafts work without it, so ask
+      // again only once a minute instead of every poll.
+      if (res.status === 404) { this.demandNext = this.clock + DEMAND_MISSING_MS; return; }
       if (!res.ok) return;
       this.demandRetries = 0;
       const body = await res.json() as { version?: number };

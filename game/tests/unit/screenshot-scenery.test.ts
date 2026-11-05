@@ -278,6 +278,19 @@ test('coarse city survives turns and is released after leaving its area', async 
   scenery.setRadius(0); expect(scene.children).toHaveLength(0);
 });
 
+test('a city service without a scenery catalogue (404) is asked on the 30 s refresh, not every 2 s', async () => {
+  const { scenery, request, load } = setup();
+  request.mockImplementation(async () => new Response('', { status: 404 }));
+  const view = { x: 3751.26, y: 164.15, z: 430.05, dx: -1, dz: 0, halfAngle: .8 };
+  scenery.setRadius(6000, view); await settle();
+  for (let t = 1000; t <= 25_000; t += 500) { scenery.update(view.x, view.z, t); await settle(); }
+  const catalogues = request.mock.calls.filter(([url]) => url.includes('/scenery?')).length;
+  expect(catalogues).toBeLessThanOrEqual(3);
+  expect(scenery.progress.errors).toBe(0);
+  expect(scenery.progress.missing).toBeGreaterThan(0);
+  expect(load).not.toHaveBeenCalled();
+});
+
 test('a turn during catalogue loading cannot restore the old sector', async () => {
   const { scenery, request, load } = setup();
   let release!: (response: Response) => void;
