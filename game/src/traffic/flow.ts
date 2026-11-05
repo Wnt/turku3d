@@ -35,9 +35,6 @@ const BLOCKED_AFTER = 2, BLOCKED_BACK = 3, UTURN_AFTER = 30, UTURN_SECONDS = 6, 
 /** Backed off and still blocked, it rocks (GTA: about 1 m back and forth every 4.2 s): ROCK_STEP m forward for
  *  ROCK_HALF ticks, then back to where it held. */
 const ROCK_STEP = 1, ROCK_HALF = 21;
-/** A stationary vehicle seen this far ahead (m) is passed without stopping when the corridor is clear (GTA drivers
- *  drift out 8-60 m ahead at unchanged speed). */
-const PASS_SEE = 60;
 /** A junction head held by a full exit for REROUTE_AFTER × its patience takes another movement with room; at most
  *  once per REROUTE_GAP ticks. */
 const REROUTE_AFTER = 3, REROUTE_GAP = 300;

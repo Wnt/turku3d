@@ -18,7 +18,7 @@ import { GROUP } from '../shared/col/materials';
 import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
-import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar, type TrafficWatcher } from '../traffic/flow';
+import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
 import { honking, vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
