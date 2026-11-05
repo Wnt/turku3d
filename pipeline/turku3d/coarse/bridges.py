@@ -738,7 +738,9 @@ def deck_levels(footprint, profiles, main_height, link_height, core=None):
     levels differ by more than LEVEL_STEP."""
     from shapely.ops import substring
 
-    descents = []
+    from shapely.ops import split
+
+    descents, cuts_across = [], []
     for line, stations, heights, half in profiles:
         flat = stations[np.isclose(heights, heights[0])]
         leave = float(flat[-1]) if len(flat) else 0.0
@@ -748,12 +750,26 @@ def deck_levels(footprint, profiles, main_height, link_height, core=None):
             direction /= max(float(np.hypot(*direction)), 1e-9)
             runout = shapely.LineString(np.vstack([tail, tail[-1] + direction * LINK_RUNOUT]))
             descents.append(runout.buffer(half + LINK_SIDE, cap_style="flat"))
+            # Cuts across the link every 2 m: the level is wider than the lane, and a triangle
+            # spanning it between far-apart stations would cut a chord through the descent.
+            for station in np.arange(2.0, runout.length, 2.0):
+                a = np.asarray(runout.interpolate(station - 0.01).coords[0])
+                b = np.asarray(runout.interpolate(station + 0.01).coords[0])
+                normal = np.array([a[1] - b[1], b[0] - a[0]]) / max(float(np.hypot(*(b - a))), 1e-9)
+                c = np.asarray(runout.interpolate(station).coords[0])
+                reach = half + LINK_SIDE + 1.0
+                cuts_across.append(shapely.LineString([c - normal * reach, c + normal * reach]))
     if not descents:
         return [(footprint, None)], shapely.MultiLineString()
     descent = shapely.union_all(descents).intersection(footprint)
     if core is not None and not core.is_empty:
         descent = descent.difference(core)
     descent = shapely.segmentize(descent, 2.0)
+    strips = [part for part in shapely.get_parts(descent) if part.geom_type == "Polygon"]
+    for cut in cuts_across:
+        strips = [piece for part in strips for piece in shapely.get_parts(split(part, cut))
+                  if piece.geom_type == "Polygon"]
+    descent_strips = shapely.MultiPolygon(strips) if strips else descent
     rest = shapely.segmentize(footprint.difference(descent), 2.0)
 
     def descent_height(xz):
@@ -774,7 +790,7 @@ def deck_levels(footprint, profiles, main_height, link_height, core=None):
         for run in np.split(np.flatnonzero(step), np.flatnonzero(np.diff(np.flatnonzero(step)) > 1) + 1):
             if len(run) >= 2:
                 cuts.append(shapely.LineString(coords[run]))
-    return [(rest, rest_height), (descent, descent_height)], shapely.MultiLineString(cuts)
+    return [(rest, rest_height), (descent_strips, descent_height)], shapely.MultiLineString(cuts)
 
 
 def level_parapets(key, cuts, main_height, link_height):
