@@ -721,15 +721,21 @@ def branch_profiles(way, main_height, sample_ground):
 
 LEVEL_STEP = 0.1  # m: a link this far below the main deck beside it is a separate level, behind a parapet
 PARAPET = 1.0  # m above the higher level, on the cut between two levels
+LINK_SIDE = 3.0  # m of outline beside a descending link that rides on the link's level
+LINK_RUNOUT = 12.0  # m of outline past a link's end that rides on the link's end height
 
 
-def deck_levels(footprint, profiles, main_height, link_height):
+def deck_levels(footprint, profiles, main_height, link_height, core=None):
     """(levels, cuts): the deck footprint as (polygon, height function) levels and the cut lines.
 
-    Each link's descent (from where its profile leaves the deck's height) is a level of its own
-    with the link's heights; the rest keeps the main deck's heights, except within LEVEL_STEP of
-    the link where the two meet without a step (the junction, where lanes cross between them).
-    ``cuts`` are the shared boundaries where the levels differ by more than LEVEL_STEP."""
+    Each link's descent (from where its profile leaves the deck's height) is a level of its own.
+    It takes the outline beside the link (LINK_SIDE) and past its end (LINK_RUNOUT) too, at the
+    nearest link station's height: an outline drawn wider or longer than the link is not left at
+    the main deck's height above the link's lane, standing as a wall where the link meets the
+    ground. ``core`` (the main carriageways) always stays on the main level. The rest keeps the
+    main deck's heights, except within LEVEL_STEP of the link where the two meet without a step
+    (the junction, where lanes cross between them). ``cuts`` are the shared boundaries where the
+    levels differ by more than LEVEL_STEP."""
     from shapely.ops import substring
 
     descents = []
@@ -737,11 +743,21 @@ def deck_levels(footprint, profiles, main_height, link_height):
         flat = stations[np.isclose(heights, heights[0])]
         leave = float(flat[-1]) if len(flat) else 0.0
         if line.length - leave > 1.0:
-            descents.append(substring(line, leave, line.length).buffer(half - 1.0, cap_style="flat"))
+            tail = shapely.get_coordinates(substring(line, leave, line.length))
+            direction = tail[-1] - tail[-2]
+            direction /= max(float(np.hypot(*direction)), 1e-9)
+            runout = shapely.LineString(np.vstack([tail, tail[-1] + direction * LINK_RUNOUT]))
+            descents.append(runout.buffer(half + LINK_SIDE, cap_style="flat"))
     if not descents:
         return [(footprint, None)], shapely.MultiLineString()
-    descent = shapely.segmentize(shapely.union_all(descents).intersection(footprint), 2.0)
+    descent = shapely.union_all(descents).intersection(footprint)
+    if core is not None and not core.is_empty:
+        descent = descent.difference(core)
+    descent = shapely.segmentize(descent, 2.0)
     rest = shapely.segmentize(footprint.difference(descent), 2.0)
+
+    def descent_height(xz):
+        return branch_height(profiles, xz, link_height(xz), reach=np.inf)
 
     def rest_height(xz):
         main, link = main_height(xz), link_height(xz)
@@ -754,11 +770,11 @@ def deck_levels(footprint, profiles, main_height, link_height):
         coords = shapely.get_coordinates(shapely.segmentize(part, 1.0))
         if len(coords) < 2:
             continue
-        step = np.abs(main_height(coords) - link_height(coords)) > LEVEL_STEP
+        step = np.abs(rest_height(coords) - descent_height(coords)) > LEVEL_STEP
         for run in np.split(np.flatnonzero(step), np.flatnonzero(np.diff(np.flatnonzero(step)) > 1) + 1):
             if len(run) >= 2:
                 cuts.append(shapely.LineString(coords[run]))
-    return [(rest, rest_height), (descent, link_height)], shapely.MultiLineString(cuts)
+    return [(rest, rest_height), (descent, descent_height)], shapely.MultiLineString(cuts)
 
 
 def level_parapets(key, cuts, main_height, link_height):
@@ -776,14 +792,14 @@ def level_parapets(key, cuts, main_height, link_height):
     return meshes
 
 
-def branch_height(profiles, xz, fallback):
-    """Height of the nearest branch profile over each point, else ``fallback``."""
+def branch_height(profiles, xz, fallback, reach=None):
+    """Height of the nearest branch profile within its half width (or ``reach``), else ``fallback``."""
     result = np.asarray(fallback, dtype=np.float64).copy()
     best = np.full(len(result), np.inf)
     points = shapely.points(xz)
     for line, stations, heights, half in profiles:
         distance = shapely.distance(line, points)
-        use = (distance <= half) & (distance < best)
+        use = (distance <= (half if reach is None else reach)) & (distance < best)
         if use.any():
             result[use] = np.interp(shapely.line_locate_point(line, points[use]), stations, heights)
             best[use] = distance[use]
@@ -1014,7 +1030,7 @@ def produce(tile, grid_pos, inputs):
             blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
             return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend if blend.any() else base
 
-        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only)
+        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only, branch_core)
         if deck_parts[0][1] is None:
             deck_parts = [(footprint_poly, height_at)]
         meshes = slab(
@@ -1028,7 +1044,8 @@ def produce(tile, grid_pos, inputs):
         profile = bridge_profile(way)
         if profile.get("soffit") and len(meshes) > 1:
             meshes[1].metadata["night_soffit"] = True
-        meshes.extend(level_parapets(key, cuts, main_only, link_only))
+        if len(deck_parts) > 1:
+            meshes.extend(level_parapets(key, cuts, deck_parts[0][1], deck_parts[1][1]))
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         if way.get("on_grade"):

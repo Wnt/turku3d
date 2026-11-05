@@ -256,8 +256,36 @@ def test_one_outline_carries_a_link_at_its_own_level_behind_a_parapet():
     # Side faces only on the outline: no slab wall stands on the boundary between the levels.
     inner = (np.abs(body[:, 2] - 3.25) < 0.01) & (body[:, 0] > 25) & (body[:, 0] < 75)
     assert not inner.any()
-    walls = level_parapets("t", cuts, main, lower)
+    walls = level_parapets("t", cuts, levels[0][1], levels[1][1])
     assert walls and max(w.positions[:, 1].max() for w in walls) >= 25.9
+
+
+def test_outline_beside_and_past_a_link_rides_on_the_link_not_the_main_deck():
+    from turku3d.coarse.bridges import branch_height, deck_levels, slab
+
+    # The outline is wider than the link and runs 8 m past its end, where it meets the ground.
+    outline = shapely.box(0, -10, 88, 10)
+    link = shapely.LineString([(0, 6), (80, 6)])
+    stations = np.arange(0, 81, 2.0)
+    heights = np.where(stations <= 20, 25.0, 25.0 - (stations - 20) * 0.1)
+    profiles = [(link, stations, heights, 2.75)]
+    core = shapely.LineString([(0, -4), (88, -4)]).buffer(4.0, cap_style="flat")
+
+    def main(xz):
+        return np.full(len(xz), 25.0)
+
+    def lower(xz):
+        return branch_height(profiles, xz, main(xz))
+
+    levels, _ = deck_levels(outline, profiles, main, lower, core)
+    meshes = slab("t", levels, shapely.LineString([(0, -4), (88, -4)]), np.array([0.0, 88.0]),
+                  np.array([25.0, 25.0]), "road", None, 0.5, outline=outline)
+    top = meshes[0].positions
+    # Past the link's end and beside it, the deck is at the link's end height, not 25 m.
+    beyond = (top[:, 0] > 81) & (top[:, 2] > 3)
+    assert beyond.any() and top[beyond, 1].max() < 19.5
+    beside = (top[:, 0] > 60) & (top[:, 2] > 8.9)
+    assert beside.any() and top[beside, 1].max() < 23.0
 
 
 def test_a_deck_from_several_outline_parts_builds():
