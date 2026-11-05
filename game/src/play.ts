@@ -341,7 +341,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   };
   /**
    * "Reset progress" (SaveGameController.resetProgress, gameplay/progressReset.ts), after the player left any vehicle:
-   * every city's stored progress goes; in a room the shared records resync and the room resets the player (score, seat,
+   * every city's stored progress goes; in a room the shared records resync; the room resets the player (score, seat,
    * own vehicles); the bought scooter and truck go. The new game starts at Turku's default start: on this page, or
    * after a trip there (from another city, or from Turku entered at a portal exit, ?spawn=) that carries the fresh
    * mission and the multiplayer choice like a trip home.
@@ -350,11 +350,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     autopilot.cancel('progress reset'); fly?.set(false);
     saves.clear(); clearProgress(browserStorage(), sessionStore());
     missions.restore(null);
-    if (multiplayerPlaying && multiplayer && sharedVehicles) {
-      sharedVehicles.resetRound();
-      await multiplayer.resetProgress();
-      multiplayerRunId = crypto.randomUUID();
-    }
+    if (multiplayerPlaying) { sharedVehicles?.resetRound(); multiplayerRunId = crypto.randomUUID(); }
+    // The room forgets this tab's player also when it is only connected (solo after a multiplayer game); offline,
+    // the next hello carries the reset.
+    await multiplayer?.resetProgress();
     for (const id of [SCOOTER_ID, TRUCK_ID]) physics.removeVehicle(id);
     if (storyCity && !params.spawnGiven) return true;
     travelling = true;
