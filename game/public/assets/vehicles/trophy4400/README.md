@@ -22,10 +22,10 @@ materials, merge body by material, meshopt, KTX2, `hardpoints.json`) is not writ
 |---|---|
 | wheelbase / track (wheel-* origins) | 3.150 / 2.180 m |
 | tyre OD x width | 1.069 x 0.382 m, 36 pitches, beadlock with 24 bolts |
-| L0 bbox (excl. whip) | x -2.463 .. 2.134, width 2.562, roof 1.90, whip tip 3.05 |
-| triangles L0 / L1 / L2 | 123,648 / 26,626 / 3,871 |
-| raw primitives L0 / L1 / L2 | 118 / 116 / 40 (before the per-material merge) |
-| sha256 (raw) | 2554a8d1d325987d5a0843b60e975f027d6181e0c5819b951d0dba97df1ae491 |
+| L0 bbox (excl. whip) | x -2.48 .. 2.13 (rear tube bumper .. soft shackle), width 2.562, roof panel 1.91, light bar 1.98, whip tip 3.12 |
+| triangles L0 / L1 / L2 | 126,260 / 27,036 / 5,938 (body alone 29,262 / 4,870 / 3,342) |
+| raw primitives L0 / L1 / L2 | 123 / 121 / 44 (before the per-material merge) |
+| sha256 (raw) | 48a93ad6904aeba6d10dc6206f96d47f6daf6e5af9e1dece4a57ac19dae6f551 |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,
@@ -33,3 +33,13 @@ Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corne
 `steer-wheel`, `spare`, `antenna`, lamp/seat/exit empties and 64 `hp-*` hardpoints under `hardpoints`.
 Rig nodes are empties at the pivots; axial nodes point Blender +Z (glTF +Y) from top/inner to
 bottom/outer. Lamp lenses use `led-optics` / `tail-lens`.
+
+Round 4 body (2026-11-05): compact, tall-cabbed Ultra4 shape. Planar outline panels (Bezier outlines
+filled and solidified) for the side skins, cab B-panels and a wide flat hood; deep arch shells with
+rolled lips and dark liners over all four tyres; an orange roof panel at 1.91 m with the light bar on
+its leading edge; low round LEDs either side of the winch in a small tube bumper; a dark V skid plate
+with the black-on-white 19; an upright spare leaning forward behind a tall angled rear panel; window
+nets, mirrors, A-pillar cube lights, fender pods, seats with 5-point harnesses. Livery is logo-free:
+orange with a dark-grey upper cab band, a white pinstripe and a dark rocker band. A-arms are heavier
+dark tubes with gusset plates; wheel centres are dark gunmetal (material `anod-blue` keeps its old
+name but is no longer blue).
