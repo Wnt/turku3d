@@ -40,6 +40,70 @@ def way_width(tags):
     return float(np.clip(number(tags.get("width"), default), 1.0, 40.0))
 
 
+SELECT_MARGIN = 5.0  # m around a deck: the tiles that build it (and its end ramps)
+
+
+def selects(bridge, bbox):
+    """Whether the tile with this bbox builds the bridge, its aprons and its approach ramps."""
+    return bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN).intersects(shapely.box(*bbox))
+
+
+def building_region(bridge):
+    """Union of the level-0 tiles that build this bridge: a ramp never runs past it, or the next
+    tile (which does not build the bridge) would leave a step at the seam."""
+    from turku3d import config as C
+
+    size = C.VISUAL_TILE_SIZE
+    x0, z0, x1, z1 = bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN).bounds
+    boxes = [(i * size, j * size, (i + 1) * size, (j + 1) * size)
+             for i in range(int(np.floor(x0 / size)), int(np.floor(x1 / size)) + 1)
+             for j in range(int(np.floor(z0 / size)), int(np.floor(z1 / size)) + 1)]
+    return shapely.union_all([shapely.box(*b) for b in boxes if selects(bridge, b)])
+
+
+def is_carriageway(tags):
+    return bool(tags.get("highway")) and tags["highway"] not in PATHS and tags["highway"] != "steps"
+
+
+LANE_CLEARANCE = 0.25  # m between a deck post and the traffic lanes' outer edge
+LAMP_SHIFT = 3.0  # m: the farthest a mapped deck lamp moves to clear the lanes
+
+
+def lane_envelope(ways):
+    """Plan area the traffic lanes of these carriageways sweep: the way's width less its 0.5 m shoulders."""
+    return shapely.union_all([w["line"].buffer(max(1.0, w["width"] / 2 - 0.5) + LANE_CLEARANCE)
+                              for w in ways]) if ways else shapely.Polygon()
+
+
+def clear_of_lanes(lamps, deck, carriageways):
+    """Deck lamps stand clear of the traffic lanes.
+
+    A mapped lamp inside a lane moves to the nearest deck point outside every lane, at most
+    LAMP_SHIFT away; a lamp with no such room (a median narrower than the mapped lanes) is not built,
+    since a post in a lane stops every car that drives it."""
+    if not lamps:
+        return []
+    envelope = lane_envelope([w for w in carriageways
+                              if w["line"].distance(shapely.MultiPoint([p for p, _ in lamps])) < 40])
+    if envelope.is_empty:
+        return lamps
+    from shapely.ops import nearest_points
+
+    room = deck.buffer(-0.3).difference(envelope)
+    out = []
+    for p, tags in lamps:
+        point = shapely.Point(p)
+        if not envelope.contains(point):
+            out.append((p, tags))
+            continue
+        if room.is_empty:
+            continue
+        target = nearest_points(room, point)[0]
+        if target.distance(point) <= LAMP_SHIFT:
+            out.append(([round(target.x, 3), round(target.y, 3)], tags))
+    return out
+
+
 def clearance(tags):
     """Clear space below the slab, metres; railway loading gauge wins over road/path."""
     if tags.get("railway") in RAILS:
@@ -230,7 +294,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
     pier = shapely.union_all(piers)
     result = []
     for b in bridges:
-        if not b["line"].buffer(b["width"] / 2 + 5).intersects(shapely.box(*tile.bbox.as_tuple())):
+        if not selects(b, tile.bbox.as_tuple()):
             continue
         b["landing"] = (b["line"].length < 25 and b["line"].distance(pier) < 2) or (
             b["line"].length < 8 and b["tags"].get("highway") in PATHS
@@ -267,13 +331,10 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         ]
         from .bridge_survey import survey
 
-        b["lamps"] = [
-            (p, tags)
-            for p, tags in lamps
-            if b.get("outline", b["line"].buffer(b["width"] / 2))
-            .buffer(0.5)
-            .covers(shapely.Point(p))
-        ]
+        deck = b.get("outline", b["line"].buffer(b["width"] / 2))
+        b["lamps"] = clear_of_lanes(
+            [(p, tags) for p, tags in lamps if deck.buffer(0.5).covers(shapely.Point(p))],
+            deck, [w for w in ways if w["bridge"] and is_carriageway(w["tags"])])
         b["survey"] = survey(b, survey_paths)
         if "heights" not in b["survey"]:
             b["survey"]["height_anchors"] = height_anchors(b, spots)

@@ -87,8 +87,13 @@ export function poolUniformBuffers(backend: Backend, frame: () => number) {
   const update = utils.updateBinding.bind(utils);
   // r186 WebGPUBindingUtils.updateBinding, at the slot's offset.
   utils.updateBinding = binding => {
-    const slot = backend.get(binding).pooled;
-    if (!slot) { update(binding); return; }
+    const data = backend.get(binding), slot = data.pooled;
+    if (!slot) {
+      // A binding written after its buffer was destroyed (its bind group's last draw left) is a lifetime bug upstream;
+      // name it instead of r186's bare "writeBuffer ... parameter 1 is not of type 'GPUBuffer'".
+      if (data.buffer === undefined) throw new Error(`uniform binding "${(binding as { name?: string }).name ?? '?'}" written after its buffer was destroyed`);
+      update(binding); return;
+    }
     const array = binding.buffer, ranges = binding.updateRanges;
     if (ranges.length === 0) { device.queue.writeBuffer(slot.page, slot.offset, array as BufferSource, 0); return; }
     const typed = ArrayBuffer.isView(array) && !(array instanceof DataView);

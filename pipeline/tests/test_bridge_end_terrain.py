@@ -123,7 +123,9 @@ def test_unsupported_approach_uses_available_length_instead_of_a_short_steep_dro
         shapely.Polygon(),
         4,
     )
-    assert abs(patches[-1]["line"].length - 30) < 1e-8
+    # The ramp takes the available length, but stops 0.5 m inside the last tile that builds the
+    # bridge (x >= 0 here): the next tile does not build it and would leave a step at the seam.
+    assert abs(patches[-1]["line"].length - (23 / (40 / np.hypot(40, 20)) - 0.5)) < 1e-6
 
 
 def test_neighbouring_terrain_tiles_agree_at_side_and_axis_approach_seams():
