@@ -38,8 +38,9 @@ print('\n'.join([m['generation']] + [s[k] for s in m['migrations'] for k in ('ge
   for g in $(printf '%s\n' "${GENS[@]}" "$GEN" "${MORE[@]}" | sort -u); do
     [ "$g" = "$BASE" ] && continue
     ssh -i "$HOME/.ssh/bulk_gen3" "$H" test -d "$SRC/products/$g" || continue
-    $P --exclude=ready.json "$H:$SRC/products/$g/" "products/$g/" &&
-      $P --include='*/' --include=ready.json --exclude='*' --prune-empty-dirs "$H:$SRC/products/$g/" "products/$g/" &&
+    # rsync exit 24 (files vanished: the host is still writing temporary files) is not an error for a live pull.
+    { $P --exclude=ready.json --exclude='*.tmp' "$H:$SRC/products/$g/" "products/$g/" || [ $? = 24 ]; } &&
+      { $P --include='*/' --include=ready.json --exclude='*' --prune-empty-dirs "$H:$SRC/products/$g/" "products/$g/" || [ $? = 24 ]; } &&
       echo "pulled products/$g ($(find "products/$g" -maxdepth 2 -name ready.json -newer "$D/server.json" | wc -l) ready tiles newer than the host)"
   done
   exit 0
