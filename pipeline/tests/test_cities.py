@@ -76,3 +76,54 @@ def test_infstreet_maps_to_the_turku_street_schema():
     assert unmapped == {"part:Kevyt liikenne/Uusi luokka": 1}
     mats = [surface_material(k, m) for k, m in zip(out.Katuosalaji, out.Pintamateriaali, strict=True)]
     assert mats == ["road", "road", "cobblestone", "gravel"]
+
+
+def test_espoo_registers_map_to_turku_schemas():
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    from turku3d.fetch.adapters import puut_rows, varusteet_rows
+    from turku3d.props import classify
+
+    def frame(rows, layer):
+        f = gpd.GeoDataFrame(rows, geometry=[Point(r.pop("_xy")) for r in rows])
+        f["geometry_local"] = gpd.GeoSeries(list(f.geometry), crs=None)
+        f["layer"] = layer
+        return f
+
+    register = frame([{"_xy": (0, 0), "feature_key": "a", "VEGETATIONGROUPTEXT": "Lehtipuu",
+                       "VEGETATIONCLASSTEXT": "Acer platanoides", "PLANTINGYEAR": "2023"},
+                      {"_xy": (9, 9), "feature_key": "b", "VEGETATIONGROUPTEXT": "Lehtipensas",
+                       "VEGETATIONCLASSTEXT": "x", "PLANTINGYEAR": "0"}], "GIS:InfVegetationPoint")
+    lehti = frame([{"_xy": (0.5, 0), "feature_key": "c"}, {"_xy": (20, 0), "feature_key": "d"}], "kanta:Lehtipuu")
+    havu = frame([{"_xy": (40, 0), "feature_key": "e"}], "kanta:Havupuu")
+    trees = puut_rows(register, lehti, havu)
+    assert sorted(trees.feature_key) == ["a", "d", "e"]  # shrub dropped, duplicate base-map tree dropped
+    assert dict(zip(trees.feature_key, trees.Kasviryhma, strict=True))["e"] == "Havupuu"
+    assert dict(zip(trees.feature_key, trees.Istutusvuosi, strict=True))["a"] == "2023"
+    equipment = frame([{"_xy": (0, 0), "feature_key": "f", "EQUIPMENTCLASSTEXT": "Penkki",
+                        "EQUIPMENTGROUPTEXT": "Penkit ja pöydät", "MODELTEXT": "Penkki, Tapiola"},
+                       {"_xy": (1, 0), "feature_key": "g", "EQUIPMENTCLASSTEXT": "Roska-astia",
+                        "EQUIPMENTGROUPTEXT": "Jäte", "MODELTEXT": "Roska-astia Siti"},
+                       {"_xy": (2, 0), "feature_key": "h", "EQUIPMENTCLASSTEXT": "Pyöräilyvarusteet",
+                        "EQUIPMENTGROUPTEXT": "Rakenteet", "MODELTEXT": "Pyöräteline"}], "GIS:InfEquipment")
+    kinds = [classify(r) for r in varusteet_rows(equipment).to_dict("records")]
+    assert kinds == ["bench", "bin", "bike_rack"]
+
+
+def test_mml_reclassification_guards_changed_buildings():
+    import numpy as np
+    from shapely.geometry import box
+
+    from turku3d.fetch.mml_lidar import reclassify
+
+    ground = lambda e, n: np.zeros_like(e)  # noqa: E731
+    buildings = [(box(0, 0, 10, 10), 12.0), (box(20, 0, 30, 10), 30.0)]  # second: rebuilt since the scan
+    e = np.array([5, 5, 25, 25, 50, 50, 5.0])
+    n = np.array([5, 6, 5, 6, 50, 51, 5.0])
+    z = np.array([12.1, 11.9, 12.0, 12.2, 8.0, 0.5, 0.0])
+    cls = np.array([1, 1, 1, 1, 1, 1, 2])
+    one = np.ones(7, int)
+    (ke, kn, kz, kc, _, _), stats = reclassify(None, (e, n, z, cls, one, one), ground, buildings, None)
+    assert stats["changed_buildings"] == 1
+    assert list(kc) == [6, 6, 5, 3, 2]

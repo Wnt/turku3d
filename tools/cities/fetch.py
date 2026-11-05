@@ -124,6 +124,17 @@ def main() -> int:
                 outcome = f"error: {error}"[:400]
             lines.append(json.dumps({"unit": unit.key, "outcome": outcome,
                                      "seconds": round(time.time() - started, 1), "at": time.time()}))
+        if C.CITY.pointcloud == "mml-0.5p":
+            started = time.time()
+            try:
+                from turku3d.fetch import mml_lidar
+
+                mml_lidar.fetch_blocks([block], log=lines.append)
+                outcome = "ok"
+            except Exception as error:
+                outcome = f"error: {error}"[:400]
+            lines.append(json.dumps({"unit": f"pistepilvi/{block.name}", "outcome": outcome,
+                                     "seconds": round(time.time() - started, 1), "at": time.time()}))
         try:
             fetch_registers(block, lines.append)
             lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": "ok", "at": time.time()}))

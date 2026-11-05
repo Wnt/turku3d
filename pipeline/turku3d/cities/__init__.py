@@ -54,6 +54,7 @@ class City:
     wfs_names: dict[str, str] = field(default_factory=dict)  # internal -> city layer
     wfs_absent: dict[str, str] = field(default_factory=dict)  # internal -> why it is empty
     wfs_derived: dict[str, str] = field(default_factory=dict)  # internal -> adapter name
+    pointcloud: str | None = None  # classified cloud adapter when the city has no pistepilvi ("mml-0.5p")
     water_level: float = 0.0  # m in the city's height datum: open sea/river surface (N2000 0 m in Finland)
     datasets: tuple[dict, ...] = ()  # sources manifest rows (licence, date) of a non-default city
     # Appended for the Dutch cities (turku3d.nl); defaults keep the Finnish profiles unchanged.
@@ -108,6 +109,7 @@ ESPOO = City(
     ortho_layer="Ortokartta_2024",
     ortho_slug="ortho2024",
     ground="mml-dem2m",
+    pointcloud="mml-0.5p",
     wfs_names={
         "bldg:Building_LOD2": "bldg:building_lod2",
         "bldg:Building_LOD3": "bldg:building_lod3",
@@ -119,8 +121,6 @@ ESPOO = City(
         "GIS:Liikennemerkit": "401 on 2026-11-05; signs come from OSM traffic_sign tags",
         "GIS:Viheralueet": "401 on 2026-11-05; green areas come from OSM landuse/leisure and the ortho",
         "kanta:Pysakki": "not offered; bus stops come from OSM highway=bus_stop",
-        "GIS:Varusteet": "not offered (GIS:InfEquipment is the Espoo register, no adapter yet); OSM furniture",
-        "GIS:Puut": "not offered; OSM natural=tree and kanta:Lehtipuu are the tree sources",
         "GIS:Polkupyoraparkki": "not offered; OSM amenity=bicycle_parking",
         "GIS:Pysakointiautomaatit": "not offered; OSM vending=parking_tickets",
         "GIS:Follariasemat": "not offered (Espoo city bikes are HSL's); OSM bicycle_rental",
@@ -128,6 +128,8 @@ ESPOO = City(
     },
     wfs_derived={
         "GIS:Katualueet": "infstreet",  # 401 on 2026-11-05; GIS:InfStreet has the same street parts
+        "GIS:Puut": "inf-vegetation",  # not offered; GIS:InfVegetationPoint trees + kanta:Lehtipuu/Havupuu
+        "GIS:Varusteet": "inf-equipment",  # not offered; GIS:InfEquipment is Espoo's street equipment register
     },
     datasets=(
         dict(
