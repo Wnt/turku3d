@@ -196,3 +196,19 @@ test('offline multiplayer exposes pending state without holding world startup', 
   expect(prepared.position).toBeNull();
   h.save.dispose();
 });
+
+test('an arrival seated in a ride parked away from its placement streams collision around the ride', async () => {
+  const h = setup('car', false);
+  await h.ready;
+  // The portal exit (or the start parking) is metres to kilometres from the ground-checked placement `at`.
+  const at = { x: 170, y: 4, z: 250, yaw: 0 };
+  await h.save.playAt(at, async () => {
+    h.physics.spawnVehicle({ x: 720, y: 4.6, z: 800 }, 0, { id: 'player' });
+    return 'player';
+  });
+  expect(h.enterVehicle).toHaveBeenCalledWith('player');
+  // Driving off from the ride: the focus follows the car, never the placement it never passed within 3 m of.
+  expect(h.save.streamPoint({ x: 720, y: 4, z: 800 })).toMatchObject({ x: 720, z: 800 });
+  expect(h.save.streamPoint({ x: 1100, y: 4, z: 800 })).toMatchObject({ x: 1100, z: 800 });
+  h.save.dispose();
+});
