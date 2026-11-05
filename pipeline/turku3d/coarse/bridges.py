@@ -961,10 +961,10 @@ def produce(tile, grid_pos, inputs):
 
 
 def visual(decks, tile, stage, layer_files):
-    from .bridge_materials import METRES, maps
+    from .bridge_materials import surface_material
 
     from .night_accents import bridge_profile
-    meshes = [(m, details.style(d.way).get("material_set"), bridge_profile(d.way)) for d in decks for m in d.meshes]
+    meshes = [(m, bridge_profile(d.way)) for d in decks for m in d.meshes]
     if not meshes:
         return
     path = stage / "bridges.vis.glb"
@@ -975,9 +975,12 @@ def visual(decks, tile, stage, layer_files):
                 m.object_id,
                 m.positions - tile.origin,
                 m.indices,
-                uvs=m.uvs / METRES if material_set == "weathered" and m.metadata.get("surface") != "asphalt" else m.uvs,
-                **(maps(("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete"))) if material_set == "weathered"
-                   else dict(image=details.texture(("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete"))))),
+                # Every deck, rail and support carries metric PBR (bridge_materials); the weathered
+                # set only differs by its crossing profile, not by a flatter legacy albedo.
+                **surface_material(
+                    "paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete"),
+                    m.uvs,
+                ),
                 color=(1, 1, 1, 1),
                 repeat=True,
                 emissive=tuple(profile.get("rail", [0, 0, 0])) if m.metadata.get("surface") == "night_rail"
@@ -993,7 +996,7 @@ def visual(decks, tile, stage, layer_files):
                     else "draft_bridge_" + ("paint" if m.metadata.get("surface") == "night_rail" else m.metadata.get("surface", "concrete")),
                 ),
             )
-            for m, material_set, profile in meshes
+            for m, profile in meshes
         ],
         root_translation=tile.origin,
     )
