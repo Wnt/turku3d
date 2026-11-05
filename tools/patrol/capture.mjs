@@ -79,15 +79,20 @@ async function waitSettled(limitMs = 180000) {
     st = await page.evaluate(() => {
       const g = window.__game, p = window.__qaPose;
       if (!g?.coarse?.viewStatus || !p || typeof window.__qaMove !== 'function') return { boot: false };
-      const vs = g.coarse.viewStatus(p.E - 23459500, -(p.N - 6704500));
+      const x = p.E - 23459500, z = -(p.N - 6704500), vs = g.coarse.viewStatus(x, z);
+      // Draw state of the 3x3 (coarseTiles.coverageSnapshot): every cell must be F (full HD alone). D (HD and a
+      // scenery cell both drawn), P (collision preview), h/c (fading) or . (hole) are not a settled picture.
+      const cov = g.coarse.coverageSnapshot?.(x, z, 1)?.cells ?? null;
       return { boot: true, qa: !!window.__qaReady, err: window.__qaError ?? null, coverage: vs.ready, notFull: vs.near.filter(e => !e.ready).map(e => e.id),
         scenery: { ready: vs.scenery.ready, pending: vs.scenery.pending, errors: vs.scenery.errors, loaded: vs.scenery.loaded, total: vs.scenery.total },
-        status: g.coarse.status, tris: g.tiles?.residentTris ?? null };
+        status: g.coarse.status, tris: g.tiles?.residentTris ?? null, cells: cov, hashes: vs.near.map(e => `${e.id}:${(e.hash ?? '').slice(0, 8)}`) };
     }).catch(e => ({ boot: false, e: String(e).slice(0, 200) }));
     if (st.boot) {
-      const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris]);
+      const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris, st.cells, st.hashes]);
       same = k === sig ? same + 1 : 0; sig = k;
-      if ((st.qa || st.err) && st.coverage && same >= 2) return { settled: true, ms: Date.now() - t, qaErr: st.err ? String(st.err).slice(0, 120) : null };
+      const allFull = st.cells === null || /^F+$/.test(st.cells);
+      if ((st.qa || st.err) && st.coverage && allFull && same >= 2)
+        return { settled: true, ms: Date.now() - t, cells: st.cells, hashes: st.hashes, qaErr: st.err ? String(st.err).slice(0, 120) : null };
     }
     if (Date.now() - t > limitMs) return { settled: false, ms: Date.now() - t, ...st, err: st.err ? String(st.err).slice(0, 300) : null };
     await new Promise(r => setTimeout(r, 1000));
