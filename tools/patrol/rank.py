@@ -18,7 +18,9 @@ import json, math, sys
 from pathlib import Path
 
 RUN = Path(sys.argv[1]); TOP = int(sys.argv[sys.argv.index('--top') + 1]) if '--top' in sys.argv else 10
-cands = {c['n']: c for c in json.load(open(RUN / 'candidates.json'))}
+clist = json.load(open(RUN / 'candidates.json'))
+cands = {c['n']: c for c in clist}
+by_image = {c['image']: c for c in clist if c.get('image')}
 verdicts = []
 for p in sorted((RUN / 'judge').glob('*.json')):
     verdicts += json.load(open(p))
@@ -39,7 +41,10 @@ def visibility(c):
 groups = {}
 for v in verdicts:
     if not v.get('real'): continue
-    c = cands.get(v.get('n')) or v  # judge-only findings carry their own fields
+    # verdicts match their candidate by image path (stable across re-analysis), else by n; judge-only findings
+    # carry their own fields
+    c = by_image.get(v.get('image')) if v.get('n') is not None else None
+    c = c or (cands.get(v.get('n')) if v.get('n') is not None else None) or v
     key = v.get('issue') or f"n{v.get('n')}"
     g = groups.setdefault(key, {'issue': key, 'members': [], 'seen': set()})
     g['members'].append((v, c)); g['seen'].add((c.get('spot'), c.get('view')))
