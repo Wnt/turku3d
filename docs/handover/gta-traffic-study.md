@@ -363,6 +363,93 @@ Four AI handling classes: AVERAGE (972 vehicles), SPORTS_CAR (110), TRUCK (102),
   "wait" and "go forward" [N eTaskType]. These are the building blocks of the un-stick manoeuvres
   in section 5.
 
+### 4.5 Blocked-lane experiments [O]
+
+Setup (2026-11-05): story mode, 17:30 frozen, clear weather, population normal, density multipliers 1.0.
+Blockers were spawned with CREATE_VEHICLE at lane centres learned from a 25-50 s pre-trace, engine off.
+Every vehicle within 80-130 m was traced at 3.3 Hz through a bulk bridge endpoint (`GET /vehicles`: handle,
+pose, signed speed, horn, stopped-at-lights, jammed stuck-timer bucket, on-screen). The camera was a fixed
+scripted camera over the blocker unless noted. Traffic was light outside the busiest avenues, so n is small.
+
+| scene | road | blocker | duration |
+|---|---|---|---|
+| S1 | downtown two-way, 1+1 lanes (-262,-789), oncoming in use | `asea` in the southbound lane | 180 s |
+| S2 | 2+2 river bridge east of downtown (700,-848) | `asea` in the used eastbound lane, other lane free | 200 s |
+| S3 | downtown avenue, single walled ramp lane merging into the signal approach (-31,-909) | `asea` 15 m before the stop line | 240 s |
+| T1 | as S1 | `bus` across the street (both directions shut); player teleported 260 m away at 210-410 s | 420 s |
+| T2 | Olympic-type freeway deck, 5 lanes eastbound (60,-1231), 24 m/s median, 31 m/s p90 | 2 `bus` across all lanes | 300 s |
+| T3 | as S1 | `bus` across; camera turned to the sky, then player moved 100/150/200 m away | 330 s |
+
+**Partial block with somewhere to go (S1, S2): nobody stops.**
+
+| measure | S1 two-way (oncoming in use) | S2 2+2 (free same-direction lane) |
+|---|---|---|
+| cars through the blocked lane | 19, 17 passed, 0 stopped | 6, 6 passed, 0 stopped |
+| lateral move starts before blocker | 8-22 m (9 cars), about 58 m (8 cars) | 1-61 m, median 27 m (to \|lat\| 1.8 m) |
+| lateral offset at the blocker | 1.9-2.5 m (half a lane, over the centre line) | 1.8-2.6 m (a full lane is 3.5-4 m) |
+| speed approach → at blocker | median 12.1 → 12.1 m/s (no braking, changes of ±2 m/s) | not reduced |
+| back in lane | 9-20 m past the blocker (median 16 m) | stays in the new lane |
+| oncoming traffic | passed at 4.4-5.7 m from the blocked lane's centre at 10-14 m/s, never stopped or yielded | n/a |
+
+**Block close to a signal (S3, walled ramp lane, adjacent approach lane beyond the merge).**
+
+- 13 of 18 cars stopped behind it. The queue stayed at 3-7 cars (21-53 m) for the whole 4 min.
+- 9 of the 13 stopped cars got past by squeezing into the adjacent lane after waiting **26-61 s (median about 45 s)**, with a 2.1-2.4 m sideways move.
+  The ramp wall leaves no room further back, so they went only where the lane widens. The prior 4.4 note "never go round near a stop line" is too strong. They do go round, but only after a long wait and only where there is room.
+- The queue pushed the blocker **7 m forward in 4 min** by repeated low-speed contact. Only one reverse twitch was seen (0.3 s).
+- After removal the queue cleared in 19.7 s (one signal phase).
+
+**Full blockage (T1 two-way street, T2 freeway): queues and front-car behaviour.**
+
+| measure | T1 two-way, bus across | T2 freeway, 2 buses across 5 lanes |
+|---|---|---|
+| queue, 30 s bins (cars / m) | A: 2/15 at 0 s, 4/31 at 30-180 s; B: 2/11 at 180 s (light flow) | 8/29 at 0 s, 15/45 at 30 s, 16-17/54-57 from 60 s, then flat for 4 min |
+| arrivals after saturation | about 1 car per 30-60 s | **none after about 80 s**: no moving car seen upstream within 130 m |
+| front cars (≤ 12 m) that reversed | 3 of 6 | 4 of 4 |
+| first reverse after stopping | 2.1-3.6 s | 2.1-5.5 s (one car only at 107 s) |
+| first reverse | 3.4-5.4 m at 5-7 m/s | 3.7-8.0 m at 3-7 m/s, longest 8.7 m |
+| then | **shuffle cycle every 4.2 s**: about 1.0 s reverse, about 1 m, about 1.8 m/s, then forward to the bus. One car kept it up for 200 s (45 cycles) | 7-33 cycles per front car, same rhythm |
+| U-turn / turning away | 1 car turned 50-135° off the road axis 6 s after stopping, 7 m from the bus (squeezed past its end) | 1 U-turn (heading > 135°) after 66 s and 33 cycles, 3 m from the bus; 3 cars angled 50-135° at the bus ends at 6, 53 and 108 s |
+| cars further back | wait, no reverse, no U-turn | wait; a few creep 2-4 m/s to close gaps |
+| decision distance for turning off before the queue | 1 car turned off 3 m before stopping, at a side entrance | 1 car moved over 10 m before the queue |
+| recovery after removal | queue cleared in 2.7 s | front moved at once, queue cleared in 6.7 s |
+
+- Jammed stuck timer (type 3) of front cars: 5 s after about 10 s of shuffling, then 10 s and 30 s. Queued cars further back stay at 0, because waiting behind a car does not count as stuck.
+- No horn was detected anywhere (IS_HORN_ACTIVE stayed false for every AI car). This build has no
+  indicator-light getter, so indicators and honk timing are **not measured**.
+
+**Out of view (T1, T3): stuck queues are deleted fast.**
+
+- In view, no queued car was removed in 210 s (T1) or 120 s (T3).
+- Camera turned to the sky, player still 15-30 m from the bus (T3): 4 of 6 stationary queued cars vanished
+  **3, 26, 26 and 50 s** after the look-away. New arrivals kept refilling the queue (4 left at the end).
+- Player moved 100 m upstream, facing away (T3): 4 of 6 vanished within **6-9 s**. At 150 m the rest went
+  within 1 s, and at 200 m none were left. T1, player 260 m away: all 6 vanished before the next sample (< 1 s).
+- Coming back: T1 rebuilt 4 cars / 27 m within 30 s, so the jam re-forms from fresh traffic, not from the old cars.
+
+**Decision rules inferred [I]**
+
+1. Mid-block obstacle with any room beside it (oncoming lane or a free same-direction lane): never stop.
+   Start a half-lane (about 2 m) offset 10-60 m ahead, keep cruise speed, and return about 15 m after.
+   On a two-way road, do not wait for an oncoming gap: both sides squeeze, each keeping about 2.5 m between car centres.
+   In a multi-lane road, change lane fully about 25 m ahead.
+2. Obstacle in a queue context (near a stop line, walled lane): wait. Go round only after 25-60 s, and only where the
+   geometry gives about 2.2 m of side room. Queued cars nudge the obstacle at walking pace.
+3. Front car facing a total blockage: after 2-5 s reverse 3-8 m at 3-7 m/s, then a 4 s cycle of about 1 m reverse and forward.
+   After 6-60 s try to angle past the obstacle's end (50-135° off axis). A U-turn appeared only on the freeway, after about 1 min.
+   Cars behind the front car only wait. None of them took another road from inside the queue.
+4. Out of view, removal is driven by visibility first and distance second. Stationary queued cars go within about 3-50 s of
+   leaving view, even 15-30 m from the player. At ≥ 100 m away they go within about 10 s, and at ≥ 150 m almost at once.
+   A visible jam is kept indefinitely.
+5. On the freeway the queue stopped growing at about 17 cars / 55 m once nothing arrived from upstream. [I] The local
+   vehicle budget was full of queued cars, so the population system stopped spawning traffic toward the jam.
+   For Turku3D, count stuck cars against the budget and let jams cap themselves.
+6. Recovery is immediate: no start-up delay beyond the normal queue discharge (about 0.5-1 s per car).
+
+Raw material (local only): `~/turku3d/private/gta-traffic/block/`, with `<scene>.jsonl` (traces), `.meta.json`,
+`.log`, `*_<t>.mp4` (clips, 15 fps, half scale) and stills. Scripts: `scene.py`, `ana.py`, `ana_truck.py`, `ladder.py`
+in the same folder. Not done: a single-lane freeway block, and a gradual walk-away (the ladder used teleports).
+
 ---
 
 ## 5. Stuck and jam handling
