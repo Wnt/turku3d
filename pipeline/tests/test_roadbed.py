@@ -196,11 +196,14 @@ def test_a_skew_road_split_under_a_deck_passes_under_it():
 def test_a_link_leaving_a_deck_follows_its_own_profile_down_to_the_ground():
     from turku3d.coarse.bridges import branch_height, branch_profiles
 
-    main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0)
-    link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5)
-    way = dict(main, member_ways=[dict(main), link])
+    main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0, tags={"highway": "trunk"})
+    link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5,
+                tags={"highway": "trunk_link"})
+    path = dict(id="path", line=shapely.LineString([(40, -3), (60, -20), (90, -40)]), width=3.0,
+                tags={"highway": "cycleway"})
+    way = dict(main, member_ways=[dict(main), link, path])
     profiles, _ = branch_profiles(way, lambda xz: np.full(len(xz), 25.7), lambda xz: np.full(len(xz), 18.0))
-    assert len(profiles) == 1
+    assert len(profiles) == 1  # the cycleway leaving the deck does not split it into levels
     line, stations, heights, _ = profiles[0]
     assert abs(heights[0] - 25.7) < 1e-9 and abs(heights[-1] - 18.02) < 1e-9
     assert np.all(np.diff(heights) <= 1e-9)  # one descent, no dip into the ground and back
