@@ -34,14 +34,14 @@ IP=$(conf ip); UUID=$(conf uuid); H=root@$IP
 api() { curl -sf -H "Authorization: Bearer $(cat ~/.config/up_token)" -H 'Content-Type: application/json' "$@"; }
 state() { api "$API/server/$UUID" | python3 -c 'import json,sys; print(json.load(sys.stdin)["server"]["state"])'; }
 
-# 1. The helper is on, its cache mounts are up, and it stays on while we wait.
+# 1. The helper is on, its farm tree is there, and it stays on while we wait.
 s=$(state)
 if [ "$s" != started ]; then
   until [ "$s" = stopped ] || [ "$s" = started ]; do sleep 5; s=$(state); done
   [ "$s" = stopped ] && api -X POST "$API/server/$UUID/start" > /dev/null
   until [ "$(state)" = started ]; do sleep 5; done
 fi
-until ssh -o ConnectTimeout=5 -o BatchMode=yes "$H" 'systemctl is-active -q bulk-cache' 2>/dev/null; do sleep 5; done
+until ssh -o ConnectTimeout=5 -o BatchMode=yes "$H" "test -d $F/products" 2>/dev/null; do sleep 5; done
 ssh "$H" /home/wnt/turku3d-bulk-gen3/helper-ttl.sh extend
 
 pull() {  # pull GEN TILE: one finished farm tile into osgallery-dev's store, its files first, ready.json last
