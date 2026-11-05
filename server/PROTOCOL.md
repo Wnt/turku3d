@@ -62,14 +62,19 @@ The live roster includes self; match self by `you.id`. It contains no session to
 
 Carries this socket to another city's room (`/` is Turku, `/city/<name>` another city, the same paths as the
 socket URL) without reconnecting, for an in-place city switch. The player leaves the current room at once (the
-others see it go, as on a disconnect) and the socket is a fresh connection in the target room: send `hello` there
-next, with that city's session token. An unknown room closes the socket with 1008.
+others see it go, as on a disconnect) and the seats it held there are freed at once (a disconnect would reserve
+them for five minutes); the socket is a fresh connection in the target room: send `hello` there next, with that
+city's session token. An unknown room closes the socket with 1008.
 
 ### hello
 
 ```json
-{"v":2,"type":"hello","session":"optional 64-character lowercase hex token","bot":false}
+{"v":2,"type":"hello","session":"optional 64-character lowercase hex token","bot":false,"arrival":false}
 ```
+
+`arrival:true` says the player arrives from another city (a portal trip, whether over `move` or a new socket): any
+seat its session still holds in this room is freed before the welcome, since a trip never resumes one. A reconnect
+within the city omits it and reclaims its seat as below.
 
 `bot:true` marks an automated client (the delivery bots, `tools/drivetest/bots.sh`). A car it registers is removed
 30 s after it becomes empty, or 10 s after the bot goes offline, seated or not, so bot cars never accumulate; a
@@ -152,13 +157,17 @@ vehicle transfers simulation; release keeps its current simulation with the last
 driver. Connected holders keep their seats regardless of pose idle time (including
 long loading stalls). Disconnect zeros retained velocities and reserves occupied
 seats for five minutes; reconnect/socket replacement preserves the holder and epoch.
-Only explicit release or departure beyond that reservation frees a seat. Re-acquiring
-one's own seat bypasses the proximity check. A competing acquisition returns
-`ok:false,reason:"seat_taken"` and the current holder; other denials omit the reason.
+Only explicit release, a `move` to another city, an `arrival` hello or departure
+beyond that reservation frees a seat. A player holds one seat at a time: acquiring
+another while holding one is denied. Re-acquiring one's own seat bypasses the
+proximity check. A competing acquisition returns `ok:false,reason:"seat_taken"` and
+the current holder; other denials omit the reason (the game says "Car not available").
 Clients reclaim the driven seat after welcome, preserve their live body through
 empty/missing registry snapshots, and only exit on this explicit conflict after
 three seconds of grace, at the vehicle's current driver side. Recovered ownership
-cancels the exit. Clients restore an owned record's full pose,
+cancels the exit. A seat the room keeps reporting as the client's for two seconds
+while it drives another vehicle (or none) and no entry is in flight is released
+(a release lost on the way). Clients restore an owned record's full pose,
 including flipped rotation, rather than creating another car in the initial slot.
 
 A pose message can include `vehicleId` for the occupied registry vehicle (the server

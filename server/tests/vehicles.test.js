@@ -283,3 +283,37 @@ test('player-spawned trucks go once their owner has left; a truck that fell out 
   // Other personal kinds keep the hour lifetime.
   assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:car`));
 });
+
+test('a trip never leaves a seat behind: moving out frees it at once, an arrival hello frees a reserved one', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  a.send(car(a, { id: 'park:bay', source: 'bay', action: 'acquire' }));
+  assert.equal(result(a).ok, true);
+  // Holding a seat, a player cannot take another (the stale seat that blocked every car after a trip).
+  a.send(car(a, { id: 'park:other', source: 'other', action: 'acquire' }));
+  assert.equal(result(a).ok, false);
+  f.room.moveOut(a.c);
+  assert.equal(f.room.vehicles.entries.get('park:bay').occupant, null);
+  b.send({ type: 'vehicle', action: 'acquire', id: 'park:bay', request: 'next' });
+  assert.equal(result(b).ok, true);
+  // A socket that closed (no move) keeps the five-minute reservation; a plain reconnect resumes it ...
+  b.send({ type: 'vehicle', action: 'release', id: 'park:bay', request: 'leave' });
+  const c = f.connect(); c.send(pose);
+  c.send(car(c, { id: 'park:bay', source: 'bay', action: 'acquire' }));
+  f.room.disconnect(c.c);
+  const back = f.connect(c.welcome.session);
+  assert.equal(back.welcome.you.id, c.welcome.you.id);
+  assert.equal(f.room.vehicles.entries.get('park:bay').occupant, c.welcome.you.id);
+  // ... and an arrival from another city frees it before the welcome.
+  f.room.disconnect(back.c);
+  const arrived = f.connect(c.welcome.session, { arrival: true });
+  assert.equal(arrived.welcome.you.id, c.welcome.you.id);
+  assert.equal(f.room.vehicles.entries.get('park:bay').occupant, null);
+  assert.equal(arrived.welcome.vehicles.upsert.find(v => v.id === 'park:bay').occupant, null);
+  arrived.send({ ...pose, E: 180 });
+  arrived.send(car(arrived, { id: 'park:other', source: 'other', action: 'acquire', pose: { ...pose, E: 180, mode: 'car', vehicle: 'sedan/red', vE: 0 } }));
+  assert.equal(result(arrived).ok, true);
+  // A malformed arrival flag is rejected like any malformed hello.
+  const rejected = f.room.stats.rejected;
+  f.connect(undefined, { arrival: 'yes' });
+  assert.equal(f.room.stats.rejected, rejected + 1);
+});
