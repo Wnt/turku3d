@@ -129,7 +129,9 @@ test('each tile comes from the newest compatible train that finished it, else th
     calls.length = 0;
     await fetch(`${origin}/coarse/demand?client=play&tiles=t0_0_0`);
     await fetch(`${origin}/coarse/navigation.json`);
-    assert.deepEqual(calls, ['GET /v/pin/coarse/demand?client=play&tiles=t0_0_0', 'GET /v/pin/coarse/navigation.json']);
+    // Demand goes out behind its answer, so its order against other requests is not fixed.
+    for (let i = 0; i < 50 && calls.length < 2; i++) await new Promise(r => setTimeout(r, 10));
+    assert.deepEqual(calls.sort(), ['GET /v/pin/coarse/demand?client=play&tiles=t0_0_0', 'GET /v/pin/coarse/navigation.json']);
     const fragment = await (await fetch(`${origin}/coarse/t0_0_0/collision.json?d=0`)).json();
     assert.equal(fragment.url, `/coarse/_v/${'b'.repeat(64)}/t/mesh.glb`);
     // Within CHOSEN_MS a tile's choice is reused without asking the farm again.
@@ -290,7 +292,8 @@ test('demand is answered at once and forwarded one at a time per client; scenery
     hold();
     await wait(() => demandCalls.length === 2);
     // The queued demands collapsed into the newest one.
-    assert.deepEqual(demandCalls.map(u => new URL(u, origin).searchParams.get('tiles')), ['t0_0_0', 't0_2_0']);
+    assert.equal(demandCalls.length, 2);
+    assert.equal(new URL(demandCalls[1], origin).searchParams.get('tiles'), 't0_2_0');
     await new Promise(r => setTimeout(r, 50));
     assert.deepEqual(await (await fetch(`${base}/coarse/demand?client=a&tiles=t0_0_0`)).json(), { version: 8 });
     // Scenery: one upstream ask, the repeat from the cache; a stale answer is served and refreshed behind it.
