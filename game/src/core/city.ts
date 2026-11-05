@@ -1,7 +1,8 @@
 // The active city (docs/cities.md): one page plays one city, chosen by ?city=NAME (default Turku). Mirror of the
 // generator's city profiles (pipeline/turku3d/cities): the world origin O, the centre spawn, the projection of the
-// city's grid and where its tile service is mounted. Changing city is a page load (gameplay/travel.ts), so every
-// module reads its constants once at load and nothing re-projects at runtime.
+// city's grid and where its tile service is mounted. A page boots into one city (?city=NAME) and may switch to another
+// in place (setCity): `CITY` and the origin constants (core/origin.ts) are live bindings, and modules holding derived
+// city state subscribe with onCityChange.
 
 export type CityName = 'turku' | 'espoo' | 'amsterdam' | 'rotterdam';
 
@@ -76,8 +77,26 @@ export function cityOf(search: string): CityProfile {
   return CITIES[name];
 }
 
-/** The active city of this page (worker and test contexts without a location play Turku). */
-export const CITY: CityProfile = cityOf(globalThis.location?.search ?? '');
+/** The active city of this page (worker and test contexts without a location play Turku); setCity switches it. */
+export let CITY: CityProfile = cityOf(globalThis.location?.search ?? '');
+
+const cityListeners = new Set<(city: CityProfile, previous: CityProfile) => void>();
+
+/** Runs `listener` after every city switch (core/origin.ts rebases E0/N0 first); returns the unsubscribe. */
+export function onCityChange(listener: (city: CityProfile, previous: CityProfile) => void): () => void {
+  cityListeners.add(listener);
+  return () => cityListeners.delete(listener);
+}
+
+/** Makes `name` the active city: the engine origin becomes its origin O, tiles route to its mount. No-op when it
+ *  already is. Callers dispose the old city's world before and stream the new one after (gameplay/cityTrip.ts). */
+export function setCity(name: CityName): CityProfile {
+  const previous = CITY;
+  if (previous.name === name) return CITY;
+  CITY = CITIES[name];
+  for (const listener of [...cityListeners]) listener(CITY, previous);
+  return CITY;
+}
 
 /** Whether `name` is the home city, the only one with the story content (missions, shops, landmarks, point cloud). */
 export const isHome = (city: CityProfile = CITY) => city.name === HOME_CITY;
@@ -111,14 +130,15 @@ export function cityTileUrl(input: string, pageOrigin: string, city: CityProfile
   return url.href;
 }
 
-/** Routes this page's `/coarse/...` fetches (tiles, models, collision, scenery) to the active city's mount. */
-export function installCityFetch(target: { fetch: typeof fetch; location?: Location } = globalThis as never, city: CityProfile = CITY) {
-  if (city.tiles === '/coarse/' || !target.location) return;
+/** Routes this page's `/coarse/...` fetches (tiles, models, collision, scenery) to the active city's mount, read at
+ *  every request (`city` pins one, for tests). */
+export function installCityFetch(target: { fetch: typeof fetch; location?: Location } = globalThis as never, city?: CityProfile) {
+  if (!target.location) return;
   const origin = target.location.origin;
   const original = target.fetch.bind(target);
   target.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const mapped = cityTileUrl(href, origin, city);
+    const mapped = cityTileUrl(href, origin, city ?? CITY);
     if (!mapped) return original(input, init);
     return original(typeof input === 'string' || input instanceof URL ? mapped : new Request(mapped, input), init);
   }) as typeof fetch;

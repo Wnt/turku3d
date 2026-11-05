@@ -1,19 +1,27 @@
 // World origin and frames (docs/ARCHITECTURE.md D3, docs/specs/tiles.md). Mirror of pipeline/turku3d/config.py.
 // Engine frame: Y-up metres, x = E - E0, y = H (N2000), z = -(N - N0). E/N are the active city's grid (core/city.ts).
-import { CITY } from './city';
+import { CITY, onCityChange } from './city';
 
-export const E0 = CITY.origin.E;
-export const N0 = CITY.origin.N;
+// Live bindings: a city switch (core/city.ts setCity) rebases the engine origin to the new city's O, so engine
+// coordinates stay small (float32 GPU and Rapier) wherever the city lies.
+export let E0 = CITY.origin.E;
+export let N0 = CITY.origin.N;
 const H0 = 0;
 export const VISUAL_L0 = 250;
 export const COLLISION_TILE = 62.5;
 
 /** Grid bearing (deg) of TRUE north at O, i.e. the grid's meridian convergence (Turku EPSG:3877: 0.640 deg at O,
  *  0.56 deg 7 km south-east). Engine/grid azimuth = true azimuth + this (sun, Street View headings, compass). */
-export const TRUE_NORTH_GRID_BEARING_DEG = CITY.trueNorthGridBearingDeg;
+export let TRUE_NORTH_GRID_BEARING_DEG = CITY.trueNorthGridBearingDeg;
 
 /** The city's centre spawn (Turku: the office, Läntinen Rantakatu 15, the Phase 1 spawn). */
-export const OFFICE_EN = { E: CITY.spawn.E, N: CITY.spawn.N } as const;
+export let OFFICE_EN: { readonly E: number; readonly N: number } = { E: CITY.spawn.E, N: CITY.spawn.N };
+
+onCityChange(city => {
+  E0 = city.origin.E; N0 = city.origin.N;
+  TRUE_NORTH_GRID_BEARING_DEG = city.trueNorthGridBearingDeg;
+  OFFICE_EN = { E: city.spawn.E, N: city.spawn.N };
+});
 
 interface EN { E: number; N: number; H: number }
 export interface V3 { x: number; y: number; z: number }
