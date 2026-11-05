@@ -3,7 +3,9 @@
 import type { VehicleState } from '../physics/protocol';
 import { REAR_STEER_MODES, type RearSteerMode } from '../vehicle/rearSteer';
 
-/** [throttle percent 0..100, rpm / 10 0..800, gear −1..3 (−1 reverse, 0 neutral), rear mode index 0..3]. */
+/** [throttle percent 0..100, rpm / 10 0..800, gear −1..3 (−1 reverse, 0 neutral), rear mode index 0..3]. The mode
+ *  index is REAR_STEER_MODES order: 0 AUTO, 1 SIDEWAYS (crab), 2 AUTO 50% (MANUAL before 2026-11-06), 3 LOCK. Remote
+ *  rear wheels follow the synced wheel `steer`, not this index, so every mode looks right to every client. */
 export type Drv = [throttlePct: number, rpm10: number, gear: number, rearMode: number];
 export interface DrvValues { throttle: number; rpm: number; gear: number; rearMode: RearSteerMode }
 

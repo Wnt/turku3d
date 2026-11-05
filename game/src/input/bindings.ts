@@ -6,7 +6,7 @@ export type Binding =
   /** Every listed Standard Gamepad button held at once (the editor toggle's Xbox fallback, L3 + R3). */
   | { kind: 'chord'; indices: number[] };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'rearMode', 'rearRocker', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
+  'throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
   'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown',
   'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3', 'timeSpeed4', 'timeHourBack', 'timeHourForward',
   'timeMinutesBack', 'timeMinutesForward', 'timeLive',
@@ -24,16 +24,15 @@ export const DEFAULT_BINDINGS: Bindings = {
   moveX: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   moveY: [axis(1, -1), key('KeyW'), key('ArrowUp'), key('KeyS', -1), key('ArrowDown', -1)],
   lookX: [axis(2)], lookY: [axis(3)],
+  // In the trophy truck a sprint press cycles the rear-steer mode (vehicle/rearSteerControl.ts, play.ts).
   sprint: [button(0), key('ShiftLeft'), key('ShiftRight')], walk: [key('AltLeft'), key('AltRight')],
   jump: [button(2), key('Space')], interact: [button(3), key('KeyF')],
-  // Mission targets (gameplay/missions): A shares the sprint button, which only acts while moving.
+  // Mission targets (gameplay/missions): A shares the sprint button, which only acts while moving on foot; in the
+  // truck a press of A at a mission target goes to the mission, not to the rear steer.
   mission: [button(0), key('KeyE')],
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   horn: [button(10), key('KeyG')], lights: [button(12), key('KeyL')],
-  // Trophy truck rear steer (vehicle/rearSteerControl.ts), read only in a 4WS vehicle: X and Q are on-foot or
-  // fly-only otherwise. The rocker steers the rear left with Z and right with X or the right stick.
-  rearMode: [button(2), key('KeyQ')], rearRocker: [axis(2, -1), key('KeyZ'), key('KeyX', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
   pause: [button(9), key('Escape')], mute: [button(13), key('KeyK')], nextTrack: [key('KeyN')],
   vehicleReset: [button(1), key('KeyR')], hud: [key('F3'), key('KeyH')],

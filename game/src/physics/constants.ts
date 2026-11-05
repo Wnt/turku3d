@@ -188,7 +188,7 @@ export const TRUCK = {
   frontTorque: 0.4,
   curbFeel: 0.2,
   rearSteer: {
-    wheels: [2, 3], maxAngle: 32 * Math.PI / 180, fullBelow: 2.5, lockout: 13.4, unlock: 11.6, rate: 1.4, manualRate: 0.9, frontLock: 42 * Math.PI / 180,
+    wheels: [2, 3], maxAngle: 32 * Math.PI / 180, fullBelow: 2.5, lockout: 13.4, unlock: 11.6, rate: 1.4, frontLock: 42 * Math.PI / 180,
   },
   suspensionCurve: {
     staticLength: TRUCK_STATIC_LENGTH,

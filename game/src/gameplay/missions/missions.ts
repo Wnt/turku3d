@@ -198,6 +198,8 @@ export class MissionSystem implements MissionHudSource {
   get runFactor(): number { return this.s.kidney && this.energy <= 0 ? KIDNEY_RUN_FACTOR : 1; }
   /** The open shop menu, or null. The same object is returned until something in it changes. */
   get shop(): ShopView | null { return this.view; }
+  /** The interaction button acts on a shop or the drop-off at the last frame's position (its prompt shows). */
+  get interactable(): boolean { return !this.open && this.s.phase !== 'idle' && !!this.frame && this.action(this.frame) !== null; }
   snapshot() {
     const order = this.s.order.map(id => this.stops.resolve(id)!);
     return { ...this.s, address: order[this.s.stop]?.address ?? null, stops: order.map(o => o.address),
