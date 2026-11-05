@@ -102,8 +102,10 @@ def _buildings(block):
     path = config.raw_dir("wfs") / f"{AREA_PREFIX}{block.name}" / "bldg_Building_LOD2.parquet"
     if not path.exists():
         return []
-    f = gpd.read_parquet(path, columns=["gml_id", "geometry", "surface_type"])
+    f = gpd.read_parquet(path)
     out = []
+    if not len(f) or "surface_type" not in f:  # an empty layer (sea, park): no buildings
+        return out
     for _, g in f.groupby("gml_id"):
         roofs = g[g.surface_type == "RoofSurface"].geometry
         if not len(roofs):
@@ -125,7 +127,9 @@ def _carriageways(block):
     path = config.raw_dir("wfs") / f"{AREA_PREFIX}{block.name}" / "GIS_Katualueet.parquet"
     if not path.exists():
         return None
-    f = gpd.read_parquet(path, columns=["geometry", "Katuosalaji"])
+    f = gpd.read_parquet(path)
+    if not len(f) or "Katuosalaji" not in f:
+        return None
     roads = [shapely.force_2d(g) for g, k in zip(f.geometry, f.Katuosalaji, strict=True) if k == "Ajorata"]
     return shapely.union_all(roads) if roads else None
 
