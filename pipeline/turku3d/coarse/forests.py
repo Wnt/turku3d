@@ -239,9 +239,10 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # clear the complete carriageway, including its visible flared trunk base.
     paths = shapely.union_all([path_corridors(inputs), *inputs.vegetation_roads, *unsurveyed])
     blocked = shapely.union_all([blocked, paths])
-    # A surveyed trunk stands where it was surveyed (a tree grate in a pavement, a tree beside a park path):
-    # it clears the carriageways and the walked line of a mapped foot/cycle path, not the path's estimated
-    # buffered width. The final trunk clearance (vegetation.clearance) places it against the drawn paving.
+    # A real trunk (a surveyed one, a measured lidar crown) stands where the survey saw it (a tree grate in a
+    # pavement, a crown over a square): it clears the carriageways and the walked line of a mapped foot/cycle
+    # path, not the path's estimated buffered width. The final trunk clearance (vegetation.clearance) places
+    # it against the drawn paving, as it documents.
     walked = shapely.union_all([*path_lines(inputs.roads), *inputs.vegetation_roads, *unsurveyed])
     generated_blocked = shapely.union_all(
         [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
@@ -264,7 +265,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
 
     measured_canopy = getattr(inputs, "vegetation_canopy", ())
     measured_blocked = shapely.union_all([
-        surveyed, paths, *(b.footprint.buffer(1) for b in inputs.buildings),
+        surveyed, walked, *(b.footprint.buffer(1) for b in inputs.buildings),
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
     trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked)[:TREE_CAP]

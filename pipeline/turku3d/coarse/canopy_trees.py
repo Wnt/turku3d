@@ -53,14 +53,15 @@ def canopy_points(tile, paths):
 
 
 def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
-    """Mapped trees plus separated crown maxima. ``walked``: what a surveyed (register) trunk clears instead
-    of ``paths`` (carriageways and the walked lines of mapped paths, ``forests.produce``)."""
+    """Mapped trees plus separated crown maxima. ``walked``: what a real trunk (a register tree or a lidar
+    crown) clears instead of ``paths``: carriageways and the walked lines of mapped paths (``forests.produce``);
+    the final trunk clearance (``vegetation.clearance``) places it against the drawn paving."""
     from .forests import clears_path
     from .tree_inputs import REGISTER_TREE
 
     def clear(tree):
-        surveyed = walked is not None and tree.object_id.startswith(REGISTER_TREE)
-        return clears_path(tree, walked if surveyed else paths)
+        real = walked is not None and (tree.object_id.startswith(REGISTER_TREE) or tree.source == "lidar")
+        return clears_path(tree, walked if real else paths)
 
     if len(canopy) == 0:
         return mapped
@@ -95,7 +96,7 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
         tree = Tree(f"lidar:{x:.2f}:{z:.2f}", float(x), float(z), "lidar",
                     y=height_at(x, z), height=float(chm[i, j]), crown_radius=2)
         tree.variant = variant("", tree.height)
-        if clears_path(tree, paths):
+        if clear(tree):
             trees.append(tree)
     if not trees:
         return trees
