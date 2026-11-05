@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-nissan-micra",
+  "fleet": {
+    "id": "carla-nissan-micra",
+    "name": "Kaira Kipinä K",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 3.6334,
+    "width": 1.6704,
+    "height": 1.5013,
+    "wheelbase": 2.4902,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3283,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1.2
+  },
+  "id": "carla-nissan-micra",
+  "wheels": {
+    "radius": 0.3283,
+    "width": 0.2371,
+    "pivots": {
+      "wheel_FL": [
+        -0.7003,
+        0.3283,
+        1.1732
+      ],
+      "wheel_FR": [
+        0.7003,
+        0.3283,
+        1.1732
+      ],
+      "wheel_RL": [
+        -0.7002,
+        0.3283,
+        -1.317
+      ],
+      "wheel_RR": [
+        0.7002,
+        0.3283,
+        -1.317
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7506,
+      0
+    ],
+    "half": [
+      0.8352,
+      0.7506,
+      1.8167
+    ]
+  },
+  "triangles": [
+    15288,
+    7876,
+    2947
+  ],
+  "source": {
+    "title": "Nissan Micra (vehicle.nissan.micra)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-nissan-micra",
+    "referenceModel": "Nissan Micra (CARLA vehicle.nissan.micra)",
+    "massKg": 1000,
+    "powerKW": 60,
+    "torqueNm": 107,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 13,
+    "topSpeedKmh": 170,
+    "turningCircleM": 9.9,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "balanced",
+    "lengthM": 3.6334,
+    "widthM": 1.6704,
+    "heightM": 1.5013,
+    "wheelbaseM": 2.4902,
+    "trackM": 1.4006,
+    "wheelRadiusM": 0.3283,
+    "wheelWidthM": 0.2371
+  },
+  "accepted": false
+}

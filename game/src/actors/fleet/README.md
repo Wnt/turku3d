@@ -63,7 +63,10 @@ into the same articulated LOD format. It maps source materials to fleet roles (t
 taxi/police/ambulance/bus/truck, glass, lamps, indicators, blank plates), samples base-colour textures into vertex
 colours (no images ship; `flattenFleetAsset` multiplies them), drops emblems (small centreline parts at the nose or tail,
 plus per-model boxes), orients to +Z/Y-up metres, splits four hub-centred wheels (front and rear-most axle; middle axles
-stay in the body) and simplifies with meshoptimizer to about 48k/10k/3.5k triangles. Registry entries add the
+stay in the body; skinned CARLA sources split by their `Wheel_*` bones) and simplifies with meshoptimizer to about
+32k/8k/3k triangles (60k/12k/4k for trucks and buses). Normals and colours ship as 8-bit. CARLA emblems are modelled into
+grilles, so `emblems.extra` boxes drop or flatten them (`flat` presses relief onto one plane with the box's median colour).
+`tools/dev/fleet-import/licenses.py` regenerates the LICENSES rows. Registry entries add the
 source/licence, a collision box, a carphysics `CarSpec` and a selection `weight`. Families outside
 `SELECTABLE_FAMILIES` (bus, truck, ambulance) are not preloaded for traffic and need an exact model id.
 `fleetWorkshop.authored(ids, lod, colour, view)` shows them through `ParkedCarVisuals`;

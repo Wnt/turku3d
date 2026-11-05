@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-ford-mustang",
+  "fleet": {
+    "id": "carla-ford-mustang",
+    "name": "Routa Säde GT",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.7175,
+    "width": 1.8948,
+    "height": 1.3009,
+    "wheelbase": 2.8862,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3254,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.08
+  },
+  "id": "carla-ford-mustang",
+  "wheels": {
+    "radius": 0.3254,
+    "width": 0.2123,
+    "pivots": {
+      "wheel_FL": [
+        -0.7928,
+        0.3254,
+        1.5296
+      ],
+      "wheel_FR": [
+        0.7928,
+        0.3254,
+        1.5296
+      ],
+      "wheel_RL": [
+        -0.7946,
+        0.3254,
+        -1.3565
+      ],
+      "wheel_RR": [
+        0.7946,
+        0.3254,
+        -1.3565
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.6505,
+      0
+    ],
+    "half": [
+      0.9474,
+      0.6505,
+      2.3588
+    ]
+  },
+  "triangles": [
+    16044,
+    7873,
+    2948
+  ],
+  "source": {
+    "title": "Ford Mustang (vehicle.ford.mustang)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-ford-mustang",
+    "referenceModel": "Ford Mustang (CARLA vehicle.ford.mustang)",
+    "massKg": 1700,
+    "powerKW": 330,
+    "torqueNm": 529,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 4.6,
+    "topSpeedKmh": 250,
+    "turningCircleM": 12,
+    "gears": 10,
+    "rideHeightM": 0.13,
+    "character": "sport",
+    "lengthM": 4.7175,
+    "widthM": 1.8948,
+    "heightM": 1.3009,
+    "wheelbaseM": 2.8862,
+    "trackM": 1.5856,
+    "wheelRadiusM": 0.3254,
+    "wheelWidthM": 0.2123
+  },
+  "accepted": false
+}

@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-audi-etron",
+  "fleet": {
+    "id": "carla-audi-etron",
+    "name": "Valo Vaara E5",
+    "body": "suv",
+    "family": "suv",
+    "length": 4.8556,
+    "width": 2.0328,
+    "height": 1.6494,
+    "wheelbase": 2.9001,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3806,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.7
+  },
+  "id": "carla-audi-etron",
+  "wheels": {
+    "radius": 0.3806,
+    "width": 0.2956,
+    "pivots": {
+      "wheel_FL": [
+        -0.796,
+        0.3806,
+        1.5182
+      ],
+      "wheel_FR": [
+        0.796,
+        0.3806,
+        1.5182
+      ],
+      "wheel_RL": [
+        -0.796,
+        0.3806,
+        -1.3819
+      ],
+      "wheel_RR": [
+        0.796,
+        0.3806,
+        -1.3819
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8247,
+      0
+    ],
+    "half": [
+      1.0164,
+      0.8247,
+      2.4278
+    ]
+  },
+  "triangles": [
+    18407,
+    7881,
+    2951
+  ],
+  "source": {
+    "title": "Audi e-tron (vehicle.audi.etron)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-audi-etron",
+    "referenceModel": "Audi e-tron (CARLA vehicle.audi.etron)",
+    "massKg": 2490,
+    "powerKW": 300,
+    "torqueNm": 664,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 5.7,
+    "topSpeedKmh": 200,
+    "turningCircleM": 12.2,
+    "gears": 1,
+    "rideHeightM": 0.17,
+    "character": "balanced",
+    "lengthM": 4.8556,
+    "widthM": 2.0328,
+    "heightM": 1.6494,
+    "wheelbaseM": 2.9001,
+    "trackM": 1.592,
+    "wheelRadiusM": 0.3806,
+    "wheelWidthM": 0.2956
+  },
+  "accepted": false
+}

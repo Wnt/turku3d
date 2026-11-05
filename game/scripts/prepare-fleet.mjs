@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
-import { weld, prune } from '@gltf-transform/functions';
+import { weld, prune, quantize } from '@gltf-transform/functions';
 import { MeshoptEncoder } from 'meshoptimizer';
 const [source, destination] = process.argv.slice(2);
 const articulated = process.argv.includes('--articulated');
@@ -18,7 +18,8 @@ for (let lod = 0; lod < 3; lod++) {
   if (doc.getRoot().listTextures().length) throw Error('Fleet export must exclude reference images');
   // Equal PBR values may have distinct semantic roles (left/right indicators).
   // Do not deduplicate materials by appearance.
-  await doc.transform(weld(), prune());
+  // Normals and baked colours as 8-bit; positions stay float so node transforms (wheel pivots) are unchanged.
+  await doc.transform(weld(), prune(), quantize({ pattern: /^(NORMAL|COLOR_0)$/, quantizeNormal: 8, quantizeColor: 8 }));
   doc.createExtension(EXTMeshoptCompression).setRequired(true).setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });
   if (articulated) for (const name of ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR']) {
     if (doc.getRoot().listNodes().filter(node => node.getName() === name).length !== 1) throw Error(`Missing wheel ${name}`);

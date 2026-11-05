@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-mercedes-coupe-2020",
+  "fleet": {
+    "id": "carla-mercedes-coupe-2020",
+    "name": "Nord Säde C2",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.6722,
+    "width": 2.0023,
+    "height": 1.452,
+    "wheelbase": 2.8325,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3446,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.3
+  },
+  "id": "carla-mercedes-coupe-2020",
+  "wheels": {
+    "radius": 0.3446,
+    "width": 0.2119,
+    "pivots": {
+      "wheel_FL": [
+        -0.7966,
+        0.3446,
+        1.5493
+      ],
+      "wheel_FR": [
+        0.7966,
+        0.3446,
+        1.5493
+      ],
+      "wheel_RL": [
+        -0.7966,
+        0.3446,
+        -1.2832
+      ],
+      "wheel_RR": [
+        0.7966,
+        0.3446,
+        -1.2832
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.726,
+      0
+    ],
+    "half": [
+      1.0011,
+      0.726,
+      2.3361
+    ]
+  },
+  "triangles": [
+    31570,
+    7880,
+    2950
+  ],
+  "source": {
+    "title": "Mercedes-Benz Coupe 2020 (vehicle.mercedes.coupe_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-mercedes-coupe-2020",
+    "referenceModel": "Mercedes-Benz Coupe 2020 (CARLA vehicle.mercedes.coupe_2020)",
+    "massKg": 1700,
+    "powerKW": 190,
+    "torqueNm": 370,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.4,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.2,
+    "gears": 9,
+    "rideHeightM": 0.13,
+    "character": "sport",
+    "lengthM": 4.6722,
+    "widthM": 2.0023,
+    "heightM": 1.452,
+    "wheelbaseM": 2.8325,
+    "trackM": 1.5931,
+    "wheelRadiusM": 0.3446,
+    "wheelWidthM": 0.2119
+  },
+  "accepted": false
+}

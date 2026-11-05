@@ -47,7 +47,7 @@ const DEFAULT_ROLES = [
   [/(?<!t)rim|wheel|felge|alloy|hubcap|disk|disc|brake/, 'rim'],
   [/interior|seat|salon|leather|dash|carpet|belt|steer|fabric|gauge|speaker|screen|furniture|pedal|engine|shifter|ignition|cabin|inside|door.?card|knob/, 'interior'],
   [/chrome|mirror|miror|metal|steel|exhaust/, 'chrome'],
-  [/paint|carpaint|body|lack|color|colour|karosserie/, 'paint'],
+  [/paint|carpaint|body|(?<!b)lack|color|colour|karosserie/, 'paint'],
 ];
 const ROLE = { paint: 1, trim: 2, chrome: 3, glass: 4, tyre: 5, rim: 6, interior: 7, plate: 8,
   lampFront: 9, lampTail: 10, indicator: 11, lampAny: 12, livery: 13 };
@@ -56,7 +56,7 @@ const modelRules = (cfg.roles ?? []).map(([re, role]) => [new RegExp(re, 'i'), r
 // Part names on nodes are the strongest hint (a "wheels" node holds painted rims; an "interior" node holds paint
 // too); materials decide the rest. Generic names fall back to trim.
 const NODE_ROLES = ['interior', 'indicator', 'lampTail', 'lampFront', 'tyre', 'rim'].map(r => DEFAULT_ROLES.find(([, role]) => role === r))
-  .map(([re, role]) => [role === 'rim' ? /wheel|(?<!t)rim|felge/ : role === 'interior' ? /interior|seat|salon|dash|steer|furniture|cabin|inside|engine/ : re, role]);
+  .map(([re, role]) => [role === 'rim' ? /wheel|(?<!t)rim|felge/ : role === 'interior' ? /interior|(^|[^a-z])seats?([^a-z_]|$)|salon|dash|steer|furniture|cabin|inside|engine/ : re, role]);
 function roleOf(node, materialName) {
   const key = `${node}|${materialName}`;
   for (const [re, role] of modelRules) if (re.test(key)) return role;
@@ -122,7 +122,11 @@ for (const node of doc.getRoot().listNodes()) {
     keysSeen.set(key, role);
     if (role === 'drop') continue;
     const pos = prim.getAttribute('POSITION'), nor = prim.getAttribute('NORMAL'), uv = prim.getAttribute(`TEXCOORD_${info.uv}`);
-    const col = prim.getAttribute('COLOR_0'), idx = prim.getIndices();
+    // CARLA (UE) vertex colours are paint masks, not colours.
+    const col = cfg.ignoreVertexColor ? null : prim.getAttribute('COLOR_0'), idx = prim.getIndices();
+    // Skinned sources (CARLA): a vertex belongs to the joint with the largest weight; Wheel_* joints mark wheels.
+    const joints = prim.getAttribute('JOINTS_0'), weights = prim.getAttribute('WEIGHTS_0'), jointNames = node.getSkin()?.listJoints().map(j => j.getName()) ?? [];
+    const D = [];
     const count = idx ? idx.getCount() : pos.getCount();
     const P = [], N = [], C = [], t3 = [0, 0, 0], t2 = [0, 0], t4 = [0, 0, 0, 0];
     for (let v = 0; v < pos.getCount(); v++) {
@@ -137,6 +141,10 @@ for (const node of doc.getRoot().listNodes()) {
       c = c.map(toLinear).map((a, k) => a * info.factor[k]);
       if (col) { col.getElement(v, t4); c = c.map((a, k) => a * t4[k]); }
       C.push(c);
+      if (joints && weights && jointNames.length) {
+        const j4 = [0, 0, 0, 0], w4 = [0, 0, 0, 0]; joints.getElement(v, j4); weights.getElement(v, w4);
+        D.push(jointNames[j4[w4.indexOf(Math.max(...w4))]] ?? '');
+      }
     }
     for (let i = 0; i < count; i += 3) {
       const ids = idx ? [idx.getScalar(i), idx.getScalar(i + 1), idx.getScalar(i + 2)] : [i, i + 1, i + 2];
@@ -147,7 +155,10 @@ for (const node of doc.getRoot().listNodes()) {
         const ax = p[3]-p[0], ay = p[4]-p[1], az = p[5]-p[2], bx = p[6]-p[0], by = p[7]-p[1], bz = p[8]-p[2];
         const f = [ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx], l = Math.hypot(...f) || 1; n = [...f, ...f, ...f].map(a => a / l);
       }
-      tris.push({ p, n, c: ids.flatMap(v => C[v]), role, info, key });
+      const dominant = D.length ? ids.map(v => D[v]) : null;
+      const wheel = dominant && /^wheel_/i.test(dominant[0]) && dominant.every(d => d === dominant[0]) ? dominant[0] : null;
+      const triRole = wheel && !['tyre', 'glass', 'drop'].includes(role) ? 'rim' : role;
+      tris.push({ p, n, c: ids.flatMap(v => C[v]), role: triRole, info, key, wheel });
     }
   }
 }
@@ -165,7 +176,15 @@ for (const rule of cfg.atlasPaint ?? []) {
 }
 
 // Emergency, taxi and transit liveries keep their sampled colours; they are not tinted by the traffic paint.
-if (cfg.livery) for (const t of tris) if (t.role === 'paint') t.role = 'livery';
+if (cfg.livery) for (const t of tris) if (t.role === 'paint') {
+  t.role = 'livery';
+  // A fixed body colour (linear, e.g. CARLA's "Base Color" parameter) multiplies the sampled texture.
+  // paintReplace: the texture is only a mask (CARLA), so the parameter colour replaces it.
+  if (cfg.paintLinear) for (let i = 0; i < 9; i++) t.c[i] = cfg.paintReplace ? cfg.paintLinear[i % 3] : t.c[i] * cfg.paintLinear[i % 3];
+}
+// Per-part colour replacement (linear), e.g. police door shells that carry the civilian body material.
+for (const rule of cfg.recolor ?? []) { const re = new RegExp(rule.key, 'i');
+  for (const t of tris) if (re.test(t.key)) { t.c = t.c.map((_, i) => rule.rgbLinear[i % 3]); if (rule.role) t.role = rule.role; } }
 
 // ---- Orientation, scale, ground ----------------------------------------------------------------------------------
 const box = (list, filter = () => true) => {
@@ -197,12 +216,15 @@ transform((x, y, z, w) => w ? [(x - cx) * scale, (y - b.lo[1]) * scale, (z - cz)
 
 // lampAny: front/tail by position; indicators: side by X (+X is the car's left when it faces +Z, Y up).
 const ctr = t => [(t.p[0]+t.p[3]+t.p[6])/3, (t.p[1]+t.p[4]+t.p[7])/3, (t.p[2]+t.p[5]+t.p[8])/3];
-for (const t of tris) if (t.role === 'lampAny') t.role = ctr(t)[2] > 0 ? 'lampFront' : 'lampTail';
+for (const t of tris) if (t.role === 'lampAny' || (cfg.lampsByPosition && (t.role === 'lampFront' || t.role === 'lampTail')))
+  t.role = ctr(t)[2] > 0 ? 'lampFront' : 'lampTail';
 
 // ---- Wheels ------------------------------------------------------------------------------------------------------
 const H = b.size[1] * scale;
 // Wheel candidates sit low: door seals and window rubbers share "rubber" materials with tyres.
-const wheelTris = tris.filter(t => (t.role === 'tyre' || t.role === 'rim') && ctr(t)[1] < H * (cfg.wheelMaxY ?? .5));
+// Skinned sources mark wheels by bone; otherwise tyre/rim materials that sit low.
+const boned = tris.filter(t => t.wheel);
+const wheelTris = boned.length ? boned : tris.filter(t => (t.role === 'tyre' || t.role === 'rim') && ctr(t)[1] < H * (cfg.wheelMaxY ?? .5));
 if (!wheelTris.length) throw Error('No tyre/rim triangles: add roles for this model');
 // Axles: dense Z bands of wheel triangles (2 cm bins); sparse seals and pipes between them fall under the threshold.
 const zs = wheelTris.map(t => ctr(t)[2]), z0 = zs.reduce((a, c) => Math.min(a, c)), bins = new Float64Array(Math.ceil((zs.reduce((a, c) => Math.max(a, c)) - z0) / .02) + 1);
@@ -292,6 +314,37 @@ if (process.env.PROBE) { // PROBE=x,y,z[,r]: which source parts have triangles n
       }
     }
   }
+  // Emblems modelled into the grille or boot lid (CARLA): chrome/trim triangles in a small centreline box at the
+  // nose become dark grille trim, at the tail they take the body paint, so no logo shape reads.
+  if (cfg.emblems) {
+        const boxes = [...(cfg.emblems.front ? [{ lo: [-.17, Hm * .15, zMax - .32], hi: [.17, Hm * .62, zMax + .1], to: cfg.emblems.front }] : []),
+      { lo: [-.3, .45, zMin - .1], hi: [.3, 1.45, zMin + .3], to: cfg.emblems.rear ?? 'paint', only: ['chrome'] }, ...(cfg.emblems.extra ?? [])];
+    // flat / flatPaint: the logo relief is pressed onto one plane facing forward and takes the box's median
+    // colour (flatPaint: the body paint), so neither shading nor colour shows a logo shape.
+    const inBox = (t, bx) => ctr(t).every((v, k) => v >= (bx.loRel ? [0, 0, zMax][k] + bx.lo[k] : bx.lo[k]) && v <= (bx.loRel ? [0, 0, zMax][k] + bx.hi[k] : bx.hi[k]));
+    for (const bx of boxes.filter(b => b.to === 'flat' || b.to === 'flatPaint')) {
+      const hit = tris.filter(t => !t.wheel && !['glass', 'plate', 'lampFront', 'lampTail', 'indicator', 'drop'].includes(t.role) && inBox(t, bx)
+        && (!bx.key || new RegExp(bx.key, 'i').test(t.key)));
+      if (!hit.length) continue;
+      const zs = hit.flatMap(t => [t.p[2], t.p[5], t.p[8]]).sort((a, c) => a - c), plane = zs[Math.floor(zs.length * .3)];
+      const med = [0, 1, 2].map(k => { const v = hit.flatMap(t => [t.c[k], t.c[k+3], t.c[k+6]]).sort((a, c) => a - c); return v[v.length >> 1]; });
+      for (const t of hit) {
+        for (let i = 0; i < 9; i += 3) { t.p[i+2] = Math.min(t.p[i+2], plane); t.n[i] = 0; t.n[i+1] = 0; t.n[i+2] = 1; }
+        for (let i = 0; i < 9; i++) t.c[i] = med[i % 3];
+        t.role = bx.to === 'flatPaint' ? (cfg.livery ? 'livery' : 'paint') : 'trim';
+      }
+      dropped += hit.length;
+    }
+    for (const bx of boxes) for (const t of tris) {
+      if (bx.to === 'flat' || bx.to === 'flatPaint' || bx.key && !new RegExp(bx.key, 'i').test(t.key)) continue;
+      if (t.wheel || !(bx.to === 'drop' ? !['glass', 'plate', 'lampFront', 'lampTail', 'indicator', ...(bx.keepPaint ? ['paint', 'livery'] : [])].includes(t.role)
+        : (bx.only ?? ['chrome', 'trim', 'rim', 'interior']).includes(t.role))) continue;
+      if (!ctr(t).every((v, k) => v >= (bx.loRel ? [0, 0, zMax][k] + bx.lo[k] : bx.lo[k]) && v <= (bx.loRel ? [0, 0, zMax][k] + bx.hi[k] : bx.hi[k]))) continue;
+      if (bx.to === 'drop') t.role = 'drop';
+      else if (bx.to === 'dark') { t.role = 'trim'; t.c.fill(.018); } else t.role = cfg.livery ? 'livery' : 'paint';
+      dropped++;
+    }
+  }
   for (const d of cfg.drop ?? []) for (const t of tris) { const c = ctr(t); if (c.every((v, k) => v >= d.lo[k] && v <= d.hi[k]) && (!d.key || new RegExp(d.key, 'i').test(t.key))) { t.role = 'drop'; dropped++; } }
   // Painted lettering in a texture (truck cab names): flatten the colours inside the box to their median.
   for (const d of cfg.blank ?? []) {
@@ -304,6 +357,9 @@ if (process.env.PROBE) { // PROBE=x,y,z[,r]: which source parts have triangles n
 }
 
 const partOf = t => {
+  // Bone-weighted wheel triangles go to the nearest hub, whatever their radius.
+  if (t.wheel) { const c = ctr(t); return Object.entries(hubs).reduce((best, [name, h]) =>
+    Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2]) < best[1] ? [name, Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2])] : best, ['body', Infinity])[0]; }
   if (t.role !== 'tyre' && t.role !== 'rim' && !(cfg.captureCylinder && t.role !== 'paint' && t.role !== 'glass')) return 'body';
   for (const [name, h] of Object.entries(hubs)) {
     const inside = [0, 3, 6].every(i => Math.abs(t.p[i] - h.hub[0]) <= width / 2 + .06
@@ -348,7 +404,7 @@ function simplify(mesh, target, error, sloppy = false, prune = false) {
   return { ...mesh, idx };
 }
 const triCount = m => m.idx.length / 3;
-const budgets = cfg.budgets ?? [48000, 10000, 3500];
+const budgets = cfg.budgets ?? [32000, 8000, 3000];
 const wheelShare = [.05, .05, .03], glassShare = [.05, .06, .08], interiorShare = [.08, 0, 0];
 
 // Fleet material roles, as the shared node material reads them (actors/fleet/authored.ts flattenFleetAsset).
@@ -430,14 +486,15 @@ const fleet = { id, name: cfg.name, body: cfg.body, family: cfg.family, length: 
   belt: 1, face: cfg.face ?? 0, accessory: 'none', age: cfg.age ?? .1, ...(cfg.weight !== undefined ? { weight: cfg.weight } : {}) };
 const destination = path.join(repo, 'game/public/assets/cars', id);
 execFileSync('node', [path.join(repo, 'game/scripts/prepare-fleet.mjs'), work, destination, '--articulated'], { stdio: 'inherit' });
-const record = JSON.parse(fs.readFileSync(path.join(path.dirname(source), 'sketchfab-record.json'), 'utf8'));
+const recordPath = path.join(path.dirname(source), 'sketchfab-record.json');
+const record = fs.existsSync(recordPath) ? JSON.parse(fs.readFileSync(recordPath, 'utf8')) : null;
 const entry = {
   assetBase: `/assets/cars/${id}`, fleet, id,
   wheels: { radius: round(radius), width: round(width), pivots: Object.fromEntries(Object.entries(hubs).map(([n, h]) => [n, h.hub.map(round)])) },
   // Axis-aligned collision box around the exterior bodywork (centre, half extents), model space.
   collision: { center: [0, round(ext.size[1] / 2), round((ext.lo[2] + ext.hi[2]) / 2)], half: [round(ext.size[0] / 2), round(ext.size[1] / 2), round(ext.size[2] / 2)] },
   triangles: counts,
-  source: { title: record.name, url: record.viewerUrl, author: record.user.displayName, licence: record.license.label, licenceUrl: record.license.url },
+  source: cfg.credit ?? { title: record.name, url: record.viewerUrl, author: record.user.displayName, licence: record.license.label, licenceUrl: record.license.url },
   spec: { id, ...cfg.spec, lengthM: fleet.length, widthM: fleet.width, heightM: fleet.height, wheelbaseM: fleet.wheelbase,
     trackM: round(hubs.wheel_FR.hub[0] * 2), wheelRadiusM: round(radius), wheelWidthM: round(width) },
   accepted: false,

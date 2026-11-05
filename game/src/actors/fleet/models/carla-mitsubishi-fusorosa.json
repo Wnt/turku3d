@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-mitsubishi-fusorosa",
+  "fleet": {
+    "id": "carla-mitsubishi-fusorosa",
+    "name": "Valo Linja 7",
+    "body": "van",
+    "family": "bus",
+    "length": 9.9662,
+    "width": 3.2871,
+    "height": 4.2528,
+    "wheelbase": 5.6301,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.4686,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0
+  },
+  "id": "carla-mitsubishi-fusorosa",
+  "wheels": {
+    "radius": 0.4686,
+    "width": 0.5587,
+    "pivots": {
+      "wheel_FL": [
+        -1.3083,
+        0.4686,
+        3.5032
+      ],
+      "wheel_FR": [
+        1.3083,
+        0.4686,
+        3.5032
+      ],
+      "wheel_RL": [
+        -1.1346,
+        0.4686,
+        -2.1269
+      ],
+      "wheel_RR": [
+        1.1346,
+        0.4686,
+        -2.1269
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      2.1264,
+      0.0002
+    ],
+    "half": [
+      1.6435,
+      2.1264,
+      4.9831
+    ]
+  },
+  "triangles": [
+    53525,
+    11821,
+    3934
+  ],
+  "source": {
+    "title": "Mitsubishi Fuso Rosa minibus (vehicle.mitsubishi.fusorosa)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-mitsubishi-fusorosa",
+    "referenceModel": "Mitsubishi Fuso Rosa minibus (CARLA vehicle.mitsubishi.fusorosa)",
+    "massKg": 5500,
+    "powerKW": 129,
+    "torqueNm": 430,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 40,
+    "topSpeedKmh": 110,
+    "turningCircleM": 14,
+    "gears": 6,
+    "rideHeightM": 0.25,
+    "character": "utility",
+    "lengthM": 9.9662,
+    "widthM": 3.2871,
+    "heightM": 4.2528,
+    "wheelbaseM": 5.6301,
+    "trackM": 2.6167,
+    "wheelRadiusM": 0.4686,
+    "wheelWidthM": 0.5587
+  },
+  "accepted": false
+}

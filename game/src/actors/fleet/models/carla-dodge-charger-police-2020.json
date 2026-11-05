@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-dodge-charger-police-2020",
+  "fleet": {
+    "id": "carla-dodge-charger-police-2020",
+    "name": "Louhi Partio V8",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 5.2375,
+    "width": 2.0971,
+    "height": 1.6384,
+    "wheelbase": 3.043,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3469,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.03
+  },
+  "id": "carla-dodge-charger-police-2020",
+  "wheels": {
+    "radius": 0.3469,
+    "width": 0.226,
+    "pivots": {
+      "wheel_FL": [
+        -0.8124,
+        0.3469,
+        1.5007
+      ],
+      "wheel_FR": [
+        0.8124,
+        0.3469,
+        1.5007
+      ],
+      "wheel_RL": [
+        -0.8273,
+        0.3469,
+        -1.5422
+      ],
+      "wheel_RR": [
+        0.8273,
+        0.3469,
+        -1.5422
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8192,
+      0
+    ],
+    "half": [
+      1.0485,
+      0.8192,
+      2.6188
+    ]
+  },
+  "triangles": [
+    31570,
+    7879,
+    2950
+  ],
+  "source": {
+    "title": "Dodge Charger police 2020 (vehicle.dodge.charger_police_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-dodge-charger-police-2020",
+    "referenceModel": "Dodge Charger police 2020 (CARLA vehicle.dodge.charger_police_2020)",
+    "massKg": 1950,
+    "powerKW": 276,
+    "torqueNm": 535,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 5.5,
+    "topSpeedKmh": 240,
+    "turningCircleM": 11.9,
+    "gears": 8,
+    "rideHeightM": 0.13,
+    "character": "sport",
+    "lengthM": 5.2375,
+    "widthM": 2.0971,
+    "heightM": 1.6384,
+    "wheelbaseM": 3.043,
+    "trackM": 1.6248,
+    "wheelRadiusM": 0.3469,
+    "wheelWidthM": 0.226
+  },
+  "accepted": false
+}

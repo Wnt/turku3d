@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-jeep-wrangler-rubicon",
+  "fleet": {
+    "id": "carla-jeep-wrangler-rubicon",
+    "name": "Vaara Kallio 4",
+    "body": "suv",
+    "family": "suv",
+    "length": 3.8662,
+    "width": 1.9052,
+    "height": 1.8779,
+    "wheelbase": 2.3079,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.4161,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.3
+  },
+  "id": "carla-jeep-wrangler-rubicon",
+  "wheels": {
+    "radius": 0.4161,
+    "width": 0.3172,
+    "pivots": {
+      "wheel_FL": [
+        -0.794,
+        0.4161,
+        1.291
+      ],
+      "wheel_FR": [
+        0.794,
+        0.4161,
+        1.291
+      ],
+      "wheel_RL": [
+        -0.794,
+        0.4161,
+        -1.0169
+      ],
+      "wheel_RR": [
+        0.794,
+        0.4161,
+        -1.0169
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.939,
+      0
+    ],
+    "half": [
+      0.9526,
+      0.939,
+      1.9331
+    ]
+  },
+  "triangles": [
+    18181,
+    7871,
+    2948
+  ],
+  "source": {
+    "title": "Jeep Wrangler Rubicon (vehicle.jeep.wrangler_rubicon)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-jeep-wrangler-rubicon",
+    "referenceModel": "Jeep Wrangler Rubicon (CARLA vehicle.jeep.wrangler_rubicon)",
+    "massKg": 1950,
+    "powerKW": 209,
+    "torqueNm": 347,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.6,
+    "topSpeedKmh": 180,
+    "turningCircleM": 12.6,
+    "gears": 8,
+    "rideHeightM": 0.25,
+    "character": "utility",
+    "lengthM": 3.8662,
+    "widthM": 1.9052,
+    "heightM": 1.8779,
+    "wheelbaseM": 2.3079,
+    "trackM": 1.588,
+    "wheelRadiusM": 0.4161,
+    "wheelWidthM": 0.3172
+  },
+  "accepted": false
+}

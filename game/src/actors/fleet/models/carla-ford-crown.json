@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-ford-crown",
+  "fleet": {
+    "id": "carla-ford-crown",
+    "name": "Nord Taksi 2",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 5.3657,
+    "width": 1.9465,
+    "height": 1.575,
+    "wheelbase": 2.9166,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.349,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.04
+  },
+  "id": "carla-ford-crown",
+  "wheels": {
+    "radius": 0.349,
+    "width": 0.231,
+    "pivots": {
+      "wheel_FL": [
+        -0.7849,
+        0.349,
+        1.5882
+      ],
+      "wheel_FR": [
+        0.7849,
+        0.349,
+        1.5882
+      ],
+      "wheel_RL": [
+        -0.7849,
+        0.349,
+        -1.3284
+      ],
+      "wheel_RR": [
+        0.7849,
+        0.349,
+        -1.3284
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7875,
+      0
+    ],
+    "half": [
+      0.9732,
+      0.7875,
+      2.6828
+    ]
+  },
+  "triangles": [
+    31518,
+    7880,
+    2950
+  ],
+  "source": {
+    "title": "Ford Crown Victoria taxi (vehicle.ford.crown)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-ford-crown",
+    "referenceModel": "Ford Crown Victoria taxi (CARLA vehicle.ford.crown)",
+    "massKg": 1800,
+    "powerKW": 168,
+    "torqueNm": 386,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.5,
+    "topSpeedKmh": 190,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 5.3657,
+    "widthM": 1.9465,
+    "heightM": 1.575,
+    "wheelbaseM": 2.9166,
+    "trackM": 1.5698,
+    "wheelRadiusM": 0.349,
+    "wheelWidthM": 0.231
+  },
+  "accepted": false
+}

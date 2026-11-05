@@ -511,6 +511,1221 @@
      "key": "object_36\\||object_43\\||object_46\\|"
     }
    ]
+  },
+  {
+   "id": "carla-audi-a2",
+   "source": "~/turku3d/loops/carmodels/carla/audi_a2/audi_a2.glb",
+   "name": "Aava Kipinä A2",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "weight": 0.8,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Audi A2 (vehicle.audi.a2)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Audi A2 (CARLA vehicle.audi.a2)",
+    "massKg": 895,
+    "powerKW": 55,
+    "torqueNm": 126,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 12.0,
+    "topSpeedKmh": 173,
+    "turningCircleM": 10.3,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.22,
+       0.3,
+       -0.4
+      ],
+      "hi": [
+       0.22,
+       0.9,
+       0.1
+      ],
+      "loRel": true,
+      "to": "drop",
+      "key": "polishedaluminiumwhite"
+     },
+     {
+      "lo": [
+       -0.14,
+       0.66,
+       -0.6
+      ],
+      "hi": [
+       0.14,
+       0.84,
+       0.1
+      ],
+      "loRel": true,
+      "to": "drop",
+      "keepPaint": true
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-audi-etron",
+   "source": "~/turku3d/loops/carmodels/carla/audi_etron/audi_etron.glb",
+   "name": "Valo Vaara E5",
+   "body": "suv",
+   "family": "suv",
+   "weight": 0.7,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Audi e-tron (vehicle.audi.etron)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Audi e-tron (CARLA vehicle.audi.etron)",
+    "massKg": 2490,
+    "powerKW": 300,
+    "torqueNm": 664,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 5.7,
+    "topSpeedKmh": 200,
+    "turningCircleM": 12.2,
+    "gears": 1,
+    "rideHeightM": 0.17,
+    "character": "balanced"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.19,
+       0.52,
+       -0.45
+      ],
+      "hi": [
+       0.19,
+       0.72,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flat"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-audi-tt",
+   "source": "~/turku3d/loops/carmodels/carla/audi_tt/audi_tt.glb",
+   "name": "Aava Säde TT",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.15,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Audi TT (vehicle.audi.tt)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Audi TT (CARLA vehicle.audi.tt)",
+    "massKg": 1290,
+    "powerKW": 169,
+    "torqueNm": 370,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 5.3,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.0,
+    "gears": 6,
+    "rideHeightM": 0.12,
+    "character": "sport"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.22,
+       0.5,
+       -0.4
+      ],
+      "hi": [
+       0.22,
+       0.8,
+       0.1
+      ],
+      "loRel": true,
+      "to": "drop",
+      "key": "polishedaluminiumwhite"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-bmw-grandtourer",
+   "source": "~/turku3d/loops/carmodels/carla/bmw_grandtourer/bmw_grandtourer.glb",
+   "name": "Nord Perhe 218",
+   "body": "mpv",
+   "family": "van",
+   "weight": 0.6,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "BMW 2 Series Gran Tourer (vehicle.bmw.grandtourer)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "BMW 2 Series Gran Tourer (CARLA vehicle.bmw.grandtourer)",
+    "massKg": 1500,
+    "powerKW": 100,
+    "torqueNm": 220,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 10.5,
+    "topSpeedKmh": 200,
+    "turningCircleM": 11.3,
+    "gears": 6,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-chevrolet-impala",
+   "source": "~/turku3d/loops/carmodels/carla/chevrolet_impala/chevrolet_impala.glb",
+   "name": "Muisto Säde 64",
+   "body": "classic",
+   "family": "sedan",
+   "weight": 0.15,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Chevrolet Impala (vehicle.chevrolet.impala)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Chevrolet Impala (CARLA vehicle.chevrolet.impala)",
+    "massKg": 1600,
+    "powerKW": 145,
+    "torqueNm": 400,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.0,
+    "topSpeedKmh": 180,
+    "turningCircleM": 13.0,
+    "gears": 3,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-citroen-c3",
+   "source": "~/turku3d/loops/carmodels/carla/citroen_c3/citroen_c3.glb",
+   "name": "Kaira Kipinä C3",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "weight": 1.2,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Citroen C3 (vehicle.citroen.c3)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Citroen C3 (CARLA vehicle.citroen.c3)",
+    "massKg": 1090,
+    "powerKW": 61,
+    "torqueNm": 118,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 12.5,
+    "topSpeedKmh": 175,
+    "turningCircleM": 10.7,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-dodge-charger-2020",
+   "source": "~/turku3d/loops/carmodels/carla/dodge_charger_2020/dodge_charger_2020.glb",
+   "name": "Louhi Säde V6",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.12,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Dodge Charger 2020 (vehicle.dodge.charger_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Dodge Charger 2020 (CARLA vehicle.dodge.charger_2020)",
+    "massKg": 1800,
+    "powerKW": 220,
+    "torqueNm": 393,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.2,
+    "topSpeedKmh": 225,
+    "turningCircleM": 11.9,
+    "gears": 8,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-dodge-charger-police-2020",
+   "source": "~/turku3d/loops/carmodels/carla/dodge_charger_police_2020/dodge_charger_police_2020.glb",
+   "name": "Louhi Partio V8",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.03,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Dodge Charger police 2020 (vehicle.dodge.charger_police_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Dodge Charger police 2020 (CARLA vehicle.dodge.charger_police_2020)",
+    "massKg": 1950,
+    "powerKW": 276,
+    "torqueNm": 535,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 5.5,
+    "topSpeedKmh": 240,
+    "turningCircleM": 11.9,
+    "gears": 8,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "livery": true,
+   "emblems": {},
+   "lampsByPosition": true,
+   "recolor": [
+    {
+     "key": "^sm_door[fr][lr]\\|mi_charger2020_bodywork",
+     "rgbLinear": [
+      0.8,
+      0.8,
+      0.8
+     ]
+    }
+   ]
+  },
+  {
+   "id": "carla-ford-crown",
+   "source": "~/turku3d/loops/carmodels/carla/ford_crown/ford_crown.glb",
+   "name": "Nord Taksi 2",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.04,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Ford Crown Victoria taxi (vehicle.ford.crown)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Ford Crown Victoria taxi (CARLA vehicle.ford.crown)",
+    "massKg": 1800,
+    "powerKW": 168,
+    "torqueNm": 386,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.5,
+    "topSpeedKmh": 190,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "livery": true,
+   "emblems": {},
+   "lampsByPosition": true,
+   "paintLinear": [
+    0.349,
+    0.214,
+    0
+   ],
+   "paintReplace": true
+  },
+  {
+   "id": "carla-ford-mustang",
+   "source": "~/turku3d/loops/carmodels/carla/ford_mustang/ford_mustang.glb",
+   "name": "Routa Säde GT",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.08,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Ford Mustang (vehicle.ford.mustang)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Ford Mustang (CARLA vehicle.ford.mustang)",
+    "massKg": 1700,
+    "powerKW": 330,
+    "torqueNm": 529,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 4.6,
+    "topSpeedKmh": 250,
+    "turningCircleM": 12.0,
+    "gears": 10,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-jeep-wrangler-rubicon",
+   "source": "~/turku3d/loops/carmodels/carla/jeep_wrangler_rubicon/jeep_wrangler_rubicon.glb",
+   "name": "Vaara Kallio 4",
+   "body": "suv",
+   "family": "suv",
+   "weight": 0.3,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Jeep Wrangler Rubicon (vehicle.jeep.wrangler_rubicon)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Jeep Wrangler Rubicon (CARLA vehicle.jeep.wrangler_rubicon)",
+    "massKg": 1950,
+    "powerKW": 209,
+    "torqueNm": 347,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.6,
+    "topSpeedKmh": 180,
+    "turningCircleM": 12.6,
+    "gears": 8,
+    "rideHeightM": 0.25,
+    "character": "utility"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -1.1,
+       0.8,
+       0.3
+      ],
+      "hi": [
+       -0.6,
+       1.3,
+       1.6
+      ],
+      "to": "paint"
+     },
+     {
+      "lo": [
+       0.6,
+       0.8,
+       0.3
+      ],
+      "hi": [
+       1.1,
+       1.3,
+       1.6
+      ],
+      "to": "paint"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-lincoln-mkz-2020",
+   "source": "~/turku3d/loops/carmodels/carla/lincoln_mkz_2020/lincoln_mkz_2020.glb",
+   "name": "Vire Säde 20",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.7,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Lincoln MKZ 2020 (vehicle.lincoln.mkz_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Lincoln MKZ 2020 (CARLA vehicle.lincoln.mkz_2020)",
+    "massKg": 1750,
+    "powerKW": 182,
+    "torqueNm": 373,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 7.5,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12.0,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-mercedes-coupe-2020",
+   "source": "~/turku3d/loops/carmodels/carla/mercedes_coupe_2020/mercedes_coupe_2020.glb",
+   "name": "Nord Säde C2",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.3,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Mercedes-Benz Coupe 2020 (vehicle.mercedes.coupe_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Mercedes-Benz Coupe 2020 (CARLA vehicle.mercedes.coupe_2020)",
+    "massKg": 1700,
+    "powerKW": 190,
+    "torqueNm": 370,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.4,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.2,
+    "gears": 9,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.13,
+       0.47,
+       -0.45
+      ],
+      "hi": [
+       0.13,
+       0.73,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flat"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-micro-microlino",
+   "source": "~/turku3d/loops/carmodels/carla/micro_microlino/micro_microlino.glb",
+   "name": "Valo Kupla 1",
+   "body": "hatch",
+   "family": "microcar",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Microlino (BMW Isetta body) (vehicle.micro.microlino)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Microlino (BMW Isetta body) (CARLA vehicle.micro.microlino)",
+    "massKg": 513,
+    "powerKW": 12.5,
+    "torqueNm": 89,
+    "drivetrain": "RWD",
+    "fuel": "EV",
+    "zeroTo100S": 18.0,
+    "topSpeedKmh": 90,
+    "turningCircleM": 7.0,
+    "gears": 1,
+    "rideHeightM": 0.12,
+    "character": "comfort"
+   },
+   "emblems": {},
+   "lampsByPosition": true,
+   "roles": [
+    [
+     "\\|skyblue$|\\|white$",
+     "paint"
+    ]
+   ],
+   "livery": true
+  },
+  {
+   "id": "carla-mini-cooper-s-2021",
+   "source": "~/turku3d/loops/carmodels/carla/mini_cooper_s_2021/mini_cooper_s_2021.glb",
+   "name": "Salo Kipinä S",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "weight": 0.9,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Mini Cooper S 2021 (vehicle.mini.cooper_s_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Mini Cooper S 2021 (CARLA vehicle.mini.cooper_s_2021)",
+    "massKg": 1235,
+    "powerKW": 141,
+    "torqueNm": 280,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.8,
+    "topSpeedKmh": 235,
+    "turningCircleM": 10.8,
+    "gears": 7,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-nissan-micra",
+   "source": "~/turku3d/loops/carmodels/carla/nissan_micra/nissan_micra.glb",
+   "name": "Kaira Kipinä K",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "weight": 1.2,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Nissan Micra (vehicle.nissan.micra)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Nissan Micra (CARLA vehicle.nissan.micra)",
+    "massKg": 1000,
+    "powerKW": 60,
+    "torqueNm": 107,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 13.0,
+    "topSpeedKmh": 170,
+    "turningCircleM": 9.9,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-nissan-patrol-2021",
+   "source": "~/turku3d/loops/carmodels/carla/nissan_patrol_2021/nissan_patrol_2021.glb",
+   "name": "Louhi Vaara V8",
+   "body": "suv",
+   "family": "suv",
+   "weight": 0.4,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Nissan Patrol 2021 (vehicle.nissan.patrol_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Nissan Patrol 2021 (CARLA vehicle.nissan.patrol_2021)",
+    "massKg": 2700,
+    "powerKW": 298,
+    "torqueNm": 560,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.6,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12.5,
+    "gears": 7,
+    "rideHeightM": 0.27,
+    "character": "utility"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-seat-leon",
+   "source": "~/turku3d/loops/carmodels/carla/seat_leon/seat_leon.glb",
+   "name": "Vire Kipinä L",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "weight": 1.2,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Seat Leon (vehicle.seat.leon)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Seat Leon (CARLA vehicle.seat.leon)",
+    "massKg": 1250,
+    "powerKW": 110,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.4,
+    "topSpeedKmh": 220,
+    "turningCircleM": 10.9,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-tesla-model3",
+   "source": "~/turku3d/loops/carmodels/carla/tesla_model3/tesla_model3.glb",
+   "name": "Vire Ilma 3",
+   "body": "sedan",
+   "family": "sedan",
+   "weight": 0.9,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Tesla Model 3 (vehicle.tesla.model3)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Tesla Model 3 (CARLA vehicle.tesla.model3)",
+    "massKg": 1850,
+    "powerKW": 258,
+    "torqueNm": 420,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 4.6,
+    "topSpeedKmh": 233,
+    "turningCircleM": 11.6,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "sport"
+   },
+   "emblems": {},
+   "lampsByPosition": true,
+   "roles": [
+    [
+     "carlightglass",
+     "glass"
+    ],
+    [
+     "missing_material",
+     "lampAny"
+    ],
+    [
+     "carexterior",
+     "paint"
+    ]
+   ]
+  },
+  {
+   "id": "carla-toyota-prius",
+   "source": "~/turku3d/loops/carmodels/carla/toyota_prius/toyota_prius.glb",
+   "name": "Valo Hybrid 2",
+   "body": "hatch",
+   "family": "sedan",
+   "weight": 0.6,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Toyota Prius (vehicle.toyota.prius)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Toyota Prius (CARLA vehicle.toyota.prius)",
+    "massKg": 1380,
+    "powerKW": 100,
+    "torqueNm": 207,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.4,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.4,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-carlamotors-carlacola",
+   "source": "~/turku3d/loops/carmodels/carla/carlamotors_carlacola/carlamotors_carlacola.glb",
+   "name": "Louhi Jakelu 12",
+   "body": "van",
+   "family": "truck",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "CarlaCola delivery truck (vehicle.carlamotors.carlacola)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "CarlaCola delivery truck (CARLA vehicle.carlamotors.carlacola)",
+    "massKg": 12000,
+    "powerKW": 180,
+    "torqueNm": 900,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 100,
+    "turningCircleM": 16,
+    "gears": 6,
+    "rideHeightM": 0.3,
+    "character": "utility"
+   },
+   "budgets": [
+    60000,
+    12000,
+    4000
+   ],
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-carlamotors-european-hgv",
+   "source": "~/turku3d/loops/carmodels/carla/carlamotors_european_hgv/carlamotors_european_hgv.glb",
+   "name": "Louhi Rahti 40",
+   "body": "van",
+   "family": "truck",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "European HGV (cab-over tractor) (vehicle.carlamotors.european_hgv)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "European HGV (cab-over tractor) (CARLA vehicle.carlamotors.european_hgv)",
+    "massKg": 18000,
+    "powerKW": 350,
+    "torqueNm": 2300,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 90,
+    "turningCircleM": 18,
+    "gears": 12,
+    "rideHeightM": 0.3,
+    "character": "utility"
+   },
+   "livery": true,
+   "budgets": [
+    60000,
+    12000,
+    4000
+   ],
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.24,
+       1.27,
+       -0.7
+      ],
+      "hi": [
+       0.24,
+       1.75,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flat"
+     }
+    ]
+   },
+   "lampsByPosition": true,
+   "paintLinear": [
+    0.85,
+    0.85,
+    0.85
+   ],
+   "paintReplace": true
+  },
+  {
+   "id": "carla-carlamotors-firetruck",
+   "source": "~/turku3d/loops/carmodels/carla/carlamotors_firetruck/carlamotors_firetruck.glb",
+   "name": "Louhi Pelastus 1",
+   "body": "van",
+   "family": "fire",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Fire truck (vehicle.carlamotors.firetruck)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Fire truck (CARLA vehicle.carlamotors.firetruck)",
+    "massKg": 16000,
+    "powerKW": 265,
+    "torqueNm": 1600,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 110,
+    "turningCircleM": 19,
+    "gears": 8,
+    "rideHeightM": 0.3,
+    "character": "utility"
+   },
+   "livery": true,
+   "paintLinear": [
+    0.505,
+    0.01,
+    0.01
+   ],
+   "budgets": [
+    60000,
+    12000,
+    4000
+   ],
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.24,
+       1.28,
+       -0.7
+      ],
+      "hi": [
+       0.24,
+       1.76,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flat"
+     }
+    ]
+   },
+   "lampsByPosition": true,
+   "paintReplace": true
+  },
+  {
+   "id": "carla-tesla-cybertruck",
+   "source": "~/turku3d/loops/carmodels/carla/tesla_cybertruck/tesla_cybertruck.glb",
+   "name": "Vire Lava E",
+   "body": "pickup",
+   "family": "suv",
+   "weight": 0.03,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Tesla Cybertruck (vehicle.tesla.cybertruck)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Tesla Cybertruck (CARLA vehicle.tesla.cybertruck)",
+    "massKg": 3100,
+    "powerKW": 630,
+    "torqueNm": 1000,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 4.1,
+    "topSpeedKmh": 180,
+    "turningCircleM": 13.0,
+    "gears": 1,
+    "rideHeightM": 0.22,
+    "character": "utility"
+   },
+   "emblems": {},
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-ford-ambulance",
+   "source": "~/turku3d/loops/carmodels/carla/ford_ambulance/ford_ambulance.glb",
+   "name": "Nord Ensihoito 2",
+   "body": "van",
+   "family": "ambulance",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Ford ambulance (vehicle.ford.ambulance)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Ford ambulance (CARLA vehicle.ford.ambulance)",
+    "massKg": 4500,
+    "powerKW": 186,
+    "torqueNm": 610,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 25,
+    "topSpeedKmh": 140,
+    "turningCircleM": 15,
+    "gears": 10,
+    "rideHeightM": 0.22,
+    "character": "utility"
+   },
+   "livery": true,
+   "budgets": [
+    60000,
+    12000,
+    4000
+   ],
+   "emblems": {},
+   "lampsByPosition": true,
+   "paintLinear": [
+    0.9,
+    0.86,
+    0.9
+   ],
+   "paintReplace": true
+  },
+  {
+   "id": "carla-mercedes-sprinter",
+   "source": "~/turku3d/loops/carmodels/carla/mercedes_sprinter/mercedes_sprinter.glb",
+   "name": "Kaira Kuorma 316",
+   "body": "van",
+   "family": "van",
+   "weight": 0.6,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Mercedes-Benz Sprinter (vehicle.mercedes.sprinter)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Mercedes-Benz Sprinter (CARLA vehicle.mercedes.sprinter)",
+    "massKg": 2500,
+    "powerKW": 120,
+    "torqueNm": 360,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 14,
+    "topSpeedKmh": 160,
+    "turningCircleM": 13.4,
+    "gears": 7,
+    "rideHeightM": 0.2,
+    "character": "utility"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.15,
+       0.64,
+       -0.45
+      ],
+      "hi": [
+       0.15,
+       0.9400000000000001,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flat"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-volkswagen-t2-2021",
+   "source": "~/turku3d/loops/carmodels/carla/volkswagen_t2_2021/volkswagen_t2_2021.glb",
+   "name": "Muisto Kuorma 2",
+   "body": "van",
+   "family": "van",
+   "weight": 0.15,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Volkswagen T2 2021 (vehicle.volkswagen.t2_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Volkswagen T2 2021 (CARLA vehicle.volkswagen.t2_2021)",
+    "massKg": 1300,
+    "powerKW": 37,
+    "torqueNm": 103,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 40,
+    "topSpeedKmh": 115,
+    "turningCircleM": 12.3,
+    "gears": 4,
+    "rideHeightM": 0.2,
+    "character": "comfort"
+   },
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.27,
+       0.69,
+       -0.3
+      ],
+      "hi": [
+       0.27,
+       1.23,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flatPaint"
+     }
+    ]
+   },
+   "lampsByPosition": true
+  },
+  {
+   "id": "carla-mitsubishi-fusorosa",
+   "source": "~/turku3d/loops/carmodels/carla/mitsubishi_fusorosa/mitsubishi_fusorosa.glb",
+   "name": "Valo Linja 7",
+   "body": "van",
+   "family": "bus",
+   "weight": 0,
+   "forward": "+z",
+   "ignoreVertexColor": true,
+   "credit": {
+    "title": "Mitsubishi Fuso Rosa minibus (vehicle.mitsubishi.fusorosa)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+   },
+   "spec": {
+    "referenceModel": "Mitsubishi Fuso Rosa minibus (CARLA vehicle.mitsubishi.fusorosa)",
+    "massKg": 5500,
+    "powerKW": 129,
+    "torqueNm": 430,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 40,
+    "topSpeedKmh": 110,
+    "turningCircleM": 14,
+    "gears": 6,
+    "rideHeightM": 0.25,
+    "character": "utility"
+   },
+   "livery": true,
+   "paintLinear": [
+    0.9,
+    0.9,
+    0.88
+   ],
+   "budgets": [
+    60000,
+    12000,
+    4000
+   ],
+   "emblems": {
+    "extra": [
+     {
+      "lo": [
+       -0.14,
+       1.38,
+       -0.5
+      ],
+      "hi": [
+       0.14,
+       1.6600000000000001,
+       0.1
+      ],
+      "loRel": true,
+      "to": "flatPaint"
+     }
+    ]
+   },
+   "lampsByPosition": true,
+   "paintReplace": true
   }
  ]
 }

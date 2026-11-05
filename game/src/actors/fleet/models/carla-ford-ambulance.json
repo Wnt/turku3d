@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-ford-ambulance",
+  "fleet": {
+    "id": "carla-ford-ambulance",
+    "name": "Nord Ensihoito 2",
+    "body": "van",
+    "family": "ambulance",
+    "length": 6.3656,
+    "width": 2.6167,
+    "height": 2.4314,
+    "wheelbase": 3.7675,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3273,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0
+  },
+  "id": "carla-ford-ambulance",
+  "wheels": {
+    "radius": 0.3273,
+    "width": 0.4072,
+    "pivots": {
+      "wheel_FL": [
+        -0.7916,
+        0.3273,
+        2.3973
+      ],
+      "wheel_FR": [
+        0.7916,
+        0.3273,
+        2.3973
+      ],
+      "wheel_RL": [
+        -0.8194,
+        0.3273,
+        -1.3702
+      ],
+      "wheel_RR": [
+        0.8194,
+        0.3273,
+        -1.3702
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.2157,
+      0
+    ],
+    "half": [
+      1.3084,
+      1.2157,
+      3.1828
+    ]
+  },
+  "triangles": [
+    59098,
+    11816,
+    3884
+  ],
+  "source": {
+    "title": "Ford ambulance (vehicle.ford.ambulance)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-ford-ambulance",
+    "referenceModel": "Ford ambulance (CARLA vehicle.ford.ambulance)",
+    "massKg": 4500,
+    "powerKW": 186,
+    "torqueNm": 610,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 25,
+    "topSpeedKmh": 140,
+    "turningCircleM": 15,
+    "gears": 10,
+    "rideHeightM": 0.22,
+    "character": "utility",
+    "lengthM": 6.3656,
+    "widthM": 2.6167,
+    "heightM": 2.4314,
+    "wheelbaseM": 3.7675,
+    "trackM": 1.5833,
+    "wheelRadiusM": 0.3273,
+    "wheelWidthM": 0.4072
+  },
+  "accepted": false
+}

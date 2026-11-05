@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-mercedes-sprinter",
+  "fleet": {
+    "id": "carla-mercedes-sprinter",
+    "name": "Kaira Kuorma 316",
+    "body": "van",
+    "family": "van",
+    "length": 5.9152,
+    "width": 2.3215,
+    "height": 2.5607,
+    "wheelbase": 3.6613,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3106,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.6
+  },
+  "id": "carla-mercedes-sprinter",
+  "wheels": {
+    "radius": 0.3106,
+    "width": 0.2888,
+    "pivots": {
+      "wheel_FL": [
+        -0.8386,
+        0.3106,
+        1.9426
+      ],
+      "wheel_FR": [
+        0.8386,
+        0.3106,
+        1.9426
+      ],
+      "wheel_RL": [
+        -0.8386,
+        0.3106,
+        -1.7186
+      ],
+      "wheel_RR": [
+        0.8386,
+        0.3106,
+        -1.7186
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.2803,
+      0
+    ],
+    "half": [
+      1.1607,
+      1.2803,
+      2.9576
+    ]
+  },
+  "triangles": [
+    31519,
+    7880,
+    2946
+  ],
+  "source": {
+    "title": "Mercedes-Benz Sprinter (vehicle.mercedes.sprinter)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-mercedes-sprinter",
+    "referenceModel": "Mercedes-Benz Sprinter (CARLA vehicle.mercedes.sprinter)",
+    "massKg": 2500,
+    "powerKW": 120,
+    "torqueNm": 360,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 14,
+    "topSpeedKmh": 160,
+    "turningCircleM": 13.4,
+    "gears": 7,
+    "rideHeightM": 0.2,
+    "character": "utility",
+    "lengthM": 5.9152,
+    "widthM": 2.3215,
+    "heightM": 2.5607,
+    "wheelbaseM": 3.6613,
+    "trackM": 1.6773,
+    "wheelRadiusM": 0.3106,
+    "wheelWidthM": 0.2888
+  },
+  "accepted": false
+}
