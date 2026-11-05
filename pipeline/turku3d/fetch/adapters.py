@@ -12,6 +12,7 @@ The maps cover every value seen in Tapiola (2026-11-05: 986 parts); an unseen va
 
 from __future__ import annotations
 
+from turku3d import cities
 import re
 
 from .. import config
@@ -102,7 +103,7 @@ def derive(layer: WfsLayer, area: config.Area, adapter: str, log=print) -> dict:
     from .common import kind_dir
     from .wfs import fetch_remote, write_frame
 
-    if config.CITY.ground == "nl-ahn":
+    if cities.current().ground == "nl-ahn":
         from turku3d.nl import convert
 
         return convert.derive(layer, area, adapter, log=log)

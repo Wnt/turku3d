@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from .. import cities
 
 # The current city's endpoints (turku3d.cities); the layer table below is the internal schema.
-CITY = cities.current()
+CITY = cities.require_applied()
 WFS_URL = CITY.wfs_url
 WMS_URL = CITY.wms_url
 LAZ_URL = CITY.laz_url or ""

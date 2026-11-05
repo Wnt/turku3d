@@ -7,6 +7,7 @@ intermediate stages remain content-addressed in the sandbox work directory.
 
 from __future__ import annotations
 
+from turku3d import cities
 import argparse
 import heapq
 import json
@@ -663,7 +664,7 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                 # The city switch (portals) treats a city as live once this says ready.
                 return self._json(
                     200,
-                    {"state": "ready", "city": C.CITY.name, "title": C.CITY.title,
+                    {"state": "ready", "city": cities.current().name, "title": cities.current().title,
                      "spawn_en": [C.OFFICE_E, C.OFFICE_N], "version": builder.version},
                 )
             if url.path == "/coarse/status":

@@ -11,16 +11,28 @@ from turku3d import cities, config
 
 
 def test_turku_default_frame_is_unchanged():
-    assert config.CITY is cities.TURKU
+    assert cities.current() is cities.TURKU
     assert (config.ORIGIN_E, config.ORIGIN_N, config.CRS_HORIZONTAL) == (23459500.0, 6704500.0, "EPSG:3877")
     assert (config.OFFICE_E, config.OFFICE_N) == (23459668.0, 6704254.0)
     assert config.WORK_3X3.core.to_en().as_tuple() == (23459000, 6703500, 23460500, 6705000)
     assert config.LAZ_TILES_CSV.name == "laz-tiles.csv"
 
 
+SITE = config.REPO_ROOT / "tools" / "cities" / "site"
+
+
 def _probe(env):
+    """A city process as tools/cities/run.sh starts it (its sitecustomize applies the frame)."""
     code = "from turku3d import config as C; print(C.CITY.name, C.ORIGIN_E, C.CRS_HORIZONTAL)"
-    return subprocess.run([sys.executable, "-c", code], env={**os.environ, **env}, capture_output=True, text=True)
+    path = os.pathsep.join([str(SITE), os.environ.get("PYTHONPATH", "")])
+    return subprocess.run([sys.executable, "-c", code], env={**os.environ, "PYTHONPATH": path, **env},
+                          capture_output=True, text=True)
+
+
+def test_config_source_is_turku_literal():
+    """config.py is in every migration step's code hash: city support must not touch it."""
+    text = (config.REPO_ROOT / "pipeline" / "turku3d" / "config.py").read_text()
+    assert "cities" not in text and "ORIGIN_E = 23459500.0" in text
 
 
 def test_city_from_marker_and_mismatch(tmp_path):

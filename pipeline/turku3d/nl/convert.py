@@ -23,6 +23,7 @@ Only current BGT objects (no ``eind_registratie``) are used.
 
 from __future__ import annotations
 
+from turku3d import cities
 import gzip
 import json
 from pathlib import Path
@@ -266,7 +267,7 @@ def _ground_block(block: C.LazTile, log=print) -> Path:
             cells = np.floor(np.column_stack([gx, gy]) / WATER_CELL).astype(np.int64)
             measured = np.floor(water[:, :2] / WATER_CELL).astype(np.int64) if len(water) else cells[:0]
             free = ~np.isin(cells[:, 0] * 10_000_000 + cells[:, 1], measured[:, 0] * 10_000_000 + measured[:, 1])
-            synthetic = np.column_stack([gx[free], gy[free], np.full(free.sum(), C.CITY.water_level)])
+            synthetic = np.column_stack([gx[free], gy[free], np.full(free.sum(), cities.current().water_level)])
         # Ground returns inside the water areas are boats, pontoons and quay-wall noise.
         if len(ground):
             dry = ~shapely.contains_xy(wet.buffer(-1.0), ground[:, 0], ground[:, 1])
@@ -464,7 +465,7 @@ def _derive(layer, area, adapter, bbox, log):
 
     rows = ADAPTERS[adapter](bbox, log=log)
     gdf, nfeat = _frame(rows, layer.name)
-    s = write_frame(layer.name, layer.slug, area, gdf, nfeat, derived=adapter, city=C.CITY.name,
+    s = write_frame(layer.name, layer.slug, area, gdf, nfeat, derived=adapter, city=cities.current().name,
                     adapter_version=ADAPTER_VERSION)
     log(f"nl   {layer.name} <- {adapter}: {nfeat} features, {len(gdf)} rows")
     return s

@@ -15,7 +15,7 @@ export TURKU3D_SANDBOX="city-$CITY"
 export TURKU3D_PORT_BASE=${TURKU3D_PORT_BASE:-7970}
 export TURKU3D_BROWSER_DIR="$CITIES/$CITY/browser"
 export TURKU3D_SLOT_DIR="$CITIES/$CITY/host-slots"
-export PYTHONNOUSERSITE=1 PYTHONPATH="$REPO/pipeline:$REPO/textures"
+export PYTHONNOUSERSITE=1 PYTHONPATH="$REPO/tools/cities/site:$REPO/pipeline:$REPO/textures"
 export TURKU3D_GLTF_TOOLS="$TOOLS/tools/npm"
 export TURKU3D_MESHOPT_DIR="$TURKU3D_GLTF_TOOLS/node_modules/meshoptimizer"
 export PATH="$TOOLS/envs/pipeline/bin:$TOOLS/tools/KTX-Software-4.4.2-Linux-x86_64/bin:$TOOLS/tools/npm/node_modules/.bin:$PATH"

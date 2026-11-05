@@ -320,3 +320,43 @@ def current() -> City:
             "give each city its own TURKU3D_DATA"
         )
     return CITIES[name]
+
+
+def apply():
+    """Point ``turku3d.config`` at the current city. Run before any other pipeline import by
+    ``tools/cities/site/sitecustomize.py`` (``tools/cities/run.sh`` puts it on the path).
+
+    ``config.py`` itself stays Turku's literal frame: it is in the code hash of every migration
+    step, so city support must not change its bytes. Another city's frame is applied here."""
+    from turku3d import config as C
+
+    city = current()
+    C.CITY = city
+    if city is TURKU:
+        return C
+    C.CRS_HORIZONTAL = city.crs_horizontal
+    C.CRS_COMPOUND = f"{city.crs_horizontal}+3900"
+    C.ORIGIN_E, C.ORIGIN_N = city.origin_e, city.origin_n
+    C.ORIGIN = (C.ORIGIN_E, C.ORIGIN_N, C.ORIGIN_H)
+    C.OFFICE_E, C.OFFICE_N, C.OFFICE_LATLON = city.spawn_e, city.spawn_n, city.spawn_latlon
+    C.LAZ_URL = city.laz_url or ""
+    C.LAZ_TILES_CSV = C.DATA_MANIFESTS / (city.laz_index or f"laz-tiles-{city.name}.none")
+    C.WORK_3X3 = C.Area(C.WORK_3X3.name, f"{city.title}: shared input working area",
+                        C.BBoxEN(*city.work_3x3).to_local(), margin=0)
+    C.OFFICE_BLOCK = C.area_centred_on(C.OFFICE_BLOCK.name, f"{city.title}: 250 m around {city.spawn_label}",
+                                       city.spawn_e, city.spawn_n, C.VISUAL_TILE_SIZE)
+    C.AREAS = {a.name: a for a in (C.OFFICE_BLOCK, C.WORK_3X3)}
+    C._transformer.cache_clear()
+    return C
+
+
+def require_applied():
+    """The city whose frame ``turku3d.config`` carries; an error when another city's sources
+    would be read into Turku's frame (a process started without tools/cities/run.sh)."""
+    from turku3d import config as C
+
+    city = current()
+    if (C.ORIGIN_E, C.ORIGIN_N) != (city.origin_e, city.origin_n):
+        raise RuntimeError(f"{city.name}: run through tools/cities/run.sh (its sitecustomize applies the "
+                           "city frame to turku3d.config)")
+    return city
