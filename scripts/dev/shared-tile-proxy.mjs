@@ -29,6 +29,8 @@ const ALIASES_MS = 30_000;
 const FRAGMENT_MS = 15_000;
 const UPGRADING_MS = 3_000;  // a served fragment whose tile is being rebuilt (stale, queued) is polled for its upgrade
 const FRAGMENTS_MAX = 4000;
+const CHOSEN_MS = 10_000;     // a tile's resolved train member is reused this long without asking the farm
+const CHOSEN_MAX = 20000;
 
 function getJson(url) {
   return new Promise(resolve => {
@@ -60,6 +62,15 @@ export function chainOf(aliases, family, exclude = []) {
 function resolver() {
   const aliases = { service: null, at: 0, names: {}, refreshing: null };
   const pinBase = new Map();  // pin -> its base generation, learnt from its receipts
+  // config.version + tile -> {version, at}: the newest member known to have finished the tile. Reused for CHOSEN_MS,
+  // and whenever the farm's receipts do not answer: a client is served the newest generation known ready at once,
+  // never left waiting on (or queueing) a rebuild behind a slow farm (city.lab outage, 2026-11-05).
+  const chosen = new Map();
+  const remember = (key, version) => {
+    chosen.delete(key); chosen.set(key, { version, at: Date.now() });
+    if (chosen.size > CHOSEN_MAX) chosen.delete(chosen.keys().next().value);
+    return version;
+  };
   const known = async service => {
     if (aliases.service !== service || Date.now() - aliases.at > ALIASES_MS) {
       aliases.refreshing ??= getJson(new URL('/status', service)).then(status => {
@@ -77,15 +88,20 @@ function resolver() {
       .filter(name => name !== config.version);
     if (!chain.length) return config.version;
     const versions = [config.version, ...chain];
-    // One farm request for the whole chain; a farm without /receipts is asked per version.
+    const key = `${config.version}/${tile}`;
+    const last = chosen.get(key);
+    if (last && Date.now() - last.at < CHOSEN_MS && versions.includes(last.version)) return last.version;
+    // One farm request for the whole chain. When it does not answer, the last version known ready is served
+    // (no per-version fan-out against a farm that is already slow); a farm without /receipts is asked per version.
     const batch = await getJson(new URL(`/receipts?tile=${tile}&v=${versions.map(encodeURIComponent).join(',')}`, config.service));
+    if (!batch && last && versions.includes(last.version)) return last.version;
     const [pin, ...members] = batch ? versions.map(v => batch[v] ?? null)
       : await Promise.all(versions.map(v => receipt(config.service, v, tile)));
     if (baseOf(pin)) pinBase.set(config.version, baseOf(pin));
     const base = pinBase.get(config.version);
     if (!base) return config.version;  // nothing known to be compatible yet
     const index = members.findIndex(ready => ready && baseOf(ready) === base);
-    return index < 0 ? config.version : chain[index];
+    return remember(key, index < 0 ? config.version : chain[index]);
   };
 }
 

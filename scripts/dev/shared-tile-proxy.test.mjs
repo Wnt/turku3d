@@ -130,12 +130,61 @@ test('each tile comes from the newest compatible train that finished it, else th
     assert.deepEqual(calls, ['GET /v/pin/coarse/demand?client=play&tiles=t0_0_0', 'GET /v/pin/coarse/navigation.json']);
     const fragment = await (await fetch(`${origin}/coarse/t0_0_0/collision.json?d=0`)).json();
     assert.equal(fragment.url, `/coarse/_v/${'b'.repeat(64)}/t/mesh.glb`);
-    // A farm with /receipts answers the whole chain in one request, with the same choice.
-    batched = true; calls.length = 0;
+    // Within CHOSEN_MS a tile's choice is reused without asking the farm again.
+    calls.length = 0;
     write({ exclude: ['train9'] });
-    assert.deepEqual([await served('t0_0_0'), await served('t0_1_0'), await served('t0_2_0')], ['train2', 'train1', 'pin']);
-    assert.equal(calls.filter(c => c.endsWith('ready.json')).length, 0);
-    assert.equal(calls.filter(c => c.startsWith('GET /receipts?')).length, 3);
+    assert.equal(await served('t0_0_0'), 'train2');
+    assert.equal(calls.filter(c => c.endsWith('ready.json') || c.startsWith('GET /receipts?')).length, 0);
+    // A farm with /receipts answers the whole chain in one request, with the same choice (a fresh proxy: no reuse).
+    batched = true; calls.length = 0;
+    const fresh = createSharedTileProxy(file);
+    await listen(fresh);
+    const freshOrigin = `http://127.0.0.1:${fresh.address().port}`;
+    const servedFresh = async tile => (await (await fetch(`${freshOrigin}/coarse/${tile}/manifest.json?d=0`)).json()).version;
+    try {
+      assert.deepEqual([await servedFresh('t0_0_0'), await servedFresh('t0_1_0'), await servedFresh('t0_2_0')], ['train2', 'train1', 'pin']);
+      assert.equal(calls.filter(c => c.endsWith('ready.json')).length, 0);
+      assert.equal(calls.filter(c => c.startsWith('GET /receipts?')).length, 3);
+    } finally {
+      await close(fresh);
+    }
+  } finally {
+    await close(proxy); upstream.closeAllConnections(); await close(upstream); fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('a farm whose receipts do not answer is not waited on: the newest version known ready is served', async () => {
+  let receiptsUp = true;
+  const upstream = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/status') { res.end(JSON.stringify({ aliases: { pin: 'p', train1: 't1' } })); return; }
+    const url = new URL(req.url, 'http://x');
+    if (url.pathname === '/receipts') {
+      if (!receiptsUp) { res.writeHead(503); res.end('{}'); return; }
+      res.end(JSON.stringify({ pin: { generation: 'p', base_generation: 'b' }, train1: { generation: 't1', base_generation: 'b' } }));
+      return;
+    }
+    if (url.pathname.endsWith('/ready.json')) { res.writeHead(503); res.end('{}'); return; }  // the per-version path is down too
+    res.end(JSON.stringify({ version: /^\/v\/([^/]+)\//.exec(req.url)[1] }));
+  });
+  await listen(upstream);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-fallback-'));
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, JSON.stringify({ service: `http://127.0.0.1:${upstream.address().port}`, version: 'pin', follow: 'train' }));
+  const proxy = createSharedTileProxy(file);
+  await listen(proxy);
+  const origin = `http://127.0.0.1:${proxy.address().port}`;
+  const served = async tile => (await (await fetch(`${origin}/coarse/${tile}/manifest.json?d=0`)).json()).version;
+  try {
+    assert.equal(await served('t0_0_0'), 'train1');
+    receiptsUp = false;
+    const realNow = Date.now;
+    Date.now = () => realNow() + 60_000;  // past CHOSEN_MS: the farm is asked again and fails
+    try {
+      assert.equal(await served('t0_0_0'), 'train1');  // the last version known ready, not the pin's rebuild path
+    } finally {
+      Date.now = realNow;
+    }
   } finally {
     await close(proxy); upstream.closeAllConnections(); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
