@@ -6,7 +6,7 @@ import numpy as np
 import shapely
 
 from turku3d.config import VisualTile
-from turku3d.coarse.attachments import measure, produce
+from turku3d.coarse.attachments import measure, produce, raised
 from turku3d.coarse.stairs import collision
 
 
@@ -159,3 +159,13 @@ def test_support_boundary_tracing_preserves_rotated_grid_area_and_holes():
     assert region.is_valid
     assert abs(region.area - mask.sum() * CELL**2) < 1e-9
     assert len(region.interiors) == 1
+
+
+def test_decks_at_the_terrain_height_are_terrain_not_platforms():
+    # A level contour band of a slope beside a building: the deck lies on the terrain it would replace.
+    slope = lambda x, z: 10.0 + 0.25 * (np.asarray(z) - 10.0)  # noqa: E731
+    band = dict(building="b", region=shapely.box(0, 10, 10, 12), height=10.1, bottom=9.86, kind="terrace")
+    porch = dict(building="b", region=shapely.box(0, -3, 4, 0), height=8.0, bottom=6.0, kind="terrace")
+    step = dict(building="b", region=shapely.box(0, 12, 10, 12.4), height=10.6, bottom=10.36, kind="tread")
+    balcony = dict(building="b", region=shapely.box(0, -3, 4, 0), height=4.0, bottom=3.78, kind="balcony")
+    assert raised([band, porch, step, balcony], slope) == [porch, balcony]
