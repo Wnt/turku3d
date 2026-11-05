@@ -80,14 +80,14 @@ async function waitSettled(limitMs = 180000) {
       const g = window.__game, p = window.__qaPose;
       if (!g?.coarse?.viewStatus || !p || typeof window.__qaMove !== 'function') return { boot: false };
       const vs = g.coarse.viewStatus(p.E - 23459500, -(p.N - 6704500));
-      return { boot: true, qa: !!window.__qaReady, err: window.__qaError ?? null, view: vs.ready, notFull: vs.near.filter(e => !e.ready).map(e => e.id),
+      return { boot: true, qa: !!window.__qaReady, err: window.__qaError ?? null, coverage: vs.ready, notFull: vs.near.filter(e => !e.ready).map(e => e.id),
         scenery: { ready: vs.scenery.ready, pending: vs.scenery.pending, errors: vs.scenery.errors, loaded: vs.scenery.loaded, total: vs.scenery.total },
         status: g.coarse.status, tris: g.tiles?.residentTris ?? null };
     }).catch(e => ({ boot: false, e: String(e).slice(0, 200) }));
     if (st.boot) {
       const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris]);
       same = k === sig ? same + 1 : 0; sig = k;
-      if ((st.qa || st.err) && st.view && same >= 2) return { settled: true, ms: Date.now() - t, qaErr: st.err ? String(st.err).slice(0, 120) : null };
+      if ((st.qa || st.err) && st.coverage && same >= 2) return { settled: true, ms: Date.now() - t, qaErr: st.err ? String(st.err).slice(0, 120) : null };
     }
     if (Date.now() - t > limitMs) return { settled: false, ms: Date.now() - t, ...st, err: st.err ? String(st.err).slice(0, 300) : null };
     await new Promise(r => setTimeout(r, 1000));
