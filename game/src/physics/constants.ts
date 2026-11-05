@@ -1,4 +1,6 @@
 // Character and car tuning shared by the worker (physics/world.ts) and the visuals.
+import type { RearSteerTuning } from '../vehicle/rearSteer.ts';
+import type { SuspensionCurve } from '../vehicle/suspension.ts';
 
 /** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
 export const DT = 1 / 60;
@@ -31,7 +33,9 @@ export interface VehicleTuning {
   wheelRadius: number;
   rest: number;
   wheels: readonly { x: number; y: number; z: number }[];
-  /** Wheel indices that steer (and use front grip) and that the engine and handbrake act on. */
+  /** Wheel indices on the front axle: front grip, the front torque share, and the wheels the handbrake leaves free. */
+  front: readonly number[];
+  /** Front wheel indices the steering input turns (rear steer, when present, is `rearSteer`). */
   steered: readonly number[];
   driven: readonly number[];
   topSpeed: number;
@@ -58,6 +62,17 @@ export interface VehicleTuning {
   frontTorque: number;
   /** Scale of the curb strike's speed loss and lift impulse: long-travel suspension soaks a kerb up. */
   curbFeel: number;
+  /** Centre of mass ahead of the chassis centre (m); sets the front/rear weight split. Absent: 0. */
+  comAhead?: number;
+  /** Four-wheel steering (vehicle/rearSteer.ts). `maxSteer` is then the front inner-wheel lock and the wheels follow
+   *  `ackermann4`. Absent: front steer only with the centre-line `ackermann`. */
+  rearSteer?: RearSteerTuning;
+  /** Long-travel suspension scheduled per tick (vehicle/suspension.ts). Absent: Rapier's linear spring and damper. */
+  suspensionCurve?: SuspensionCurve;
+  /** Base friction slip on asphalt and its multipliers per surface class (MATERIALS[].audio). Absent: the car grip. */
+  grip?: { front: number; rear: number; surface: Readonly<Record<string, readonly [front: number, rear: number]>> };
+  /** Scale of the quadratic aerodynamic drag term. Absent: 1. */
+  drag?: number;
 }
 
 export const CAR = {
@@ -70,6 +85,7 @@ export const CAR = {
     { x: 1.35, y: -0.15, z: -0.8 }, { x: 1.35, y: -0.15, z: 0.8 },
     { x: -1.35, y: -0.15, z: -0.8 }, { x: -1.35, y: -0.15, z: 0.8 },
   ],
+  front: [0, 1],
   steered: [0, 1],
   driven: [2, 3],
   topSpeed: 27,
@@ -102,6 +118,7 @@ export const SCOOTER = {
     { x: 0.785, y: -0.12, z: 0 }, { x: -0.465, y: -0.12, z: 0 },
     { x: -0.15, y: -0.12, z: -0.36 }, { x: -0.15, y: -0.12, z: 0.36 },
   ],
+  front: [0],
   steered: [0],
   driven: [1],
   topSpeed: 13.8,
@@ -122,42 +139,65 @@ export const SCOOTER = {
   curbFeel: 1,
 } as const satisfies VehicleTuning;
 
-/** Trophy truck / prerunner: a heavy 4WD with big tyres on long-travel suspension (soft springs, strong damping,
- *  50 cm of bump travel; the soft springs sag 25 cm, so a wheel also droops 25 cm below ride height), high ride height and a 120 km/h top speed. The centre of mass sits low in the frame (engine,
- *  fuel cell and spare tyre) so the 2.3 m track does not roll over in a hard turn. */
+/** #19-style King of the Hammers 4400 car (~/turku3d/loops/trophy4400/SPEC.md §3): four-wheel steer (42° front and
+ *  32° rear inner-wheel lock, passive counter-phase rear steer that tapers to zero and locks out at 30 mph), IFS/IRS
+ *  long travel (0.66 m front, 0.71 m rear) on a scheduled dual-rate spring with a hydraulic bump stop and
+ *  position-sensitive bypass damping, 4WD with a 40/60 split and ~1000 hp. The chassis origin rides 0.95 m above
+ *  the ground at static ride; the hub sits 0.533 m up (static length 0.417). Rapier's `rest` is the longest ray
+ *  (full rear droop plus a 3 cm margin); `suspensionStiffness` is the equivalent static rate, so g / (4 k) is the
+ *  static sag below `rest` for consumers that still pose the rig from it. */
+export const TRUCK_STATIC_LENGTH = 0.417;
+const TRUCK_REST = 0.777;
 export const TRUCK = {
-  halfExt: { x: 2.35, y: 0.4, z: 1.0 },
-  mass: 2400,
-  comDrop: 0.35,
-  wheelRadius: 0.54,
-  rest: 0.705,
+  halfExt: { x: 2.20, y: 0.42, z: 0.92 },
+  mass: 2350,
+  comDrop: 0.20,
+  comAhead: 0.03,
+  wheelRadius: 0.533,
+  rest: TRUCK_REST,
   wheels: [
-    { x: 1.60, y: -0.15, z: -1.15 }, { x: 1.60, y: -0.15, z: 1.15 },
-    { x: -1.60, y: -0.15, z: -1.15 }, { x: -1.60, y: -0.15, z: 1.15 },
+    { x: 1.55, y: 0, z: -1.09 }, { x: 1.55, y: 0, z: 1.09 },
+    { x: -1.55, y: 0, z: -1.09 }, { x: -1.55, y: 0, z: 1.09 },
   ],
+  front: [0, 1],
   steered: [0, 1],
   driven: [0, 1, 2, 3],
-  topSpeed: 35.6,
+  topSpeed: 52,
   reverseSpeed: 9,
-  engineForce: 6500,
-  enginePower: 650000,
-  brakeForce: 150,
-  maxSteer: 0.5,
-  steerHalfSpeed: 12,
-  steerRate: 2.2,
-  suspensionStiffness: 10,
-  suspensionCompression: 4.2,
-  suspensionRelaxation: 5.6,
-  suspensionTravel: 0.5,
-  maxSuspensionForce: 48000,
-  rollTransfer: 0.35,
+  engineForce: 4400,
+  enginePower: 746000,
+  brakeForce: 120,
+  maxSteer: 0.7330,
+  steerHalfSpeed: 11,
+  steerRate: 2.4,
+  suspensionStiffness: 9.81 / (4 * (TRUCK_REST - TRUCK_STATIC_LENGTH)),
+  suspensionCompression: 1.05,
+  suspensionRelaxation: 2.6,
+  suspensionTravel: TRUCK_REST - (TRUCK_STATIC_LENGTH - 0.38),
+  maxSuspensionForce: 60000,
+  rollTransfer: 0.7,
   frontTorque: 0.4,
   curbFeel: 0.2,
+  rearSteer: {
+    wheels: [2, 3], maxAngle: 0.5585, fullBelow: 2.5, lockout: 13.4, unlock: 11.6, rate: 1.4, manualRate: 0.9, frontLock: 0.7330,
+  },
+  suspensionCurve: {
+    staticLength: TRUCK_STATIC_LENGTH,
+    axles: [
+      { wheels: [0, 1], bump: 0.36, droop: 0.30, frequency: 1.10 },
+      { wheels: [2, 3], bump: 0.38, droop: 0.33, frequency: 1.20 },
+    ],
+  },
+  grip: {
+    front: 1.2, rear: 1.1,
+    surface: { gravel: [0.72, 0.66], sand: [0.72, 0.66], soil: [0.68, 0.62], grass: [0.68, 0.62] },
+  },
+  drag: 0.8,
 } as const satisfies VehicleTuning;
 
 export type VehicleKind = 'car' | 'scooter' | 'truck';
 export const VEHICLES: Record<VehicleKind, VehicleTuning> = { car: CAR, scooter: SCOOTER, truck: TRUCK };
 /** Target top speed of the scooter (45 km/h); the engine limit sits above it because drag balances the taper. */
 export const SCOOTER_TARGET_SPEED = 12.5;
-/** Target top speed of the trophy truck (120 km/h). */
-export const TRUCK_TARGET_SPEED = 120 / 3.6;
+/** Target top speed of the trophy truck (155 km/h, SPEC §3.4). */
+export const TRUCK_TARGET_SPEED = 155 / 3.6;

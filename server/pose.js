@@ -1,4 +1,7 @@
 const finite = (n, max) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= max;
+/** `drv` of a driven 4WS truck: [throttle % 0..100, rpm/10 0..800, gear -1..3, rear mode 0..3], integers only. */
+const DRV = [[0, 100], [0, 800], [-1, 3], [0, 3]];
+export const validDrv = d => Array.isArray(d) && d.length === 4 && d.every((n, i) => Number.isInteger(n) && n >= DRV[i][0] && n <= DRV[i][1]);
 export function validPose(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return false;
   return !(!finite(m.t, Number.MAX_SAFE_INTEGER) || m.t < 0 || !finite(m.E, 100_000) || !finite(m.N, 100_000)
@@ -10,6 +13,7 @@ export function validPose(m) {
         || !finite(w.rotation, Number.MAX_SAFE_INTEGER) || !finite(w.suspension, 10) || typeof w.contact !== 'boolean')))
       || (m.lights !== undefined && ![0, 1, 2].includes(m.lights))
       || (m.horn !== undefined && typeof m.horn !== 'boolean')
+      || (m.drv !== undefined && !validDrv(m.drv))
       || !['vE', 'vN', 'vH'].every(k => finite(m[k], 200))
       || !['foot', 'car', 'scooter', 'truck'].includes(m.mode) || typeof m.carrying !== 'boolean'
       || !(m.mode === 'foot' ? m.vehicle === null : m.mode === 'scooter' || m.mode === 'truck' ? m.vehicle === m.mode
@@ -25,6 +29,7 @@ export function cleanPose(m) {
   return { t: Math.round(t), E: rounded(E), N: rounded(N), H: rounded(H), yaw: rounded(yaw),
     vE: rounded(vE), vN: rounded(vN), vH: rounded(vH), mode, vehicle, carrying, lights: m.lights ?? 0, horn: m.horn === true,
     ...(rot ? { rot: { ...vector(rot), w: rounded(rot.w) } } : {}),
+    ...(validDrv(m.drv) ? { drv: [...m.drv] } : {}),
     ...(wheels ? { wheels: wheels.map(({ pos, steer, rotation, contact, suspension, tyre }) => ({
       pos: vector(pos), steer: rounded(steer), rotation: rounded(rotation), contact, suspension: rounded(suspension),
       ...(tyre && ['x', 'y', 'z'].every(k => finite(tyre.point?.[k], 10) && finite(tyre.normal?.[k], 1))
