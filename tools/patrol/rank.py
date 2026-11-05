@@ -39,7 +39,10 @@ def visibility(c):
 
 
 groups = {}
+stale = 0
 for v in verdicts:
+    if v.get('n') is not None and v.get('image') and v['image'] not in by_image and v['image'].startswith('crops/'):
+        stale += 1; continue  # its candidate no longer exists after re-analysis
     if not v.get('real'): continue
     # verdicts match their candidate by image path (stable across re-analysis), else by n; judge-only findings
     # carry their own fields
@@ -65,8 +68,9 @@ for key, g in groups.items():
                    'seen_at': sorted(f'{a}/{b}' for a, b in g['seen'] if a)})
 ranked.sort(key=lambda r: -r['impact'])
 json.dump(ranked, open(RUN / 'ranked.json', 'w'), indent=1)
-judged = len([v for v in verdicts if v.get('n') is not None])
-fp = len([v for v in verdicts if v.get('n') is not None and not v.get('real')])
+live = [v for v in verdicts if v.get('n') is not None and not (v.get('image', '').startswith('crops/') and v['image'] not in by_image)]
+judged = len(live)
+fp = len([v for v in live if not v.get('real')])
 lines = [f'# Patrol {RUN.name}: top {TOP}', '',
          f'{len(cands)} detector candidates, {judged} judged, {fp} rejected by the judge '
          f'({fp / max(1, judged):.0%} detector false positives); {len(ranked)} distinct real issues.', '']
