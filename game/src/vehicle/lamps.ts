@@ -58,5 +58,6 @@ export function vehicleLamps(root: T.Object3D, kind: VehicleKind, state: LightSt
     rigs.set(root, rig);
   }
   rig.front.forEach(material => material.emissiveIntensity = state === 2 ? 6 : state === 1 ? 1.7 : 0);
-  rig.tail.forEach(material => material.emissiveIntensity = state ? .3 : 0);
+  // Tail lamps read as lit from the chase camera at night (the trophy truck's round pods were near invisible at 0.3).
+  rig.tail.forEach(material => material.emissiveIntensity = state === 2 ? 2.4 : state ? 1.6 : 0);
 }
