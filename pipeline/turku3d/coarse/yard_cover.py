@@ -7,12 +7,13 @@ import numpy as np
 import shapely
 from affine import Affine
 from rasterio.features import shapes
-from scipy.ndimage import label
+from scipy.ndimage import gaussian_filter
 
 from turku3d.col.materials import mat_id
 from turku3d.spatial import rows
 
 from .garden_inputs import polygon
+from .surfaces import COVER_MIN, COVER_SMOOTH, _without_small
 
 
 def features(tile, path):
@@ -56,18 +57,15 @@ def regions(tile, rgb, parcels, blocked):
     step = tile.size / rgb.shape[0]
     transform = Affine(step, 0, tile.origin[0], 0, step, tile.origin[2])
     patches = []
-    for mask, material, minimum in ((paving_mask(rgb), "paving_slab", 4.0),
-                                     (lawn_mask(rgb), "grass", 1.5)):
-        components, _ = label(mask)
-        counts = np.bincount(components.ravel())
-        keep = counts * step**2 >= minimum
-        keep[0] = False
-        mask = keep[components].astype(np.uint8)
+    # The same cleaning as the ortho land cover: no speckle patches or holes, smooth edges.
+    sigma, cells = COVER_SMOOTH / step, COVER_MIN / step**2
+    for mask, material in ((paving_mask(rgb), "paving_slab"), (lawn_mask(rgb), "grass")):
+        mask = _without_small(gaussian_filter(mask.astype(np.float32), sigma) > .5, cells).astype(np.uint8)
         for geo, value in shapes(mask, mask=mask.astype(bool), transform=transform):
             if not value:
                 continue
-            area = shapely.make_valid(shapely.geometry.shape(geo).simplify(.2)).intersection(domain)
+            area = shapely.make_valid(shapely.geometry.shape(geo).simplify(step)).intersection(domain)
             for part in shapely.get_parts(area):
-                if part.geom_type == 'Polygon' and part.area >= minimum:
+                if part.geom_type == 'Polygon' and part.area >= COVER_MIN:
                     patches.append((part, mat_id(material)))
     return sorted(patches, key=lambda p: (-p[0].area, p[0].wkb))

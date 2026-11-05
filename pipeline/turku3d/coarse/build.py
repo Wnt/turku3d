@@ -10,6 +10,7 @@ without OSM, street-area water bridges retain the abutment lift (``bridge_decks`
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import json
@@ -243,6 +244,11 @@ def build(
     common = [Path(C.__file__), base / "col/materials_v1.json"]
     t = time.perf_counter()
     grid_pos, grid_idx, materials, wet, level = cached_terrain(cache, tile, inputs, common)
+    from . import attachments
+
+    # Lidar decks replace the terrain only where they stand above it.
+    inputs = dataclasses.replace(
+        inputs, attachments=attachments.raised(inputs.attachments, GridHeight(tile, grid_pos).many))
     # Retain the pre-bridge TIN so the later constrained apron uses the same
     # absolute target as the initial grid repair, without compounding its blend.
     from turku3d.ground.mesh import Mesh
@@ -682,7 +688,7 @@ def build(
     t_surface = time.perf_counter()
     forest_paths = path_surfaces(inputs)
     lawn_regions = cache.run(
-        "yard_lawns", source_key(Path(yard_cover.__file__)),
+        "yard_lawns", source_key(Path(yard_cover.__file__), Path(surfaces.__file__)),
         [tile, inputs.ortho, yard_parcels, yard_blocked],
         lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
     )
@@ -696,7 +702,12 @@ def build(
         [tile, inputs.ortho, inputs.surfaces, garden_areas, paving_sources],
         lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas, osm),
     )
-    visual_regions = [*lawn_regions, *inputs.surfaces, *forest_paths]
+    # Unmapped ground takes the traced ortho cover (smooth edges, no speckle) under every mapped
+    # finish; natural ground the terrain stage found (bare rock, sand, soil) keeps its own.
+    natural = np.isin(dry.material, [mat_id(n) for n in ("rock", "sand", "soil")])
+    natural_area = shapely.union_all(shapely.polygons(dry.positions[dry.indices[natural]][:, :, [0, 2]]))
+    cover = surfaces.cover_regions(tile, inputs.ortho, natural_area) if inputs.ortho is not None else []
+    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *forest_paths]
     surface_args = (
         dry.positions,
         dry.indices,
