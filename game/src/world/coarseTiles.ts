@@ -495,9 +495,16 @@ export class CoarseTiles {
     this.badge?.remove(); this.badge = null;
   }
 
+  private parked = false;
+  /** Pauses the city (the parkCity A/B in main.ts): no polls, installs or scenery updates until unpark. Its models stay
+   *  in its layer, which main.ts takes out of the scene; its collision was unloaded with the city's streamer. */
+  park() { this.parked = true; this.startup = null; this.bootAt = null; this.retainedStarts = []; }
+  /** Resumes a parked city: the next update re-scans and polls at once. */
+  unpark() { this.parked = false; this.nextCheck = 0; }
+
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true, y = NaN) {
-    if (this.disposed) return;
+    if (this.disposed || this.parked) return;
     this.clock = now;
     this.at.x = x; this.at.z = z;
     this.viewY = y;

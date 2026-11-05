@@ -492,21 +492,55 @@ async function draftWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
   const rapier = await physics.ready;
-  return { physics, rapier, ...await cityWorld(physics) };
+  const city = await cityWorld(physics, PARK_CITY ? cityLayer(CITY.name) : scene);
+  return { physics, rapier, city, ...city };
 }
 
-/** The active city's own world: its manifest, collision streamer and tile streamer (a city switch builds new ones). */
-async function cityWorld(physics: PhysicsClient) {
+/**
+ * A/B (owner: coordinator; reason: in-place return time vs memory; measured in the city-switch round trips; removed
+ * within 10 merges after 2026-11-05, the losing path with it): `?parkCity` keeps the city just left parked (its tile
+ * models in a layer out of the scene, collision unloaded, streaming stopped) and resumes it on the way back instead
+ * of streaming it again. One parked city at most. Without it every switch releases the old city (leaveCity).
+ */
+const PARK_CITY = new URLSearchParams(location.search).has('parkCity');
+
+/** A city's own scene layer (parkCity): its tile models and scenery, which a parked city takes out of the scene. */
+function cityLayer(name: CityName) {
+  const layer = new THREE.Group();
+  layer.name = `city:${name}`;
+  scene.add(layer);
+  return layer;
+}
+
+/** A city's own world: its manifest, collision streamer and tile streamer. `layer` holds its tile models (the
+ *  scene itself, or with the parkCity A/B a group of its own that a parked city leaves). */
+interface CityWorld { name: CityName; manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles; layer: THREE.Object3D;
+  /** A parked city's next collision streamer (the old one unloaded every cell when the city was left). */
+  restream(): CollisionStreamer }
+
+/** The active city's world, new (a city switch builds one) or `parked` (the parkCity A/B: the city left last). */
+async function cityWorld(physics: PhysicsClient, layer: THREE.Object3D = scene, parked?: CityWorld): Promise<CityWorld> {
+  if (parked) {
+    const streamer = parked.restream();
+    scene.add(parked.layer);
+    parked.coarse.unpark();
+    adoptCoarse(parked.coarse);
+    for (const e of parked.coarse.entries.values()) if (e.model) { await vegetation?.addAsync(e.model); furniture?.add(e.model); }
+    censusSources.coarse = parked.coarse; censusSources.collision = streamer;
+    window.__tiles = { loaded: () => parked.coarse.loadedTiles() };
+    return { ...parked, streamer };
+  }
   const manifest = draftManifest(location.href);
-  const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
+  const holder = { streamer: new CollisionStreamer(manifest, physics, params.collisionRadius) };
   const coarse = await draftVisuals(manifest, {
-    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
+    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => holder.streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
-    retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
-  });
-  censusSources.coarse = coarse; censusSources.collision = streamer;
+    retainCollision: (id, entry, buffer) => holder.streamer.retain(id, entry, buffer),
+  }, layer);
+  censusSources.coarse = coarse; censusSources.collision = holder.streamer;
   window.__tiles = { loaded: () => coarse.loadedTiles() };
-  return { manifest, streamer, coarse };
+  return { name: CITY.name, manifest, streamer: holder.streamer, coarse, layer,
+    restream: () => (holder.streamer = new CollisionStreamer(manifest, physics, params.collisionRadius)) };
 }
 
 /** Streams the active city's start (params.spawn) and finds supported ground for the player and the own car there
@@ -542,8 +576,8 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
 }
 
 async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
-  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
-  const coarse = await CoarseTiles.start({ scene, renderer, manifest,
+  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, layer: THREE.Object3D = scene) {
+  const coarse = await CoarseTiles.start({ scene: layer as THREE.Scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
     prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
@@ -561,17 +595,21 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
     styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
   if (!coarse) throw new Error('World generation service is unavailable');
-  groundBelow = (x, z) => coarse.groundBelow(x, z);
-  lights?.attach(coarse);
+  adoptCoarse(coarse);
   if (!idPass) {
-    distantCity = coarse.screenshotScenery;
-    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
-    if (params.qa) distantCity.follow(camera);
+    distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
+    if (params.qa) distantCity!.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
-    window.__game!.scenery = distantCity;
   }
   return coarse;
+}
+
+/** The world-level consumers of the active city's tile streamer (ground queries, street lights, distant scenery). */
+function adoptCoarse(coarse: CoarseTiles) {
+  groundBelow = (x, z) => coarse.groundBelow(x, z);
+  lights?.attach(coarse);
+  if (!idPass) { distantCity = coarse.screenshotScenery; window.__game!.scenery = distantCity; }
 }
 
 async function runQa() {
@@ -852,10 +890,11 @@ async function runPlay() {
     addEventListener('pagehide', () => telemetry.flush(true));
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
-  const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
+  const { physics, rapier, manifest, streamer, coarse, city: booted } = await draftWorld();
+  let current: CityWorld = booted, parked: CityWorld | null = null;
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
   Object.assign(window.__game!, { physics, coarse, streamer });
-  const playWorld = async (city: { manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles }, first: boolean): Promise<PlayWorld> => {
+  const playWorld = async (city: Pick<CityWorld, 'manifest' | 'streamer' | 'coarse'>, first: boolean): Promise<PlayWorld> => {
     const { manifest, streamer, coarse } = city;
     const { spawn, car: parking } = await placeStart(physics, streamer, coarse);
     const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
@@ -882,7 +921,6 @@ async function runPlay() {
   function travel(to: CityName, spawn?: { E: number; N: number; headingDeg: number }) {
     travelling ??= (async () => {
       const t0 = performance.now();
-      const previous = world;
       const kept = session.dispose(true);
       // The session's own transition went with its DOM; this one stays, with the streaming progress, until the new
       // session runs, then fades out over the first frames.
@@ -891,14 +929,24 @@ async function runPlay() {
       const line = curtain.querySelector<HTMLElement>('.travel-progress')!;
       const progress = setInterval(() => { line.textContent = travelProgress(worldLoad.snapshot()); }, 250);
       for (const v of physics.latest?.vehicles ?? []) if (v.id && v.id !== OWN_VEHICLE_ID) physics.removeVehicle(v.id);
-      previous.coarse?.leaveCity();
-      await previous.streamer.dispose();
+      const leaving = current;
+      await leaving.streamer.dispose();
+      if (PARK_CITY) {
+        // One parked city at most: the one parked before goes for good.
+        if (parked && parked !== leaving) parked.coarse.leaveCity();
+        leaving.coarse.park();
+        for (const e of leaving.coarse.entries.values()) if (e.model) { vegetation?.remove(e.model); furniture?.remove(e.model); }
+        leaving.layer.removeFromParent();
+        parked = leaving;
+      } else leaving.coarse.leaveCity();
       setCity(to);
       history.replaceState(history.state, '', cityPageUrl(to, location, spawn));
       params.spawnGiven = !!spawn;
       params.spawn = spawn ?? { E: CITY.spawn.E, N: CITY.spawn.N, headingDeg: CITY.spawn.headingDeg };
       worldLoad.update({ phase: 'loading', errors: [] });
-      const city = await cityWorld(physics);
+      const reuse = parked?.name === to ? parked : undefined;
+      if (reuse) parked = null;
+      const city = current = await cityWorld(physics, PARK_CITY ? cityLayer(to) : scene, reuse);
       Object.assign(window.__game!, { coarse: city.coarse, streamer: city.streamer });
       world = await playWorld(city, false);
       session = await startPlay(world, null, { audio: kept.audio, socket: kept.socket });
