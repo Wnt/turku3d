@@ -14,7 +14,6 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   if (!scheduler?.yield) return null;
   const native = scheduler.yield.bind(scheduler);
   const queue: (() => void)[] = [];
-  const channel = new MessageChannel();
   let gapStart = -Infinity, waiting = false, chained = false, released = 0;
   const live = () => playing() && document.visibilityState === 'visible';
   const step = () => {
@@ -26,8 +25,11 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
     // The continuation runs in this task's microtasks; the next step measures after it.
     chain();
   };
-  const chain = () => { chained = true; channel.port2.postMessage(0); };
-  channel.port1.onmessage = () => { chained = false; step(); };
+  // The next continuation of the same gap runs in this task (a microtask), not in a new one: on a CPU-bound machine a
+  // frame lands between any two tasks, so one continuation per task gave shader builds only the time frames left
+  // (M1 Air: ~7 deferred builds/s whatever the share, visible meshes waiting 18 s). Within the share the work is
+  // continuous; a continuation that has not yielded yet when the queue runs dry re-chains on its own yield.
+  const chain = () => { chained = true; queueMicrotask(() => { chained = false; step(); }); };
   const nextGap = () => {
     if (waiting) return;
     waiting = true;
