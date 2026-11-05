@@ -190,6 +190,25 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
 
   In view nothing near the truck is recycled under either rule; out of view the fronts now go before they reach the
   U-turn wait, and the queue never builds.
+- **No ambient traffic into cul-de-sacs** (study 7.3, 2026-11-06; `tileNetwork.deadEnd/intoDeadEnd`). A cul-de-sac
+  lane (under 200 m; a longer dead-end road leads somewhere and keeps traffic) only turns round back to its junction,
+  and our drivers have no destination there. Route choice and the planner's turn intent give a movement into one no
+  weight while another way exists, and a short-link fold (a seam or crossing splinter under 12 m, which follows one
+  onward lane) takes the straightest way on that is not a cul-de-sac: behind the t0_4_-1 seam every car crossing it
+  was routed into t0_5_-1:5aabf4b0. A reroute out of a jam still takes one as its last way out (it turns round
+  there). `TRAFFIC.version` 15. Probe `probe/deadends.ts` (20 min, the last 15 counted) and soaks, 16:00:
+
+  | district | turnarounds at dead ends | time on cul-de-sacs | exits/min (30 min soak) | locked > 300 s |
+  |---|---|---|---|---|
+  | east | 82 -> 15 | 3.5 % -> 0.13 % | 107.6 -> 107.3 | 0 -> 0 |
+  | northwest | 309 -> 160 | 5.1 % -> 3.45 % | 57.2 -> 59.3 | 0 -> 0 |
+  | south | | | 110.9 -> 113.7 | 0 -> 0 |
+  | centre 5x5 | | | 143.8 -> 143.1 | 0 -> 0 |
+
+  The remaining northwest turnarounds are reroutes: drivers that turn off ahead of a jammed exit or are kept at its
+  line. Keeping cul-de-sacs out of the turn-off ahead (A/B, removed) left 116 but cut northwest to 54.8 exits/min.
+  Transient spill-backs (cars stopped > 120 s for a minute or two at the south junction 239,-766) appear before and
+  after alike.
 - **Car budget per tile and hour (A/B, removed):** a tile over 2.5x (or 4x) the cars its lanes carry at free flow
   that hour fed no new cars and shed hidden excess. East 30 min: 93.9 (4x: 102.5) vs 98.4 (later 104.7) exits/min
   without it, 0 locked either way. Demand already follows the hour profile; GTA needs budgets because it spawns
@@ -234,7 +253,8 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
    - per-car arrays in the worker's publish.
 3. **Traffic, after GTA-style recycling** (2026-11-05): no district locks out of view any more. What remains, from
    `docs/handover/gta-traffic-study.md` section 7:
-   - no ambient traffic on dead ends, and thin unobserved arterials;
+   - thin unobserved arterials (cul-de-sacs carry no ambient traffic since 2026-11-06; dead-end streets of several
+     segments still do);
    - GTA-like signal plans (about 10 s phases, protected lefts where turn lanes exist);
    - per-driver aggressiveness.
    In view, jams are still possible (GTA also tolerates them); no soak had one within 320 m of its watcher.
