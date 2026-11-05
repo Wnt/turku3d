@@ -6,14 +6,15 @@ interleaved across cities, in step with the Turku pass.
 
 plan.json: {"cities": [{"name": "espoo", "checkout": "/home/wnt/turku3d-local/cities/repo", "centre": "t0_0_1",
             "out": "/home/wnt/turku3d-local/cities/espoo/tiles", "tiles": ["t0_0_1", ...]}, ...]}
-Only the listed tiles are built (the city agents' lists of tiles that build without any network fetch).
+Only the listed tiles are built (the city agents' lists of tiles that build without any network fetch). The plan
+file is re-read when it changes, so a city whose list lands mid-window joins the ring queue (--follow keeps waiting).
 
 Order: ring r of every city before ring r+1 of any, cities round-robin within a ring (Chebyshev rings round each
 city's own centre tile; Turku's pass uses the same rings round t0_0_0). A city ring starts only once the Turku pass
 has started that ring too (--turku-journal), so the centres of all four cities come first with equal priority. The
 Turku pass caps its lanes by load per core, so these builds take their lanes and Turku fills the rest of the cores.
 
-Each tile builds as `tools/cities/run.sh CITY python -m turku3d.coarse build TILE --out OUT/.building/TILE` from the
+Each tile builds as `tools/cities/run.sh CITY python -m turku3d.coarse build TILE --out OUT/TILE.building` from the
 city's checkout, and is renamed to OUT/TILE only after it exits 0 with a full manifest: a window cut-off loses only
 the tiles in flight, and a reader never sees a half-built tile. Tiles already at OUT/TILE are skipped. Progress is one
 JSON line per tile in OUT/../window-builds.jsonl and a summary in /home/wnt/turku3d-bulk-gen3/cities.json.
@@ -67,9 +68,10 @@ def order(cities):
 
 def build(city, tile):
     out = Path(city['out'])
-    stage = out / '.building' / tile
+    # A sibling of the final directory: the build writes shared textures to <out>/../shared, which must be OUT/shared.
+    stage = out / f'{tile}.building'
     shutil.rmtree(stage, ignore_errors=True)
-    stage.parent.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     logs = out.parent / 'logs'
     logs.mkdir(parents=True, exist_ok=True)
     started, cpu0 = time.time(), os.times()
@@ -99,6 +101,7 @@ def main():
     ap.add_argument('--lanes', type=int, default=4)
     ap.add_argument('--turku-journal', type=Path)
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--follow', action='store_true', help='keep running and pick up tiles added to the plan file')
     a = ap.parse_args()
     cities = json.loads(a.plan.read_text())['cities']
     jobs = order(cities)
@@ -110,8 +113,16 @@ def main():
         print(json.dumps(counts, indent=1))
         return 0
     started, done, running = time.time(), [], {}
+    stamp = a.plan.stat().st_mtime
     with ThreadPoolExecutor(a.lanes) as pool:
-        while jobs or running:
+        while jobs or running or a.follow:
+            if a.plan.stat().st_mtime != stamp:
+                # Cities or tiles added mid-window (a city's offline-ready list landed): rebuild the queue in ring order,
+                # without the tiles built or in flight; a tile that failed (e.g. exit 3, inputs pending) is tried again.
+                stamp, cities = a.plan.stat().st_mtime, json.loads(a.plan.read_text())['cities']
+                busy = {(n, t) for _, n, t in running.values()} | {(d['city'], d['tile']) for d in done
+                                                                      if d['state'] == 'built'}
+                jobs = [j for j in order(cities) if (j[1]['name'], j[2]) not in busy]
             limit = turku_ring(a.turku_journal)
             while jobs and len(running) < a.lanes and (limit is None or jobs[0][0] <= max(limit, 0)):
                 r, city, tile = jobs.pop(0)
@@ -133,7 +144,7 @@ def main():
                            running=sorted(f'{n}/{t}' for _, n, t in running.values()), left=len(jobs),
                            built={c['name']: sum(1 for d in done if d['city'] == c['name'] and d['state'] == 'built')
                                   for c in cities},
-                           failed=[f"{d['city']}/{d['tile']}" for d in done if d['state'] == 'failed'])
+                           failed=sorted({f"{d['city']}/{d['tile']}" for d in done if d['state'] == 'failed'}))
             tmp = STATUS.with_suffix('.tmp')
             tmp.write_text(json.dumps(summary, indent=1))
             os.replace(tmp, STATUS)

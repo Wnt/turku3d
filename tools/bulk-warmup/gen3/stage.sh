@@ -203,7 +203,7 @@ PY
     # Other cities build with plain generator runs (tools/cities/run.sh): their code checkouts, data roots (raw is a
     # link into /bulk) and the toolchain's generator assets go to the local disk as they are; their raw trees' small
     # files (under SEED_MAX, default 4 MB) go to the /bulk seed. Large raw files stay on the read-through cache.
-    local c rel=() code=(turku3d-local/cities/repo)
+    local c rel=() code=('turku3d-local/cities/repo*')
     for c in "${CITIES[@]}"; do
       rel+=("cities/$c/raw")
       case $c in amsterdam|rotterdam) [[ " ${code[*]} " == *nlcities* ]] || code+=(turku3d-local/nlcities/repo) ;; esac
