@@ -67,15 +67,15 @@ const CHANGE_CREEP = 0.3;
 const STARVE_AFTER = 15;
 /** Reasons that keep a driver at its line until something outside the junction changes (not its turn to go). */
 const HELD = /^(exit|storage|receiving|signal|no-exit)/;
-/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, the head of a chain of stuck cars that
- *  has stood RECYCLE_HEAD seconds while it had a way to take, or any car stuck for RECYCLE_ANY seconds, leaves the flow
- *  when no watcher can see it. A head at its line counts only the green: a queue at a red light waits, it is not
+/** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, the front of a jammed queue that has
+ *  stood RECYCLE_HEAD seconds while it had a way to take, or any car stuck for RECYCLE_ANY seconds, leaves the flow
+ *  when no watcher can see it. A front at its line counts only the green: a queue at a red light waits, it is not
  *  jammed. Its slot's demand is not replayed: the sources keep their own timetable. */
-const RECYCLE_HEAD = 30, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
+const RECYCLE_HEAD = 20, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
 /** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA: hidden stationary cars go within seconds there):
- *  chain heads after FAST_HEAD s (at least STARVE_AFTER, so a driver waiting for a gap takes its turn first), any car
- *  after FAST_ANY s. */
-const FAST_FAR = 150, FAST_HEAD = 15, FAST_ANY = 120;
+ *  a jammed queue's front after FAST_HEAD s, any car after FAST_ANY s. A/B against 30/15 s (2026-11-06, 30 min at
+ *  16:00): east 107.6 vs 107.2, south 110.9 vs 107.5 exits/min, 0 locked and 0 recycled in view either way. */
+const FAST_FAR = 150, FAST_HEAD = 5, FAST_ANY = 120;
 
 /** Below this speed (m/s) a car stands (out-of-view recycling follows a queue through such cars). */
 const STANDING = 0.15;
@@ -806,9 +806,9 @@ export class TrafficFlow {
     }
   }
 
-  /** Out-of-view recycling (RECYCLE_HEAD / RECYCLE_ANY): the head of every chain of stuck cars, then any long-stuck
-   *  car, leaves the flow when no watcher sees it. Canonical key order and pure flow state plus the watcher list, so
-   *  peers that share the list agree. */
+  /** Out-of-view recycling (RECYCLE_HEAD / RECYCLE_ANY): the front of every jammed queue, then any long-stuck car,
+   *  leaves the flow when no watcher sees it. Canonical key order and pure flow state plus the watcher list, so peers
+   *  that share the list agree. */
   private recycle(t: number) {
     const watchers = this.watchers;
     if (!watchers) return;
