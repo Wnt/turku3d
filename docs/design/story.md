@@ -288,8 +288,9 @@ it opens the shop's menu; at the drop-off it hands the pizza over. The message l
 1. The dialogue line being spoken (greetings, replies, customer reactions, pay), each shown for
    2.5–7 s depending on its length.
 2. Nothing while a shop menu is open (the menu shows the shopkeeper's line).
-3. The prompt of the target in range, for the current input device (`prompt_enter_<shop>_pad` /
-   `_key`, `prompt_hand_over_*`: "Press A …" / "Press E …").
+3. The prompt of the target in range (`prompt_enter_<shop>`, `prompt_hand_over`: "Press {button} …"), with the
+   mission button of the input device in use ("Press ✕ …" on a DualSense, "Press Ⓐ …" on an Xbox pad, "Press E …"
+   on the keyboard).
 4. The step hint (`hint_permit`, `hint_pizzeria`, `hint_deliver_<n>`).
 
 Customers react at the door by tip band: fast (tip ≥ 5 €), ok (1–4 €), slow (0 €).
