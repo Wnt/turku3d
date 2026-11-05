@@ -21,7 +21,7 @@ class V8Processor extends AudioWorkletProcessor {
     const o = options.processorOptions;
     this.voice = createV8(o.seed, sampleRate, { partials: o.partials, running: o.running });
     this.chassis = new ChassisSynth(o.seed + 1, sampleRate);
-    this.params = { rpm: 920, load: 0, throttle: 0, limiter: false, shifting: false, running: o.running, cockpit: false, partials: o.partials };
+    this.params = { rpm: 930, load: 0, throttle: 0, limiter: false, shifting: false, running: o.running, cockpit: false, partials: o.partials };
     this.port.onmessage = (event: MessageEvent<V8Message | 'stop'>) => {
       if (event.data === 'stop') { this.alive = false; return; }
       this.params = event.data.p;

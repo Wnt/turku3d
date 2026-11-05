@@ -89,14 +89,18 @@ function keyed(keys) {
 }
 
 const SCENARIOS = {
-  idle: () => run(6, (() => { const d = new Drivetrain(); return () => ({ params: { ...d.step({ dt: CONTROL, throttle: 0, brake: 0, forwardSpeed: 0,
-    drivenWheelSpeed: 0, contacts: 4, reverse: false, rearSteerMoving: false }), running: true, cockpit: false, partials: 32 } }); })()),
-  steady6100: () => run(4, steady(6100, 1, 1)),
+  // 33 s at idle, matched to the verified V2 shop idle; the rear steer cycles at 12-15 s and 24-26 s, as in the clip.
+  idle: () => run(33, (() => { const d = new Drivetrain(); return t => ({ params: { ...d.step({ dt: CONTROL, throttle: 0, brake: 0, forwardSpeed: 0,
+    drivenWheelSpeed: 0, contacts: 4, reverse: false, rearSteerMoving: (t > 12 && t < 15) || (t > 24 && t < 26) }), running: true, cockpit: false, partials: 32 } }); })()),
+  // The verified on-load reference: V1's film pull at ≈ 6,060 rpm (ref/REFERENCE.md §5).
+  pull6060: () => run(4, steady(6060, 1, 1)),
+  // V2's snow driving: part load at 1,440-1,690 rpm.
+  part1600: () => run(4, steady(1600, 0.4, 0.4)),
   sweep: () => run(8, t => steady(1000 + 6000 * Math.min(1, t / 8), 1, 1)()),
   drive: () => run(18, driveScenario()),
   start: () => run(4, steady(920, 0, 0), { warm: false }),
   limiter: () => run(3, () => ({ params: { rpm: 7000, load: 1, throttle: 1, limiter: true, shifting: false, running: true, cockpit: false, partials: 32 } })),
-  cockpit6100: () => run(4, steady(6100, 1, 1), { cockpit: true }),
+  cockpit6060: () => run(4, steady(6060, 1, 1), { cockpit: true }),
 };
 
 const [outDir, ...rest] = process.argv.slice(2);

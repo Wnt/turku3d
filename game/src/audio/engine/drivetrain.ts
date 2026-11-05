@@ -26,13 +26,13 @@ export interface DrivetrainSpec {
 }
 
 export const DRIVETRAIN: DrivetrainSpec = {
-  idle: 920, idleWander: 0.03, idleDip: 45,
+  idle: 930, idleWander: 0.03, idleDip: 45,
   gears: [2.48, 1.48, 1.0], reverse: 2.08, final: 8.5,
   stall: 3200, wheelRadius: 0.533,
   softLimit: 7000, hardLimit: 7200,
   freeRise: 4500, freeFall: 3000,
   // SPEC §4.2 quotes 1.3/s toward the coupled value; with the converter's 6 % drive slip alone that cannot reach the
-  // measured 0.70-0.80x within 0.6 s (S4). On a lift the converter unlocks and the engine runs below the turbine
+  // design target 0.70-0.80x within 0.6 s (S4). On a lift the converter unlocks and the engine runs below the turbine
   // (overrunSlip), approached at 4/s: 0.80x after 0.33 s, 0.75x after 0.6 s.
   liftRate: 4, overrunSlip: 0.72,
   shiftTime: 0.25, seed: 1,

@@ -188,6 +188,7 @@ export class ChassisSynth {
     const grainRate = c.rattle * 30, tickRate = c.gravel * 70;
     const active = hum + gravel + soil + screech + whine + c.rattle > 1e-5 || this.hits.some(h => h.age < h.length);
     if (!active) return;
+    const hitsLive = this.hits.some(h => h.age < h.length);
     for (let i = 0; i < n; i++) {
       let y = 0;
       const noise = this.rng.bi();
@@ -214,7 +215,8 @@ export class ChassisSynth {
         this.whinePhase += c.whineHz / sr; if (this.whinePhase > 1) this.whinePhase -= 1;
         y += whine * (Math.sin(2 * Math.PI * this.whinePhase) + 2 * this.whineBp.process(noise));
       }
-      for (const h of this.hits) {
+      for (let hi = 0; hitsLive && hi < this.hits.length; hi++) {
+        const h = this.hits[hi];
         if (h.age >= h.length) continue;
         const s = h.age / sr;
         let v: number;
