@@ -407,7 +407,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
   // also carries a portal exit) starts at this page's own ground-checked start.
   const roomStart = isHome() && !params.spawnGiven ? undefined : world.spawn;
-  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket);
+  const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
+  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
@@ -494,6 +495,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     travelling = true;
     const driven = mode === 'car' ? physics.latest?.vehicles.find(v => v.id === drivenId) : undefined;
     const home = to === HOME_CITY ? returnTarget(CITY.name, cameThrough(sessionStore())) : null;
+    // The shared car stays in this city's room, in the portal, free for anyone: the ride continues as the own vehicle.
+    if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     if (!multiplayerPlaying) saveGame.autosave.save('travel');
     writeTicket(sessionStore(), { v: 1, from: CITY.name, to, portal: home?.id ?? portal?.id ?? null,
       ride: driven && drivenId ? { id: drivenId, kind: driven.kind ?? 'car' } : null, mission: missions.serialize(),
@@ -539,14 +542,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         return solo();
       }
       releaseStarts(); multiplayerPlaying = true;
-      // The room may hand back the car where this session left it (inside the portal): the trip's placement wins.
+      // The room freed this player's seats here on arrival (hello `arrival`); a seat it still reports is the trip's
+      // ride's to replace (SharedVehicles.drive releases it).
       return saveGame.playAt(at, async () => {
         const kept = await sharedVehicles!.restore();
         return (seat ? await seat() : null) ?? kept;
       }, t.mission);
     }).catch(fail);
   };
-  const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
   else if (ticket) startScreen.afterBrowserWarning(() => arrive(ticket));
   else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
@@ -673,10 +676,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       const moving = mode === 'foot' ? traffic.nearest(feet) : null;
       const enter = (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); };
       const take = (id: string) => {
-        if (multiplayerPlaying) void sharedVehicles?.acquire(id).then(acquired => {
-          if (acquired && multiplayerPlaying && mode === 'foot') enter(acquired);
+        if (!multiplayerPlaying) { enter(id); return; }
+        if (sharedVehicles?.entering) return;
+        void sharedVehicles?.acquire(id).then(acquired => {
+          if (!multiplayerPlaying || mode !== 'foot') return;
+          if (acquired) enter(acquired);
+          else portalMarkers.say('Car not available', performance.now(), 3);
         });
-        else enter(id);
       };
       if (mode === 'foot' && moving && (!nearest || moving.distance < nearest.distance) && missions.mayDrive('traffic')) {
         void traffic.enter(moving.handle).then(id => { if (id && mode === 'foot') take(id); });

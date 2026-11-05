@@ -108,6 +108,9 @@ export class MultiplayerClient extends EventTarget {
   private readonly resetKey: string;
   /** Removes this client's socket listeners (detach hands the socket to the next city's client). */
   private listening: AbortController | null = null;
+  /** This session arrived from another city (a portal trip): its hellos say so until the room welcomes it, and the
+   *  room frees any seat this player still held here (server/PROTOCOL.md `hello`). */
+  arrival = false;
 
   connect() {
     if (this.closed || this.ws || this.retry) return;
@@ -131,11 +134,16 @@ export class MultiplayerClient extends EventTarget {
   }
 
   /** Stops using the socket without closing it and returns it for the next city's client (adopt); null when it is
-   *  not open. This client is finished afterwards, as after disconnect. */
+   *  not open. This client is finished afterwards, as after disconnect. Seat releases still queued belong to this
+   *  room and go out first, ahead of the next client's `move`. */
   detach(): WebSocket | null {
     const ws = this.ws && this.ws.readyState === WebSocket.OPEN ? this.ws : null;
     this.listening?.abort(); this.listening = null;
     if (!ws) { this.disconnect(); return null; }
+    if (this.state.connected) for (const m of this.pendingMessages) {
+      const command = m as { type?: string; action?: string };
+      if (command.type === 'vehicle' && command.action === 'release') this.send(m);
+    }
     this.ws = null;
     this.disconnect();
     return ws;
@@ -144,7 +152,8 @@ export class MultiplayerClient extends EventTarget {
   private hello(ws: WebSocket) {
     this.lastSent = performance.now();
     this.resetInHello = !!this.token && this.resetMarked();
-    ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}), ...(this.resetInHello ? { reset: true } : {}) }));
+    ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}), ...(this.resetInHello ? { reset: true } : {}),
+      ...(this.arrival ? { arrival: true } : {}) }));
   }
 
   /**
@@ -301,6 +310,7 @@ export class MultiplayerClient extends EventTarget {
         try { this.storage?.setItem(this.sessionKey, msg.session); } catch { /* storage may be disabled */ }
         this.state.connected = true;
         if (this.resetInHello) { this.resetInHello = false; this.resetConfirmed(); }
+        this.arrival = false; // a later reconnect in this city keeps its seat
         this.state.serverTime = Number(msg.serverTime);
         this.serverOffset = this.state.serverTime - performance.now();
         const previousEpoch = this.state.rounds.epoch;
