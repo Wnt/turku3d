@@ -155,3 +155,17 @@ def test_street_profiles_in_finished_ground_are_dropped():
     value = {"region": shapely.box(-1, -1, 20, 20)}
     assert outside_finished_ground([inside, outside], value) == [outside]
     assert outside_finished_ground([inside], {"region": None}) == [inside]
+
+
+def test_a_quay_by_the_water_with_a_moored_ship_is_no_site():
+    def river(x, z):
+        return np.where(z < 100, -3.0, 0.0)  # quay edge at z = 100, water below
+
+    water = shapely.box(-400, -400, 700, 100)
+    ship = shapely.box(90, 92, 150, 99)  # an LoD2 restaurant boat moored at the quay
+    ev = evidence(TILE, shapely.box(60, 100, 190, 112), river)
+    ev.water = [water]
+    ev.footprints = F.on_land([ship], ev.water)
+    assert ev.footprints == []
+    out, report, region = F.apply(TILE, tile_points(TILE, ev), ev)
+    assert report is None and region is None

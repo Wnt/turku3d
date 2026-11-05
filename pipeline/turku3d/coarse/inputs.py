@@ -520,7 +520,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
 
 
 def finished_sources(tile: C.VisualTile, sources: Sources, laz: list) -> list:
-    """ground.finished inputs: street areas, spot heights, LoD2 and key-point blocks of the
+    """ground.finished inputs: street areas, spot heights, LoD2, water and key-point blocks of the
     tile's windows, then the tile's own key-point files, each group ended by None."""
     from turku3d.ground.finished import REGION
 
@@ -541,7 +541,7 @@ def finished_sources(tile: C.VisualTile, sources: Sources, laz: list) -> list:
     root = C.raw_dir("laz") / "maanpinta"
     blocks = [root / f"{b.name}.laz" for b in C.laz_tiles_for_bbox(window) if sources.lidar_present(b)]
     return [*streets, None, *layer("kanta_Korkeuspiste"), None, *layer("bldg_Building_LOD2"), None,
-            *blocks, None, *laz]
+            *layer("kanta_Vesikohde"), None, *blocks, None, *laz]
 
 
 def finished_ground(tile: C.VisualTile, paths: list) -> dict:
@@ -556,10 +556,10 @@ def finished_ground(tile: C.VisualTile, paths: list) -> dict:
         else:
             group.append(p)
     groups.append(group)
-    if len(groups) != 5 or not groups[0]:
+    if len(groups) != 6 or not groups[0]:
         return {"points": None, "report": None, "region": None}
-    streets, spots, bldg, blocks, laz = groups
-    evidence = finished.load(tile, streets, spots, bldg, blocks)
+    streets, spots, bldg, water, blocks, laz = groups
+    evidence = finished.load(tile, streets, spots, bldg, blocks, water)
     points, report, region = finished.apply(tile, ground_points(tile, laz), evidence)
     return {"points": points if report else None, "report": report, "region": region}
 

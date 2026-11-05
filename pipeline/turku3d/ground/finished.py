@@ -49,7 +49,8 @@ BUMP_RADIUS = 3  # m: an opening at this radius removes spoil heaps, not raised 
 REACH = 6  # m a site may extend past its zone (the excavation reaches the facades)
 FREE_REACH = 15  # m: excavation and footprint ground this near a site is filled with it
 GROW_ROUNDS = 5  # rounds of FREE_REACH in which lower ground next to a site joins it
-WALL_RING = 6  # m: a footprint stands at the highest ground within this of it
+WALL_RING = 6  # m: a footprint's ring of ground
+WALL_QUANTILE = 0.9  # of that ring: the building's wall height for the closing
 MIN_CORE = 8  # m2 of construction ground per site
 SPOT_WEIGHT = 3.0
 SPOT_SEED = 12  # m around a disagreeing spot height
@@ -70,7 +71,8 @@ class Evidence:
     structures: list = field(default_factory=list)  # stairs, bridges, ramps, tunnels: never filled
     streets: list = field(default_factory=list)  # every other street part, of any year: where sites grow
     spots: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # x, z, height after EPOCH
-    footprints: list = field(default_factory=list)  # building footprint polygons
+    footprints: list = field(default_factory=list)  # building footprint polygons (not afloat)
+    water: list = field(default_factory=list)  # water polygons: never construction ground
     points: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # key points x, y, z
 
     def near(self, bbox: C.BBoxLocal) -> bool:
@@ -129,6 +131,25 @@ def _finite(value) -> bool:
         return False
 
 
+def water_rows(frame) -> list:
+    out = []
+    for geom in frame.geometry_local:
+        if geom is None:
+            continue
+        geom = shapely.make_valid(shapely.force_2d(geom))
+        out.extend(g for g in getattr(geom, "geoms", [geom]) if g.geom_type == "Polygon" and g.area > 0)
+    return out
+
+
+def on_land(footprints, water) -> list:
+    """Footprints standing on land. A moored ship (an LoD2 restaurant boat) is no wall: the water
+    between it and the quay is no pit."""
+    if not water:
+        return list(footprints)
+    afloat = shapely.union_all(water)
+    return [g for g in footprints if g.intersection(afloat).area < 0.5 * g.area]
+
+
 def footprint_rows(frame) -> list:
     from turku3d.buildings.source_surfaces import classify_surfaces
 
@@ -141,7 +162,7 @@ def footprint_rows(frame) -> list:
     return out
 
 
-def load(tile: C.VisualTile, streets, spots, buildings, laz) -> Evidence:
+def load(tile: C.VisualTile, streets, spots, buildings, laz, water=()) -> Evidence:
     """Evidence for ``tile``'s windows from complete source rows (each feature once)."""
     import pandas as pd
 
@@ -168,8 +189,11 @@ def load(tile: C.VisualTile, streets, spots, buildings, laz) -> Evidence:
         return evidence  # no zone reaches the tile: nothing else is read
     spot_frame = rows(spots)
     evidence.spots = spot_rows(spot_frame) if spot_frame is not None else evidence.spots
+    water_frame = rows(water)
+    evidence.water = water_rows(water_frame) if water_frame is not None else []
     building_frame = rows(buildings, whole=True)
-    evidence.footprints = footprint_rows(building_frame) if building_frame is not None else []
+    footprints = footprint_rows(building_frame) if building_frame is not None else []
+    evidence.footprints = on_land(footprints, evidence.water)
     evidence.points = key_points(laz, bbox)
     return evidence
 
@@ -254,8 +278,23 @@ def detect(h, zone, footprints, spots_rc):
 
     walls = h.copy()
     if footprints.any():
-        ring = ndi.grey_dilation(np.where(footprints, -np.inf, h), footprint=_disk(WALL_RING), mode="nearest")
-        walls[footprints] = np.where(np.isfinite(ring[footprints]), ring[footprints], h[footprints])
+        # A building stands at the high side of the ground round it (WALL_QUANTILE of its ring), so an
+        # excavation between a square and a facade is a pit even where the lidar under the building
+        # only interpolates the excavation itself.
+        buildings, count = ndi.label(footprints)
+        ring = _grow(footprints, WALL_RING) & ~footprints
+        owner = ndi.distance_transform_edt(~footprints, return_distances=False, return_indices=True)
+        nearest = buildings[owner[0], owner[1]]
+        ids, heights = nearest[ring], h[ring]
+        level = np.full(count + 1, np.nan)
+        if len(ids):
+            order = np.argsort(ids, kind="stable")
+            ids, heights = ids[order], heights[order]
+            starts = np.r_[0, np.flatnonzero(np.diff(ids)) + 1]
+            for start, end in zip(starts, np.r_[starts[1:], len(ids)], strict=True):
+                level[ids[start]] = np.quantile(heights[start:end], WALL_QUANTILE)
+        inside = level[buildings[footprints]]
+        walls[footprints] = np.where(np.isfinite(inside), inside, h[footprints])
     pit = np.zeros_like(h)
     for step, radii in PIT_SCALES:
         for r in radii:
@@ -336,9 +375,11 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     spots_rc = [
         (int(round(z - zs[0])), int(round(x - xs[0])), float(y)) for x, z, y in s[inside]
     ]
+    water = _inside([g for g in evidence.water if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
+    zone &= ~water
     spots_rc = [(r, c, y) for r, c, y in spots_rc if zone[r, c] and not footprints[r, c]]
     pit, bump, core = detect(h, zone, footprints, spots_rc)
-    reach = _grow(zone, REACH) & ~footprints
+    reach = _grow(zone, REACH) & ~footprints & ~water
     grown = _grow(core, GROW) & ((pit > EDGE) | (bump > EDGE)) & reach
     mask = core | grown
     labels, count = ndi.label(mask)
@@ -350,7 +391,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     if not mask.any():
         return Window(xs[0], zs[0], h, h, [])
     window_box = shapely.box(*b.as_tuple())
-    blocked = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs)
+    blocked = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs) | water
     # Sites grow only in street space: any street part (whatever its year) and the strip to the facades.
     street = _inside([g for g in evidence.streets if g.intersects(window_box)], xs, zs) | zone
     space = _grow(street, REACH) & ~blocked
@@ -365,7 +406,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     for _ in range(GROW_ROUNDS):
         band = _grow(mask, FREE_REACH) & ~mask & space
         trial = _biharmonic(h, mask | band | touching(band), spots_rc)
-        join = band & ~footprints & (trial - h > DEPTH)
+        join = band & ~footprints & (trial - h > DEPTH) & (pit > EDGE)
         join = ndi.binary_propagation(mask, mask=mask | join) & join
         if not join.any():
             break
