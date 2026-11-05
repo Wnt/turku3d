@@ -150,7 +150,7 @@ describe('responsive traffic', () => {
     car.reservation = null; car.change = null; car.changeCooldown = 0;
     car.signal = { target, since: flow.tick - 20, reason: 'route' };
     car.route = movements.get(car.lane)![0];
-    car.previous = { route: car.route, s: car.s, speed: car.speed, change: null, swerve: 0, swerveRate: 0 };
+    car.previous = { route: car.route, s: car.s, speed: car.speed, change: null, swerve: 0, swerveRate: 0, uturn: null };
     flow.cars.clear(); flow.cars.set(car.key, car); net.density!.multiplier = 0;
     flow.stats.laneChanges = 0;
     flow.update(60);
@@ -197,7 +197,7 @@ describe('responsive traffic', () => {
       const speed = reservation ? 4 : 0;
       const car = { ...template, lane, route, s, speed, reservation, hops: 0, waiting: 0, stopped: 0,
         change: null, signal: null, changeCooldown: 0, pose: { ...template.pose },
-        previous: { route, s, speed, change: null, swerve: 0, swerveRate: 0 } };
+        previous: { route, s, speed, change: null, swerve: 0, swerveRate: 0, uturn: null } };
       sampleFlowPose(car, 0, () => 0, car.pose); return car;
     };
     const leader = driver(templates[0], lane.length + 2, route);
