@@ -100,6 +100,12 @@ describe('4400 truck on the headless course', () => {
     expect(Math.abs(r.travelAngle - 20)).toBeLessThan(3);
   });
 
+  test('D5b crab at full lock: the front stops at the rear 32° lock, all four wheels parallel', () => {
+    const r = S.lockAngles('crab');
+    log('D5b', r, 'all four wheel angles equal, |angle| ≤ 32°');
+    for (const a of r.angles) { expect(Math.abs(Math.abs(a) - 32)).toBeLessThan(0.5); expect(Math.sign(a)).toBe(Math.sign(r.angles[0])); }
+  });
+
   test('D6/D13 jump: 1.2 m flat drop and the 1.5 m kicker at 60 km/h soak up without a chassis strike', () => {
     const drop = S.flatDrop(), k = S.kickerTrace(), cam = S.cameraHeave(k.ys);
     const kicker = { ...k, ys: undefined };
@@ -118,10 +124,21 @@ describe('4400 truck on the headless course', () => {
     // A 1:4 face launches nose-up at about the face angle; the rotation in flight stays bounded and it lands on its
     // wheels and drives on.
     expect(Math.abs(k.landingPitch)).toBeLessThan(8);
-    expect(k.airRotation).toBeLessThan(20);
+    // Airborne pitch damping (`airPitch`) holds the launch attitude: hands off, it rotates at most 12° in flight.
+    expect(k.airRotation).toBeLessThan(12);
     expect(k.endTilt).toBeLessThan(3);
     expect(k.endSpeed).toBeGreaterThan(14);
     expect(cam.cameraTransient).toBeLessThanOrEqual(0.4 * cam.chassisTransient);
+  });
+
+  test('D6b hard 3 m flat drop: bottoms on the hydraulic stop but never strikes the chassis', () => {
+    // Energy bound: m·g·(3 + 0.36) = 77 kJ over 0.36 m of bump on four corners needs ≥ 54 kN per corner from first
+    // touch, against the spec's 60 kN corner limit with a progressive curve, so full bump is reached (measured
+    // 100 %, belly 0.14 m, overshoot ≈ 0.08 m). The guarantee kept: no chassis strike.
+    const drop = S.flatDrop(3);
+    log('D6b-drop3', drop, 'no chassis contact (full bump is the energy bound under the 60 kN corner limit)');
+    expect(drop.chassisContact).toBe(false);
+    expect(drop.belly).toBeGreaterThan(0.1);
   });
 
   test('D7 steady circle roll; D10 skidpad limit and power-on exit', () => {
@@ -135,8 +152,8 @@ describe('4400 truck on the headless course', () => {
     expect(road).toBeDefined(); expect(road!.roll).toBeGreaterThan(6); expect(road!.roll).toBeLessThan(9); expect(road!.contacts).toBe(4);
     expect(pad.road).toBeGreaterThan(0.80); expect(pad.road).toBeLessThan(0.95);
     expect(pad.dirt).toBeGreaterThan(0.55); expect(pad.dirt).toBeLessThan(0.68);
-    // Rapier's ray-cast tyre keeps side grip under drive until the friction limit: the rear only edges out.
-    expect(exit.rearMinusFront).toBeGreaterThan(0);
+    // The driven rear's friction circle on loose ground (vehicle.ts `frictionCircle`) steps the tail out.
+    expect(exit.rearMinusFront).toBeGreaterThanOrEqual(3);
   });
 
   test('D8 articulation: a 0.6 m step under the front-left wheel keeps four contacts', () => {
