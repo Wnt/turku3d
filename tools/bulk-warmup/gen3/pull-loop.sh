@@ -17,14 +17,15 @@ IP=$(python3 -c "import json; print(json.load(open('$D/server.json'))['ip'])")
 H=root@$IP
 SSH="ssh -i $HOME/.ssh/bulk_gen3 -o BatchMode=yes -o ConnectTimeout=10"
 export RSYNC_RSH="$SSH -c aes128-gcm@openssh.com -o ServerAliveInterval=30"
-R="nice -n19 ionice -c3 rsync -aH --numeric-ids --no-D"
+R="nice -n5 rsync -aH --numeric-ids --no-D"  # nice 5: a nice-19 receiver starves at load ~100
 round() {
   local t0 n=0 b0 b1
   t0=$(date +%s); b0=$(cat /sys/class/net/eth0/statistics/rx_bytes)
-  "$HERE/sync-train.sh" "$A" --pull > "$D/pull-turku.out" 2>&1
-  for out in "$C"/espoo/tiles "$C"/amsterdam/work/coarse "$C"/rotterdam/work/coarse; do
+  "$HERE/sync-train.sh" "$A" --pull > "$D/pull-turku.out" 2>&1 &
+  for out in "$C"/espoo/tiles "$C"/amsterdam/work/coarse "$C"/rotterdam/work/coarse; do (
+    n=0
     log=$(dirname "$out")/window-builds.jsonl
-    $SSH "$H" "test -f $log" 2>/dev/null || continue
+    $SSH "$H" "test -f $log" 2>/dev/null || exit 0
     mkdir -p "$out"
     [ "${out##*/}" = tiles ] && $R "$H:$out/shared/" "$out/shared/" 2>/dev/null
     while read -r tile at; do
@@ -35,7 +36,10 @@ round() {
       [ -d "$out/$tile" ] && mv "$out/$tile" "$out/.old-$tile"
       mv "$out/.incoming-$tile" "$out/$tile" && rm -rf "$out/.old-$tile" && echo "$at" > "$out/.pulled-$tile" && n=$((n + 1))
     done < <($SSH "$H" "python3 -c \"import json,sys; last = {r['tile']: r['at'] for r in map(json.loads, open('$log')) if r['state'] == 'built'}; [print(t, a) for t, a in last.items()]\"")
-  done
+    echo "$n" > "$D/pull-city-${out//\//_}.n"
+  ) & done
+  wait
+  n=$(cat "$D"/pull-city-*.n 2>/dev/null | awk '{s+=$1} END {print s+0}')
   b1=$(cat /sys/class/net/eth0/statistics/rx_bytes)
   echo "$(date -u +%FT%TZ) turku: $(grep -c pulled "$D/pull-turku.out") generations; cities: $n tiles; $(( (b1 - b0) / 1000000 )) MB in $(( $(date +%s) - t0 )) s" >> "$D/pull.log"
 }

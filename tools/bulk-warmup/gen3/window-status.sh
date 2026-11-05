@@ -16,7 +16,7 @@ rev=$(tail -2 "$out" | head -1); since=$(tail -1 "$out")
 timeout 3 ssh $O $OSG "F=~/turku3d-local/loops/tiles/farm; g=\$(python3 -c \"import json; print(json.load(open('\$F/revisions/$rev/revision.json'))['generation'])\")
   find \$F/products/\$g -maxdepth 2 -name ready.json -newermt @$since 2>/dev/null | wc -l
   ls -a ~/turku3d-local/cities/*/tiles ~/turku3d-local/cities/*/work/coarse 2>/dev/null | grep -c '^\.pulled-'
-  tail -1 ~/turku3d-local/loops/bulkgen3/pull.log 2>/dev/null" > "$back" 2>/dev/null
+  echo \"\$(tail -1 ~/turku3d-local/loops/bulkgen3/pull.log 2>/dev/null | cut -c1-90); current round started \$(date -u -r ~/turku3d-local/loops/bulkgen3/pull-turku.out +%H:%M:%S 2>/dev/null) UTC, \$(grep -c '^pulled' ~/turku3d-local/loops/bulkgen3/pull-turku.out) generations done\"" > "$back" 2>/dev/null
 n=$(wc -l < "$out"); body=$(awk -v n="$n" 'NR <= n - 2' "$out")
 echo "$body"
 built=$(echo "$body" | tail -1)
