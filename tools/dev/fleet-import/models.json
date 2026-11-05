@@ -729,7 +729,7 @@
    "name": "Muisto Säde 64",
    "body": "classic",
    "family": "sedan",
-   "weight": 0.15,
+   "weight": 0.4,
    "forward": "+z",
    "ignoreVertexColor": true,
    "credit": {
