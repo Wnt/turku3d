@@ -21,6 +21,7 @@ RUN = Path(sys.argv[1]); TOP = int(sys.argv[sys.argv.index('--top') + 1]) if '--
 clist = json.load(open(RUN / 'candidates.json'))
 cands = {c['n']: c for c in clist}
 by_image = {c['image']: c for c in clist if c.get('image')}
+by_key = {(c['spot'], c['view'], c['detector']): c for c in clist}
 verdicts = []
 for p in sorted((RUN / 'judge').glob('*.json')):
     verdicts += json.load(open(p))
@@ -47,6 +48,8 @@ for v in verdicts:
     # verdicts match their candidate by image path (stable across re-analysis), else by n; judge-only findings
     # carry their own fields
     c = by_image.get(v.get('image')) if v.get('n') is not None else None
+    if c is None and v.get('n') is not None and not v.get('image'):
+        c = by_key.get((v.get('spot'), v.get('view'), v.get('detector')))
     c = c or (cands.get(v.get('n')) if v.get('n') is not None else None) or v
     key = v.get('issue') or f"n{v.get('n')}"
     g = groups.setdefault(key, {'issue': key, 'members': [], 'seen': set()})
