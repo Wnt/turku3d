@@ -309,6 +309,8 @@ def main():
     parser.add_argument('--min-free-gb', type=float, default=12, help='no new tile while the farm disk has less free')
     parser.add_argument('--farm-url', default='http://192.168.1.114:7950',
                         help='farm asked for missing spot rebuilds (it listens on the LAN address only)')
+    parser.add_argument('--rebuild-window', type=int, default=12,
+                        help='spot rebuilds requested from the farm at a time, the first waiting tiles in pass order')
     parser.add_argument('--rebuild-interval', type=float, default=600, help='seconds between requests for a spot '
                         'rebuild that is not there yet')
     parser.add_argument('--min-free-mem-gb', type=float, default=8,
@@ -384,8 +386,13 @@ def main():
                     waiting.clear()
                 due = [t for t, w in rebuilding.items() if (root / 'products' / w['row'].get('rebuild_generation', '')
                                                              / t / 'ready.json').exists()]
-                for tile, w in rebuilding.items():
-                    if tile not in due and now >= w['ask']:
+                # Ask the farm only for the next --rebuild-window waiting tiles (pass order): asking for all of them
+                # filled the farm's queue first-come-first-served, and the ranked tiles waited behind far ones.
+                rank = (lambda t: (order.get(t, len(order)), ring(t), t)) if order else (lambda t: (ring(t), t))
+                window = sorted((t for t in rebuilding if t not in due), key=rank)[:args.rebuild_window]
+                for tile in window:
+                    w = rebuilding[tile]
+                    if now >= w['ask']:
                         w['ask'] = now + args.rebuild_interval
                         threading.Thread(target=M.request_rebuild, args=(args.farm_url, w['row']), daemon=True).start()
                 if due:
@@ -403,8 +410,7 @@ def main():
                             continue
                         early = pending_rebuild(root, meta, tile)
                         if early is not None:  # Its build first: the steps before it would run for nothing.
-                            threading.Thread(target=M.request_rebuild, args=(args.farm_url, early), daemon=True).start()
-                            rebuilding[tile] = dict(row=early, ask=now + args.rebuild_interval)
+                            rebuilding[tile] = dict(row=early, ask=0)  # asked from the window above
                             if tile not in asked:
                                 asked.add(tile)
                                 early.update(at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
@@ -432,10 +438,9 @@ def main():
                                at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
                     if row['state'] == 'missing-rebuild':
                         # Ask the farm for the build off the scheduler thread (it may take up to its timeout).
-                        threading.Thread(target=M.request_rebuild, args=(args.farm_url, row), daemon=True).start()
                         first = lane.tile not in asked
                         asked.add(lane.tile)
-                        rebuilding[lane.tile] = dict(row=row, ask=now + args.rebuild_interval)
+                        rebuilding[lane.tile] = dict(row=row, ask=0)
                         lane.future = lane.tile = None
                         if not first:
                             continue  # Logged once; the retries stay out of the journal.
