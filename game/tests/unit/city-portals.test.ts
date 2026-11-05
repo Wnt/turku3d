@@ -100,6 +100,9 @@ describe('portal trigger', () => {
     const e = enToEngine(exit.E, exit.N);
     expect(portalLocal(p, e.x, e.z).along).toBeCloseTo(EXIT_DISTANCE_M, 6);
     expect(exit.headingDeg).toBe(p.headingDeg);
+    // In Turku's grid whatever city the page plays (the return URL is built on the other city's page).
+    expect(exit.E).toBeGreaterThan(23459000); expect(exit.E).toBeLessThan(23462000);
+    expect(exit.N).toBeGreaterThan(6704000); expect(exit.N).toBeLessThan(6706000);
     expect(returnTarget('espoo', 'kupittaa-northwest').id).toBe('kupittaa-northwest');
     expect(returnTarget('espoo', 'aninkainen-rail').id).toBe('kupittaa-southeast');
     expect(returnTarget('rotterdam', null).id).toBe('aninkainen-path');
@@ -112,7 +115,7 @@ describe('portal trigger', () => {
       const back = returnPortal(CITIES[name])!;
       expect(back.to).toBe('turku');
       expect(portalsIn(CITIES[name])).toEqual([back]);
-      const s = enToEngine(CITIES[name].spawn.E, CITIES[name].spawn.N);
+      const s = { x: CITIES[name].spawn.E - CITIES[name].origin.E, z: CITIES[name].origin.N - CITIES[name].spawn.N };
       expect(Math.hypot(back.x - s.x, back.z - s.z)).toBeCloseTo(12, 6);
     }
   });
@@ -217,8 +220,8 @@ describe('city switch state', () => {
     expect(asked).toEqual(['/cities/espoo/coarse/health']);
     expect(await cityServed(CITIES.espoo, async () => ({ state: 'offline' }))).toBe(false);
     expect(await cityServed(CITIES.espoo, async () => null)).toBe(false);
-    expect(await cityServed(CITIES.espoo, async () => { throw new Error('404'); })).toBe(false);
-    let answer = false;
+    expect(await cityServed(CITIES.espoo, async () => { throw new Error('timeout'); })).toBeNull();
+    let answer: boolean | null = false;
     const availability = new CityAvailability(async () => answer, 1000);
     expect(availability.served('amsterdam', 0)).toBeNull();
     await new Promise(r => setTimeout(r, 0));
@@ -226,6 +229,9 @@ describe('city switch state', () => {
     answer = true;
     expect(await availability.confirm('amsterdam', 600)).toBe(true);
     expect(availability.served('amsterdam', 700)).toBe(true);
+    answer = null; // a busy host that does not answer keeps the last answer
+    expect(await availability.confirm('amsterdam', 800)).toBe(true);
+    expect(availability.served('amsterdam', 5000)).toBe(true);
   });
 
   it('shows only the wallet outside Turku', () => {

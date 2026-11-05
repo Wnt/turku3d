@@ -3,7 +3,7 @@
 // are drawn by portalMarkers.ts, the trip itself is gameplay/travel.ts. Portals are fixed world data, the same on every
 // client; only the player who passes one travels (multiplayer: the trip leaves this city's room for the target's).
 import { CITIES, CITY, HOME_CITY, type CityName, type CityProfile } from '../core/city';
-import { enToEngine, engineToEN, headingToYaw } from '../core/origin';
+import { headingToYaw } from '../core/origin';
 
 export interface PortalDef {
   id: string;
@@ -59,7 +59,8 @@ const RETURN_AHEAD_M = 12;
 /** The return arch at `city`'s centre (none in Turku). */
 export function returnPortal(city: CityProfile): PortalDef | null {
   if (city.name === HOME_CITY) return null;
-  const s = enToEngine(city.spawn.E, city.spawn.N);
+  // Engine metres of `city` itself, whichever city this page plays.
+  const s = { x: city.spawn.E - city.origin.E, z: -(city.spawn.N - city.origin.N) };
   const h = city.spawn.headingDeg * Math.PI / 180;
   return { id: `${city.name}-return`, to: HOME_CITY, place: `${city.spawn.label}, ${city.title}`,
     x: s.x + RETURN_AHEAD_M * Math.sin(h), z: s.z - RETURN_AHEAD_M * Math.cos(h), headingDeg: city.spawn.headingDeg,
@@ -95,11 +96,12 @@ export function returnTarget(city: CityName, cameThrough: string | null): Portal
   return portal;
 }
 
-/** Where a return through `portal` lands (Turku E/N and heading): past the portal on its lanes, facing away from it. */
+/** Where a return through Turku `portal` lands (Turku E/N and heading, computed in Turku's frame on any city's page):
+ *  past the portal on its lanes, facing away from it. */
 export function exitPose(portal: PortalDef): { E: number; N: number; headingDeg: number } {
-  const h = portal.headingDeg * Math.PI / 180;
-  const en = engineToEN(portal.x + EXIT_DISTANCE_M * Math.sin(h), 0, portal.z - EXIT_DISTANCE_M * Math.cos(h));
-  return { E: en.E, N: en.N, headingDeg: portal.headingDeg };
+  const h = portal.headingDeg * Math.PI / 180, o = CITIES[HOME_CITY].origin;
+  return { E: o.E + portal.x + EXIT_DISTANCE_M * Math.sin(h), N: o.N - (portal.z - EXIT_DISTANCE_M * Math.cos(h)),
+    headingDeg: portal.headingDeg };
 }
 
 /** Engine yaw of a vehicle chassis (+X forward) driving along grid bearing `headingDeg`. */

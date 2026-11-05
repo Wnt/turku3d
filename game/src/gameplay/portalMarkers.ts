@@ -19,6 +19,8 @@ const FADE_START = 160;
 const FADE_END = 260;
 const PULSE_SECONDS = 2.2;
 const PROBE_RETRY_SECONDS = 1;
+/** Portals of one city closer than this share one map marker. */
+const MAP_MERGE_M = 60;
 
 /** Ground under a portal from a downward ray starting at `top` (null: from the sky), or null while not resident. */
 type GroundProbe = (x: number, z: number, top: number | null) => Promise<number | null>;
@@ -98,10 +100,16 @@ export class PortalMarkers {
     }
   }
 
-  /** Map markers: every portal with its target city's name and colour. */
+  /** Map markers: one per bridge and target city (the two Espoo carriageways share a marker), with the city's name. */
   markers(): { x: number; z: number; label: string; colour: string; soon: boolean }[] {
-    return this.arches.map(a => ({ x: a.def.x, z: a.def.z, label: portalCity(a.def).title,
-      colour: a.soon ? SOON_COLOUR : PORTAL_COLOURS[a.def.to], soon: a.soon === true }));
+    const out: { x: number; z: number; label: string; colour: string; soon: boolean; n: number }[] = [];
+    for (const a of this.arches) {
+      const label = portalCity(a.def).title;
+      const same = out.find(m => m.label === label && Math.hypot(m.x - a.def.x, m.z - a.def.z) < MAP_MERGE_M);
+      if (same) { same.x = (same.x * same.n + a.def.x) / (same.n + 1); same.z = (same.z * same.n + a.def.z) / (same.n + 1); same.n++; continue; }
+      out.push({ x: a.def.x, z: a.def.z, label, colour: a.soon ? SOON_COLOUR : PORTAL_COLOURS[a.def.to], soon: a.soon === true, n: 1 });
+    }
+    return out.map(({ n: _n, ...m }) => m);
   }
 
   snapshot() {

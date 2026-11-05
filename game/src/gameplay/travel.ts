@@ -68,18 +68,18 @@ export function cameThrough(store: KeyValueStore | null): string | null {
   try { return store?.getItem(CAME_THROUGH_KEY) ?? null; } catch { return null; }
 }
 
-/** Whether `city`'s tiles are served on this origin: its tile mount answers health with state "ready". Turku always is.
- *  `get` is the JSON fetch (tests pass their own). */
-export async function cityServed(city: CityProfile, get: (url: string) => Promise<unknown> = defaultGet): Promise<boolean> {
+/** Whether `city`'s tiles are served on this origin: its tile mount answers health with state "ready" (true), answers
+ *  anything else (false), or does not answer at all (null: a busy host or a dropped request says nothing). Turku always
+ *  is. `get` is the JSON fetch (tests pass their own); it throws when no answer arrived. */
+export async function cityServed(city: CityProfile, get: (url: string) => Promise<unknown> = defaultGet): Promise<boolean | null> {
   if (isHome(city)) return true;
-  try {
-    const health = await get(`${city.tiles}health`) as { state?: unknown } | null;
-    return health?.state === 'ready';
-  } catch { return false; }
+  let health: { state?: unknown } | null;
+  try { health = await get(`${city.tiles}health`) as { state?: unknown } | null; } catch { return null; }
+  return health?.state === 'ready';
 }
 
 const defaultGet = async (url: string) => {
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10_000) });
   return res.ok && (res.headers.get('content-type') ?? '').includes('json') ? res.json() : null;
 };
 
@@ -88,24 +88,25 @@ export class CityAvailability {
   private known = new Map<CityName, { served: boolean; at: number }>();
   private pending = new Set<CityName>();
 
-  constructor(private readonly check: (city: CityProfile) => Promise<boolean> = cityServed, private readonly ttlMs = 30_000) {}
+  constructor(private readonly check: (city: CityProfile) => Promise<boolean | null> = cityServed, private readonly ttlMs = 30_000) {}
 
-  /** The last known state (null before the first answer); starts a check when it is older than the TTL. */
+  /** The last answer (null before the first one); starts a check when it is older than the TTL. No answer keeps the
+   *  previous one. */
   served(name: CityName, now: number): boolean | null {
     const k = this.known.get(name);
     if ((!k || now - k.at > this.ttlMs) && !this.pending.has(name)) {
       this.pending.add(name);
-      void this.check(CITIES[name]).then(served => { this.known.set(name, { served, at: now }); })
+      void this.check(CITIES[name]).then(served => { if (served !== null) this.known.set(name, { served, at: now }); })
         .finally(() => this.pending.delete(name));
     }
     return k?.served ?? null;
   }
 
-  /** Waits for a fresh answer (the moment the player enters a portal). */
+  /** Waits for a fresh answer (the moment the player enters a portal); no answer falls back to the last one. */
   async confirm(name: CityName, now: number): Promise<boolean> {
     const served = await this.check(CITIES[name]);
-    this.known.set(name, { served, at: now });
-    return served;
+    if (served !== null) this.known.set(name, { served, at: now });
+    return served ?? this.known.get(name)?.served ?? false;
   }
 }
 

@@ -239,6 +239,7 @@ export class Minimap {
       ctx.strokeText(remote.nick, labelX, labelY, size - 12);
       ctx.fillText(remote.nick, labelX, labelY, size - 12);
     }
+    const placed: [number, number][] = [];
     for (const portal of this.portals) {
       let [sx, sy] = project(portal, centre, rotation, k);
       const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;
@@ -251,7 +252,10 @@ export class Minimap {
       const label = portal.soon ? `${portal.label} (soon)` : portal.label;
       ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
       const w = Math.min(ctx.measureText(label).width, size - 12);
-      const lx = Math.max(6 + w / 2, Math.min(size - 6 - w / 2, px)), ly = py < 22 ? py + 20 : py - 11;
+      // A neighbour's label already above: this one goes below its ring.
+      const below = py < 22 || placed.some(([x, y]) => Math.abs(x - px) < 60 && Math.abs(y - py) < 18);
+      placed.push([px, py]);
+      const lx = Math.max(6 + w / 2, Math.min(size - 6 - w / 2, px)), ly = below ? py + 20 : py - 11;
       ctx.lineWidth = 3; ctx.strokeStyle = '#10252d'; ctx.strokeText(label, lx, ly, size - 12);
       ctx.fillStyle = portal.colour; ctx.fillText(label, lx, ly, size - 12);
     }
