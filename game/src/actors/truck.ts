@@ -30,6 +30,8 @@ export class TruckVisual {
     this.seat.position.set(seat.p.x, seat.p.y + GROUND_Y, seat.p.z); this.seat.rotation.set(0, Math.PI / 2, 0);
     // Physical hub markers (remote bounds and checks read `vehicle-wheel-*`).
     for (let i = 0; i < TRUCK.wheels.length; i++) { const marker = new T.Object3D(); marker.name = `vehicle-wheel-${i}`; this.root.add(marker); }
+    // The lamp lenses' own materials exist before the model is prepared (actors/seatedVehicles.ts), so those are drawn.
+    vehicleLamps(this.root, 'truck', 0);
     applyTrophyRig(this.root, staticWheels());
     this.loaded = true;
   }

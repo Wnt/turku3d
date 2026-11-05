@@ -17,17 +17,26 @@ export class SeatedVehicles {
   private readonly extraTrucks = new Map<string, TruckVisual>();
   private readonly byId: Record<string, ScooterVisual | TruckVisual>;
 
+  /** `prepare` builds a model's shader programs ahead of its first draw (the actor lane of main.ts prepareGraphics). */
   constructor(private readonly root: THREE.Object3D, private readonly physics: Pick<PhysicsClient, 'spawnVehicle'>,
-    private readonly groundAt: (x: number, z: number) => Promise<number>) {
+    private readonly groundAt: (x: number, z: number) => Promise<number>,
+    private readonly prepare: (model: THREE.Object3D) => Promise<void> = async () => {}) {
     this.scooter = new ScooterVisual(root);
     this.truck = new TruckVisual(root);
     this.byId = { [SCOOTER_ID]: this.scooter, [TRUCK_ID]: this.truck };
   }
 
-  /** `renderer` decodes the trucks' KTX2 textures (required in the game; tests load without textures). */
+  /** `renderer` decodes the trucks' KTX2 textures (required in the game; tests load without textures).
+   *  Both vehicles stay hidden until one is bought, spawned or seen under a remote player, so the boot warm-up never
+   *  draws them. Each loaded model is prepared at once instead: unprepared, its first draws are skipped until the
+   *  deferred first-use builds (render/asyncNodeBuilds.ts) reach its programs, which on city.lab took minutes (the
+   *  driver sat in the air). Extra, draft and remote trucks share the truck template's materials and programs. */
   load(base: string, renderer?: THREE.WebGPURenderer) {
     configureTrophyAsset(base, renderer);
-    return Promise.all([this.scooter.load(`${base}assets/vehicles/scooter.glb`), this.truck.load()]);
+    const prepared = (visual: ScooterVisual | TruckVisual, load: Promise<void>) => load.then(() => {
+      this.prepare(visual.root).catch(error => console.warn(`[assets] ${visual.root.name} shader preparation failed: ${String((error as Error)?.message ?? error)}`));
+    });
+    return Promise.all([prepared(this.scooter, this.scooter.load(`${base}assets/vehicles/scooter.glb`)), prepared(this.truck, this.truck.load())]);
   }
 
   async addTruck(id: string) {
