@@ -3,7 +3,9 @@
 import type { KeyValueStore } from '../core/save';
 import { cityKey } from '../core/city';
 
-const KEY = cityKey('turku3d.mp.progress.v1');
+/** Session-storage key (per city, core/city.ts cityKey) of the multiplayer mission progress. */
+export const PROGRESS_KEY = 'turku3d.mp.progress.v1';
+const KEY = cityKey(PROGRESS_KEY);
 const TOKEN = /^[a-f0-9]{64}$/;
 
 export class MultiplayerProgress {

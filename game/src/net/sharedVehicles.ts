@@ -5,6 +5,7 @@ import type { VehicleState } from '../physics/protocol';
 import type { Manifest } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { driverSide, yawOf } from '../gameplay/saveGame';
+import { OWN_VEHICLE_ID } from '../gameplay/missions/missions';
 import { vehicleIdentity } from './identity';
 import { VEHICLE_POSE_HEIGHT } from './height';
 import type { MultiplayerClient, NetPose } from './client';
@@ -79,9 +80,11 @@ export class SharedVehicles {
     });
   }
 
+  /** Forgets every shared record and the bodies simulated for them (a timed round's wipe, a progress reset), to be
+   *  restored from the room again; the start car keeps its body, which the new game parks at the start. */
   resetRound() {
     this.driving = null; this.client.holdSeat(null); this.active = false; this.entering = false;
-    for (const item of this.managed.values()) this.physics.removeVehicle(item.local);
+    for (const item of this.managed.values()) if (item.local !== OWN_VEHICLE_ID) this.physics.removeVehicle(item.local);
     this.managed.clear(); this.fresh.clear(); this.replicas.clear(); this.pending.clear(); this.retryAt.clear();
     this.sent.clear(); this.impulses.clear(); this.blockedUntil.clear(); this.releaseOnReconnect.clear(); this.starterAt = null;
     this.parked.resetRound();

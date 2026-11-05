@@ -49,6 +49,7 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
+import { clearProgress } from './gameplay/progressReset';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
@@ -338,6 +339,31 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     }
     missions.bringFailed();
   };
+  /**
+   * "Reset progress" (SaveGameController.resetProgress, gameplay/progressReset.ts), after the player left any vehicle:
+   * every city's stored progress goes; in a room the shared records resync and the room resets the player (score, seat,
+   * own vehicles); the bought scooter and truck go. The new game starts at Turku's default start: on this page, or
+   * after a trip there (from another city, or from Turku entered at a portal exit, ?spawn=) that carries the fresh
+   * mission and the multiplayer choice like a trip home.
+   */
+  const forgetProgress = async (): Promise<boolean> => {
+    autopilot.cancel('progress reset'); fly?.set(false);
+    saves.clear(); clearProgress(browserStorage(), sessionStore());
+    missions.restore(null);
+    if (multiplayerPlaying && multiplayer && sharedVehicles) {
+      sharedVehicles.resetRound();
+      await multiplayer.resetProgress();
+      multiplayerRunId = crypto.randomUUID();
+    }
+    for (const id of [SCOOTER_ID, TRUCK_ID]) physics.removeVehicle(id);
+    if (storyCity && !params.spawnGiven) return true;
+    travelling = true;
+    writeTicket(sessionStore(), { v: 1, from: CITY.name, to: HOME_CITY, portal: null, ride: null, mission: missions.serialize(),
+      multiplayer: multiplayerPlaying, at: Date.now() });
+    showTransition(document.body, CITIES[HOME_CITY]);
+    setTimeout(() => { if (world.travel && !storyCity) void world.travel(HOME_CITY); else location.assign(cityPageUrl(HOME_CITY, location)); }, 700);
+    return false;
+  };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
@@ -360,6 +386,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     returnHome: storyCity ? undefined : {
       detail: `To the ${returnTarget(CITY.name, cameThrough(sessionStore())).place.split(',')[0]} portal`,
       run: () => depart(HOME_CITY, null) },
+    resetProgress: { forget: forgetProgress,
+      at: () => multiplayerPlaying && multiplayer?.state.you ? multiplayerStart(multiplayer.state.you, undefined, undefined, roomStart) : null },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
