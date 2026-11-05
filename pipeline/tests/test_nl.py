@@ -112,7 +112,7 @@ def test_bgt_points_become_register_trees_and_lamps(monkeypatch):
 
 
 def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
-    """AHN class 1: facades, boats, vehicles and wires stay 1; the crown becomes vegetation by height."""
+    """AHN class 1: facades, boats, vehicles, solid monuments and wires stay 1; the crown becomes vegetation."""
     from turku3d.nl import lidar
 
     rng = np.random.default_rng(3)
@@ -135,6 +135,8 @@ def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
     add(boat, 1, boat[:, 2], water=True)
     car = np.c_[rng.uniform(20, 24, 50), rng.uniform(30, 32, 50), np.full(50, 1.4)]
     add(car, 1, car[:, 2], street=True)
+    monument = np.c_[rng.normal(25, 0.3, 200), rng.normal(5, 0.3, 200), rng.uniform(1, 20, 200)]
+    add(monument, 1, monument[:, 2])
     s = np.arange(0, 30, 0.15)
     wire = np.c_[2 + s, np.full(s.size, 20.0), 6.5 + rng.normal(0, 0.01, s.size)]
     add(wire, 1, wire[:, 2])
@@ -147,10 +149,14 @@ def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
     tops = lidar.building_tops(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls, np.zeros((n, n), bool), 0.0, 40.0, n, n)
     col = np.clip(xyz[:, 0].astype(int), 0, n - 1)
     row = np.clip((40.0 - xyz[:, 1]).astype(int), 0, n - 1)
+    returns = np.ones(len(cls), np.uint8)
+    start = sum(len(p[0]) for p in parts[:4])
+    returns[start:start + len(crown)] = rng.integers(1, 4, len(crown))  # crowns split pulses
     out = lidar.split_unclassified(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls, hag, tops[row, col], street, water,
-                                   origin=(0.0, 0.0))
+                                   origin=(0.0, 0.0), returns=returns)
     spans = np.cumsum([0] + [len(p[0]) for p in parts])
-    ground, deck, roof, facade, crown, boat, car, wire = (out[a:b] for a, b in zip(spans[:-1], spans[1:]))
+    ground, deck, roof, facade, crown, boat, car, monument, wire = (out[a:b] for a, b in zip(spans[:-1], spans[1:]))
+    assert (monument == 1).all()
     assert (ground == 2).all() and (roof == 6).all() and (deck == 17).all()
     assert (facade == 1).all() and (boat == 1).all() and (car == 1).all()
     assert (crown == 5).mean() > 0.95

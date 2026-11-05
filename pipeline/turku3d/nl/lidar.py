@@ -24,10 +24,13 @@ AFLOAT = 3.0  # m above the water surface: boats, pontoons and moorings, not veg
 # Wire returns (turku3d.wire_points) stay class 1 as in Turku's survey, where the wire producers look for them.
 # AHN files crowns in class 1 too, so the candidates crowd themselves (as overlap returns do in Turku).
 WIRE_STAGE = {"min_extent": 4.0, "min_points": 8, "self_crowd": 6}
+SOLID_CELL = 1.0  # m: plan cells in which a solid object (monument, kiosk, mast, sculpture) is told from a crown
+SOLID_SHARE = 0.2  # a crown splits pulses: below this share of multiple-return candidates a cell is solid
+SOLID_MIN = 4  # candidate returns a cell needs before it can be called solid
 CIVIL, BRIDGE = 26, 17  # AHN "kunstwerk" (bridges, viaducts, quays) -> ASPRS bridge deck, which bridge profiles prefer
 
 
-def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin):
+def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin, returns=None):
     """Turku's classes for AHN returns (2 ground, 6 building, 9 water, 26 civil structures -> 17, the rest 1).
 
     AHN class 1 holds everything else together: crowns, facades and roof furniture, wires, vehicles, boats.
@@ -36,8 +39,10 @@ def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin):
         ``ROOF_CLEAR`` over that roof: facades, balconies, dormers, chimneys;
       - over BGT water below ``AFLOAT``: boats and pontoons;
       - over carriageways below ``STREET_OBJECTS``: vehicles and street furniture;
-      - wire returns (line-like stretches in free air, ``WIRE_STAGE``).
-    ``building_top``, ``street`` and ``water`` are per point."""
+      - wire returns (line-like stretches in free air, ``WIRE_STAGE``);
+      - solid objects: a ``SOLID_CELL`` plan cell whose candidates are almost all single returns (``returns``,
+        the pulse's number of returns; vegetation, leafed or bare, splits pulses).
+    ``building_top``, ``street``, ``water`` and ``returns`` are per point."""
     from turku3d.wire_points import RECIPE, wire_points
 
     out = np.ones(len(cls), np.uint8)
@@ -55,6 +60,14 @@ def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin):
         found, _ = wire_points(x, y, z, probe, hag, r={**RECIPE, **WIRE_STAGE}, origin=origin, workers=2)
         wires[found] = True
     veg &= ~wires
+    if returns is not None and veg.any():
+        idx = np.flatnonzero(veg)
+        cell = np.floor(np.c_[x[idx] - origin[0], y[idx] - origin[1]] / SOLID_CELL).astype(np.int64)
+        _, inverse, counts = np.unique(cell, axis=0, return_inverse=True, return_counts=True)
+        inverse = inverse.ravel()
+        split = np.bincount(inverse, weights=np.asarray(returns)[idx] > 1, minlength=len(counts))
+        solid = (counts >= SOLID_MIN) & (split < SOLID_SHARE * counts)
+        veg[idx[solid[inverse]]] = False
     out[veg & (hag >= VEG_LOW)] = 3
     out[veg & (hag >= VEG_MEDIUM)] = 4
     out[veg & (hag >= VEG_HIGH)] = 5
@@ -129,7 +142,7 @@ def pointcloud_block(block: C.LazTile, ground_points: np.ndarray, log=print) -> 
     hag = pts["z"] - ground[row, col]
     tops = building_tops(pts["x"], pts["y"], pts["z"], cls, pand, b.emin, b.nmax, nx, ny)
     out = split_unclassified(pts["x"], pts["y"], pts["z"], cls, hag, tops[row, col], street[row, col],
-                             water[row, col], origin=(b.emin, b.nmin))
+                             water[row, col], origin=(b.emin, b.nmin), returns=pts["number_of_returns"])
     root = C.raw_dir("laz") / "pistepilvi"
     root.mkdir(parents=True, exist_ok=True)
     dest = root / f"{block.name}.laz"
