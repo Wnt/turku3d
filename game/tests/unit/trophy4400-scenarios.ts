@@ -110,10 +110,12 @@ export function crab() {
 
 interface LandingMetrics { peakCompression: number; chassisContact: boolean; peakForce: number; overshoot: number; settle: number; airPitch: number; airtime: number }
 
-function landing(c: ReturnType<typeof course>, seconds: number, input: Parameters<ReturnType<typeof course>['run']>[1], airborneFrom = -Infinity) {
+function landing(c: ReturnType<typeof course>, seconds: number, input: Parameters<ReturnType<typeof course>['run']>[1], airborneFrom = -Infinity,
+  each?: (s: ReturnType<ReturnType<typeof course>['vehicle']['state']>) => void) {
   let peak = 0, peakForce = 0, air = 0, airtime = 0, airPitch = 0, landed = -1, minY = Infinity, minAt = -1;
   const ys: { t: number; y: number }[] = [];
   c.run(seconds, input, (s, t) => {
+    each?.(s);
     const flying = s.wheels.every(w => !w.contact) && s.pos.x > airborneFrom;
     if (flying) { air += 1 / 60; airPitch = Math.max(airPitch, Math.abs(pitch(s.rot))); }
     else if (air > 0.1 && landed < 0) { airtime = air; landed = t; }
@@ -132,13 +134,15 @@ function landing(c: ReturnType<typeof course>, seconds: number, input: Parameter
   return { peakCompression: peak, chassisContact: c.chassisContact, peakForce, overshoot, settle: settledAt - minAt, airPitch, airtime } satisfies LandingMetrics;
 }
 
-/** D6: a 1.2 m flat drop (static ride height + 1.2 m, at rest). */
-export function flatDrop() {
-  const c = course({ y: 0.98 + 1.2, settle: 0 });
+/** D6: a flat drop from `height` above static ride (1.2 m in the spec, 3 m for the hard case), at rest; `belly` is
+ *  the lowest chassis-box underside over the ground. */
+export function flatDrop(height = 1.2) {
+  const c = course({ y: 0.98 + height, settle: 0 });
   // Let the suspension reach full droop in the air before the measurement (a real drop leaves at static).
-  const m = landing(c, 4, idle());
+  let belly = Infinity;
+  const m = landing(c, 4, idle(), -Infinity, s => { belly = Math.min(belly, s.pos.y - TRUCK.halfExt.y * Math.cos(pitch(s.rot) * Math.PI / 180) - TRUCK.halfExt.x * Math.abs(Math.sin(pitch(s.rot) * Math.PI / 180))); });
   c.free();
-  return m;
+  return { ...m, belly };
 }
 
 /** D6 + D13: kicker with the chassis height trace for the camera follower. */
@@ -275,11 +279,14 @@ export function skidpad(material: number, radius = 25) {
   };
   const rows: { v: number; ay: number; error: number; frontSlip: number; rearSlip: number }[] = [];
   for (; v <= 26; v += 0.5) {
-    let ay = 0, n = 0, error = 0, fs = 0, rs = 0;
+    let ay = 0, n = 0, error = 0, fs = 0, rs = 0, last: { x: number; z: number } | null = null;
     c.run(2.5, st => drive(st, v));
     c.run(1.5, st => drive(st, v), st => {
-      const omega = c.vehicle.body.angvel().y;
-      ay += Math.abs(omega * Math.hypot(st.linvel.x, st.linvel.z)); n++;
+      // Lateral acceleration from the turning of the velocity vector (v·dψ/dt), not the yaw rate: a drifting tail
+      // spins the body faster than the path turns, and ω·v would count that spin as grip.
+      const u = { x: st.linvel.x, z: st.linvel.z }, speed = Math.hypot(u.x, u.z);
+      if (last && speed > 0.5) { ay += Math.abs(last.x * u.z - last.z * u.x) / (Math.hypot(last.x, last.z) * speed) * 60 * speed; n++; }
+      last = u;
       error = Math.max(error, Math.abs(Math.hypot(st.pos.x, st.pos.z - cz) - radius));
       const slip = (i: number) => st.wheels[i].tyre ? Math.abs(deg(Math.atan2(st.wheels[i].tyre!.lateral, Math.abs(st.wheels[i].tyre!.longitudinal) + 0.1))) : 0;
       fs += (slip(0) + slip(1)) / 2; rs += (slip(2) + slip(3)) / 2;

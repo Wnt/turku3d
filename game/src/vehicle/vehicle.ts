@@ -142,17 +142,27 @@ export class Vehicle {
     this.throttleApplied = h.drive;
     const rs = t.rearSteer, axles = this.axles;
     if (rs) this.rear = rearSteerStep(rs, this.rear, this.steering / t.maxSteer, speed, input?.rearSteer ?? 0, dt);
+    // CRAB keeps all four wheels parallel: the front stops at the rear's 32° lock instead of turning on to 42°.
+    const front = rs && this.rear.mode === 'crab' ? Math.max(-rs.maxAngle, Math.min(rs.maxAngle, this.steering)) : this.steering;
     for (let i = 0; i < t.wheels.length; i++) {
-      const front = t.front.includes(i), driven = t.driven.includes(i), at = t.wheels[i];
+      const isFront = t.front.includes(i), driven = t.driven.includes(i), at = t.wheels[i];
       v.setWheelSteering(i, rs && axles
-        ? (front || rs.wheels.includes(i) ? ackermann4(this.steering, this.rear.angle, axles.xf, axles.xr, axles.track, at.x, at.z,
-          front ? t.maxSteer : rs.maxAngle) : 0)
+        ? (isFront || rs.wheels.includes(i) ? ackermann4(front, this.rear.angle, axles.xf, axles.xr, axles.track, at.x, at.z,
+          isFront ? t.maxSteer : rs.maxAngle) : 0)
         : t.steered.includes(i) ? ackermann(this.steering,
           Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), at.z) : 0);
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
-      v.setWheelBrake(i, h.brake + (driven && !front && h.handbrake ? t.brakeForce : 0));
-      v.setWheelFrictionSlip(i, (front ? h.frontGrip : h.rearGrip) * this.surfaceGrip[i]);
+      v.setWheelBrake(i, h.brake + (driven && !isFront && h.handbrake ? t.brakeForce : 0));
+      let grip = (isFront ? h.frontGrip : h.rearGrip) * this.surfaceGrip[i];
+      if (t.frictionCircle && driven && !isFront && this.surfaceGrip[i] < 1 && v.wheelIsInContact(i)) {
+        // Drive force against the tyre's μ·Fz (last tick's load). Rapier's ray-cast tyre keeps full side grip under
+        // drive, so past the knee (`use` > 1, the drive alone saturating the tyre) side grip falls to the floor.
+        const fz = v.wheelSuspensionForce(i) ?? 0, use = fz > 1 ? Math.abs(h.engine * this.drive[i]) / (grip * fz) : 0;
+        const fc = t.frictionCircle, u = Math.min(1, Math.max(0, (use - fc.knee) / fc.span));
+        grip *= 1 - (1 - fc.floor) * u * u * (3 - 2 * u);
+      }
+      v.setWheelFrictionSlip(i, grip);
     }
     this.scheduleSuspension(dt);
     // Contact velocity includes yaw: rear wheels slide differently from the chassis centre.
@@ -194,6 +204,14 @@ export class Vehicle {
         torque.z += (up.x * axle.y - up.y * axle.x) * roll;
       }
       b.applyTorqueImpulse(torque, true);
+    }
+    if (t.airPitch && t.wheels.every((_, i) => !v.wheelIsInContact(i))) {
+      // In the air: the pitch rate about the chassis Z axis decays (aero and wheel inertia) and the throttle/brake
+      // pitch the chassis, so a kicker launch does not nose over and the driver can level a landing.
+      const z = rotate({ x: 0, y: 0, z: 1 }, q), w = b.angvel(), rate = w.x * z.x + w.y * z.y + w.z * z.z;
+      const accel = t.airPitch.control * ((input?.throttle ?? 0) - (input?.brake ?? 0));
+      const change = -rate * (1 - Math.exp(-t.airPitch.damping * dt)) + accel * dt;
+      b.setAngvel({ x: w.x + z.x * change, y: w.y + z.y * change, z: w.z + z.z * change }, true);
     }
     for (let i = 0; i < t.wheels.length; i++) {
       this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],

@@ -73,6 +73,13 @@ export interface VehicleTuning {
   grip?: { front: number; rear: number; surface: Readonly<Record<string, readonly [front: number, rear: number]>> };
   /** Scale of the quadratic aerodynamic drag term. Absent: 1. */
   drag?: number;
+  /** Friction circle on the driven rear wheels: drive force uses up side grip, so power on a loose surface steps the
+   *  tail out (power-on oversteer). Side grip blends from 1 at `knee` (drive force / μFz) to `floor` at knee + span.
+   *  Absent: no coupling. */
+  frictionCircle?: { floor: number; knee: number; span: number };
+  /** Airborne pitch: damping of the pitch rate (1/s) with all wheels off the ground, and the throttle/brake pitch
+   *  authority (rad/s², throttle lifts the nose like spinning wheels do, brake drops it). Absent: none. */
+  airPitch?: { damping: number; control: number };
 }
 
 export const CAR = {
@@ -194,6 +201,8 @@ export const TRUCK = {
     surface: { gravel: [0.72, 0.66], sand: [0.72, 0.66], soil: [0.68, 0.62], grass: [0.68, 0.62] },
   },
   drag: 0.8,
+  frictionCircle: { floor: 0.45, knee: 0.85, span: 0.5 },
+  airPitch: { damping: 1.5, control: 1.2 },
 } as const satisfies VehicleTuning;
 
 export type VehicleKind = 'car' | 'scooter' | 'truck';
