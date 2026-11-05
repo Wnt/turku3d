@@ -132,6 +132,25 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
     104.7 exits/min (100.1 without, 95.0 at baseline), 0 locked, 0 overlaps, 78 reroutes, 139 recycled (182 without).
     Video: `~/turku3d/loops/traffic-gta/capture/pass-topdown-aggressive.mp4` (purple reversing, green changing lanes,
     orange going round, cyan just rerouted).
+- **From the GTA blocked-lane experiments** (`gta-traffic-study.md` 4.5; real-tile fast sim `probe/blockade.ts`,
+  16 m truck across a 7 m two-way street in t0_0_0 for 20 min, 9 centre tiles, 3-5x real time on osgallery-dev):
+  - a driver meeting a stopped player's vehicle goes round it without stopping when the corridor is clear
+    (GTA drifts out 8-60 m ahead at unchanged speed);
+  - a fully blocked front car backs off 3-6 m after 2-4 s, then rocks (1 m forward for 2.1 s, back for 2.1 s),
+    and after 45-90 s turns round onto the opposite lane when it is clear (`beginUTurn`: a U-shaped cubic whose
+    forward reach is the room ahead, guarded against cars and players' vehicles; `stats.uturns` counts finished
+    turns);
+  - in view, 20 min blocked: cars stuck > 300 s 56 -> 2, stuck > 60 s within 200 m 42 -> 13, 14 U-turns; out of
+    view the queue never builds (recycling). Both clear within a minute of removing the truck;
+  - hidden jams far from every watcher (> 150 m) go sooner: chain heads after 60 s, others after 120 s. 20/40 s
+    also took cars waiting at red lights (east 98.4 vs 104.7 exits/min);
+  - a final contact check: the pose a car ends its tick in must not touch another car or a player's vehicle (the
+    heading of a pass scales with speed, so a sudden stop turned corners into the oncoming car); otherwise it keeps
+    last tick's pose.
+- **Car budget per tile and hour (A/B, removed):** a tile over 2.5x (or 4x) the cars its lanes carry at free flow
+  that hour fed no new cars and shed hidden excess. East 30 min: 93.9 (4x: 102.5) vs 98.4 (later 104.7) exits/min
+  without it, 0 locked either way. Demand already follows the hour profile; GTA needs budgets because it spawns
+  around the player, we spawn at the area boundary.
 - **Budgeted graph rebuilds** (`buildGraph` generator, `rebuildBudgetMs`): a tile install or release builds the new
   graph in slices beside the live one (3 ms per worker step, `REBUILD_MS_PER_STEP`) and swaps it in at a step
   boundary, remapping cars through id maps built in the job. Before, one step paid 16-140 ms on 25 loaded centre
@@ -172,11 +191,8 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
    - per-car arrays in the worker's publish.
 3. **Traffic, after GTA-style recycling** (2026-11-05): no district locks out of view any more. What remains, from
    `docs/handover/gta-traffic-study.md` section 7:
-   - area/hour car budgets instead of open-loop sources, with recycled cars re-inserted at unobserved sources with
-     spare capacity;
    - no ambient traffic on dead ends, and thin unobserved arterials;
    - GTA-like signal plans (about 10 s phases, protected lefts where turn lanes exist);
-   - in view, a 30 s jam timer that reverses and changes lanes;
    - per-driver aggressiveness.
    In view, jams are still possible (GTA also tolerates them); no soak had one within 320 m of its watcher.
 4. **Smaller items:**
