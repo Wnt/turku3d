@@ -358,11 +358,12 @@ CUT_FEATHER = SELECT_MARGIN - CUT_REACH
 CUT_MARGIN = 2.0  # m beyond the lower way's half width: its outer lanes, shoulders and footways
 
 
-def under_profile(bridge, under, sample, step=2.0):
-    """(stations, heights) of a lower way's surface through a crossing: its measured ground beyond
-    CUT_ANCHOR from the deck on either side, interpolated straight under it. Ground under a deck is
-    a survey gap; interpolating the terrain across it buries the lower road in an embankment."""
-    line = under["line"]
+def under_profile(bridge, line, sample, step=2.0):
+    """(stations, heights, inside) of a lower road's surface through a crossing along ``line``: its
+    measured ground beyond CUT_ANCHOR from the deck, interpolated straight under it. Ground under a
+    deck is a survey gap; interpolating the terrain across it buries the lower road in an
+    embankment. ``inside`` marks the stations bracketed by measured ground on both sides: a road
+    that ends under the deck, or climbs to it, has no level beyond its last anchor to cut to."""
     deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
     far = deck.buffer(CUT_ANCHOR)
     stations = np.unique(np.r_[np.arange(0, line.length, step), line.length])
@@ -371,7 +372,16 @@ def under_profile(bridge, under, sample, step=2.0):
     if not outside.any():
         return None
     heights = np.array([sample(p.x, p.y) for p in points[outside]], dtype=np.float64)
-    return stations, np.interp(stations, stations[outside], heights)
+    anchored = stations[outside]
+    inside = (stations >= anchored.min()) & (stations <= anchored.max())
+    return stations, np.interp(stations, anchored, heights), inside
+
+
+def lower_chains(lower):
+    """Lower ways joined end to end: OSM often splits a street right under a deck, and each half
+    alone has measured ground on one side only."""
+    lines = [w["line"] for w in lower]
+    return list(shapely.get_parts(shapely.line_merge(shapely.union_all(lines)))) if lines else []
 
 
 def below_deck(bridge, ways, tree):
@@ -406,6 +416,7 @@ def cut_under(grid_pos, bridge, sample):
     outline = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
     deck = outline.buffer(CUT_REACH + CUT_FEATHER)
     lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    chains = lower_chains([w for w in lower.values() if w["tags"].get("highway") != "steps"])
     for under in lower.values():
         if under["tags"].get("highway") == "steps":
             continue
@@ -415,14 +426,17 @@ def cut_under(grid_pos, bridge, sample):
         inside = np.flatnonzero(shapely.intersects_xy(corridor, positions[:, 0], positions[:, 2]))
         if not len(inside):
             continue
-        profile = under_profile(bridge, under, sample)
+        chain = max(chains, key=lambda c: c.intersection(under["line"].buffer(0.05)).length)
+        profile = under_profile(bridge, chain, sample)
         if profile is None:
             continue
-        stations, heights = profile
+        stations, heights, bracketed = profile
         points = shapely.points(positions[inside][:, [0, 2]])
-        level = np.interp(shapely.line_locate_point(under["line"], points), stations, heights)
+        located = shapely.line_locate_point(chain, points)
+        level = np.interp(located, stations, heights)
         # Full depth within CUT_REACH of the deck, fading to none over CUT_FEATHER beyond it.
         weight = np.clip(1 - (shapely.distance(outline, points) - CUT_REACH) / CUT_FEATHER, 0, 1)
+        weight *= np.interp(located, stations, bracketed.astype(np.float64)) >= 1.0
         y = result[inside, 1]
         result[inside, 1] = y - weight * np.maximum(0.0, y - level)
     return result
