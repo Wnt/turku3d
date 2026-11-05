@@ -8,6 +8,7 @@
 #   stage.sh cached               create, bootstrap, cache: the read-through cache instead of upload/verify
 #   stage.sh cache                WireGuard tunnel from osgallery-dev, NFSv4.2 exports there, FS-Cache mounts here
 #                                 (host-cache.sh), pipeline env and farm service (host-farm.sh)
+#   stage.sh seed --train A ...   the cached farm's local seed layer: source version minus survey blocks, code snapshots
 #   stage.sh upload --train ...   upload.sh on osgallery-dev (parallel rsync, nice 19/ionice idle); prints the rate
 #   stage.sh verify               catalog + sha256 check on the host (verify_stage.py); writes manifest.json
 #   stage.sh smoke --train A --smoke-tile T   A's whole chain on T from the base, compared with osgallery-dev's T
@@ -79,6 +80,8 @@ bootstrap() {
   ssh "$H" 'set -e; export DEBIAN_FRONTEND=noninteractive
     id wnt >/dev/null 2>&1 || useradd -m -u 1000 -s /bin/bash wnt
     apt-get -qq update >/dev/null; apt-get -qq install -y rsync fio time >/dev/null
+    # No background upgrades competing for the cores (they also run right after a window boot).
+    systemctl disable -q --now apt-daily.timer apt-daily-upgrade.timer unattended-upgrades.service 2>/dev/null || true
     [ -f /swapfile ] || { fallocate -l 8G /swapfile; chmod 600 /swapfile; mkswap -q /swapfile; echo "/swapfile none swap sw 0 0" >> /etc/fstab; }
     swapon /swapfile 2>/dev/null || true
     mkdir -p /home/wnt/turku3d-local/loops/tiles/farm /bulk/turku3d/lidarpc/raw/pistepilvi /home/wnt/turku3d-bulk-gen3
@@ -158,6 +161,33 @@ systemctl daemon-reload; systemctl enable -q bulk-cache; systemctl start bulk-ca
             turku3d-local/loops/tiles/shared_sources.py turku3d-local/loops/tiles/DEPLOYED_FROM | zstd -1 -T4 -q' |
     ssh "$H" 'cd /home/wnt && zstd -dq | tar xf - && chown -R 1000:1000 turku3d-bulk-warmup turku3d-local/loops/tiles/*.py \
               turku3d-local/loops/tiles/*.sh; /home/wnt/turku3d-bulk-gen3/host-cache.sh status'
+}
+
+# The seed layer of the cached farm (host-cache.sh): the aliases' source version without its survey blocks and the code
+# snapshots of the aliases and of their spot-rebuild revisions, streamed once as tar. The overlay is remounted with it.
+seed() {
+  need_trains; H=root@$(IP)
+  PATHS=(); while read -r p; do PATHS+=("$p"); done < <(ssh $OSG "python3 - $F ${TRAINS[*]}" <<'PY'
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1]); names = json.loads((root / 'aliases.json').read_text())
+paths = set()
+for alias in sys.argv[2:]:
+    meta = json.loads((root / 'revisions' / names.get(alias, alias) / 'revision.json').read_text())
+    base = json.loads((root / 'revisions' / meta['base_revision'] / 'revision.json').read_text())
+    paths.add(str(Path(base['data_root']).relative_to(root)))
+    for rev in [meta['code_revision']] + [s['rebuild_revision'] for s in meta['migrations'] if s.get('rebuild_revision')]:
+        if (root / 'revisions' / rev / 'repo').is_dir():
+            paths.add(f'revisions/{rev}/repo')
+print('\n'.join(sorted(paths)))
+PY
+)
+  printf 'seed %s\n' "${PATHS[@]}"; t0=$(date +%s)
+  ssh $OSG "cd $F && nice -n19 tar cf - --exclude='sources/versions/*/raw/laz/pistepilvi' ${PATHS[*]} | zstd -1 -T4 -q" |
+    ssh "$H" "mkdir -p /srv/farm/seed && cd /srv/farm/seed && zstd -dq | tar xf - && du -sh /srv/farm/seed &&
+              systemctl stop bulk-cache 2>/dev/null; /home/wnt/turku3d-bulk-gen3/host-cache.sh down;
+              systemctl start bulk-cache && findmnt -no OPTIONS $F | tr , '\n' | grep lowerdir"
+  echo "seeded in $(( $(date +%s) - t0 )) s"
 }
 
 used() { ssh "root@$(IP)" "df -B1 --output=used / | tail -1"; }
@@ -258,7 +288,7 @@ delete() {
 }
 
 case "$CMD" in
-  create|bootstrap|cache|upload|verify|smoke|grow|delete) "$CMD" ;;
+  create|bootstrap|cache|seed|upload|verify|smoke|grow|delete) "$CMD" ;;
   cached) create; bootstrap; cache ;;
   all) create; bootstrap; upload; verify; smoke ;;
   *) sed -n 2,16p "$0"; exit 2 ;;
