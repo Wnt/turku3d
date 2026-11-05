@@ -134,3 +134,22 @@ test('actor jobs (car batches) go ahead of queued tile and scenery jobs but neve
   await Promise.all([head, b, scenery, car, c, car2]);
   expect(events).toEqual(['tile-a', 'car-1', 'car-2', 'tile-b', 'tile-c', 'scenery']);
 });
+
+test('an aborted job stops waiting for a preparation that never settles, and the queue moves on', async () => {
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  const scene = new THREE3.Scene();
+  const queue = new GraphicsPreparation(scene, () => {}, release => release(), () => Promise.resolve());
+  const life = new AbortController();
+  const stuck = new THREE3.Group(), next = new THREE3.Group();
+  scene.add(stuck, next);
+  const first = queue.enqueue(stuck, () => new Promise(() => {}), life.signal);
+  let ran = false;
+  const second = queue.enqueue(next, () => { ran = true; });
+  await new Promise(r => setTimeout(r, 5));
+  expect(ran).toBe(false); // behind the job that never settles
+  life.abort();
+  await first; await second;
+  expect(ran).toBe(true);
+  expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 2, activeMs: null });
+});

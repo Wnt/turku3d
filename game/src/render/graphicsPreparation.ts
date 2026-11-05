@@ -19,6 +19,11 @@ export class GraphicsPreparation {
   private retiring = Promise.resolve();
   /** Jobs queued and not started yet, per lane (actor, tile, scenery). */
   private waiting = [0, 0, 0];
+  /** Jobs finished (prepared, skipped or aborted) and the start of the job running now (diagnostics: a stalled queue
+   *  shows a growing wait with an old start). */
+  private finished = 0;
+  private activeSince: number | null = null;
+  stats() { return { waiting: [...this.waiting], finished: this.finished, activeMs: this.activeSince === null ? null : performance.now() - this.activeSince }; }
   constructor(private scene: THREE.Scene, private prepareView: (model: THREE.Object3D) => void | Promise<void>,
     private retireFrame: (release: () => void) => void,
     private nextTask = () => new Promise<void>(resolve => afterRender(resolve))) {}
@@ -50,18 +55,25 @@ export class GraphicsPreparation {
       // Recheck because another retirement may join while its preceding fence resolves.
       let barrier: Promise<void>;
       do { barrier = this.retiring; await barrier; } while (barrier !== this.retiring);
-      if (!current()) return;
+      if (!current()) { this.finished++; return; }
       this.active = prepared;
+      this.activeSince = performance.now();
+      // An aborted job (its city was released) stops waiting at once: a preparation of models that are gone may
+      // never settle, and the whole queue waits behind it.
+      const aborted = signal ? new Promise<void>(resolve => {
+        if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true });
+      }) : null;
+      const until = (work: Promise<unknown>) => aborted ? Promise.race([work, aborted]) : work;
       try {
         // Preserve the streaming queue's task-after-animation entry and per-draw budgets.
-        await this.nextTask();
+        await until(this.nextTask());
         if (!current()) return;
         const started = performance.now(), compiles = compileStats.count, compileMs = compileStats.ms;
-        await prepare();
-        if (current()) await this.prepareView(model);
+        await until(Promise.resolve(prepare()));
+        if (current()) await until(Promise.resolve(this.prepareView(model)));
         streamTrace.event('gfx.prepare', model.userData.traceId as string | undefined, { wait: started - queuedAt, ms: performance.now() - started,
           compiles: compileStats.count - compiles, compileMs: compileStats.ms - compileMs, scenery: !!model.userData.scenery });
-      } finally { this.active = null; }
+      } finally { this.active = null; this.activeSince = null; this.finished++; }
     });
     this.queued = prepared.catch(() => {});
     return prepared.then(() => requeued);

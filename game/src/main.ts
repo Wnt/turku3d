@@ -262,6 +262,7 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+(window.__render as unknown as Record<string, unknown>).graphics = () => graphics.stats();
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 // Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
 // net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
