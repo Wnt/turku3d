@@ -80,6 +80,36 @@ cut twice by a corrupted packet (sshd: "message authentication code incorrect"),
 had no `node` (bootstrap installs osgallery-dev's NodeSource version, pinned); unattended-upgrades took the single
 vCPU (bootstrap disables the apt timers).
 
+### Outcome: stage locally for a window (2026-11-05)
+
+The cache works (cold 51-70 MB/s, warm 413-724 MB/s, byte-identical tiles), but on the 16-core rehearsal lanes sat in
+iowait while cold reads shared the 60 MB/s tunnel. Jonni chose full staging so the 64-core window never waits on
+the network. The cached host remains useful as the cheap staging and helper stage; for a window:
+- `stage.sh cached` + `seed`, then turn the farm and `/bulk` into local trees (hard links from the seed and upper
+  layers, seconds), and `stage-local.sh ALIAS 16` / `stage-base-rings.sh` (base products ring by ring: rsync sorts one
+  file list by name) on osgallery-dev. Copy each generation's non-tile entries too (`shared/` textures), and the
+  symlink targets of revision repos.
+- Rehearse on CLOUDNATIVE-16xCPU-64GB (the window's 4 GB per core), then `window-go.sh REVISION` (frozen plan: one
+  command for preflight, stale city tiles, `window.py up`, `window-run.sh start`, the pull loop).
+
+## The 2026-11-05 window, and what to change next time
+
+55 min on CLOUDNATIVE-64xCPU-256GB, train6 (70e2b42d) plus Espoo, Amsterdam and Rotterdam centres. Home and verified:
+720 Turku tiles (priority rings 0-16) and 234 spot rebuilds, Espoo 49/49, Amsterdam 49/49, Rotterdam 48/49. Run with
+`window-run.sh` (watchdog), `window-status.sh`, `window-lanes.sh`, `pull-loop.sh`. Lessons:
+- **Disk.** 400 GB was too small: decoded LAZ (`work/migrate/cache`) and the farm's raw-derived caches grow with 50+
+  lanes, and the farm refuses rebuilds below its floor (25 GB + 2 GB per build). Take 600 GB, or a 10 GB floor.
+- **Never trim caches in use.** `trim-decoded.py` with a high free target deleted decoded blocks lanes were reading
+  (46 tiles failed). Keep its defaults; free space only from consumed inputs and pulled outputs.
+- **Farm restarts orphan builds.** A 4 s health check failed at load 100, the watchdog restarted the farm 5 times and
+  58 orphaned builds filled RAM and swap. The check is now 15 s / 5 min; kill a farm's builds when restarting it.
+- **The pass's dispatch thread** evaluates spot-rebuild membership (finished-ground zones) per tile and starved 40
+  lanes; `pass-run.py` now runs those checks in a 16-process pool.
+- **Pull priority.** A nice-19 receiver on loaded osgallery-dev got 1 MB/s; pull at nice 5, per generation in
+  parallel, finished tiles only (ready.json listed on the host), skip `.visual-audits`, and raise the host sshd's
+  MaxStartups for the parallel connections.
+- **Memory.** Lanes 2.2-2.5 GB, generator builds 1-2.4 GB; ~50 lanes + 30 rebuild workers fit 256 GB with a little swap.
+
 ## The window (only with Jonni's OK)
 
 1. Jonni creates the restricted sub-account credential at `~/.config/turku3d/upcloud-ttl` on osgallery-dev.
