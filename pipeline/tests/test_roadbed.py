@@ -199,7 +199,7 @@ def test_a_link_leaving_a_deck_follows_its_own_profile_down_to_the_ground():
     main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0)
     link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5)
     way = dict(main, member_ways=[dict(main), link])
-    profiles, _ = branch_profiles(way, lambda xz: np.full(len(xz), 25.7), lambda xz: np.full(len(xz), 18.0))
+    profiles = branch_profiles(way, lambda xz: np.full(len(xz), 25.7), lambda xz: np.full(len(xz), 18.0))
     assert len(profiles) == 1
     line, stations, heights, _ = profiles[0]
     assert abs(heights[0] - 25.7) < 1e-9 and abs(heights[-1] - 18.02) < 1e-9
