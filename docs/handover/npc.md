@@ -130,15 +130,22 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
 
   | district (sim) | locked > 300 s | exits/min, last half | recycled (in view) | overlaps |
   |---|---|---|---|---|
-  | centre 5x5 (60 min) | 214 -> pending | 122 -> pending | pending | 0 -> pending |
+  | centre 5x5 (60 min) | 214 -> 0 | 122.0 -> 123.9 | 1048 (0) | 0 -> 0 |
   | east 3x3 (30 min) | 145 -> 0 | 95.0 -> 100.1 | 182 (0) | 0 -> 0 |
-  | south 3x3 (30 min) | 136 -> 0 (no-throttle A/B run) | 84.1 -> 90.9 | 563 (0) | 0 -> 0 |
-  | northwest 3x3 (30 min) | 0 -> pending | 46.3 -> pending | pending | 0 |
+  | south 3x3 (30 min) | 136 -> 0 | 84.1 -> 90.9 | 563 (0) | 0 -> 0 |
+  | northwest 3x3 (30 min) | 0 -> 0 | 46.3 -> 43.4 | 306 (0) | 0 -> 0 |
   | far-east 3x3 (30 min) | 0 -> 0 | 43.3 -> 45.0 | 82 (0) | 0 -> 0 |
 
   The centre baseline is the `f-centre` run of `local/traffic-gridlock` (its district baselines reproduce exactly).
-  Flow step mean on the loaded host (load ~55 on 16 cores), before -> after: east 15.4 -> 18.6 ms, far-east
-  13.2 -> 15.2 ms. Recycled cars count as removals, not exits.
+  Cars locked > 120 s at the end: 0 in every district (centre 341, east 188, south 311, northwest 90 before).
+  Recycled cars count as removals, not exits. In northwest, recycling also takes 90-300 s waits that cleared on their
+  own before, so it exits 6 % fewer cars. The flow step mean on the loaded host (load ~55 on 16 cores) went from 42 to
+  63 ms on centre and from 15.4 to 18.6 ms on east, but concurrent load differed between runs. A same-load A/B of the
+  10-minute busy-intersection unit test gives 31.0 s vs 32.1 s.
+- **Visual check:** `~/turku3d/loops/traffic-gta/capture/pass-topdown.mp4` (local) is a top-down render of the flow on
+  t0_0_-1: a player's car stands mid-block for 120 s and 7 drivers go round it (white cars; blue while held, orange
+  while passing; renderer `probe/passvideo.ts`). Air captures of the deployed share with a player standing in a lane
+  are in `capture/obstacle-solo-*` (the camera faced away from the oncoming car, so they do not show a pass).
 
 ## Open, ranked
 
@@ -147,16 +154,15 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
    - about 35 KB per frame of walker code: routes for newly born lives, the 400 ms scan's new life objects, and part of the draw loop (TurboFan-optimised; not yet located);
    - the flow step's own 10 Hz allocations (leader filter/sort, `pedestrianStop` arrays, `routePoint` objects);
    - per-car arrays in the worker's publish.
-3. **Network spillback in dense districts at sustained peak demand.** The centre-seam junction lock (47 of 90
-   cars) is fixed (2026-11-05, branch `local/traffic-gridlock`; see "Traffic deadlocks" below). What remains: in
-   the densest districts, after 30-60 simulated minutes at the 16:00 peak, full exit lanes back queues up through
-   junctions; heads then wait minutes for space. Two concrete patterns:
-   - a car holding a junction reservation, footprint-blocked by the head at a crossing stop line that waits for
-     that reservation (east, near engine (1225, -281)); the cycle breaker misses it because the reservation holder's
-     `stuck` timer keeps restarting (relaxing the member condition made the centre worse and was dropped);
-   - a starved approach at controller `be667405fc048a08` (centre, near (249, -106)): fair turns do not reach it.
-   Likely next steps: keep stop lines out of crossing movements' swept paths (conflict geometry), and gate source
-   inflow on downstream occupancy so a district cannot fill past capacity.
+3. **Traffic, after GTA-style recycling** (2026-11-05): no district locks out of view any more. What remains, from
+   `docs/handover/gta-traffic-study.md` section 7:
+   - area/hour car budgets instead of open-loop sources, with recycled cars re-inserted at unobserved sources with
+     spare capacity;
+   - no ambient traffic on dead ends, and thin unobserved arterials;
+   - GTA-like signal plans (about 10 s phases, protected lefts where turn lanes exist);
+   - in view, a 30 s jam timer that reverses and changes lanes;
+   - per-driver aggressiveness.
+   In view, jams are still possible (GTA also tolerates them); no soak had one within 320 m of its watcher.
 4. **Smaller items:**
    - walk/idle crossfade (shader; needs a visual check);
    - run/jog/fall clips (walkers.bin rebake);
