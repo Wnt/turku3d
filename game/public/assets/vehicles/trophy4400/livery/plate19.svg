@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Generated for Turku3D: plain "19" race number plate, our own geometric stroke numerals (no font). -->
+  <rect x="0" y="0" width="512" height="512" fill="#1a1a1c"/>
+  <rect x="14" y="14" width="484" height="484" rx="70" ry="70" fill="#e8e8e4"/>
+  <g fill="none" stroke="#111214" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 118 168 L 168 120 L 168 392"/>
+    <path d="M 120 392 L 214 392" stroke-linecap="butt"/>
+    <circle cx="342" cy="200" r="76"/>
+    <path d="M 418 200 C 418 300 396 392 300 392"/>
+  </g>
+</svg>
