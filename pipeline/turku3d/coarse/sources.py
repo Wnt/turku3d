@@ -37,7 +37,7 @@ DATASETS = ("lidar", "ortho", "wfs", "osm")  # fetch order: lidar gates ground a
 REQUIRED = ("lidar", "ortho", "wfs")  # a build waits for these; without osm it has no streets
 OSM_SQUARE = 2000.0  # m: one OSM clip covers this O-aligned square
 ORTHO_PX = 512  # draft ortho per 250 m L0 tile (49 cm/px): one WMS chunk, one KTX2 encode
-ORTHO_SLUG = "ortho2022to"
+ORTHO_SLUG = C.CITY.ortho_slug  # Turku: ortho2022to
 POINT_MARGIN = 20.0  # ground key points are read for the tile plus this margin
 WFS_LAYERS = (
     "bldg:Building_LOD2",
@@ -326,10 +326,7 @@ class Sources:
         """(present LAZ files, missing listed blocks) under the tile's key-point window."""
         blocks = [b for b in tile_blocks(tile) if self.covered(b)]
         if not blocks:
-            raise NoCoverage(
-                f"{tile.id}: outside the city lidar index (laz-tiles.csv); "
-                "the MML 2 m DEM needs an API key"
-            )
+            raise NoCoverage(f"{tile.id}: outside the city lidar index (laz-tiles.csv)")
         root = C.raw_dir("laz") / "maanpinta"
         present = {b: self.lidar_present(b) for b in blocks}
         return [root / f"{b.name}.laz" for b in blocks if present[b]], [
@@ -498,7 +495,11 @@ class Sources:
 
 def fetch(unit: Unit, log=print) -> None:
     """Download one unit into the shared raw cache with the read-through fetchers."""
-    if unit.dataset == "lidar":
+    if unit.dataset == "lidar" and C.CITY.ground == "mml-dem2m":
+        from turku3d.fetch import dem
+
+        dem.fetch_blocks([unit.block], log=log)
+    elif unit.dataset == "lidar":
         from turku3d.fetch import laz
 
         laz.fetch_tiles([unit.block], ("maanpinta",), log=log)

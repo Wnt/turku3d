@@ -25,7 +25,7 @@ from .sources import WMS_LAYERS, WMS_MAX_PX, WMS_URL, WmsLayer
 
 CHUNK_PX = 2000
 EMPTY_TTL_SECONDS = 3600  # absence of imagery is not permanent proof of no coverage
-REFERER = {"Referer": "https://turku.asiointi.fi/IMS/fi"}
+REFERER = {"Referer": config.CITY.wms_referer}
 
 
 def chunk_grid(bbox_en: tuple[float, float, float, float], px_m: float, chunk_px: int = CHUNK_PX):
@@ -53,7 +53,7 @@ def getmap_params(layer: str, bb, w: int, h: int) -> dict:
         REQUEST="GetMap",
         LAYERS=layer,
         STYLES="",
-        SRS="EPSG:3877",
+        SRS=config.CRS_HORIZONTAL,
         BBOX=",".join(f"{v:.4f}" for v in bb),
         WIDTH=w,
         HEIGHT=h,

@@ -1,5 +1,5 @@
 // URL parameters. See game/README.md for the contract.
-import { OFFICE_EN } from './origin';
+import { CITY } from './city';
 import { mobileDevice, parseQuality, type QualityTier } from '../render/quality';
 import type { Antialiasing } from '../render/post';
 import { benchPose, type BenchPose } from '../qa/bench';
@@ -48,6 +48,8 @@ interface Params {
   walkers: number | null;
   /** `?motion=1` with `?cam=`: the QA camera keeps the play-mode water clock and reflection cadence (video capture). */
   motion: boolean;
+  /** `?preview=1`: the generation preview (a free-fly QA camera above the spawn, qa/preview.ts). */
+  preview: boolean;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -64,6 +66,13 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     if (!Number.isFinite(roll)) throw new Error(`bad ?roll=: ${p.get('roll')}`);
     if (!(cam[5] > 0 && cam[5] < 180)) throw new Error(`bad ?cam= fov (vertical degrees, 0..180): ${cam[5]}`);
     qa = { E: cam[0], N: cam[1], H: cam[2], yawDeg: cam[3], pitchDeg: cam[4], fovDeg: cam[5], rollDeg: roll };
+  }
+  // ?preview=1: the generation preview (qa/preview.ts): free-fly camera above the spawn at once, no player,
+  // physics, traffic or walkers, and no wait for the start set; draws whatever tiles and scenery exist.
+  const preview = p.get('preview') === '1';
+  if (preview && !qa) {
+    const sp0 = nums(p.get('spawn'));
+    qa = { E: sp0?.[0] ?? CITY.spawn.E, N: (sp0?.[1] ?? CITY.spawn.N) - 260, H: 150, yawDeg: 0, pitchDeg: -30, fovDeg: 60, rollDeg: 0 };
   }
   let bench: BenchPose | null = null;
   let drive: Params['drive'] = null;
@@ -125,7 +134,7 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     hour,
     cycleMinutes,
     spawnGiven: sp !== null,
-    spawn: { E: sp?.[0] ?? OFFICE_EN.E, N: sp?.[1] ?? OFFICE_EN.N, headingDeg: sp?.[2] ?? 0 },
+    spawn: { E: sp?.[0] ?? CITY.spawn.E, N: sp?.[1] ?? CITY.spawn.N, headingDeg: sp?.[2] ?? CITY.spawn.headingDeg },
     hud: p.get('hud') !== '0',
     test: p.has('test'),
     collisionRadius: colRadius,
@@ -133,10 +142,11 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     aa,
     mobile,
     lights,
-    traffic,
+    traffic: preview ? 0 : traffic,
     trafficDensity,
-    walkers,
+    walkers: preview ? 0 : walkers,
+    preview,
     // The lab measures play's cadences (river reflection, water clock), not the frozen screenshot contract.
-    motion: !!qa && (p.get('motion') === '1' || (lab !== null && p.get('motion') !== '0')),
+    motion: !!qa && (preview || p.get('motion') === '1' || (lab !== null && p.get('motion') !== '0')),
   };
 }

@@ -45,6 +45,9 @@ def prepare(tile, path):
     return linework
 
 
+SEAM_REACH = 250.0  # m past the tile edge that must have real neighbour ground (kerbs, portals)
+
+
 def height_sampler(tile, heights, root, sources):
     """Use the owning tile's measured grid on both sides of a visual-tile seam."""
     from turku3d import config as C
@@ -59,6 +62,11 @@ def height_sampler(tile, heights, root, sources):
         owner = tile if b.xmin <= x <= b.xmax and b.zmin <= z <= b.zmax else C.VisualTile.at(x, z)
         if owner.id not in grids:
             paths, missing = sources.lidar_paths(owner)
+            if missing and owner is not tile and max(abs(x - (b.xmin + b.xmax) / 2) - (b.xmax - b.xmin) / 2,
+                                                     abs(z - (b.zmin + b.zmax) / 2) - (b.zmax - b.zmin) / 2) > SEAM_REACH:
+                # A long structure (a metro tunnel) samples far beyond the fetched area: the nearest point of
+                # this tile's own grid, never a build failure. A seam neighbour still needs its real ground.
+                return grid_height(tile, heights, min(max(x, b.xmin), b.xmax), min(max(z, b.zmin), b.zmax))
             if missing:
                 raise ValueError(f"Kerb seam needs ground inputs for {owner.id}")
             path, key = _entry(root, owner, "ground", paths)

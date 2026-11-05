@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { engineToEN, VISUAL_L0, TRUE_NORTH_GRID_BEARING_DEG } from '../core/origin';
 import { enToLatLon } from '../core/geographic';
+import { CITY } from '../core/city';
 import { devToolsEnabled } from '../core/localOnly';
 import type { Input } from '../input';
 import type { VisualTiles } from '../world/tiles';
@@ -47,7 +48,7 @@ export function positionReadout(position: THREE.Vector3, direction: THREE.Vector
   const pitch = Math.atan2(direction.y, Math.hypot(direction.x, direction.z)) * 180 / Math.PI;
   return [
     `Camera ${lat.toFixed(6)}, ${lon.toFixed(6)}`,
-    `EPSG:3877 E ${E.toFixed(2)} N ${N.toFixed(2)} · H ${H.toFixed(2)} m N2000`,
+    `${CITY.crs} E ${E.toFixed(2)} N ${N.toFixed(2)} · H ${H.toFixed(2)} m ${CITY.heightDatum}`,
     `${degrees}° ${CARDINALS[Math.round(heading / 45) % 8]} · pitch ${pitch.toFixed(1)}° · t0_${Math.floor(position.x / VISUAL_L0)}_${Math.floor(position.z / VISUAL_L0)}`,
     ...(target ? [`Centre: ${target}`] : []),
   ];

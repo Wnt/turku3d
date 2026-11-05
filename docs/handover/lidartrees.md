@@ -34,8 +34,14 @@ Two smaller findings:
   - `spread`, the default on reduced/low/mobile: each card moves out at its own size, the same leaf fragments as before.
 - **Decided 2026-11-04 (treelook):** blind judges against Street View crops at five tree-rich poses preferred `stretch`
   on medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops). Beauty cost at medium: none measurable on
-  the M1 Max, +0.1 ms on the Air, +1.1 ms on the 560X (both of which run reduced). The `?crowns=` A/B and the `asset`
-  mode are removed.
+  the M1 Max, +0.1 ms on the Air, +1.1 ms on the 560X (both of which run reduced). The `asset` mode is removed.
+- **Re-judged by Jonni (2026-11-05, treelook2):** that call was made on shimmering crowns before the TRAA fix
+  (e156e3ba). A temporary A/B (`world/nature/treeLook.ts`, owner Jonni) brings back `?crowns=stretch|spread` and
+  `?leaves=full|single|alpha65` for the initial load; with `?dev=1` the Layers panel (F4 / LB) switches both live and
+  shows the current choice. Crowns refit in place from the model's own positions; leaves switch side and alpha test on
+  the base material and its LOD variants. No choice keeps the defaults above. Fresh blind sheets (medium on the Mac,
+  reduced on the Air): `~/turku3d/loops/treelook/v2/`, key in `key.json`. Once Jonni picks, the losing paths and the
+  A/B go, within ten merges.
 
 ## The migration `trees-lidar@1` and its cost
 - **Order:** in the chain after `wires@2` and before rulesmith's `furniture@1`. The generator runs the chain at the end

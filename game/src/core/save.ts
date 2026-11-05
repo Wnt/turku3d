@@ -1,10 +1,12 @@
 import type { VehicleKind } from '../physics/constants';
 import type { ParkedVehicle } from '../world/manifest';
+import { cityKey } from './city';
 
 // Save slots: three named slots and an autosave under one localStorage key. Each slot wraps the mission system's own
 // save text (an opaque string, versioned and migrated by gameplay/missions) with the player's pose, vehicles, the
 // clock and the numbers the slot list shows. A mission save from before the slots (key turku3d.missions) becomes
-// slot 1 on the first run.
+// slot 1 on the first run. Poses are in the active city's grid, so each city keeps its own slots (core/city.ts cityKey);
+// money and progress travel between cities with the player (gameplay/travel.ts).
 
 export const SAVES_KEY = 'turku3d.saves';
 /** The unslotted mission save of main before the save menu. */
@@ -55,7 +57,7 @@ export interface SaveGame {
 interface SaveFile { version: 1; slots: Partial<Record<SlotId, SaveGame>> }
 
 /** Why the game autosaves. */
-type AutosaveReason = 'delivery' | 'purchase' | 'pagehide' | 'quit' | 'reload';
+type AutosaveReason = 'delivery' | 'purchase' | 'pagehide' | 'quit' | 'reload' | 'travel';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const pose = (v: unknown): v is SavedPose => {
@@ -106,12 +108,14 @@ export class SaveStore {
 
   /**
    * `summarize` reads a legacy mission save (gameplay/missions `missionSummary`) for the migrated slot's details.
-   * A null storage (blocked by the browser) keeps the slots in memory for this page only.
+   * A null storage (blocked by the browser) keeps the slots in memory for this page only. `key` is the city's slot
+   * file; only Turku's migrates the legacy mission save.
    */
   constructor(private readonly storage: KeyValueStore | null,
-    summarize: (mission: string) => { deliveries: number; money: number; devMoney: number; lastAddress: string | null }) {
+    summarize: (mission: string) => { deliveries: number; money: number; devMoney: number; lastAddress: string | null },
+    private readonly key = cityKey(SAVES_KEY)) {
     this.file = this.read();
-    const legacy = this.storage?.getItem(LEGACY_MISSION_KEY) ?? null;
+    const legacy = key === SAVES_KEY ? this.storage?.getItem(LEGACY_MISSION_KEY) ?? null : null;
     if (legacy === null) return;
     if (!this.has('slot1')) {
       const s = summarize(legacy);
@@ -152,7 +156,7 @@ export class SaveStore {
   private read(): SaveFile {
     const file: SaveFile = { version: 1, slots: {} };
     try {
-      const parsed = JSON.parse(this.storage?.getItem(SAVES_KEY) ?? 'null') as Partial<SaveFile> | null;
+      const parsed = JSON.parse(this.storage?.getItem(this.key) ?? 'null') as Partial<SaveFile> | null;
       if (parsed?.version !== 1 || typeof parsed.slots !== 'object' || !parsed.slots) return file;
       for (const id of SLOT_IDS) {
         const game = validGame((parsed.slots as Record<string, unknown>)[id]);
@@ -166,7 +170,7 @@ export class SaveStore {
 
   private flush() {
     try {
-      this.storage?.setItem(SAVES_KEY, JSON.stringify(this.file));
+      this.storage?.setItem(this.key, JSON.stringify(this.file));
     } catch {
       // Storage full or blocked (private mode): the slots stay in memory for this page.
     }

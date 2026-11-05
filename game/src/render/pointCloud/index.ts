@@ -16,6 +16,7 @@ import type { QualityTier } from '../quality';
 import { nodeBounds, surveyToEngine, nodeAnchor, childKeys, type CopcHeader, type CopcNode, type DecodedPoints } from './copc';
 import type { WorkerRequest } from './copc.worker';
 import { selectNodes, type LodNode, type LodSelection } from './lod';
+import { cityOf, isHome } from '../../core/city';
 import { registerPointCloudOverlay, type PointCloudEvidence as HookEvidence, type PointCloudOverlay as HookOverlay } from '../../dev/editor/pointCloudHook';
 
 /** rgb: the 2022 true ortho's colour (summer, as opaskartta shows the cloud) where the tile has it, else the survey's;
@@ -621,6 +622,8 @@ function boxNear(box: readonly number[], x: number, z: number, radius: number) {
 /** `?pointcloud=1` shows the overlay at startup (`=rgb|survey|classification|elevation|intensity` also picks the colours);
  *  `?pointcloud=0` leaves it out of the pipeline. Otherwise desktop play builds it hidden for the editor to show. */
 export function pointCloudParam(search = location.search): { build: boolean; show: boolean; mode: ColorMode } {
+  // The COPC product is Turku's survey; another city has none (core/city.ts).
+  if (!isHome(cityOf(search))) return { build: false, show: false, mode: 'rgb' };
   const value = new URLSearchParams(search).get('pointcloud');
   if (value === null) return { build: true, show: false, mode: 'rgb' };
   if (value === '0' || value === 'off') return { build: false, show: false, mode: 'rgb' };

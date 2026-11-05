@@ -34,7 +34,7 @@ import { SettingGovernor } from './render/settingGovernor';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
-import { crownMode } from './world/nature/crowns';
+import { treeLook } from './world/nature/treeLook';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
@@ -248,7 +248,9 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion, crownMode(params.quality));
+let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion, (treeLook.setTier(params.quality), treeLook.crownMode));
+// The tree look A/B (world/nature/treeLook.ts, owner Jonni) switches crowns and leaves of the loaded library live.
+void natureLibrary?.then(library => treeLook.attach(library), () => {});
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
@@ -434,6 +436,7 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
   const install = async () => {
     if (!replacement || !vegetation) return;
     natureLibrary = replacement;
+    treeLook.attach(await replacement);
     const models = vegetation.loadedModels();
     vegetation.dispose();
     const next = new Renderer(params.quality, natureLibrary, scene);
@@ -632,6 +635,8 @@ async function runQa() {
     settleStart = clock.simSeconds;
     perf.reset();
   };
+  if (params.preview) void import('./qa/preview').then(m => m.startPreview(q, pose => window.__qaMove!(pose),
+    () => coarse.loadedTiles())).catch(fail);
   window.__dev = {
     geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
     coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),

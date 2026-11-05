@@ -4,6 +4,7 @@ import type { Quat, WheelState } from '../physics/protocol';
 import { loading } from '../core/loading';
 import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
+import { cityKey } from '../core/city';
 
 export interface NetPose {
   lights?: 0 | 1 | 2; horn?: boolean;
@@ -31,7 +32,8 @@ interface MultiplayerState {
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
 
-const SESSION_KEY = 'turku3d.mp.session.v1';
+/** Per city: each city's room issues its own session (core/city.ts cityKey). */
+const SESSION_KEY = cityKey('turku3d.mp.session.v1');
 /** The server accepts at most this many tiles per road-hash report (server/roads.js). */
 const ROAD_TILES = 64;
 const RATE_MS = 55; // under the server's 20 total messages/s token rate, including deliveries
