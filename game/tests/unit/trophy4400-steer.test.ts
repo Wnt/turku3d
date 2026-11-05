@@ -14,7 +14,7 @@ import { rearSteerTag } from '../../src/ui/rearSteerTag';
 import type { VehicleState } from '../../src/physics/protocol';
 
 const RS = TRUCK.rearSteer, D = Math.PI / 180;
-const xf = 1.55, xr = -1.55, track = 2.18, L = xf - xr;
+const xf = TRUCK.wheels[0].x, xr = TRUCK.wheels[2].x, track = TRUCK.wheels[1].z - TRUCK.wheels[0].z, L = xf - xr;
 /** Wheel angles (FL, FR, RL, RR) for front and rear inner angles. */
 const wheels4 = (front: number, rear: number) => TRUCK.wheels.map((w, i) =>
   ackermann4(front, rear, xf, xr, track, w.x, w.z, i < 2 ? TRUCK.maxSteer : RS.maxAngle));
@@ -177,7 +177,7 @@ describe('suspension travel and force curves', () => {
   test('bypass damping: position zones blended without steps, top-out rebound, bump-stop compression', () => {
     const c = front;
     expect(damping(c, 0).compression).toBeCloseTo(0.30 * c.critical, 0);
-    expect(damping(c, 0.6 * c.bump).compression).toBeCloseTo(0.65 * c.critical, 0);
+    expect(damping(c, 0.6 * c.bump).compression).toBeCloseTo(0.70 * c.critical, 0);
     expect(damping(c, 0.8 * c.bump).compression).toBeCloseTo(1.10 * c.critical, 0);
     expect(damping(c, 0.95 * c.bump).compression).toBeCloseTo(1.10 * c.critical + 25000, 0);
     expect(damping(c, 0).rebound).toBeCloseTo(0.75 * c.critical, 0);

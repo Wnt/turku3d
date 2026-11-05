@@ -134,7 +134,7 @@ function landing(c: ReturnType<typeof course>, seconds: number, input: Parameter
 
 /** D6: a 1.2 m flat drop (static ride height + 1.2 m, at rest). */
 export function flatDrop() {
-  const c = course({ y: 0.95 + 1.2, settle: 0 });
+  const c = course({ y: 0.98 + 1.2, settle: 0 });
   // Let the suspension reach full droop in the air before the measurement (a real drop leaves at static).
   const m = landing(c, 4, idle());
   c.free();
@@ -226,7 +226,7 @@ export function acceleration(material: number) {
  *  climbed at walking pace and held: the chassis twists about the FR–RL diagonal. */
 export function articulation() {
   const c = course({ x: -6, build: w => { ramp(w, 0, 0.6, 1.5, -1.4, -0.95); box(w, 1.0, 0.3, -1.175, 1.0, 0.3, 0.225); } });
-  c.run(14, s => cruise(s, 1.2), s => s.pos.x + 1.55 > 1.0);
+  c.run(14, s => cruise(s, 1.2), s => s.pos.x + TRUCK.wheels[0].x > 1.0);
   const s = c.run(3, { ...idle(), handbrake: true });
   const out = { bumpFL: travel(s, 0), droopRR: -travel(s, 3), FR: travel(s, 1), RL: travel(s, 2),
     contacts: s.wheels.filter(w => w.contact).length, chassisContact: c.chassisContact };

@@ -31,7 +31,7 @@ export function course(o: CourseOptions = {}) {
   const ground = w.createCollider(R.ColliderDesc.cuboid(3000, 0.5, 3000).setTranslation(0, -0.5, 0).setCollisionGroups(groups));
   o.build?.(w);
   const material = o.material ?? MAT.road;
-  const vehicle = new Vehicle(R, w, { x: o.x ?? 0, y: o.y ?? 0.97, z: 0 }, o.yaw ?? 0, new CurbQueries(R, w), { kind: 'truck' },
+  const vehicle = new Vehicle(R, w, { x: o.x ?? 0, y: o.y ?? 1.0, z: 0 }, o.yaw ?? 0, new CurbQueries(R, w), { kind: 'truck' },
     () => material);
   const chassis = vehicle.body.collider(0);
   let chassisContact = false, time = 0;

@@ -74,8 +74,9 @@ export function springForce(c: Corner, b: number): number {
 export function damping(c: Corner, b: number): { compression: number; rebound: number } {
   if (b < -c.droop) return { compression: 0, rebound: 0 };
   const zone = (edge: number) => smooth(b, edge * c.bump);
-  // 0.30 / 0.65 / 1.10 of critical (the spec's middle zone is 0.55; 0.65 keeps the 60 km/h kicker under 95% bump).
-  const compression = c.critical * (0.30 + 0.35 * zone(0.40) + 0.45 * zone(0.75)) + 25000 * zone(STOP);
+  // 0.30 / 0.70 / 1.10 of critical (the spec middle zone is 0.55; 0.70 keeps the 60 km/h
+  // kicker landing under 95% rear bump on the C1 3.16 m wheelbase).
+  const compression = c.critical * (0.30 + 0.40 * zone(0.40) + 0.40 * zone(0.75)) + 25000 * zone(STOP);
   const rebound = c.critical * (0.75 + 0.45 * smooth(-b, 0.85 * c.droop));
   return { compression, rebound };
 }
