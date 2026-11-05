@@ -146,6 +146,52 @@ def set_pool(self, pool):
     self.__dict__['_pool'] = pool
 
 
+# Parallel dispatch checks: the pass evaluates pending_rebuild() for each tile in its one dispatch thread before it
+# hands the tile to a lane; for finished-ground that computes the tile's zones (seconds each), so with dozens of lanes
+# dispatch was the limit (lanes idle at 40% CPU). A process pool evaluates it for the queued tiles in priority order;
+# the dispatcher takes the finished result, waiting only for the tile it asks about.
+CHECKS = {}
+
+
+def _check_init(root, rev):
+    global CHECK_ROOT, CHECK_META
+    CHECK_ROOT = Path(root)
+    CHECK_META = json.loads((CHECK_ROOT / 'revisions' / rev / 'revision.json').read_text())
+    P.M.use_base_data(CHECK_ROOT, CHECK_META)
+
+
+def _check(tile):
+    return original_pending(CHECK_ROOT, CHECK_META, tile)
+
+
+original_pending = P.pending_rebuild
+
+
+def start_checks(procs=int(os.environ.get('CHECK_PROCS', '16'))):
+    if not queue['rank'] or procs <= 0:
+        return
+    log = Path(arg('--farm-root')) / 'migrations' / meta['generation'] / 'pass.jsonl'
+    done = {r['tile'] for r in P.logged(log) if r.get('state') in ('migrated', 'kept')}
+    tiles = [t for t in sorted(queue['rank'], key=queue['rank'].get) if t not in done]
+    pool = ProcessPoolExecutor(procs, initializer=_check_init, initargs=(arg('--farm-root'), arg('--revision')))
+    for t in tiles:
+        CHECKS[t] = pool.submit(_check, t)
+    print(f'pass-run: dispatch checks for {len(tiles)} tiles in {procs} processes', file=sys.stderr, flush=True)
+
+
+def pending_rebuild(root, meta_, tile):
+    future = CHECKS.pop(tile, None)
+    if future is not None:
+        try:
+            return future.result()
+        except Exception:
+            pass
+    return original_pending(root, meta_, tile)
+
+
+start_checks()
+P.pending_rebuild = pending_rebuild
+
 P.Lane.__init__ = lane_init
 P.Lane.pool = property(get_pool, set_pool)
 release_idle()
