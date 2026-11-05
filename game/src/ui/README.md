@@ -60,7 +60,7 @@ game runs (never from the start screen).
   dialog ends. Continue and Load game skip it. The first mission hint follows it.
 - **Pause menu** (`pause`: Menu, Escape, touch Pause): Resume, Respawn at the start, Save game (Slot 1–3; a filled slot asks
   before it is overwritten, then "Saved to Slot N."), Load game (autosave and slots, empty ones greyed),
-  New game (always asks), Quit to start screen. While it is open the world is paused and its input is
+  New game (always asks), Reset progress, Quit to start screen. While it is open the world is paused and its input is
   locked like in a shop menu. Menu resumes from any page; Escape and B go back one page (resume on the
   first); the touch context is `menu`, so the touch Back button does the same. The fullscreen overlay
   rule is unchanged: a pause the player chose survives a trip out of fullscreen.
@@ -69,6 +69,12 @@ game runs (never from the start screen).
   spawn (Läntinen Rantakatu 15) with the same ground snap and safe-reset restart as a loaded game. Missions, money
   and a running order (its timer too) are untouched. Vehicles stay where they are, except the driven one: the own
   car returns to its start parking, any other vehicle to the kerb 5.5 m behind it (`kerbBehind`).
+- **Reset progress** (every build, solo and multiplayer): asks with Cancel selected what goes (money, deliveries,
+  missions, vehicles, saved games; in a room also the hour's score), then `SaveGameController.resetProgress` leaves any
+  vehicle (releasing the room's seat), clears every city's stored progress (`gameplay/progressReset.ts`, which lists
+  what is cleared and what is kept: settings and the multiplayer identity stay), has the room reset the player
+  (`MultiplayerClient.resetProgress`) and starts a new game at Turku's default start: solo with the opening story, in
+  a room at its spawn slot. From another city, or Turku entered at a portal exit, it travels there first.
 - **Load / new game** (`gameplay/saveGame.ts` `SaveGameController`): leaves the car, restores the missions (a running order keeps
   its timer), keeps the shared clock, puts the own car at its saved pose when one is owned (else at
   its spawn parking), streams the collision tile under the saved position and snaps the player onto the
