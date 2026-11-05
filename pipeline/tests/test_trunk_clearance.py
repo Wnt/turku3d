@@ -5,6 +5,7 @@ import json
 import random
 
 import numpy as np
+import pytest
 import pandas as pd
 import shapely
 from turku3d import config as C
@@ -127,11 +128,12 @@ def test_generator_step_moves_and_drops_and_resamples_height():
     assert trees[0].z > 52 and trees[0].y == trees[0].z / 10
 
 
-def test_registered_last_in_the_chain():
-    assert registry.CHAIN[-1] is path_trees.MIGRATION and path_trees.MIGRATION.key == "path-trees@1"
+def test_registered_in_the_chain():
+    assert path_trees.MIGRATION in registry.CHAIN and path_trees.MIGRATION.key == "path-trees@1"
 
 
-def test_migration_matches_the_generator_rule(tmp_path, monkeypatch):
+@pytest.mark.parametrize("layout", ["inline", "external"])
+def test_migration_matches_the_generator_rule(tmp_path, monkeypatch, layout):
     from test_trees_lidar import vegetation_glb
 
     from turku3d.coarse.forests import trunk_base_radius
@@ -144,6 +146,13 @@ def test_migration_matches_the_generator_rule(tmp_path, monkeypatch):
     scales = [[3, 10, 3], [3, 10, 3], [3, 10, 3]]
     ids = ["lidar:a", "area:1:b", "puut:c"]
     glb = vegetation_glb(positions, scales, ids)
+    if layout == "external":  # every buffer a shared file, no BIN chunk (farm tiles such as t0_3_1)
+        document, binary = core.glb_chunks(glb)
+        name = f"{hashlib.sha256(binary).hexdigest()}.bin"
+        (tmp_path.parent / "shared").mkdir(exist_ok=True)
+        (tmp_path.parent / "shared" / name).write_bytes(binary)
+        document["buffers"][0]["uri"] = f"../shared/{name}"
+        glb = core.glb_pack(document)
     digest = hashlib.sha256(glb).hexdigest()
     (tmp_path / f"vis.{digest}.glb").write_bytes(glb)
     # One collision cell with flat ground at y=0 and the generator's trunk cylinders.
@@ -162,8 +171,10 @@ def test_migration_matches_the_generator_rule(tmp_path, monkeypatch):
                 "collision": {cell.id: {"url": col_url, "prims": len(prims)}}}
     p = core.Product(tmp_path, manifest)
     path_trees.transform(p)
-    document, binary = core.glb_chunks(p.read(p.manifest["visual"][TILE.id]["url"]))
-    (nodes, arrays), = path_trees.instances(document, binary, p, "").values()
+    url = p.manifest["visual"][TILE.id]["url"]
+    document, binary = core.glb_chunks(p.read(url))
+    assert ("uri" in document["buffers"][0]) == (layout == "external") and (binary == b"") == (layout == "external")
+    (nodes, arrays), = path_trees.instances(document, binary, p, url).values()
     kept = document["nodes"][nodes[0]]["extras"]["instance_object_ids"]
     # The generator's step on the same trees.
     trees = [Tree(i, x, z, "lidar", crown_radius=3, height=10, trunk_radius=0.18, variant="tree_default_fall")

@@ -95,12 +95,12 @@ class Terrain:
         return best
 
 
-def _append(document, chunks, end, values):
+def _append(document, target, chunks, end, values):
     data = np.ascontiguousarray(values, dtype="<f4")
     pad = -end % 4
     chunks.append(b"\0" * pad)
     end += pad
-    document["bufferViews"].append({"buffer": 0, "byteOffset": end, "byteLength": data.nbytes})
+    document["bufferViews"].append({"buffer": target, "byteOffset": end, "byteLength": data.nbytes})
     chunks.append(data.tobytes())
     document["accessors"].append({"bufferView": len(document["bufferViews"]) - 1, "componentType": 5126,
                                   "count": len(data), "type": {3: "VEC3", 4: "VEC4"}[data.shape[1]]})
@@ -140,10 +140,11 @@ def transform(product: Product) -> None:
 
     terrain = Terrain(product, m)
     edits = []  # (old world xyz, height, radius, new world xyz | None)
+    # The GLB's BIN chunk is buffers[0] only when that buffer has no uri. A GLB whose buffers are all
+    # external files (shared payloads) gets one more content-addressed shared buffer for the new views.
     inline = "uri" not in document["buffers"][0]
+    target = 0 if inline else len(document["buffers"])
     chunks, end = ([binary], len(binary)) if inline else ([], 0)
-    if not inline:
-        raise ValueError(f"{product.tile}: vegetation GLB without an inline BIN chunk")
     for variant, (nodes, arrays) in groups.items():
         keep, translations = [], arrays["TRANSLATION"].astype(float).copy()
         ids = (document["nodes"][nodes[0]].get("extras") or {}).get("instance_object_ids") or []
@@ -171,7 +172,7 @@ def transform(product: Product) -> None:
             for name, values in (("TRANSLATION", translations), ("SCALE", arrays["SCALE"]),
                                  ("ROTATION", arrays.get("ROTATION"))):
                 if values is not None:
-                    attributes[name], end = _append(document, chunks, end, np.asarray(values)[keep])
+                    attributes[name], end = _append(document, target, chunks, end, np.asarray(values)[keep])
         for i in nodes:
             node = document["nodes"][i]
             extras = node.setdefault("extras", {})
@@ -186,8 +187,14 @@ def transform(product: Product) -> None:
                 if not node["extensions"]:
                     node.pop("extensions")
                 extras["layer"] = "vegetation-empty"
-    binary = b"".join(chunks)
-    document["buffers"][0]["byteLength"] = len(binary)
+    if inline:
+        binary = b"".join(chunks)
+        document["buffers"][0]["byteLength"] = len(binary)
+    elif chunks:
+        extra = b"".join(chunks)
+        shared = product.put("../shared/{hash}.bin", extra)
+        document["buffers"].append({"byteLength": len(extra),
+                                    "uri": posixpath.relpath(shared, posixpath.dirname(entry["url"]) or ".")})
 
     # Crowns as a generator build measures them: trees-lidar over the final placement.
     if any("instance_crowns" in (document["nodes"][i].get("extras") or {})
