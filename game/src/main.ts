@@ -35,6 +35,7 @@ import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { treeLook } from './world/nature/treeLook';
+import { guardFrame } from './render/frameGuard';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
@@ -406,7 +407,8 @@ const renderFrame = () => {
   bundles?.update();
   const ground = groundBelow(camera.position.x, camera.position.z);
   altitudeShadows.update(camera.position.y - (Number.isFinite(ground) ? ground : 0));
-  if (post) post.render(); else renderer.render(scene, camera);
+  // A render that throws must not leave a pass's target and MRT on the renderer (render/frameGuard.ts).
+  guardFrame(renderer, scene, () => { if (post) post.render(); else renderer.render(scene, camera); });
   // Models prepared before the first shadow pass compile their casters now, in the paced preparation queue.
   if (post) for (const model of post.takeShadowless())
     graphics.enqueue(model, () => {}, undefined, true).catch(error => console.warn(`[shadow preparation] ${error}`));
