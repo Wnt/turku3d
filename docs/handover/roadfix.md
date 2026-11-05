@@ -225,3 +225,23 @@ maps `~/turku3d/loops/roadfix/maps/`.
   reports "no drivable lane", so the y values are nulled for sweeps (see rb24).
 - **Disk:** all roadfix builds and sweeps live under /bulk/turku3d/scratch/roadfix (work and build are symlinks);
   old outputs are in /bulk/turku3d/moved-from-root/roadfix.
+
+## 2026-11-05 Prop bodies in the sweep, 2 km classes fixed (merged 1095eb6e, c751ec9b, 45bf168e)
+
+- **Sweep props and debug (1095eb6e):** the drive sweep now spawns the sign and bus-stop pole bodies the client adds,
+  read from each tile's visual glTF with the client's shared rules in `world/poleRecords.ts`. With `DRIVE_DEBUG=1`,
+  every impact records what the chassis touched: the cell and material, or the prop's id. mksweep copies local visual
+  models into `tiles/vis`.
+- **Clearance (c751ec9b):** a lower road dips at 8 % to keep its clearance under a deck's soffit: maxheight, else
+  3.0 m. Puistokatu itself was already fixed by the continuation rule; all 27 lanes arrive.
+- **Railings (c751ec9b, 4648139d):** deck-end railings stay 2.5 m clear of carriageway centre lines and clear of
+  at-grade approaches that leave a deck end across its side (w620102546 / service road w660828777).
+- **Posts in lanes (45bf168e; it changes 751 tiles, so it goes to the next big window):**
+  - Furniture posts, signs, bus stops and bollards inside the graph's car lanes move up to 3 m to the kerb, or are not
+    built.
+  - A street light under a deck whose post would reach the deck, or under a deck with no known height, is not built.
+  - Results: the t0_0_-4 bridge lanes pass, and Kalevan 449346f1's 17.5 m/s impact (a post in the lane) drops to 3.8.
+  - The tile list is `furniture-tiles.json` on osgallery-dev, from scanning farm generation 2e6515f4.
+- **Remaining:** posts on tiles that weren't rebuilt (t0_1_-4, t0_1_-3, t0_-1_-3; these clear with the furniture
+  window), fences and tree trunks beside lanes at t0_2_-5, t0_2_-4 and t0_-2_3, Kalevan 6d349199 (stuck in base too),
+  and the t0_-2_-2 tunnel lanes.
