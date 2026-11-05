@@ -26,6 +26,16 @@ export class StaticGroup extends THREE.Group {
   }
 }
 
+/** Add a node whose local matrix is fixed (`matrixAutoUpdate` off) under `parent`, with its world matrix composed now.
+ *  Neither a frozen model nor the non-forcing scene root ever composes such a node, so without this it keeps its
+ *  creation-time world matrix (identity) and draws at the parent's local origin: scenery cell trees 2026-11-05. */
+export function attachStatic(parent: THREE.Object3D, object: THREE.Object3D) {
+  parent.add(object);
+  object.matrixWorldNeedsUpdate = true;
+  object.updateWorldMatrix(false, true);
+  return object;
+}
+
 /** Props (breakable poles, signs, bus stops: world/poles.ts moves their nodes when they break) keep updating. */
 const movable = (object: THREE.Object3D) => !!object.userData.prop_type
   || (object.userData.objects as Record<string, unknown>[] | undefined)?.some(row => row.prop_type) === true;
