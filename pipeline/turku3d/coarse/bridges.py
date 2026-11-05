@@ -793,6 +793,20 @@ def deck_levels(footprint, profiles, main_height, link_height, core=None):
     return [(rest, rest_height), (descent_strips, descent_height)], shapely.MultiLineString(cuts)
 
 
+def levels_height(levels, fallback):
+    """One height function over (polygon, height function) levels; ``fallback`` off all of them."""
+    def height(xz):
+        xz = np.asarray(xz, dtype=np.float64)
+        out = np.asarray(fallback(xz), dtype=np.float64).copy()
+        for polygon, fn in levels:
+            inside = shapely.intersects_xy(polygon, xz[:, 0], xz[:, 1])
+            if inside.any():
+                out[inside] = fn(xz[inside])
+        return out
+
+    return height
+
+
 def level_parapets(key, cuts, main_height, link_height):
     """A wall on each cut between levels, from the lower level up to PARAPET above the higher."""
     from . import bridge_details as details
@@ -1062,6 +1076,8 @@ def produce(tile, grid_pos, inputs):
             meshes[1].metadata["night_soffit"] = True
         if len(deck_parts) > 1:
             meshes.extend(level_parapets(key, cuts, deck_parts[0][1], deck_parts[1][1]))
+            # Lanes, surfaces, rails and furniture sit on the slab's own levels.
+            height_at = levels_height(deck_parts, height_at)
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
         if way.get("on_grade"):

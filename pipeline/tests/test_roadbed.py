@@ -290,6 +290,10 @@ def test_outline_beside_and_past_a_link_rides_on_the_link_not_the_main_deck():
     tris = top[meshes[0].indices.reshape(-1, 3)]
     on_link = (tris[:, :, 2].min(1) > 0.2) & (tris[:, :, 0].min(1) > 22) & (tris[:, :, 0].max(1) < 80)
     assert on_link.any() and np.ptp(tris[on_link, :, 0], axis=1).max() <= 2.1
+    from turku3d.coarse.bridges import levels_height
+    height = levels_height(levels, main)
+    assert abs(height(np.array([[84.0, 6.0]]))[0] - heights[-1]) < 1e-6
+    assert abs(height(np.array([[40.0, -4.0]]))[0] - 25.0) < 1e-6
 
 
 def test_a_deck_from_several_outline_parts_builds():
