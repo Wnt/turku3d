@@ -996,11 +996,11 @@ def produce(tile, grid_pos, inputs):
             blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
             return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend if blend.any() else base
 
-        levels, cuts = deck_levels(footprint_poly, profiles, main_only, link_only)
-        if levels[0][1] is None:
-            levels = [(footprint_poly, height_at)]
+        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only)
+        if deck_parts[0][1] is None:
+            deck_parts = [(footprint_poly, height_at)]
         meshes = slab(
-            key + ":deck", levels, line, ss, hh, material, height_at, spec["thickness"],
+            key + ":deck", deck_parts, line, ss, hh, material, height_at, spec["thickness"],
             outline=footprint_poly,
         )
         if meshes:
