@@ -370,3 +370,33 @@ def test_a_lower_street_ending_under_a_deck_takes_its_far_ground_from_the_next_p
     grid, cut = _cut([piece], ground, [beyond])
     under = (np.abs(grid[:, 2]) < 1.5) & (np.abs(grid[:, 0]) < 1)
     assert np.allclose(cut[under, 1], 10.0)
+
+
+def _surface_at(mesh, x, z):
+    tris = mesh.positions[mesh.indices.reshape(-1, 3)]
+    for t in tris:
+        a, b, c = t[:, [0, 2]]
+        v0, v1, v2 = c - a, b - a, np.array([x, z]) - a
+        den = v0[0] * v1[1] - v1[0] * v0[1]
+        if abs(den) < 1e-12:
+            continue
+        u = (v2[0] * v1[1] - v1[0] * v2[1]) / den
+        v = (v0[0] * v2[1] - v2[0] * v0[1]) / den
+        if u >= -1e-9 and v >= -1e-9 and u + v <= 1 + 1e-9:
+            return t[0, 1] + u * (t[2, 1] - t[0, 1]) + v * (t[1, 1] - t[0, 1])
+    return None
+
+
+def test_a_lowered_outline_corner_does_not_slope_the_deck_across_its_lanes():
+    from turku3d.coarse.bridges import slab
+
+    outline = shapely.Polygon([(0, -18), (40, -18), (40, 18), (20, 19), (0, 18)])
+
+    def height(xz):  # one outline vertex meets the ground; the deck is 26 m everywhere else
+        xz = np.asarray(xz)
+        return np.where((xz[:, 1] > 18.9) & (np.abs(xz[:, 0] - 20) < 0.1), 21.0, 26.0)
+
+    meshes = slab("t", outline, shapely.LineString([(0, 0), (40, 0)]), np.array([0.0, 40.0]),
+                  np.array([26.0, 26.0]), "road", height, 0.5)
+    for z in (-10.0, 0.0, 10.0):
+        assert abs(_surface_at(meshes[0], 20.0, z) - 26.0) < 0.05

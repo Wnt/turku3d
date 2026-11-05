@@ -643,6 +643,20 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
         c = np.asarray(line.interpolate(station).coords[0])
         cut = shapely.LineString([c - normal * 1000, c + normal * 1000])
         pieces = [(part, fn) for poly, fn in pieces for part in shapely.get_parts(split(poly, cut))]
+    # Cuts along the deck as well, every SLAB_CELL: a station strip spans the whole deck width,
+    # and one triangle from a lowered outline corner to the far edge sloped across the lanes
+    # between them (Kalevan: 2.6 m below the deck in the middle of its main carriageway).
+    ends = np.asarray(shapely.get_coordinates(line))[[0, -1]]
+    along = ends[1] - ends[0]
+    if np.linalg.norm(along) > 1e-6 and pieces:
+        along /= np.linalg.norm(along)
+        across = np.array([-along[1], along[0]])
+        coords = np.concatenate([shapely.get_coordinates(poly) for poly, _ in pieces])
+        offsets = (coords - ends[0]) @ across
+        for offset in np.arange(np.floor(offsets.min() / SLAB_CELL) * SLAB_CELL, offsets.max(), SLAB_CELL)[1:]:
+            c = ends[0] + across * offset
+            cut = shapely.LineString([c - along * 1000, c + along * 1000])
+            pieces = [(part, fn) for poly, fn in pieces for part in shapely.get_parts(split(poly, cut))]
     for poly, height_at in pieces:
         if poly.geom_type != "Polygon" or poly.area < 0.01:
             continue
@@ -759,6 +773,7 @@ def branch_profiles(way, main_height, sample_ground):
     return out, core
 
 
+SLAB_CELL = 4.0  # m between the slab's cuts along the deck (it follows the height function)
 LEVEL_STEP = 0.1  # m: a link this far below the main deck beside it is a separate level, behind a parapet
 PARAPET = 1.0  # m above the higher level, on the cut between two levels
 LINK_SIDE = 3.0  # m of outline beside a descending link that rides on the link's level
