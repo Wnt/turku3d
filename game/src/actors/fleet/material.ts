@@ -8,10 +8,12 @@ const decode = sRGBTransferEOTF as unknown as (srgb: Node<'vec3'>) => Node<'vec3
 export const fleetNight = uniform(0);
 let shared: THREE.MeshStandardNodeMaterial | undefined;
 let sharedGlass: THREE.MeshPhysicalNodeMaterial | undefined;
-/** Opaque fleet surfaces share one material; authored glazing uses a separate instanced pass. */
+/** Opaque fleet surfaces share one material (instanced batches and single actors); glazing uses a separate pass. */
 export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
-  if (shared) return shared;
-  const material = new THREE.MeshPhysicalNodeMaterial({ name: 'Finnish fleet / shared surfaces', side: THREE.DoubleSide });
+  return shared ??= buildFleetMaterial('Finnish fleet / shared surfaces');
+}
+function buildFleetMaterial(name: string): THREE.MeshStandardNodeMaterial {
+  const material = new THREE.MeshPhysicalNodeMaterial({ name, side: THREE.DoubleSide });
   const surface=attribute('fleetSurface','vec4'), color=attribute('color','vec3');
   material.colorNode=mix(color,decode(paintNode()).mul(color),surface.x);
   material.roughnessNode=surface.y;
@@ -24,7 +26,7 @@ export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
     select(surface.w.greaterThan(2.5),lamps.w,
       select(surface.w.greaterThan(1.5),lamps.z,surface.w.max(0).mul(fleetNight.mul(.9).add(.1)))));
   material.emissiveNode=color.mul(emission).mul(lamps.x).mul(3);
-  return shared=material;
+  return material;
 }
 
 /** One extra shared instanced pass per visible authored model/LOD, never per vehicle. */

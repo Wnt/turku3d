@@ -54,11 +54,27 @@ The live roster includes self; match self by `you.id`. It contains no session to
 
 ## Client → server
 
+### move
+
+```json
+{"v":2,"type":"move","room":"/city/espoo"}
+```
+
+Carries this socket to another city's room (`/` is Turku, `/city/<name>` another city, the same paths as the
+socket URL) without reconnecting, for an in-place city switch. The player leaves the current room at once (the
+others see it go, as on a disconnect) and the seats it held there are freed at once (a disconnect would reserve
+them for five minutes); the socket is a fresh connection in the target room: send `hello` there next, with that
+city's session token. An unknown room closes the socket with 1008.
+
 ### hello
 
 ```json
-{"v":2,"type":"hello","session":"optional 64-character lowercase hex token","bot":false}
+{"v":2,"type":"hello","session":"optional 64-character lowercase hex token","bot":false,"arrival":false}
 ```
+
+`arrival:true` says the player arrives from another city (a portal trip, whether over `move` or a new socket): any
+seat its session still holds in this room is freed before the welcome, since a trip never resumes one. A reconnect
+within the city omits it and reclaims its seat as below.
 
 `bot:true` marks an automated client (the delivery bots, `tools/drivetest/bots.sh`). A car it registers is removed
 30 s after it becomes empty, or 10 s after the bot goes offline, seated or not, so bot cars never accumulate; a
@@ -69,6 +85,8 @@ hour token rejoins the same ID, nickname, spawn, score and paid-order set. It
 replaces any earlier socket using that token (old socket closes with code 4001).
 An unknown but well-formed token starts a new player; malformed tokens are rejected.
 The token is a bearer credential; retain it privately, never put it in a URL.
+`reset:true` with a known token applies a progress reset (below) before the welcome: the client reset its progress
+while this room was out of reach (in another city, or with the socket down).
 
 ### Vehicle orientation
 
@@ -76,7 +94,11 @@ Vehicle poses may include `rot:{x,y,z,w}`, a unit chassis quaternion in engine
 axes, and `wheels:[{pos:{x,y,z},steer,rotation,contact,suspension}]` (up to four).
 Wheel positions are chassis-local metres; steering and unwrapped wheel rotation
 are radians. The server validates these fields, strips unknown nested fields and rounds motion values to 0.001 before relaying them. Missing
-rotation falls back to legacy yaw. Receivers slerp the chassis along the shortest
+rotation falls back to legacy yaw. A driven four-wheel-steer truck adds
+`drv:[throttlePct, rpm10, gear, rearMode]`: integers 0..100 (throttle percent),
+0..800 (rpm / 10), -1..3 (gear, -1 reverse) and 0..3 (rear-steer mode AUTO, CRAB,
+MANUAL, LOCK). A pose with a malformed `drv` is rejected; a pose without it stays
+valid. Rear wheels 2 and 3 carry the rear-steer angle in their `steer`. Receivers slerp the chassis along the shortest
 arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
 starter car, scooter and truck roots already use the chassis frame.
@@ -135,13 +157,17 @@ vehicle transfers simulation; release keeps its current simulation with the last
 driver. Connected holders keep their seats regardless of pose idle time (including
 long loading stalls). Disconnect zeros retained velocities and reserves occupied
 seats for five minutes; reconnect/socket replacement preserves the holder and epoch.
-Only explicit release or departure beyond that reservation frees a seat. Re-acquiring
-one's own seat bypasses the proximity check. A competing acquisition returns
-`ok:false,reason:"seat_taken"` and the current holder; other denials omit the reason.
+Only explicit release, a `move` to another city, an `arrival` hello or departure
+beyond that reservation frees a seat. A player holds one seat at a time: acquiring
+another while holding one is denied. Re-acquiring one's own seat bypasses the
+proximity check. A competing acquisition returns `ok:false,reason:"seat_taken"` and
+the current holder; other denials omit the reason (the game says "Car not available").
 Clients reclaim the driven seat after welcome, preserve their live body through
 empty/missing registry snapshots, and only exit on this explicit conflict after
 three seconds of grace, at the vehicle's current driver side. Recovered ownership
-cancels the exit. Clients restore an owned record's full pose,
+cancels the exit. A seat the room keeps reporting as the client's for two seconds
+while it drives another vehicle (or none) and no entry is in flight is released
+(a release lost on the way). Clients restore an owned record's full pose,
 including flipped rotation, rather than creating another car in the initial slot.
 
 A pose message can include `vehicleId` for the occupied registry vehicle (the server
@@ -231,6 +257,20 @@ must replace a pose transmission in a full-rate stream. Accepted delivery emits
 An order crossing the hour boundary counts in the hour when the server receives
 its delivery, regardless of `t` or when the client started the order.
 
+### reset (progress)
+
+```json
+{"v":2,"type":"reset"}
+```
+
+The pause menu's "Reset progress": the sender becomes a new player again under the same identity. The server zeroes
+its `earned`, `deliveries` and ranking time, drops its retained pose (a rejoin starts at the spawn slot), frees any
+seat it holds and removes the vehicles it registered itself (`source:null`: the start car, a bought scooter or truck)
+unless another player is in one. World cars it moved (`park:` sources) stay where they are. ID, session token,
+nickname, spawn slot and the paid-order and fine IDs are kept, so no earlier claim becomes payable again. The server
+flushes the vehicle removals, answers `progress_reset` to the sender and broadcasts `players` and `scores`. Accepted
+outside the round epoch check, also during a countdown. Archived hours and round results keep their history.
+
 ### world break and fine
 
 A client that breaks a sign pole sends `{"v":2,"type":"world","action":"break","poleId":"t0_0_0:GIS_Liikennemerkit:123","by":"own player UUID","t":12345}` followed by `{"v":2,"type":"fine","reason":"pole","poleId":"same ID","amount":50}`. Pole IDs are stable per visual tile and source object. The server accepts the first break of an ID in an hour, checks `by` against the sender and broadcasts it. A fine is accepted once for a pole broken by that player; it records the fine without changing earned cash or leaderboard rank. The local wallet is separately floored at zero. Duplicate or malformed events increment `stats.rejected`. The broken set is held in memory and cleared at hour rollover.
@@ -264,6 +304,7 @@ round epoch check.
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
 | `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |
 | `error` | `code:"protocol",reload:true` | Missing/unsupported `v` in a JSON object; close 1002 follows. Reload a matching client. |
+| `progress_reset` | none | Answer to the sender's `reset`, after its vehicle removals; `players` and `scores` follow. |
 | `error` | `code:"nicknames",reload:false` | All available nicknames used in this hour; close 1013 follows. Retry next hour. |
 
 Nicknames are random friendly adjective + noun combinations in CamelCase. The

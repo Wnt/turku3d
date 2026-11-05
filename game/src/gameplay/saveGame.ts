@@ -28,9 +28,9 @@ export function yawOf(rot: Quat) {
 
 /** Sideways distance from the chassis centre to where the player stands after leaving: beside a scooter, outside the
  *  car's door, outside the truck's outboard tyres. */
-const EXIT_OFFSET: Record<VehicleKind, number> = { scooter: 0.9, car: 1.9, truck: 2.1 };
+const EXIT_OFFSET: Record<VehicleKind, number> = { scooter: 0.9, car: 1.9, truck: 1.75 };
 /** Height above the ground at which a parked vehicle is spawned or reset, so it settles onto its wheels. */
-export const SPAWN_HEIGHT: Record<VehicleKind, number> = { scooter: 0.55, car: 0.75, truck: 1.25 };
+export const SPAWN_HEIGHT: Record<VehicleKind, number> = { scooter: 0.55, car: 0.75, truck: 1.0 };
 
 /** Where the player stands after leaving a vehicle: the driver side (-Z in the chassis frame). */
 export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 {
@@ -74,6 +74,9 @@ interface SaveGameOptions {
   bringVehicle?: GameHooks['bringVehicle'];
   /** The pause menu's "Return to Turku" in another city (ui/menu.ts GameHooks). */
   returnHome?: GameHooks['returnHome'];
+  /** The pause menu's "Reset progress" (resetProgress below): what the session forgets, resolving whether the new game
+   *  starts on this page; then where (a room's spawn slot; null: the new-game start). */
+  resetProgress?: { forget: () => Promise<boolean>; at: () => Pose | null };
   scoreboardStart?: () => void;
   scoreboardPause?: () => void;
   /** Opens the pause menu's Developer page (localhost only, ui/devMenu.ts). */
@@ -122,6 +125,7 @@ export class SaveGameController {
       ...(o.bringVehicle ? { bringVehicle: { reason: o.bringVehicle.reason,
         run: () => { this.hooks.resume(); o.bringVehicle!.run(); } } } : {}),
       ...(o.returnHome ? { returnHome: { detail: o.returnHome.detail, run: () => { o.pauseMenu.close(); o.returnHome!.run(); } } } : {}),
+      ...(o.resetProgress ? { resetProgress: () => { void this.resetProgress(o.resetProgress!.forget, o.resetProgress!.at).catch(o.fail); } } : {}),
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
     this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio, o.timedRounds, o.multiplayerActive);
@@ -219,6 +223,10 @@ export class SaveGameController {
         this.o.physics.setCharacterEnabled(false);
         this.o.recovery.restart();
       }
+      // Placed: collision follows the player from here. A seat parked away from `at` (an arrival's ride at the
+      // portal exit or the start parking, a room's kept car) never passes within streamPoint's 3 m of the focus,
+      // which would otherwise pin streaming there and let the cells under a car driven away unload behind it.
+      this.focus = null;
     }
     finally { this.loading = false; this.o.setPaused(false); }
   }
@@ -329,6 +337,33 @@ export class SaveGameController {
       }
       await this.putCharacter({ x: spawn.x, y: await this.snap(spawn), z: spawn.z }, spawn.yaw);
     });
+  }
+
+  /**
+   * "Reset progress" (the pause menu, gameplay/progressReset.ts): the player leaves any vehicle (releasing a room's seat)
+   * and the world waits paused while `forget` clears the stored progress and the room's record of it. Then a new game
+   * starts like the start menu's New game, solo with the opening story, or at `at()` (a room's spawn slot, no story).
+   * `forget` resolves false when the player leaves this page for the default start instead (another city, or Turku
+   * entered at a portal exit): nothing autosaves or moves until the trip ends this session.
+   */
+  async resetProgress(forget: () => Promise<boolean>, at: () => Pose | null) {
+    this.o.pauseMenu.close();
+    this.loading = true;
+    this.o.setPaused(true);
+    let here: boolean;
+    try {
+      if (this.o.view().mode === 'car') this.o.leaveCar();
+      this.restoreLastVehicle(null);
+      here = await forget();
+    } catch (e) {
+      this.loading = false;
+      this.o.setPaused(false);
+      throw e;
+    }
+    if (!here) return;
+    const start = at();
+    if (start) await this.playAt(start);
+    else { this.loading = false; this.play(null); }
   }
 
   /** Closes the pause menu and keeps the world paused (`loading`) while `work` moves the player. */

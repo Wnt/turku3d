@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-toyota-prius",
+  "fleet": {
+    "id": "carla-toyota-prius",
+    "name": "Valo Hybrid 2",
+    "body": "hatch",
+    "family": "sedan",
+    "length": 4.5135,
+    "width": 2.0068,
+    "height": 1.5248,
+    "wheelbase": 2.8192,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3713,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.6
+  },
+  "id": "carla-toyota-prius",
+  "wheels": {
+    "radius": 0.3713,
+    "width": 0.2618,
+    "pivots": {
+      "wheel_FL": [
+        -0.8143,
+        0.3713,
+        1.4169
+      ],
+      "wheel_FR": [
+        0.8143,
+        0.3713,
+        1.4169
+      ],
+      "wheel_RL": [
+        -0.7648,
+        0.3713,
+        -1.4022
+      ],
+      "wheel_RR": [
+        0.7648,
+        0.3713,
+        -1.4022
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7624,
+      0
+    ],
+    "half": [
+      1.0034,
+      0.7624,
+      2.2568
+    ]
+  },
+  "triangles": [
+    24745,
+    7880,
+    2951
+  ],
+  "source": {
+    "title": "Toyota Prius (vehicle.toyota.prius)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-toyota-prius",
+    "referenceModel": "Toyota Prius (CARLA vehicle.toyota.prius)",
+    "massKg": 1380,
+    "powerKW": 100,
+    "torqueNm": 207,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.4,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.4,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.5135,
+    "widthM": 2.0068,
+    "heightM": 1.5248,
+    "wheelbaseM": 2.8192,
+    "trackM": 1.6285,
+    "wheelRadiusM": 0.3713,
+    "wheelWidthM": 0.2618
+  },
+  "accepted": false
+}

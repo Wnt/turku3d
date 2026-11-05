@@ -29,6 +29,8 @@ const ALIASES_MS = 30_000;
 const FRAGMENT_MS = 15_000;
 const UPGRADING_MS = 3_000;  // a served fragment whose tile is being rebuilt (stale, queued) is polled for its upgrade
 const FRAGMENTS_MAX = 4000;
+const CHOSEN_MS = 10_000;     // a tile's resolved train member is reused this long without asking the farm
+const CHOSEN_MAX = 20000;
 
 function getJson(url) {
   return new Promise(resolve => {
@@ -60,6 +62,15 @@ export function chainOf(aliases, family, exclude = []) {
 function resolver() {
   const aliases = { service: null, at: 0, names: {}, refreshing: null };
   const pinBase = new Map();  // pin -> its base generation, learnt from its receipts
+  // config.version + tile -> {version, at}: the newest member known to have finished the tile. Reused for CHOSEN_MS,
+  // and whenever the farm's receipts do not answer: a client is served the newest generation known ready at once,
+  // never left waiting on (or queueing) a rebuild behind a slow farm (city.lab outage, 2026-11-05).
+  const chosen = new Map();
+  const remember = (key, version) => {
+    chosen.delete(key); chosen.set(key, { version, at: Date.now() });
+    if (chosen.size > CHOSEN_MAX) chosen.delete(chosen.keys().next().value);
+    return version;
+  };
   const known = async service => {
     if (aliases.service !== service || Date.now() - aliases.at > ALIASES_MS) {
       aliases.refreshing ??= getJson(new URL('/status', service)).then(status => {
@@ -77,15 +88,20 @@ function resolver() {
       .filter(name => name !== config.version);
     if (!chain.length) return config.version;
     const versions = [config.version, ...chain];
-    // One farm request for the whole chain; a farm without /receipts is asked per version.
+    const key = `${config.version}/${tile}`;
+    const last = chosen.get(key);
+    if (last && Date.now() - last.at < CHOSEN_MS && versions.includes(last.version)) return last.version;
+    // One farm request for the whole chain. When it does not answer, the last version known ready is served
+    // (no per-version fan-out against a farm that is already slow); a farm without /receipts is asked per version.
     const batch = await getJson(new URL(`/receipts?tile=${tile}&v=${versions.map(encodeURIComponent).join(',')}`, config.service));
+    if (!batch && last && versions.includes(last.version)) return last.version;
     const [pin, ...members] = batch ? versions.map(v => batch[v] ?? null)
       : await Promise.all(versions.map(v => receipt(config.service, v, tile)));
     if (baseOf(pin)) pinBase.set(config.version, baseOf(pin));
     const base = pinBase.get(config.version);
     if (!base) return config.version;  // nothing known to be compatible yet
     const index = members.findIndex(ready => ready && baseOf(ready) === base);
-    return index < 0 ? config.version : chain[index];
+    return remember(key, index < 0 ? config.version : chain[index]);
   };
 }
 
@@ -128,6 +144,8 @@ function sendFragment(req, res, { status, headers, body }) {
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 
+const HEALTH = new Map();
+
 export function createSharedTileProxy(configFile) {
   const versionFor = resolver();
   const fragments = fragmentCache();
@@ -143,6 +161,34 @@ export function createSharedTileProxy(configFile) {
     const key = cached && JSON.stringify([config.service, config.version, config.follow, config.exclude, url.pathname]);
     const hit = key && fragments.get(key);
     if (hit) { sendFragment(req, res, await hit); return; }
+    // Health answers come from a short cache refreshed in the background: the farm's /health can take 10-30 s.
+    if (!scenery && !pinned && req.method === 'GET' && /^\/coarse\/(?:health|status)$/.test(url.pathname)) {
+      const slot = HEALTH.get(url.pathname) ?? {};
+      HEALTH.set(url.pathname, slot);
+      const refresh = () => {
+        if (slot.inflight) return slot.inflight;
+        slot.inflight = (async () => {
+          const version = await versionFor(config, url.pathname);
+          const target = new URL(`/v/${encodeURIComponent(version)}${url.pathname}${url.search}`, config.service);
+          return await new Promise(resolve => {
+            const r = http.get(target, { timeout: 60000 }, reply => {
+              const chunks = []; reply.on('data', c => chunks.push(c));
+              reply.on('end', () => resolve({ status: reply.statusCode, type: reply.headers['content-type'] ?? 'application/json', body: Buffer.concat(chunks) }));
+            });
+            r.on('timeout', () => r.destroy(new Error('timeout')));
+            r.on('error', () => resolve(null));
+          });
+        })().then(answer => { if (answer && answer.status === 200) { slot.answer = answer; slot.at = Date.now(); } slot.inflight = null; return answer; },
+                   () => { slot.inflight = null; return null; });
+        return slot.inflight;
+      };
+      if (!slot.answer || Date.now() - slot.at > 15000) refresh();
+      const answer = slot.answer ?? await Promise.race([refresh(), new Promise(r => setTimeout(() => r(null), 8000))]);
+      if (!answer) { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'tile service health not available yet' })); return; }
+      res.writeHead(answer.status, { 'content-type': answer.type, 'cache-control': 'no-cache' });
+      res.end(answer.body);
+      return;
+    }
     let target;
     if (scenery) {
       if (!config.scenery) { res.writeHead(404); res.end(); return; }

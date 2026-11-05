@@ -157,6 +157,28 @@ def plan(vertices, wall):
             bottom = max(bottom, float(vertices[:2, 1].max()))
             top = min(top, float(vertices[2:, 1].min()))
         rect = shapely.box(left, bottom, right, top)
+        if (desc["kind"] in {"balcony", "glazed_balcony"}
+                and not boundary.buffer(1e-6).covers(rect)):
+            # A balcony row read over a longer wall than this shell fragment: each balcony
+            # keeps its reading position and, like other projecting solids, is clipped to
+            # the fragment it overlaps (a deck and rail cut no paint).
+            span = (right - left) / desc["count"]
+            low, high = float(vertices[:2, 1].min()), float(vertices[2:, 1].max())
+            for i in range(desc["count"]):
+                l = max(0.0, left + i * span + 0.03)
+                r = min(float(length), left + (i + 1) * span - 0.03)
+                b, t = max(bottom, low), min(top, high)
+                if r - l < 0.6 or t - b < 0.3:
+                    continue
+                one = shapely.box(l, b, r, t)
+                if one.intersection(occupied).area <= 1e-6:
+                    occupied = occupied.union(one)
+                    l, b, r, t = one.bounds
+                    admitted.append({**desc, "count": 1, "through": False, "rect": one,
+                                     "metric": [l, b, r, t], "tangent": tangent, "normal": normal,
+                                     "column_centres": None, "column_style": None,
+                                     "returns": [True] * 4})
+            continue
         if (
             right - left < 0.3
             or top - bottom < 0.3

@@ -573,6 +573,30 @@ test('failed drafts under a start or retained car stay required and recover on a
   expect(coarse.progressAt(600, 100).loaded).toBeGreaterThanOrEqual(2);
 });
 
+test('a city service without the demand route is asked once a minute, not every poll', async () => {
+  const urls: URL[] = [];
+  const host: CoarseHost = {
+    scene: new THREE.Scene(), manifest: { visual: {}, collision: {} } as unknown as Manifest,
+    pageUrl: 'https://wnt.github.io/turku-game/game/', renderer: {} as THREE.WebGPURenderer,
+    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => {},
+    loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const u = new URL(url); urls.push(u);
+      const demand = u.pathname.endsWith('/demand');
+      return { ok: !demand, status: demand ? 404 : 202, json: async () => ({ state: 'queued', version: 0 }) } as Response;
+    }) as typeof fetch,
+  };
+  const coarse = new CoarseTiles(host);
+  for (let t = 0; t <= 59_000; t += 1000) {
+    coarse.update(490 + t / 1000, 125, t);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  expect(urls.filter(u => u.pathname.endsWith('/demand'))).toHaveLength(1);
+  coarse.update(560, 125, 60_000);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(urls.filter(u => u.pathname.endsWith('/demand'))).toHaveLength(2);
+});
+
 test('Pages sends replaceable anonymous tile demand with priority and no raw motion', async () => {
   const urls: URL[] = [];
   const host: CoarseHost = {
@@ -1092,4 +1116,35 @@ test('startup stops waiting for side tiles the service is still building, never 
   other.preload([{ x: 125, z: 125 }], 80, true);
   for (let t = 0; t <= 16_000; t += 500) { other.update(125, 125, t, undefined, false); await settle(); }
   expect(other.progressAt(125, 125)).toMatchObject({ loaded: 0, total: 1 });
+});
+
+test('leaving the city releases every tile model and its collision, and the streamer stays idle afterwards', async () => {
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const scene = new THREE.Scene(), unloaded: string[] = [], requests: string[] = [];
+  const manifest = { collision: {} } as unknown as Manifest;
+  const coarse = new CoarseTiles({ scene, manifest, renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/',
+    unloadCollision: id => unloaded.push(id), refreshCollision: () => {}, checkCollision: async () => {}, retainCollision: () => {},
+    loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname; requests.push(path);
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  for (let t = 0; t <= 6000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
+  const cells = Object.keys(manifest.collision).length;
+  expect(cells).toBeGreaterThan(0);
+  expect(scene.children.length).toBeGreaterThan(0);
+  coarse.leaveCity();
+  expect(Object.keys(manifest.collision)).toEqual([]);
+  expect(unloaded.length).toBe(cells);
+  expect(scene.children.length).toBe(0);
+  expect(coarse.entries.size).toBe(0);
+  const before = requests.length;
+  for (let t = 6500; t <= 9000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
+  expect(requests.length).toBe(before);
 });

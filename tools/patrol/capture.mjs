@@ -26,6 +26,7 @@ const cfg = JSON.parse(fs.readFileSync(spotsPath, 'utf8'));
 const only = args.only ? new Set(args.only.split(',')) : null;
 const [W, H] = (args.size ?? '960x540').split('x').map(Number);
 const FRAMES = Number(args.frames ?? 60);
+const STILLS = !!args.stills; // --stills: stills only (no population mask, collision grid or still-camera sequence)
 const DRIVE_SPEED = Number(args.speed ?? 12); // m/s at a virtual 30 Hz step, independent of the real frame rate
 const E0 = 23459500, N0 = 6704500;
 fs.mkdirSync(out, { recursive: true });
@@ -79,15 +80,20 @@ async function waitSettled(limitMs = 180000) {
     st = await page.evaluate(() => {
       const g = window.__game, p = window.__qaPose;
       if (!g?.coarse?.viewStatus || !p || typeof window.__qaMove !== 'function') return { boot: false };
-      const vs = g.coarse.viewStatus(p.E - 23459500, -(p.N - 6704500));
+      const x = p.E - 23459500, z = -(p.N - 6704500), vs = g.coarse.viewStatus(x, z);
+      // Draw state of the 3x3 (coarseTiles.coverageSnapshot): every cell must be F (full HD alone). D (HD and a
+      // scenery cell both drawn), P (collision preview), h/c (fading) or . (hole) are not a settled picture.
+      const cov = g.coarse.coverageSnapshot?.(x, z, 1)?.cells ?? null;
       return { boot: true, qa: !!window.__qaReady, err: window.__qaError ?? null, coverage: vs.ready, notFull: vs.near.filter(e => !e.ready).map(e => e.id),
         scenery: { ready: vs.scenery.ready, pending: vs.scenery.pending, errors: vs.scenery.errors, loaded: vs.scenery.loaded, total: vs.scenery.total },
-        status: g.coarse.status, tris: g.tiles?.residentTris ?? null };
+        status: g.coarse.status, tris: g.tiles?.residentTris ?? null, cells: cov, hashes: vs.near.map(e => `${e.id}:${(e.hash ?? '').slice(0, 8)}`) };
     }).catch(e => ({ boot: false, e: String(e).slice(0, 200) }));
     if (st.boot) {
-      const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris]);
+      const k = JSON.stringify([st.notFull, st.scenery.pending, st.scenery.loaded, st.status, st.tris, st.cells, st.hashes]);
       same = k === sig ? same + 1 : 0; sig = k;
-      if ((st.qa || st.err) && st.coverage && same >= 2) return { settled: true, ms: Date.now() - t, qaErr: st.err ? String(st.err).slice(0, 120) : null };
+      const allFull = st.cells === null || /^F+$/.test(st.cells);
+      if ((st.qa || st.err) && st.coverage && allFull && same >= 2)
+        return { settled: true, ms: Date.now() - t, cells: st.cells, hashes: st.hashes, qaErr: st.err ? String(st.err).slice(0, 120) : null };
     }
     if (Date.now() - t > limitMs) return { settled: false, ms: Date.now() - t, ...st, err: st.err ? String(st.err).slice(0, 300) : null };
     await new Promise(r => setTimeout(r, 1000));
@@ -225,12 +231,16 @@ async function captureSpot(s, attempt = 1) {
         const r0 = await waitSettled(120000); rec.ready.push({ view: 'ground', ...r0 });
         const gy = await groundAt(E, N, s.top ?? 80);
         rec.ground = gy;
-        Hs = gy === null ? 6 : gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
+        // No collision ground yet: never guess a height (a fixed fallback put the camera under the street at
+        // Lonttinen in iteration 3); the spot counts as unsettled and is re-captured at the end of the run.
+        if (gy === null) { rec.unsettled = true; rec.ready.push({ view: 'ground', settled: false, err: 'no collision ground under the spot' }); throw new Error('no collision ground under the spot'); }
+        Hs = gy + (s.pano ? 2.4 : 1.7); // Google's camera rides ~2.4 m up
       }
-      views = [0, 120, 240].map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
-      views.push({ view: 'raised', E, N, H: Hs + 25, yaw: heading, pitch: -22, fov, street: false });
+      // `single`: one view at the spot's own camera (comparison shots such as building walls vs panoramas)
+      views = (s.single ? [0] : [0, 120, 240]).map((d, i) => ({ view: `h${i}`, E, N, H: Hs, yaw: (heading + d) % 360, pitch, fov, street: true }));
+      if (!s.single) views.push({ view: 'raised', E, N, H: Hs + 25, yaw: heading, pitch: -22, fov, street: false });
       rec.views = views; rec.x = E - E0; rec.z = -(N - N0);
-      const grid = await groundGrid(E, N, Hs - 1.7 + 6);
+      const grid = STILLS ? null : await groundGrid(E, N, Hs - 1.7 + 6);
       if (grid) { fs.writeFileSync(path.join(out, `${s.id}-ground.json`), JSON.stringify(grid)); rec.groundGrid = `${s.id}-ground.json`; }
     }
     for (const v of views) {
@@ -240,14 +250,14 @@ async function captureSpot(s, attempt = 1) {
       const r = await waitSettled(rec.unsettled ? 30000 : Number(args.settle ?? 180000)); (rec.ready ??= []).push({ view: v.view, ...r });
       v.settled = r.settled; if (!r.settled) rec.unsettled = true;
       await still(path.join(out, `${s.id}-${v.view}-${pass}.png`));
-      if (pass === 'color' && v.street) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
+      if (pass === 'color' && v.street && !STILLS) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
     }
-    if (pass === 'color') {
+    if (pass === 'color' && !STILLS) {
       const v = views[0];
       await move({ E: v.E, N: v.N, H: v.H, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
       const rs = await waitSettled(rec.unsettled ? 30000 : 120000);
       rec.sequence = await sequence(path.join(out, `${s.id}-seq`), FRAMES); rec.sequence.settled = rs.settled;
-    } else {
+    } else if (pass === 'id') {
       rec.idTable = `${s.id}-idtable.json`;
       fs.writeFileSync(path.join(out, rec.idTable), JSON.stringify(await page.evaluate(() => window.__qaIdTable ?? {})));
     }

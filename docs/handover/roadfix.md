@@ -170,3 +170,78 @@ maps `~/turku3d/loops/roadfix/maps/`.
    underpass vault's stretched texture and a flat-disc water exit (E 23459792 N 6704290); Myllyahde road tunnel one
    flat untextured colour (E 23459205 N 6703754). These are bridge and tunnel materials (`bridge_materials.py`,
    `tunnels.Tunnels.visuals`), a separate slice.
+
+## 2026-11-05 Kupittaa link levels (merged 5a6814e0)
+
+- The outline beside (LINK_SIDE 3 m) and past the end (LINK_RUNOUT 12 m) of a descending link now rides on
+  the link's level; the main carriageways (branch core) always stay on the main level. Before, outline left
+  at the main deck's height stood as a steep wall where the link meets the ground road.
+- The link level is triangulated in 2 m strips across the link; one big polygon gave chords up to 0.5 m off
+  the descent (a 16° face at s 108).
+- Lanes, surfaces, rails and furniture use `levels_height` over the slab's levels.
+- Sweep t0_6_-2 (build f): w631256465 drives through the structure window (s 74–180); its stuck moved from
+  s 123 on the deck to s 209 at tunnel 975600807+99471822+… portal (1609.7, −310.7), whose floor face rises at
+  38°. That tunnel portal is a separate open fault. Hämeensilta: 0 regressions.
+- Open: Kalevan 449346f1 stall at the south joint s 157.6 (1800.3, −55.9): impact in base too, cause not found;
+  a 0.29 m sidewalk-over-road step at s 91–93 on the Kupittaa link junction.
+
+## 2026-11-05 Kalevan joint, Kupittaa kerb and portal (merged 450d2102)
+
+- **Kalevan south joint (lane 449346f1):** the stall was not a slab edge. Lower street w4250695 climbs under the deck and ends there, so
+  `under_profile` extrapolated its north ground flat and cut the climbing ground into a 6 m cliff. The cut now only
+  applies between measured ends of the lower street, joined across OSM splits (`lower_chains`). All three Kalevan lanes
+  now arrive. The 17.5 impact on 449346f1 is the same as in the base.
+- **Kupittaa junction kerb:** deck footways are no longer raised over another member's carriageway. Max step on the
+  link went from 0.29 to 0.15 m.
+- **Tunnel 975600807+… mouth:** the portal floor followed a bank sideways by 10 % of the offset, which raised the corner of a
+  34 m merged mouth by 1.7 m. That crossfall is now capped at 0.35 m. The sill went from 20.5 to 19.1 m.
+  - Still open: the approach ground is 17.6 m, against 18.84 m on the tunnel floor at the mouth. The approach is
+    Helsinginkatu (2311380/531512373), a lower way of deck 525854016. The lane still sticks at s 212.
+- **train8 subset:** the 24 tiles with a branch deck (12 decks), found by `bridges.prepare` over the 301 bridge-ends tiles.
+  The scan script is `tools/branchtiles.py` on osgallery-dev.
+
+## 2026-11-05 Lemminkäisensilta, Kalevan deck, 2 km sweep (merged 6ab7333b, 4c00704e)
+
+- **Lemminkäisensilta (w479048547>w4250693):** the stall had the same cause as the Kalevan joint. Helsinginkatu is mapped
+  in pieces, and the piece under the viaduct ended there, so the cut had measured ground on one side only. The cut now
+  also reads open continuations (`lower_continuations`). All 3 lanes arrive.
+- **Kalevan main deck:** a regression from the split-deck work. Slab station strips span the 36 m deck, and a single
+  triangle from a lowered outline corner (beside the north footway) put the lanes 2.6 m low, with a 1.8 m step.
+  - Slabs are now also cut along the deck every 4 m (`SLAB_CELL`).
+  - Only carriageway links split a deck into levels.
+  - 11 of 12 main-deck lanes arrive. 6d349199 sticks 35 m past the deck on the flat west approach and needs checking.
+- **Sweep rb29** (186 lanes: the 55-lane set, the Kalevan deck, and the structures on t0_-5_-1, t0_0_-4 and t0_1_-4):
+  0 lanes worse than earlier sweeps or base, 52 more lanes arrive than in base.
+- **2 km sweep (rb24, base tiles plus 4 rebuilt), 310 lanes, 95 not arrived. Remaining classes:**
+  1. Puistokatu under the rail viaduct (t0_-5_-1), 27 lanes. Soffit clearance of 1.2 m: the road climbs into the
+     deck. Not fixed by the continuation rule; it needs a clearance sag (road lowered to soffit − 4 m with a vertical
+     curve) or a raised deck.
+  2. t0_0_-4 bridge w4265032/3, 18 lanes. A register lamp (`clear_of_lanes`) stands in a lane: the lane envelope
+     uses the OSM width, while the graph lanes run outside it. The underpass lanes stall on a 0.13 m kerb.
+  3. Service bridge w620102546 (t0_-2_-2): a railing across the lane at the deck end.
+  4. Single spots in t0_-2_3, t0_0_-3, t0_2_-5, t0_2_-4, t0_-2_2, t0_2_-1, t0_7_0 and t0_-5_4, plus lanes leaving
+     the road at t0_-3_-3 and t0_-1_-4.
+- **Sweep note:** the underpass heights in structures.json are base heights. After a cut lowers a road, the sweep
+  reports "no drivable lane", so the y values are nulled for sweeps (see rb24).
+- **Disk:** all roadfix builds and sweeps live under /bulk/turku3d/scratch/roadfix (work and build are symlinks);
+  old outputs are in /bulk/turku3d/moved-from-root/roadfix.
+
+## 2026-11-05 Prop bodies in the sweep, 2 km classes fixed (merged 1095eb6e, c751ec9b, 45bf168e)
+
+- **Sweep props and debug (1095eb6e):** the drive sweep now spawns the sign and bus-stop pole bodies the client adds,
+  read from each tile's visual glTF with the client's shared rules in `world/poleRecords.ts`. With `DRIVE_DEBUG=1`,
+  every impact records what the chassis touched: the cell and material, or the prop's id. mksweep copies local visual
+  models into `tiles/vis`.
+- **Clearance (c751ec9b):** a lower road dips at 8 % to keep its clearance under a deck's soffit: maxheight, else
+  3.0 m. Puistokatu itself was already fixed by the continuation rule; all 27 lanes arrive.
+- **Railings (c751ec9b, 4648139d):** deck-end railings stay 2.5 m clear of carriageway centre lines and clear of
+  at-grade approaches that leave a deck end across its side (w620102546 / service road w660828777).
+- **Posts in lanes (45bf168e; it changes 751 tiles, so it goes to the next big window):**
+  - Furniture posts, signs, bus stops and bollards inside the graph's car lanes move up to 3 m to the kerb, or are not
+    built.
+  - A street light under a deck whose post would reach the deck, or under a deck with no known height, is not built.
+  - Results: the t0_0_-4 bridge lanes pass, and Kalevan 449346f1's 17.5 m/s impact (a post in the lane) drops to 3.8.
+  - The tile list is `furniture-tiles.json` on osgallery-dev, from scanning farm generation 2e6515f4.
+- **Remaining:** posts on tiles that weren't rebuilt (t0_1_-4, t0_1_-3, t0_-1_-3; these clear with the furniture
+  window), fences and tree trunks beside lanes at t0_2_-5, t0_2_-4 and t0_-2_3, Kalevan 6d349199 (stuck in base too),
+  and the t0_-2_-2 tunnel lanes.

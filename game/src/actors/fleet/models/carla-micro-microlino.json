@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-micro-microlino",
+  "fleet": {
+    "id": "carla-micro-microlino",
+    "name": "Valo Kupla 1",
+    "body": "hatch",
+    "family": "microcar",
+    "length": 2.2073,
+    "width": 1.4809,
+    "height": 1.376,
+    "wheelbase": 1.5247,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.2543,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0
+  },
+  "id": "carla-micro-microlino",
+  "wheels": {
+    "radius": 0.2543,
+    "width": 0.1718,
+    "pivots": {
+      "wheel_FL": [
+        -0.5958,
+        0.2543,
+        0.6839
+      ],
+      "wheel_FR": [
+        0.5958,
+        0.2543,
+        0.6839
+      ],
+      "wheel_RL": [
+        -0.3608,
+        0.2543,
+        -0.8408
+      ],
+      "wheel_RR": [
+        0.3608,
+        0.2543,
+        -0.8408
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.688,
+      0
+    ],
+    "half": [
+      0.7405,
+      0.688,
+      1.1036
+    ]
+  },
+  "triangles": [
+    11436,
+    7880,
+    2951
+  ],
+  "source": {
+    "title": "Microlino (BMW Isetta body) (vehicle.micro.microlino)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-micro-microlino",
+    "referenceModel": "Microlino (BMW Isetta body) (CARLA vehicle.micro.microlino)",
+    "massKg": 513,
+    "powerKW": 12.5,
+    "torqueNm": 89,
+    "drivetrain": "RWD",
+    "fuel": "EV",
+    "zeroTo100S": 18,
+    "topSpeedKmh": 90,
+    "turningCircleM": 7,
+    "gears": 1,
+    "rideHeightM": 0.12,
+    "character": "comfort",
+    "lengthM": 2.2073,
+    "widthM": 1.4809,
+    "heightM": 1.376,
+    "wheelbaseM": 1.5247,
+    "trackM": 1.1916,
+    "wheelRadiusM": 0.2543,
+    "wheelWidthM": 0.1718
+  },
+  "accepted": false
+}

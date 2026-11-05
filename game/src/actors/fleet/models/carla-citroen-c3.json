@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-citroen-c3",
+  "fleet": {
+    "id": "carla-citroen-c3",
+    "name": "Kaira Kipinä C3",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 3.9877,
+    "width": 1.8508,
+    "height": 1.6171,
+    "wheelbase": 2.6835,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3479,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1.2
+  },
+  "id": "carla-citroen-c3",
+  "wheels": {
+    "radius": 0.3479,
+    "width": 0.2382,
+    "pivots": {
+      "wheel_FL": [
+        -0.727,
+        0.3479,
+        1.274
+      ],
+      "wheel_FR": [
+        0.727,
+        0.3479,
+        1.274
+      ],
+      "wheel_RL": [
+        -0.727,
+        0.3479,
+        -1.4096
+      ],
+      "wheel_RR": [
+        0.727,
+        0.3479,
+        -1.4096
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8086,
+      0
+    ],
+    "half": [
+      0.9254,
+      0.8086,
+      1.9938
+    ]
+  },
+  "triangles": [
+    21897,
+    7881,
+    2951
+  ],
+  "source": {
+    "title": "Citroen C3 (vehicle.citroen.c3)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-citroen-c3",
+    "referenceModel": "Citroen C3 (CARLA vehicle.citroen.c3)",
+    "massKg": 1090,
+    "powerKW": 61,
+    "torqueNm": 118,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 12.5,
+    "topSpeedKmh": 175,
+    "turningCircleM": 10.7,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "balanced",
+    "lengthM": 3.9877,
+    "widthM": 1.8508,
+    "heightM": 1.6171,
+    "wheelbaseM": 2.6835,
+    "trackM": 1.454,
+    "wheelRadiusM": 0.3479,
+    "wheelWidthM": 0.2382
+  },
+  "accepted": false
+}

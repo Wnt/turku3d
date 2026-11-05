@@ -153,6 +153,12 @@ export class SaveStore {
     this.flush();
   }
 
+  /** Forgets every slot and the autosave (a progress reset, gameplay/progressReset.ts). */
+  clear() {
+    this.file = { version: 1, slots: {} };
+    try { this.storage?.removeItem(this.key); } catch { /* blocked storage: the slots were only in memory */ }
+  }
+
   private read(): SaveFile {
     const file: SaveFile = { version: 1, slots: {} };
     try {

@@ -4,7 +4,7 @@ Each entry runs at the end of every generator build and over existing farm produ
 
 from . import (bridge_ends, chain_record, finished_ground, floodlights, furniture, landmark_windows,
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, stand_roofs,
-               structure_materials, trees_lidar, wires)
+               structure_materials, trees_lidar, wires, facade_reality)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -34,4 +34,6 @@ CHAIN = (
     monolith_walls.MIGRATION,
     # Spot rebuild of the tiles with tunnels, bridges, stairs or retaining walls: procedural PBR materials.
     structure_materials.MIGRATION,
+    # Rebuild of every tile with buildings: source-driven facade material, opening and colour rules.
+    facade_reality.MIGRATION,
 )

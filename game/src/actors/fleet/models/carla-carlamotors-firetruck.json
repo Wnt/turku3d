@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-carlamotors-firetruck",
+  "fleet": {
+    "id": "carla-carlamotors-firetruck",
+    "name": "Louhi Pelastus 1",
+    "body": "van",
+    "family": "fire",
+    "length": 8.468,
+    "width": 3.3813,
+    "height": 3.8274,
+    "wheelbase": 4.9961,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.5062,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0
+  },
+  "id": "carla-carlamotors-firetruck",
+  "wheels": {
+    "radius": 0.5062,
+    "width": 0.5497,
+    "pivots": {
+      "wheel_FL": [
+        -1.225,
+        0.5062,
+        2.5715
+      ],
+      "wheel_FR": [
+        1.225,
+        0.5062,
+        2.5715
+      ],
+      "wheel_RL": [
+        -1.0403,
+        0.5062,
+        -2.4246
+      ],
+      "wheel_RR": [
+        1.0403,
+        0.5062,
+        -2.4246
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.9137,
+      0
+    ],
+    "half": [
+      1.6907,
+      1.9137,
+      4.234
+    ]
+  },
+  "triangles": [
+    59039,
+    11807,
+    3923
+  ],
+  "source": {
+    "title": "Fire truck (vehicle.carlamotors.firetruck)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-carlamotors-firetruck",
+    "referenceModel": "Fire truck (CARLA vehicle.carlamotors.firetruck)",
+    "massKg": 16000,
+    "powerKW": 265,
+    "torqueNm": 1600,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 110,
+    "turningCircleM": 19,
+    "gears": 8,
+    "rideHeightM": 0.3,
+    "character": "utility",
+    "lengthM": 8.468,
+    "widthM": 3.3813,
+    "heightM": 3.8274,
+    "wheelbaseM": 4.9961,
+    "trackM": 2.45,
+    "wheelRadiusM": 0.5062,
+    "wheelWidthM": 0.5497
+  },
+  "accepted": false
+}

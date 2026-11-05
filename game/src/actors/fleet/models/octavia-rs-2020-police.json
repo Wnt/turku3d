@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/octavia-rs-2020-police",
+  "fleet": {
+    "id": "octavia-rs-2020-police",
+    "name": "Salo Poliisi 20",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.69,
+    "width": 2.0165,
+    "height": 1.5541,
+    "wheelbase": 2.6521,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.307,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.03
+  },
+  "id": "octavia-rs-2020-police",
+  "wheels": {
+    "radius": 0.307,
+    "width": 0.2516,
+    "pivots": {
+      "wheel_FL": [
+        -0.758,
+        0.307,
+        1.4324
+      ],
+      "wheel_FR": [
+        0.758,
+        0.307,
+        1.4324
+      ],
+      "wheel_RL": [
+        -0.758,
+        0.307,
+        -1.2197
+      ],
+      "wheel_RR": [
+        0.758,
+        0.307,
+        -1.2197
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7771,
+      0
+    ],
+    "half": [
+      1.0083,
+      0.7771,
+      2.345
+    ]
+  },
+  "triangles": [
+    26405,
+    7872,
+    2932
+  ],
+  "source": {
+    "title": "low-poly Škoda Octavia RS 2020",
+    "url": "https://sketchfab.com/3d-models/low-poly-skoda-octavia-rs-2020-d567807ce57e415ba9a1ffdf07e0cf5b",
+    "author": "D_U",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "octavia-rs-2020-police",
+    "referenceModel": "Skoda Octavia IV 2.0 TSI, generated Finnish police livery",
+    "massKg": 1500,
+    "powerKW": 180,
+    "torqueNm": 370,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.9,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.1,
+    "gears": 7,
+    "rideHeightM": 0.14,
+    "character": "sport",
+    "lengthM": 4.69,
+    "widthM": 2.0165,
+    "heightM": 1.5541,
+    "wheelbaseM": 2.6521,
+    "trackM": 1.516,
+    "wheelRadiusM": 0.307,
+    "wheelWidthM": 0.2516
+  },
+  "accepted": false
+}

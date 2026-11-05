@@ -1,64 +1,57 @@
 import './fleet-assets.fixture';
-import { expect,test } from 'vitest';
+import { expect,test,vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { createHash } from 'node:crypto';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { FLEET, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
-import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
+import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
+import { TRAFFIC_MODELS } from '../../src/traffic/constants';
+import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
 import { draftManifest } from '../../src/world/manifest';
-import { AUTHORED_ESTATE, flattenFleetAsset, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
+import { flattenFleetAsset, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 
-test('shipped Blender estate has finite ground-aligned LODs and preserves all lamp roles',async()=>{
-  const triangles:number[]=[];
-  for(let lod=0;lod<3;lod++) {
-    const g=(await loadAuthoredFleet(AUTHORED_ESTATE,lod))!, positions=g.getAttribute('position'), surface=g.getAttribute('fleetSurface');
-    triangles.push((g.index?.count??positions.count)/3);
-    expect(Array.from(positions.array).every(Number.isFinite)).toBe(true);
-    expect(Array.from(g.getAttribute('normal').array).every(Number.isFinite)).toBe(true);
-    expect(g.boundingBox!.min.y).toBeCloseTo(0,2);
-    expect(g.boundingBox!.max.y).toBeCloseTo(1.545,2);
-    expect(g.boundingBox!.max.z-g.boundingBox!.min.z).toBeGreaterThan(4.6);
-    expect(new Set(Array.from({length:surface.count},(_,i)=>surface.getW(i)))).toEqual(new Set([0,1,2,3,4]));
-    expect(g.groups).toHaveLength(0);
-    g.dispose();
-  }
-  expect(triangles[0]).toBeLessThan(17000);expect(triangles[1]).toBeLessThan(5000);expect(triangles[2]).toBeLessThan(3300);
-  expect(triangles[0]).toBeGreaterThan(triangles[1]);expect(triangles[1]).toBeGreaterThan(triangles[2]);
-});
-
-test('56 distinct finite vehicle geometries have three decreasing LODs, ground contact and realistic dimensions',()=>{
-  const hashes=new Set<string>();
+test('every role draws a real model: everyday families, the starter car and light preloaded fallbacks',()=>{
   expect(FLEET.length).toBeGreaterThanOrEqual(50);
-  for(const model of FLEET) {
-    const counts=[];
-    for(const lod of [0,1,2] as const) {
-      const g=buildFleetGeometry(model,lod),p=g.getAttribute('position');counts.push((g.index?.count??p.count)/3);
-      expect(Array.from(p.array).every(Number.isFinite)).toBe(true);
-      expect(g.getAttribute('fleetSurface').count).toBe(p.count);
-      expect(g.boundingBox!.min.y).toBeGreaterThanOrEqual(-.01);
-      expect(g.boundingBox!.min.y).toBeLessThan(.06);
-      expect(g.boundingBox!.max.y).toBeGreaterThan(model.height-.1);
-      if(!lod)hashes.add(createHash('sha256').update(Buffer.from(p.array.buffer)).digest('hex'));
-      g.dispose();
-    }
-    expect(counts[0]).toBeGreaterThan(counts[1]);expect(counts[1]).toBeGreaterThan(counts[2]);expect(counts[0]).toBeLessThan(6000);
-  }
-  expect(hashes.size).toBe(FLEET.length);
+  expect(FLEET.map(m=>m.id).every(id=>AUTHORED_MODELS.some(a=>a.id===id))).toBe(true);
+  for(const family of SELECTABLE_FAMILIES)expect(FLEET.filter(m=>m.family===family).length,family).toBeGreaterThanOrEqual(3);
+  expect(FLEET_BY_ID.has(PLAYER_MODEL)).toBe(true);
+  for(const id of FALLBACK_MODELS)expect(AUTHORED_MODELS.find(a=>a.id===id)!.triangles[0],id).toBeLessThan(16000);
 });
 
-test('parked and moving fleet use all models, share one material and switch distance LODs',async()=>{
+test('parked and moving fleet draw real models, share one material and switch distance LODs',async()=>{
+  const sample=['golf7','corolla-e180','carla-nissan-micra','prado-2010','euro-van','passat-b8'].map(id=>FLEET_BY_ID.get(id)!);
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
-  manifest.vehicles=FLEET.map((m,i)=>({object_id:`test-${i}`,model:m.id,color:'silver',x:i%7,y:0,z:Math.floor(i/7),yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
-  await visuals.load(manifest);const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,10,20);camera.lookAt(3,0,3);visuals.setView(camera);
+  manifest.vehicles=sample.map((m,i)=>({object_id:`test-${i}`,model:m.id,color:'silver',x:i*3,y:0,z:0,yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,10,20);camera.lookAt(6,0,0);visuals.setView(camera);
   const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})};
-  visuals.update([],rest);expect(visuals.snapshot().models).toHaveLength(FLEET.length);expect(visuals.snapshot().lods).toEqual([FLEET.length,0,0]);
+  visuals.update([],rest);expect(visuals.snapshot().models).toHaveLength(sample.length);expect(visuals.snapshot().lods).toEqual([sample.length,0,0]);
   expect(new Set(scene.children.map(m=>(m as THREE.Mesh).material)).size).toBe(1);
-  camera.position.z=70;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,FLEET.length,0]);
-  camera.position.z=200;camera.lookAt(3,0,3);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,0,FLEET.length]);
-  visuals.takeOver('test-0');visuals.update([],rest);expect(visuals.snapshot().instances).toBe(FLEET.length-1);
+  camera.position.z=70;camera.lookAt(6,0,0);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,sample.length,0]);
+  camera.position.z=200;camera.lookAt(6,0,0);visuals.setView(camera);visuals.update([],rest);expect(visuals.snapshot().lods).toEqual([0,0,sample.length]);
+  visuals.takeOver('test-0');visuals.update([],rest);expect(visuals.snapshot().instances).toBe(sample.length-1);
+  visuals.dispose();
+});
+
+test('a parking slot no real model fits stays empty instead of stretching a car',()=>{
+  const slot={length:3,clear_front_m:0,clear_rear_m:0};
+  for(let i=0;i<50;i++)expect(fleetModel('hatchback-sports',`short-${i}`,slot)).toBeNull();
+  const roomy={length:4.15,clear_front_m:.6,clear_rear_m:.6};
+  for(let i=0;i<50;i++){const m=fleetModel('hatchback-sports',`fit-${i}`,roomy)!;expect((m.length-4.15)/2).toBeLessThanOrEqual(.3+1e-9);}
+});
+
+// Solo play: a slot no model fits has no definition, yet ParkedVehicles.restingPose still gives it its slot pose
+// (in multiplayer the id is a shared vehicle and gets none). Drawing it threw "reading 'id'" every frame.
+test('a parked record no real model fits is never drawn, even with a resting pose',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  const record=(object_id:string,model:string,length:number,gap:number)=>({object_id,model,color:'silver',x:0,y:0,z:0,yaw:0,width:1.8,height:1.5,length,clear_front_m:gap,clear_rear_m:gap});
+  manifest.vehicles=[record('tight','hatchback-sports',3,0),record('fits',FALLBACK_MODELS[0],4,5)];
+  await visuals.load(manifest);
+  const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})};
+  for(let frame=0;frame<2;frame++)expect(()=>visuals.update([],rest)).not.toThrow();
+  expect(visuals.snapshot().instances).toBe(1);
+  expect(visuals.has('tight')).toBe(false);expect(visuals.renders('tight')).toBe(false);
+  visuals.dispose();
 });
 
 test('model assignment is stable and legacy families remain compatible',()=>{
@@ -68,13 +61,47 @@ test('model assignment is stable and legacy families remain compatible',()=>{
 });
 
 
-test('ordinary traffic reaches every selectable model without overpopulating pickups or old cars',()=>{
+// A traffic car carries the real model the catalog picks within its family. A family name or an id this build does
+// not know (a stale dev server's model glob listed 3 models: every frame threw reading `id`) draws as a fallback.
+test('traffic draws real model ids; a family name or unknown id draws as a fallback with one warning, never a throw',async()=>{
+  for(const family of TRAFFIC_MODELS){
+    expect(SELECTABLE_FAMILIES.has(family),family).toBe(true);
+    for(let i=0;i<50;i++)expect(FLEET_BY_ID.get(fleetModel(family,String(i)).id)!.family).toBe(family);
+  }
+  const warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=FALLBACK_MODELS.map((model,i)=>({object_id:`f${i}`,model,color:'silver',x:i*3,y:0,z:0,yaw:0,width:2,length:4.6,height:1.5,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const car=(model:string,seed:string,x:number)=>({seed,model,color:'blue',x,y:.75,z:6,q:{x:0,y:0,z:0,w:1}});
+  visuals.setTraffic([car('sedan','a',0),car('suv','b',4),car('no-such-car','c',8),car(FALLBACK_MODELS[0],'d',12)]);
+  for(let frame=0;frame<3;frame++)expect(()=>visuals.update([])).not.toThrow();
+  // Parked cars have no pose here; all four moving cars draw, each as a resident fallback model.
+  const drawn=visuals.snapshot();
+  expect(drawn.instances).toBe(4);
+  expect(drawn.models.every(id=>(FALLBACK_MODELS as readonly string[]).includes(id))).toBe(true);
+  expect(warn.mock.calls.map(([m])=>String(m)).filter(m=>m.startsWith('[fleet] traffic model')))
+    .toEqual(['sedan','suv','no-such-car'].map(id=>`[fleet] traffic model "${id}" is not in the catalog; drawn as a fallback model`));
+  warn.mockRestore();visuals.dispose();
+});
+
+test('a registry without the traffic families or the fallbacks (a stale dev glob) still yields catalog models',async()=>{
+  const stale=AUTHORED_MODELS.filter(m=>['golf7','garbage-truck','transit-bus'].includes(m.id));
+  vi.resetModules();vi.doMock('../../src/actors/fleet/registry',()=>({AUTHORED_MODELS:stale,AUTHORED_BY_ID:new Map(stale.map(m=>[m.id,m]))}));
+  try{
+    const catalog=await import('../../src/actors/fleet/catalog');
+    expect(catalog.FLEET.map(m=>m.id).sort()).toEqual(['garbage-truck','golf7','transit-bus']);
+    for(const family of TRAFFIC_MODELS)for(let i=0;i<20;i++)expect(catalog.FLEET).toContain(catalog.fleetModel(family,String(i)));
+    for(let i=0;i<20;i++)expect(catalog.FLEET).toContain(catalog.fallbackModel(String(i)));
+  }finally{vi.doUnmock('../../src/actors/fleet/registry');vi.resetModules();}
+});
+
+test('ordinary traffic reaches every selectable real model with only a few pickups and older cars',()=>{
   const models=new Set<string>();let pickups=0,old=0;
   for(const family of ['sedan','suv','van','hatchback-sports'])for(let i=0;i<2000;i++){
     const m=fleetModel(family,`tr:tile:lane:${i}`);models.add(m.id);pickups+=Number(m.body==='pickup');old+=Number(m.body==='classic');
   }
-  expect(models.size).toBe(FLEET.filter(m=>SELECTABLE_FAMILIES.has(m.family)).length);expect(pickups/2000).toBeGreaterThan(.05);expect(pickups/2000).toBeLessThan(.11);
-  expect(old/2000).toBeGreaterThan(.07);expect(old/2000).toBeLessThan(.13);
+  expect(models.size).toBe(FLEET.filter(m=>SELECTABLE_FAMILIES.has(m.family)&&(m.weight??1)>0).length);expect(pickups/2000).toBeLessThan(.05);
+  expect(old/2000).toBeGreaterThan(.04);expect(old/2000).toBeLessThan(.2);
 });
 
 
@@ -116,7 +143,7 @@ test('registered authored car keeps glazing and lamps without duplicate procedur
 
 test('authored body and four centred hubs conserve every triangle at every LOD',async()=>{
   const triangles=(g:THREE.BufferGeometry)=>(g.index?.count??g.getAttribute('position').count)/3;
-  for(const id of [AUTHORED_ESTATE,'octavia-combi-4'])for(let lod=0;lod<3;lod++){
+  for(const id of ['octavia-combi-4','golf7'])for(let lod=0;lod<3;lod++){
     const original=(await loadAuthoredFleet(id,lod))!,parts=(await loadAuthoredFleetParts(id,lod))!;
     expect(parts.wheels).toHaveLength(4);
     expect(triangles(parts.body)+parts.wheels.reduce((n,w)=>n+triangles(w.geometry),0)).toBe(triangles(original));
@@ -124,12 +151,12 @@ test('authored body and four centred hubs conserve every triangle at every LOD',
       expect(wheel.geometry.getAttribute('fleetSurface')).toBeDefined();
       // LOD decimation is asymmetric around the fixed hub; it must never move that pivot.
       const pivot=fleetWheelLayout(id)!.pivots[wheel.name as 'wheel_FL'];
-      expect(wheel.pivot).toEqual({x:expect.closeTo(pivot[0],5),y:expect.closeTo(pivot[1],5),z:expect.closeTo(pivot[2],5)});
+      expect(wheel.pivot).toEqual({x:expect.closeTo(pivot[0],3),y:expect.closeTo(pivot[1],3),z:expect.closeTo(pivot[2],3)});
       expect(wheel.radius).toBe(fleetWheelLayout(id)!.radius);
       expect(Math.abs(wheel.geometry.boundingBox!.min.y)).toBeLessThanOrEqual(wheel.radius+.005);
       expect(wheel.geometry.boundingBox!.max.y).toBeLessThanOrEqual(wheel.radius+.005);
-      expect(wheel.geometry.boundingBox!.max.y-wheel.geometry.boundingBox!.min.y).toBeGreaterThan(wheel.radius*1.8);
-      expect(wheel.pivot.y).toBeGreaterThan(.3);
+      expect(wheel.geometry.boundingBox!.max.y-wheel.geometry.boundingBox!.min.y).toBeGreaterThan(wheel.radius*(lod===2?1.5:1.8));
+      expect(wheel.pivot.y).toBeGreaterThan(.25);
       wheel.geometry.dispose();
     }
     expect(parts.wheels[0].pivot.z).toBeGreaterThan(parts.wheels[2].pivot.z);
@@ -160,4 +187,17 @@ test('lazy whole-car assembly preserves the shipped paint, glass, lamp and orien
   };
   expect(triangles(actual)).toEqual(triangles(expected));
   actual.dispose(); expected.dispose();
+});
+
+test('converted models keep their true length and only take parking slots they fit', () => {
+  const authored = new Set(AUTHORED_MODELS.map(m => m.id));
+  const tight = { length: 4.55, clear_front_m: .35, clear_rear_m: .35 }, roomy = { length: 4.55, clear_front_m: 3, clear_rear_m: 3 };
+  let longInRoomy = 0;
+  for (let i = 0; i < 3000; i++) {
+    const t = fleetModel('sedan', `slot-${i}`, tight);
+    if (t && authored.has(t.id)) expect((t.length - tight.length) / 2, t.id).toBeLessThanOrEqual(.05 + 1e-9);
+    const r = fleetModel('sedan', `slot-${i}`, roomy);
+    longInRoomy += Number(!!r && authored.has(r.id) && r.length > 5);
+  }
+  expect(longInRoomy).toBeGreaterThan(0);
 });

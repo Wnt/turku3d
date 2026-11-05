@@ -159,11 +159,12 @@ def osm_surfaces(tile, path):
         )
         key = "quay" if retaining else SURFACES.get(tags.get("surface"))
         highway = tags.get("highway")
+        # Vegetated land cover. A park, garden or reserve is a use, not a surface: its car parks,
+        # gravel fields and squares are left to the ortho cover, as its lawns are.
         if not key and (
             tags.get("landuse")
             in ("grass", "meadow", "forest", "farmland", "orchard", "allotments")
             or tags.get("natural") in ("grassland", "wood", "scrub")
-            or tags.get("leisure") in ("park", "garden", "nature_reserve")
         ):
             key = "grass"
         if (
@@ -254,6 +255,28 @@ def _without_small(mask, cells):
     return mask
 
 
+# Turku's gravel (sora, kivituhka) is grey stone dust, not red-brown sand: in the 2022 ortho it is as
+# bright and nearly as neutral as asphalt, only warmer. Over sunlit, unsaturated pixels of 60 sampled
+# register blocks, green/blue smoothed over GRAVEL_SMOOTH reaches GRAVEL_WARM on 69 % of the lit
+# gravel parts (Sora, Kivituhka) and 9 % of the lit asphalt (Asfalttibetoni).
+GRAVEL_SMOOTH = 1.5  # m, gaussian sigma of the sunlit chromaticity
+GRAVEL_WARM = 1.03  # smoothed green/blue
+GRAVEL_LIT = 0.3  # smallest smoothed share of sunlit neutral pixels that decides
+
+
+def stone_dust(rgb, step):
+    """Pixels of warm grey, gravel-like ground in the ortho (shade and colour never qualify)."""
+    from scipy.ndimage import gaussian_filter
+
+    rgb = rgb.astype(np.float32)
+    high, low = rgb.max(axis=-1), rgb.min(axis=-1)
+    lit = ((high > 110) & (high - low < 0.15 * high)).astype(np.float32)
+    sigma = GRAVEL_SMOOTH / step
+    share = gaussian_filter(lit, sigma)
+    r, g, b = (np.maximum(gaussian_filter(rgb[..., k] * lit, sigma), 1e-3) for k in range(3))
+    return (share > GRAVEL_LIT) & (g >= GRAVEL_WARM * b) & (r > 0.95 * g) & (r < 1.06 * g)
+
+
 def cover_classes(rgb, step):
     """Cleaned ortho land cover per pixel: ``road`` (unmapped neutral ground), ``gravel``, ``grass``.
 
@@ -266,7 +289,8 @@ def cover_classes(rgb, step):
     r, g, b = (rgb[..., k].astype(np.float32) for k in range(3))
     # Yellow/dry lawns and fields have little green/red contrast in the true ortho.
     grass = (g > 0.95 * r) & (g > 1.15 * b) & (g > 25)
-    gravel = (r > 1.05 * g) & (g > 1.1 * b) & (r < 1.6 * np.maximum(b, 1)) & ~grass
+    sand = (r > 1.05 * g) & (g > 1.1 * b) & (r < 1.6 * np.maximum(b, 1))
+    gravel = (sand | stone_dust(rgb, step)) & ~grass
     sigma, cells = COVER_SMOOTH / step, COVER_MIN / step**2
     out = np.full(rgb.shape[:2], mat_id("road"), np.uint8)
     grass = _without_small(gaussian_filter(grass.astype(np.float32), sigma) > 0.5, cells)

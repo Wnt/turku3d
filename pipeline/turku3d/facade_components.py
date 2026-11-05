@@ -178,6 +178,15 @@ def components(form, floors):
                 count = count or counted(
                     combined, r"(?:balcony )?stacks|stacks of .*balconies|balcony bays"
                 )
+            # A section located in one named row ("middle row", "first floor") is one
+            # balcony level; inside it "two projecting metal balconies" is a count.
+            if rows is None and re.search(r"\b(row|floor|storey|level)\b", position.lower()):
+                rows = 1
+                extent = [extent[0], extent[1], extent[2], min(extent[3], 1 / max(1, floors or 3))]
+                if "at least" not in combined and count is None:
+                    match = re.search(rf"\b({NUMBER}) (?:(?!(?:behind|with|of|and|between|windows?|groups?|bays?|doors?)\b)[a-z-]+ ){{0,3}}balcon(?:y|ies)\b", combined)
+                    if match:
+                        count = int(match[1]) if match[1].isdigit() else NUMBERS[match[1]]
             if not kind_of(text) and "stack" in features:
                 if "left" in features and "right" not in features.split("stack")[0]:
                     extent = [extent[0], extent[1], extent[2] * 0.33, extent[3]]

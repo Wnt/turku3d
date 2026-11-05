@@ -216,6 +216,43 @@ def facade_layouts(shells):
     return result
 
 
+def split_storey(vertices, height):
+    """The wall quad below and above a horizontal line (the upper part is None above the top)."""
+    v = np.asarray(vertices, float)
+    lower = v.copy()
+    lower[2, 1], lower[3, 1] = min(v[2, 1], height), min(v[3, 1], height)
+    if min(v[2, 1], v[3, 1]) <= height + 0.05:
+        return lower, None
+    upper = v.copy()
+    upper[0, 1] = upper[1, 1] = height
+    return lower, upper
+
+
+def base_course(vertices, wall, style):
+    """A blank wall over a base course of another material (a monolith's granite course) paints
+    the course with that material's own atlas cell. Tinting the wall material's cell in the
+    base colour left a flat, untextured grey band under the render or brick."""
+    from turku3d.facade_inference import material as normalize_material
+    from turku3d.facade_inference import supported
+    from turku3d.facade_kit import MATERIALS
+
+    # Only the class's measured course (facade_monolith.blank_wall), never a sampled rule material.
+    if (style["module"] < 42 or wall.get("measured_geometry") or "monolith_role" not in wall
+            or not supported(wall["base"].get("material"))):
+        return [(vertices, wall, style)]
+    base = normalize_material(wall["base"]["material"]["value"] or "")
+    if base not in MATERIALS or 42 + MATERIALS.index(base) == style["module"]:
+        return [(vertices, wall, style)]
+    top = float(style["origin"][1]) + float(style["ground"])  # the ground storey, from the base
+    if top <= float(vertices[:2, 1].min()) + 0.05:
+        return [(vertices, wall, style)]
+    lower, upper = split_storey(vertices, top)
+    # The whole course samples the ground row: its top coincides with the storey line.
+    course = {**style, "module": 42 + MATERIALS.index(base), "wall": style["base"],
+              "ground": style["ground"] + 0.5}
+    return [(lower, wall, course)] + ([(upper, wall, style)] if upper is not None else [])
+
+
 def wall_meshes(b, walls, origin, layout=None):
     if not len(walls):
         return []
@@ -276,7 +313,18 @@ def wall_meshes(b, walls, origin, layout=None):
         style = compile_wall(wall, program["storeys"]["value"])
         style["origin"][1] = owner.base
         style["night_use"] = night_use
-        for points, uv, instruction in wall_parts(vertices, wall, style):
+        segments = [(vertices, wall, style)]
+        if wall.get("ground_band"):
+            # A glazed street storey under a blank volume (facade_monolith.ground_band).
+            band = wall["ground_band"]
+            lower, upper = split_storey(vertices, float(vertices[:2, 1].min()) + band["height_m"])
+            band_style = compile_wall(band["wall"], 2)
+            band_style["origin"][1] = owner.base
+            band_style["night_use"] = night_use
+            segments = [(lower, band["wall"], band_style)] + ([(upper, wall, style)] if upper is not None else [])
+        else:
+            segments = base_course(vertices, wall, style)
+        for points, uv, instruction in (part for v, w, st in segments for part in wall_parts(v, w, st)):
             instruction = {k: v for k, v in instruction.items() if k != "unreviewed"}
             parts = composed_parts(points, uv, instruction, plans)
             for p, tex, instruction in parts:

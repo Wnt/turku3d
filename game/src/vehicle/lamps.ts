@@ -5,7 +5,7 @@ import type { LightState } from './signals';
 
 const rigs = new WeakMap<T.Object3D, { front: T.MeshStandardMaterial[]; tail: T.MeshStandardMaterial[] }>();
 /** GLB convention: lamp-front-left/right and lamp-tail-left/right, on a node or material.
- * Single front/tail nodes are accepted for scooters; KORPI's led-optics/tail-lens are also recognised. */
+ * Single front/tail nodes are accepted for scooters; the trophy truck's led-optics/tail-lens materials are also recognised. */
 export function vehicleLamps(root: T.Object3D, kind: VehicleKind, state: LightState) {
   // The fleet's vertex surface tags already identify its lamps, with one shader shared by all cars.
   if ((root as T.Mesh).geometry?.hasAttribute('fleetSurface')) {
@@ -34,14 +34,13 @@ export function vehicleLamps(root: T.Object3D, kind: VehicleKind, state: LightSt
     // Texture-atlas models have no separable lamp material. In the physics frame +X is forward, +Z right.
     const trim: T.BufferGeometry[] = [];
     for (const side of ['front', 'tail'] as const) if (!rig[side].length) {
-      const scooter = kind === 'scooter', truck = kind === 'truck';
+      const scooter = kind === 'scooter';
       for (const sign of scooter ? [0] : [-1, 1]) {
         const material = new T.MeshStandardMaterial({ color: side === 'front' ? 0xc8c4ae : 0x650903,
           emissive: side === 'front' ? 0xffeed1 : 0xff1204, roughness: .2, metalness: .1 });
         const lamp = new T.Mesh(new T.BoxGeometry(.035, scooter ? .12 : .13, scooter ? .14 : .30), material);
         lamp.name = `lamp-${side}-${sign < 0 ? 'left' : 'right'}`;
-        lamp.position.set((side === 'front' ? 1 : -1) * (scooter ? .79 : truck ? 2.39 : 2.11),
-          scooter ? .48 : truck ? .15 : -.05, sign * (truck ? .67 : .68));
+        lamp.position.set((side === 'front' ? 1 : -1) * (scooter ? .79 : 2.11), scooter ? .48 : -.05, sign * .68);
         lamp.castShadow = false; root.add(lamp); rig[side].push(material);
         const at = lamp.position, face = side === 'front' ? 1 : -1;
         trim.push(new T.BoxGeometry(.045, scooter ? .15 : .17, scooter ? .18 : .35)
@@ -59,5 +58,6 @@ export function vehicleLamps(root: T.Object3D, kind: VehicleKind, state: LightSt
     rigs.set(root, rig);
   }
   rig.front.forEach(material => material.emissiveIntensity = state === 2 ? 6 : state === 1 ? 1.7 : 0);
-  rig.tail.forEach(material => material.emissiveIntensity = state ? .3 : 0);
+  // Tail lamps read as lit from the chase camera at night (the trophy truck's round pods were near invisible at 0.3).
+  rig.tail.forEach(material => material.emissiveIntensity = state === 2 ? 2.4 : state ? 1.6 : 0);
 }

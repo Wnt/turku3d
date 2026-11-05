@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/fabia2",
+  "fleet": {
+    "id": "fabia2",
+    "name": "Salo Kipinä 12",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 4,
+    "width": 1.8679,
+    "height": 1.744,
+    "wheelbase": 2.5156,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.2977,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1
+  },
+  "id": "fabia2",
+  "wheels": {
+    "radius": 0.2977,
+    "width": 0.205,
+    "pivots": {
+      "wheel_FL": [
+        -0.7106,
+        0.2977,
+        1.1569
+      ],
+      "wheel_FR": [
+        0.7106,
+        0.2977,
+        1.1569
+      ],
+      "wheel_RL": [
+        -0.7106,
+        0.2977,
+        -1.3587
+      ],
+      "wheel_RR": [
+        0.7106,
+        0.2977,
+        -1.3587
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.872,
+      0
+    ],
+    "half": [
+      0.9339,
+      0.872,
+      2
+    ]
+  },
+  "triangles": [
+    31514,
+    7864,
+    2933
+  ],
+  "source": {
+    "title": "Skoda Fabia Mk.2",
+    "url": "https://sketchfab.com/3d-models/skoda-fabia-mk2-e2e0be2c52994e3bb6cae225f3e7482d",
+    "author": "barking_dogo",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "fabia2",
+    "referenceModel": "Skoda Fabia II 1.2 (2008)",
+    "massKg": 1060,
+    "powerKW": 51,
+    "torqueNm": 112,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 14.9,
+    "topSpeedKmh": 163,
+    "turningCircleM": 10.3,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced",
+    "lengthM": 4,
+    "widthM": 1.8679,
+    "heightM": 1.744,
+    "wheelbaseM": 2.5156,
+    "trackM": 1.4213,
+    "wheelRadiusM": 0.2977,
+    "wheelWidthM": 0.205
+  },
+  "accepted": false
+}

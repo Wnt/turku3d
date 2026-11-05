@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -92,14 +93,16 @@ def field(section, key, default=None):
     return default if result is None else result
 
 
-def matching_wall(vertices, program):
-    if not program or program.get("needs_review", True):
+def matching_wall(vertices, program, *, unpainted=False):
+    """The program's reviewed wall on this quad. ``unpainted`` also matches readings with
+    nothing renderable, which still count as evidence about the wall (named windows)."""
+    if not program or (program.get("needs_review", True) and not unpainted):
         return None
     from turku3d.coarse.stored_facades import match_prepared, prepare_walls
 
     facades = []
     for wall in program.get("walls", []):
-        if wall.get("observation", {}).get("needs_review", True):
+        if wall.get("observation", {}).get("needs_review", True) and not unpainted:
             continue
         g = wall.get("geometry", {})
         points = g.get("coordinates") or ([g["p0"], g["p1"]] if "p0" in g and "p1" in g else None)
@@ -131,8 +134,39 @@ def matching_wall(vertices, program):
     return None
 
 
-def described_blank_walls(key, vertices, description):
-    """A zero count is evidence for its source wall, never a whole building."""
+def names_windows(reading):
+    """A reviewed reading of this wall that names windows (not 'no windows'/'windowless')."""
+    if not reading:
+        return False
+    form = reading.get("structure", {})
+    text = " ".join(
+        [str(s.get("kind", "")) + " " + " ".join(map(str, s.get("features", [])))
+         for s in form.get("facade_observations", {}).get("sections", [])]
+        + [str(f.get("kind", "")) for f in form.get("features", []) if isinstance(f, dict)]
+        + [" ".join(map(str, r.get("bays", []))) for r in form.get("floors", [])]
+    ).lower()
+    text = re.sub(r"\b(no|without)\s+(\w+\s+)?windows?\b|windowless", " ", text)
+    return bool(re.search(r"\bwindows?\b", text))
+
+
+def reading_head(observed):
+    """One window head shape named by every reviewed reading section that states one."""
+    from turkutex.facade_sections import shape
+
+    heads = set()
+    for wall in (observed or {}).get("walls", []):
+        if wall.get("observation", {}).get("needs_review", True):
+            continue
+        for section in wall.get("structure", {}).get("facade_observations", {}).get("sections", []):
+            if isinstance(section.get("head"), str):
+                head = shape(section["head"])
+                heads.add(head if head == "flat" else head + "-arch")
+    return heads.pop() if len(heads) == 1 else None
+
+
+def described_blank_walls(key, vertices, description, observed=None):
+    """A zero count is evidence for its source wall, never a whole building. A reviewed
+    reading of the same wall that names windows outranks the description's zero."""
     if (description.get("window_columns") or not description.get("wall_visible", True)
             or description.get("problem")):
         return set()
@@ -151,7 +185,8 @@ def described_blank_walls(key, vertices, description):
         base = source["base_height"]
         height = source["metadata"].get("height_m", 0)
         if points[:, 1].min() >= base - .25 and points[:, 1].max() <= base + height + .25:
-            result.add(index)
+            if not names_windows(matching_wall(points, observed, unpainted=True)):
+                result.add(index)
     return result
 
 
@@ -268,9 +303,7 @@ def classical(program, attrs, evidence):
             base["variant"] = v("windows")
 
 
-def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
-    """``monolith=False`` resolves the building's ordinary class: a public monolith's walls
-    without their own photographed evidence take that layout instead of a blank volume."""
+def resolve(building, vertices, eaves, *, layout_height=None):
     renderer()  # Make the shared textures package importable in the OCI pipeline interpreter.
     from turkutex.facade_archetypes import MASONRY, MEASURED_PIGMENT, MONOLITH, sample
 
@@ -357,7 +390,7 @@ def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
     from turkutex.facade_archetypes import public_monolith
 
     # Photographed blank walls select the public-monolith class (archetype owns the use/era rule).
-    if monolith and public_monolith({**attrs, "monolith_blank": True}):
+    if public_monolith({**attrs, "monolith_blank": True}):
         attrs["monolith_blank"] = facade_monolith.evidence(building.facade_key, observed)["blank"]
     from turku3d.facade_learning import apply as apply_learned
 
@@ -382,9 +415,8 @@ def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
     if visual_levels:
         program["storeys"].update(source=visual_levels, support=0.4)
     # Donor readings of ordinary city blocks are no prior for a reference-measured
-    # masonry class (they would restore shopfronts and thin-walled layouts), nor for the
-    # ordinary walls of a monolith (monolith=False).
-    if not d and monolith and program["archetype"] not in (MASONRY, MONOLITH):
+    # masonry class (they would restore shopfronts and thin-walled layouts).
+    if not d and program["archetype"] not in (MASONRY, MONOLITH):
         program = apply_learned(program)
     program["part_id"] = building.key
     # The calibrated register fallback owns colour; archetypes own layout and material priors.
@@ -409,9 +441,18 @@ def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
     if d:
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"],
-                 blank_walls=described_blank_walls(building.facade_key, vertices, d))
+                 blank_walls=described_blank_walls(building.facade_key, vertices, d, observed))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
+    head = reading_head(observed)
+    if head:
+        from turkutex.facade_program import value
+
+        for wall in program["walls"]:
+            # The building's photographed window heads replace the archetype's period draw.
+            # The ground storey's windows share them; door heads keep their own vocabulary.
+            wall["windows"]["head_shape"] = value(head, "unopposed reviewed window heads", 0.6)
+            wall["base"]["head_shape"] = value(head, "unopposed reviewed window heads", 0.6)
     for index, wall in enumerate(program["walls"]):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         apply_prior(wall, program["archetype"], attrs, own, record)
@@ -472,8 +513,8 @@ def resolve(building, vertices, eaves, *, layout_height=None, monolith=True):
             )
         finish_material(wall, family, own, record, d, building.facade_key)
     if program["archetype"] == MONOLITH:
-        ordinary = resolve(building, vertices, eaves, layout_height=layout_height, monolith=False)
-        facade_monolith.apply(program, building.facade_key, vertices, observed, d, ordinary)
+        facade_monolith.apply(program, building.facade_key, vertices, observed, d,
+                              getattr(building, "entrances", ()), building.footprint)
     else:
         classical(program, attrs, order_evidence(observed, d))
     reviewed = [w for w in program["walls"] if w.get("measured_wall_id")]

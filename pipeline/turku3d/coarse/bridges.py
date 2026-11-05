@@ -66,6 +66,7 @@ def is_carriageway(tags):
 
 
 LANE_CLEARANCE = 0.25  # m between a deck post and the traffic lanes' outer edge
+RAIL_LANE_REACH = 2.5  # m each side of a carriageway that a deck-end railing keeps clear
 LAMP_SHIFT = 3.0  # m: the farthest a mapped deck lamp moves to clear the lanes
 
 
@@ -332,6 +333,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         extended_way = {**b, "line": extended(b["line"], 30)}
         under_ids = {w["id"] for w in b["under"]}
         b["below"] = below_deck(b, ways, road_tree)
+        b["lower_continuations"] = lower_continuations(b, ways, road_tree)
         b["approach_under"] = [
             ways[i]
             for i in sorted(road_tree.query(extended_way["line"], predicate="intersects"))
@@ -350,16 +352,21 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
     return result
 
 
-CUT_REACH = SELECT_MARGIN  # m around a deck where the ground over a lower way is cut down to it
+CUT_REACH = 2.0  # m around a deck where the ground over a lower way is cut fully down to it
 CUT_ANCHOR = 10.0  # m beyond the deck where the lower way's own ground level is read
+# m beyond CUT_REACH over which the cut fades out, so it never ends in a step; the whole cut stays
+# inside the tiles that build the deck (SELECT_MARGIN).
+CUT_FEATHER = SELECT_MARGIN - CUT_REACH
 CUT_MARGIN = 2.0  # m beyond the lower way's half width: its outer lanes, shoulders and footways
+SAG_REACH = 40.0  # m beyond a deck that its clearance dip may reach
 
 
-def under_profile(bridge, under, sample, step=2.0):
-    """(stations, heights) of a lower way's surface through a crossing: its measured ground beyond
-    CUT_ANCHOR from the deck on either side, interpolated straight under it. Ground under a deck is
-    a survey gap; interpolating the terrain across it buries the lower road in an embankment."""
-    line = under["line"]
+def under_profile(bridge, line, sample, step=2.0):
+    """(stations, heights, inside) of a lower road's surface through a crossing along ``line``: its
+    measured ground beyond CUT_ANCHOR from the deck, interpolated straight under it. Ground under a
+    deck is a survey gap; interpolating the terrain across it buries the lower road in an
+    embankment. ``inside`` marks the stations bracketed by measured ground on both sides: a road
+    that ends under the deck, or climbs to it, has no level beyond its last anchor to cut to."""
     deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
     far = deck.buffer(CUT_ANCHOR)
     stations = np.unique(np.r_[np.arange(0, line.length, step), line.length])
@@ -368,7 +375,16 @@ def under_profile(bridge, under, sample, step=2.0):
     if not outside.any():
         return None
     heights = np.array([sample(p.x, p.y) for p in points[outside]], dtype=np.float64)
-    return stations, np.interp(stations, stations[outside], heights)
+    anchored = stations[outside]
+    inside = (stations >= anchored.min()) & (stations <= anchored.max())
+    return stations, np.interp(stations, anchored, heights), inside
+
+
+def lower_chains(lower):
+    """Lower ways joined end to end: OSM often splits a street right under a deck, and each half
+    alone has measured ground on one side only."""
+    lines = [w["line"] for w in lower]
+    return list(shapely.get_parts(shapely.line_merge(shapely.union_all(lines)))) if lines else []
 
 
 def below_deck(bridge, ways, tree):
@@ -392,6 +408,27 @@ def below_deck(bridge, ways, tree):
     return out
 
 
+def lower_continuations(bridge, ways, tree):
+    """Open ways that continue a lower way end to end beyond the deck. A street mapped in pieces
+    can end right beside a deck (Helsinginkatu under the Lemminkäisensilta viaducts), and its
+    measured ground on that side lies on the next piece."""
+    lower = [*bridge.get("under", []), *bridge.get("below", [])]
+    if not lower:
+        return []
+    skip = {w.get("id") for w in lower} | {m.get("id") for m in bridge.get("member_ways", [bridge])}
+    ends = shapely.union_all([w["line"].boundary for w in lower]).buffer(0.05)
+    out = []
+    for i in sorted(tree.query(ends, predicate="intersects")):
+        way = ways[i]
+        tags = way["tags"]
+        if (way["id"] in skip or way["bridge"] or way["layer"] >= bridge["layer"]
+                or tags.get("highway") in (None, "steps")
+                or tags.get("tunnel") not in (None, "no") or tags.get("covered") not in (None, "no")):
+            continue
+        out.append(way)
+    return out
+
+
 def cut_under(grid_pos, bridge, sample):
     """Lower the terrain over every way that passes under this deck to that way's own level
     (``under_profile``), within the way's width and CUT_REACH of the deck. Only lowers: a lower way
@@ -400,8 +437,11 @@ def cut_under(grid_pos, bridge, sample):
     result = positions.copy()
     if bridge.get("landing"):
         return result
-    deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2)).buffer(CUT_REACH)
+    outline = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
+    deck = outline.buffer(CUT_REACH + CUT_FEATHER)
     lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    chains = lower_chains([w for w in [*lower.values(), *bridge.get("lower_continuations", [])]
+                           if w["tags"].get("highway") != "steps"])
     for under in lower.values():
         if under["tags"].get("highway") == "steps":
             continue
@@ -411,13 +451,66 @@ def cut_under(grid_pos, bridge, sample):
         inside = np.flatnonzero(shapely.intersects_xy(corridor, positions[:, 0], positions[:, 2]))
         if not len(inside):
             continue
-        profile = under_profile(bridge, under, sample)
+        chain = max(chains, key=lambda c: c.intersection(under["line"].buffer(0.05)).length)
+        profile = under_profile(bridge, chain, sample)
         if profile is None:
             continue
-        stations, heights = profile
-        level = np.interp(shapely.line_locate_point(
-            under["line"], shapely.points(positions[inside][:, [0, 2]])), stations, heights)
-        result[inside, 1] = np.minimum(result[inside, 1], level)
+        stations, heights, bracketed = profile
+        points = shapely.points(positions[inside][:, [0, 2]])
+        located = shapely.line_locate_point(chain, points)
+        level = np.interp(located, stations, heights)
+        # Full depth within CUT_REACH of the deck, fading to none over CUT_FEATHER beyond it.
+        weight = np.clip(1 - (shapely.distance(outline, points) - CUT_REACH) / CUT_FEATHER, 0, 1)
+        weight *= np.interp(located, stations, bracketed.astype(np.float64)) >= 1.0
+        y = result[inside, 1]
+        result[inside, 1] = y - weight * np.maximum(0.0, y - level)
+    return result
+
+
+DRIVE_CLEARANCE = 3.0  # m under a deck's soffit that a road keeps when no maxheight is mapped
+WALK_CLEARANCE = 2.3  # m for a path
+SAG_GRADE = 0.08  # steepest grade of the dip that gives a lower road its clearance
+
+
+def mapped_clearance(tags):
+    """Mapped maxheight in metres (``3.4``, ``3.4 m``), or the drive/walk default."""
+    raw = str(tags.get("maxheight", "")).replace("m", "").strip()
+    try:
+        return float(raw)
+    except ValueError:
+        return WALK_CLEARANCE if tags.get("highway") in PATHS else DRIVE_CLEARANCE
+
+
+def clearance_cut(grid_pos, bridge, height_at, thickness, outline):
+    """Lower the ground over each lower road until it keeps its clearance below the deck's
+    soffit, dipping in and out at SAG_GRADE. The ground under a survey-fixed deck (a railway
+    viaduct) can meet its soffit: Puistokatu climbed to 1.2 m under the station tracks."""
+    positions = np.asarray(grid_pos, dtype=np.float64)
+    result = positions.copy()
+    if bridge.get("landing") or outline is None or outline.is_empty:
+        return result
+    lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    region = building_region(bridge)
+    for under in lower.values():
+        if under["tags"].get("highway") in (None, "steps"):
+            continue
+        need = mapped_clearance(under["tags"])
+        # Only inside the tiles that build this deck: the next tile does not know the dip.
+        corridor = under["line"].buffer(under["width"] / 2 + CUT_MARGIN).intersection(
+            outline.buffer(SAG_REACH)).intersection(region)
+        if corridor.is_empty:
+            continue
+        inside = np.flatnonzero(shapely.intersects_xy(corridor, positions[:, 0], positions[:, 2]))
+        if not len(inside):
+            continue
+        xz = positions[inside][:, [0, 2]]
+        points = shapely.points(xz)
+        nearest = shapely.get_coordinates(shapely.shortest_line(outline, points))[0::2]
+        distance = shapely.distance(outline, points)
+        soffit = np.asarray(height_at(nearest), dtype=np.float64) - thickness
+        limit = soffit - need + SAG_GRADE * distance
+        y = result[inside, 1]
+        result[inside, 1] = np.where(soffit > y, np.minimum(y, limit), y)
     return result
 
 
@@ -586,9 +679,11 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
     pieces = [(part, fn) for geom, fn in levels for part in shapely.get_parts(geom)]
     # Station cuts triangulate the crown; they are not physical slab edges, and neither are the
     # boundaries between levels. Allow the ring simplification without retaining internal walls.
-    edge = outline if outline is not None else shapely.union_all(
-        [part for part, _ in pieces if part.geom_type == "Polygon"])
-    exterior = edge.boundary.buffer(0.0006)
+    edge = [outline] if outline is not None else [part for part, _ in pieces]
+    exterior = shapely.union_all(
+        [part.boundary for geom in edge for part in shapely.get_parts(geom)
+         if part.geom_type == "Polygon"]
+    ).buffer(0.0006)
     for station in stations[1:-1]:
         a = np.asarray(line.interpolate(max(0, station - 0.01)).coords[0])
         b = np.asarray(line.interpolate(min(line.length, station + 0.01)).coords[0])
@@ -597,6 +692,20 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
         c = np.asarray(line.interpolate(station).coords[0])
         cut = shapely.LineString([c - normal * 1000, c + normal * 1000])
         pieces = [(part, fn) for poly, fn in pieces for part in shapely.get_parts(split(poly, cut))]
+    # Cuts along the deck as well, every SLAB_CELL: a station strip spans the whole deck width,
+    # and one triangle from a lowered outline corner to the far edge sloped across the lanes
+    # between them (Kalevan: 2.6 m below the deck in the middle of its main carriageway).
+    ends = np.asarray(shapely.get_coordinates(line))[[0, -1]]
+    along = ends[1] - ends[0]
+    if np.linalg.norm(along) > 1e-6 and pieces:
+        along /= np.linalg.norm(along)
+        across = np.array([-along[1], along[0]])
+        coords = np.concatenate([shapely.get_coordinates(poly) for poly, _ in pieces])
+        offsets = (coords - ends[0]) @ across
+        for offset in np.arange(np.floor(offsets.min() / SLAB_CELL) * SLAB_CELL, offsets.max(), SLAB_CELL)[1:]:
+            c = ends[0] + across * offset
+            cut = shapely.LineString([c - along * 1000, c + along * 1000])
+            pieces = [(part, fn) for poly, fn in pieces for part in shapely.get_parts(split(poly, cut))]
     for poly, height_at in pieces:
         if poly.geom_type != "Polygon" or poly.area < 0.01:
             continue
@@ -688,7 +797,10 @@ def branch_profiles(way, main_height, sample_ground):
     members = way.get("member_ways", [])
     # A link diverges slowly, so most of its length can run along the axis: what makes it a
     # branch is a stretch outside the main carriageway.
-    branches = [m for m in members if m["line"].difference(merged).length >= BRANCH_OUTSIDE]
+    # Only carriageways: a cycleway or footway leaving the deck keeps the deck whole (Kalevan's
+    # north cycleway split the main deck and sloped its triangles across the main lanes).
+    branches = [m for m in members if is_carriageway(m["tags"])
+                and m["line"].difference(merged).length >= BRANCH_OUTSIDE]
     # Where a link leaves the deck is where it leaves the other members' own carriageways, not the
     # merged deck's width (which also spans the link while it descends alongside).
     core = shapely.union_all([m["line"].buffer(m["width"] / 2) for m in members if m not in branches]) \
@@ -710,29 +822,62 @@ def branch_profiles(way, main_height, sample_ground):
     return out, core
 
 
+SLAB_CELL = 4.0  # m between the slab's cuts along the deck (it follows the height function)
 LEVEL_STEP = 0.1  # m: a link this far below the main deck beside it is a separate level, behind a parapet
 PARAPET = 1.0  # m above the higher level, on the cut between two levels
+LINK_SIDE = 3.0  # m of outline beside a descending link that rides on the link's level
+LINK_RUNOUT = 12.0  # m of outline past a link's end that rides on the link's end height
 
 
-def deck_levels(footprint, profiles, main_height, link_height):
+def deck_levels(footprint, profiles, main_height, link_height, core=None):
     """(levels, cuts): the deck footprint as (polygon, height function) levels and the cut lines.
 
-    Each link's descent (from where its profile leaves the deck's height) is a level of its own
-    with the link's heights; the rest keeps the main deck's heights, except within LEVEL_STEP of
-    the link where the two meet without a step (the junction, where lanes cross between them).
-    ``cuts`` are the shared boundaries where the levels differ by more than LEVEL_STEP."""
+    Each link's descent (from where its profile leaves the deck's height) is a level of its own.
+    It takes the outline beside the link (LINK_SIDE) and past its end (LINK_RUNOUT) too, at the
+    nearest link station's height: an outline drawn wider or longer than the link is not left at
+    the main deck's height above the link's lane, standing as a wall where the link meets the
+    ground. ``core`` (the main carriageways) always stays on the main level. The rest keeps the
+    main deck's heights, except within LEVEL_STEP of the link where the two meet without a step
+    (the junction, where lanes cross between them). ``cuts`` are the shared boundaries where the
+    levels differ by more than LEVEL_STEP."""
     from shapely.ops import substring
 
-    descents = []
+    from shapely.ops import split
+
+    descents, cuts_across = [], []
     for line, stations, heights, half in profiles:
         flat = stations[np.isclose(heights, heights[0])]
         leave = float(flat[-1]) if len(flat) else 0.0
         if line.length - leave > 1.0:
-            descents.append(substring(line, leave, line.length).buffer(half - 1.0, cap_style="flat"))
+            tail = shapely.get_coordinates(substring(line, leave, line.length))
+            direction = tail[-1] - tail[-2]
+            direction /= max(float(np.hypot(*direction)), 1e-9)
+            runout = shapely.LineString(np.vstack([tail, tail[-1] + direction * LINK_RUNOUT]))
+            descents.append(runout.buffer(half + LINK_SIDE, cap_style="flat"))
+            # Cuts across the link every 2 m: the level is wider than the lane, and a triangle
+            # spanning it between far-apart stations would cut a chord through the descent.
+            for station in np.arange(2.0, runout.length, 2.0):
+                a = np.asarray(runout.interpolate(station - 0.01).coords[0])
+                b = np.asarray(runout.interpolate(station + 0.01).coords[0])
+                normal = np.array([a[1] - b[1], b[0] - a[0]]) / max(float(np.hypot(*(b - a))), 1e-9)
+                c = np.asarray(runout.interpolate(station).coords[0])
+                reach = half + LINK_SIDE + 1.0
+                cuts_across.append(shapely.LineString([c - normal * reach, c + normal * reach]))
     if not descents:
         return [(footprint, None)], shapely.MultiLineString()
-    descent = shapely.segmentize(shapely.union_all(descents).intersection(footprint), 2.0)
+    descent = shapely.union_all(descents).intersection(footprint)
+    if core is not None and not core.is_empty:
+        descent = descent.difference(core)
+    descent = shapely.segmentize(descent, 2.0)
+    strips = [part for part in shapely.get_parts(descent) if part.geom_type == "Polygon"]
+    for cut in cuts_across:
+        strips = [piece for part in strips for piece in shapely.get_parts(split(part, cut))
+                  if piece.geom_type == "Polygon"]
+    descent_strips = shapely.MultiPolygon(strips) if strips else descent
     rest = shapely.segmentize(footprint.difference(descent), 2.0)
+
+    def descent_height(xz):
+        return branch_height(profiles, xz, link_height(xz), reach=np.inf)
 
     def rest_height(xz):
         main, link = main_height(xz), link_height(xz)
@@ -745,11 +890,25 @@ def deck_levels(footprint, profiles, main_height, link_height):
         coords = shapely.get_coordinates(shapely.segmentize(part, 1.0))
         if len(coords) < 2:
             continue
-        step = np.abs(main_height(coords) - link_height(coords)) > LEVEL_STEP
+        step = np.abs(rest_height(coords) - descent_height(coords)) > LEVEL_STEP
         for run in np.split(np.flatnonzero(step), np.flatnonzero(np.diff(np.flatnonzero(step)) > 1) + 1):
             if len(run) >= 2:
                 cuts.append(shapely.LineString(coords[run]))
-    return [(rest, rest_height), (descent, link_height)], shapely.MultiLineString(cuts)
+    return [(rest, rest_height), (descent_strips, descent_height)], shapely.MultiLineString(cuts)
+
+
+def levels_height(levels, fallback):
+    """One height function over (polygon, height function) levels; ``fallback`` off all of them."""
+    def height(xz):
+        xz = np.asarray(xz, dtype=np.float64)
+        out = np.asarray(fallback(xz), dtype=np.float64).copy()
+        for polygon, fn in levels:
+            inside = shapely.intersects_xy(polygon, xz[:, 0], xz[:, 1])
+            if inside.any():
+                out[inside] = fn(xz[inside])
+        return out
+
+    return height
 
 
 def level_parapets(key, cuts, main_height, link_height):
@@ -767,14 +926,14 @@ def level_parapets(key, cuts, main_height, link_height):
     return meshes
 
 
-def branch_height(profiles, xz, fallback):
-    """Height of the nearest branch profile over each point, else ``fallback``."""
+def branch_height(profiles, xz, fallback, reach=None):
+    """Height of the nearest branch profile within its half width (or ``reach``), else ``fallback``."""
     result = np.asarray(fallback, dtype=np.float64).copy()
     best = np.full(len(result), np.inf)
     points = shapely.points(xz)
     for line, stations, heights, half in profiles:
         distance = shapely.distance(line, points)
-        use = (distance <= half) & (distance < best)
+        use = (distance <= (half if reach is None else reach)) & (distance < best)
         if use.any():
             result[use] = np.interp(shapely.line_locate_point(line, points[use]), stations, heights)
             best[use] = distance[use]
@@ -807,6 +966,10 @@ def produce(tile, grid_pos, inputs):
 
     decks = []
     rails = {w["id"]: r for w, r in zip(ways, details.railing_lines(ways), strict=True)}
+    # Ground over the ways under the decks first: every deck's end ramps (aprons) then raise from
+    # it, so a lower road that climbs onto the next bridge keeps its ramp.
+    for way in ways:
+        grid_pos[:] = cut_under(grid_pos, way, full_ground)
     for way in sorted(ways, key=lambda w: (w["layer"], w["id"])):
         axis, width = way["line"], way["width"]
         spec = details.style(way)
@@ -876,6 +1039,11 @@ def produce(tile, grid_pos, inputs):
                     requirements.append((axis.project(point), height, clearance(lower.way["tags"])))
         blocked.extend(
             w["line"].buffer(w["width"] / 2 + 1.5) for w in way.get("approach_under", [])
+        )
+        # Lower roads under the outline that miss the axis are protected from the end ramps too:
+        # an apron raised over their lanes stands as an abutment block in them (Kalevan south joint).
+        blocked.extend(
+            w["line"].buffer(w["width"] / 2 + CUT_MARGIN) for w in way.get("below", [])
         )
         heights = (
             np.interp(s, [0, axis.length], ends)
@@ -996,7 +1164,7 @@ def produce(tile, grid_pos, inputs):
             blend *= shapely.intersects_xy(ramps, xz[:, 0], xz[:, 1])
             return base * (1 - blend) + (sample_ground(xz) + 0.02) * blend if blend.any() else base
 
-        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only)
+        deck_parts, cuts = deck_levels(footprint_poly, profiles, main_only, link_only, branch_core)
         if deck_parts[0][1] is None:
             deck_parts = [(footprint_poly, height_at)]
         meshes = slab(
@@ -1010,9 +1178,26 @@ def produce(tile, grid_pos, inputs):
         profile = bridge_profile(way)
         if profile.get("soffit") and len(meshes) > 1:
             meshes[1].metadata["night_soffit"] = True
-        meshes.extend(level_parapets(key, cuts, main_only, link_only))
+        if len(deck_parts) > 1:
+            meshes.extend(level_parapets(key, cuts, deck_parts[0][1], deck_parts[1][1]))
+            # Lanes, surfaces, rails and furniture sit on the slab's own levels.
+            height_at = levels_height(deck_parts, height_at)
         meshes.extend(details.surfaces(way, footprint_poly, height_at))
         rail_lines = rails[way["id"]].difference(obstacles.buffer(0.25))
+        # A railing never crosses a lane. At a skew deck end the outline edge runs across the
+        # carriageway that enters it, and an at-grade approach can leave the end diagonally across
+        # the deck's side (service road w660828777 beside bridge w620102546). The car's own width
+        # counts, not only the mapped carriageway.
+        def reach(ways):
+            return shapely.union_all([w["line"].buffer(max(RAIL_LANE_REACH, w["width"] / 2 + LANE_CLEARANCE))
+                                      for w in ways if is_carriageway(w["tags"])])
+
+        ends = axis.boundary.buffer(width / 2 + 5.0)
+        clear = shapely.union_all([reach(way.get("member_ways", [way])).intersection(ends),
+                                   reach(way.get("approaches", []))])
+        if not clear.is_empty:
+            # Along the sides the members' railing keeps cars on the deck.
+            rail_lines = rail_lines.difference(clear)
         if way.get("on_grade"):
             rail_lines = drop_edges(rail_lines, height_at, sample_ground)
         meshes.extend(
@@ -1040,7 +1225,7 @@ def produce(tile, grid_pos, inputs):
             protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
-        grid_pos[:] = cut_under(grid_pos, way, full_ground)
+        grid_pos[:] = clearance_cut(grid_pos, way, height_at, spec["thickness"], footprint_poly)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:
             decks.append(Deck(way, line, ss, hh, meshes, height_at, tuple(aprons)))

@@ -7,13 +7,13 @@ import { GraphicsPreparation } from '../../src/render/graphicsPreparation';
 
 test('each loaded design prepares one detached driven-car actor ahead of any takeover', async () => {
   const scene = new THREE.Scene(), manifest = draftManifest('http://localhost/');
-  const car = { object_id: 'one', model: 'fleet-sedan-0', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
+  const car = { object_id: 'one', model: 'corolla-e180', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
     width: 2, length: 4, height: 1.5, clear_front_m: 10, clear_rear_m: 10 };
   const prepared: THREE.Object3D[] = [];
   const visuals = new ParkedCarVisuals(scene, vi.fn(async (model: THREE.Object3D) => { prepared.push(model); }));
   manifest.vehicles = [car, { ...car, object_id: 'two' }]; await visuals.load(manifest);
   await new Promise(resolve => setTimeout(resolve, 0));
-  const keepers = prepared.filter(m => m.name.startsWith('keeper/'));
+  const keepers = prepared.filter(m => m.name === 'keeper/corolla-e180');
   expect(keepers).toHaveLength(1);
   expect(keepers[0].parent).toBeNull();
   expect(keepers[0].userData.preparesDetached).toBe(true);

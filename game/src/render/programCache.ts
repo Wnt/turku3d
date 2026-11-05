@@ -63,11 +63,16 @@ export function retainNodeStates(nodes: Nodes, limit = 512) {
   };
   const dispose = nodes.dispose.bind(nodes);
   nodes.dispose = () => { idle.clear(); dispose(); };
-  return { idle };
+  /** Forgets every idle state (still-used ones stay): their node graphs, and whatever those reference, can go. */
+  const flush = () => {
+    for (const [key, state] of idle) if (state.usedTimes === 0 && nodes.nodeBuilderCache.get(key) === state) nodes.nodeBuilderCache.delete(key);
+    idle.clear();
+  };
+  return { idle, flush };
 }
 
 export function retainRendererPrograms(renderer: THREE.WebGPURenderer) {
   const internal = renderer as unknown as { _pipelines: Pipelines; _nodes: Nodes };
   retainPrograms(internal._pipelines);
-  retainNodeStates(internal._nodes);
+  return retainNodeStates(internal._nodes);
 }

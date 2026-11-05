@@ -196,11 +196,14 @@ def test_a_skew_road_split_under_a_deck_passes_under_it():
 def test_a_link_leaving_a_deck_follows_its_own_profile_down_to_the_ground():
     from turku3d.coarse.bridges import branch_height, branch_profiles
 
-    main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0)
-    link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5)
-    way = dict(main, member_ways=[dict(main), link])
+    main = dict(id="main", line=shapely.LineString([(0, 0), (100, 0)]), width=10.0, tags={"highway": "trunk"})
+    link = dict(id="link", line=shapely.LineString([(40, 3), (60, 20), (90, 40)]), width=3.5,
+                tags={"highway": "trunk_link"})
+    path = dict(id="path", line=shapely.LineString([(40, -3), (60, -20), (90, -40)]), width=3.0,
+                tags={"highway": "cycleway"})
+    way = dict(main, member_ways=[dict(main), link, path])
     profiles, _ = branch_profiles(way, lambda xz: np.full(len(xz), 25.7), lambda xz: np.full(len(xz), 18.0))
-    assert len(profiles) == 1
+    assert len(profiles) == 1  # the cycleway leaving the deck does not split it into levels
     line, stations, heights, _ = profiles[0]
     assert abs(heights[0] - 25.7) < 1e-9 and abs(heights[-1] - 18.02) < 1e-9
     assert np.all(np.diff(heights) <= 1e-9)  # one descent, no dip into the ground and back
@@ -256,5 +259,161 @@ def test_one_outline_carries_a_link_at_its_own_level_behind_a_parapet():
     # Side faces only on the outline: no slab wall stands on the boundary between the levels.
     inner = (np.abs(body[:, 2] - 3.25) < 0.01) & (body[:, 0] > 25) & (body[:, 0] < 75)
     assert not inner.any()
-    walls = level_parapets("t", cuts, main, lower)
+    walls = level_parapets("t", cuts, levels[0][1], levels[1][1])
     assert walls and max(w.positions[:, 1].max() for w in walls) >= 25.9
+
+
+def test_outline_beside_and_past_a_link_rides_on_the_link_not_the_main_deck():
+    from turku3d.coarse.bridges import branch_height, deck_levels, slab
+
+    # The outline is wider than the link and runs 8 m past its end, where it meets the ground.
+    outline = shapely.box(0, -10, 88, 10)
+    link = shapely.LineString([(0, 6), (80, 6)])
+    stations = np.arange(0, 81, 2.0)
+    heights = np.where(stations <= 20, 25.0, 25.0 - (stations - 20) * 0.1)
+    profiles = [(link, stations, heights, 2.75)]
+    core = shapely.LineString([(0, -4), (88, -4)]).buffer(4.0, cap_style="flat")
+
+    def main(xz):
+        return np.full(len(xz), 25.0)
+
+    def lower(xz):
+        return branch_height(profiles, xz, main(xz))
+
+    levels, _ = deck_levels(outline, profiles, main, lower, core)
+    meshes = slab("t", levels, shapely.LineString([(0, -4), (88, -4)]), np.array([0.0, 88.0]),
+                  np.array([25.0, 25.0]), "road", None, 0.5, outline=outline)
+    top = meshes[0].positions
+    # Past the link's end and beside it, the deck is at the link's end height, not 25 m.
+    beyond = (top[:, 0] > 81) & (top[:, 2] > 3)
+    assert beyond.any() and top[beyond, 1].max() < 19.5
+    beside = (top[:, 0] > 60) & (top[:, 2] > 8.9)
+    assert beside.any() and top[beside, 1].max() < 23.0
+    # On the lane, the slab follows the link's profile, not chords between far stations.
+    tris = top[meshes[0].indices.reshape(-1, 3)]
+    on_link = (tris[:, :, 2].min(1) > 0.2) & (tris[:, :, 0].min(1) > 22) & (tris[:, :, 0].max(1) < 80)
+    assert on_link.any() and np.ptp(tris[on_link, :, 0], axis=1).max() <= 2.1
+    from turku3d.coarse.bridges import levels_height
+    height = levels_height(levels, main)
+    assert abs(height(np.array([[84.0, 6.0]]))[0] - heights[-1]) < 1e-6
+    assert abs(height(np.array([[40.0, -4.0]]))[0] - 25.0) < 1e-6
+
+
+def test_a_deck_from_several_outline_parts_builds():
+    from turku3d.coarse.bridges import slab
+
+    parts = shapely.GeometryCollection([shapely.box(0, 0, 10, 5), shapely.box(12, 0, 20, 5)])
+    meshes = slab("t", parts, shapely.LineString([(0, 2.5), (20, 2.5)]), np.array([0.0, 20.0]),
+                  np.array([5.0, 5.0]), "road", None, 0.5)
+    assert meshes and abs(meshes[0].positions[:, 1].max() - 5.0) < 1e-9
+
+
+def _cut(ways, ground, continuations=()):
+    from turku3d.coarse.bridges import cut_under
+
+    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=ways, below=[],
+                lower_continuations=list(continuations))
+    xs, zs = np.meshgrid(np.arange(-2.0, 2.1, 1.0), np.arange(-60.0, 60.1, 1.0))
+    grid = np.c_[xs.ravel(), ground(xs.ravel(), zs.ravel()), zs.ravel()]
+    return grid, cut_under(grid, deck, lambda x, z: float(ground(np.array([x]), np.array([z]))[0]))
+
+
+def test_a_road_split_under_a_deck_is_cut_to_the_level_between_its_two_ends():
+    def ground(x, z):  # measured road at 10 m, an embankment-like survey gap under the deck
+        return np.where(np.abs(z) < 12, 14.0, 10.0)
+
+    halves = [dict(id=1, line=shapely.LineString([(0, -60), (0, 0)]), width=7.0, tags={"highway": "primary"}),
+              dict(id=2, line=shapely.LineString([(0, 0), (0, 60)]), width=7.0, tags={"highway": "primary"})]
+    grid, cut = _cut(halves, ground)
+    under = (np.abs(grid[:, 2]) < 5) & (np.abs(grid[:, 0]) < 1)
+    assert np.allclose(cut[under, 1], 10.0)
+
+
+def test_a_road_climbing_to_a_deck_keeps_its_ground_past_its_last_measured_end():
+    def ground(x, z):  # rises from 10 m at z=-10 to 16 m at z=20, where the road ends under the deck
+        return 10.0 + 6.0 * np.clip((z + 10) / 30, 0, 1)
+
+    way = dict(id=1, line=shapely.LineString([(0, -60), (0, 4)]), width=7.0, tags={"highway": "primary"})
+    grid, cut = _cut([way], ground)
+    assert np.allclose(cut[:, 1], grid[:, 1])
+
+
+def test_a_deck_footway_is_not_raised_over_a_link_carriageway_that_crosses_it():
+    from turku3d.coarse import bridge_details as details
+
+    road = dict(id=1, line=shapely.LineString([(0, 0), (60, 0)]), width=8.0, tags={"highway": "trunk"})
+    link = dict(id=2, line=shapely.LineString([(10, 0), (50, 12)]), width=5.0, tags={"highway": "trunk_link"})
+    foot = dict(id=3, line=shapely.LineString([(0, 6), (60, 6)]), width=3.0, tags={"highway": "footway"})
+    way = dict(road, member_ways=[road, link, foot])
+    outline = shapely.box(0, -5, 60, 15)
+    meshes = details.surfaces(way, outline, lambda p: np.full(len(np.asarray(p)), 10.0))
+    positions = np.concatenate([m.positions for m in meshes])
+    top = positions[positions[:, 1] > 10.1]
+    assert len(top)
+    corridor = link["line"].buffer(2.4)
+    centroids = [shapely.Point(p[0], p[2]) for p in top]
+    assert not any(corridor.contains(c) for c in centroids)
+
+
+def test_a_lower_street_ending_under_a_deck_takes_its_far_ground_from_the_next_piece():
+    from turku3d.coarse.bridges import lower_continuations
+
+    def ground(x, z):
+        return np.where(np.abs(z) < 12, 14.0, 10.0)
+
+    tags = {"highway": "trunk"}
+    piece = dict(id=1, line=shapely.LineString([(0, -60), (0, 2)]), width=7.0, tags=tags, bridge=False, layer=0)
+    beyond = dict(id=2, line=shapely.LineString([(0, 2), (0, 60)]), width=7.0, tags=tags, bridge=False, layer=0)
+    deck = dict(id=9, line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, layer=1, under=[piece], below=[])
+    ways = [piece, beyond]
+    assert lower_continuations(deck, ways, shapely.STRtree([w["line"] for w in ways])) == [beyond]
+    grid, cut = _cut([piece], ground, [beyond])
+    under = (np.abs(grid[:, 2]) < 1.5) & (np.abs(grid[:, 0]) < 1)
+    assert np.allclose(cut[under, 1], 10.0)
+
+
+def _surface_at(mesh, x, z):
+    tris = mesh.positions[mesh.indices.reshape(-1, 3)]
+    for t in tris:
+        a, b, c = t[:, [0, 2]]
+        v0, v1, v2 = c - a, b - a, np.array([x, z]) - a
+        den = v0[0] * v1[1] - v1[0] * v0[1]
+        if abs(den) < 1e-12:
+            continue
+        u = (v2[0] * v1[1] - v1[0] * v2[1]) / den
+        v = (v0[0] * v2[1] - v2[0] * v0[1]) / den
+        if u >= -1e-9 and v >= -1e-9 and u + v <= 1 + 1e-9:
+            return t[0, 1] + u * (t[2, 1] - t[0, 1]) + v * (t[1, 1] - t[0, 1])
+    return None
+
+
+def test_a_lowered_outline_corner_does_not_slope_the_deck_across_its_lanes():
+    from turku3d.coarse.bridges import slab
+
+    outline = shapely.Polygon([(0, -18), (40, -18), (40, 18), (20, 19), (0, 18)])
+
+    def height(xz):  # one outline vertex meets the ground; the deck is 26 m everywhere else
+        xz = np.asarray(xz)
+        return np.where((xz[:, 1] > 18.9) & (np.abs(xz[:, 0] - 20) < 0.1), 21.0, 26.0)
+
+    meshes = slab("t", outline, shapely.LineString([(0, 0), (40, 0)]), np.array([0.0, 40.0]),
+                  np.array([26.0, 26.0]), "road", height, 0.5)
+    for z in (-10.0, 0.0, 10.0):
+        assert abs(_surface_at(meshes[0], 20.0, z) - 26.0) < 0.05
+
+
+def test_a_road_under_a_low_viaduct_dips_to_keep_its_clearance():
+    from turku3d.coarse.bridges import DRIVE_CLEARANCE, SAG_GRADE, clearance_cut
+
+    outline = shapely.box(-10, -6, 10, 6)  # viaduct over a road running along z
+    road = dict(id=1, line=shapely.LineString([(0, -80), (0, 80)]), width=7.0, tags={"highway": "primary"})
+    deck = dict(id=9, line=shapely.LineString([(-10, 0), (10, 0)]), width=12.0, under=[road], below=[])
+    xs, zs = np.meshgrid(np.arange(-2.0, 2.1, 1.0), np.arange(-60.0, 60.1, 1.0))
+    grid = np.c_[xs.ravel(), np.full(xs.size, 7.5), zs.ravel()]  # the road 1.25 m under the soffit
+    cut = clearance_cut(grid, deck, lambda xz: np.full(len(xz), 9.85), 1.1, outline)
+    under = np.abs(grid[:, 2]) < 5
+    assert np.allclose(cut[under, 1], 9.85 - 1.1 - DRIVE_CLEARANCE)
+    lane = np.abs(grid[:, 0]) < 0.1
+    order = np.argsort(grid[lane, 2])
+    assert np.abs(np.diff(cut[lane][order, 1])).max() <= SAG_GRADE * 1.0 + 1e-9  # a dip, not a pit
+    assert np.allclose(cut[np.abs(grid[:, 2]) > 40, 1], 7.5)

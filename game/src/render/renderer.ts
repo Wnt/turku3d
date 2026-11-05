@@ -64,7 +64,8 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   renderer.toneMappingExposure = 0.65;
   canvasParent.appendChild(renderer.domElement);
   await renderer.init();
-  retainRendererPrograms(renderer);
+  // Diagnostics (city-switch memory runs): __render.flushIdlePrograms() forgets the idle node-builder states.
+  (renderer as unknown as { flushIdlePrograms?: () => void }).flushIdlePrograms = retainRendererPrograms(renderer).flush;
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
   const device = (renderer.backend as { device?: GPUDevice }).device;
   const info = device?.adapterInfo;

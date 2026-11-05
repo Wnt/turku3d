@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-carlamotors-carlacola",
+  "fleet": {
+    "id": "carla-carlamotors-carlacola",
+    "name": "Louhi Jakelu 12",
+    "body": "van",
+    "family": "truck",
+    "length": 5.2038,
+    "width": 2.627,
+    "height": 2.4674,
+    "wheelbase": 2.665,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.4615,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0
+  },
+  "id": "carla-carlamotors-carlacola",
+  "wheels": {
+    "radius": 0.4615,
+    "width": 0.3593,
+    "pivots": {
+      "wheel_FL": [
+        -0.8927,
+        0.4615,
+        1.4587
+      ],
+      "wheel_FR": [
+        0.8927,
+        0.4615,
+        1.4587
+      ],
+      "wheel_RL": [
+        -1.0588,
+        0.4615,
+        -1.2064
+      ],
+      "wheel_RR": [
+        1.0588,
+        0.4615,
+        -1.2064
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.2337,
+      0
+    ],
+    "half": [
+      1.3135,
+      1.2337,
+      2.6019
+    ]
+  },
+  "triangles": [
+    15980,
+    11816,
+    3934
+  ],
+  "source": {
+    "title": "CarlaCola delivery truck (vehicle.carlamotors.carlacola)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-carlamotors-carlacola",
+    "referenceModel": "CarlaCola delivery truck (CARLA vehicle.carlamotors.carlacola)",
+    "massKg": 12000,
+    "powerKW": 180,
+    "torqueNm": 900,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 100,
+    "turningCircleM": 16,
+    "gears": 6,
+    "rideHeightM": 0.3,
+    "character": "utility",
+    "lengthM": 5.2038,
+    "widthM": 2.627,
+    "heightM": 2.4674,
+    "wheelbaseM": 2.665,
+    "trackM": 1.7855,
+    "wheelRadiusM": 0.4615,
+    "wheelWidthM": 0.3593
+  },
+  "accepted": false
+}

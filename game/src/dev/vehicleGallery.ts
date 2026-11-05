@@ -1,14 +1,17 @@
-/** Local vehicle gallery (vehicle-gallery.html): one canvas per fleet model, each on the wheel-articulation step
- *  block of the fleet workshop. The section in view gets the one live renderer and is driven with the game's own
- *  vehicle physics, input (keyboard, gamepad, click to capture the mouse) and chase camera; the others keep a
- *  snapshot of their last frame. */
+/** Vehicle gallery (vehicle-gallery.html, also on the public build): the starter car, scooter, trophy truck and
+ *  every real fleet model with its name, licence, source and triangles per LOD, each on a 15 cm step block that
+ *  articulates the wheels. The section in view gets the one live renderer and is driven with the game's own vehicle
+ *  physics (the model's own tuning, vehicle/modelTuning.ts), input and chase camera; P cycles the paint (liveries
+ *  are their own models). The others keep a snapshot of their last frame. */
 import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { FLEET } from '../actors/fleet/catalog';
-import { AUTHORED_MODELS } from '../actors/fleet/registry';
+import { AUTHORED_MODELS, type AuthoredModel } from '../actors/fleet/registry';
+import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
+import { modelTuning } from '../vehicle/modelTuning';
 import { CarVisual } from '../actors/car';
 import { ScooterVisual } from '../actors/scooter';
 import { TruckVisual } from '../actors/truck';
+import { configureTrophyAsset } from '../actors/trophy4400/asset';
 import type { VehicleState } from '../physics/protocol';
 import { VehicleSignals, LIGHT_LABELS } from '../vehicle/signals';
 import { VehicleBeams } from '../vehicle/beams';
@@ -61,24 +64,42 @@ function setNight(on: boolean) {
   scene.background = new THREE.Color(on ? '#10151b' : '#858e95');
 }
 addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) setNight(!night); });
+// P: next paint variant of the model in view (taxi, police and other liveries are their own fleet models).
+addEventListener('keydown', e => {
+  if (e.code !== 'KeyP' || e.repeat || !active || ENTRIES[active.index].kind !== 'fleet') return;
+  const a = active; paint[a.index] = (paint[a.index] + 1) % COLORS.length;
+  a.visual.dispose();
+  void makeVisual(ENTRIES[a.index], a.index).then(visual => { if (active === a) a.visual = visual; else visual.dispose(); status.textContent = `paint ${COLORS[paint[a.index]]}`; });
+});
 const status = document.getElementById('status')!;
 
-type Entry = { kind: 'fleet'; model: (typeof FLEET)[number] } | { kind: 'car' | 'scooter' | 'truck'; name: string };
-const authored = new Set(AUTHORED_MODELS.map(m => m.id));
+type Entry = { kind: 'fleet'; entry: AuthoredModel } | { kind: 'car' | 'scooter' | 'truck'; name: string };
 const ENTRIES: Entry[] = [
-  { kind: 'car', name: 'Player car (sedan)' }, { kind: 'scooter', name: 'Scooter' }, { kind: 'truck', name: 'Trophy truck' },
-  ...FLEET.filter(m => authored.has(m.id)).map(model => ({ kind: 'fleet' as const, model })),
-  ...FLEET.filter(m => !authored.has(m.id)).map(model => ({ kind: 'fleet' as const, model })),
+  { kind: 'car', name: `Starter car: ${AUTHORED_MODELS.find(m => m.id === PLAYER_MODEL)?.fleet.name} (${PLAYER_MODEL})` },
+  { kind: 'scooter', name: 'Scooter' }, { kind: 'truck', name: 'Trophy truck (#19 4400)' },
+  ...[...AUTHORED_MODELS].sort((a, b) => a.fleet.family.localeCompare(b.fleet.family) || a.fleet.name.localeCompare(b.fleet.name))
+    .map(entry => ({ kind: 'fleet' as const, entry })),
 ];
+const paint = ENTRIES.map((_, i) => i % COLORS.length);
+type Source = { title: string; url: string; author: string; licence: string; licenceUrl: string };
 const list = document.getElementById('list')!;
 const views = ENTRIES.map((entry, i) => {
   const section = document.createElement('section'), title = document.createElement('h2'), view = document.createElement('div');
-  title.textContent = entry.kind === 'fleet'
-    ? `${i + 1}. ${entry.model.name} · ${entry.model.body} · ${entry.model.length.toFixed(2)} m${authored.has(entry.model.id) ? ' · rebuilt real model' : ''}`
-    : `${i + 1}. ${entry.name}`;
+  if (entry.kind === 'fleet') {
+    const m = entry.entry, src = (m as AuthoredModel & { source?: Source }).source;
+    title.textContent = `${i + 1}. ${m.fleet.name} · ${m.id} · ${m.fleet.family} · ${m.fleet.length.toFixed(2)} m · triangles ${m.triangles.join(' / ')}`;
+    const credit = document.createElement('p'); credit.className = 'credit';
+    if (src) {
+      const link = document.createElement('a'); link.href = src.url; link.textContent = src.title; link.target = '_blank';
+      const lic = document.createElement('a'); lic.href = src.licenceUrl; lic.textContent = src.licence; lic.target = '_blank';
+      credit.append(link, ` by ${src.author}, `, lic, ', modified for Turku3D');
+    } else credit.textContent = 'Original model authored for Turku3D (Blenderwright MCP), project-owned';
+    section.append(title, credit);
+  } else { title.textContent = `${i + 1}. ${entry.name}`; section.append(title); }
   view.className = 'view'; view.dataset.index = String(i);
+  view.dataset.id = entry.kind === 'fleet' ? entry.entry.id : entry.kind;
   const still = document.createElement('canvas'); still.width = 960; still.height = 540; view.append(still);
-  section.append(title, view); list.append(section);
+  section.append(view); list.append(section);
   return { view, still };
 });
 
@@ -87,7 +108,7 @@ type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: Ins
 
 async function makeVisual(entry: Entry, index: number): Promise<Visual> {
   if (entry.kind === 'car') {
-    const v = new CarVisual(scene); await v.load('/assets/car/sedan.glb');
+    const v = new CarVisual(scene, PLAYER_MODEL, PLAYER_COLOR); await v.load();
     return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
   }
   if (entry.kind === 'scooter') {
@@ -95,11 +116,11 @@ async function makeVisual(entry: Entry, index: number): Promise<Visual> {
     return { update: (s, dt) => v.update(dt, s), dispose: () => v.root.removeFromParent() };
   }
   if (entry.kind === 'truck') {
-    const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
+    configureTrophyAsset(import.meta.env.BASE_URL, renderer); const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
     return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
   }
-  const model = (entry as Extract<Entry, { kind: 'fleet' }>).model, manifest = draftManifest(location.origin + '/');
-  manifest.vehicles = [{ object_id: 'drive', model: model.id, color: COLORS[index % COLORS.length], x: 0, y: 0, z: 0, yaw: 0,
+  const model = (entry as Extract<Entry, { kind: 'fleet' }>).entry.fleet, manifest = draftManifest(location.origin + '/');
+  manifest.vehicles = [{ object_id: 'drive', model: model.id, color: COLORS[paint[index]], x: 0, y: 0, z: 0, yaw: 0,
     width: model.width, height: model.height, length: model.length, clear_front_m: 5, clear_rear_m: 5 }];
   const visuals = new ParkedCarVisuals(scene); await visuals.load(manifest); visuals.takeOver('drive');
   return { update: s => { visuals.setView(camera); visuals.update([{ ...s, id: 'drive' }]); }, dispose: () => visuals.dispose() };
@@ -125,7 +146,8 @@ async function activate(index: number) {
   block.scale.y = height / (STEP.hy * 2); block.position.y = height / 2;
   const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
   const start = kind === 'truck' ? { x: -1.0, y: 1.5, z: -3.75 } : START;
-  const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind });
+  const tuning = entry.kind === 'fleet' ? modelTuning(entry.entry.id) : entry.kind === 'car' ? modelTuning(PLAYER_MODEL) : undefined;
+  const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind, ...(tuning ? { tuning } : {}) });
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
   // Settle on the brakes (the soft truck bounces and would roll off the platform) before the opening view.

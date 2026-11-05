@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-mini-cooper-s-2021",
+  "fleet": {
+    "id": "carla-mini-cooper-s-2021",
+    "name": "Salo Kipinä S",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 4.5527,
+    "width": 2.1853,
+    "height": 1.7672,
+    "wheelbase": 3.0083,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3476,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "carla-mini-cooper-s-2021",
+  "wheels": {
+    "radius": 0.3476,
+    "width": 0.2756,
+    "pivots": {
+      "wheel_FL": [
+        -0.8979,
+        0.3476,
+        1.3995
+      ],
+      "wheel_FR": [
+        0.8979,
+        0.3476,
+        1.3995
+      ],
+      "wheel_RL": [
+        -0.8979,
+        0.3476,
+        -1.6088
+      ],
+      "wheel_RR": [
+        0.8979,
+        0.3476,
+        -1.6088
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8836,
+      0
+    ],
+    "half": [
+      1.0926,
+      0.8836,
+      2.2763
+    ]
+  },
+  "triangles": [
+    31500,
+    7880,
+    2945
+  ],
+  "source": {
+    "title": "Mini Cooper S 2021 (vehicle.mini.cooper_s_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-mini-cooper-s-2021",
+    "referenceModel": "Mini Cooper S 2021 (CARLA vehicle.mini.cooper_s_2021)",
+    "massKg": 1235,
+    "powerKW": 141,
+    "torqueNm": 280,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.8,
+    "topSpeedKmh": 235,
+    "turningCircleM": 10.8,
+    "gears": 7,
+    "rideHeightM": 0.13,
+    "character": "sport",
+    "lengthM": 4.5527,
+    "widthM": 2.1853,
+    "heightM": 1.7672,
+    "wheelbaseM": 3.0083,
+    "trackM": 1.7957,
+    "wheelRadiusM": 0.3476,
+    "wheelWidthM": 0.2756
+  },
+  "accepted": false
+}

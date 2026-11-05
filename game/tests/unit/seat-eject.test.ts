@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { MultiplayerClient } from '../../src/net/client';
-import { SharedVehicles, SEAT_CONFLICT_GRACE_MS, vehiclePose } from '../../src/net/sharedVehicles';
+import { SharedVehicles, SEAT_CONFLICT_GRACE_MS, STRAY_SEAT_GRACE_MS, vehiclePose } from '../../src/net/sharedVehicles';
 import { driverSide } from '../../src/gameplay/saveGame';
 import type { SharedVehicle } from '../../src/net/vehicleTypes';
 import type { VehicleState } from '../../src/physics/protocol';
@@ -199,4 +199,64 @@ test('an explicit exit during disconnection releases the reservation after recon
   h.welcome();
   await vi.advanceTimersByTimeAsync(55);
   expect(Socket.current.sent.at(-1)).toMatchObject({ action: 'release', id: h.vehicle.id });
+});
+
+test('a seat the room keeps reporting after a lost release is released after the grace; the driven one never is', async () => {
+  const h = setup();
+  await h.reply(await h.request(), true);
+  // The parked car left in the portal on the way out: the room still seats this player there.
+  const stale = { ...h.vehicle, id: 'park:bay', source: 'bay', localId: 'bay', revision: 5 };
+  Socket.current.message({ type: 'vehicles', upsert: [stale], remove: [] });
+  const releases = () => Socket.current.sent.filter(m => m.action === 'release');
+  h.update();
+  await vi.advanceTimersByTimeAsync(STRAY_SEAT_GRACE_MS - 100);
+  h.update();
+  await vi.advanceTimersByTimeAsync(55);
+  expect(releases()).toEqual([]);
+  await vi.advanceTimersByTimeAsync(100);
+  h.update();
+  await vi.advanceTimersByTimeAsync(55);
+  expect(releases()).toMatchObject([{ id: 'park:bay' }]);
+  // A lost release is sent again after another grace; the answer ends it, and a snapshot without the car never acts.
+  await vi.advanceTimersByTimeAsync(STRAY_SEAT_GRACE_MS);
+  h.update();
+  await vi.advanceTimersByTimeAsync(55);
+  expect(releases()).toHaveLength(2);
+  await h.reply(releases().at(-1)!, true, { ...stale, occupant: null, revision: 6 });
+  Socket.current.message({ type: 'vehicles', upsert: [], remove: ['park:bay'] });
+  await vi.advanceTimersByTimeAsync(3 * STRAY_SEAT_GRACE_MS);
+  h.update();
+  await vi.advanceTimersByTimeAsync(55);
+  expect(releases()).toHaveLength(2);
+  expect(releases().some(m => m.id === h.vehicle.id)).toBe(false);
+  expect(h.shared.hasSeat('truck')).toBe(true);
+});
+
+test('no stray release while an entry is in flight, and driving another vehicle releases the superseded seat', async () => {
+  const h = setup();
+  await h.reply(await h.request(), true);
+  h.shared.release('truck');
+  await vi.advanceTimersByTimeAsync(55);
+  await h.reply(Socket.current.sent.at(-1)!, true, { ...h.vehicle, occupant: null, revision: 2 });
+  // Entering another player's empty car: the room's grant arrives before the entry resolves.
+  const other = { ...h.vehicle, id: 'other:car', creator: 'other', owner: 'other', localId: 'car', revision: 3, occupant: null };
+  Socket.current.message({ type: 'vehicles', upsert: [other], remove: [] });
+  const entry = h.shared.acquire(other.id);
+  expect(h.shared.entering).toBe(true);
+  await vi.advanceTimersByTimeAsync(55);
+  const acquire = Socket.current.sent.at(-1)!;
+  expect(acquire).toMatchObject({ action: 'acquire', id: other.id });
+  Socket.current.message({ type: 'vehicles', upsert: [{ ...other, owner: 'self', occupant: 'self', revision: 4 }], remove: [] });
+  h.update();
+  await vi.advanceTimersByTimeAsync(STRAY_SEAT_GRACE_MS + 100);
+  h.update();
+  await vi.advanceTimersByTimeAsync(55);
+  expect(Socket.current.sent.filter(m => m.action === 'release' && m.id === other.id)).toEqual([]);
+  await h.reply(acquire, true, { ...other, owner: 'self', occupant: 'self', revision: 5 });
+  expect(await entry).toBe(other.id);
+  expect(h.shared.entering).toBe(false);
+  // An arrival's ride replaces a kept seat: the kept one is released, not orphaned.
+  h.shared.drive('truck');
+  await vi.advanceTimersByTimeAsync(55);
+  expect(Socket.current.sent.filter(m => m.action === 'release').at(-1)).toMatchObject({ id: other.id });
 });

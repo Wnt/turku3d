@@ -11,8 +11,12 @@ BRICK = 130
 TRACK = 131
 PITCH_LIGHT = 132
 PITCH_DARK = 133
+CONCRETE_PAVERS = 134
 FINISH_KEYS = {FIELDSTONE: "fieldstone", RED_ASPHALT: "asphalt_red", BRICK: "brick_paving",
-               TRACK: "track_rubber", PITCH_LIGHT: "pitch_grass_light", PITCH_DARK: "pitch_grass_dark"}
+               TRACK: "track_rubber", PITCH_LIGHT: "pitch_grass_light", PITCH_DARK: "pitch_grass_dark",
+               CONCRETE_PAVERS: "concrete_pavers"}
+# OSM surface=* values that name a unit paving finish (used where the register says nothing).
+OSM_FINISHES = {"brick": BRICK, "bricks": BRICK, "paving_stones": CONCRETE_PAVERS}
 
 
 def street_finish(surface):
@@ -23,4 +27,10 @@ def street_finish(surface):
         return RED_ASPHALT
     if "maatiili" in value:  # clay brick paving (Turku register; Dutch BGT "gebakken klinkers")
         return BRICK
+    # Street panoramas of sampled register parts: Betonikivi (concrete paving stones) is mostly
+    # red-brown, Betonilaatta sidewalks are small grey pavers in running bond, not 50 cm slabs.
+    if "betonikivi" in value:
+        return BRICK
+    if "betonilaatta" in value:
+        return CONCRETE_PAVERS
     return None

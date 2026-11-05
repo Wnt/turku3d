@@ -134,3 +134,67 @@ test('actor jobs (car batches) go ahead of queued tile and scenery jobs but neve
   await Promise.all([head, b, scenery, car, c, car2]);
   expect(events).toEqual(['tile-a', 'car-1', 'car-2', 'tile-b', 'tile-c', 'scenery']);
 });
+
+test('an aborted job stops waiting for a preparation that never settles, and the queue moves on', async () => {
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  const scene = new THREE3.Scene();
+  const queue = new GraphicsPreparation(scene, () => {}, release => release(), () => Promise.resolve());
+  const life = new AbortController();
+  const stuck = new THREE3.Group(), next = new THREE3.Group();
+  scene.add(stuck, next);
+  const first = queue.enqueue(stuck, () => new Promise(() => {}), life.signal);
+  let ran = false;
+  const second = queue.enqueue(next, () => { ran = true; });
+  await new Promise(r => setTimeout(r, 5));
+  expect(ran).toBe(false); // behind the job that never settles
+  life.abort();
+  await first; await second;
+  expect(ran).toBe(true);
+  expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 2, activeMs: null });
+});
+
+test('a queued job of a released city answers its waiter at the abort and never runs', async () => {
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  const scene = new THREE3.Scene();
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const queue = new GraphicsPreparation(scene, () => {}, r => r(), () => gate);
+  const life = new AbortController();
+  const a = new THREE3.Group(), b = new THREE3.Group();
+  scene.add(a, b);
+  void queue.enqueue(a, () => {});
+  let ran = false, answered = false;
+  void queue.enqueue(b, () => { ran = true; }, life.signal, false, 'scenery').then(() => { answered = true; });
+  life.abort();
+  await new Promise(r => setTimeout(r, 0));
+  expect(answered).toBe(true); // while the queue still waits on the first job
+  release();
+  await new Promise(r => setTimeout(r, 5));
+  expect(ran).toBe(false);
+});
+
+test('a scenery job behind a tile lane that never empties still runs once it has waited MAX_DEFER_MS', async () => {
+  const { vi } = await import('vitest');
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    const queue = new GraphicsPreparation(new THREE3.Scene(), () => {}, r => r(), () => Promise.resolve());
+    const events: string[] = [];
+    let ranScenery = false;
+    void queue.enqueue(new THREE3.Group(), () => { ranScenery = true; events.push('scenery'); }, undefined, false, 'scenery');
+    // Streaming keeps one tile job waiting at all times: each tile job queues the next one.
+    let tiles = 0;
+    const tile = (): Promise<void> => queue.enqueue(new THREE3.Group(), () => { events.push(`tile-${tiles}`); now += 500;
+      if (++tiles < 30) void tile(); });
+    void tile();
+    for (let i = 0; i < 200 && !ranScenery; i++) await new Promise(r => setTimeout(r, 0));
+    expect(ranScenery).toBe(true);
+    const at = events.indexOf('scenery');
+    expect(at).toBeGreaterThan(4); // tiles still went first for a while
+    expect(at).toBeLessThan(15);
+  } finally { vi.restoreAllMocks(); }
+});

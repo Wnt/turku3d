@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-lincoln-mkz-2020",
+  "fleet": {
+    "id": "carla-lincoln-mkz-2020",
+    "name": "Vire Säde 20",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.8876,
+    "width": 2.2306,
+    "height": 1.5212,
+    "wheelbase": 2.8605,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3371,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.7
+  },
+  "id": "carla-lincoln-mkz-2020",
+  "wheels": {
+    "radius": 0.3371,
+    "width": 0.2315,
+    "pivots": {
+      "wheel_FL": [
+        -0.7974,
+        0.3371,
+        1.4807
+      ],
+      "wheel_FR": [
+        0.7974,
+        0.3371,
+        1.4807
+      ],
+      "wheel_RL": [
+        -0.7974,
+        0.3371,
+        -1.3798
+      ],
+      "wheel_RR": [
+        0.7974,
+        0.3371,
+        -1.3798
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7606,
+      0
+    ],
+    "half": [
+      1.1153,
+      0.7606,
+      2.4438
+    ]
+  },
+  "triangles": [
+    29391,
+    7880,
+    2944
+  ],
+  "source": {
+    "title": "Lincoln MKZ 2020 (vehicle.lincoln.mkz_2020)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-lincoln-mkz-2020",
+    "referenceModel": "Lincoln MKZ 2020 (CARLA vehicle.lincoln.mkz_2020)",
+    "massKg": 1750,
+    "powerKW": 182,
+    "torqueNm": 373,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 7.5,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.8876,
+    "widthM": 2.2306,
+    "heightM": 1.5212,
+    "wheelbaseM": 2.8605,
+    "trackM": 1.5948,
+    "wheelRadiusM": 0.3371,
+    "wheelWidthM": 0.2315
+  },
+  "accepted": false
+}

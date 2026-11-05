@@ -2,15 +2,14 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import {splitEmbeddedFleetWheels,splitNamedFleetWheels,type AuthoredFleetParts} from './authoredWheelParts';
+import {splitNamedFleetWheels,type AuthoredFleetParts} from './authoredWheelParts';
 import {fleetWheelLayout} from './wheelLayouts';
 import { AUTHORED_BY_ID } from './registry';
 
-export const AUTHORED_ESTATE = 'fleet-estate-3';
-export const ESTATE_WHEELS=Object.entries(fleetWheelLayout(AUTHORED_ESTATE)!.pivots).map(([name,p])=>({name,
-  pivot:{x:p[0],y:p[1],z:p[2]},radius:.32,width:.205}));
 interface FleetAsset {body:THREE.BufferGeometry;glass:THREE.BufferGeometry|null;parts:AuthoredFleetParts}
-const pending = new Map<string, Promise<FleetAsset>>();
+const pending = new Map<string, Promise<FleetAsset|null>>();
+/** Models whose asset failed after the fetch retries (core/retryFetch.ts): drawn as a fallback model (fleet/visuals.ts). */
+const unavailable = new Set<string>();
 
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
 export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
@@ -63,20 +62,19 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
 
 async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   const entry = AUTHORED_BY_ID.get(model);
-  if (model !== AUTHORED_ESTATE && !entry) return null;
+  if (!entry || unavailable.has(model)) return null;
   const key = `${model}/${lod}`;
   let request = pending.get(key);
   if (!request) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    const url = entry ? `${entry.assetBase}/lod${lod}.glb` : `/assets/cars/aava-estate/estate_lod${lod}.glb`;
+    const url = `${entry.assetBase}/lod${lod}.glb`;
     request = loader.loadAsync(url).then(gltf => {
       // Named hubs already bake every opaque triangle. Repeating the whole-car bake here
       // expands and welds all of them a second time, even when callers only need split parts.
       gltf.scene.updateMatrixWorld(true);
       const transform = gltf.scene.matrixWorld.clone();
       let body: THREE.BufferGeometry | undefined;
-      const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude))
-        ??(model===AUTHORED_ESTATE?splitEmbeddedFleetWheels(body=flattenFleetAsset(gltf.scene,'body'),ESTATE_WHEELS):null);
+      const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude));
       if(!parts)throw Error(`Authored fleet lacks named wheel hubs: ${model}`);
       const layout=fleetWheelLayout(model)!;
       for(const wheel of parts.wheels){wheel.radius=layout.radius;wheel.width=layout.width;}
@@ -101,7 +99,12 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         }
         return body;
       }, glass, parts };
-    }).catch(error => { pending.delete(key); throw error; });
+    }).catch(error => {
+      // An optional car model never aborts the load: it is drawn as a fallback model, with one warning.
+      if (!unavailable.has(model)) console.warn(`[fleet] ${url} unavailable, drawn as a fallback model: ${String(error?.message ?? error)}`);
+      unavailable.add(model);
+      return null;
+    });
     pending.set(key, request);
   }
   return request;

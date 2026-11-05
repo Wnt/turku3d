@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-audi-a2",
+  "fleet": {
+    "id": "carla-audi-a2",
+    "name": "Aava Kipinä A2",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 3.7008,
+    "width": 1.7887,
+    "height": 1.5491,
+    "wheelbase": 2.5065,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3284,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.8
+  },
+  "id": "carla-audi-a2",
+  "wheels": {
+    "radius": 0.3284,
+    "width": 0.217,
+    "pivots": {
+      "wheel_FL": [
+        -0.7172,
+        0.3284,
+        1.2502
+      ],
+      "wheel_FR": [
+        0.7172,
+        0.3284,
+        1.2502
+      ],
+      "wheel_RL": [
+        -0.7171,
+        0.3284,
+        -1.2563
+      ],
+      "wheel_RR": [
+        0.7171,
+        0.3284,
+        -1.2563
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7745,
+      -0.0023
+    ],
+    "half": [
+      0.8943,
+      0.7745,
+      1.8504
+    ]
+  },
+  "triangles": [
+    23284,
+    7881,
+    2952
+  ],
+  "source": {
+    "title": "Audi A2 (vehicle.audi.a2)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-audi-a2",
+    "referenceModel": "Audi A2 (CARLA vehicle.audi.a2)",
+    "massKg": 895,
+    "powerKW": 55,
+    "torqueNm": 126,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 12,
+    "topSpeedKmh": 173,
+    "turningCircleM": 10.3,
+    "gears": 5,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 3.7008,
+    "widthM": 1.7887,
+    "heightM": 1.5491,
+    "wheelbaseM": 2.5065,
+    "trackM": 1.4343,
+    "wheelRadiusM": 0.3284,
+    "wheelWidthM": 0.217
+  },
+  "accepted": false
+}

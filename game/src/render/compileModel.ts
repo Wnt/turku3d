@@ -1,4 +1,5 @@
 import type * as THREE from 'three/webgpu';
+import { addNodeBuilderHook } from './nodeBuilderHooks';
 import { PreparationBudget } from './preparationBudget';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -78,8 +79,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       const oldTarget = renderer.getRenderTarget(), oldMrt = renderer.getMRT(), oldContext = renderer.contextNode;
       const oldMaterial = mesh.material, children = mesh.children, visible = mesh.visible, culled = mesh.frustumCulled;
       const previousOverride = scene.overrideMaterial;
-      const previousBuilder = renderer.debug.onNodeBuilderCreated;
-      const onBuilder: typeof previousBuilder = (builder, value) => {
+      const onBuilder = (builder: { renderer: unknown }, value: unknown) => {
         const draw = value as { object: THREE.Object3D; material: THREE.Material; camera: THREE.Camera; context: unknown };
         if (draw.object === mesh && (draw.material === material || override !== null) && draw.camera === camera) {
           // NodeBuilder.buildAsync reads renderer state again after scheduler.yield(). A renderer view
@@ -92,9 +92,8 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
             return Reflect.get(source, key, receiver);
           } });
         }
-        previousBuilder?.(builder, value);
       };
-      renderer.debug.onNodeBuilderCreated = onBuilder;
+      const removeHook = addNodeBuilderHook(renderer, onBuilder as (builder: unknown, value: unknown) => void);
       // r186 compileAsync selects depth zero. Nested post/reflection draws use other contexts,
       // whose IDs are part of shader keys; use the depth observed by the actual pass.
       const getContext = contexts.get;
@@ -112,7 +111,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         streamTrace.slice('compile', performance.now() - started);
         void compiled.then(() => { compileStats.count++; compileStats.ms += performance.now() - started; }, () => {});
       } catch (error) {
-        renderer.debug.onNodeBuilderCreated = previousBuilder;
+        removeHook();
         throw error;
       } finally {
         if (walk) Object.defineProperty(scene, 'traverseVisible', walk);
@@ -123,7 +122,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }
       try { await compiled; }
-      finally { if (renderer.debug.onNodeBuilderCreated === onBuilder) renderer.debug.onNodeBuilderCreated = previousBuilder; }
+      finally { removeHook(); }
       const nextFrame = budget.checkpoint();
       if (nextFrame) await nextFrame;
     }

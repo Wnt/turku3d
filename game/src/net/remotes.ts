@@ -13,10 +13,13 @@ import { chassisForward } from '../traffic/pedestrians';
 import type { WalkerThreat } from '../world/walkers';
 import type { PhysicsClient } from '../physics/client';
 import type { PlayerVisual } from '../actors/player';
-import type { CarVisual, ParkedCarVisuals } from '../actors/car';
+import type { ParkedCarVisuals } from '../actors/car';
+import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
 import type { ScooterVisual } from '../actors/scooter';
 import type { TruckVisual } from '../actors/truck';
-import { applyRaceWheels } from '../actors/prerunner/rig';
+import { applyTrophyRig } from '../actors/trophy4400/rig';
+import { TruckSoundFeed } from '../audio/engine/feed';
+import type { EngineVoiceState } from '../audio/engine/voices';
 import type { MultiplayerClient, NetPlayer, NetPose } from './client';
 import { vehicleRotation } from './orientation';
 import { vehiclePose } from './sharedVehicles';
@@ -28,6 +31,8 @@ interface Remote {
   player: NetPlayer & { occupant?: string | null }; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
   car: THREE.Object3D; scooter: THREE.Object3D; truck: THREE.Object3D; vehicleKey: string;
   pizza: THREE.Mesh; label: THREE.Sprite;  lastT: number; effectSlot: number; receivedAt: number;
+  /** The remote truck's engine voice input, stepped once per frame from its synced wheels and `drv`. */
+  engine: { feed: TruckSoundFeed; at: number } | null;
 }
 
 const FULL_MODEL_DISTANCE = 6;
@@ -103,17 +108,19 @@ export class RemotePlayers {
   private readonly view = new THREE.Vector3();
   frameMs = 0;
   readonly horns: HornEmitter[] = [];
+  /** Engine voices of remote trucks with a driver, refreshed by update() (GameAudio.engineVoice, SPEC §4.6). */
+  readonly engines: { id: string; state: EngineVoiceState }[] = [];
   /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
   readonly threats: WalkerThreat[] = [];
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
-    private readonly sources: { player: PlayerVisual; car: CarVisual; scooter: ScooterVisual; truck: TruckVisual;
+    private readonly sources: { player: PlayerVisual; scooter: ScooterVisual; truck: TruckVisual;
       parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
 
   /** `drawn`: the render pose of a locally simulated vehicle (the driven one), else its latest physics state is used. */
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
     drawn: (id: string) => VehicleState | null = () => null) {
     const t0 = performance.now();
-    this.horns.length = 0; this.threats.length = 0;
+    this.horns.length = 0; this.threats.length = 0; this.engines.length = 0;
     const selfId = client.state.you?.id;
     this.selfId = selfId;
     const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null })[] = client.state.connected
@@ -145,26 +152,28 @@ export class RemotePlayers {
       let remote = this.remotes.get(p.id);
       if (!remote) {
         const distant = this.distantSource.clone();
-        const car = this.sources.car.root.clone(true);
+        const car = new THREE.Group();
         const scooter = this.sources.scooter.root.clone(true);
         scooter.getObjectByName('scooter-lean')!.position.y = -VEHICLE_POSE_HEIGHT;
-        // The truck model is built around its chassis centre with its wheels at rest (actors/truck.ts).
-        const truck = this.sources.truck.root.clone(true);
+        // The truck root follows the chassis centre; its model's bones are cloned per remote (actors/truck.ts).
+        const truck = cloneSkeleton(this.sources.truck.root);
         const label = nickname(p.nick);
         const pizza = new THREE.Mesh(this.pizzaGeometry, this.pizzaMaterial);
         for (const visual of [car, scooter, truck]) visual.userData.devLayer = 'Vehicles/Other Players Cars';
         distant.userData.devLayer = 'People/Players';
         pizza.userData.devLayer = 'People/Players';
         this.root.add(distant, car, scooter, truck, label, pizza);
-        remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: 'player', effectSlot: this.tyreEffects.reserve(), receivedAt: now };
+        remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter, truck, label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
       if (p.pose && p.pose.t !== remote.lastT) { remote.buffer.push(p.pose, now); remote.lastT = p.pose.t; remote.receivedAt = now; }
       const pose = p.locallySimulated ? p.pose : remote.buffer.sample(now);
       if (pose?.mode === 'car' && pose.vehicle && pose.vehicle !== remote.vehicleKey) {
-        const model = pose.vehicle === 'player' ? this.sources.car.root.clone(true) : this.sources.parked.remoteModel(pose.vehicle);
-        if (!model) this.sources.parked.requestRemoteModel(pose.vehicle);
+        // The starter car identity ('player') is the real PLAYER_MODEL, drawn like every other fleet model.
+        const key = pose.vehicle === 'player' ? `${PLAYER_MODEL}/${PLAYER_COLOR}` : pose.vehicle;
+        const model = this.sources.parked.remoteModel(key);
+        if (!model) this.sources.parked.requestRemoteModel(key);
         if (model) {
           remote.car.removeFromParent();
           model.userData.devLayer = 'Vehicles/Other Players Cars';
@@ -206,20 +215,27 @@ export class RemotePlayers {
       for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model.position.set(pos.x, pos.y, pos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
-      remote.car.quaternion.copy(vehicleRotation(pose, remote.vehicleKey !== 'player'));
-      if (remote.vehicleKey !== 'player') remote.car.position.y -= 0.75;
+      remote.car.quaternion.copy(vehicleRotation(pose, true));
+      remote.car.position.y -= 0.75;
       remote.scooter.quaternion.copy(vehicleRotation(pose, false));
       remote.truck.quaternion.copy(vehicleRotation(pose, false));
-      if (pose.mode === 'car' && remote.vehicleKey !== 'player' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
-      if (pose.mode === 'truck' && pose.wheels) applyRaceWheels(remote.truck, pose.wheels);
-      const wheeled = pose.mode === 'car' && remote.vehicleKey === 'player' ? remote.car : null;
-      pose.wheels?.forEach((w, i) => {
-        const wheel = wheeled?.getObjectByName(`vehicle-wheel-${i}`);
-        if (!wheel) return;
-        wheel.position.set(w.pos.x, w.pos.y, w.pos.z);
-        wheel.rotation.set(0, w.steer, 0);
-        wheel.children[0].rotation.z = -w.rotation;
-      });
+      if (pose.mode === 'car' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
+      if (pose.mode === 'truck' && pose.wheels) {
+        applyTrophyRig(remote.truck, pose.wheels);
+        // Driven remote trucks only (a player's own pose, or a shared record with an occupant): the engine voice.
+        const driven = !p.locallySimulated && (!('occupant' in p) || !!p.occupant);
+        if (driven && now - remote.receivedAt < 1500) {
+          let hash = 0;
+          for (let i = 0; i < p.id.length; i++) hash = Math.imul(hash ^ p.id.charCodeAt(i), 16777619);
+          remote.engine ??= { feed: new TruckSoundFeed(hash >>> 0 || 1), at: now };
+          const dt = Math.min(0.25, Math.max(1e-3, (now - remote.engine.at) / 1000)); remote.engine.at = now;
+          const forward = chassisForward(remote.truck.quaternion), speed = Math.hypot(pose.vE, pose.vN);
+          const forwardSpeed = pose.vE * forward.hx - pose.vN * forward.hz;
+          const out = remote.engine.feed.step(dt, { forwardSpeed, speed, wheels: pose.wheels }, { drv: pose.drv ?? null });
+          this.engines.push({ id: `remote:${p.id}`, state: { drive: out.drive, speed, position: pos, velocity: { x: pose.vE, y: pose.vH, z: -pose.vN },
+            local: false, wheels: pose.wheels, rearSlew: out.rearSlew } });
+        }
+      } else remote.engine = null;
       if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
         // Network ground points are relative to the physical chassis, including parked-model cars.
         this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt, Math.hypot(pose.vE, pose.vN));

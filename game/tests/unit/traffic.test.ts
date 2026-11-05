@@ -411,16 +411,17 @@ describe('rendering', () => {
       expect(meshes.filter(m=>m.name.startsWith('parked/')).map(m=>m.name).sort())
         .toEqual(FLEET.filter(m=>SELECTABLE_FAMILIES.has(m.family)).flatMap(m=>[0,1,2].map(lod=>`parked/${m.id}/${lod}`)).sort());
       expect(meshes.filter(m=>m.name.startsWith('wheels/')&&!m.name.startsWith('wheels/authored/')).map(m=>m.name).sort())
-        .toEqual([...new Set(FLEET.filter(m=>m.id!=='fleet-estate-3'&&!AUTHORED_BY_ID.has(m.id)).flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
-      for(const model of FLEET.filter(m=>(m.id==='fleet-estate-3'||AUTHORED_BY_ID.has(m.id))&&SELECTABLE_FAMILIES.has(m.family)))for(const lod of [0,1]){
+        .toEqual([...new Set(FLEET.filter(m=>m.id!=='v60'&&!AUTHORED_BY_ID.has(m.id)).flatMap(m=>[0,1].map(lod=>`wheels/${lod}/${m.wheel.toFixed(3)}/${lod===0?m.face%3:0}`)))].sort());
+      for(const model of FLEET.filter(m=>(m.id==='v60'||AUTHORED_BY_ID.has(m.id))&&SELECTABLE_FAMILIES.has(m.family)))for(const lod of [0,1]){
         const designs=meshes.filter(m=>m.name.startsWith(`wheels/authored/${model.id}/${lod}/`));
         expect(designs.length).toBeGreaterThan(0);expect(designs.length).toBeLessThanOrEqual(4);
       }
       // All LOD assets are resident before traffic starts changing.
       const states: string[] = [];
       for (const count of [0, 1, 10, 40]) {
-        const moving = Array.from({ length: count }, (_, i) => ({ seed: i === 0 ? 'p1' : String(i), model: TRAFFIC_MODELS[i % 4], color: ['blue', 'white', 'beige'][i % 3],
-          x: i * 7, y: 0.75, z: 3, q: { x: 0, y: 0, z: 0, w: 1 } }));
+        const moving = Array.from({ length: count }, (_, i) => { const seed = i === 0 ? 'p1' : String(i);
+          return { seed, model: fleetModel(TRAFFIC_MODELS[i % 4], seed).id, color: ['blue', 'white', 'beige'][i % 3],
+            x: i * 7, y: 0.75, z: 3, q: { x: 0, y: 0, z: 0, w: 1 } }; });
         visuals.setTraffic(moving);
         visuals.update([], { restingPose: c => ({ pos: { x: c.x, y: c.y + 0.75, z: c.z }, rot: { x: 0, y: 0, z: 0, w: 1 } }) });
         expect(scene.children).toEqual(meshes);

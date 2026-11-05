@@ -6,6 +6,7 @@
 // plan from path curvature (lateral acceleration limit) and the stop at the end (braking limit), and a stuck
 // recovery that reverses and asks for a re-plan.
 import { curvatureAt, project, sampleAt, type Path, type PathSample } from './path';
+import { effectiveWheelbase, type RearSteerTuning } from '../../vehicle/rearSteer';
 
 export interface VehiclePose {
   x: number; y: number; z: number;
@@ -22,6 +23,8 @@ export interface VehicleGeometry {
   rearOffset: number;
   maxSteer: number;
   steerHalfSpeed: number;
+  /** A 4WS vehicle in its passive AUTO mode turns like a shorter car (SPEC §3.2). */
+  rearSteer?: RearSteerTuning;
 }
 
 export type DriveStyle = 'calm' | 'normal' | 'fast';
@@ -130,7 +133,8 @@ export class DriveFollower {
     const ld = Math.hypot(ax, az) || 1;
     // Right of the chassis heading (x east, z south): (-hz, hx).
     const sinAlpha = (ax * -pose.hz + az * pose.hx) / ld;
-    let wheel = Math.atan(2 * g.wheelbase * sinAlpha / ld);
+    const wheelbase = g.rearSteer ? effectiveWheelbase(g.rearSteer, g.wheelbase, g.maxSteer, speed) : g.wheelbase;
+    let wheel = Math.atan(2 * wheelbase * sinAlpha / ld);
     // Cross-track damping (Stanley-like): pulls the car onto the lane line at low speed and on long curves.
     wheel += Math.atan(0.35 * -at.lateral / (speed + 2)) * 0.5;
     const lock = g.maxSteer / (1 + (speed / g.steerHalfSpeed) ** 2);

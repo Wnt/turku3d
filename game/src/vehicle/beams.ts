@@ -32,7 +32,8 @@ export class VehicleBeams {
     this.root.position.copy(state.pos); this.root.quaternion.copy(state.rot);
     const range = mode === 2 ? 145 : 40;
     this.lights.forEach((light, i) => {
-      light.position.set(scooter ? .81 : truck ? 2.40 : 2.13, scooter ? .48 : truck ? .15 : -.05, (i ? 1 : -1) * (scooter ? .06 : .68));
+      // Truck: its lamp-front-left/right empties (trophy4400.glb, chassis frame).
+      light.position.set(scooter ? .81 : truck ? 2.08 : 2.13, scooter ? .48 : truck ? .16 : -.05, (i ? 1 : -1) * (scooter ? .06 : truck ? .40 : .68));
       light.target.position.set(light.position.x + 30, light.position.y + (mode === 2 ? .3 : -1.2), light.position.z + (i ? 1.4 : -.35));
       light.angle = mode === 2 ? .48 : .42;
       light.decay = mode === 2 ? 1.1 : 1.8;

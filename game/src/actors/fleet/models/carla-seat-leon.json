@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-seat-leon",
+  "fleet": {
+    "id": "carla-seat-leon",
+    "name": "Vire Kipinä L",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 4.1928,
+    "width": 1.8162,
+    "height": 1.4738,
+    "wheelbase": 2.736,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3373,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1.2
+  },
+  "id": "carla-seat-leon",
+  "wheels": {
+    "radius": 0.3373,
+    "width": 0.243,
+    "pivots": {
+      "wheel_FL": [
+        -0.7379,
+        0.3373,
+        1.3157
+      ],
+      "wheel_FR": [
+        0.7379,
+        0.3373,
+        1.3157
+      ],
+      "wheel_RL": [
+        -0.7379,
+        0.3373,
+        -1.4203
+      ],
+      "wheel_RR": [
+        0.7379,
+        0.3373,
+        -1.4203
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7369,
+      0
+    ],
+    "half": [
+      0.9081,
+      0.7369,
+      2.0964
+    ]
+  },
+  "triangles": [
+    21264,
+    7881,
+    2951
+  ],
+  "source": {
+    "title": "Seat Leon (vehicle.seat.leon)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-seat-leon",
+    "referenceModel": "Seat Leon (CARLA vehicle.seat.leon)",
+    "massKg": 1250,
+    "powerKW": 110,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.4,
+    "topSpeedKmh": 220,
+    "turningCircleM": 10.9,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "balanced",
+    "lengthM": 4.1928,
+    "widthM": 1.8162,
+    "heightM": 1.4738,
+    "wheelbaseM": 2.736,
+    "trackM": 1.4757,
+    "wheelRadiusM": 0.3373,
+    "wheelWidthM": 0.243
+  },
+  "accepted": false
+}

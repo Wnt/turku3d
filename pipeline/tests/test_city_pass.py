@@ -16,7 +16,7 @@ spec.loader.exec_module(city)
 def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -39,7 +39,7 @@ def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
 def test_a_tile_waiting_for_its_spot_rebuild_asks_the_farm_and_is_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -125,7 +125,7 @@ def test_an_inherited_spot_rebuild_takes_the_steps_appended_after_its_chain(tmp_
 def test_an_ordered_tiles_file_keeps_its_order(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -141,6 +141,29 @@ def test_an_ordered_tiles_file_keeps_its_order(tmp_path, monkeypatch):
     assert seen == ["t0_3_3", "t0_0_0", "t0_-2_1"]
 
 
+def test_only_the_first_waiting_tiles_in_pass_order_ask_the_farm_for_rebuilds(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "CHAIN", (TINT,))
+    root, meta, _ = farm(tmp_path)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
+    monkeypatch.setattr(city.os, "nice", lambda increment: 0)
+    monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
+    monkeypatch.setattr(city, "surveyed", lambda tile: False)
+    tiles = ["t0_3_3", "t0_0_0", "t0_-2_1", "t0_1_1"]
+    monkeypatch.setattr(city, "pending_rebuild", lambda root, meta, tile: dict(
+        tile=tile, state="missing-rebuild", rebuild_revision="r1", rebuild_generation="g1", error="needs it"))
+    asked = []
+    monkeypatch.setattr(city.M, "request_rebuild", lambda url, row: asked.append(row["tile"]))
+    listing = tmp_path / "tiles.txt"
+    listing.write_text("\n".join(tiles) + "\n")
+    argv = ["tile_city_pass.py", "--farm-root", str(root), "--revision", meta["revision"], "--interval", "0",
+            "--no-survey-wait", "--blocks", "0", "--ordered", "--tiles-file", str(listing), "--rebuild-window", "2",
+            "--wait-hours", "0.0003"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert city.main() == 0
+    assert set(asked) == {"t0_3_3", "t0_0_0"}  # the first two in the file's order, never the rest
+
+
 def test_estimate_weights_surveyed_and_unsurveyed_tiles():
     rows = [dict(tile="a", state="migrated", survey=True, cpu=100.0, wall=120.0, steps={"wires@2": [90, 80]}),
             dict(tile="b", state="migrated", survey=False, cpu=2.0, wall=3.0, steps={"wires@2": [1, 1]})]
@@ -152,7 +175,7 @@ def test_estimate_weights_surveyed_and_unsurveyed_tiles():
 def test_a_checkpoint_stores_the_prefix_that_a_changed_tail_resumes_from(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT, ROADS))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)

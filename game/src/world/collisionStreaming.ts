@@ -44,6 +44,7 @@ export class CollisionStreamer {
     return { bytes, count: this.prepared.size };
   }
   retain(id: string, entry: ManifestEntry, buffer: ArrayBuffer) {
+    if (this.disposed) return;
     this.prepared.set(id, { entry, buffer });
     this.lastCheck = -Infinity; // Newly published ground must reach the worker before the next edge.
   }
@@ -86,7 +87,28 @@ export class CollisionStreamer {
 
   /** Call every frame with the focus point and the player's ground velocity (m/s); polls at most 4x per second, waking sooner for
    *  newly retained bytes or a freed worker slot. Returns ids requested this call. */
+  /** In-flight cell loads (dispose waits for them). */
+  private flights = new Set<Promise<void>>();
+  private disposed = false;
+  private track(flight: Promise<void>) {
+    this.flights.add(flight);
+    void flight.finally(() => this.flights.delete(flight));
+  }
+
+  /** Leaves the city: no new loads, waits for the loads in flight, then unloads every cell from the worker and
+   *  forgets the edge-wall neighbours (a city switch: the next city's cells reuse the same c_i_j ids). */
+  async dispose() {
+    this.disposed = true;
+    this.refreshes.clear();
+    while (this.flights.size) await Promise.allSettled([...this.flights]);
+    for (const id of [...this.physics.loaded.keys()]) this.physics.unloadTile(id);
+    this.physics.setKnown([], [...this.known]);
+    this.known.clear(); this.prepared.clear(); this.installed.clear(); this.retries.clear(); this.failed.clear();
+    this.aheadSeen.clear(); this.retainedStarts = [];
+  }
+
   update(x: number, z: number, force = false, vx = 0, vz = 0): string[] {
+    if (this.disposed) return [];
     const now = performance.now();
     if (!force && now - this.lastCheck < 250) return [];
     this.lastCheck = now;
@@ -127,7 +149,7 @@ export class CollisionStreamer {
       for (const { id } of want) {
         if (this.loading.size >= this.maxConcurrent) break;
         this.loading.add(id); started.push(id);
-        void this.fetchAndLoad(id);
+        this.track(this.fetchAndLoad(id));
       }
     }
     this.syncKnown();
@@ -156,6 +178,7 @@ export class CollisionStreamer {
       // A replacement can arrive during HTTP or the worker acknowledgement. Follow the latest
       // content in the same slot; refresh() must not lose an upgrade just because the cell is busy.
       for (;;) {
+        if (this.disposed) return;
         const e = this.manifest.collision[id];
         if (!e) {
           this.prepared.delete(id); this.installed.delete(id);
@@ -178,6 +201,7 @@ export class CollisionStreamer {
           if (buf.byteLength !== e.bytes) throw Object.assign(new Error(`size ${buf.byteLength} != manifest ${e.bytes}`), { permanent: true });
           this.prepared.set(id, { entry: e, buffer: buf });
           // Keep the validated original while its parent tile is resident. Rapier owns and detaches only the copy.
+          if (this.disposed) { done('City left'); return; }
           const stats = await this.physics.loadTile(id, buf.slice(0));
           if (!sameContent(this.manifest.collision[id], e)) { done('Superseded while collider built'); continue; }
           if (e.sha256) this.installed.set(id, e.sha256);
@@ -213,6 +237,7 @@ export class CollisionStreamer {
   /** A new tile release changed these entries: loaded ones are fetched again and replace their colliders in one
    *  worker message (no step in between), the rest load from the new entry when the player comes near. */
   refresh(ids: Iterable<string>) {
+    if (this.disposed) return;
     for (const id of ids) {
       this.failed.delete(id);
       this.retries.delete(id);
@@ -233,7 +258,7 @@ export class CollisionStreamer {
       if (!entry || !this.physics.loaded.has(id) || this.loading.has(id)
         || entry.sha256 && this.installed.get(id) === entry.sha256) continue;
       this.loading.add(id);
-      void this.fetchAndLoad(id);
+      this.track(this.fetchAndLoad(id));
     }
   }
   /** Actual worker-acknowledged coverage, also for stationary actors outside the manifest. */

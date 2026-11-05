@@ -223,7 +223,7 @@ export class TrafficClient {
       car.q.x = flat[o + 6]; car.q.y = flat[o + 7]; car.q.z = flat[o + 8]; car.q.w = flat[o + 9];
       const instance: TrafficInstance & { seed: string; indicator: -1 | 0 | 1; braking: boolean; speed: number } = {
         seed: String(flat[o + 12]), indicator: flat[o + 13] as -1 | 0 | 1, braking: (flat[o + 14] & 1) === 1, speed: flat[o + 15],
-        wheelY:flat.slice(o+16,o+20), model: TRAFFIC_MODELS[car.model], color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q };
+        wheelY:flat.slice(o+16,o+20), model: fleetModel(TRAFFIC_MODELS[car.model], String(flat[o + 12])).id, color: TRAFFIC_PAINTS[car.paint], x: car.x, y: car.y, z: car.z, q: car.q };
       this.instances.push(instance);
     }
     // A just-claimed car is drawn here from its physics body until the parked batches include its record.

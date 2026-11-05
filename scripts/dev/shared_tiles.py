@@ -58,6 +58,8 @@ PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicl
           'migrations', 'migration_base')
 GIB = 2**30
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
+BUILD_SECONDS = 3600  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min
+                      # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
 DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
 FAR_TILES = 8          # 2 km beyond every live player: dropped after half a minute
 FINISH_SECONDS = 60    # a new pin lets the player's own tile finish when this close to done
@@ -137,13 +139,16 @@ MIGRATION_WORKERS = 2
 
 
 class Farm:
-    def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
-                 reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None,
+    def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=10,
+                 reserve_gib=1, keep_free_gib=60, grace_seconds=900, execute=None, free=None, stop=None,
                  migrate=None, navigate=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
-        self.floor, self.reserve = floor_gib * GIB, reserve_gib * GIB
+        self.floor, self.reserve, self.keep_free = floor_gib * GIB, reserve_gib * GIB, keep_free_gib * GIB
+        # Disk housekeeping never holds the farm lock (scans and deletes take minutes on a full disk; under the
+        # farm lock every request queued behind them: the 2026-11-05 city.lab outage). It has its own lock.
+        self.housekeeping_lock, self.housekeeping_wake, self.housekeeper = threading.Lock(), threading.Event(), None
         self.grace_seconds = grace_seconds
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
@@ -162,6 +167,8 @@ class Farm:
         self.jobs, self.active, self.failures = {}, set(), {}
         self.awaiting = {}  # migrated key -> the spot-rebuild build key it waits for
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
+        self.build_seconds = BUILD_SECONDS
+        self._status_snapshot, self._status_refresh = None, threading.Lock()
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         # Live player positions: client -> {tile the player stands on (d=0): last time}.
         self.players, self.durations = {}, {}
@@ -388,7 +395,7 @@ class Farm:
             return dict(state='ready', api_version=2, daemon_pid=os.getpid(),
                         version=self.version, aliases=self.aliases.copy(),
                         uptime_seconds=round(time.time() - self.started),
-                        workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
+                        workers=self.workers, build_seconds=self.build_seconds, queued=len(self.jobs) - len(self.dispatched),
                         pin=dict(self.pin),
                         building=[k[1] for k in self.dispatched],
                         active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
@@ -400,6 +407,31 @@ class Farm:
                                for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
                         free_gib=round(self.free() / GIB, 2), floor_gib=self.floor / GIB,
                         failures=list(self.failures.values())[-10:])
+
+    def status_cached(self, max_age=5.0):
+        """``status()`` as of at most ``max_age`` seconds ago, refreshed off the request thread.
+
+        /health and /status are polled by the share proxies, the Mac proxies, watchers and guards; computing
+        status per request (every queued job's priority, under the farm lock) made them queue behind builds
+        and evictions until clients gave up (2026-11-05: 10-40 s answers, hundreds of CLOSE-WAIT sockets).
+        The first call computes it; later calls return the last snapshot at once and start one refresh when
+        it is older than ``max_age``."""
+        snapshot = self._status_snapshot
+        if snapshot is None:
+            return self._refresh_status()
+        if time.monotonic() - snapshot[0] > max_age and self._status_refresh.acquire(blocking=False):
+            def refresh():
+                try:
+                    self._refresh_status()
+                finally:
+                    self._status_refresh.release()
+            threading.Thread(target=refresh, name='status-refresh', daemon=True).start()
+        return dict(snapshot[1], status_age_s=round(time.monotonic() - snapshot[0], 1))
+
+    def _refresh_status(self):
+        value = self.status()
+        self._status_snapshot = (time.monotonic(), value)
+        return dict(value, status_age_s=0.0)
 
     def version_status(self, revision):
         """Game polling describes only the requested generator, not other agents' work."""
@@ -467,7 +499,7 @@ class Farm:
             if len(self.jobs) >= self.queue_limit:
                 return 429, dict(state='queue-full')
             # Reservation covers concurrent builders as well as the hard free-space floor.
-            if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
+            if not self.has_room(self.floor + self.reserve * (len(self.active) + 1)):
                 return 507, dict(state='disk-pressure', free_gib=self.free() / GIB)
             self.jobs[key] = revision
             self.queue_info[key] = dict(revision=revision, generation=generation, tile=tile,
@@ -727,7 +759,7 @@ class Farm:
                 with self.lock:
                     # A recorded worker already owns its disk reservation. Recover its
                     # monitoring even under pressure; run_build can stop it safely.
-                    if not self.queue_info[key].get('pid') and not self.make_room(
+                    if not self.queue_info[key].get('pid') and not self.has_room(
                             self.floor + self.reserve * (len(self.active) + 1)):
                         raise RuntimeError('disk floor reservation unavailable')
                     self.active.add(key)
@@ -982,10 +1014,11 @@ class Farm:
         info = self.queue_info[(root.name, tile)]
         if info.get('pid'):
             info.setdefault('build_started', process_started(info.get('start_ticks')) or time.time())
-            deadline = time.monotonic() + 1800
+            deadline = time.monotonic() + self.build_seconds
             while process_alive(info['pid'], info.get('start_ticks')):
                 reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
-                          'build timeout' if worker_elapsed(info) > 1800 or time.monotonic() > deadline else None)
+                          'build timeout' if worker_elapsed(info) > self.build_seconds or time.monotonic() > deadline
+                          else None)
                 if reason:
                     self.stop_worker(info, root / tile)
                     raise RuntimeError(reason)
@@ -1005,7 +1038,7 @@ class Farm:
                 info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time(),
                             started_monotonic=time.monotonic())
                 self.save_queue(force=True)
-            deadline = time.monotonic() + 1800
+            deadline = time.monotonic() + self.build_seconds
             while proc.poll() is None:
                 reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
                           'build timeout' if time.monotonic() > deadline else None)
@@ -1203,16 +1236,42 @@ class Farm:
         self.event('intermediates-adopted', files=linked)
         return linked
 
+    def has_room(self, target):
+        """Cheap check (one statvfs) for callers holding the farm lock: never scans or deletes. Short of room,
+        it wakes the background housekeeper and answers at once."""
+        if self.free() >= target:
+            return True
+        self.housekeeping_wake.set()
+        return False
+
+    def housekeeping(self, interval=60):
+        """Service thread: keeps ``keep_free`` bytes free by ``make_room``, off the farm lock."""
+        while not getattr(self, 'closing', False):
+            self.housekeeping_wake.wait(interval)
+            self.housekeeping_wake.clear()
+            try:
+                if self.free() < self.keep_free:
+                    self.make_room(self.keep_free)
+            except Exception as error:  # housekeeping must outlive one bad directory
+                self.event('housekeeping-error', error=str(error)[-300:])
+
+    def start_housekeeping(self):
+        self.housekeeper = threading.Thread(target=self.housekeeping, name='housekeeping', daemon=True)
+        self.housekeeper.start()
+
     def make_room(self, target):
         """Evict unused generations then cache LRU. Never touch another loop's directories.
 
         Requested tiles pin their intermediates. Other old entries can be reclaimed while
-        workers run; their content-key locks protect concurrent readers and writers.
+        workers run; their content-key locks protect concurrent readers and writers. Runs under its own
+        housekeeping lock; the farm lock is held only to copy the pins (jobs, aliases, adoptions).
         """
-        with self.lock:
-            return self._make_room(target)
+        with self.housekeeping_lock:
+            with self.lock:
+                jobs, adopting, aliases = dict(self.jobs), set(self.adopting), dict(self.aliases)
+            return self._make_room(target, jobs, adopting, aliases)
 
-    def _make_room(self, target):
+    def _make_room(self, target, jobs, adopting, aliases):
         if self.free() >= target:
             return True
         for path in sorted((self.root / 'delivery/shared').glob('bundle.*.col'), key=lambda p: p.stat().st_mtime):
@@ -1224,9 +1283,9 @@ class Farm:
             self.event('delivery-evicted', bytes=size)
             if self.free() >= target:
                 return True
-        pinned = {g for g, _ in self.jobs}
-        pinned.update(self.adopting)
-        revisions = set(self.aliases.values()) | set(self.jobs.values())
+        pinned = {g for g, _ in jobs}
+        pinned.update(adopting)
+        revisions = set(aliases.values()) | set(jobs.values())
         pinned.update(self.revision(rev)['generation'] for rev in revisions)
         for rev in list(revisions):
             meta = self.revision(rev)
@@ -1314,7 +1373,7 @@ class Farm:
                 self.event('surface-maps-evicted', key=path.name, bytes=size)
             if self.free() >= target:
                 return True
-        wanted_tiles = {tile for _, tile in self.jobs}
+        wanted_tiles = {tile for _, tile in jobs}
         files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
                         if p.relative_to(cache).parts[1] not in wanted_tiles),
                        key=lambda p: p.stat().st_mtime)
@@ -1339,7 +1398,7 @@ class Farm:
                 return True
         # Texture encoders also maintain their own bounded cache. Reclaim additional
         # old encodes only when no farm package can still be using the returned paths.
-        if not self.jobs:
+        if not jobs:
             for path in sorted((cache / 'textures').glob('*'), key=lambda p: p.stat().st_mtime):
                 if path.suffix not in ('.ktx2', '.png', '.rgb') or time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
@@ -1347,7 +1406,7 @@ class Farm:
                 path.unlink()
                 if self.free() >= target:
                     return True
-            for path in ([] if self.adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
+            for path in ([] if adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
                 size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
@@ -1409,14 +1468,22 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/cancel':
                 return self.json(200, self.server.farm.cancel(body['revision'], body['tiles']))
             if self.path == '/limits':
-                workers = body.get('workers')
-                if not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+                workers, seconds = body.get('workers'), body.get('build_seconds')
+                if workers is not None and (not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS):
                     raise ValueError(f'worker cap must be 1..{MAX_WORKERS}')
+                if seconds is not None and (not isinstance(seconds, int) or not 600 <= seconds <= 14400):
+                    raise ValueError('build_seconds must be 600..14400')
+                if workers is None and seconds is None:
+                    raise ValueError('workers or build_seconds required')
                 farm = self.server.farm
                 with farm.lock:
-                    farm.workers = workers
-                    farm.pump()
-                    farm.event('worker-cap', workers=workers)
+                    if seconds is not None:
+                        farm.build_seconds = seconds
+                        farm.event('build-seconds', seconds=seconds)
+                    if workers is not None:
+                        farm.workers = workers
+                        farm.pump()
+                        farm.event('worker-cap', workers=workers)
                 return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
             self.json(200, self.server.farm.register(body['revision'], body.get('alias'), body.get('source_version')))
         except (ValueError, KeyError) as error:
@@ -1443,7 +1510,7 @@ class Handler(BaseHTTPRequestHandler):
         if any(p in ('.', '..') or '\\' in p for p in parts):
             raise ValueError('invalid path')
         if parts == ['health'] or parts == ['status']:
-            return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
+            return self.json(200, dict(farm.status_cached(), http_backlog=self.server.request_queue_size))
         if parts == ['receipts']:
             # One tile's completion receipts for several versions at once (the share proxy's train chain), the
             # same bytes as each version's coarse/<tile>/ready.json; null while that version has not finished it.
@@ -1581,8 +1648,15 @@ def main():
     parser.add_argument('--port', type=int, default=7950)
     parser.add_argument('--workers', type=int, default=2, choices=range(1, MAX_WORKERS + 1))
     args = parser.parse_args()
+    import faulthandler
+    # `kill -USR1 <pid>` writes every thread's stack to logs/stacks.log (the container blocks ptrace, so py-spy
+    # cannot attach): the way to see what holds the farm lock or the CPU while it is slow.
+    stacks = (args.root / 'logs').joinpath('stacks.log')
+    stacks.parent.mkdir(exist_ok=True)
+    faulthandler.register(signal.SIGUSR1, file=stacks.open('a'), all_threads=True)
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)
+        farm.start_housekeeping()
         server = TileHTTPServer((args.host, args.port), Handler)
         server.farm = farm
         (args.root / 'service.pid').write_text(str(os.getpid()) + '\n')

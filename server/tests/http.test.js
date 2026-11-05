@@ -163,3 +163,47 @@ test('each city is its own room: players in Turku and Espoo never see each other
   for (const path of ['/city/turku', '/city/narnia', '/city/', '/city/espoo/x']) assert.equal(await denied(`${app.ws}${path}`, 'https://wnt.github.io'), 404, path);
   for (const ws of [turku, espoo, again]) ws.terminate();
 });
+
+test('a move carries the socket to another city room: the old room sees the player go, the new one sees it arrive', async t => {
+  const app = await start(t);
+  const watcher = await socket(`${app.ws}/`);
+  const watching = messageOf(watcher, 'welcome');
+  watcher.send(JSON.stringify({ v: 2, type: 'hello' }));
+  await watching;
+  const espooWatcher = await socket(`${app.ws}/city/espoo`);
+  const espooWatching = messageOf(espooWatcher, 'welcome');
+  espooWatcher.send(JSON.stringify({ v: 2, type: 'hello' }));
+  await espooWatching;
+  const traveller = await socket(`${app.ws}/`);
+  const home = messageOf(traveller, 'welcome');
+  traveller.send(JSON.stringify({ v: 2, type: 'hello' }));
+  const turkuSelf = await home;
+  assert.equal((await (await fetch(`${app.http}/live.json`)).json()).players.length, 2);
+  // Driving a parked car into the portal: the seat stays in Turku, free for anyone, not reserved for a return.
+  const { E, N } = turkuSelf.you.spawn;
+  const seated = messageOf(traveller, 'vehicle_result');
+  traveller.send(JSON.stringify({ v: 2, type: 'vehicle', action: 'acquire', request: 'enter', id: 'park:bay', source: 'bay',
+    localId: 'bay', pose: { t: 1, E, N, H: 4, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'sedan/red', carrying: false } }));
+  assert.equal((await seated).ok, true);
+  assert.equal(app.room.vehicles.entries.get('park:bay').occupant, turkuSelf.you.id);
+  const arrived = messageOf(traveller, 'welcome');
+  traveller.send(JSON.stringify({ v: 2, type: 'move', room: '/city/espoo' }));
+  traveller.send(JSON.stringify({ v: 2, type: 'hello' }));
+  const espooSelf = await arrived;
+  assert.equal(app.room.vehicles.entries.get('park:bay').occupant, null);
+  assert.notEqual(espooSelf.you.id, turkuSelf.you.id);
+  assert.deepEqual(espooSelf.players.map(p => p.id).sort(), [espooSelf.you.id, ...espooSelf.players.filter(p => p.id !== espooSelf.you.id).map(p => p.id)].sort());
+  assert.equal(espooSelf.players.length, 2);
+  const live = await (await fetch(`${app.http}/live.json`)).json();
+  assert.equal(live.players.filter(p => p.online !== false).length, 1);
+  assert.equal((await (await fetch(`${app.http}/live.json?city=espoo`)).json()).players.length, 2);
+  // Back home with the Turku session: the same Turku player again.
+  const back = messageOf(traveller, 'welcome');
+  traveller.send(JSON.stringify({ v: 2, type: 'move', room: '/' }));
+  traveller.send(JSON.stringify({ v: 2, type: 'hello', session: turkuSelf.session }));
+  assert.equal((await back).you.id, turkuSelf.you.id);
+  const closed = new Promise(resolve => traveller.once('close', code => resolve(code)));
+  traveller.send(JSON.stringify({ v: 2, type: 'move', room: '/city/narnia' }));
+  assert.equal(await closed, 1008);
+  for (const ws of [watcher, espooWatcher]) ws.terminate();
+});

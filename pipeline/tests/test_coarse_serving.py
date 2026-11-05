@@ -199,3 +199,28 @@ def test_missing_building_model_prevents_partial_visual_publication(tmp_path):
     assert public_fragment(value)["buildingPlacements"] == value["buildingPlacements"]
     path.write_bytes(b"truncated")
     assert not complete(tmp_path, TILE.id, value)
+
+
+def test_service_manifest_serves_a_retained_build_while_the_tile_rebuilds(tmp_path):
+    """Only a tile with no complete build waits: an older complete one is served stale at once."""
+    import io
+
+    from turku3d.coarse.service import handler
+
+    old = publish(tmp_path, "manifest.json")
+    b = builder(tmp_path)
+    b.request = lambda tile, distance: {"state": "queued", "position": 0, "eta": 30}
+    cls = handler(b)
+    for tile, expected in ((TILE.id, 200), ("t0_5_5", 202)):
+        h = object.__new__(cls)
+        h.path, h.command, h.headers = f"/coarse/{tile}/manifest.json?d=0", "GET", {}
+        h.wfile = io.BytesIO()
+        h.send_response = lambda status, h=h: setattr(h, "status", status)
+        h.send_header = lambda *_: None
+        h.end_headers = lambda: None
+        h.do_GET()
+        assert h.status == expected
+        if expected == 200:
+            body = json.loads(h.wfile.getvalue())
+            assert body["stale"] and body["visual"] == old["visual"]
+    b.stop()

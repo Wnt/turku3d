@@ -4,12 +4,15 @@ import type { Quat, WheelState } from '../physics/protocol';
 import { loading } from '../core/loading';
 import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
-import { cityKey } from '../core/city';
+import { CITIES, cityKey, type CityProfile } from '../core/city';
+import type { KeyValueStore } from '../core/save';
 
 export interface NetPose {
   lights?: 0 | 1 | 2; horn?: boolean;
   vehicleId?: string;
   rot?: Quat; wheels?: WheelState[];
+  /** A driven 4WS truck's throttle, rpm, gear and rear mode (net/drv.ts); absent otherwise. */
+  drv?: import('./drv').Drv;
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
@@ -32,8 +35,19 @@ interface MultiplayerState {
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
 
-/** Per city: each city's room issues its own session (core/city.ts cityKey). */
-const SESSION_KEY = cityKey('turku3d.mp.session.v1');
+/** Per city: each city's room issues its own session (core/city.ts cityKey), read when a client is made (the city
+ *  can switch in place). */
+const sessionKey = (city?: CityProfile) => cityKey('turku3d.mp.session.v1', city);
+/** Per city: a progress reset that city's room has not confirmed yet; the next hello there carries `reset: true`. */
+const resetKey = (city?: CityProfile) => cityKey('turku3d.mp.reset.v1', city);
+
+/** "Reset progress": every city room this tab holds a session in resets the player at its next hello (PROTOCOL.md
+ *  `reset`); the room being played confirms at once through MultiplayerClient.resetProgress. */
+export function markProgressReset(storage: KeyValueStore | null) {
+  for (const city of Object.values(CITIES)) {
+    try { if (storage?.getItem(sessionKey(city))) storage.setItem(resetKey(city), '1'); } catch { /* storage may be disabled */ }
+  }
+}
 /** The server accepts at most this many tiles per road-hash report (server/roads.js). */
 const ROAD_TILES = 64;
 const RATE_MS = 55; // under the server's 20 total messages/s token rate, including deliveries
@@ -45,7 +59,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   if (!previous) return true;
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
-  const articulated = JSON.stringify([pose.rot, pose.wheels]) !== JSON.stringify([previous.rot, previous.wheels]);
+  const articulated = JSON.stringify([pose.rot, pose.wheels, pose.drv]) !== JSON.stringify([previous.rot, previous.wheels, previous.drv]);
   const changed = pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
@@ -74,6 +88,9 @@ export class MultiplayerClient extends EventTarget {
   private vehicleRequests = new Map<string, { action: VehicleCommand['action']; resolve: (vehicle: SharedVehicle | null) => void; timer: ReturnType<typeof setTimeout> }>();
   private expiredAcquires = new Set<string>();
   private heldSeat: string | null = null;
+  /** The last hello carried `reset: true`; its welcome confirms the reset. */
+  private resetInHello = false;
+  private resetWaiters = new Set<(ok: boolean) => void>();
   private deliveryTimer: ReturnType<typeof setTimeout> | null = null;
   private claimed = new Set<string>();
 
@@ -83,25 +100,98 @@ export class MultiplayerClient extends EventTarget {
     super();
     this.url = url;
     this.httpUrl = scoresUrl(url);
-    try { this.token = storage?.getItem(SESSION_KEY) ?? null; } catch { /* storage may be disabled */ }
+    this.sessionKey = sessionKey();
+    this.resetKey = resetKey();
+    try { this.token = storage?.getItem(this.sessionKey) ?? null; } catch { /* storage may be disabled */ }
   }
+  private readonly sessionKey: string;
+  private readonly resetKey: string;
+  /** Removes this client's socket listeners (detach hands the socket to the next city's client). */
+  private listening: AbortController | null = null;
+  /** This session arrived from another city (a portal trip): its hellos say so until the room welcomes it, and the
+   *  room frees any seat this player still held here (server/PROTOCOL.md `hello`). */
+  arrival = false;
 
   connect() {
     if (this.closed || this.ws || this.retry) return;
     const done = loading.begin(`Multiplayer connect ${this.url}`);
     const ws = new WebSocket(this.url);
-    this.ws = ws;
-    ws.addEventListener('open', () => {
-      this.lastSent = performance.now();
-      ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}) }));
+    this.listen(ws, done);
+    ws.addEventListener('open', () => this.hello(ws), { signal: this.listening!.signal });
+  }
+
+  /**
+   * Takes over `socket`, still open in another city's room (detach), and moves it to this client's room over the
+   * same connection (server `move`, PROTOCOL.md): the old room sees the player leave, this one sees it arrive after
+   * hello. A socket that closed meanwhile falls back to a fresh connection.
+   */
+  adopt(socket: WebSocket) {
+    if (this.closed || this.ws || this.retry) return;
+    if (socket.readyState !== WebSocket.OPEN) { socket.close(); this.connect(); return; }
+    this.listen(socket, loading.begin(`Multiplayer move to ${new URL(this.url).pathname}`));
+    socket.send(JSON.stringify({ v: 2, type: 'move', room: new URL(this.url).pathname }));
+    this.hello(socket);
+  }
+
+  /** Stops using the socket without closing it and returns it for the next city's client (adopt); null when it is
+   *  not open. This client is finished afterwards, as after disconnect. Seat releases still queued belong to this
+   *  room and go out first, ahead of the next client's `move`. */
+  detach(): WebSocket | null {
+    const ws = this.ws && this.ws.readyState === WebSocket.OPEN ? this.ws : null;
+    this.listening?.abort(); this.listening = null;
+    if (!ws) { this.disconnect(); return null; }
+    if (this.state.connected) for (const m of this.pendingMessages) {
+      const command = m as { type?: string; action?: string };
+      if (command.type === 'vehicle' && command.action === 'release') this.send(m);
+    }
+    this.ws = null;
+    this.disconnect();
+    return ws;
+  }
+
+  private hello(ws: WebSocket) {
+    this.lastSent = performance.now();
+    this.resetInHello = !!this.token && this.resetMarked();
+    ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}), ...(this.resetInHello ? { reset: true } : {}),
+      ...(this.arrival ? { arrival: true } : {}) }));
+  }
+
+  /**
+   * "Reset progress" in this room (PROTOCOL.md `reset`): queued after a seat release sent before it. Resolves true when
+   * the room answers (its vehicle removals and the zeroed score have arrived), false when it cannot answer now
+   * (offline, or no answer within 5 s): the reset stays marked and the next hello carries it.
+   */
+  resetProgress(): Promise<boolean> {
+    try { this.storage?.setItem(this.resetKey, '1'); } catch { /* storage may be disabled */ }
+    if (!this.state.connected) return Promise.resolve(false);
+    return new Promise(resolve => {
+      const done = (ok: boolean) => { clearTimeout(timer); this.resetWaiters.delete(done); resolve(ok); };
+      const timer = setTimeout(() => done(false), 5000);
+      this.resetWaiters.add(done);
+      this.queue({ type: 'reset' });
     });
-    ws.addEventListener('message', event => { this.receive(event.data); if (this.state.connected) done(`Joined as ${this.state.you?.nick}`); });
+  }
+
+  private resetMarked(): boolean {
+    try { return this.storage?.getItem(this.resetKey) === '1'; } catch { return false; }
+  }
+
+  private resetConfirmed() {
+    try { this.storage?.removeItem(this.resetKey); } catch { /* storage may be disabled */ }
+  }
+
+  private listen(ws: WebSocket, done: (detail: string) => void) {
+    this.ws = ws;
+    this.listening = new AbortController();
+    const signal = this.listening.signal;
+    ws.addEventListener('message', event => { this.receive(event.data); if (this.state.connected) done(`Joined as ${this.state.you?.nick}`); }, { signal });
     ws.addEventListener('close', () => {
       if (this.ws !== ws) return;
       this.ws = null;
       done('Disconnected · retrying');
       this.state.connected = false;
-      this.pendingMessages = this.pendingMessages.filter(m => (m as { type: string }).type !== 'vehicle');
+      this.pendingMessages = this.pendingMessages.filter(m => !['vehicle', 'reset'].includes((m as { type: string }).type));
+      for (const done of [...this.resetWaiters]) done(false);
       for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
       this.vehicleRequests.clear();
       this.expiredAcquires.clear();
@@ -110,8 +200,8 @@ export class MultiplayerClient extends EventTarget {
         const delay = Math.min(15000, 500 * 2 ** Math.min(this.attempts++, 5));
         this.retry = setTimeout(() => { this.retry = null; this.connect(); }, delay);
       }
-    });
-    ws.addEventListener('error', () => { this.state.error = 'Connection unavailable'; this.changed(); });
+    }, { signal });
+    ws.addEventListener('error', () => { this.state.error = 'Connection unavailable'; this.changed(); }, { signal });
   }
 
   disconnect() {
@@ -122,6 +212,7 @@ export class MultiplayerClient extends EventTarget {
     this.deliveryTimer = null;
     for (const request of this.vehicleRequests.values()) { clearTimeout(request.timer); request.resolve(null); }
     this.vehicleRequests.clear();
+    for (const done of [...this.resetWaiters]) done(false);
     this.ws?.close();
     this.ws = null;
     this.state.connected = false;
@@ -216,8 +307,10 @@ export class MultiplayerClient extends EventTarget {
       case 'welcome': {
         if (typeof msg.session !== 'string' || !msg.you || !msg.hour) return;
         this.token = msg.session;
-        try { this.storage?.setItem(SESSION_KEY, msg.session); } catch { /* storage may be disabled */ }
+        try { this.storage?.setItem(this.sessionKey, msg.session); } catch { /* storage may be disabled */ }
         this.state.connected = true;
+        if (this.resetInHello) { this.resetInHello = false; this.resetConfirmed(); }
+        this.arrival = false; // a later reconnect in this city keeps its seat
         this.state.serverTime = Number(msg.serverTime);
         this.serverOffset = this.state.serverTime - performance.now();
         const previousEpoch = this.state.rounds.epoch;
@@ -250,6 +343,7 @@ export class MultiplayerClient extends EventTarget {
         this.serverOffset = Number(msg.serverTime) - performance.now();
         this.state.countdown = null; this.changed(); break;
       case 'round_result': this.dispatchEvent(new CustomEvent('roundResult', { detail: msg.result })); break;
+      case 'progress_reset': this.resetConfirmed(); for (const done of [...this.resetWaiters]) done(true); break;
       case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
       case 'watch': if (Number.isFinite(msg.at) && Array.isArray(msg.points)) {
         const points = (msg.points as unknown[]).filter((p): p is [number, number] => Array.isArray(p) && p.length === 2

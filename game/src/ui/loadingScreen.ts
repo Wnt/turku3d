@@ -8,6 +8,7 @@ export class LoadingScreen {
   private log = this.element.querySelector<HTMLElement>('.loading-log')!;
   private progress = this.element.querySelector<HTMLProgressElement>('progress')!;
   private count = this.element.querySelector<HTMLElement>('.loading-count')!;
+  private retry = this.element.querySelector<HTMLButtonElement>('.loading-retry');
   private observer: PerformanceObserver | null = null;
   private frame = 0;
   private finished = false;
@@ -62,7 +63,12 @@ export class LoadingScreen {
     if (draft && draft !== this.draft) { this.draft = draft; loading.note(draft); }
   }
 
-  fail(error: string) { if (this.finished) return; this.failure = error; this.draw(); this.element.classList.remove('menu-ready'); }
+  /** A required boot step failed (after core/retryFetch.ts retries): the error and a Retry that reloads the page. */
+  fail(error: string) {
+    if (this.finished) return;
+    this.failure = error; this.draw(); this.element.classList.remove('menu-ready');
+    if (this.retry) { this.retry.hidden = false; this.retry.onclick = () => location.reload(); this.retry.focus(); }
+  }
 
   private draw() {
     const world = worldLoad.snapshot();

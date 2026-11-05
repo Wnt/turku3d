@@ -1,4 +1,5 @@
 import { captureAllowed, captureControl } from './telemetry/capture';
+import { optional } from './core/retryFetch';
 import { RoundUI } from './net/rounds';
 import { multiplayerStart } from './gameplay/startPoints';
 import { bindRoundReset } from './net/roundReset';
@@ -48,6 +49,7 @@ import { ObjectEditor } from './dev/editor';
 import { SaveStore, SLOT_IDS } from './core/save';
 import { keepSavedVehicle } from './gameplay/vehicleSave';
 import { SPAWN_HEIGHT, SaveGameController, driverSide, yawOf } from './gameplay/saveGame';
+import { clearProgress } from './gameplay/progressReset';
 import { MissionSystem, OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID, missionSummary, ownedVehicleId } from './gameplay/missions/missions';
 import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPOT } from './gameplay/content/locations';
 import { lineText } from './gameplay/content/dialogue';
@@ -65,6 +67,9 @@ import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type 
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT, VEHICLES, type VehicleKind } from './physics/constants';
+import { RearSteerControl } from './vehicle/rearSteerControl';
+import { RearSteerTag } from './ui/rearSteerTag';
+import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
 import { browserStorage, sessionStore } from './core/storage';
@@ -106,7 +111,9 @@ const RENDER_EXTRAPOLATION = new URLSearchParams(globalThis.location?.search ?? 
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** Starts a play session; `hot` continues a hot-swapped one (dev server only). */
-export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<PlaySession> {
+/** `kept`: what a city switch carries from the session that ended (main.ts travel): the audio graph and the open
+ *  multiplayer socket, which moves to this city's room. */
+export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { audio?: GameAudio; socket?: WebSocket | null }): Promise<PlaySession> {
   const { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest, streamer, coarse,
     telemetry, clock, errors, fail, hudEl, renderFrame, groundAt, spawn } = world;
   const body = new Set(document.body.children);
@@ -114,12 +121,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   root.name = 'play-session';
   scene.add(root);
   const vehicleSignals = new VehicleSignals();
+  const rearControl = new RearSteerControl();
+  const rearTag = new RearSteerTag(document.body, VEHICLES.truck.rearSteer?.maxAngle ?? 1);
   const vehicleBeams = new VehicleBeams(root, physics);
   const tyreEffects = new TyreEffects(root, params.quality);
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
   root.add(edgeMarker.group);
   const listeners = new AbortController();
-  const audio = hot?.audio ?? new GameAudio();
+  const audio = hot?.audio ?? kept?.audio ?? new GameAudio();
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const devLayers = new DevLayers(scene, coarse, renderer, radius => { env.setScreenshotDistance(camera, radius); env.setCityDistance(camera, 15000); }, camera);
@@ -179,12 +188,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
-  await loading.track('Player and vehicle models', Promise.all([car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`),
-    seated.load(import.meta.env.BASE_URL),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), parkedVisuals.load(manifest),
-    walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`)]));
-  await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => seated.addTruck(v.object_id)));
-  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
+  // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
+  await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
+    optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
+    optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
+  await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
+  let remoteEngines = new Set<string>();
+  const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
   streets.connectDrafts(coarse);
@@ -214,6 +225,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let multiplayer: MultiplayerClient | null = null;
   let multiplayerPlaying = false;
   let sharedVehicles: SharedVehicles | null = null;
+  /** The `drv` pose record of the driven 4WS truck (SPEC §5): throttle and rear mode from physics, rpm and gear from
+   *  the local sound drivetrain; undefined for every other vehicle or on foot. */
+  const drivenDrv = (id: string | null): Drv | undefined => {
+    const drive = audioGameplay.truckDrive;
+    return id && id === drivenId && drive ? drvOf(physics.latest?.vehicles.find(v => v.id === id), drive.rpm, drive.gear) : undefined;
+  };
   const poles = new PoleSession(tiles, physics, missions, voice, document.body);
   // City portals (gameplay/portals.ts): arches under the Turku bridges, the return arch in the other cities.
   const portalList = portalsIn();
@@ -268,6 +285,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     fly?.set(false);
     drivenId = id;
     vehicleSignals.enter();
+    rearControl.sync(physics.latest?.vehicles.find(v => v.id === id)?.rearMode);
     if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
     if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId, manifest.vehicles?.find(v => v.object_id === id));
@@ -321,6 +339,30 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     missions.bringFailed();
   };
+  /**
+   * "Reset progress" (SaveGameController.resetProgress, gameplay/progressReset.ts), after the player left any vehicle:
+   * every city's stored progress goes; in a room the shared records resync; the room resets the player (score, seat,
+   * own vehicles); the bought scooter and truck go. The new game starts at Turku's default start: on this page, or
+   * after a trip there (from another city, or from Turku entered at a portal exit, ?spawn=) that carries the fresh
+   * mission and the multiplayer choice like a trip home.
+   */
+  const forgetProgress = async (): Promise<boolean> => {
+    autopilot.cancel('progress reset'); fly?.set(false);
+    saves.clear(); clearProgress(browserStorage(), sessionStore());
+    missions.restore(null);
+    if (multiplayerPlaying) { sharedVehicles?.resetRound(); multiplayerRunId = crypto.randomUUID(); }
+    // The room forgets this tab's player also when it is only connected (solo after a multiplayer game); offline,
+    // the next hello carries the reset.
+    await multiplayer?.resetProgress();
+    for (const id of [SCOOTER_ID, TRUCK_ID]) physics.removeVehicle(id);
+    if (storyCity && !params.spawnGiven) return true;
+    travelling = true;
+    writeTicket(sessionStore(), { v: 1, from: CITY.name, to: HOME_CITY, portal: null, ride: null, mission: missions.serialize(),
+      multiplayer: multiplayerPlaying, at: Date.now() });
+    showTransition(document.body, CITIES[HOME_CITY]);
+    setTimeout(() => { if (world.travel && !storyCity) void world.travel(HOME_CITY); else location.assign(cityPageUrl(HOME_CITY, location)); }, 700);
+    return false;
+  };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
@@ -343,6 +385,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     returnHome: storyCity ? undefined : {
       detail: `To the ${returnTarget(CITY.name, cameThrough(sessionStore())).place.split(',')[0]} portal`,
       run: () => depart(HOME_CITY, null) },
+    resetProgress: { forget: forgetProgress,
+      at: () => multiplayerPlaying && multiplayer?.state.you ? multiplayerStart(multiplayer.state.you, undefined, undefined, roomStart) : null },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
@@ -359,12 +403,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         startScreen.element.querySelector('.start-hint')!.textContent = 'Multiplayer unavailable. Reload to reconnect.';
       }).catch(fail);
     } });
-  // Another city's room hands out Turku's spawn slots: a fresh join there starts at this city's own start.
-  const roomStart = isHome() ? undefined : world.spawn;
-  const multiplayerStartState = prepareMultiplayer(roomStart);
+  // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
+  // also carries a portal exit) starts at this page's own ground-checked start.
+  const roomStart = isHome() && !params.spawnGiven ? undefined : world.spawn;
+  const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
+  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
+  sharedVehicles.drvOf = drivenDrv;
   const rounds = new RoundUI(client, pauseMenu, () => pauseMenu.show(saveGame.pausePage()),
     () => saveGame.hooks.resume(), () => { paused = true; }, () => multiplayerPlaying);
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
@@ -434,6 +481,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
+  // Tests and the trip bench leave through a portal as its trigger does (the ticket, the ride, the money).
+  window.__game!.depart = (to: CityName, portalId?: string) => depart(to, portalList.find(p => p.id === portalId) ?? null);
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
     population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
   const capture = captureAllowed() ? captureControl(window.__game!, document.body) : null;
@@ -445,13 +494,17 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     travelling = true;
     const driven = mode === 'car' ? physics.latest?.vehicles.find(v => v.id === drivenId) : undefined;
     const home = to === HOME_CITY ? returnTarget(CITY.name, cameThrough(sessionStore())) : null;
+    // The shared car stays in this city's room, in the portal, free for anyone: the ride continues as the own vehicle.
+    if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     if (!multiplayerPlaying) saveGame.autosave.save('travel');
     writeTicket(sessionStore(), { v: 1, from: CITY.name, to, portal: home?.id ?? portal?.id ?? null,
       ride: driven && drivenId ? { id: drivenId, kind: driven.kind ?? 'car' } : null, mission: missions.serialize(),
       multiplayer: multiplayerPlaying, at: Date.now() });
     showTransition(document.body, CITIES[to]);
     paused = true;
-    setTimeout(() => location.assign(cityPageUrl(to, location, home ? exitPose(home) : undefined)), 700);
+    const spawn = home ? exitPose(home) : undefined;
+    // In place when the page can switch cities (one renderer, physics world and connection); a page load otherwise.
+    setTimeout(() => { if (world.travel) void world.travel(to, spawn); else location.assign(cityPageUrl(to, location, spawn)); }, 700);
   };
   /** The vehicle the player drove through in, parked at the arrival (Turku: on the portal's lanes past the deck; elsewhere
    *  the start parking by the centre), ready to be entered; null when it cannot be placed. */
@@ -488,14 +541,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         return solo();
       }
       releaseStarts(); multiplayerPlaying = true;
-      // The room may hand back the car where this session left it (inside the portal): the trip's placement wins.
+      // The room freed this player's seats here on arrival (hello `arrival`); a seat it still reports is the trip's
+      // ride's to replace (SharedVehicles.drive releases it).
       return saveGame.playAt(at, async () => {
         const kept = await sharedVehicles!.restore();
         return (seat ? await seat() : null) ?? kept;
       }, t.mission);
     }).catch(fail);
   };
-  const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
   else if (ticket) startScreen.afterBrowserWarning(() => arrive(ticket));
   else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
@@ -622,10 +675,13 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       const moving = mode === 'foot' ? traffic.nearest(feet) : null;
       const enter = (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); };
       const take = (id: string) => {
-        if (multiplayerPlaying) void sharedVehicles?.acquire(id).then(acquired => {
-          if (acquired && multiplayerPlaying && mode === 'foot') enter(acquired);
+        if (!multiplayerPlaying) { enter(id); return; }
+        if (sharedVehicles?.entering) return;
+        void sharedVehicles?.acquire(id).then(acquired => {
+          if (!multiplayerPlaying || mode !== 'foot') return;
+          if (acquired) enter(acquired);
+          else portalMarkers.say('Car not available', performance.now(), 3);
         });
-        else enter(id);
       };
       if (mode === 'foot' && moving && (!nearest || moving.distance < nearest.distance) && missions.mayDrive('traffic')) {
         void traffic.enter(moving.handle).then(id => { if (id && mode === 'foot') take(id); });
@@ -671,6 +727,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
+    // A 4WS vehicle (the trophy truck): the held rear mode and the MANUAL rocker; the autopilot drives in AUTO.
+    const fourWheelSteer = mode === 'car' && !!VEHICLES[vs?.kind ?? 'car'].rearSteer;
+    if (carIn && fourWheelSteer) {
+      const rear = rearControl.update(dt, menuOpen || paused ? 0 : input.actions.rearMode, input.actions.rearRocker);
+      carIn.rearMode = autopilot.active ? 'auto' : rear.rearMode;
+      carIn.rearSteer = autopilot.active ? 0 : rear.rearSteer;
+    }
+    rearTag.update(fourWheelSteer && !startScreen.active ? vs : null);
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
@@ -783,6 +847,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         vE: vel.x, vN: -vel.z, vH: vel.y, mode: poseMode, vehicle: poseMode === 'foot' ? null : shared?.pose.vehicle ?? vehicleIdentity(poseMode, drivenId, manifest.vehicles ?? []),
         ...(poseMode !== 'foot' && shared && sharedVehicles?.hasSeat(drivenId!) ? { vehicleId: shared.id } : {}),
         lights: mode === 'car' ? vs?.lights ?? 1 : 0, horn: mode === 'car' && vehicleSignals.horn,
+        ...(mode === 'car' && drivenDrv(drivenId) ? { drv: drivenDrv(drivenId) } : {}),
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }
@@ -812,7 +877,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
       : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
-      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
+      chase.update(dt, chaseVehicle, fourWheelSteer && rearControl.rocking ? 0 : input.lookX, input.lookY, resetCamera || snapChase);
       snapChase = false;
     }
     else if (mode === 'foot') orbit.update(dt, focus);
@@ -830,6 +895,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       ...(multiplayerPlaying ? remotePlayers.horns : []),
       ...traffic.horns(camera.position),
     ] });
+    // Remote trucks' engine voices from their synced wheels and `drv` (net/remotes.ts); gone ones are released.
+    const engineIds = new Set<string>();
+    if (multiplayerPlaying) for (const e of remotePlayers.engines) { engineIds.add(e.id); audio.engineVoice(e.id, e.state); }
+    for (const id of remoteEngines) if (!engineIds.has(id)) audio.engineVoice(id, null);
+    remoteEngines = engineIds;
     tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,
@@ -914,14 +984,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   });
 
   return {
-    dispose() {
+    dispose(travel = false) {
       autopilot.cancel('session ended'); driveMeThere.dispose(); input.driver = null;
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };
       physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
       renderer.setAnimationLoop(null);
-      multiplayer?.disconnect();
+      // A city switch hands the open socket to the next city's session (MultiplayerClient.adopt).
+      if (travel) snapshot.socket = multiplayer?.detach() ?? null; else multiplayer?.disconnect();
       capture?.dispose();
       editor.dispose();
       devLayers.dispose();

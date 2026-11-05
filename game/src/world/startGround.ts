@@ -56,19 +56,98 @@ export async function supportedSpot(at: Point & { yaw: number }, probe: GroundPr
  * streets under decks or canopies: Tapiola, Dam, Binnenrotte), and `open` says the collision around `desired` is
  * complete, the player stands on the nearest open walkable spot instead and the car parks around it (openGround).
  */
+/** Horizontal boxes (engine x/z) a start must keep out of: street furniture, poles, parked cars. */
+export interface Obstacle { minX: number; maxX: number; minZ: number; maxZ: number }
+
+export interface StartOptions {
+  /** The collision around `desired` is complete: the open-ground search may run. */
+  open?: boolean;
+  /** Furniture, poles and parked cars near the start (ground rays do not see props without collision). */
+  obstacles?: readonly Obstacle[];
+  /** The start view's horizontal forward: the chase camera sits behind the player along it, never inside the car. */
+  view?: { dx: number; dz: number };
+}
+
+const CAR_HALF = { length: 2.6, width: 1.15 };
+/** How far behind the player the first chase camera sits (m), with a margin. */
+const CAMERA_BACK_M = 6.5;
+
+const inBox = (b: Obstacle, x: number, z: number, margin: number) =>
+  x >= b.minX - margin && x <= b.maxX + margin && z >= b.minZ - margin && z <= b.maxZ + margin;
+
+/** Points over a car's footprint at (x, z, yaw), the same axes as supportedSpot (forward = (cos yaw, -sin yaw)). */
+function carPoints(car: Point & { yaw: number }) {
+  const c = Math.cos(car.yaw), s = Math.sin(car.yaw), out: Point[] = [];
+  for (const u of [-1, -0.5, 0, 0.5, 1]) for (const v of [-1, 0, 1]) {
+    out.push({ x: car.x + u * CAR_HALF.length * c + v * CAR_HALF.width * s, z: car.z - u * CAR_HALF.length * s + v * CAR_HALF.width * c });
+  }
+  return out;
+}
+
+/** Whether (x, z) lies in the car's footprint grown by `margin`. */
+export function insideCar(car: Point & { yaw: number }, x: number, z: number, margin = 0) {
+  const c = Math.cos(car.yaw), s = Math.sin(car.yaw), dx = x - car.x, dz = z - car.z;
+  const along = dx * c - dz * s, across = dx * s + dz * c;
+  return Math.abs(along) <= CAR_HALF.length + margin && Math.abs(across) <= CAR_HALF.width + margin;
+}
+
+/** Grid cell (m) of the obstacle index. */
+const OBSTACLE_CELL = 4;
+const obstacleIndexes = new WeakMap<readonly Obstacle[], Map<string, Obstacle[]>>();
+/** Obstacles by 4 m cell (each box in every cell it touches), built once per list: the open-ground search tests
+ *  thousands of spots against thousands of props. */
+function indexOf(obstacles: readonly Obstacle[]) {
+  let index = obstacleIndexes.get(obstacles);
+  if (index) return index;
+  index = new Map();
+  for (const b of obstacles) {
+    for (let i = Math.floor(b.minX / OBSTACLE_CELL); i <= Math.floor(b.maxX / OBSTACLE_CELL); i++)
+      for (let j = Math.floor(b.minZ / OBSTACLE_CELL); j <= Math.floor(b.maxZ / OBSTACLE_CELL); j++) {
+        const key = `${i},${j}`;
+        let list = index.get(key);
+        if (!list) index.set(key, list = []);
+        list.push(b);
+      }
+  }
+  obstacleIndexes.set(obstacles, index);
+  return index;
+}
+
+/** No obstacle under the car's footprint (`car`) or within 0.45 m of the player's feet. */
+export function spotClear(obstacles: readonly Obstacle[], spot: Point & { yaw: number }, car: boolean) {
+  if (!obstacles.length) return true;
+  const index = indexOf(obstacles);
+  const points = car ? carPoints(spot) : [spot];
+  const margin = car ? 0.2 : 0.45;
+  for (const p of points) for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+    const near = index.get(`${Math.floor(p.x / OBSTACLE_CELL) + di},${Math.floor(p.z / OBSTACLE_CELL) + dj}`);
+    if (near?.some(b => inBox(b, p.x, p.z, margin))) return false;
+  }
+  return true;
+}
+
+/** Whether the chase camera, behind `spawn` along the view, would sit in or look through the car. */
+export function cameraInCar(spawn: Point, car: Point & { yaw: number }, view?: { dx: number; dz: number }) {
+  if (!view) return false;
+  const length = Math.hypot(view.dx, view.dz) || 1, bx = -view.dx / length, bz = -view.dz / length;
+  for (let d = 0.5; d <= CAMERA_BACK_M; d += 0.5) if (insideCar(car, spawn.x + bx * d, spawn.z + bz * d, 0.5)) return true;
+  return false;
+}
+
 export async function findInitialGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean, open = false): Promise<{ spawn: Spot; car: Spot } | null> {
+  covers: (x: number, z: number, radius: number) => boolean, options: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
+  const { open = false } = options;
   const memo = new Map<string, Promise<RayHit | null>>();
   const sample: GroundProbe = (x, z) => {
     const key = `${x},${z}`;
     if (!memo.has(key)) memo.set(key, probe(x, z));
     return memo.get(key)!;
   };
-  const street = await streetStart(desired, graphs, sample, covers);
+  const street = await streetStart(desired, graphs, sample, covers, options);
   const away = (start: { spawn: Spot } | null) => start ? Math.hypot(start.spawn.x - desired.x, start.spawn.z - desired.z) : Infinity;
   if (away(street) <= START_NEAR_M) return street;
   if (!open) return null;
-  const ground = await openGround(desired, graphs, sample, covers);
+  const ground = await openGround(desired, graphs, sample, covers, options);
   return away(ground) < away(street) ? ground : street;
 }
 
@@ -76,21 +155,26 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
 export const START_NEAR_M = 15;
 
 async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sample: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean): Promise<{ spawn: Spot; car: Spot } | null> {
+  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view }: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
+  let fallback: { spawn: Spot; car: Spot } | null = null;
   for (const candidate of streetCandidates(desired, graphs)) {
-    if (!covers(candidate.x, candidate.z, 3)) continue;
+    if (!covers(candidate.x, candidate.z, 3) || !spotClear(obstacles, candidate, true)) continue;
     const car = await supportedSpot(candidate, sample, true);
     if (!car) continue;
+    // Nearest first, but a spot whose chase camera would sit in the car only if no other one is free.
     const walking = [-1, 1].flatMap(side => [3.2, 4.2, 5.2].map(distance => ({
       x: car.x + side * distance * Math.sin(car.yaw), z: car.z + side * distance * Math.cos(car.yaw), yaw: car.yaw,
-    }))).sort((a, b) => Math.hypot(a.x - desired.x, a.z - desired.z) - Math.hypot(b.x - desired.x, b.z - desired.z));
+    }))).sort((a, b) => Number(cameraInCar(a, car, view)) - Number(cameraInCar(b, car, view))
+      || Math.hypot(a.x - desired.x, a.z - desired.z) - Math.hypot(b.x - desired.x, b.z - desired.z));
     for (const point of walking) {
-      if (!covers(point.x, point.z, 0.5)) continue;
+      if (!covers(point.x, point.z, 0.5) || !spotClear(obstacles, point, false)) continue;
       const spawn = await supportedSpot(point, sample, false);
-      if (spawn) return { spawn, car };
+      if (!spawn) continue;
+      if (!cameraInCar(spawn, car, view)) return { spawn, car };
+      fallback ??= { spawn, car };
     }
   }
-  return null;
+  return fallback;
 }
 
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
@@ -122,21 +206,22 @@ async function nearestSpot<T>(points: readonly T[], test: (point: T) => Promise<
  *  nearest supported CAR street point around the player, else the nearest flat street surface, else the nearest
  *  flat walkable ground (a car parked on a square). */
 export async function openGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean) {
-  const spawn = await nearestSpot(openPoints(desired).filter(p => covers(p.x, p.z, 0.5)), async p =>
+  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view }: StartOptions = {}) {
+  const spawn = await nearestSpot(openPoints(desired).filter(p => covers(p.x, p.z, 0.5) && spotClear(obstacles, { ...p, yaw: 0 }, false)), async p =>
     safeSurface(await probe(p.x, p.z)) ? supportedSpot({ ...p, yaw: 0 }, probe, false) : null);
   if (!spawn) return null;
   const clear = (p: Point) => Math.hypot(p.x - spawn.x, p.z - spawn.z) >= 4 && covers(p.x, p.z, 3);
+  const free = (spot: Spot | null) => spot && spotClear(obstacles, spot, true) && !cameraInCar(spawn, spot, view) ? spot : null;
   const streets = streetCandidates(spawn, graphs).filter(clear);
   const around = openPoints(spawn).filter(clear);
   const park = (drivable: boolean) => nearestSpot(around, async p => {
     if (!safeSurface(await probe(p.x, p.z), drivable)) return null;
     for (const yaw of CAR_YAWS) {
-      const spot = await supportedSpot({ ...p, yaw }, probe, true, drivable);
+      const spot = free(await supportedSpot({ ...p, yaw }, probe, true, drivable));
       if (spot) return spot;
     }
     return null;
   });
-  const car = await nearestSpot(streets, p => supportedSpot(p, probe, true)) ?? await park(true) ?? await park(false);
+  const car = await nearestSpot(streets, async p => free(await supportedSpot(p, probe, true))) ?? await park(true) ?? await park(false);
   return car ? { spawn, car } : null;
 }

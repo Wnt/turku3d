@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-tesla-cybertruck",
+  "fleet": {
+    "id": "carla-tesla-cybertruck",
+    "name": "Vire Lava E",
+    "body": "pickup",
+    "family": "suv",
+    "length": 6.2736,
+    "width": 2.3896,
+    "height": 2.0982,
+    "wheelbase": 4.0752,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.5375,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.03
+  },
+  "id": "carla-tesla-cybertruck",
+  "wheels": {
+    "radius": 0.5375,
+    "width": 0.4178,
+    "pivots": {
+      "wheel_FL": [
+        -0.9859,
+        0.5375,
+        2.1684
+      ],
+      "wheel_FR": [
+        0.9859,
+        0.5375,
+        2.1684
+      ],
+      "wheel_RL": [
+        -0.9859,
+        0.5375,
+        -1.9068
+      ],
+      "wheel_RR": [
+        0.9859,
+        0.5375,
+        -1.9068
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.0491,
+      0
+    ],
+    "half": [
+      1.1948,
+      1.0491,
+      3.1368
+    ]
+  },
+  "triangles": [
+    16166,
+    7879,
+    2951
+  ],
+  "source": {
+    "title": "Tesla Cybertruck (vehicle.tesla.cybertruck)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-tesla-cybertruck",
+    "referenceModel": "Tesla Cybertruck (CARLA vehicle.tesla.cybertruck)",
+    "massKg": 3100,
+    "powerKW": 630,
+    "torqueNm": 1000,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 4.1,
+    "topSpeedKmh": 180,
+    "turningCircleM": 13,
+    "gears": 1,
+    "rideHeightM": 0.22,
+    "character": "utility",
+    "lengthM": 6.2736,
+    "widthM": 2.3896,
+    "heightM": 2.0982,
+    "wheelbaseM": 4.0752,
+    "trackM": 1.9718,
+    "wheelRadiusM": 0.5375,
+    "wheelWidthM": 0.4178
+  },
+  "accepted": false
+}

@@ -171,7 +171,7 @@ class FarmTests(unittest.TestCase):
         farm.register(REV, 'integration')
         for gen in (GEN, GEN2):
             fake_build(REV, 't0_0_0', farm.output(gen))
-        free[0] = 24 * farm_module.GIB
+        free[0] = 5 * farm_module.GIB  # under the 10 GiB floor
         self.assertFalse(farm.make_room(27 * farm_module.GIB))
         self.assertTrue(farm.output(GEN).exists())
         self.assertFalse(farm.output(GEN2).exists())
@@ -197,7 +197,7 @@ class FarmTests(unittest.TestCase):
         try:
             with locked.with_suffix('.lock').open('a') as lock:
                 fcntl.flock(lock, fcntl.LOCK_EX)
-                farm.free = lambda: 24 * farm_module.GIB
+                farm.free = lambda: farm.floor  # under the floor plus its half-GiB margin
                 with farm.lock:
                     self.assertFalse(farm.make_room(27 * farm_module.GIB))
                 self.assertTrue(active.exists())
@@ -691,6 +691,36 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(receipt['result']['adopted'])
         self.assertEqual(farm.metrics['builds'], 1)
 
+    def test_health_answers_from_a_snapshot_refreshed_off_the_request(self):
+        farm = self.farm(execute=None)
+        calls = []
+        real = farm.status
+        farm.status = lambda: calls.append(1) or real()
+        first = farm.status_cached(max_age=60)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(first['status_age_s'], 0.0)
+        for _ in range(20):  # within max_age: no recomputation at all
+            farm.status_cached(max_age=60)
+        self.assertEqual(len(calls), 1)
+        stale = farm.status_cached(max_age=0)  # old: answers at once from the snapshot, refreshes in the background
+        self.assertIn('status_age_s', stale)
+        deadline = time.monotonic() + 5
+        while len(calls) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(calls), 2)
+
+    def test_requests_never_wait_for_disk_housekeeping(self):
+        farm = self.farm(free=lambda: 0, execute=None)
+        with farm.housekeeping_lock:  # a long eviction in progress elsewhere
+            started = time.monotonic()
+            status, value = farm.request(REV, 't0_0_0', distance=0)
+            self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual((status, value['state']), (507, 'disk-pressure'))
+        self.assertTrue(farm.housekeeping_wake.is_set())  # the housekeeper is asked to reclaim, off the lock
+        with farm.housekeeping_lock:
+            self.assertTrue(farm.lock.acquire(timeout=1))  # make_room does not hold the farm lock while it waits
+            farm.lock.release()
+
     def test_adopted_workers_keep_disk_and_total_runtime_limits(self):
         from unittest.mock import patch
         farm = self.farm(execute=None)
@@ -699,13 +729,13 @@ class FarmTests(unittest.TestCase):
         info = dict(pid=2147483647, start_ticks='0', started_monotonic=time.monotonic())
         farm.queue_info[(GEN, tile)] = info
         with patch.object(farm_module, 'process_alive', return_value=True), patch.object(farm, 'stop_worker') as stop:
-            farm.free = lambda: 24 * farm_module.GIB
+            farm.free = lambda: farm.floor  # under the floor plus its half-GiB margin
             with self.assertRaisesRegex(RuntimeError, 'disk floor'):
                 farm.run_build(REV, tile, root)
             stop.assert_called_once_with(info, root / tile)
             stop.reset_mock()
             farm.free = lambda: 100 * farm_module.GIB
-            info['started_monotonic'] = time.monotonic() - 1801
+            info['started_monotonic'] = time.monotonic() - farm.build_seconds - 1
             with self.assertRaisesRegex(RuntimeError, 'build timeout'):
                 farm.run_build(REV, tile, root)
             stop.assert_called_once_with(info, root / tile)

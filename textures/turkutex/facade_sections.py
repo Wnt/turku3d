@@ -45,6 +45,9 @@ def bounds(position, floors):
         if "right" in p:
             x = 1 - w
     ground = 1 / max(1, floors or 3)
+    # "wall and top", "whole facade and base": the named whole wall includes the band.
+    if re.search(r"\b(wall|whole|facade)\b and\b|\band (the )?(whole|wall|facade)\b", p):
+        return [x, 0.0, w, 1.0]
     if any(k in p for k in ("base", "ground", "lower", "basement")):
         h = ground
     elif "top" in p or "attic" in p:
@@ -87,6 +90,27 @@ def shape(raw, *, surround=False):
     return next((s for s in ("segmental", "round", "pointed", "flat") if s in text), "flat")
 
 
+def opening_kind(text, *, openings_first=True):
+    """Ordered opening class named by a text. In a section's own kind an opening word
+    outranks a blank word ("row of windows and boarded openings"); in its free-text
+    features a blank field stays blank ("broad blank field; partial window at left")."""
+    windows = re.search(r"\b(window|windows|glazing|glazed)\b", text)
+    outranks = windows if openings_first else None
+    if re.search(r"\b(blank|opaque|blind|windowless)\b", text) and not outranks:
+        return "blank"
+    if re.search(r"shutter|garage door|service door|boarded", text) and not outranks:
+        return "opaque door"
+    if re.search(r"portal|arched.*entrance", text):
+        return "arched portal"
+    if re.search(r"\b(shop|shopfront|retail|storefront)\b", text):
+        return "shop"
+    if windows:
+        return "window"
+    if re.search(r"\b(door|entrance)\b", text):
+        return "door"
+    return None
+
+
 def sections(form, floors):
     result, unsupported = [], []
     observation = form.get("facade_observations", {})
@@ -113,19 +137,11 @@ def sections(form, floors):
             ) and not re.search(r"rail|frame|surround|soffit|balcon", kind_text):
                 mat = material(kind_text)
         bays = mixed_bays(section)
-        kind = None
-        if re.search(r"\b(blank|opaque|blind)\b", text):
-            kind = "blank"
-        elif re.search(r"shutter|garage door|service door|boarded", text):
-            kind = "opaque door"
-        elif re.search(r"portal|arched.*entrance", text):
-            kind = "arched portal"
-        elif re.search(r"\b(shop|shopfront|retail|storefront)\b", text):
-            kind = "shop"
-        elif re.search(r"\b(window|windows|glazing|glazed)\b", text):
-            kind = "window"
-        elif re.search(r"\b(door|entrance)\b", text):
-            kind = "door"
+        # The section's own kind names what it is; feature words describe details inside
+        # it ("a blind panel under the pediment" in a row of windows). Features classify
+        # only a section whose kind is silent, so a local detail never blanks a window row.
+        kind = (opening_kind(str(section.get("kind", "")).lower())
+                or opening_kind(text, openings_first=False))
         # Separate structures are never collapsed onto the wall or made into windows.
         structure = bool(re.search(r"balcon|loggia|passage|colonnade|stair|veranda|projecting|recessed", text))
         if structure:

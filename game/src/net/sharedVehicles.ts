@@ -5,14 +5,16 @@ import type { VehicleState } from '../physics/protocol';
 import type { Manifest } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { driverSide, yawOf } from '../gameplay/saveGame';
+import { OWN_VEHICLE_ID } from '../gameplay/missions/missions';
 import { vehicleIdentity } from './identity';
 import { VEHICLE_POSE_HEIGHT } from './height';
 import type { MultiplayerClient, NetPose } from './client';
+import type { Drv } from './drv';
 import type { SharedVehicle, VehicleCommand, VehicleUpdate } from './vehicleTypes';
 
-export function vehiclePose(state: VehicleState, model: string, now: number): NetPose {
+export function vehiclePose(state: VehicleState, model: string, now: number, drv?: Drv): NetPose {
   const yaw = yawOf(state.rot) - Math.PI / 2;
-  return { lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
+  return { ...(drv ? { drv } : {}), lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
     yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), rot: state.rot, wheels: state.wheels,
     vE: state.linvel.x, vN: -state.linvel.z, vH: state.linvel.y,
     mode: state.kind ?? 'car', vehicle: model, carrying: false };
@@ -23,10 +25,15 @@ export function vehiclePose(state: VehicleState, model: string, now: number): Ne
 export function vehicleFingerprint(p: NetPose): string {
   return JSON.stringify([p.lights, p.horn]) + JSON.stringify([p.E, p.N, p.H, p.vE, p.vN, p.vH].map(v => Math.round(v * 100)))
     + JSON.stringify(p.rot && [p.rot.x, p.rot.y, p.rot.z, p.rot.w].map(v => Math.round(v * 1000)))
-    + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))));
+    + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))))
+    + (p.drv ? JSON.stringify(p.drv) : '');
 }
 
 export const SEAT_CONFLICT_GRACE_MS = 3000;
+/** How long the room must keep reporting this player in a seat the client does not drive (and is not entering)
+ *  before the client releases it: a release lost on the way (a city switch, a superseded seat) would otherwise
+ *  block every later entry, since the room lets a player hold one seat at a time. */
+export const STRAY_SEAT_GRACE_MS = 2000;
 interface DrivenSeat {
   local: string; id: string; vehicle: SharedVehicle | null;
   reclaim: boolean; pending: boolean; retryAt: number;
@@ -45,9 +52,13 @@ export class SharedVehicles {
   private impulses = new Map<string, number>();
   private blockedUntil = new Map<string, number>();
   private active = false;
-  private entering = false;
+  private acquiring = false;
   private driving: DrivenSeat | null = null;
   private releaseOnReconnect = new Set<string>();
+  /** Seats the room reports this player in without the client driving them, and since when (STRAY_SEAT_GRACE_MS). */
+  private straySince = new Map<string, number>();
+  /** The driven truck's `drv` record by local vehicle id (play.ts sets it from the sound drivetrain). */
+  drvOf: (localId: string) => Drv | undefined = () => undefined;
 
   constructor(readonly client: MultiplayerClient, private physics: PhysicsClient,
     private manifest: Manifest, private parked: ParkedVehicles) {
@@ -75,11 +86,14 @@ export class SharedVehicles {
     });
   }
 
+  /** Forgets every shared record and the bodies simulated for them (a timed round's wipe, a progress reset), to be
+   *  restored from the room again; the start car keeps its body, which the new game parks at the start. */
   resetRound() {
-    this.driving = null; this.client.holdSeat(null); this.active = false; this.entering = false;
-    for (const item of this.managed.values()) this.physics.removeVehicle(item.local);
+    this.driving = null; this.client.holdSeat(null); this.active = false; this.acquiring = false;
+    for (const item of this.managed.values()) if (item.local !== OWN_VEHICLE_ID) this.physics.removeVehicle(item.local);
     this.managed.clear(); this.fresh.clear(); this.replicas.clear(); this.pending.clear(); this.retryAt.clear();
-    this.sent.clear(); this.impulses.clear(); this.blockedUntil.clear(); this.releaseOnReconnect.clear(); this.starterAt = null;
+    this.sent.clear(); this.impulses.clear(); this.blockedUntil.clear(); this.releaseOnReconnect.clear(); this.straySince.clear();
+    this.starterAt = null;
     this.parked.resetRound();
   }
 
@@ -122,6 +136,8 @@ export class SharedVehicles {
   }
   drive(local: string) {
     if (this.driving?.local === local) return;
+    // A seat held for another vehicle (the kept seat an arrival's ride replaces) is released, never orphaned.
+    if (this.driving) this.release(this.driving.local);
     const vehicle = this.record(local) ?? this.client.state.vehicles.get(local) ?? null;
     const state = this.physics.latest?.vehicles.find(v => v.id === local);
     if (!vehicle && !state) return;
@@ -152,9 +168,13 @@ export class SharedVehicles {
       pose: vehiclePose(state, model, performance.now()) };
   }
 
+  /** An entry (acquire) is in flight: a second one waits for its answer. */
+  get entering(): boolean { return this.acquiring; }
+
+  /** Takes the seat of `localId`: the local id now driven, or null when the room refused it (or did not answer). */
   async acquire(localId: string): Promise<string | null> {
-    if (this.entering || !this.client.state.connected) return null;
-    this.entering = true;
+    if (this.acquiring || !this.client.state.connected) return null;
+    this.acquiring = true;
     try {
       const existing = this.record(localId) ?? this.client.state.vehicles.get(localId);
       const state = this.physics.latest?.vehicles.find(v => v.id === localId);
@@ -166,7 +186,24 @@ export class SharedVehicles {
       this.drive(this.localId(result));
       this.sync();
       return this.localId(result);
-    } finally { this.entering = false; }
+    } finally { this.acquiring = false; }
+  }
+
+  /** Only the room's positive report counts: a seat it keeps giving this player for STRAY_SEAT_GRACE_MS while the
+   *  client drives another vehicle (or none) and no entry is in flight. Missing or empty snapshots never act, and the
+   *  driven seat is reclaimSeat's. A lost release is sent again after another grace. */
+  private releaseStraySeats(now: number) {
+    const self = this.client.state.you?.id;
+    if (!self || !this.client.state.connected) { this.straySince.clear(); return; }
+    for (const v of this.client.state.vehicles.values()) {
+      if (v.occupant !== self || v.id === this.driving?.id || this.acquiring) { this.straySince.delete(v.id); continue; }
+      const since = this.straySince.get(v.id);
+      if (since === undefined) { this.straySince.set(v.id, now); continue; }
+      if (now - since < STRAY_SEAT_GRACE_MS) continue;
+      this.straySince.set(v.id, now);
+      void this.client.vehicle({ action: 'release', id: v.id });
+    }
+    for (const id of this.straySince.keys()) if (this.client.state.vehicles.get(id)?.occupant !== self) this.straySince.delete(id);
   }
 
   /** Missing/empty snapshots are uncertainty, never permission to eject. */
@@ -265,6 +302,7 @@ export class SharedVehicles {
   update(now: number) {
     this.active = true;
     this.reclaimSeat(now);
+    this.releaseStraySeats(now);
     this.sync();
     if (!this.client.state.connected || !this.client.state.you) return;
     for (const state of this.physics.latest?.vehicles ?? []) {
@@ -294,7 +332,7 @@ export class SharedVehicles {
       if (now < (this.blockedUntil.get(id) ?? 0)) continue;
       const v = this.client.state.vehicles.get(id), state = this.physics.latest?.vehicles.find(s => s.id === item.local);
       if (!v || v.owner !== this.client.state.you?.id || !state) continue;
-      const pose = vehiclePose(state, v.pose.vehicle!, now);
+      const pose = vehiclePose(state, v.pose.vehicle!, now, this.drvOf(item.local));
       if (this.sent.get(id) !== vehicleFingerprint(pose)) out.push({ id, epoch: v.epoch, pose });
     }
     return out.slice(0, 8);

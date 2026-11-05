@@ -32,8 +32,9 @@ export interface VoiceOutput {
   context(): AudioContext | null;
   bus(): AudioNode | null;
   duck(active: boolean): void;
-  /** Calls back each time the context starts running (first unlock and later resumes). */
-  onRunning(callback: () => void): void;
+  /** Calls back each time the context starts running (first unlock and later resumes); returns the unsubscribe. The
+   *  mix outlives play sessions (a module swap or a city switch keeps it), so a disposed player must leave. */
+  onRunning(callback: () => void): () => void;
 }
 
 type Playing = { clip: VoiceClip; source: AudioBufferSourceNode; gain: GainNode };
@@ -73,7 +74,7 @@ export class VoicePlayer {
         if (!this.playing) this.advance();
       })
       .catch(error => { done(`unavailable: ${String(error)}`); this.errors.push(`manifest: ${String(error)}`); });
-    output.onRunning(() => {
+    this.leaveRunning = output.onRunning(() => {
       if (this.disposed) return;
       const clip = this.pending;
       this.pending = null;
@@ -207,11 +208,17 @@ export class VoicePlayer {
       pending: this.pending?.id ?? null, queued: this.queue.length, played: [...this.played], errors: [...this.errors] };
   }
 
+  private leaveRunning: (() => void) | null = null;
+
   dispose() {
     this.disposed = true;
+    this.leaveRunning?.(); this.leaveRunning = null;
     this.pending = null;
     this.queue = [];
-    this.unsubscribe?.();
-    if (this.playing) { this.playing.source.stop(); this.playing = null; }
+    this.unsubscribe?.(); this.unsubscribe = null;
+    this.lineEnded = null;
+    // A started source stays a pending activity until its context renders its end (a suspended context never does):
+    // its ended handler must not keep this player, and through it the ended session, alive.
+    if (this.playing) { this.playing.source.onended = null; this.playing.source.stop(); this.playing = null; }
   }
 }

@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-tesla-model3",
+  "fleet": {
+    "id": "carla-tesla-model3",
+    "name": "Vire Ilma 3",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.7918,
+    "width": 2.1635,
+    "height": 1.4877,
+    "wheelbase": 3.0046,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3749,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "carla-tesla-model3",
+  "wheels": {
+    "radius": 0.3749,
+    "width": 0.247,
+    "pivots": {
+      "wheel_FL": [
+        -0.8334,
+        0.3749,
+        1.589
+      ],
+      "wheel_FR": [
+        0.8334,
+        0.3749,
+        1.589
+      ],
+      "wheel_RL": [
+        -0.8334,
+        0.3749,
+        -1.4156
+      ],
+      "wheel_RR": [
+        0.8334,
+        0.3749,
+        -1.4156
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7438,
+      0
+    ],
+    "half": [
+      1.0817,
+      0.7438,
+      2.3959
+    ]
+  },
+  "triangles": [
+    14820,
+    7880,
+    2949
+  ],
+  "source": {
+    "title": "Tesla Model 3 (vehicle.tesla.model3)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-tesla-model3",
+    "referenceModel": "Tesla Model 3 (CARLA vehicle.tesla.model3)",
+    "massKg": 1850,
+    "powerKW": 258,
+    "torqueNm": 420,
+    "drivetrain": "AWD",
+    "fuel": "EV",
+    "zeroTo100S": 4.6,
+    "topSpeedKmh": 233,
+    "turningCircleM": 11.6,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "sport",
+    "lengthM": 4.7918,
+    "widthM": 2.1635,
+    "heightM": 1.4877,
+    "wheelbaseM": 3.0046,
+    "trackM": 1.6668,
+    "wheelRadiusM": 0.3749,
+    "wheelWidthM": 0.247
+  },
+  "accepted": false
+}

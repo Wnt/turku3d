@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-nissan-patrol-2021",
+  "fleet": {
+    "id": "carla-nissan-patrol-2021",
+    "name": "Louhi Vaara V8",
+    "body": "suv",
+    "family": "suv",
+    "length": 5.5658,
+    "width": 2.4351,
+    "height": 2.0451,
+    "wheelbase": 3.279,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.4188,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.4
+  },
+  "id": "carla-nissan-patrol-2021",
+  "wheels": {
+    "radius": 0.4188,
+    "width": 0.3123,
+    "pivots": {
+      "wheel_FL": [
+        -0.9188,
+        0.4188,
+        1.7505
+      ],
+      "wheel_FR": [
+        0.9188,
+        0.4188,
+        1.7505
+      ],
+      "wheel_RL": [
+        -0.9188,
+        0.4188,
+        -1.5285
+      ],
+      "wheel_RR": [
+        0.9188,
+        0.4188,
+        -1.5285
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      1.0226,
+      0
+    ],
+    "half": [
+      1.2176,
+      1.0226,
+      2.7829
+    ]
+  },
+  "triangles": [
+    31509,
+    7878,
+    2951
+  ],
+  "source": {
+    "title": "Nissan Patrol 2021 (vehicle.nissan.patrol_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-nissan-patrol-2021",
+    "referenceModel": "Nissan Patrol 2021 (CARLA vehicle.nissan.patrol_2021)",
+    "massKg": 2700,
+    "powerKW": 298,
+    "torqueNm": 560,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.6,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12.5,
+    "gears": 7,
+    "rideHeightM": 0.27,
+    "character": "utility",
+    "lengthM": 5.5658,
+    "widthM": 2.4351,
+    "heightM": 2.0451,
+    "wheelbaseM": 3.279,
+    "trackM": 1.8377,
+    "wheelRadiusM": 0.4188,
+    "wheelWidthM": 0.3123
+  },
+  "accepted": false
+}

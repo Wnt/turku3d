@@ -15,6 +15,8 @@ import { sampleAt, type Path } from '../../src/gameplay/autopilot/path';
 import { vehicleGeometry, vehiclePose } from '../../src/gameplay/autopilot/autopilot';
 import { findStructures, lanesOn, type OsmWay, type Structure } from '../../src/qa/drivetest/structures';
 import { DriveTrace } from '../../src/qa/drivetest/trace';
+import { glbJson, polesOf } from '../../src/qa/drivetest/props';
+import type { PoleSpec } from '../../src/physics/protocol';
 // @ts-expect-error plain ESM tool
 import { TileCache, farm } from '../../../tools/drivetest/fetch.mjs';
 
@@ -22,6 +24,9 @@ export interface SweepOptions { dir: string; shard: [number, number]; limit?: nu
 
 /** Margin (m) before and after the structure that still counts: its joints and approach slabs. */
 const JOINT_MARGIN = 15;
+/** DRIVE_DEBUG=1 logs, for every impact, the colliders the chassis touched. */
+const DEBUG = !!process.env.DRIVE_DEBUG;
+const tileOfCell = (id: string) => { const [i, j] = id.slice(2).split('_').map(Number); return `t0_${Math.floor(i / 4)}_${Math.floor(j / 4)}`; };
 
 export async function structuresOf(dir: string): Promise<Structure[]> {
   const file = path.join(dir, 'structures.json');
@@ -94,6 +99,10 @@ export interface LaneResult {
   driven: number; window: [number, number]; surfaces: Record<string, number>; offRoad: number; laneHeightOff: number; seconds: number; recoveries: number; outcome: string; wallMs: number;
   /** The worst point as a pose for a screenshot: engine x,y,z and heading, ETRS-TM35FIN. */
   view: { x: number; y: number; z: number; hx: number; hz: number; E: number; N: number } | null;
+  /** Prop pole bodies in the drive's world. */
+  poles: number;
+  /** DRIVE_DEBUG: each impact with what the chassis touched (tile cell and material, or a prop pole's id). */
+  impacts?: { s: number; dv: number; contacts: unknown[] }[];
 }
 
 export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: number; lanes: number }> {
@@ -123,13 +132,19 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
       if (!route) continue;
       const window: [number, number] = [Math.max(0, route.laneStart + from - JOINT_MARGIN), Math.min(route.path.length, route.laneStart + to + JOINT_MARGIN)];
       const pw = new PhysicsWorld(RAPIER);
-      for (const id of cellsAlong(route.path)) { const b = await cache.cell(id); if (b) await pw.loadTile(id, b); }
+      const cells = cellsAlong(route.path);
+      for (const id of cells) { const b = await cache.cell(id); if (b) await pw.loadTile(id, b); }
+      // The props the client gives their own bodies (signs, bus stops): players hit these too.
+      const poles: PoleSpec[] = [];
+      for (const tile of new Set(cells.map(tileOfCell))) { const glb = await cache.visual(tile); if (glb) poles.push(...polesOf(glbJson(glb))); }
+      pw.setPoles(poles, []);
       pw.world.step();
       const trace = new DriveTrace(window);
       const start = sampleAt(route.path, 0);
       const ground = pw.raycast({ x: start.x, y: (start.y ?? 50) + 3, z: start.z }, { x: 0, y: -1, z: 0 }, 10, 'solid');
       const limit = route.limit(route.laneStart);
       let outcome = 'arrived', seconds = 0, recoveries = 0;
+      const impacts: { s: number; dv: number; contacts: unknown[] }[] = [];
       if (!ground) { outcome = 'no ground at start'; trace.fail('incomplete', outcome, 0); }
       else {
         pw.spawnVehicle({ x: start.x, y: ground.point.y + 0.9, z: start.z }, Math.atan2(-start.hz, start.hx));
@@ -148,6 +163,13 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
           if (status === 'arrived' || status === 'off-path' || follower.recoveries > 2) break;
           pw.fixedStep(null, step.command);
           seconds += DT;
+          if (DEBUG) {
+            const after = pw.vehicleState();
+            if (after?.impact && after.impact.id !== v.impact?.id) impacts.push({ s: Math.round(follower.s * 10) / 10,
+              dv: Math.round(after.impact.impulse / trace.mass * 100) / 100,
+              contacts: pw.vehicleContacts().map(c => ({ tile: c.tile, material: MATERIALS[c.material]?.name ?? c.material, pole: c.pole,
+                point: [Math.round(c.point.x * 100) / 100, Math.round(c.point.y * 100) / 100, Math.round(c.point.z * 100) / 100] })) });
+          }
         }
         recoveries = follower.recoveries;
         if (status === 'off-path') { outcome = 'left the lane'; trace.fail('incomplete', outcome, follower.s); }
@@ -175,7 +197,7 @@ export async function sweep(o: SweepOptions): Promise<{ done: number; skipped: n
         heading: Math.round((Math.atan2(h.hx, -h.hz) * 180 / Math.PI + 360) % 360), limitKmh: Math.round(limit * 3.6),
         center: structure.center, severity: summary.severity, peaks: summary.peaks, worst: summary.worst,
         events: [...summary.events].sort((a, b) => (b.severity === 'fail' ? 1 : 0) - (a.severity === 'fail' ? 1 : 0)).slice(0, 40).map(e => ({ ...e, ...(() => { const en = engineToEN(e.x, e.y, e.z); return { E: Math.round(en.E * 10) / 10, N: Math.round(en.N * 10) / 10 }; })() })),
-        driven: route.path.length, window, surfaces: ground0.surfaces, laneHeightOff: Math.round(laneHeightOff * 100) / 100, offRoad: Math.round(ground0.offRoad * 1000) / 1000, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view };
+        driven: route.path.length, window, surfaces: ground0.surfaces, laneHeightOff: Math.round(laneHeightOff * 100) / 100, offRoad: Math.round(ground0.offRoad * 1000) / 1000, seconds: Math.round(seconds * 10) / 10, recoveries, outcome, wallMs: Date.now() - t0, view, poles: poles.length, ...(DEBUG ? { impacts } : {}) };
       fs.appendFileSync(out, JSON.stringify(row) + '\n');
       done++;
       log(`${structure.id} ${structure.name || ''} lane ${lane.k + 1}/${lane.laneCount} ${row.heading}°: ${summary.severity} ${outcome}` +

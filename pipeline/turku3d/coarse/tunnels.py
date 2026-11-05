@@ -22,6 +22,11 @@ from .portals import grounded_wall
 from .tunnel_ground import ground_cuts, ground_sampler
 
 
+CROSSFALL_MAX = 0.35  # m a portal floor edge may follow the approach sideways
+PORTAL_GRADE = 0.2  # steepest ramp from the approach onto a tunnel floor at its mouth
+PORTAL_RAMP_MAX = 12.0  # m, longest such ramp
+
+
 def dimensions(tags):
     """Clear box dimensions in metres, with conservative road/path defaults."""
     path = tags.get("highway") in {"footway", "path", "cycleway", "pedestrian", "steps"}
@@ -489,7 +494,9 @@ def produce(
                 road_height = np.array([surface_sample(x, z) for x, z in centre])
                 # Banks and overburden beside the road are not portal floor. Retain
                 # ordinary crossfall, but never pull a floor up the enclosing hillside.
-                crossfall = 0.1 * np.linalg.norm(query[near] - centre, axis=1)
+                # Ordinary crossfall only: 10 % of the offset, at most CROSSFALL_MAX, so the
+                # corner of a wide merged mouth does not climb a bank as a 1-2 m sill.
+                crossfall = np.minimum(0.1 * np.linalg.norm(query[near] - centre, axis=1), CROSSFALL_MAX)
                 endpoint = np.where(ds[near] < line.length / 2, 0, 1)
                 crossfall = np.where(repaired[endpoint], np.minimum(crossfall, 0.1), crossfall)
                 correction = portal_offsets[endpoint] + np.clip(
@@ -590,8 +597,17 @@ def produce(
         # Carve the same apron from terrain; otherwise its old triangles can still
         # cross the opening even when the tube itself is clear.
         aprons = []
+        wing_lengths = mouth_lengths.copy()  # wing walls keep their length; only the ramp grows
         for portal_index, (end, outward) in enumerate(((0, -direction[0]), (-1, direction[-1]))):
             inner = np.array([left[end], right[end]])
+            if not (road_top or repaired[portal_index]) and surface_sample is not None:
+                # The approach can sit lower or higher than the floor at the mouth (a street
+                # lowered under a neighbouring deck): ramp it at PORTAL_GRADE, not as a 2 m sill.
+                # Read on the road's axis: banks beside the mouth are not its approach.
+                beyond = xz[end] + outward * mouth_lengths[portal_index]
+                mismatch = abs(float(floor_height(xz[end][None])[0]) - surface_sample(*beyond))
+                mouth_lengths[portal_index] = np.clip(
+                    mismatch / PORTAL_GRADE, mouth_lengths[portal_index], PORTAL_RAMP_MAX)
             # The repaired grid can affect two diagonals beyond the portal.
             # Meet intact terrain beyond that support, rather than ending inside
             # its raised triangles. Both visuals and collision use this mesh.
@@ -608,9 +624,9 @@ def produce(
             ):
                 patch = np.clip(patch, clip_low, clip_high)
                 along = np.clip((patch - xz[end]) @ outward / apron_length, 0, 1)
-                base = floor_height(
-                    patch - along[:, None] * apron_length * outward if road_top else patch
-                )
+                # The ramp starts from the floor across the mouth, not from crossfall that
+                # keeps growing with distance outside it.
+                base = floor_height(patch - along[:, None] * apron_length * outward)
                 if road_top or repaired[portal_index]:
                     # A straight approach to the outer cross-section avoids
                     # reproducing the lidar/grid hump midway through the blend.
@@ -710,7 +726,7 @@ def produce(
                         right_floor,
                         surface_sample or sample,
                         tile.size / CELLS,
-                        mouth_lengths,
+                        wing_lengths,
                     )
                 )
         if road_top:

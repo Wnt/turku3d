@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-bmw-grandtourer",
+  "fleet": {
+    "id": "carla-bmw-grandtourer",
+    "name": "Nord Perhe 218",
+    "body": "mpv",
+    "family": "van",
+    "length": 4.611,
+    "width": 2.2417,
+    "height": 1.6673,
+    "wheelbase": 2.9339,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3629,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.6
+  },
+  "id": "carla-bmw-grandtourer",
+  "wheels": {
+    "radius": 0.3629,
+    "width": 0.2702,
+    "pivots": {
+      "wheel_FL": [
+        -0.9461,
+        0.3629,
+        1.4912
+      ],
+      "wheel_FR": [
+        0.9461,
+        0.3629,
+        1.4912
+      ],
+      "wheel_RL": [
+        -0.9461,
+        0.3629,
+        -1.4428
+      ],
+      "wheel_RR": [
+        0.9461,
+        0.3629,
+        -1.4428
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8336,
+      0
+    ],
+    "half": [
+      1.1209,
+      0.8336,
+      2.3055
+    ]
+  },
+  "triangles": [
+    18415,
+    7880,
+    2951
+  ],
+  "source": {
+    "title": "BMW 2 Series Gran Tourer (vehicle.bmw.grandtourer)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-bmw-grandtourer",
+    "referenceModel": "BMW 2 Series Gran Tourer (CARLA vehicle.bmw.grandtourer)",
+    "massKg": 1500,
+    "powerKW": 100,
+    "torqueNm": 220,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 10.5,
+    "topSpeedKmh": 200,
+    "turningCircleM": 11.3,
+    "gears": 6,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 4.611,
+    "widthM": 2.2417,
+    "heightM": 1.6673,
+    "wheelbaseM": 2.9339,
+    "trackM": 1.8921,
+    "wheelRadiusM": 0.3629,
+    "wheelWidthM": 0.2702
+  },
+  "accepted": false
+}

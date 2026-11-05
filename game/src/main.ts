@@ -1,4 +1,6 @@
 import { placementVisibility } from './world/placementVisibility';
+import { modelTuning } from './vehicle/modelTuning';
+import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { paceYields } from './render/yieldPacer';
 import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
@@ -15,6 +17,7 @@ import { collisionPreview } from './world/collisionPreview';
 //   bench lab (?bench=static|install|fly[&tiles=][&cam=][&off=]): isolated scenarios over the real streamer and renderer;
 //   window.__bench is the lab status with .result (qa/lab, tools/perf/README.md)
 import { loading } from './core/loading';
+import { installFetchRetry } from './core/retryFetch';
 import { LoadingScreen } from './ui/loadingScreen';
 import * as THREE from 'three/webgpu';
 import { parseParams } from './core/params';
@@ -43,7 +46,13 @@ import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
-import { draftManifest } from './world/manifest';
+import { parkedFootprints, propFootprints } from './world/propLod';
+/** Reach (m) of the start search's obstacle lookup: the street candidates (80 m) plus a car length. */
+const START_SEARCH_M = 90;
+import { draftManifest, type Manifest } from './world/manifest';
+import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './core/city';
+import { cityTitle, showTransition, travelProgress } from './gameplay/travel';
+import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
 import { memoryCensus } from './world/memoryCensus';
@@ -104,6 +113,8 @@ declare global {
   }
 }
 
+// Transient asset failures (a share deploy restarting its server) retry before anything loads.
+installFetchRetry();
 let params: ReturnType<typeof parseParams>;
 try {
   params = parseParams(location.search, navigator);
@@ -170,7 +181,9 @@ const fail = (e: unknown) => {
   window.__qaError = msg;
 };
 addEventListener('error', (e) => { errors.push(String(e.message)); loadingScreen.fail(String(e.message)); });
-addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); loadingScreen.fail(String(e.reason)); });
+// A stray rejection is optional work that failed (a decorative asset, a warmup): logged, never a failed load. Required
+// boot steps reach fail() through runPlay/runQa/runLab, and a top-level await rejection is an 'error' event.
+addEventListener('unhandledrejection', (e) => { errors.push(String(e.reason)); console.warn(`[boot] unhandled rejection: ${String(e.reason)}`); });
 
 const idPass = params.qa && params.pass === 'id' ? new IdPass() : null;
 const { renderer, backend } = await loading.track('GPU renderer initialization', createRenderer(await defaultBackend(params.backend, params.backendGiven), document.body,
@@ -254,6 +267,11 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+// Actors (car batches, keepers) have a queue of their own: a single slow program build in the shared queue (on the
+// Air a building's facade program took 24 s, a pine LOD 14 s) no longer keeps the cars from drawing.
+const actorGraphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+const flushGraphics = (onError: (error: unknown) => void) => { graphics.flush(onError); actorGraphics.flush(onError); };
+(window.__render as unknown as Record<string, unknown>).graphics = () => ({ ...graphics.stats(), actors: actorGraphics.stats() });
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 // Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
 // net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
@@ -297,33 +315,68 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
 const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal,
   priority: PreparationPriority = 'tile') => {
   // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
+  const queue = priority === 'actor' ? actorGraphics : graphics;
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
-    graphics.defer(model, prepare, signal);
+    queue.defer(model, prepare, signal);
     return Promise.resolve();
   }
-  return graphics.enqueue(model, prepare, signal, false, priority);
+  return queue.enqueue(model, prepare, signal, false, priority);
 };
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
 // builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
 // draws, and holds its block LOD shells), other models' block shells, the level's bias tiers of a scenery cell.
-const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') =>
-  queueGraphics(model, async () => {
-    await materials?.prepare(model, scene, camera, signal);
-    const roots = model.userData.dissolveIn ? [model] : blockLodRoots(model);
-    // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
-    if (roots.length && post) await precompileDissolve(roots, [0], async root => {
-      await post!.prepare(root);
-      await materials?.prepareReflections(root, scene, camera);
-    });
-  }, signal, priority);
+// A model with more than PREPARE_PART_MESHES meshes is prepared in parts of whole children (the queue compiles each
+// part's main view after it): one full tile was a single 19-31 s job on the Air at boot, which held the actor lane
+// (car batches) and every other preparation behind it.
+const PREPARE_PART_MESHES = 48;
+const meshCount = (object: THREE.Object3D) => { let n = 0; object.traverse(o => { if ((o as THREE.Mesh).isMesh) n++; }); return n; };
+function preparationParts(model: THREE.Object3D): THREE.Object3D[][] {
+  if (meshCount(model) <= PREPARE_PART_MESHES || !model.children.length) return [[model]];
+  // Subtrees small enough to prepare together; a large group (a tile's building node) is split into its children.
+  const pieces = (object: THREE.Object3D): THREE.Object3D[] =>
+    meshCount(object) <= PREPARE_PART_MESHES || !object.children.length || (object as THREE.Mesh).isMesh ? [object] : object.children.flatMap(pieces);
+  const parts: THREE.Object3D[][] = [];
+  let part: THREE.Object3D[] = [], meshes = 0;
+  for (const child of model.children.flatMap(pieces)) {
+    const n = meshCount(child);
+    if (part.length && meshes + n > PREPARE_PART_MESHES) { parts.push(part); part = []; meshes = 0; }
+    part.push(child); meshes += n;
+  }
+  if (part.length) parts.push(part);
+  return parts;
+}
+const within = (root: THREE.Object3D, objects: readonly THREE.Object3D[]) => {
+  for (let o: THREE.Object3D | null = root; o; o = o.parent) if (objects.includes(o)) return true;
+  return false;
+};
+/** Textures, river reflections and dissolve twins of `objects` (all of `model`, or one part of it). */
+async function prepareObjects(model: THREE.Object3D, objects: readonly THREE.Object3D[], signal?: AbortSignal) {
+  for (const object of objects) await materials?.prepare(object, scene, camera, signal);
+  const whole = objects.length === 1 && objects[0] === model;
+  const roots = model.userData.dissolveIn ? [...objects] : blockLodRoots(model).filter(root => whole || within(root, objects)
+    // A root above the split (a building node cut into several parts) goes with its first part.
+    || objects.length > 0 && within(objects[0], [root]) && !objects.slice(1).some(o => o === root));
+  // Twins of surfaces the river reflects also draw there (in-frame reflection builds of landmark/roof twins).
+  if (roots.length && post) await precompileDissolve(roots, [0], async root => {
+    await post!.prepare(root);
+    await materials?.prepareReflections(root, scene, camera);
+  });
+  // The queue compiles its job model's main view; a part's other children here.
+  for (const object of objects.slice(1)) await post?.prepare(object);
+}
+const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') => {
+  const parts = preparationParts(model);
+  if (parts.length === 1) return queueGraphics(model, () => prepareObjects(model, [model], signal), signal, priority);
+  return Promise.all(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority))).then(() => {});
+};
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
-const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
+const prepareSceneryGraphics = (model: THREE.Object3D, signal?: AbortSignal) => queueGraphics(model, async () => {
   await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
-}, undefined, 'scenery');
+}, signal, 'scenery');
 // ?resolutionTarget=40: desktop AdaptiveResolution aims at the 40 FPS goal instead of 60, so it lowers resolution only
 // when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
 // Radeon 560X ?view=live replays; the losing path goes within ten merges.
@@ -401,7 +454,8 @@ const renderFrame = () => {
   vegetation?.update(camera);
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation, weather: weatherSample, fogFar: env.sample.fogFar });
-  pointCloud?.update(camera, renderer);
+  // Turku's LiDAR only: after a switch to another city its nodes would stream in the wrong frame.
+  if (isHome()) pointCloud?.update(camera, renderer);
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
   const ground = groundBelow(camera.position.x, camera.position.z);
@@ -483,25 +537,73 @@ async function draftWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
   const rapier = await physics.ready;
+  const city = await cityWorld(physics);
+  return { physics, rapier, city, ...city };
+}
+
+/** A city's own world: its manifest, collision streamer and tile streamer. */
+interface CityWorld { name: CityName; manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles;
+  /** Aborted when the city is released: its queued graphics preparations (tiles, scenery cells, trees) are dropped
+   *  instead of holding the shared preparation queue, and the released city, until they reach the front. */
+  life: AbortController }
+
+/** The active city's world (boot builds the first one, every city switch a new one). */
+async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
   const manifest = draftManifest(location.href);
-  const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
+  const life = new AbortController();
+  const holder = { streamer: new CollisionStreamer(manifest, physics, params.collisionRadius) };
   const coarse = await draftVisuals(manifest, {
-    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => streamer.refresh(ids),
+    unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => holder.streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
-    retainCollision: (id, entry, buffer) => streamer.retain(id, entry, buffer),
-  });
-  censusSources.coarse = coarse; censusSources.collision = streamer;
+    retainCollision: (id, entry, buffer) => holder.streamer.retain(id, entry, buffer),
+  }, life.signal);
+  censusSources.coarse = coarse; censusSources.collision = holder.streamer;
   window.__tiles = { loaded: () => coarse.loadedTiles() };
-  return { physics, rapier, manifest, streamer, coarse };
+  return { name: CITY.name, manifest, streamer: holder.streamer, coarse, life };
+}
+
+/** Streams the active city's start (params.spawn) and finds supported ground for the player and the own car there
+ *  (world/startGround.ts); the collision radius stays at the startup radius until the session releases its starts. */
+async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest) {
+  // spawn: wait for the collision tile under the spawn point, then drop onto the ground
+  const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
+  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
+  streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
+  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
+  const startYaw = headingToYaw(params.spawn.headingDeg);
+  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
+  const tWait = performance.now();
+  let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
+  while (!placed) {
+    if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
+    coarse.update(requested.x, requested.z, undefined, undefined, false);
+    streamer.update(requested.x, requested.z);
+    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
+    loadingScreen.update(false, coarse.status);
+    if (streamer.supports(requested.x, requested.z)) {
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
+      placed = await findInitialGround(requested, coarse.roadGraphs(),
+        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+        (x, z, radius) => streamer.supports(x, z, radius), {
+          // Open ground once the start's collision is complete: no street near the spawn may support a car.
+          open: streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending,
+          obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M)],
+          view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) } });
+    }
+    if (!placed) await new Promise(r => setTimeout(r, 100));
+  }
+  return placed;
 }
 
 async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
-  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>) {
+  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, signal?: AbortSignal) {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
-    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
-    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
+    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal); },
+    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m, signal),
     // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
     keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
     // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
@@ -511,21 +613,25 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),
-    prepareGraphics: prepareSceneryGraphics,
+    prepareGraphics: m => prepareSceneryGraphics(m, signal),
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
-    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
+    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m, signal); } });
   if (!coarse) throw new Error('World generation service is unavailable');
-  groundBelow = (x, z) => coarse.groundBelow(x, z);
-  lights?.attach(coarse);
+  adoptCoarse(coarse);
   if (!idPass) {
-    distantCity = coarse.screenshotScenery;
-    distantCity.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
-    if (params.qa) distantCity.follow(camera);
+    distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
+    if (params.qa) distantCity!.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
-    window.__game!.scenery = distantCity;
   }
   return coarse;
+}
+
+/** The world-level consumers of the active city's tile streamer (ground queries, street lights, distant scenery). */
+function adoptCoarse(coarse: CoarseTiles) {
+  groundBelow = (x, z) => coarse.groundBelow(x, z);
+  lights?.attach(coarse);
+  if (!idPass) { distantCity = coarse.screenshotScenery; window.__game!.scenery = distantCity; }
 }
 
 async function runQa() {
@@ -806,54 +912,77 @@ async function runPlay() {
     addEventListener('pagehide', () => telemetry.flush(true));
     addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') telemetry.flush(true); });
   }
-  const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
+  const { physics, rapier, manifest, streamer, coarse, city: booted } = await draftWorld();
+  let current: CityWorld = booted;
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
   Object.assign(window.__game!, { physics, coarse, streamer });
-  // spawn: wait for the collision tile under the spawn point, then drop onto the ground
-  const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
-  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
-  streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
-  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
-  const startYaw = headingToYaw(params.spawn.headingDeg);
-  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
-  const tWait = performance.now();
-  let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
-  while (!placed) {
-    if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
-    coarse.update(requested.x, requested.z, undefined, undefined, false);
-    streamer.update(requested.x, requested.z);
-    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
-    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
-    loadingScreen.update(false, coarse.status);
-    if (streamer.supports(requested.x, requested.z)) {
-      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
-      placed = await findInitialGround(requested, coarse.roadGraphs(),
-        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius),
-        // Open ground once the start's collision is complete: no street near the spawn may support a car.
-        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
-    }
-    if (!placed) await new Promise(r => setTimeout(r, 100));
+  const playWorld = async (city: Pick<CityWorld, 'manifest' | 'streamer' | 'coarse'>, first: boolean): Promise<PlayWorld> => {
+    const { manifest, streamer, coarse } = city;
+    const { spawn, car: parking } = await placeStart(physics, streamer, coarse, manifest);
+    const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
+    physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
+    const yaw0 = headingToYaw(params.spawn.headingDeg);
+    // The own car (OWN_VEHICLE_ID): spawned at boot, carried over (reset to the new start) on a city switch.
+    // The starter car: the real PLAYER_MODEL with its own driving tuning (vehicle/modelTuning.ts).
+    if (first) physics.spawnVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw, { tuning: modelTuning(PLAYER_MODEL) });
+    else physics.resetVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw, OWN_VEHICLE_ID);
+    return { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
+      streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
+      loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
+      trafficClock: () => dayClock.trafficClock(),
+      setClock: date => dayClock.restore(date),
+      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, travel };
+  };
+  let world: PlayWorld;
+  /**
+   * In-place city switch (gameplay/travel.ts): the play session ends (its ticket in session storage carries the trip),
+   * the old city's tiles, collision and vehicles go, the engine origin moves to the new city (core/city.ts setCity),
+   * its world streams in around the start (the arrival portal's exit pose in Turku), and a new session takes the
+   * ticket. One page, one renderer, one physics world; the URL follows (?city=, ?spawn=) for reloads and links.
+   */
+  let travelling: Promise<void> | null = null;
+  function travel(to: CityName, spawn?: { E: number; N: number; headingDeg: number }) {
+    travelling ??= (async () => {
+      const t0 = performance.now();
+      const kept = session.dispose(true);
+      // The session's own transition went with its DOM; this one stays, with the streaming progress, until the new
+      // session runs, then fades out over the first frames.
+      const curtain = showTransition(document.body, CITIES[to]);
+      curtain.classList.add('shown');
+      const line = curtain.querySelector<HTMLElement>('.travel-progress')!;
+      const progress = setInterval(() => { line.textContent = travelProgress(worldLoad.snapshot()); }, 250);
+      for (const v of physics.latest?.vehicles ?? []) if (v.id && v.id !== OWN_VEHICLE_ID) physics.removeVehicle(v.id);
+      const leaving = current;
+      await leaving.streamer.dispose();
+      leaving.life.abort();
+      leaving.coarse.leaveCity();
+      setCity(to);
+      history.replaceState(history.state, '', cityPageUrl(to, location, spawn));
+      params.spawnGiven = !!spawn;
+      params.spawn = spawn ?? { E: CITY.spawn.E, N: CITY.spawn.N, headingDeg: CITY.spawn.headingDeg };
+      worldLoad.update({ phase: 'loading', errors: [] });
+      const city = current = await cityWorld(physics);
+      Object.assign(window.__game!, { coarse: city.coarse, streamer: city.streamer });
+      world = await playWorld(city, false);
+      session = await startPlay(world, null, { audio: kept.audio, socket: kept.socket });
+      worldLoad.update({ phase: 'ready' });
+      flushGraphics(fail);
+      clearInterval(progress);
+      document.title = cityTitle();
+      curtain.classList.remove('shown');
+      setTimeout(() => curtain.remove(), 700);
+      console.info(`[travel] ${CITY.name} ready in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    })().catch(fail).finally(() => { travelling = null; });
+    return travelling;
   }
-  const { spawn, car: parking } = placed;
-  const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
-  physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-  const yaw0 = headingToYaw(params.spawn.headingDeg);
-  const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
-  physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
-  const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
-    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
-    loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
-    trafficClock: () => dayClock.trafficClock(),
-    setClock: date => dayClock.restore(date),
-    spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
+  world = await playWorld({ manifest, streamer, coarse }, true);
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit
   // and its verification verdict. Production builds drop this (import.meta.hot is undefined there).
   const badge = import.meta.hot ? new BuildBadge(document.body) : null;
   let session = await startPlay(world, null);
   worldLoad.update({ phase: 'ready' });
-  graphics.flush(fail);
+  flushGraphics(fail);
   if (import.meta.hot && badge) {
     const onStatus = (status: BuildStatus) => badge.set(status);
     import.meta.hot.on('turku3d:status', onStatus);
@@ -865,7 +994,7 @@ async function runPlay() {
       if (!next) return;
       swapping = swapping.then(async () => {
         session = await (next as unknown as { startPlay: typeof startPlay }).startPlay(world, session.dispose());
-        graphics.flush(fail);
+        flushGraphics(fail);
         badge.applied('hot-swap');
       }).catch(fail);
     });

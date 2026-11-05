@@ -2,7 +2,7 @@
 
 `config.ts` chooses the local server at `ws://127.0.0.1:7700/` for a `localhost` page, the page's own origin on a share host (`VITE_SHARE_HOSTS`, `core/localOnly.ts`; its server proxies the socket and scores, tools/share/deploy.sh) and the public server for other hosts. `?mp=ws://localhost:<port>/` overrides the endpoint for isolated tests. The server only accepts pages with the allowed origins in [PROTOCOL.md](../../../server/PROTOCOL.md).
 
-`MultiplayerClient` owns the WebSocket, session token in `sessionStorage`, reconnect backoff, roster and score snapshots. `sendPose` limits traffic to less than 20 messages per second and emits a one-second stationary heartbeat. Vehicle seat commands, deliveries and pole/fine events all replace poses in one shared 55 ms send queue. Play sessions construct it when Multiplayer is selected and dispose it when the session ends.
+`MultiplayerClient` owns the WebSocket, session token in `sessionStorage`, reconnect backoff, roster and score snapshots. `sendPose` limits traffic to less than 20 messages per second and emits a one-second stationary heartbeat. Vehicle seat commands, deliveries, pole/fine events and a progress reset (`resetProgress`, PROTOCOL.md `reset`; a room out of reach gets `reset: true` in its next hello) all replace poses in one shared 55 ms send queue. Play sessions construct it when Multiplayer is selected and dispose it when the session ends.
 
 `RemotePlayers` keeps about 100 ms of pose history and extrapolates at most 200 ms. Network H is at character feet in foot mode and 0.6 m below the chassis centre in car, scooter and truck modes; `height.ts` maps it to visual roots, while the worker places the foot capsule above H and vehicle chassis at the visual root. `identity.ts` sends the exact driven model and colour key from the manifest, so a remote parked car shares the local car's geometry and paint. Nearby people use the full skinned character model; beyond 6 m they use a single-draw static character silhouette. Vehicles relay the physics chassis quaternion and wheel state; remotes slerp heading, pitch and roll and interpolate the wheels in chassis space. Parked meshes retain their authored local-axis correction. Legacy yaw-only peers remain supported. Nicknames remain visible above actors. Walking-only kinematic proxies are placed in loaded collision tiles; vehicle contact uses bounded server impulses, never kinematic vehicle pushes; all remote positions remain on the minimap. A local car's collision impulse drives its existing impact sound and, in multiplayer, a screen flash; the controller rumble is input/haptics.ts's in every mode. `Scoreboard` renders the live podium and self, a final-ten-second countdown, and a full start/pause menu page with Finnish clock-hour archives. Only delivery drop-offs produce score claims.
 
@@ -38,6 +38,11 @@ On a full page reload, the retained seat determines the collision preload positi
 Multiplayer placement then restores owned registry bodies before unpausing and
 re-enters that seat, independently of the local solo save. Borrowed cars whose
 source tile is absent use the shared renderer rather than an absent native visual.
+A portal trip never keeps a seat: leaving releases the driven one (queued releases
+go out before the socket's `move`), the room frees seats on `move` and on an
+`arrival` hello, driving another vehicle releases a superseded seat, and a seat the
+room keeps reporting for two seconds while the client drives another one (or none)
+and no entry is in flight is released. A refused entry shows "Car not available".
 
 Ambient traffic is computed locally from each tile's road graph (physics/README.md, "Ambient traffic").
 `MultiplayerClient.reportRoads` sends the resident tiles' road hashes after each welcome and whenever they

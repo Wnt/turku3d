@@ -225,6 +225,8 @@ export interface GameHooks {
   bringVehicle?: { reason(): string | null; run(): void };
   /** In a city other than Turku: "Return to Turku" through the portal the player came by (gameplay/travel.ts). */
   returnHome?: { detail: string; run(): void };
+  /** "Reset progress": start over as a brand-new player at Turku's default start (gameplay/progressReset.ts). */
+  resetProgress?(): void;
 }
 
 /** A slot row: its name and label, and the details line, or "Empty". */
@@ -281,6 +283,8 @@ export class SaveMenuFlow {
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) }] : []),
       ...(this.audio ? [{ id: 'audio', label: 'Audio', detail: 'Music volume and mute', enabled: true, run: this.audio }] : []),
       ...(!this.multiplayerActive() ? [{ id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) }] : []),
+      ...(this.game.resetProgress ? [{ id: 'reset-progress', label: 'Reset progress', detail: 'Start over as a new player', enabled: true,
+        run: () => this.host.show(this.confirmReset()) }] : []),
       ...(this.developer ? [{ id: 'dev', label: 'Developer', detail: 'Money, fly mode, truck, teleport, time', enabled: true,
         run: this.developer }] : []),
       { id: 'quit', label: 'Quit to start screen', detail: null, enabled: true, run: () => this.game.quit() },
@@ -324,6 +328,19 @@ export class SaveMenuFlow {
       back: () => this.host.show(this.pause()), items: [
         { id: 'yes', label: 'Respawn', detail: null, enabled: true, run: () => this.game.respawn() },
         { id: 'no', label: 'Cancel', detail: null, enabled: true, run: () => this.host.show(this.pause()) },
+      ] };
+  }
+
+  /** What a reset loses, with Cancel selected: a second press of select by mistake keeps the game. */
+  private confirmReset(): MenuPage {
+    const back = () => this.host.show({ ...this.pause(), select: 'reset-progress' });
+    const room = this.multiplayerActive();
+    return { id: 'confirm-reset', title: 'Reset progress', select: 'no', back,
+      text: `Start over as a new player? Your money, deliveries, missions, vehicles and saved games are deleted${
+        room ? ' and your score this hour goes to zero' : ''}. You begin again at the office in Turku. Settings${room ? ' and your nickname' : ''} are kept.`,
+      items: [
+        { id: 'no', label: 'Cancel', detail: null, enabled: true, run: back },
+        { id: 'yes', label: 'Reset progress', detail: 'Cannot be undone', enabled: true, run: () => this.game.resetProgress?.() },
       ] };
   }
 

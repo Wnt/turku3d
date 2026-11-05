@@ -1,4 +1,4 @@
-import { ackermann } from './wheelKinematics.ts';
+import { ackermann, ackermann4 } from './wheelKinematics.ts';
 // Headless car implementation: no renderer, browser globals or input devices.
 import type * as Rapier from '@dimforge/rapier3d';
 export type RapierModule = typeof Rapier;
@@ -6,7 +6,9 @@ type RapierApi = Pick<RapierModule, 'RigidBodyDesc' | 'ColliderDesc' | 'QueryFil
 import type { V3 } from '../core/origin.ts';
 import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
 import { REMOTE_VEHICLE, VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
-import { GROUP } from '../shared/col/materials.ts';
+import { GROUP, MATERIALS } from '../shared/col/materials.ts';
+import { REAR_STEER_MODES, rearSteerIdle, rearSteerStep, type RearSteerState } from './rearSteer.ts';
+import { corners, droopLength, schedule, type Corner } from './suspension.ts';
 import { BumpDetector } from './bumps.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
@@ -41,17 +43,29 @@ export class Vehicle {
   private bumps = new BumpDetector();
   private readonly longitudinal = new Float32Array(4);
   private readonly lateral = new Float32Array(4);
+  /** Rear-steer state of a 4WS vehicle (rearSteer.ts); the mode persists like `lights`. */
+  private rear: RearSteerState = rearSteerIdle();
+  /** Scheduled long-travel corners (suspension.ts), the last two reported lengths and the contact of the last tick. */
+  private readonly corners: Corner[];
+  private readonly lengths: Float64Array;
+  private readonly rates: Float64Array;
+  private readonly loaded: boolean[];
+  /** Per-wheel surface grip multiplier from the last contact (tuning.grip.surface). */
+  private readonly surfaceGrip: number[];
+  private throttleApplied = 0;
+  /** 4WS axle layout: front and rear axle x and the track. */
+  private readonly axles: { xf: number; xr: number; track: number } | null;
 
   private R: RapierApi;
   private world: Rapier.World;
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {},
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning } = {},
     private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
-    const t = this.tuning = VEHICLES[this.kind];
+    const t = this.tuning = spec.tuning ?? VEHICLES[this.kind];
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));
@@ -59,7 +73,7 @@ export class Vehicle {
     const chassis = R.ColliderDesc.cuboid(h.x, h.y, h.z).setFriction(0.5);
     // A lowered centre of mass keeps the narrow outrigger layout upright; inertia stays the box's own.
     if (t.comDrop) {
-      chassis.setMassProperties(mass, { x: 0, y: -t.comDrop, z: 0 }, {
+      chassis.setMassProperties(mass, { x: t.comAhead ?? 0, y: -t.comDrop, z: 0 }, {
         x: mass * (h.y * h.y + h.z * h.z) / 3, y: mass * (h.x * h.x + h.z * h.z) / 3, z: mass * (h.x * h.x + h.y * h.y) / 3,
       }, { x: 0, y: 0, z: 0, w: 1 });
     } else chassis.setMass(mass);
@@ -78,10 +92,20 @@ export class Vehicle {
       v.setWheelMaxSuspensionForce(i, t.maxSuspensionForce);
       v.setWheelSideFrictionStiffness(i, 1.1);
     }
-    // Engine force per driven wheel: the front share on the driven steered wheels, the rest on the driven rear ones.
-    const front = t.driven.filter(i => t.steered.includes(i)).length, rear = t.driven.length - front;
+    this.corners = corners(t);
+    // Long travel: the short end of Rapier's clamp is each corner's full bump.
+    this.corners.forEach((c, i) => v.setWheelMaxSuspensionTravel(i, t.rest - (c.staticLength - c.bump)));
+    this.lengths = new Float64Array(t.wheels.length).fill(t.rest);
+    this.rates = new Float64Array(t.wheels.length);
+    this.loaded = t.wheels.map(() => false);
+    this.surfaceGrip = t.wheels.map(() => 1);
+    const fx = t.front.map(i => t.wheels[i].x), rx = t.wheels.filter((_, i) => !t.front.includes(i)).map(w => w.x);
+    this.axles = t.rearSteer ? { xf: fx.reduce((a, b) => a + b, 0) / fx.length, xr: rx.reduce((a, b) => a + b, 0) / rx.length,
+      track: Math.max(...t.front.map(i => t.wheels[i].z)) - Math.min(...t.front.map(i => t.wheels[i].z)) } : null;
+    // Engine force per driven wheel: the front share on the driven front-axle wheels, the rest on the driven rear ones.
+    const front = t.driven.filter(i => t.front.includes(i)).length, rear = t.driven.length - front;
     this.drive = t.wheels.map((_, i) => !t.driven.includes(i) ? 0
-      : t.steered.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
+      : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
   }
 
@@ -95,6 +119,8 @@ export class Vehicle {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
+    this.rear = rearSteerIdle(this.rear.mode);
+    this.lengths.fill(this.tuning.rest); this.rates.fill(0); this.loaded.fill(false);
     this.beforeSolve = null;
     this.bumps.reset();
     this.longitudinal.fill(0); this.lateral.fill(0);
@@ -103,6 +129,9 @@ export class Vehicle {
   step(dt: number, input: VehicleInput | null) {
     this.horn = input?.horn === true;
     if (input?.lights !== undefined) this.lights = input.lights;
+    if (input?.rearMode !== undefined && REAR_STEER_MODES.includes(input.rearMode) && input.rearMode !== this.rear.mode) {
+      this.rear = { ...this.rear, mode: input.rearMode, manual: input.rearMode === 'manual' ? this.rear.angle : 0 };
+    }
     this.beforeSolve = null;
     if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
@@ -110,15 +139,32 @@ export class Vehicle {
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
     const t = this.tuning, h = handling(input, speed, t);
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
+    this.throttleApplied = h.drive;
+    const rs = t.rearSteer, axles = this.axles;
+    if (rs) this.rear = rearSteerStep(rs, this.rear, this.steering / t.maxSteer, speed, input?.rearSteer ?? 0, dt);
+    // CRAB keeps all four wheels parallel: the front stops at the rear's 32° lock instead of turning on to 42°.
+    const front = rs && this.rear.mode === 'crab' ? Math.max(-rs.maxAngle, Math.min(rs.maxAngle, this.steering)) : this.steering;
     for (let i = 0; i < t.wheels.length; i++) {
-      const steered = t.steered.includes(i), driven = t.driven.includes(i);
-      v.setWheelSteering(i, steered ? ackermann(this.steering,
-        Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), t.wheels[i].z) : 0);
+      const isFront = t.front.includes(i), driven = t.driven.includes(i), at = t.wheels[i];
+      v.setWheelSteering(i, rs && axles
+        ? (isFront || rs.wheels.includes(i) ? ackermann4(front, this.rear.angle, axles.xf, axles.xr, axles.track, at.x, at.z,
+          isFront ? t.maxSteer : rs.maxAngle) : 0)
+        : t.steered.includes(i) ? ackermann(this.steering,
+          Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), at.z) : 0);
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
-      v.setWheelBrake(i, h.brake + (driven && !steered && h.handbrake ? t.brakeForce : 0));
-      v.setWheelFrictionSlip(i, steered ? h.frontGrip : h.rearGrip);
+      v.setWheelBrake(i, h.brake + (driven && !isFront && h.handbrake ? t.brakeForce : 0));
+      let grip = (isFront ? h.frontGrip : h.rearGrip) * this.surfaceGrip[i];
+      if (t.frictionCircle && driven && !isFront && this.surfaceGrip[i] < 1 && v.wheelIsInContact(i)) {
+        // Drive force against the tyre's μ·Fz (last tick's load). Rapier's ray-cast tyre keeps full side grip under
+        // drive, so past the knee (`use` > 1, the drive alone saturating the tyre) side grip falls to the floor.
+        const fz = v.wheelSuspensionForce(i) ?? 0, use = fz > 1 ? Math.abs(h.engine * this.drive[i]) / (grip * fz) : 0;
+        const fc = t.frictionCircle, u = Math.min(1, Math.max(0, (use - fc.knee) / fc.span));
+        grip *= 1 - (1 - fc.floor) * u * u * (3 - 2 * u);
+      }
+      v.setWheelFrictionSlip(i, grip);
     }
+    this.scheduleSuspension(dt);
     // Contact velocity includes yaw: rear wheels slide differently from the chassis centre.
     const q = b.rotation(), angular = b.angvel();
     for (let i = 0; i < t.wheels.length; i++) {
@@ -132,6 +178,7 @@ export class Vehicle {
       this.longitudinal[i] = vx * forward.x + vy * forward.y + vz * forward.z;
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
+    this.trackSuspension(dt);
     if (t.rollTransfer) {
       const up = rotate({ x: 0, y: 1, z: 0 }, q), com = b.worldCom();
       let contacts = 0;
@@ -158,6 +205,14 @@ export class Vehicle {
       }
       b.applyTorqueImpulse(torque, true);
     }
+    if (t.airPitch && t.wheels.every((_, i) => !v.wheelIsInContact(i))) {
+      // In the air: the pitch rate about the chassis Z axis decays (aero and wheel inertia) and the throttle/brake
+      // pitch the chassis, so a kicker launch does not nose over and the driver can level a landing.
+      const z = rotate({ x: 0, y: 0, z: 1 }, q), w = b.angvel(), rate = w.x * z.x + w.y * z.y + w.z * z.z;
+      const accel = t.airPitch.control * ((input?.throttle ?? 0) - (input?.brake ?? 0));
+      const change = -rate * (1 - Math.exp(-t.airPitch.damping * dt)) + accel * dt;
+      b.setAngvel({ x: w.x + z.x * change, y: w.y + z.y * change, z: w.z + z.z * change }, true);
+    }
     for (let i = 0; i < t.wheels.length; i++) {
       this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],
         Math.abs(h.engine * this.drive[i]) * dt + (v.wheelBrake(i) ?? 0),
@@ -166,11 +221,38 @@ export class Vehicle {
     }
     // Quadratic aerodynamic drag gives a soft 25 m/s terminal speed, including downhill coasting.
     const vel = b.linvel(), horizontal = Math.hypot(vel.x, vel.z);
-    const drag = Math.min(0.15, (0.015 + horizontal * 0.004) * dt);
+    const drag = Math.min(0.15, (0.015 + horizontal * 0.004 * (t.drag ?? 1)) * dt);
     b.applyImpulse({ x: -vel.x * b.mass() * drag, y: 0, z: -vel.z * b.mass() * drag }, true);
     this.strikeCurbs(dt, input);
     this.detectBump(dt);
     this.beforeSolve = { ...b.linvel() };
+  }
+
+  /** Long travel (suspension.ts): sets each corner's Rapier spring and dampers for the coming raycast. */
+  private scheduleSuspension(dt: number) {
+    const v = this.controller, mass = this.body.mass();
+    this.corners.forEach((c, i) => {
+      const k = schedule(c, this.lengths[i], this.loaded[i] ? this.rates[i] : 0, this.tuning.rest, mass, dt, 0.95 * this.tuning.maxSuspensionForce);
+      v.setWheelSuspensionStiffness(i, k.stiffness);
+      v.setWheelSuspensionCompression(i, k.compression);
+      v.setWheelSuspensionRelaxation(i, k.relaxation);
+    });
+  }
+
+  /** After the raycast: suspension lengths and compression speed, load, and the surface grip of the contacts. */
+  private trackSuspension(dt: number) {
+    const v = this.controller, t = this.tuning, grip = t.grip?.surface;
+    for (let i = 0; i < t.wheels.length; i++) {
+      const length = v.wheelSuspensionLength(i) ?? t.rest, contact = v.wheelIsInContact(i);
+      const loaded = contact && (!this.corners[i] || length <= droopLength(t, i) + 1e-3);
+      this.rates[i] = loaded && this.loaded[i] ? (this.lengths[i] - length) / dt : 0;
+      this.lengths[i] = length; this.loaded[i] = loaded;
+      if (!grip) continue;
+      const collider = contact ? v.wheelGroundObject(i) : null, point = collider ? v.wheelContactPoint(i) : null;
+      if (!collider || !point) continue;
+      const pair = grip[MATERIALS[this.contactMaterial(collider, point)]?.audio ?? ''];
+      this.surfaceGrip[i] = pair ? pair[t.front.includes(i) ? 0 : 1] : 1;
+    }
   }
 
   /** Feeds every wheel's suspension length and ground contact height to the bump detector (bumps.ts). */
@@ -244,12 +326,16 @@ export class Vehicle {
   state(): VehicleState {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
-    return { lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    const t = this.tuning, rear = t.rearSteer ? { rearMode: this.rear.mode, rearLocked: this.rear.locked } : {};
+    return { ...rear, throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {
-        const suspension = v.wheelSuspensionLength(i) ?? this.tuning.rest;
-        const point = v.wheelIsInContact(i) && !b.isSleeping() ? v.wheelContactPoint(i) : null;
+        // A long-travel wheel hangs from its limit strap: past full droop it is unloaded and drawn at the strap.
+        const raw = v.wheelSuspensionLength(i) ?? t.rest, curve = !!this.corners[i];
+        const suspension = curve ? Math.min(raw, droopLength(t, i)) : raw;
+        const contact = v.wheelIsInContact(i) && (!curve || raw <= droopLength(t, i) + 1e-3);
+        const point = contact && !b.isSleeping() ? v.wheelContactPoint(i) : null;
         const normal = point ? v.wheelContactNormal(i) : null, collider = point ? v.wheelGroundObject(i) : null;
         const q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w }, p = b.translation();
         const tyre = point && normal && collider ? {
@@ -258,7 +344,7 @@ export class Vehicle {
           lateral: this.lateral[i], longitudinal: this.longitudinal[i],
         } : undefined;
         return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,
-          tyre, rotation: v.wheelRotation(i) ?? 0, contact: v.wheelIsInContact(i), suspension };
+          tyre, rotation: v.wheelRotation(i) ?? 0, contact, suspension };
       }) };
   }
 }

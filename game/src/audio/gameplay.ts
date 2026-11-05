@@ -3,17 +3,15 @@ import type { CharacterState, VehicleInput, VehicleState } from '../physics/prot
 import { VEHICLES, type VehicleKind } from '../physics/constants';
 import { TyreSlipFilter } from '../vehicle/tyreSlip';
 import { clamp, type AudioEvent } from './mix';
+import { TruckSoundFeed } from './engine/feed';
+import type { EngineDrive } from './engine/drivetrain';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
-/** Vehicle v1 has no drivetrain RPM. A three-gear approximation provides the car's audible rev range; the
- *  scooter's continuously variable transmission holds high revs that climb with speed; the truck's V6 idles low
- *  and pulls four long gears up to 120 km/h. */
+/** The car and scooter have no drivetrain model: a three-gear approximation provides the car's audible rev range;
+ *  the scooter's continuously variable transmission holds high revs that climb with speed. The trophy truck's revs
+ *  come from its drivetrain model (engine/drivetrain.ts) through TruckSoundFeed. */
 export function engineRpm(kind: VehicleKind, speed: number, throttle: number) {
   if (kind === 'scooter') return 1800 + throttle * 4200 + speed * 160;
-  if (kind === 'truck') {
-    const gear = speed < 9 ? 1 : speed < 17 ? 2 : speed < 25 ? 3 : 4;
-    return 800 + speed / gear * 280 + throttle * 900;
-  }
   const gear = speed < 8 ? 1 : speed < 17 ? 2 : 3;
   return 850 + speed / gear * 300 + throttle * 700;
 }
@@ -31,8 +29,30 @@ export class GameplayAudio {
   private connected = false;
   private closeAt = 0;
   private doorPosition: V3 | null = null;
+  private truckFeed: TruckSoundFeed | null = null;
+  private truckId: string | null = null;
+  private truckTick = -1;
+  /** The local truck's latest drivetrain state (HUD, haptics, and the `drv` wire record: net/drv.ts drvOf). */
+  truckDrive: EngineDrive | null = null;
 
   constructor(private readonly emit: (event: AudioEvent) => void) {}
+
+  /** The local truck's engine voice: the drivetrain model steps once per physics tick from the driver's input and
+   *  the wheel state, and the voice gets one frame. Returns the rpm (for the shared `car` event). */
+  private truck(tick: number, v: VehicleState, input: VehicleInput | null, throttle: number, driving: boolean) {
+    if (!driving) return this.truckDrive?.rpm ?? 0;
+    const id = v.id ?? 'truck';
+    if (id !== this.truckId) { if (this.truckId) this.emit({ type: 'engine-voice', id: this.truckId, state: null }); this.truckId = id; this.truckFeed = new TruckSoundFeed(7); this.truckTick = -1; }
+    const steps = this.truckTick < 0 ? 1 : tick - this.truckTick;
+    if (steps > 0 || !this.truckDrive) {
+      const reverse = v.forwardSpeed < -0.5 || (Math.abs(v.forwardSpeed) < 1 && (input?.brake ?? 0) > 0.1 && (input?.throttle ?? 0) <= 0.05);
+      const out = this.truckFeed!.step(Math.max(1, steps) / 60, v, { throttle, brake: input?.brake ?? 0, reverse });
+      this.truckTick = tick; this.truckDrive = out.drive;
+      this.emit({ type: 'engine-voice', id, state: { drive: out.drive, speed: v.speed, position: v.pos, velocity: v.linvel,
+        local: true, wheels: v.wheels, rearSlew: out.rearSlew } });
+    }
+    return this.truckDrive!.rpm;
+  }
 
   update(frame: { tick: number; time: number; paused: boolean; mode: 'foot' | 'car'; connected: boolean;
     character: CharacterState | null; vehicle: VehicleState | null; input: VehicleInput | null;
@@ -63,10 +83,14 @@ export class GameplayAudio {
       const slip = this.slipStrength;
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
-      const kind = v.kind ?? 'car', rpm = engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
+      const kind = v.kind ?? 'car', rpm = kind === 'truck' ? this.truck(frame.tick, v, input, throttle, mode === 'car') : engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
         throttle, speed: contact ? v.speed : 0, slip,
         running: mode === 'car' });
+    }
+    if ((!v || v.kind !== 'truck' || mode !== 'car') && this.truckId) {
+      this.emit({ type: 'engine-voice', id: this.truckId, state: null });
+      this.truckId = null; this.truckFeed = null; this.truckDrive = null; this.truckTick = -1;
     }
     if (!v || mode !== 'car') {
       for (let i = 0; i < 4; i++) this.tyreSlip.reset(i);

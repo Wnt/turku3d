@@ -15,7 +15,6 @@
     "test:all": "npm run build && npm test && playwright test",
     "probe": "node scripts/probe-page.mjs",
     "prepare-character": "node scripts/prepare-character.mjs",
-    "prepare-car": "node scripts/prepare-car.mjs",
     "prepare-scooter": "node scripts/prepare-scooter.mjs",
     "render-fixture": "node scripts/make-render-fixture.mjs",
     "render-qa": "node scripts/render-qa-views.mjs",

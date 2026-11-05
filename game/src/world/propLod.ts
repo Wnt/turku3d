@@ -61,3 +61,62 @@ export class PropLod {
 
   get size() { let n = 0; for (const draws of this.models.values()) n += draws.length; return n; }
 }
+
+/** Footprints (engine x/z boxes) of every street-furniture object and pole of `models` within `radius` of `at`: each
+ *  props-layer mesh merges many objects, and its `userData.objects` rows give each one's index range (start, count).
+ *  The start search keeps the player and the own car off them (world/startGround.ts): ground rays do not see props
+ *  without collision, and the car once spawned on a bench at the Turku office. */
+type Box2 = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** A model's prop footprints, computed once (its props do not move). */
+const modelFootprints = new WeakMap<THREE.Object3D, Box2[]>();
+export function propFootprints(models: Iterable<THREE.Object3D>, at: { x: number; z: number }, radius: number) {
+  const out: Box2[] = [];
+  for (const model of models) {
+    let boxes = modelFootprints.get(model);
+    if (!boxes) modelFootprints.set(model, boxes = modelPropFootprints(model));
+    for (const b of boxes) {
+      const dx = Math.max(b.minX - at.x, 0, at.x - b.maxX), dz = Math.max(b.minZ - at.z, 0, at.z - b.maxZ);
+      if (Math.hypot(dx, dz) <= radius) out.push(b);
+    }
+  }
+  return out;
+}
+
+function modelPropFootprints(model: THREE.Object3D) {
+  const out: Box2[] = [];
+  const v = new THREE.Vector3();
+  {
+    model.updateMatrixWorld(true);
+    model.traverse(object => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || mesh.userData.layer !== 'props' || mesh.userData.shadowBatch) return;
+      const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
+      if (!position) return;
+      const rows = Array.isArray(mesh.userData.objects) ? mesh.userData.objects as { start?: number; count?: number }[] : [];
+      const ranges = rows.length && rows.every(r => typeof r.start === 'number' && typeof r.count === 'number')
+        ? rows.map(r => [r.start!, r.count!] as const) : [[0, index ? index.count : position.count] as const];
+      for (const [start, count] of ranges) {
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (let i = start; i < start + count; i++) {
+          v.fromBufferAttribute(position, index ? index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
+          if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x; if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
+        }
+        if (minX !== Infinity) out.push({ minX, maxX, minZ, maxZ });
+      }
+    });
+  }
+  return out;
+}
+
+/** Footprint boxes of parked-car slots within `radius` of `at` (axis-aligned around each slot's rotated rectangle). */
+export function parkedFootprints(vehicles: readonly { x: number; z: number; yaw: number; length: number; width: number }[] | undefined,
+  at: { x: number; z: number }, radius: number) {
+  const out: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+  for (const car of vehicles ?? []) {
+    if (Math.hypot(car.x - at.x, car.z - at.z) > radius + car.length) continue;
+    const c = Math.abs(Math.cos(car.yaw)), s = Math.abs(Math.sin(car.yaw));
+    const hx = (car.length * c + car.width * s) / 2, hz = (car.length * s + car.width * c) / 2;
+    out.push({ minX: car.x - hx, maxX: car.x + hx, minZ: car.z - hz, maxZ: car.z + hz });
+  }
+  return out;
+}

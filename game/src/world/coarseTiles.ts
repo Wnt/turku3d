@@ -41,6 +41,8 @@ import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
 import { renderTier, type QualityTier } from '../render/quality';
 
 const POLL_MS = 1000;
+/** A service that answers the demand route with 404 is asked again this often (ms). */
+const DEMAND_MISSING_MS = 60_000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
  *  is it let go uncovered: a stalled cover never keeps a model alive across the city. */
 const HOLD_FAR_M = 1500;
@@ -475,8 +477,29 @@ export class CoarseTiles {
     }
   }
 
+  private disposed = false;
+  /** Leaves the city (a city switch): every drawn, cached, leaving or fading tile model and every scenery cell is
+   *  released and its collision unloaded; installs still in flight find their entry gone and dispose what they built.
+   *  The instance is dead afterwards: the next city gets its own. */
+  leaveCity() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.screenshotScenery.setRadius(0); // leaving visuals finish at once without scenery to hand over to
+    for (const model of [...this.leaving.keys()]) this.endLeaving(model, true);
+    for (const [model, { id, under }] of this.underFade) { lodFades.cancelWithin(model); this.dispose(under, id); }
+    this.underFade.clear();
+    for (const e of this.entries.values()) this.drop(e);
+    for (const model of [...this.leaving.keys()]) this.endLeaving(model, true);
+    this.entries.clear();
+    this.fragments.clear(); this.fragmentBytes = 0;
+    this.preparing.clear(); this.builtUntil.clear(); this.leadUntil.clear(); this.leadSince.clear(); this.leadInfo.clear();
+    this.onMapChange = null;
+    this.badge?.remove(); this.badge = null;
+  }
+
   /** Call every frame with the player position; scan at least four times per crossed tile (`now` in ms). */
   update(x: number, z: number, now = performance.now(), motion?: { x: number; z: number }, scenery = true, y = NaN) {
+    if (this.disposed) return;
     this.clock = now;
     this.at.x = x; this.at.z = z;
     this.viewY = y;
@@ -913,6 +936,9 @@ export class CoarseTiles {
         this.demandNext = this.clock + Math.max(retryAfter(res), backoff(this.demandRetries++));
         return;
       }
+      // A city service without the demand route (another city's plain tile service): drafts work without it, so ask
+      // again only once a minute instead of every poll.
+      if (res.status === 404) { this.demandNext = this.clock + DEMAND_MISSING_MS; return; }
       if (!res.ok) return;
       this.demandRetries = 0;
       const body = await res.json() as { version?: number };

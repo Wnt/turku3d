@@ -315,6 +315,9 @@ export class ScreenshotScenery {
       for (let i = 0; i < tiles.length; i += 256) batches.push(tiles.slice(i, i + 256));
       const results = await Promise.all(batches.map(async batch => {
         const response = await this.request(`${this.root}scenery?tiles=${batch.join(',')}`);
+        // A city service without a scenery catalogue (404): none of its squares has a source, as if all were missing,
+        // so the catalogue is asked again on its 30 s refresh, not every 2 s as after an error.
+        if (response.status === 404) return { tiles: [], missing: batch };
         if (!response.ok) throw new Error('Scenery catalogue unavailable');
         return response.json() as Promise<{ tiles: ScenerySource[]; missing: string[]; generation?: string; recipe?: string }>;
       }));

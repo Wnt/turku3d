@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-audi-tt",
+  "fleet": {
+    "id": "carla-audi-tt",
+    "name": "Aava Säde TT",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.1812,
+    "width": 1.9941,
+    "height": 1.3853,
+    "wheelbase": 2.6421,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.35,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.15
+  },
+  "id": "carla-audi-tt",
+  "wheels": {
+    "radius": 0.35,
+    "width": 0.2306,
+    "pivots": {
+      "wheel_FL": [
+        -0.8748,
+        0.35,
+        1.2428
+      ],
+      "wheel_FR": [
+        0.8748,
+        0.35,
+        1.2428
+      ],
+      "wheel_RL": [
+        -0.8158,
+        0.35,
+        -1.3992
+      ],
+      "wheel_RR": [
+        0.8158,
+        0.35,
+        -1.3992
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.6926,
+      0
+    ],
+    "half": [
+      0.9971,
+      0.6926,
+      2.0906
+    ]
+  },
+  "triangles": [
+    18931,
+    7875,
+    2950
+  ],
+  "source": {
+    "title": "Audi TT (vehicle.audi.tt)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-audi-tt",
+    "referenceModel": "Audi TT (CARLA vehicle.audi.tt)",
+    "massKg": 1290,
+    "powerKW": 169,
+    "torqueNm": 370,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 5.3,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11,
+    "gears": 6,
+    "rideHeightM": 0.12,
+    "character": "sport",
+    "lengthM": 4.1812,
+    "widthM": 1.9941,
+    "heightM": 1.3853,
+    "wheelbaseM": 2.6421,
+    "trackM": 1.7496,
+    "wheelRadiusM": 0.35,
+    "wheelWidthM": 0.2306
+  },
+  "accepted": false
+}

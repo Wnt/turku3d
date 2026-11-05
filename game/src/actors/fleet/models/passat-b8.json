@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/passat-b8",
+  "fleet": {
+    "id": "passat-b8",
+    "name": "Kaira Säde 8",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.77,
+    "width": 2.065,
+    "height": 1.4823,
+    "wheelbase": 2.7795,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3331,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.9
+  },
+  "id": "passat-b8",
+  "wheels": {
+    "radius": 0.3331,
+    "width": 0.2651,
+    "pivots": {
+      "wheel_FL": [
+        -0.7637,
+        0.3331,
+        1.4995
+      ],
+      "wheel_FR": [
+        0.7637,
+        0.3331,
+        1.4995
+      ],
+      "wheel_RL": [
+        -0.7637,
+        0.3331,
+        -1.28
+      ],
+      "wheel_RR": [
+        0.7637,
+        0.3331,
+        -1.28
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7412,
+      0
+    ],
+    "half": [
+      1.0325,
+      0.7412,
+      2.385
+    ]
+  },
+  "triangles": [
+    12050,
+    7167,
+    2935
+  ],
+  "source": {
+    "title": "low-poly Volkswagen Passat B8",
+    "url": "https://sketchfab.com/3d-models/low-poly-volkswagen-passat-b8-de203c04b4da40c8beb9a460ffe3eb7e",
+    "author": "D_U",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "passat-b8",
+    "referenceModel": "Volkswagen Passat B8 1.6 TDI (2015)",
+    "massKg": 1475,
+    "powerKW": 88,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 10.9,
+    "topSpeedKmh": 207,
+    "turningCircleM": 11.7,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.77,
+    "widthM": 2.065,
+    "heightM": 1.4823,
+    "wheelbaseM": 2.7795,
+    "trackM": 1.5275,
+    "wheelRadiusM": 0.3331,
+    "wheelWidthM": 0.2651
+  },
+  "accepted": false
+}

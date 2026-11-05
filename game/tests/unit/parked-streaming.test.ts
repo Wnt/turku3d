@@ -37,7 +37,7 @@ test('rare parked truck uses the built-in truck appearance and physics without a
   expect(seated.addTruck).toHaveBeenCalledExactlyOnceWith(car.object_id);
   expect(physics.spawnVehicle).not.toHaveBeenCalled();
   stream.update(30, 30, null, 1000); await settle();
-  expect(physics.spawnVehicle).toHaveBeenCalledWith({ x: 30, y: 6.25, z: 30 }, .7 - Math.PI / 2,
+  expect(physics.spawnVehicle).toHaveBeenCalledWith({ x: 30, y: 6.0, z: 30 }, .7 - Math.PI / 2,
     { id: car.object_id, kind: 'truck', parked: true, rot: slotRotation(car) });
   manifest.vehicles = [];
   stream.update(1000, 1000, null, 2000); await settle();

@@ -70,7 +70,11 @@ test.each([false, true])('async shader stages retain pass state with override=%s
   renderer.debug.onNodeBuilderCreated!(liveBuilder, { object: new THREE.Mesh(), material: mesh.material, camera });
   expect(liveBuilder.renderer).toBe(renderer);
   finish!(); await prepared;
-  expect(renderer.debug.onNodeBuilderCreated).toBe(previousBuilder);
+  // The hook is gone: a later build of the same mesh keeps the live renderer, and the original hook still runs.
+  const later = { renderer } as unknown as Builder;
+  renderer.debug.onNodeBuilderCreated!(later, { object: mesh, material: passMaterial ?? mesh.material, camera, context: { pass: 'pre' } });
+  expect(later.renderer).toBe(renderer);
+  expect(previousBuilder).toHaveBeenCalledTimes(3);
   target.dispose(); vi.unstubAllGlobals();
 });
 
@@ -82,7 +86,10 @@ test('failed compilation restores the builder hook and pass state', async () => 
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
   vi.spyOn(renderer, 'compileAsync').mockRejectedValue(new Error('compile failed'));
   await expect(compileModel(renderer, mesh, scene, camera, target, null, renderer.contextNode)).rejects.toThrow('compile failed');
-  expect(renderer.debug.onNodeBuilderCreated).toBe(previousBuilder); expect(renderer.getRenderTarget()).toBeNull();
+  const later = { renderer } as { renderer: unknown };
+  renderer.debug.onNodeBuilderCreated!(later as never, { object: mesh, material: mesh.material, camera } as never);
+  expect(later.renderer).toBe(renderer); expect(previousBuilder).toHaveBeenCalledTimes(1);
+  expect(renderer.getRenderTarget()).toBeNull();
   target.dispose();
 });
 
@@ -221,4 +228,18 @@ test('every cascade draws with one shadow material, so casters build one shadow 
   const prepass = new THREE.MeshBasicMaterial(); expect(materials.select(opaque, prepass)).toBe(prepass); // not a shadow pass
   cascades[0].dispose(); // the shared one released (lights rebuilt): the next cascade takes over
   expect(materials.select(opaque, cascades[1])).toBe(cascades[1]);
+});
+
+test('interleaved compilations each remove their own builder hook (no chain of hooks stays installed)', async () => {
+  const { addNodeBuilderHook } = await import('../../src/render/nodeBuilderHooks');
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const calls: string[] = [];
+  renderer.debug.onNodeBuilderCreated = () => { calls.push('base'); };
+  const removeA = addNodeBuilderHook(renderer, () => { calls.push('a'); });
+  const removeB = addNodeBuilderHook(renderer, () => { calls.push('b'); });
+  removeA(); // A finishes while B is still installed
+  renderer.debug.onNodeBuilderCreated!({} as never, {} as never);
+  removeB();
+  renderer.debug.onNodeBuilderCreated!({} as never, {} as never);
+  expect(calls).toEqual(['b', 'base', 'base']);
 });

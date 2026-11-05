@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-chevrolet-impala",
+  "fleet": {
+    "id": "carla-chevrolet-impala",
+    "name": "Muisto Säde 64",
+    "body": "classic",
+    "family": "sedan",
+    "length": 5.3575,
+    "width": 2.0332,
+    "height": 1.4107,
+    "wheelbase": 2.9818,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.35,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.4
+  },
+  "id": "carla-chevrolet-impala",
+  "wheels": {
+    "radius": 0.35,
+    "width": 0.2306,
+    "pivots": {
+      "wheel_FL": [
+        -0.7744,
+        0.35,
+        1.6524
+      ],
+      "wheel_FR": [
+        0.7744,
+        0.35,
+        1.6524
+      ],
+      "wheel_RL": [
+        -0.7744,
+        0.35,
+        -1.3295
+      ],
+      "wheel_RR": [
+        0.7744,
+        0.35,
+        -1.3295
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7053,
+      0
+    ],
+    "half": [
+      1.0166,
+      0.7053,
+      2.6787
+    ]
+  },
+  "triangles": [
+    10025,
+    7466,
+    2951
+  ],
+  "source": {
+    "title": "Chevrolet Impala (vehicle.chevrolet.impala)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-chevrolet-impala",
+    "referenceModel": "Chevrolet Impala (CARLA vehicle.chevrolet.impala)",
+    "massKg": 1600,
+    "powerKW": 145,
+    "torqueNm": 400,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10,
+    "topSpeedKmh": 180,
+    "turningCircleM": 13,
+    "gears": 3,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 5.3575,
+    "widthM": 2.0332,
+    "heightM": 1.4107,
+    "wheelbaseM": 2.9818,
+    "trackM": 1.5488,
+    "wheelRadiusM": 0.35,
+    "wheelWidthM": 0.2306
+  },
+  "accepted": false
+}

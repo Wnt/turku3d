@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/octavia2",
+  "fleet": {
+    "id": "octavia2",
+    "name": "Salo Säde 18",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.57,
+    "width": 2.0466,
+    "height": 1.6683,
+    "wheelbase": 2.5344,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3085,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1
+  },
+  "id": "octavia2",
+  "wheels": {
+    "radius": 0.3085,
+    "width": 0.2244,
+    "pivots": {
+      "wheel_FL": [
+        -0.7679,
+        0.3085,
+        1.3495
+      ],
+      "wheel_FR": [
+        0.7679,
+        0.3085,
+        1.3495
+      ],
+      "wheel_RL": [
+        -0.7679,
+        0.3085,
+        -1.1849
+      ],
+      "wheel_RR": [
+        0.7679,
+        0.3085,
+        -1.1849
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8342,
+      0
+    ],
+    "half": [
+      1.0233,
+      0.8342,
+      2.285
+    ]
+  },
+  "triangles": [
+    31518,
+    7881,
+    2949
+  ],
+  "source": {
+    "title": "Skoda Octavia",
+    "url": "https://sketchfab.com/3d-models/skoda-octavia-af57731baf6647f2a58364c1b3dbccba",
+    "author": "barking_dogo",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "octavia2",
+    "referenceModel": "Skoda Octavia II 1.9 TDI (2006)",
+    "massKg": 1300,
+    "powerKW": 77,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 11.3,
+    "topSpeedKmh": 192,
+    "turningCircleM": 10.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 4.57,
+    "widthM": 2.0466,
+    "heightM": 1.6683,
+    "wheelbaseM": 2.5344,
+    "trackM": 1.5358,
+    "wheelRadiusM": 0.3085,
+    "wheelWidthM": 0.2244
+  },
+  "accepted": false
+}

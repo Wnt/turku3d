@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/carla-volkswagen-t2-2021",
+  "fleet": {
+    "id": "carla-volkswagen-t2-2021",
+    "name": "Muisto Kuorma 2",
+    "body": "van",
+    "family": "van",
+    "length": 4.4422,
+    "width": 1.7746,
+    "height": 1.9872,
+    "wheelbase": 2.5437,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3369,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.15
+  },
+  "id": "carla-volkswagen-t2-2021",
+  "wheels": {
+    "radius": 0.3369,
+    "width": 0.1741,
+    "pivots": {
+      "wheel_FL": [
+        -0.7341,
+        0.3369,
+        1.1278
+      ],
+      "wheel_FR": [
+        0.7341,
+        0.3369,
+        1.1278
+      ],
+      "wheel_RL": [
+        -0.7341,
+        0.3369,
+        -1.4159
+      ],
+      "wheel_RR": [
+        0.7341,
+        0.3369,
+        -1.4159
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.9936,
+      0
+    ],
+    "half": [
+      0.8873,
+      0.9936,
+      2.2211
+    ]
+  },
+  "triangles": [
+    31558,
+    7880,
+    2945
+  ],
+  "source": {
+    "title": "Volkswagen T2 2021 (vehicle.volkswagen.t2_2021)",
+    "url": "https://carla.org",
+    "author": "CARLA Team / Computer Vision Center (CARLA Simulator 0.9.16)",
+    "licence": "CC BY 4.0",
+    "licenceUrl": "https://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "carla-volkswagen-t2-2021",
+    "referenceModel": "Volkswagen T2 2021 (CARLA vehicle.volkswagen.t2_2021)",
+    "massKg": 1300,
+    "powerKW": 37,
+    "torqueNm": 103,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 40,
+    "topSpeedKmh": 115,
+    "turningCircleM": 12.3,
+    "gears": 4,
+    "rideHeightM": 0.2,
+    "character": "comfort",
+    "lengthM": 4.4422,
+    "widthM": 1.7746,
+    "heightM": 1.9872,
+    "wheelbaseM": 2.5437,
+    "trackM": 1.4683,
+    "wheelRadiusM": 0.3369,
+    "wheelWidthM": 0.1741
+  },
+  "accepted": false
+}

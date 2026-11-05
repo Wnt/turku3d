@@ -1,8 +1,9 @@
 // Solar position (NOAA simplified algorithm, ~0.5 deg) at the active city's centre (core/city.ts).
-import { CITY } from './city';
+import { CITY, onCityChange } from './city';
 import { TRUE_NORTH_GRID_BEARING_DEG } from './origin';
-export const CITY_LAT = CITY.latLon.lat;
-const CITY_LON = CITY.latLon.lon;
+export let CITY_LAT = CITY.latLon.lat;
+let CITY_LON = CITY.latLon.lon;
+onCityChange(city => { CITY_LAT = city.latLon.lat; CITY_LON = city.latLon.lon; });
 
 /** Returns azimuth (deg, clockwise from north) and elevation (deg) of the sun. */
 export function sunPosition(date: Date, lat = CITY_LAT, lon = CITY_LON): { azimuth: number; elevation: number } {

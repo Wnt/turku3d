@@ -1,0 +1,179 @@
+{
+ "version": 1,
+ "time": "14:00",
+ "quality": "medium",
+ "spots": [
+  {
+   "id": "theatre-sw",
+   "cam": [
+    23459396.96,
+    6703990.48,
+    6.29,
+    102.7,
+    5,
+    55
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "Ny5jgPnxork6QcrOwRxoIg",
+    "date": "2026-07",
+    "elevation": 6.2917566
+   },
+   "why": "theatre SW wall (48 m), pano 50 m away, 39 deg off its normal"
+  },
+  {
+   "id": "theatre-se",
+   "cam": [
+    23459520.72,
+    6703925.76,
+    13.74,
+    311.0,
+    8,
+    70
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "-vwsqBN7t246kDBuk6aFRg",
+    "date": "2014-07",
+    "elevation": 13.735348
+   },
+   "why": "theatre SE wall (23 m), pano 21 m away, 18 deg off its normal"
+  },
+  {
+   "id": "theatre-nw",
+   "cam": [
+    23459441.32,
+    6704014.48,
+    6.46,
+    121.7,
+    8,
+    70
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "cK_541pBn44LLEhURs-0LQ",
+    "date": "2026-07",
+    "elevation": 6.4596696
+   },
+   "why": "theatre NW wall (34 m), pano 9 m away, 28 deg off its normal"
+  },
+  {
+   "id": "wam-nw",
+   "cam": [
+    23459270.36,
+    6703905.85,
+    6.93,
+    174.1,
+    8,
+    70
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "p_WpoiT2JXec4J6yyjjLig",
+    "date": "2026-07",
+    "elevation": 6.933971
+   },
+   "why": "wam NW wall (55 m), pano 12 m away, 25 deg off its normal"
+  },
+  {
+   "id": "library-sw",
+   "cam": [
+    23459848.64,
+    6704437.61,
+    7.75,
+    54.6,
+    8,
+    70
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "CGxMQ9fwgbF2VABaHcAjIA",
+    "date": "2022-10",
+    "elevation": 7.7524505
+   },
+   "why": "library SW wall (56 m), pano 24 m away, 2 deg off its normal"
+  },
+  {
+   "id": "library-se",
+   "cam": [
+    23459888.21,
+    6704402.36,
+    7.07,
+    13.9,
+    5,
+    55
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "cHZr7j4GD0fySn0C60FbZg",
+    "date": "2026-07",
+    "elevation": 7.0687857
+   },
+   "why": "library SE wall (28 m), pano 33 m away, 41 deg off its normal"
+  },
+  {
+   "id": "library-e",
+   "cam": [
+    23459939.77,
+    6704438.16,
+    7.7,
+    298.2,
+    5,
+    55
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "8q3ryBQLVzBl_VV2MErzLg",
+    "date": "2011-08",
+    "elevation": 7.6995506
+   },
+   "why": "library E wall (25 m), pano 31 m away, 11 deg off its normal"
+  },
+  {
+   "id": "library-nw",
+   "cam": [
+    23459867.05,
+    6704502.46,
+    7.81,
+    129.2,
+    8,
+    70
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "Lwf8pdy8uxfCRza-ijK-ng",
+    "date": "2026-07",
+    "elevation": 7.8119617
+   },
+   "why": "library NW wall (27 m), pano 15 m away, 17 deg off its normal"
+  },
+  {
+   "id": "wam-se",
+   "cam": [
+    23459364.28,
+    6703839.49,
+    16.56,
+    287.0,
+    5,
+    55
+   ],
+   "single": true,
+   "centre": 1,
+   "pano": {
+    "id": "sxakAz6r6rK32f4N1GeReg",
+    "date": "2026-07",
+    "elevation": 16.562216
+   },
+   "why": "wam SE wall (66 m), pano 76 m away, 42 deg off its normal"
+  }
+ ],
+ "drives": []
+}

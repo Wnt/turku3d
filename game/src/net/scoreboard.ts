@@ -3,7 +3,8 @@ import { multiplayerUrl, scoresUrl } from './config';
 import { CITY, isHome } from '../core/city';
 
 /** The scores of this city's room (server/http.js `?city=`). */
-const ROOM = isHome(CITY) ? '' : `?city=${CITY.name}`;
+/** The active city's score query (read per request: the city can switch in place). */
+const room = () => isHome(CITY) ? '' : `?city=${CITY.name}`;
 import { earnedAmount, type Hour, type MultiplayerClient, type Score } from './client';
 
 /** Top three plus self, with duplicate entries removed when self is already on the podium. */
@@ -108,7 +109,7 @@ export class Scoreboard {
     try {
       const base = this.client?.httpUrl ?? scoresUrl(multiplayerUrl());
       const [indexResponse, liveResponse] = await Promise.all([
-        fetch(`${base}/scores/index.json${ROOM}`), fetch(`${base}/live.json${ROOM}`),
+        fetch(`${base}/scores/index.json${room()}`), fetch(`${base}/live.json${room()}`),
       ]);
       if (!indexResponse.ok || !liveResponse.ok) throw new Error(`HTTP ${indexResponse.status}/${liveResponse.status}`);
       this.hours = await indexResponse.json() as Hour[];
@@ -127,7 +128,7 @@ export class Scoreboard {
     const hour = this.hours[next];
     try {
       const base = this.client?.httpUrl ?? scoresUrl(multiplayerUrl());
-      const response = await fetch(`${base}/scores/${encodeURIComponent(hour.id)}.json${ROOM}`);
+      const response = await fetch(`${base}/scores/${encodeURIComponent(hour.id)}.json${room()}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json() as { hour: Hour; players: Score[] };
       this.displayedHour = data.hour; this.scores = data.players.map(normalizeArchivedScore); this.status = '';

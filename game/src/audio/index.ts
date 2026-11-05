@@ -2,6 +2,7 @@ import { createHorn } from './horn';
 import type { HornEmitter } from './mix';
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
+import { EngineVoices, type EngineVoiceState } from './engine/voices';
 import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
@@ -39,6 +40,11 @@ export class GameAudio {
   private traffic: Extract<AudioEvent, { type: 'traffic' }> | null = null;
   /** Pooled engine voices of ambient cars; a car keeps its voice while it stays among the nearest. */
   private trafficVoices: { voice: Voice; car: number | null }[] = [];
+  /** Synthesised truck engines (local and remote), counted against the 24-voice budget. */
+  private readonly engines = new EngineVoices({
+    context: () => (this.disposed ? null : this.context), bus: () => this.channels.get('vehicle') ?? null,
+    used: () => this.voices.size, error: message => this.errors.push(message),
+  });
   private panel?: HTMLElement;
   private muteButton?: HTMLButtonElement;
   private summary?: HTMLElement;
@@ -150,8 +156,10 @@ export class GameAudio {
           l.setOrientation(event.forward.x, event.forward.y, event.forward.z, event.up.x, event.up.y, event.up.z);
         }
       }
+      this.engines.listen(event.position, event.paused || this.context?.state !== 'running');
       this.refreshHorns(); this.refreshLoops(); return;
     }
+    if (event.type === 'engine-voice') { this.engineVoice(event.id, event.state); return; }
     if (event.type === 'horns') { this.hornEmitters = event.vehicles; this.refreshHorns(); return; }
     if (event.type === 'car') { this.car = event; this.refreshLoops(); return; }
     if (event.type === 'traffic') { this.traffic = event; this.refreshTraffic(); return; }
@@ -162,6 +170,10 @@ export class GameAudio {
     if (shot && shot.gain > 0) this.start(shot.sound, shot.channel, shot.gain, false, shot.position);
   }
 
+  /** One frame of a synthesised truck engine (SPEC §4.6): call once per frame per audible truck, local or remote;
+   *  null releases the voice. The pool voices the local truck and the nearest within 120 m (at most 4). */
+  engineVoice(id: string, s: EngineVoiceState | null) { if (!this.disposed) this.engines.update(id, s); }
+
   /** Voice lines (VoicePlayer) play on the voice bus and duck ambience while they play. */
   voiceOutput(): VoiceOutput {
     return {
@@ -169,7 +181,10 @@ export class GameAudio {
       bus: () => this.channels.get('voice') ?? null,
       duck: active => { this.ducked = active; if (this.ducker) this.param(this.ducker.gain, duckGain(active));
         if (this.musicDucker) this.param(this.musicDucker.gain, duckGain(active)); },
-      onRunning: callback => { this.running.push(callback); },
+      onRunning: callback => {
+        this.running.push(callback);
+        return () => { this.running = this.running.filter(c => c !== callback); };
+      },
     };
   }
 
@@ -214,7 +229,7 @@ export class GameAudio {
 
   private start(sound: Sound, channel: Channel, gain: number, loop: boolean, position?: V3): Voice | null {
     const ctx = this.context, buffer = this.buffers.get(sound);
-    if (!ctx || !buffer || this.disposed || (!loop && (this.voices.size >= 24 || ctx.state !== 'running'))) return null;
+    if (!ctx || !buffer || this.disposed || (!loop && (this.voices.size + this.engines.size >= 24 || ctx.state !== 'running'))) return null;
     const source = ctx.createBufferSource(), volume = ctx.createGain();
     source.buffer = buffer; source.loop = loop; volume.gain.value = gain;
     source.connect(volume);
@@ -284,6 +299,7 @@ export class GameAudio {
     if (this.car) {
       const c = this.car, mix = carMix(c.rpm, c.throttle, c.speed, c.slip, c.running, c.kind);
       for (const sound of Object.values(ENGINE_SOUND)) {
+        if (sound === ENGINE_SOUND.truck) continue;
         this.loop(sound, 'vehicle', sound === ENGINE_SOUND[c.kind] ? mix.engine : 0, c.position, mix.rate);
       }
       this.loop('roll', 'vehicle', mix.roll, c.position);
@@ -311,7 +327,7 @@ export class GameAudio {
   }
 
   snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size,
-    trafficVoices: this.trafficVoices.filter(s => s.car !== null).length,
+    trafficVoices: this.trafficVoices.filter(s => s.car !== null).length, engines: this.engines.snapshot(),
     voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors],
     music: { state: this.musicState, deadline: this.musicDeadline, muffle: this.musicMuffle,
       volume: this.musicVolume, muted: this.musicMuted, playing: this.music?.snapshot() ?? null } }; }
@@ -319,6 +335,7 @@ export class GameAudio {
   dispose() {
     for (const entry of this.horns.values()) entry.voice.stop();
     this.horns.clear(); this.hornEmitters = [];
+    this.engines.dispose();
     this.disposed = true;
     this.music?.dispose(); this.music = null;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }
