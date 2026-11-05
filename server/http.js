@@ -2,6 +2,18 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { Room, LIMITS, VERSION } from './room.js';
 
+/** A `move` message is tiny; anything longer goes to the room as usual. */
+const MOVE_BYTES = 128;
+/** {"v":2,"type":"move","room":"/city/espoo"} -> { room } (the socket path of the target city's room), else null. */
+function moveOf(data) {
+  const text = data.toString();
+  if (!text.includes('"move"')) return null;
+  try {
+    const m = JSON.parse(text);
+    return m && m.type === 'move' && typeof m.room === 'string' ? { room: m.room } : null;
+  } catch { return null; }
+}
+
 /** Cities with their own room besides Turku's (game/src/core/city.ts): players in different cities never share poses,
  *  vehicles, roads, poles, rounds or a scoreboard. Turku's socket is `/`, another city's `/city/<name>`; its scores are
  *  `/live.json?city=<name>` and `/scores/...?city=<name>`, stored under `<scores>/cities/<name>/`. */
@@ -81,17 +93,31 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
     if (sockets.clients.size >= LIMITS.connections) { refuse(503, 'Service Unavailable'); return; }
     sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws, target));
   });
-  sockets.on('connection', (ws, room) => {
+  sockets.on('connection', (ws, first) => {
     onConnection();
     ws.alive = true;
     ws.on('pong', () => { ws.alive = true; });
-    const c = room.connect(data => {
+    // The socket's current room and its connection there: a `move` (PROTOCOL.md) carries the socket to another city's
+    // room without reconnecting; the client then says hello there.
+    let room = first, c = null;
+    const send = data => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (ws.bufferedAmount > 262_144) { room.disconnect(c); ws.terminate(); return; }
       ws.send(data);
-    }, (code, reason) => ws.close(code, reason));
+    };
+    const close = (code, reason) => ws.close(code, reason);
+    c = room.connect(send, close);
     if (!c) { ws.close(1013, 'room full'); return; }
-    ws.on('message', (data, binary) => room.receive(c, data, binary));
+    ws.on('message', (data, binary) => {
+      const move = !binary && data.length <= MOVE_BYTES ? moveOf(data) : null;
+      if (!move) { room.receive(c, data, binary); return; }
+      const next = roomAt(move.room);
+      if (!next) { room.reject(); ws.close(1008, 'unknown room'); return; }
+      room.disconnect(c);
+      const moved = next.connect(send, close);
+      if (!moved) { ws.close(1013, 'room full'); return; }
+      room = next; c = moved;
+    });
     ws.on('close', () => room.disconnect(c));
     ws.on('error', () => { room.reject(); room.disconnect(c); });
   });

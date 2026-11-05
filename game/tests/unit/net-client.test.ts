@@ -80,3 +80,44 @@ test('all client messages share the pose rate budget; mismatch stops reconnect a
     await vi.advanceTimersByTimeAsync(16000); expect(Socket.current).toBe(socket);
   } finally { client.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals(); }
 });
+
+test('a city switch moves the open socket to the next room: move, then hello with that city\'s session', async () => {
+  const { vi } = await import('vitest');
+  const { MultiplayerClient } = await import('../../src/net/client');
+  class Socket extends EventTarget {
+    static OPEN = 1;
+    static made = 0;
+    readyState = 1;
+    sent: Record<string, unknown>[] = [];
+    constructor() { super(); Socket.made++; }
+    send(data: string) { this.sent.push(JSON.parse(data)); }
+    close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
+    message(data: object) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) })); }
+  }
+  vi.stubGlobal('WebSocket', Socket);
+  const welcome = (id: string) => ({ v: 2, type: 'welcome', session: id.repeat(64).slice(0, 64), you: { id, nick: id, spawn: { E: 0, N: 0, yaw: 0 } },
+    hour: {}, players: [], scores: [], vehicles: { upsert: [], remove: [], sources: [] }, serverTime: Date.now() });
+  const turku = new MultiplayerClient('ws://localhost:5403/', null);
+  turku.connect();
+  const socket = (turku as unknown as { ws: Socket }).ws;
+  socket.dispatchEvent(new Event('open'));
+  socket.message(welcome('a'));
+  expect(turku.state.connected).toBe(true);
+  const handed = turku.detach();
+  expect(handed).toBe(socket);
+  expect(socket.readyState).toBe(1); // still open
+  socket.message(welcome('x'));
+  expect(turku.state.you?.id).toBe('a'); // the old client no longer listens
+  const espoo = new MultiplayerClient('ws://localhost:5403/city/espoo', null);
+  espoo.adopt(handed!);
+  expect(Socket.made).toBe(1); // no new connection
+  expect(socket.sent.slice(-2).map(m => m.type)).toEqual(['move', 'hello']);
+  expect(socket.sent.at(-2)).toMatchObject({ room: '/city/espoo' });
+  socket.message(welcome('b'));
+  expect(espoo.state.you?.id).toBe('b');
+  // A socket that closed in between falls back to a fresh connection.
+  const closed = espoo.detach()!; closed.close();
+  new MultiplayerClient('ws://localhost:5403/', null).adopt(closed);
+  expect(Socket.made).toBe(2);
+  vi.unstubAllGlobals();
+});

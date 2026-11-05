@@ -23,6 +23,8 @@ export interface HotPlay {
   hudVisible: boolean;
   /** Reconnect the live room after the session swaps; the world keeps its actor placements. */
   multiplayer?: boolean;
+  /** A city switch (dispose(true)): the open multiplayer socket, for the next city's room. */
+  socket?: WebSocket | null;
 }
 
 /** What a new session restores from a HotPlay. */
@@ -59,8 +61,9 @@ export function takeResume(storage: Pick<KeyValueStore, 'getItem' | 'removeItem'
 
 /** A running play session (play.ts startPlay). */
 export interface PlaySession {
-  /** Stops the session and returns what the next one continues from. */
-  dispose(): HotPlay;
+  /** Stops the session and returns what the next one continues from; `travel` (a city switch) keeps the multiplayer
+   *  socket open for the next city's room instead of closing it. */
+  dispose(travel?: boolean): HotPlay;
   /** Autosaves and reloads the page, which continues from the autosave (dev server only). */
   reload(): void;
 }

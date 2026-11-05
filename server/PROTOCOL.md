@@ -54,6 +54,17 @@ The live roster includes self; match self by `you.id`. It contains no session to
 
 ## Client → server
 
+### move
+
+```json
+{"v":2,"type":"move","room":"/city/espoo"}
+```
+
+Carries this socket to another city's room (`/` is Turku, `/city/<name>` another city, the same paths as the
+socket URL) without reconnecting, for an in-place city switch. The player leaves the current room at once (the
+others see it go, as on a disconnect) and the socket is a fresh connection in the target room: send `hello` there
+next, with that city's session token. An unknown room closes the socket with 1008.
+
 ### hello
 
 ```json

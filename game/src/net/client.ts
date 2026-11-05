@@ -32,8 +32,9 @@ interface MultiplayerState {
   hour: Hour | null; players: NetPlayer[]; scores: Score[]; brokenPoles: string[]; countdown: number | null; error: string | null;
 }
 
-/** Per city: each city's room issues its own session (core/city.ts cityKey). */
-const SESSION_KEY = cityKey('turku3d.mp.session.v1');
+/** Per city: each city's room issues its own session (core/city.ts cityKey), read when a client is made (the city
+ *  can switch in place). */
+const sessionKey = () => cityKey('turku3d.mp.session.v1');
 /** The server accepts at most this many tiles per road-hash report (server/roads.js). */
 const ROAD_TILES = 64;
 const RATE_MS = 55; // under the server's 20 total messages/s token rate, including deliveries
@@ -83,19 +84,55 @@ export class MultiplayerClient extends EventTarget {
     super();
     this.url = url;
     this.httpUrl = scoresUrl(url);
-    try { this.token = storage?.getItem(SESSION_KEY) ?? null; } catch { /* storage may be disabled */ }
+    this.sessionKey = sessionKey();
+    try { this.token = storage?.getItem(this.sessionKey) ?? null; } catch { /* storage may be disabled */ }
   }
+  private readonly sessionKey: string;
+  /** Removes this client's socket listeners (detach hands the socket to the next city's client). */
+  private listening: AbortController | null = null;
 
   connect() {
     if (this.closed || this.ws || this.retry) return;
     const done = loading.begin(`Multiplayer connect ${this.url}`);
     const ws = new WebSocket(this.url);
+    this.listen(ws, done);
+    ws.addEventListener('open', () => this.hello(ws), { signal: this.listening!.signal });
+  }
+
+  /**
+   * Takes over `socket`, still open in another city's room (detach), and moves it to this client's room over the
+   * same connection (server `move`, PROTOCOL.md): the old room sees the player leave, this one sees it arrive after
+   * hello. A socket that closed meanwhile falls back to a fresh connection.
+   */
+  adopt(socket: WebSocket) {
+    if (this.closed || this.ws || this.retry) return;
+    if (socket.readyState !== WebSocket.OPEN) { socket.close(); this.connect(); return; }
+    this.listen(socket, loading.begin(`Multiplayer move to ${new URL(this.url).pathname}`));
+    socket.send(JSON.stringify({ v: 2, type: 'move', room: new URL(this.url).pathname }));
+    this.hello(socket);
+  }
+
+  /** Stops using the socket without closing it and returns it for the next city's client (adopt); null when it is
+   *  not open. This client is finished afterwards, as after disconnect. */
+  detach(): WebSocket | null {
+    const ws = this.ws && this.ws.readyState === WebSocket.OPEN ? this.ws : null;
+    this.listening?.abort(); this.listening = null;
+    if (!ws) { this.disconnect(); return null; }
+    this.ws = null;
+    this.disconnect();
+    return ws;
+  }
+
+  private hello(ws: WebSocket) {
+    this.lastSent = performance.now();
+    ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}) }));
+  }
+
+  private listen(ws: WebSocket, done: (detail: string) => void) {
     this.ws = ws;
-    ws.addEventListener('open', () => {
-      this.lastSent = performance.now();
-      ws.send(JSON.stringify({ v: 2, type: 'hello', ...(this.token ? { session: this.token } : {}) }));
-    });
-    ws.addEventListener('message', event => { this.receive(event.data); if (this.state.connected) done(`Joined as ${this.state.you?.nick}`); });
+    this.listening = new AbortController();
+    const signal = this.listening.signal;
+    ws.addEventListener('message', event => { this.receive(event.data); if (this.state.connected) done(`Joined as ${this.state.you?.nick}`); }, { signal });
     ws.addEventListener('close', () => {
       if (this.ws !== ws) return;
       this.ws = null;
@@ -110,8 +147,8 @@ export class MultiplayerClient extends EventTarget {
         const delay = Math.min(15000, 500 * 2 ** Math.min(this.attempts++, 5));
         this.retry = setTimeout(() => { this.retry = null; this.connect(); }, delay);
       }
-    });
-    ws.addEventListener('error', () => { this.state.error = 'Connection unavailable'; this.changed(); });
+    }, { signal });
+    ws.addEventListener('error', () => { this.state.error = 'Connection unavailable'; this.changed(); }, { signal });
   }
 
   disconnect() {
@@ -216,7 +253,7 @@ export class MultiplayerClient extends EventTarget {
       case 'welcome': {
         if (typeof msg.session !== 'string' || !msg.you || !msg.hour) return;
         this.token = msg.session;
-        try { this.storage?.setItem(SESSION_KEY, msg.session); } catch { /* storage may be disabled */ }
+        try { this.storage?.setItem(this.sessionKey, msg.session); } catch { /* storage may be disabled */ }
         this.state.connected = true;
         this.state.serverTime = Number(msg.serverTime);
         this.serverOffset = this.state.serverTime - performance.now();

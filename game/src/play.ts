@@ -107,8 +107,9 @@ const RENDER_EXTRAPOLATION = new URLSearchParams(globalThis.location?.search ?? 
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** Starts a play session; `hot` continues a hot-swapped one (dev server only). */
-/** `kept`: what a city switch carries from the session that ended (main.ts travel): the audio graph. */
-export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { audio: GameAudio }): Promise<PlaySession> {
+/** `kept`: what a city switch carries from the session that ended (main.ts travel): the audio graph and the open
+ *  multiplayer socket, which moves to this city's room. */
+export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { audio?: GameAudio; socket?: WebSocket | null }): Promise<PlaySession> {
   const { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest, streamer, coarse,
     telemetry, clock, errors, fail, hudEl, renderFrame, groundAt, spawn } = world;
   const body = new Set(document.body.children);
@@ -365,7 +366,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
   // also carries a portal exit) starts at this page's own ground-checked start.
   const roomStart = isHome() && !params.spawnGiven ? undefined : world.spawn;
-  const multiplayerStartState = prepareMultiplayer(roomStart);
+  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
@@ -922,14 +923,15 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   });
 
   return {
-    dispose() {
+    dispose(travel = false) {
       autopilot.cancel('session ended'); driveMeThere.dispose(); input.driver = null;
       const snapshot: HotPlay = { save: startScreen.active || saveGame.loading ? null : saveGame.capture(), mode, drivenId, audio,
         camera: { yaw: orbit.yaw, pitch: orbit.pitch, distance: orbit.distance }, hudVisible: hud.visible,
         multiplayer: multiplayerPlaying };
       physics.updateInput({ vx: 0, vz: 0, jump: false }, null, false);
       renderer.setAnimationLoop(null);
-      multiplayer?.disconnect();
+      // A city switch hands the open socket to the next city's session (MultiplayerClient.adopt).
+      if (travel) snapshot.socket = multiplayer?.detach() ?? null; else multiplayer?.disconnect();
       capture?.dispose();
       editor.dispose();
       devLayers.dispose();

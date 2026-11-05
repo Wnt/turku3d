@@ -883,7 +883,7 @@ async function runPlay() {
     travelling ??= (async () => {
       const t0 = performance.now();
       const previous = world;
-      const kept = session.dispose();
+      const kept = session.dispose(true);
       // The session's own transition went with its DOM; this one stays, with the streaming progress, until the new
       // session runs, then fades out over the first frames.
       const curtain = showTransition(document.body, CITIES[to]);
@@ -901,7 +901,7 @@ async function runPlay() {
       const city = await cityWorld(physics);
       Object.assign(window.__game!, { coarse: city.coarse, streamer: city.streamer });
       world = await playWorld(city, false);
-      session = await startPlay(world, null, kept.audio ? { audio: kept.audio } : undefined);
+      session = await startPlay(world, null, { audio: kept.audio, socket: kept.socket });
       worldLoad.update({ phase: 'ready' });
       graphics.flush(fail);
       clearInterval(progress);
