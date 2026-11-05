@@ -50,7 +50,7 @@ FARM_URL=${FARM_URL:-$(curl -sf -m2 -o /dev/null http://127.0.0.1:7950/health &&
 setsid sh -c "LANES_FILE=${LANES_FILE:-} REPO=$REPO TURKU3D_WORK=$F/work/migrate TURKU3D_THREADS_PER_WORKER=1 \
   /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh python $G/pass-run.py scripts/dev/tile_city_pass.py \
   --farm-root $F --revision $REV --max-jobs ${MAX_JOBS:-$LANES} --blocks ${BLOCKS:-2} --high ${HIGH:-1.3} --low ${LOW:-1.1} \
-  --interval ${INTERVAL:-2} --min-free-gb 15 --min-free-mem-gb 8 --checkpoint wires@2 \
+  --interval ${INTERVAL:-2} --min-free-gb 15 --min-free-mem-gb 8 --checkpoint wires@2 --rebuild-interval 60 \
   --supply /bulk/turku3d/lidarpc/raw/pistepilvi --farm-url $FARM_URL $TILES >> $LOG 2>&1 < /dev/null" &
 echo $! > $G/pass.pid
 echo "{\"pid\": $(cat $G/pass.pid), \"lanes\": $LANES, \"log\": \"$LOG\", \"progress\": \"$F/migrations/$GEN/pass.json\"}"

@@ -115,8 +115,21 @@ def main():
         except (AttributeError, OSError, ValueError, IndexError):
             return a.lanes
 
+    def status():  # every loop, idle or not: window-status reads it
+        summary = dict(updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), pid=os.getpid(),
+                       minutes=round((time.time() - started) / 60, 1), lanes=lanes(),
+                       running=sorted(f'{n}/{t}' for _, n, t in running.values()),
+                       left={c['name']: sum(1 for j in jobs if j[1]['name'] == c['name']) for c in cities},
+                       built={c['name']: sum(1 for d in done if d['city'] == c['name'] and d['state'] == 'built')
+                              for c in cities},
+                       failed=sorted({f"{d['city']}/{d['tile']}" for d in done if d['state'] == 'failed'}))
+        tmp = STATUS.with_suffix('.tmp')
+        tmp.write_text(json.dumps(summary, indent=1))
+        os.replace(tmp, STATUS)
+
     with ThreadPoolExecutor(64) as pool:
         while jobs or running or a.follow:
+            status()
             try:
                 changed = a.plan.stat().st_mtime != stamp
             except OSError:
@@ -150,16 +163,6 @@ def main():
                 city = next(c for c in cities if c['name'] == name)
                 with (Path(city['out']).parent / 'window-builds.jsonl').open('a') as log:
                     log.write(json.dumps(row) + '\n')
-            summary = dict(updated=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), pid=os.getpid(),
-                           minutes=round((time.time() - started) / 60, 1), lanes=lanes(),
-                           running=sorted(f'{n}/{t}' for _, n, t in running.values()),
-                           left={c['name']: sum(1 for j in jobs if j[1]['name'] == c['name']) for c in cities},
-                           built={c['name']: sum(1 for d in done if d['city'] == c['name'] and d['state'] == 'built')
-                                  for c in cities},
-                           failed=sorted({f"{d['city']}/{d['tile']}" for d in done if d['state'] == 'failed'}))
-            tmp = STATUS.with_suffix('.tmp')
-            tmp.write_text(json.dumps(summary, indent=1))
-            os.replace(tmp, STATUS)
     return 0
 
 
