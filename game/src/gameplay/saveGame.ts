@@ -223,6 +223,10 @@ export class SaveGameController {
         this.o.physics.setCharacterEnabled(false);
         this.o.recovery.restart();
       }
+      // Placed: collision follows the player from here. A seat parked away from `at` (an arrival's ride at the
+      // portal exit or the start parking, a room's kept car) never passes within streamPoint's 3 m of the focus,
+      // which would otherwise pin streaming there and let the cells under a car driven away unload behind it.
+      this.focus = null;
     }
     finally { this.loading = false; this.o.setPaused(false); }
   }
