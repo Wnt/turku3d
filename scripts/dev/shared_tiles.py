@@ -58,6 +58,8 @@ PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicl
           'migrations', 'migration_base')
 GIB = 2**30
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
+BUILD_SECONDS = 3600  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min
+                      # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
 DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
 FAR_TILES = 8          # 2 km beyond every live player: dropped after half a minute
 FINISH_SECONDS = 60    # a new pin lets the player's own tile finish when this close to done
@@ -162,6 +164,7 @@ class Farm:
         self.jobs, self.active, self.failures = {}, set(), {}
         self.awaiting = {}  # migrated key -> the spot-rebuild build key it waits for
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
+        self.build_seconds = BUILD_SECONDS
         self.turns, self.closing, self.last_saved = {}, False, 0.0
         # Live player positions: client -> {tile the player stands on (d=0): last time}.
         self.players, self.durations = {}, {}
@@ -388,7 +391,7 @@ class Farm:
             return dict(state='ready', api_version=2, daemon_pid=os.getpid(),
                         version=self.version, aliases=self.aliases.copy(),
                         uptime_seconds=round(time.time() - self.started),
-                        workers=self.workers, queued=len(self.jobs) - len(self.dispatched),
+                        workers=self.workers, build_seconds=self.build_seconds, queued=len(self.jobs) - len(self.dispatched),
                         pin=dict(self.pin),
                         building=[k[1] for k in self.dispatched],
                         active=[dict(revision=self.jobs[k], generation=k[0], tile=k[1],
@@ -982,10 +985,11 @@ class Farm:
         info = self.queue_info[(root.name, tile)]
         if info.get('pid'):
             info.setdefault('build_started', process_started(info.get('start_ticks')) or time.time())
-            deadline = time.monotonic() + 1800
+            deadline = time.monotonic() + self.build_seconds
             while process_alive(info['pid'], info.get('start_ticks')):
                 reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
-                          'build timeout' if worker_elapsed(info) > 1800 or time.monotonic() > deadline else None)
+                          'build timeout' if worker_elapsed(info) > self.build_seconds or time.monotonic() > deadline
+                          else None)
                 if reason:
                     self.stop_worker(info, root / tile)
                     raise RuntimeError(reason)
@@ -1005,7 +1009,7 @@ class Farm:
                 info.update(pid=proc.pid, start_ticks=process_ticks(proc.pid), build_started=time.time(),
                             started_monotonic=time.monotonic())
                 self.save_queue(force=True)
-            deadline = time.monotonic() + 1800
+            deadline = time.monotonic() + self.build_seconds
             while proc.poll() is None:
                 reason = ('disk floor protection' if self.free() < self.floor + .5 * GIB else
                           'build timeout' if time.monotonic() > deadline else None)
@@ -1409,14 +1413,22 @@ class Handler(BaseHTTPRequestHandler):
             if self.path == '/cancel':
                 return self.json(200, self.server.farm.cancel(body['revision'], body['tiles']))
             if self.path == '/limits':
-                workers = body.get('workers')
-                if not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS:
+                workers, seconds = body.get('workers'), body.get('build_seconds')
+                if workers is not None and (not isinstance(workers, int) or not 1 <= workers <= MAX_WORKERS):
                     raise ValueError(f'worker cap must be 1..{MAX_WORKERS}')
+                if seconds is not None and (not isinstance(seconds, int) or not 600 <= seconds <= 14400):
+                    raise ValueError('build_seconds must be 600..14400')
+                if workers is None and seconds is None:
+                    raise ValueError('workers or build_seconds required')
                 farm = self.server.farm
                 with farm.lock:
-                    farm.workers = workers
-                    farm.pump()
-                    farm.event('worker-cap', workers=workers)
+                    if seconds is not None:
+                        farm.build_seconds = seconds
+                        farm.event('build-seconds', seconds=seconds)
+                    if workers is not None:
+                        farm.workers = workers
+                        farm.pump()
+                        farm.event('worker-cap', workers=workers)
                 return self.json(200, dict(farm.status(), http_backlog=self.server.request_queue_size))
             self.json(200, self.server.farm.register(body['revision'], body.get('alias'), body.get('source_version')))
         except (ValueError, KeyError) as error:

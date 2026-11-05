@@ -705,7 +705,7 @@ class FarmTests(unittest.TestCase):
             stop.assert_called_once_with(info, root / tile)
             stop.reset_mock()
             farm.free = lambda: 100 * farm_module.GIB
-            info['started_monotonic'] = time.monotonic() - 1801
+            info['started_monotonic'] = time.monotonic() - farm.build_seconds - 1
             with self.assertRaisesRegex(RuntimeError, 'build timeout'):
                 farm.run_build(REV, tile, root)
             stop.assert_called_once_with(info, root / tile)
