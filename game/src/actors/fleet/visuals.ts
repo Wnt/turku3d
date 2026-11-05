@@ -5,12 +5,11 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
 import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
-import { FLEET, SELECTABLE_FAMILIES, fleetModel, trueSize, type FleetModel } from './catalog';
-import { buildFleetGeometry, buildFleetWheel } from './geometry';
-import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
+import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fleetHash, fleetModel, type FleetModel } from './catalog';
+import { loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
 import { AUTHORED_BY_ID } from './registry';
-import { addFleetWheels, addAuthoredFleetWheels, applyFleetWheels } from './wheels';
+import { addAuthoredFleetWheels, applyFleetWheels } from './wheels';
 import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
@@ -23,10 +22,7 @@ interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
 interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
 interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
-const embeddedWheels=(id:string)=>id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(id);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
-/** Rim detail and tyre radius determine the wheel design, independently of body/paint. */
-export const fleetWheelDesign=(model:FleetModel,lod:number)=>`${lod}/${model.wheel.toFixed(3)}/${lod===0?model.face%3:0}`;
 
 /** Shared original parametric fleet. Near model/LODs share a body draw and pool wheel draws by tyre/rim design;
  * far cars retain one flattened draw. Paint and lamps do not add draws. Existing physics records remain authoritative. */
@@ -39,6 +35,7 @@ export class ParkedCarVisuals {
   private geometries=new Map<string,THREE.BufferGeometry>();
   private dynamic=new Map<string,THREE.Mesh>();
   private definitions=new Map<string,{model:FleetModel;color:string;size?:ParkedVehicle}>();
+  private failed=new Set<string>();
   private traffic: readonly TrafficInstance[]=[];
   private reserve=0;
   private camera=new THREE.Vector3();
@@ -73,13 +70,12 @@ export class ParkedCarVisuals {
   private wheelDesigns(model:FleetModel,lod:number):WheelDesign[] {
     const key=`${model.id}/${lod}`,cached=this.designs.get(key);if(cached)return cached;
     const parts=this.authoredParts.get(key);
-    const designs=parts?parts.wheels.map(w=>({key:w.name,pivot:w.pivot,sharedSide:false}))
-      :lod===2?[]:Array.from({length:4},(_,i)=>({key:fleetWheelDesign(model,lod),sharedSide:true,
-        pivot:{x:(i%2?-1:1)*(model.width/2-.075),y:model.wheel,z:(i<2?1:-1)*model.wheelbase/2}}));
+    // LOD2 keeps its wheels merged into the far body; nearer LODs articulate their four authored hubs.
+    const designs=parts?parts.wheels.map(w=>({key:w.name,pivot:w.pivot,sharedSide:false})):[];
     this.designs.set(key,designs);return designs;
   }
   private async authored(model:FleetModel,lod:number) {
-    if(!embeddedWheels(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
+    if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
     const key=`${model.id}/${lod}`;
     const parts=lod<2?await loadAuthoredFleetParts(model.id,lod):null;
     const body=parts?.body??await loadAuthoredFleet(model.id,lod);
@@ -103,8 +99,11 @@ export class ParkedCarVisuals {
     if(glass)this.geometries.set(`${key}/glass`,glass);
   }
   private geometry(model:FleetModel,lod:number) {
-    const key=`${model.id}/${lod}`; let g=this.geometries.get(key);
-    if(!g) { g=buildFleetGeometry(model,lod as 0|1|2,lod===2); this.geometries.set(key,g); } return g;
+    const g=this.geometries.get(`${model.id}/${lod}`);if(!g)throw Error(`Fleet model ${model.id} LOD${lod} is not loaded`);return g;
+  }
+  /** A model whose asset failed to load is drawn as one of the always-resident light fallback models. */
+  private resolve(model:FleetModel,seed:string):FleetModel {
+    return this.failed.has(model.id)?FLEET_BY_ID.get(FALLBACK_MODELS[fleetHash(seed)%FALLBACK_MODELS.length])!:model;
   }
   load(manifest:Manifest):Promise<void> {
     // Tile streaming can request another load while GPU preparation yields. Publish serially.
@@ -114,16 +113,25 @@ export class ParkedCarVisuals {
   private async loadNow(cars:ParkedVehicle[]) {
     const counts=new Map<string,number>();
     for(const car of cars) {
-      const model=fleetModel(car.model,car.object_id,true,car);
+      const model=fleetModel(car.model,car.object_id,car);if(!model)continue;
       counts.set(model.id,(counts.get(model.id)??0)+1);
     }
     // Reserved traffic may draw any model of a traffic/parking family; special roles (bus, truck, ambulance) load
     // only when a record names them, so every client does not download them.
-    const models=FLEET.filter(m=>counts.has(m.id)||this.reserve&&SELECTABLE_FAMILIES.has(m.family));
+    // With traffic (the game) the fallback set and the starter car (remote players') are always resident.
+    const alwaysLoaded=new Set<string>(this.reserve?[...FALLBACK_MODELS,PLAYER_MODEL]:[]);
+    let models=FLEET.filter(m=>!this.failed.has(m.id)&&(counts.has(m.id)||alwaysLoaded.has(m.id)||this.reserve&&SELECTABLE_FAMILIES.has(m.family)));
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
-    for(const model of models)for(const lod of [0,1] as const)await this.authored(model,lod);
+    for(const model of models)for(let lod=0;lod<3;lod++){
+      try{await this.authored(model,lod);}
+      catch(error){
+        if(alwaysLoaded.has(model.id))throw error;
+        console.error(`Fleet model ${model.id} failed to load; drawn as a fallback model`,error);this.failed.add(model.id);
+      }
+    }
+    models=models.filter(m=>!this.failed.has(m.id));
     for(const model of models)for(const lod of [0,1] as const){
       const uses=new Map<string,number>();
       for(const wheel of this.wheelDesigns(model,lod))uses.set(wheel.key,(uses.get(wheel.key)??0)+1);
@@ -139,7 +147,6 @@ export class ParkedCarVisuals {
         if((this.wheelGroups.get(key)?.mesh.instanceMatrix.count??0)>=required)continue;
         const capacity=Math.max(64,2**Math.ceil(Math.log2(Math.max(1,required))));
         const geometryKey=`wheel-design/${key}`;
-        if(!this.geometries.has(geometryKey))this.geometries.set(geometryKey,buildFleetWheel(plan.model,plan.lod as 0|1,1));
         const mesh=new THREE.InstancedMesh(this.geometries.get(geometryKey)!,fleetMaterial(),capacity);
         // Empty batches hide (count 0); compileModel still prepares them (prepareHidden), shadow pass included.
         mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;mesh.userData.prepareHidden=true;
@@ -172,7 +179,8 @@ export class ParkedCarVisuals {
       const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
       this.wheelGroups.set(key,batch);this.scene.add(batch.mesh);
     }
-    for(const car of cars) this.definitions.set(car.object_id,{model:fleetModel(car.model,car.object_id,true,car),color:car.color,size:car});
+    // A slot no real model fits stays empty: no definition, so no body either (world/parkedVehicles.ts).
+    for(const car of cars){const model=fleetModel(car.model,car.object_id,car);if(model)this.definitions.set(car.object_id,{model,color:car.color,size:car});}
     const resident=new Set(cars.map(c=>c.object_id));
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
@@ -196,11 +204,7 @@ export class ParkedCarVisuals {
     const glass=this.geometries.get(`${model.id}/0/glass`);
     if(glass){const window=new THREE.Mesh(glass,fleetGlassMaterial());window.receiveShadow=true;actor.add(window);}
     if(parts)addAuthoredFleetWheels(actor,model,parts.wheels,fleetMaterial());
-    else addFleetWheels(actor,model,side=>{
-      const wheelKey=`${model.id}/wheel/${side}`;
-      if(!this.geometries.has(wheelKey))this.geometries.set(wheelKey,buildFleetWheel(model,0,side));
-      return this.geometries.get(wheelKey)!;
-    },fleetMaterial());
+
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;
   }
   /** Draws vehicle `id` as its own actor from now on, at the pose `update` is given (the driven car's render pose).
@@ -208,33 +212,43 @@ export class ParkedCarVisuals {
    *  without it the car would stay drawn from its raw physics body (traffic/client.ts) until that load. */
   takeOver(id:string,record?:ParkedVehicle) {
     if(this.dynamic.has(id))return;
-    if(!this.definitions.has(id)&&record)this.definitions.set(id,{model:fleetModel(record.model,record.object_id,true,record),color:record.color,size:record});
+    if(!this.definitions.has(id)&&record){const model=fleetModel(record.model,record.object_id,record);if(model)this.definitions.set(id,{model,color:record.color,size:record});}
     const def=this.definitions.get(id);if(!def)return;
-    const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
+    const model=this.resolve(def.model,id);
+    if(this.geometries.has(`${model.id}/0`)){const actor=this.actor(model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);}
+    else {
+      // A just-claimed car whose model is not resident yet: an empty actor holds its pose (update) until the model
+      // loads, then the real model takes its place.
+      const holder=new THREE.Mesh();holder.name=`driven/${id}`;this.scene.add(holder);this.dynamic.set(id,holder);
+      void this.authored(model,0).then(()=>{
+        if(this.dynamic.get(id)!==holder)return;
+        const actor=this.actor(model,def.color,`driven/${id}`);actor.matrix.copy(holder.matrix);actor.matrixAutoUpdate=holder.matrixAutoUpdate;
+        actor.position.copy(holder.position);actor.quaternion.copy(holder.quaternion);
+        holder.removeFromParent();this.scene.add(actor);this.dynamic.set(id,actor);
+      }).catch(error=>{console.error(`Fleet model ${model.id} failed to load`,error);this.failed.add(model.id);});
+    }
     this.cars=this.cars.filter(c=>c.object_id!==id);
   }
   requestRemoteModel(key:string) {
     const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
-    if((model.id!==AUTHORED_ESTATE&&!AUTHORED_BY_ID.has(model.id))||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
+    if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
     this.remoteRequests.set(geometryKey,this.authored(model,0)
       .catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
   }
   remoteModel(key:string):THREE.Mesh|null {
     const [id,color]=key.split('/'), model=fleetModel(id,key);
-    if((model.id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(model.id))&&!this.geometries.has(`${model.id}/0`))return null;
+    if(!this.geometries.has(`${model.id}/0`))return null;
     return this.actor(model,color??'silver',`remote/${key}`);
   }
   private transform(draw:Draw) {
     this.position.set(draw.pos.x,draw.pos.y-CHASSIS_LIFT,draw.pos.z);
     this.rotation.set(draw.rot.x,draw.rot.y,draw.rot.z,draw.rot.w).multiply(AXIS);
-    // Existing slot/collider dimensions bound replacement vehicles; accessories are visual only.
-    const {model,size}=draw;
-    // Procedural bodies stretch to their record; converted/authored models keep their true size (fitsSlot).
-    const stretch=size&&!trueSize(model.id);
-    this.scale.set(stretch?size.width/model.width:1,stretch?size.height/model.height:1,stretch?size.length/model.length:1);
+    // Real models keep their true size; a parking slot only receives a model that fits (catalog.ts fitsSlot).
+    this.scale.set(1,1,1);
     return this.matrix.compose(this.position,this.rotation,this.scale);
   }
   private draw(draw:Draw) {
+    draw={...draw,model:this.resolve(draw.model,draw.id)};
     const d=Math.hypot(draw.pos.x-this.camera.x,draw.pos.z-this.camera.z);
     if(d>320)return;
     this.sphere.center.set(draw.pos.x,draw.pos.y,draw.pos.z);

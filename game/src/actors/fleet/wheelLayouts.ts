@@ -1,11 +1,5 @@
 import {AUTHORED_BY_ID} from './registry';
-// Hub metadata for the original Blender estate, before named wheel nodes existed.
-const legacy:Record<string,{radius:number;width:number;pivots:Record<string,readonly number[]>}>={
-  'fleet-estate-3':{radius:.32,width:.205,pivots:{
-    wheel_FR:[.8,.32,1.4],wheel_FL:[-.8,.32,1.4],wheel_RR:[.8,.32,-1.28],wheel_RL:[-.8,.32,-1.28],
-  }},
-};
-export const fleetWheelLayout=(id:string)=>AUTHORED_BY_ID.get(id)?.wheels??legacy[id];
+export const fleetWheelLayout=(id:string)=>AUTHORED_BY_ID.get(id)?.wheels;
 
 const footprints=new Map<string,import('../../vehicle/wheelGround').WheelFootprint>();
 export function fleetWheelFootprint(model:import('./catalog').FleetModel) {

@@ -1740,24 +1740,24 @@
   },
   {
    "id": "golf7",
-   "name": "Kaira Kipinä 7",
+   "name": "Kaira Kipinä GT",
    "body": "hatch",
    "family": "hatchback-sports",
    "length": 4.255,
    "weight": 1.4,
    "spec": {
-    "referenceModel": "Volkswagen Golf VII 1.4 TSI (2013)",
-    "massKg": 1270,
-    "powerKW": 90,
-    "torqueNm": 200,
+    "referenceModel": "Volkswagen Golf VII GTI (2014)",
+    "massKg": 1351,
+    "powerKW": 162,
+    "torqueNm": 350,
     "drivetrain": "FWD",
     "fuel": "petrol",
-    "zeroTo100S": 9.0,
-    "topSpeedKmh": 203,
+    "zeroTo100S": 6.5,
+    "topSpeedKmh": 246,
     "turningCircleM": 10.9,
     "gears": 6,
     "rideHeightM": 0.14,
-    "character": "balanced"
+    "character": "sport"
    },
    "source": "~/turku3d/loops/carmodels/golf7/model.glb"
   },

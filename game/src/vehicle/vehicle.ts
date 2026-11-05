@@ -47,11 +47,11 @@ export class Vehicle {
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean } = {},
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning } = {},
     private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
-    const t = this.tuning = VEHICLES[this.kind];
+    const t = this.tuning = spec.tuning ?? VEHICLES[this.kind];
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));

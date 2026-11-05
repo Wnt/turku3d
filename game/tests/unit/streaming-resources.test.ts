@@ -2,7 +2,7 @@ import './fleet-assets.fixture';
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mrt, normalView, velocity } from 'three/tsl';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
@@ -37,12 +37,12 @@ test.each([false, true])('r186 generates identical instanced vertex programs for
 
 test('updating parked inventory preserves resident LOD draws and their buffers', async () => {
   const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
-  const car = { object_id: 'one', model: 'fleet-estate-3', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
+  const car = { object_id: 'one', model: 'v60', color: 'blue', x: 1, y: 2, z: 3, yaw: 0,
     width: 2, length: 4, height: 1.5, clear_front_m: 10, clear_rear_m: 10 };
   const rest = { restingPose: () => ({ pos: { x: 1, y: 2.75, z: 3 }, rot: { x: 0, y: 0, z: 0, w: 1 } }) };
   manifest.vehicles = [car]; await visuals.load(manifest); visuals.update([], rest);
   const draws = [...scene.children] as THREE.InstancedMesh[], buffers = draws.map(d => d.instanceMatrix);
-  expect(draws).toHaveLength(3);
+  expect(draws.filter(d => d.name.startsWith('parked/'))).toHaveLength(3);
   manifest.vehicles.push({ ...car, object_id: 'two' }); await visuals.load(manifest); visuals.update([], rest);
   expect(scene.children).toEqual(draws); draws.forEach((draw, i) => expect(draw.instanceMatrix).toBe(buffers[i]));
   expect(visuals.snapshot().instances).toBe(2);
@@ -135,22 +135,16 @@ test('boundary jitter retains models, while travel and teleports release departe
 
 
 test('player cars prepare one prototype even for concurrent loads, sharing geometry but not wheel transforms', async () => {
-  const asset = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
-  body.name = 'body'; asset.add(body);
-  for (const name of ['wheel-front-left', 'wheel-front-right', 'wheel-back-left', 'wheel-back-right']) {
-    const wheel = new THREE.Mesh(new THREE.BoxGeometry(), body.material); wheel.name = name; asset.add(wheel);
-  }
-  const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValue({ scene: asset } as GLTF);
-  const normals = vi.spyOn(THREE.BufferGeometry.prototype, 'computeVertexNormals');
+  const load = vi.spyOn(GLTFLoader.prototype, 'loadAsync');
   try {
     const scene = new THREE.Scene(), cars = [new CarVisual(scene), new CarVisual(scene)];
-    await Promise.all(cars.map(car => car.load('shared-sedan-test.glb')));
-    expect(load).toHaveBeenCalledOnce(); expect(normals).toHaveBeenCalledOnce();
-    const bodies = cars.map(car => car.root.getObjectByName('body') as THREE.Mesh);
+    await Promise.all(cars.map(car => car.load()));
+    // The starter car's LOD0 file is read once (body/wheel parts and glazing share one asset load).
+    expect(load.mock.calls.filter(([url]) => String(url).endsWith('/lod0.glb'))).toHaveLength(1);
+    const bodies = cars.map(car => car.root.getObjectByName('fleet-actor') as THREE.Mesh);
     expect(bodies[0]).not.toBe(bodies[1]); expect(bodies[0].geometry).toBe(bodies[1].geometry);
-    const wheels = cars.map(car => car.root.getObjectByName('vehicle-wheel-0')!);
+    const wheels = cars.map(car => car.root.getObjectByName('fleet-wheel-0')!);
     wheels[0].rotation.y = 1;
     expect(wheels[1].rotation.y).toBe(0);
-  } finally { load.mockRestore(); normals.mockRestore(); }
+  } finally { load.mockRestore(); }
 });

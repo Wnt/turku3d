@@ -1,7 +1,7 @@
 // Main thread <-> physics worker message protocol. All coordinates are engine world-local metres
 // (origin O, Y-up); .col tiles carry their own float64 origin which becomes the collider translation.
 import type { V3 } from '../core/origin';
-import type { VehicleKind } from './constants';
+import type { VehicleKind, VehicleTuning } from './constants';
 
 export interface Quat { x: number; y: number; z: number; w: number }
 
@@ -29,7 +29,9 @@ export interface CurbStrikeState { id: number; wheel: number; height: number; sp
  *  (m/s; 0 below the floor), `speed` the horizontal vehicle speed (m/s). */
 export interface BumpState { id: number; wheel: number; height: number; jolt: number; speed: number }
 export interface VehicleState { lights?: import('../vehicle/signals').LightState; horn?: boolean; id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[] }
-export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean }
+export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean;
+  /** Per-model driving tuning (vehicle/modelTuning.ts), replacing the kind's baseline. */
+  tuning?: VehicleTuning }
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }

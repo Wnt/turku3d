@@ -135,7 +135,7 @@ export class DriveBench {
       this.host.configure(drive);
       this.drive = drive; this.index = 0; this.pose = drive.poses[0];
       this.apply(this.pose);
-      if (this.pose.car) await this.car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`);
+      if (this.pose.car) await this.car.load();
       this.apply(this.pose);
       await this.host.reset(drive);
       if (token !== this.runToken) return;

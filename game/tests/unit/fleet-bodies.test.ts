@@ -2,13 +2,13 @@ import './fleet-assets.fixture';
 import { expect, test } from 'vitest';
 import type * as THREE from 'three/webgpu';
 import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
-import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
+import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 
 const triangles = (geometry: THREE.BufferGeometry) => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3;
 
 // Issue 038: cars drawn as four wheels without a body. Every shipped authored asset must keep its body.
 test('every authored fleet asset has a full body at every LOD, around its four hubs', async () => {
-  for (const id of [AUTHORED_ESTATE, ...AUTHORED_MODELS.map(model => model.id)]) for (const lod of [0, 1, 2]) {
+  for (const id of AUTHORED_MODELS.map(model => model.id)) for (const lod of [0, 1, 2]) {
     const whole = (await loadAuthoredFleet(id, lod))!, parts = lod < 2 ? await loadAuthoredFleetParts(id, lod) : null;
     const body = parts?.body ?? whole, positions = body.getAttribute('position');
     expect(positions.count, `${id}/${lod} body vertices`).toBeGreaterThan(1000);

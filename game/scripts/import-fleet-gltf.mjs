@@ -526,7 +526,7 @@ const fleet = { id, name: cfg.name, body: cfg.body, family: cfg.family, length: 
   height: round(ext.size[1]), wheelbase: round(wheelbase), hood: .25, rear: -.4, taper: .82, wheel: round(radius),
   belt: 1, face: cfg.face ?? 0, accessory: 'none', age: cfg.age ?? .1, ...(cfg.weight !== undefined ? { weight: cfg.weight } : {}) };
 const destination = path.join(repo, 'game/public/assets/cars', id);
-execFileSync('node', [path.join(repo, 'game/scripts/prepare-fleet.mjs'), work, destination, '--articulated'], { stdio: 'inherit' });
+execFileSync('node', [path.join(repo, 'game/scripts/prepare-fleet.mjs'), work, destination], { stdio: 'inherit' });
 const recordPath = path.join(path.dirname(source), 'sketchfab-record.json');
 const record = fs.existsSync(recordPath) ? JSON.parse(fs.readFileSync(recordPath, 'utf8')) : null;
 const entry = {

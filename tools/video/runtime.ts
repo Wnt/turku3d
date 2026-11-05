@@ -18,7 +18,7 @@ export function curves(points: number[][], targets: number[][]) {
 export async function car(route: number[][], speed = 7) {
   const scene = w.__game.tiles.tiles.group.parent;
   const visual = new CarVisual(scene);
-  await visual.load('/assets/car/sedan.glb');
+  await visual.load();
   const physics = new PhysicsClient();
   await physics.ready;
   const manifest = await (await fetch('/tiles/manifest.json')).json();
