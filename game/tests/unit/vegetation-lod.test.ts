@@ -699,7 +699,8 @@ describe('tree shadow casters', () => {
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(40, 16 / 9, 0.1, 1000); camera.position.set(0, 1.7, -5); camera.updateMatrixWorld();
     const lod = new VegetationLod('medium', library);
-    const toSun = new THREE.Vector3(0, 1, 0);
+    // A low sun beyond the trees (+z) throws their shadows forward, into the view.
+    const toSun = new THREE.Vector3(0, Math.sin(THREE.MathUtils.degToRad(12)), Math.cos(THREE.MathUtils.degToRad(12)));
     // A cascade around the camera, wider than the view: the trees behind it are inside the light's volume.
     let frusta = [cascade(new THREE.Vector3(0, 0, 0), 60)];
     lod.casters = () => ({ toSun, frusta });
@@ -713,12 +714,16 @@ describe('tree shadow casters', () => {
     // A light volume elsewhere (ahead of the camera only) drops them.
     frusta = [cascade(new THREE.Vector3(0, 0, -150), 50)]; camera.position.x += 0.1; camera.updateMatrixWorld(); lod.update(camera);
     expect(casting(model, mesh)).toBe(0);
+    // At noon their shadows lie under them, out of view: nothing to draw into the map.
+    frusta = [cascade(new THREE.Vector3(0, 0, 0), 60)]; toSun.set(0, 1, 0);
+    camera.rotation.y = 0; camera.position.x -= 0.1; camera.updateMatrixWorld(); lod.update(camera);
+    expect(casting(model, mesh)).toBe(0);
     lod.remove(model);
   });
 
   it('keeps a tree casting while its long low-sun shadow reaches the camera', () => {
-    // Trees 60-80 m behind, beyond the 50 m near band; the sun ahead and low throws their shadows towards the camera.
-    const { model, mesh } = tile(5, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, 60 + i * 5));
+    // Trees 55-65 m behind, beyond the 50 m near band; a low sun beyond them throws their shadows past the camera.
+    const { model, mesh } = tile(5, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, 55 + i * 2.5));
     const scene = new THREE.Scene(); scene.add(model);
     const camera = new THREE.PerspectiveCamera(65, 1, 0.1, 1000); camera.updateMatrixWorld();
     const lod = new VegetationLod('medium', library);

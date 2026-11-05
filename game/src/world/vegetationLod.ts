@@ -619,9 +619,11 @@ export class VegetationLod {
   }
 
   /** Shadow casters are culled by the sun's cascade volumes, not by the view: a tree beside or behind the camera keeps
-   *  shading the road ahead as the camera turns or drives past it. A tree casts while its shadow (base to the tip of its
-   *  height's run away from the sun) comes within `reach` of the camera, in a fixed band (the drawn near band shrinks
-   *  with its budget; a shadow must not follow it). `cap` instances at most, nearest buckets first. */
+   *  shading the road ahead as the camera turns or drives past it. A cell casts while it intersects a cascade volume;
+   *  each of its trees while its ground shadow (base to the tip of its height's run away from the sun) is in view and
+   *  comes within `reach` of the camera, a fixed band (the drawn near band shrinks with its budget; a shadow must not
+   *  follow it). A shadow therefore leaves the map only after it has left the view. `cap` instances at most, nearest
+   *  cells first. */
   private selectCasters(volumes: CasterVolumes | null, reach: number, cap: number) {
     const toSun = volumes?.toSun, frusta = volumes?.frusta ?? [];
     const up = toSun ? Math.max(0.01, toSun.y) : 1, flat = toSun ? Math.hypot(toSun.x, toSun.z) : 0;
@@ -652,6 +654,11 @@ export class VegetationLod {
         const t = Math.min(length, Math.max(0, -(bx * sx + bz * sz)));
         const dx = bx + t * sx, dz = bz + t * sz;
         if (dx * dx + dz * dz > reach2) continue;
+        // Only a shadow the camera can see: the ground shadow's bounds (base to tip, a crown wide) against the view.
+        const half = length / 2;
+        sphere.center.set(world[offset * 3] + sx * half, world[offset * 3 + 1], world[offset * 3 + 2] + sz * half);
+        sphere.radius = half + 0.35 * heights[offset] + 1;
+        if (!this.frustum.intersectsSphere(sphere)) continue;
         budget--;
         const last = selections[selections.length - 1];
         if (last?.bucket === bucket && last.offset + last.count === offset) last.count++;
