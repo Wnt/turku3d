@@ -30,8 +30,8 @@ const PASS_LOCKED = 20, PERSON_BODY = 0.8;
 const REVERSE_BACK = 1.5, REVERSE_SPEED = 2.5, REVERSE_MAX = 6;
 /** GTA V blocked-lane experiments (docs/handover/gta-traffic-study.md 4.5): a front car facing a blockage it cannot get
  *  past reverses 3-8 m within 2-5 s of stopping (here BLOCKED_BACK 3-6 m after BLOCKED_AFTER 2-4 s), and only after a
- *  long wait turns round (one U-turn after 66 s there; here UTURN_AFTER 45-90 s) when the opposite lane is clear. */
-const BLOCKED_AFTER = 2, BLOCKED_BACK = 3, UTURN_AFTER = 45, UTURN_SECONDS = 6, UTURN_CLEAR = 15;
+ *  long wait turns round (24-114 s there; here UTURN_AFTER 30-60 s) when the opposite lane is clear. */
+const BLOCKED_AFTER = 2, BLOCKED_BACK = 3, UTURN_AFTER = 30, UTURN_SECONDS = 6, UTURN_CLEAR = 15;
 /** Backed off and still blocked, it rocks (GTA: about 1 m back and forth every 4.2 s): ROCK_STEP m forward for
  *  ROCK_HALF ticks, then back to where it held. */
 const ROCK_STEP = 1, ROCK_HALF = 21;
@@ -41,6 +41,10 @@ const PASS_SEE = 60;
 /** A junction head held by a full exit for REROUTE_AFTER × its patience takes another movement with room; at most
  *  once per REROUTE_GAP ticks. */
 const REROUTE_AFTER = 3, REROUTE_GAP = 300;
+/** GTA drivers turn off at the last junction before a visible jam without stopping (38-45 m before the blocker): a car
+ *  within REROUTE_AHEAD m of its line whose exit is jammed (its last car stuck JAM_AHEAD s, no room behind it) takes
+ *  another movement with room. */
+const REROUTE_AHEAD = 45, JAM_AHEAD = 10;
 type Body = Obstacle<FlowCar>;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
@@ -66,10 +70,10 @@ const HELD = /^(exit|storage|receiving|signal|no-exit)/;
 /** Out-of-view recycling (docs/handover/gta-traffic-study.md): once a second, a car that has made no headway for
  *  RECYCLE_HEAD seconds and heads a chain of stuck cars, or any car stuck for RECYCLE_ANY seconds, leaves the flow when
  *  no watcher can see it. Its slot's demand is not replayed: the sources keep their own timetable. */
-const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
+const RECYCLE_HEAD = 60, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
 /** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA removes hidden cars within seconds there): chain
- *  heads after FAST_HEAD s without headway, any car after FAST_ANY s (beyond a red light: queued at a signal is not stuck). */
-const FAST_FAR = 150, FAST_HEAD = 60, FAST_ANY = 120;
+ *  heads after FAST_HEAD s without headway, any car after FAST_ANY s (just beyond the longest red wait, 42 s: queued at a signal is not stuck). */
+const FAST_FAR = 150, FAST_HEAD = 45, FAST_ANY = 120;
 
 /** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
 const JAM_STUCK = 30;
@@ -215,7 +219,7 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -352,7 +356,7 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0 };
   }
 
   reset(t: number) {
@@ -587,6 +591,7 @@ export class TrafficFlow {
         const turnSpeed = lane.connector!.speed, limits = lane.connector!.limits;
         if (limits && car.s > lane.length) desired = Math.min(desired, limits[Math.min(limits.length - 1, Math.floor(car.s - lane.length))]);
         if (!limits || car.s <= lane.length) desired = Math.min(desired, Math.sqrt(turnSpeed * turnSpeed + 2 * BRAKE * Math.max(0, remaining - car.length / 2)));
+        if (!car.change && !car.reservation && remaining < REROUTE_AHEAD && remaining > 0.5) this.reroute(car, t, true);
         if (!car.change && !car.reservation && remaining < Math.max(30, car.speed * car.speed / (2 * BRAKE) + 8)) {
           if (this.mayEnter(car, heads, reservations, t)) {
             // Evaluate the gap while braking, but only lock the box when the nose is about to enter it.
@@ -976,21 +981,27 @@ export class TrafficFlow {
 
   /** A junction head kept at its line by a full exit (exit / storage / receiving) changes its mind: another movement
    *  this lane may take whose receiving lane has room for it. Same lane geometry up to the line, so nothing jumps. */
-  private reroute(car: FlowCar, t: number) {
+  private reroute(car: FlowCar, t: number, ahead = false) {
     const by = car.blockedBy ?? '';
-    if (car.reservation || car.change || car.s > car.lane.length - 0.5 || this.tick - car.rerouted < REROUTE_GAP
-      || !/^(exit|storage|receiving)/.test(by)) return;
-    if (car.waiting < REROUTE_AFTER * PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) return;
+    if (car.reservation || car.change || car.s > car.lane.length - 0.5 || this.tick - car.rerouted < REROUTE_GAP) return;
     const room = (next: Lane) => {
       const tail = this.byLane.get(next)?.at(-1);
       return tail ? tail.s - tail.length / 2 : next.length;
     };
     const need = car.length + 2 * GAP + 2;
+    if (ahead) {
+      // Seen ahead: the exit's last car has stood still a while and there is no room behind it.
+      const next = car.route.next, tail = next ? this.byLane.get(next)?.at(-1) : undefined;
+      if (!next || !tail || tail.stuck < JAM_AHEAD || tail.speed > 0.5 || room(next) >= need) return;
+    } else {
+      if (!/^(exit|storage|receiving)/.test(by)) return;
+      if (car.waiting < REROUTE_AFTER * PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) return;
+    }
     const options = (this.movements.get(car.lane) ?? []).filter(m => m !== car.route && m.connector && m.next
       && room(m.next) >= need && signalState(m, t) !== 'red')
       .sort((a, b) => room(b.next!) - room(a.next!) || cmp(a.id, b.id));
     if (!options.length) return;
-    car.route = options[0]; car.rerouted = this.tick; this.stats.rerouted++;
+    car.route = options[0]; car.rerouted = this.tick; this.stats.rerouted++; if (ahead) this.stats.reroutedAhead++;
   }
 
   /** Players on foot standing in the car's path just ahead (they do not move on), as small bodies. */
