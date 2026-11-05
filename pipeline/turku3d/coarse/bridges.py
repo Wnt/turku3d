@@ -350,8 +350,11 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
     return result
 
 
-CUT_REACH = SELECT_MARGIN  # m around a deck where the ground over a lower way is cut down to it
+CUT_REACH = 2.0  # m around a deck where the ground over a lower way is cut fully down to it
 CUT_ANCHOR = 10.0  # m beyond the deck where the lower way's own ground level is read
+# m beyond CUT_REACH over which the cut fades out, so it never ends in a step; the whole cut stays
+# inside the tiles that build the deck (SELECT_MARGIN).
+CUT_FEATHER = SELECT_MARGIN - CUT_REACH
 CUT_MARGIN = 2.0  # m beyond the lower way's half width: its outer lanes, shoulders and footways
 
 
@@ -400,7 +403,8 @@ def cut_under(grid_pos, bridge, sample):
     result = positions.copy()
     if bridge.get("landing"):
         return result
-    deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2)).buffer(CUT_REACH)
+    outline = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
+    deck = outline.buffer(CUT_REACH + CUT_FEATHER)
     lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
     for under in lower.values():
         if under["tags"].get("highway") == "steps":
@@ -415,9 +419,12 @@ def cut_under(grid_pos, bridge, sample):
         if profile is None:
             continue
         stations, heights = profile
-        level = np.interp(shapely.line_locate_point(
-            under["line"], shapely.points(positions[inside][:, [0, 2]])), stations, heights)
-        result[inside, 1] = np.minimum(result[inside, 1], level)
+        points = shapely.points(positions[inside][:, [0, 2]])
+        level = np.interp(shapely.line_locate_point(under["line"], points), stations, heights)
+        # Full depth within CUT_REACH of the deck, fading to none over CUT_FEATHER beyond it.
+        weight = np.clip(1 - (shapely.distance(outline, points) - CUT_REACH) / CUT_FEATHER, 0, 1)
+        y = result[inside, 1]
+        result[inside, 1] = y - weight * np.maximum(0.0, y - level)
     return result
 
 
@@ -807,6 +814,10 @@ def produce(tile, grid_pos, inputs):
 
     decks = []
     rails = {w["id"]: r for w, r in zip(ways, details.railing_lines(ways), strict=True)}
+    # Ground over the ways under the decks first: every deck's end ramps (aprons) then raise from
+    # it, so a lower road that climbs onto the next bridge keeps its ramp.
+    for way in ways:
+        grid_pos[:] = cut_under(grid_pos, way, full_ground)
     for way in sorted(ways, key=lambda w: (w["layer"], w["id"])):
         axis, width = way["line"], way["width"]
         spec = details.style(way)
@@ -1040,7 +1051,6 @@ def produce(tile, grid_pos, inputs):
             protected, 2 * tile.size / CELLS, levels,
         )
         grid_pos[:] = grade(grid_pos, aprons)
-        grid_pos[:] = cut_under(grid_pos, way, full_ground)
         meshes = [clipped for mesh in meshes if (clipped := clip_mesh(mesh, tile.bbox)) is not None]
         if meshes:
             decks.append(Deck(way, line, ss, hh, meshes, height_at, tuple(aprons)))
