@@ -43,7 +43,8 @@ page.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0
 const spots = cfg.spots.filter(s => !only || only.has(s.id));
 const drives = pass === 'color' ? (cfg.drives ?? []).filter(d => !only || only.has(d.id)) : [];
 const posesFile = path.join(out, 'poses.json');
-const poses = pass === 'id' ? JSON.parse(fs.readFileSync(posesFile, 'utf8')) : {};
+// The colour pass merges into an existing poses.json, so a run can be resumed with --only.
+const poses = fs.existsSync(posesFile) ? JSON.parse(fs.readFileSync(posesFile, 'utf8')) : pass === 'id' ? fail('no poses.json: run the colour pass first') : {};
 const first = pass === 'id' ? Object.values(poses).find(p => p.views)?.views[0] : null;
 const start = first ?? { E: spots[0]?.cam?.[0] ?? spots[0].E, N: spots[0]?.cam?.[1] ?? spots[0].N, H: 40, yaw: 0, pitch: -10, fov: 60 };
 const query = new URLSearchParams({ cam: [start.E, start.N, start.H, start.yaw, start.pitch, start.fov].join(','), time: cfg.time ?? '14:00',
