@@ -226,3 +226,35 @@ def test_bridge_end_rebuilds_include_tiles_with_only_a_lower_road():
     assert affected({"tile": "t0_99_99", "bridges": 2})
     assert not affected({"tile": "t0_99_99", "bridges": 0})
     assert all(affected({"tile": t, "bridges": 0}) for t in list(TILES)[:5])
+
+
+def test_one_outline_carries_a_link_at_its_own_level_behind_a_parapet():
+    from turku3d.coarse.bridges import branch_height, deck_levels, level_parapets, slab
+
+    outline = shapely.box(0, -10, 80, 10)
+    link = shapely.LineString([(0, 6), (80, 6)])
+    stations = np.arange(0, 81, 2.0)
+    heights = np.where(stations <= 20, 25.0, 25.0 - (stations - 20) * 0.1)  # leaves flat, then descends
+    profiles = [(link, stations, heights, 2.75)]
+    axis = shapely.LineString([(0, -4), (80, -4)])
+
+    def main(xz):
+        return np.full(len(xz), 25.0)
+
+    def lower(xz):
+        return branch_height(profiles, xz, main(xz))
+
+    levels, cuts = deck_levels(outline, profiles, main, lower)
+    assert len(levels) == 2 and not cuts.is_empty
+    start = min(c[0] for c in shapely.get_coordinates(cuts))
+    assert start > 20.5  # no cut where the link is still at the deck's level (the junction)
+    meshes = slab("t", levels, axis, np.array([0.0, 80.0]), np.array([25.0, 25.0]), "road",
+                  None, 0.5, outline=outline)
+    top = meshes[0].positions
+    assert top[:, 1].min() < 20.0 and abs(top[:, 1].max() - 25.0) < 1e-6
+    body = meshes[1].positions
+    # Side faces only on the outline: no slab wall stands on the boundary between the levels.
+    inner = (np.abs(body[:, 2] - 3.25) < 0.01) & (body[:, 0] > 25) & (body[:, 0] < 75)
+    assert not inner.any()
+    walls = level_parapets("t", cuts, main, lower)
+    assert walls and max(w.positions[:, 1].max() for w in walls) >= 25.9
