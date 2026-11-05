@@ -206,3 +206,23 @@ def test_a_link_leaving_a_deck_follows_its_own_profile_down_to_the_ground():
     assert np.all(np.diff(heights) <= 1e-9)  # one descent, no dip into the ground and back
     mid = np.asarray(line.interpolate(line.length / 2).coords)
     assert 18.0 < branch_height(profiles, mid, np.array([0.0]))[0] < 25.7
+
+
+def test_only_lamps_on_a_lower_road_under_a_deck_are_dropped():
+    from turku3d.coarse.furniture import deck_cover
+
+    lower = dict(line=shapely.LineString([(0, -30), (0, 30)]), width=7.0, tags={"highway": "trunk"})
+    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=[lower], below=[])
+    cover = deck_cover({"bridge_ways": [deck]})
+    assert cover.covers(shapely.Point(4.5, 2))  # kerbside of the lower road, under the deck
+    assert not cover.covers(shapely.Point(20, 2))  # on the deck away from the lower road: stays
+    assert deck_cover({"bridge_ways": [dict(deck, under=[])]}) is None
+
+
+def test_bridge_end_rebuilds_include_tiles_with_only_a_lower_road():
+    from turku3d.migrations.bridge_ends import affected
+    from turku3d.migrations.bridge_ends_tiles import TILES
+
+    assert affected({"tile": "t0_99_99", "bridges": 2})
+    assert not affected({"tile": "t0_99_99", "bridges": 0})
+    assert all(affected({"tile": t, "bridges": 0}) for t in list(TILES)[:5])
