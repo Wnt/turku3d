@@ -331,6 +331,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         configure(b, ways, members, foot)
         extended_way = {**b, "line": extended(b["line"], 30)}
         under_ids = {w["id"] for w in b["under"]}
+        b["below"] = below_deck(b, ways, road_tree)
         b["approach_under"] = [
             ways[i]
             for i in sorted(road_tree.query(extended_way["line"], predicate="intersects"))
@@ -370,6 +371,27 @@ def under_profile(bridge, under, sample, step=2.0):
     return stations, np.interp(stations, stations[outside], heights)
 
 
+def below_deck(bridge, ways, tree):
+    """Lower ways under the deck's footprint that the axis test misses: under a wide outline (a
+    railway viaduct over a skew street) a road can pass beneath without crossing the deck's axis.
+    Members, their land continuations and anything at or above the deck's layer are not below it."""
+    deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
+    members = {m["id"] for m in bridge.get("member_ways", [bridge])}
+    approaches = {w["id"] for w in bridge.get("approaches", [])}
+    ends = shapely.union_all([m["line"].boundary for m in bridge.get("member_ways", [bridge])]).buffer(1.0)
+    out = []
+    for i in sorted(tree.query(deck, predicate="intersects")):
+        way = ways[i]
+        if (way["id"] in members or way["id"] in approaches or way["bridge"]
+                or way["layer"] >= bridge["layer"] or way["tags"].get("highway") in (None, "steps")
+                or way["line"].intersects(ends)):
+            continue
+        if way["line"].intersection(deck).length < 2.0:
+            continue
+        out.append(way)
+    return out
+
+
 def cut_under(grid_pos, bridge, sample):
     """Lower the terrain over every way that passes under this deck to that way's own level
     (``under_profile``), within the way's width and CUT_REACH of the deck. Only lowers: a lower way
@@ -379,7 +401,8 @@ def cut_under(grid_pos, bridge, sample):
     if bridge.get("landing"):
         return result
     deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2)).buffer(CUT_REACH)
-    for under in bridge.get("under", []):
+    lower = {w["id"]: w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    for under in lower.values():
         if under["tags"].get("highway") == "steps":
             continue
         corridor = under["line"].buffer(under["width"] / 2 + CUT_MARGIN).intersection(deck)
