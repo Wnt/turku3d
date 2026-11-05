@@ -11,6 +11,9 @@ Three city-wide rules, each driven only by the street graph and the collision tr
    level of the floor on either side.
 3. **No steps on structures** (``steps``). On bridge and tunnel edges and the edges that meet them,
    a 4-30 cm step across a track gets a 1:16 ramp slab on its low side.
+4. **A deck carries its lanes** (``_deck_width``). On a bridge edge, tracks inside the lanes'
+   envelope without deck under them (a deck built narrower than its lanes, a wedge between two
+   decks of one crossing) get the deck's level carried out from the track inside them.
 
 ``slabs`` returns the slabs as oriented boxes (world-local metres) with per-rule counts. The tile
 migration ``roadbed@1`` (``turku3d.migrations.roadbed``) adds them to the collision cells and writes
@@ -213,7 +216,8 @@ def _tracks(line, ys, attrs, bbox):
     points = centre[None] + offsets[:, None, None] * normal[None]
     x0, z0, x1, z1 = bbox
     inside = (points[..., 0] > x0) & (points[..., 0] < x1) & (points[..., 1] > z0) & (points[..., 1] < z1)
-    return points, level, tangent, inside
+    on_edge = (along >= 0) & (along <= s[-1])
+    return points, level, tangent, inside, offsets, on_edge
 
 
 def _pit_runs(h):
@@ -320,7 +324,7 @@ def slabs(graph, floor, bbox, stats):
         sampled = _tracks(line, ys, attrs, bbox)
         if sampled is None:
             continue
-        points, level, tangent, inside = sampled
+        points, level, tangent, inside, offsets, on_edge = sampled
         flat = points.reshape(-1, 2)
         h, mat = floor.top(flat, np.tile(level, len(points)))
         h, mat = h.reshape(points.shape[:2]), mat.reshape(points.shape[:2])
@@ -357,4 +361,37 @@ def slabs(graph, floor, bbox, stats):
                 a = (points[t, top, 0], track[top], points[t, top, 1])
                 b = (points[t, foot, 0], track[foot], points[t, foot, 1])
                 add(a, b, TRACK + 0.1, "step")
+        if "BRIDGE" in flags:
+            for a, b in _deck_width(h, paved, inside & on_edge[None], points, offsets, attrs):
+                add(a, b, TRACK + 0.1, "deck")
+    return out
+
+
+DECK_PIECE = 16  # samples (4 m) per deck-width slab, so a chord follows the deck's camber
+
+
+def _deck_width(h, paved, inside, points, offsets, attrs):
+    """Rule 4: a bridge deck carries its lanes' full width. Outward from the centre track, a track
+    inside the lanes' envelope (1.75 m per lane each side of the centre plus a car's half width)
+    that has no deck under it, or only something lower, gets the deck's level carried out from the
+    track inside it. A raised kerb or footway (not carriageway) stops the carry."""
+    lanes = max(1, int(attrs.get("lanes_fwd", 0)) + int(attrs.get("lanes_bwd", 0)))
+    reach = min(1.75 * lanes + 0.9, float(attrs["width"]) / 2 + EDGE_MARGIN)
+    centre = int(np.argmin(np.abs(offsets)))
+    out = []
+    for step in (1, -1):
+        ref = np.where(paved[centre] & inside[centre], h[centre], np.nan)
+        t = centre + step
+        while 0 <= t < len(offsets) and abs(offsets[t]) <= reach:
+            low = (~np.isfinite(h[t]) | (h[t] < ref - PIT_DEPTH)) & np.isfinite(ref) & inside[t]
+            for run in np.split(np.flatnonzero(low), np.flatnonzero(np.diff(np.flatnonzero(low)) > 1) + 1):
+                for piece in range(0, len(run), DECK_PIECE):
+                    part = run[piece : piece + DECK_PIECE + 1]
+                    i, j = int(part[0]), int(part[-1])
+                    if j == i:
+                        continue
+                    out.append(((points[t, i, 0], ref[i], points[t, i, 1]),
+                                (points[t, j, 0], ref[j], points[t, j, 1])))
+            ref = np.where(low, ref, np.where(np.isfinite(h[t]) & paved[t], h[t], np.nan))
+            t += step
     return out

@@ -162,3 +162,19 @@ def test_roadbed_migration_adds_slabs_to_the_cells_and_records_counts(tmp_path):
     again = Product(tmp_path, pristine)
     roadbed.transform(again)
     assert again.manifest["collision"]["c_0_0"]["sha256"] == entry["sha256"]
+
+
+def test_a_bridge_deck_narrower_than_its_lanes_is_widened_at_its_own_level():
+    # Deck 2 m wide (z -1..1) under a one-lane bridge edge whose lanes sweep 2.65 m each side.
+    floor = RB.Floor(np.concatenate([slab_floor([(0, -1, 40, 1)], 8.0), slab_floor([(0, -6, 40, 6)], 6.5)]))
+    from turku3d.col.materials import mat_id
+    floor.materials[:] = mat_id("bridge_deck")
+    deck = graph([(2, 0), (38, 0)], [8.0, 8.0], width=4.25, flags=4)
+    deck["edgeAttrs"][0][4:6] = [1, 0]
+    stats = __import__("collections").Counter()
+    slabs = [f for f in RB.slabs(deck, floor, BBOX, stats) if f[3] == "deck"]
+    assert slabs and stats["deck_slabs"] == len(slabs)
+    for centre, half, _, _ in slabs:
+        assert abs(centre[1] + half[1] - 8.0) < 1e-3 and 1.0 <= abs(centre[2]) <= 2.7
+    street = graph([(2, 0), (38, 0)], [8.0, 8.0], width=4.25)
+    assert [f for f in RB.slabs(street, floor, BBOX, stats) if f[3] == "deck"] == []
