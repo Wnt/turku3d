@@ -303,3 +303,32 @@ def test_a_deck_from_several_outline_parts_builds():
     meshes = slab("t", parts, shapely.LineString([(0, 2.5), (20, 2.5)]), np.array([0.0, 20.0]),
                   np.array([5.0, 5.0]), "road", None, 0.5)
     assert meshes and abs(meshes[0].positions[:, 1].max() - 5.0) < 1e-9
+
+
+def _cut(ways, ground):
+    from turku3d.coarse.bridges import cut_under
+
+    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=ways, below=[])
+    xs, zs = np.meshgrid(np.arange(-2.0, 2.1, 1.0), np.arange(-60.0, 60.1, 1.0))
+    grid = np.c_[xs.ravel(), ground(xs.ravel(), zs.ravel()), zs.ravel()]
+    return grid, cut_under(grid, deck, lambda x, z: float(ground(np.array([x]), np.array([z]))[0]))
+
+
+def test_a_road_split_under_a_deck_is_cut_to_the_level_between_its_two_ends():
+    def ground(x, z):  # measured road at 10 m, an embankment-like survey gap under the deck
+        return np.where(np.abs(z) < 12, 14.0, 10.0)
+
+    halves = [dict(id=1, line=shapely.LineString([(0, -60), (0, 0)]), width=7.0, tags={"highway": "primary"}),
+              dict(id=2, line=shapely.LineString([(0, 0), (0, 60)]), width=7.0, tags={"highway": "primary"})]
+    grid, cut = _cut(halves, ground)
+    under = (np.abs(grid[:, 2]) < 5) & (np.abs(grid[:, 0]) < 1)
+    assert np.allclose(cut[under, 1], 10.0)
+
+
+def test_a_road_climbing_to_a_deck_keeps_its_ground_past_its_last_measured_end():
+    def ground(x, z):  # rises from 10 m at z=-10 to 16 m at z=20, where the road ends under the deck
+        return 10.0 + 6.0 * np.clip((z + 10) / 30, 0, 1)
+
+    way = dict(id=1, line=shapely.LineString([(0, -60), (0, 4)]), width=7.0, tags={"highway": "primary"})
+    grid, cut = _cut([way], ground)
+    assert np.allclose(cut[:, 1], grid[:, 1])
