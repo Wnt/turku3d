@@ -38,6 +38,11 @@ On a full page reload, the retained seat determines the collision preload positi
 Multiplayer placement then restores owned registry bodies before unpausing and
 re-enters that seat, independently of the local solo save. Borrowed cars whose
 source tile is absent use the shared renderer rather than an absent native visual.
+A portal trip never keeps a seat: leaving releases the driven one (queued releases
+go out before the socket's `move`), the room frees seats on `move` and on an
+`arrival` hello, driving another vehicle releases a superseded seat, and a seat the
+room keeps reporting for two seconds while the client drives another one (or none)
+and no entry is in flight is released. A refused entry shows "Car not available".
 
 Ambient traffic is computed locally from each tile's road graph (physics/README.md, "Ambient traffic").
 `MultiplayerClient.reportRoads` sends the resident tiles' road hashes after each welcome and whenever they
