@@ -139,13 +139,16 @@ MIGRATION_WORKERS = 2
 
 
 class Farm:
-    def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=25,
-                 reserve_gib=2, grace_seconds=900, execute=None, free=None, stop=None,
+    def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=10,
+                 reserve_gib=1, keep_free_gib=60, grace_seconds=900, execute=None, free=None, stop=None,
                  migrate=None, navigate=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.workers, self.queue_limit = workers, queue_limit
-        self.floor, self.reserve = floor_gib * GIB, reserve_gib * GIB
+        self.floor, self.reserve, self.keep_free = floor_gib * GIB, reserve_gib * GIB, keep_free_gib * GIB
+        # Disk housekeeping never holds the farm lock (scans and deletes take minutes on a full disk; under the
+        # farm lock every request queued behind them: the 2026-11-05 city.lab outage). It has its own lock.
+        self.housekeeping_lock, self.housekeeping_wake, self.housekeeper = threading.Lock(), threading.Event(), None
         self.grace_seconds = grace_seconds
         self.free = free or (lambda: shutil.disk_usage(self.root).free)
         self.execute = execute or self.run_build
@@ -496,7 +499,7 @@ class Farm:
             if len(self.jobs) >= self.queue_limit:
                 return 429, dict(state='queue-full')
             # Reservation covers concurrent builders as well as the hard free-space floor.
-            if not self.make_room(self.floor + self.reserve * (len(self.active) + 1)):
+            if not self.has_room(self.floor + self.reserve * (len(self.active) + 1)):
                 return 507, dict(state='disk-pressure', free_gib=self.free() / GIB)
             self.jobs[key] = revision
             self.queue_info[key] = dict(revision=revision, generation=generation, tile=tile,
@@ -756,7 +759,7 @@ class Farm:
                 with self.lock:
                     # A recorded worker already owns its disk reservation. Recover its
                     # monitoring even under pressure; run_build can stop it safely.
-                    if not self.queue_info[key].get('pid') and not self.make_room(
+                    if not self.queue_info[key].get('pid') and not self.has_room(
                             self.floor + self.reserve * (len(self.active) + 1)):
                         raise RuntimeError('disk floor reservation unavailable')
                     self.active.add(key)
@@ -1233,16 +1236,42 @@ class Farm:
         self.event('intermediates-adopted', files=linked)
         return linked
 
+    def has_room(self, target):
+        """Cheap check (one statvfs) for callers holding the farm lock: never scans or deletes. Short of room,
+        it wakes the background housekeeper and answers at once."""
+        if self.free() >= target:
+            return True
+        self.housekeeping_wake.set()
+        return False
+
+    def housekeeping(self, interval=60):
+        """Service thread: keeps ``keep_free`` bytes free by ``make_room``, off the farm lock."""
+        while not getattr(self, 'closing', False):
+            self.housekeeping_wake.wait(interval)
+            self.housekeeping_wake.clear()
+            try:
+                if self.free() < self.keep_free:
+                    self.make_room(self.keep_free)
+            except Exception as error:  # housekeeping must outlive one bad directory
+                self.event('housekeeping-error', error=str(error)[-300:])
+
+    def start_housekeeping(self):
+        self.housekeeper = threading.Thread(target=self.housekeeping, name='housekeeping', daemon=True)
+        self.housekeeper.start()
+
     def make_room(self, target):
         """Evict unused generations then cache LRU. Never touch another loop's directories.
 
         Requested tiles pin their intermediates. Other old entries can be reclaimed while
-        workers run; their content-key locks protect concurrent readers and writers.
+        workers run; their content-key locks protect concurrent readers and writers. Runs under its own
+        housekeeping lock; the farm lock is held only to copy the pins (jobs, aliases, adoptions).
         """
-        with self.lock:
-            return self._make_room(target)
+        with self.housekeeping_lock:
+            with self.lock:
+                jobs, adopting, aliases = dict(self.jobs), set(self.adopting), dict(self.aliases)
+            return self._make_room(target, jobs, adopting, aliases)
 
-    def _make_room(self, target):
+    def _make_room(self, target, jobs, adopting, aliases):
         if self.free() >= target:
             return True
         for path in sorted((self.root / 'delivery/shared').glob('bundle.*.col'), key=lambda p: p.stat().st_mtime):
@@ -1254,9 +1283,9 @@ class Farm:
             self.event('delivery-evicted', bytes=size)
             if self.free() >= target:
                 return True
-        pinned = {g for g, _ in self.jobs}
-        pinned.update(self.adopting)
-        revisions = set(self.aliases.values()) | set(self.jobs.values())
+        pinned = {g for g, _ in jobs}
+        pinned.update(adopting)
+        revisions = set(aliases.values()) | set(jobs.values())
         pinned.update(self.revision(rev)['generation'] for rev in revisions)
         for rev in list(revisions):
             meta = self.revision(rev)
@@ -1344,7 +1373,7 @@ class Farm:
                 self.event('surface-maps-evicted', key=path.name, bytes=size)
             if self.free() >= target:
                 return True
-        wanted_tiles = {tile for _, tile in self.jobs}
+        wanted_tiles = {tile for _, tile in jobs}
         files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
                         if p.relative_to(cache).parts[1] not in wanted_tiles),
                        key=lambda p: p.stat().st_mtime)
@@ -1369,7 +1398,7 @@ class Farm:
                 return True
         # Texture encoders also maintain their own bounded cache. Reclaim additional
         # old encodes only when no farm package can still be using the returned paths.
-        if not self.jobs:
+        if not jobs:
             for path in sorted((cache / 'textures').glob('*'), key=lambda p: p.stat().st_mtime):
                 if path.suffix not in ('.ktx2', '.png', '.rgb') or time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
@@ -1377,7 +1406,7 @@ class Farm:
                 path.unlink()
                 if self.free() >= target:
                     return True
-            for path in ([] if self.adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
+            for path in ([] if adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
                 size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
@@ -1627,6 +1656,7 @@ def main():
     faulthandler.register(signal.SIGUSR1, file=stacks.open('a'), all_threads=True)
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)
+        farm.start_housekeeping()
         server = TileHTTPServer((args.host, args.port), Handler)
         server.farm = farm
         (args.root / 'service.pid').write_text(str(os.getpid()) + '\n')
