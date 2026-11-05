@@ -140,6 +140,15 @@ maps `~/turku3d/loops/roadfix/maps/`.
    at its end) instead of a blend by distance from the axis, and `road_heights` gives a deck member's edges the deck
    surface. A street light under a deck is no longer built as a free-standing post (`coarse/furniture.deck_cover`;
    its head came up through Kupittaansilta's lane, found at 1761.3, 18.1, -65.7 under the deck at 25.4 m).
+2b. **Status after the spot fixes (helper builds at a8933aec):** Helsinginkatu under Lemminkäisensilta: all 3 lanes
+   drive through (t0_10_4 and t0_11_4 rebuilt). Kalevan silta: 2 of 3; the third sticks on flat road at
+   1749,-127 as before. Kupittaa link: its deck now runs along the whole link (`branch_profiles`, 10 m outside the
+   carriageway makes a branch), but its roads.json heights still bake to the ground under it (18.1 m under a 25.7 m
+   deck): `road_heights` gives the member edge the deck height, yet the baked lane is on the ground. Find which
+   later step (`route_surface.bake` reference, or `tunnels.roads`) replaces it. Lamps: only street lights on a lower
+   road under a deck are dropped (`furniture.deck_cover`). The spot-rebuild set is `bridges > 0` plus
+   `migrations/bridge_ends_tiles.py` (`scripts/dev/bridge_tiles.py`, 310 tiles); rail-only viaducts' lower-road
+   tiles are not in it.
 3. **Building passages** (the most common central obstacle): the OSM passage line runs 2-3 m off the opening the
    generator builds (w1196792244: a `covered=yes` driveway carries the walled tube, the `building_passage` one runs
    into the building), or the approach lane cuts the building corner (w994856577). The passage corridor
