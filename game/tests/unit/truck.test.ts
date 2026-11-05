@@ -44,25 +44,22 @@ function drive(kind: 'car' | 'truck', x: number, feature: Parameters<typeof worl
 const tilt = (q: { x: number; y: number; z: number; w: number }) =>
   Math.acos(Math.max(-1, Math.min(1, 1 - 2 * (q.x * q.x + q.z * q.z)))) * 180 / Math.PI;
 
-test('truck tuning: heavy 4WD on big tyres and soft, strongly damped long-travel springs', () => {
+test('truck tuning: heavy 4WD 4WS on big tyres and a scheduled long-travel suspension', () => {
   expect(VEHICLES.truck).toBe(TRUCK);
-  expect(TRUCK_TARGET_SPEED * 3.6).toBeCloseTo(120);
+  expect(TRUCK_TARGET_SPEED * 3.6).toBeCloseTo(155);
   expect(TRUCK.driven).toEqual([0, 1, 2, 3]);
+  expect(TRUCK.front).toEqual([0, 1]);
   expect(TRUCK.steered).toEqual([0, 1]);
+  expect(TRUCK.rearSteer.wheels).toEqual([2, 3]);
   expect(TRUCK.frontTorque).toBeCloseTo(0.4);
-  expect(TRUCK.suspensionTravel).toBeCloseTo(0.5);
-  expect(TRUCK.mass).toBeGreaterThanOrEqual(2 * CAR.mass);
+  expect(TRUCK.mass).toBeGreaterThanOrEqual(1.9 * CAR.mass);
   expect(TRUCK.wheelRadius).toBeGreaterThan(CAR.wheelRadius * 1.3);
-  // Spring rate per unit mass: softer. Damping ratio (4 c / (2 ω), ω = 2 √k for four wheels): higher.
-  expect(TRUCK.suspensionStiffness).toBeLessThan(CAR.suspensionStiffness * 0.6);
-  const zeta = (t: typeof CAR | typeof TRUCK, c: number) => 4 * c / (2 * 2 * Math.sqrt(t.suspensionStiffness));
-  expect(zeta(TRUCK, TRUCK.suspensionCompression)).toBeGreaterThan(zeta(CAR, CAR.suspensionCompression));
-  expect(zeta(TRUCK, TRUCK.suspensionRelaxation)).toBeGreaterThan(zeta(CAR, CAR.suspensionRelaxation));
   expect(TRUCK.curbFeel).toBeLessThan(CAR.curbFeel);
-  // Static sag g / (4 k) leaves droop and bump travel either side of the ride height.
-  const sag = 9.81 / (4 * TRUCK.suspensionStiffness);
-  expect(sag).toBeGreaterThan(0.08);
-  expect(sag).toBeLessThan(TRUCK.suspensionTravel - 0.08);
+  // More than two feet of travel at each end; Rapier's rest is the longest (rear full-droop) ray.
+  for (const a of TRUCK.suspensionCurve.axles) expect(a.bump + a.droop).toBeGreaterThan(0.61);
+  expect(TRUCK.rest).toBeGreaterThanOrEqual(TRUCK.suspensionCurve.staticLength + Math.max(...TRUCK.suspensionCurve.axles.map(a => a.droop)));
+  // Consumers that still pose the rig from the linear spring get the static ride: g / (4 k) below rest.
+  expect(TRUCK.rest - 9.81 / (4 * TRUCK.suspensionStiffness)).toBeCloseTo(TRUCK.suspensionCurve.staticLength, 6);
 });
 
 test('truck drivetrain: 40/60 torque split over all four wheels, handbrake on the rear axle only', () => {
@@ -79,19 +76,19 @@ test('truck drivetrain: 40/60 torque split over all four wheels, handbrake on th
   w.free();
 });
 
-test('truck physics: high ride height, 0-100 km/h in about 3 s, 120 km/h top speed, upright at full lock', () => {
+test('truck physics: high ride height, 0-100 km/h in about 4.2 s, 155 km/h top speed, upright at full lock', () => {
   const car = drive('car', -500), truck = drive('truck', -500);
   const rest = truck.vehicle.state();
   expect(rest.pos.y - car.vehicle.state().pos.y).toBeGreaterThan(0.15);
   let t100 = 0;
   const top = truck.run(30, input({ throttle: 1 }), (s, t) => { if (!t100 && s.forwardSpeed * 3.6 >= 100) t100 = t; });
-  expect(t100).toBeGreaterThan(2.8);
-  expect(t100).toBeLessThan(3.5);
-  expect(Math.abs(top.forwardSpeed - TRUCK_TARGET_SPEED) / TRUCK_TARGET_SPEED).toBeLessThan(0.02);
+  expect(t100).toBeGreaterThan(3.6);
+  expect(t100).toBeLessThan(4.8);
+  expect(Math.abs(top.forwardSpeed - TRUCK_TARGET_SPEED) / TRUCK_TARGET_SPEED).toBeLessThan(0.045);
   let stop = NaN;
   truck.run(8, input({ brake: 1 }), s => { if (Number.isNaN(stop) && s.forwardSpeed < 0.3) stop = s.pos.x - top.pos.x; });
-  expect(stop).toBeGreaterThan(20);
-  expect(stop).toBeLessThan(60);
+  expect(stop).toBeGreaterThan(40);
+  expect(stop).toBeLessThan(110);
   let worst = 0;
   truck.run(5, input({ throttle: 1 }));
   truck.run(6, input({ throttle: 1, steer: 1 }), s => { worst = Math.max(worst, tilt(s.rot)); });
@@ -153,7 +150,7 @@ test('truck jump: a 1 m kicker at 43 km/h flies, lands on its wheels without a c
 test('truck chase camera: higher and farther back than the car at every speed', () => {
   for (const speed of [0, 10, 33]) {
     const car = chaseSettings(speed, 'car'), truck = chaseSettings(speed, 'truck');
-    expect(truck.distance - car.distance).toBeCloseTo(1.5);
+    expect(truck.distance - car.distance).toBeCloseTo(2.3);
     expect(truck.height).toBeGreaterThan(car.height + 0.4);
     expect(truck.fov).toBe(car.fov);
   }

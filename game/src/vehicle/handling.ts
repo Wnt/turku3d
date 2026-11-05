@@ -21,12 +21,14 @@ export function handling(input: VehicleInput | null, forwardSpeed: number, tunin
   const wheelForce = tuning.engineForce * clamp((limit - speed) / 5, 0, 1);
   const powerForce = tuning.enginePower / (Math.max(1, speed) * tuning.driven.length);
   const engine = drive * Math.min(wheelForce, powerForce);
+  const grip = tuning.grip;
   return {
-    engine, brake,
+    engine, brake, drive: brake > 0 ? 0 : Math.abs(drive),
     steer: -clamp(input?.steer ?? 0, -1, 1) * tuning.maxSteer / (1 + (speed / tuning.steerHalfSpeed) ** 2),
     // Progressive tyre slip, with a rear-only handbrake drift.
-    frontGrip: 2.4 - Math.min(0.5, speed / 60),
-    rearGrip: input?.handbrake ? 0.65 : 2.2 - Math.min(0.4, speed / 65),
+    // A tuning's own grip keeps the same relative speed fade.
+    frontGrip: grip ? grip.front * (1 - Math.min(0.5, speed / 60) / 2.4) : 2.4 - Math.min(0.5, speed / 60),
+    rearGrip: input?.handbrake ? 0.65 : grip ? grip.rear * (1 - Math.min(0.4, speed / 65) / 2.2) : 2.2 - Math.min(0.4, speed / 65),
     handbrake: input?.handbrake ?? false,
   };
 }
