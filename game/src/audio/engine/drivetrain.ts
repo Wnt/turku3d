@@ -27,7 +27,9 @@ export interface DrivetrainSpec {
 
 export const DRIVETRAIN: DrivetrainSpec = {
   idle: 930, idleWander: 0.03, idleDip: 45,
-  gears: [2.48, 1.48, 1.0], reverse: 2.08, final: 8.5,
+  // Final drive 7.9: the 44.6 m/s drag terminal reads ≈ 6,700 rpm in 3rd with the converter's 6 % slip, clear of
+  // the 7,000 rpm soft limit (8.5 sat on the limiter at top speed and downhill).
+  gears: [2.48, 1.48, 1.0], reverse: 2.08, final: 7.9,
   stall: 3200, wheelRadius: 0.533,
   softLimit: 7000, hardLimit: 7200,
   freeRise: 4500, freeFall: 3000,

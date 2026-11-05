@@ -309,6 +309,28 @@ test('feed: driven-wheel speed from rotation deltas (wrapped), synced drv smooth
   expect(r.drive.load).toBe(1);
 });
 
+const wrapPi = (a: number) => a - 2 * Math.PI * Math.round(a / (2 * Math.PI));
+test('feed: no aliasing when a frame spans many physics ticks (hitches, low fps, remote poses)', () => {
+  // 30 m/s at frames of 4-14 physics ticks (67-233 ms): ω·Δt reaches 13 rad, far past ±π.
+  const v = 30, r = 0.533, wheels = (rotation: number) => [0, 1, 2, 3].map(() => ({ ...wheel(r, true), rotation }));
+  const feed = new TruckSoundFeed(1), coupled = new Drivetrain();
+  let rot = 0.4, out = feed.step(1 / 60, { forwardSpeed: v, speed: v, wheels: wheels(rot) }, { throttle: 1 });
+  const errors: number[] = [];
+  for (let k = 0; k < 80; k++) {
+    const ticks = 4 + (k * 7) % 11, dt = ticks / 60;
+    rot = wrapPi(rot + v / r * dt * 1.02);
+    out = feed.step(dt, { forwardSpeed: v, speed: v, wheels: wheels(rot) }, { throttle: 1 });
+    if (k > 20) errors.push(Math.abs(out.drive.rpm / Math.min(7000, coupled.coupledRpm(v * 1.02, out.drive.gear) * 1.06) - 1));
+    expect(Math.abs(out.drivenWheelSpeed / (v * 1.02) - 1)).toBeLessThan(1e-6);
+  }
+  expect(Math.max(...errors)).toBeLessThan(0.03);
+});
+
+test('gearing: the 44.6 m/s top speed in 3rd reads at most 6,700 rpm, off the limiter', () => {
+  const gearbox = new Drivetrain();
+  expect(gearbox.coupledRpm(44.6, 3) * 1.06).toBeLessThanOrEqual(6700);
+});
+
 test('GameAudio: truck frames pick voices without a worklet, and GameplayAudio feeds the local truck then releases it', async () => {
   const events: AudioEvent[] = [], adapter = new GameplayAudio(e => events.push(e));
   const truck = { id: 'truck', kind: 'truck' as const, pos: { x: 0, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 0, y: 0, z: 0 },
