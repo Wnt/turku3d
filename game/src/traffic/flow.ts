@@ -100,7 +100,7 @@ export interface FlowCar {
 
 
 /** A U-turn from the car's lane position onto `to` at arc length `at`, `progress` 0..1 along a U-shaped path. */
-export interface UTurn { to: Lane; at: number; progress: number }
+export interface UTurn { to: Lane; at: number; progress: number; /** Forward reach of the U (m): the room ahead. */ reach: number }
 
 export interface TrafficCheckpoint {
   version: number; roads: string; tick: number; epoch: number;
@@ -634,7 +634,7 @@ export class TrafficFlow {
       if (byPlayer && stop - car.s < 0.5) car.blockedBy = 'player';
       // Held up long enough behind an obstacle: go round it when the corridor beside it is clear.
       const patience = PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key));
-      if (!car.change && !car.swerveTarget && !car.swerve) {
+      if (!car.change && !car.swerveTarget && !car.swerve && !car.uturn) {
         let obstacles: Body[] | null = null;
         const parked = byPlayer && blocker && Math.hypot(blocker.vx, blocker.vz) < 0.5;
         if (parked && (car.speed > 1 || car.held > patience)) {
@@ -666,7 +666,7 @@ export class TrafficFlow {
             const wait = byPlayer ? car.held : car.stopped;
             if (stop - car.s < 0.5 && wait > BLOCKED_AFTER * (1 + patient) && car.backed < 0.5 && this.roomBehind(car)) {
               car.reverse = Math.min(REVERSE_MAX, BLOCKED_BACK * (1 + patient)); this.stats.reverses++;
-            } else if (wait > UTURN_AFTER * (1 + patient)) this.beginUTurn(car);
+            } else if (wait > UTURN_AFTER * (1 + patient)) this.beginUTurn(car, Math.max(0, stop - car.s) + 1.5);
             if (car.backed > 0.5) stop = Math.min(stop, car.s);
           }
         }
@@ -874,8 +874,8 @@ export class TrafficFlow {
 
   /** Starts a U-turn onto the opposite lane at the mirrored point when that lane is clear around it (no car within
    *  UTURN_CLEAR m, and nothing arriving within UTURN_SECONDS). */
-  private beginUTurn(car: FlowCar) {
-    if (car.change || car.swerve || car.reservation) return;
+  private beginUTurn(car: FlowCar, room: number) {
+    if (car.uturn || car.change || car.swerve || car.reservation) return;
     const to = this.opposite(car.lane);
     if (!to) return;
     const at = to.length - car.s / car.lane.length * to.length;
@@ -884,14 +884,15 @@ export class TrafficFlow {
       const ahead = other.s - at, approaching = at - other.s;
       if (Math.abs(ahead) < UTURN_CLEAR || approaching > 0 && approaching < UTURN_CLEAR + other.speed * UTURN_SECONDS) return;
     }
-    car.uturn = { to, at, progress: 0 }; car.signal = null; this.stats.uturns++;
+    car.uturn = { to, at, progress: 0, reach: Math.max(1.5, Math.min(6, room)) }; car.signal = null;
   }
 
   /** Moves a U-turn on (guarded; a blocked step waits) and, once done, puts the car on the opposite lane. */
   private advanceUTurn(car: FlowCar) {
     const u = car.uturn!, before = u.progress;
     u.progress = Math.min(1, before + FLOW_STEP / UTURN_SECONDS);
-    if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { u.progress = before; return; }
+    const pose = sampleFlowPose(car, 0, () => 0);
+    if (this.obstructed(car, pose) || this.touchesPlayer(car, pose)) { u.progress = before; return; }
     car.speed = 0;
   }
 
@@ -901,7 +902,7 @@ export class TrafficFlow {
     const list = this.byLane.get(car.lane);
     if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
     car.lane = u.to; car.s = u.at; car.hops++; car.route = this.chooseRoute(u.to, car.key, car.hops);
-    car.uturn = null; car.held = 0; car.backed = 0; car.changeCooldown = this.tick + 100;
+    car.uturn = null; car.held = 0; car.backed = 0; car.changeCooldown = this.tick + 100; this.stats.uturns++;
     const to = this.byLane.get(u.to);
     if (to) { to.push(car); to.sort((a, b) => b.s - a.s); } else this.byLane.set(u.to, [car]);
   }
@@ -1336,7 +1337,7 @@ export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, 
     // A U-shaped cubic from here onto the opposite lane, the nose along the path (a smoothstep in time).
     const u = car.uturn, t = u.progress, f = t * t * (3 - 2 * t);
     const p0 = { x: mid.x, z: mid.z, hx: mid.hx, hz: mid.hz }, p1 = routePointInto(u.to, u.at, frontPoint);
-    const k = 4 + 0.5 * Math.hypot(p1.x - p0.x, p1.z - p0.z);
+    const k = u.reach;
     const c0x = p0.x + p0.hx * k, c0z = p0.z + p0.hz * k, c1x = p1.x - p1.hx * k, c1z = p1.z - p1.hz * k;
     const g = 1 - f;
     out.x = g * g * g * p0.x + 3 * g * g * f * c0x + 3 * g * f * f * c1x + f * f * f * p1.x;
