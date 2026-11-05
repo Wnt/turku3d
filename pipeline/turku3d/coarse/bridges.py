@@ -203,6 +203,9 @@ def merge_crossings(ways, outlines):
     return result
 
 
+SKEW_LIMIT = float(np.cos(np.radians(10)))  # crossings closer to parallel than this run along the deck
+
+
 def passes_under(bridge, way):
     """Only actual transverse interior crossings need headroom; approaches do not.
 
@@ -223,7 +226,9 @@ def passes_under(bridge, way):
     if cross.is_empty or cross.geom_type not in ("Point", "MultiPoint"):
         return False
     for p in shapely.get_parts(cross):
-        if a.boundary.distance(p) < 0.5 or b.boundary.distance(p) < 0.5:
+        # A crossing at the bridge's own end is an approach. One at the lower way's end is not:
+        # OSM splits a road under a bridge, so a lower way often starts or ends beneath the deck.
+        if a.boundary.distance(p) < 0.5:
             continue
 
         def tangent(line, p=p):
@@ -233,7 +238,9 @@ def passes_under(bridge, way):
             )
 
         da, db = tangent(a), tangent(b)
-        if abs(da @ db) < 0.85 * np.linalg.norm(da) * np.linalg.norm(db):
+        # Any real crossing, also a skew one (Helsinginkatu runs 18 deg off the railway under
+        # Lemminkäisenkatu): only a way along the deck itself is not crossed.
+        if abs(da @ db) < SKEW_LIMIT * np.linalg.norm(da) * np.linalg.norm(db):
             return True
     return False
 

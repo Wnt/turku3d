@@ -178,3 +178,16 @@ def test_a_bridge_deck_narrower_than_its_lanes_is_widened_at_its_own_level():
         assert abs(centre[1] + half[1] - 8.0) < 1e-3 and 1.0 <= abs(centre[2]) <= 2.7
     street = graph([(2, 0), (38, 0)], [8.0, 8.0], width=4.25)
     assert [f for f in RB.slabs(street, floor, BBOX, stats) if f[3] == "deck"] == []
+
+
+def test_a_skew_road_split_under_a_deck_passes_under_it():
+    from turku3d.coarse.bridges import passes_under
+
+    deck = dict(id="deck", line=shapely.LineString([(0, 0), (100, 0)]), layer=1, bridge=True, width=12.0)
+    # 18 deg off the deck, and OSM split it right under the deck: the crossing is at its end.
+    a = (50 - 30 * np.cos(np.radians(18)), -30 * np.sin(np.radians(18)))
+    road = dict(id="road", tags={"highway": "trunk"}, line=shapely.LineString([a, (50, 0)]), layer=0, bridge=False)
+    longer = dict(road, line=shapely.LineString([a, (50 + 30 * np.cos(np.radians(18)), 30 * np.sin(np.radians(18)))]))
+    assert passes_under(deck, longer)
+    along = dict(road, line=shapely.LineString([(40, -0.5), (60, 0.5)]))  # 3 deg: runs along the deck
+    assert not passes_under(deck, along)
