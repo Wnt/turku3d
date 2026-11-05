@@ -93,11 +93,26 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
     )
 
 
+LOWER_ROAD_MARGIN = 2.0  # m beyond a lower way's half width: its kerbside where its lamps stand
+
+
 def deck_cover(roads):
-    """Plan area of the bridge decks over the tile's ground (not on-grade landings), or None."""
-    ways = (roads or {}).get("bridge_ways") or []
-    decks = [w.get("outline", w["line"].buffer(w["width"] / 2)) for w in ways if not w.get("landing")]
-    return shapely.union_all(decks) if decks else None
+    """Plan area where a deck spans a lower road: each deck's footprint (not on-grade landings) over
+    the corridors of the ways that pass under it, or None. A lamp there stands on the lower road and
+    would reach up through the deck; a register lamp elsewhere on a deck stays, so a deck with no
+    mapped lamps of its own does not go dark."""
+    parts = []
+    for way in (roads or {}).get("bridge_ways") or []:
+        if way.get("landing"):
+            continue
+        lower = [w["line"].buffer(w["width"] / 2 + LOWER_ROAD_MARGIN)
+                 for w in [*way.get("under", []), *way.get("below", [])]
+                 if w.get("tags", {}).get("highway") not in (None, "steps")]
+        if lower:
+            deck = way.get("outline", way["line"].buffer(way["width"] / 2))
+            parts.append(deck.intersection(shapely.union_all(lower)))
+    parts = [p for p in parts if not p.is_empty]
+    return shapely.union_all(parts) if parts else None
 
 
 EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
@@ -132,7 +147,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
             stats[f"dropped_on_deck:{p.kind}"] += 1
             continue
         if p.kind == "lamp" and overhead is not None and overhead.covers(point):
-            # A free-standing street light under a bridge deck pokes its head up through the deck
+            # A street light on the lower road under a deck pokes its head up through the deck
             # into its traffic lanes (Kupittaansilta). The deck carries its own mapped lamps.
             stats["lamp_under_deck"] += 1
             continue
