@@ -1,4 +1,5 @@
 import type * as THREE from 'three/webgpu';
+import { addNodeBuilderHook } from './nodeBuilderHooks';
 import { afterRender } from './afterRender';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -48,8 +49,7 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
       const pass = { target: internal._renderTarget, mrt: internal._mrt, context: internal.contextNode, renderContext: internal._currentRenderContext };
       const queued = performance.now();
       const built = new Promise<void>(resolve => afterRender(resolve)).then(async () => {
-        const previous = internal.debug.onNodeBuilderCreated;
-        internal.debug.onNodeBuilderCreated = (builder, draw) => {
+        const removeHook = addNodeBuilderHook(renderer, (builder, draw) => {
           if ((draw as RenderObject) === renderObject) {
             (builder as { renderer: unknown }).renderer = new Proxy(renderer, { get(source, name, receiver) {
               if (name === '_renderTarget') return pass.target;
@@ -59,12 +59,11 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
               return Reflect.get(source, name, receiver);
             } });
           }
-          previous?.(builder, draw);
-        };
+        });
         const started = performance.now();
         let promise: Promise<unknown>;
         try { promise = nodes.getForRenderAsync(renderObject); }
-        finally { internal.debug.onNodeBuilderCreated = previous; }
+        finally { removeHook(); }
         await promise;
         streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - queued), ms: Math.round(performance.now() - started) });
       }).catch(error => console.warn(`[async node build] ${error}`)).finally(() => pending.delete(key));
