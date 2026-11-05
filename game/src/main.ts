@@ -396,11 +396,15 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
-// During play r186's asynchronous shader-build stages run after each frame within a 3 ms share instead of back to
-// back between two frames (render/yieldPacer.ts), but only once the 3x3 window has its full tiles: while it waits
-// (streamingAllowance.urgent) they run at native speed. Pacing those too starved HD installs on the Radeon 560X
-// (tile.prepare p50 2 -> 27 s, HD 62 -> 34 %) and cost the M1 Air 5 points. Loading and bench settles are not paced.
-paceYields(() => ((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled()) && !streamingAllowance.urgent);
+// In play r186's asynchronous shader-build stages (and the deferred first-use builds, render/asyncNodeBuilds.ts) run
+// after each frame within a share of the frame gap instead of back to back (render/yieldPacer.ts): 3 ms, the streaming
+// allowance while the 3x3 window waits for full tiles (it steers the frame interval to its 24 ms target; a fixed
+// 3 ms there starved HD installs on the Radeon 560X), and LOADING_SHARE_MS while the world loads. Unpaced, the boot
+// warm-up ran ~400 builds back to back: city.lab froze 22-25 s with no frame (2026-11-05); urgent installs gave
+// 1.4-2.8 s of long frames per 5 s. QA renders and bench settles are not paced.
+const LOADING_SHARE_MS = 50;
+paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
+  : streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3);
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {

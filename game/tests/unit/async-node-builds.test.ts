@@ -52,3 +52,31 @@ test('r186 routes every draw through _renderObjectDirect via _handleObjectFuncti
   expect(source).toMatch(/this\._handleObjectFunction = this\._renderObjectDirect;/);
   expect(source).toMatch(/_renderObjectDirect\( object, material, scene, camera, lightsNode, group, clippingContext, passId \) \{\s*const renderObject = this\._objects\.get\( object, material, scene, camera, lightsNode, this\._currentRenderContext, clippingContext, passId \);/);
 });
+
+test('deferred builds run one at a time: the next starts only after the previous settled, on its own turn', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => setTimeout(callback, 0));
+  const cache = new Map<number, unknown>(), states = new Map<object, { nodeBuilderState?: unknown }>();
+  const started: number[] = [], finish: (() => void)[] = [];
+  const nodes = {
+    nodeBuilderCache: cache,
+    get(object: object) { let data = states.get(object); if (!data) states.set(object, data = {}); return data; },
+    getForRenderCacheKey: (draw: { key: number }) => draw.key,
+    getForRenderAsync(draw: { key: number }) {
+      started.push(draw.key);
+      // The second build fails: the queue still goes on.
+      return new Promise<void>((resolve, reject) => finish.push(() => { if (draw.key === 2) reject(new Error('lost')); else { cache.set(draw.key, 1); resolve(); } }));
+    },
+  };
+  const renderer = { _nodes: nodes, _objects: { get: (object: { key: number }) => ({ isRenderObject: true, key: object.key }) },
+    debug: { onNodeBuilderCreated: null } } as unknown as THREE.WebGPURenderer;
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const { ready, settled } = asyncFirstUseBuilds(renderer, () => true);
+  for (const key of [1, 2, 3]) ready({ key } as unknown as THREE.Object3D, {} as THREE.Material, {} as THREE.Scene, {} as THREE.Camera, null, null, null);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 5));
+  await tick(); expect(started).toEqual([1]);
+  finish[0](); await tick(); expect(started).toEqual([1, 2]);
+  finish[1](); await tick(); expect(started).toEqual([1, 2, 3]);
+  finish[2](); await settled();
+  expect(warn).toHaveBeenCalledTimes(1);
+  warn.mockRestore(); vi.unstubAllGlobals();
+});

@@ -12,7 +12,12 @@ import { streamTrace } from '../telemetry/streamTrace';
  * While `active()` holds (the per-frame post pipeline), a world draw whose program is neither built nor cached is
  * instead skipped and its program built after the frame with `getForRenderAsync`, which yields between build stages;
  * the draw appears a few frames later, like a first-use pipeline (render/asyncPipelines.ts). This is the commercial
- * engines' rule: never compile inside a frame. Effect quads and every other render keep the synchronous path. */
+ * engines' rule: never compile inside a frame. Effect quads and every other render keep the synchronous path.
+ *
+ * The deferred builds run one at a time, each starting on its own `scheduler.yield()` turn (render/yieldPacer.ts
+ * paces those). Started together after their frame, the boot warm-up's few hundred builds ran their synchronous
+ * first stages in one task and the rest back to back: city.lab boot and join froze the page 22-25 s (Jonni's
+ * 2026-11-05 drive; 9.6 s of it in those synchronous starts). */
 type RenderObject = { isRenderObject: true; object: THREE.Object3D; material: THREE.Material; context: unknown };
 interface Nodes {
   nodeBuilderCache: Map<number, unknown>;
@@ -31,9 +36,21 @@ interface Internals {
 export type DirectDraw = (object: THREE.Object3D, material: THREE.Material, scene: THREE.Scene, camera: THREE.Camera,
   lightsNode: unknown, group: unknown, clippingContext: unknown, passId?: string) => void;
 
+/** A turn of the paced scheduler (render/yieldPacer.ts), or a task hop where scheduler.yield is missing. */
+const turn = () => {
+  const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
+  return scheduler?.yield ? scheduler.yield() : new Promise<void>(resolve => setTimeout(resolve, 0));
+};
+
 export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () => boolean) {
   const internal = renderer as unknown as Internals;
   const pending = new Map<number, Promise<void>>();
+  const queue: (() => Promise<void>)[] = [];
+  let draining: Promise<void> | null = null;
+  const drain = () => draining ??= (async () => {
+    await new Promise<void>(resolve => afterRender(resolve));
+    while (queue.length) { await queue.shift()!(); await turn(); }
+  })().finally(() => { draining = null; if (queue.length) void drain(); });
   let deferred = 0;
   /** True when the draw may go ahead now; false when it is skipped while its program builds after the frame. */
   const ready: (...args: Parameters<DirectDraw>) => boolean = (object, material, scene, camera, lightsNode, _group, clippingContext, passId) => {
@@ -48,7 +65,7 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
       // The build reads renderer pass state again after each yield: pin this draw's pass, as compileModel does.
       const pass = { target: internal._renderTarget, mrt: internal._mrt, context: internal.contextNode, renderContext: internal._currentRenderContext };
       const queued = performance.now();
-      const built = new Promise<void>(resolve => afterRender(resolve)).then(async () => {
+      const build = async () => {
         const removeHook = addNodeBuilderHook(renderer, (builder, draw) => {
           if ((draw as RenderObject) === renderObject) {
             (builder as { renderer: unknown }).renderer = new Proxy(renderer, { get(source, name, receiver) {
@@ -66,8 +83,10 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
         finally { removeHook(); }
         await promise;
         streamTrace.event('gfx.deferred', undefined, { material: material.name || material.type, wait: Math.round(started - queued), ms: Math.round(performance.now() - started) });
-      }).catch(error => console.warn(`[async node build] ${error}`)).finally(() => pending.delete(key));
-      pending.set(key, built);
+      };
+      const built = new Promise<void>((resolve, reject) => queue.push(() => build().then(resolve, reject)));
+      pending.set(key, built.catch(error => console.warn(`[async node build] ${error}`)).finally(() => pending.delete(key)));
+      void drain();
     }
     return false;
   };
