@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
 import os
 import shutil
 import sys
@@ -245,7 +246,10 @@ class Lane:
     """One worker process that keeps its decoded blocks between tiles."""
 
     def __init__(self, blocks: int):
-        self.pool = ProcessPoolExecutor(max_workers=1, initializer=_init, initargs=(blocks,))
+        # spawn, not fork: the scheduler runs threads (spot-rebuild requests to the farm), and a worker forked
+        # while one of them holds a lock deadlocks for good (train7: both lanes stuck in a futex for hours).
+        self.pool = ProcessPoolExecutor(max_workers=1, initializer=_init, initargs=(blocks,),
+                                        mp_context=multiprocessing.get_context('spawn'))
         self.future = None
         self.tile = None
         self.last = None

@@ -16,7 +16,7 @@ spec.loader.exec_module(city)
 def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -39,7 +39,7 @@ def test_pass_logs_step_timings_and_resumes(tmp_path, monkeypatch):
 def test_a_tile_waiting_for_its_spot_rebuild_asks_the_farm_and_is_retried(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -125,7 +125,7 @@ def test_an_inherited_spot_rebuild_takes_the_steps_appended_after_its_chain(tmp_
 def test_an_ordered_tiles_file_keeps_its_order(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT,))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
@@ -152,7 +152,7 @@ def test_estimate_weights_surveyed_and_unsurveyed_tiles():
 def test_a_checkpoint_stores_the_prefix_that_a_changed_tail_resumes_from(tmp_path, monkeypatch):
     monkeypatch.setattr(registry, "CHAIN", (TINT, ROADS))
     root, meta, _ = farm(tmp_path)
-    monkeypatch.setattr(city, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+    monkeypatch.setattr(city, "ProcessPoolExecutor", lambda *a, mp_context=None, **k: concurrent.futures.ThreadPoolExecutor(*a, **k))
     monkeypatch.setattr(city.os, "nice", lambda increment: 0)
     monkeypatch.setattr(city.os, "getloadavg", lambda: (0.0, 0.0, 0.0))  # the host's load must not hold the cap
     monkeypatch.setattr(city, "available_memory_gb", lambda: 64.0)
