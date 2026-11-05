@@ -164,21 +164,65 @@ def apply_prior(wall, archetype, attrs, own, record):
     return local
 
 
-def building_material(attrs, record, observed, description=None):
-    """Owner evidence, then unopposed reviewed wall readings, then register cladding.
+def section_material_support(own, section):
+    """Support of a reading section's material: its own score, the reading's ``material``
+    score, or a score the reading keyed by that material's name (``stone: 0.99``)."""
+    from turkutex.facade_sections import MATERIAL_WORDS
 
-    An inferred family supplies unobserved zones only. Confident wall/zone readings
-    still override it; colours and layouts are never copied between walls.
+    obs = (own or {}).get("structure", {}).get("facade_observations", {})
+    sources = obs.get("sections", [])
+    source = sources[section["index"]] if section["index"] < len(sources) else {}
+    if "material_support" in source:
+        return source["material_support"]
+    family = section.get("material")
+    names = {"material", family, material(family), *MATERIAL_WORDS.get(family, ())} - {None}
+    scores = []
+    for confidence in (source.get("confidence", {}), obs.get("confidence", {})):
+        if isinstance(confidence, dict):
+            scores += [v for k, v in confidence.items()
+                       if k in names and isinstance(v, (int, float))]
+        elif isinstance(confidence, (int, float)):
+            scores.append(confidence)
+    return max(scores, default=0)
+
+
+def reading_materials(observed):
+    """Supported cladding materials of reviewed walls: the wall field, else a material
+    section covering most of the wall (a stone ``wall and top`` reading)."""
+    from turkutex.facade_sections import sections
+
+    result = []
+    for w in (observed or {}).get("walls", []):
+        if w.get("observation", {}).get("needs_review", True):
+            continue
+        item = w.get("wall", {}).get("material")
+        if supported(item):
+            result.append(item)
+            continue
+        form = w.get("structure", {})
+        if not form.get("facade_observations"):
+            continue
+        for section in sections(form, (observed.get("storeys") or {}).get("value"))[0]:
+            x, y, width, height = section["bounds"]
+            support = section_material_support(w, section)
+            if section["material"] and width * height >= 0.5 and support >= MIN_SUPPORT:
+                result.append(dict(value=section["material"], support=support))
+    return result
+
+
+def building_material(attrs, record, observed, description=None):
+    """Owner evidence, unopposed reviewed wall readings, register/OSM cladding, then the
+    AI description's material.
+
+    Register and OSM cladding are source data and outrank a description's material
+    guess (the description itself is kept). An inferred family supplies unobserved
+    zones only. Confident wall/zone readings still override it; colours and layouts
+    are never copied between walls.
     """
     explicit = record.get("building", {}).get("material_class")
     if supported(explicit):
         return {**explicit, "value": material(explicit["value"])}
-    readings = [
-        w.get("wall", {}).get("material")
-        for w in (observed or {}).get("walls", [])
-        if not w.get("observation", {}).get("needs_review", True)
-    ]
-    readings = [r for r in readings if supported(r)]
+    readings = reading_materials(observed)
     families = {material(r["value"]) for r in readings}
     if len(families) == 1:
         return dict(
@@ -186,15 +230,15 @@ def building_material(attrs, record, observed, description=None):
             support=min(r["support"] for r in readings),
             source="unopposed reviewed facade material; unobserved-zone prior",
         )
+    if attrs.get("material_class"):
+        return dict(
+            value=material(attrs["material_class"]), support=0.4, source="register cladding"
+        )
     if description:
         return dict(
             value=material(description["material"]),
             support=0.4,
             source="existing generated description",
-        )
-    if attrs.get("material_class"):
-        return dict(
-            value=material(attrs["material_class"]), support=0.4, source="register cladding"
         )
     return None
 
@@ -259,14 +303,7 @@ def finish_material(wall, family, own, record, description, key):
             )
         )
     for section in wall.get("render_sections", []):
-        form = (own or {}).get("structure", {})
-        obs = form.get("facade_observations", {})
-        source = obs.get("sections", [])[section["index"]]
-        confidence = source.get("confidence", {})
-        support = confidence.get("material", 0) if isinstance(confidence, dict) else confidence
-        support = source.get(
-            "material_support", support or obs.get("confidence", {}).get("material", 0)
-        )
+        support = section_material_support(own, section)
         section["material_support"] = support
         section["material"] = (
             material(section["material"])

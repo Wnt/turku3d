@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -131,8 +132,24 @@ def matching_wall(vertices, program):
     return None
 
 
-def described_blank_walls(key, vertices, description):
-    """A zero count is evidence for its source wall, never a whole building."""
+def names_windows(reading):
+    """A reviewed reading of this wall that names windows (not 'no windows'/'windowless')."""
+    if not reading:
+        return False
+    form = reading.get("structure", {})
+    text = " ".join(
+        [str(s.get("kind", "")) + " " + " ".join(map(str, s.get("features", [])))
+         for s in form.get("facade_observations", {}).get("sections", [])]
+        + [str(f.get("kind", "")) for f in form.get("features", []) if isinstance(f, dict)]
+        + [" ".join(map(str, r.get("bays", []))) for r in form.get("floors", [])]
+    ).lower()
+    text = re.sub(r"\b(no|without)\s+(\w+\s+)?windows?\b|windowless", " ", text)
+    return bool(re.search(r"\bwindows?\b", text))
+
+
+def described_blank_walls(key, vertices, description, observed=None):
+    """A zero count is evidence for its source wall, never a whole building. A reviewed
+    reading of the same wall that names windows outranks the description's zero."""
     if (description.get("window_columns") or not description.get("wall_visible", True)
             or description.get("problem")):
         return set()
@@ -151,7 +168,8 @@ def described_blank_walls(key, vertices, description):
         base = source["base_height"]
         height = source["metadata"].get("height_m", 0)
         if points[:, 1].min() >= base - .25 and points[:, 1].max() <= base + height + .25:
-            result.add(index)
+            if not names_windows(matching_wall(points, observed)):
+                result.add(index)
     return result
 
 
@@ -406,7 +424,7 @@ def resolve(building, vertices, eaves, *, layout_height=None):
     if d:
         row = description_row(building.facade_key) or {}
         describe(program, d, row.get("width_m") or attrs["frontage_m"],
-                 blank_walls=described_blank_walls(building.facade_key, vertices, d))
+                 blank_walls=described_blank_walls(building.facade_key, vertices, d, observed))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
     for index, wall in enumerate(program["walls"]):
