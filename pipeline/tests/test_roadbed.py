@@ -400,3 +400,20 @@ def test_a_lowered_outline_corner_does_not_slope_the_deck_across_its_lanes():
                   np.array([26.0, 26.0]), "road", height, 0.5)
     for z in (-10.0, 0.0, 10.0):
         assert abs(_surface_at(meshes[0], 20.0, z) - 26.0) < 0.05
+
+
+def test_a_road_under_a_low_viaduct_dips_to_keep_its_clearance():
+    from turku3d.coarse.bridges import DRIVE_CLEARANCE, SAG_GRADE, clearance_cut
+
+    outline = shapely.box(-10, -6, 10, 6)  # viaduct over a road running along z
+    road = dict(id=1, line=shapely.LineString([(0, -80), (0, 80)]), width=7.0, tags={"highway": "primary"})
+    deck = dict(id=9, line=shapely.LineString([(-10, 0), (10, 0)]), width=12.0, under=[road], below=[])
+    xs, zs = np.meshgrid(np.arange(-2.0, 2.1, 1.0), np.arange(-60.0, 60.1, 1.0))
+    grid = np.c_[xs.ravel(), np.full(xs.size, 7.5), zs.ravel()]  # the road 1.25 m under the soffit
+    cut = clearance_cut(grid, deck, lambda xz: np.full(len(xz), 9.85), 1.1, outline)
+    under = np.abs(grid[:, 2]) < 5
+    assert np.allclose(cut[under, 1], 9.85 - 1.1 - DRIVE_CLEARANCE)
+    lane = np.abs(grid[:, 0]) < 0.1
+    order = np.argsort(grid[lane, 2])
+    assert np.abs(np.diff(cut[lane][order, 1])).max() <= SAG_GRADE * 1.0 + 1e-9  # a dip, not a pit
+    assert np.allclose(cut[np.abs(grid[:, 2]) > 40, 1], 7.5)
