@@ -127,6 +127,26 @@ The chase camera frames the truck from 1.5 m farther back and looks at a point 1
 Run `npx vitest run tests/unit/truck.test.ts` (tuning, torque split and handbrake, ride height, acceleration, top speed,
 braking, full-lock roll, kerb against car, kicker jump, camera framing).
 
+### Rear steer
+
+The truck steers its rear wheels (`rearSteer.ts`, stepped in `vehicle.ts`; inner-wheel angles, + left). In the truck a
+press of `sprint` (Xbox A, PlayStation ✕, Shift) cycles the mode (`rearSteerControl.ts`, `play.ts`):
+
+| Mode (tag) | Rear inner angle at full front lock and walking pace | Behaviour |
+|---|---|---|
+| AUTO (`auto`, default) | −32° | passive counter-phase: `−passiveRatio(v) · front/42° · 32°`, full below 2.5 m/s, 0 at 13.4 m/s |
+| AUTO 50% (`auto50`) | −16° | exactly half of AUTO's ratio at every speed |
+| LOCK (`lock`) | 0° | rear centred |
+| SIDEWAYS (`crab`) | +32° (front stops at 32°, all four wheels parallel) | in phase, `min(|front|, 32°)` |
+
+Every mode except LOCK locks out at 13.4 m/s (the rear centres at the 1.4 rad/s slew) and releases below 11.6 m/s.
+A press of A at a shop or drop-off is the mission's (`mission` shares the button): it opens or hands over there and
+leaves the mode alone. The autopilot drives in AUTO. The HUD tag (`ui/rearSteerTag.ts`, bottom centre) shows
+`REAR <mode>`, a rear-angle tick and a LOCKED tint; above it a key hint (`Ⓐ · Rear steer: AUTO`, the binding of the
+device in use) shows for 4 s after entering the truck and 2.5 s after a mode change, then fades. Multiplayer sends the
+mode as `drv[3]` (0 AUTO, 1 SIDEWAYS, 2 AUTO 50%, 3 LOCK; `net/drv.ts`); remote rear wheels follow the synced wheel
+`steer`. Tests: `npx vitest run tests/unit/trophy4400-steer.test.ts` and `-t D2` of `tests/unit/trophy4400-dynamics.test.ts`.
+
 ## Verification
 
 From the repo root:

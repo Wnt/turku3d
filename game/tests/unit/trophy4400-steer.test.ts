@@ -1,16 +1,17 @@
 import { describe, expect, test } from 'vitest';
 import { CAR, SCOOTER, TRUCK } from '../../src/physics/constants';
 import { handling } from '../../src/vehicle/handling';
-import { effectiveWheelbase, nextRearMode, passiveRatio, rearSteerIdle, rearSteerStep, type RearSteerState } from '../../src/vehicle/rearSteer';
-import { RearSteerControl, REAR_MODE_HOLD } from '../../src/vehicle/rearSteerControl';
+import { AUTO50_SHARE, effectiveWheelbase, nextRearMode, passiveRatio, REAR_STEER_CYCLE, REAR_STEER_MODES, rearSteerIdle, rearSteerStep,
+  type RearSteerState } from '../../src/vehicle/rearSteer';
+import { RearSteerControl } from '../../src/vehicle/rearSteerControl';
 import { ackermann, ackermann4 } from '../../src/vehicle/wheelKinematics';
 import { corners, damping, droopLength, schedule, springForce, staticLength } from '../../src/vehicle/suspension';
 import { decodeDrv, drvOf, encodeDrv, validDrv } from '../../src/net/drv';
 import { shouldSendPose, type NetPose } from '../../src/net/client';
 import { vehicleFingerprint } from '../../src/net/sharedVehicles';
-import { DEFAULT_BINDINGS, editorBindings, mapActions, type Action } from '../../src/input/bindings';
+import { ACTIONS, DEFAULT_BINDINGS, glyph, mapActions, type Action } from '../../src/input/bindings';
 import { heaveFollow } from '../../src/vehicle/chaseCamera';
-import { rearSteerTag } from '../../src/ui/rearSteerTag';
+import { HINT_CHANGE_MS, HINT_ENTER_MS, RearSteerHintTimer, rearSteerHint, rearSteerTag } from '../../src/ui/rearSteerTag';
 import type { VehicleState } from '../../src/physics/protocol';
 
 const RS = TRUCK.rearSteer, D = Math.PI / 180;
@@ -19,8 +20,8 @@ const xf = TRUCK.wheels[0].x, xr = TRUCK.wheels[2].x, track = TRUCK.wheels[1].z 
 const wheels4 = (front: number, rear: number) => TRUCK.wheels.map((w, i) =>
   ackermann4(front, rear, xf, xr, track, w.x, w.z, i < 2 ? TRUCK.maxSteer : RS.maxAngle));
 /** Steady rear angle after holding the inputs long enough for the slew to settle. */
-const settle = (s: RearSteerState, front: number, speed: number, rocker = 0, seconds = 2) => {
-  for (let k = 0; k < seconds * 60; k++) s = rearSteerStep(RS, s, front, speed, rocker, 1 / 60);
+const settle = (s: RearSteerState, front: number, speed: number, seconds = 2) => {
+  for (let k = 0; k < seconds * 60; k++) s = rearSteerStep(RS, s, front, speed, 1 / 60);
   return s;
 };
 
@@ -64,7 +65,7 @@ describe('steering angle mapping', () => {
     }
     expect(wheels4(0.3, 0.3)).toEqual([0.3, 0.3, 0.3, 0.3]);
     expect(wheels4(0, 0)).toEqual([0, 0, 0, 0]);
-    // Rear-only steer (MANUAL with the front centred): the front axle line holds the centre.
+    // Rear-only steer (front centred): the front axle line holds the centre.
     const [fl, fr, rl] = wheels4(0, -0.3);
     expect(fl).toBeCloseTo(0, 9); expect(fr).toBeCloseTo(0, 9); expect(rl).toBeCloseTo(-0.3, 9);
   });
@@ -93,33 +94,40 @@ describe('rear-steer ratio against speed', () => {
     let s = settle(rearSteerIdle(), 1, 1);
     expect(s.angle).toBeCloseTo(-RS.maxAngle, 6);
     // A step to lockout speed: the rear returns to centre at the slew limit, never in one tick.
-    const next = rearSteerStep(RS, s, 1, 13.4, 0, 1 / 60);
+    const next = rearSteerStep(RS, s, 1, 13.4, 1 / 60);
     expect(next.locked).toBe(true);
     expect(next.angle - s.angle).toBeCloseTo(RS.rate / 60, 9);
     s = settle(next, 1, 13.4);
     expect(s.angle).toBe(0);
-    for (const v of [13, 12, 11.7]) { s = rearSteerStep(RS, s, 1, v, 0, 1 / 60); expect(s.locked).toBe(true); expect(s.angle).toBe(0); }
-    s = rearSteerStep(RS, s, 1, 11.5, 0, 1 / 60);
+    for (const v of [13, 12, 11.7]) { s = rearSteerStep(RS, s, 1, v, 1 / 60); expect(s.locked).toBe(true); expect(s.angle).toBe(0); }
+    s = rearSteerStep(RS, s, 1, 11.5, 1 / 60);
     expect(s.locked).toBe(false);
-    expect(rearSteerStep(RS, rearSteerIdle(), 1, 13.39, 0, 1 / 60).locked).toBe(false);
+    expect(rearSteerStep(RS, rearSteerIdle(), 1, 13.39, 1 / 60).locked).toBe(false);
   });
 
-  test('CRAB copies the front angle in phase up to 32°, MANUAL integrates and holds the rocker, LOCK is 0', () => {
+  test('AUTO 50% is exactly half of AUTO at every speed, with the same lockout; −16° at full lock and walking pace', () => {
+    expect(AUTO50_SHARE).toBe(0.5);
+    expect(settle(rearSteerIdle('auto50'), 1, 1).angle / D).toBeCloseTo(-16, 6);
+    for (const v of [0, 2, 6, 10, 12, 13.4, 20]) for (const front of [1, -0.5, 0.3]) {
+      expect(settle(rearSteerIdle('auto50'), front, v).angle).toBeCloseTo(0.5 * settle(rearSteerIdle('auto'), front, v).angle, 9);
+    }
+    let s = settle(rearSteerIdle('auto50'), 1, 1);
+    s = rearSteerStep(RS, s, 1, 13.4, 1 / 60);
+    expect(s.locked).toBe(true);
+    for (const v of [13, 11.7]) { s = settle(s, 1, v, 0.5); expect(s.locked).toBe(true); expect(s.angle).toBe(0); }
+    s = rearSteerStep(RS, s, 1, 11.5, 1 / 60);
+    expect(s.locked).toBe(false);
+  });
+
+  test('SIDEWAYS (crab) copies the front angle in phase up to 32°, LOCK is 0; the cycle is AUTO → 50% → LOCK → SIDEWAYS', () => {
     const frac = (20 * D) / TRUCK.maxSteer;
     expect(settle(rearSteerIdle('crab'), frac, 3).angle).toBeCloseTo(20 * D, 6);
     expect(settle(rearSteerIdle('crab'), 1, 3).angle).toBeCloseTo(RS.maxAngle, 6);
-    let m = settle(rearSteerIdle('manual'), 0.4, 2, 1, 0.5);
-    expect(m.angle).toBeCloseTo(0.5 * RS.manualRate, 6);
-    m = settle(m, 0.4, 2, 0, 1);
-    expect(m.angle).toBeCloseTo(0.5 * RS.manualRate, 6);
-    m = settle(m, 0, 2, -1, 3);
-    expect(m.angle).toBeCloseTo(-RS.maxAngle, 6);
-    // The lockout centres MANUAL too and forgets the held angle.
-    m = settle(m, 0, 15, 0, 1);
-    expect(m.locked).toBe(true); expect(m.angle).toBe(0); expect(m.manual).toBe(0);
-    const lock = settle(rearSteerIdle('lock'), 1, 1, 1);
+    expect(settle(rearSteerIdle('crab'), 1, 15).angle).toBe(0);
+    const lock = settle(rearSteerIdle('lock'), 1, 1);
     expect(lock.angle).toBe(0); expect(lock.locked).toBe(false);
-    expect([nextRearMode('auto'), nextRearMode('crab'), nextRearMode('manual'), nextRearMode('lock')]).toEqual(['crab', 'manual', 'lock', 'auto']);
+    expect(REAR_STEER_CYCLE.map(nextRearMode)).toEqual(['auto50', 'lock', 'crab', 'auto']);
+    expect([...REAR_STEER_CYCLE].sort()).toEqual([...REAR_STEER_MODES].sort());
   });
 });
 
@@ -241,10 +249,13 @@ describe('suspension travel and force curves', () => {
 
 describe('multiplayer drv field', () => {
   test('encode/decode round-trips at its resolution and clamps out-of-range values', () => {
-    const d = encodeDrv({ throttle: 0.873, rpm: 6123, gear: 2, rearMode: 'manual' });
+    const d = encodeDrv({ throttle: 0.873, rpm: 6123, gear: 2, rearMode: 'auto50' });
     expect(d).toEqual([87, 612, 2, 2]);
     expect(validDrv(d)).toBe(true);
-    expect(decodeDrv(d)).toEqual({ throttle: 0.87, rpm: 6120, gear: 2, rearMode: 'manual' });
+    expect(decodeDrv(d)).toEqual({ throttle: 0.87, rpm: 6120, gear: 2, rearMode: 'auto50' });
+    // Wire indices: AUTO, CRAB and LOCK keep the ones older clients decode; AUTO 50% has MANUAL's old 2, in range.
+    expect(REAR_STEER_MODES).toEqual(['auto', 'crab', 'auto50', 'lock']);
+    expect([0, 1, 2, 3].map(i => decodeDrv([0, 0, 0, i])?.rearMode)).toEqual(['auto', 'crab', 'auto50', 'lock']);
     expect(encodeDrv({ throttle: 3, rpm: 99999, gear: 9, rearMode: 'lock' })).toEqual([100, 800, 3, 3]);
     expect(encodeDrv({ throttle: -1, rpm: NaN, gear: -4, rearMode: 'auto' })).toEqual([0, 0, -1, 0]);
     for (const bad of [[1.5, 0, 0, 0], [0, 801, 0, 0], [0, 0, 4, 0], [0, 0, 0, 4], [0, 0, 0], 'x', null]) {
@@ -265,42 +276,33 @@ describe('multiplayer drv field', () => {
 });
 
 describe('controls', () => {
-  test('rear mode: a tap cycles AUTO → CRAB → MANUAL → LOCK; holding 0.6 s returns to AUTO without cycling', () => {
-    const c = new RearSteerControl(), frame = 1 / 60;
-    const tap = () => { c.update(frame, 1, 0); return c.update(frame, 0, 0).rearMode; };
-    expect([tap(), tap(), tap(), tap()]).toEqual(['crab', 'manual', 'lock', 'auto']);
-    tap(); tap();
-    expect(c.mode).toBe('manual');
-    for (let t = 0; t < REAR_MODE_HOLD + 0.1; t += frame) c.update(frame, 1, 0);
-    expect(c.mode).toBe('auto');
-    expect(c.update(frame, 0, 0).rearMode).toBe('auto');
-    c.sync('lock');
-    expect(c.mode).toBe('lock');
-  });
-
-  test('the rocker acts only in MANUAL; there it owns right-stick X', () => {
+  test('rear mode: each press cycles AUTO → AUTO 50% → LOCK → SIDEWAYS → AUTO; entering adopts the truck\'s mode', () => {
     const c = new RearSteerControl();
-    expect(c.update(1 / 60, 0, 1).rearSteer).toBe(0);
-    c.sync('manual');
-    expect(c.update(1 / 60, 0, -0.6).rearSteer).toBe(-0.6);
-    expect(c.rocking).toBe(true);
+    expect(c.update(false)).toBe('auto');
+    expect([c.update(true), c.update(true), c.update(true), c.update(true)]).toEqual(['auto50', 'lock', 'crab', 'auto']);
+    expect(c.update(false)).toBe('auto');
+    c.sync('lock');
+    expect(c.update(true)).toBe('crab');
+    c.sync(undefined);
+    expect(c.mode).toBe('crab');
   });
 
-  test('bindings: Q / X button for the mode, Z, X and the right stick rock; the editor layer takes Z and X back', () => {
-    expect(DEFAULT_BINDINGS.rearMode).toEqual([{ kind: 'button', index: 2 }, { kind: 'key', code: 'KeyQ', scale: 1 }]);
-    const keys = (codes: string[]) => mapActions(null, new Set(codes), DEFAULT_BINDINGS);
-    expect(keys(['KeyQ']).rearMode).toBe(1);
-    expect(keys(['KeyZ']).rearRocker).toBe(1);
-    expect(keys(['KeyX']).rearRocker).toBe(-1);
-    // No vehicle action shares Q, Z, X or button 2 / right-stick X (camera orbit yields in MANUAL itself).
+  test('bindings: sprint (A, Shift) cycles; the old X/Q mode and Z/X/right-stick rocker actions are gone', () => {
+    expect(DEFAULT_BINDINGS.sprint).toEqual([{ kind: 'button', index: 0 }, { kind: 'key', code: 'ShiftLeft', scale: 1 }, { kind: 'key', code: 'ShiftRight', scale: 1 }]);
+    expect(ACTIONS as readonly string[]).not.toContain('rearMode');
+    expect(ACTIONS as readonly string[]).not.toContain('rearRocker');
+    expect(glyph('sprint', DEFAULT_BINDINGS, true)).toBe('Ⓐ');
+    expect(glyph('sprint', DEFAULT_BINDINGS, true, true)).toBe('✕');
+    expect(glyph('sprint', DEFAULT_BINDINGS, false)).toBe('Shift');
+    for (const code of ['ShiftLeft', 'ShiftRight']) expect(mapActions(null, new Set([code]), DEFAULT_BINDINGS).sprint).toBe(1);
+    // No driving action shares A or Shift; only `mission` shares A, and play.ts gives a press at a mission target to it.
     const vehicle: Action[] = ['throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'interact', 'cameraReset', 'vehicleReset', 'map', 'pause', 'mute'];
     for (const a of vehicle) for (const b of DEFAULT_BINDINGS[a]) {
-      if (b.kind === 'key') expect(['KeyQ', 'KeyZ', 'KeyX']).not.toContain(b.code);
-      if (b.kind === 'button') expect(b.index).not.toBe(2);
+      if (b.kind === 'key') expect(['ShiftLeft', 'ShiftRight']).not.toContain(b.code);
+      if (b.kind === 'button') expect(b.index).not.toBe(0);
     }
-    const editor = editorBindings(DEFAULT_BINDINGS);
-    expect(editor.rearRocker.some(b => b.kind === 'key' && (b.code === 'KeyZ' || b.code === 'KeyX'))).toBe(false);
-    expect(editor.editPrev.some(b => b.kind === 'key' && b.code === 'KeyZ')).toBe(true);
+    expect(DEFAULT_BINDINGS.mission.filter(b => b.kind !== 'key')).toEqual([{ kind: 'button', index: 0 }]);
+    expect(DEFAULT_BINDINGS.mission.some(b => b.kind === 'key' && b.code.startsWith('Shift'))).toBe(false);
   });
 });
 
@@ -316,9 +318,31 @@ describe('camera and HUD', () => {
   test('rear tag reads the mode, the lockout and the rear angle', () => {
     const state = (rearMode: VehicleState['rearMode'], rearLocked: boolean, steer: number) =>
       ({ rearMode, rearLocked, wheels: [0, 0, steer, steer].map(s => ({ steer: s })) }) as unknown as VehicleState;
-    expect(rearSteerTag(state('auto', false, -0.2), RS.maxAngle)).toEqual({ text: 'REAR AUTO', tick: -0.2 / RS.maxAngle, locked: false });
+    expect(rearSteerTag(state('auto', false, -0.2), RS.maxAngle)).toEqual({ mode: 'auto', text: 'REAR AUTO', tick: -0.2 / RS.maxAngle, locked: false });
     expect(rearSteerTag(state('lock', true, 0), RS.maxAngle)?.text).toBe('REAR LOCK');
+    expect(rearSteerTag(state('auto50', false, 0), RS.maxAngle)?.text).toBe('REAR AUTO 50%');
+    expect(rearSteerTag(state('crab', false, 0), RS.maxAngle)?.text).toBe('REAR SIDEWAYS');
     expect(rearSteerTag(state(undefined, false, 0), RS.maxAngle)).toBeNull();
+  });
+
+  test('key hint: the device binding and the mode; shows on entering and briefly on each change, then fades', () => {
+    expect(rearSteerHint('Ⓐ', 'auto')).toBe('Ⓐ · Rear steer: AUTO');
+    expect(rearSteerHint('Shift', 'auto50')).toBe('Shift · Rear steer: AUTO 50%');
+    expect(rearSteerHint('', 'crab')).toBe('Rear steer: SIDEWAYS');
+    const h = new RearSteerHintTimer();
+    expect(h.update(null, 0)).toBe(false);
+    expect(h.update('auto', 1000)).toBe(true); // entered
+    expect(h.update('auto', 1000 + HINT_ENTER_MS - 1)).toBe(true);
+    expect(h.update('auto', 1000 + HINT_ENTER_MS)).toBe(false);
+    expect(h.update('auto50', 10_000)).toBe(true); // changed
+    expect(h.update('auto50', 10_000 + HINT_CHANGE_MS - 1)).toBe(true);
+    expect(h.update('auto50', 10_000 + HINT_CHANGE_MS)).toBe(false);
+    // A change soon after entering never cuts the entry hint short; leaving and entering again shows it again.
+    expect(h.update(null, 20_000)).toBe(false);
+    expect(h.update('auto50', 21_000)).toBe(true);
+    expect(h.update('lock', 21_500)).toBe(true);
+    expect(h.update('lock', 21_000 + HINT_ENTER_MS - 1)).toBe(true);
+    expect(h.update('lock', 21_000 + HINT_ENTER_MS)).toBe(false);
   });
 });
 

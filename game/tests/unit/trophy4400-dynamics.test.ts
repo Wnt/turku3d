@@ -71,6 +71,15 @@ describe('4400 truck on the headless course', () => {
     expect(Math.abs(r.angles[3] - outer(3))).toBeLessThan(0.3);
   });
 
+  test('D2b lock at rest per player mode: AUTO 50% rear inner −16°, LOCK 0°, SIDEWAYS in phase', () => {
+    const half = S.lockAngles('auto50'), lock = S.lockAngles('lock'), sideways = S.lockAngles('crab');
+    log('D2b', { auto50: half.angles, lock: lock.angles, sideways: sideways.angles }, 'rear inner AUTO 50% −16±0.5, LOCK 0, SIDEWAYS = front');
+    expect(Math.abs(half.angles[0] - 42)).toBeLessThan(0.5);
+    expect(Math.abs(half.angles[2] + 16)).toBeLessThan(0.5);
+    expect(Math.abs(lock.angles[2])).toBeLessThan(1e-6); expect(Math.abs(lock.angles[3])).toBeLessThan(1e-6);
+    expect(Math.sign(sideways.angles[2])).toBe(Math.sign(sideways.angles[0]));
+  });
+
   test('D3 passive taper, lockout hysteresis and rear slew', () => {
     const r = S.passiveTaper(), h = S.lockoutHysteresis();
     log('D3', { ...r, hysteresis: h }, 'rear = −ratio(v)·front/42°·32° ±0.01 rad; 0 at ≥13.4; locked until <11.6; slew ≤1.4 rad/s');
