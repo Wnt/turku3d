@@ -183,3 +183,18 @@ def test_a_tile_without_paving_or_lanes_keeps_its_trees():
     assert clearance.place(trees, [(DRIVE, True)]) == {}
     assert clearance.place(trees, [(shapely.box(0, 200, 5, 205), False)]) == {}
     assert clearance.place([trunk("area:1:c", 100, 50)], [(DRIVE, False)]) == {"area:1:c": None}
+
+
+def test_lanes_are_the_drawn_way_corridors(tmp_path):
+    """The rule's corridor widths are the ground's (``coarse.surfaces.osm_surfaces``)."""
+    from turku3d.coarse.surfaces import osm_surfaces
+
+    ways = [({"highway": "service", "access": "private"}, shapely.LineString([(10, 30), (240, 30)])),
+            ({"highway": "footway"}, shapely.LineString([(10, 80), (240, 80)])),
+            ({"highway": "track", "width": "3.2"}, shapely.LineString([(10, 130), (240, 130)])),
+            ({"highway": "residential"}, shapely.LineString([(10, 180), (240, 180)]))]
+    path = osm_parquet(tmp_path, ways)
+    drawn = shapely.union_all([g for g, _ in osm_surfaces(TILE, path)])
+    lanes = shapely.union_all([g for g, lane in clearance.walked_ground(TILE, path, None) if lane])
+    window = shapely.box(*TILE.bbox.as_tuple())
+    assert abs(drawn.area - lanes.intersection(window).area) < 1e-6 * drawn.area
