@@ -55,10 +55,14 @@ def fields(surface):
             ao -= joint * .35
             rough = np.maximum(rough, joint * .96)
         elif surface == 'rock':
-            fissure = np.exp(-np.sin((x + .17 * np.sin(y * np.pi)) * np.pi * 2) ** 2 / .002)
-            height -= fissure * .008
-            color -= fissure[..., None] * 17
-            ao -= fissure * .25
+            # Bedrock: irregular joints along noise ridges at two scales and lichen-dark
+            # patches. A periodic sine fissure read as a regular zig-zag on tall cut faces.
+            joints = np.exp(-_noise(rng, 18.) ** 2 / .004) + .6 * np.exp(-_noise(rng, 7.) ** 2 / .003)
+            lichen = np.clip(_noise(rng, 12.) - .6, 0, 2)
+            height -= joints * .008
+            color -= joints[..., None] * 22 + lichen[..., None] * np.array([10., 6., 9.])
+            color += (macro * 5)[..., None]
+            ao -= np.clip(joints, 0, 1) * .3
     elif surface == 'concrete':
         # Cast-in-place concrete: one 2 x 1 m formwork panel pair per repeat with recessed
         # joints and tie holes, board courses, cloudy cement tone and short run-off streaks.
@@ -91,7 +95,7 @@ def fields(surface):
         if surface == 'bronze':
             copper = np.array([110., 91., 56.])
             color = tint * patina[..., None] + copper * (1 - patina[..., None])
-            color += grain[..., None] * 2
+            color += (grain * 2 + macro * 7)[..., None]
             metal = .3 + .6 * (1 - patina)
             rough = .48 + patina * .32
         else:
@@ -109,9 +113,20 @@ def fields(surface):
     elif surface == 'wood':
         fibre = np.sin(x * np.pi * 140 + macro * 1.5)
         seam = np.exp(-np.sin(x * np.pi * 4) ** 2 / .001)
-        color += (fibre * 4 - seam * 24)[..., None]
+        # Boards 0.25 m wide, each its own weathered tone (fine fibre alone averages flat).
+        board = np.floor(x * 4)
+        tone = (np.sin(board * 12.9898 + 3.1) * 43758.5453 % 1 - .5) * 22
+        color += (fibre * 4 - seam * 24 + tone + macro * 4)[..., None]
         height = fibre * .00025 - seam * .004
         ao -= seam * .3
+    elif surface in ('corten', 'glass'):
+        # Weathering steel rusts in blotches and run-off; glass carries grime and wiper arcs.
+        color += (macro * (9 if surface == 'corten' else 5) + grain * 2)[..., None]
+        if surface == 'corten':
+            color -= np.clip(_noise(rng, 4.) - 1., 0, 2)[..., None] * 12
+            rough = np.clip(.75 + macro * .06, .55, .95)
+        else:
+            rough = np.clip(.12 + macro * .04, .05, .3)
     elif surface == 'ballast':
         color += grain[..., None] * 14
         height = grain * .003
