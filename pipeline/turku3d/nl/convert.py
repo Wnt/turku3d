@@ -628,7 +628,31 @@ def water_bgt(bbox, log=print):
     return rows
 
 
-ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt}
+def _points(collection, kind, layer, bbox, log, extra):
+    rows = []
+    for _, key, p, g in bgt_features((collection,), bbox, log):
+        if (p.get("plus_type") or p.get("type")) != kind or g.geom_type != "Point":
+            continue
+        rows.append({"layer": layer, "feature_key": key, "gml_id": key, "geom_index": 0, "geometry": g,
+                     "geom_type": "Point", "geom_role": collection, "surface_type": "", "part_id": "",
+                     "surface_id": "", **extra(p)})
+    return rows
+
+
+def trees_bgt(bbox, log=print):
+    """GIS:Puut (register trees) from BGT vegetatieobject_punt "boom" (no species or planting year in BGT)."""
+    return _points("vegetatieobject_punt", "boom", "GIS:Puut", bbox, log,
+                   lambda p: {"Kasvilaji": "", "Kasviryhma": "lehtipuu", "Istutusvuosi": ""})
+
+
+def lamps_bgt(bbox, log=print):
+    """Street-light poles (internal frn:CityFurniture_LOD2) from BGT paal "lichtmast"."""
+    return _points("paal", "lichtmast", "frn:CityFurniture_LOD2", bbox, log,
+                   lambda p: {"Tasonimi": "rr:js,pylväs,valaisin", "bgt_type": "lichtmast"})
+
+
+ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt,
+            "bgt-trees": trees_bgt, "bgt-lamps": lamps_bgt}
 
 
 def derive(layer, area, adapter: str, log=print) -> dict:
@@ -659,21 +683,27 @@ def _derive(layer, area, adapter, bbox, log):
 
 
 def rederive(log=print, adapters=None) -> int:
-    """Re-derive every converted WFS layer written by an older adapter version (the tiles over it rebuild)."""
+    """Derive every profile-derived WFS layer of each converted area that is missing, absent (a gap the
+    profile now fills) or from an older adapter version; the tiles over it rebuild."""
     from turku3d.coarse.sources import AREA_PREFIX, block_area
     from turku3d.fetch.sources import WFS_LAYERS as ALL
 
     count = 0
-    for summary in sorted(C.raw_dir("wfs").glob(f"{AREA_PREFIX}*/*.summary.json")):
-        s = json.loads(summary.read_text())
-        adapter = s.get("derived")
-        if not adapter or s.get("adapter_version") == ADAPTER_VERSION or (adapters and adapter not in adapters):
+    for area_dir in sorted(C.raw_dir("wfs").glob(f"{AREA_PREFIX}*")):
+        if not area_dir.is_dir():
             continue
-        layer = next(l for l in ALL if l.name == s["layer"])
-        area = block_area(C.LazTile.parse(summary.parent.name.removeprefix(AREA_PREFIX)))
-        summary.unlink()  # derive() keeps a current summary; this one is outdated
-        derive(layer, area, adapter, log=log)
-        count += 1
+        area = block_area(C.LazTile.parse(area_dir.name.removeprefix(AREA_PREFIX)))
+        for name, adapter in C.CITY.wfs_derived.items():
+            if adapters and adapter not in adapters:
+                continue
+            layer = next(l for l in ALL if l.name == name)
+            summary = area_dir / f"{layer.slug}.summary.json"
+            s = json.loads(summary.read_text()) if summary.exists() else {}
+            if s.get("derived") == adapter and s.get("adapter_version") == ADAPTER_VERSION:
+                continue
+            summary.unlink(missing_ok=True)
+            derive(layer, area, adapter, log=log)
+            count += 1
     return count
 
 

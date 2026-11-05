@@ -96,3 +96,16 @@ def test_generic_paving_follows_dutch_convention():
     assert convert.appearance("rijbaan lokale weg", "open verharding", "betonstraatstenen", sett) == ("Betonikivi", "9")
     assert convert.appearance("rijbaan lokale weg", "open verharding", None, sett) == ("Noppakivi", "6")
     assert convert.appearance("rijbaan lokale weg", "asfalt", None, sett) == ("Asfalttibetoni", "1")
+
+
+def test_bgt_points_become_register_trees_and_lamps(monkeypatch):
+    import shapely
+
+    feats = [("vegetatieobject_punt", "t1", {"plus_type": "boom"}, shapely.Point(1, 2)),
+             ("vegetatieobject_punt", "t2", {"plus_type": "haag"}, shapely.Point(3, 4)),
+             ("paal", "p1", {"plus_type": "lichtmast"}, shapely.Point(5, 6))]
+    monkeypatch.setattr(convert, "bgt_features", lambda cols, bbox, log: [f for f in feats if f[0] in cols])
+    trees = convert.trees_bgt((0, 0, 10, 10))
+    lamps = convert.lamps_bgt((0, 0, 10, 10))
+    assert [t["feature_key"] for t in trees] == ["t1"] and trees[0]["layer"] == "GIS:Puut"
+    assert [l["feature_key"] for l in lamps] == ["p1"] and lamps[0]["Tasonimi"].startswith("rr:js")
