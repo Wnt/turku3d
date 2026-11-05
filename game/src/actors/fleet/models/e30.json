@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/e30",
+  "fleet": {
+    "id": "e30",
+    "name": "Muisto Säde 23",
+    "body": "classic",
+    "family": "sedan",
+    "length": 4.3464,
+    "width": 1.8644,
+    "height": 1.3478,
+    "wheelbase": 2.584,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.3107,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.75,
+    "weight": 0.2
+  },
+  "id": "e30",
+  "wheels": {
+    "radius": 0.3107,
+    "width": 0.3419,
+    "pivots": {
+      "wheel_FL": [
+        -0.7171,
+        0.3107,
+        1.4052
+      ],
+      "wheel_FR": [
+        0.7171,
+        0.3107,
+        1.4052
+      ],
+      "wheel_RL": [
+        -0.7075,
+        0.3107,
+        -1.1787
+      ],
+      "wheel_RR": [
+        0.7075,
+        0.3107,
+        -1.1787
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.6739,
+      -0.0018
+    ],
+    "half": [
+      0.9322,
+      0.6739,
+      2.1732
+    ]
+  },
+  "triangles": [
+    47270,
+    9816,
+    1957
+  ],
+  "source": {
+    "title": "[FREE] BMW M3 E30",
+    "url": "https://sketchfab.com/3d-models/free-bmw-m3-e30-ac3c7013434e403e8faff87948caf422",
+    "author": "Martin Trafas",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "e30",
+    "referenceModel": "BMW M3 E30 (1987)",
+    "massKg": 1200,
+    "powerKW": 147,
+    "torqueNm": 240,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.7,
+    "topSpeedKmh": 235,
+    "turningCircleM": 10.5,
+    "gears": 5,
+    "rideHeightM": 0.12,
+    "character": "sport",
+    "lengthM": 4.3464,
+    "widthM": 1.8644,
+    "heightM": 1.3478,
+    "wheelbaseM": 2.584,
+    "trackM": 1.4341,
+    "wheelRadiusM": 0.3107,
+    "wheelWidthM": 0.3419
+  },
+  "accepted": false
+}

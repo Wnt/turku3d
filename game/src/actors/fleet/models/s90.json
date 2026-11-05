@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/s90",
+  "fleet": {
+    "id": "s90",
+    "name": "Routa Säde T8",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.96,
+    "width": 1.9951,
+    "height": 1.4223,
+    "wheelbase": 2.8914,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.361,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.6
+  },
+  "id": "s90",
+  "wheels": {
+    "radius": 0.361,
+    "width": 0.244,
+    "pivots": {
+      "wheel_FL": [
+        -0.808,
+        0.361,
+        1.5831
+      ],
+      "wheel_FR": [
+        0.808,
+        0.361,
+        1.5831
+      ],
+      "wheel_RL": [
+        -0.808,
+        0.361,
+        -1.3084
+      ],
+      "wheel_RR": [
+        0.808,
+        0.361,
+        -1.3084
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.7111,
+      0
+    ],
+    "half": [
+      0.9975,
+      0.7111,
+      2.48
+    ]
+  },
+  "triangles": [
+    47504,
+    9867,
+    1947
+  ],
+  "source": {
+    "title": "Volvo S90 Recharge (Free)",
+    "url": "https://sketchfab.com/3d-models/volvo-s90-recharge-free-9462b07c10244fd4a28d86846dc9e3a9",
+    "author": "lazercar",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "s90",
+    "referenceModel": "Volvo S90 Recharge T8 (2021)",
+    "massKg": 2050,
+    "powerKW": 335,
+    "torqueNm": 709,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 4.8,
+    "topSpeedKmh": 180,
+    "turningCircleM": 11.4,
+    "gears": 8,
+    "rideHeightM": 0.14,
+    "character": "comfort",
+    "lengthM": 4.96,
+    "widthM": 1.9951,
+    "heightM": 1.4223,
+    "wheelbaseM": 2.8914,
+    "trackM": 1.6161,
+    "wheelRadiusM": 0.361,
+    "wheelWidthM": 0.244
+  },
+  "accepted": false
+}

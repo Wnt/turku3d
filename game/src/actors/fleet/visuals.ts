@@ -25,6 +25,7 @@ interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const embeddedWheels=(id:string)=>id===AUTHORED_ESTATE||AUTHORED_BY_ID.has(id);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
+const SELECTABLE_FAMILIES=new Set(['sedan','suv','hatchback-sports','van']);
 /** Rim detail and tyre radius determine the wheel design, independently of body/paint. */
 export const fleetWheelDesign=(model:FleetModel,lod:number)=>`${lod}/${model.wheel.toFixed(3)}/${lod===0?model.face%3:0}`;
 
@@ -117,7 +118,9 @@ export class ParkedCarVisuals {
       const model=fleetModel(car.model,car.object_id);
       counts.set(model.id,(counts.get(model.id)??0)+1);
     }
-    const models=this.reserve?FLEET:FLEET.filter(m=>counts.has(m.id));
+    // Reserved traffic may draw any model of a traffic/parking family; special roles (bus, truck, ambulance) load
+    // only when a record names them, so every client does not download them.
+    const models=FLEET.filter(m=>counts.has(m.id)||this.reserve&&SELECTABLE_FAMILIES.has(m.family));
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();

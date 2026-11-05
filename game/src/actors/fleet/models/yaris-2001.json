@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/yaris-2001",
+  "fleet": {
+    "id": "yaris-2001",
+    "name": "Salo Kipinä 10",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 3.62,
+    "width": 1.9289,
+    "height": 1.7398,
+    "wheelbase": 2.3615,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.2797,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 1.5
+  },
+  "id": "yaris-2001",
+  "wheels": {
+    "radius": 0.2797,
+    "width": 0.1992,
+    "pivots": {
+      "wheel_FL": [
+        -0.7194,
+        0.2797,
+        1.0787
+      ],
+      "wheel_FR": [
+        0.7194,
+        0.2797,
+        1.0787
+      ],
+      "wheel_RL": [
+        -0.7194,
+        0.2797,
+        -1.2828
+      ],
+      "wheel_RR": [
+        0.7194,
+        0.2797,
+        -1.2828
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8699,
+      0
+    ],
+    "half": [
+      0.9644,
+      0.8699,
+      1.81
+    ]
+  },
+  "triangles": [
+    47300,
+    9832,
+    1967
+  ],
+  "source": {
+    "title": "2001 Toyota Yaris",
+    "url": "https://sketchfab.com/3d-models/2001-toyota-yaris-443fd49eb0844557a06854cae0b61267",
+    "author": "Dave Love SketchFab",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "yaris-2001",
+    "referenceModel": "Toyota Yaris XP10 1.0 (2001)",
+    "massKg": 850,
+    "powerKW": 50,
+    "torqueNm": 90,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 13.7,
+    "topSpeedKmh": 155,
+    "turningCircleM": 9.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced",
+    "lengthM": 3.62,
+    "widthM": 1.9289,
+    "heightM": 1.7398,
+    "wheelbaseM": 2.3615,
+    "trackM": 1.4387,
+    "wheelRadiusM": 0.2797,
+    "wheelWidthM": 0.1992
+  },
+  "accepted": false
+}

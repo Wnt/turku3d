@@ -29,6 +29,8 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
     if (!role.startsWith('fleet_') && !front && !tail) throw Error(`Unexpected fleet material: ${role}`);
     const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
     g.applyMatrix4(mesh.matrixWorld);
+    // Converted source cars carry their sampled base-colour textures as COLOR_0; authored ones have none.
+    const baked = g.getAttribute('color');
     for (const key of Object.keys(g.attributes)) if (!['position', 'normal'].includes(key)) g.deleteAttribute(key);
     const n = g.getAttribute('position').count, colors = new Float32Array(n * 3), surfaces = new Float32Array(n * 4);
     const paint = role === 'fleet_paint' && !front && !tail;
@@ -41,7 +43,9 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
       const grime = paint ? Math.max(0, Math.min(1, (.65-positions.getY(i))/.45)) : 0;
       const dust = paint ? Math.max(0, normals.getY(i))*.055 : 0;
       const shade = 1-grime*.22-dust*.35;
-      colors.set([color.r*shade, color.g*shade*(1-grime*.025), color.b*shade*(1-grime*.06)], i * 3);
+      const r = baked && !paint && !front && !tail ? baked.getX(i) : 1, gr = baked && !paint && !front && !tail ? baked.getY(i) : 1,
+        bl = baked && !paint && !front && !tail ? baked.getZ(i) : 1;
+      colors.set([color.r*r*shade, color.g*gr*shade*(1-grime*.025), color.b*bl*shade*(1-grime*.06)], i * 3);
       surfaces.set([Number(paint), Math.min(1,material.roughness+grime*.22+dust),
         material.metalness*(1-grime*.55-dust), part === 'glass' ? material.opacity : lamp], i * 4);
     }

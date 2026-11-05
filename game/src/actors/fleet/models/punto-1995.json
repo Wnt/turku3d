@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/punto-1995",
+  "fleet": {
+    "id": "punto-1995",
+    "name": "Aava Kipinä GT",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 3.76,
+    "width": 1.9221,
+    "height": 1.7363,
+    "wheelbase": 2.4285,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.2798,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.5,
+    "weight": 1.2
+  },
+  "id": "punto-1995",
+  "wheels": {
+    "radius": 0.2798,
+    "width": 0.2704,
+    "pivots": {
+      "wheel_FL": [
+        -0.7012,
+        0.2798,
+        1.0919
+      ],
+      "wheel_FR": [
+        0.7012,
+        0.2798,
+        1.0919
+      ],
+      "wheel_RL": [
+        -0.6923,
+        0.2798,
+        -1.3366
+      ],
+      "wheel_RR": [
+        0.6923,
+        0.2798,
+        -1.3366
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8681,
+      0
+    ],
+    "half": [
+      0.9611,
+      0.8681,
+      1.88
+    ]
+  },
+  "triangles": [
+    33736,
+    9849,
+    1966
+  ],
+  "source": {
+    "title": "(FREE) 1995 Fiat Punto GT",
+    "url": "https://sketchfab.com/3d-models/free-1995-fiat-punto-gt-48db6facb4b64e99b60f36b8c01185e1",
+    "author": "Lionsharp Studios",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "punto-1995",
+    "referenceModel": "Fiat Punto GT (1995)",
+    "massKg": 1055,
+    "powerKW": 98,
+    "torqueNm": 208,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 7.9,
+    "topSpeedKmh": 200,
+    "turningCircleM": 10,
+    "gears": 5,
+    "rideHeightM": 0.13,
+    "character": "sport",
+    "lengthM": 3.76,
+    "widthM": 1.9221,
+    "heightM": 1.7363,
+    "wheelbaseM": 2.4285,
+    "trackM": 1.4024,
+    "wheelRadiusM": 0.2798,
+    "wheelWidthM": 0.2704
+  },
+  "accepted": false
+}

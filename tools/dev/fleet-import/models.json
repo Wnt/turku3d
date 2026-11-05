@@ -1,0 +1,516 @@
+{
+ "note": "Converted CC BY 4.0 source cars (docs/research/car-models.md). Sources stay outside git in ~/turku3d/loops/carmodels/<id>/ with LICENSE.txt and the Sketchfab record. Convert: node game/scripts/import-fleet-gltf.mjs tools/dev/fleet-import/models.json <id>. Specs are approximate public figures for the reference trim, in the carphysics CarSpec shape.",
+ "models": [
+  {
+   "id": "corolla-e180",
+   "source": "~/turku3d/loops/carmodels/corolla-e180/model.glb",
+   "name": "Kaira Säde 160",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.62,
+   "spec": {
+    "referenceModel": "Toyota Corolla E180 1.6 sedan (EU, 2014)",
+    "massKg": 1265,
+    "powerKW": 97,
+    "torqueNm": 160,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.4,
+    "topSpeedKmh": 195,
+    "turningCircleM": 10.8,
+    "gears": 6,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "roles": [
+    [
+     "^cube\\.00[23]_",
+     "plate"
+    ],
+    [
+     "body_material\\.00[35]",
+     "lampTail"
+    ]
+   ],
+   "weight": 1.2
+  },
+  {
+   "id": "w212",
+   "source": "~/turku3d/loops/carmodels/w212/model.glb",
+   "name": "Nord Säde 220",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.87,
+   "spec": {
+    "referenceModel": "Mercedes-Benz E 220 CDI W212 (2010)",
+    "massKg": 1735,
+    "powerKW": 125,
+    "torqueNm": 400,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 8.4,
+    "topSpeedKmh": 230,
+    "turningCircleM": 11.25,
+    "gears": 7,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "forward": "-z",
+   "drop": [
+    {
+     "lo": [
+      -0.13,
+      0.5,
+      2.25
+     ],
+     "hi": [
+      0.13,
+      0.72,
+      2.7
+     ],
+     "key": "mat_chrome|mat_plastic|mat_body"
+    }
+   ],
+   "weight": 0.9
+  },
+  {
+   "id": "v60",
+   "source": "~/turku3d/loops/carmodels/v60/model.glb",
+   "name": "Routa Virta D4",
+   "body": "estate",
+   "family": "sedan",
+   "length": 4.63,
+   "spec": {
+    "referenceModel": "Volvo V60 D4 (2013)",
+    "massKg": 1660,
+    "powerKW": 120,
+    "torqueNm": 400,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 8.1,
+    "topSpeedKmh": 225,
+    "turningCircleM": 11.9,
+    "gears": 6,
+    "rideHeightM": 0.135,
+    "character": "balanced"
+   },
+   "weight": 0.9
+  },
+  {
+   "id": "prius-2012",
+   "source": "~/turku3d/loops/carmodels/prius-2012/model.glb",
+   "name": "Valo Hybrid 3",
+   "body": "hatch",
+   "family": "sedan",
+   "length": 4.48,
+   "spec": {
+    "referenceModel": "Toyota Prius XW30 (2012)",
+    "massKg": 1380,
+    "powerKW": 100,
+    "torqueNm": 207,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 10.4,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.4,
+    "gears": 1,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "weight": 0.9
+  },
+  {
+   "id": "yaris-2001",
+   "source": "~/turku3d/loops/carmodels/yaris-2001/model.glb",
+   "name": "Salo Kipinä 10",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "length": 3.62,
+   "spec": {
+    "referenceModel": "Toyota Yaris XP10 1.0 (2001)",
+    "massKg": 850,
+    "powerKW": 50,
+    "torqueNm": 90,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 13.7,
+    "topSpeedKmh": 155,
+    "turningCircleM": 9.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced"
+   },
+   "weight": 1.5
+  },
+  {
+   "id": "punto-1995",
+   "source": "~/turku3d/loops/carmodels/punto-1995/model.glb",
+   "name": "Aava Kipinä GT",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "length": 3.76,
+   "age": 0.5,
+   "spec": {
+    "referenceModel": "Fiat Punto GT (1995)",
+    "massKg": 1055,
+    "powerKW": 98,
+    "torqueNm": 208,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 7.9,
+    "topSpeedKmh": 200,
+    "turningCircleM": 10.0,
+    "gears": 5,
+    "rideHeightM": 0.13,
+    "character": "sport"
+   },
+   "weight": 1.2
+  },
+  {
+   "id": "e30",
+   "source": "~/turku3d/loops/carmodels/e30/model.glb",
+   "name": "Muisto Säde 23",
+   "body": "classic",
+   "family": "sedan",
+   "length": 4.35,
+   "age": 0.75,
+   "spec": {
+    "referenceModel": "BMW M3 E30 (1987)",
+    "massKg": 1200,
+    "powerKW": 147,
+    "torqueNm": 240,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.7,
+    "topSpeedKmh": 235,
+    "turningCircleM": 10.5,
+    "gears": 5,
+    "rideHeightM": 0.12,
+    "character": "sport"
+   },
+   "weight": 0.2
+  },
+  {
+   "id": "s90",
+   "source": "~/turku3d/loops/carmodels/s90/model.glb",
+   "name": "Routa Säde T8",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.96,
+   "spec": {
+    "referenceModel": "Volvo S90 Recharge T8 (2021)",
+    "massKg": 2050,
+    "powerKW": 335,
+    "torqueNm": 709,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 4.8,
+    "topSpeedKmh": 180,
+    "turningCircleM": 11.4,
+    "gears": 8,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "weight": 0.6
+  },
+  {
+   "id": "generic-sedan",
+   "source": "~/turku3d/loops/carmodels/generic-sedan/model.glb",
+   "name": "Vire Säde 200",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.75,
+   "spec": {
+    "referenceModel": "Unbranded mid-size sedan",
+    "massKg": 1500,
+    "powerKW": 120,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.0,
+    "topSpeedKmh": 210,
+    "turningCircleM": 11.0,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "roles": [
+    [
+     "suspension-pipe",
+     "trim"
+    ]
+   ],
+   "forward": "+z",
+   "weight": 1.0
+  },
+  {
+   "id": "crownvic-taxi",
+   "source": "~/turku3d/loops/carmodels/crownvic-taxi/model.glb",
+   "name": "Nord Taksi V8",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 5.39,
+   "weight": 0.04,
+   "livery": true,
+   "spec": {
+    "referenceModel": "Ford Crown Victoria taxi (2001)",
+    "massKg": 1800,
+    "powerKW": 168,
+    "torqueNm": 386,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.5,
+    "topSpeedKmh": 190,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "blank": [
+    {
+     "lo": [
+      -0.16,
+      0.5,
+      2.45
+     ],
+     "hi": [
+      0.16,
+      0.9,
+      2.9
+     ]
+    }
+   ]
+  },
+  {
+   "id": "crownvic-police",
+   "source": "~/turku3d/loops/carmodels/crownvic-police/model.glb",
+   "name": "Nord Partio V8",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 5.39,
+   "weight": 0.02,
+   "livery": true,
+   "spec": {
+    "referenceModel": "Ford Crown Victoria Police Interceptor (2001)",
+    "massKg": 1860,
+    "powerKW": 175,
+    "torqueNm": 393,
+    "drivetrain": "RWD",
+    "fuel": "petrol",
+    "zeroTo100S": 8.5,
+    "topSpeedKmh": 210,
+    "turningCircleM": 12.9,
+    "gears": 4,
+    "rideHeightM": 0.15,
+    "character": "sport"
+   },
+   "blank": [
+    {
+     "lo": [
+      -0.16,
+      0.5,
+      2.45
+     ],
+     "hi": [
+      0.16,
+      0.9,
+      2.9
+     ]
+    }
+   ]
+  },
+  {
+   "id": "euro-van",
+   "source": "~/turku3d/loops/carmodels/euro-van/model.glb",
+   "name": "Kaira Kuorma 308",
+   "body": "van",
+   "family": "van",
+   "length": 5.2,
+   "age": 0.6,
+   "spec": {
+    "referenceModel": "Late-1970s European panel van (Mercedes T1 style)",
+    "massKg": 2600,
+    "powerKW": 70,
+    "torqueNm": 220,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 25,
+    "topSpeedKmh": 125,
+    "turningCircleM": 12.8,
+    "gears": 5,
+    "rideHeightM": 0.2,
+    "character": "utility"
+   },
+   "weight": 1.0
+  },
+  {
+   "id": "prado-2010",
+   "source": "~/turku3d/loops/carmodels/prado-2010/model.glb",
+   "name": "Salo Vaara D4",
+   "body": "suv",
+   "family": "suv",
+   "length": 4.78,
+   "spec": {
+    "referenceModel": "Toyota Land Cruiser Prado J150 3.0 D-4D (2010)",
+    "massKg": 2165,
+    "powerKW": 127,
+    "torqueNm": 410,
+    "drivetrain": "AWD",
+    "fuel": "diesel",
+    "zeroTo100S": 11.7,
+    "topSpeedKmh": 175,
+    "turningCircleM": 11.6,
+    "gears": 5,
+    "rideHeightM": 0.22,
+    "character": "utility"
+   },
+   "weight": 1.6
+  },
+  {
+   "id": "sprinter-ambulance",
+   "source": "~/turku3d/loops/carmodels/sprinter-ambulance/model.glb",
+   "name": "Kaira Ensihoito 413",
+   "body": "van",
+   "family": "ambulance",
+   "length": 6.6,
+   "livery": true,
+   "spec": {
+    "referenceModel": "Mercedes-Benz Sprinter 413 CDI box ambulance",
+    "massKg": 3600,
+    "powerKW": 95,
+    "torqueNm": 300,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 20,
+    "topSpeedKmh": 145,
+    "turningCircleM": 13.6,
+    "gears": 5,
+    "rideHeightM": 0.2,
+    "character": "utility"
+   },
+   "forward": "-z"
+  },
+  {
+   "id": "transit-bus",
+   "source": "~/turku3d/loops/carmodels/transit-bus/model.glb",
+   "name": "Valo Linja 12",
+   "body": "van",
+   "family": "bus",
+   "length": 12.0,
+   "livery": true,
+   "budgets": [
+    60000,
+    12000,
+    2500
+   ],
+   "spec": {
+    "referenceModel": "12 m low-floor city bus",
+    "massKg": 13500,
+    "powerKW": 220,
+    "torqueNm": 1200,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 85,
+    "turningCircleM": 21,
+    "gears": 6,
+    "rideHeightM": 0.3,
+    "character": "utility"
+   },
+   "roles": [
+    [
+     "^mesh_\\d+\\||viewport|^object_13[04]\\|",
+     "drop"
+    ],
+    [
+     "chair|wall_panel|handrail|driver_",
+     "interior"
+    ]
+   ]
+  },
+  {
+   "id": "garbage-truck",
+   "source": "~/turku3d/loops/carmodels/garbage-truck/model.glb",
+   "name": "Louhi Jäte 26",
+   "body": "van",
+   "family": "truck",
+   "length": 9.5,
+   "livery": true,
+   "budgets": [
+    60000,
+    12000,
+    2500
+   ],
+   "spec": {
+    "referenceModel": "Three-axle rear-loader refuse truck",
+    "massKg": 26000,
+    "powerKW": 235,
+    "torqueNm": 1600,
+    "drivetrain": "RWD",
+    "fuel": "diesel",
+    "zeroTo100S": 60,
+    "topSpeedKmh": 90,
+    "turningCircleM": 19,
+    "gears": 12,
+    "rideHeightM": 0.3,
+    "character": "utility"
+   },
+   "roles": [
+    [
+     "llanta",
+     "tyre"
+    ],
+    [
+     "rines",
+     "rim"
+    ],
+    [
+     "^object_12[1-7]\\|",
+     "drop"
+    ]
+   ],
+   "blank": [
+    {
+     "key": "n3_br",
+     "lo": [
+      -2,
+      0,
+      4.0
+     ],
+     "hi": [
+      2,
+      4,
+      5
+     ]
+    },
+    {
+     "lo": [
+      -0.65,
+      1.7,
+      4.25
+     ],
+     "hi": [
+      0.65,
+      2.4,
+      5
+     ]
+    }
+   ],
+   "drop": [
+    {
+     "lo": [
+      -0.6,
+      1.9,
+      4.4
+     ],
+     "hi": [
+      0.6,
+      2.25,
+      5
+     ],
+     "key": "object_36\\||object_43\\||object_46\\|"
+    }
+   ]
+  }
+ ]
+}

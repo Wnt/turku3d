@@ -8,6 +8,8 @@ export interface FleetModel {
   length: number; width: number; height: number; wheelbase: number;
   hood: number; rear: number; taper: number; wheel: number; belt: number;
   face: number; accessory: 'none' | 'box' | 'rack' | 'taxi'; age: number;
+  /** Selection weight within its family; converted models set it, the procedural fleet uses its body default. */
+  weight?: number;
 }
 // Seven design families per body class: each has its own proportions, glazing and fascia.
 // These are visual art direction, not a claim to replicate a manufacturer's design or sales shares.
@@ -46,7 +48,7 @@ export function fleetModel(model: string, seed: string, includeAuthored=true): F
   const family = model === 'suv-luxury' ? 'suv' : model;
   const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_MODELS.some(a => a.id === m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family));
   if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
-  const weight=(m:FleetModel)=>m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1;
+  const weight=(m:FleetModel)=>m.weight??(m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1);
   let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);
   for(const m of choices){pick-=weight(m);if(pick<0)return m;}
   return choices[choices.length-1];

@@ -115,6 +115,26 @@ const workshop={
     }
     return {t:(index+1)/60,position:state.pos,wheels:state.wheels,draws:renderer.info.render.drawCalls};
   },
+  /** Authored/converted models through the runtime path (ParkedCarVisuals: LOD pick, split wheels, glass pass).
+   *  One car at the origin facing +X, or every given id in a row; `lod` forces the view distance band. */
+  async authored(ids:string[],lod:0|1|2=0,color='silver',view:'three-quarter'|'side'|'front'|'rear'|'top'='three-quarter') {
+    motionVisuals?.dispose();
+    for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
+    const manifest=draftManifest(location.origin+'/');
+    const models=ids.map(id=>{const m=FLEET.find(f=>f.id===id);if(!m)throw Error(`Unknown fleet model ${id}`);return m;});
+    let z=0;
+    manifest.vehicles=models.map((model,i)=>{const at=z;z+=model.width+1.4;
+      return {object_id:`authored-${i}`,model:model.id,color,x:0,y:0,z:at,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5};});
+    const centre=(z-models[models.length-1].width-1.4)/2,span=Math.max(...models.map(m=>m.length),z),d=[span*1.5,62,140][lod];
+    motionVisuals=new ParkedCarVisuals(scene);await motionVisuals.load(manifest);
+    const at={three_quarter:[d*.62,d*.32,centre+d*.78],side:[0,1.1,centre+d],front:[d,1.2,centre],rear:[-d,1.4,centre],top:[0,d*1.2,centre+.01]}[view.replace('-','_') as 'side'];
+    camera.position.set(at[0],at[1],at[2]);camera.lookAt(0,Math.min(1.5,models[0].height*.45),centre);
+    camera.fov=2*Math.atan(span*.5/d)*180/Math.PI;camera.updateProjectionMatrix();
+    motionVisuals.setView(camera);motionVisuals.update([],{restingPose:c=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})});
+    for(let i=0;i<8;i++)await new Promise(requestAnimationFrame);
+    document.getElementById('label')!.textContent=`${models.map(m=>m.name).join(' · ')} · LOD ${lod}`;
+    return motionVisuals.snapshot();
+  },
   models:FLEET.map(m=>({id:m.id,name:m.name,body:m.body})),
   show(index=0,lod:0|1|2=0,color='silver') {
     for(const mesh of meshes){mesh.removeFromParent();mesh.geometry.dispose();}meshes=[];
