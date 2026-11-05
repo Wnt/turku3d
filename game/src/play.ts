@@ -106,7 +106,8 @@ const RENDER_EXTRAPOLATION = new URLSearchParams(globalThis.location?.search ?? 
 const LOCKED_IN_MENU = ['pause', 'mute', 'nextTrack', 'map', 'interact', 'mission', 'jump', 'sprint', 'cameraReset', 'vehicleReset', 'respawn'] as const;
 
 /** Starts a play session; `hot` continues a hot-swapped one (dev server only). */
-export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<PlaySession> {
+/** `kept`: what a city switch carries from the session that ended (main.ts travel): the audio graph. */
+export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { audio: GameAudio }): Promise<PlaySession> {
   const { params, backend, renderer, scene, camera, env, perf, tiles, materials, physics, rapier, manifest, streamer, coarse,
     telemetry, clock, errors, fail, hudEl, renderFrame, groundAt, spawn } = world;
   const body = new Set(document.body.children);
@@ -119,7 +120,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
   root.add(edgeMarker.group);
   const listeners = new AbortController();
-  const audio = hot?.audio ?? new GameAudio();
+  const audio = hot?.audio ?? kept?.audio ?? new GameAudio();
   const audioPreload = audio.preload();
   const fullscreen = new FullscreenPolicy();
   const devLayers = new DevLayers(scene, coarse, renderer, radius => { env.setScreenshotDistance(camera, radius); env.setCityDistance(camera, 15000); }, camera);
@@ -435,6 +436,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
+  // Tests and the trip bench leave through a portal as its trigger does (the ticket, the ride, the money).
+  window.__game!.depart = (to: CityName, portalId?: string) => depart(to, portalList.find(p => p.id === portalId) ?? null);
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
     population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
   const capture = captureAllowed() ? captureControl(window.__game!, document.body) : null;
@@ -452,7 +455,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       multiplayer: multiplayerPlaying, at: Date.now() });
     showTransition(document.body, CITIES[to]);
     paused = true;
-    setTimeout(() => location.assign(cityPageUrl(to, location, home ? exitPose(home) : undefined)), 700);
+    const spawn = home ? exitPose(home) : undefined;
+    // In place when the page can switch cities (one renderer, physics world and connection); a page load otherwise.
+    setTimeout(() => { if (world.travel) void world.travel(to, spawn); else location.assign(cityPageUrl(to, location, spawn)); }, 700);
   };
   /** The vehicle the player drove through in, parked at the arrival (Turku: on the portal's lanes past the deck; elsewhere
    *  the start parking by the centre), ready to be entered; null when it cannot be placed. */

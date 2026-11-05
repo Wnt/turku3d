@@ -43,7 +43,10 @@ import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
-import { draftManifest } from './world/manifest';
+import { draftManifest, type Manifest } from './world/manifest';
+import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './core/city';
+import { showTransition } from './gameplay/travel';
+import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
 import { memoryCensus } from './world/memoryCensus';
@@ -401,7 +404,8 @@ const renderFrame = () => {
   vegetation?.update(camera);
   furniture?.update(camera);
   lights?.update(camera, renderer, { time: dayClock.time, sunElevation: env.sunElevation, weather: weatherSample, fogFar: env.sample.fogFar });
-  pointCloud?.update(camera, renderer);
+  // Turku's LiDAR only: after a switch to another city its nodes would stream in the wrong frame.
+  if (isHome()) pointCloud?.update(camera, renderer);
   if (!idPass) placementVisibility.update(camera);
   bundles?.update();
   const ground = groundBelow(camera.position.x, camera.position.z);
@@ -483,6 +487,11 @@ async function draftWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
   const rapier = await physics.ready;
+  return { physics, rapier, ...await cityWorld(physics) };
+}
+
+/** The active city's own world: its manifest, collision streamer and tile streamer (a city switch builds new ones). */
+async function cityWorld(physics: PhysicsClient) {
   const manifest = draftManifest(location.href);
   const streamer = new CollisionStreamer(manifest, physics, params.collisionRadius);
   const coarse = await draftVisuals(manifest, {
@@ -492,7 +501,39 @@ async function draftWorld() {
   });
   censusSources.coarse = coarse; censusSources.collision = streamer;
   window.__tiles = { loaded: () => coarse.loadedTiles() };
-  return { physics, rapier, manifest, streamer, coarse };
+  return { manifest, streamer, coarse };
+}
+
+/** Streams the active city's start (params.spawn) and finds supported ground for the player and the own car there
+ *  (world/startGround.ts); the collision radius stays at the startup radius until the session releases its starts. */
+async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles) {
+  // spawn: wait for the collision tile under the spawn point, then drop onto the ground
+  const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
+  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
+  streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
+  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
+  const startYaw = headingToYaw(params.spawn.headingDeg);
+  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
+  const tWait = performance.now();
+  let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
+  while (!placed) {
+    if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
+    coarse.update(requested.x, requested.z, undefined, undefined, false);
+    streamer.update(requested.x, requested.z);
+    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
+    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
+    loadingScreen.update(false, coarse.status);
+    if (streamer.supports(requested.x, requested.z)) {
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      placed = await findInitialGround(requested, coarse.roadGraphs(),
+        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+        (x, z, radius) => streamer.supports(x, z, radius),
+        // Open ground once the start's collision is complete: no street near the spawn may support a car.
+        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
+    }
+    if (!placed) await new Promise(r => setTimeout(r, 100));
+  }
+  return placed;
 }
 
 async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
@@ -809,44 +850,57 @@ async function runPlay() {
   const { physics, rapier, manifest, streamer, coarse } = await draftWorld();
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
   Object.assign(window.__game!, { physics, coarse, streamer });
-  // spawn: wait for the collision tile under the spawn point, then drop onto the ground
-  const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
-  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
-  streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
-  // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
-  const startYaw = headingToYaw(params.spawn.headingDeg);
-  coarse.preload([requested], streamer.radius, true, { x: requested.x, z: requested.z, dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) });
-  const tWait = performance.now();
-  let placed: Awaited<ReturnType<typeof findInitialGround>> = null;
-  while (!placed) {
-    if (performance.now() - tWait > 600_000) throw new Error(`No supported street start after 10 minutes: ${coarse.status}`);
-    coarse.update(requested.x, requested.z, undefined, undefined, false);
-    streamer.update(requested.x, requested.z);
-    const progress = coarse.progressAt(requested.x, requested.z), cells = streamer.progressAt(requested.x, requested.z);
-    worldLoad.update({ visual: { loaded: progress.loaded, total: progress.total }, collision: { loaded: cells.loaded, total: cells.total } });
-    loadingScreen.update(false, coarse.status);
-    if (streamer.supports(requested.x, requested.z)) {
-      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
-      placed = await findInitialGround(requested, coarse.roadGraphs(),
-        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius),
-        // Open ground once the start's collision is complete: no street near the spawn may support a car.
-        streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending);
-    }
-    if (!placed) await new Promise(r => setTimeout(r, 100));
+  const playWorld = async (city: { manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles }, first: boolean): Promise<PlayWorld> => {
+    const { manifest, streamer, coarse } = city;
+    const { spawn, car: parking } = await placeStart(physics, streamer, coarse);
+    const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
+    physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
+    const yaw0 = headingToYaw(params.spawn.headingDeg);
+    // The own car (OWN_VEHICLE_ID): spawned at boot, carried over (reset to the new start) on a city switch.
+    if (first) physics.spawnVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw);
+    else physics.resetVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw, OWN_VEHICLE_ID);
+    return { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
+      streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
+      loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
+      trafficClock: () => dayClock.trafficClock(),
+      setClock: date => dayClock.restore(date),
+      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, travel };
+  };
+  let world: PlayWorld;
+  /**
+   * In-place city switch (gameplay/travel.ts): the play session ends (its ticket in session storage carries the trip),
+   * the old city's tiles, collision and vehicles go, the engine origin moves to the new city (core/city.ts setCity),
+   * its world streams in around the start (the arrival portal's exit pose in Turku), and a new session takes the
+   * ticket. One page, one renderer, one physics world; the URL follows (?city=, ?spawn=) for reloads and links.
+   */
+  let travelling: Promise<void> | null = null;
+  function travel(to: CityName, spawn?: { E: number; N: number; headingDeg: number }) {
+    travelling ??= (async () => {
+      const t0 = performance.now();
+      const previous = world;
+      const kept = session.dispose();
+      // The session's own transition went with its DOM; this one stays until the new session runs.
+      const curtain = showTransition(document.body, CITIES[to]);
+      for (const v of physics.latest?.vehicles ?? []) if (v.id && v.id !== OWN_VEHICLE_ID) physics.removeVehicle(v.id);
+      previous.coarse?.leaveCity();
+      await previous.streamer.dispose();
+      setCity(to);
+      history.replaceState(history.state, '', cityPageUrl(to, location, spawn));
+      params.spawnGiven = !!spawn;
+      params.spawn = spawn ?? { E: CITY.spawn.E, N: CITY.spawn.N, headingDeg: CITY.spawn.headingDeg };
+      worldLoad.update({ phase: 'loading', errors: [] });
+      const city = await cityWorld(physics);
+      Object.assign(window.__game!, { coarse: city.coarse, streamer: city.streamer });
+      world = await playWorld(city, false);
+      session = await startPlay(world, null, kept.audio ? { audio: kept.audio } : undefined);
+      worldLoad.update({ phase: 'ready' });
+      graphics.flush(fail);
+      curtain.remove();
+      console.info(`[travel] ${CITY.name} ready in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    })().catch(fail).finally(() => { travelling = null; });
+    return travelling;
   }
-  const { spawn, car: parking } = placed;
-  const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
-  physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-  const yaw0 = headingToYaw(params.spawn.headingDeg);
-  const carPos = parking, carGround = parking.y, carYaw = parking.yaw;
-  physics.spawnVehicle({ x: carPos.x, y: carGround + 0.75, z: carPos.z }, carYaw);
-  const world: PlayWorld = { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
-    streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
-    loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
-    trafficClock: () => dayClock.trafficClock(),
-    setClock: date => dayClock.restore(date),
-    spawn: { ...spawn, yaw: yaw0 }, car: { x: carPos.x, y: carGround, z: carPos.z, yaw: carYaw } };
+  world = await playWorld({ manifest, streamer, coarse }, true);
   // Localhost game (Vite dev server, tools/dev/localhost-game): a landing that touches only the play session swaps it in
   // place; the world above keeps the player, the vehicles and the loaded tiles. The build badge names main's commit
   // and its verification verdict. Production builds drop this (import.meta.hot is undefined there).

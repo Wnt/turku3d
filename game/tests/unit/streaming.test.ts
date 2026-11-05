@@ -372,3 +372,21 @@ test('collision replacements share four slots and drain without waiting for anot
   expect(fetch).not.toHaveBeenCalled();
   expect(physics.unloadTile).not.toHaveBeenCalled();
 });
+
+test('leaving the city waits for loads in flight, then unloads every cell and forgets the known neighbours', async () => {
+  const { manifest, physics } = fakes(8, 8);
+  let finish!: () => void;
+  const gate = new Promise<void>(r => { finish = r; });
+  physics.loadTile.mockImplementation(async (id: string) => { await gate; physics.loaded.set(id, {}); });
+  const s = new CollisionStreamer(manifest, physics as never, 100, 50);
+  physics.loaded.set('c_0_0', {}); // an earlier load
+  s.update(100, 100, true);
+  await new Promise(r => setTimeout(r, 0));
+  expect(physics.loadTile).toHaveBeenCalled();
+  const left = s.dispose();
+  expect(s.update(100, 100, true)).toEqual([]); // no new loads once leaving
+  finish();
+  await left;
+  expect(physics.loaded.size).toBe(0);
+  expect(physics.known.size).toBe(0);
+});

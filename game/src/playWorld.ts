@@ -1,3 +1,4 @@
+import type { CityName } from './core/city';
 import type { WeatherClock } from './render/weather/schedule';
 import type * as THREE from 'three/webgpu';
 import type { V3 } from './core/origin';
@@ -62,5 +63,8 @@ export interface PlayWorld {
   /** Where a new game starts, and the start car's parking (both placed in physics by main.ts). */
   spawn: Pose;
   car: Pose;
+  /** Switches the page to `to` in place (main.ts): the session ends and a new one starts there. `spawn` is the start
+   *  in that city's grid (a portal exit); absent, its centre spawn. Absent in modes without travel. */
+  travel?: (to: CityName, spawn?: { E: number; N: number; headingDeg: number }) => Promise<void>;
 }
 
