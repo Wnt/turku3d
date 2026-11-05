@@ -53,3 +53,13 @@ test('with no street surface in reach the car parks on flat walkable ground', as
   expect(Math.hypot(result!.car.x, result!.car.z)).toBeGreaterThanOrEqual(4);
   expect(await findInitialGround({ x: 0, z: 0 }, [], async (x, z) => ground(x, z, MAT.roof), () => true, true)).toBeNull();
 });
+
+test('a square start keeps the player on the square and parks the car on the street beyond it', async () => {
+  // The street runs 40 m south of the requested point across open paving.
+  const far: RoadGraphJson[] = [{ ...roads[0], nodes: [-30, 40, 30, 40] }];
+  const probe = async (x: number, z: number) => ground(x, z, z >= 37 ? MAT.road : MAT.paving_slab);
+  expect(await findInitialGround({ x: 0, z: 0 }, far, probe, () => true)).toBeNull(); // waits for the start collision
+  const result = await findInitialGround({ x: 0, z: 0 }, far, probe, () => true, true);
+  expect(result?.spawn).toMatchObject({ x: 0, z: 0 });
+  expect(result?.car).toMatchObject({ z: 40 });
+});

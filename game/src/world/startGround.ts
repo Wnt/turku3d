@@ -49,12 +49,12 @@ export async function supportedSpot(at: Point & { yaw: number }, probe: GroundPr
   return { ...at, y: heights[4] };
 }
 
-/** The CAR graph limits parking candidates to mapped streets; support rays provide actual clearance. */
 /**
- * The start next to `desired`: a car on the nearest supported CAR street and the player beside it. When no street
- * within reach supports a car (a pedestrian centre, streets under decks or canopies: Tapiola, Binnenrotte) and
- * `open` says the collision around `desired` is complete, the player stands on the nearest open walkable spot
- * instead and the car on the nearest flat spot around it (openGround).
+ * The start next to `desired`: a car on the nearest supported CAR street and the player beside it (the CAR graph
+ * limits parking candidates to mapped streets; support rays provide actual clearance). When that puts the player
+ * more than START_NEAR_M from `desired`, or no street within reach supports a car (a pedestrian centre, a square,
+ * streets under decks or canopies: Tapiola, Dam, Binnenrotte), and `open` says the collision around `desired` is
+ * complete, the player stands on the nearest open walkable spot instead and the car parks around it (openGround).
  */
 export async function findInitialGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
   covers: (x: number, z: number, radius: number) => boolean, open = false): Promise<{ spawn: Spot; car: Spot } | null> {
@@ -64,6 +64,19 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
     if (!memo.has(key)) memo.set(key, probe(x, z));
     return memo.get(key)!;
   };
+  const street = await streetStart(desired, graphs, sample, covers);
+  const away = (start: { spawn: Spot } | null) => start ? Math.hypot(start.spawn.x - desired.x, start.spawn.z - desired.z) : Infinity;
+  if (away(street) <= START_NEAR_M) return street;
+  if (!open) return null;
+  const ground = await openGround(desired, graphs, sample, covers);
+  return away(ground) < away(street) ? ground : street;
+}
+
+/** The player stands within this distance (m) of the requested start, or the open-ground search is tried. */
+export const START_NEAR_M = 15;
+
+async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sample: GroundProbe,
+  covers: (x: number, z: number, radius: number) => boolean): Promise<{ spawn: Spot; car: Spot } | null> {
   for (const candidate of streetCandidates(desired, graphs)) {
     if (!covers(candidate.x, candidate.z, 3)) continue;
     const car = await supportedSpot(candidate, sample, true);
@@ -77,7 +90,7 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
       if (spawn) return { spawn, car };
     }
   }
-  return open ? openGround(desired, sample, covers) : null;
+  return null;
 }
 
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
@@ -105,14 +118,17 @@ async function nearestSpot<T>(points: readonly T[], test: (point: T) => Promise<
   return null;
 }
 
-/** The player on the nearest open walkable spot to `desired` (a sky ray hits walkable ground there), the car on the
- *  nearest flat street surface around the player, else on the nearest flat walkable one. */
-export async function openGround(desired: Point, probe: GroundProbe, covers: (x: number, z: number, radius: number) => boolean) {
-  const open = (p: Point) => covers(p.x, p.z, 0.5);
-  const spawn = await nearestSpot(openPoints(desired).filter(open), async p =>
+/** The player on the nearest open walkable spot to `desired` (a sky ray hits walkable ground there); the car on the
+ *  nearest supported CAR street point around the player, else the nearest flat street surface, else the nearest
+ *  flat walkable ground (a car parked on a square). */
+export async function openGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
+  covers: (x: number, z: number, radius: number) => boolean) {
+  const spawn = await nearestSpot(openPoints(desired).filter(p => covers(p.x, p.z, 0.5)), async p =>
     safeSurface(await probe(p.x, p.z)) ? supportedSpot({ ...p, yaw: 0 }, probe, false) : null);
   if (!spawn) return null;
-  const around = openPoints(spawn).filter(p => Math.hypot(p.x - spawn.x, p.z - spawn.z) >= 4 && covers(p.x, p.z, 3));
+  const clear = (p: Point) => Math.hypot(p.x - spawn.x, p.z - spawn.z) >= 4 && covers(p.x, p.z, 3);
+  const streets = streetCandidates(spawn, graphs).filter(clear);
+  const around = openPoints(spawn).filter(clear);
   const park = (drivable: boolean) => nearestSpot(around, async p => {
     if (!safeSurface(await probe(p.x, p.z), drivable)) return null;
     for (const yaw of CAR_YAWS) {
@@ -121,6 +137,6 @@ export async function openGround(desired: Point, probe: GroundProbe, covers: (x:
     }
     return null;
   });
-  const car = await park(true) ?? await park(false);
+  const car = await nearestSpot(streets, p => supportedSpot(p, probe, true)) ?? await park(true) ?? await park(false);
   return car ? { spawn, car } : null;
 }
