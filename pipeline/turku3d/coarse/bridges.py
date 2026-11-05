@@ -704,6 +704,25 @@ def branch_profiles(way, main_height, sample_ground):
     return out, core
 
 
+def link_pieces(footprint, profiles):
+    """The deck footprint with each link's descent as a piece of its own (vertices every 2 m), so the
+    slab follows the link down instead of spanning it with the outline's flat triangles."""
+    from shapely.ops import substring
+
+    descents = []
+    for line, stations, heights, half in profiles:
+        flat = stations[np.isclose(heights, heights[0])]
+        leave = float(flat[-1]) if len(flat) else 0.0
+        if line.length - leave > 1.0:
+            descents.append(substring(line, leave, line.length).buffer(half - 1.0, cap_style="flat"))
+    if not descents:
+        return footprint
+    descent = shapely.segmentize(shapely.union_all(descents).intersection(footprint), 2.0)
+    rest = footprint.difference(descent)
+    parts = [g for g in [*shapely.get_parts(rest), *shapely.get_parts(descent)] if g.geom_type == "Polygon"]
+    return shapely.GeometryCollection(parts)
+
+
 def branch_height(profiles, xz, fallback):
     """Height of the nearest branch profile over each point, else ``fallback``."""
     result = np.asarray(fallback, dtype=np.float64).copy()
@@ -923,7 +942,8 @@ def produce(tile, grid_pos, inputs):
             return base * (1 - blend) + branch * blend
 
         meshes = slab(
-            key + ":deck", footprint_poly, line, ss, hh, material, height_at, spec["thickness"]
+            key + ":deck", link_pieces(footprint_poly, profiles), line, ss, hh, material, height_at,
+            spec["thickness"],
         )
         if meshes:
             details.appearance(meshes[0], spec["surface"])
