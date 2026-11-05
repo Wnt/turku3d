@@ -66,10 +66,26 @@ export class PropLod {
  *  props-layer mesh merges many objects, and its `userData.objects` rows give each one's index range (start, count).
  *  The start search keeps the player and the own car off them (world/startGround.ts): ground rays do not see props
  *  without collision, and the car once spawned on a bench at the Turku office. */
+type Box2 = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** A model's prop footprints, computed once (its props do not move). */
+const modelFootprints = new WeakMap<THREE.Object3D, Box2[]>();
 export function propFootprints(models: Iterable<THREE.Object3D>, at: { x: number; z: number }, radius: number) {
-  const out: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
-  const v = new THREE.Vector3();
+  const out: Box2[] = [];
   for (const model of models) {
+    let boxes = modelFootprints.get(model);
+    if (!boxes) modelFootprints.set(model, boxes = modelPropFootprints(model));
+    for (const b of boxes) {
+      const dx = Math.max(b.minX - at.x, 0, at.x - b.maxX), dz = Math.max(b.minZ - at.z, 0, at.z - b.maxZ);
+      if (Math.hypot(dx, dz) <= radius) out.push(b);
+    }
+  }
+  return out;
+}
+
+function modelPropFootprints(model: THREE.Object3D) {
+  const out: Box2[] = [];
+  const v = new THREE.Vector3();
+  {
     model.updateMatrixWorld(true);
     model.traverse(object => {
       const mesh = object as THREE.Mesh;
@@ -85,9 +101,7 @@ export function propFootprints(models: Iterable<THREE.Object3D>, at: { x: number
           v.fromBufferAttribute(position, index ? index.getX(i) : i).applyMatrix4(mesh.matrixWorld);
           if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x; if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
         }
-        if (minX === Infinity) continue;
-        const dx = Math.max(minX - at.x, 0, at.x - maxX), dz = Math.max(minZ - at.z, 0, at.z - maxZ);
-        if (Math.hypot(dx, dz) <= radius) out.push({ minX, maxX, minZ, maxZ });
+        if (minX !== Infinity) out.push({ minX, maxX, minZ, maxZ });
       }
     });
   }

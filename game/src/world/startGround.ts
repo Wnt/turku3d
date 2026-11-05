@@ -91,12 +91,39 @@ export function insideCar(car: Point & { yaw: number }, x: number, z: number, ma
   return Math.abs(along) <= CAR_HALF.length + margin && Math.abs(across) <= CAR_HALF.width + margin;
 }
 
+/** Grid cell (m) of the obstacle index. */
+const OBSTACLE_CELL = 4;
+const obstacleIndexes = new WeakMap<readonly Obstacle[], Map<string, Obstacle[]>>();
+/** Obstacles by 4 m cell (each box in every cell it touches), built once per list: the open-ground search tests
+ *  thousands of spots against thousands of props. */
+function indexOf(obstacles: readonly Obstacle[]) {
+  let index = obstacleIndexes.get(obstacles);
+  if (index) return index;
+  index = new Map();
+  for (const b of obstacles) {
+    for (let i = Math.floor(b.minX / OBSTACLE_CELL); i <= Math.floor(b.maxX / OBSTACLE_CELL); i++)
+      for (let j = Math.floor(b.minZ / OBSTACLE_CELL); j <= Math.floor(b.maxZ / OBSTACLE_CELL); j++) {
+        const key = `${i},${j}`;
+        let list = index.get(key);
+        if (!list) index.set(key, list = []);
+        list.push(b);
+      }
+  }
+  obstacleIndexes.set(obstacles, index);
+  return index;
+}
+
 /** No obstacle under the car's footprint (`car`) or within 0.45 m of the player's feet. */
 export function spotClear(obstacles: readonly Obstacle[], spot: Point & { yaw: number }, car: boolean) {
   if (!obstacles.length) return true;
+  const index = indexOf(obstacles);
   const points = car ? carPoints(spot) : [spot];
   const margin = car ? 0.2 : 0.45;
-  return !obstacles.some(b => points.some(p => inBox(b, p.x, p.z, margin)));
+  for (const p of points) for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+    const near = index.get(`${Math.floor(p.x / OBSTACLE_CELL) + di},${Math.floor(p.z / OBSTACLE_CELL) + dj}`);
+    if (near?.some(b => inBox(b, p.x, p.z, margin))) return false;
+  }
+  return true;
 }
 
 /** Whether the chase camera, behind `spawn` along the view, would sit in or look through the car. */
