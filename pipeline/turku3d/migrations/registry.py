@@ -8,8 +8,12 @@ from . import (bridge_ends, chain_record, floodlights, furniture, landmark_windo
 CHAIN = (
     chain_record.MIGRATION,
     stand_roofs.MIGRATION,
-    floodlights.MIGRATION,
+    # wires before floodlights: floodlights imports the whole source table (coarse.sources), so nearly every
+    # pipeline commit changes its code hash, and each step's generation chains on the one before it. With wires
+    # first, its generation (and the pass's wires@2 checkpoint, ~130 s CPU a tile) survives such commits. The two
+    # steps commute: each adds only its own key to the tile's lights.
     wires.MIGRATION,
+    floodlights.MIGRATION,
     trees_lidar.MIGRATION,
     furniture.MIGRATION,
     racks.MIGRATION,
