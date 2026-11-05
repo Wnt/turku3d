@@ -84,3 +84,15 @@ def test_3dbag_rows_carry_semantic_surfaces(bag_tile):
     assert ground["geometry"].exterior.coords[0][2] == pytest.approx(1.0)
     assert ground["storeysAboveGround"] == 3 and ground["measuredHeight"] == 9.0
     assert convert.buildings_3dbag((0, 0, 10, 10)) == []  # footprint outside the window
+
+
+def test_generic_paving_follows_dutch_convention():
+    assert convert.appearance("rijbaan lokale weg", "open verharding", None) == ("Maatiili", "21")
+    assert convert.appearance("voetpad", "open verharding", None) == ("Betonilaatta", "8")
+    assert convert.appearance("parkeervlak", "open verharding", None) == ("Betonikivi", "9")
+    assert convert.appearance("fietspad", "gesloten verharding", None)[1] == "20"  # red asphalt
+    # An explicit BGT appearance wins over OSM, OSM over the convention.
+    sett = convert.OSM_SURFACE["sett"]
+    assert convert.appearance("rijbaan lokale weg", "open verharding", "betonstraatstenen", sett) == ("Betonikivi", "9")
+    assert convert.appearance("rijbaan lokale weg", "open verharding", None, sett) == ("Noppakivi", "6")
+    assert convert.appearance("rijbaan lokale weg", "asfalt", None, sett) == ("Asfalttibetoni", "1")

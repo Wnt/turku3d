@@ -294,7 +294,105 @@ def _ground_block(block: C.LazTile, log=print) -> Path:
         water_synthetic=int(len(synthetic)),
     )
     log(f"nl   ground {block.name}: {len(ground)} ground, {len(water)} water, {len(synthetic)} synthetic water")
+    pointcloud_block(block, points, log)
     return out
+
+
+# -- classified point cloud (pistepilvi) ---------------------------------------------------------------
+
+HAG_CELL = 1.0  # m: height-above-ground raster from the block's ground key points
+VEG_HIGH, VEG_MEDIUM, VEG_LOW = 2.0, 0.5, 0.15  # m above ground: Turku's classes 5 / 4 / 3
+STREET_OBJECTS = 2.5  # m: AHN class 1 below this over BGT carriageways is cars and street furniture, not vegetation
+
+
+def pointcloud_block(block: C.LazTile, ground_points: np.ndarray, log=print) -> Path | None:
+    """``raw/laz/pistepilvi/<block>.laz`` from AHN in Turku's classification (2 ground, 3/4/5 low/medium/high
+    vegetation, 6 building, 9 water, 1 other), for roof refinement, LiDAR trees, canopy, walls and wires.
+
+    AHN leaves vegetation, street furniture and vehicles together in class 1: they are split by height above
+    the block's ground (``HAG_CELL`` raster from the key points), and class 1 below ``STREET_OBJECTS`` over
+    BGT carriageways stays class 1. AHN class 26 (civil structures: bridges, quays) stays 1."""
+    import laspy
+    import shapely
+    from scipy.interpolate import griddata
+
+    from turku3d.fetch.common import Registry
+
+    b = block.bbox_en
+    bbox = (b.emin, b.nmin, b.emax, b.nmax)
+    sources = _files("ahn", bbox)
+    if not sources or len(ground_points) < 16:
+        return None
+    nx = ny = int(round((b.emax - b.emin) / HAG_CELL))
+    gx, gy = np.meshgrid(b.emin + (np.arange(nx) + 0.5) * HAG_CELL, b.nmax - (np.arange(ny) + 0.5) * HAG_CELL)
+    ground = griddata(ground_points[:, :2], ground_points[:, 2], (gx, gy), method="linear")
+    hole = ~np.isfinite(ground)
+    if hole.any():
+        ground[hole] = griddata(ground_points[:, :2], ground_points[:, 2], (gx[hole], gy[hole]), method="nearest")
+    roads = [g for c, _, p, g in bgt_features(("wegdeel",), bbox, log) if (p.get("functie") or "").startswith(("rijbaan", "parkeervlak", "OV-baan", "inrit"))]
+    street = shapely.contains_xy(shapely.union_all(roads), gx, gy) if roads else np.zeros_like(hole)
+    keep = {k: [] for k in ("x", "y", "z", "intensity", "return_number", "number_of_returns", "classification",
+                            "gps_time", "red", "green", "blue")}
+    for path in sources:
+        with laspy.open(path) as reader:
+            for chunk in reader.chunk_iterator(4_000_000):
+                x, y = np.asarray(chunk.x), np.asarray(chunk.y)
+                inside = (x >= b.emin) & (x < b.emax) & (y > b.nmin) & (y <= b.nmax)
+                if not inside.any():
+                    continue
+                for k in keep:
+                    keep[k].append(np.asarray(getattr(chunk, k))[inside])
+    if not keep["x"]:
+        return None
+    pts = {k: np.concatenate(v) for k, v in keep.items()}
+    cls = pts["classification"].astype(np.uint8)
+    col = np.clip(((pts["x"] - b.emin) / HAG_CELL).astype(int), 0, nx - 1)
+    row = np.clip(((b.nmax - pts["y"]) / HAG_CELL).astype(int), 0, ny - 1)
+    hag = pts["z"] - ground[row, col]
+    out = np.ones(len(cls), np.uint8)
+    out[cls == 2], out[cls == 6], out[cls == 9] = 2, 6, 9
+    other = cls == 1
+    vehicle = other & street[row, col] & (hag < STREET_OBJECTS)
+    veg = other & ~vehicle
+    out[veg & (hag >= VEG_LOW)] = 3
+    out[veg & (hag >= VEG_MEDIUM)] = 4
+    out[veg & (hag >= VEG_HIGH)] = 5
+    root = C.raw_dir("laz") / "pistepilvi"
+    root.mkdir(parents=True, exist_ok=True)
+    dest = root / f"{block.name}.laz"
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    header.scales = np.array([0.001, 0.001, 0.001])
+    header.offsets = np.array([np.floor(b.emin), np.floor(b.nmin), 0.0])
+    las = laspy.LasData(header)
+    las.x, las.y, las.z = pts["x"], pts["y"], pts["z"]
+    for k in ("intensity", "gps_time", "red", "green", "blue"):
+        setattr(las, k, pts[k])
+    # LAS 1.4 format 8 counts up to 15 returns; format 3 (Turku's) up to 7.
+    las.return_number = np.clip(pts["return_number"], 0, 7)
+    las.number_of_returns = np.clip(pts["number_of_returns"], 0, 7)
+    las.classification = out
+    tmp = dest.with_name(dest.name + ".tmp.laz")
+    las.write(tmp)
+    tmp.replace(dest)
+    counts = {int(k): int(v) for k, v in zip(*np.unique(out, return_counts=True))}
+    Registry(C.raw_dir("laz")).record(dest, url=None, derived_from=[p.name for p in sources], classes=counts)
+    log(f"nl   point cloud {block.name}: {len(out)} points, classes {counts}")
+    return dest
+
+
+def pointclouds(log=print) -> int:
+    """Write the classified point cloud of every block that has ground key points but no point cloud yet."""
+    import laspy
+
+    count = 0
+    for path in sorted((C.raw_dir("laz") / "maanpinta").glob("*.laz")):
+        if (C.raw_dir("laz") / "pistepilvi" / path.name).exists():
+            continue
+        with laspy.open(path) as reader:
+            las = reader.read()
+        pointcloud_block(C.LazTile.parse(path.stem), np.column_stack([las.x, las.y, las.z]), log)
+        count += 1
+    return count
 
 
 # -- derived WFS layers ------------------------------------------------------------------------------
@@ -381,16 +479,105 @@ def buildings_3dbag(bbox, log=print):
     return rows
 
 
+# Paved BGT terrain outside the street register (squares, yards, quays): street areas of kind "Muu".
+PAVED_TERRAIN = ("gesloten verharding", "open verharding", "half verhard")
+# OSM surface=* -> (Pintamateriaali, code): the source for polygons whose BGT appearance is generic.
+OSM_SURFACE = {
+    "asphalt": ("Asfalttibetoni", "1"),
+    "paving_stones": ("Betonikivi", "9"),
+    "paving_stones:30": ("Betonilaatta", "8"),
+    "concrete:plates": ("Betonilaatta", "8"),
+    "grass_paver": ("Betonilaatta", "8"),
+    "concrete": ("Betoni", "14"),
+    "concrete:lanes": ("Betoni", "14"),
+    "sett": ("Noppakivi", "6"),
+    "cobblestone": ("Noppakivi", "6"),
+    "unhewn_cobblestone": ("Nupukivi", "5"),
+    "bricks": ("Maatiili", "21"),
+    "brick": ("Maatiili", "21"),
+    "clinker": ("Maatiili", "21"),
+    "gravel": ("Sora", "7"),
+    "fine_gravel": ("Kivituhka", "18"),
+    "compacted": ("Kivituhka", "18"),
+    "pebblestone": ("Sora", "7"),
+    "shells": ("Sora", "7"),
+    "wood": ("Puu", "13"),
+    "metal": ("Metalli", "19"),
+}
+GENERIC = ("open verharding", "gesloten verharding", "half verhard")
+
+
+class OsmSurfaces:
+    """OSM features with a known ``surface`` over a bbox: areas first, then the way with the longest run inside."""
+
+    def __init__(self, bbox):
+        import geopandas as gpd
+        import shapely
+
+        self.geoms, self.values, self.areas = [], [], []
+        window = shapely.box(*bbox)
+        for path in sorted(C.raw_dir("osm").glob("coarse-osm-*/*.parquet")):
+            frame = gpd.read_parquet(path, columns=["surface", "geometry"])
+            frame = frame[frame.surface.isin(list(OSM_SURFACE))]
+            frame = frame[frame.geometry.intersects(window)]
+            for g, value in zip(frame.geometry, frame.surface, strict=True):
+                self.geoms.append(g)
+                self.values.append(value)
+                self.areas.append(g.geom_type in ("Polygon", "MultiPolygon"))
+        self.tree = shapely.STRtree(self.geoms) if self.geoms else None
+
+    def at(self, polygon):
+        if self.tree is None:
+            return None
+        best, score = None, 0.0
+        for i in self.tree.query(polygon, predicate="intersects"):
+            g = self.geoms[i]
+            if self.areas[i]:
+                share = g.intersection(polygon).area / max(polygon.area, 1e-9)
+                value = 1e6 * share if share > 0.5 else 0.0
+            else:
+                value = g.intersection(polygon).length
+            if value > score:
+                best, score = self.values[i], value
+        return OSM_SURFACE[best] if best and score >= (1.0 if not self.areas else 0) else None
+
+
+def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
+    """Surface (Pintamateriaali, code), in precedence: an explicit BGT appearance (plus_fysiek_voorkomen or a
+    specific fysiek_voorkomen), the OSM surface tag of the way or area on the polygon, then Dutch street
+    convention for generic element paving: clinker brick on carriageways, concrete tiles on footways. Asphalt
+    cycle paths are red asphalt (CROW standard). The 2025 ortho is no fallback: it cannot separate brick from
+    grey pavers (shadowed spring flight: median sunlit R - B -12 for BGT "gebakken klinkers" vs -3 for footways)."""
+    found = surface(fysiek, plus)
+    if not plus and (fysiek or "") in GENERIC and osm is not None:
+        found = osm
+    elif not plus and (fysiek or "") == "open verharding":
+        if (functie or "").startswith("rijbaan") or functie in ("woonerf", "fietspad"):
+            found = ("Maatiili", "21")
+        elif functie in ("voetpad", "voetgangersgebied", "verkeerseiland", None):
+            found = ("Betonilaatta", "8")
+    if functie == "fietspad" and found[0] == "Asfalttibetoni":
+        return ("Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)", "20")
+    return found
+
+
 def streets_bgt(bbox, log=print):
+    osm = OsmSurfaces(bbox)
     rows = []
-    for collection, key, p, g in bgt_features(STREET_COLLECTIONS, bbox, log):
+    for collection, key, p, g in bgt_features(STREET_COLLECTIONS + ("onbegroeidterreindeel",), bbox, log):
         if g.geom_type not in ("Polygon", "MultiPolygon"):
             continue
         functie, fysiek = p.get("functie"), p.get("fysiek_voorkomen")
         plus = p.get("plus_fysiek_voorkomen")
         if collection == "ondersteunendwegdeel" and any(t in (fysiek or "") for t in GREEN):
             continue  # planted verges: the ortho and the vegetation producers own them
+        if collection == "onbegroeidterreindeel":
+            if (fysiek or "") not in PAVED_TERRAIN:
+                continue  # sand, bare yards: the ortho classification owns them
+            functie = None
+        part_kind = kind(functie) if functie is not None else ("Muu", "6")
         for i, part in enumerate(getattr(g, "geoms", [g])):
+            material = appearance(functie, fysiek, plus, osm.at(part))
             rows.append(
                 {
                     "layer": "GIS:Katualueet",
@@ -403,13 +590,13 @@ def streets_bgt(bbox, log=print):
                     "surface_type": "",
                     "part_id": "",
                     "surface_id": "",
-                    "Katuosalaji": kind(functie)[0],
-                    "Katuosalaji_koodi": kind(functie)[1],
+                    "Katuosalaji": part_kind[0],
+                    "Katuosalaji_koodi": part_kind[1],
                     "Pintamateriaaliryhma": "Katuosan pintamateriaalit",
-                    "Pintamateriaali": surface(fysiek, plus)[0],
-                    "Pintamateriaali_koodi": surface(fysiek, plus)[1],
+                    "Pintamateriaali": material[0],
+                    "Pintamateriaali_koodi": material[1],
                     "Kadunnimi": p.get("openbareruimte_naam") or "",
-                    "bgt_functie": functie,
+                    "bgt_functie": functie or collection,
                     "bgt_fysiek": plus or fysiek,
                     "op_talud": p.get("op_talud"),
                 }
@@ -457,7 +644,7 @@ def derive(layer, area, adapter: str, log=print) -> dict:
         return _derive(layer, area, adapter, bbox, log)
 
 
-ADAPTER_VERSION = 1
+ADAPTER_VERSION = 5  # 5: BGT > OSM surface > Dutch paving convention, paved terrain
 
 
 def _derive(layer, area, adapter, bbox, log):
@@ -469,3 +656,34 @@ def _derive(layer, area, adapter, bbox, log):
                     adapter_version=ADAPTER_VERSION)
     log(f"nl   {layer.name} <- {adapter}: {nfeat} features, {len(gdf)} rows")
     return s
+
+
+def rederive(log=print, adapters=None) -> int:
+    """Re-derive every converted WFS layer written by an older adapter version (the tiles over it rebuild)."""
+    from turku3d.coarse.sources import AREA_PREFIX, block_area
+    from turku3d.fetch.sources import WFS_LAYERS as ALL
+
+    count = 0
+    for summary in sorted(C.raw_dir("wfs").glob(f"{AREA_PREFIX}*/*.summary.json")):
+        s = json.loads(summary.read_text())
+        adapter = s.get("derived")
+        if not adapter or s.get("adapter_version") == ADAPTER_VERSION or (adapters and adapter not in adapters):
+            continue
+        layer = next(l for l in ALL if l.name == s["layer"])
+        area = block_area(C.LazTile.parse(summary.parent.name.removeprefix(AREA_PREFIX)))
+        summary.unlink()  # derive() keeps a current summary; this one is outdated
+        derive(layer, area, adapter, log=log)
+        count += 1
+    return count
+
+
+if __name__ == "__main__":
+    import sys
+
+    err = lambda *a: print(*a, file=sys.stderr)  # noqa: E731
+    if sys.argv[1:2] == ["rederive"]:
+        print(json.dumps({"rederived": rederive(err, sys.argv[2:] or None)}))
+    elif sys.argv[1:2] == ["pointclouds"]:
+        print(json.dumps({"pointclouds": pointclouds(err)}))
+    else:
+        raise SystemExit("python -m turku3d.nl.convert rederive [ADAPTER ...] | pointclouds")
