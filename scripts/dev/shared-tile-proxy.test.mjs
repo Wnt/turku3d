@@ -179,3 +179,28 @@ test('finished fragments are shared for a while across distances and players; po
     await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('health and status come from a short cache refreshed in the background, not one farm call per poll', async () => {
+  let calls = 0;
+  const upstream = http.createServer((req, res) => {
+    calls++;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ state: 'ready', call: calls }));
+  });
+  await listen(upstream);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-health-'));
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, JSON.stringify({ service: `http://127.0.0.1:${upstream.address().port}`, version: 'pin' }));
+  const proxy = createSharedTileProxy(file);
+  await listen(proxy);
+  const base = `http://127.0.0.1:${proxy.address().port}`;
+  try {
+    const first = await (await fetch(base + '/coarse/health')).json();
+    assert.equal(first.state, 'ready');
+    const answers = await Promise.all(Array.from({ length: 20 }, () => fetch(base + '/coarse/health').then(r => r.json())));
+    assert.ok(answers.every(a => a.call === first.call), 'polls within 15 s share one farm answer');
+    assert.equal(calls, 1);
+  } finally {
+    await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
+  }
+});

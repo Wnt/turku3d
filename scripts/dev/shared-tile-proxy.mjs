@@ -128,6 +128,8 @@ function sendFragment(req, res, { status, headers, body }) {
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 
+const HEALTH = new Map();
+
 export function createSharedTileProxy(configFile) {
   const versionFor = resolver();
   const fragments = fragmentCache();
@@ -143,6 +145,34 @@ export function createSharedTileProxy(configFile) {
     const key = cached && JSON.stringify([config.service, config.version, config.follow, config.exclude, url.pathname]);
     const hit = key && fragments.get(key);
     if (hit) { sendFragment(req, res, await hit); return; }
+    // Health answers come from a short cache refreshed in the background: the farm's /health can take 10-30 s.
+    if (!scenery && !pinned && req.method === 'GET' && /^\/coarse\/(?:health|status)$/.test(url.pathname)) {
+      const slot = HEALTH.get(url.pathname) ?? {};
+      HEALTH.set(url.pathname, slot);
+      const refresh = () => {
+        if (slot.inflight) return slot.inflight;
+        slot.inflight = (async () => {
+          const version = await versionFor(config, url.pathname);
+          const target = new URL(`/v/${encodeURIComponent(version)}${url.pathname}${url.search}`, config.service);
+          return await new Promise(resolve => {
+            const r = http.get(target, { timeout: 60000 }, reply => {
+              const chunks = []; reply.on('data', c => chunks.push(c));
+              reply.on('end', () => resolve({ status: reply.statusCode, type: reply.headers['content-type'] ?? 'application/json', body: Buffer.concat(chunks) }));
+            });
+            r.on('timeout', () => r.destroy(new Error('timeout')));
+            r.on('error', () => resolve(null));
+          });
+        })().then(answer => { if (answer && answer.status === 200) { slot.answer = answer; slot.at = Date.now(); } slot.inflight = null; return answer; },
+                   () => { slot.inflight = null; return null; });
+        return slot.inflight;
+      };
+      if (!slot.answer || Date.now() - slot.at > 15000) refresh();
+      const answer = slot.answer ?? await Promise.race([refresh(), new Promise(r => setTimeout(() => r(null), 8000))]);
+      if (!answer) { res.writeHead(503, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'tile service health not available yet' })); return; }
+      res.writeHead(answer.status, { 'content-type': answer.type, 'cache-control': 'no-cache' });
+      res.end(answer.body);
+      return;
+    }
     let target;
     if (scenery) {
       if (!config.scenery) { res.writeHead(404); res.end(); return; }
