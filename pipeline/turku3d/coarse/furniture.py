@@ -163,6 +163,35 @@ def deck_above(decks, point, reach=20.0):
     return height
 
 
+LANE_SHOULDER = 0.3  # m of a carriageway's mapped width beside its outer lanes
+POST_SHIFT = 3.0  # m a standing item may move to clear the traffic lanes
+
+
+def lane_area(graph_json):
+    """Plan area of the street graph's car lanes: each car edge buffered by its width less its
+    shoulders, or None. A post inside it stands in the lane a car drives."""
+    import json as _json
+
+    if not graph_json:
+        return None
+    graph = _json.loads(graph_json) if isinstance(graph_json, (str, bytes)) else graph_json
+    columns = graph.get("edgeAttrColumns")
+    attrs = graph.get("edgeAttrs")
+    if not columns or not attrs or "width" not in columns or "flags" not in columns:
+        return None
+    from turku3d.roads import CAR
+
+    nodes = np.asarray(graph["nodes"], dtype=float).reshape(-1, 2)
+    width, flags = columns.index("width"), columns.index("flags")
+    parts = []
+    for edge, a in zip(graph["edges"], attrs, strict=False):
+        if not int(edge[2]) & CAR or not a[width]:
+            continue
+        coords = [nodes[edge[0]], *np.asarray(edge[4:], dtype=float).reshape(-1, 2), nodes[edge[1]]]
+        parts.append(shapely.LineString(coords).buffer(max(1.5, float(a[width]) / 2 - LANE_SHOULDER), cap_style="flat"))
+    return shapely.union_all(parts) if parts else None
+
+
 EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
 
 
@@ -182,6 +211,7 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
 
     stats = Counter()
     decks = deck_heights(roads) if spans is not None else []
+    lanes = lane_area(roads)
     buildings = STRtree(footprints) if footprints else None
     wet = STRtree(water) if water else None
     blocked_deck = carried if carried is not None and not carried.is_empty else None
@@ -201,13 +231,25 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
             # into its traffic lanes (Kupittaansilta). The deck carries its own mapped lamps.
             stats["lamp_under_deck"] += 1
             continue
-        if p.kind == "lamp" and spans is not None and spans.covers(point) and decks:
+        if p.kind == "lamp" and spans is not None and spans.covers(point):
             # Anywhere else under a deck, a post that would reach up into it (a verge or footway
-            # under the deck, t0_0_-4) stands in the deck's lanes as a pole collider.
-            above = deck_above(decks, point)
-            if above is not None and height_at(p.x, p.z) + POST_REACH > above - DECK_GAP:
+            # under the deck, t0_0_-4) stands in the deck's lanes as a pole collider. Without a
+            # surveyed deck height (the street graph's deck heights come later) it is dropped too:
+            # the deck builds its own mapped lamps on its surface.
+            above = deck_above(decks, point) if decks else None
+            if above is None or height_at(p.x, p.z) + POST_REACH > above - DECK_GAP:
                 stats["lamp_through_deck"] += 1
                 continue
+        if p.kind in ("lamp", "sign", "bus_stop", *COLLIDES) and lanes is not None and lanes.covers(point):
+            # A post, sign or bollard in a traffic lane stops every car that drives it (Kalevan's south
+            # joint, the t0_0_-3 underpass): it moves to the nearest kerb, or is not built.
+            depth, x, z = _outside(lanes, point)
+            if depth > POST_SHIFT or lanes.covers(shapely.Point(x, z)):
+                stats[f"dropped_in_lane:{p.kind}"] += 1
+                continue
+            p.x, p.z = x, z
+            point = shapely.Point(x, z)
+            stats[f"moved_out_of_lane:{p.kind}"] += 1
         flooded = [water[i] for i in wet.query(point)] if wet is not None else []
         flooded = [w for w in flooded if w.covers(point)]
         if flooded:
