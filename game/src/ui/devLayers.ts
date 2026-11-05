@@ -325,6 +325,9 @@ export class DevLayers {
     }
   }
   dispose() {
+    // Nothing was set up without developer tools; the distant scenery and view distance are not this layer's then
+    // (a city switch or session swap would otherwise zero the next session's view distance).
+    if (!this.enabled) return;
     this.coarse?.screenshotScenery.setRadius(0); this.setViewDistance?.(0);
     this.restore();
     globalThis.removeEventListener?.('resize', this.invalidateLayout);
