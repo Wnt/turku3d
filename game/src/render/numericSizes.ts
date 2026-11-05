@@ -7,7 +7,10 @@ import { Source } from 'three/webgpu';
  *  76-170 MB/s that kept GC at up to 45 % of a 60 s profile. Missing sizes read as 0 instead; nothing compares a
  *  texture size to undefined (depth buffers are recreated whenever the size differs, as before). */
 type Sized = { set(x: number, y: number, z?: number): unknown };
-const prototype = Source.prototype as unknown as { data: unknown; getSize(target: Sized): Sized };
+// Textures hold a TextureSource (r186: Source extends it and exports no own getSize): patch the class that owns it.
+let owner: object | null = Source.prototype;
+while (owner && !Object.prototype.hasOwnProperty.call(owner, 'getSize')) owner = Object.getPrototypeOf(owner) as object | null;
+const prototype = owner as { data: unknown; getSize(target: Sized): Sized };
 const size = prototype.getSize;
 prototype.getSize = function getSize(target: Sized) {
   const data = this.data as { width?: number; height?: number; depth?: number } | null;
