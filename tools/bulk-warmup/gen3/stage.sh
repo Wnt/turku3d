@@ -88,6 +88,13 @@ bootstrap() {
     swapon /swapfile 2>/dev/null || true
     mkdir -p /home/wnt/turku3d-local/loops/tiles/farm /bulk/turku3d/lidarpc/raw/pistepilvi /home/wnt/turku3d-bulk-gen3
     git config --global --add safe.directory "*"'
+  # node exactly as on osgallery-dev (the glTF tools run under it; NodeSource, pinned): the host had none, and a
+  # different major could change packed output.
+  nv=$(ssh $OSG "dpkg-query -W -f '\${Version}' nodejs"); nmaj=${nv%%.*}
+  ssh $OSG 'cat /usr/share/keyrings/nodesource.gpg' | ssh "$H" "mkdir -p /etc/apt/keyrings && cat > /etc/apt/keyrings/nodesource.gpg
+    printf 'Types: deb\nURIs: https://deb.nodesource.com/node_$nmaj.x\nSuites: nodistro\nComponents: main\nArchitectures: amd64\nSigned-By: /etc/apt/keyrings/nodesource.gpg\n' \
+      > /etc/apt/sources.list.d/nodesource.sources
+    apt-get -qq update > /dev/null; DEBIAN_FRONTEND=noninteractive apt-get -qq install -y nodejs=$nv > /dev/null; node --version"
   rsync -a "$HERE/../gen2/ttl/" "$H:/root/ttl/" && ssh "$H" 'chmod +x /root/ttl/*.sh && /root/ttl/install.sh'
   rsync -a "$HERE/window-pass.sh" "$HERE/trim-decoded.py" "$HERE/verify_stage.py" "$H:/home/wnt/turku3d-bulk-gen3/"
   tmp=$(mktemp -d)
