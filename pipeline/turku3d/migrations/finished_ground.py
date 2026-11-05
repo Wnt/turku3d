@@ -1,4 +1,4 @@
-"""finished-ground@1: spot rebuild after the finished-ground rule (``turku3d.ground.finished``).
+"""finished-ground@2: spot rebuild after the finished-ground rule (``turku3d.ground.finished``).
 
 The 2021 city lidar caught streets and squares rebuilt around then (Kauppatori 2019-2022)
 mid-construction. The rule replaces that ground, inside street parts the city register dates to
@@ -8,14 +8,19 @@ heights and everything placed on the ground follow. The affected class is the ti
 input changes under the rule: the same function the generator runs decides it, from the base's
 source version, so a rebuilt tile is a normal build of this generator (parity by construction)
 and every other tile keeps its payloads byte for byte.
+
+@2: tunnels, underpasses, bridge ramps and the street parts leading into them (their first 40 m) keep
+their relief; @1 filled the Myllyahde tunnel approach by up to 9 m. A tile @1 changed is rebuilt again.
 """
 
 from .core import Rebuild
 
 
 def affected(manifest: dict) -> bool:
-    if "finished_ground" in manifest:  # built by a generator that already has the rule
-        return False
+    if manifest.get("finished_ground"):  # an earlier rule (or this one) changed this tile's ground
+        return True
+    if "finished_ground" in manifest and manifest.get("finished_ground_rule") == RULE:
+        return False  # built by this rule, which left the ground alone
     from turku3d import config as C
     from turku3d.coarse.inputs import _ABSENT, _entry, _input_lock, _load, _prepare_one, _save, finished_sources
     from turku3d.coarse.sources import NoCoverage, Sources
@@ -39,4 +44,5 @@ def affected(manifest: dict) -> bool:
     return value["report"] is not None
 
 
-MIGRATION = Rebuild("finished-ground", 1, affected=affected)
+RULE = 2
+MIGRATION = Rebuild("finished-ground", RULE, affected=affected)

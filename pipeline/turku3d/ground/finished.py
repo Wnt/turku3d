@@ -41,6 +41,9 @@ from turku3d import config as C
 EPOCH = "2021-04-17"  # data-manifests/sources.yaml laz.epoch
 EPOCH_YEAR = 2021
 STRUCTURES = frozenset({"Portaat", "Silta", "Siltaluiska", "Tunneli", "Alikulkukäytävä"})
+PORTALS = frozenset({"Siltaluiska", "Tunneli", "Alikulkukäytävä"})  # a road dips or climbs into these
+APPROACH = 40  # m: the stretch of a street part touching a portal that is its ramp, never a site
+KEEP = 3  # m round structures and approaches that keep their relief
 DEPTH = 0.4  # m off the finished surface: construction, not paving relief (kerbs are 0.10-0.16 m)
 EDGE = 0.1  # m: a site grows through ground at least this far off
 GROW = 2  # m a site grows from its core
@@ -70,6 +73,7 @@ class Evidence:
 
     zones: list = field(default_factory=list)  # (polygon, attrs) renovated paved street parts
     structures: list = field(default_factory=list)  # stairs, bridges, ramps, tunnels: never filled
+    portals: list = field(default_factory=list)  # tunnels, underpasses, bridge ramps: their approaches keep relief
     streets: list = field(default_factory=list)  # every other street part, of any year: where sites grow
     spots: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # x, z, height after EPOCH
     footprints: list = field(default_factory=list)  # building footprint polygons (not afloat)
@@ -84,7 +88,7 @@ class Evidence:
 # -- sources ----------------------------------------------------------------------------------------
 
 
-def zone_rows(frame) -> tuple[list, list, list]:
+def zone_rows(frame, portals=None) -> tuple[list, list, list]:
     """(zones, structures, streets): (polygon, attrs) of the finished-state zones in a GIS:Katualueet
     frame, the polygons of every stair, bridge, ramp, tunnel and underpass part, and of every other
     street part whatever its year."""
@@ -102,6 +106,8 @@ def zone_rows(frame) -> tuple[list, list, list]:
         polys = [g for g in getattr(geom, "geoms", [geom]) if g.geom_type == "Polygon" and g.area > 0]
         if str(kind) in STRUCTURES:
             structures.extend(polys)
+            if portals is not None and str(kind) in PORTALS:
+                portals.extend(polys)
             continue
         streets.extend(polys)
         if year < EPOCH_YEAR:
@@ -186,8 +192,9 @@ def load(tile: C.VisualTile, streets, spots, buildings, laz, water=()) -> Eviden
         return merged.drop_duplicates(subset=subset).reset_index(drop=True)
 
     street_frame = rows(streets)
-    zones, structures, streets = zone_rows(street_frame) if street_frame is not None else ([], [], [])
-    evidence = Evidence(zones=zones, structures=structures, streets=streets)
+    portals = []
+    zones, structures, streets = zone_rows(street_frame, portals) if street_frame is not None else ([], [], [])
+    evidence = Evidence(zones=zones, structures=structures, streets=streets, portals=portals)
     if not evidence.near(tile.bbox.buffered(BAND + REACH + 1)):
         return evidence  # no zone reaches the tile: nothing else is read
     spot_frame = rows(spots)
@@ -395,9 +402,21 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     ]
     water = _inside([g for g in evidence.water if g.intersects(shapely.box(*b.as_tuple()))], xs, zs)
     zone &= ~water
+    window_box = shapely.box(*b.as_tuple())
+    # A tunnel, underpass or bridge ramp, the street parts leading into it (their first APPROACH m) and
+    # every other structure keep their relief: a portal cut is a pit to a closing, not construction.
+    structures = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs)
+    portals = [g for g in evidence.portals if g.intersects(window_box)]
+    keep_relief = structures
+    if portals:
+        near_portal = shapely.union_all(portals).buffer(0.5)
+        approaches = [g for g in evidence.streets if g.intersects(near_portal)]
+        keep_relief = keep_relief | (_inside(approaches, xs, zs) & _grow(_inside(portals, xs, zs), APPROACH))
+    keep_relief = _grow(keep_relief, KEEP) | water
+    zone &= ~keep_relief
     spots_rc = [(r, c, y) for r, c, y in spots_rc if zone[r, c] and not footprints[r, c]]
     pit, bump, core, walls = detect(h, zone, footprints, spots_rc)
-    reach = _grow(zone, REACH) & ~footprints & ~water
+    reach = _grow(zone, REACH) & ~footprints & ~keep_relief
     grown = _grow(core, GROW) & ((pit > EDGE) | (bump > EDGE)) & reach
     mask = core | grown
     labels, count = ndi.label(mask)
@@ -408,8 +427,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     mask = keep[labels]
     if not mask.any():
         return Window(xs[0], zs[0], h, h, [])
-    window_box = shapely.box(*b.as_tuple())
-    blocked = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs) | water
+    blocked = keep_relief
     # Sites grow only in street space: any street part (whatever its year) and the strip to the facades.
     street = _inside([g for g in evidence.streets if g.intersects(window_box)], xs, zs) | zone
     space = _grow(street, REACH) & ~blocked
@@ -432,7 +450,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
             break
         mask |= join
     near_site = _grow(mask, FREE_REACH)
-    free = mask | touching(near_site)
+    free = (mask | touching(near_site)) & ~keep_relief
     solved = _biharmonic(h, free, spots_rc)
     labels, count = ndi.label(free)
     sites = []

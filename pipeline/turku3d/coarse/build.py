@@ -940,6 +940,7 @@ def build(
         ),
         # Construction-era lidar ground replaced by the finished surface (ground.finished).
         finished_ground=inputs.finished_ground,
+        finished_ground_rule=2,  # migrations.finished_ground.RULE: which rule decided finished_ground
         surface_closure=closure_report,
         surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),

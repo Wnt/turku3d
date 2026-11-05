@@ -135,11 +135,12 @@ def test_chain_ends_with_the_finished_ground_spot_rebuild():
     from turku3d.migrations.registry import CHAIN
 
     keys = [m.key for m in CHAIN]
-    assert "finished-ground@1" in keys
-    step = CHAIN[keys.index("finished-ground@1")]
+    assert "finished-ground@2" in keys
+    step = CHAIN[keys.index("finished-ground@2")]
     assert isinstance(step, Rebuild)
-    # A product of a generator with the rule carries its report and is never rebuilt again.
-    assert finished_ground.affected({"tile": "t0_0_0", "finished_ground": None}) is False
+    # A product of this rule that left the ground alone is never rebuilt; one an earlier rule changed is.
+    assert finished_ground.affected({"tile": "t0_0_0", "finished_ground": None, "finished_ground_rule": 2}) is False
+    assert finished_ground.affected({"tile": "t0_0_0", "finished_ground": {"changed_m2": 5}}) is True
 
 
 @pytest.mark.parametrize("value", ["2021", 2022, "x", None])
@@ -193,3 +194,17 @@ def test_street_register_without_construction_years_has_no_zones():
                              geometry="geometry_local")
     zones, structures, streets = zone_rows(frame)
     assert zones == [] and structures == []
+
+
+def test_a_tunnel_approach_in_a_cut_keeps_its_relief():
+    def cut(x, z):  # a road dipping 4 m into a tunnel portal at z = 150, banks on both sides
+        return np.where((np.abs(x - 125) < 5) & (z > 100) & (z < 150), -4.0 * (z - 100) / 50, 0.0)
+
+    ev = evidence(TILE, shapely.box(60, 60, 190, 100), cut)  # a renovated square at the ramp's head
+    ev.streets = [shapely.box(118, 100, 132, 150)]  # the approach carriageway (any year)
+    ev.portals = [shapely.box(118, 150, 132, 170)]  # the tunnel part
+    ev.structures = list(ev.portals)
+    points, report, region = F.apply(TILE, tile_points(TILE, ev), ev)
+    zs = np.linspace(105, 145, 9)
+    before = finished_at(TILE, tile_points(TILE, ev), np.full(9, 125.0), zs)
+    assert np.allclose(finished_at(TILE, points, np.full(9, 125.0), zs), before, atol=0.02)
