@@ -406,9 +406,11 @@ let benchSettled = () => false;
 // 3 ms there starved HD installs on the Radeon 560X), and LOADING_SHARE_MS while the world loads. Unpaced, the boot
 // warm-up ran ~400 builds back to back: city.lab froze 22-25 s with no frame (2026-11-05); urgent installs gave
 // 1.4-2.8 s of long frames per 5 s. QA renders and bench settles are not paced.
+// While a draw waits for its deferred program the share grows with that wait (render/asyncNodeBuilds.ts `share`).
 const LOADING_SHARE_MS = 50;
+const deferredShare = () => renderer instanceof GameRenderer ? renderer.asyncBuilds?.share ?? 0 : 0;
 paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
-  : streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3);
+  : Math.max(streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3, deferredShare()));
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
