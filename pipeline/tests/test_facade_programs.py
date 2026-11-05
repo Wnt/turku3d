@@ -523,8 +523,8 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
     fragment = copy.deepcopy(blank)
     fragment["structure"]["facade_observations"]["sections"][0]["position"] = "lower right"
     assert facade_monolith.evidence("k", dict(walls=[fragment]))["blank"] is False
-    # Resolve: the wall with its own curtain-wall description glazes; the unobserved wall keeps
-    # the building's ordinary class layout (a blank photograph never blanks unseen walls).
+    # Resolve: the wall with its own curtain-wall description glazes; the unphotographed wall
+    # inherits its photographed neighbour's type (here the only one: a curtain wall).
     curtain = dict(facade_id="f1", wall_visible=True, problem="", material="glass", wall_colour="#88abb3",
                    trim_colour="#adb5af", storeys=3, window_columns=11, window_width=0.96,
                    window_height=0.93, ground_floor="plain", ground_openings=0, roof_line="none",
@@ -542,22 +542,84 @@ def test_public_monolith_needs_photographed_blank_walls_and_keeps_own_evidence(m
                          [40, 0, 0], [40, 0, 30], [40, 18, 30], [40, 18, 0]], float)
     p = fp.resolve(b, vertices, {})
     assert p["archetype"] == MONOLITH
-    assert p["monolith"]["walls"] == {"blank": 0, "curtain": 1, "own description": 0, "ordinary": 1}
+    roles = p["monolith"]["walls"]
+    assert roles["curtain"] == 1 and roles["inherited curtain"] == 1 and roles["inherited blank"] == 0
     unseen, glazed = [compile_wall(w, 4) for w in p["walls"]]
-    assert p["walls"][0]["bays"]["count"] > 0 and unseen["module"] < 42  # civic windows
-    assert glazed["module"] // 6 == 5 and glazed["opening"][0] >= 0.97
-    assert glazed["opening"][1] + glazed["opening"][2] >= 0.98 and abs(glazed["bay"] - 2.14) < 0.05
-    # A wall whose own description shows no windows is a blank volume over a granite course.
+    for wall in (unseen, glazed):
+        assert wall["module"] // 6 == 5 and wall["opening"][0] >= 0.97
+        assert wall["opening"][1] + wall["opening"][2] >= 0.98 and abs(wall["bay"] - 2.14) < 0.12
+    # A wall whose own description shows no windows is a blank volume over a granite course,
+    # and so is its unphotographed neighbour; neither gets a street storey without evidence.
     blank_own = dict(curtain, material="render", window_columns=0, window_width=0, window_height=0)
     monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, blank_own)])
     p = fp.resolve(b, vertices, {})
-    assert p["monolith"]["walls"]["blank"] == 1 and p["monolith"]["walls"]["ordinary"] == 1
-    plain = compile_wall(p["walls"][1], 4)
-    assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
-    assert plain["base"] != plain["wall"]  # granite base course under the render
+    assert p["monolith"]["walls"]["blank"] == 1 and p["monolith"]["walls"]["inherited blank"] == 1
+    assert p["monolith"]["walls"]["glazed street storey"] == 0
+    for wall in p["walls"]:
+        plain = compile_wall(wall, 4)
+        assert plain["module"] == 42 and plain["bands"] == [0, 0, 0, 0]
+        assert plain["base"] != plain["wall"]  # granite base course under the render
     # A panel-clad blank wall carries its joint grid in the opening slot.
     p["walls"][1]["panel_grid"] = dict(value=[2.23, 1.22, 0.03], source="test", support=0.6)
     assert compile_wall(p["walls"][1], 4)["opening"] == [2.23, 1.22, 0.03, -1.0]
+    # A photographed glazed street storey carries over to the blank neighbour, one storey high.
+    shops = dict(blank_own, ground_floor="shops", ground_openings=3)
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, shops)])
+    p = fp.resolve(b, vertices, {})
+    assert p["monolith"]["walls"]["glazed street storey"] == 2
+    band = p["walls"][0]["ground_band"]
+    assert 2.8 <= band["height_m"] <= 4.5
+    street = compile_wall(band["wall"], 2)
+    assert street["module"] // 6 == 5 and street["ground"] < 0.5  # glazing almost to the pavement
+    # An OSM entrance node on the unphotographed wall opens its street storey too.
+    monkeypatch.setattr(facade_monolith, "own_descriptions", lambda key: [(facade, blank_own)])
+    b.entrances = [(20.0, -0.4)]
+    p = fp.resolve(b, vertices, {})
+    assert "ground_band" in p["walls"][0] and "ground_band" not in p["walls"][1]
+
+
+def test_monolith_walls_inherit_the_type_of_the_photographed_wall_facing_the_same_side():
+    from turku3d import facade_monolith as fm
+
+    blank = dict(observation=dict(needs_review=False), structure=dict(facade_observations=dict(
+        sections=[dict(position="upper majority", kind="blank grey rectangular panel cladding"),
+                  dict(position="lower", kind="narrow recessed dark glazing strip behind pale supports")])))
+    assert fm.reading_type(blank)["upper"] == "blank" and fm.reading_type(blank)["ground"] == "glazed"
+    local = copy.deepcopy(blank)
+    local["structure"]["facade_observations"]["sections"][1]["kind"] = "localized retail glazing strip"
+    assert fm.reading_type(local)["ground"] is None  # a local shopfront is not a street storey
+    glazed = dict(observation=dict(needs_review=False), height_m=8.4,
+                  structure=dict(floors=[dict(bays=["window"])] * 2))
+    assert fm.reading_type(glazed) | {"reading": None} == dict(upper="curtain", ground="glazed", reading=None)
+    row = dict(glazed, height_m=5.6, structure=dict(floors=[dict(bays=["window"])]))
+    assert fm.reading_type(row)["upper"] == "blank"  # one storey of windows is no glass box
+    # A 40 x 30 m box, outward-wound (engine x/z); a small north-facing wing further off.
+    def quad(a, c):
+        return np.array([[a[0], 0, a[1]], [c[0], 0, c[1]], [c[0], 10, c[1]], [a[0], 10, a[1]]], float)
+
+    walls = [quad((0, 0), (40, 0)), quad((40, 0), (40, 30)), quad((40, 30), (0, 30)),
+             quad((0, 30), (0, 0)), quad((40, 60), (30, 60))]
+    frames = [fm._frame(w) for w in walls]
+    assert np.allclose(frames[1][1], [1, 0]) and np.allclose(frames[2][1], [0, 1])
+    types = [dict(upper="blank", ground=None), dict(upper="curtain", ground=None), None, None,
+             dict(upper="blank", ground="glazed")]
+    records = [(*frames[i], types[i]) for i in (0, 1, 4)]
+    # North: the farther wing faces the same side and wins over the nearer east curtain wall.
+    assert fm.donor(*frames[2], records)["ground"] == "glazed"
+    # West: nothing faces its side, so its nearest photographed neighbour lends the type.
+    assert fm.donor(*frames[3], records[:2])["upper"] == "blank"
+    # A different volume (top height) costs distance: the low wing inherits the low wall.
+    south = np.array([0.0, -1.0])
+    low = (np.array([60.0, 0.0]), south, dict(upper="blank", ground=None), 6.0)
+    tall = (np.array([10.0, 0.0]), south, dict(upper="curtain", ground=None), 18.0)
+    assert fm.donor(np.array([30.0, -1.0]), south, [low, tall], top=6.5)["upper"] == "blank"
+    assert fm.donor(np.array([30.0, -1.0]), south, [low, tall], top=18.0)["upper"] == "curtain"
+    assert fm.donor(np.array([30.0, -1.0]), south, [low, tall])["upper"] == "curtain"
+    # Evidence of every LoD2 part counts: readings (EN normals) and own descriptions alike.
+    reading = dict(glazed, geometry=dict(p0=[C.ORIGIN_E + 40, C.ORIGIN_N - 60],
+                                         p1=[C.ORIGIN_E + 30, C.ORIGIN_N - 60], normal=[0, -1]))
+    (centre, normal, kind, top), = fm.evidence_records(dict(walls=[reading]), [])
+    assert np.allclose(centre, [35, 60]) and np.allclose(normal, [0, 1]) and kind["upper"] == "curtain"
 
 
 def test_monolith_reviewed_glazing_strips_become_ribbons_and_panels_keep_joints():
@@ -621,11 +683,29 @@ def test_monolith_walls_rebuild_selects_tiles_with_blank_photographed_buildings(
     from turku3d import facade_programs as fp
     from turku3d.migrations import monolith_walls, registry
 
-    assert registry.CHAIN[-1] is monolith_walls.MIGRATION
-    assert monolith_walls.MIGRATION.key == "monolith-walls@1"
+    assert monolith_walls.MIGRATION in registry.CHAIN
+    assert monolith_walls.MIGRATION.key == "monolith-walls@2"
     monkeypatch.setattr(fp, "measured", lambda key: None)
     monkeypatch.setattr(facade_monolith, "evidence",
                         lambda key, observed: dict(blank=key == "theatre", panels=False))
     assert monolith_walls.affected(dict(building_keys=["house", "theatre"]))
     assert not monolith_walls.affected(dict(building_keys=["house"]))
     assert not monolith_walls.affected({})
+
+
+def test_monolith_base_course_is_painted_in_its_own_stone_cell():
+    from turku3d.coarse.stored_facades import base_course, split_storey
+    from turku3d.facade_kit import MATERIALS
+
+    quad = np.array([[0, 5, 0], [10, 5, 0], [10, 20, 0], [0, 20, 0]], float)
+    lower, upper = split_storey(quad, 8)
+    assert lower[2:, 1].tolist() == [8, 8] and upper[:2, 1].tolist() == [8, 8]
+    assert split_storey(quad, 25)[1] is None
+    wall = dict(monolith_role="blank", base=dict(material=dict(value="stone", source="class", support=0.6)))
+    style = dict(module=42, ground=2.2, origin=[0, 5], base="#b6b3ac", wall="#d9d6cf")
+    (course_quad, _, course), (upper_quad, _, rest) = base_course(quad, wall, style)
+    assert course["module"] == 42 + MATERIALS.index("stone") and course["wall"] == "#b6b3ac"
+    assert course_quad[2:, 1].tolist() == [7.2, 7.2] and rest is style
+    # A sampled (unsupported) base material and non-monolith walls keep one instruction.
+    assert len(base_course(quad, {**wall, "base": dict(material=dict(value="stone", support=0))}, style)) == 1
+    assert len(base_course(quad, {"base": wall["base"]}, style)) == 1

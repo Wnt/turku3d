@@ -90,7 +90,7 @@ def read_osm(tile, path):
 
     from turku3d.spatial import rows
 
-    buildings, shops, entrances, streets = [], [], [], []
+    buildings, shops, entrances, streets, doors = [], [], [], [], []
     raised, grounded = [], []
     window = shapely.box(*tile.bbox.buffered(100).as_tuple())
     classes = {
@@ -123,6 +123,10 @@ def read_osm(tile, path):
             streets.append(
                 (shapely.force_2d(row["geometry_local"]), tags.get("name"), tags["highway"])
             )
+        if tags.get("entrance") not in (None, "no"):
+            point = shapely.force_2d(row["geometry_local"])
+            if point.geom_type == "Point" and point.intersects(window):
+                doors.append(point)  # A mapped door node: the facade has an opening there.
         part = tags.get("building:part")
         if tags.get("building") or part not in (None, "no"):
             low = lower_edge(tags)
@@ -209,6 +213,7 @@ def read_osm(tile, path):
         buildings=buildings,
         shops=shops,
         entrances=entrances,
+        doors=doors,
         streets=streets,
         open_ground=open_ground(raised, grounded),
     )
@@ -326,6 +331,9 @@ def enrich(building, registered, osm):
         if footprint.distance(point) <= 1:
             for key, value in evidence.items():
                 d.setdefault(key, value)
+    # Mapped door nodes on the outline open their wall's street storey (facade_monolith).
+    outline = footprint.boundary
+    building.entrances = [(p.x, p.y) for p in osm.get("doors", []) if outline.distance(p) <= 1.5]
     nearby_streets = [
         (footprint.distance(g), name, kind)
         for g, name, kind in osm.get("streets", [])

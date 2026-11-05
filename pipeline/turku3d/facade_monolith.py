@@ -1,19 +1,15 @@
 """Modern public monoliths: blank volumes, curtain walls and panel grids by photographed wall.
 
-Libraries, museums and halls combine blank volumes, fully glazed ones and ordinary
-windowed walls. Once a reviewed reading or a wall's own description shows a blank wall,
-the photographed walls keep their own evidence:
+Libraries, museums and halls are composed of blank volumes and a few fully glazed ones.
+A building-wide description or the sampled archetype grid must not paint windows on
+walls nobody photographed with windows. Once a reviewed reading or a wall's own
+description shows a blank wall, every wall keeps only its own evidence:
 
-- a wall with its own reference description keeps that description's layout, becomes
-  a full-height curtain wall when it describes near full-bay glazing, or a blank volume
-  when it describes no windows;
+- a wall with its own reference description keeps that description's layout, or becomes
+  a full-height curtain wall when it describes near full-bay glazing;
 - a reviewed wall keeps its reading (applied later by ``resolve``);
-- every unphotographed wall keeps the building's ordinary class layout (``resolve`` with
-  ``monolith=False``). A blank photograph is evidence for its own wall, never for the
-  whole building: blanking every unseen wall left whole theatres and museums windowless.
-
-Blank volumes are in the class material, with a stone base course, and the photographed
-panel-joint grid when the readings report panel cladding.
+- every other wall is a blank volume in the class material, with a stone base course,
+  and the photographed panel-joint grid when the readings report panel cladding.
 
 The measured priors are in ``turkutex.facade_archetypes`` (``MONOLITH_*``).
 """
@@ -100,14 +96,178 @@ def _own_wall_description(points, prepared):
     return matched[0] if matched else None
 
 
-def apply(program, key, vertices, observed, description, ordinary):
-    """Re-own every photographed wall of a monolith to its own evidence; ``ordinary`` (the
-    building resolved without the class) supplies every unphotographed wall."""
+GLAZING = re.compile(r"\b(glazing|glazed|glass|curtain|shopfront|window(s|ed)?)\b")
+GROUND = re.compile(r"\b(ground|lower|base|bottom|street)\b")
+ENTRANCE = re.compile(r"\b(entrance|entry|doors?|lobby|foyer)\b")
+LOCAL = re.compile(r"\blocali[sz]ed\b|\bsmall\b|\bsingle\b")
+# Photographed walls lend their type to unphotographed walls facing within this angle.
+SAME_SIDE = np.cos(np.radians(35))
+CURTAIN_MIN_M = 7.0  # a windowed reading at least two storeys tall is a curtain wall
+ENTRANCE_REACH_M = 2.0  # an OSM entrance node this close to a wall's baseline opens its ground storey
+
+
+def _sections(reading):
+    for section in reading.get("structure", {}).get("facade_observations", {}).get("sections", []):
+        if section.get("belongs_to_facade") is not False:
+            yield section, " ".join([str(section.get("kind", "")), str(section.get("material", "")),
+                                     *map(str, section.get("features") or [])]).lower()
+
+
+def reading_type(reading):
+    """One reviewed wall's composition: {upper: blank|curtain|None, ground: glazed|plain|None}.
+
+    ``upper`` is blank for a (mostly) blank reading and curtain for glazed floors or a large glazed
+    section; a monolith's glazed walls are curtain walls (libraries, theatres, museums), not
+    punched openings. ``ground`` is glazed for a non-localized glazing band or an entrance at the
+    base, plain for a blank base, else unknown."""
+    upper = ground = None
+    floors = reading.get("structure", {}).get("floors") or []
+    if reviewed_blank(reading):
+        upper = "blank"
+    elif floors and all("window" in (f.get("bays") or []) for f in floors):
+        if float(reading.get("height_m") or 0) >= CURTAIN_MIN_M:
+            upper = "curtain"
+            ground = "glazed" if len(floors) >= 2 else None
+        else:
+            # One storey of windows (a low wing's row): its own reading paints its openings and
+            # the volume lends the class's blank cladding, not a glass box, to its neighbours.
+            upper = "blank"
+    for section, text in _sections(reading):
+        position = str(section.get("position", "")).lower()
+        if upper is None and GLAZING.search(text) and LARGE_SECTION.search(position) \
+                and not BLANK_TEXT.search(text):
+            upper = "curtain"
+        if GROUND.search(position):
+            if (GLAZING.search(text) or ENTRANCE.search(text)) and not LOCAL.search(text):
+                ground = "glazed"
+            elif BLANK_TEXT.search(text) and ground is None:
+                ground = "plain"
+    return dict(upper=upper, ground=ground, reading=reading)
+
+
+def description_type(description, width):
+    """One wall's own reference description as the same composition."""
+    if curtain(description) or (description.get("window_columns") and description.get("material") == "glass"):
+        upper = "curtain"
+    elif description.get("window_columns"):
+        upper = "punched"
+    else:
+        upper = "blank"
+    opened = description.get("ground_floor") in ("shops", "doors") or description.get("ground_openings")
+    return dict(upper=upper, ground="glazed" if opened else "plain", description=description, width=width)
+
+
+def _frame(points):
+    """Midpoint and outward horizontal normal (engine x/z) of one extruded wall quad."""
+    points = np.asarray(points, float)
+    d = points[1, [0, 2]] - points[0, [0, 2]]
+    n = np.array([d[1], -d[0]]) / max(float(np.linalg.norm(d)), 1e-9)
+    return points[:2, [0, 2]].mean(axis=0), n
+
+
+VOLUME_WEIGHT = 2.0  # metres of distance per metre of top-height difference (another volume)
+
+
+def donor(centre, normal, records, top=None):
+    """The photographed wall whose type an unphotographed wall inherits: the nearest one facing
+    the same side, else the nearest one at all (its neighbour on the same building). A different
+    top height counts as distance: a library's low stone wing is not its glass box. ``records``
+    are (centre, outward normal, type, top) of every photographed wall of the building, whichever
+    LoD2 part carries it."""
+    known = [r for r in records if r[2] and r[2]["upper"]]
+    if not known:
+        return None
+    same = [r for r in known if float(np.asarray(r[1]) @ normal) >= SAME_SIDE]
+
+    def cost(r):
+        step = abs(r[3] - top) if top is not None and len(r) > 3 and r[3] is not None else 0.0
+        return float(np.linalg.norm(np.asarray(r[0]) - centre)) + VOLUME_WEIGHT * step
+
+    return min(same or known, key=cost)[2]
+
+
+def evidence_records(observed, rows):
+    """(centre, outward normal, type) in engine x/z for every reviewed reading and own description."""
+    from turku3d import config as C
+
+    def frame(p0, p1, normal):
+        a = np.array([p0[0] - C.ORIGIN_E, C.ORIGIN_N - p0[1]])
+        b = np.array([p1[0] - C.ORIGIN_E, C.ORIGIN_N - p1[1]])
+        n = np.asarray(normal, float)
+        if not np.isfinite(n).all() or np.linalg.norm(n) < 1e-6:
+            d = b - a
+            n = np.array([d[1], -d[0]])
+        return (a + b) / 2, n / max(float(np.linalg.norm(n)), 1e-9)
+
+    records = []
+    for reading in (observed or {}).get("walls", []):
+        g = reading.get("geometry", {})
+        points = g.get("coordinates") or ([g["p0"], g["p1"]] if "p0" in g and "p1" in g else None)
+        if reading.get("observation", {}).get("needs_review", True) or not points:
+            continue
+        n = g.get("normal")
+        n = [n[0], -n[1]] if n is not None and len(n) == 2 else [np.nan, np.nan]  # EN -> engine x/z
+        height = reading.get("height_m")
+        top = g.get("base_h") + height if g.get("base_h") is not None and height else None
+        records.append((*frame(points[0], points[-1], n), reading_type(reading), top))
+    for facade, description in rows:
+        points = facade.get("coordinates") or []
+        if len(points) < 2:
+            continue
+        n = facade.get("normal")
+        n = [n[0], n[2]] if n is not None and len(n) == 3 else [np.nan, np.nan]
+        height = facade["metadata"].get("height_m")
+        top = facade.get("base_height") + height if facade.get("base_height") is not None and height else None
+        records.append((*frame(points[0], points[-1], n),
+                        description_type(description, facade["metadata"].get("width_m", 0)), top))
+    return records
+
+
+def _near_entrance(points, entrances):
+    if not entrances:
+        return False
+    a, b = np.asarray(points, float)[0, [0, 2]], np.asarray(points, float)[1, [0, 2]]
+    d = b - a
+    length = float(d @ d)
+    for e in entrances:
+        t = 0.0 if length < 1e-9 else min(1.0, max(0.0, float((np.asarray(e) - a) @ d) / length))
+        if float(np.linalg.norm(np.asarray(e) - (a + t * d))) <= ENTRANCE_REACH_M:
+            return True
+    return False
+
+
+def _drop_reading(wall):
+    """A reading typed as a curtain wall is repainted by the class: its measured layout drew
+    the glazed floors as blank cladding (the adapter leaves uncounted openings to the prior)."""
+    for k in ("measured_wall_id", "measured_geometry", "measured_size", "render_sections",
+              "geometry_components", "geometry_pending", "unsupported", "structure"):
+        wall.pop(k, None)
+
+
+def ground_band(wall, storeys, m):
+    """A glazed street storey under a blank volume: curtain glazing one storey high."""
+    height = wall.get("layout_height_m", wall["height_m"])
+    storey = height / storeys if storeys else 4.0
+    band = min(4.5, max(2.8, storey), 0.6 * height)
+    glazed = copy.deepcopy(wall)
+    glazed.update(height_m=band, layout_height_m=band)
+    curtain_wall(glazed, None, m, glazed_ground=True)
+    glazed.pop("ground_band", None)
+    wall["ground_band"] = dict(height_m=band, wall=glazed)
+
+
+def apply(program, key, vertices, observed, description, entrances=()):
+    """Re-own every wall of a monolith to its own evidence or to its photographed neighbour's type.
+
+    Photographed walls keep their reading or description. An unphotographed wall inherits the
+    type of the nearest photographed wall facing the same side (else its nearest photographed
+    neighbour): blank volume, curtain wall, or the described window layout. A glazed street storey
+    under a blank volume follows the same evidence, or an OSM entrance on that wall."""
     from turkutex.facade_archetypes import MONOLITH_PANEL, MONOLITH_RENDER
     from turkutex.facade_program import value
 
     from turku3d.coarse.stored_facades import prepare_walls
-    from turku3d.facade_programs import describe, matching_wall
+    from turku3d.facade_programs import describe, field, matching_wall
 
     facts = evidence(key, observed)
     program["monolith"] = facts
@@ -115,6 +275,7 @@ def apply(program, key, vertices, observed, description, ordinary):
     prepared = prepare_walls([f for f, _ in rows])
     by_id = {f["metadata"]["facade_id"]: d for f, d in rows}
     m = lambda x, source: value(x, source, 0.6)  # noqa: E731
+    storeys = program["storeys"]["value"]
     # Opaque building descriptions keep their colour on blank volumes; a glass
     # description (the glazed volume) cannot colour the rendered ones.
     opaque = description if description and description.get("material") != "glass" else None
@@ -124,31 +285,69 @@ def apply(program, key, vertices, observed, description, ordinary):
     blank_material = ("concrete" if facts["panels"] else "plaster") if not opaque else opaque["material"]
     # A joint grid belongs to panel cladding, never to brick or timber volumes.
     panels = facts["panels"] and blank_material not in ("brick", "wood")
-    for index, wall in enumerate(program["walls"]):
-        points = np.asarray(vertices[index * 4: index * 4 + 4])
+    walls = program["walls"]
+    quads = [np.asarray(vertices[i * 4: i * 4 + 4]) for i in range(len(walls))]
+    frames = [_frame(q) for q in quads]
+    records = evidence_records(observed, rows)
+    types = []
+    for points in quads:
         reading = matching_wall(points, observed)
-        if reading:
-            # The reviewed reading owns this wall; add only what the class knows about it.
-            reviewed_wall(wall, reading, program["storeys"]["value"], panels, m)
-            continue
-        facade = _own_wall_description(points, prepared) if prepared else None
+        facade = None if reading or not prepared else _own_wall_description(points, prepared)
         own = by_id.get(facade["metadata"]["facade_id"]) if facade else None
-        if own and curtain(own):
-            curtain_wall(wall, own, m)
-        elif own and own.get("window_columns"):
-            single = {**program, "walls": [wall]}
-            describe(single, own, facade["metadata"]["width_m"])
-        elif own:
-            blank_wall(wall, blank_colour, blank_material, panels, m)
-            continue
+        types.append(reading_type(reading) if reading
+                     else description_type(own, facade["metadata"]["width_m"]) if own else None)
+
+    def paint(wall, kind, *, own):
+        upper = kind["upper"]
+        if upper == "curtain":
+            curtain_wall(wall, kind.get("description"), m,
+                         glazed_ground=kind["ground"] == "glazed")
+        elif upper == "punched":
+            describe({**program, "walls": [wall]}, kind["description"], kind["width"])
         else:
-            wall = program["walls"][index] = copy.deepcopy(ordinary["walls"][index])
-            wall["monolith_role"] = "ordinary"
+            blank_wall(wall, blank_colour, blank_material, panels, m)
+        role = {"curtain": "curtain", "punched": "own description", "blank": "blank"}[upper]
+        wall["monolith_role"] = role if own else "inherited " + role
+
+    for index, wall in enumerate(walls):
+        kind = types[index]
+        if kind and "reading" in kind:
+            if kind["upper"] == "curtain":
+                _drop_reading(wall)
+                paint(wall, kind, own=True)
+            else:
+                # The reviewed reading owns this wall; add only what the class knows about it.
+                reviewed_wall(wall, kind["reading"], storeys, panels, m)
+                if kind["upper"] == "blank" and field(wall["wall"], "material", None) == "glass":
+                    # A blank reading's cladding is the class volume, not the glass family prior.
+                    _material(wall, blank_material, m)
+                    wall["wall"]["colour"] = dict(blank_colour)
+                wall["monolith_role"] = "reviewed"
             continue
-        wall["monolith_role"] = "curtain" if own and curtain(own) else "own description"
+        if kind:
+            paint(wall, kind, own=True)
+        else:
+            kind = donor(*frames[index], records, top=float(quads[index][2:, 1].max()))
+            if kind is None:
+                blank_wall(wall, blank_colour, blank_material, panels, m)
+                continue
+            if kind["upper"] == "punched" and "description" not in kind:
+                kind = dict(kind, upper="curtain")
+            paint(wall, kind, own=False)
+        # The street storey of a blank volume: glazed where the evidence (own, or the donor's
+        # non-localized base glazing) or an OSM entrance on this wall says so.
+        street = wall.get("outline", True) and float(quads[index][:2, 1].min()) <= \
+            float(np.asarray(vertices)[:, 1].min()) + 0.5
+        if street and wall["monolith_role"].endswith("blank") and (
+                kind["ground"] == "glazed" or _near_entrance(quads[index], entrances)):
+            ground_band(wall, storeys, m)
+    roles = ("blank", "curtain", "own description")
     program["monolith"]["walls"] = {
-        role: sum(w.get("monolith_role") == role for w in program["walls"])
-        for role in ("blank", "curtain", "own description", "ordinary")
+        **{role: sum(w.get("monolith_role") == role for w in walls) for role in roles},
+        **{"inherited " + role: sum(w.get("monolith_role") == "inherited " + role for w in walls)
+           for role in roles},
+        "reviewed": sum(w.get("monolith_role") == "reviewed" for w in walls),
+        "glazed street storey": sum("ground_band" in w for w in walls),
     }
     return program
 
@@ -256,14 +455,19 @@ def blank_wall(wall, colour, material, panels, m):
     wall["monolith_role"] = "blank"
 
 
-def curtain_wall(wall, description, m):
-    """Full-height frameless glazing on measured panes above a stone plinth."""
+def curtain_wall(wall, description, m, *, glazed_ground=False):
+    """Full-height frameless glazing on measured panes above a stone plinth.
+
+    The measured granite plinth stands under the glazing unless the street storey is itself
+    glazed (``glazed_ground``) or the wall's own description shows no plinth."""
     from turkutex.facade_archetypes import MONOLITH_CURTAIN, MONOLITH_GRANITE
 
     width, height = wall["width_m"], wall.get("layout_height_m", wall["height_m"])
     count = max(1, round(width / MONOLITH_CURTAIN["pane_m"]))
     pitch = width / count
-    plinth = min(MONOLITH_CURTAIN["plinth_m"], 0.3 * height) if description.get("plinth") else 0.6
+    plinth = (0.3 if glazed_ground
+              else min(MONOLITH_CURTAIN["plinth_m"], 0.3 * height)
+              if description is None or description.get("plinth") else 0.6)
     wall["bays"].update(count=count, pitch_m=pitch, centers_m=[(i + 0.5) * pitch for i in range(count)],
                         rhythm="regular")
     _material(wall, "glass", m)
