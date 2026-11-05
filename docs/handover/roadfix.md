@@ -199,3 +199,29 @@ maps `~/turku3d/loops/roadfix/maps/`.
     Helsinginkatu (2311380/531512373), a lower way of deck 525854016. The lane still sticks at s 212.
 - **train8 subset:** the 24 tiles with a branch deck (12 decks), found by `bridges.prepare` over the 301 bridge-ends tiles.
   The scan script is `tools/branchtiles.py` on osgallery-dev.
+
+## 2026-11-05 Lemminkäisensilta, Kalevan deck, 2 km sweep (merged 6ab7333b, 4c00704e)
+
+- **Lemminkäisensilta (w479048547>w4250693):** the stall had the same cause as the Kalevan joint. Helsinginkatu is mapped
+  in pieces, and the piece under the viaduct ended there, so the cut had measured ground on one side only. The cut now
+  also reads open continuations (`lower_continuations`). All 3 lanes arrive.
+- **Kalevan main deck:** a regression from the split-deck work. Slab station strips span the 36 m deck, and a single
+  triangle from a lowered outline corner (beside the north footway) put the lanes 2.6 m low, with a 1.8 m step.
+  - Slabs are now also cut along the deck every 4 m (`SLAB_CELL`).
+  - Only carriageway links split a deck into levels.
+  - 11 of 12 main-deck lanes arrive. 6d349199 sticks 35 m past the deck on the flat west approach and needs checking.
+- **Sweep rb29** (186 lanes: the 55-lane set, the Kalevan deck, and the structures on t0_-5_-1, t0_0_-4 and t0_1_-4):
+  0 lanes worse than earlier sweeps or base, 52 more lanes arrive than in base.
+- **2 km sweep (rb24, base tiles plus 4 rebuilt), 310 lanes, 95 not arrived. Remaining classes:**
+  1. Puistokatu under the rail viaduct (t0_-5_-1), 27 lanes. Soffit clearance of 1.2 m: the road climbs into the
+     deck. Not fixed by the continuation rule; it needs a clearance sag (road lowered to soffit − 4 m with a vertical
+     curve) or a raised deck.
+  2. t0_0_-4 bridge w4265032/3, 18 lanes. A register lamp (`clear_of_lanes`) stands in a lane: the lane envelope
+     uses the OSM width, while the graph lanes run outside it. The underpass lanes stall on a 0.13 m kerb.
+  3. Service bridge w620102546 (t0_-2_-2): a railing across the lane at the deck end.
+  4. Single spots in t0_-2_3, t0_0_-3, t0_2_-5, t0_2_-4, t0_-2_2, t0_2_-1, t0_7_0 and t0_-5_4, plus lanes leaving
+     the road at t0_-3_-3 and t0_-1_-4.
+- **Sweep note:** the underpass heights in structures.json are base heights. After a cut lowers a road, the sweep
+  reports "no drivable lane", so the y values are nulled for sweeps (see rb24).
+- **Disk:** all roadfix builds and sweeps live under /bulk/turku3d/scratch/roadfix (work and build are symlinks);
+  old outputs are in /bulk/turku3d/moved-from-root/roadfix.
