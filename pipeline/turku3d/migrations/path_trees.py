@@ -124,7 +124,7 @@ def transform(product: Product) -> None:
             bush = object_id.startswith("bush:")
             trunk = 0.0 if bush else float(np.clip(s[1] * 0.018, 0.09, 0.55))
             trunks.append(clearance.Trunk((variant, k), object_id, float(t[0] + origin[0]), float(t[2] + origin[2]),
-                                          max(trunk_base_radius(variant) * float(s[0]), trunk)))
+                                          max(trunk_base_radius(variant) * float(s[0]), trunk), trunk))
             rows.append((variant, k, t.astype(float), s.astype(float)))
     walked, blocked = tile_inputs(tile)
     stats = Counter()

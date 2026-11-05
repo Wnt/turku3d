@@ -3,18 +3,20 @@
 The ground a player walks or drives on is what the tile draws as paving, not only the street graph:
 private driveways, service drives and yard paths (``access=private`` ways leave the graph, so the
 minimap and the older path clearance never saw them) are drawn by ``coarse.surfaces.osm_surfaces``
-with the same corridor widths used here. The city's street areas (GIS:Katualueet) add surveyed
-carriageways, sidewalks, cycle paths, driveway mouths, squares and stop areas; medians and planting
-strips (Välikaista), leased terraces and unclassified parts are not walked ground.
+with the same corridor widths used here. Two kinds of walked ground:
+- lanes: every drawn OSM way corridor, and the surveyed (GIS:Katualueet) carriageways, cycle tracks
+  and lanes, driveway mouths, steps, bridges and crossings. No trunk stands in a lane;
+- paved areas: surveyed sidewalks, shared foot/cycle ways, squares, stop areas, other traffic areas,
+  mapped parking and pedestrian areas. Where such paving is at least ``WIDE`` across, real trees stand
+  in it beside the mapped way (tree grates, quay rows, parking-lot islands); a narrower strip is a lane.
+Medians and planting strips (Välikaista), leased terraces and unclassified parts are not walked.
 
-A trunk whose visible base comes within ``CLEARANCE`` of that ground is
-- moved to the nearest valid spot within ``MOVE`` when it is a real tree (a register tree, a mapped
-  OSM tree or a supported lidar crown), its crown still over its measured place (trees-lidar measures
-  the lean from the new trunk);
-- dropped otherwise (area scatter, canopy-peak fill and bushes are not evidence of a stem there),
-  and dropped too when a real tree has no valid spot within reach, except a register tree, which is a
-  surveyed stem (tree grates in squares and sidewalks) and stays where the survey put it.
-
+A trunk whose visible base comes within ``CLEARANCE`` of a lane (a register tree: whose stem stands on
+it; its position is surveyed, the corridor widths are estimates) is moved to the nearest valid spot
+within ``MOVE`` when it is a real tree (a register tree, a mapped OSM tree or a supported lidar crown),
+its crown still over its measured place (trees-lidar measures the lean from the new trunk). Generated
+trees (area scatter, canopy-peak fill, bushes) on any walked ground are dropped, and so is a real tree
+with no valid spot within reach, except a register tree: a surveyed stem stays where the survey put it.
 Crowns may overhang the paving.
 """
 
@@ -33,12 +35,16 @@ MOVE = 2.5  # m a real trunk may shift to reach valid ground
 NEIGHBOUR = 2.0  # m: a moved trunk this close to another tree is that tree
 REGISTER, MAPPED, CROWN = "puut:", "osm:", "lidar:"
 REAL = (REGISTER, MAPPED, CROWN)
-# GIS:Katualueet Katuosalaji parts a player walks, cycles or drives on.
-WALKED_PARTS = frozenset({
-    "Ajorata", "Jalkakäytävä", "Pyörätie", "Yhdistetty kevyen liikenteen väylä", "Pyöräkaista",
-    "Tonttiliittymä", "Portaat", "Silta", "Tasoristeys", "Muu liikennealue", "Odotustila", "Kävelytie",
+WIDE = 5.0  # m: paving at least this wide holds real trees (grates, islands); narrower is a lane
+# GIS:Katualueet Katuosalaji parts a player walks, cycles or drives on: lanes and paved areas.
+LANE_PARTS = frozenset({
+    "Ajorata", "Pyörätie", "Pyöräkaista", "Tonttiliittymä", "Portaat", "Silta", "Tasoristeys",
     "Pelastustie/Huoltotie", "Alikulkukäytävä", "Joukkoliikennekatu",
 })
+# Foot paving: where it is wide (quays, squares, city sidewalks with tree rows) people walk the mapped
+# way through it and real trees stand beside it; a narrow strip of it is all lane.
+PAVED_PARTS = frozenset({"Jalkakäytävä", "Yhdistetty kevyen liikenteen väylä", "Kävelytie", "Muu liikennealue",
+                         "Odotustila"})
 WINDOW = 12.0  # m read around the tile so trunks near its edge see the neighbour's paving
 
 
@@ -62,7 +68,8 @@ def on_ground(tags: dict) -> bool:
 
 
 def walked_ground(tile, osm, streets) -> list:
-    """Walked and driven ground polygons over the tile (plus ``WINDOW``), from OSM and GIS:Katualueet."""
+    """``(polygon, lane)`` of walked and driven ground over the tile (plus ``WINDOW``), from OSM and
+    GIS:Katualueet; ``lane`` False for paved areas."""
     from turku3d.roads import CAR_CLASS, FOOT_ONLY
     from turku3d.spatial import frame, rows
 
@@ -73,10 +80,10 @@ def walked_ground(tile, osm, streets) -> list:
         f = frame(streets, bbox)
         if len(f) and "Katuosalaji" in f:
             for g, kind in zip(f.geometry_local, f["Katuosalaji"], strict=True):
-                if g is None or kind not in WALKED_PARTS:
+                if g is None or kind not in LANE_PARTS | PAVED_PARTS:
                     continue
                 g = shapely.make_valid(shapely.force_2d(g))
-                parts.append(g)
+                parts.append((g, kind in LANE_PARTS))
                 if kind == "Ajorata":
                     survey.append(g)
     surveyed = shapely.union_all(survey).buffer(0) if survey else shapely.Polygon()
@@ -93,12 +100,12 @@ def walked_ground(tile, osm, streets) -> list:
                 if geom.geom_type == "LineString" and geom.is_ring:
                     geom = shapely.make_valid(shapely.Polygon(geom))
                 if geom.geom_type in ("Polygon", "MultiPolygon"):
-                    parts.append(geom)
+                    parts.append((geom, False))
                 continue
             if highway not in CAR_CLASS and highway not in FOOT_ONLY:
                 continue
             if geom.geom_type == "LineString" and geom.is_ring and tags.get("area") == "yes":
-                parts.append(shapely.make_valid(shapely.Polygon(geom)))
+                parts.append((shapely.make_valid(shapely.Polygon(geom)), False))
                 continue
             if geom.geom_type not in ("LineString", "MultiLineString"):
                 continue
@@ -109,14 +116,23 @@ def walked_ground(tile, osm, streets) -> list:
                 geom = geom.difference(surveyed.buffer(half))
                 if geom.length <= 0.5:
                     continue
-            parts.append(geom.buffer(half, cap_style="flat"))
+            parts.append((geom.buffer(half, cap_style="flat"), True))
     result = []
-    for g in parts:
+    for g, lane in parts:
         if g.intersects(window):
             g = g.intersection(window)
             if g.area > 1e-3:
-                result.append(g)
+                result.append((g, lane))
     return result
+
+
+def split(walked):
+    """(lanes, wide paving) of ``walked_ground`` rows; paving narrower than ``WIDE`` joins the lanes."""
+    lanes = shapely.union_all([g for g, lane in walked if lane])
+    paved = shapely.union_all([g for g, lane in walked if not lane])
+    wide = paved.buffer(-WIDE / 2).buffer(WIDE / 2).intersection(paved) if not paved.is_empty else paved
+    narrow = paved.difference(wide.buffer(0.01)) if not paved.is_empty else paved
+    return shapely.union_all([lanes, narrow]), wide
 
 
 @dataclass
@@ -128,6 +144,7 @@ class Trunk:
     x: float
     z: float
     base: float  # visible trunk base radius (m)
+    stem: float = 0.0  # trunk radius (m)
 
     @property
     def real(self) -> bool:
@@ -135,31 +152,37 @@ class Trunk:
 
 
 def need(trunk: Trunk) -> float:
+    """Distance the trunk keeps from a lane. A register stem is surveyed, and corridor widths are
+    estimates: it yields only where its stem itself stands on the drawn lane."""
+    if trunk.object_id.startswith(REGISTER):
+        return trunk.stem
     return trunk.base + CLEARANCE
 
 
 def place(trunks: list[Trunk], walked, blocked=None, bounds=None, stats=None):
     """``{index: None (drop) | (x, z) (move)}`` for trunks on walked ground; the others stay.
 
-    ``blocked`` (buildings, water) bounds where a moved trunk may go; ``bounds`` (xmin, zmin, xmax,
-    zmax) keeps a moved trunk in its tile. Trees are visited in object-id order so the generator's
-    list order and a tile's per-variant instance order give the same result.
+    ``walked`` is ``walked_ground``'s rows; ``blocked`` (buildings, water) bounds where a moved trunk
+    may go; ``bounds`` (xmin, zmin, xmax, zmax) keeps a moved trunk in its tile. Trees are visited in
+    object-id order so the generator's list order and a tile's per-variant instance order agree.
     """
     stats = Counter() if stats is None else stats
-    walked = shapely.union_all(list(walked)) if isinstance(walked, (list, tuple)) else walked
-    if walked is None or walked.is_empty or not trunks:
+    if not walked or not trunks:
         return {}
-    shapely.prepare(walked)
-    blocked = shapely.union_all(list(blocked or ())) if not hasattr(blocked, "geom_type") else blocked
-    forbidden = shapely.union_all([walked, blocked]) if blocked is not None and not blocked.is_empty else walked
+    lanes, wide = split(walked)
+    shapely.prepare(lanes)
+    shapely.prepare(wide)
+    blocked = shapely.union_all(list(blocked or ()))
+    forbidden = shapely.union_all([lanes, blocked]) if not blocked.is_empty else lanes
     box = shapely.box(*bounds) if bounds is not None else None
     positions = {t.index: (t.x, t.z) for t in trunks}
     result = {}
     for trunk in sorted(trunks, key=lambda t: (t.object_id, t.x, t.z)):
         p = shapely.Point(trunk.x, trunk.z)
-        if walked.distance(p) >= need(trunk):
+        in_lane = lanes.distance(p) < need(trunk)
+        if not in_lane and (trunk.real or wide.distance(p) >= need(trunk)):
             continue
-        stats["on_walked"] += 1
+        stats["on_lane" if in_lane else "on_paving"] += 1
         target = None
         if trunk.real:
             target = _nearest_valid(p, forbidden, need(trunk), box)
@@ -200,8 +223,8 @@ def _nearest_valid(p, forbidden, distance, box):
 
 def apply_to_trees(trees, walked, blocked, bounds, height_at, base_radius, stats=None):
     """The generator's step on ``vegetation.trees.Tree`` lists (trees or bushes): drop or move in place."""
-    trunks = [Trunk(i, t.object_id, t.x, t.z, max(base_radius(t.variant) * t.crown_radius, t.trunk_radius))
-              for i, t in enumerate(trees)]
+    trunks = [Trunk(i, t.object_id, t.x, t.z, max(base_radius(t.variant) * t.crown_radius, t.trunk_radius),
+                    t.trunk_radius) for i, t in enumerate(trees)]
     decisions = place(trunks, walked, blocked, bounds, stats)
     result = []
     for i, t in enumerate(trees):
