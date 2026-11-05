@@ -694,22 +694,30 @@ def build(
         [tile, inputs.ortho, yard_parcels, yard_blocked],
         lambda: yard_cover.regions(tile, inputs.ortho, yard_parcels, yard_blocked),
     )
-    from . import garden_finishes, garden_inputs
+    from . import garden_finishes, garden_inputs, street_materials
     osm = ground_sources.osm_source(tile)
     garden_areas = garden_inputs.features(tile, osm)[0] if osm else []
     from turku3d.tile_layer import identities
     paving_sources = identities({"osm": osm}) if osm else {}
+    finish_code = source_key(Path(garden_finishes.__file__), Path(garden_inputs.__file__),
+                             Path(street_materials.__file__))
+    osm_finishes = cache.run(
+        "osm_finishes", finish_code, [tile, paving_sources],
+        lambda: garden_finishes.osm_regions(tile, osm) if osm else [],
+    )
     paving_finishes = cache.run(
-        "garden_finishes", source_key(Path(garden_finishes.__file__), Path(garden_inputs.__file__)),
-        [tile, inputs.ortho, inputs.surfaces, garden_areas, paving_sources],
-        lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas, osm),
+        "garden_finishes", finish_code,
+        [tile, inputs.ortho, inputs.surfaces, garden_areas],
+        lambda: garden_finishes.regions(tile, inputs.ortho, inputs.surfaces, garden_areas),
     )
     # Unmapped ground takes the traced ortho cover (smooth edges, no speckle) under every mapped
     # finish; natural ground the terrain stage found (bare rock, sand, soil) keeps its own.
     natural = np.isin(dry.material, [mat_id(n) for n in ("rock", "sand", "soil")])
     natural_area = shapely.union_all(shapely.polygons(dry.positions[dry.indices[natural]][:, :, [0, 2]]))
     cover = surfaces.cover_regions(tile, inputs.ortho, natural_area) if inputs.ortho is not None else []
-    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *forest_paths]
+    # Precedence, last wins: ortho cover, yard lawns, OSM areas and ways, the OSM surface tag's
+    # unit paving, then the street register's surveyed parts and their finishes.
+    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *forest_paths, *osm_finishes]
     surface_args = (
         dry.positions,
         dry.indices,
