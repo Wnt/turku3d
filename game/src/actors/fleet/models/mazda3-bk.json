@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/mazda3-bk",
+  "fleet": {
+    "id": "mazda3-bk",
+    "name": "Routa Kipinä 3",
+    "body": "hatch",
+    "family": "hatchback-sports",
+    "length": 4.42,
+    "width": 1.8657,
+    "height": 1.8574,
+    "wheelbase": 2.6726,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.325,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.6
+  },
+  "id": "mazda3-bk",
+  "wheels": {
+    "radius": 0.325,
+    "width": 0.2165,
+    "pivots": {
+      "wheel_FL": [
+        -0.7256,
+        0.325,
+        1.3027
+      ],
+      "wheel_FR": [
+        0.7256,
+        0.325,
+        1.3027
+      ],
+      "wheel_RL": [
+        -0.7256,
+        0.325,
+        -1.3698
+      ],
+      "wheel_RR": [
+        0.7256,
+        0.325,
+        -1.3698
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.9287,
+      0
+    ],
+    "half": [
+      0.9328,
+      0.9287,
+      2.21
+    ]
+  },
+  "triangles": [
+    31570,
+    7881,
+    2929
+  ],
+  "source": {
+    "title": "2003 Mazda 3 BK Hatchback",
+    "url": "https://sketchfab.com/3d-models/2003-mazda-3-bk-hatchback-7d3ac0221bfa479eb920bd2c83417986",
+    "author": "Res1n",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "mazda3-bk",
+    "referenceModel": "Mazda 3 BK 1.6 hatchback (2003)",
+    "massKg": 1225,
+    "powerKW": 77,
+    "torqueNm": 145,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 11,
+    "topSpeedKmh": 184,
+    "turningCircleM": 10.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced",
+    "lengthM": 4.42,
+    "widthM": 1.8657,
+    "heightM": 1.8574,
+    "wheelbaseM": 2.6726,
+    "trackM": 1.4511,
+    "wheelRadiusM": 0.325,
+    "wheelWidthM": 0.2165
+  },
+  "accepted": false
+}

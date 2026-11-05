@@ -5,7 +5,7 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
 import { TRAFFIC_MODELS, CHASSIS_LIFT } from '../../traffic/constants';
 import { paintActor, paintInstances } from '../parkedPaint';
-import { FLEET, SELECTABLE_FAMILIES, fleetModel, type FleetModel } from './catalog';
+import { FLEET, SELECTABLE_FAMILIES, fleetModel, trueSize, type FleetModel } from './catalog';
 import { buildFleetGeometry, buildFleetWheel } from './geometry';
 import { AUTHORED_ESTATE, loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
@@ -114,7 +114,7 @@ export class ParkedCarVisuals {
   private async loadNow(cars:ParkedVehicle[]) {
     const counts=new Map<string,number>();
     for(const car of cars) {
-      const model=fleetModel(car.model,car.object_id);
+      const model=fleetModel(car.model,car.object_id,true,car);
       counts.set(model.id,(counts.get(model.id)??0)+1);
     }
     // Reserved traffic may draw any model of a traffic/parking family; special roles (bus, truck, ambulance) load
@@ -172,7 +172,7 @@ export class ParkedCarVisuals {
       const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
       this.wheelGroups.set(key,batch);this.scene.add(batch.mesh);
     }
-    for(const car of cars) this.definitions.set(car.object_id,{model:fleetModel(car.model,car.object_id),color:car.color,size:car});
+    for(const car of cars) this.definitions.set(car.object_id,{model:fleetModel(car.model,car.object_id,true,car),color:car.color,size:car});
     const resident=new Set(cars.map(c=>c.object_id));
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
     this.cars=cars.filter(c=>!this.dynamic.has(c.object_id)); this.loaded=true;
@@ -208,7 +208,7 @@ export class ParkedCarVisuals {
    *  without it the car would stay drawn from its raw physics body (traffic/client.ts) until that load. */
   takeOver(id:string,record?:ParkedVehicle) {
     if(this.dynamic.has(id))return;
-    if(!this.definitions.has(id)&&record)this.definitions.set(id,{model:fleetModel(record.model,record.object_id),color:record.color,size:record});
+    if(!this.definitions.has(id)&&record)this.definitions.set(id,{model:fleetModel(record.model,record.object_id,true,record),color:record.color,size:record});
     const def=this.definitions.get(id);if(!def)return;
     const actor=this.actor(def.model,def.color,`driven/${id}`);this.scene.add(actor);this.dynamic.set(id,actor);
     this.cars=this.cars.filter(c=>c.object_id!==id);
@@ -229,7 +229,9 @@ export class ParkedCarVisuals {
     this.rotation.set(draw.rot.x,draw.rot.y,draw.rot.z,draw.rot.w).multiply(AXIS);
     // Existing slot/collider dimensions bound replacement vehicles; accessories are visual only.
     const {model,size}=draw;
-    this.scale.set(size?size.width/model.width:1,size?size.height/model.height:1,size?size.length/model.length:1);
+    // Procedural bodies stretch to their record; converted/authored models keep their true size (fitsSlot).
+    const stretch=size&&!trueSize(model.id);
+    this.scale.set(stretch?size.width/model.width:1,stretch?size.height/model.height:1,stretch?size.length/model.length:1);
     return this.matrix.compose(this.position,this.rotation,this.scale);
   }
   private draw(draw:Draw) {

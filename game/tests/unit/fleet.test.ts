@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { FLEET, SELECTABLE_FAMILIES, fleetModel } from '../../src/actors/fleet/catalog';
+import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
 import { buildFleetGeometry } from '../../src/actors/fleet/geometry';
 import { ParkedCarVisuals } from '../../src/actors/car';
 import {fleetWheelLayout} from '../../src/actors/fleet/wheelLayouts';
@@ -160,4 +161,17 @@ test('lazy whole-car assembly preserves the shipped paint, glass, lamp and orien
   };
   expect(triangles(actual)).toEqual(triangles(expected));
   actual.dispose(); expected.dispose();
+});
+
+test('converted models keep their true length and only take parking slots they fit', () => {
+  const authored = new Set(AUTHORED_MODELS.map(m => m.id));
+  const tight = { length: 4.55, clear_front_m: .35, clear_rear_m: .35 }, roomy = { length: 4.55, clear_front_m: 3, clear_rear_m: 3 };
+  let longInRoomy = 0;
+  for (let i = 0; i < 3000; i++) {
+    const t = fleetModel('sedan', `slot-${i}`, true, tight);
+    if (authored.has(t.id)) expect((t.length - tight.length) / 2, t.id).toBeLessThanOrEqual(.05 + 1e-9);
+    const r = fleetModel('sedan', `slot-${i}`, true, roomy);
+    longInRoomy += Number(authored.has(r.id) && r.length > 5);
+  }
+  expect(longInRoomy).toBeGreaterThan(0);
 });

@@ -710,7 +710,18 @@
     "character": "comfort"
    },
    "emblems": {},
-   "lampsByPosition": true
+   "lampsByPosition": true,
+   "recolor": [
+    {
+     "key": "vh_car_bmwgrantourer_tyremat",
+     "rgbLinear": [
+      0.32,
+      0.33,
+      0.35
+     ],
+     "role": "rim"
+    }
+   ]
   },
   {
    "id": "carla-chevrolet-impala",
@@ -1726,6 +1737,320 @@
    },
    "lampsByPosition": true,
    "paintReplace": true
+  },
+  {
+   "id": "golf7",
+   "name": "Kaira Kipinä 7",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "length": 4.255,
+   "weight": 1.4,
+   "spec": {
+    "referenceModel": "Volkswagen Golf VII 1.4 TSI (2013)",
+    "massKg": 1270,
+    "powerKW": 90,
+    "torqueNm": 200,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 9.0,
+    "topSpeedKmh": 203,
+    "turningCircleM": 10.9,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "source": "~/turku3d/loops/carmodels/golf7/model.glb"
+  },
+  {
+   "id": "fabia2",
+   "name": "Salo Kipinä 12",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "length": 4.0,
+   "weight": 1.0,
+   "spec": {
+    "referenceModel": "Skoda Fabia II 1.2 (2008)",
+    "massKg": 1060,
+    "powerKW": 51,
+    "torqueNm": 112,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 14.9,
+    "topSpeedKmh": 163,
+    "turningCircleM": 10.3,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced"
+   },
+   "source": "~/turku3d/loops/carmodels/fabia2/model.glb"
+  },
+  {
+   "id": "octavia2",
+   "name": "Salo Säde 18",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.57,
+   "weight": 1.0,
+   "spec": {
+    "referenceModel": "Skoda Octavia II 1.9 TDI (2006)",
+    "massKg": 1300,
+    "powerKW": 77,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 11.3,
+    "topSpeedKmh": 192,
+    "turningCircleM": 10.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   },
+   "source": "~/turku3d/loops/carmodels/octavia2/model.glb"
+  },
+  {
+   "id": "mazda3-bk",
+   "name": "Routa Kipinä 3",
+   "body": "hatch",
+   "family": "hatchback-sports",
+   "length": 4.42,
+   "weight": 0.6,
+   "spec": {
+    "referenceModel": "Mazda 3 BK 1.6 hatchback (2003)",
+    "massKg": 1225,
+    "powerKW": 77,
+    "torqueNm": 145,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 11.0,
+    "topSpeedKmh": 184,
+    "turningCircleM": 10.4,
+    "gears": 5,
+    "rideHeightM": 0.15,
+    "character": "balanced"
+   },
+   "source": "~/turku3d/loops/carmodels/mazda3-bk/model.glb"
+  },
+  {
+   "id": "passat-b8",
+   "name": "Kaira Säde 8",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.77,
+   "weight": 0.9,
+   "spec": {
+    "referenceModel": "Volkswagen Passat B8 1.6 TDI (2015)",
+    "massKg": 1475,
+    "powerKW": 88,
+    "torqueNm": 250,
+    "drivetrain": "FWD",
+    "fuel": "diesel",
+    "zeroTo100S": 10.9,
+    "topSpeedKmh": 207,
+    "turningCircleM": 11.7,
+    "gears": 6,
+    "rideHeightM": 0.14,
+    "character": "comfort"
+   },
+   "source": "~/turku3d/loops/carmodels/passat-b8/model.glb",
+   "roles": [
+    [
+     "^object_4\\|",
+     "paint"
+    ],
+    [
+     "^object_(5|6|10)\\|",
+     "chrome"
+    ],
+    [
+     "^object_7\\|",
+     "glass"
+    ],
+    [
+     "^object_8\\|",
+     "lampAny"
+    ],
+    [
+     "^object_9\\|",
+     "trim"
+    ],
+    [
+     "^object_11\\|",
+     "lampTail"
+    ],
+    [
+     "^object_12\\|",
+     "interior"
+    ],
+    [
+     "^object_(14|20)\\|",
+     "tyre"
+    ],
+    [
+     "^object_(15|17|18|21|23|24)\\|",
+     "rim"
+    ]
+   ],
+   "forward": "-z"
+  },
+  {
+   "id": "octavia-rs-2020",
+   "name": "Salo Säde 20",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.69,
+   "weight": 1.0,
+   "spec": {
+    "referenceModel": "Skoda Octavia IV 2.0 TSI (2020)",
+    "massKg": 1460,
+    "powerKW": 180,
+    "torqueNm": 370,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.7,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.1,
+    "gears": 7,
+    "rideHeightM": 0.14,
+    "character": "balanced"
+   },
+   "source": "~/turku3d/loops/carmodels/octavia-rs-2020/model.glb",
+   "roles": [
+    [
+     "^object_(4|6)\\|",
+     "paint"
+    ],
+    [
+     "^object_5\\|",
+     "interior"
+    ],
+    [
+     "^object_(7|9|12)\\|",
+     "chrome"
+    ],
+    [
+     "^object_8\\|",
+     "trim"
+    ],
+    [
+     "^object_10\\|",
+     "glass"
+    ],
+    [
+     "^object_11\\|",
+     "lampAny"
+    ],
+    [
+     "^object_13\\|",
+     "lampTail"
+    ],
+    [
+     "^object_(15|21|27|33)\\|",
+     "tyre"
+    ],
+    [
+     "^object_(16|18|19|22|24|25|28|30|31|34|36|37|39)\\|",
+     "rim"
+    ]
+   ],
+   "forward": "-z"
+  },
+  {
+   "id": "octavia-rs-2020-police",
+   "source": "~/turku3d/loops/carmodels/octavia-rs-2020/model.glb",
+   "name": "Salo Poliisi 20",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.69,
+   "weight": 0.03,
+   "livery": true,
+   "generatedLivery": "police-fi",
+   "spec": {
+    "referenceModel": "Skoda Octavia IV 2.0 TSI, generated Finnish police livery",
+    "massKg": 1500,
+    "powerKW": 180,
+    "torqueNm": 370,
+    "drivetrain": "AWD",
+    "fuel": "petrol",
+    "zeroTo100S": 6.9,
+    "topSpeedKmh": 250,
+    "turningCircleM": 11.1,
+    "gears": 7,
+    "rideHeightM": 0.14,
+    "character": "sport"
+   },
+   "roles": [
+    [
+     "^object_(4|6)\\|",
+     "paint"
+    ],
+    [
+     "^object_5\\|",
+     "interior"
+    ],
+    [
+     "^object_(7|9|12)\\|",
+     "chrome"
+    ],
+    [
+     "^object_8\\|",
+     "trim"
+    ],
+    [
+     "^object_10\\|",
+     "glass"
+    ],
+    [
+     "^object_11\\|",
+     "lampAny"
+    ],
+    [
+     "^object_13\\|",
+     "lampTail"
+    ],
+    [
+     "^object_(15|21|27|33)\\|",
+     "tyre"
+    ],
+    [
+     "^object_(16|18|19|22|24|25|28|30|31|34|36|37|39)\\|",
+     "rim"
+    ]
+   ],
+   "forward": "-z"
+  },
+  {
+   "id": "corolla-e180-taxi",
+   "source": "~/turku3d/loops/carmodels/corolla-e180/model.glb",
+   "name": "Kaira Taksi 160",
+   "body": "sedan",
+   "family": "sedan",
+   "length": 4.62,
+   "weight": 0.05,
+   "generatedLivery": "taxi-fi",
+   "roles": [
+    [
+     "^cube\\.00[23]_",
+     "plate"
+    ],
+    [
+     "body_material\\.00[35]",
+     "lampTail"
+    ]
+   ],
+   "spec": {
+    "referenceModel": "Toyota Corolla E180 1.8 Hybrid, generated Finnish taxi sign",
+    "massKg": 1300,
+    "powerKW": 90,
+    "torqueNm": 142,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 11.0,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.8,
+    "gears": 1,
+    "rideHeightM": 0.15,
+    "character": "comfort"
+   }
   }
  ]
 }

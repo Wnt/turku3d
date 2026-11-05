@@ -1,0 +1,96 @@
+{
+  "assetBase": "/assets/cars/corolla-e180-taxi",
+  "fleet": {
+    "id": "corolla-e180-taxi",
+    "name": "Kaira Taksi 160",
+    "body": "sedan",
+    "family": "sedan",
+    "length": 4.62,
+    "width": 2.1664,
+    "height": 1.6287,
+    "wheelbase": 2.7084,
+    "hood": 0.25,
+    "rear": -0.4,
+    "taper": 0.82,
+    "wheel": 0.322,
+    "belt": 1,
+    "face": 0,
+    "accessory": "none",
+    "age": 0.1,
+    "weight": 0.05
+  },
+  "id": "corolla-e180-taxi",
+  "wheels": {
+    "radius": 0.322,
+    "width": 0.2576,
+    "pivots": {
+      "wheel_FL": [
+        -0.7595,
+        0.322,
+        1.3327
+      ],
+      "wheel_FR": [
+        0.7595,
+        0.322,
+        1.3327
+      ],
+      "wheel_RL": [
+        -0.7595,
+        0.322,
+        -1.3757
+      ],
+      "wheel_RR": [
+        0.7595,
+        0.322,
+        -1.3757
+      ]
+    }
+  },
+  "collision": {
+    "center": [
+      0,
+      0.8143,
+      0
+    ],
+    "half": [
+      1.0832,
+      0.8143,
+      2.31
+    ]
+  },
+  "triangles": [
+    26834,
+    7880,
+    2947
+  ],
+  "source": {
+    "title": "2014 Toyota Corolla E180 EU (with interior)",
+    "url": "https://sketchfab.com/3d-models/2014-toyota-corolla-e180-eu-with-interior-36f95efb0585464cae43a25a3b3392e8",
+    "author": "Armored Wave",
+    "licence": "CC Attribution",
+    "licenceUrl": "http://creativecommons.org/licenses/by/4.0/"
+  },
+  "spec": {
+    "id": "corolla-e180-taxi",
+    "referenceModel": "Toyota Corolla E180 1.8 Hybrid, generated Finnish taxi sign",
+    "massKg": 1300,
+    "powerKW": 90,
+    "torqueNm": 142,
+    "drivetrain": "FWD",
+    "fuel": "petrol",
+    "zeroTo100S": 11,
+    "topSpeedKmh": 180,
+    "turningCircleM": 10.8,
+    "gears": 1,
+    "rideHeightM": 0.15,
+    "character": "comfort",
+    "lengthM": 4.62,
+    "widthM": 2.1664,
+    "heightM": 1.6287,
+    "wheelbaseM": 2.7084,
+    "trackM": 1.519,
+    "wheelRadiusM": 0.322,
+    "wheelWidthM": 0.2576
+  },
+  "accepted": false
+}

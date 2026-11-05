@@ -44,11 +44,19 @@ export function fleetHash(value: string): number {
   h = Math.imul(h ^ h >>> 15, 0x846ca68b);
   return (h ^ h >>> 16) >>> 0;
 }
-export function fleetModel(model: string, seed: string, includeAuthored=true): FleetModel {
+/** A parking record's box and its free space ahead and behind (metres). */
+export interface FleetSlot { length: number; clear_front_m: number; clear_rear_m: number }
+const AUTHORED_IDS = new Set(AUTHORED_MODELS.map(m => m.id));
+/** Converted/authored models keep their true size, so in a parking slot they must fit: their overhang beyond the
+ *  record box stays within the smaller free gap minus a 0.3 m margin. Procedural models stretch to the record. */
+export const fitsSlot = (m: FleetModel, slot?: FleetSlot) => !slot || !AUTHORED_IDS.has(m.id)
+  || (m.length - slot.length) / 2 <= Math.max(0, Math.min(slot.clear_front_m, slot.clear_rear_m) - .3);
+export const trueSize = (id: string) => AUTHORED_IDS.has(id);
+export function fleetModel(model: string, seed: string, includeAuthored=true, slot?: FleetSlot): FleetModel {
   const exact = FLEET_BY_ID.get(model);
   if (exact) return exact;
   const family = model === 'suv-luxury' ? 'suv' : model;
-  const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_MODELS.some(a => a.id === m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family));
+  const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_IDS.has(m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family) && fitsSlot(m, slot));
   if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
   const weight=(m:FleetModel)=>m.weight??(m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1);
   let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);

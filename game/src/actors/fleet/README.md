@@ -71,3 +71,10 @@ source/licence, a collision box, a carphysics `CarSpec` and a selection `weight`
 `SELECTABLE_FAMILIES` (bus, truck, ambulance) are not preloaded for traffic and need an exact model id.
 `fleetWorkshop.authored(ids, lod, colour, view)` shows them through `ParkedCarVisuals`;
 `scripts/render-fleet-models.mjs` captures those views over CDP.
+
+True size and parking slots: converted/authored models are drawn and simulated at their real dimensions; only the
+procedural fleet still stretches to its parking record. `fleetModel(model, seed, true, slot)` offers a converted model
+for a parked record only when its overhang beyond the record box fits the smaller of `clear_front_m`/`clear_rear_m`
+minus 0.3 m (`fitsSlot`); moving traffic has no slot. Parked collision boxes use the converted model's own length.
+Generated liveries (`generatedLivery`): `police-fi` (white, blue belt band, blue/yellow check row, roof light bar;
+flank triangles are subdivided first) and `taxi-fi` (yellow roof sign). No logos or text.

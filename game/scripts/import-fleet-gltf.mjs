@@ -290,6 +290,47 @@ if (process.env.PROBE) { // PROBE=x,y,z[,r]: which source parts have triangles n
   for (const t of tris) { const c = ctr(t); if (Math.hypot(c[0]-px, c[1]-py, c[2]-pz) < pr) hits[`${t.key} ${t.role}`] = (hits[`${t.key} ${t.role}`] ?? 0) + 1; }
   console.log(JSON.stringify({ probe: hits }));
 }
+// ---- Generated liveries (no textures, no logos) --------------------------------------------------------------------
+// police-fi: white body, blue belt band and a blue/yellow check row on the flanks, blue light bar on the roof.
+// taxi-fi: body keeps its tintable paint, a yellow sign box on the roof.
+function addBox([cx, cy, cz], [sx, sy, sz], colour, role) {
+  const v = (x, y, z) => [cx + x * sx / 2, cy + y * sy / 2, cz + z * sz / 2];
+  for (const [n, quad] of [[[1, 0, 0], [[1,-1,-1],[1,1,-1],[1,1,1],[1,-1,1]]], [[-1, 0, 0], [[-1,-1,1],[-1,1,1],[-1,1,-1],[-1,-1,-1]]],
+    [[0, 1, 0], [[-1,1,-1],[-1,1,1],[1,1,1],[1,1,-1]]], [[0, 0, 1], [[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]]], [[0, 0, -1], [[1,-1,-1],[-1,-1,-1],[-1,1,-1],[1,1,-1]]]])
+    for (const tri of [[0, 1, 2], [0, 2, 3]]) tris.push({ p: tri.flatMap(i => v(...quad[i])), n: [...n, ...n, ...n], c: [...colour, ...colour, ...colour], role, info: { name: 'generated', factor: [1, 1, 1, 1] }, key: 'generated|livery' });
+}
+if (cfg.generatedLivery) {
+  const E = ext0(), H = E.size[1], roofTris = tris.filter(t => exterior(t) && Math.abs(ctr(t)[0]) < .25 && Math.abs(ctr(t)[2] - (E.lo[2] + E.hi[2]) / 2) < .5);
+  const roof = roofTris.reduce((m, t) => Math.max(m, ctr(t)[1]), 0);
+  const roofZ = (() => { const top = roofTris.filter(t => ctr(t)[1] > roof - .05); return top.reduce((s, t) => s + ctr(t)[2], 0) / Math.max(1, top.length); })();
+  const lin = rgb => rgb.map(a => toLinear(a / 255));
+  if (cfg.generatedLivery === 'police-fi') {
+    // Stripes and checks are coloured per triangle: split large flank triangles first (longest edge <= 8 cm).
+    const split = t => { const P = i => t.p.slice(i * 3, i * 3 + 3), d = (a, c) => Math.hypot(...P(a).map((v, k) => v - P(c)[k]));
+      const e = [[0, 1, 2], [1, 2, 0], [2, 0, 1]].sort((x, y) => d(y[0], y[1]) - d(x[0], x[1]))[0];
+      if (d(e[0], e[1]) <= .08) return [t];
+      const mid = (arr, a, c) => [0, 1, 2].map(k => (arr[a*3+k] + arr[c*3+k]) / 2);
+      const pick = (arr, i) => arr.slice(i * 3, i * 3 + 3);
+      const mk = (a, b, c) => ({ ...t, p: [...a.p, ...b.p, ...c.p], n: [...a.n, ...b.n, ...c.n], c: [...a.c, ...b.c, ...c.c] });
+      const V = i => ({ p: pick(t.p, i), n: pick(t.n, i), c: pick(t.c, i) }), M = { p: mid(t.p, e[0], e[1]), n: mid(t.n, e[0], e[1]), c: mid(t.c, e[0], e[1]) };
+      return [...split(mk(V(e[0]), M, V(e[2]))), ...split(mk(M, V(e[1]), V(e[2])))]; };
+    for (let i = tris.length - 1; i >= 0; i--) { const t = tris[i];
+      if ((t.role === 'paint' || t.role === 'livery') && Math.abs(t.n[0] + t.n[3] + t.n[6]) / 3 > .5) tris.splice(i, 1, ...split(t)); }
+    const white = lin([236, 238, 240]), blue = lin([18, 52, 140]), yellow = lin([244, 196, 0]);
+    for (const t of tris) {
+      if (t.role !== 'paint' && t.role !== 'livery') continue;
+      const [, y, z] = ctr(t), side = Math.abs(t.n[0] + t.n[3] + t.n[6]) / 3 > .5, f = y / H;
+      let c = white;
+      if (side && f > .47 && f < .55) c = blue;
+      else if (side && f > .33 && f <= .45) c = (Math.floor(z / .22) + Math.floor((f - .33) / .06)) % 2 ? blue : yellow;
+      t.role = 'livery'; for (let i = 0; i < 9; i++) t.c[i] = c[i % 3];
+    }
+    addBox([0, roof + .05, roofZ], [1.1, .1, .3], blue, 'livery');
+  } else if (cfg.generatedLivery === 'taxi-fi') {
+    addBox([0, roof + .08, roofZ - .1], [.55, .16, .2], lin([250, 205, 30]), 'livery');
+  }
+}
+
 // ---- Debadging ----------------------------------------------------------------------------------------------------
 // Brand emblems are small separate parts on the centreline at the nose or tail (grille, boot lid, hub caps are
 // handled by the wheels' own sampled colour). Connected components per source part are found by shared positions.
