@@ -129,6 +129,19 @@ describe('mission state machine', () => {
     expect(h.last().targets.map(t => t.id)).toEqual([PIZZERIA.id, DEALER.id, MARKET.id]);
   });
 
+  it('reports when the interaction button would act (the truck gives such an A press to the mission, not the rear steer)', () => {
+    const h = harness();
+    h.at(near(MARKET.point));
+    expect(h.missions.interactable).toBe(false); // idle before begin()
+    h.missions.begin();
+    h.at(far);
+    expect(h.missions.interactable).toBe(false);
+    h.at(near(MARKET.point));
+    expect(h.missions.interactable).toBe(true);
+    expect(h.press(near(MARKET.point)).opened).toBe(true);
+    expect(h.missions.interactable).toBe(false); // the open menu takes the button
+  });
+
   it('keeps the tunnel shop inaccessible from the bridge deck above it', () => {
     const h = harness();
     h.missions.begin();
