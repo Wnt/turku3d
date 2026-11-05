@@ -46,7 +46,9 @@ const posesFile = path.join(out, 'poses.json');
 // The colour pass merges into an existing poses.json, so a run can be resumed with --only.
 const poses = fs.existsSync(posesFile) ? JSON.parse(fs.readFileSync(posesFile, 'utf8')) : pass === 'id' ? fail('no poses.json: run the colour pass first') : {};
 const first = pass === 'id' ? Object.values(poses).find(p => p.views)?.views[0] : null;
-const start = first ?? { E: spots[0]?.cam?.[0] ?? spots[0].E, N: spots[0]?.cam?.[1] ?? spots[0].N, H: 40, yaw: 0, pitch: -10, fov: 60 };
+const d0 = drives[0]?.path_xz[0];
+const start = first ?? (spots.length ? { E: spots[0].cam?.[0] ?? spots[0].E, N: spots[0].cam?.[1] ?? spots[0].N, H: 40, yaw: 0, pitch: -10, fov: 60 }
+  : { E: d0[0] + E0, N: N0 - d0[1], H: 40, yaw: 0, pitch: -10, fov: 60 });
 const query = new URLSearchParams({ cam: [start.E, start.N, start.H, start.yaw, start.pitch, start.fov].join(','), time: cfg.time ?? '14:00',
   quality: cfg.quality ?? 'medium', ...(pass === 'id' ? { pass: 'id', traffic: '0', walkers: '0' } : { traffic: '10', walkers: '8' }) });
 const url = `${base}?${query}`;
