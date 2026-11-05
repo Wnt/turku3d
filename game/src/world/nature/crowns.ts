@@ -26,20 +26,11 @@ const CONIFERS = new Set(['pine', 'spruce']);
 export const CROWN_LIMITS = { min: 0.8, max: 1.6, core: [0.04, 0.14] as const, below: 0.12 };
 
 /**
- * How the crowns widen, by quality tier. `stretch` (medium, high) widens every vertex, so leaf cards grow with the
- * crown: as full as the lidar crown, about 1.3x the leaf fragments. `spread` (reduced, low, mobile: the fill-rate bound
- * tiers) moves each leaf card out with its centre at its own size: the model's leaf fragments, a more open crown.
- * Decided 2026-11-04 (treelook): blind judges against Street View crops at five tree-rich poses preferred `stretch` on
- * medium (8 of 15 calls against 5, 2 ties; 4 of 5 on zoomed canopy crops), for fuller crowns with less sky and bare
- * branch. Its beauty cost at medium: none measurable on the M1 Max (4.39 against 4.41 ms p50, riverside static, three
- * interleaved runs), +0.1 ms on the Air and +1.1 ms on the Radeon 560X; the Air and the 560X run reduced (spread).
- * That judging predates the TRAA fix (e156e3ba); Jonni re-judges both modes live (treeLook.ts A/B, ?crowns=).
+ * How the crowns widen, on every tier: every vertex widens, so leaf cards grow with the crown (as full as the lidar
+ * crown, about 1.3x the leaf fragments). Jonni's pick (2026-11-05, treelook2, live A/B after the TRAA fix e156e3ba)
+ * over `spread` (cards moved out at their own size). Beauty cost against spread: none measurable on the M1 Max
+ * (medium), +0.1 ms on the Air and +1.1 ms on the Radeon 560X (both at medium, 2026-11-04).
  */
-export type CrownMode = 'stretch' | 'spread';
-export function crownMode(tier: string): CrownMode {
-  return tier === 'medium' || tier === 'high' ? 'stretch' : 'spread';
-}
-
 export interface CrownShape {
   /** Crown base and top as fractions of the asset height (3rd and 99.5th percentile leaf vertex heights). */
   base: number; top: number;
@@ -99,28 +90,14 @@ export function crownFactor(u: number, rho: number, shape: CrownShape, widening:
   return 1 + (k - 1) * fade;
 }
 
-/** Connected vertex groups (leaf cards) of an indexed or non-indexed triangle list. */
-export function cards(geometry: THREE.BufferGeometry): Int32Array {
-  const count = geometry.getAttribute('position').count, parent = new Int32Array(count).map((_, i) => i);
-  const find = (i: number) => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
-  const index = geometry.index;
-  const n = index ? index.count : count;
-  for (let t = 0; t + 2 < n; t += 3) {
-    const a = find(index ? index.getX(t) : t);
-    for (const k of [1, 2]) { const b = find(index ? index.getX(t + k) : t + k); if (a !== b) parent[b] = a; }
-  }
-  for (let i = 0; i < count; i++) parent[i] = find(i);
-  return parent;
-}
-
 /**
  * Reshape every LOD of a tree asset with the full LOD's crown fit, so the levels keep the relation lodblend calibrated
  * (alpha coverage, cross-fades) and the shadow proxies match. Impostor planes (one quad per side, no rows) widen by
- * the mean factor. In `spread` mode leaf cards move with their centre instead of stretching. Returns the asset's new
+ * the mean factor. Returns the asset's new
  * horizontal extent (m at scale 1), or null when it is not a fitted tree. Attributes shared between parts are
  * reshaped once.
  */
-export function fitCrown(asset: NatureAsset, done = new WeakSet<object>(), mode: CrownMode = 'stretch'): number | null {
+export function fitCrown(asset: NatureAsset, done = new WeakSet<object>()): number | null {
   if (asset.kind !== 'tree') return null;
   const shape = crownShape(asset);
   if (!shape) return null;
@@ -133,24 +110,7 @@ export function fitCrown(asset: NatureAsset, done = new WeakSet<object>(), mode:
       const position = part.geometry.getAttribute('position') as THREE.BufferAttribute;
       if (!done.has(position)) {
         done.add(position);
-        if (mode === 'spread' && !impostor && isLeaves(part)) {
-          // Each card's centre widens; the card keeps its size and shape.
-          const owner = cards(part.geometry), sums = new Map<number, [number, number, number, number]>();
-          for (let i = 0; i < position.count; i++) {
-            const sum = sums.get(owner[i]) ?? [0, 0, 0, 0];
-            sum[0] += position.getX(i); sum[1] += position.getY(i); sum[2] += position.getZ(i); sum[3]++;
-            sums.set(owner[i], sum);
-          }
-          const shift = new Map<number, [number, number]>();
-          for (const [card, [x, y, z, n]] of sums) {
-            const k = crownFactor(y / n / asset.height, Math.hypot(x, z) / n / asset.radius, shape, widening);
-            shift.set(card, [x / n * (k - 1), z / n * (k - 1)]);
-          }
-          for (let i = 0; i < position.count; i++) {
-            const [dx, dz] = shift.get(owner[i])!;
-            position.setXYZ(i, position.getX(i) + dx, position.getY(i), position.getZ(i) + dz);
-          }
-        } else for (let i = 0; i < position.count; i++) {
+        for (let i = 0; i < position.count; i++) {
           const x = position.getX(i), y = position.getY(i), z = position.getZ(i);
           const k = impostor ? mean : crownFactor(y / asset.height, Math.hypot(x, z) / asset.radius, shape, widening);
           position.setXYZ(i, x * k, y, z * k);

@@ -34,7 +34,6 @@ import { SettingGovernor } from './render/settingGovernor';
 import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
-import { treeLook } from './world/nature/treeLook';
 import { guardFrame } from './render/frameGuard';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
@@ -249,9 +248,7 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
   if (!Number.isFinite(hour)) throw new Error('invalid render hour');
   dayClock.setHour(hour);
 } };
-let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion, (treeLook.setTier(params.quality), treeLook.crownMode));
-// The tree look A/B (world/nature/treeLook.ts, owner Jonni) switches crowns and leaves of the loaded library live.
-void natureLibrary?.then(library => treeLook.attach(library), () => {});
+let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
@@ -438,7 +435,6 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
   const install = async () => {
     if (!replacement || !vegetation) return;
     natureLibrary = replacement;
-    treeLook.attach(await replacement);
     const models = vegetation.loadedModels();
     vegetation.dispose();
     const next = new Renderer(params.quality, natureLibrary, scene);

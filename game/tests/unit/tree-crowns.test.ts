@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CROWN_LIMITS, LIDAR_CROWNS, cards, crownFactor, crownMode, crownShape, crownWidening, fitCrown } from '../../src/world/nature/crowns';
+import { CROWN_LIMITS, LIDAR_CROWNS, crownFactor, crownShape, crownWidening, fitCrown } from '../../src/world/nature/crowns';
 import type { NatureAsset } from '../../src/world/nature/library';
 
 const material = (name: string) => Object.assign(new THREE.MeshBasicMaterial(), { name });
@@ -69,50 +69,4 @@ it('keeps conifer tapers and leaves shrubs and fences alone', () => {
   const widening = crownWidening(spruce, crownShape(spruce)!);
   expect(new Set(widening.map(k => k.toFixed(6))).size).toBe(1);
   expect(fitCrown({ ...tree('lilac'), kind: 'shrub' })).toBeNull();
-});
-
-it('spreads leaf cards at their own size on fill-rate bound tiers', () => {
-  expect(crownMode('medium')).toBe('stretch'); expect(crownMode('high')).toBe('stretch');
-  expect(crownMode('reduced')).toBe('spread'); expect(crownMode('low')).toBe('spread'); expect(crownMode('mobile')).toBe('spread');
-  // Two leaf cards (quads) in the crown: each moves out with its centre and keeps its size.
-  const quad = (x: number, y: number) => [x - 0.2, y, 0, x + 0.2, y, 0, x - 0.2, y + 0.4, 0, x + 0.2, y + 0.4, 0];
-  const asset = tree('birch');
-  const leaves = asset.lods[0].parts[1].geometry;
-  const extra = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array([...quad(2, 10), ...quad(-3, 14)]), 3));
-  extra.setIndex([0, 1, 2, 2, 1, 3, 4, 5, 6, 6, 5, 7]);
-  expect(Array.from(new Set(cards(extra)))).toHaveLength(2);
-  asset.lods[0].parts.push({ geometry: extra, material: leaves.userData.material ?? asset.lods[0].parts[1].material, triangles: 4 });
-  const shape = crownShape(asset)!, widening = crownWidening(asset, shape);
-  fitCrown(asset, new WeakSet(), 'spread');
-  const p = extra.getAttribute('position');
-  expect(p.getX(1) - p.getX(0)).toBeCloseTo(0.4, 5);
-  expect((p.getX(0) + p.getX(1)) / 2).toBeCloseTo(2 * crownFactor(10.2 / 20, 2 / 5, shape, widening), 4);
-});
-
-it('switches the crown fit live from the model positions (tree look A/B)', async () => {
-  const { NatureLibrary } = await import('../../src/world/nature/library');
-  const { TreeLook } = await import('../../src/world/nature/treeLook');
-  const fresh = (mode: 'stretch' | 'spread') => { const a = tree('linden'); fitCrown(a, new WeakSet(), mode); return a; };
-  const positions = (a: NatureAsset) => a.lods.flatMap(l => l.parts.map(p => Array.from(p.geometry.getAttribute('position').array as Float32Array)));
-  const leaves: string[] = [];
-  const asset = tree('linden');
-  const library = new NatureLibrary(new Map([[asset.name, asset]]), { setLeafVariant: (v: string) => leaves.push(v) } as never, null);
-  library.fitCrowns('stretch');
-  const stretched = positions(asset), extent = asset.extent!;
-  expect(stretched).toEqual(positions(fresh('stretch')));
-  library.fitCrowns('spread');
-  expect(positions(asset)).toEqual(positions(fresh('spread')));
-  expect(asset.extent).toBeGreaterThanOrEqual(extent); // built draw bounds never shrink under a switch
-  const look = new TreeLook('?crowns=stretch&leaves=alpha65');
-  look.setTier('reduced');
-  expect([look.crownMode, look.leafVariant]).toEqual(['stretch', 'alpha65']);
-  look.attach(library);
-  expect(positions(asset)).toEqual(stretched);
-  expect(leaves).toEqual(['alpha65']);
-  // No choice keeps the tier defaults.
-  const plain = new TreeLook('');
-  plain.setTier('reduced'); expect([plain.crownMode, plain.leafVariant]).toEqual(['spread', 'full']);
-  plain.setTier('medium'); expect(plain.crownMode).toBe('stretch');
-  expect(() => new TreeLook('?crowns=asset')).toThrow(/crowns/);
-  expect(() => new TreeLook('?leaves=noshadow')).toThrow(/leaves/);
 });

@@ -4,7 +4,6 @@ import type { Input } from '../input';
 import type { CoarseTiles } from '../world/coarseTiles';
 import { DevLayerRanges } from './devLayerRanges';
 import { retireAfterFrame } from '../render/retirement';
-import { CROWN_MODES, LEAF_LABELS, LEAF_VARIANTS, treeLook } from '../world/nature/treeLook';
 
 const KEY = 'turku3d.dev-layers.v1';
 type Data = Record<string, unknown>;
@@ -126,38 +125,8 @@ export class DevLayers {
       hint.textContent = 'Above 1 km: lightweight scenery follows the camera as you turn and move.';
       this.panel.append(hint);
     }
-    this.panel.append(this.treeLookRow());
     this.panel.append(this.status, this.tree);
     this.element.append(this.button, this.panel); document.body.append(this.element);
-  }
-
-  /** Tree look A/B (world/nature/treeLook.ts, owner Jonni): crowns and leaves switch live; "Default" keeps the tier's. */
-  private treeLookRow() {
-    const row = document.createElement('div'); row.id = 'dev-tree-look';
-    const crowns = document.createElement('select'), leaves = document.createElement('select');
-    crowns.id = 'dev-tree-crowns'; leaves.id = 'dev-tree-leaves';
-    crowns.append(Object.assign(document.createElement('option'), { value: '', textContent: 'Default (by tier)' }));
-    for (const mode of CROWN_MODES) crowns.append(Object.assign(document.createElement('option'), { value: mode, textContent: mode }));
-    leaves.append(Object.assign(document.createElement('option'), { value: '', textContent: 'Default (full)' }));
-    for (const variant of LEAF_VARIANTS) leaves.append(Object.assign(document.createElement('option'), { value: variant, textContent: LEAF_LABELS[variant] }));
-    const current = Object.assign(document.createElement('div'), { id: 'dev-tree-look-current' });
-    const show = () => {
-      crowns.value = treeLook.crowns ?? ''; leaves.value = treeLook.leaves ?? '';
-      current.textContent = treeLook.describe();
-    };
-    const change = () => {
-      treeLook.set((crowns.value || null) as typeof treeLook.crowns, (leaves.value || null) as typeof treeLook.leaves);
-      show();
-    };
-    crowns.onchange = change; leaves.onchange = change;
-    const label = (text: string, select: HTMLSelectElement) => {
-      const element = document.createElement('label'); element.style.display = 'block';
-      element.append(document.createTextNode(text), select); return element;
-    };
-    current.style.fontWeight = 'bold';
-    row.append(current, label('Tree crowns ', crowns), label('Leaves ', leaves));
-    show();
-    return row;
   }
 
   private sceneryView() {
