@@ -557,11 +557,20 @@ def finished_ground(tile: C.VisualTile, paths: list) -> dict:
             group.append(p)
     groups.append(group)
     if len(groups) != 5 or not groups[0]:
-        return {"points": None, "report": None}
+        return {"points": None, "report": None, "region": None}
     streets, spots, bldg, blocks, laz = groups
     evidence = finished.load(tile, streets, spots, bldg, blocks)
-    points, report = finished.apply(tile, ground_points(tile, laz), evidence)
-    return {"points": points if report else None, "report": report}
+    points, report, region = finished.apply(tile, ground_points(tile, laz), evidence)
+    return {"points": points if report else None, "report": report, "region": region}
+
+
+def outside_finished_ground(profiles, value):
+    """Street profile sections clear of finished ground: a kerb fitted to construction-era survey
+    returns would stamp the trench back into the finished surface."""
+    region = (value or {}).get("region")
+    if region is None or not profiles:
+        return profiles
+    return [p for p in profiles if not p["line"].intersects(region)]
 
 
 def with_finished_ground(tile: C.VisualTile, ground: dict, value) -> dict:
@@ -897,7 +906,7 @@ def gather(
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),
         street_finishes=wfs["street_finishes"],
-        street_profiles=values["street_profiles"] or (),
+        street_profiles=outside_finished_ground(values["street_profiles"] or (), values.get("finished_ground")),
         register=values["register"],
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),

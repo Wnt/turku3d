@@ -58,8 +58,9 @@ def trench(x, z):
 
 def test_trench_is_filled_and_steps_and_other_ground_stay():
     ev = evidence(TILE, SQUARE, trench)
-    points, report = F.apply(TILE, tile_points(TILE, ev), ev)
+    points, report, region = F.apply(TILE, tile_points(TILE, ev), ev)
     assert report is not None and report["sites"]
+    assert region.contains(shapely.Point(125, 120)) and not region.contains(shapely.Point(20, 20))
     xs = np.full(20, 125.0)
     zs = np.linspace(95, 145, 20)
     after = finished_at(TILE, points, xs, zs)
@@ -79,8 +80,8 @@ def test_trench_is_filled_and_steps_and_other_ground_stay():
 def test_tile_without_finished_state_zone_is_unchanged():
     ev = evidence(TILE, shapely.box(1000, 1000, 1050, 1050), trench)
     points = tile_points(TILE, ev)
-    out, report = F.apply(TILE, points, ev)
-    assert out is points and report is None
+    out, report, region = F.apply(TILE, points, ev)
+    assert out is points and report is None and region is None
 
 
 def test_wide_excavation_meets_the_post_lidar_spot_height():
@@ -89,7 +90,7 @@ def test_wide_excavation_meets_the_post_lidar_spot_height():
 
     spot = (125.0, 125.0, float(plane(125.0, 125.0)) + 0.1)
     ev = evidence(TILE, SQUARE, pit, spots=[spot])
-    points, report = F.apply(TILE, tile_points(TILE, ev), ev)
+    points, report, region = F.apply(TILE, tile_points(TILE, ev), ev)
     assert report is not None
     assert abs(finished_at(TILE, points, [125.0], [125.0])[0] - spot[2]) < 0.1
     assert abs(finished_at(TILE, points, [110.0], [140.0])[0] - plane(110.0, 140.0)) < 0.3
@@ -104,8 +105,8 @@ def test_neighbouring_tiles_meet_exactly_over_a_site_on_their_seam():
 
     ev = evidence(TILE, zone, cut)
     ev_east = evidence(east, zone, cut)
-    west_points, west = F.apply(TILE, tile_points(TILE, ev), ev)
-    east_points, east_report = F.apply(east, tile_points(east, ev_east), ev_east)
+    west_points, west, _ = F.apply(TILE, tile_points(TILE, ev), ev)
+    east_points, east_report, _ = F.apply(east, tile_points(east, ev_east), ev_east)
     assert west and east_report
     xs, zs = grid_axes(TILE)
     west_grid = grid_heights(west_points, xs, zs)
@@ -144,3 +145,13 @@ def test_chain_ends_with_the_finished_ground_spot_rebuild():
 @pytest.mark.parametrize("value", ["2021", 2022, "x", None])
 def test_year_parsing(value):
     assert F._year(value) in (0, 2021, 2022)
+
+
+def test_street_profiles_in_finished_ground_are_dropped():
+    from turku3d.coarse.inputs import outside_finished_ground
+
+    inside = {"line": shapely.LineString([(0, 0), (10, 0)])}
+    outside = {"line": shapely.LineString([(50, 50), (60, 50)])}
+    value = {"region": shapely.box(-1, -1, 20, 20)}
+    assert outside_finished_ground([inside, outside], value) == [outside]
+    assert outside_finished_ground([inside], {"region": None}) == [inside]

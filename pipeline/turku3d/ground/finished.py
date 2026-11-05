@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import shapely
+import shapely.geometry
 
 from turku3d import config as C
 
@@ -207,6 +208,15 @@ def _disk(r):
     return xx * xx + yy * yy <= r * r
 
 
+def _grow(mask, r):
+    """``mask`` dilated by a disk of radius ``r`` cells (the same cells as ``_disk``), in O(n)."""
+    from scipy import ndimage as ndi
+
+    if not mask.any():
+        return mask.copy()
+    return ndi.distance_transform_edt(~mask) <= r
+
+
 def _inside(geoms, xs, zs):
     gx, gz = np.meshgrid(xs, zs)
     out = np.zeros(gx.shape, bool)
@@ -328,8 +338,8 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     ]
     spots_rc = [(r, c, y) for r, c, y in spots_rc if zone[r, c] and not footprints[r, c]]
     pit, bump, core = detect(h, zone, footprints, spots_rc)
-    reach = ndi.binary_dilation(zone, structure=_disk(REACH)) & ~footprints
-    grown = ndi.binary_dilation(core, structure=_disk(GROW)) & ((pit > EDGE) | (bump > EDGE)) & reach
+    reach = _grow(zone, REACH) & ~footprints
+    grown = _grow(core, GROW) & ((pit > EDGE) | (bump > EDGE)) & reach
     mask = core | grown
     labels, count = ndi.label(mask)
     if not count:
@@ -343,7 +353,7 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
     blocked = _inside([g for g in evidence.structures if g.intersects(window_box)], xs, zs)
     # Sites grow only in street space: any street part (whatever its year) and the strip to the facades.
     street = _inside([g for g in evidence.streets if g.intersects(window_box)], xs, zs) | zone
-    space = ndi.binary_dilation(street, structure=_disk(REACH)) & ~blocked
+    space = _grow(street, REACH) & ~blocked
     buildings, _ = ndi.label(footprints)
 
     def touching(region):
@@ -353,14 +363,14 @@ def solve_window(window: C.VisualTile, evidence: Evidence) -> Window | None:
         return np.isin(buildings, ids[ids > 0])
 
     for _ in range(GROW_ROUNDS):
-        band = ndi.binary_dilation(mask, structure=_disk(FREE_REACH)) & ~mask & space
+        band = _grow(mask, FREE_REACH) & ~mask & space
         trial = _biharmonic(h, mask | band | touching(band), spots_rc)
         join = band & ~footprints & (trial - h > DEPTH)
         join = ndi.binary_propagation(mask, mask=mask | join) & join
         if not join.any():
             break
         mask |= join
-    near_site = ndi.binary_dilation(mask, structure=_disk(FREE_REACH))
+    near_site = _grow(mask, FREE_REACH)
     free = mask | touching(near_site)
     solved = _biharmonic(h, free, spots_rc)
     labels, count = ndi.label(free)
@@ -414,19 +424,20 @@ def surface(tile: C.VisualTile, evidence: Evidence, xs, zs, solved_windows=None)
 
 
 def apply(tile: C.VisualTile, points: np.ndarray, evidence: Evidence | None):
-    """(key points, report): ``points`` with the construction-era ground of the tile's key-point
-    window replaced by the finished surface; the same array and None where nothing changes."""
+    """(key points, report, region): ``points`` with the construction-era ground of the tile's
+    key-point window replaced by the finished surface, and that ground as a polygon; the same array,
+    None and None where nothing changes."""
     from scipy import ndimage as ndi
 
     if evidence is None or not evidence.zones or not evidence.near(tile.bbox.buffered(MARGIN + BAND + REACH)):
-        return points, None
+        return points, None, None
     b = tile.bbox.buffered(MARGIN)
     xs = np.arange(b.xmin, b.xmax + 0.5, 1.0)
     zs = np.arange(b.zmin, b.zmax + 0.5, 1.0)
     finished, lidar, changed, results = surface(tile, evidence, xs, zs)
     if not changed.any():
-        return points, None
-    replaced = ndi.binary_dilation(changed, structure=_disk(LATTICE))
+        return points, None, None
+    replaced = _grow(changed, LATTICE)
     c = np.clip(np.round(points[:, 0] - xs[0]).astype(int), 0, len(xs) - 1)
     r = np.clip(np.round(points[:, 2] - zs[0]).astype(int), 0, len(zs) - 1)
     inside = (points[:, 0] >= b.xmin) & (points[:, 0] <= b.xmax) & (points[:, 2] >= b.zmin) & (points[:, 2] <= b.zmax)
@@ -435,7 +446,19 @@ def apply(tile: C.VisualTile, points: np.ndarray, evidence: Evidence | None):
     lr, lc = np.nonzero(lattice)
     added = np.column_stack([xs[lc], np.round(finished[lr, lc], 3), zs[lr]])
     out = np.concatenate([points[~drop], added])
-    return out, report(tile, xs, zs, finished, lidar, changed, results, int(drop.sum()), len(added))
+    return (out, report(tile, xs, zs, finished, lidar, changed, results, int(drop.sum()), len(added)),
+            region(changed, xs, zs))
+
+
+def region(mask, xs, zs):
+    """The 1 m nodes of ``mask`` as a polygon (each node's square cell)."""
+    from affine import Affine
+    from rasterio import features
+
+    transform = Affine(1.0, 0.0, xs[0] - 0.5, 0.0, 1.0, zs[0] - 0.5)  # row = +z
+    polys = [shapely.geometry.shape(g) for g, v in features.shapes(mask.astype(np.uint8), mask=mask,
+                                                                   transform=transform) if v]
+    return shapely.union_all(polys) if polys else None
 
 
 def report(tile, xs, zs, finished, lidar, changed, results, dropped, added):
@@ -473,3 +496,97 @@ def report(tile, xs, zs, finished, lidar, changed, results, dropped, added):
         "lattice_points": added,
         "sites": sites,
     }
+
+
+# -- city survey ------------------------------------------------------------------------------------
+
+
+def _survey_one(tile_id: str) -> dict:
+    import time
+
+    from turku3d.coarse.inputs import finished_ground, finished_sources
+    from turku3d.coarse.sources import NoCoverage, Sources
+
+    tile = C.VisualTile.parse(tile_id)
+    sources = Sources()
+    started = time.process_time()
+    try:
+        laz, missing = sources.lidar_paths(tile)
+    except NoCoverage:
+        return {"tile": tile_id, "state": "no-lidar"}
+    if missing:
+        return {"tile": tile_id, "state": "missing-lidar"}
+    value = finished_ground(tile, finished_sources(tile, sources, laz))
+    return {"tile": tile_id, "state": "changed" if value["report"] else "unchanged",
+            "cpu_s": round(time.process_time() - started, 1), "report": value["report"]}
+
+
+def merge_sites(rows) -> list:
+    """City-wide sites: per-tile site rows whose extents overlap are one site."""
+    sites = [dict(s, tiles=[r["tile"]]) for r in rows if r.get("report") for s in r["report"]["sites"]]
+    merged = []
+    for site in sorted(sites, key=lambda s: -s["area_m2"]):
+        b = site["bbox_en"]
+        for other in merged:
+            o = other["bbox_en"]
+            if b[0] <= o[2] and o[0] <= b[2] and b[1] <= o[3] and o[1] <= b[3]:
+                other["tiles"] = sorted(set(other["tiles"]) | set(site["tiles"]))
+                other["bbox_en"] = [min(b[0], o[0]), min(b[1], o[1]), max(b[2], o[2]), max(b[3], o[3])]
+                break
+        else:
+            merged.append(site)
+    return merged
+
+
+def main(argv=None):
+    """``survey OUT.jsonl [--jobs N] [tile ...]``: the rule over the given (default: every lidar-covered
+    level-0) tiles, one JSON line per tile, then the merged city-wide sites in OUT.sites.json."""
+    import argparse
+    import json
+    from concurrent.futures import ProcessPoolExecutor
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(prog="python -m turku3d.ground.finished")
+    parser.add_argument("command", choices=["survey"])
+    parser.add_argument("out", type=Path)
+    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument("tiles", nargs="*")
+    args = parser.parse_args(argv)
+    tiles = args.tiles
+    if not tiles:
+        from turku3d.fetch.common import Registry
+
+        blocks = {Path(k).stem for k in Registry(C.raw_dir("laz")).records() if k.startswith("maanpinta/")}
+        found = set()
+        for name in blocks:  # a block is named by its west and north edge
+            e, n = (float(v) for v in name.split("_"))
+            for de in (125.0, 375.0):
+                for dn in (125.0, 375.0):
+                    x, _, z = C.en_to_local(e + de, n - dn, 0.0)
+                    found.add(C.VisualTile.at(x, z).id)
+        tiles = sorted(found, key=lambda t: (abs(C.VisualTile.parse(t).i) + abs(C.VisualTile.parse(t).j), t))
+    done = set()
+    if args.out.exists():
+        done = {json.loads(line)["tile"] for line in args.out.read_text().splitlines() if line.strip()}
+    todo = [t for t in tiles if t not in done]
+    with args.out.open("a") as out, ProcessPoolExecutor(args.jobs) as pool:
+        for row in pool.map(_survey_one, todo, chunksize=1):
+            out.write(json.dumps(row) + "\n")
+            out.flush()
+    rows = [json.loads(line) for line in args.out.read_text().splitlines() if line.strip()]
+    sites = merge_sites(rows)
+    summary = {
+        "tiles": len(rows),
+        "changed_tiles": sorted(r["tile"] for r in rows if r.get("state") == "changed"),
+        "changed_m2": sum(r["report"]["changed_m2"] for r in rows if r.get("report")),
+        "raised_m2": sum(r["report"]["raised_m2"] for r in rows if r.get("report")),
+        "lowered_m2": sum(r["report"]["lowered_m2"] for r in rows if r.get("report")),
+        "cpu_s": round(sum(r.get("cpu_s", 0) for r in rows), 1),
+        "sites": sites,
+    }
+    args.out.with_suffix(".sites.json").write_text(json.dumps(summary, indent=1) + "\n")
+    print(json.dumps({k: v for k, v in summary.items() if k != "sites"} | {"site_count": len(sites)}))
+
+
+if __name__ == "__main__":
+    main()
