@@ -70,10 +70,7 @@ const RECYCLE_HEAD = 90, RECYCLE_ANY = 180, RECYCLE_CHAIN = 40;
 /** Beyond FAST_FAR m of every watcher, hidden jams go sooner (GTA removes hidden cars within seconds there): chain
  *  heads after FAST_HEAD s without headway, any car after FAST_ANY s (beyond a red light: queued at a signal is not stuck). */
 const FAST_FAR = 150, FAST_HEAD = 60, FAST_ANY = 120;
-/** Car budget per tile and hour (GTA's zone/hour population caps): BUDGET_HEADROOM × the cars its lanes carry at free
- *  flow at this hour (demand share / headway × travel time) + BUDGET_MIN. A tile over budget feeds no new cars, and
- *  out of view its excess cars go, at most BUDGET_TRIM per tile per second (most stuck first). */
-const BUDGET_HEADROOM = 2.5, BUDGET_MIN = 10, BUDGET_TRIM = 1;
+
 /** A car in a chain of stuck cars counts only while it has made no headway for this long (s). */
 const JAM_STUCK = 30;
 const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
@@ -218,7 +215,7 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, trimmed: 0, budgeted: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -355,8 +352,7 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, trimmed: 0, budgeted: 0 };
-    this.budgets = null;
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
   }
 
   reset(t: number) {
@@ -555,13 +551,10 @@ export class TrafficFlow {
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
     // the next free slot admits a car, rather than placing another body inside an existing queue.
-    this.budget(t);
     for (const lane of this.sources) {
       let n = this.demand.get(lane)!;
       while (entryTime(lane, n) <= t + 1e-7) {
-        if (this.network.present(lane, n)) {
-          if (this.over.has(lane.tile)) this.stats.budgeted++; else this.spawn(lane, n, t);
-        }
+        if (this.network.present(lane, n)) this.spawn(lane, n, t);
         n++;
       }
       this.demand.set(lane, n);
@@ -829,38 +822,8 @@ export class TrafficFlow {
       this.unoccupy(car); this.cars.delete(car.key); this.stats.recycled++;
       if (this.recycledLog.length < 10_000) this.recycledLog.push({ key: car.key, x: car.pose.x, z: car.pose.z, t });
     }
-    // Over-budget tiles shed hidden excess cars, most stuck first.
-    for (const tile of [...this.over].sort(cmp)) {
-      const extra = [...this.cars.values()].filter(c => c.lane.tile === tile && unseen(watchers, c.pose.x, c.pose.z))
-        .sort((a, b) => b.stuck - a.stuck || cmp(a.key, b.key)).slice(0, BUDGET_TRIM);
-      for (const car of extra) {
-        this.unoccupy(car); this.cars.delete(car.key); this.stats.recycled++; this.stats.trimmed++;
-        if (this.recycledLog.length < 10_000) this.recycledLog.push({ key: car.key, x: car.pose.x, z: car.pose.z, t });
-      }
-    }
   }
 
-  /** Tiles over their car budget (pure car state and the clock, recomputed before every step's spawns). */
-  private over = new Set<string>();
-  private budgets: { minute: number; byTile: Map<string, number> } | null = null;
-  private budget(t: number) {
-    this.over.clear();
-    const density = this.network.density;
-    if (!density) return;
-    const minute = Math.floor(t / 60);
-    if (this.budgets?.minute !== minute) {
-      const byTile = new Map<string, number>(), hour = density.hourAt(t);
-      for (const l of this.lanes) {
-        const cars = slotShare(l.flow, hour, density.multiplier) / TRAFFIC.headway * l.length / Math.max(1, l.speed);
-        byTile.set(l.tile, (byTile.get(l.tile) ?? 0) + cars);
-      }
-      for (const [tile, n] of byTile) byTile.set(tile, BUDGET_HEADROOM * n + BUDGET_MIN);
-      this.budgets = { minute, byTile };
-    }
-    const count = new Map<string, number>();
-    for (const c of this.cars.values()) count.set(c.lane.tile, (count.get(c.lane.tile) ?? 0) + 1);
-    for (const [tile, n] of count) if (n > (this.budgets.byTile.get(tile) ?? Infinity)) this.over.add(tile);
-  }
 
   /** Per approach lane: how far along it (m) a waiting car's front may stand without reaching into the path of any
    *  movement from another approach through the junction (STOP_CLEAR). Cleared with each graph build. */
