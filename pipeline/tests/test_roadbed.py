@@ -305,10 +305,11 @@ def test_a_deck_from_several_outline_parts_builds():
     assert meshes and abs(meshes[0].positions[:, 1].max() - 5.0) < 1e-9
 
 
-def _cut(ways, ground):
+def _cut(ways, ground, continuations=()):
     from turku3d.coarse.bridges import cut_under
 
-    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=ways, below=[])
+    deck = dict(line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, under=ways, below=[],
+                lower_continuations=list(continuations))
     xs, zs = np.meshgrid(np.arange(-2.0, 2.1, 1.0), np.arange(-60.0, 60.1, 1.0))
     grid = np.c_[xs.ravel(), ground(xs.ravel(), zs.ravel()), zs.ravel()]
     return grid, cut_under(grid, deck, lambda x, z: float(ground(np.array([x]), np.array([z]))[0]))
@@ -349,3 +350,20 @@ def test_a_deck_footway_is_not_raised_over_a_link_carriageway_that_crosses_it():
     corridor = link["line"].buffer(2.4)
     centroids = [shapely.Point(p[0], p[2]) for p in top]
     assert not any(corridor.contains(c) for c in centroids)
+
+
+def test_a_lower_street_ending_under_a_deck_takes_its_far_ground_from_the_next_piece():
+    from turku3d.coarse.bridges import lower_continuations
+
+    def ground(x, z):
+        return np.where(np.abs(z) < 12, 14.0, 10.0)
+
+    tags = {"highway": "trunk"}
+    piece = dict(id=1, line=shapely.LineString([(0, -60), (0, 2)]), width=7.0, tags=tags, bridge=False, layer=0)
+    beyond = dict(id=2, line=shapely.LineString([(0, 2), (0, 60)]), width=7.0, tags=tags, bridge=False, layer=0)
+    deck = dict(id=9, line=shapely.LineString([(-40, 0), (40, 0)]), width=12.0, layer=1, under=[piece], below=[])
+    ways = [piece, beyond]
+    assert lower_continuations(deck, ways, shapely.STRtree([w["line"] for w in ways])) == [beyond]
+    grid, cut = _cut([piece], ground, [beyond])
+    under = (np.abs(grid[:, 2]) < 1.5) & (np.abs(grid[:, 0]) < 1)
+    assert np.allclose(cut[under, 1], 10.0)
