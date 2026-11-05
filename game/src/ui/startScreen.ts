@@ -1,3 +1,4 @@
+import { CITY } from '../core/city';
 import { devToolsEnabled } from '../core/localOnly';
 import { glyph, type Action } from '../input/bindings';
 import type { Input } from '../input';
@@ -33,8 +34,8 @@ export class StartScreen implements MenuHost {
     this.element.setAttribute('role', 'dialog');
     this.element.setAttribute('aria-labelledby', 'start-title');
     this.element.innerHTML = `<div class="start-card">
-      <p class="eyebrow">TURKU · FREE ROAM</p>
-      <h1 id="start-title">Läntinen Rantakatu 15</h1>
+      <p class="eyebrow">${CITY.title.toUpperCase()} · FREE ROAM</p>
+      <h1 id="start-title">${CITY.spawn.label}</h1>
       <p>Explore on foot. Your car is parked nearby.</p>
       <p id="gamepad-status" role="status"></p>
       <dl id="start-bindings"></dl>
