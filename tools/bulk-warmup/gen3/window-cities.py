@@ -72,7 +72,7 @@ def build(city, tile):
                                'build', tile, '--out', str(stage)], cwd=city['checkout'], stdout=log,
                               stderr=subprocess.STDOUT)
     cpu1 = os.times()
-    row = dict(city=city['name'], tile=tile, wall=round(time.time() - started, 1),
+    row = dict(city=city['name'], tile=tile, checkout=city['checkout'], wall=round(time.time() - started, 1),
                cpu=round(cpu1.children_user + cpu1.children_system - cpu0.children_user - cpu0.children_system, 1),
                exit=proc.returncode)
     try:
