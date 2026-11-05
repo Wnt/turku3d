@@ -1124,35 +1124,3 @@ test('leaving the city releases every tile model and its collision, and the stre
   for (let t = 6500; t <= 9000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
   expect(requests.length).toBe(before);
 });
-
-test('a parked city keeps its tiles and does no work until it resumes (parkCity A/B)', async () => {
-  const requests: string[] = [];
-  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
-    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
-    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
-  const manifest = { collision: {} } as unknown as Manifest;
-  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest, renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/',
-    unloadCollision: () => {}, refreshCollision: () => {}, checkCollision: async () => {}, retainCollision: () => {},
-    loadModel: async () => new THREE.Group(),
-    fetch: (async (url: string) => {
-      const path = new URL(url).pathname; requests.push(path);
-      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
-      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
-      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
-      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
-    }) as typeof fetch });
-  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
-  for (let t = 0; t <= 6000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
-  const drawn = coarse.drawn().length, cells = Object.keys(manifest.collision).length;
-  expect(drawn).toBeGreaterThan(0);
-  coarse.park();
-  const before = requests.length;
-  for (let t = 6500; t <= 60_000; t += 500) { coarse.update(900, 900, t, undefined, false); await settle(); }
-  expect(requests.length).toBe(before); // no polls, not even for the far position
-  expect(coarse.drawn().length).toBe(drawn);
-  expect(Object.keys(manifest.collision).length).toBe(cells);
-  coarse.unpark();
-  for (let t = 60_500; t <= 62_000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
-  expect(requests.length).toBeGreaterThan(before);
-  expect(coarse.drawn().length).toBe(drawn);
-});
