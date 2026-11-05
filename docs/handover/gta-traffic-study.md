@@ -379,6 +379,9 @@ scripted camera over the blocker unless noted. Traffic was light outside the bus
 | T1 | as S1 | `bus` across the street (both directions shut); player teleported 260 m away at 210-410 s | 420 s |
 | T2 | Olympic-type freeway deck, 5 lanes eastbound (60,-1231), 24 m/s median, 31 m/s p90 | 2 `bus` across all lanes | 300 s |
 | T3 | as S1 | `bus` across; camera turned to the sky, then player moved 100/150/200 m away | 330 s |
+| S4 | freeway as T2 | `asea` in the busiest eastbound lane | 240 s |
+| T4 | Legion Square 2+2 avenue (182,-790), 25 m past a signal junction | 2 `bus` across; then gameplay camera with the player standing 21 m away | 415 s |
+| T5 | as S1 | `bus` across; then the player sprints along the street (simulated input) to 94 m | 350 s |
 
 **Partial block with somewhere to go (S1, S2): nobody stops.**
 
@@ -390,6 +393,10 @@ scripted camera over the blocker unless noted. Traffic was light outside the bus
 | speed approach → at blocker | median 12.1 → 12.1 m/s (no braking, changes of ±2 m/s) | not reduced |
 | back in lane | 9-20 m past the blocker (median 16 m) | stays in the new lane |
 | oncoming traffic | passed at 4.4-5.7 m from the blocked lane's centre at 10-14 m/s, never stopped or yielded | n/a |
+
+Freeway, one lane blocked (S4): 24 cars came along the blocked lane and none stopped. The lane change started
+**23-32 m ahead (median 28 m; 4 cars at 41-119 m)**. Speed fell only from a median of 22.5 to 21 m/s, and the cars
+moved 2.2-3.3 m sideways (2 cars moved 7 m, two lanes).
 
 **Block close to a signal (S3, walled ramp lane, adjacent approach lane beyond the merge).**
 
@@ -414,6 +421,16 @@ scripted camera over the blocker unless noted. Traffic was light outside the bus
 | decision distance for turning off before the queue | 1 car turned off 3 m before stopping, at a side entrance | 1 car moved over 10 m before the queue |
 | recovery after removal | queue cleared in 2.7 s | front moved at once, queue cleared in 6.7 s |
 
+Busy multi-lane downtown (T4, 2+2 avenue blocked 25 m past a signal junction):
+
+- Approach queue in 30 s bins (cars / m): 1/3 at 30 s, 2/58 at 90 s, 3/56 at 150 s, then 5/63, 9/78, 10/86 and 8-9/92-94 m from
+  210 s. It spilled back through the junction. The far side (B) held 1-2 cars.
+- **6 cars changed destination without stopping**: they turned off at the junction, 38-45 m before the buses (one 1.3 m
+  before). 32 cars stopped. Of these, 18 reversed (first reverse a median 4 s after stopping, up to 9.7 m, up to 8 m/s) and
+  10 turned off after a wait of 1.5-104 s (median about 28 s), all within 1-9 m of the buses.
+- 4 U-turns, 24-114 s after stopping, 5-8 m from the buses. Queue recovery after removal was under 30 s.
+- Only one horn event was detected in the whole series: one car, 63 s after stopping.
+
 - Jammed stuck timer (type 3) of front cars: 5 s after about 10 s of shuffling, then 10 s and 30 s. Queued cars further back stay at 0, because waiting behind a car does not count as stuck.
 - No horn was detected anywhere (IS_HORN_ACTIVE stayed false for every AI car). This build has no
   indicator-light getter, so indicators and honk timing are **not measured**.
@@ -426,20 +443,27 @@ scripted camera over the blocker unless noted. Traffic was light outside the bus
 - Player moved 100 m upstream, facing away (T3): 4 of 6 vanished within **6-9 s**. At 150 m the rest went
   within 1 s, and at 200 m none were left. T1, player 260 m away: all 6 vanished before the next sample (< 1 s).
 - Coming back: T1 rebuilt 4 cars / 27 m within 30 s, so the jam re-forms from fresh traffic, not from the old cars.
+- Real walk-away (T5): when the overhead camera was released and the player began to sprint (still 20-35 m away), **7
+  stationary queued cars vanished within 4-6 s**. With the player standing 94 m away, each newly queued car vanished
+  15-56 s after stopping. While the overhead camera was on (150 s), only off-screen cars vanished.
+- T4, the same with a standing player 21 m away and the gameplay camera facing away: 24 stationary queued cars vanished in
+  184 s while the queue kept refilling to 8-10 cars. With the overhead camera on (200 s) only 2 vanished, both off-screen at 56-58 m.
 
 **Decision rules inferred [I]**
 
 1. Mid-block obstacle with any room beside it (oncoming lane or a free same-direction lane): never stop.
    Start a half-lane (about 2 m) offset 10-60 m ahead, keep cruise speed, and return about 15 m after.
    On a two-way road, do not wait for an oncoming gap: both sides squeeze, each keeping about 2.5 m between car centres.
-   In a multi-lane road, change lane fully about 25 m ahead.
+   In a multi-lane road, change lane fully about 25 m ahead (freeway: 23-32 m ahead, losing only about 1.5 m/s).
 2. Obstacle in a queue context (near a stop line, walled lane): wait. Go round only after 25-60 s, and only where the
    geometry gives about 2.2 m of side room. Queued cars nudge the obstacle at walking pace.
 3. Front car facing a total blockage: after 2-5 s reverse 3-8 m at 3-7 m/s, then a 4 s cycle of about 1 m reverse and forward.
-   After 6-60 s try to angle past the obstacle's end (50-135° off axis). A U-turn appeared only on the freeway, after about 1 min.
-   Cars behind the front car only wait. None of them took another road from inside the queue.
+   After 6-60 s try to angle past the obstacle's end (50-135° off axis). U-turns came 24-114 s after stopping, 3-8 m from the blocker (freeway 1, wide avenue 4, 1+1 street none).
+   Cars behind the front car only wait; none took another road from deep inside the queue. The destination change
+   happens at the last junction before the jam: cars that reach it while the queue is visible ahead turn off there
+   (T4: 38-45 m before the blocker, without stopping). Front cars 1-9 m from the blocker turn off after a median wait of about 28 s.
 4. Out of view, removal is driven by visibility first and distance second. Stationary queued cars go within about 3-50 s of
-   leaving view, even 15-30 m from the player. At ≥ 100 m away they go within about 10 s, and at ≥ 150 m almost at once.
+   leaving view, even 15-30 m from the player (T5: 7 cars within 4-6 s once the camera turned away). At ≥ 100 m away they go within about 10 s, and at ≥ 150 m almost at once.
    A visible jam is kept indefinitely.
 5. On the freeway the queue stopped growing at about 17 cars / 55 m once nothing arrived from upstream. [I] The local
    vehicle budget was full of queued cars, so the population system stopped spawning traffic toward the jam.
@@ -448,7 +472,8 @@ scripted camera over the blocker unless noted. Traffic was light outside the bus
 
 Raw material (local only): `~/turku3d/private/gta-traffic/block/`, with `<scene>.jsonl` (traces), `.meta.json`,
 `.log`, `*_<t>.mp4` (clips, 15 fps, half scale) and stills. Scripts: `scene.py`, `ana.py`, `ana_truck.py`, `ladder.py`
-in the same folder. Not done: a single-lane freeway block, and a gradual walk-away (the ladder used teleports).
+in the same folder. Gaps: the T5 sprint stalled at 94 m (never reached 200 m on foot), and the navmesh walk task was ignored
+for the player. Horn and indicator timing remain unmeasured.
 
 ---
 

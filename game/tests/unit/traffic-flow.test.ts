@@ -357,6 +357,8 @@ describe('aggressive drivers: lane changes, reverses and new routes when blocked
       return { lane: exit, body: { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.5 } };
     });
     expect(flow.stats.rerouted).toBeGreaterThan(0);
+    // Some turn off before reaching the line (GTA: at the last junction, without stopping).
+    expect(flow.stats.reroutedAhead).toBeGreaterThan(0);
   });
 });
 
