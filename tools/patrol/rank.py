@@ -76,17 +76,31 @@ for r in ranked:  # judge-only findings: camera string and engine x/z from the c
         r['cam'] = ','.join(str(round(pv[k], 2)) for k in ('E', 'N', 'H', 'yaw', 'pitch', 'fov'))
         r['E'], r['N'] = round(pv['E'], 2), round(pv['N'], 2); r['x'], r['z'] = round(pv['E'] - 23459500, 2), round(6704500 - pv['N'], 2)
 ranked.sort(key=lambda r: -r['impact'])
+# Delivery and test-host findings are reported apart from the visual ranking: an unsettled pose or a failed load is
+# not something to judge in the picture.
+DELIVERY = {'not-settled', 'load-errors', 'stutter', 'not-ready'}
+delivery = [r for r in ranked if r['detector'] in DELIVERY]
+ranked = [r for r in ranked if r['detector'] not in DELIVERY]
 json.dump(ranked, open(RUN / 'ranked.json', 'w'), indent=1)
-live = [v for v in verdicts if v.get('n') is not None and not ((v.get('image') or '').startswith('crops/') and v['image'] not in by_image)]
+def det(v):
+    c = by_image.get(v.get('image')) or by_key.get((v.get('spot'), v.get('view'), v.get('detector')))
+    return (c or v).get('detector')
+live = [v for v in verdicts if v.get('n') is not None and not ((v.get('image') or '').startswith('crops/') and v['image'] not in by_image)
+        and det(v) not in ('not-settled', 'load-errors', 'stutter', 'not-ready', 'pano-diff')]
 judged = len(live)
 fp = len([v for v in live if not v.get('real')])
+from collections import Counter
+per_det = Counter((str(det(v)), bool(v.get('real'))) for v in live)
 lines = [f'# Patrol {RUN.name}: top {TOP}', '',
          f'{len(cands)} detector candidates, {judged} judged, {fp} rejected by the judge '
-         f'({fp / max(1, judged):.0%} detector false positives); {len(ranked)} distinct real issues.', '']
+         f'({fp / max(1, judged):.0%} detector false positives, delivery and panorama comparisons excluded); {len(ranked)} distinct real visual issues.',
+         'Per detector (real/false): ' + ', '.join(f"{d} {per_det[(d, True)]}/{per_det[(d, False)]}" for d in sorted({str(d) for d, _ in per_det})), '']
 for i, r in enumerate(ranked[:TOP], 1):
     lines += [f"## {i}. {r['title']}  (impact {r['impact']}, severity {r['severity']}, confidence {r['confidence']}, seen {r['frequency']}x)",
               f"- where: {r['spot']} / {r['view']}; E {r['E']} N {r['N']} (engine x {r['x']} z {r['z']}); `?cam={r['cam']}`",
               f"- image: `{r['image']}`", f"- detector: {r['detector']}; seen at: {', '.join(r['seen_at'])}",
               f"- suspected cause: {r['cause']}", f"- owner: {r['owner']}", f"- {r['description']}", '']
+lines += ['## Delivery (not ranked)', ''] + [f"- {r['title']} ({r['spot']}/{r['view']}; {r['owner']}): {r['description']}" for r in delivery] + ['']
+json.dump(delivery, open(RUN / 'delivery.json', 'w'), indent=1)
 open(RUN / 'report.md', 'w').write('\n'.join(lines))
 print('\n'.join(lines[:4 + 7 * TOP]))

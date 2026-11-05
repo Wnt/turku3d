@@ -33,3 +33,27 @@ spot, plus the fields above. Only add what a player would clearly notice.
 
 Write a JSON list of verdicts to the file you are told to write. Be strict: a candidate is real only if the image
 shows the defect.
+
+## Real-city comparison (pano-diff candidates)
+
+`crops/pano-<spot>-<view>.png` shows the game still (left, GAME) next to a Google Street View crop at the same
+position, heading, pitch and field of view (right, REAL, capture month in the label). The panorama is the real-city
+baseline. List what a player would see as wrong compared with reality, most important first:
+missing objects (buildings, trees, street furniture, signs, kerbs, parked cars, fences), wrong materials or colours
+(facade cladding, roof, paving, asphalt vs gravel), wrong geometry (building height, massing, roof shape, street
+width, slope). Ignore: weather, time of day, lighting, people and moving cars, small pose offsets (a few metres or
+degrees), season, and things the game deliberately leaves out (shop signs and text, brands). A pano-diff verdict is
+`real: true` when at least one clear difference exists; put the differences in `description` (semicolon-separated)
+and use one `issue` key per difference class that recurs across spots (e.g. `missing-street-trees`,
+`facade-material-wrong`, `missing-kerb-parking`), so the ranking can count how often the city-wide rule fails. When
+several distinct classes appear in one pair, add one verdict per class (same n and image, different issue).
+
+## Untextured candidates
+
+A large object drawn as one flat colour without texture detail. Real when the surface should clearly carry a
+texture (asphalt, paving, concrete, masonry, facade); false when it is legitimately smooth at that distance (sky
+reflections on glass, painted plaster in shade, water).
+
+Only settled frames reach you: every pose was captured after its 3x3 tiles were on their full pass and all scenery
+cells in view had loaded. Delivery problems (poses that never settled, failed loads) are reported separately and
+are not yours to judge.

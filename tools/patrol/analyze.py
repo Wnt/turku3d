@@ -22,7 +22,11 @@ E0, N0 = 23459500, 6704500
 RUN = Path(sys.argv[1])
 CROPS = RUN / 'crops'; CROPS.mkdir(exist_ok=True)
 SHEETS = RUN / 'spots'; SHEETS.mkdir(exist_ok=True)
-spots_cfg = {s['id']: s for s in json.load(open(Path(__file__).with_name('spots.json')))['spots']}
+sys.path.insert(0, str(Path(__file__).parent))
+import osm  # noqa: E402
+spots_cfg = {s['id']: s for s in json.load(open(RUN / 'spots.json' if (RUN / 'spots.json').exists() else Path(__file__).with_name('spots.json')))['spots']}
+MATS = [m['name'] for m in json.load(open(Path(__file__).resolve().parents[2] / 'pipeline/turku3d/col/materials_v1.json'))['materials']]
+SOLID = {m['id'] for m in json.load(open(Path(__file__).resolve().parents[2] / 'pipeline/turku3d/col/materials_v1.json'))['materials'] if m['cls'] == 'solid'}
 poses = json.load(open(RUN / 'poses.json'))
 cands = []
 
@@ -43,7 +47,9 @@ OWNER = {
     'stutter': ('frame pacing (framepace, perfstream)', 'long frames while driving'),
     'load-errors': ('city share delivery (tile proxy / farm)', 'tile or texture requests failed (HTTP 502/503, HTTP/2 errors); textures may be missing'),
     'collision-gap': ('collision (bridges / ground seams: roadfix, groundqa)', 'no collision surface under walkable ground: the player falls through and is reset ("Back on solid ground")'),
-    'not-ready': ('streaming / tile service', 'the spot did not settle (QA ready timeout)'),
+    'not-settled': ('streaming / tile farm (delivery)', 'the pose never reached full coverage (3x3 full tiles, scenery cells) in the time limit, even when re-captured'),
+    'untextured': ('materials / generator (bridges, structures, facades)', 'a large surface drawn as one flat colour: missing texture or placeholder material'),
+    'pano-diff': ('generator (whole-city rules)', 'game differs from the real street (Google panorama): missing objects, wrong materials or geometry'),
 }
 
 
@@ -115,9 +121,11 @@ for sid, rec in poses.items():
     views = {v['view']: v for v in rec.get('views', [])}
     if rec.get('error'):
         print(sid, 'capture error', rec['error']); continue
-    for r in rec.get('ready', []):
-        if r.get('err') and 'view' in r:
-            add(sid, r['view'], 'not-ready', None, {'err': r['err'][:200], 'ms': r.get('ms')}, None, views.get(r['view'], views.get('h0')), 2, centre, True)
+    bad = [r for r in rec.get('ready', []) if r.get('settled') is False]
+    if bad:
+        r = bad[0]
+        add(sid, r.get('view', 'h0'), 'not-settled', None, {'views': [b.get('view') for b in bad], 'attempt': rec.get('attempt', 1), 'notFull': r.get('notFull'),
+            'scenery': r.get('scenery'), 'status': r.get('status'), 'qaErr': (r.get('err') or '')[:160]}, None, views.get('h0'), 2, centre, True)
     sheet = []
     for vname, v in views.items():
         cp, ip = RUN / f'{sid}-{vname}-color.png', RUN / f'{sid}-{vname}-id.png'
@@ -125,6 +133,7 @@ for sid, rec in poses.items():
         if not cp.exists(): continue
         sheet.append(cp)
         if not ip.exists() or not tp.exists(): continue
+        if v.get('settled') is False: continue  # never judge an unsettled frame (it is a delivery finding instead)
         rgb, ids, table = load_rgb(cp), load_ids(ip), json.load(open(tp))
         h, w = ids.shape
         kinds, names = classes(ids, table)
@@ -145,6 +154,7 @@ for sid, rec in poses.items():
             skylike = dist < 45 or bright > 0.5
             box = [sl[1].start, sl[0].start, sl[1].stop, sl[0].stop]
             near = (box[3] - hz) / h  # how far below the horizon (0..1): closer to the camera when larger
+            if not skylike: continue  # distant scenery is not in the id pass: only sky showing through is a hole
             add(sid, vname, 'hole', None, {'area_px': area, 'area_share': round(area / (h * w), 4), 'sky_dist': round(dist, 1),
                 'bright_share': round(bright, 2), 'skylike': skylike, 'below_horizon': round(near, 2)},
                 annotate(cp, box, f'{sid}-{vname}-hole{i}', extra=Image.fromarray((hole * 255).astype(np.uint8)), label=f'hole {area}px'),
@@ -155,6 +165,18 @@ for sid, rec in poses.items():
             share = float(lod.mean())
             if share > 0.03:
                 add(sid, vname, 'lod-shell', None, {'share': round(share, 3)}, annotate(cp, bbox(lod), f'{sid}-{vname}-lod', label=f'block LOD {share:.1%}'), v, 2, centre, True)
+        # --- untextured surfaces: a large object (one id) whose pixels carry no texture detail at all
+        if v['street']:
+            L = luma(rgb); hp = np.abs(L - ndi.gaussian_filter(L, 1.5))
+            u, cnt = np.unique(ids[~kinds['sky'] & ~kinds['water'] & ~kinds['vegetation']], return_counts=True)
+            for oid, c in zip(u, cnt):
+                if c < 0.035 * h * w: continue
+                m = ndi.binary_erosion(ids == oid, iterations=3)
+                if m.sum() < 0.02 * h * w: continue
+                tex = float(np.median(hp[m])); e = table.get(str(int(oid)), {})
+                if tex < 0.6:
+                    add(sid, vname, 'untextured', e.get('kind'), {'texture': round(tex, 2), 'area_share': round(float(m.mean()), 3), 'material': e.get('material'),
+                        'object': e.get('id'), 'tile': e.get('tile')}, annotate(cp, bbox(m), f'{sid}-{vname}-flat{oid}', label=f"flat {e.get('material')} {tex:.2f}"), v, 3, centre, True)
         # --- blank facades: big building surfaces with almost no window-like pixels
         if v['street']:
             L = luma(rgb); b_r = rgb[..., 2] - rgb[..., 0]
@@ -186,7 +208,7 @@ for sid, rec in poses.items():
                         annotate(cp, box, f'{sid}-{vname}-white{i}', label='flat white blob'), v, 3, centre, True)
     # --- temporal (still camera) at h0, classes from the h0 id image
     seq = rec.get('sequence'); v0 = views.get('h0')
-    if seq and v0 and (RUN / f'{sid}-h0-id.png').exists():
+    if seq and v0 and seq.get('settled', True) and (RUN / f'{sid}-h0-id.png').exists():
         h, w = seq['h'], seq['w']
         d1 = np.fromfile(RUN / f'{sid}-seq-d1.f32', np.float32).reshape(h, w)
         d2 = np.fromfile(RUN / f'{sid}-seq-d2.f32', np.float32).reshape(h, w)
@@ -221,6 +243,12 @@ for sid, rec in poses.items():
         g = json.load(open(gp)); a = np.array([[np.nan if y is None else y for y in r] for r in g['rows']], np.float32)
         n = a.shape[0]; yy, xx = np.mgrid[:n, :n]; rr = np.hypot(yy - n // 2, xx - n // 2) * g['step']
         ok = np.isfinite(a) & (rr <= 30)
+        mk = osm.masks(v0['E'], v0['N'], g['half'] + 5)
+        if mk is not None:  # water and rail lie below the street by design
+            import shapely
+            gx = v0['E'] + (xx - n // 2) * g['step']; gz = v0['N'] - (yy - n // 2) * g['step']
+            inside = shapely.contains_xy(mk, gx.ravel(), gz.ravel()).reshape(a.shape)
+            ok &= ~inside
         if ok.sum() > 50:
             med = float(np.median(a[ok])); low = ok & (a < med - 1.0)
             lab, nl = ndi.label(low)
@@ -248,6 +276,17 @@ for sid, rec in poses.items():
         with np.errstate(all='ignore'):
             spread = np.nanmax(win, axis=0) - np.nanmin(win, axis=0)
         gap &= np.nan_to_num(spread, nan=99) < 0.5
+        # Ray probe (capture.mjs): a gap is confirmed when no solid triangle of any material or slope lies within 1 m
+        # of the surrounding ground at the point and at most one of its 4 half-step neighbours.
+        probe = {(q['j'], q['i']): q for q in g.get('probes', [])}
+        unconfirmed = 0
+        for r_, c_ in np.argwhere(gap):
+            q = probe.get((int(r_), int(c_)))
+            if not q: continue
+            ref = np.nanmedian(win[:, r_, c_])
+            solid = [any(abs(y - ref) < 1.0 and m_ in SOLID for y, m_ in at.get('hits', [])) for at in q['at']]
+            known = all(at.get('known') for at in q['at'])
+            if not known or solid[0] or sum(solid[1:]) > 1: gap[r_, c_] = False; unconfirmed += 1
         if gap.any():
             n = a.shape[0]; pts = np.argwhere(gap)
             near = [(float((c - n // 2) * g['step']), float((r - n // 2) * g['step'])) for r, c in pts]
@@ -269,6 +308,22 @@ for sid, rec in poses.items():
         S = Image.new('RGB', (480 * cols, 270 * rows_n))
         for k, im in enumerate(ims): S.paste(im, ((k % cols) * 480, (k // cols) * 270))
         S.save(SHEETS / f'{sid}.png')
+
+# --- real-city baseline: game still | Google panorama crop at the same pose (panos.py refs); the judge lists
+# what differs (missing objects, wrong materials, wrong geometry). One candidate per settled street view.
+ri = RUN / 'ref' / 'index.json'
+if ri.exists():
+    for key, e in json.load(open(ri)).items():
+        sid, vname = key.rsplit('-', 1)
+        v = next((w for w in poses.get(sid, {}).get('views', []) if w['view'] == vname), None)
+        if not v or v.get('settled') is False or not (RUN / e['game']).exists(): continue
+        g_, r_ = Image.open(RUN / e['game']).convert('RGB'), Image.open(RUN / e['ref']).convert('RGB').resize(Image.open(RUN / e['game']).size)
+        S = Image.new('RGB', (g_.width * 2 + 8, g_.height), (255, 0, 255)); S.paste(g_, (0, 0)); S.paste(r_, (g_.width + 8, 0))
+        ImageDraw.Draw(S).text((8, 8), 'GAME', fill=(255, 0, 255)); ImageDraw.Draw(S).text((g_.width + 16, 8), f"REAL {e['date']}", fill=(255, 0, 255))
+        out = CROPS / f'pano-{sid}-{vname}.png'; S.save(out)
+        add(sid, vname, 'pano-diff', None, {'pano': e['pano'], 'date': e['date'], 'offset_m': e['offset_m']}, str(out.relative_to(RUN)), v, 2,
+            spots_cfg.get(sid, {}).get('centre', 0.5), True)
+
 
 def drive_yaw(P, t):
     a, b = P[max(0, min(t, len(P) - 2))], P[min(len(P) - 1, t + 25)]
