@@ -40,13 +40,6 @@ const definitions = {
   connect: [0.2, t => pulse(t, 18) * sine(t < 0.09 ? 660 : 990, t)],
   // Last, so the seeded noise of the earlier sounds is unchanged. A 50 cc two-stroke: a nasal buzz at a higher pitch than the car engine, with a fast exhaust flutter.
   scooter: [4, t => (Math.sign(sine(90, t)) * 0.35 + sine(180, t) * 0.5 + 0.3 * sine(270, t) + noise() * 0.12) * (0.75 + 0.25 * sine(45, t))],
-  // A 3-litre V6 at idle: 45 Hz firing pulses (three per crank turn at 900 rpm) with an open-exhaust rasp, the
-  // half-order burble of the two banks, and a deep body under it.
-  truck: [4, t => {
-    const phase = (t * 45) % 1, fire = Math.exp(-phase * 7);
-    return fire * (0.8 + 0.45 * noise()) + 0.55 * sine(45, t) + 0.4 * sine(90, t) + 0.22 * sine(135, t)
-      + 0.3 * sine(22.5, t) + brown() * 2 * (0.85 + 0.15 * sine(7.5, t));
-  }],
   // A distant crowd murmur for the ambient walkers: ten talkers' syllable envelopes (3.5-6 Hz, with slow breathing
   // swells) over speech-band noise and a faint voiced buzz; no words, voices or recordings. Its own generator, so
   // `prepare-audio.mjs crowd` reproduces it without re-encoding the other sounds.
