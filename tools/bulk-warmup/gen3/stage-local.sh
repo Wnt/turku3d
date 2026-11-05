@@ -18,7 +18,8 @@ D=$HOME/turku3d-local/loops/bulkgen3
 F=/home/wnt/turku3d-local/loops/tiles/farm
 H=root@10.77.0.2
 export RSYNC_RSH="ssh -i $HOME/.ssh/bulk_gen3 -c aes128-gcm@openssh.com -o ServerAliveInterval=30"
-R="nice -n19 ionice -c3 rsync -aH --numeric-ids --partial-dir=.rsync-partial"
+# nice 5, not 19: at load 70-90 on 16 cores a nice-19 rsync got almost no CPU (2.7 GB in 6 min); ZFS ignores ionice.
+R="nice -n5 rsync -aH --numeric-ids --partial-dir=.rsync-partial"
 log() { echo "$(date -u +%FT%TZ) $*" >> "$D/stage-local.log"; }
 python3 "$HERE/resolve.py" --farm-root $F "$A" > "$D/resolved-$A.json" || exit 1
 REV=$(python3 -c "import json; print(json.load(open('$D/resolved-$A.json'))['aliases']['$A']['revision'])")

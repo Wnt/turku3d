@@ -31,12 +31,18 @@ def main():
     ap.add_argument('--threads', type=int, default=4)
     ap.add_argument('--ahead', type=int, default=400)
     ap.add_argument('--radius', type=int)
+    ap.add_argument('--grid', action='store_true', help='every tile within --radius by ring geometry, without the base '
+                    'product list (staging before the products have arrived)')
     a = ap.parse_args()
     meta = json.loads((a.farm_root / 'revisions' / a.revision / 'revision.json').read_text())
     M.use_base_data(a.farm_root, meta)  # as the pass does: Survey reads the base's own data root
     logs = a.farm_root / 'migrations' / meta['generation']
     logs.mkdir(parents=True, exist_ok=True)
-    tiles = sorted(M.finished_base_tiles(a.farm_root, meta), key=lambda t: (P.ring(t), t))
+    if a.grid:
+        tiles = sorted((f't0_{i}_{j}' for i in range(-a.radius, a.radius + 1) for j in range(-a.radius, a.radius + 1)),
+                       key=lambda t: (P.ring(t), t))
+    else:
+        tiles = sorted(M.finished_base_tiles(a.farm_root, meta), key=lambda t: (P.ring(t), t))
     if a.radius is not None:
         tiles = [t for t in tiles if P.ring(t) <= a.radius]
     journal = logs / 'pass.jsonl'
