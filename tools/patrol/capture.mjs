@@ -160,7 +160,7 @@ for (const s of spots) {
       else {
         E = s.E; N = s.N; heading = s.heading;
         await move({ E, N, H: (s.top ?? 30) + 20, yaw: heading, pitch: -30, fov });
-        rec.ready.push(await waitReady());
+        const r0 = await waitReady(); rec.ready.push(r0); if (r0.err) rec.unsettled = true;
         const gy = await groundAt(E, N, s.top ?? 80);
         rec.ground = gy;
         Hs = gy === null ? 6 : gy + 1.7;
@@ -173,7 +173,10 @@ for (const s of spots) {
     }
     for (const v of views) {
       await move({ E: v.E, N: v.N, H: v.H, yaw: v.yaw, pitch: v.pitch, fov: v.fov });
-      const r = await waitReady(); (rec.ready ??= []).push({ view: v.view, ...r });
+      // A spot that did not settle once (e.g. its tile never gets detailed) is a finding already: later views
+      // there wait 25 s instead of the 120 s QA timeout.
+      const r = await waitReady(rec.unsettled ? 25000 : 150000); (rec.ready ??= []).push({ view: v.view, ...r });
+      if (r.err) rec.unsettled = true;
       await still(path.join(out, `${s.id}-${v.view}-${pass}.png`));
       if (pass === 'color' && v.street) await still(path.join(out, `${s.id}-${v.view}-nopop.png`), 12, true);
     }
