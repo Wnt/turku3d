@@ -84,6 +84,24 @@ def native_root() -> Path:
     return C.raw_dir("nl")
 
 
+class _locked:
+    """An exclusive file lock: parallel builds wanting the same unit convert it once."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def __enter__(self):
+        import fcntl
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.handle = open(self.path, "w")
+        fcntl.flock(self.handle, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        self.handle.close()
+
+
 def kind(functie: str | None) -> tuple[str, str]:
     f = functie or ""
     if f.startswith("rijbaan"):
@@ -201,7 +219,16 @@ def subtile_points(path: Path):
 
 
 def ground_block(block: C.LazTile, log=print) -> Path:
-    """Write ``raw/laz/maanpinta/<block>.laz`` from AHN (+ BGT water) and record it."""
+    """Write ``raw/laz/maanpinta/<block>.laz`` from AHN (+ BGT water) and record it (once, under a lock)."""
+    from turku3d.coarse.sources import Sources
+
+    with _locked(native_root() / "locks" / f"ground-{block.name}.lock"):
+        if Sources().lidar_present(block):
+            return C.raw_dir("laz") / "maanpinta" / f"{block.name}.laz"
+        return _ground_block(block, log)
+
+
+def _ground_block(block: C.LazTile, log=print) -> Path:
     import laspy
     import shapely
 
@@ -417,12 +444,27 @@ ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": w
 
 
 def derive(layer, area, adapter: str, log=print) -> dict:
-    """Write one internal WFS layer of an area from the Dutch sources (``fetch.wfs.fetch_layer``)."""
+    """Write one internal WFS layer of an area from the Dutch sources (``fetch.wfs.fetch_layer``);
+    an existing layer from the same adapter version is kept (the native sources are fixed per fetch)."""
+    bbox = area.with_margin.to_en().as_tuple()
+    summary = C.raw_dir("wfs") / area.name / f"{layer.slug}.summary.json"
+    with _locked(native_root() / "locks" / f"wfs-{area.name}-{layer.slug}.lock"):
+        if summary.exists() and summary.with_name(f"{layer.slug}.parquet").exists():
+            s = json.loads(summary.read_text())
+            if s.get("derived") == adapter and s.get("adapter_version") == ADAPTER_VERSION:
+                return s  # another build derived it meanwhile
+        return _derive(layer, area, adapter, bbox, log)
+
+
+ADAPTER_VERSION = 1
+
+
+def _derive(layer, area, adapter, bbox, log):
     from turku3d.fetch.wfs import write_frame
 
-    bbox = area.with_margin.to_en().as_tuple()
     rows = ADAPTERS[adapter](bbox, log=log)
     gdf, nfeat = _frame(rows, layer.name)
-    s = write_frame(layer.name, layer.slug, area, gdf, nfeat, derived=adapter, city=C.CITY.name)
+    s = write_frame(layer.name, layer.slug, area, gdf, nfeat, derived=adapter, city=C.CITY.name,
+                    adapter_version=ADAPTER_VERSION)
     log(f"nl   {layer.name} <- {adapter}: {nfeat} features, {len(gdf)} rows")
     return s
