@@ -1,7 +1,7 @@
 """Fetch every raw unit the coarse generator needs for a city area (resumable, idempotent).
 
   tools/cities/run.sh espoo python tools/cities/fetch.py --bbox 25489000 6673000 25490000 6674000
-  tools/cities/run.sh espoo python tools/cities/fetch.py --centre 25489700 6674800 --radius 5000 --jobs 4
+  tools/cities/run.sh espoo python tools/cities/fetch.py --centre 25489700 6674800 --radius 5000 --jobs 8
 
 Per 500 m block: ground (city lidar or the MML 2 m DEM), the draft ortho, the WFS layers (with the
 city's absent/derived layers, turku3d.cities) and the OSM clip of its 2 km square, plus the building
@@ -17,7 +17,8 @@ import json
 import math
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from turku3d import config as C
@@ -93,13 +94,58 @@ def mml_laz(blocks, log):
         log(f"mml  {rel}: {'downloaded' if now else 'cached'} {rec['bytes'] / 1e6:.0f} MB")
 
 
+def retrying(step, log, tries: int = 3, wait: float = 10.0):
+    """Run a fetch step again after a failure (DNS hiccups, dropped reads); the steps resume from cache."""
+    for attempt in range(tries):
+        try:
+            return step()
+        except Exception as error:
+            if attempt == tries - 1:
+                raise
+            log(f"retry {attempt + 1}/{tries - 1} in {wait * (attempt + 1):.0f} s: {str(error)[:200]}")
+            time.sleep(wait * (attempt + 1))
+
+
+def one(block):
+    """Every unit of one block (in a worker process: GML parsing is CPU-bound and holds the GIL)."""
+    lines = []
+    for dataset in S.DATASETS:
+        unit = S.Unit(dataset, block)
+        started = time.time()
+        try:
+            retrying(lambda: S.fetch(unit, log=lines.append), lines.append)
+            outcome = "ok"
+        except Exception as error:  # keep going; the journal lists failures
+            outcome = f"error: {error}"[:400]
+        lines.append(json.dumps({"unit": unit.key, "outcome": outcome,
+                                 "seconds": round(time.time() - started, 1), "at": time.time()}))
+    if C.CITY.pointcloud == "mml-0.5p":
+        started = time.time()
+        try:
+            from turku3d.fetch import mml_lidar
+
+            retrying(lambda: mml_lidar.fetch_blocks([block], log=lines.append), lines.append)
+            outcome = "ok"
+        except Exception as error:
+            outcome = f"error: {error}"[:400]
+        lines.append(json.dumps({"unit": f"pistepilvi/{block.name}", "outcome": outcome,
+                                 "seconds": round(time.time() - started, 1), "at": time.time()}))
+    try:
+        retrying(lambda: fetch_registers(block, lines.append), lines.append)
+        lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": "ok", "at": time.time()}))
+    except Exception as error:
+        lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": f"error: {error}"[:400]}))
+    return block, lines
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--bbox", nargs=4, type=float, metavar=("EMIN", "NMIN", "EMAX", "NMAX"))
     g.add_argument("--centre", nargs=2, type=float, metavar=("E", "N"))
     ap.add_argument("--radius", type=float, default=5000.0)
-    ap.add_argument("--jobs", type=int, default=2, help="blocks fetched at once (each is sequential)")
+    ap.add_argument("--jobs", type=int, default=2,
+                    help="blocks fetched at once, one process each (WFS pages answer in ~0.5 s; parsing is the cost)")
     ap.add_argument("--mml-laz", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -112,36 +158,6 @@ def main() -> int:
     journal = (C.raw_dir() / "fetch-log.jsonl").open("a")
     failures = 0
 
-    def one(block):
-        lines = []
-        for dataset in S.DATASETS:
-            unit = S.Unit(dataset, block)
-            started = time.time()
-            try:
-                S.fetch(unit, log=lines.append)
-                outcome = "ok"
-            except Exception as error:  # keep going; the journal lists failures
-                outcome = f"error: {error}"[:400]
-            lines.append(json.dumps({"unit": unit.key, "outcome": outcome,
-                                     "seconds": round(time.time() - started, 1), "at": time.time()}))
-        if C.CITY.pointcloud == "mml-0.5p":
-            started = time.time()
-            try:
-                from turku3d.fetch import mml_lidar
-
-                mml_lidar.fetch_blocks([block], log=lines.append)
-                outcome = "ok"
-            except Exception as error:
-                outcome = f"error: {error}"[:400]
-            lines.append(json.dumps({"unit": f"pistepilvi/{block.name}", "outcome": outcome,
-                                     "seconds": round(time.time() - started, 1), "at": time.time()}))
-        try:
-            fetch_registers(block, lines.append)
-            lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": "ok", "at": time.time()}))
-        except Exception as error:
-            lines.append(json.dumps({"unit": f"registers/{block.name}", "outcome": f"error: {error}"[:400]}))
-        return block, lines
-
     # OSM squares are shared by blocks: clip each square once before the parallel block fetches, from one
     # regional extract (a clip of the whole Finland snapshot costs ~2 min; of the region, seconds).
     if len(squares) > 1:
@@ -151,7 +167,8 @@ def main() -> int:
         if S.osm_area(b).name not in seen:
             seen.add(S.osm_area(b).name)
             S.fetch(S.Unit("osm", b), log=print)
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+    # fork: the workers inherit the regional OSM extract patched in above.
+    with ProcessPoolExecutor(max_workers=args.jobs, mp_context=multiprocessing.get_context("fork")) as pool:
         for future in as_completed([pool.submit(one, b) for b in blocks]):
             block, lines = future.result()
             for line in lines:
