@@ -41,3 +41,16 @@ test('glazed shells with the migration\'s kit grid get the grid variant of the w
   expect((plain.material as THREE.Material).name).toBe('distant-city-buildings-lod-glazed');
   expect((gridded.material as THREE.Material).name).toBe('distant-city-buildings-lod-glazed-grid');
 });
+
+test('shells with their own normals shade from them and get glass and wall roughness; normal-free ones stay flat', () => {
+  const shell = new THREE.Group(), owner = new THREE.Group();
+  const normals = new THREE.Mesh(new THREE.BoxGeometry()), bare = new THREE.Mesh(new THREE.BoxGeometry());
+  bare.geometry.deleteAttribute('normal');
+  normals.userData.lod = bare.userData.lod = 'walls-glazed';
+  shell.add(normals, bare);
+  styleBlockLod(shell, owner);
+  const shaded = normals.material as THREE.MeshStandardNodeMaterial, flat = bare.material as THREE.MeshStandardNodeMaterial;
+  expect(shaded.flatShading).toBe(false);
+  expect(flat.flatShading).toBe(true);
+  expect(shaded.roughnessNode).toBeTruthy();
+});

@@ -52,13 +52,19 @@ function shellWindows(grid: boolean) {
   return { frame, glass, bay, storey, rise };
 }
 
+/** HD kit wall paint (facadeKit.ts painted band) and a typical roof photo's ORM roughness. */
+const SHELL_WALL_ROUGHNESS = .85;
+const SHELL_ROOF_ROUGHNESS = float(.9);
+
+/** `shaded`: the geometry carries the HD model's own normals (block LOD shells), so it shades like the HD facade
+ *  instead of from screen-space derivatives. */
 export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map?: THREE.Texture | null, programVersion = 5,
-  roof?: ShellRoof) {
+  roof?: ShellRoof, shaded = false) {
   // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
   const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   material.colorNode = sceneryPigment;
   material.name = `distant-city-${layer}`;
-  material.flatShading = true;
+  material.flatShading = !shaded;
   if (layer === 'regional' && coverage) material.maskNode = regionalMask(coverage);
   // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
   // retaining their tonal variation without turning the far skyline into bright orange spikes.
@@ -78,12 +84,18 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
   if (layer === 'buildings-lod-glazed' || layer === 'buildings-lod-glazed-grid') {
     // Block LOD walls whose HD facade program has windows (pipeline/turku3d/coarse/blocks.py): a soft window in each
     // bay and storey darkens the pigment by day and lights the same windows at night.
+    // The glass and paint of the HD kit (render/facadeKit.ts): dark glazing brightening up each pane, roughness .1 on
+    // glass (it mirrors the sky), the kit's painted-band .85 on walls; .8 leaves the kit's frame bars' share.
     const { frame, glass, bay, storey, rise } = shellWindows(layer === 'buildings-lod-glazed-grid');
-    material.colorNode = mix(shellPigment(roof), vec3(.03, .045, .06), glass.mul(.8));
+    material.colorNode = mix(shellPigment(roof), vec3(.016, .028, .04).mul(mix(.8, 1.35, rise)), glass.mul(.8));
+    material.roughnessNode = mix(SHELL_ROOF_ROUGHNESS, mix(float(SHELL_WALL_ROUGHNESS), float(.1), glass.mul(.8)), frame.wall);
     material.emissiveNode = windowEmission(frame.plane, floor(bay), floor(storey), rise, glass);
     return material;
   }
-  if (layer === 'buildings-lod' && roof) material.colorNode = shellPigment(roof);
+  if (layer === 'buildings-lod') {
+    if (roof) material.colorNode = shellPigment(roof);
+    material.roughnessNode = mix(SHELL_ROOF_ROUGHNESS, float(SHELL_WALL_ROUGHNESS), wallFrame().wall);
+  }
   // A surveyed shell or blank wall has no evidence of windows. Never invent them.
   if (!['buildings-mapped', 'buildings-night-mapped'].includes(layer) || !map) return material;
   material.map = map;
@@ -206,8 +218,9 @@ export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, share
     if (!mesh.isMesh) return;
     const glazed = mesh.userData.lod === 'walls-glazed';
     const layer = !glazed ? 'buildings-lod' : mesh.geometry.hasAttribute('_shell_grid') ? 'buildings-lod-glazed-grid' : 'buildings-lod-glazed';
-    const key = roof ? `block-lod:${layer}:${roof.map.uuid}:${[...roof.u, ...roof.v].map(x => x.toPrecision(9)).join(',')}` : `block-lod:${layer}`;
-    const create = () => sceneryMaterial(layer, undefined, null, 5, roof);
+    const shaded = mesh.geometry.hasAttribute('normal') ? ':shaded' : '';
+    const key = roof ? `block-lod${shaded}:${layer}:${roof.map.uuid}:${[...roof.u, ...roof.v].map(x => x.toPrecision(9)).join(',')}` : `block-lod${shaded}:${layer}`;
+    const create = () => sceneryMaterial(layer, undefined, null, 5, roof, !!shaded);
     mesh.material = shared ? shared.styled.acquire(lodSource, key, owner, create) : create();
     mesh.castShadow = true; mesh.receiveShadow = true;
   });
