@@ -29,14 +29,19 @@ MATCH = 0.05  # m: a collision trunk this close to an instance's old place is th
 
 
 def tile_inputs(tile):
-    """The rule's inputs through the generator's own loaders: walked ground, water, owned building footprints."""
-    from turku3d.coarse.inputs import _prepare_one, _sources, buildings
+    """The rule's inputs through the generator's own loaders and source paths (``coarse.inputs._sources``):
+    walked ground, water, owned building footprints."""
+    from turku3d.coarse.inputs import _prepare_one, buildings
     from turku3d.coarse.sources import Sources
 
     sources = Sources()
-    paths = _sources(tile, sources)
-    walked = _prepare_one(tile, "trunk_ground", paths["trunk_ground"]) if paths.get("trunk_ground") else []
-    water = _prepare_one(tile, "water", paths["water"]) if paths.get("water") is not None else []
+    osm = sources.osm_source(tile)
+    if osm is None:
+        return [], []
+    _, streets = sources.wfs_source("GIS:Katualueet", tile)
+    walked = _prepare_one(tile, "trunk_ground", [osm, streets])
+    found, lakes = sources.wfs_source("kanta:Vesikohde", tile)
+    water = _prepare_one(tile, "water", [lakes, osm]) if found else []
     found, bldg = sources.wfs_source("bldg:Building_LOD2", tile)
     footprints = ([b.footprint for b in buildings(bldg, tile, context=True) if b.visual_owner == tile.id]
                   if found and bldg else [])
