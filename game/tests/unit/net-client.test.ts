@@ -121,3 +121,46 @@ test('a city switch moves the open socket to the next room: move, then hello wit
   expect(Socket.made).toBe(2);
   vi.unstubAllGlobals();
 });
+
+test('a city switch sends the queued seat release to the room it leaves, and the arrival says so once', async () => {
+  const { vi } = await import('vitest');
+  const { MultiplayerClient } = await import('../../src/net/client');
+  class Socket extends EventTarget {
+    static OPEN = 1;
+    readyState = 1;
+    sent: Record<string, unknown>[] = [];
+    send(data: string) { this.sent.push(JSON.parse(data)); }
+    close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
+    message(data: object) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) })); }
+  }
+  vi.stubGlobal('WebSocket', Socket);
+  const welcome = (id: string) => ({ v: 2, type: 'welcome', session: id.repeat(64).slice(0, 64), you: { id, nick: id, spawn: { E: 0, N: 0, yaw: 0 } },
+    hour: {}, players: [], scores: [], vehicles: { upsert: [], remove: [], sources: [] }, serverTime: Date.now() });
+  try {
+    const turku = new MultiplayerClient('ws://localhost:5403/', null);
+    turku.connect();
+    const socket = (turku as unknown as { ws: Socket }).ws;
+    socket.dispatchEvent(new Event('open'));
+    socket.message(welcome('a'));
+    // Leaving in a car: the release is queued behind the 55 ms send scheduler when the session hands the socket on.
+    void turku.vehicle({ action: 'release', id: 'park:bay' });
+    expect(socket.sent.some(m => m.action === 'release')).toBe(false);
+    const handed = turku.detach()!;
+    const rotterdam = new MultiplayerClient('ws://localhost:5403/city/rotterdam', null);
+    rotterdam.arrival = true;
+    rotterdam.adopt(handed);
+    expect(socket.sent.slice(-3).map(m => m.action ?? m.type)).toEqual(['release', 'move', 'hello']);
+    expect(socket.sent.at(-3)).toMatchObject({ type: 'vehicle', id: 'park:bay' });
+    expect(socket.sent.at(-1)).toMatchObject({ type: 'hello', arrival: true });
+    socket.message(welcome('b'));
+    expect(rotterdam.arrival).toBe(false);
+    // A reconnect within the city reclaims its seat: no arrival any more.
+    socket.close();
+    await new Promise(resolve => setTimeout(resolve, 600));
+    const again = (rotterdam as unknown as { ws: Socket }).ws;
+    again.dispatchEvent(new Event('open'));
+    expect(again.sent.at(-1)).toMatchObject({ type: 'hello', session: 'b'.repeat(64) });
+    expect(again.sent.at(-1)).not.toHaveProperty('arrival');
+    rotterdam.disconnect();
+  } finally { vi.unstubAllGlobals(); }
+});
