@@ -1,10 +1,11 @@
 import { test, expect } from 'vitest';
 import { ackermann, wheelRotation } from '../../src/vehicle/wheelKinematics';
 import * as THREE from 'three/webgpu';
-import { FLEET } from '../../src/actors/fleet/catalog';
-import { buildFleetWheel } from '../../src/actors/fleet/geometry';
-import { addFleetWheels, applyFleetWheels } from '../../src/actors/fleet/wheels';
-import { ParkedCarVisuals, fleetWheelDesign } from '../../src/actors/fleet/visuals';
+import './fleet-assets.fixture';
+import { FLEET, FLEET_BY_ID } from '../../src/actors/fleet/catalog';
+import { addAuthoredFleetWheels, applyFleetWheels } from '../../src/actors/fleet/wheels';
+import { ParkedCarVisuals } from '../../src/actors/fleet/visuals';
+import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 import { draftManifest } from '../../src/world/manifest';
 
 test('front wheel axes meet at a common rear-axle turn centre in either direction', () => {
@@ -16,31 +17,32 @@ test('front wheel axes meet at a common rear-axle turn centre in either directio
   expect(ackermann(0,2.7,.8)).toBe(0);
 });
 
-test('near fleet wheels batch four hubs per car and distant cars stay a single draw', async () => {
+test('near fleet wheels batch four hubs per car and distant cars keep their merged far body', async () => {
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
-  const model=FLEET[0];
+  const model=FLEET_BY_ID.get('golf7')!;
   manifest.vehicles=Array.from({length:120},(_,i)=>({object_id:`wheel-${i}`,model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}));
   await visuals.load(manifest);
   const camera=new THREE.PerspectiveCamera(120,1,.1,500);camera.position.set(0,2,20);camera.lookAt(0,0,0);visuals.setView(camera);
   const rest={restingPose:()=>({pos:{x:0,y:.75,z:0},rot:{x:0,y:0,z:0,w:1}})};
   visuals.update([],rest);
-  expect(visuals.snapshot().draws).toBe(2);expect(visuals.snapshot().instances).toBe(120);
+  expect(visuals.snapshot().instances).toBe(120);
   const wheels=scene.children.filter(c=>c.name.startsWith('wheels/')&&(c as THREE.InstancedMesh).count>0) as THREE.InstancedMesh[];
-  expect(wheels).toHaveLength(1);expect(wheels.map(w=>w.count)).toEqual([480]);
+  expect(wheels.length).toBeGreaterThanOrEqual(1);expect(wheels.length).toBeLessThanOrEqual(4);
+  expect(wheels.reduce((n,w)=>n+w.count,0)).toBe(480);
   const versions=wheels.map(w=>w.instanceMatrix.version);visuals.update([],rest);
   expect(wheels.map(w=>w.instanceMatrix.version)).toEqual(versions);
   camera.position.z=200;camera.lookAt(0,0,0);visuals.setView(camera);visuals.update([],rest);
-  expect(visuals.snapshot().draws).toBe(1);expect(wheels.every(w=>!w.visible)).toBe(true);
+  expect(visuals.snapshot().lods).toEqual([0,0,120]);expect(wheels.every(w=>!w.visible||w.count===0)).toBe(true);
   visuals.dispose();expect(scene.children).toHaveLength(0);
 });
 
 test('traffic wheel instance transforms advance by travelled distance divided by tyre radius',async()=>{
-  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/'),model=FLEET[0];
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/'),model=FLEET_BY_ID.get('golf7')!;
   manifest.vehicles=[{object_id:'preload',model:model.id,color:'silver',x:0,y:0,z:0,yaw:0,width:model.width,height:model.height,length:model.length,clear_front_m:5,clear_rear_m:5}];
   await visuals.load(manifest);
   const car={seed:'moving',model:model.id,color:'blue',x:0,y:.75,z:0,q:{x:0,y:0,z:0,w:1}};
   visuals.setTraffic([car]);visuals.update([]);
-  const wheel=scene.getObjectByName(`wheels/${fleetWheelDesign(model,0)}`) as THREE.InstancedMesh;
+  const wheel=scene.children.find(c=>c.name.startsWith(`wheels/authored/${model.id}/0/`)&&(c as THREE.InstancedMesh).count>0) as THREE.InstancedMesh;
   const first=new THREE.Matrix4(),second=new THREE.Matrix4();wheel.getMatrixAt(0,first);
   car.x=model.wheel*Math.PI/2;visuals.update([]);wheel.getMatrixAt(0,second);
   const a=new THREE.Quaternion().setFromRotationMatrix(first),b=new THREE.Quaternion().setFromRotationMatrix(second);
@@ -48,24 +50,15 @@ test('traffic wheel instance transforms advance by travelled distance divided by
   visuals.dispose();
 });
 
-test('different body models and paints share one matching rim/tyre design draw',async()=>{
-  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
-  manifest.vehicles=[FLEET[0],FLEET[7]].map((m,i)=>({object_id:`design-${i}`,model:m.id,color:i?'red':'blue',x:i*8,y:0,z:0,yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
-  await visuals.load(manifest);visuals.update([],{restingPose:c=>({pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}})});
-  const wheels=scene.children.filter(o=>o.name.startsWith('wheels/')&&(o as THREE.InstancedMesh).count) as THREE.InstancedMesh[];
-  expect(wheels).toHaveLength(1);expect(wheels[0].count).toBe(8);expect(visuals.snapshot().draws).toBe(3);
-  visuals.dispose();
-});
-
 test('one circumference is one signed wheel revolution for every fleet tyre', () => {
   for(const model of FLEET)for(const sign of [-1,1])expect(wheelRotation(sign*2*Math.PI*model.wheel,model.wheel)).toBeCloseTo(sign*2*Math.PI);
 });
 
-test('hub pivots preserve wheel radius and independent steering, spin and suspension', () => {
-  const model=FLEET[0],actor=new THREE.Group();
-  addFleetWheels(actor,model,side=>buildFleetWheel(model,0,side),new THREE.MeshBasicMaterial());
+test('hub pivots preserve wheel radius and independent steering, spin and suspension', async () => {
+  const model=FLEET_BY_ID.get('golf7')!,actor=new THREE.Group(),parts=(await loadAuthoredFleetParts(model.id,0))!;
+  addAuthoredFleetWheels(actor,model,parts.wheels,new THREE.MeshBasicMaterial());
   const geometry=(actor.children[0].children[0] as THREE.Mesh).geometry;
-  geometry.computeBoundingBox();expect(geometry.boundingBox!.min.y).toBeCloseTo(-model.wheel,5);
+  geometry.computeBoundingBox();expect(geometry.boundingBox!.min.y).toBeCloseTo(-model.wheel,1);
   const wheels=Array.from({length:4},(_,i)=>({pos:{x:0,y:-.45+i*.03,z:0},steer:i<2?.3:0,rotation:1+i,contact:true,suspension:.3}));
   applyFleetWheels(actor,wheels);
   actor.children.forEach((hub,i)=>{

@@ -1,42 +1,30 @@
 import { AUTHORED_MODELS } from './registry';
 
-/** Original fictional vehicles. Dimensions describe visual bodywork, in metres.
- * The existing parking/traffic record remains the authority for collision and placement. */
-export type BodyType = 'hatch' | 'estate' | 'sedan' | 'suv' | 'mpv' | 'van' | 'pickup' | 'classic';
+/** Real-model fleet (actors/fleet/models/*.json): converted CC BY sources and Blender-authored models, true size,
+ *  metres, +Z forward. The procedural and Kenney fleets are gone; every role draws one of these. */
+export type BodyType = 'hatch' | 'estate' | 'sedan' | 'suv' | 'mpv' | 'van' | 'pickup' | 'classic' | 'microcar';
 export interface FleetModel {
   id: string; name: string; body: BodyType; family: string;
   length: number; width: number; height: number; wheelbase: number;
   hood: number; rear: number; taper: number; wheel: number; belt: number;
   face: number; accessory: 'none' | 'box' | 'rack' | 'taxi'; age: number;
-  /** Selection weight within its family; converted models set it, the procedural fleet uses its body default. */
+  /** Selection weight within its family (body default when absent). */
   weight?: number;
 }
-// Seven design families per body class: each has its own proportions, glazing and fascia.
-// These are visual art direction, not a claim to replicate a manufacturer's design or sales shares.
-const brands = ['Aava', 'Kaira', 'Nord', 'Vire', 'Salo', 'Valo', 'Routa'];
-const types: [BodyType, string, string, number, number, number, number, number, number][] = [
-  ['hatch', 'Kipinä', 'hatchback-sports', 4.08, 1.77, 1.47, 2.57, .28, -.39],
-  ['estate', 'Virta', 'sedan', 4.68, 1.83, 1.49, 2.77, .24, -.43],
-  ['sedan', 'Säde', 'sedan', 4.57, 1.82, 1.46, 2.72, .24, -.29],
-  ['suv', 'Vaara', 'suv', 4.53, 1.90, 1.72, 2.68, .25, -.42],
-  ['mpv', 'Perhe', 'van', 4.59, 1.85, 1.78, 2.77, .30, -.43],
-  ['van', 'Kuorma', 'van', 5.03, 1.98, 2.08, 3.02, .35, -.46],
-  ['pickup', 'Louhi', 'suv', 5.15, 1.94, 1.81, 3.10, .25, -.06],
-  ['classic', 'Muisto', 'sedan', 4.44, 1.76, 1.43, 2.61, .19, -.26],
-];
-export const FLEET: readonly FleetModel[] = types.flatMap(([body, name, family, l, w, h, wb, hood, rear], t) =>
-  brands.map((brand, i): FleetModel => ({ id: `fleet-${body}-${i}`, name: `${brand} ${name} ${110 + i * 20}`, body, family,
-    length: l + [-.18, .10, .24, -.08, .02, .17, -.24][i], width: w + [-.02, .01, .05, -.04, 0, .03, -.01][i],
-    height: h + [.025, -.02, .045, .015, -.035, .055, 0][i], wheelbase: wb + [-.09, .02, .12, -.03, .04, .08, -.11][i],
-    hood: hood + [.01, -.02, -.015, .025, 0, -.01, .035][i], rear: rear + [0, .015, -.01, .025, -.02, .01, 0][i],
-    taper: [.82, .78, .84, .86, .80, .83, .88][i], wheel: (body === 'suv' || body === 'pickup' ? .365 : body === 'van' ? .35 : .315) + (i % 3) * .012,
-    belt: (body === 'van' ? 1.12 : body === 'suv' || body === 'pickup' ? 1.12 : body === 'mpv' ? 1.10 : .97) + (i % 3) * .025,
-    face: i, accessory: t === 1 && i === 1 || t === 3 && i === 2 ? 'box' : t === 1 && i === 4 || t === 3 && i === 5 ? 'rack' : t === 2 && i === 5 || t === 4 && i === 1 ? 'taxi' : 'none',
-    age: body === 'classic' ? .75 + i * .03 : i === 6 ? .5 : .06 + i * .04,
-  }))).map(model => model.id === 'fleet-estate-3' ? { ...model, length: 4.68, width: 1.82, height: 1.545, wheelbase: 2.68, wheel:.32 } : model).concat(AUTHORED_MODELS.map(model => model.fleet));
-/** Families that parking records and ambient traffic select from; special roles (bus, truck, ambulance) need an exact id. */
-export const SELECTABLE_FAMILIES: ReadonlySet<string> = new Set(['sedan', 'suv', 'hatchback-sports', 'van']);
+export const FLEET: readonly FleetModel[] = AUTHORED_MODELS.map(model => model.fleet);
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
+/** Families that parking records and ambient traffic select from; special roles (bus, truck, ambulance, fire,
+ *  microcar) need an exact id. */
+export const SELECTABLE_FAMILIES: ReadonlySet<string> = new Set(['sedan', 'suv', 'hatchback-sports', 'van']);
+/** The starter car ("Your car is parked nearby"): a common Finnish everyday hatchback. */
+export const PLAYER_MODEL = 'golf7';
+export const PLAYER_COLOR = 'blue';
+/** The bought trophy truck and the draft trucks of the tiles. */
+export const TRUCK_MODEL = 'carla-tesla-cybertruck';
+export const TRUCK_COLOR = 'white';
+/** Light real models that are always resident: a car whose own model fails to load is drawn as one of these. */
+export const FALLBACK_MODELS = ['carla-nissan-micra', 'passat-b8', 'carla-tesla-model3'] as const;
+
 export function fleetHash(value: string): number {
   let h = 2166136261;
   for (let i = 0; i < value.length; i++) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
@@ -44,22 +32,27 @@ export function fleetHash(value: string): number {
   h = Math.imul(h ^ h >>> 15, 0x846ca68b);
   return (h ^ h >>> 16) >>> 0;
 }
+
 /** A parking record's box and its free space ahead and behind (metres). */
 export interface FleetSlot { length: number; clear_front_m: number; clear_rear_m: number }
-const AUTHORED_IDS = new Set(AUTHORED_MODELS.map(m => m.id));
-/** Converted/authored models keep their true size, so in a parking slot they must fit: their overhang beyond the
- *  record box stays within the smaller free gap minus a 0.3 m margin. Procedural models stretch to the record. */
-export const fitsSlot = (m: FleetModel, slot?: FleetSlot) => !slot || !AUTHORED_IDS.has(m.id) || !Number.isFinite(slot.length)
+/** Models keep their true size, so in a parking slot they must fit: the overhang beyond the record box stays
+ *  within the smaller free gap minus a 0.3 m margin. A record without a size accepts any model. */
+export const fitsSlot = (m: FleetModel, slot?: FleetSlot) => !slot || !Number.isFinite(slot.length)
   || (m.length - slot.length) / 2 <= Math.max(0, Math.min(slot.clear_front_m, slot.clear_rear_m) - .3);
-export const trueSize = (id: string) => AUTHORED_IDS.has(id);
-export function fleetModel(model: string, seed: string, includeAuthored=true, slot?: FleetSlot): FleetModel {
+const weight = (m: FleetModel) => m.weight ?? (m.body === 'pickup' ? .08 : m.body === 'classic' ? .1 : 1);
+
+/** The model for a record or traffic car: an exact model id, or a weighted, stable pick within its body family.
+ *  With a parking slot only fitting models are offered; when none fits the slot stays empty (null). */
+export function fleetModel(model: string, seed: string): FleetModel;
+export function fleetModel(model: string, seed: string, slot?: FleetSlot): FleetModel | null;
+export function fleetModel(model: string, seed: string, slot?: FleetSlot): FleetModel | null {
   const exact = FLEET_BY_ID.get(model);
-  if (exact) return exact;
-  const family = model === 'suv-luxury' ? 'suv' : model;
-  const choices = FLEET.filter(m => (includeAuthored || !AUTHORED_IDS.has(m.id)) && (model === 'sedan-sports' ? m.body === 'classic' : m.family === family) && fitsSlot(m, slot));
-  if(!choices.length)return FLEET[fleetHash(seed)%FLEET.length];
-  const weight=(m:FleetModel)=>m.weight??(m.body==='pickup'?.08:m.body==='suv'?.92:m.body==='classic'?.10:m.body==='estate'||m.body==='sedan'?.45:m.body==='mpv'?.4:m.body==='van'?.6:1);
-  let pick=fleetHash(seed)/4294967296*choices.reduce((s,m)=>s+weight(m),0);
-  for(const m of choices){pick-=weight(m);if(pick<0)return m;}
-  return choices[choices.length-1];
+  if (exact) return fitsSlot(exact, slot) ? exact : null;
+  const family = model === 'suv-luxury' ? 'suv' : model === 'sedan-sports' ? 'sedan' : model;
+  const choices = FLEET.filter(m => weight(m) > 0 && (model === 'sedan-sports' ? m.body === 'classic' || m.body === 'sedan' : m.family === family)
+    && fitsSlot(m, slot));
+  if (!choices.length) return slot ? null : FLEET_BY_ID.get(FALLBACK_MODELS[fleetHash(seed) % FALLBACK_MODELS.length])!;
+  let pick = fleetHash(seed) / 4294967296 * choices.reduce((s, m) => s + weight(m), 0);
+  for (const m of choices) { pick -= weight(m); if (pick < 0) return m; }
+  return choices[choices.length - 1];
 }

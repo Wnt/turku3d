@@ -102,7 +102,7 @@ async function installActor(side,shot){
    const {PlayerVisual}=await import('/src/actors/player.ts');
    const actor=new PlayerVisual(scene,async()=>null);await actor.load('/assets/character/player.glb',window.__render.renderer);v.actor=actor;
   }else{
-   const {CarVisual}=await import('/src/actors/car.ts');const actor=new CarVisual(scene);await actor.load('/assets/car/sedan.glb');v.actor=actor;
+   const {CarVisual}=await import('/src/actors/car.ts');const actor=new CarVisual(scene);await actor.load();v.actor=actor;
   }
   v.THREE=THREE;
   // Ground queries use the rendered street surfaces, excluding the actor and vegetation.

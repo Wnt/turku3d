@@ -1,6 +1,7 @@
 import {fleetWheelFootprint} from '../actors/fleet/wheelLayouts';
 import { wheelGroundProbes, wheelGroundPose } from '../vehicle/wheelGround';
-import { fleetModel, trueSize } from '../actors/fleet/catalog';
+import { fleetModel } from '../actors/fleet/catalog';
+import { modelTuning } from '../vehicle/modelTuning';
 import type { ParkedCarVisuals } from '../actors/car';
 import type { SeatedVehicles } from '../actors/seatedVehicles';
 import { collisionTileAt, type V3 } from '../core/origin';
@@ -109,7 +110,7 @@ export class ParkedVehicles {
     if(!sampled&&this.physics.raycast&&car.model!=='truck'&&!this.terrainPending.has(car)&&(this.terrainRetry.get(car)??0)<=Date.now()
       &&this.terrainPending.size<4&&Math.hypot(car.x-this.view.x,car.z-this.view.z)<100&&this.supported(id,car)){
       this.terrainPending.add(car);this.terrainRetry.set(car,Date.now()+2000);
-      const m=fleetModel(car.model,id,true,car),footprint=fleetWheelFootprint(m);
+      const m=fleetModel(car.model,id,car);if(!m)return this.slot(car);const footprint=fleetWheelFootprint(m);
       const yaw=car.yaw-Math.PI/2,at={x:car.x,y:car.y,z:car.z};
       void Promise.all(wheelGroundProbes(at,yaw,footprint).map(origin=>this.physics.raycast!(origin,{x:0,y:-1,z:0},4,'solid'))).then(hits=>{
         const pose=wheelGroundPose(at,yaw,footprint,hits.map(hit=>hit?.point.y??null));
@@ -216,16 +217,16 @@ export class ParkedVehicles {
     }));
   }
 
-  /** Collision box: the record's, or a true-size converted model's own length and height (it fits the slot). */
-  private halfExt(id: string, car: ParkedVehicle) {
-    const m = fleetModel(car.model, id, true, car), own = trueSize(m.id);
-    return { x: (own ? m.length : car.length) / 2, y: (own ? m.height : car.height) * .28, z: car.width / 2 };
+  /** The real model's own collision box and driving tuning (it fits the slot, actors/fleet/catalog.ts fitsSlot). */
+  private body(id: string, car: ParkedVehicle) {
+    const m = fleetModel(car.model, id, car), tuning = m ? modelTuning(m.id) : undefined;
+    return { halfExt: { x: (m?.length ?? car.length) / 2, y: (m?.height ?? car.height) * .28, z: car.width / 2 }, ...(tuning ? { tuning } : {}) };
   }
 
   private spawn(id: string, car: ParkedVehicle) {
     const truck = car.model === 'truck', pose = this.rest.get(id) ?? this.terrain.get(car) ?? this.slot(car);
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
-      ...(truck ? {} : { halfExt: this.halfExt(id, car) }), rot: pose.rot };
+      ...(truck ? {} : this.body(id, car)), rot: pose.rot };
     this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
     this.spawned.set(id, car);
   }

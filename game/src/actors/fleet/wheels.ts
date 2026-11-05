@@ -19,19 +19,6 @@ export function applyFleetWheels(actor: THREE.Object3D, wheels: readonly WheelSt
   });
 }
 
-export function addFleetWheels(actor: THREE.Object3D, model: FleetModel,
-  geometry: (side: number) => THREE.BufferGeometry, material: THREE.Material) {
-  actor.userData.fleetModel = model;
-  for (let i = 0; i < 4; i++) {
-    const side = i % 2 ? -1 : 1;
-    const hub = new THREE.Group(); hub.name = `fleet-wheel-${i}`;
-    hub.position.set(side * (model.width / 2 - .075), model.wheel, (i < 2 ? 1 : -1) * model.wheelbase / 2);
-    const wheel = new THREE.Mesh(geometry(side), material);
-    paintActor(wheel,'silver');
-    wheel.castShadow = true; wheel.receiveShadow = true; hub.add(wheel); actor.add(hub);
-  }
-}
-
 /** Authored wheels preserve their hub pivots and side-specific rim geometry. */
 export function addAuthoredFleetWheels(actor:THREE.Object3D,model:FleetModel,
   wheels:readonly import('./authoredWheelParts').AuthoredWheelPart[],material:THREE.Material) {

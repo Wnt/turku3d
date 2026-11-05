@@ -484,7 +484,7 @@ export class PhysicsWorld {
     const created = this.vehicles.get(id)!;
     if (spec.rot) created.body.setRotation(spec.rot, true);
     if (spec.linvel) created.body.setLinvel(spec.linvel, true);
-    const h = spec.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
+    const h = spec.halfExt ?? spec.tuning?.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt;
     this.vehicleRadii.set(id, Math.hypot(h.x, h.y, h.z) + 0.5);
     if (id.startsWith('tr:')) this.claimedBodies.set(created.body.handle, id);
   }

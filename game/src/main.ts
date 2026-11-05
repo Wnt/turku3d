@@ -1,4 +1,6 @@
 import { placementVisibility } from './world/placementVisibility';
+import { modelTuning } from './vehicle/modelTuning';
+import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { paceYields } from './render/yieldPacer';
 import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
@@ -906,7 +908,8 @@ async function runPlay() {
     physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
     const yaw0 = headingToYaw(params.spawn.headingDeg);
     // The own car (OWN_VEHICLE_ID): spawned at boot, carried over (reset to the new start) on a city switch.
-    if (first) physics.spawnVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw);
+    // The starter car: the real PLAYER_MODEL with its own driving tuning (vehicle/modelTuning.ts).
+    if (first) physics.spawnVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw, { tuning: modelTuning(PLAYER_MODEL) });
     else physics.resetVehicle({ x: parking.x, y: parking.y + 0.75, z: parking.z }, parking.yaw, OWN_VEHICLE_ID);
     return { params, backend, renderer, scene, camera, env, perf, tiles, vegetation: () => vegetation, lights, materials, physics, rapier, manifest,
       streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,

@@ -51,7 +51,9 @@ export default defineConfig({
   }, localhostGame({ statePath: process.env.TURKU3D_LOCALHOST_STATE, tiles: tileDist,
     telemetryDir: process.env.TURKU3D_TELEMETRY_DIR ?? path.join(workRoot, 'telemetry') })],
   worker: { format: 'es', plugins: () => [wasm()] },
-  build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000 },
+  // The vehicle gallery ships with the game (city.lab /vehicle-gallery.html): every real fleet model, drivable.
+  build: { outDir: gameDist, emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000,
+    rollupOptions: { input: { main: path.resolve(import.meta.dirname, 'index.html'), 'vehicle-gallery': path.resolve(import.meta.dirname, 'vehicle-gallery.html') } } },
   optimizeDeps: { exclude: ['@dimforge/rapier3d'] },
   // /coarse/* reaches the localhost coarse tile service (tools/dev/coarse-tiles) same-origin, as through serve-dist.
   // No HMR: merges land in the served worktree every few minutes and each one used to reload Jonni's test session.

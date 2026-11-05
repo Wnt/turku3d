@@ -1,3 +1,4 @@
+import './fleet-assets.fixture';
 import {test,expect} from 'vitest';
 import {wheelGroundProbes,wheelGroundPose,sampleWheelGround} from '../../src/vehicle/wheelGround';
 import {rotate} from '../../src/vehicle/math';
@@ -50,7 +51,7 @@ test('missing collision never pulls a car to zero and unknown areas retain the l
 
 test('parked cars cache four static-ground rays instead of querying each render frame',async()=>{
   const manifest=draftManifest('http://localhost/');
-  const car={object_id:'ground-park',model:'fleet-hatch-0',color:'blue',x:0,y:10,z:0,yaw:Math.PI/2,width:1.75,length:3.9,height:1.5,clear_front_m:5,clear_rear_m:5};
+  const car={object_id:'ground-park',model:'golf7',color:'blue',x:0,y:10,z:0,yaw:Math.PI/2,width:1.75,length:3.9,height:1.5,clear_front_m:5,clear_rear_m:5};
   manifest.vehicles=[car];let queries=0;
   const physics={loaded:{has:()=>true},latest:{vehicles:[]},spawnVehicle(){},removeVehicle(){},
     async raycast(origin:{x:number;y:number;z:number}){

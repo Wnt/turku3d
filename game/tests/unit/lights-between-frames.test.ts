@@ -37,10 +37,10 @@ test('a fleet batch built after the frame (deferred or paced build) is lit by th
   const lighting = new GameLighting({ point: 4 }), world = new THREE.Scene(), sun = new THREE.DirectionalLight();
   sun.castShadow = true; world.add(sun, sun.target);
   const visuals = new ParkedCarVisuals(world), manifest = draftManifest('http://localhost/');
-  manifest.vehicles = [{ object_id: 'a', model: 'fleet-sedan-0', color: 'red', x: 0, y: 0, z: 0, yaw: 0, width: 1.8, length: 4.5,
+  manifest.vehicles = [{ object_id: 'a', model: 'corolla-e180', color: 'red', x: 0, y: 0, z: 0, yaw: 0, width: 1.8, length: 4.5,
     height: 1.5, clear_front_m: 9, clear_rear_m: 9 }];
   await visuals.load(manifest);
-  const batch = world.getObjectByName('parked/fleet-sedan-0/0') as THREE.InstancedMesh;
+  const batch = world.getObjectByName('parked/corolla-e180/0') as THREE.InstancedMesh;
   expect(batch.receiveShadow).toBe(true);
   render(lighting, world, [sun]);
   const backend = renderer.backend as typeof renderer.backend & { createNodeBuilder(o: THREE.Object3D, r: THREE.WebGPURenderer): Builder };

@@ -16,10 +16,10 @@ const car = (object_id: string, model: string, color: string, x=0): ParkedVehicl
 
 test('resting, claimed, driven and remote fleet cars preserve pose and paint',async()=>{
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
-  manifest.vehicles=[car('a','fleet-sedan-0','red',10),car('b','fleet-sedan-0','blue',20),car('c','fleet-sedan-0','white',30)];await visuals.load(manifest);
+  manifest.vehicles=[car('a','corolla-e180','red',10),car('b','corolla-e180','blue',20),car('c','corolla-e180','white',30)];await visuals.load(manifest);
   const rest={restingPose:(c:ParkedVehicle)=>c.object_id==='c'?null:{pos:{x:c.x,y:c.y+.75,z:c.z},rot:{x:0,y:0,z:0,w:1}}};
   visuals.update([{id:'a',pos:{x:11,y:3,z:5},rot:{x:0,y:0,z:0,w:1}} as VehicleState],rest);
-  const draw=scene.getObjectByName('parked/fleet-sedan-0/0') as THREE.InstancedMesh;
+  const draw=scene.getObjectByName('parked/corolla-e180/0') as THREE.InstancedMesh;
   expect(draw.count).toBe(2);const matrix=new THREE.Matrix4();draw.getMatrixAt(0,matrix);
   expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([11,2.25,5]);
   draw.getMatrixAt(1,matrix);expect(new THREE.Vector3().setFromMatrixPosition(matrix).toArray()).toEqual([20,2,5]);
@@ -28,7 +28,7 @@ test('resting, claimed, driven and remote fleet cars preserve pose and paint',as
   const driven=scene.getObjectByName('driven/a') as THREE.Mesh;
   expect(driven.material).toBe(draw.material);expect(driven.geometry).toBe(draw.geometry);
   expect(actorPaintOf(driven)!.toArray()).toEqual([...paintOf('red')]);expect(draw.count).toBe(1);
-  const remote=visuals.remoteModel('fleet-sedan-0/beige')!;
+  const remote=visuals.remoteModel('corolla-e180/beige')!;
   expect(remote.material).toBe(draw.material);expect(remote.geometry).toBe(draw.geometry);
   expect(actorPaintOf(remote)!.toArray()).toEqual([...paintOf('beige')]);
 });
@@ -45,10 +45,10 @@ test.each([false,true])('all fleet models, LODs and capacities share one instanc
     return {vertexShader:builder.vertexShader,fragmentShader:builder.fragmentShader,generated};
   };
   const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
-  manifest.vehicles=['fleet-sedan-0','fleet-estate-3','fleet-van-6'].flatMap((m,k)=>Array.from({length:2**(k+2)},(_,i)=>car(`${m}/${i}`,m,i%2?'silver':'blue')));
+  manifest.vehicles=['corolla-e180','v60','euro-van'].flatMap((m,k)=>Array.from({length:2**(k+2)},(_,i)=>car(`${m}/${i}`,m,i%2?'silver':'blue')));
   await visuals.load(manifest);
   const meshes=scene.children as THREE.InstancedMesh[],batched=meshes.map(program);
-  const singles=['fleet-hatch-0','fleet-van-6'].map(m=>program(visuals.remoteModel(`${m}/red`)!));
+  const singles=['corolla-e180','euro-van'].map(m=>program(visuals.remoteModel(`${m}/red`)!));
   const variants=(states:{vertexShader:string;fragmentShader:string}[])=>new Set(states.map(s=>s.vertexShader+s.fragmentShader)).size;
   expect(variants(batched)).toBe(1);expect(variants(singles)).toBe(1);
   meshes.forEach((mesh,i)=>expect(batched[i].generated).toContain(instancePaintOf(mesh)));

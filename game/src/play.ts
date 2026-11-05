@@ -183,12 +183,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
   // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
-  await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(`${import.meta.env.BASE_URL}assets/car/sedan.glb`), undefined),
+  await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
     optional('scooter and truck', seated.load(import.meta.env.BASE_URL), undefined),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
     optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
-  const remotePlayers = new RemotePlayers(root, physics, { player, car, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
+  const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
   streets.connectDrafts(coarse);

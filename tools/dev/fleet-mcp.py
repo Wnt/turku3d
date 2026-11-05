@@ -189,7 +189,7 @@ async def main(args):
             (output/'registry-entry.json').write_text(json.dumps(record, indent=2)+'\n')
             repo = Path(__file__).resolve().parents[2]
             subprocess.run(['node', str(repo/'game/scripts/prepare-fleet.mjs'), str(output),
-                            str(Path(model['destination']).expanduser()), '--articulated'], check=True)
+                            str(Path(model['destination']).expanduser())], check=True)
             # Runtime registry is a per-model file: concurrent modellers never rewrite a shared list.
             destination = Path(model['destination']).expanduser()
             (destination/'spec.json').write_text(json.dumps(model['spec'], indent=2)+'\n')
@@ -207,7 +207,7 @@ async def main(args):
                 shutil.copytree(repo/'game/src/actors/fleet', preview)
                 try:
                     module = f'/src/actors/{preview.name}'
-                    baseline = capture.get('baselineModel', 'fleet-estate-3')
+                    baseline = capture.get('baselineModel', 'octavia-combi-4')
                     for label, target in [('before', baseline), ('after', model['id'])]:
                         setup = pair/f'{label}-setup.js'
                         setup.write_text(f'''(async () => {{

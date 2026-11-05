@@ -1,42 +1,10 @@
 import * as THREE from 'three/webgpu';
-import {mergeVertices} from 'three/addons/utils/BufferGeometryUtils.js';
 
 export interface AuthoredWheelLayout {
   name:string; pivot:{x:number;y:number;z:number}; radius:number; width:number;
 }
 export interface AuthoredWheelPart extends AuthoredWheelLayout { geometry:THREE.BufferGeometry }
 export interface AuthoredFleetParts {body:THREE.BufferGeometry;wheels:AuthoredWheelPart[]}
-
-function subset(source:THREE.BufferGeometry,indices:number[],pivot?:{x:number;y:number;z:number}) {
-  const view=new THREE.BufferGeometry();
-  for(const [name,attribute] of Object.entries(source.attributes))view.setAttribute(name,attribute);
-  view.setIndex(indices);
-  const expanded=view.toNonIndexed();view.dispose();
-  if(pivot)expanded.translate(-pivot.x,-pivot.y,-pivot.z);
-  const compact=mergeVertices(expanded,1e-5);expanded.dispose();
-  compact.computeBoundingBox();compact.computeBoundingSphere();return compact;
-}
-
-/** Legacy assets have one baked mesh. Explicit hub metadata and material roles let
- * us partition its existing tyre/alloy triangles without changing any surface. */
-export function splitEmbeddedFleetWheels(source:THREE.BufferGeometry,layout:readonly AuthoredWheelLayout[]):AuthoredFleetParts {
-  if(layout.length!==4)throw Error('Fleet wheel layout must contain four hubs');
-  const positions=source.getAttribute('position'),surface=source.getAttribute('fleetSurface'),index=source.index;
-  if(!positions||!surface)throw Error('Expected flattened fleet attributes');
-  const buckets=Array.from({length:5},()=>[] as number[]),count=index?.count??positions.count;
-  for(let i=0;i<count;i+=3){
-    const triangle=[0,1,2].map(k=>index?index.getX(i+k):i+k);
-    const wheel=layout.findIndex(w=>triangle.every(v=>{
-      if(surface.getX(v)>.5||!(surface.getY(v)>.75||surface.getZ(v)>.45))return false;
-      const y=positions.getY(v)-w.pivot.y,z=positions.getZ(v)-w.pivot.z;
-      return Math.abs(positions.getX(v)-w.pivot.x)<=w.width/2+.025
-        &&y*y+z*z<=(w.radius+.0005)**2;
-    }));
-    buckets[wheel+1].push(...triangle);
-  }
-  if(buckets.slice(1).some(b=>!b.length))throw Error('Embedded asset does not match its wheel metadata');
-  return {body:subset(source,buckets[0]),wheels:layout.map((w,i)=>({...w,geometry:subset(source,buckets[i+1],w.pivot)}))};
-}
 
 /** Named new assets are split before flattening, preserving the existing material
  * baker and all its glass/lamp attributes. Geometry and pivots are asset-local. */
