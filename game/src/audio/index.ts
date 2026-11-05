@@ -169,7 +169,10 @@ export class GameAudio {
       bus: () => this.channels.get('voice') ?? null,
       duck: active => { this.ducked = active; if (this.ducker) this.param(this.ducker.gain, duckGain(active));
         if (this.musicDucker) this.param(this.musicDucker.gain, duckGain(active)); },
-      onRunning: callback => { this.running.push(callback); },
+      onRunning: callback => {
+        this.running.push(callback);
+        return () => { this.running = this.running.filter(c => c !== callback); };
+      },
     };
   }
 

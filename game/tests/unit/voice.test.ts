@@ -56,7 +56,7 @@ function rig() {
   const ctx = new FakeContext(), bus = new Node(), ducks: boolean[] = [], running: (() => void)[] = [], fetched: string[] = [];
   const output: VoiceOutput = {
     context: () => ctx as unknown as AudioContext, bus: () => bus as unknown as AudioNode,
-    duck: active => { ducks.push(active); }, onRunning: callback => { running.push(callback); },
+    duck: active => { ducks.push(active); }, onRunning: callback => { running.push(callback); return () => { running.splice(running.indexOf(callback), 1); }; },
   };
   const player = new VoicePlayer(output, fakeFetch(fetched), '/v/');
   const unlock = async () => { ctx.state = 'running'; running.forEach(callback => callback()); await settle(); };
@@ -118,7 +118,7 @@ test('a double announcement speaks its phrase and both address clips in order', 
   ].map(([id, text]) => ({ id, speaker: 'pizzeria', file: `${id}.ogg`, seconds: 1, text, textSha256: id }));
   const ctx = new FakeContext(), bus = new Node(), running: (() => void)[] = [];
   const player = new VoicePlayer({ context: () => ctx as unknown as AudioContext, bus: () => bus as unknown as AudioNode,
-    duck: () => {}, onRunning: callback => { running.push(callback); } }, fakeFetch([], { version: 1, lines }), '/v/');
+    duck: () => {}, onRunning: callback => { running.push(callback); return () => { running.splice(running.indexOf(callback), 1); }; } }, fakeFetch([], { version: 1, lines }), '/v/');
   await player.ready;
   ctx.state = 'running'; running.forEach(callback => callback());
   player.show(`${phrase}Läntinen Rantakatu 15. Then Kaskenkatu 4a.`);
@@ -221,7 +221,7 @@ test('attach replaces the subscription; missing manifest is contained', async ()
   player.dispose();
   expect(b.unsubscribed()).toBe(1);
 
-  const broken = new VoicePlayer({ context: () => null, bus: () => null, duck: () => {}, onRunning: () => {} },
+  const broken = new VoicePlayer({ context: () => null, bus: () => null, duck: () => {}, onRunning: () => () => {} },
     (async () => ({ ok: false, status: 404 })) as unknown as typeof fetch, '/v/');
   await broken.ready;
   broken.show(OFFER);
@@ -267,4 +267,14 @@ test('preload decodes voice clips while suspended and the first line reuses its 
   await settle();
   expect(ctx.sources).toHaveLength(1);
   expect(fetched).toHaveLength(before);
+});
+
+test('a disposed voice player leaves the shared mix (the mix outlives play sessions)', async () => {
+  const running: (() => void)[] = [];
+  const output: VoiceOutput = { context: () => null, bus: () => null, duck: () => {},
+    onRunning: callback => { running.push(callback); return () => { running.splice(running.indexOf(callback), 1); }; } };
+  const player = new VoicePlayer(output, fakeFetch([], { version: 1, lines: [] }), '/v/');
+  expect(running.length).toBe(1);
+  player.dispose();
+  expect(running.length).toBe(0);
 });
