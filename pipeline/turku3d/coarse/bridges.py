@@ -376,8 +376,8 @@ def below_deck(bridge, ways, tree):
     railway viaduct over a skew street) a road can pass beneath without crossing the deck's axis.
     Members, their land continuations and anything at or above the deck's layer are not below it."""
     deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2))
-    members = {m["id"] for m in bridge.get("member_ways", [bridge])}
-    approaches = {w["id"] for w in bridge.get("approaches", [])}
+    members = {m.get("id") for m in bridge.get("member_ways", [bridge])}
+    approaches = {w.get("id") for w in bridge.get("approaches", [])}
     ends = shapely.union_all([m["line"].boundary for m in bridge.get("member_ways", [bridge])]).buffer(1.0)
     out = []
     for i in sorted(tree.query(deck, predicate="intersects")):
@@ -401,7 +401,7 @@ def cut_under(grid_pos, bridge, sample):
     if bridge.get("landing"):
         return result
     deck = bridge.get("outline", bridge["line"].buffer(bridge["width"] / 2)).buffer(CUT_REACH)
-    lower = {w["id"]: w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
+    lower = {w.get("id", id(w)): w for w in [*bridge.get("under", []), *bridge.get("below", [])]}
     for under in lower.values():
         if under["tags"].get("highway") == "steps":
             continue
