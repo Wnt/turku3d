@@ -250,6 +250,8 @@ window.__render = { camera, environment: env, renderer, perf, post, visibility: 
 } };
 let natureLibrary = idPass || params.lab?.off.has('vegetation') ? null : loadNatureLibrary(renderer, env, !!params.qa && !params.motion);
 let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary, scene) : null;
+// Tree shadow casters are selected against the sun's cascade volumes, not the view.
+if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
@@ -438,6 +440,7 @@ window.__game.replaceVegetation = (Renderer: typeof VegetationLod, replacement =
     const models = vegetation.loadedModels();
     vegetation.dispose();
     const next = new Renderer(params.quality, natureLibrary, scene);
+    next.casters = () => env.casterVolumes();
     vegetation = next;
     window.__game!.vegetation = next;
     for (const model of models) await next.addAsync(model);
