@@ -485,7 +485,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
         return solo();
       }
       releaseStarts(); multiplayerPlaying = true;
-      return saveGame.playAt(at, async () => (await sharedVehicles!.restore()) ?? (seat ? seat() : null), t.mission);
+      // The room may hand back the car where this session left it (inside the portal): the trip's placement wins.
+      return saveGame.playAt(at, async () => {
+        const kept = await sharedVehicles!.restore();
+        return (seat ? await seat() : null) ?? kept;
+      }, t.mission);
     }).catch(fail);
   };
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
