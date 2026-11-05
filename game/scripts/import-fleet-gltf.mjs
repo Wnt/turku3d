@@ -334,17 +334,21 @@ function indexed(list, origin = [0, 0, 0]) {
   }
   return { pos: new Float32Array(pos), att: new Float32Array(att), roles, idx: new Uint32Array(idx) };
 }
-function simplify(mesh, target, error, sloppy = false) {
+function simplify(mesh, target, error, sloppy = false, prune = false) {
+  // Prune drops disconnected shells; car bodies are built from separate panels, so only interiors use it.
+  const flags = prune ? ['Prune'] : [];
   let idx = mesh.idx;
   if (idx.length / 3 > target) {
-    [idx] = MeshoptSimplifier.simplifyWithAttributes(mesh.idx, mesh.pos, 3, mesh.att, 6, [.5, .5, .5, 1, 1, 1], null, target * 3, error, ['Prune']);
-    if (idx.length / 3 > target * 1.05) [idx] = MeshoptSimplifier.simplifyWithAttributes(mesh.idx, mesh.pos, 3, mesh.att, 6, [.2, .2, .2, .4, .4, .4], null, target * 3, error * 4, ['Prune', 'Permissive']);
-    if (sloppy && idx.length / 3 > target * 1.05) [idx] = MeshoptSimplifier.simplifySloppy(idx, mesh.pos, 3, null, target * 3, error * 4);
+    [idx] = MeshoptSimplifier.simplifyWithAttributes(mesh.idx, mesh.pos, 3, mesh.att, 6, [.5, .5, .5, 1, 1, 1], null, target * 3, error, flags);
+    if (idx.length / 3 > target * 1.05) [idx] = MeshoptSimplifier.simplifyWithAttributes(mesh.idx, mesh.pos, 3, mesh.att, 6, [.2, .2, .2, .4, .4, .4], null, target * 3, error * 4, [...flags, 'Permissive']);
+    if (idx.length / 3 > target * 1.05) [idx] = MeshoptSimplifier.simplifyWithAttributes(mesh.idx, mesh.pos, 3, mesh.att, 6, [.05, .05, .05, .1, .1, .1], null, target * 3, error * 20, [...flags, 'Permissive']);
+    if (sloppy && idx.length / 3 > target * 1.05) { console.log(JSON.stringify({ sloppy: idx.length / 3, target }));
+      [idx] = MeshoptSimplifier.simplifySloppy(idx, mesh.pos, 3, null, target * 3, error * 4); }
   }
   return { ...mesh, idx };
 }
 const triCount = m => m.idx.length / 3;
-const budgets = cfg.budgets ?? [48000, 10000, 2000];
+const budgets = cfg.budgets ?? [48000, 10000, 3500];
 const wheelShare = [.05, .05, .03], glassShare = [.05, .06, .08], interiorShare = [.08, 0, 0];
 
 // Fleet material roles, as the shared node material reads them (actors/fleet/authored.ts flattenFleetAsset).
@@ -399,7 +403,7 @@ function writeLod(lod) {
   const B = budgets[lod];
   const wheelTarget = Math.round(B * wheelShare[lod]);
   const glass = simplify(indexed(parts.glass), Math.round(B * glassShare[lod]), [.002, .01, .04][lod]);
-  const interior = interiorShare[lod] && parts.interior.length ? simplify(indexed(parts.interior), Math.round(B * interiorShare[lod]), .02, true) : null;
+  const interior = interiorShare[lod] && parts.interior.length ? simplify(indexed(parts.interior), Math.round(B * interiorShare[lod]), .02, true, true) : null;
   const wheels = Object.entries(hubs).map(([name, h]) => [name, h, simplify(indexed(parts[name], h.hub), wheelTarget, [.003, .02, .1][lod], lod === 2)]);
   const used = triCount(glass) + (interior ? triCount(interior) : 0) + wheels.reduce((s, [, , m]) => s + triCount(m), 0);
   const body = simplify(indexed(parts.body), Math.max(200, Math.floor((B - used) * .98)), [.0015, .006, .03][lod], lod === 2);
