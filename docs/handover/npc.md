@@ -147,6 +147,11 @@ finding is that GTA never dissolves jams: any car no player sees is disposable (
   - a final contact check: the pose a car ends its tick in must not touch another car or a player's vehicle (the
     heading of a pass scales with speed, so a sudden stop turned corners into the oncoming car); otherwise it keeps
     last tick's pose.
+- **Busy-avenue and sprint scenes** (study 4.5, T4/T5): drivers turn off at the last junction before a visible jam
+  without stopping, so a car within 45 m of its line whose exit is jammed (last car stuck 10 s, no room) takes another
+  movement (`reroute(…, ahead)`, `stats.reroutedAhead`); U-turns after 30-60 s (GTA 24-114 s); hidden chain heads go
+  after 60 s (45 s beyond 150 m; GTA within seconds, but our ring draws out-of-view cars to 85 m, so 90 m stays the
+  floor). East 30 min: 104.5 exits/min (104.7 before), 0 locked, 0 recycled in view, 72 reroutes ahead.
 - **Car budget per tile and hour (A/B, removed):** a tile over 2.5x (or 4x) the cars its lanes carry at free flow
   that hour fed no new cars and shed hidden excess. East 30 min: 93.9 (4x: 102.5) vs 98.4 (later 104.7) exits/min
   without it, 0 locked either way. Demand already follows the hour profile; GTA needs budgets because it spawns
