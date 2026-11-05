@@ -8,7 +8,7 @@ import type { Drv } from '../../net/drv';
  *  steer. The local driver passes its input; a remote truck passes the synced `drv` record, or nothing, in which case
  *  the throttle is estimated from the acceleration. */
 
-/** SPEC §5 wire record [throttlePct 0..100, rpm10 0..800, gear −1..3, rearMode 0..3] (net/drv.ts encodes it). */
+/** SPEC §5 wire record [throttlePct 0..100, rpm10 0..800, gear −1..3, rearMode 0..3] (net/drv.ts encodes it; the voice reads the first three). */
 export type NetDrive = Readonly<Drv>;
 
 export interface FeedControl {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from '../../src/gameplay/economy';
-import { lineText } from '../../src/gameplay/content/dialogue';
+import { lineText, promptText } from '../../src/gameplay/content/dialogue';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { DEALER, MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
 import { SAVES_KEY } from '../../src/core/save';
@@ -101,7 +101,7 @@ test('shop zones glow in the world and the black market menu locks movement whil
   }, MARKET.point, 20);
   await page.keyboard.up('KeyW');
   await untilSim(page, text => (window.__game!.state as () => Snapshot)().missions.hud.message === text,
-    lineText('prompt_enter_market_key'), 20);
+    promptText('prompt_enter_market', 'E'), 20);
   expect((await state(page)).zones.find(z => z.id === 'market')).toMatchObject({ visible: true });
   await shot('02-market-zone-prompt');
 

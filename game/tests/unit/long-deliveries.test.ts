@@ -17,7 +17,7 @@ import { lineText } from '../../src/gameplay/content/dialogue';
 const pool: PoolAddress[] = [100, 2600, 2900].map((m, i) => ({ id: `district-${i}`, address: `District ${i}`,
   tile: `t0_${i}_0`, point: { x: m, z: 0 }, street: { x: m, z: 1 }, foot: m, car: m, landmark: i > 0 }));
 const frame = (extra: Partial<MissionFrame> = {}): MissionFrame => ({ position: PIZZERIA.point,
-  interact: false, vehicleId: 'player', input: 'keyboard', ...extra });
+  interact: false, vehicleId: 'player', button: 'E', ...extra });
 function game(shortDeliveries = 3, addresses: readonly PoolAddress[] = pool, router: Router = lRouter,
   extra: Record<string, unknown> = {}) {
   const m = new MissionSystem({ router, addresses, seed: 1 });

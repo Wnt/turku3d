@@ -21,7 +21,7 @@ const menuState = (page: Page) => page.evaluate(() => (window.__game!.state as (
 /** The black market lies outside the synthetic tiles: its menu choices go straight through the mission system. */
 const buyAtMarket = (page: Page, option: string) => page.evaluate(({ point, option }) => {
   const missions = window.__game!.missions as { update(dt: number, frame: object): unknown };
-  const frame = (extra: object) => ({ position: point, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+  const frame = (extra: object) => ({ position: point, interact: false, button: 'E', vehicleId: null, ...extra });
   missions.update(0, frame({ interact: true }));
   missions.update(0, frame({ choose: option }));
   missions.update(0, frame({ leave: true }));

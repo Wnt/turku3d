@@ -1,5 +1,6 @@
 import type { V3 } from '../core/origin';
 import type { VehicleKind } from '../physics/constants';
+import { POSITION_EPSILON, glide } from './automation';
 
 /** Original synthesised diaphragm horns; no sample or external asset. */
 export const HORNS = {
@@ -13,8 +14,9 @@ export function createHorn(ctx: BaseAudioContext, bus: AudioNode, kind: VehicleK
   panner.panningModel = 'HRTF'; panner.distanceModel = 'inverse';
   panner.refDistance = 5; panner.maxDistance = 250; panner.rolloffFactor = 0.8;
   const move = (p: V3) => {
-    [panner.positionX, panner.positionY, panner.positionZ].forEach((v, i) =>
-      v.setTargetAtTime([p.x, p.y, p.z][i], ctx.currentTime, 0.025));
+    const t = ctx.currentTime;
+    glide(panner.positionX, p.x, t, 0.025, POSITION_EPSILON); glide(panner.positionY, p.y, t, 0.025, POSITION_EPSILON);
+    glide(panner.positionZ, p.z, t, 0.025, POSITION_EPSILON);
   };
   move(position);
   gain.gain.setValueAtTime(0, ctx.currentTime);

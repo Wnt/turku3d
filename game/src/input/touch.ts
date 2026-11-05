@@ -1,7 +1,7 @@
 // Touch input source: a floating stick on the left half of the game element, drag-to-look and pinch-to-zoom on the
 // right half, and thumb buttons for the action buttons. It produces the same actions as the keyboard and the gamepad;
 // `Input` (index.ts) owns the browser listeners and merges this source into its frame.
-import { DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, glyph, clamp, type Action, type Actions, type Bindings } from './bindings';
+import { DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, promptLabel, clamp, type Action, type Actions, type Bindings } from './bindings';
 
 /** Thumb travel per axis in CSS px; the origin stays where the thumb first lands. */
 export const STICK_RADIUS = 64;
@@ -89,7 +89,7 @@ export class TouchPad {
 }
 
 interface ButtonSpec { action: Action; label: string; contexts: readonly TouchContext[]; corner?: true }
-/** Thumb buttons, bottom right unless `corner` (top right). Glyphs are the HUD's gamepad glyphs. */
+/** Thumb buttons, bottom right unless `corner` (top right). Glyphs are the Xbox button names (promptLabel 'touch'). */
 export const TOUCH_BUTTONS: readonly ButtonSpec[] = [
   { action: 'mission', label: 'Use', contexts: ['foot', 'car'] },
   { action: 'sprint', label: 'Sprint', contexts: ['foot'] },
@@ -127,7 +127,7 @@ export class TouchOverlay {
       el.className = 'touch-button';
       el.dataset.action = spec.action;
       el.setAttribute('aria-label', spec.label);
-      el.append(Object.assign(document.createElement('b'), { textContent: glyph(spec.action, bindings, true) }),
+      el.append(Object.assign(document.createElement('b'), { textContent: promptLabel(spec.action, bindings, 'touch') }),
         Object.assign(document.createElement('small'), { textContent: spec.label }));
       (spec.corner ? corner : pad).append(el);
       this.buttons.push({ spec, el });

@@ -290,7 +290,7 @@ describe('Developer pages', () => {
     const shown: MenuPage[] = [];
     const host = { show: (page: MenuPage) => { shown.push(page); } };
     const calls: string[] = [];
-    let money = 120, flying = false, panel = false;
+    let money = 120, flying = false, panel = false, naming = false;
     const { clock } = devClock();
     const hooks: DevHooks = {
       money: () => money, addMoney: euros => { money += euros; calls.push(`money ${euros}`); },
@@ -299,6 +299,7 @@ describe('Developer pages', () => {
       ask: () => answer, clock, timePanel: () => panel, toggleTimePanel: () => { panel = !panel; calls.push(`panel ${panel}`); },
       nextTrack: () => calls.push('next track'),
       spawnTruck: () => calls.push('truck'),
+      naming: () => naming, setNaming: on => { naming = on; calls.push(`naming ${on}`); },
     };
     const root: MenuPage = { id: 'pause', title: 'Paused', text: null, back: null, items: [] };
     const flow = new DevMenuFlow(host, hooks, () => root);
@@ -309,7 +310,7 @@ describe('Developer pages', () => {
     const { flow, calls, pick, last, root } = setup();
     const page = flow.root();
     expect(page.items.map(i => i.label)).toEqual(['Money +1 000 €', 'Money +10 000 €', 'Fly mode on',
-      'Spawn trophy truck here', 'Teleport to...', 'Time of day', 'Next music track', 'Back']);
+      'Spawn trophy truck here', 'Teleport to...', 'Time of day', 'Next music track', 'Look-at naming on', 'Back']);
     expect(page.text).toBe('Money 120 €.');
     pick(page, 'money-10000');
     expect(last().text).toBe('Money 10 120 €.');
@@ -318,9 +319,12 @@ describe('Developer pages', () => {
     expect(last().items.find(i => i.id === 'fly')!.label).toBe('Fly mode off');
     pick(last(), 'truck');
     expect(last().text).toBe('Trophy truck spawned in front of you.');
+    pick(last(), 'look-at');
+    expect(last().text).toBe('Look-at naming on.');
+    expect(last().items.find(i => i.id === 'look-at')!.label).toBe('Look-at naming off');
     pick(last(), 'time');
     expect(last().id).toBe('dev-time');
-    expect(calls).toEqual(['money 10000', 'fly true', 'truck']);
+    expect(calls).toEqual(['money 10000', 'fly true', 'truck', 'naming true']);
     last().back!();
     last().back!();
     expect(last()).toBe(root);

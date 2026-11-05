@@ -1,19 +1,15 @@
 # trophy4400: #19-style 4400 car
 
 Our own model of a four-wheel-steer, fully independent (IFS + IRS) 4400-class car in the style of the
-#19 car, modelled from scratch in Blender 5.2 through the blenderwright 3.1.0 MCP tools (parameterised
-tool calls only; no Blender Python). No downloaded mesh, sponsor logo, brand mark or photograph is
-included. The textures are the generated "19" plate (`livery/plate19.svg`, our own stroke numerals,
-rasterised with rsvg-convert) and eight tileable worn-paint / dusty-paint / dusty-panel / scuffed-skid maps generated with numpy
-(`~/turku3d/loops/trophy4400/model/gen/tex_gen.py`). Copyright 2026 Jonni Madekivi; MIT, as the repository.
+#19 car. **MCP rebuild (2026-11-05):** modelled from scratch in Blender 5.2 with blenderwright MCP tool calls made
+one at a time (no Blender Python, no generator scripts or call batches), shaped against camera-matched reference
+stills (image planes parented to the matched cameras). Nothing was appended or joined from earlier rounds. No
+downloaded mesh, sponsor logo, brand mark or photograph is included; the only text is the "19" (Blender's default
+font, converted to mesh). Copyright 2026 Jonni Madekivi; MIT, as the repository.
 
-Base model: none. A Sketchfab search (ultra4, king of the hammers, trophy truck, tube chassis, rock
-bouncer, desert/offroad buggy, sand rail; downloadable, CC BY/CC0) found only pickup-bodied trophy
-trucks or chassis under the Sketchfab Standard licence, none close to this car, so nothing was imported.
-
-Source (local, not in git): `~/turku3d/data/assets-src/trophy4400/trophy4400.blend`; the tool-call
-generators are in `~/turku3d/loops/trophy4400/model/gen/` and the previews in
-`~/turku3d/loops/trophy4400/model/previews/round-N/`.
+Source (local, not in git): `~/turku3d/loops/trophy4400/model/blend/scratch-r2.blend`. The per-round tool log is
+`~/turku3d/loops/trophy4400/model/MCP-LOG.md`, and the overlay/edge/model captures are in
+`~/turku3d/loops/trophy4400/model/previews/mcp-round-N/`.
 
 `trophy4400.glb` is the **prepared** runtime asset (Y-up, +X forward, left = -Z, ground origin, x = 0 at
 mid-wheelbase), built from the raw Blender export by
@@ -22,22 +18,23 @@ mid-wheelbase), built from the raw Blender export by
 node game/scripts/prepare-trophy4400.mjs   # ~/turku3d/data/assets-src/trophy4400/trophy4400_raw.glb -> this folder
 ```
 
-It validates the node contract, makes every material single-sided except `net-black`, encodes the 9 textures as
+It validates the node contract, makes every material single-sided except `net-black`, encodes any textures as
 KTX2 ETC1S (cached by content hash in `assets-src/trophy4400/build/ktx2`), meshopt-compresses the geometry
-(positions 14 bit) and writes `hardpoints.json` (SPEC 2.3, plus the spring seats and coil lengths). 2.48 MB,
-textures at most 11.5 MB on the GPU. At load (`src/actors/trophy4400/asset.ts`) every mesh of a LOD is merged per
+(positions 14 bit) and writes `hardpoints.json` (SPEC 2.3, plus the spring seats and coil lengths). 0.23 MB;
+the MCP rebuild uses plain PBR materials and no textures. At load (`src/actors/trophy4400/asset.ts`) every mesh of a LOD is merged per
 material into rigid-skinned meshes whose bones are the rig nodes, so a truck costs 29 / 29 / 25 draws at L0 / L1 / L2
 (was 124 / 122 / 45 as separate nodes); the linkage solver (`linkage.ts`) and rig (`rig.ts`) pose the bones from
 each wheel's synced hub height and steer.
 
 | quantity | value |
 |---|---|
-| wheelbase / track (wheel-* origins) | 3.150 / 2.180 m |
-| tyre OD x width | 1.067 x 0.33 m, mud-terrain on a 72-step round carcass: 40 pitches of two interlocking angled centre rows, staggered shoulder blocks that wrap onto the sidewall and sidewall lugs; 17-in dark beadlock: black ring with 24 bolts and a thin red outer ring (0.516-0.545 m dia), dark gunmetal 8-window centre, small blue cap |
-| L0 bbox (excl. whip) | body x -2.49 .. 2.19 (rear tube bumper .. front bumper hoop), width 2.04 over the front flares / 1.58 at the doors / 1.30 at the roof (cab tumblehome 0.14 per side), belly 0.58, door top 1.33, hood 1.37, front arch top 1.30, roof 1.90, light bar top 2.00 |
-| triangles L0 / L1 / L2 | 121,450 / 28,955 / 3,535 |
-| raw primitives (all LODs) | 225 (before the per-material merge) |
-| sha256 (raw) | 8527e75f17267ae61c853c26a0ac95e7012511ef7be0c99720fb983dbbd42cdc |
+| wheelbase / track (wheel-* origins) | 3.160 / 2.180 m (physics layout) |
+| tyre OD x width | 1.075 x 0.31 m: a 0.50 m carcass with two staggered rows of 30 lugs; 17-in-class dark gunmetal wheel with a wide orange beadlock ring (0.40-0.52 m dia) |
+| body | no fenders: slab hull tapered in plan (nose +-0.50..0.55, doors +-0.87, tail +-0.55) with two big wheel cutouts (r 0.67/0.68), a thin hood strip, a dark cavity under it, dark recessed fascia with two round LEDs and a winch, a V skid with the 19, a low tail panel with red-amber-red ovals, a raw tube bumper, vertical 19 plates and the tilted spare between them |
+| cab | flat orange roof x -0.77..0.36 at 1.90 m, light bar on its front edge, A-pillar tubes to the cowl, whip antenna at the roof rear |
+| suspension | boxed square-section A-arms with gusset plates; slotted top plate on the uppers; rear billet portal cases (CV input 0.12 m above the hub); coilovers with wire springs, bypass bodies, CV shafts, tie rods and rack sliders on the rig nodes |
+| triangles L0 / L1 / L2 | 32,693 / 7,553 / 1,388 |
+| sha256 (raw) | 8532a9d4af8e5e666b02112ca2a25c4c7183b3a6d8269abe42e2ea9c171958b5 |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,

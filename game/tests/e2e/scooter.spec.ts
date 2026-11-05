@@ -25,7 +25,7 @@ test('buys the scooter, rides it over the kerb to 45 km/h and dismounts', { tag:
   // The development tiles end before the dealer's street, so the purchase drives the mission system at the dealer.
   const bought = await page.evaluate(dealer => {
     const missions = (window as any).__game.missions;
-    const frame = { position: dealer, input: 'gamepad', vehicleId: null };
+    const frame = { position: dealer, button: 'Ⓐ', vehicleId: null };
     missions.update(0, { ...frame, interact: true });
     const view = missions.shop;
     const result = missions.update(0, { ...frame, interact: false, choose: 'buy_scooter' });

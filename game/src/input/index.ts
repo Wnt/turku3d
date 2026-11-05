@@ -1,4 +1,4 @@
-import { ACTIONS, DEFAULT_BINDINGS, editorBindings, emptyActions, glyph, mapActions, playstationPad, clamp, type Action, type Actions, type Binding, type Bindings } from './bindings';
+import { ACTIONS, DEFAULT_BINDINGS, editorBindings, emptyActions, mapActions, padFamily, promptLabel, clamp, type Action, type Actions, type Binding, type Bindings, type PadFamily, type PromptDevice } from './bindings';
 import { TouchOverlay, TouchPad, type TouchContext } from './touch';
 export * from './bindings';
 export type InputSource = 'keyboard' | 'gamepad' | 'touch';
@@ -13,6 +13,8 @@ const PANELS = '#dev-layers, #time-panel';
 const PANEL_ACTIONS: readonly Action[] = ['layerPanel', 'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3',
   'timeSpeed4', 'timeHourBack', 'timeHourForward', 'timeMinutesBack', 'timeMinutesForward', 'timeLive'];
 const NO_KEYS: ReadonlySet<string> = new Set();
+/** Toggles fullscreen from the keydown listener (not a binding: the request needs the original key gesture). */
+export const FULLSCREEN_KEY = 'F10';
 const NO_TAPS: Readonly<Actions> = Object.freeze(emptyActions());
 
 /** The only browser input owner. Gameplay sees actions, never keys or device indices. */
@@ -40,6 +42,11 @@ export class Input {
   private wheel = 0;
   private pad: Gamepad | null = null;
   private padActive = false;
+  /** Button names of the pad seen last; they stay after it disconnects (Xbox until a pad shows up). */
+  private family: PadFamily = 'xbox';
+  private promptKey = '';
+  private promptListeners = new Set<() => void>();
+  private revision = 0;
   private focused = true;
   private listeners = new AbortController();
   private sprintUntil = 0;
@@ -59,7 +66,7 @@ export class Input {
       if ((e.target as HTMLElement)?.closest?.(PANELS) && !this.panelKey(e.code)) return;
       if (['AltLeft', 'AltRight', 'Space'].includes(e.code)) e.preventDefault();
       if (e.repeat) return;
-      if (e.code === 'F10') {
+      if (e.code === FULLSCREEN_KEY) {
         e.preventDefault();
         this.toggleFullscreen(); // Fullscreen requires the original keyboard gesture, before the frame loop.
         return;
@@ -127,6 +134,7 @@ export class Input {
     if (layer === this.layerName) return;
     this.layerName = layer;
     this.editorTable = null;
+    this.promptsChanged(true);
   }
   /** The bindings of the active layer. */
   get active(): Bindings {
@@ -144,6 +152,7 @@ export class Input {
       return ACTIONS.some(k => Math.abs(a[k]) > 0.01);
     });
     this.pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
+    if (this.pad) this.family = padFamily(this.pad.id);
     if (active) { this.source = 'gamepad'; if (!this.padActive) this.activate(); }
     this.padActive = !!active;
     if (!this.pad && this.source === 'gamepad') this.source = 'keyboard';
@@ -173,6 +182,15 @@ export class Input {
     this.zoom = this.wheel + touch.zoom;
     this.mouseX = this.mouseY = this.wheel = 0;
     this.overlay?.draw(this.touch.stick);
+    this.promptsChanged();
+  }
+  /** Bumps `promptRevision` and calls the prompt listeners when the prompt device or the pad family changed. */
+  private promptsChanged(force = false) {
+    const key = `${this.device}|${this.family}`;
+    if (!force && key === this.promptKey) return;
+    this.promptKey = key;
+    this.revision++;
+    for (const listener of this.promptListeners) listener();
   }
   /** Which touch buttons to show this frame; the overlay stays hidden unless the player is on touch. */
   setTouchContext(context: TouchContext) {
@@ -186,13 +204,24 @@ export class Input {
   }
   get connected() { return this.pad !== null; }
   get gamepadName() { return this.pad?.id ?? null; }
-  /** The active pad is a PlayStation controller: prompts use its button names. */
-  get playstation() { return playstationPad(this.pad?.id); }
+  /** Button names of the connected pad, or of the last one seen: PlayStation for a Sony controller, else Xbox. */
+  get padFamily(): PadFamily { return this.family; }
+  /** The device prompts name: the pad family while a pad is in use, else the keyboard or the touch overlay. */
+  get device(): PromptDevice { return this.source === 'gamepad' ? this.family : this.source; }
+  /** Changes whenever prompts may read differently (device, pad family, bindings, layer): re-render on a change. */
+  get promptRevision() { return this.revision; }
+  /** Calls `listener` now and after every prompt change (checked once per update); returns the unsubscribe. */
+  watchPrompts(listener: () => void): () => void {
+    this.promptListeners.add(listener);
+    listener();
+    return () => { this.promptListeners.delete(listener); };
+  }
   get sprinting() { return this.actions.sprint > 0.5 || this.time < this.sprintUntil; }
   consume(action: Action) { const pressed = this.edges.has(action); this.edges.delete(action); return pressed; }
-  rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); this.editorTable = null; }
-  /** Touch buttons carry the gamepad glyphs, so touch prompts use them too. */
-  prompt(action: Action) { return glyph(action, this.active, this.source !== 'keyboard', this.source === 'gamepad' && this.playstation); }
+  rebind(action: Action, bindings: Binding[]) { this.bindings[action] = structuredClone(bindings); this.editorTable = null; this.promptsChanged(true); }
+  /** The name of `action`'s binding on `device` (default: the device in use) in the active layer (bindings.ts
+   *  promptLabel). Every help line, hint and "Press … to" prompt takes its button names from here. */
+  prompt(action: Action, device: PromptDevice = this.device) { return promptLabel(action, this.active, device); }
   private clear() { this.keys.clear(); this.tapped.clear(); this.actions = emptyActions(); this.edges.clear(); this.activity.clear(); this.mouseLooking = false; this.mouseX = this.mouseY = this.wheel = this.sprintUntil = 0; }
   async rumble(duration = 100, strong = 0.35, weak = 0.15): Promise<boolean> {
     const actuator = this.pad?.vibrationActuator;

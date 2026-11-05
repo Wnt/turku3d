@@ -36,6 +36,8 @@ export interface Entry extends DraftFreshness {
   roadsKey?: string;
   /** Clock (ms) when the entry was created (tile status: how long a window tile has waited). */
   since?: number;
+  /** performance.now() of this entry's first load request (world/streamStats.ts: request to draw). */
+  requested?: number;
   /** A full install in flight for a tile that left both the window and the lead: it stops at its next stage. */
   abandoned?: boolean;
   /** Visible requests own a model/collision pair; ahead requests own only service metadata. */

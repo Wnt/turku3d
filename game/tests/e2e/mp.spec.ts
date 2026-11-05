@@ -150,7 +150,7 @@ test('two pages collide and share a paid delivery', { tag: ['@gameplay', '@synth
     // Complete the real mission state machine; the callback sends the paid drop-off.
     await page.evaluate(({ market, pizzeria }) => {
       const missions = window.__game!.missions as any;
-      const act = (position: object, extra: object = {}) => missions.update(0, { position, input: 'keyboard',
+      const act = (position: object, extra: object = {}) => missions.update(0, { position, button: 'E',
         vehicleId: null, interact: false, ...extra });
       act(market, { interact: true }); act(market, { choose: 'rent_permit' }); act(market, { leave: true });
       act(pizzeria, { interact: true }); act(pizzeria, { choose: 'take_order' });

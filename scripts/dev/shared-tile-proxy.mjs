@@ -31,6 +31,10 @@ const UPGRADING_MS = 3_000;  // a served fragment whose tile is being rebuilt (s
 const FRAGMENTS_MAX = 4000;
 const CHOSEN_MS = 10_000;     // a tile's resolved train member is reused this long without asking the farm
 const CHOSEN_MAX = 20000;
+const DEMAND_TIMEOUT_MS = 30_000;
+const SCENERY_FRESH_MS = 2000;   // a scenery query answer this young is served as is
+const SCENERY_STALE_MS = 30_000; // up to this old it is served at once and revalidated behind the request
+const SCENERY_MAX = 512;
 
 function getJson(url) {
   return new Promise(resolve => {
@@ -144,11 +148,96 @@ function sendFragment(req, res, { status, headers, body }) {
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 
+/** Demand only steers the farm's build order. The proxy answers it at once (with the version the farm last reported for
+ *  the pin) and forwards it behind the answer, one request per client at a time; a newer demand replaces a queued one
+ *  and a 429 holds the client's next one for its Retry-After. A slow farm (6.4 s at 20:29:25, a 30 s stall at 20:32 in
+ *  Jonni's 2026-11-05 drive) never holds a player's request, and a stall never piles demands up on it. */
+function demandForwarder() {
+  const clients = new Map(), answers = new Map();
+  const forward = (client, row) => {
+    const { target, headers, version } = row.next;
+    row.next = null; row.busy = true;
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true; row.busy = false;
+      if (row.next) setTimeout(() => forward(client, row), Math.max(0, row.until - Date.now()));
+      else clients.delete(client);
+    };
+    const request = http.get(target, { headers, timeout: DEMAND_TIMEOUT_MS }, reply => {
+      const chunks = [];
+      reply.on('data', chunk => chunks.push(chunk));
+      reply.on('end', () => {
+        if (reply.statusCode === 429) row.until = Date.now() + 1000 * (Number(reply.headers['retry-after']) || 2);
+        if (reply.statusCode === 200) {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString());
+            if (typeof body?.version === 'number') answers.set(version, { ...(typeof body.state === 'string' ? { state: body.state } : {}), version: body.version });
+          }
+          catch { /* not JSON: nothing to remember */ }
+        }
+        done();
+      });
+      reply.on('error', done);
+    });
+    request.on('timeout', () => request.destroy(new Error('timeout')));
+    request.on('error', done);
+  };
+  return {
+    send(client, target, headers, version) {
+      let row = clients.get(client);
+      if (!row) clients.set(client, row = { busy: false, next: null, until: 0 });
+      const idle = !row.busy && !row.next;
+      row.next = { target, headers, version };
+      if (idle) setTimeout(() => forward(client, row), Math.max(0, row.until - Date.now()));
+    },
+    /** Before the farm's first answer the service counts as up: the request reached a running proxy. */
+    answer: version => answers.get(version) ?? { state: 'ready' },
+  };
+}
+
+/** Scenery queries (`/coarse/scenery?tiles=...`: each tile's content key and the missing ones) by URL. An answer under
+ *  SCENERY_FRESH_MS is served as is; one under SCENERY_STALE_MS at once while a refresh runs behind it (the client's next
+ *  poll sees it), so a stalled scenery server holds only the first ask of a query. Concurrent misses share a request. */
+function sceneryCache() {
+  const done = new Map(), pending = new Map();
+  const load = (key, target, headers) => {
+    if (pending.has(key)) return pending.get(key);
+    const promise = new Promise(resolve => {
+      const request = http.get(target, { headers }, reply => {
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => {
+          const { date, connection, 'keep-alive': _, 'content-length': __, ...kept } = reply.headers;
+          resolve({ status: reply.statusCode, headers: kept, body: Buffer.concat(chunks) });
+        });
+        reply.on('error', () => resolve(null));
+      });
+      request.on('error', () => resolve(null));
+    }).then(answer => {
+      if (answer?.status === 200) {
+        done.delete(key); done.set(key, { ...answer, at: Date.now() });
+        if (done.size > SCENERY_MAX) done.delete(done.keys().next().value);
+      }
+      return answer;
+    }).finally(() => pending.delete(key));
+    pending.set(key, promise);
+    return promise;
+  };
+  return async (key, target, headers) => {
+    const hit = done.get(key), age = hit ? Date.now() - hit.at : Infinity;
+    if (age < SCENERY_STALE_MS) { if (age >= SCENERY_FRESH_MS) void load(key, target, headers); return hit; }
+    return load(key, target, headers);
+  };
+}
+
 const HEALTH = new Map();
 
 export function createSharedTileProxy(configFile) {
   const versionFor = resolver();
   const fragments = fragmentCache();
+  const demands = demandForwarder();
+  const sceneryQuery = sceneryCache();
   return http.createServer(async (req, res) => {
     let config;
     try { config = JSON.parse(fs.readFileSync(configFile, 'utf8')); }
@@ -161,6 +250,21 @@ export function createSharedTileProxy(configFile) {
     const key = cached && JSON.stringify([config.service, config.version, config.follow, config.exclude, url.pathname]);
     const hit = key && fragments.get(key);
     if (hit) { sendFragment(req, res, await hit); return; }
+    if (!pinned && req.method === 'GET' && url.pathname === '/coarse/demand') {
+      const target = new URL(`/v/${encodeURIComponent(config.version)}/coarse/demand${url.search}`, config.service);
+      demands.send(url.searchParams.get('client') ?? '', target, { ...req.headers, host: target.host }, config.version);
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(demands.answer(config.version)));
+      return;
+    }
+    if (scenery && config.scenery && req.method === 'GET' && url.pathname === '/coarse/scenery' && url.search) {
+      const target = new URL(req.url, config.scenery);
+      const answer = await sceneryQuery(target.href, target, { ...req.headers, host: target.host });
+      if (!answer) { res.writeHead(502, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'scenery unavailable' })); return; }
+      res.writeHead(answer.status, { ...answer.headers, 'content-length': answer.body.length });
+      res.end(answer.body);
+      return;
+    }
     // Health answers come from a short cache refreshed in the background: the farm's /health can take 10-30 s.
     if (!scenery && !pinned && req.method === 'GET' && /^\/coarse\/(?:health|status)$/.test(url.pathname)) {
       const slot = HEALTH.get(url.pathname) ?? {};

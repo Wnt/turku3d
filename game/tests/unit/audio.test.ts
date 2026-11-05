@@ -4,11 +4,13 @@ import { GameplayAudio, engineRpm } from '../../src/audio/gameplay';
 import { ENGINE_SOUND, SYNTH_ENGINE, ambience, carMix, crowdGain, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
 import { MAT } from '../../src/shared/col/materials';
 
+/** Keeps its scheduled event times like Chrome: an event leaves the list only by a cancel (the fake never renders). */
 class Param {
-  value = 0;
-  setTargetAtTime(value: number) { this.value = value; }
-  setValueAtTime(value: number) { this.value = value; }
-  linearRampToValueAtTime(value: number) { this.value = value; }
+  value = 0; targets = 0; events: number[] = [];
+  setTargetAtTime(value: number, time = 0) { this.value = value; this.targets++; this.events.push(time); }
+  setValueAtTime(value: number, time = 0) { this.value = value; this.events.push(time); }
+  linearRampToValueAtTime(value: number, time = 0) { this.value = value; this.events.push(time); }
+  cancelScheduledValues(time: number) { this.events = this.events.filter(t => t < time); }
 }
 class Node {
   gain = new Param(); playbackRate = new Param(); threshold = new Param(); ratio = new Param(); frequency = new Param();
@@ -41,6 +43,8 @@ class FakeContext {
 const position = { x: 168, y: 3, z: 246 };
 const listener: AudioEvent = { type: 'listener', position, forward: { x: 0, y: 0, z: -1 }, up: { x: 0, y: 1, z: 0 }, paused: false };
 const fetcher = (async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(4) })) as unknown as typeof fetch;
+/** A mix clock a second further on at every reading: every continuous event applies at once. */
+const ticking = () => { let t = 0; return () => ++t; };
 
 test('material contract maps five surfaces; sensors and silent boundaries never step', () => {
   for (const [id, sound] of [[MAT.road, 'asphalt'], [MAT.cobblestone, 'stone'], [MAT.curb, 'stone'],
@@ -83,7 +87,7 @@ test('engine rpm: the car and scooter keep their gear approximations', () => {
 
 test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded voices and teardown', async () => {
   const ctx = new FakeContext(); let created = 0;
-  const audio = new GameAudio(() => { created++; return ctx as unknown as AudioContext; }, fetcher);
+  const audio = new GameAudio(() => { created++; return ctx as unknown as AudioContext; }, fetcher, undefined, ticking());
   audio.emit(listener); audio.emit({ type: 'gamepad-connected' });
   expect(created).toBe(0); expect(audio.snapshot().state).toBe('locked');
   await audio.unlock(); await audio.unlock();
@@ -133,7 +137,7 @@ test('Firefox legacy listener and panner positioning work without spatial AudioP
     return node;
   };
 
-  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher);
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher, undefined, ticking());
   audio.emit(listener); // Can arrive before the context exists.
   await audio.unlock();
   audio.emit(listener); // The render loop must update a legacy listener without throwing.
@@ -154,7 +158,7 @@ test('Firefox legacy listener and panner positioning work without spatial AudioP
 
 test('ambient traffic: at most eight engine voices follow the nearest cars, each car keeps its voice', async () => {
   const ctx = new FakeContext();
-  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher);
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher, undefined, ticking());
   await audio.unlock();
   audio.emit(listener);
   const car = (id: number, d: number, speed = 8) => ({ id, position: { x: position.x + d, y: position.y, z: position.z }, speed });
@@ -239,4 +243,45 @@ test('crowd murmur follows the drawn walkers near the camera', () => {
   expect(crowdGain(0)).toBe(0);
   expect(crowdGain(6)).toBeCloseTo(0.065, 6);
   expect(crowdGain(12)).toBeCloseTo(0.13, 6); expect(crowdGain(40)).toBeCloseTo(0.13, 6);
+});
+
+test('continuous mix: at most 30 updates a second, unchanged targets skipped, bounded events, nothing while suspended', async () => {
+  const ctx = new FakeContext();
+  let now = 0;
+  const audio = new GameAudio(() => ctx as unknown as AudioContext, fetcher, undefined, () => now);
+  await audio.preload();
+  const params = () => ctx.nodes.flatMap(n => [n.gain, n.playbackRate, n.frequency, n.positionX, n.positionY, n.positionZ])
+    .concat(Object.values(ctx.listener));
+  const frame = (i: number, moving: boolean) => {
+    const at = { x: position.x + (moving ? i * 0.5 : 0), y: position.y, z: position.z };
+    audio.emit({ ...listener, position: at });
+    audio.emit({ type: 'traffic', cars: [{ id: 1, position: { ...at, x: at.x + 20 }, speed: 8 }], count: 1, centre: at });
+    audio.emit({ type: 'car', kind: 'car', position: at, rpm: 2000, throttle: 0.5, speed: moving ? 8 : 0, slip: 0, running: true });
+  };
+  // Suspended (no user gesture yet): 10 s of frames schedule nothing, so no event list grows.
+  const before = params().reduce((n, p) => n + p.targets, 0);
+  for (let i = 0; i < 600; i++) { now = i / 60; frame(i, true); }
+  expect(params().reduce((n, p) => n + p.targets, 0)).toBe(before);
+  await audio.unlock();
+  // Running, moving at 30 m/s: the listener follows at 30 Hz, not at the 60 Hz frame rate.
+  const x = ctx.listener.positionX;
+  const start = x.targets;
+  for (let i = 0; i < 120; i++) { now = 10 + i / 60; frame(i, true); }
+  expect(x.targets - start).toBeGreaterThanOrEqual(59);
+  expect(x.targets - start).toBeLessThanOrEqual(61);
+  // The latest target lags the frames by at most one mix tick (two frames).
+  expect(x.value).toBeGreaterThanOrEqual(position.x + 117 * 0.5);
+  // Standing still: after the first tick no target changes, so nothing is rescheduled.
+  for (let i = 0; i < 4; i++) { now = 20 + i / 30; frame(0, false); }
+  const settled = params().reduce((n, p) => n + p.targets, 0);
+  for (let i = 4; i < 120; i++) { now = 20 + i / 30; frame(0, false); }
+  expect(params().reduce((n, p) => n + p.targets, 0)).toBe(settled);
+  // A context clock that stands still (the suspended case) never piles events up on a param.
+  for (let i = 0; i < 300; i++) { now = 30 + i / 30; frame(i, true); }
+  // (Music notes keep their own one-shot envelopes; every param the mix drives holds at most its latest target.)
+  const driven = params().filter(p => p.targets > 5);
+  expect(driven.length).toBeGreaterThan(10);
+  expect(Math.max(...driven.map(p => p.events.length))).toBeLessThanOrEqual(1);
+  expect(audio.errors).toEqual([]);
+  audio.dispose();
 });

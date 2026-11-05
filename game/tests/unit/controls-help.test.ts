@@ -1,5 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { ControlsHelp } from '../../src/ui/controlsHelp';
+import { DEFAULT_BINDINGS, promptLabel, type Action, type PromptDevice } from '../../src/input/bindings';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -8,7 +9,8 @@ function setup() {
   vi.stubGlobal('localStorage', storage);
   vi.stubGlobal('location', { hostname: 'localhost', search: '' });
   const element = { hidden: false, textContent: '' };
-  const input = { source: 'keyboard', activity: new Set<string>(), prompt: vi.fn((action: string) => action) };
+  const input = { source: 'keyboard', device: 'keyboard' as PromptDevice, promptRevision: 0, activity: new Set<string>(),
+    prompt: vi.fn((action: Action) => promptLabel(action, DEFAULT_BINDINGS, input.device)) };
   return { help: new ControlsHelp(element as unknown as HTMLElement), element, input: input as any, storage };
 }
 
@@ -21,9 +23,15 @@ test('hidden and unchanged help skips formatting while device and mode changes u
   input.prompt.mockClear();
   help.render(input, 'foot', false, false, false, true, 20);
   expect(input.prompt).not.toHaveBeenCalled();
-  input.source = 'gamepad';
+  input.source = 'gamepad'; input.device = 'xbox'; input.promptRevision++;
   help.render(input, 'foot', false, false, false, true, 30);
   expect(element.textContent).toContain('Ⓡ look');
+  expect(element.textContent).toContain('Ⓐ sprint');
+  input.device = 'playstation'; input.promptRevision++;
+  help.render(input, 'foot', false, false, false, true, 35);
+  expect(element.textContent, 'a DualSense redraws the help at once').toContain('R stick look');
+  expect(element.textContent).toContain('✕ sprint · □ jump · △ enter vehicle');
+  expect(element.textContent).not.toMatch(/[ⒶⒷⓧⓎⓁⓇ]/);
   help.render(input, 'car', false, false, false, true, 40);
   expect(element.textContent).toContain('throttle');
   help.render(input, 'car', false, true, false, true, 50);

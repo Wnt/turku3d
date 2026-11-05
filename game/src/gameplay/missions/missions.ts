@@ -7,7 +7,7 @@ import {
   CREDIT_PERMIT_DEBT, debtRepayment, HEIST_CASH, PLATES_PRICE, SLICE_PRICE, SLICE_SECONDS, VEHICLE_PRICE, WARNING_PRICE, deliveryDeadline,
   sellBackPrice, tip, type VehicleOwnership, type DeliveryJob,
 } from '../economy';
-import { DIALOGUE, lineText } from '../content/dialogue';
+import { DIALOGUE, lineText, promptText } from '../content/dialogue';
 import { addressSentence, nextPhrase, PHRASES, type PhraseKind } from '../content/announcements';
 import type { PoolAddress } from '../content/addresses';
 import { DELIVERIES } from '../content/deliveries';
@@ -50,8 +50,8 @@ export interface MissionFrame {
   position: WorldPoint;
   /** The interaction button was pressed this frame (opens a shop or hands over a pizza). */
   interact: boolean;
-  /** Selects the button glyph in prompts. */
-  input: 'keyboard' | 'gamepad' | 'touch';
+  /** Name of the mission button on the device in use (Input.prompt('mission')): "Press {button} to …" prompts. */
+  button: string;
   /** Physics id of the vehicle the player drives, or null on foot. */
   vehicleId: string | null;
   /** The menu option the player selected this frame in the open shop. */
@@ -81,7 +81,7 @@ type Checkpoint = 'delivery' | 'purchase';
 
 interface Action {
   target: RouteTarget;
-  /** Prompt base id; the input device's button glyph is appended (`_pad` / `_key`). */
+  /** Prompt line id ("Press {button} to …"); the frame's button name fills it in. */
   prompt: string;
   run: () => void;
 }
@@ -198,6 +198,8 @@ export class MissionSystem implements MissionHudSource {
   get runFactor(): number { return this.s.kidney && this.energy <= 0 ? KIDNEY_RUN_FACTOR : 1; }
   /** The open shop menu, or null. The same object is returned until something in it changes. */
   get shop(): ShopView | null { return this.view; }
+  /** The interaction button acts on a shop or the drop-off at the last frame's position (its prompt shows). */
+  get interactable(): boolean { return !this.open && this.s.phase !== 'idle' && !!this.frame && this.action(this.frame) !== null; }
   snapshot() {
     const order = this.s.order.map(id => this.stops.resolve(id)!);
     return { ...this.s, address: order[this.s.stop]?.address ?? null, stops: order.map(o => o.address),
@@ -734,7 +736,7 @@ export class MissionSystem implements MissionHudSource {
     if (this.queue.length) return this.queue[0];
     if (this.open) return null; // the menu shows the shopkeeper; no prompt behind it
     const action = this.frame ? this.action(this.frame) : null;
-    if (action && this.s.phase !== 'idle') return { id: `${action.prompt}_${this.frame!.input === 'keyboard' ? 'key' : 'pad'}` };
+    if (action && this.s.phase !== 'idle') return { id: action.prompt, text: promptText(action.prompt, this.frame!.button) };
     if (this.s.heist && this.s.phase !== 'idle') return { id: this.s.heist === 'pickup' ? 'hint_heist_pickup' : 'hint_heist_deliver' };
     switch (this.s.phase) {
       case 'idle': return null;

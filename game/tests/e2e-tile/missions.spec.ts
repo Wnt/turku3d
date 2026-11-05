@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reportsRoot, tileDist } from '../../../tools/dev/environment.mjs';
 import { BASE_PAY, MAX_TIP, PERMIT_DELIVERIES, PERMIT_PRICE, START_MONEY } from '../../src/gameplay/economy';
-import { lineText } from '../../src/gameplay/content/dialogue';
+import { lineText, promptText } from '../../src/gameplay/content/dialogue';
 import { DELIVERIES } from '../../src/gameplay/content/deliveries';
 import { PHRASES } from '../../src/gameplay/content/announcements';
 import { MARKET, PIZZERIA } from '../../src/gameplay/content/locations';
@@ -73,7 +73,7 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
 
   // Black market on the lower quay: the ray starts under the Auransilta deck. Its menu opens on the permit.
   await teleportNear(page, MARKET.point, 4);
-  await showsMessage(page, lineText('prompt_enter_market_key'));
+  await showsMessage(page, promptText('prompt_enter_market', 'E'));
   await shot('02-market-prompt');
   await page.keyboard.press('KeyE');
   await expect(page.locator('#shop-menu .shop-option.selected')).toContainText(lineText('option_rent_permit'));
@@ -87,7 +87,7 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   await expect(page.locator('#shop-menu')).toBeHidden();
 
   await teleportNear(page, PIZZERIA.point);
-  await showsMessage(page, lineText('prompt_enter_pizzeria_key'));
+  await showsMessage(page, promptText('prompt_enter_pizzeria', 'E'));
   await shot('04-pizzeria-prompt');
   await page.keyboard.press('KeyE');
   await expect(page.locator('#shop-menu .shop-option.selected')).toContainText(lineText('option_take_order'));
@@ -115,7 +115,7 @@ test('permit, pickup and a timed delivery pay on the published tiles', { tag: ['
   expect(Math.abs(marker - spawnGround)).toBeLessThan(MAX_STREET_STEP_M);
   expect(Math.abs(feetY - marker)).toBeLessThan(MAX_STREET_STEP_M);
   await face(page, stop);
-  await showsMessage(page, lineText('prompt_hand_over_key'));
+  await showsMessage(page, promptText('prompt_hand_over', 'E'));
   const before = await missions(page);
   expect(before.hud.timerSeconds!).toBeLessThan(started.hud.timerSeconds!);
   expect(before.elapsed).toBeGreaterThan(0);

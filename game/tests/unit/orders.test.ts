@@ -32,7 +32,7 @@ function game(saved: string | null = null, pool: readonly PoolAddress[] = POOL, 
   const missions = new MissionSystem({ router: straight, addresses: pool, seed });
   if (saved !== null) missions.restore(saved);
   const frame = (position: WorldPoint, extra: Partial<MissionFrame> = {}): MissionFrame =>
-    ({ position, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+    ({ position, interact: false, button: 'E', vehicleId: null, ...extra });
   const at = (p: WorldPoint, extra: Partial<MissionFrame> = {}, dt = 0.1) => missions.update(dt, frame(p, extra));
   const choose = (point: WorldPoint, id: 'rent_permit' | 'take_order') => {
     at(near(point), { interact: true });

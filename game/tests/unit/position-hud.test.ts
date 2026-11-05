@@ -27,7 +27,7 @@ test('formats camera pose, signed pitch, heading wrap and negative visual tile',
 
 afterEach(() => vi.unstubAllGlobals());
 
-test('defaults on, persists toggle, copies current pose and picks the nearest visible surface', async () => {
+test('defaults on, persists toggle, copies current pose; look-at naming is off by default and does no work', async () => {
   const values = new Map<string, string>();
   vi.stubGlobal('localStorage', { getItem: (k: string) => values.get(k), setItem: (k: string, v: string) => values.set(k, v) });
   vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append: () => {} } });
@@ -40,25 +40,35 @@ test('defaults on, persists toggle, copies current pose and picks the nearest vi
   building.userData = { building_id: 'office', address: 'Test street 1' };
   building.updateMatrixWorld();
   tiles.models.add(building);
-  const hud = new PositionHud(camera, tiles, true);
+  const probe = vi.fn(async () => ({ toi: 9 })), query = vi.spyOn(building, 'raycast'), walk = vi.spyOn(building, 'traverseVisible');
+  const hud = new PositionHud(camera, tiles, true, () => 0, probe);
   hud.update(0, true);
   expect(hud.visible).toBe(true);
+  expect(hud.element.textContent).toContain('Camera');
+  expect(hud.element.textContent).not.toContain('Centre:');
+  for (const now of [600, 1200]) { camera.position.x += 1; hud.update(now, true); }
+  await hud.copy();
+  expect(probe).not.toHaveBeenCalled(); expect(query).not.toHaveBeenCalled(); expect(walk).not.toHaveBeenCalled();
+  expect(writeText.mock.calls[0][0]).not.toContain('Centre:');
+  // The developer menu turns it on.
+  camera.position.x = 0;
+  hud.setNaming(true);
+  hud.update(2000, true); await (hud as any).probing; hud.update(2600, true);
   expect(hud.element.textContent).toContain('Centre: office · Test street 1');
   hud.toggle();
   expect(new PositionHud(camera, tiles, true).visible).toBe(false);
   camera.position.x = 168;
   await hud.copy();
-  expect(writeText.mock.calls[0][0]).toContain('E 23459668.00');
+  expect(writeText.mock.calls[1][0]).toContain('E 23459668.00');
   hud.toggle();
-  const ground = new THREE.Mesh(new THREE.BoxGeometry(20, 20, 1), new THREE.MeshBasicMaterial());
-  ground.position.z = -5; ground.updateMatrixWorld(); tiles.models.add(ground);
   camera.position.x = 0;
   const later = performance.now() + 1500;
   hud.update(later, true);
-  expect(hud.element.textContent).not.toContain('Centre:');
   expect(hud.element.textContent).toContain('Position copied');
   hud.update(later + 600, false);
   expect(hud.element.hidden).toBe(true);
+  hud.setNaming(false); hud.update(later + 1200, true);
+  expect(hud.element.textContent).not.toContain('Centre:');
 });
 
 test('resolves a hit index to its source building and preserves instance addresses', async () => {
@@ -81,68 +91,6 @@ test('resolves a hit index to its source building and preserves instance address
   expect(buildingTarget(hit)).toBe('second · Instance address');
 });
 
-test('nearest bounds avoid raycasting distant meshes; hidden and throttled readouts do no queries', () => {
-  vi.stubGlobal('localStorage', { getItem: () => null });
-  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
-  const tiles = new VisualTiles(), camera = new THREE.PerspectiveCamera();
-  const far = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
-  far.position.z = -100; far.userData.building_id = 'far'; far.updateMatrixWorld();
-  const near = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
-  near.position.z = -10; near.userData.building_id = 'near'; near.updateMatrixWorld();
-  tiles.models.add(far); tiles.models.add(near);
-  const farQuery = vi.spyOn(far, 'raycast'), nearQuery = vi.spyOn(near, 'raycast');
-  const hud = new PositionHud(camera, tiles, true);
-  hud.update(0, true);
-  expect(hud.element.textContent).toContain('Centre: near');
-  expect(farQuery).not.toHaveBeenCalled();
-  expect(nearQuery).toHaveBeenCalledOnce();
-  hud.update(200, true); hud.update(600, false);
-  hud.visible = false; hud.update(1200, true);
-  expect(nearQuery).toHaveBeenCalledOnce();
-  expect((hud as any).hits).toHaveLength(0);
-  expect((hud as any).candidates).toHaveLength(0);
-});
-
-test('without collision, visual queries run at most once a second, after 1 m or 1° of motion, streaming, filters or 2 s', async () => {
-  vi.stubGlobal('localStorage', { getItem: () => null });
-  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
-  const writeText = vi.fn().mockResolvedValue(undefined);
-  vi.stubGlobal('navigator', { clipboard: { writeText } });
-  const tiles = new VisualTiles(), camera = new THREE.PerspectiveCamera();
-  const building = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), new THREE.MeshBasicMaterial());
-  building.position.z = -10; building.userData.building_id = 'office'; building.updateMatrixWorld();
-  tiles.models.add(building);
-  const query = vi.spyOn(building, 'traverseVisible');
-  let visibility = 0;
-  const hud = new PositionHud(camera, tiles, true, () => visibility);
-  for (const now of [0, 500, 1000, 1500]) hud.update(now, true);
-  expect(query).toHaveBeenCalledOnce();
-  expect(hud.element.textContent).toContain('Centre: office');
-  hud.update(2000, true); expect(query).toHaveBeenCalledTimes(2); // freshness
-  camera.position.x = .5;
-  hud.update(3000, true); expect(query).toHaveBeenCalledTimes(2); // under a metre
-  camera.position.x = 1.2;
-  hud.update(3500, true); expect(query).toHaveBeenCalledTimes(3);
-  camera.position.x = 1.3; camera.rotation.y = .05;
-  hud.update(4000, true); expect(query).toHaveBeenCalledTimes(3); // turned, but within a second
-  hud.update(4500, true); expect(query).toHaveBeenCalledTimes(4);
-  // A replacement can keep the same resident model count.
-  tiles.loadedModels++;
-  hud.update(5500, true); expect(query).toHaveBeenCalledTimes(5);
-  tiles.models.add(new THREE.Group());
-  hud.update(6500, true); expect(query).toHaveBeenCalledTimes(6);
-  visibility++;
-  hud.update(7500, true); expect(query).toHaveBeenCalledTimes(7);
-  building.visible = false;
-  hud.update(8000, true); expect(query).toHaveBeenCalledTimes(7);
-  hud.update(9500, true); expect(query).toHaveBeenCalledTimes(8);
-  expect(hud.element.textContent).not.toContain('Centre:');
-  building.visible = true; camera.position.x = 0; camera.rotation.y = 0;
-  await hud.copy();
-  expect(query).toHaveBeenCalledTimes(9);
-  expect(writeText.mock.calls[0][0]).toContain('Centre: office');
-});
-
 test('with collision, only building meshes at the collision hit are raycast; ground meshes never are', async () => {
   vi.stubGlobal('localStorage', { getItem: () => null });
   vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
@@ -158,6 +106,7 @@ test('with collision, only building meshes at the collision hit are raycast; gro
   let toi: number | null = 8;
   const probe = vi.fn(async () => toi === null ? null : { toi });
   const hud = new PositionHud(camera, tiles, true, () => 0, probe);
+  hud.setNaming(true);
   hud.update(0, true); await (hud as any).probing;
   hud.update(500, true);
   expect(hud.element.textContent).toContain('Centre: office');
@@ -167,14 +116,40 @@ test('with collision, only building meshes at the collision hit are raycast; gro
   toi = 3; camera.position.x = .01;
   hud.update(1000, true); await (hud as any).probing; hud.update(1500, true);
   expect(hud.element.textContent).not.toContain('Centre:');
-  // Nothing on collision: only building meshes, at most once a second.
+  // Nothing on collision: nothing is named and no render mesh is raycast.
   toi = null; camera.position.x = 2;
   for (const now of [2000, 2500, 3000]) { hud.update(now, true); await (hud as any).probing; }
   expect(groundQuery).not.toHaveBeenCalled();
-  expect(probe).toHaveBeenCalledTimes(3); // a still view does not probe again within 2 s
+  expect(buildingQuery).toHaveBeenCalledOnce();
+  expect(probe).toHaveBeenCalledTimes(3); // a still view does not probe again
+  hud.update(5000, true); await (hud as any).probing;
+  expect(probe).toHaveBeenCalledTimes(3);
 });
 
-test.each(['matrix', 'count'])('instance %s changes refresh query bounds without tightening render culling', change => {
+test('merged building meshes: only the ranges whose bounds hold the collision hit are tested, never the whole mesh', async () => {
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
+  const tiles = new VisualTiles(), camera = new THREE.PerspectiveCamera();
+  // Two buildings in one merged mesh: index ranges 0-35 (x = 0, near) and 36-71 (x = 30).
+  const a = new THREE.BoxGeometry(4, 4, 4).translate(0, 0, -10), b = new THREE.BoxGeometry(4, 4, 4).translate(30, 0, -10);
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute([...a.attributes.position.array, ...b.attributes.position.array], 3));
+  merged.setIndex([...a.index!.array, ...Array.from(b.index!.array, i => i + a.attributes.position.count)]);
+  const mesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial());
+  mesh.userData = { layer: 'buildings', objects: [{ start: 0, count: 36, building_id: 'near' }, { start: 36, count: 36, building_id: 'far' }] };
+  mesh.updateMatrixWorld(); tiles.models.add(mesh);
+  const whole = vi.spyOn(mesh, 'raycast');
+  const hud = new PositionHud(camera, tiles, true, () => 0, async () => ({ toi: 8 }));
+  hud.setNaming(true);
+  hud.update(0, true); await (hud as any).probing; hud.update(500, true);
+  expect(hud.element.textContent).toContain('Centre: near');
+  expect(whole).not.toHaveBeenCalled();
+  camera.position.x = 30; camera.updateMatrixWorld();
+  hud.update(1000, true); await (hud as any).probing; hud.update(1500, true);
+  expect(hud.element.textContent).toContain('Centre: far');
+});
+
+test.each(['matrix', 'count'])('instance %s changes refresh query bounds without tightening render culling', async change => {
   vi.stubGlobal('localStorage', { getItem: () => null });
   vi.stubGlobal('document', { createElement: () => ({ hidden: false, textContent: '' }), body: { append() {} } });
   const camera = new THREE.PerspectiveCamera(), tiles = new VisualTiles();
@@ -188,17 +163,19 @@ test.each(['matrix', 'count'])('instance %s changes refresh query bounds without
   const renderSphere = mesh.boundingSphere!, originalSphere = renderSphere.clone();
   const computeBox = vi.spyOn(mesh, 'computeBoundingBox');
   tiles.models.add(mesh);
-  const hud = new PositionHud(camera, tiles, true);
-  hud.update(0, true);
+  const hud = new PositionHud(camera, tiles, true, () => 0, async () => ({ toi: 9.5 }));
+  hud.setNaming(true);
+  hud.update(0, true); await (hud as any).probing;
+  hud.update(1000, true);
   expect(hud.element.textContent).not.toContain('Centre:');
   if (change === 'matrix') {
     mesh.setMatrixAt(0, transform.makeTranslation(0, 0, -10)); mesh.instanceMatrix.needsUpdate = true;
   } else mesh.count = 2;
   camera.position.x = .01;
-  hud.update(2000, true);
+  hud.update(2000, true); await (hud as any).probing; hud.update(2500, true);
   expect(hud.element.textContent).toContain('Centre: close');
   expect(computeBox).toHaveBeenCalledTimes(2);
-  camera.position.x = .02; hud.update(4000, true);
+  camera.position.x = .02; hud.update(4000, true); await (hud as any).probing;
   expect(computeBox).toHaveBeenCalledTimes(2);
   expect(mesh.boundingSphere).toBe(renderSphere);
   expect(mesh.boundingSphere).toEqual(originalSphere);

@@ -39,6 +39,7 @@ import { streamingAllowance, streamingBudget } from '../render/preparationBudget
 import { TileArrays, drawnGeometries, rendererUploaded } from './releaseArrays';
 import { GpuMeter, modelGpuBytes, rendererResidency } from './gpuBytes';
 import { renderTier, type QualityTier } from '../render/quality';
+import { StreamStats } from './streamStats';
 
 const POLL_MS = 1000;
 /** A service that answers the demand route with 404 is asked again this often (ms). */
@@ -133,6 +134,13 @@ const MAX_SPEED = FLY.fastSpeed * 1.25;
 const PROBE_MS = 2000;
 /** A probe the busy service has not answered within this (ms) counts as no answer. */
 const PROBE_TIMEOUT_MS = 10_000;
+/** Unanswered requests in a row (timeouts, dropped connections, gateway errors without Retry-After) that pause the
+ *  tiles without waiting for a health check. */
+const OUTAGE_FAILURES = 3;
+/** The health check after an unanswered request: no answer within this (ms) pauses the tiles. */
+const CHECK_TIMEOUT_MS = 5000;
+/** The advisory /coarse/demand gives up after this (ms); a lost one only waits for the next. */
+const DEMAND_TIMEOUT_MS = 10_000;
 export const RESTARTING = 'tiles: service restarting';
 
 /** The draft's collision is missing or unreadable: the tile is not drawn. */
@@ -147,6 +155,8 @@ export interface StartView { x: number; z: number; dx: number; dz: number }
 
 export class CoarseTiles {
   readonly entries = new Map<string, Entry>();
+  /** Request-to-draw latency of this session's tiles (window.__perf.stream). */
+  readonly stats = new StreamStats();
   private nextCheck = 0;
   private fetch: typeof fetch;
   private load: (url: string) => Promise<THREE.Object3D>;
@@ -176,6 +186,9 @@ export class CoarseTiles {
   /** A named tile client (`?tileClient=canary`) reports itself, so the farm never takes it for a player. */
   private named = false;
   private demandBusy = false;
+  /** Requests in a row that got no answer (see unanswered), and whether a health check for them runs. */
+  private unansweredRun = 0;
+  private checking = false;
   private demandNext = 0;
   private demandRetries = 0;
   private demandSequence = 0;
@@ -729,6 +742,18 @@ export class CoarseTiles {
     if (this.badge) { this.badge.textContent = alert ? status : ''; this.badge.style.display = alert && status ? '' : 'none'; }
   }
 
+  /** window.__perf.stream: the current window's backlog and the request-to-draw latency (world/streamStats.ts). */
+  streamSnapshot() {
+    const waiting: number[] = [];
+    let previews = 0;
+    for (const id of this.lastWanted) {
+      const e = this.entries.get(id);
+      if (e?.state === 'draft') { if (e.preview) previews++; }
+      else if (e?.requested !== undefined) waiting.push(e.requested);
+    }
+    return { ...this.stats.snapshot(performance.now(), waiting, this.details), previews, outage: !!this.outage };
+  }
+
   /** Ids of the loaded tiles (on demand: `__tiles.loaded()`), sorted. */
   loadedTiles() { return [...this.entries].filter(([, e]) => e.state === 'draft').map(([id]) => id).sort(); }
 
@@ -747,6 +772,21 @@ export class CoarseTiles {
     const message = this.remote ? 'tiles: remote service offline' : RESTARTING;
     this.warn(`[coarse] ${message}: tiles paused until it answers again`);
     this.show(message, true);
+  }
+
+  /** A request got no answer. A service that asked to wait (Retry-After) pauses the tiles at once; otherwise one such
+   *  request is no outage: in Jonni's 2026-11-05 drive three requests timed out after 30 s in a farm stall while
+   *  /coarse/health answered in 15 ms, and every tile paused. Streaming goes on (the tile retries on its own backoff)
+   *  while a health check runs; the check failing, or OUTAGE_FAILURES unanswered requests in a row, pause it. */
+  private unanswered(error: ServiceDown) {
+    if (this.outage) return;
+    if (error.retryAfter > 0 || ++this.unansweredRun >= OUTAGE_FAILURES) { this.down(error); return; }
+    if (this.checking) return;
+    this.checking = true;
+    void this.fetch(new URL(`${this.root}${this.remote ? 'health' : 'status'}`, this.page).href,
+      { cache: 'no-store', signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) })
+      .then(r => r.ok ? r.json() as Promise<{ state?: string }> : null).catch(() => null)
+      .then(status => { this.checking = false; if (!status || status.state === 'offline') this.down(error); });
   }
 
   /** Any answer from /coarse/status other than the dev server's offline one ends the outage: every tile not drawn is
@@ -773,13 +813,14 @@ export class CoarseTiles {
   }
 
   /** A /coarse/* request; ServiceDown when the service did not answer. */
-  private async request(url: string): Promise<Response> {
+  private async request(url: string, timeoutMs = 30_000): Promise<Response> {
     let res: Response;
     const href = new URL(url, this.page).href;
     const immutable = /\.[0-9a-f]{64}\.(?:col|glb|json)(?:$|\?)/.test(href);
-    try { res = await this.fetch(href, { priority: 'high', cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(30_000) }); }
+    try { res = await this.fetch(href, { priority: 'high', cache: immutable ? 'default' : 'no-cache', signal: AbortSignal.timeout(timeoutMs) }); }
     catch { throw new ServiceDown(); }
     if (gatewayDown(res.status)) throw new ServiceDown(retryAfter(res));
+    this.unansweredRun = 0;
     return res;
   }
 
@@ -918,7 +959,7 @@ export class CoarseTiles {
       if (this.version < 0) for (const e of this.entries.values()) e.version = version;
       else this.nextCheck = 0;
       this.version = version;
-    } catch (err) { this.down(err instanceof ServiceDown ? err : undefined); }
+    } catch (err) { if (err instanceof ServiceDown) this.unanswered(err); }
     finally { this.wantBusy = false; }
   }
 
@@ -931,7 +972,7 @@ export class CoarseTiles {
     const q = new URLSearchParams({ client: this.client, tiles: demand.tiles.join(','),
       urgent: demand.urgent.join(','), visible: demand.visible.join(',') });
     try {
-      const res = await this.request(`${this.root}demand?${q}`);
+      const res = await this.request(`${this.root}demand?${q}`, DEMAND_TIMEOUT_MS);
       if (res.status === 429) {
         this.demandNext = this.clock + Math.max(retryAfter(res), backoff(this.demandRetries++));
         return;
@@ -946,8 +987,11 @@ export class CoarseTiles {
         this.version = body.version;
         this.nextCheck = 0;
       }
-    } catch (err) { this.down(err instanceof ServiceDown ? err : undefined); }
-    finally { this.demandBusy = false; }
+    } catch (err) {
+      // Demand only steers the farm's build order: a lost one never pauses streaming (city.lab 2026-11-05: one demand
+      // timing out after 30 s, or one 502, paused every tile). The next goes out after a backoff.
+      this.demandNext = this.clock + Math.max(err instanceof ServiceDown ? err.retryAfter : 0, backoff(this.demandRetries++));
+    } finally { this.demandBusy = false; }
   }
 
   /** Keep resident collision and geometry until an upgraded draft is fully ready. */
@@ -970,7 +1014,7 @@ export class CoarseTiles {
       e.nextPoll = this.clock + Math.min(30_000, 2000 * 2 ** Math.min(e.unchangedPolls ?? 0, 4));
       e.retries = 0; this.outageFailures = 0;
     } catch (err) {
-      if (err instanceof ServiceDown) this.down(err);
+      if (err instanceof ServiceDown) this.unanswered(err);
       else this.warn(`[coarse] ${id} facade refresh: ${(err as Error).message}`);
       e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1);
     } finally { e.refreshing = false; }
@@ -1102,6 +1146,7 @@ export class CoarseTiles {
         if (e.model !== model || this.entries.get(id) !== e) return;
         this.host.scene.add(model);
         this.arrays?.preview(model);
+        this.stats.readyAt(e.requested, performance.now());
       };
       if (!this.host.preparePreview) { show(); return; }
       await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
@@ -1158,6 +1203,8 @@ export class CoarseTiles {
     this.releaseCommitted(model);
     // A refreshed full model replaces the previous one in place; first installs and previews dissolve in.
     if (!old || wasPreview) this.dissolveIn(id, model, own, under);
+    if (!old) this.stats.readyAt(e.requested, performance.now());
+    if (!old || wasPreview) this.stats.fullAt(e.requested, performance.now());
     if (installing) {
       streamTrace.slice('install', performance.now() - installing);
       streamTrace.event('tile.full', id, { pass: e.pass, replaced: old ? (wasPreview ? 'preview' : 'model') : null,
@@ -1167,6 +1214,7 @@ export class CoarseTiles {
 
   private async poll(id: string, e: Entry, d: number, load: boolean, role = 'wanted') {
     e.resident = load;
+    if (load) e.requested ??= performance.now();
     e.state = 'loading';
     e.version = this.version;
     const traced = streamTrace.on ? streamTrace.begin('tile.manifest', id, { role, load, demand: Math.round(d), ...this.depth() }) : null;
@@ -1235,7 +1283,7 @@ export class CoarseTiles {
       traced?.({ status: 200, pass: fragment.pass_kind, tris: fragment.visual[id].tris, bytes: fragment.visual[id].bytes });
       await this.loadPolled(id, e, fragment, hash);
     } catch (err) {
-      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1); this.down(err); return; }
+      if (err instanceof ServiceDown) { e.state = 'pending'; e.nextPoll = this.clock + backoff(e.retries = (e.retries ?? 0) + 1); this.unanswered(err); return; }
       const rejected = err instanceof DraftRejected;
       streamTrace.event('tile.fail', id, { error: String((err as Error).message ?? err) });
       // A rejected draft is retried like a failed build: the service may rebuild it with a fixed producer.

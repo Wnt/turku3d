@@ -14,7 +14,7 @@ test('WebGPU first order switches to mission music and advances the deadline', {
   // the fixture tiles do not contain the remote shop geometry.
   await page.evaluate(({ market, pizzeria }) => {
     const missions = (window as any).__game.missions;
-    const frame = (position: { x: number; z: number }, extra = {}) => ({ position, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+    const frame = (position: { x: number; z: number }, extra = {}) => ({ position, interact: false, button: 'E', vehicleId: null, ...extra });
     missions.update(0, frame(market, { interact: true }));
     missions.update(0, frame(market, { choose: 'rent_permit' }));
     missions.update(0, frame(market, { leave: true }));

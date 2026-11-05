@@ -53,7 +53,7 @@ function game(pool: readonly PoolAddress[], router: Router = straight) {
   const states: MissionHudState[] = [];
   missions.subscribe(s => states.push(s));
   const at = (p: WorldPoint, extra: Partial<MissionFrame> = {}, dt = 0.1) =>
-    missions.update(dt, { position: p, interact: false, input: 'keyboard', vehicleId: null, ...extra });
+    missions.update(dt, { position: p, interact: false, button: 'E', vehicleId: null, ...extra });
   const choose = (point: WorldPoint, id: 'rent_permit' | 'take_order') => {
     at(near(point), { interact: true });
     at(near(point), { choose: id });

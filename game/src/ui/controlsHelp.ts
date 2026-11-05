@@ -4,13 +4,13 @@ import { helpHidden, recordHelp, type HelpProgress } from '../core/helpLearning'
 
 /** Device-specific prompts for the current control mode. */
 export function controlsHelp(input: Input, mode: 'foot' | 'car', flying: boolean, paused: boolean, lost: boolean) {
-  const photo = devToolsEnabled(location) ? ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · J copy position · T time of day` : '';
+  const photo = devToolsEnabled(location) ? ` · ${input.prompt('positionHud')} position · ${input.prompt('photoCharacter')} hide/show character · ${input.prompt('copyPosition')} copy position · ${input.prompt('timePanel')} time of day` : '';
   return (paused ? `${input.prompt('pause')} Resume`
       : lost ? `${input.prompt('respawn')} return to solid ground · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : mode === 'foot' && flying
       ? `Flying · ${input.prompt('moveY')} move · ${input.prompt('flyUp')} up · ${input.prompt('flyDown')} down · ${input.prompt('sprint')} fast · ${input.prompt('jump')} ${input.prompt('jump')} land · ${input.prompt('pause')} pause`
       : mode === 'foot'
-      ? `${input.prompt('moveY')} move · ${input.source === 'gamepad' ? 'Ⓡ' : 'mouse'} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
+      ? `${input.prompt('moveY')} move · ${input.prompt('lookX')} look · ${input.prompt('sprint')} sprint · ${input.prompt('jump')} jump · ${input.prompt('interact')} enter vehicle · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`
       : `${input.prompt('throttle')} throttle · ${input.prompt('brake')} brake/reverse · ${input.prompt('steer')} steer · ${input.prompt('handbrake')} handbrake · ${input.prompt('horn')} horn (hold) · ${input.prompt('lights')} lights · ${input.prompt('interact')} exit · ${input.prompt('cameraReset')} camera · ${input.prompt('map')} map · ${input.prompt('pause')} pause`) + photo;
 }
 
@@ -34,7 +34,7 @@ export class ControlsHelp {
   private lastMode: HelpMode | null = null;
   private lastTime = 0;
   private stored = '';
-  private rendered: { source: Input['source']; mode: 'foot' | 'car'; flying: boolean; paused: boolean; lost: boolean; at: number } | null = null;
+  private rendered: { prompts: number; mode: 'foot' | 'car'; flying: boolean; paused: boolean; lost: boolean; at: number } | null = null;
   constructor(private element: HTMLElement) {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
@@ -71,15 +71,16 @@ export class ControlsHelp {
     return row ? helpHidden(row, PROMPTS[current].keys) : false;
   }
 
-  /** State changes update immediately; a periodic refresh also covers in-place binding edits. */
+  /** State and prompt changes (device, pad family, bindings: input.promptRevision) update immediately; a periodic
+   *  refresh also covers anything else. */
   render(input: Input, mode: 'foot' | 'car', flying: boolean, paused: boolean, lost: boolean, playing: boolean, now: number) {
     const hidden = !playing || this.hidden(mode, flying);
     if (this.element.hidden !== hidden) this.element.hidden = hidden;
     if (hidden) return;
     const previous = this.rendered;
-    if (previous && previous.source === input.source && previous.mode === mode && previous.flying === flying
+    if (previous && previous.prompts === input.promptRevision && previous.mode === mode && previous.flying === flying
       && previous.paused === paused && previous.lost === lost && now - previous.at < 1000) return;
-    this.rendered = { source: input.source, mode, flying, paused, lost, at: now };
+    this.rendered = { prompts: input.promptRevision, mode, flying, paused, lost, at: now };
     const text = controlsHelp(input, mode, flying, paused, lost);
     if (this.element.textContent !== text) this.element.textContent = text;
   }

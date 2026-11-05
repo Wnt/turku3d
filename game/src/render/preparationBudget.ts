@@ -80,6 +80,9 @@ export class StreamingAllowance {
     else if (worked || this.interval > this.target) this.total += 0.1 * (this.target - this.interval);
     this.total = Math.min(this.urgent ? 12 : 6, Math.max(StreamingAllowance.MIN_MS, this.total));
   }
+  /** Streaming milliseconds per frame across all budgets: also the paced shader-build share while the window waits
+   *  (main.ts paceYields), which the controller then counts in the frame interval it steers. */
+  get share() { return this.now() - this.frameAt > 100 ? StreamingAllowance.BASE_MS : this.total; }
   /** A budget starts a window this frame. */
   opened() { this.windows++; }
   /** Milliseconds one streaming budget may work in this frame. */

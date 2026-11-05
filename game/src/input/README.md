@@ -6,16 +6,34 @@ device indices; `tests/unit/input.test.ts` fails if code outside `src/input/` li
 
 | File | Role |
 |---|---|
-| `bindings.ts` | Actions, serializable default bindings (keyboard codes, Standard Gamepad buttons and axes), the radial stick curve, `mapActions` and `glyph` |
+| `bindings.ts` | Actions, serializable default bindings (keyboard codes, Standard Gamepad buttons and axes), the radial stick curve, `mapActions` and `promptLabel` |
 | `index.ts` | `Input`: listeners, per-frame merge of keyboard, gamepad and touch, edges, sprint burst, rumble |
 | `touch.ts` | Touch source: `TouchPad` (pointer bookkeeping, no DOM) and `TouchOverlay` (thumb buttons and the floating stick) |
 | `haptics.ts` | `Haptics`: controller rumble from what the player feels; pure mappers (impulse, step, speed -> strength and duration) |
 
 ## Sources
 
-`input.source` is `'keyboard'`, `'gamepad'` or `'touch'`: the device the player used last. Prompts
-(`input.prompt(action)`) show gamepad glyphs for gamepad and touch, key names for the keyboard. Per action
-the frame takes the largest magnitude of the three sources.
+`input.source` is `'keyboard'`, `'gamepad'` or `'touch'`: the device the player used last. Per action the frame
+takes the largest magnitude of the three sources.
+
+## Prompts
+
+Every button, key and stick name in help, hints and "Press … to" prompts comes from `promptLabel(action, bindings,
+device)` (`bindings.ts`), through `input.prompt(action[, device])`. `input.device` is the device used last:
+`'playstation'` while a Sony pad (DualSense, DualShock 4: `playstationPad(id)`) is in use, `'xbox'` for every other
+pad, else `'keyboard'` or `'touch'` (the overlay's buttons carry the Xbox glyphs). `input.padFamily` is the family of
+the pad seen last (Xbox until one shows up); the start screen's controller list and the panel buttons use it.
+
+| Device | Names |
+|---|---|
+| `playstation` | ✕ ○ □ △, L1 R1 L2 R2, L3 R3, Create, Options, PS, Touchpad, D-pad ↑ ↓ ← →, L stick, R stick |
+| `xbox`, `touch` | Ⓐ Ⓑ ⓧ Ⓨ, LB RB LT RT, L3 R3, View, Menu, Xbox, D-pad ↑ ↓ ← →, Ⓛ Ⓡ |
+| `keyboard` | key names (E, Shift, Space, Esc, ↑), axis pairs (A/D), WASD for moving, mouse for looking |
+
+A pad without a binding for the action names its key (J copy position). `input.promptRevision` changes with the
+device, the pad family, a rebind or a layer switch: per-frame UIs redraw on it, static labels use
+`input.watchPrompts(listener)`. `tests/unit/prompt-labels.test.ts` fails if a button glyph appears outside `bindings.ts`
+or a dialogue "Press" line does not take `{button}`.
 
 ## Safe reset
 
@@ -26,6 +44,12 @@ The recovery notice appears after a second of stillness on the side or roof and 
 
 F10 toggles desktop fullscreen synchronously from the keyboard gesture; it has no gameplay action.
 The HUD button uses the same toggle. Esc exits fullscreen through the browser; fullscreenchange updates the button.
+
+## Sprint in the trophy truck
+
+`sprint` (Xbox A, Shift) has no driving use in a car; in the trophy truck each press cycles the rear-steer mode
+(`vehicle/README.md` "Rear steer"). A is also `mission`: a press at a shop or drop-off goes to the mission
+(`MissionSystem.interactable`), not to the rear steer. Shift is only `sprint`.
 
 ## Fly mode
 
@@ -38,7 +62,7 @@ is on (localhost only, `gameplay/flyMode.ts`, `ui/README.md`); a double tap of `
 is open) maps with `editorBindings`: the editor actions get ✕ ○ △ L1 R1 Create and the D-pad, which gameplay actions
 lose; the sticks, □, the triggers, Options and R3 stay shared so walking, flying and pausing work, and L3 is the fast
 modifier. `editToggle` (DualSense touchpad click 17, Xbox L3 + R3 as a `chord` binding, F8) is bound in both layers.
-Prompts use PlayStation button names when the active pad is a Sony controller (`input.playstation`).
+Prompts use PlayStation button names when the active pad is a Sony controller (`input.device`, see Prompts).
 
 ## Developer panels
 

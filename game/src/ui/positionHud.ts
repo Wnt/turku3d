@@ -64,8 +64,10 @@ const FAR = 300;
 /** A collision hit names the building whose bounds hold it (padded by SLACK) and whose visual surface lies from AHEAD
  *  in front of it (pitched roofs, overhangs, balconies over simplified collision) to SLACK behind it (m). */
 const SLACK = 1.5, AHEAD = 5;
-/** Visual raycasts without collision: at most this often (ms), and only after the camera moved this far (m). */
-const FALLBACK_MS = 1000, FALLBACK_MOVE = 1;
+/** Look-at naming probes at most this often (ms), and only after the camera moved or the resident tiles changed. */
+const NAMING_MS = 500;
+
+type RangedGeometry = THREE.BufferGeometry & { userData: { buildingRangeBounds?: Float32Array } };
 
 /** Developer-only camera pose and photo controls, independent of the debug HUD. */
 export class PositionHud {
@@ -75,6 +77,10 @@ export class PositionHud {
   private linksKey = '';
   visible = true;
   characterHidden = false;
+  /** The look-at naming: the building at the screen centre in the readout (developer menu; off by default). Off, it
+   *  does no work at all. Always on it raycast render meshes of 3.5-4.7 M triangles twice a second in Jonni's
+   *  2026-11-05 session (135 MB allocated per 15 s). */
+  naming = false;
   private lastUpdate = -Infinity;
   private direction = new THREE.Vector3();
   private ray = new THREE.Raycaster();
@@ -83,8 +89,13 @@ export class PositionHud {
   private notice = '';
   private bounds = new THREE.Box3();
   private point = new THREE.Vector3();
+  private local = new THREE.Vector3();
+  private hitPoint = new THREE.Vector3();
+  private localRay = new THREE.Ray();
+  private inverse = new THREE.Matrix4();
+  private corner = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] as const;
   private hits: THREE.Intersection[] = [];
-  private candidates: { mesh: THREE.Mesh; distance: number }[] = [];
+  private candidates: THREE.Mesh[] = [];
   private queryOrigin = new THREE.Vector3();
   private queryDirection = new THREE.Vector3();
   private queryAt = -Infinity;
@@ -92,17 +103,14 @@ export class PositionHud {
   private queryModels = -1;
   private queryVisibility = -1;
   private probing: Promise<void> | null = null;
-  private fallbackAt = -Infinity;
-  private fallbackOrigin = new THREE.Vector3(Infinity, 0, 0);
-  private fallbackDirection = new THREE.Vector3();
   private target = '';
   private instanceBounds = new WeakMap<THREE.InstancedMesh, { matrix: THREE.InstancedBufferAttribute; version: number; count: number; sphere: THREE.Sphere }>();
-  private naming = new WeakMap<THREE.Object3D, boolean>();
-  /** Visual raycasts run (QA / tests: the collision path should need almost none). */
+  private nameable = new WeakMap<THREE.Object3D, boolean>();
+  /** Look-at naming lookups run (tests). */
   visualQueries = 0;
 
-  /** `probe` finds the nearest surface on collision (play); then only building meshes whose bounds hold that point
-   *  are raycast to name it. Without it (or beyond resident collision) the visual meshes are raycast, throttled. */
+  /** `probe` finds the nearest surface on collision; only the building meshes whose bounds hold that point are tested,
+   *  and of merged building meshes only the building ranges whose bounds hold it (a one-level BVH, cached per geometry). */
   constructor(private camera: THREE.PerspectiveCamera, private tiles: VisualTiles, readonly enabled = devToolsEnabled(location),
     private visibilityVersion: () => number = () => 0, private probe?: CollisionProbe) {
     try { this.visible = localStorage.getItem(STORAGE_KEY) !== 'off'; } catch { /* Session default. */ }
@@ -127,32 +135,29 @@ export class PositionHud {
     try { localStorage.setItem(STORAGE_KEY, this.visible ? 'on' : 'off'); } catch { /* Keep session state. */ }
   }
 
+  setNaming(on: boolean) {
+    this.naming = on && this.enabled;
+    this.target = ''; this.queryAt = -Infinity; this.lastUpdate = -Infinity;
+  }
+
   private lines(now: number, force = false) {
     this.camera.updateWorldMatrix(true, false);
     this.camera.getWorldDirection(this.direction);
-    this.ray.setFromCamera(this.centre, this.camera);
-    const visibility = this.visibilityVersion();
-    const origin = this.ray.ray.origin, direction = this.ray.ray.direction;
-    const changed = this.queryLoads !== this.tiles.loadedModels || this.queryModels !== this.tiles.models.size
-      || this.queryVisibility !== visibility;
-    const moved = !this.queryOrigin.equals(origin) || !this.queryDirection.equals(direction);
-    // The camera readout still refreshes at 2 Hz. An unchanged view reuses its centre target; bound freshness for
-    // in-place geometry edits such as broken props.
-    if (this.probe) {
-      if (!this.probing && (force || ((moved || changed) && now - this.queryAt >= 500) || now - this.queryAt >= 2000)) {
+    if (this.naming && this.probe && !this.probing) {
+      this.ray.setFromCamera(this.centre, this.camera);
+      const visibility = this.visibilityVersion();
+      const origin = this.ray.ray.origin, direction = this.ray.ray.direction;
+      const changed = this.queryLoads !== this.tiles.loadedModels || this.queryModels !== this.tiles.models.size
+        || this.queryVisibility !== visibility;
+      const moved = !this.queryOrigin.equals(origin) || !this.queryDirection.equals(direction);
+      if (force || ((moved || changed) && now - this.queryAt >= NAMING_MS)) {
         this.remember(now, visibility);
         const o = origin.clone(), d = direction.clone();
-        this.probing = this.probe(o, d, FAR).then(hit => {
-          // Nothing on collision: only a building beyond resident collision can be named.
-          this.target = hit ? this.nameAt(o, d, hit.toi) : this.searchVisual(o, d, now, force, force || changed, true) ?? this.target;
-        }, () => {}).finally(() => { this.probing = null; });
+        this.probing = this.probe(o, d, FAR).then(hit => { this.target = hit ? this.nameAt(o, d, hit.toi) : ''; }, () => {})
+          .finally(() => { this.probing = null; });
       }
-    } else if (force || changed || now - this.queryAt >= 2000 || moved) {
-      const refresh = force || changed || now - this.queryAt >= 2000;
-      const target = this.searchVisual(origin, direction, now, force, refresh, false);
-      if (target !== null) { this.remember(now, visibility); this.target = target; }
     }
-    return positionReadout(this.camera.position, this.direction, this.target);
+    return positionReadout(this.camera.position, this.direction, this.naming ? this.target : '');
   }
 
   private remember(now: number, visibility: number) {
@@ -164,62 +169,88 @@ export class PositionHud {
     this.queryDirection.copy(this.ray.ray.direction);
   }
 
-  /** The building at a collision hit: only building meshes whose bounds hold the hit point are raycast. */
+  /** The building at a collision hit: the nearest visual surface from AHEAD in front of the hit to SLACK behind it,
+   *  among the building meshes whose bounds hold the hit point. */
   private nameAt(origin: THREE.Vector3, direction: THREE.Vector3, toi: number): string {
-    this.point.copy(direction).multiplyScalar(toi).add(origin);
-    const at = this.point.clone();
-    return this.raycastVisual(origin, direction, Math.max(0, toi - AHEAD), toi + SLACK,
-      mesh => this.names(mesh) && this.meshBounds(mesh).expandByScalar(SLACK).containsPoint(at));
-  }
-
-  /** Without collision: bounding boxes first, then the nearest surface among the visible meshes (every one, or only
-   *  building ones), at most once a second and after the camera moved or turned; null when skipped. Raycasting all
-   *  resident triangles just to discard every hit except the first scales with the whole city. */
-  private searchVisual(origin: THREE.Vector3, direction: THREE.Vector3, now: number, force: boolean, refresh: boolean,
-    buildings: boolean): string | null {
-    // Streaming, filter changes and the 2 s freshness refresh a still view; motion counts once past 1 m or 1°.
-    if (!force && (now - this.fallbackAt < FALLBACK_MS || !refresh && this.fallbackOrigin.distanceTo(origin) <= FALLBACK_MOVE
-      && this.fallbackDirection.angleTo(direction) < 0.02)) return null;
-    this.fallbackAt = now; this.fallbackOrigin.copy(origin); this.fallbackDirection.copy(direction);
-    return this.raycastVisual(origin, direction, 0, FAR, buildings ? mesh => this.names(mesh) : () => true);
-  }
-
-  private raycastVisual(origin: THREE.Vector3, direction: THREE.Vector3, near: number, far: number, keep: (mesh: THREE.Mesh) => boolean): string {
     this.visualQueries++;
-    this.ray.set(origin, direction); this.ray.near = near; this.ray.far = far;
+    this.point.copy(direction).multiplyScalar(toi).add(origin);
+    this.ray.set(origin, direction); this.ray.near = Math.max(0, toi - AHEAD); this.ray.far = toi + SLACK;
     this.candidates.length = 0;
     for (const model of this.tiles.models) model.traverseVisible(o => {
       const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || o.userData.shadowBatch || !this.ray.layers.test(mesh.layers) || !keep(mesh)) return;
-      const bounds = this.meshBounds(mesh);
-      if (!this.ray.ray.intersectBox(bounds, this.point)) return;
-      const distance = bounds.containsPoint(this.ray.ray.origin) ? 0 : this.point.distanceTo(this.ray.ray.origin);
-      if (distance <= this.ray.far) this.candidates.push({ mesh, distance });
+      if (!mesh.isMesh || o.userData.shadowBatch || !this.ray.layers.test(mesh.layers) || !this.names(mesh)) return;
+      if (this.meshBounds(mesh).expandByScalar(SLACK).containsPoint(this.point)) this.candidates.push(mesh);
     });
-    this.candidates.sort((a, b) => a.distance - b.distance);
-    let hit: THREE.Intersection | undefined;
-    for (const { mesh, distance } of this.candidates) {
-      if (distance > this.ray.far) break;
+    let best: { distance: number; object: THREE.Object3D; faceIndex?: number | null; instanceId?: number } | undefined;
+    for (const mesh of this.candidates) {
+      const ranges = mesh.userData.objects as { start: number; count: number }[] | undefined;
+      if (ranges?.length && !(mesh as THREE.InstancedMesh).isInstancedMesh) {
+        const hit = this.rangeHit(mesh, ranges);
+        if (hit && (!best || hit.distance < best.distance)) { best = hit; this.ray.far = hit.distance; }
+        continue;
+      }
       this.hits.length = 0;
-      const instance = mesh as THREE.InstancedMesh;
-      const bounds = this.instanceBounds.get(instance);
+      const instance = mesh as THREE.InstancedMesh, bounds = this.instanceBounds.get(instance);
       if (bounds) {
-        // Raycast needs the same fresh bounds. Preserve any conservative sphere
-        // installed by the renderer/LOD owner; never tighten its render culling.
+        // Raycast needs the same fresh bounds. Preserve any conservative sphere installed by the renderer/LOD owner;
+        // never tighten its render culling.
         const sphere = instance.boundingSphere;
         try { instance.boundingSphere = bounds.sphere; mesh.raycast(this.ray, this.hits); }
         finally { instance.boundingSphere = sphere; }
       } else mesh.raycast(this.ray, this.hits);
-      for (const candidate of this.hits) if (candidate.distance >= this.ray.near && (!hit || candidate.distance < hit.distance)) {
-        hit = candidate;
-        this.ray.far = hit.distance;
+      for (const hit of this.hits) if (hit.distance >= this.ray.near && (!best || hit.distance < best.distance)) {
+        best = hit; this.ray.far = hit.distance;
       }
     }
-    const target = buildingTarget(hit);
+    const target = buildingTarget(best as THREE.Intersection | undefined);
     // Intersections and candidates hold meshes: a hidden readout must not retain evicted tiles.
     this.hits.length = this.candidates.length = 0;
     this.ray.near = 0;
     return target;
+  }
+
+  /** The nearest hit on a merged building mesh, testing only the triangles of the ranges whose bounds hold the point. */
+  private rangeHit(mesh: THREE.Mesh, ranges: readonly { start: number; count: number }[]) {
+    const geometry = mesh.geometry as RangedGeometry, boxes = this.rangeBounds(geometry, ranges);
+    const position = geometry.attributes.position, index = geometry.index;
+    this.inverse.copy(mesh.matrixWorld).invert();
+    this.local.copy(this.point).applyMatrix4(this.inverse);
+    this.localRay.copy(this.ray.ray).applyMatrix4(this.inverse);
+    const [a, b, c] = this.corner;
+    let best: { distance: number; object: THREE.Object3D; faceIndex: number } | undefined;
+    for (let r = 0; r < ranges.length; r++) {
+      const k = 6 * r, p = this.local;
+      if (p.x < boxes[k] - SLACK || p.y < boxes[k + 1] - SLACK || p.z < boxes[k + 2] - SLACK
+        || p.x > boxes[k + 3] + SLACK || p.y > boxes[k + 4] + SLACK || p.z > boxes[k + 5] + SLACK) continue;
+      const { start, count } = ranges[r];
+      for (let i = start; i + 2 < start + count; i += 3) {
+        const ia = index ? index.getX(i) : i, ib = index ? index.getX(i + 1) : i + 1, ic = index ? index.getX(i + 2) : i + 2;
+        a.fromBufferAttribute(position, ia); b.fromBufferAttribute(position, ib); c.fromBufferAttribute(position, ic);
+        if (!this.localRay.intersectTriangle(a, b, c, false, this.hitPoint)) continue;
+        const distance = this.hitPoint.applyMatrix4(mesh.matrixWorld).distanceTo(this.ray.ray.origin);
+        if (distance < this.ray.near || distance > this.ray.far || (best && distance >= best.distance)) continue;
+        best = { distance, object: mesh, faceIndex: i / 3 };
+      }
+    }
+    return best;
+  }
+
+  /** Local-space bounds (min xyz, max xyz) of each building range of a merged geometry, computed once. */
+  private rangeBounds(geometry: RangedGeometry, ranges: readonly { start: number; count: number }[]) {
+    let boxes = geometry.userData.buildingRangeBounds;
+    if (boxes && boxes.length === 6 * ranges.length) return boxes;
+    boxes = geometry.userData.buildingRangeBounds = new Float32Array(6 * ranges.length);
+    const position = geometry.attributes.position, index = geometry.index;
+    for (let r = 0; r < ranges.length; r++) {
+      let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+      for (let i = ranges[r].start; i < ranges[r].start + ranges[r].count; i++) {
+        const v = index ? index.getX(i) : i, x = position.getX(v), y = position.getY(v), z = position.getZ(v);
+        if (x < x0) x0 = x; if (y < y0) y0 = y; if (z < z0) z0 = z;
+        if (x > x1) x1 = x; if (y > y1) y1 = y; if (z > z1) z1 = z;
+      }
+      boxes.set([x0, y0, z0, x1, y1, z1], 6 * r);
+    }
+    return boxes;
   }
 
   /** World bounds of a mesh (instanced meshes: of all instances, refreshed when their matrices change), in `this.bounds`. */
@@ -247,7 +278,7 @@ export class PositionHud {
 
   /** Whether a mesh can name a building (buildingTarget): a building layer or a building id on it or an ancestor. */
   private names(mesh: THREE.Object3D): boolean {
-    let known = this.naming.get(mesh);
+    let known = this.nameable.get(mesh);
     if (known !== undefined) return known;
     known = false;
     for (let o: THREE.Object3D | null = mesh; o && !known; o = o.parent) {
@@ -256,7 +287,7 @@ export class PositionHud {
         || !!d.objects?.some((r: { building_id?: unknown }) => r.building_id != null)
         || !!d.instance_objects?.some((r: { building_id?: unknown } | null) => r?.building_id != null);
     }
-    this.naming.set(mesh, known);
+    this.nameable.set(mesh, known);
     return known;
   }
 

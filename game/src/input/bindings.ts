@@ -6,7 +6,7 @@ export type Binding =
   /** Every listed Standard Gamepad button held at once (the editor toggle's Xbox fallback, L3 + R3). */
   | { kind: 'chord'; indices: number[] };
 export const ACTIONS = ['moveX', 'moveY', 'lookX', 'lookY', 'sprint', 'walk', 'jump', 'interact', 'mission',
-  'throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'rearMode', 'rearRocker', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
+  'throttle', 'brake', 'steer', 'handbrake', 'horn', 'lights', 'cameraReset', 'pause', 'mute', 'nextTrack', 'vehicleReset', 'respawn', 'hud', 'positionHud', 'layerPanel', 'photoCharacter', 'copyPosition', 'map',
   'menuUp', 'menuDown', 'menuSelect', 'menuBack', 'flyUp', 'flyDown',
   'timePanel', 'timePause', 'timeSpeed1', 'timeSpeed2', 'timeSpeed3', 'timeSpeed4', 'timeHourBack', 'timeHourForward',
   'timeMinutesBack', 'timeMinutesForward', 'timeLive',
@@ -24,16 +24,15 @@ export const DEFAULT_BINDINGS: Bindings = {
   moveX: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   moveY: [axis(1, -1), key('KeyW'), key('ArrowUp'), key('KeyS', -1), key('ArrowDown', -1)],
   lookX: [axis(2)], lookY: [axis(3)],
+  // In the trophy truck a sprint press cycles the rear-steer mode (vehicle/rearSteerControl.ts, play.ts).
   sprint: [button(0), key('ShiftLeft'), key('ShiftRight')], walk: [key('AltLeft'), key('AltRight')],
   jump: [button(2), key('Space')], interact: [button(3), key('KeyF')],
-  // Mission targets (gameplay/missions): A shares the sprint button, which only acts while moving.
+  // Mission targets (gameplay/missions): A shares the sprint button, which only acts while moving on foot; in the
+  // truck a press of A at a mission target goes to the mission, not to the rear steer.
   mission: [button(0), key('KeyE')],
   throttle: [button(7), key('KeyW'), key('ArrowUp')], brake: [button(6), key('KeyS'), key('ArrowDown')],
   steer: [axis(0), key('KeyD'), key('ArrowRight'), key('KeyA', -1), key('ArrowLeft', -1)],
   horn: [button(10), key('KeyG')], lights: [button(12), key('KeyL')],
-  // Trophy truck rear steer (vehicle/rearSteerControl.ts), read only in a 4WS vehicle: X and Q are on-foot or
-  // fly-only otherwise. The rocker steers the rear left with Z and right with X or the right stick.
-  rearMode: [button(2), key('KeyQ')], rearRocker: [axis(2, -1), key('KeyZ'), key('KeyX', -1)],
   handbrake: [button(5), key('Space')], cameraReset: [button(11), key('KeyC')],
   pause: [button(9), key('Escape')], mute: [button(13), key('KeyK')], nextTrack: [key('KeyN')],
   vehicleReset: [button(1), key('KeyR')], hud: [key('F3'), key('KeyH')],
@@ -126,19 +125,59 @@ export function mapActions(pad: Gamepad | null, keys: ReadonlySet<string>, bindi
   if (length > 1) { out.moveX /= length; out.moveY /= length; }
   return out;
 }
+/** The device prompts name buttons for: the keyboard (and mouse), an Xbox-layout pad (every pad that is not a Sony one),
+ *  a PlayStation pad, or the touch overlay, whose thumb buttons carry the Xbox glyphs (touch.ts). */
+export type PromptDevice = 'keyboard' | 'xbox' | 'playstation' | 'touch';
+export type PadFamily = 'xbox' | 'playstation';
+/** Xbox names of the Standard Gamepad buttons; 16 is the Xbox button. */
 const XBOX_BUTTONS = ['Ⓐ', 'Ⓑ', 'ⓧ', 'Ⓨ', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'L3', 'R3', '↑', '↓', '←', '→', 'Xbox'];
 /** PlayStation names of the Standard Gamepad buttons (DualSense, DualShock 4); 17 is the touchpad click. */
 const PLAYSTATION_BUTTONS = ['✕', '○', '□', '△', 'L1', 'R1', 'L2', 'R2', 'Create', 'Options', 'L3', 'R3', '↑', '↓', '←', '→', 'PS', 'Touchpad'];
+const STICKS: Record<PadFamily, [string, string]> = { xbox: ['Ⓛ', 'Ⓡ'], playstation: ['L stick', 'R stick'] };
 /** A pad id that reports a Sony controller (Chrome: "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c …)"). */
 export const playstationPad = (id: string | null | undefined) => !!id && /dualsense|dualshock|wireless controller.*054c|vendor: 054c|playstation/i.test(id);
-export function glyph(action: Action, bindings: Bindings, gamepad: boolean, playstation = false): string {
-  const names = playstation ? PLAYSTATION_BUTTONS : XBOX_BUTTONS;
+/** The button names a pad gets: PlayStation for a Sony controller, Xbox for every other pad. */
+export const padFamily = (id: string | null | undefined): PadFamily => playstationPad(id) ? 'playstation' : 'xbox';
+const KEY_NAMES: Record<string, string> = { Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  BracketLeft: '[', BracketRight: ']', Comma: ',', Period: '.', Delete: 'Del', PageUp: 'PgUp', PageDown: 'PgDn',
+  NumpadEnter: 'Enter', ControlLeft: 'Ctrl', ControlRight: 'Ctrl', MetaLeft: 'Cmd', MetaRight: 'Cmd' };
+/** The printed name of a KeyboardEvent.code: "KeyE" E, "ShiftLeft" Shift, "Escape" Esc, "ArrowUp" ↑. */
+export const keyName = (code: string) => KEY_NAMES[code] ?? code.replace(/^Key|^Digit/, '').replace(/(?<=.)(Left|Right)$/, '');
+const firstKey = (list: readonly Binding[], sign: 1 | -1) =>
+  list.find((b): b is Extract<Binding, { kind: 'key' }> => b.kind === 'key' && Math.sign(b.scale ?? 1) === sign);
+
+/** The key, keys or mouse an action uses: an axis with keys both ways reads "A/D", the move pair "WASD". */
+function keyLabel(action: Action, bindings: Bindings): string | null {
+  if (action === 'moveX' || action === 'moveY') {
+    const cluster = [firstKey(bindings.moveY, 1), firstKey(bindings.moveX, -1), firstKey(bindings.moveY, -1), firstKey(bindings.moveX, 1)];
+    if (cluster.every(Boolean)) {
+      const names = cluster.map(b => keyName(b!.code));
+      return names.every(n => n.length === 1) ? names.join('') : names.join('/');
+    }
+  }
+  const plus = firstKey(bindings[action], 1), minus = firstKey(bindings[action], -1);
+  if (plus && minus) return `${keyName(minus.code)}/${keyName(plus.code)}`;
+  if (plus ?? minus) return keyName((plus ?? minus)!.code);
+  return action === 'lookX' || action === 'lookY' ? 'mouse' : null;
+}
+
+/** The button or stick an action uses on a pad of `family`, or null when the pad has none for it. */
+function padLabel(action: Action, bindings: Bindings, family: PadFamily): string | null {
+  const names = family === 'playstation' ? PLAYSTATION_BUTTONS : XBOX_BUTTONS;
   // A button the pad does not have (the DualSense touchpad on an Xbox pad) yields to the next binding (L3+R3).
-  const list = bindings[action].filter(b => gamepad ? b.kind !== 'key' : b.kind === 'key');
-  const b = list.find(b => b.kind !== 'button' || b.index < names.length) ?? list[0];
-  if (!b) return '—';
+  const b = bindings[action].find(b => b.kind === 'axis' || b.kind === 'chord' || (b.kind === 'button' && b.index < names.length));
+  if (!b) return null;
   if (b.kind === 'chord') return b.indices.map(i => names[i] ?? `B${i}`).join('+');
-  if (b.kind === 'button') return names[b.index] ?? `B${b.index}`;
-  if (b.kind === 'axis') return b.index < 2 ? 'Ⓛ' : 'Ⓡ';
-  return b.code.replace(/^Key|^Arrow/, '').replace(/Left$|Right$/, '');
+  if (b.kind === 'button') return names[b.index];
+  if (b.kind === 'axis') return STICKS[family][b.index < 2 ? 0 : 1];
+  return null;
+}
+
+/**
+ * The one source of every button, key and stick name in help, hints and prompts: the label of `action`'s binding on
+ * `device`. A pad without a binding for the action names its key (J copy position); "—" when nothing is bound.
+ */
+export function promptLabel(action: Action, bindings: Bindings, device: PromptDevice): string {
+  if (device === 'keyboard') return keyLabel(action, bindings) ?? '—';
+  return padLabel(action, bindings, device === 'touch' ? 'xbox' : device) ?? keyLabel(action, bindings) ?? '—';
 }

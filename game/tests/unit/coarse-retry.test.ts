@@ -38,3 +38,37 @@ test('transient HTTP errors honor Retry-After, retain resident tiles and resume 
     expect(warn).toHaveBeenCalledTimes(1);
   } finally { warn.mockRestore(); }
 });
+
+test('one unanswered request or a lost demand never pauses the tiles; a failed health check or three in a row do', async () => {
+  const scene = new THREE.Scene();
+  let mode: 'stall' | 'dead' = 'stall', healthOk = true;
+  const urls: string[] = [];
+  const fetch = vi.fn(async (url: string) => {
+    urls.push(url);
+    if (url.endsWith('/health')) { if (!healthOk) throw new DOMException('timed out', 'TimeoutError'); return new Response(JSON.stringify({ state: 'online' })); }
+    // A farm stall: the demand and one manifest time out (no answer), other tiles still answer.
+    if (url.includes('/demand') || (mode === 'stall' && url.includes('t0_0_0/')) || mode === 'dead') throw new DOMException('timed out', 'TimeoutError');
+    return new Response('{}', { status: 202 });
+  });
+  const coarse = new CoarseTiles({ scene, manifest: { visual: {}, collision: {} } as unknown as Manifest,
+    pageUrl: 'https://wnt.github.io/turku3d/', fetch: fetch as unknown as typeof globalThis.fetch,
+    unloadCollision: vi.fn(), refreshCollision: vi.fn(), checkCollision: async () => 2,
+    renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  const settle = async () => { for (let k = 0; k < 6; k++) await new Promise(r => setTimeout(r, 0)); };
+  try {
+    coarse.update(100, 100, 0); await settle();
+    expect(urls.some(u => u.includes('/demand'))).toBe(true);
+    expect(urls.some(u => u.endsWith('/health'))).toBe(true);  // the one unanswered manifest was checked
+    expect(coarse.outage).toBeNull();
+    // The other window tiles keep streaming.
+    urls.length = 0;
+    coarse.update(100, 100, 3000); await settle();
+    expect(coarse.outage).toBeNull();
+    expect(urls.some(u => u.includes('collision.json') && !u.includes('t0_0_0/'))).toBe(true);
+    // Nothing answers and the health check fails as well: paused.
+    mode = 'dead'; healthOk = false;
+    for (let t = 6000; t <= 40_000 && !coarse.outage; t += 3000) { coarse.update(100, 100, t); await settle(); }
+    expect(coarse.outage).not.toBeNull();
+  } finally { warn.mockRestore(); }
+});

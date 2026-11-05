@@ -1,3 +1,5 @@
+// First: no texture size ever stores undefined into a Vector3 (render/numericSizes.ts).
+import './render/numericSizes';
 import { placementVisibility } from './world/placementVisibility';
 import { modelTuning } from './vehicle/modelTuning';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
@@ -91,7 +93,7 @@ declare global {
     __qaProject?: (E: number, N: number, H: number) => [number, number] | null;
     __qaMove?: (pose: { E: number; N: number; H: number; yaw: number; pitch: number; fov: number }) => void;
     __game?: Record<string, unknown>;
-    __perf?: PerfSnapshot;
+    __perf?: PerfSnapshot & { stream: ReturnType<CoarseTiles['streamSnapshot']> | null };
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
       setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
@@ -238,7 +240,8 @@ const pointCloud = idPass || !pointCloudWanted.build || (!pointCloudWanted.show 
   ? null : new PointCloudOverlay(params.quality);
 if (pointCloud && pointCloudWanted.show) { pointCloud.setColorMode(pointCloudWanted.mode); pointCloud.setVisible(true); }
 let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
-Object.defineProperty(window, '__perf', { get: () => perf.snapshot() });
+// `stream` first: the CDP logger keeps the first 4000 characters of the snapshot.
+Object.defineProperty(window, '__perf', { get: () => ({ stream: censusSources.coarse?.streamSnapshot() ?? null, ...perf.snapshot() }) });
 window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
   census: () => {
     let previous: (() => void) | undefined;
@@ -395,11 +398,15 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;
-// During play r186's asynchronous shader-build stages run after each frame within a 3 ms share instead of back to
-// back between two frames (render/yieldPacer.ts), but only once the 3x3 window has its full tiles: while it waits
-// (streamingAllowance.urgent) they run at native speed. Pacing those too starved HD installs on the Radeon 560X
-// (tile.prepare p50 2 -> 27 s, HD 62 -> 34 %) and cost the M1 Air 5 points. Loading and bench settles are not paced.
-paceYields(() => ((!params.qa && worldLoad.snapshot().phase === 'ready') || benchSettled()) && !streamingAllowance.urgent);
+// In play r186's asynchronous shader-build stages (and the deferred first-use builds, render/asyncNodeBuilds.ts) run
+// after each frame within a share of the frame gap instead of back to back (render/yieldPacer.ts): 3 ms, the streaming
+// allowance while the 3x3 window waits for full tiles (it steers the frame interval to its 24 ms target; a fixed
+// 3 ms there starved HD installs on the Radeon 560X), and LOADING_SHARE_MS while the world loads. Unpaced, the boot
+// warm-up ran ~400 builds back to back: city.lab froze 22-25 s with no frame (2026-11-05); urgent installs gave
+// 1.4-2.8 s of long frames per 5 s. QA renders and bench settles are not paced.
+const LOADING_SHARE_MS = 50;
+paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
+  : streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3);
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
