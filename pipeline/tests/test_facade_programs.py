@@ -615,6 +615,24 @@ def test_monolith_walls_inherit_the_type_of_the_photographed_wall_facing_the_sam
     assert fm.donor(np.array([30.0, -1.0]), south, [low, tall], top=6.5)["upper"] == "blank"
     assert fm.donor(np.array([30.0, -1.0]), south, [low, tall], top=18.0)["upper"] == "curtain"
     assert fm.donor(np.array([30.0, -1.0]), south, [low, tall])["upper"] == "curtain"
+    # The wall's own part first: a low wing's short end wall inherits the wing's blank reading,
+    # even with the glass box's curtain wall nearer and facing the same side.
+    import shapely
+
+    wing = shapely.box(20, -10, 60, 0)  # a 40 x 10 m low wing in front of the box
+    glass = (np.array([10.0, 0.0]), south, dict(upper="curtain", ground=None), 11.2)
+    row = (np.array([40.0, -10.0]), south, dict(upper="blank", ground=None), 11.0)
+    end = (np.array([20.0, -5.0]), np.array([-1.0, 0.0]))
+    assert fm.donor(*end, [glass, row], top=11.0, part=wing)["upper"] == "blank"
+    assert fm.donor(*end, [glass, row], top=11.0)["upper"] == "curtain"  # building-wide: nearest
+    # A reading of the lower storeys of a tall wall (top below the eave) is on its part.
+    tall_wall = (np.array([30.0, 0.0]), south)
+    low_reading = (np.array([40.0, -10.0]), south, dict(upper="curtain", ground=None), 12.0)
+    described = (np.array([20.0, -10.0]), np.array([-1.0, 0.0]), dict(upper="punched", ground=None,
+                 description={}, width=5), 9.0)
+    assert fm.donor(*tall_wall, [described, low_reading], top=20.0, part=wing, bottom=4.0)["upper"] == "curtain"
+    # A part without any typed photograph borrows from the rest of the building.
+    assert fm.donor(*end, [glass], top=11.0, part=wing)["upper"] == "curtain"
     # Evidence of every LoD2 part counts: readings (EN normals) and own descriptions alike.
     reading = dict(glazed, geometry=dict(p0=[C.ORIGIN_E + 40, C.ORIGIN_N - 60],
                                          p1=[C.ORIGIN_E + 30, C.ORIGIN_N - 60], normal=[0, -1]))
@@ -684,7 +702,7 @@ def test_monolith_walls_rebuild_selects_tiles_with_blank_photographed_buildings(
     from turku3d.migrations import monolith_walls, registry
 
     assert monolith_walls.MIGRATION in registry.CHAIN
-    assert monolith_walls.MIGRATION.key == "monolith-walls@2"
+    assert monolith_walls.MIGRATION.key == "monolith-walls@3"
     monkeypatch.setattr(fp, "measured", lambda key: None)
     monkeypatch.setattr(facade_monolith, "evidence",
                         lambda key, observed: dict(blank=key == "theatre", panels=False))

@@ -166,24 +166,39 @@ def _frame(points):
 
 
 VOLUME_WEIGHT = 2.0  # metres of distance per metre of top-height difference (another volume)
+SAME_TOP_M = 1.5     # a photograph reaching above a wall's top by more than this shows a taller volume
+PART_REACH_M = 1.0   # a photograph of the wall's own part lies on that part's footprint outline
 
 
-def donor(centre, normal, records, top=None):
-    """The photographed wall whose type an unphotographed wall inherits: the nearest one facing
-    the same side, else the nearest one at all (its neighbour on the same building). A different
-    top height counts as distance: a library's low stone wing is not its glass box. ``records``
-    are (centre, outward normal, type, top) of every photographed wall of the building, whichever
-    LoD2 part carries it."""
+def donor(centre, normal, records, top=None, part=None, bottom=None):
+    """The photographed wall whose type an unphotographed wall inherits.
+
+    Donors on the wall's own building part come first: photographs on the outline of the wall's
+    footprint part whose observed span lies within the wall's height (a reading covers only the
+    storeys it saw, so its top may stay below the eave, never above it). A library's low stone
+    wing inherits from the wing, never from the glass box beside it. Only
+    a part without any typed photograph borrows from the rest of the building, where a different
+    top height costs distance. Within the chosen set, the nearest wall facing the same side wins,
+    else the nearest at all. ``records`` are (centre, outward normal, type, top) of every
+    photographed wall of the building, whichever LoD2 part carries it."""
     known = [r for r in records if r[2] and r[2]["upper"]]
     if not known:
         return None
-    same = [r for r in known if float(np.asarray(r[1]) @ normal) >= SAME_SIDE]
+    own = []
+    if part is not None and top is not None:
+        import shapely
+
+        low = top - 1e9 if bottom is None else bottom
+        own = [r for r in known if len(r) > 3 and r[3] is not None and low < r[3] <= top + SAME_TOP_M
+               and part.boundary.distance(shapely.Point(*np.asarray(r[0], float))) <= PART_REACH_M]
+    pool = own or known
+    same = [r for r in pool if float(np.asarray(r[1]) @ normal) >= SAME_SIDE]
 
     def cost(r):
-        step = abs(r[3] - top) if top is not None and len(r) > 3 and r[3] is not None else 0.0
+        step = abs(r[3] - top) if not own and top is not None and len(r) > 3 and r[3] is not None else 0.0
         return float(np.linalg.norm(np.asarray(r[0]) - centre)) + VOLUME_WEIGHT * step
 
-    return min(same or known, key=cost)[2]
+    return min(same or pool, key=cost)[2]
 
 
 def evidence_records(observed, rows):
@@ -256,7 +271,7 @@ def ground_band(wall, storeys, m):
     wall["ground_band"] = dict(height_m=band, wall=glazed)
 
 
-def apply(program, key, vertices, observed, description, entrances=()):
+def apply(program, key, vertices, observed, description, entrances=(), footprint=None):
     """Re-own every wall of a monolith to its own evidence or to its photographed neighbour's type.
 
     Photographed walls keep their reading or description. An unphotographed wall inherits the
@@ -327,7 +342,8 @@ def apply(program, key, vertices, observed, description, entrances=()):
         if kind:
             paint(wall, kind, own=True)
         else:
-            kind = donor(*frames[index], records, top=float(quads[index][2:, 1].max()))
+            kind = donor(*frames[index], records, top=float(quads[index][2:, 1].max()), part=footprint,
+                         bottom=float(quads[index][:2, 1].min()))
             if kind is None:
                 blank_wall(wall, blank_colour, blank_material, panels, m)
                 continue
