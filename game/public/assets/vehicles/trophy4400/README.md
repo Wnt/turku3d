@@ -34,7 +34,7 @@ each wheel's synced hub height and steer.
 | cab | flat orange roof x -0.77..0.36 at 1.90 m, light bar on its front edge, A-pillar tubes to the cowl, whip antenna at the roof rear |
 | suspension | boxed square-section A-arms with gusset plates; slotted top plate on the uppers; rear billet portal cases (CV input 0.12 m above the hub); coilovers with wire springs, bypass bodies, CV shafts, tie rods and rack sliders on the rig nodes |
 | triangles L0 / L1 / L2 | 32,693 / 7,553 / 1,388 |
-| sha256 (raw) | 11670471e1b5b9b6006533e45db15cf35cdb5ea9178372c16d3d956410181dfa |
+| sha256 (raw) | 8532a9d4af8e5e666b02112ca2a25c4c7183b3a6d8269abe42e2ea9c171958b5 |
 
 Node contract (SPEC 2.2): `trophy4400` root; `body` (`body_L0/L1/L2`); per corner `uca-*`, `lca-*`,
 `upright-*` > `wheel-*` (tyre/rim `_L0/_L1/_L2`), `tierod-*`, `coil-*-body/-shaft/-spring`,
