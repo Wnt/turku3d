@@ -1,4 +1,6 @@
-"""furniture@2: benches placed by ``props.seating`` (lidar snap, barrier back, water view, way heading) on existing tiles.
+"""furniture@3: benches placed by ``props.seating`` (lidar snap, barrier back, water view, way heading) and footway
+furniture (parking meters, info boards and pylons, dispensers, deep waste containers) turned by ``props.facing`` to
+face the footway, on existing tiles.
 
 The rule is the furniture stage's (``coarse.furniture.produce`` calls the same ``seating.place``), so
 a regeneration matches. Inputs come from the tile itself and the pipeline's own loaders over the
@@ -13,7 +15,8 @@ their origin; a dropped bench's triangles collapse and its row leaves ``objects`
 static collision boxes (``coarse.furniture.BOXES``) in the tile's collision cells, whose meshopt
 triangle sections are kept byte for byte. Every prop row gains the generator's ``yaw_deg`` and
 ``orientation`` (and ``adjusted`` when a rule moved it), so edits match placements exactly.
-A tile without benches is unchanged."""
+Footway furniture never moves and has rotation-invariant (or no) collision: only its batch vertices and normals
+turn about its drawn origin (fitted at the generator's yaw). A tile without benches or footway furniture is unchanged."""
 
 from __future__ import annotations
 
@@ -186,7 +189,7 @@ def _is_box_of(prim, centre, half, origin):
 
 
 def transform(product: Product) -> None:
-    from turku3d.props import seating
+    from turku3d.props import facing, seating
 
     m = product.manifest
     entry = (m.get("visual") or {}).get(product.tile)
@@ -196,7 +199,8 @@ def transform(product: Product) -> None:
     batches = [i for i, node in enumerate(document.get("nodes", []))
                if (node.get("extras") or {}).get("layer") == "props" and "objects" in node["extras"]
                and "mesh" in node]
-    if not any(o.get("prop_type") == "bench" for i in batches for o in document["nodes"][i]["extras"]["objects"]):
+    wanted = ("bench", *facing.KINDS)
+    if not any(o.get("prop_type") in wanted for i in batches for o in document["nodes"][i]["extras"]["objects"]):
         return
     tile = C.VisualTile.parse(product.tile)
     poles, barriers, water, footprints, roads = _tile_inputs(tile)
@@ -230,12 +234,15 @@ def transform(product: Product) -> None:
             bench.x, bench.z, bench.y = float(x), float(z), float(world[:, 1].min())
             benches.append(bench)
             rows.append((i, k, verts, (bench.x, bench.y, bench.z, bench.yaw)))
-    if not benches:
+    faced = _faced(document, binary, product, entry["url"], batches, decoded, by_id, stats)
+    if not benches and not faced:
         return
-    from turku3d.ground.inputs import laz_paths
+    cloud, kept = None, {}
+    if benches:
+        from turku3d.ground.inputs import laz_paths
 
-    cloud = seating.survey_cloud(tile.bbox, benches, laz_paths(tile.bbox.buffered(seating.WINDOW)))
-    kept = {id(b): b for b in seating.place(benches, cloud, barriers, footprints, water, stats, roads)}
+        cloud = seating.survey_cloud(tile.bbox, benches, laz_paths(tile.bbox.buffered(seating.WINDOW)))
+        kept = {id(b): b for b in seating.place(benches, cloud, barriers, footprints, water, stats, roads)}
 
     changed_nodes, dropped_rows, collision_edits = set(), set(), []
     positions = {i: decoded[i][1].astype(np.float64) for i in batches}
@@ -269,6 +276,24 @@ def transform(product: Product) -> None:
         normals[i][verts] = normals[i][verts] @ rot.T
         changed_nodes.add(i)
         collision_edits.append((old, bench))
+    facing.place([item for item, *_ in faced], roads, stats)
+    for item, i, k, verts, drawn in faced:
+        primitive, _, _, offset = decoded[i]
+        row = document["nodes"][i]["extras"]["objects"][k]
+        row["yaw_deg"], row["orientation"] = round(math.degrees(item.yaw), 2), item.orientation
+        turn = item.yaw - drawn
+        if abs(math.remainder(turn, math.tau)) < 1e-4:
+            continue
+        stats["facing_turned"] += 1
+        c, s = math.cos(turn), math.sin(turn)
+        rot = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+        centre = np.array([item.x, 0.0, item.z]) - offset
+        positions[i][verts] = (positions[i][verts] - centre) @ rot.T + centre
+        if i not in normals:
+            normals[i] = read_accessor(document, binary, product, entry["url"],
+                                       primitive["attributes"]["NORMAL"]).astype(np.float64)
+        normals[i][verts] = normals[i][verts] @ rot.T
+        changed_nodes.add(i)
     for i in batches:  # every prop row carries the generator's yaw and rule (EDIT-FORMAT §9)
         for row in document["nodes"][i]["extras"]["objects"]:
             source = by_id.get(row.get("object_id"))
@@ -313,6 +338,39 @@ def transform(product: Product) -> None:
     m.setdefault("furniture", {})["benches"] = dict(sorted(stats.items()))
 
 
+def _faced(document, binary, product, glb_url, batches, decoded, by_id, stats):
+    """(item, batch, row, vertices, drawn yaw) of every footway-furniture row, its origin fitted at the generator's yaw."""
+    from turku3d.props import facing
+    from turku3d.props.models import model
+
+    items, local = [], {}
+    for i in batches:
+        _, pos, idx, offset = decoded[i]
+        for k, row in enumerate(document["nodes"][i]["extras"]["objects"]):
+            source = by_id.get(row.get("object_id"))
+            if row.get("prop_type") not in facing.KINDS:
+                continue
+            if source is None or source.kind != row["prop_type"]:
+                stats["facing_unmatched"] += 1
+                continue
+            shape = local.get(source.prototype)
+            if shape is None:
+                shape = local[source.prototype] = np.asarray(model(*source.prototype).positions, np.float64)
+            verts = np.unique(idx[row["start"]: row["start"] + row["count"]])
+            world = pos[verts].astype(np.float64) + offset
+            c, s = math.cos(source.yaw), math.sin(source.yaw)
+            lx, lz = shape[:, 0].mean(), shape[:, 2].mean()
+            guess = (world[:, 0].mean() - (c * lx + s * lz), world[:, 2].mean() - (-s * lx + c * lz))
+            (x, z), residual = fit_origin(world, source.yaw, guess, shape)
+            if residual > MATCH:
+                stats["facing_unfitted"] += 1
+                continue
+            item = copy.copy(source)
+            item.x, item.z = float(x), float(z)
+            items.append((item, i, k, verts, source.yaw))
+    return items
+
+
 def _collision(product, manifest, edits, stats):
     """Move each changed bench's boxes in the tile's collision cells (dropped: removed)."""
     from turku3d.col.format import Primitive
@@ -352,4 +410,4 @@ def _collision(product, manifest, edits, stats):
         entry["prims"] = entry.get("prims", 0) - found.count(True) + len(additions.get(cell_id, []))
 
 
-MIGRATION = Migration("furniture", 2, transform)
+MIGRATION = Migration("furniture", 3, transform)
