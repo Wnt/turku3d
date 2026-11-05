@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { StaticGroup } from '../../src/world/frozenTransforms';
+import { StaticGroup, attachStatic, freezeModel } from '../../src/world/frozenTransforms';
 
 /** A tile owner with placed building clones (wrapper > root > two meshes), as BuildingModels.attach builds them. */
 function tile(placements: number, frozen: boolean) {
@@ -50,4 +50,21 @@ test('a flagged placement recomputes; updateWorldMatrix and new children still r
   wrapper.matrix.makeTranslation(-5, 0, 0);
   scene.updateWorldMatrix(false, true);
   expect(new THREE.Vector3().setFromMatrixPosition(mesh.matrixWorld).x).toBeCloseTo(-5, 6);
+});
+
+test('a fixed-matrix node attached under a frozen model is composed at once, plain add() leaves it at the origin', () => {
+  const scene = new THREE.Scene(); scene.updateMatrix(); scene.matrixAutoUpdate = false;
+  const model = new THREE.Group(); model.position.set(-750, 0, 750); model.add(new THREE.Mesh(new THREE.BoxGeometry()));
+  scene.add(model); freezeModel(model); scene.updateMatrixWorld();
+  const fixed = () => {
+    const node = new THREE.Group(); node.matrixAutoUpdate = false; node.matrix.makeTranslation(10, 2, 20);
+    node.add(new THREE.Mesh(new THREE.BoxGeometry())); return node;
+  };
+  const plain = fixed(); model.add(plain);
+  const attached = attachStatic(model, fixed());
+  scene.updateMatrixWorld();
+  const at = (o: THREE.Object3D) => new THREE.Vector3().setFromMatrixPosition(o.matrixWorld).toArray();
+  expect(at(plain)).toEqual([0, 0, 0]); // the failure mode the helper exists for
+  expect(at(attached)).toEqual([-740, 2, 770]);
+  expect(at(attached.children[0])).toEqual([-740, 2, 770]);
 });

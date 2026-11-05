@@ -84,6 +84,10 @@ import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
 import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
 import { viewClearance } from './render/viewClearance';
+import { CITIES, CITY, HOME_CITY, cityPageUrl, isHome, type CityName } from './core/city';
+import { PortalTriggers, TURKU_PORTALS, chassisYaw, exitPose, portalsIn, returnTarget, type PortalDef } from './gameplay/portals';
+import { PortalMarkers } from './gameplay/portalMarkers';
+import { CityAvailability, cameThrough, showTransition, takeTicket, walletOnly, writeTicket, type TravelTicket } from './gameplay/travel';
 
 /** "Bring my vehicle here" looks for a kerb within this many metres of the player, off screen first, then up to
  *  BRING_FAR_M nearest first, ground-checking at most BRING_CHECKS candidates. */
@@ -190,7 +194,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     multiplayer?.sendDelivery({ orderId: `${multiplayerRunId}:order-${drop.orderIndex}:stop-${drop.stopIndex}`,
       addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters, job: drop.job });
   } });
-  minimap.setSource(missions);
+  // The missions, shops and story are Turku content (core/city.ts): elsewhere their state waits, the wallet shows.
+  const storyCity = isHome();
+  minimap.setSource(storyCity ? missions : walletOnly(missions));
   voice.attach(missions);
   const zoneRay = (x: number, z: number, top: number) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60);
   const dropoffs = new DropoffGuard(
@@ -198,7 +204,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     (id, point) => missions.relocateDropoff(id, point));
   const zones = new ZoneMarkers(root, (target, top) => target.kind === 'dropoff' ? dropoffs.ground(target)
     : zoneRay(target.point.x, target.point.z, top).then(hit => hit?.point.y ?? null), document.body);
-  zones.setSource(missions);
+  if (storyCity) zones.setSource(missions);
   const shopMenu = new ShopMenu(document.body);
   const pauseMenu = new PauseMenu(document.body, input);
   const streamHint = new StreamHint(document.body);
@@ -209,6 +215,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   let multiplayerPlaying = false;
   let sharedVehicles: SharedVehicles | null = null;
   const poles = new PoleSession(tiles, physics, missions, voice, document.body);
+  // City portals (gameplay/portals.ts): arches under the Turku bridges, the return arch in the other cities.
+  const portalList = portalsIn();
+  /** Ground under (x, z) from a downward ray at `top` (null: the sky), or null while its collision is not resident. */
+  const groundBelow = async (x: number, z: number, top: number | null) => {
+    const t = collisionTileAt(x, z);
+    if (!physics.loaded.has(`c_${t.i}_${t.j}`)) return null;
+    return (await physics.raycast({ x, y: top ?? 500, z }, { x: 0, y: -1, z: 0 }, top === null ? 1000 : 20))?.point.y ?? null;
+  };
+  const portalMarkers = new PortalMarkers(root, portalList, groundBelow, document.body);
+  const portalTriggers = new PortalTriggers(portalList);
+  const availability = new CityAvailability();
+  let travelling = false;
   const mapDirection = new THREE.Vector3();
 
   let mode: 'foot' | 'car' = 'foot';
@@ -252,7 +270,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     vehicleSignals.enter();
     if (multiplayerPlaying) sharedVehicles?.drive(id);
     saveGame.usedVehicle(id);
-    if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId);
+    if (drivenId !== 'player' && !seated.of(drivenId)) parkedVisuals.takeOver(drivenId, manifest.vehicles?.find(v => v.object_id === id));
     mode = 'car';
     orbit.distance = 8;
   };
@@ -321,6 +339,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
     onQuit: () => { sharedVehicles?.stop(drivenId); multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
+    returnHome: storyCity ? undefined : {
+      detail: `To the ${returnTarget(CITY.name, cameThrough(sessionStore())).place.split(',')[0]} portal`,
+      run: () => depart(HOME_CITY, null) },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
@@ -377,6 +398,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       frameMs: frameEma, missions: missions.snapshot(), zones: zones.snapshot(),
       recovery: recovery.snapshot(feet),
       shopMenu: { open: shopMenu.open, selected: shopMenu.selected }, fly: fly?.active ?? null,
+      city: CITY.name, portals: portalMarkers.snapshot(), travelling,
       pauseMenu: { open: pauseMenu.open, page: pauseMenu.panel.page?.id ?? null, selected: pauseMenu.panel.selected },
       startScreen: startScreen.active, loading: saveGame.loading, autosave: saveGame.autosave.last, errors,
       multiplayer: multiplayer ? { connected: multiplayer.state.connected, nick: multiplayer.state.you?.nick,
@@ -407,14 +429,72 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
   })();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
   Object.assign(window.__game!, { vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
   window.__game!.replay = { snapshot: () => ({ epochMs: world.dayClock.sharedNow(), seconds: 0, seed: 20261102,
     population: { traffic: traffic.snapshot(), walkers: walkers.snapshot() } }) };
   const capture = captureAllowed() ? captureControl(window.__game!, document.body) : null;
   if (capture) { pauseMenu.capture = capture; window.__game!.capture = capture; }
 
+  /** Leaves for `to` (gameplay/travel.ts): the ticket carries the mission save, the ride and the multiplayer choice. */
+  const depart = (to: CityName, portal: PortalDef | null) => {
+    if (travelling) return;
+    travelling = true;
+    const driven = mode === 'car' ? physics.latest?.vehicles.find(v => v.id === drivenId) : undefined;
+    const home = to === HOME_CITY ? returnTarget(CITY.name, cameThrough(sessionStore())) : null;
+    if (!multiplayerPlaying) saveGame.autosave.save('travel');
+    writeTicket(sessionStore(), { v: 1, from: CITY.name, to, portal: home?.id ?? portal?.id ?? null,
+      ride: driven && drivenId ? { id: drivenId, kind: driven.kind ?? 'car' } : null, mission: missions.serialize(),
+      multiplayer: multiplayerPlaying, at: Date.now() });
+    showTransition(document.body, CITIES[to]);
+    paused = true;
+    setTimeout(() => location.assign(cityPageUrl(to, location, home ? exitPose(home) : undefined)), 700);
+  };
+  /** The vehicle the player drove through in, parked at the arrival (Turku: on the portal's lanes past the deck; elsewhere
+   *  the start parking by the centre), ready to be entered; null when it cannot be placed. */
+  const seatRide = async (ride: NonNullable<TravelTicket['ride']>, home: PortalDef | null): Promise<string | null> => {
+    const id = [OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID].includes(ride.id) ? ride.id : OWN_VEHICLE_ID;
+    const exit = home ? enToEngine(exitPose(home).E, exitPose(home).N) : null;
+    const spot = exit && home ? { x: exit.x, z: exit.z, yaw: chassisYaw(home.headingDeg) } : world.car;
+    const y = exit && home ? await groundBelow(spot.x, spot.z, home.rayTop) : world.car.y;
+    if (y === null) return null;
+    await parkRide(id, spot, y);
+    const t0 = performance.now();
+    while (!physics.latest?.vehicles.some(v => v.id === id && Math.hypot(v.pos.x - spot.x, v.pos.z - spot.z) < 1)) {
+      if (performance.now() - t0 > 10000) return null;
+      physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    return id;
+  };
+  /** Arrival from another city: no start menu; solo or the target's multiplayer room, as the player left. */
+  const arrive = (t: TravelTicket) => {
+    startScreen.close();
+    const home = TURKU_PORTALS.find(p => p.id === t.portal && isHome()) ?? null;
+    // world.spawn is the city centre, or in Turku the ?spawn= exit pose the leaving page asked for.
+    const at = { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw };
+    const seat = t.ride ? () => seatRide(t.ride!, home) : undefined;
+    const solo = () => saveGame.playAt(at, seat, t.mission);
+    if (!t.multiplayer) { void solo().catch(fail); return; }
+    multiplayerRunId = crypto.randomUUID();
+    poles.setClient(client); scoreboard.setClient(client);
+    void preparedMultiplayer.then(joined => {
+      if (!joined) {
+        poles.clearClient(); scoreboard.setClient(null);
+        portalMarkers.say(`Multiplayer is unavailable in ${CITY.title}: playing solo.`, performance.now(), 6);
+        return solo();
+      }
+      releaseStarts(); multiplayerPlaying = true;
+      // The room may hand back the car where this session left it (inside the portal): the trip's placement wins.
+      return saveGame.playAt(at, async () => {
+        const kept = await sharedVehicles!.restore();
+        return (seat ? await seat() : null) ?? kept;
+      }, t.mission);
+    }).catch(fail);
+  };
+  const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
+  else if (ticket) startScreen.afterBrowserWarning(() => arrive(ticket));
   else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
   else startScreen.show(saveGame.startFlow.start());
   const multiplayerReady = multiplayerStartState.position === undefined ? null : !!multiplayerStartState.position;
@@ -589,14 +669,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
-    const mission = missions.update(paused || startScreen.active ? 0 : dt, {
+    const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), input: input.source,
       vehicleId: mode === 'car' ? drivenId ?? OWN_VEHICLE_ID : null, choose: menu.choose, leave: menu.leave,
       rideAt: ride ? { x: ride.pos.x, y: ride.pos.y, z: ride.pos.z } : null,
-    });
+    }) : { bought: null, opened: false, checkpoint: null, park: false, heist: null };
     if (mission.park && !heldElsewhere(missions.rideId)) void parkRide(missions.rideId, PIZZERIA_VEHICLE_SPOT).catch(fail);
     if (mission.heist === 'delivered') void parkHeistCar().catch(fail);
-    const heistWanted = missions.heist !== null && missions.vehicle !== 'truck';
+    const heistWanted = storyCity && missions.heist !== null && missions.vehicle !== 'truck';
     if (wasLoading && !saveGame.loading && heistTruck && missions.vehicle !== 'truck') {
       physics.removeVehicle(TRUCK_ID); heistTruck = false; // a loaded game places its own
     }
@@ -796,6 +876,20 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
     if (multiplayerPlaying) minimap.setRemotes(remotePlayers.markers());
     minimap.update({ position: { x: feet.x, z: feet.z }, headingDeg: compassDeg(mapDirection.x, mapDirection.z), facingDeg, mode, nearEdge });
     zones.update(dt, camera, { x: feet.x, z: feet.z });
+    // A portal fires once on entry; a city whose tiles are not served yet only says so (gameplay/travel.ts).
+    if (!travelling && !paused && !startScreen.active && !saveGame.loading && !fly?.active) {
+      const hit = portalTriggers.update(feet.x, feet.y, feet.z, id => portalMarkers.groundOf(id));
+      if (hit) void availability.confirm(hit.to, Date.now()).then(open => {
+        if (open) depart(hit.to, hit);
+        else portalMarkers.say(`${CITIES[hit.to].title} is coming soon: its streets are still being built.`, performance.now());
+      });
+    }
+    for (const p of portalList) {
+      const served = availability.served(p.to, Date.now());
+      portalMarkers.setSoon(p.id, served === null ? null : !served);
+    }
+    portalMarkers.update(dt, camera, feet, now);
+    minimap.setPortals(portalMarkers.markers());
     const playerName = startScreen.active || positionHud.characterHidden || !devLayers.nameTagsVisible ? undefined : multiplayer?.state.you?.nick;
     hud.update(now, playerName, () => {
       const en = engineToEN(feet.x, feet.y, feet.z);
@@ -835,6 +929,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null): Promise<
       walkers.dispose();
       parkedVisuals.dispose();
       poles.dispose();
+      portalMarkers.dispose();
       scoreboard.dispose(); rounds.dispose();
       listeners.abort();
       saveGame.dispose();

@@ -1,8 +1,9 @@
 // Mission progress follows the same per-tab, server-issued token as multiplayer identity.
 // It is independent of solo save slots and never overrides server-owned pose/vehicles.
 import type { KeyValueStore } from '../core/save';
+import { cityKey } from '../core/city';
 
-const KEY = 'turku3d.mp.progress.v1';
+const KEY = cityKey('turku3d.mp.progress.v1');
 const TOKEN = /^[a-f0-9]{64}$/;
 
 export class MultiplayerProgress {

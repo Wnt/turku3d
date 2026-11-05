@@ -5,6 +5,7 @@ import { interleaveProgram } from '../render/facadeProgramAttributes';
 import { stableMaterial } from '../render/lodFade';
 import { disposeDraw } from '../render/sharedMaterials';
 import { streamingBudget } from '../render/preparationBudget';
+import { attachStatic } from './frozenTransforms';
 
 interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parents: THREE.Object3D[]; placements: THREE.Object3D[] }
 const placementOwners = new WeakMap<THREE.Object3D, readonly THREE.Object3D[]>();
@@ -168,7 +169,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
       }
     }
     for (const source of sources) source.removeFromParent();
-    parent.add(mesh); batches.push({ mesh, sources, parents: sourceParents, placements: sourcePlacements });
+    attachStatic(parent, mesh); batches.push({ mesh, sources, parents: sourceParents, placements: sourcePlacements });
   }
   updateStaticBatchVisibility(model);
 }

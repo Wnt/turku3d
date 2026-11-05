@@ -75,7 +75,8 @@ def wgs84_bbox(area: config.Area, extra: float = OSM_EXTRA_M) -> tuple[float, fl
 def fetch_finland(log=print) -> Path:
     root = kind_dir("osm")
     reg = Registry(root)
-    cached = sorted((root / "geofabrik").glob("finland-*.osm.pbf"))
+    region = GEOFABRIK_FINLAND.rsplit("/", 1)[1].removesuffix("-latest.osm.pbf")  # finland, noord-holland
+    cached = sorted((root / "geofabrik").glob(f"{region}-[0-9]*.osm.pbf"))
     for path in reversed(cached):
         if reg.is_complete(path):
             log(f"osm  {path.name}: cached snapshot")
@@ -108,7 +109,7 @@ def fetch_finland(log=print) -> Path:
 def clip(area: config.Area, src: Path, log=print) -> Path:
     root = kind_dir("osm")
     reg = Registry(root)
-    date = src.name.split("-")[1].split(".")[0]
+    date = src.name.rsplit("-", 1)[1].split(".")[0]  # <region>-YYMMDD.osm.pbf
     out = root / area.name / f"{area.name}-{date}.osm.pbf"
     if reg.is_complete(out):
         log(f"osm  clip {out.name}: cached")

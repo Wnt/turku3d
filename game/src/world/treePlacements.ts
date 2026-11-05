@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu';
+import { attachStatic } from './frozenTransforms';
 
 export interface TreePlacements {
   version: 1;
@@ -25,6 +26,6 @@ export function addTreePlacements(model: THREE.Object3D, data: TreePlacements) {
       instance_species:node.species,instance_near_water:node.nearWater };
     const p=new THREE.Vector3(),q=new THREE.Quaternion(),s=new THREE.Vector3(),m=new THREE.Matrix4();
     for(let i=0;i<source.count;i++) source.setMatrixAt(i,m.compose(p.fromArray(node.positions[i]),q.fromArray(node.rotations[i]),s.fromArray(node.scales[i])));
-    root.add(source); model.add(root);
+    root.add(source); attachStatic(model, root);
   }
 }

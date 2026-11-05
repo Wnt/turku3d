@@ -2,7 +2,7 @@
 // sun, night factor and lit windows. The sun follows the clock on a fixed synthetic path, decoupled from the
 // calendar, so a real night happens in every cycle.
 import { nightFactor } from '../render/timecycle';
-import { TURKU_LAT } from './sun';
+import { CITY_LAT } from './sun';
 
 export { nightFactor };
 
@@ -38,7 +38,7 @@ export interface CycleState {
 /** Sun azimuth (degrees clockwise from true north) and elevation for a clock hour on the synthetic path. */
 export function sunPath(hour: number): { azimuth: number; elevation: number } {
   const rad = Math.PI / 180;
-  const h = (hour - SOLAR_NOON) * 15 * rad, phi = TURKU_LAT * rad, dec = DECLINATION * rad;
+  const h = (hour - SOLAR_NOON) * 15 * rad, phi = CITY_LAT * rad, dec = DECLINATION * rad;
   const elevation = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(h)) / rad;
   const south = Math.atan2(Math.sin(h), Math.cos(h) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi)) / rad;
   return { azimuth: ((south + 180) % 360 + 360) % 360, elevation };

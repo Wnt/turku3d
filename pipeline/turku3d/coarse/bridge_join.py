@@ -175,6 +175,9 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather, leve
         if path is not None:
             patch(path, lambda q: height_at(q) - 0.02, way["width"], 2.0)
     members = way.get("member_ways", [way])
+    from .bridges import building_region
+
+    region = building_region(way)
     for approach in way.get("approaches", []):
         if approach["tags"].get("highway") == "steps":
             continue  # Mapped flights, not a terrain ramp, own these climbs.
@@ -187,28 +190,76 @@ def approach_patches(way, line, ramps, height_at, sample, blocked, feather, leve
             if not any(member["line"].boundary.distance(at) < 0.05 for member in members):
                 continue
             path = shapely.LineString(coords)
-            maximum = min(30.0, path.length)
+            maximum = min(APPROACH_MAX, path.length, region_exit(path, region))
             first = min(3.0, maximum)
             top = float(height_at(origin[None])[0])
             reach = maximum
             for distance in np.unique(np.r_[first, np.arange(4, maximum, 2), maximum]):
                 q = np.asarray(path.interpolate(float(distance)).coords[0])
                 ahead = np.asarray(path.interpolate(min(path.length, distance + 2)).coords[0])
+                rise = abs(top - sample(*q))
                 if (
-                    abs(top - sample(*q)) <= 0.08 * distance
+                    rise <= 0.08 * distance
+                    and rise <= vertical_curve_rise(distance)
                     and abs(sample(*ahead) - sample(*q)) <= 0.2
                 ):
                     reach = float(distance)
                     break
             path = substring(path, 0, reach)
-            bottom = sample(*path.coords[-1])
+            end = np.asarray(path.coords[-1])
+            bottom = sample(*end)
+            # The deck's own grade at its end and the ground's grade at the ramp foot.
+            direction = (end - origin) / max(np.linalg.norm(end - origin), 1e-9)
+            back = origin - direction * 2.0
+            grade_top = (top - float(height_at(back[None])[0])) / 2.0
+            foot = end + direction * 2.0
+            grade_bottom = (sample(*foot) - bottom) / 2.0
 
-            def level(query, path=path, top=top, bottom=bottom):
+            def level(query, path=path, top=top, bottom=bottom, g0=grade_top, g1=grade_bottom):
                 station = shapely.line_locate_point(path, shapely.points(query))
-                return top + (bottom - top) * station / path.length
+                return vertical_curve(station, path.length, top, bottom, g0, g1)
 
             patch(path, level, approach["width"], feather)
     return patches
+
+
+APPROACH_MAX = 30.0  # m: the longest landward ramp from a bridge end
+# Largest curvature (1/m) of a ramp's vertical curve: 1.5 m/s^2 at 40 km/h (v^2 * k), below the
+# 0.3 g a speed hump gives. A straight ramp's grade breaks are a kink the car's suspension slams.
+CURVE_KAPPA = 0.012
+GRADE_LIMIT = 0.12  # the grade a matched end slope may carry into the curve
+
+
+def region_exit(path, region, margin=0.5):
+    """Distance along ``path`` (starting inside ``region``) to its first exit, less ``margin``."""
+    import shapely
+
+    if region.is_empty:
+        return path.length
+    crossings = shapely.get_parts(shapely.intersection(path, region.boundary))
+    distances = [d for d in (path.project(shapely.Point(c)) for g in crossings
+                             for c in shapely.get_coordinates(g)) if d > 0.01]
+    return max(0.05, min(distances) - margin) if distances else path.length
+
+
+def vertical_curve_rise(length):
+    """The largest rise a smooth ramp of this length takes within CURVE_KAPPA (6 h / L^2)."""
+    return CURVE_KAPPA * length * length / 6.0
+
+
+def vertical_curve(station, length, top, bottom, grade_top, grade_bottom):
+    """Ramp height at ``station`` from the deck end: a cubic Hermite curve that leaves the deck at
+    its own grade and meets the ground at the ground's grade, instead of a straight ramp with a
+    grade break at each end (a jolt at speed). Shared by terrain, collision and lane heights."""
+    station = np.clip(np.asarray(station, dtype=np.float64), 0.0, max(length, 1e-9))
+    if length <= 1e-9:
+        return np.full_like(station, top)
+    t = station / length
+    g0, g1 = (float(np.clip(g, -GRADE_LIMIT, GRADE_LIMIT)) * length
+              for g in (grade_top, grade_bottom))
+    h00, h10 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t
+    h01, h11 = -2 * t**3 + 3 * t**2, t**3 - t**2
+    return h00 * top + h10 * g0 + h01 * bottom + h11 * g1
 
 
 def grade(positions, patches, base_heights=None, edges=False):

@@ -138,3 +138,28 @@ test('ephemeral WebSocket server shares pole breaks and fines', async t => {
   c.send(JSON.stringify({ v: 2, type: 'hello' }));
   assert.deepEqual((await welcomeC).brokenPoles.map(p => p.poleId), [poleId]);
 });
+
+test('each city is its own room: players in Turku and Espoo never see each other, scores stay apart', async t => {
+  const app = await start(t);
+  const turku = await socket(`${app.ws}/`);
+  const turkuWelcome = messageOf(turku, 'welcome');
+  turku.send(JSON.stringify({ v: 2, type: 'hello' }));
+  const espoo = await socket(`${app.ws}/city/espoo`);
+  const espooWelcome = messageOf(espoo, 'welcome');
+  espoo.send(JSON.stringify({ v: 2, type: 'hello' }));
+  const [a, b] = await Promise.all([turkuWelcome, espooWelcome]);
+  assert.deepEqual(a.players.map(p => p.id), [a.you.id]);
+  assert.deepEqual(b.players.map(p => p.id), [b.you.id]);
+  // A Turku session is unknown in the Espoo room: it gets its own player there.
+  const again = await socket(`${app.ws}/city/espoo`);
+  const third = messageOf(again, 'welcome');
+  again.send(JSON.stringify({ v: 2, type: 'hello', session: a.session }));
+  assert.notEqual((await third).you.id, a.you.id);
+  const live = await (await fetch(`${app.http}/live.json?city=espoo`)).json();
+  assert.equal(live.players.length, 2);
+  assert.equal((await (await fetch(`${app.http}/live.json`)).json()).players.length, 1);
+  assert.equal((await fetch(`${app.http}/live.json?city=narnia`)).status, 404);
+  assert.deepEqual((await (await fetch(`${app.http}/healthz`)).json()).cities.espoo, { connections: 2, online: 2 });
+  for (const path of ['/city/turku', '/city/narnia', '/city/', '/city/espoo/x']) assert.equal(await denied(`${app.ws}${path}`, 'https://wnt.github.io'), 404, path);
+  for (const ws of [turku, espoo, again]) ws.terminate();
+});

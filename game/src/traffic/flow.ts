@@ -25,6 +25,19 @@ const PASS_AFTER = 4;
 /** A footprint-locked car ahead counts as an obstacle after PASS_LOCKED seconds without headway; a standing player is
  *  a PERSON_BODY m square. */
 const PASS_LOCKED = 20, PERSON_BODY = 0.8;
+/** Nose up against an obstacle it can get round (at its stop point), a driver first backs up REVERSE_BACK m (more the
+ *  more patient it is: 1.5-3 m) at REVERSE_SPEED m/s, at most REVERSE_MAX m in all until it moves on. */
+const REVERSE_BACK = 1.5, REVERSE_SPEED = 2.5, REVERSE_MAX = 6;
+/** GTA V blocked-lane experiments (docs/handover/gta-traffic-study.md 4.5): a front car facing a blockage it cannot get
+ *  past reverses 3-8 m within 2-5 s of stopping (here BLOCKED_BACK 3-6 m after BLOCKED_AFTER 2-4 s), and only after a
+ *  long wait turns round (one U-turn after 66 s there; here UTURN_AFTER 45-90 s) when the opposite lane is clear. */
+const BLOCKED_AFTER = 2, BLOCKED_BACK = 3, UTURN_AFTER = 45, UTURN_SECONDS = 6, UTURN_CLEAR = 15;
+/** A stationary vehicle seen this far ahead (m) is passed without stopping when the corridor is clear (GTA drivers
+ *  drift out 8-60 m ahead at unchanged speed). */
+const PASS_SEE = 60;
+/** A junction head held by a full exit for REROUTE_AFTER × its patience takes another movement with room; at most
+ *  once per REROUTE_GAP ticks. */
+const REROUTE_AFTER = 3, REROUTE_GAP = 300;
 type Body = Obstacle<FlowCar>;
 /** How far an oncoming driver squeezes right to let a passing car through (m). */
 const PASS_SQUEEZE = 1.6;
@@ -69,16 +82,25 @@ export interface FlowCar {
   waitsFor: string | null;
   /** Seconds held up below walking pace by a player (on foot or in a vehicle) in its path: the driver honks. */
   held: number;
+  /** Metres still to back up before pulling out round an obstacle (0 when not reversing). */
+  reverse: number;
+  /** Tick of the last route change at a blocked exit (a driver changes its mind at most once per REROUTE_GAP). */
+  rerouted: number;
+  /** Turning round mid-block onto the opposite lane (a blockage it cannot get past), or null. */
+  uturn: UTurn | null;
   /** Lateral offset from the lane centre (m, + right) while going round a stopped car, its target, its rate (m/s)
    *  the arc length at which the car steers back, and seconds a pass has stalled on something other than a player. */
   swerve: number; swerveTarget: number; swerveRate: number; swerveEnd: number; swerveStall: number;
   blockedBy: string | null;
   change: LaneChange | null; signal: LaneSignal | null; changeCooldown: number;
-  previous: { route: Lane; s: number; speed: number; change: LaneChange | null; swerve: number; swerveRate: number };
+  previous: { route: Lane; s: number; speed: number; change: LaneChange | null; swerve: number; swerveRate: number; uturn: UTurn | null };
   pose: CarPose;
 }
 
 
+
+/** A U-turn from the car's lane position onto `to` at arc length `at`, `progress` 0..1 along a U-shaped path. */
+export interface UTurn { to: Lane; at: number; progress: number }
 
 export interface TrafficCheckpoint {
   version: number; roads: string; tick: number; epoch: number;
@@ -86,15 +108,17 @@ export interface TrafficCheckpoint {
   pedestrians: PedestrianFrame | null;
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
-    born: number; stopped: number; waiting: number; backed: number; stuck: number; progress: number; waitsFor: string | null; held: number; swerve: number; swerveTarget: number; swerveRate: number;
+    born: number; stopped: number; waiting: number; backed: number; stuck: number; progress: number; waitsFor: string | null; held: number; reverse: number; rerouted: number; swerve: number; swerveTarget: number; swerveRate: number;
     swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number;
     change: (Omit<LaneChange, 'from'> & { from: string }) | null;
     signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
+    uturn: (Omit<UTurn, 'to'> & { to: string }) | null;
     previous: { route: string; s: number; speed: number; change: (Omit<LaneChange, 'from'> & { from: string }) | null;
-      swerve: number; swerveRate: number } }[];
+      swerve: number; swerveRate: number; uturn: (Omit<UTurn, 'to'> & { to: string }) | null } }[];
 }
 
 const saveChange = (change: LaneChange | null) => change ? { ...change, from: `${change.from.tile}:${change.from.id}` } : null;
+const saveUTurn = (u: UTurn | null) => u ? { ...u, to: `${u.to.tile}:${u.to.id}` } : null;
 
 export class TrafficFlow {
   readonly cars = new Map<string, FlowCar>();
@@ -182,7 +206,7 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -227,11 +251,11 @@ export class TrafficFlow {
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
       cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
         reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, waitsFor: c.waitsFor, held: c.held, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
+        stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, waitsFor: c.waitsFor, held: c.held, reverse: c.reverse, rerouted: c.rerouted, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
         swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw,
         change: saveChange(c.change), changeCooldown: c.changeCooldown,
-        signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null,
-        previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change) } })) };
+        signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null, uturn: saveUTurn(c.uturn),
+        previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change), uturn: saveUTurn(c.previous.uturn) } })) };
   }
 
   restore(state: TrafficCheckpoint) {
@@ -240,6 +264,7 @@ export class TrafficFlow {
     const { laneById: lanes, routeById: routes } = this.ids!;
     const loadChange = (change: TrafficCheckpoint['cars'][number]['change']): LaneChange | null =>
       change ? { ...change, from: lanes.get(change.from)! } : null;
+    const loadUTurn = (u: TrafficCheckpoint['cars'][number]['uturn']): UTurn | null => u ? { ...u, to: lanes.get(u.to)! } : null;
     this.suppressed = new Set(state.suppressed);
     this.pedestrians = state.pedestrians ? { time: state.pedestrians.time, people: state.pedestrians.people.map(p => ({ ...p })) } : null;
     this.demand = new Map(state.demand.map(([id, n]) => [lanes.get(id)!, n]));
@@ -249,8 +274,8 @@ export class TrafficFlow {
       const model = pick(hash01('model', saved.key), MODEL_WEIGHTS), [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[model]];
       const car: FlowCar = { ...saved, lane, route, model, width, length, blockedBy: null, pose: blankPose(),
         change: loadChange(saved.change), signal: saved.signal ? { ...saved.signal, target: lanes.get(saved.signal.target)! } : null,
-        reservation: saved.reservation ? routes.get(saved.reservation)! : null,
-        previous: { ...saved.previous, route: previous, change: loadChange(saved.previous.change) } };
+        reservation: saved.reservation ? routes.get(saved.reservation)! : null, uturn: loadUTurn(saved.uturn),
+        previous: { ...saved.previous, route: previous, change: loadChange(saved.previous.change), uturn: loadUTurn(saved.previous.uturn) } };
       sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
     }
   }
@@ -309,6 +334,7 @@ export class TrafficFlow {
       car.previous = { ...car.previous, route: previous ?? car.route };
       if (car.change) car.change.from = lanes.get(`${car.change.from.tile}:${car.change.from.id}`) ?? car.change.from;
       if (car.signal) car.signal.target = lanes.get(`${car.signal.target.tile}:${car.signal.target.id}`) ?? car.signal.target;
+      if (car.uturn) { const to = lanes.get(`${car.uturn.to.tile}:${car.uturn.to.id}`); car.uturn = to ? { ...car.uturn, to } : null; }
       sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
     }
     const t = this.tick * FLOW_STEP;
@@ -317,7 +343,7 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0 };
   }
 
   reset(t: number) {
@@ -511,7 +537,7 @@ export class TrafficFlow {
     this.occupancy.clear();
     for (const car of this.cars.values()) {
       car.previous = { route: car.route, s: car.s, speed: car.speed, change: car.change ? { ...car.change } : null,
-        swerve: car.swerve, swerveRate: car.swerveRate };
+        swerve: car.swerve, swerveRate: car.swerveRate, uturn: car.uturn ? { ...car.uturn } : null };
       sampleFlowPose(car, 0, () => 0, car.pose); this.occupy(car);
     }
     // Demand is tested on its original shared slot hour. A blocked source queues outside the resident area;
@@ -559,7 +585,10 @@ export class TrafficFlow {
             if (remaining <= car.length / 2 + 1.2 + car.speed * FLOW_STEP) {
               car.reservation = lane; reservations.push(car);
             }
-          } else stop = Math.min(lane.length - 0.8, this.safeFront(car.lane)) - car.length / 2;
+          } else {
+            stop = Math.min(lane.length - 0.8, this.safeFront(car.lane)) - car.length / 2;
+            this.reroute(car, t);
+          }
         }
       }
       if (car.change) {
@@ -607,18 +636,42 @@ export class TrafficFlow {
       const patience = PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key));
       if (!car.change && !car.swerveTarget && !car.swerve) {
         let obstacles: Body[] | null = null;
-        if (byPlayer && car.held > patience) {
-          // A stopped player's vehicle, or a player standing in the lane (a walker that does not move on).
-          if (blocker && Math.hypot(blocker.vx, blocker.vz) < 0.5) obstacles = [blocker];
-          else if (!blocker && car.held > 1.5 * patience) obstacles = this.standingPlayers(car, lane);
+        const parked = byPlayer && blocker && Math.hypot(blocker.vx, blocker.vz) < 0.5;
+        if (parked && (car.speed > 1 || car.held > patience)) {
+          // A stopped player's vehicle: moving drivers go round it at once when they can (no stop first).
+          obstacles = [blocker!];
+        } else if (byPlayer && car.held > patience) {
+          // A player standing in the lane (a walker that does not move on).
+          if (!blocker && car.held > 1.5 * patience) obstacles = this.standingPlayers(car, lane);
         } else if (leader && car.stopped > patience && leader.stopped > patience && car.s < lane.length - PASS_CLEAR_LINE) {
           // A queue that is not a queue: the car ahead stands mid-block because a player's car or a footprint lock
           // holds it. Go round the car and what holds it.
           obstacles = this.stalled(leader, lane);
         }
-        const plan = obstacles?.length ? this.passPlan(car, lane, obstacles) : null;
-        if (plan) { car.swerveTarget = plan.offset; car.swerveEnd = plan.end; car.swerveStall = 0; }
+        if (obstacles?.length && !car.reverse) {
+          // Out of a blocked lane into the free one beside it first; else round the obstacle in this lane.
+          const escape = this.changer?.escape(car, this.tick, this.byLane) ?? null;
+          const plan = escape ? null : this.passPlan(car, lane, obstacles);
+          const patient = hash01('honk-patience', car.key);
+          if ((escape instanceof Object || plan) && stop - car.s < 0.5 && car.backed < REVERSE_MAX && this.roomBehind(car)) {
+            // Too close to pull out: back up a little first (guarded, as an unlock).
+            car.reverse = Math.min(REVERSE_MAX - car.backed, REVERSE_BACK * (1 + patient)); this.stats.reverses++;
+          } else if (escape instanceof Object) {
+            this.beginChange(car, escape); car.change!.escape = true; this.stats.escapes++;
+          } else if (plan) { car.swerveTarget = plan.offset; car.swerveEnd = plan.end; car.swerveStall = 0; }
+          // Indicating: wait where it is rather than creeping back up to the obstacle.
+          else if (escape === 'signal') stop = Math.min(stop, car.s);
+          else if (!escape) {
+            // No way past: the front car backs off once and stays there; after a long wait it turns round if it can.
+            const wait = byPlayer ? car.held : car.stopped;
+            if (stop - car.s < 0.5 && wait > BLOCKED_AFTER * (1 + patient) && car.backed < 0.5 && this.roomBehind(car)) {
+              car.reverse = Math.min(REVERSE_MAX, BLOCKED_BACK * (1 + patient)); this.stats.reverses++;
+            } else if (wait > UTURN_AFTER * (1 + patient)) this.beginUTurn(car);
+            if (car.backed > 0.5) stop = Math.min(stop, car.s);
+          }
+        }
       }
+      if (car.reverse || car.uturn) stop = car.s;
       const gap = Math.max(0, stop - car.s);
       desired = Math.min(desired, Math.sqrt(2 * BRAKE * gap));
       // A speed-dependent following headway avoids robotic bumper-to-bumper pursuit.
@@ -642,12 +695,19 @@ export class TrafficFlow {
         const progress = car.change.progress, rate0 = car.change.rate;
         // Held at the change's stop point (8 m before the line) with the move unfinished: finish it at a creep.
         // Progress tied to speed alone never completed there, and the car waited for good.
-        const held = car.s > lane.length - 9;
+        const held = car.s > lane.length - 9 || !!car.change.escape;
         car.change.rate = Math.max(Math.min(1, car.speed / 3), held ? CHANGE_CREEP : 0) / car.change.duration;
         car.change.progress = Math.min(1, progress + FLOW_STEP * car.change.rate);
+        // Stalled half-way by another car's body for UNLOCK_AFTER s: give the change up and ease back into the old lane
+        // (two drivers aiming for the same gap otherwise hold each other for good).
+        if (car.blockedBy?.startsWith('footprint:') && car.stopped > UNLOCK_AFTER && progress < 0.5) {
+          car.change.progress = Math.max(0, progress - FLOW_STEP * CHANGE_CREEP / car.change.duration);
+          if (car.change.progress === 0) this.abandonChange(car);
+        }
         // A blocked move keeps last tick's progress and rate (the rate turns the nose), i.e. last tick's checked pose.
         if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { car.change.progress = progress; car.change.rate = rate0; }
       }
+      if (car.uturn) this.advanceUTurn(car);
       // A final swept-footprint guard also covers malformed/fragmented junctions and cross-tile geometry.
       // It stops before contact; it never resolves an overlap by teleporting or hiding a car.
       for (let ds = Math.min(0.3, step); ds <= step + 1e-7 && step > 0; ds = Math.min(step, ds + 0.3)) {
@@ -665,12 +725,24 @@ export class TrafficFlow {
       }
       car.s = originalS + Math.max(0, step);
       if (step < car.speed * FLOW_STEP - 1e-6) car.speed = step / FLOW_STEP;
+      if (car.reverse > 0) this.backUp(car);
+      // The pose this car ends the tick in must not touch another body (a heading that changes with speed, e.g. a
+      // pass stopped short beside oncoming traffic, can turn corners the guard did not see): keep last tick's state.
+      const startLane = car.previous.route === car.route || car.previous.route.next === car.route.next;
+      if (startLane && !car.uturn?.progress && this.touches(car, sampleFlowPose(car, 0, () => 0))) {
+        const p = car.previous;
+        // Exactly last tick's pose (others checked against it); speed and swerve rate set the nose, so they stay too.
+        car.s = p.s; car.speed = p.speed; car.swerve = p.swerve; car.swerveRate = p.swerveRate;
+        if (car.change && p.change) { car.change.progress = p.change.progress; car.change.rate = p.change.rate; }
+        step = 0;
+      }
+      if (car.uturn?.progress === 1) this.finishUTurn(car);
       if (step < 0.01 && car.blockedBy?.startsWith('footprint:')) {
         const other = this.cars.get(car.blockedBy.slice(10));
         this.makeRoom(car, lane, other);
         if (other) this.unlock(car, other);
       }
-      if (step > 0.01) car.backed = 0;
+      if (step > 0.01 && !car.reverse) car.backed = 0;
       car.progress += Math.max(0, step);
       if (car.progress >= STUCK_PROGRESS) { car.progress = 0; car.stuck = 0; car.waitsFor = null; } else car.stuck += FLOW_STEP;
       const named = car.blockedBy ? car.blockedBy.indexOf(':') : -1;
@@ -794,6 +866,109 @@ export class TrafficFlow {
       this.cars.values(), c => c === car);
   }
 
+  /** The opposite lane of the same street (same tile, ends swapped), innermost first, or null. */
+  private opposite(lane: Lane): Lane | null {
+    return this.lanes.filter(l => l.tile === lane.tile && l.start.node === lane.end.node && l.end.node === lane.start.node)
+      .sort((a, b) => a.k - b.k || cmp(a.id, b.id))[0] ?? null;
+  }
+
+  /** Starts a U-turn onto the opposite lane at the mirrored point when that lane is clear around it (no car within
+   *  UTURN_CLEAR m, and nothing arriving within UTURN_SECONDS). */
+  private beginUTurn(car: FlowCar) {
+    if (car.change || car.swerve || car.reservation) return;
+    const to = this.opposite(car.lane);
+    if (!to) return;
+    const at = to.length - car.s / car.lane.length * to.length;
+    if (at < 8 || at > to.length - 15) return;
+    for (const other of this.byLane.get(to) ?? []) {
+      const ahead = other.s - at, approaching = at - other.s;
+      if (Math.abs(ahead) < UTURN_CLEAR || approaching > 0 && approaching < UTURN_CLEAR + other.speed * UTURN_SECONDS) return;
+    }
+    car.uturn = { to, at, progress: 0 }; car.signal = null; this.stats.uturns++;
+  }
+
+  /** Moves a U-turn on (guarded; a blocked step waits) and, once done, puts the car on the opposite lane. */
+  private advanceUTurn(car: FlowCar) {
+    const u = car.uturn!, before = u.progress;
+    u.progress = Math.min(1, before + FLOW_STEP / UTURN_SECONDS);
+    if (this.obstructed(car, sampleFlowPose(car, 0, () => 0))) { u.progress = before; return; }
+    car.speed = 0;
+  }
+
+  /** A finished U-turn: the car continues on the opposite lane. */
+  private finishUTurn(car: FlowCar) {
+    const u = car.uturn!;
+    const list = this.byLane.get(car.lane);
+    if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
+    car.lane = u.to; car.s = u.at; car.hops++; car.route = this.chooseRoute(u.to, car.key, car.hops);
+    car.uturn = null; car.held = 0; car.backed = 0; car.changeCooldown = this.tick + 100;
+    const to = this.byLane.get(u.to);
+    if (to) { to.push(car); to.sort((a, b) => b.s - a.s); } else this.byLane.set(u.to, [car]);
+  }
+
+  /** Real contact (no margin) with another car's body on the same level. */
+  private touches(car: FlowCar, pose: CarPose) {
+    const x = Math.floor(pose.x / 8), z = Math.floor(pose.z / 8);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const other of this.occupancy.get(`${x + i},${z + j}`) ?? []) {
+        if (car !== other && bodyOverlap(pose, car, other.pose, other, 0) && !this.levelApart(car, other)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Whether the car can back up a little (its reversing guard is clear 0.3 m back). */
+  private roomBehind(car: FlowCar) {
+    if (car.s < 0.3 || car.change) return false;
+    const s = car.s, blocked = car.blockedBy;
+    car.s = s - 0.3;
+    const clear = !this.reverseObstructed(car, sampleFlowPose(car, 0, () => 0));
+    car.s = s; car.blockedBy = blocked;
+    return clear;
+  }
+
+  /** A lane change given up at its start: the car is back on the lane it came from. */
+  private abandonChange(car: FlowCar) {
+    const change = car.change!, from = change.from, target = car.lane;
+    const list = this.byLane.get(target);
+    if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
+    const departing = this.departing.get(from);
+    if (departing) { const i = departing.indexOf(car); if (i >= 0) departing.splice(i, 1); }
+    car.s = car.s / target.length * from.length; car.lane = from; car.route = this.chooseRoute(from, car.key, car.hops);
+    car.change = null; car.signal = null; car.changeCooldown = this.tick + 100;
+    const back = this.byLane.get(from);
+    if (back) { back.push(car); back.sort((a, b) => b.s - a.s); } else this.byLane.set(from, [car]);
+  }
+
+  /** Backs up along the route at REVERSE_SPEED (the reversing guard: never into a body); stops when done or blocked. */
+  private backUp(car: FlowCar) {
+    const back = Math.min(REVERSE_SPEED * FLOW_STEP, car.reverse, car.s), s = car.s;
+    car.s = s - back;
+    const pose = sampleFlowPose(car, 0, () => 0);
+    if (back <= 0 || this.reverseObstructed(car, pose)) { car.s = s; car.reverse = 0; return; }
+    car.reverse -= back; car.backed += back; car.progress -= back; car.speed = 0;
+    if (car.reverse < 1e-6) car.reverse = 0;
+  }
+
+  /** A junction head kept at its line by a full exit (exit / storage / receiving) changes its mind: another movement
+   *  this lane may take whose receiving lane has room for it. Same lane geometry up to the line, so nothing jumps. */
+  private reroute(car: FlowCar, t: number) {
+    const by = car.blockedBy ?? '';
+    if (car.reservation || car.change || car.s > car.lane.length - 0.5 || this.tick - car.rerouted < REROUTE_GAP
+      || !/^(exit|storage|receiving)/.test(by)) return;
+    if (car.waiting < REROUTE_AFTER * PASS_AFTER * (0.8 + 0.8 * hash01('honk-patience', car.key))) return;
+    const room = (next: Lane) => {
+      const tail = this.byLane.get(next)?.at(-1);
+      return tail ? tail.s - tail.length / 2 : next.length;
+    };
+    const need = car.length + 2 * GAP + 2;
+    const options = (this.movements.get(car.lane) ?? []).filter(m => m !== car.route && m.connector && m.next
+      && room(m.next) >= need && signalState(m, t) !== 'red')
+      .sort((a, b) => room(b.next!) - room(a.next!) || cmp(a.id, b.id));
+    if (!options.length) return;
+    car.route = options[0]; car.rerouted = this.tick; this.stats.rerouted++;
+  }
+
   /** Players on foot standing in the car's path just ahead (they do not move on), as small bodies. */
   private standingPlayers(car: FlowCar, lane: Lane): Body[] {
     const out: Body[] = [], here = routePoint(lane, car.s);
@@ -838,8 +1013,8 @@ export class TrafficFlow {
     const route = this.chooseRoute(lane, key);
     const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
       demandDraw: this.network.demandDraw(lane, n),
-      previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0 }, change: null, signal: null, changeCooldown: 0,
-      reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
+      previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0, uturn: null }, change: null, uturn: null, signal: null, changeCooldown: 0,
+      reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0, rerouted: 0, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
       blockedBy: null, pose: blankPose() };
     sampleFlowPose(car, 0, () => 0, car.pose);
     if (this.obstructed(car, car.pose)) { this.stats.blocked++; return; }
@@ -1125,7 +1300,7 @@ const midPoint: Point = { x: 0, z: 0, hx: 1, hz: 0 }, frontPoint: Point = { ...m
 const scratchA = blankPose(), scratchB = blankPose();
 
 /** What a pose depends on: a car now, or the same fields one tick earlier (`FlowCar.previous`). */
-export type PoseState = Pick<FlowCar, 'route' | 's' | 'speed' | 'change' | 'swerve' | 'swerveRate'>;
+export type PoseState = Pick<FlowCar, 'route' | 's' | 'speed' | 'change' | 'swerve' | 'swerveRate'> & { uturn?: UTurn | null };
 
 export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, out: CarPose = blankPose()): CarPose {
   const lane = car.route, s = car.s;
@@ -1156,6 +1331,21 @@ export function sampleFlowPose(car: PoseState, _dt: number, height: LaneHeight, 
     const sourceY = height(change.from, sourceS);
     if (sourceY !== null && Number.isFinite(out.y)) out.y = sourceY + (out.y - sourceY) * f;
     out.speed = v * car.speed / fwd;
+  }
+  if (car.uturn) {
+    // A U-shaped cubic from here onto the opposite lane, the nose along the path (a smoothstep in time).
+    const u = car.uturn, t = u.progress, f = t * t * (3 - 2 * t);
+    const p0 = { x: mid.x, z: mid.z, hx: mid.hx, hz: mid.hz }, p1 = routePointInto(u.to, u.at, frontPoint);
+    const k = 4 + 0.5 * Math.hypot(p1.x - p0.x, p1.z - p0.z);
+    const c0x = p0.x + p0.hx * k, c0z = p0.z + p0.hz * k, c1x = p1.x - p1.hx * k, c1z = p1.z - p1.hz * k;
+    const g = 1 - f;
+    out.x = g * g * g * p0.x + 3 * g * g * f * c0x + 3 * g * f * f * c1x + f * f * f * p1.x;
+    out.z = g * g * g * p0.z + 3 * g * g * f * c0z + 3 * g * f * f * c1z + f * f * f * p1.z;
+    const tx = 3 * g * g * (c0x - p0.x) + 6 * g * f * (c1x - c0x) + 3 * f * f * (p1.x - c1x);
+    const tz = 3 * g * g * (c0z - p0.z) + 6 * g * f * (c1z - c0z) + 3 * f * f * (p1.z - c1z), tl = Math.hypot(tx, tz);
+    if (tl > 1e-6) { out.hx = tx / tl; out.hz = tz / tl; }
+    out.speed = tl * 6 * t * (1 - t) / UTURN_SECONDS;
+    return out;
   }
   if (car.swerve) {
     // Going round a stopped car: shifted off the lane centre, nose turned along the lateral motion.

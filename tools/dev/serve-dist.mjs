@@ -13,6 +13,9 @@
 //    {state, version}); /coarse payloads are compressed for the tunnel
 //  - --edits <dir>: the object editor's edit sessions under /__edits/ (editSessions.mjs). With --public they are
 //    write-only (PUT/POST, same origin, 512 MB quota, --edits-quota-mb), for `?editor=1` on the share host
+//  - --cities <file>: another city's coarse tile service at /cities/<name>/coarse/* (game/src/core/city.ts), the
+//    upstream origin per city from a JSON file {"espoo": "http://127.0.0.1:7970"} read again when it changes; a city
+//    missing there answers {"state":"offline"} (the game shows its portal as "coming soon")
 //  - --mp http://127.0.0.1:PORT: WebSocket upgrades and GET /live.json, /scores/* go to that multiplayer server, so
 //    a share host's game plays on its own origin (game/src/net/config.ts)
 // No dependencies (Node >= 20).
@@ -56,6 +59,41 @@ const publicStatus = publicProxy(COARSE, { reduce: (s) => ({ state: s?.state ?? 
 // Encoded revision-named tile payloads for every player (a city's hot set is a few hundred MB compressed).
 const publicCoarse = publicProxy(COARSE, { cacheBytes: Number(opt('--payload-cache-mb', 1024)) * 1024 * 1024 });
 const mp = MP && publicProxy(MP);
+// Other cities' tile services (--cities FILE): one status and one payload proxy per upstream, the file re-read on change.
+const CITIES_FILE = opt('--cities') ? expand(opt('--cities')) : null;
+const CITY_TILES = /^\/cities\/([a-z]{2,24})(\/coarse(?:\/.*)?)$/;
+let cityMap = { mtime: -1, upstreams: {} };
+const cityProxies = new Map();
+function cityUpstream(name) {
+  if (!CITIES_FILE) return null;
+  try {
+    const mtime = fs.statSync(CITIES_FILE).mtimeMs;
+    if (mtime !== cityMap.mtime) cityMap = { mtime, upstreams: JSON.parse(fs.readFileSync(CITIES_FILE, 'utf8')) ?? {} };
+  } catch { cityMap = { mtime: -1, upstreams: {} }; }
+  const origin = typeof cityMap.upstreams[name] === 'string' ? cityMap.upstreams[name] : null;
+  if (!origin) return null;
+  if (!cityProxies.has(origin)) {
+    const target = new URL(origin);
+    cityProxies.set(origin, { status: publicProxy(target, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) }),
+      payload: publicProxy(target, { cacheBytes: 256 * 1024 * 1024 }), local: coarseProxy(target) });
+  }
+  return cityProxies.get(origin);
+}
+/** /cities/<name>/coarse/... -> that city's service as /coarse/...; null when the path is no city tile path. */
+function cityTiles(req, res, publicOnly) {
+  const [pathname, query] = req.url.split(/\?(.*)/s);
+  const m = CITY_TILES.exec(pathname);
+  if (!m) return null;
+  const tilePath = m[2];
+  if (!PUBLIC_COARSE.test(tilePath)) { res.writeHead(404); return res.end(); }
+  const proxy = cityUpstream(m[1]);
+  if (!proxy) {
+    res.writeHead(404, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    return res.end('{"state":"offline"}\n');
+  }
+  req.url = query ? `${tilePath}?${query}` : tilePath;
+  return (publicOnly ? STATUS.test(tilePath) ? proxy.status : proxy.payload : proxy.local)(req, res);
+}
 const EDITS = opt('--edits') ? expand(opt('--edits')) : null;
 const edits = EDITS && editSessionsMiddleware(EDITS, PUBLIC
   ? { writeOnly: true, quotaBytes: Number(opt('--edits-quota-mb', 512)) * 1024 * 1024 } : {});
@@ -74,6 +112,7 @@ async function publicHandler(req, res) {
   if (edits && pathname.startsWith('/__edits/')) return edits(req, res, () => noEdits(req, res));
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { Allow: 'GET, HEAD' }); return res.end(); }
   if (mp && (pathname === '/live.json' || pathname.startsWith('/scores/'))) return mp(req, res);
+  if (pathname.startsWith('/cities/') && cityTiles(req, res, true) !== null) return;
   if (pathname === '/coarse' || pathname.startsWith('/coarse/')) {
     if (!PUBLIC_COARSE.test(pathname)) { res.writeHead(404); return res.end(); }
     return (STATUS.test(pathname) ? publicStatus : publicCoarse)(req, res);
@@ -96,6 +135,7 @@ async function handler(req, res) {
   if (req.method === 'POST' && req.url.split('?')[0] === '/telemetry') return telemetry(req, res);
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
   if (req.url === '/coarse' || req.url.startsWith('/coarse/')) return coarse(req, res);
+  if (req.url.startsWith('/cities/') && cityTiles(req, res, false) !== null) return;
   if (req.url.split('?')[0] === '/__localhost/status') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     return res.end('{"service":false}\n');

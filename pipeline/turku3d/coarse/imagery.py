@@ -13,7 +13,7 @@ from pathlib import Path
 from turku3d import config as C
 from turku3d.fetch import wms
 from turku3d.fetch.common import atomic_write_text
-from turku3d.fetch.sources import WMS_LAYERS
+from turku3d.fetch.sources import FALLBACK_WMS, WMS_LAYERS
 
 from .retention import tile_lock
 from .sources import ORTHO_PX, ORTHO_SLUG, NoCoverage, Sources, block_tiles, content_paths
@@ -84,7 +84,7 @@ def paths(block):
     result = []
     for tile in block_tiles(block):
         name = area(tile).name
-        for slug in (ORTHO_SLUG, "ortho2025"):
+        for slug in (ORTHO_SLUG, *([FALLBACK_WMS] if FALLBACK_WMS else [])):
             root = C.raw_dir("ortho") / slug
             result.extend(
                 [
@@ -106,9 +106,11 @@ def fetch(block, log=print, root=None, repair_tiles=()):
         next(layer for layer in WMS_LAYERS if layer.slug == ORTHO_SLUG),
         px_m=C.VISUAL_TILE_SIZE / ORTHO_PX,
     )
-    fallback = dataclasses.replace(
-        next(layer for layer in WMS_LAYERS if layer.slug == "ortho2025"), px_m=primary.px_m
-    )
+    fallbacks = [
+        dataclasses.replace(layer, px_m=primary.px_m)
+        for layer in WMS_LAYERS
+        if layer.slug == FALLBACK_WMS
+    ]
     for tile in block_tiles(block):
         # Serialize with generation and external publication, including the final recheck.
         with tile_lock(sources.root / tile.id):
@@ -119,7 +121,7 @@ def fetch(block, log=print, root=None, repair_tiles=()):
             if path is not None and (not repair or not blank(tile, path)):
                 continue
             target = area(tile)
-            for layer in (primary, fallback):
+            for layer in (primary, *fallbacks):
                 summary = wms.fetch_layer(layer, target, workers=1, log=log, chunk_px=ORTHO_PX)
                 if summary["errors"]:
                     raise RuntimeError(f"WMS {layer.name} {tile.id}: {summary['errors'][:2]}")

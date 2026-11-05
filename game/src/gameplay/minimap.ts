@@ -43,6 +43,9 @@ export const formatTimer = (seconds: number) => {
 };
 export const formatMoney = (money: number) => `€${Math.round(money).toLocaleString('en-US')}`;
 
+/** A city portal on the map (gameplay/portalMarkers.ts markers()). */
+export interface MapPortal { x: number; z: number; label: string; colour: string; soon: boolean }
+
 export class Minimap {
   readonly element = document.createElement('div');
   readonly routes: RouteTracker;
@@ -62,6 +65,7 @@ export class Minimap {
   private cssSize = 0;
   private area: PlayableArea | null = null;
   private remotes: readonly { id: string; nick: string; x: number; z: number }[] = [];
+  private portals: readonly MapPortal[] = [];
   private lastUpdate = -Infinity;
 
   constructor(parent: HTMLElement, private graph: RoadGraph, router: Router) {
@@ -103,6 +107,13 @@ export class Minimap {
     this.remotes = players;
   }
 
+  /** City portals (gameplay/portalMarkers.ts): a ring in the target city's colour with its name. */
+  setPortals(portals: readonly MapPortal[]) {
+    const key = (list: readonly MapPortal[]) => list.map(p => `${p.x},${p.z},${p.colour},${p.soon}`).join('|');
+    if (key(portals) !== key(this.portals)) this.dirty = true;
+    this.portals = portals;
+  }
+
   toggleExpanded() {
     this.expanded = !this.expanded;
     this.element.classList.toggle('expanded', this.expanded);
@@ -138,7 +149,7 @@ export class Minimap {
 
   snapshot() {
     return { route: this.routes.route, routeLength: this.routes.length, routeComputeMs: this.routes.computeMs,
-      drawMs: this.drawMs, draws: this.draws, expanded: this.expanded, cssSize: this.cssSize, state: this.state,
+      drawMs: this.drawMs, draws: this.draws, expanded: this.expanded, cssSize: this.cssSize, state: this.state, portals: this.portals,
       streets: this.graph.edges.length, view: this.last };
   }
 
@@ -227,6 +238,26 @@ export class Minimap {
       const labelY = Math.max(14, size / 2 + sy - 8);
       ctx.strokeText(remote.nick, labelX, labelY, size - 12);
       ctx.fillText(remote.nick, labelX, labelY, size - 12);
+    }
+    const placed: [number, number][] = [];
+    for (const portal of this.portals) {
+      let [sx, sy] = project(portal, centre, rotation, k);
+      const edge = Math.max(Math.abs(sx), Math.abs(sy)) / inner;
+      if (edge > 1) { sx /= edge; sy /= edge; }
+      const px = size / 2 + sx, py = size / 2 + sy;
+      ctx.beginPath(); ctx.arc(px, py, 7, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(8, 16, 22, 0.85)'; ctx.fill();
+      ctx.lineWidth = 3; ctx.strokeStyle = portal.colour; ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI * 2); ctx.fillStyle = portal.colour; ctx.fill();
+      const label = portal.soon ? `${portal.label} (soon)` : portal.label;
+      ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const w = Math.min(ctx.measureText(label).width, size - 12);
+      // A neighbour's label already above: this one goes below its ring.
+      const below = py < 22 || placed.some(([x, y]) => Math.abs(x - px) < 60 && Math.abs(y - py) < 18);
+      placed.push([px, py]);
+      const lx = Math.max(6 + w / 2, Math.min(size - 6 - w / 2, px)), ly = below ? py + 20 : py - 11;
+      ctx.lineWidth = 3; ctx.strokeStyle = '#10252d'; ctx.strokeText(label, lx, ly, size - 12);
+      ctx.fillStyle = portal.colour; ctx.fillText(label, lx, ly, size - 12);
     }
     for (const target of this.state.targets) {
       let [sx, sy] = project(target.point, centre, rotation, k);

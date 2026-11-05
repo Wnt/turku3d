@@ -37,6 +37,7 @@ perf3, winperf) and coverage on the reduced tiers (GPU and memory budgets, see s
 | [rulesmith](rulesmith.md) | edit sessions → generator rules (`furniture@1`) |
 | [lidarpc](lidarpc.md) | LiDAR COPC product, overlay, wire layer |
 | [lidartrees](lidartrees.md) | LiDAR-conformed tree crowns (`trees-lidar@1`) |
+| [roadfix](roadfix.md) | drive-sweep faults: roadbed under car lanes (`roadbed@1`), bridge-end ramps and deck lamps (`bridge-ends@1`) |
 | [lidarwires](lidarwires.md) | overhead wires (`wires@2`), the `train1` migration and city pass |
 | [cityshare](cityshare.md) | public test site https://city.lab.madekivi.fi on osgallery-dev |
 | [storage](storage.md) | bulk HDD pool, moved data, restore commands |
