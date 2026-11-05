@@ -23,11 +23,11 @@ F=/home/wnt/turku3d-local/loops/tiles/farm
 API=https://api.upcloud.com/1.3
 TIP=${TIP:-local/loop-integration}
 CMD=${1:-}; shift || true
-TRAINS=(); TILE=; DISK=260
+TRAINS=(); TILES=(); DISK=260
 while [ $# -gt 0 ]; do
   case "$1" in
     --train) TRAINS+=("$2"); shift 2 ;;
-    --smoke-tile) TILE=$2; shift 2 ;;
+    --smoke-tile) TILES+=("$2"); shift 2 ;;
     --disk) DISK=$2; shift 2 ;;
     *) [ "$CMD" = grow ] && [ -z "${GROW:-}" ] && { GROW=$1; shift; continue; }; echo "unknown argument $1"; exit 2 ;;
   esac
@@ -40,7 +40,7 @@ UUID() { conf uuid; }
 state() { api "$API/server/$(UUID)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["server"]["state"])'; }
 until_state() { until [ "$(state)" = "$1" ]; do sleep 5; done; }
 need_trains() { [ ${#TRAINS[@]} -ge 1 ] || { echo "--train ALIAS required"; exit 2; }; }
-resolved() { ssh $OSG "cat $OD/resolved.json"; }
+resolved() { ssh $OSG "python3 $OD/bin/resolve.py ${TRAINS[*]}"; }
 
 create() {
   if [ -f "$G/server.json" ] && api "$API/server/$(UUID)" > /dev/null 2>&1; then echo "exists: $(UUID) $(IP)"; return; fi
@@ -135,28 +135,40 @@ PY
 }
 
 smoke() {
-  need_trains; [ -n "$TILE" ] || { echo "--smoke-tile TILE required"; exit 2; }
+  need_trains; [ ${#TILES[@]} -ge 1 ] || { echo "--smoke-tile TILE required (repeatable)"; exit 2; }
   H=root@$(IP); A=${TRAINS[0]}
   read -r REV CODE GEN STEPS < <(resolved | python3 -c "
 import json, sys; a = json.load(sys.stdin)['aliases']['$A']
 print(a['revision'], a['code'], a['generation'], ','.join(a['steps']))")
-  # The whole chain from the base: set the staged copies of the alias's outputs for TILE aside first.
-  ssh "$H" "mkdir -p /root/smoke-ref; for g in ${STEPS//,/ }; do [ -d $F/products/\$g/$TILE ] &&
-            mv $F/products/\$g/$TILE /root/smoke-ref/\$g-$TILE; done; true"
+  # The whole chain from the base: remove the host's view of the alias's outputs for the tiles first (on the cached
+  # mount that is a whiteout in the local overlay; osgallery-dev keeps its copy as the reference).
+  # The pass also skips tiles its journal lists as finished: drop their rows from the host's copy of the journal.
+  ssh "$H" "for t in ${TILES[*]}; do for g in ${STEPS//,/ }; do rm -rf $F/products/\$g/\$t; done; done
+            J=$F/migrations/$GEN/pass.jsonl
+            [ ! -f \$J ] || su wnt -c \"python3 -c 'import json,os,sys; p=sys.argv[1]; k=set(sys.argv[2:]); \
+r=[l for l in open(p) if json.loads(l).get(\\\"tile\\\") not in k]; open(p+\\\".tmp\\\",\\\"w\\\").writelines(r); \
+os.replace(p+\\\".tmp\\\",p)' \$J ${TILES[*]}\""
+  rx() { ssh "$H" "cat /sys/class/net/wg0/statistics/rx_bytes 2>/dev/null || echo 0"; }
+  b0=$(rx); t0=$(date +%s)
   ssh "$H" "cd $F/revisions/$CODE/repo && /usr/bin/time -v su wnt -c \
     'REPO=$F/revisions/$CODE/repo TURKU3D_WORK=$F/work/migrate TURKU3D_THREADS_PER_WORKER=1 \
      /home/wnt/turku3d-local/loops/tiles/shared-tiles-run.sh python scripts/dev/tile_city_pass.py --farm-root $F \
-     --revision $REV --max-jobs 1 --blocks 1 --high 99 --low 98 --interval 5 --survey-interval 30 \
-     --min-free-mem-gb 0.5 --checkpoint wires@2 --supply /bulk/turku3d/lidarpc/raw/pistepilvi \
-     --farm-url http://127.0.0.1:9 $TILE' 2>&1 | grep -E 'Elapsed|Maximum resident|Traceback|Error' ;
-     tail -1 $F/migrations/$GEN/pass.jsonl | cut -c1-600"
-  sums() { ssh "$1" "cd $F/products/$GEN/$TILE 2>/dev/null && find . -type f ! -name ready.json ! -name stage-times.json \
-                     -print0 | sort -z | xargs -0 sha256sum"; }
-  sums "$H" > "$G/smoke-host.txt"; sums $OSG > "$G/smoke-osg.txt" || true
-  if [ ! -s "$G/smoke-osg.txt" ]; then echo "smoke: $TILE migrated; osgallery-dev has no $A product of it to compare"
-  elif diff -q "$G/smoke-osg.txt" "$G/smoke-host.txt" > /dev/null; then
-    echo "smoke: $TILE byte-identical to osgallery-dev ($(wc -l < "$G/smoke-host.txt") files)"
-  else echo "smoke: $TILE differs:"; diff "$G/smoke-osg.txt" "$G/smoke-host.txt" | head -20; fi
+     --revision $REV --max-jobs ${SMOKE_LANES:-1} --blocks ${SMOKE_BLOCKS:-1} --high 99 --low 98 --interval 5 \
+     --survey-interval 30 --min-free-mem-gb 0.5 --checkpoint wires@2 --supply /bulk/turku3d/lidarpc/raw/pistepilvi \
+     --farm-url http://127.0.0.1:9 ${TILES[*]}' 2>&1 | grep -E 'Elapsed|Maximum resident|Traceback|Error' ;
+     tail -${#TILES[@]} $F/migrations/$GEN/pass.jsonl | cut -c1-300"
+  t=$(( $(date +%s) - t0 )); b=$(( $(rx) - b0 ))
+  python3 -c "print(f'smoke: {len(\"${TILES[*]}\".split())} tiles in {$t} s; tunnel received {$b/1e9:.2f} GB ({$b/max($t,1)/1e6:.1f} MB/s)')"
+  for TILE in "${TILES[@]}"; do
+    sums() { ssh "$1" "cd $F/products/$GEN/$TILE 2>/dev/null && find . -type f ! -name ready.json ! -name stage-times.json \
+                       -print0 | sort -z | xargs -0 sha256sum"; }
+    sums "$H" > "$G/smoke-host-$TILE.txt"; sums $OSG > "$G/smoke-osg-$TILE.txt" || true
+    if [ ! -s "$G/smoke-host-$TILE.txt" ]; then echo "smoke: $TILE has no $A product on the host"
+    elif [ ! -s "$G/smoke-osg-$TILE.txt" ]; then echo "smoke: $TILE migrated; osgallery-dev has no $A product of it to compare"
+    elif diff -q "$G/smoke-osg-$TILE.txt" "$G/smoke-host-$TILE.txt" > /dev/null; then
+      echo "smoke: $TILE byte-identical to osgallery-dev ($(wc -l < "$G/smoke-host-$TILE.txt") files)"
+    else echo "smoke: $TILE differs:"; diff "$G/smoke-osg-$TILE.txt" "$G/smoke-host-$TILE.txt" | head -20; fi
+  done
 }
 
 grow() {

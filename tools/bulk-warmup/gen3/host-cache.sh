@@ -4,6 +4,9 @@
 #   host-cache.sh up      cachefilesd on /var/cache/fscache, NFSv4.2 mounts with fsc, the farm overlay, local env copy
 #   host-cache.sh status  mounts, cache size and FS-Cache counters (cookies, reads served from cache vs network)
 #   host-cache.sh down    unmount (the cache directory stays; it survives reboots and plan changes)
+#   host-cache.sh prefetch RESOLVED_JSON [GB]   warm the cache on the cheap plan, before a window: the source version,
+#                         the products resolve.py names, then survey blocks nearest the city centre first, up to GB of
+#                         blocks (default all). Reading a cached file again costs only local disk.
 # Layout (paths mirrored 1:1 with osgallery-dev, so the pass and its records see the farm's own absolute paths):
 #   /srv/osg/farm   <- 10.77.0.1:/home/wnt/turku3d-local/loops/tiles/farm   (ro, fsc)
 #   /bulk/turku3d   <- 10.77.0.1:/bulk/turku3d                              (ro, fsc; the --supply survey blocks)
@@ -64,6 +67,31 @@ status() {
   grep -E '^(Reads|RA|ZeroOps|DownOps|CacheRd|CacheWr)' /proc/fs/netfs/stats 2>/dev/null | sed 's/^/  /'
 }
 
+prefetch() {
+  local resolved=${1:?resolve.py output for the alias}; local limit_gb=${2:-100000}
+  local log=/home/wnt/turku3d-bulk-gen3/logs/prefetch.log; mkdir -p "${log%/*}"
+  read_all() { xargs -0 -r -P4 -n16 cat > /dev/null; }
+  stamp() { echo "$(date -u +%FT%TZ) $* cache=$(du -sb /var/cache/fscache | cut -f1)" >> "$log"; }
+  stamp start
+  V=$(python3 -c "import json,sys; print(next(iter(json.load(open(sys.argv[1]))['source_versions'].values())))" "$resolved")
+  find "/srv/osg/farm/${V#"$F"/}" -type f -print0 | read_all; stamp version
+  python3 -c "import json,sys; print('\n'.join(json.load(open(sys.argv[1]))['products']))" "$resolved" | sort -u |
+    while read -r g; do find "/srv/osg/farm/products/$g" -type f -print0 | read_all; stamp "products $g"; done
+  # Blocks are named by their SW corner (E_N, 500 m); the centre is the pilot office block (E 23459668 N 6704254).
+  find /bulk/turku3d/lidarpc/raw/pistepilvi -maxdepth 1 -name '*.laz' -printf '%s %p\n' | python3 -c "
+import sys
+rows = []
+for line in sys.stdin:
+    size, path = line.split(' ', 1); path = path.strip()
+    e, n = path.rsplit('/', 1)[1][:-4].split('_')[:2]
+    rows.append(((int(e) + 250 - 23459668) ** 2 + (int(n) + 250 - 6704254) ** 2, int(size), path))
+total, limit = 0, float(sys.argv[1]) * 1e9
+for _, size, path in sorted(rows):
+    if total > limit: break
+    total += size; sys.stdout.write(path + '\0')" "$limit_gb" | read_all
+  stamp blocks
+}
+
 down() {
   for d in "${LOCAL_DIRS[@]}"; do mountpoint -q "$F/$d" && umount "$F/$d"; done
   mountpoint -q "$F" && umount "$F"
@@ -73,5 +101,6 @@ down() {
 
 case "${1:-}" in
   up|status|down) "$1" ;;
+  prefetch) shift; prefetch "$@" ;;
   *) sed -n 2,6p "$0"; exit 2 ;;
 esac
