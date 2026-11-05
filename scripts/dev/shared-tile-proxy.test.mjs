@@ -36,6 +36,8 @@ test('hot alias selection, immutable payload routing and scenery stay independen
     await fetch(base + '/coarse/status');
     assert.equal(calls.pop(), '/v/integration/coarse/status');
     await fetch(base + '/coarse/demand?client=play&tiles=t0_0_0,t0_1_0&urgent=t0_0_0&visible=t0_1_0');
+    // Demand is answered at once and forwarded behind the answer.
+    for (let i = 0; i < 50 && !calls.at(-1)?.includes('/demand'); i++) await new Promise(r => setTimeout(r, 10));
     assert.equal(calls.pop(), '/v/integration/coarse/demand?client=play&tiles=t0_0_0,t0_1_0&urgent=t0_0_0&visible=t0_1_0');
     await fetch(base + '/coarse/want?tiles=t0_0_0');
     assert.equal(calls.pop(), '/v/integration/coarse/want?tiles=t0_0_0');
@@ -249,6 +251,53 @@ test('health and status come from a short cache refreshed in the background, not
     const answers = await Promise.all(Array.from({ length: 20 }, () => fetch(base + '/coarse/health').then(r => r.json())));
     assert.ok(answers.every(a => a.call === first.call), 'polls within 15 s share one farm answer');
     assert.equal(calls, 1);
+  } finally {
+    await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('demand is answered at once and forwarded one at a time per client; scenery queries are served while revalidated', async () => {
+  let hold = null, demandCalls = [], sceneryCalls = 0, sceneryKey = 'k1';
+  const upstream = http.createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url.includes('/demand')) {
+      demandCalls.push(req.url);
+      // The farm stalls on the first demand.
+      if (demandCalls.length === 1) { hold = () => res.end(JSON.stringify({ version: 7 })); return; }
+      res.end(JSON.stringify({ version: 8 })); return;
+    }
+    if (req.url.startsWith('/coarse/scenery?')) { sceneryCalls++; res.end(JSON.stringify({ tiles: [{ tile: 't2_1_-1', key: sceneryKey }], missing: [] })); return; }
+    res.end('{}');
+  });
+  await listen(upstream);
+  const origin = `http://127.0.0.1:${upstream.address().port}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-'));
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, JSON.stringify({ service: origin, scenery: origin, version: 'pin' }));
+  const proxy = createSharedTileProxy(file);
+  await listen(proxy);
+  const base = `http://127.0.0.1:${proxy.address().port}`;
+  const wait = async test => { for (let i = 0; i < 100 && !test(); i++) await new Promise(r => setTimeout(r, 10)); };
+  try {
+    const started = Date.now();
+    for (const tiles of ['t0_0_0', 't0_1_0', 't0_2_0']) {
+      const res = await fetch(`${base}/coarse/demand?client=a&tiles=${tiles}`);
+      assert.equal(res.status, 200); await res.json();
+    }
+    assert.ok(Date.now() - started < 500, 'a stalled farm never holds the demand answer');
+    await wait(() => demandCalls.length === 1);
+    assert.equal(demandCalls.length, 1, 'one demand in flight per client');
+    hold();
+    await wait(() => demandCalls.length === 2);
+    // The queued demands collapsed into the newest one.
+    assert.deepEqual(demandCalls.map(u => new URL(u, origin).searchParams.get('tiles')), ['t0_0_0', 't0_2_0']);
+    await new Promise(r => setTimeout(r, 50));
+    assert.deepEqual(await (await fetch(`${base}/coarse/demand?client=a&tiles=t0_0_0`)).json(), { version: 8 });
+    // Scenery: one upstream ask, the repeat from the cache; a stale answer is served and refreshed behind it.
+    const q = `${base}/coarse/scenery?tiles=t2_1_-1`;
+    assert.equal((await (await fetch(q)).json()).tiles[0].key, 'k1');
+    assert.equal((await (await fetch(q)).json()).tiles[0].key, 'k1');
+    assert.equal(sceneryCalls, 1);
   } finally {
     await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
