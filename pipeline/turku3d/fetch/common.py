@@ -75,6 +75,9 @@ def _remote(url: str | None) -> bool:
     return bool(url) and url.startswith(("https://", "http://"))
 
 
+_RECORDS: dict[str, tuple] = {}  # manifest -> (inode, parsed bytes, records), see Registry.records
+
+
 class Registry:
     """Checksum registry for one raw kind directory. Safe for concurrent processes (flock)."""
 
@@ -98,18 +101,29 @@ class Registry:
         return str(Path(path).resolve().relative_to(self.dir.resolve()))
 
     def records(self) -> dict[str, dict]:
-        if not self.manifest.exists():
+        """path -> last record. The manifest is append-only between atomic rewrites (forget, merges),
+        so a process-wide cache per manifest parses only the lines appended since the last call: a
+        full parse per call made every page check and record O(manifest) and the fetchers
+        serialised on the registry lock once a city's manifest held thousands of pages."""
+        try:
+            st = self.manifest.stat()
+        except FileNotFoundError:
             return {}
-        st = self.manifest.stat()
-        sig = (st.st_size, st.st_mtime_ns)
-        if getattr(self, "_cache_sig", None) == sig:
-            return self._cache
-        out: dict[str, dict] = {}
-        for line in self.manifest.read_text().splitlines():
-            if line.strip():
-                r = json.loads(line)
-                out[r["path"]] = r  # last record wins
-        self._cache, self._cache_sig = out, sig
+        key = str(self.manifest.resolve())
+        ino, offset, out = _RECORDS.get(key, (None, 0, None))
+        if out is None or ino != st.st_ino or st.st_size < offset:
+            ino, offset, out = st.st_ino, 0, {}
+        if st.st_size > offset:
+            with open(self.manifest, "rb") as f:
+                f.seek(offset)
+                tail = f.read(st.st_size - offset)
+            end = tail.rfind(b"\n") + 1  # a line still being appended is read next time
+            for line in tail[:end].decode().splitlines():
+                if line.strip():
+                    r = json.loads(line)
+                    out[r["path"]] = r  # last record wins
+            offset += end
+        _RECORDS[key] = (ino, offset, out)
         return out
 
     def get(self, path: Path) -> dict | None:
