@@ -42,7 +42,7 @@ print('\n'.join([m['generation']] + [s[k] for s in m['migrations'] for k in ('ge
     ssh -i "$HOME/.ssh/bulk_gen3" "$H" "cd $SRC/products/$g 2>/dev/null && ls -d */ready.json 2>/dev/null" |
       sed 's|/ready.json$||' | while read -r t; do [ -f "products/$g/$t/ready.json" ] || echo "$t"; done > "$list"
     mkdir -p "products/$g"
-    { $P --exclude='t0_*' "$H:$SRC/products/$g/" "products/$g/" || [ $? = 24 ]; }
+    { $P --exclude='t0_*' --exclude='.visual-audits/' "$H:$SRC/products/$g/" "products/$g/" || [ $? = 24 ]; }  # audits: many small churning files the game never reads
     if [ -s "$list" ]; then
       { $P -r --files-from="$list" --exclude=ready.json --exclude='*.tmp' "$H:$SRC/products/$g/" "products/$g/" || [ $? = 24 ]; } &&
         sed 's|$|/ready.json|' "$list" > "$list.r" &&
