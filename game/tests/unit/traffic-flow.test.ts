@@ -324,6 +324,28 @@ describe('aggressive drivers: lane changes, reverses and new routes when blocked
     expect(reversed).toBeGreaterThan(0);
   });
 
+  test('a truck across a two-way street: the front car backs off, then turns round onto the other lane', () => {
+    const { flow } = run(1, net => {
+      const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
+      const at = pointAt(lane.points, lane.cum, 70);
+      return { lane, body: { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.6 } };
+    }, 400);
+    expect(flow.stats.reverses).toBeGreaterThan(0);
+    expect(flow.stats.uturns).toBeGreaterThan(0);
+  });
+
+  test('a moving driver goes round a parked car without stopping first when the corridor is clear', () => {
+    const net = flowNetwork(intersection(false, 1)), flow = new TrafficFlow(net, 0);
+    flow.reset(0);
+    const { lane, body } = parked(1)(net);
+    let passedMoving = 0;
+    for (let step = 1; step <= 1200; step++) {
+      flow.setPlayers([], [body], step / 10); flow.update(step / 10);
+      for (const c of flow.cars.values()) if (c.lane === lane && c.swerveTarget && c.speed > 2 && c.held === 0) passedMoving++;
+    }
+    expect(passedMoving).toBeGreaterThan(0);
+  });
+
   test('a junction head kept at its line by a blocked exit takes another way', () => {
     const { flow } = run(1, net => {
       // A truck across the street the approach would go straight into, just past the junction.
