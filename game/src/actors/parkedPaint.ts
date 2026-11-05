@@ -38,6 +38,14 @@ export function paintActor(mesh: THREE.Mesh, color: string) {
   actorPaints.set(mesh, new THREE.Vector3(...paintOf(color)));
 }
 
+/** Object3D.clone() does not carry the paint (it lives in a WeakMap by mesh): copy it onto every cloned mesh,
+ *  pairing source and clone by traversal order. An unpainted fleet mesh fails its program build and is not drawn. */
+export function copyActorPaint(source: THREE.Object3D, clone: THREE.Object3D) {
+  const from: THREE.Object3D[] = [], to: THREE.Object3D[] = [];
+  source.traverse(o => { from.push(o); }); clone.traverse(o => { to.push(o); });
+  from.forEach((o, i) => { const paint = actorPaints.get(o); if (paint && to[i]) actorPaints.set(to[i], paint.clone()); });
+}
+
 export function instancePaintOf(mesh: THREE.Object3D) { return instancePaints.get(mesh); }
 export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh); }
 

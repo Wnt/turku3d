@@ -18,10 +18,7 @@ export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 export const SELECTABLE_FAMILIES: ReadonlySet<string> = new Set(['sedan', 'suv', 'hatchback-sports', 'van']);
 /** The starter car ("Your car is parked nearby"): a common Finnish everyday hatchback. */
 export const PLAYER_MODEL = 'golf7';
-export const PLAYER_COLOR = 'blue';
-/** The bought trophy truck and the draft trucks of the tiles. */
-export const TRUCK_MODEL = 'carla-tesla-cybertruck';
-export const TRUCK_COLOR = 'white';
+export const PLAYER_COLOR = 'red';
 /** Light real models that are always resident: a car whose own model fails to load is drawn as one of these. */
 export const FALLBACK_MODELS = ['carla-nissan-micra', 'passat-b8', 'carla-tesla-model3'] as const;
 
