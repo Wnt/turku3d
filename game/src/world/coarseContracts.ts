@@ -26,6 +26,8 @@ export interface Entry extends DraftFreshness {
   pass?: 'first' | 'full'; comparison?: THREE.Object3D; comparing?: boolean; comparisonMode?: string; comparisonNext?: number;
   /** The service's estimate (clock ms) of when a queued or building tile is built. */
   readyAt?: number;
+  /** Clock (ms) of the first 202 (queued, building, waiting for data) since the service last answered the tile. */
+  building?: number;
   /** The service's build counter at this entry's last poll. */
   version?: number; visualHash?: string; placementsKey?: string; refreshing?: boolean;
   /** Last successfully applied manifest body and adaptive resident revalidation interval. */

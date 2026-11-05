@@ -1057,3 +1057,39 @@ test('the tile status shows counts in the steady state and names what waits or f
   expect(coarse.status).toMatch(/^tile t0_0_0 · \d+ loaded$/); // the steady state: counts only
   expect(coarse.status).not.toMatch(/draft/);
 });
+
+test('startup stops waiting for side tiles the service is still building, never for the tile under the start', async () => {
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  let ready = new Set(['t0_0_0']);
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, retainCollision: () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      if (!m) return new Response(null, { status: 404 });
+      return ready.has(m[1]) ? Response.json(fragment(m[1])) : Response.json({ state: 'building', eta: 600 }, { status: 202 });
+    }) as typeof fetch });
+  coarse.preload([{ x: 125, z: 125 }], 80, true, { x: 125, z: 125, dx: 1, dz: 0 });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  const run = async (from: number, to: number) => { for (let t = from; t <= to; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); } };
+  await run(0, 4000);
+  const early = coarse.progressAt(125, 125);
+  expect(early.total).toBeGreaterThan(1);
+  expect(early.loaded).toBeLessThan(early.total); // within the grace the view wedge still holds startup
+  await run(4500, 16_000);
+  expect(coarse.progressAt(125, 125)).toMatchObject({ loaded: 1, total: 1 });
+  // The tile under the start is critical: still building, it keeps holding startup.
+  ready = new Set();
+  const other = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => Response.json({ state: 'building', eta: 600 }, { status: 202 })) as unknown as typeof fetch });
+  other.preload([{ x: 125, z: 125 }], 80, true);
+  for (let t = 0; t <= 16_000; t += 500) { other.update(125, 125, t, undefined, false); await settle(); }
+  expect(other.progressAt(125, 125)).toMatchObject({ loaded: 0, total: 1 });
+});
