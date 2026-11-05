@@ -4,9 +4,13 @@ import { describe, expect, test } from 'vitest';
 import * as R from '@dimforge/rapier3d';
 import { TRUCK } from '../../src/physics/constants';
 import { MAT } from '../../src/shared/col/materials';
-import { passiveRatio } from '../../src/vehicle/rearSteer';
+import { passiveRatio, REAR_STEER_CYCLE, REAR_STEER_MODES } from '../../src/vehicle/rearSteer';
 import { ackermann4 } from '../../src/vehicle/wheelKinematics';
+import { drvOf } from '../../src/net/drv';
+import { vehiclePose } from '../../src/net/sharedVehicles';
+import { cleanPose, validPose } from '../../../server/pose.js';
 import * as S from './trophy4400-scenarios';
+import { course, deg, idle } from './trophy4400-course';
 
 const round = (_: string, v: unknown) => typeof v === 'number' ? +v.toFixed(3) : v;
 const log = (id: string, measured: unknown, spec: string) => console.log(`trophy4400 ${JSON.stringify({ id, spec, measured }, round)}`);
@@ -78,6 +82,24 @@ describe('4400 truck on the headless course', () => {
     expect(Math.abs(half.angles[2] + 16)).toBeLessThan(0.5);
     expect(Math.abs(lock.angles[2])).toBeLessThan(1e-6); expect(Math.abs(lock.angles[3])).toBeLessThan(1e-6);
     expect(Math.sign(sideways.angles[2])).toBe(Math.sign(sideways.angles[0]));
+  });
+
+  test('remote players see each mode: the shared pose and the server relay keep the rear angles and the mode index', () => {
+    const rear: Record<string, number> = {};
+    for (const mode of REAR_STEER_CYCLE) {
+      const c = course();
+      const s = c.run(1.2, { ...idle(mode), steer: -1 });
+      c.free();
+      const sent = vehiclePose(s, 'truck', 0, drvOf(s, 900, 1));
+      expect(validPose(JSON.parse(JSON.stringify(sent)))).toBe(true);
+      const relayed = cleanPose(JSON.parse(JSON.stringify(sent)));
+      expect(relayed.drv[3]).toBe(REAR_STEER_MODES.indexOf(mode));
+      for (const i of [0, 1, 2, 3]) expect(Math.abs(relayed.wheels[i].steer - s.wheels[i].steer)).toBeLessThan(0.002);
+      rear[mode] = deg(relayed.wheels[2].steer);
+    }
+    log('remote', rear, 'relayed rear inner: AUTO −32, AUTO 50% −16, LOCK 0, SIDEWAYS +32');
+    expect(Math.abs(rear.auto + 32)).toBeLessThan(0.5); expect(Math.abs(rear.auto50 + 16)).toBeLessThan(0.5);
+    expect(Math.abs(rear.lock)).toBeLessThan(0.01); expect(Math.abs(rear.crab - 32)).toBeLessThan(0.5);
   });
 
   test('D3 passive taper, lockout hysteresis and rear slew', () => {
