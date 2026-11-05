@@ -47,6 +47,8 @@ export class GraphicsPreparation {
     let requeued: Promise<void> | undefined;
     const prepared = this.queued.then(async () => {
       this.waiting[lane]--;
+      // An aborted job leaves at the head instead of going behind higher lanes again and again.
+      if (signal?.aborted) { this.finished++; return; }
       // Never awaited here: the chain moves on to the higher-lane jobs while this one waits behind them.
       if (this.waiting.slice(0, lane).some(count => count > 0)) {
         requeued = this.enqueue(model, prepare, signal, residentOnly, priority); return;
@@ -76,7 +78,12 @@ export class GraphicsPreparation {
       } finally { this.active = null; this.activeSince = null; this.finished++; }
     });
     this.queued = prepared.catch(() => {});
-    return prepared.then(() => requeued);
+    const result = prepared.then(() => requeued);
+    if (!signal) return result;
+    // Its waiter (a released city's install) goes on at the abort, not when the queue reaches the job.
+    return Promise.race([result, new Promise<void>(resolve => {
+      if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true });
+    })]);
   }
 
   /** Called after the menu/animation loop is installed; the caller never waits for backfill. */

@@ -153,3 +153,24 @@ test('an aborted job stops waiting for a preparation that never settles, and the
   expect(ran).toBe(true);
   expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 2, activeMs: null });
 });
+
+test('a queued job of a released city answers its waiter at the abort and never runs', async () => {
+  const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
+  const THREE3 = await import('three/webgpu');
+  const scene = new THREE3.Scene();
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const queue = new GraphicsPreparation(scene, () => {}, r => r(), () => gate);
+  const life = new AbortController();
+  const a = new THREE3.Group(), b = new THREE3.Group();
+  scene.add(a, b);
+  void queue.enqueue(a, () => {});
+  let ran = false, answered = false;
+  void queue.enqueue(b, () => { ran = true; }, life.signal, false, 'scenery').then(() => { answered = true; });
+  life.abort();
+  await new Promise(r => setTimeout(r, 0));
+  expect(answered).toBe(true); // while the queue still waits on the first job
+  release();
+  await new Promise(r => setTimeout(r, 5));
+  expect(ran).toBe(false);
+});
