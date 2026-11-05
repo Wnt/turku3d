@@ -123,6 +123,7 @@ def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
 
     gx, gy = np.meshgrid(np.arange(0, 40, 0.5), np.arange(0, 40, 0.5))
     add(np.c_[gx.ravel(), gy.ravel(), np.zeros(gx.size)], 2, np.zeros(gx.size))
+    add([[1.0, 1.0, 2.0]], 26, [2.0])
     rx, ry = np.meshgrid(np.arange(30, 40, 0.5), np.arange(0, 10, 0.5))  # roof at 12 m
     add(np.c_[rx.ravel(), ry.ravel(), np.full(rx.size, 12.0)], 6, np.full(rx.size, 12.0))
     fz = np.arange(1, 11, 0.5)
@@ -149,8 +150,8 @@ def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
     out = lidar.split_unclassified(xyz[:, 0], xyz[:, 1], xyz[:, 2], cls, hag, tops[row, col], street, water,
                                    origin=(0.0, 0.0))
     spans = np.cumsum([0] + [len(p[0]) for p in parts])
-    ground, roof, facade, crown, boat, car, wire = (out[a:b] for a, b in zip(spans[:-1], spans[1:]))
-    assert (ground == 2).all() and (roof == 6).all()
+    ground, deck, roof, facade, crown, boat, car, wire = (out[a:b] for a, b in zip(spans[:-1], spans[1:]))
+    assert (ground == 2).all() and (roof == 6).all() and (deck == 17).all()
     assert (facade == 1).all() and (boat == 1).all() and (car == 1).all()
     assert (crown == 5).mean() > 0.95
     assert (wire == 1).mean() > 0.9

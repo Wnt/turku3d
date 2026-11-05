@@ -24,10 +24,11 @@ AFLOAT = 3.0  # m above the water surface: boats, pontoons and moorings, not veg
 # Wire returns (turku3d.wire_points) stay class 1 as in Turku's survey, where the wire producers look for them.
 # AHN files crowns in class 1 too, so the candidates crowd themselves (as overlap returns do in Turku).
 WIRE_STAGE = {"min_extent": 4.0, "min_points": 8, "self_crowd": 6}
+CIVIL, BRIDGE = 26, 17  # AHN "kunstwerk" (bridges, viaducts, quays) -> ASPRS bridge deck, which bridge profiles prefer
 
 
 def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin):
-    """Turku's classes for AHN returns (2 ground, 6 building, 9 water; 26 civil structures and the rest 1).
+    """Turku's classes for AHN returns (2 ground, 6 building, 9 water, 26 civil structures -> 17, the rest 1).
 
     AHN class 1 holds everything else together: crowns, facades and roof furniture, wires, vehicles, boats.
     In order, these stay 1 and the rest is vegetation 3/4/5 by height above ground:
@@ -41,6 +42,7 @@ def split_unclassified(x, y, z, cls, hag, building_top, street, water, origin):
 
     out = np.ones(len(cls), np.uint8)
     out[cls == 2], out[cls == 6], out[cls == 9] = 2, 6, 9
+    out[cls == CIVIL] = BRIDGE
     other = cls == 1
     attached = other & (z <= np.nan_to_num(building_top, nan=-np.inf) + ROOF_CLEAR)
     afloat = other & water & (hag < AFLOAT)
@@ -79,11 +81,11 @@ def building_tops(x, y, z, cls, pand, emin, nmax, nx, ny):
 
 def pointcloud_block(block: C.LazTile, ground_points: np.ndarray, log=print) -> Path | None:
     """``raw/laz/pistepilvi/<block>.laz`` from AHN in Turku's classification (2 ground, 3/4/5 low/medium/high
-    vegetation, 6 building, 9 water, 1 other), for roof refinement, LiDAR trees, canopy, walls and wires.
+    vegetation, 6 building, 9 water, 17 bridge, 1 other), for roof refinement, LiDAR trees, canopy, walls and wires.
 
     AHN leaves vegetation, facades, wires, street furniture, vehicles and boats together in class 1:
     ``split_unclassified`` keeps the non-vegetation in 1 and splits the rest by height above the block's ground
-    (``HAG_CELL`` raster from the key points). AHN class 26 (civil structures: bridges, quays) stays 1."""
+    (``HAG_CELL`` raster from the key points). AHN class 26 (civil structures: bridges, quays) becomes 17."""
     import laspy
     import shapely
     from scipy.interpolate import griddata
