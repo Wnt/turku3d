@@ -123,17 +123,23 @@ maps `~/turku3d/loops/roadfix/maps/`.
 
 ## Open
 
-1. **Ground under bridge decks (Jonni's Lemminkäisensilta and Kalevan silta reports).** The lower road's own
-   surface (`road` material, 24 deg) climbs under the deck to its soffit, so the underpass is closed and parked or
-   driving cars sit on the slope. A cut of the terrain grid over every `way["under"]` corridor inside
-   `bridges.produce` (94dac80a) was rebuilt on t0_10_4 and changed nothing: the raised surface is made later
-   (street profiles or surface stages sampling the survey under the deck, where returns hit the deck). Next: find
-   the stage that writes that `road` surface (`street_profiles.py`, `street_survey.py`, `surfaces.py`) and give it
-   the lower way's level read beyond 10 m of the deck (`under_height`-style), with vertical abutment faces at the
-   corridor edges. Reverted in f9aba535.
-2. **Lane heights far off the deck (Kupittaa link).** `roads.json` heights 2.2 m below the deck: the roadbed rules
-   then measure the wedge under the deck instead of the deck. Bake bridge lane heights from the deck surface
-   (`route_surface.bake` picks the floor nearest a DEM reference) or widen `repair_heights` to whole-edge offsets.
+1. **Ground under bridge decks** — fixed after the first merge (spot fix, `bridge-ends@1` class):
+   - `bridges.passes_under` accepts skew crossings (over 10 deg; Helsinginkatu runs 18 deg off the Rantarata
+     viaduct) and lower ways that OSM splits beneath the deck;
+   - `bridges.below_deck` adds lower carriageways under a deck's whole outline that miss its axis;
+   - `bridges.cut_under` lowers the terrain over each of them to the lower way's own level (read beyond 10 m from
+     the deck) within the way's width plus 2 m and 5 m of the deck.
+   Rebuilt t0_10_4 (`roadfix-m5`): under the rail deck the floor is 15.85 m instead of the 21.7 m slope up to the
+   soffit; 2 of the 3 Helsinginkatu lanes that were stuck now drive through (the third sticks 60 m further on, at
+   2745,1090). Kalevan silta (t0_7_-1, a local build with the first version): the embankment wedge is cut back off
+   the lanes, but its lanes still hit the cut's edge; rebuilds of t0_7_-1 and t0_6_-2 with the final code were
+   requested on the farm (`roadfix-m5`) and are not yet swept. The cut's sides are the 2 m terrain lattice's slope,
+   not vertical abutment walls yet.
+2. **Kupittaa link** — rule merged, not yet verified on a rebuild: `bridges.branch_profiles` gives each deck member
+   that leaves the main axis its own profile (the deck's height where it leaves, then a vertical curve to the ground
+   at its end) instead of a blend by distance from the axis, and `road_heights` gives a deck member's edges the deck
+   surface. A street light under a deck is no longer built as a free-standing post (`coarse/furniture.deck_cover`;
+   its head came up through Kupittaansilta's lane, found at 1761.3, 18.1, -65.7 under the deck at 25.4 m).
 3. **Building passages** (the most common central obstacle): the OSM passage line runs 2-3 m off the opening the
    generator builds (w1196792244: a `covered=yes` driveway carries the walled tube, the `building_passage` one runs
    into the building), or the approach lane cuts the building corner (w994856577). The passage corridor
