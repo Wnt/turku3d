@@ -147,6 +147,21 @@ def names_windows(reading):
     return bool(re.search(r"\bwindows?\b", text))
 
 
+def reading_head(observed):
+    """One window head shape named by every reviewed reading section that states one."""
+    from turkutex.facade_sections import shape
+
+    heads = set()
+    for wall in (observed or {}).get("walls", []):
+        if wall.get("observation", {}).get("needs_review", True):
+            continue
+        for section in wall.get("structure", {}).get("facade_observations", {}).get("sections", []):
+            if isinstance(section.get("head"), str):
+                head = shape(section["head"])
+                heads.add(head if head == "flat" else head + "-arch")
+    return heads.pop() if len(heads) == 1 else None
+
+
 def described_blank_walls(key, vertices, description, observed=None):
     """A zero count is evidence for its source wall, never a whole building. A reviewed
     reading of the same wall that names windows outranks the description's zero."""
@@ -427,6 +442,13 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                  blank_walls=described_blank_walls(building.facade_key, vertices, d, observed))
         program["description_source"] = row.get("source", "existing")
     program["facade_material"] = family
+    head = reading_head(observed)
+    if head:
+        from turkutex.facade_program import value
+
+        for wall in program["walls"]:
+            # The building's photographed window heads replace the archetype's period draw.
+            wall["windows"]["head_shape"] = value(head, "unopposed reviewed window heads", 0.6)
     for index, wall in enumerate(program["walls"]):
         own = matching_wall(vertices[index * 4 : index * 4 + 4], observed)
         apply_prior(wall, program["archetype"], attrs, own, record)
