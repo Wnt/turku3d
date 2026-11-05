@@ -635,6 +635,8 @@ async function runQa() {
     settleStart = clock.simSeconds;
     perf.reset();
   };
+  if (params.preview) void import('./qa/preview').then(m => m.startPreview(q, pose => window.__qaMove!(pose),
+    () => coarse.loadedTiles())).catch(fail);
   window.__dev = {
     geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
     coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),
