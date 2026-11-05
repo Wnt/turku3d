@@ -327,11 +327,11 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: 
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
 // Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
-const prepareSceneryGraphics = (model: THREE.Object3D) => queueGraphics(model, async () => {
+const prepareSceneryGraphics = (model: THREE.Object3D, signal?: AbortSignal) => queueGraphics(model, async () => {
   await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
   const tiers = model.userData.dissolveTiers as number[] | undefined;
   if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
-}, undefined, 'scenery');
+}, signal, 'scenery');
 // ?resolutionTarget=40: desktop AdaptiveResolution aims at the 40 FPS goal instead of 60, so it lowers resolution only
 // when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
 // Radeon 560X ?view=live replays; the losing path goes within ten merges.
@@ -515,6 +515,9 @@ function cityLayer(name: CityName) {
 /** A city's own world: its manifest, collision streamer and tile streamer. `layer` holds its tile models (the
  *  scene itself, or with the parkCity A/B a group of its own that a parked city leaves). */
 interface CityWorld { name: CityName; manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles; layer: THREE.Object3D;
+  /** Aborted when the city is released: its queued graphics preparations (tiles, scenery cells, trees) are dropped
+   *  instead of holding the shared preparation queue, and the released city, until they reach the front. */
+  life: AbortController;
   /** A parked city's next collision streamer (the old one unloaded every cell when the city was left). */
   restream(): CollisionStreamer }
 
@@ -531,15 +534,16 @@ async function cityWorld(physics: PhysicsClient, layer: THREE.Object3D = scene, 
     return { ...parked, streamer };
   }
   const manifest = draftManifest(location.href);
+  const life = new AbortController();
   const holder = { streamer: new CollisionStreamer(manifest, physics, params.collisionRadius) };
   const coarse = await draftVisuals(manifest, {
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => holder.streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => holder.streamer.retain(id, entry, buffer),
-  }, layer);
+  }, layer, life.signal);
   censusSources.coarse = coarse; censusSources.collision = holder.streamer;
   window.__tiles = { loaded: () => coarse.loadedTiles() };
-  return { name: CITY.name, manifest, streamer: holder.streamer, coarse, layer,
+  return { name: CITY.name, manifest, streamer: holder.streamer, coarse, layer, life,
     restream: () => (holder.streamer = new CollisionStreamer(manifest, physics, params.collisionRadius)) };
 }
 
@@ -576,12 +580,12 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
 }
 
 async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
-  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, layer: THREE.Object3D = scene) {
+  'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, layer: THREE.Object3D = scene, signal?: AbortSignal) {
   const coarse = await CoarseTiles.start({ scene: layer as THREE.Scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
-    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m); },
-    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m),
+    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal); },
+    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m, signal),
     // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
     keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
     // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
@@ -591,9 +595,9 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     ...collision,
     trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
     retire: release => graphics.retire(release),
-    prepareGraphics: prepareSceneryGraphics,
+    prepareGraphics: m => prepareSceneryGraphics(m, signal),
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
-    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m); } });
+    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m, signal); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   adoptCoarse(coarse);
   if (!idPass) {
@@ -933,12 +937,12 @@ async function runPlay() {
       await leaving.streamer.dispose();
       if (PARK_CITY) {
         // One parked city at most: the one parked before goes for good.
-        if (parked && parked !== leaving) parked.coarse.leaveCity();
+        if (parked && parked !== leaving) { parked.life.abort(); parked.coarse.leaveCity(); }
         leaving.coarse.park();
         for (const e of leaving.coarse.entries.values()) if (e.model) { vegetation?.remove(e.model); furniture?.remove(e.model); }
         leaving.layer.removeFromParent();
         parked = leaving;
-      } else leaving.coarse.leaveCity();
+      } else { leaving.life.abort(); leaving.coarse.leaveCity(); }
       setCity(to);
       history.replaceState(history.state, '', cityPageUrl(to, location, spawn));
       params.spawnGiven = !!spawn;
