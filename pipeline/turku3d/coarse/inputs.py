@@ -50,7 +50,7 @@ DATASETS = (
     "attachments", "retaining", "vegetation_canopy", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
-    "trunk_ground",
+    "trunk_ground", "finished_ground",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -116,6 +116,7 @@ class Inputs:
     attachments: list = ()  # supported exterior decks and tread levels from classified lidar
     retaining: list = ()  # raw-lidar two-sided WFS retaining tops, before path blending
     playgrounds: list = ()  # surveyed playground sites reaching the tile (turku3d.playgrounds)
+    finished_ground: dict | None = None  # ground.finished report; None where the lidar ground stands
 
 
 # -- ground ---------------------------------------------------------------------------------------
@@ -516,7 +517,71 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
             if (p := sources.wfs_source(name, tile)[1])
         ],
         "playgrounds": [] if first_pass else playground_sources(),
+        # Physical terrain: both passes use the same finished ground.
+        "finished_ground": [] if missing else finished_sources(tile, sources, laz),
     }
+
+
+def finished_sources(tile: C.VisualTile, sources: Sources, laz: list) -> list:
+    """ground.finished inputs: street areas, spot heights, LoD2, water and key-point blocks of the
+    tile's windows, then the tile's own key-point files, each group ended by None."""
+    from turku3d.ground.finished import REGION
+
+    window = tile.bbox.buffered(REGION)
+    bounds = window.to_en().as_tuple()
+
+    def layer(slug):
+        found = []
+        for summary, state in sources.wfs.within(f"{slug}.summary.json", bounds, intersect=True):
+            parquet = summary.with_name(f"{slug}.parquet")
+            if state.get("status") == "ok" and parquet.exists():
+                found.append(parquet)
+        return sorted(set(found))
+
+    streets = layer("GIS_Katualueet")
+    if not streets:
+        return []
+    root = C.raw_dir("laz") / "maanpinta"
+    blocks = [root / f"{b.name}.laz" for b in C.laz_tiles_for_bbox(window) if sources.lidar_present(b)]
+    return [*streets, None, *layer("kanta_Korkeuspiste"), None, *layer("bldg_Building_LOD2"), None,
+            *layer("kanta_Vesikohde"), None, *blocks, None, *laz]
+
+
+def finished_ground(tile: C.VisualTile, paths: list) -> dict:
+    """{"points": the tile's ground key points over finished ground, or None, "report": ...}."""
+    from turku3d.ground import finished
+
+    groups, group = [], []
+    for p in paths:
+        if p is None:
+            groups.append(group)
+            group = []
+        else:
+            group.append(p)
+    groups.append(group)
+    if len(groups) != 6 or not groups[0]:
+        return {"points": None, "report": None, "region": None}
+    streets, spots, bldg, water, blocks, laz = groups
+    evidence = finished.load(tile, streets, spots, bldg, blocks, water)
+    points, report, region = finished.apply(tile, ground_points(tile, laz), evidence)
+    return {"points": points if report else None, "report": report, "region": region}
+
+
+def outside_finished_ground(profiles, value):
+    """Street profile sections clear of finished ground: a kerb fitted to construction-era survey
+    returns would stamp the trench back into the finished surface."""
+    region = (value or {}).get("region")
+    if region is None or not profiles:
+        return profiles
+    return [p for p in profiles if not p["line"].intersects(region)]
+
+
+def with_finished_ground(tile: C.VisualTile, ground: dict, value) -> dict:
+    """The ground dataset over finished ground (``finished_ground``'s key points)."""
+    if not value or value.get("points") is None:
+        return ground
+    points = value["points"]
+    return {**ground, "points": points, "heights": grid_heights(points, *grid_axes(tile))}
 
 
 def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
@@ -602,6 +667,8 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .tunnels import prepare as prepare_tunnels
 
         return prepare_tunnels(tile, paths[0])
+    if dataset == "finished_ground":
+        return finished_ground(tile, paths)
     if dataset == "ground":
         canopy = []
         ground = prepare_ground(tile, ground_points(tile, paths, canopy))
@@ -790,7 +857,8 @@ def gather(
         temp = report.with_suffix(".tmp")
         temp.write_text(json.dumps(cache_metrics) + "\n")
         temp.replace(report)
-    ground, wfs = values["ground"], values["wfs"]
+    ground = with_finished_ground(tile, values["ground"], values.get("finished_ground"))
+    wfs = values["wfs"]
     pool_mask = shapely.union_all([g for g, _, _ in (values["gardens"] or {}).get("pools", ())])
     water = (
         [g.difference(pool_mask) for g in values["water"]]
@@ -846,7 +914,7 @@ def gather(
         markings=values["markings"] or (),
         surfaces=values["surfaces"] or (),
         street_finishes=wfs["street_finishes"],
-        street_profiles=values["street_profiles"] or (),
+        street_profiles=outside_finished_ground(values["street_profiles"] or (), values.get("finished_ground")),
         register=values["register"],
         barriers=values["barriers"] or (),
         forests=values["forests"] or (),
@@ -862,4 +930,5 @@ def gather(
         poles=values["poles"] or (),
         parking=values["parking"] or ((), ()),
         playgrounds=values.get("playgrounds") or (),
+        finished_ground=(values.get("finished_ground") or {}).get("report"),
     )

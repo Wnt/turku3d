@@ -938,6 +938,8 @@ def build(
             sections=len(inputs.street_profiles),
             metres=round(sum(p["line"].length for p in inputs.street_profiles), 2),
         ),
+        # Construction-era lidar ground replaced by the finished surface (ground.finished).
+        finished_ground=inputs.finished_ground,
         surface_closure=closure_report,
         surface_audit=surface_report,
         stairs=stairs.stats(stair_meshes, inputs.stairs),

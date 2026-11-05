@@ -48,18 +48,33 @@ def prepare(tile, path):
 SEAM_REACH = 250.0  # m past the tile edge that must have real neighbour ground (kerbs, portals)
 
 
-def height_sampler(tile, heights, root, sources):
-    """Use the owning tile's measured grid on both sides of a visual-tile seam."""
+FINISHED_SEAM = 18.0  # m past the tile edge sampled from the tile's own finished ground (its key points reach 20 m)
+
+
+def height_sampler(tile, heights, root, sources, finished_points=None):
+    """Use the owning tile's measured grid on both sides of a visual-tile seam.
+
+    ``finished_points``: the tile's key points over finished ground (``ground.finished``), given when the
+    rule changed this tile. Near the seam a neighbour's grid then comes from them: they equal the
+    neighbour's own finished points there (canonical windows), without preparing every neighbour's
+    finished ground in this build. Farther samples read the neighbour's raw ground as before."""
     from turku3d import config as C
 
-    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save
+    from .inputs import _ABSENT, _entry, _load, _prepare_one, _save, grid_axes, grid_heights
     from .surfaces import grid_height
 
     grids = {tile.id: heights}
+    finished_grids = {}
 
     def sample(x, z):
         b = tile.bbox
         owner = tile if b.xmin <= x <= b.xmax and b.zmin <= z <= b.zmax else C.VisualTile.at(x, z)
+        if (finished_points is not None and owner is not tile
+                and b.xmin - FINISHED_SEAM <= x <= b.xmax + FINISHED_SEAM
+                and b.zmin - FINISHED_SEAM <= z <= b.zmax + FINISHED_SEAM):
+            if owner.id not in finished_grids:
+                finished_grids[owner.id] = grid_heights(finished_points, *grid_axes(owner))
+            return grid_height(owner, finished_grids[owner.id], x, z)
         if owner.id not in grids:
             paths, missing = sources.lidar_paths(owner)
             if missing and owner is not tile and max(abs(x - (b.xmin + b.xmax) / 2) - (b.xmax - b.xmin) / 2,
