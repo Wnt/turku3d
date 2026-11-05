@@ -198,3 +198,13 @@ def test_lanes_are_the_drawn_way_corridors(tmp_path):
     lanes = shapely.union_all([g for g, lane in clearance.walked_ground(TILE, path, None) if lane])
     window = shapely.box(*TILE.bbox.as_tuple())
     assert abs(drawn.area - lanes.intersection(window).area) < 1e-6 * drawn.area
+
+
+def test_a_wide_real_crown_moves_further_and_keeps_only_a_metre_of_flare():
+    big = clearance.Trunk("lidar:big", "lidar:big", 100, 50, 2.1, 0.3, 8.0)  # stem on the drive's centreline
+    small = clearance.Trunk("lidar:small", "lidar:small", 150, 50, 0.8, 0.2, 3.0)
+    decisions = clearance.place([big, small], LANE)
+    x, z = decisions["lidar:big"]
+    assert DRIVE.distance(shapely.Point(x, z)) >= clearance.FLARE + clearance.CLEARANCE - 1e-3
+    assert 2.5 < np.hypot(x - 100, z - 50) <= 4.0
+    assert decisions["lidar:small"] is None  # 3.3 m to valid ground, beyond a small crown's reach

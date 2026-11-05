@@ -13,7 +13,7 @@ Medians and planting strips (Välikaista), leased terraces and unclassified part
 
 A trunk whose visible base comes within ``CLEARANCE`` of a lane (a register tree: whose stem stands on
 it; its position is surveyed, the corridor widths are estimates) is moved to the nearest valid spot
-within ``MOVE`` when it is a real tree (a register tree, a mapped OSM tree or a supported lidar crown),
+within ``MOVE`` (a wide crown: half its radius, up to ``MOVE_MAX``) when it is a real tree (a register tree, a mapped OSM tree or a supported lidar crown),
 its crown still over its measured place (trees-lidar measures the lean from the new trunk). Generated
 trees (area scatter, canopy-peak fill, bushes) on any walked ground are dropped, and so is a real tree
 with no valid spot within reach, except a register tree: a surveyed stem stays where the survey put it.
@@ -32,6 +32,8 @@ from shapely.ops import nearest_points
 
 CLEARANCE = 0.5  # m between the visible trunk base and the edge of walked ground
 MOVE = 2.5  # m a real trunk may shift to reach valid ground
+MOVE_MAX = 4.0  # m: a wide crown's trunk may be anywhere under half its radius, up to this
+FLARE = 1.0  # m of a real tree's modelled root flare that must clear a lane (big crowns flare wider)
 NEIGHBOUR = 2.0  # m: a moved trunk this close to another tree is that tree
 REGISTER, MAPPED, CROWN = "puut:", "osm:", "lidar:"
 REAL = (REGISTER, MAPPED, CROWN)
@@ -145,6 +147,7 @@ class Trunk:
     z: float
     base: float  # visible trunk base radius (m)
     stem: float = 0.0  # trunk radius (m)
+    crown: float = 0.0  # crown radius (m)
 
     @property
     def real(self) -> bool:
@@ -153,10 +156,20 @@ class Trunk:
 
 def need(trunk: Trunk) -> float:
     """Distance the trunk keeps from a lane. A register stem is surveyed, and corridor widths are
-    estimates: it yields only where its stem itself stands on the drawn lane."""
+    estimates: it yields only where its stem itself stands on the drawn lane. Other real trees keep
+    their stem and up to ``FLARE`` of the modelled flare (which scales with the crown) clear."""
     if trunk.object_id.startswith(REGISTER):
         return trunk.stem
+    if trunk.real:
+        return max(trunk.stem, min(trunk.base, FLARE)) + CLEARANCE
     return trunk.base + CLEARANCE
+
+
+def reach(trunk: Trunk) -> float:
+    """How far a real trunk may move: a crown peak over a lane says the stem is somewhere under it."""
+    if trunk.object_id.startswith(REGISTER):
+        return MOVE
+    return min(MOVE_MAX, max(MOVE, trunk.crown / 2))
 
 
 def place(trunks: list[Trunk], walked, blocked=None, bounds=None, stats=None):
@@ -187,7 +200,7 @@ def place(trunks: list[Trunk], walked, blocked=None, bounds=None, stats=None):
         stats["on_lane" if in_lane else "on_paving"] += 1
         target = None
         if trunk.real:
-            target = _nearest_valid(p, forbidden, need(trunk), box)
+            target = _nearest_valid(p, forbidden, need(trunk), box, reach(trunk))
             if target is not None and any(
                     i != trunk.index and np.hypot(x - target[0], z - target[1]) < NEIGHBOUR
                     for i, (x, z) in positions.items()):
@@ -207,18 +220,17 @@ def place(trunks: list[Trunk], walked, blocked=None, bounds=None, stats=None):
     return result
 
 
-def _nearest_valid(p, forbidden, distance, box):
-    """The nearest point at least ``distance`` from ``forbidden``, within ``MOVE`` of ``p``, or None."""
-    reach = p.buffer(MOVE + distance + 1)
-    local = forbidden.intersection(reach)
+def _nearest_valid(p, forbidden, distance, box, move=MOVE):
+    """The nearest point at least ``distance`` from ``forbidden``, within ``move`` of ``p``, or None."""
+    local = forbidden.intersection(p.buffer(move + distance + 1))
     zone = local.buffer(distance + 0.02, quad_segs=16)
-    free = p.buffer(MOVE, quad_segs=32).difference(zone)
+    free = p.buffer(move, quad_segs=32).difference(zone)
     if box is not None:
         free = free.intersection(box)
     if free.is_empty:
         return None
     a, _ = nearest_points(free, p)
-    if a.distance(p) > MOVE + 1e-6:
+    if a.distance(p) > move + 1e-6:
         return None
     return (float(a.x), float(a.y))
 
@@ -226,7 +238,7 @@ def _nearest_valid(p, forbidden, distance, box):
 def apply_to_trees(trees, walked, blocked, bounds, height_at, base_radius, stats=None):
     """The generator's step on ``vegetation.trees.Tree`` lists (trees or bushes): drop or move in place."""
     trunks = [Trunk(i, t.object_id, t.x, t.z, max(base_radius(t.variant) * t.crown_radius, t.trunk_radius),
-                    t.trunk_radius) for i, t in enumerate(trees)]
+                    t.trunk_radius, t.crown_radius) for i, t in enumerate(trees)]
     decisions = place(trunks, walked, blocked, bounds, stats)
     result = []
     for i, t in enumerate(trees):
