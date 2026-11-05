@@ -43,7 +43,7 @@ export class TileCache {
     if (fs.existsSync(f)) return JSON.parse(fs.readFileSync(f, 'utf8'));
     if (!(await this.ready(tile))) return null;
     const m = await get(new URL(`${tile}/manifest.json`, this.source.root));
-    if (m) fs.writeFileSync(f, JSON.stringify({ tile, roads: m.roads ?? null, collision: m.collision ?? {}, revision: m.revision ?? null }));
+    if (m) fs.writeFileSync(f, JSON.stringify({ tile, roads: m.roads ?? null, collision: m.collision ?? {}, visual: m.visual?.[tile] ? { url: m.visual[tile].url, sha256: m.visual[tile].sha256 } : null, revision: m.revision ?? null }));
     return m && JSON.parse(fs.readFileSync(f, 'utf8'));
   }
   async roads(tile) {
@@ -63,6 +63,19 @@ export class TileCache {
     if (!fs.existsSync(f)) { const b = await get(new URL(entry.url, this.source.service), 'bin'); if (!b) return null; fs.writeFileSync(f, b); }
     const b = fs.readFileSync(f);
     return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+  }
+  /** The tile's visual glTF bytes (for the props the client gives physics bodies), or null. A manifest cached
+   *  before the visual entry was kept is refetched once. */
+  async visual(tile) {
+    let m = await this.manifest(tile);
+    if (m && !('visual' in m)) { fs.unlinkSync(this.file('manifest', `${tile}.json`)); m = await this.manifest(tile); }
+    const entry = m?.visual;
+    if (!entry?.url) return null;
+    const f = this.file('vis', `${tile}.${entry.sha256.slice(0, 16)}.glb`);
+    // The visual url is relative to the tile's folder; roads and cells carry absolute paths.
+    const url = entry.url.startsWith('/') ? new URL(entry.url, this.source.service) : new URL(`${tile}/${entry.url}`, this.source.root);
+    if (!fs.existsSync(f)) { const b = await get(url, 'bin'); if (!b) return null; fs.writeFileSync(f, b); }
+    return new Uint8Array(fs.readFileSync(f));
   }
   /** Every finished tile in the box, with its roads cached. */
   async city([i0, j0, i1, j1] = [-14, -14, 17, 13], parallel = 12) {

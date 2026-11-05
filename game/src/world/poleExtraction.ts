@@ -1,5 +1,6 @@
 import * as THREE from 'three/webgpu';
 import type { PoleSpec } from '../physics/protocol';
+import { pole, poleHeight, poleId, recordedBase as recordBase } from './poleRecords';
 
 export interface PoleCandidate {
   spec: PoleSpec;
@@ -7,7 +8,6 @@ export interface PoleCandidate {
   range?: { mesh: THREE.Mesh; start: number; count: number };
 }
 
-const pole = (e: Record<string, unknown>) => e.prop_type === 'sign' || e.prop_type === 'bus_stop';
 
 function rangeBase(mesh: THREE.Mesh, start: number, count: number): THREE.Vector3 | null {
   const index = mesh.geometry.getIndex();
@@ -29,9 +29,8 @@ function rangeBase(mesh: THREE.Mesh, start: number, count: number): THREE.Vector
 
 /** The generator's pole base (engine coordinates of the tile model's space), when the record carries one. */
 function recordedBase(model: THREE.Object3D, e: Record<string, unknown>): THREE.Vector3 | null {
-  const b = e.pole_base;
-  if (!Array.isArray(b) || b.length !== 3 || !b.every(v => typeof v === 'number' && Number.isFinite(v))) return null;
-  return model.localToWorld(new THREE.Vector3(b[0], b[1], b[2]));
+  const b = recordBase(e);
+  return b ? model.localToWorld(new THREE.Vector3(b[0], b[1], b[2])) : null;
 }
 
 /** Read both per-object nodes and the object ranges retained by the visual packager. Current tiles record each
@@ -45,24 +44,24 @@ export function extractPoles(model: THREE.Object3D): PoleCandidate[] {
     if (entries && mesh.isMesh) {
       for (const e of entries) {
         if (!pole(e)) continue;
-        const id = String(e.pole_id ?? (e.tile && e.object_id ? `${e.tile}:${e.object_id}` : ''));
+        const id = poleId(e);
         const start = Number(e.start), count = Number(e.count);
         const base = recordedBase(model, e) ?? rangeBase(mesh, start, count);
         if (!id || !base) continue;
         found.push({ node, range: { mesh, start, count }, spec: {
-          id, base: { x: base.x, y: base.y, z: base.z }, yaw: 0, height: Number(e.pole_height) || 2.7,
+          id, base: { x: base.x, y: base.y, z: base.z }, yaw: 0, height: poleHeight(e),
         } });
       }
     } else if (pole(node.userData)) {
       const e = node.userData;
-      const id = String(e.pole_id ?? (e.tile && e.object_id ? `${e.tile}:${e.object_id}` : ''));
+      const id = poleId(e);
       if (!id) return;
       const index = mesh.isMesh ? mesh.geometry.getIndex() : null;
       const base = recordedBase(model, e) ?? (index ? rangeBase(mesh, 0, index.count) : node.getWorldPosition(new THREE.Vector3()));
       if (!base) return;
       found.push({ node, range: index ? { mesh, start: 0, count: index.count } : undefined,
         spec: { id, base: { x: base.x, y: base.y, z: base.z }, yaw: node.rotation.y,
-        height: Number(e.pole_height) || 2.7 } });
+        height: poleHeight(e) } });
     }
   });
   return found;

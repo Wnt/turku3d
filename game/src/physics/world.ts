@@ -806,6 +806,31 @@ export class PhysicsWorld {
       material: this.materialAt(hit.collider, point), tile: this.colliderInfo.get(hit.collider.handle)?.tile ?? null };
   }
 
+  /** What a vehicle's chassis touches now: each collider in contact with the contact point, its tile cell and
+   *  material, or the prop pole's id. For tools that explain an impact (the drive sweep's DRIVE_DEBUG). */
+  vehicleContacts(id = 'player'): { tile: string | null; material: number; pole: string | null; point: V3 }[] {
+    const vehicle = this.vehicles.get(id);
+    if (!vehicle) return [];
+    const out: { tile: string | null; material: number; pole: string | null; point: V3 }[] = [];
+    for (let i = 0; i < vehicle.body.numColliders(); i++) {
+      const own = vehicle.body.collider(i);
+      this.world.contactPairsWith(own, other => {
+        let point: V3 | null = null;
+        this.world.contactPair(own, other, (manifold, flipped) => {
+          if (point || manifold.numSolverContacts() === 0) return;
+          const p = manifold.solverContactPoint(0);
+          if (p) point = { x: p.x, y: p.y, z: p.z };
+          void flipped;
+        });
+        if (!point) return;
+        let pole: string | null = null;
+        for (const [poleId, entry] of this.poles) if (entry.body.handle === other.parent()?.handle) pole = poleId;
+        out.push({ tile: this.colliderInfo.get(other.handle)?.tile ?? null, material: this.materialAt(other, point), pole, point });
+      });
+    }
+    return out;
+  }
+
   private materialAt(collider: RAPIER_NS.Collider, point: V3): number {
     const info = this.colliderInfo.get(collider.handle);
     if (info?.triMat && info.locator) {
