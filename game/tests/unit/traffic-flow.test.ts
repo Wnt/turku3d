@@ -325,13 +325,15 @@ describe('aggressive drivers: lane changes, reverses and new routes when blocked
   });
 
   test('a truck across a two-way street: the front car backs off, then turns round onto the other lane', () => {
-    const { flow } = run(1, net => {
+    const { flow, reversed } = run(1, net => {
       const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
       const at = pointAt(lane.points, lane.cum, 70);
       return { lane, body: { id: 'truck', x: at.x, y: 0, z: at.z, hx: -at.hz, hz: at.hx, vx: 0, vz: 0, length: 16, width: 2.6 } };
     }, 400);
     expect(flow.stats.reverses).toBeGreaterThan(0);
     expect(flow.stats.uturns).toBeGreaterThan(0);
+    // It rocks while it waits (many separate backward moves, not one).
+    expect(reversed).toBeGreaterThan(25);
   });
 
   test('a moving driver goes round a parked car without stopping first when the corridor is clear', () => {
@@ -410,6 +412,27 @@ describe('out-of-view recycling (GTA-style)', () => {
     missed.scheduleWatch(0, 1, []);
     for (let step = 1; step <= 2000; step++) missed.update(step / 10);
     expect(missed.stats.recycled).toBe(0);
+  });
+
+  test('hidden jams go sooner far from every watcher (GTA: seconds beyond 150 m)', () => {
+    const { at } = locked(null);
+    const near = locked([{ x: at.x - 120 * at.hx, z: at.z - 120 * at.hz, fx: -at.hx, fz: -at.hz, halfFov: 0.6 }]);
+    const far = locked([{ x: at.x - 400 * at.hx, z: at.z - 400 * at.hz, fx: -at.hx, fz: -at.hz, halfFov: 0.6 }]);
+    expect(far.flow.stats.recycled).toBeGreaterThan(near.flow.stats.recycled);
+  });
+
+  test('a tile over its car budget feeds no new cars and sheds hidden excess', () => {
+    const net = flowNetwork(), flow = new TrafficFlow(net, 0);
+    net.density!.multiplier = 4;
+    flow.reset(0); flow.setWatchers([]);
+    const lane = [...net.tiles.values()][0].lanes.find(l => l.start.kind === 'seam' && l.length > 100)!;
+    const at = pointAt(lane.points, lane.cum, lane.length - 2);
+    // A truck parked in the junction: every approach backs up.
+    const truck = { id: 'truck', x: 125, y: 0, z: 125, hx: 1, hz: 0, vx: 0, vz: 0, length: 14, width: 14 };
+    for (let step = 1; step <= 3000; step++) { flow.setPlayers([], [truck], step / 10); flow.update(step / 10); }
+    expect(flow.stats.budgeted).toBeGreaterThan(0);
+    expect(flow.stats.trimmed).toBeGreaterThan(0);
+    void at;
   });
 
   test('nobody watching (a headless area): locked cars are recycled', () => {
