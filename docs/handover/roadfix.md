@@ -149,6 +149,15 @@ maps `~/turku3d/loops/roadfix/maps/`.
    road under a deck are dropped (`furniture.deck_cover`). The spot-rebuild set is `bridges > 0` plus
    `migrations/bridge_ends_tiles.py` (`scripts/dev/bridge_tiles.py`, 310 tiles); rail-only viaducts' lower-road
    tiles are not in it.
+2c. **Kupittaa, latest (helper builds, sweep):** `Tunnels.roads` no longer gives a BRIDGE edge the tunnel floor
+   profile (55b46dce). The link itself is still not drivable: the merged Hämeensilta outline (33 m wide) spans the
+   link while it descends beside the main carriageway, so the flat main slab covers the descent. Starting the descent
+   where the link leaves the other members' corridors and slabbing it as its own piece (198bd424, 9ac62c91) gave the
+   lane a smooth 25.4 -> 17.6 m profile, but left a wall at the link's start (10 m/s impact) and made a Hämeensilta
+   lane stuck, so both are reverted. Next: split the outline per member level (the link's own corridor out of the
+   main slab only where its profile is below the main deck), with a railing or wall on the cut edge. Kalevan's third
+   lane (449346f1) sticks on flat road at 1749,-127 in both the base and the fix: not the underpass ground.
+   Rail viaducts now join the spot-rebuild set (`bridge_tiles.py --osm`, 301 listed tiles).
 3. **Building passages** (the most common central obstacle): the OSM passage line runs 2-3 m off the opening the
    generator builds (w1196792244: a `covered=yes` driveway carries the walled tube, the `building_passage` one runs
    into the building), or the approach lane cuts the building corner (w994856577). The passage corridor
