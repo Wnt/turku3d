@@ -174,7 +174,7 @@ for sid, rec in poses.items():
                 m = ndi.binary_erosion(ids == oid, iterations=3)
                 if m.sum() < 0.02 * h * w: continue
                 tex = float(np.median(hp[m])); e = table.get(str(int(oid)), {})
-                if tex < 0.6:
+                if tex < 0.15:  # calibrated: flat placeholder 0.00-0.01, real asphalt/plaster/paving >= 0.35
                     add(sid, vname, 'untextured', e.get('kind'), {'texture': round(tex, 2), 'area_share': round(float(m.mean()), 3), 'material': e.get('material'),
                         'object': e.get('id'), 'tile': e.get('tile')}, annotate(cp, bbox(m), f'{sid}-{vname}-flat{oid}', label=f"flat {e.get('material')} {tex:.2f}"), v, 3, centre, True)
         # --- blank facades: big building surfaces with almost no window-like pixels

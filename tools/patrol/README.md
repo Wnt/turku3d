@@ -54,7 +54,8 @@ rsync -a $OUT osgallery-dev:/bulk/turku3d/patrol/ && rm -rf $OUT
 | pop | drive block differences 4x their +-8-frame median and > 14 luma | >= 4 blocks; population hidden |
 | stutter | drive frame intervals | > max(3 x median, 100 ms) |
 | collision-gap | collision grid points with no surface at all inside flat walkable ground (>= 5 of 9 neighbours have one, within 0.5 m of each other; steep faces are not in the ground index) | any |
-| not-ready | QA ready timeout or error at a pose | any |
+| untextured | median high-pass of one object's pixels (>= 3.5 % of a street still) | < 0.15 (placeholders 0.00-0.01, textured >= 0.35) |
+| not-settled (delivery) | coarse.viewStatus not ready or not quiet within 180 s, also on the end-of-run retry | any |
 
 ## Judge and ranking
 
