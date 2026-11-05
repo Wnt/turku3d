@@ -53,6 +53,7 @@ WALL_RING = 6  # m: a footprint's ring of ground
 WALL_QUANTILE = 0.9  # of that ring: the building's wall height for the closing
 MIN_CORE = 8  # m2 of construction ground per site
 SPOT_WEIGHT = 3.0
+TENSION = 0.3  # weight of the membrane rows against the thin-plate rows of the fill
 SPOT_SEED = 12  # m around a disagreeing spot height
 BAND = 25.0  # m half width of the blend band between windows
 PAD = 60.0  # m of data around a window's blend band (covers the 40 m closing and the fill)
@@ -330,6 +331,20 @@ def _biharmonic(h, free, spots_rc):
         (np.concatenate(entries_v), (np.concatenate(entries_r), np.concatenate(entries_c))),
         shape=(len(support), h.size),
     )
+    if TENSION:
+        # Membrane rows (first differences): a thin plate alone carries a trench lip's slope on into
+        # a hump; tension keeps the fill within its surroundings.
+        n = len(support)
+        grad_r, grad_c, grad_v = [], [], []
+        for k, (dr, dc) in enumerate(((1, 0), (0, 1))):
+            rr, cc = np.clip(r + dr, 0, rows_n - 1), np.clip(c + dc, 0, cols_n - 1)
+            grad_r += [k * n + np.arange(n)] * 2
+            grad_c += [rr * cols_n + cc, support]
+            grad_v += [np.full(n, TENSION), np.full(n, -TENSION)]
+        grad = sp.csr_matrix(
+            (np.concatenate(grad_v), (np.concatenate(grad_r), np.concatenate(grad_c))), shape=(2 * n, h.size)
+        )
+        lap = sp.vstack([lap, grad]).tocsr()
     flat = h.ravel()
     is_unknown = index >= 0
     a = lap[:, is_unknown]
