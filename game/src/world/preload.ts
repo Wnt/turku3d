@@ -26,6 +26,12 @@ async function drainGpu(renderer: THREE.WebGPURenderer) {
   } finally { gl.deleteSync(fence); }
 }
 
+/** A warmup frame that throws (main.ts guards it: the renderer's pass state is restored and the error logged) does not
+ *  end the boot or a city switch; the next frame draws again. */
+function warmFrame(renderFrame: () => void) {
+  try { renderFrame(); } catch (error) { console.error('[preload] a warmup frame threw; continuing', error); }
+}
+
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
 export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<void>, actors: readonly THREE.Object3D[] = []) {
   const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;
@@ -81,7 +87,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     worldLoad.update({ timings: { ...worldLoad.snapshot().timings, textureUploadMs: performance.now() - stage } });
     const firstDraw = loading.begin('Initial shader and GPU warmup draw');
     stage = performance.now();
-    renderFrame();
+    warmFrame(renderFrame);
     // First-use pipelines of the live frame compile asynchronously (render/asyncPipelines.ts): wait for them here,
     // so the menu opens with the initial view's pipelines ready.
     await (renderer as unknown as { pipelinesSettled?: () => Promise<void> }).pipelinesSettled?.();
@@ -95,7 +101,7 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
   // The camera never leaves its initial pose. Two history frames are enough before the live menu
   // loop continues convergence; the old eight-frame flush was needed after panorama camera jumps.
   stage = performance.now();
-  for (let i = 0; i < 2; i++) { renderFrame(); await frame(); }
+  for (let i = 0; i < 2; i++) { warmFrame(renderFrame); await frame(); }
   await drainGpu(renderer);
   worldLoad.update({ timings: { ...worldLoad.snapshot().timings, temporalWarmupMs: performance.now() - stage } });
   compiled(`${renderer.info.memory.textures} textures · ${total}/${total} views`);
