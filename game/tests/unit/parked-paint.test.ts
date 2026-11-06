@@ -27,11 +27,14 @@ test('resting, claimed, driven and remote fleet cars preserve pose and paint',as
   expect(Array.from(instancePaintOf(draw)!.array.slice(0,3))).toEqual(paintOf('red').map(Math.fround));
   visuals.takeOver('a');visuals.update([],rest);
   const driven=scene.getObjectByName('driven/a') as THREE.Mesh;
-  // Cars drawn on their own share the batch geometry and one damage-capable material (fleet/damageRig.ts).
-  expect(driven.material).toBe(fleetDamageMaterial());expect(driven.geometry).toBe(draw.geometry);
+  // Cars drawn on their own share the batch geometry's buffers and one damage-capable material (fleet/damageRig.ts);
+  // their index leaves out the model's own steering wheel, which the seated driver draws turning (driver/ownWheel.ts).
+  const shares=(mesh:THREE.Mesh)=>{for(const [name,attribute] of Object.entries(draw.geometry.attributes))expect(mesh.geometry.getAttribute(name),name).toBe(attribute);
+    expect(mesh.geometry.index!.count).toBeLessThan(draw.geometry.index!.count);};
+  expect(driven.material).toBe(fleetDamageMaterial());shares(driven);
   expect(actorPaintOf(driven)!.toArray()).toEqual([...paintOf('red')]);expect(draw.count).toBe(1);
   const remote=visuals.remoteModel('corolla-e180/beige')!;
-  expect(remote.material).toBe(fleetDamageMaterial());expect(remote.geometry).toBe(draw.geometry);
+  expect(remote.material).toBe(fleetDamageMaterial());expect(remote.geometry).toBe(driven.geometry);shares(remote);
   expect(actorPaintOf(remote)!.toArray()).toEqual([...paintOf('beige')]);
 });
 

@@ -130,7 +130,10 @@ export function crown(hips: V3, recline: number): V3 {
   return add(add(hips, BODY.lumbar), pitch(sub(BODY.crown, BODY.lumbar), -(recline - BODY.recline)));
 }
 
-interface Anchor { wheel: V3; diameter?: number }
+/** A model's measured driving position (model frame): its steering wheel's centre and rim diameter, the H-point height
+ *  where its seat is not where the class puts it (the bus's low, flat wheel), and the box of its own wheel's source
+ *  parts (`own`, ownWheel.ts). */
+interface Anchor { wheel: V3; diameter?: number; hip?: number }
 const MODEL_ANCHORS = ANCHORS as unknown as Record<string, Anchor>;
 
 /** The layout for a fleet model with road-wheel lock `steerLock` (vehicle/modelTuning.ts maxSteer). The wheel centre
@@ -149,7 +152,7 @@ export function fleetLayout(m: Pick<FleetModel, 'id' | 'body' | 'family' | 'heig
   const centre: V3 = anchor?.wheel ? [...anchor.wheel] : [lateral, hipY + p.up, m.frontAxle - p.axle * m.wheelbase];
   const diameter = anchor?.diameter ?? p.diameter;
   const wheel = { centre, radius: diameter / 2 - 0.016, tilt, grip: p.grip * DEG, lock: p.lock * DEG, drawn: true };
-  const hips: V3 = [centre[0], Math.min(centre[1] - p.up, roofHip), centre[2] - p.ahead];
+  const hips: V3 = [centre[0], Math.min(anchor?.hip ?? centre[1] - p.up, roofHip), centre[2] - p.ahead];
   hips[2] = seatDistance(hips, recline, wheel, p.reach);
   return { cls, hips, recline, steerLock: m.steerLock, steerFrom: 'mean', wheel };
 }

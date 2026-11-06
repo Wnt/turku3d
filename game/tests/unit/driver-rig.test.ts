@@ -1,3 +1,4 @@
+import './fleet-assets.fixture';
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { playerRig } from '../fixtures/playerRig';
@@ -6,6 +7,9 @@ import { BODY, crown, steerFraction, steeringAngle, type DriverLayout } from '..
 import { fleetDriverLayout } from '../../src/actors/driver/drivers';
 import { DriverRig, DriverTemplate } from '../../src/actors/driver/rig';
 import { TIERS } from '../../src/actors/driver/model';
+import { ownWheelBox, withoutOwnWheel } from '../../src/actors/driver/ownWheel';
+import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
+import ANCHORS from '../../src/actors/driver/anchors.json';
 import { DriverMotion, type MotionPose } from '../../src/actors/driver/motion';
 
 const DEG = Math.PI / 180;
@@ -218,3 +222,27 @@ test('posture classes (GTA grips and recline for cars, a sports preset for low c
   expect(fleetDriverLayout('corolla-e180').wheel.grip / DEG).toBeCloseTo(58, 6);
   expect(fleetDriverLayout('carla-ford-mustang').recline / DEG).toBeCloseTo(27, 6);
 });
+
+test('one steering wheel: a driven model with a measured wheel leaves its own static one out (whole parts in its box only)', async () => {
+  for (const id of Object.keys(ANCHORS)) {
+    const box = ownWheelBox(id)!, body = (await loadAuthoredFleetParts(id, 0))!.body;
+    const layout = fleetDriverLayout(id), [lo, hi] = box;
+    // The rig's wheel sits where the model's was.
+    layout.wheel.centre.forEach((c, k) => { expect(c, id).toBeGreaterThan(lo[k]); expect(c, id).toBeLessThan(hi[k]); });
+    const cut = withoutOwnWheel(body, box), before = body.index!.count / 3, after = cut.index!.count / 3;
+    expect(cut.getAttribute('position'), id).toBe(body.getAttribute('position'));
+    // A rim, spokes and hub go (at least 60 triangles even after decimation); nothing else: a thousandth of the body at most
+    // beyond the triangles that lie in the box.
+    const p = body.getAttribute('position'), kept = new Set<string>();
+    for (let i = 0; i < cut.index!.count; i += 3) kept.add([0, 1, 2].map(k => cut.index!.getX(i + k)).join());
+    let outside = 0;
+    for (let i = 0; i < body.index!.count; i += 3) {
+      const corners = [0, 1, 2].map(k => body.index!.getX(i + k));
+      if (kept.has(corners.join())) continue;
+      if (!corners.every(v => [p.getX(v), p.getY(v), p.getZ(v)].every((a, k) => a >= lo[k] - 0.016 && a <= hi[k] + 0.016))) outside++;
+    }
+    expect(before - after, id).toBeGreaterThan(60);
+    expect(outside, id).toBe(0);
+  }
+  expect(ownWheelBox('golf7')).toBeNull();
+}, 30000);

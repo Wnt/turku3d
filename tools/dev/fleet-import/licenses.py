@@ -19,7 +19,7 @@ def row(m):
     credit = (f"Attribution: {src['title'].split(' (')[0]} from the CARLA Simulator (https://carla.org), CARLA Team / Computer "
               f"Vision Center, CC BY 4.0, modified for Turku3D." if carla else
               f"Attribution: \"{title}\" by {author}, CC BY 4.0, modified for Turku3D.")
-    changes = ['reoriented' + ('' if carla else f" and rescaled to {e['fleet']['length']} m"),
+    changes = ['reoriented' + (', mirrored to left-hand drive' if m.get('mirror') else '') + ('' if carla else f" and rescaled to {e['fleet']['length']} m"),
                'wheels split at hubs' + (' (skinned wheel bones)' if carla else ''),
                'badges, logos and plate text removed (blank generic plates)' + (', "CARLA" plates blanked' if carla else ''),
                'textures sampled into vertex colours (no images shipped)',

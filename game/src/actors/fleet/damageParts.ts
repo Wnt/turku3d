@@ -14,6 +14,8 @@ export type ModelParts = readonly (PartInfo | null)[];
 const byGeometry = new WeakMap<THREE.BufferGeometry, ModelParts>();
 /** The parts of a body geometry split by `splitParts` (shared by every clone of it). */
 export const partsOf = (geometry: THREE.BufferGeometry): ModelParts | undefined => byGeometry.get(geometry);
+/** `to` draws `from`'s split attributes with an index of its own (a subset): the same parts. */
+export function shareParts(from: THREE.BufferGeometry, to: THREE.BufferGeometry) { const parts = byGeometry.get(from); if (parts) byGeometry.set(to, parts); }
 
 /** Regions as fractions of the damage box: `f` along the length from the rear, `h` up the height, `a` out from the
  *  middle to the side. Bumpers: the lower 45 % of the end 17 % of the length. Bonnet: the up-facing panel ahead of

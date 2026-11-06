@@ -209,6 +209,12 @@ if (!forward) {
     : tail !== null ? (tail < mid ? '+z' : '-z') : '+z';
 }
 if (forward === '-z') transform((x, y, z) => [-x, y, -z]);
+// mirror: a right-hand-drive source becomes left-hand drive like Finnish vehicles (the driver on the left, a bus's
+// doors on the kerb side); mirroring X turns each triangle over, so two corners swap to keep the front face out.
+if (cfg.mirror) {
+  transform((x, y, z) => [-x, y, z]);
+  for (const t of tris) for (const a of [t.p, t.n, t.c]) for (let k = 0; k < 3; k++) [a[3 + k], a[6 + k]] = [a[6 + k], a[3 + k]];
+}
 b = box(tris, exterior);
 const scale = cfg.length ? cfg.length / b.size[2] : 1;
 const cx = (b.lo[0] + b.hi[0]) / 2, cz = (b.lo[2] + b.hi[2]) / 2;

@@ -15,6 +15,8 @@ import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
 import { DamageRig, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
+import { shareParts } from './damageParts';
+import { ownWheelBox, withoutOwnWheel } from '../driver/ownWheel';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 /** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
@@ -217,13 +219,21 @@ export class ParkedCarVisuals {
    *  (damageRig.ts), so a damage state from physics or the network shows on it (showFleetDamage). */
   private actor(model:FleetModel,color:string,name:string) {
     const parts=this.authoredParts.get(`${model.id}/0`), layout=modelLayout(model), rig=new DamageRig(layout);
-    const body=this.geometry(model,0);skinToCage(body,layout);
-    const actor=new THREE.Mesh(body,fleetDamageMaterial()); paintActor(actor,color);rig.bind(actor);
+    const actor=new THREE.Mesh(this.actorBody(model,layout),fleetDamageMaterial()); paintActor(actor,color);rig.bind(actor);
     const glass=this.geometries.get(`${model.id}/0/glass`);
     if(glass){skinToCage(glass,layout,'glass');const window=new THREE.Mesh(glass,fleetGlassDamageMaterial());window.receiveShadow=true;actor.add(window);rig.bind(window);}
     if(parts)addAuthoredFleetWheels(actor,model,parts.wheels,fleetMaterial());
 
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;
+  }
+  /** The body of a car drawn on its own: LOD0 on the damage cage, without the model's own steering wheel where its
+   *  seated driver draws a turning one in its place (actors/driver/ownWheel.ts); once per model. */
+  private actorBody(model:FleetModel,layout:ReturnType<typeof modelLayout>) {
+    const body=this.geometry(model,0);skinToCage(body,layout);
+    const box=ownWheelBox(model.id);if(!box)return body;
+    const key=`${model.id}/0/actor`;let actor=this.geometries.get(key);
+    if(!actor){actor=withoutOwnWheel(body,box);shareParts(body,actor);this.geometries.set(key,actor);}
+    return actor;
   }
   /** Draws vehicle `id` as its own actor from now on, at the pose `update` is given (the driven car's render pose).
    *  `record`: its vehicle record, for a car whose batch load has not caught up yet (a just-claimed traffic car):
