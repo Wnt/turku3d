@@ -125,7 +125,7 @@ const bounds = page => page.evaluate(() => ({ bounds: window.__game.damage.bound
 
 /** A flat, clear straight near the start car for handling runs: from candidate start points, rays at bumper height in
  *  5-degree steps (and parallel ones 0.9 m to each side) find the longest corridor without a solid hit, then ground
- *  rays every 4 m along it (centre and both sides) must stay level (within 6 cm step to step, 1.5 m in all) and flat
+ *  rays every 4 m along it (centre and both sides) must stay level (within 10 cm step to step, a 2.5 % grade change, and 1.5 m in all) and flat
  *  (normal y > 0.99). The longest usable corridor wins, up to 230 m. */
 const findStraight = page => page.evaluate(async () => {
   const physics = window.__game.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
@@ -151,7 +151,7 @@ const findStraight = page => page.evaluate(async () => {
         let ok = true;
         for (const [j, k] of [[0, 0], [1, -.85], [2, .85]]) {
           const at = await ray({ x: ground.point.x + d.x * t + side.x * k, y: ground.point.y + 4, z: ground.point.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 9);
-          if (!at || at.normal.y < .99 || Math.abs(at.point.y - last[j]) > .06 || Math.abs(at.point.y - ground.point.y) > 1.5) { ok = false; break; }
+          if (!at || at.normal.y < .99 || Math.abs(at.point.y - last[j]) > .1 || Math.abs(at.point.y - ground.point.y) > 1.5) { ok = false; break; }
           last[j] = at.point.y;
         }
         if (!ok) break;
