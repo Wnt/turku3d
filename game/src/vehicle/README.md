@@ -672,8 +672,12 @@ Measured on city.lab (2026-11-06, headless Chrome on the M1 Air):
   left. The first damaged batches drew nothing: 11 vertex buffers against WebGPU's default 8 (the cage bytes, paint,
   slot and lamps each had one); packed (`damageRig.ts packCage`, `damageBatch`; 8 buffers and 16 attributes with the
   velocity pass, `fleet-damage.test.ts` checks both) a parked prado-2010 wreck (42.1 cm) draws in `wrecks/prado-2010/0`.
-- `traffic` (build f0e156ae): a 44.9 km/h run into a traffic prado-2010 standing in a queue claims it with a 23.7 km/h
-  hit (traffic stats `claimHit`); an 80 km/h developer dent on its nose then makes it vent steam (10 sprites).
+- `traffic` (build 3e2e7e50): a 51.8 km/h run into a traffic octavia-rs-2020 standing in a queue claims it with a
+  24.6 km/h hit (traffic stats `claimHit`), drawn at once in its damaged batch (one hit, scuffed tail); an 80 km/h
+  developer dent on its nose leaves 44 cm front crumple, the front bumper hanging and the bay steaming (12 sprites).
+  Before that build a claimed car drew undamaged until its record's appearance had loaded (tens of seconds). The
+  second client's check matched another wreck in the room (the probe matches by hits, not identity), so the remote
+  view of a claimed wreck is shown only through the same shared-record path as the parked wrecks.
 - Traffic soak (async, east 3 x 3, 30 min, build 7460af30): 107.3 exits/min in the last half (handover: 100.1), 0
   locked over 300 s, 0 overlaps, 81 recycled, none in view.
 
