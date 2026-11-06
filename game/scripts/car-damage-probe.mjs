@@ -17,11 +17,11 @@ const browser = await chromium.connectOverCDP(process.env.BROWSER_CDP, { timeout
 const context = browser.contexts()[0] ?? await browser.newContext();
 const VIEWS = [['front-left', 35], ['front-right', -35], ['left', 90], ['rear', 180]];
 
-async function open(name) {
-  const page = await context.newPage();
+async function open(name, own = context) {
+  const page = await own.newPage();
   await page.setViewportSize({ width: 960, height: 540 });
   await page.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
-  await (await context.newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  await (await own.newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', e => report.errors.push(`${name} pageerror: ${e.message}`.slice(0, 300)));
   page.on('console', m => { const t = m.text();
     if (/GPUValidationError|Invalid (ShaderModule|RenderPipeline|BindGroup)|WGSL|TypeError|ReferenceError/.test(t)) report.errors.push(`${name} console: ${t}`.slice(0, 300)); });
@@ -148,6 +148,23 @@ try {
     }
     report.framesDamaged = await frames(page);
   }
+  if (mode === 'perf') {
+    // GPU frame time (window.__perf, timestamp queries) with N extra starter cars in view: damaged, damage-capable but
+    // undamaged, and the plain fleet material without the cage. A fixed camera; 5 s settle, then a fresh 10 s window.
+    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    report.perf = [];
+    for (const [kind, count] of [['none', 0], ['plain', 20], ['capable', 20], ['damaged', 20], ['plain', 60], ['damaged', 60], ['none', 0]]) {
+      const placed = await page.evaluate(([kind, count]) => window.__game.damage.bench({ count, kind }), [kind, count]);
+      await page.waitForTimeout(5000);
+      await page.evaluate(() => window.__render.perf.reset());
+      await page.waitForTimeout(10000);
+      const p = await page.evaluate(() => { const s = window.__perf; return { gpu: s.gpuMs, cpu: s.cpuMs, frame: s.frameMs, draws: s.drawCalls, status: s.gpuStatus }; });
+      const row = { kind, count, placed, gpuP50: p.gpu?.p50, gpuP95: p.gpu?.p95, cpuP50: p.cpu?.p50, frameP50: p.frame?.p50, samples: p.gpu?.samples, draws: p.draws, status: p.status };
+      report.perf.push(row); log('perf', row);
+    }
+    await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
+    await shots(page, 'perf');
+  }
   if (mode === 'mp') {
     // Client A drives its starter car a little (it registers as a shared record), client B joins the same room and
     // must draw A's dents exactly: hits and the crumple from B's own deformed bounds.
@@ -155,7 +172,8 @@ try {
     await page.waitForTimeout(1500);
     await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
     await page.waitForTimeout(2500);
-    const b = await open('b');
+    // Its own browser context: its own session token, so the room sees a second player.
+    const b = await open('b', await browser.newContext());
     await b.waitForFunction(() => window.__game.damage.remotes().length > 0, null, { timeout: 90000 });
     report.bFresh = await b.evaluate(() => window.__game.damage.remotes());
     log('b sees a', { remotes: report.bFresh });

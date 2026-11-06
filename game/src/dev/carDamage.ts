@@ -3,6 +3,11 @@ import type { CarVisual } from '../actors/car';
 import type { PhysicsClient } from '../physics/client';
 import type { DamageHit } from '../vehicle/damage';
 import { rigOf } from '../actors/fleet/damageRig';
+import type { ParkedCarVisuals } from '../actors/fleet/visuals';
+import { fleetMaterial } from '../actors/fleet/material';
+import { paintActor } from '../actors/parkedPaint';
+import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
+import { applyHit, DamageState, encodeDamage } from '../vehicle/damage';
 
 type Side = 'front' | 'rear' | 'left' | 'right' | 'roof' | 'front-left' | 'front-right' | 'rear-left' | 'rear-right';
 /** Push directions in the fleet model frame (+Z forward, +X the car's left): the car is pushed away from the side hit. */
@@ -16,7 +21,8 @@ const PUSH: Record<Side, [number, number, number]> = {
  *  always; with developer tools (localhost, ?dev=1) also `dent()`, a hit as if the car struck a wall at `kmh`,
  *  `clear()`, a fresh body for measurements (the game itself has no repair), and `look()`, a camera held around the car
  *  for same-pose screenshots. `frame(camera)` runs before each render (play.ts). */
-export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D) {
+export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D, fleet?: ParkedCarVisuals) {
+  const benched: THREE.Object3D[] = [];
   let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean } | null = null;
   const forward = new THREE.Vector3(), target = new THREE.Vector3();
   /** Other players' cars drawn here (net/remotes.ts, fleet/visuals.ts actors named remote/...), with their damage. */
@@ -88,5 +94,30 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       return hit;
     },
     clear() { physics.setVehicleDamage('player', null); },
+    /** Frame-cost bench: `count` extra starter cars in rows in front of the starter car's nose, drawn as
+     *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or with the plain fleet
+     *  material and no cage ('plain'); count 0 removes them. Returns how many are placed. */
+    bench({ count = 20, kind = 'damaged' }: { count?: number; kind?: 'damaged' | 'capable' | 'plain' } = {}) {
+      for (const o of benched.splice(0)) o.removeFromParent();
+      if (!count || !fleet || !car.root.visible) return 0;
+      const sample = fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`);
+      if (!sample) return 0;
+      const state = new DamageState(rigOf(sample)!.layout);
+      applyHit(state, { dv: [0, 0, -80 / 3.6] }); applyHit(state, { dv: [-.3 * 50 / 3.6, 0, .95 * 50 / 3.6], at: [.8, .6, -2] });
+      const wire = encodeDamage(state);
+      forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
+      const side = new THREE.Vector3(-forward.z, 0, forward.x), yaw = Math.atan2(forward.x, forward.z);
+      for (let i = 0; i < count; i++) {
+        const mesh = kind === 'plain' ? new THREE.Mesh(sample.geometry, fleetMaterial()) : fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`)!;
+        if (kind === 'plain') { paintActor(mesh, PLAYER_COLOR); mesh.castShadow = mesh.receiveShadow = true; }
+        mesh.name = `bench/${i}`;
+        const row = Math.floor(i / 5), column = i % 5 - 2;
+        mesh.position.copy(car.root.position).addScaledVector(forward, 7 + row * 5.5).addScaledVector(side, column * 2.6);
+        mesh.position.y -= .75; mesh.rotation.y = yaw;
+        scene.add(mesh); benched.push(mesh);
+        if (kind === 'damaged') rigOf(mesh)!.show(wire);
+      }
+      return benched.length;
+    },
   };
 }
