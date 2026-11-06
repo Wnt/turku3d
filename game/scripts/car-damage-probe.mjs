@@ -2,7 +2,10 @@
 // after hits, with the crumple measured from the drawn body's deformed bounds. Drives a Chrome that session.py holds:
 //   ~/turku3d/tools/host-lease/session.py run air car-damage --kind func --headless --load-timeout 180 \
 //     -- node game/scripts/car-damage-probe.mjs dent OUT_DIR
-// Modes: `dent` (developer dents, slice A), `wall` (drives into a wall, slice B), `mp` (a second client sees the damage).
+// Modes: `dent` (developer dents, slice A), `wall` (drives into a wall, slice B), `mp` (a second client sees the damage),
+// `perf` (the frame-cost bench), `handling` (mechanical damage: acceleration, speed and pull on a straight, fresh and
+// after real 50 and 75 km/h wall crashes, with Wreckfest 2's reverse pull probe), `mpsmoke` (a second client sees the
+// engine-bay steam and smoke and the deformed car; the frame cost of the smoke and the damage systems, A/B).
 // Writes OUT_DIR/result.json and PNGs; prints one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -120,6 +123,95 @@ async function drive(page, wall, kmh) {
 
 const bounds = page => page.evaluate(() => ({ bounds: window.__game.damage.bounds(), state: window.__game.damage.state() }));
 
+/** A flat, clear straight near the start car for handling runs: from candidate start points, rays at bumper height in
+ *  5-degree steps (and parallel ones 0.9 m to each side) find the longest corridor without a solid hit, then ground
+ *  rays every 4 m along it (centre and both sides) must stay level (within 6 cm step to step, 1.5 m in all) and flat
+ *  (normal y > 0.99). The longest usable corridor wins, up to 230 m. */
+const findStraight = page => page.evaluate(async () => {
+  const physics = window.__game.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
+  const ray = (o, d, max) => physics.raycast(o, d, max, 'solid');
+  let best = null;
+  const starts = [[0, 0]];
+  for (const r of [25, 50, 80]) for (let a = 0; a < 8; a++) starts.push([r * Math.cos(a * Math.PI / 4), r * Math.sin(a * Math.PI / 4)]);
+  for (const [ox, oz] of starts) {
+    const ground = await ray({ x: car.pos.x + ox, y: car.pos.y + 30, z: car.pos.z + oz }, { x: 0, y: -1, z: 0 }, 60);
+    if (!ground || Math.abs(ground.point.y - car.pos.y) > 6 || ground.normal.y < .995) continue;
+    const y = ground.point.y + .55;
+    for (let deg = 0; deg < 360; deg += 5) {
+      const yaw = deg * Math.PI / 180, d = { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) }, side = { x: -d.z, y: 0, z: d.x };
+      let clear = 230;
+      for (const k of [0, -.9, .9]) {
+        const h = await ray({ x: ground.point.x + side.x * k, y, z: ground.point.z + side.z * k }, d, 230);
+        if (h) clear = Math.min(clear, h.toi);
+        if (clear <= (best?.length ?? 120)) break;
+      }
+      if (clear <= (best?.length ?? 120)) continue;
+      let usable = 0, last = [ground.point.y, ground.point.y, ground.point.y];
+      for (let t = 4; t < clear - 3; t += 4) {
+        let ok = true;
+        for (const [j, k] of [[0, 0], [1, -.85], [2, .85]]) {
+          const at = await ray({ x: ground.point.x + d.x * t + side.x * k, y: ground.point.y + 4, z: ground.point.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 9);
+          if (!at || at.normal.y < .99 || Math.abs(at.point.y - last[j]) > .06 || Math.abs(at.point.y - ground.point.y) > 1.5) { ok = false; break; }
+          last[j] = at.point.y;
+        }
+        if (!ok) break;
+        usable = t;
+      }
+      if (usable > (best?.length ?? 120)) best = { x: ground.point.x, y: ground.point.y, z: ground.point.z, yaw, deg, length: usable };
+    }
+  }
+  return best;
+});
+
+const headingOf = q => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+/** One handling run on the straight `s`, hands off the steering: full throttle from rest until the braking point, a
+ *  full stop, then Wreckfest 2's pull probe (2.5 s of straight full reverse from rest). Per run: seconds to 50 and 80
+ *  km/h, the speed after 100 m and the best speed, the heading drift (degrees/s, + left) and sideways offset (m) over
+ *  the run's last 60 % (the car well under way), and the reverse probe's heading change (degrees). */
+async function straightRun(page, s) {
+  await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), s);
+  await page.waitForTimeout(1800);
+  await page.evaluate(() => {
+    const log = window.__probeLog = [];
+    const tick = () => { const v = window.__game.physics.latest?.vehicles.find(x => x.id === 'player');
+      if (v) log.push({ t: performance.now(), v: v.forwardSpeed, x: v.pos.x, z: v.pos.z, h: Math.atan2(2 * (v.rot.w * v.rot.y + v.rot.x * v.rot.z), 1 - 2 * (v.rot.y * v.rot.y + v.rot.z * v.rot.z)) });
+      if (log.length < 4000 && !window.__probeStop) requestAnimationFrame(tick); };
+    window.__probeStop = false; requestAnimationFrame(tick);
+  });
+  const state = () => page.evaluate(s => { const v = window.__game.physics.latest.vehicles.find(x => x.id === 'player');
+    return { v: v.forwardSpeed, along: (v.pos.x - s.x) * Math.cos(s.yaw) - (v.pos.z - s.z) * Math.sin(s.yaw), rot: v.rot }; }, s);
+  const start = Date.now();
+  await page.keyboard.down('KeyW');
+  for (;;) {
+    const st = await state();
+    if (st.along > s.length - 10 - st.v * st.v / 20 || Date.now() - start > 30000) break;
+    await page.waitForTimeout(20);
+  }
+  await page.keyboard.up('KeyW');
+  await page.keyboard.down('KeyS');
+  for (let i = 0; i < 400 && (await state()).v > .3; i++) await page.waitForTimeout(20);
+  await page.keyboard.up('KeyS');
+  await page.waitForTimeout(1200);
+  const log = await page.evaluate(() => { window.__probeStop = true; return window.__probeLog; });
+  // The pull probe: from rest, S held for 2.5 s (reverse), released, then the heading change once stopped.
+  const before = headingOf((await state()).rot);
+  await page.keyboard.down('KeyS'); await page.waitForTimeout(2500); await page.keyboard.up('KeyS');
+  await page.keyboard.down('KeyW'); for (let i = 0; i < 150 && (await state()).v < -.3; i++) await page.waitForTimeout(20); await page.keyboard.up('KeyW');
+  await page.waitForTimeout(600);
+  const reverseDeg = (headingOf((await state()).rot) - before) * 180 / Math.PI;
+  const moving = log.findIndex(e => e.v > .3), t0 = log[moving]?.t ?? 0;
+  const at = kmh => { const e = log.find(e => e.v * 3.6 >= kmh); return e ? +((e.t - t0) / 1000).toFixed(2) : null; };
+  const along = e => (e.x - s.x) * Math.cos(s.yaw) - (e.z - s.z) * Math.sin(s.yaw);
+  const across = e => -(e.x - s.x) * Math.sin(s.yaw) - (e.z - s.z) * Math.cos(s.yaw);
+  const peak = log.reduce((m, e, i) => e.v > log[m].v ? i : m, 0), run = log.slice(moving, peak + 1);
+  const from = run[Math.floor(run.length * .4)] ?? run[0], to = run[run.length - 1];
+  const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+  return { t50: at(50), t80: at(80), v100: +((log.find(e => along(e) >= 100)?.v ?? NaN) * 3.6).toFixed(1), vmax: +(log[peak].v * 3.6).toFixed(1),
+    distance: +along(log[peak]).toFixed(1), driftDegPerS: +(wrap(to.h - from.h) * 180 / Math.PI / ((to.t - from.t) / 1000)).toFixed(3),
+    sideways: +(across(to) - across(from)).toFixed(2), reverseDeg: +reverseDeg.toFixed(3) };
+}
+const mech = page => page.evaluate(() => window.__game.damage.mechanics());
+
 /** Mean frame time over `n` frames (ms) with the CPU time of the car's skinning update (skeleton + pose). */
 const frames = (page, n = 120) => page.evaluate(n => new Promise(resolve => {
   const times = []; let last = performance.now();
@@ -228,6 +320,94 @@ try {
       await shots(page, `wall${label}`);
     }
     report.framesDamaged = await frames(page);
+  }
+  if (mode === 'handling') {
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    const straight = report.straight = await findStraight(page);
+    log('straight', straight ?? {});
+    if (!straight) throw new Error('no flat clear straight near the start');
+    const wall = report.wall = await findWall(page);
+    log('wall', wall ?? {});
+    if (!wall) throw new Error('no square wall with a clear run-up near the start');
+    report.handling = [];
+    const measure = async label => {
+      for (let i = 0; i < 2; i++) {
+        const row = { label, run: i + 1, ...await straightRun(page, straight) };
+        report.handling.push(row); log('handling', row);
+      }
+    };
+    await measure('fresh');
+    for (const kmh of [50, 75]) {
+      await page.evaluate(() => window.__game.damage.clear());
+      await page.waitForTimeout(300);
+      const crash = await drive(page, wall, kmh);
+      Object.assign(crash, await bounds(page), { mechanics: await mech(page) });
+      report[`crash${kmh}`] = crash;
+      log(`crash ${kmh}`, { impact: crash.impactKmh, front: crash.bounds?.frontLoss, mechanics: crash.mechanics });
+      await measure(`after ${kmh}`);
+      if (kmh === 75) {
+        // The chase view while driving the damaged car: steam from the bonnet and the HUD indicator.
+        await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
+        await page.waitForTimeout(1500);
+        await page.keyboard.down('KeyW'); await page.waitForTimeout(1200); await page.keyboard.up('KeyW');
+        await page.keyboard.down('KeyS'); await page.waitForTimeout(900); await page.keyboard.up('KeyS');
+        await page.waitForTimeout(1500);
+        report.smoke75 = await page.evaluate(() => window.__game.damage.smoke());
+        const file = path.join(out, 'a-after75-chase.png'); await page.screenshot({ path: file }); report.shots.push(file);
+        await shots(page, 'after75');
+      }
+    }
+    const mean = (label, key) => { const r = report.handling.filter(h => h.label === label).map(h => h[key]).filter(Number.isFinite); return r.length ? +(r.reduce((a, b) => a + b, 0) / r.length).toFixed(3) : null; };
+    report.summary = ['fresh', 'after 50', 'after 75'].map(label => ({ label, ...Object.fromEntries(['t50', 't80', 'v100', 'vmax', 'driftDegPerS', 'reverseDeg'].map(k => [k, mean(label, k)])) }));
+    log('summary', { summary: report.summary });
+  }
+  if (mode === 'mpsmoke') {
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(2500);
+    // A heavy frontal wreck: radiator 3 and engine 1 (steam and smoke), and a crushed nose.
+    await page.evaluate(() => { for (let i = 0; i < 4; i++) window.__game.damage.dent({ kmh: 78, at: 'front' }); });
+    await page.waitForTimeout(800);
+    report.a = { ...await bounds(page), mechanics: await mech(page), smoke: await page.evaluate(() => window.__game.damage.smoke()) };
+    log('a wrecked', { mechanics: report.a.mechanics, smoke: report.a.smoke, front: report.a.bounds?.frontLoss });
+    let file = path.join(out, 'a-wrecked-chase.png'); await page.screenshot({ path: file }); report.shots.push(file);
+    await shots(page, 'wrecked', 'a');
+    const b = await open('b', await browser.newContext());
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), report.a.state.hits, { timeout: 90000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    await b.evaluate(() => window.__game.damage.look({ yaw: 30, pitch: 16, distance: 7, remote: true }));
+    await b.waitForTimeout(2500);
+    report.b = { remotes: await b.evaluate(() => window.__game.damage.remotes()), smoke: await b.evaluate(() => window.__game.damage.smoke()) };
+    log('b sees a', report.b);
+    file = path.join(out, 'b-remote-smoke.png'); await b.screenshot({ path: file }); report.shots.push(file);
+    await shots(b, 'wrecked', 'b', true);
+    const theirs = report.b.remotes.find(r => r.hits === report.a.state.hits);
+    if (!theirs || Math.abs(theirs.frontLoss - report.a.bounds.frontLoss) > .2) report.errors.push(`replica shape differs: own ${report.a.bounds.frontLoss} cm, remote ${theirs?.frontLoss}`);
+    if (!theirs || theirs.mechanics.cooling !== report.a.mechanics.cooling || theirs.mechanics.engine !== report.a.mechanics.engine) report.errors.push('replica mechanics differ');
+    if (!(report.b.smoke?.steam > 0) || !(report.b.smoke?.smoke > 0)) report.errors.push(`no remote steam/smoke on b: ${JSON.stringify(report.b.smoke)}`);
+    await b.close();
+    // Frame cost on A, chase view, the car standing with its engine running: wrecked (steam, smoke, cage) against a
+    // fresh body, alternating rounds of 6 s after a 2 s settle; GPU and CPU frame time p50.
+    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 12, distance: 6.5, height: .4 }));
+    const wire = await page.evaluate(() => window.__game.physics.latest.vehicles.find(v => v.id === 'player').damage);
+    report.cost = [];
+    for (let round = 0; round < 3; round++) for (const kind of ['fresh', 'wrecked']) {
+      await page.evaluate(([kind, wire]) => window.__game.physics.setVehicleDamage('player', kind === 'fresh' ? null : wire), [kind, wire]);
+      await page.waitForTimeout(2000);
+      await page.evaluate(() => window.__render.perf.reset());
+      await page.waitForTimeout(6000);
+      const p = await page.evaluate(() => ({ gpu: window.__perf.gpuMs, cpu: window.__perf.cpuMs, draws: window.__perf.drawCalls, smoke: window.__game.damage.smoke() }));
+      const row = { kind, round, gpuP50: p.gpu?.p50, cpuP50: p.cpu?.p50, draws: p.draws, smoke: p.smoke };
+      report.cost.push(row); log('cost', row);
+    }
+    const median = a => { const v = a.filter(Number.isFinite).sort((x, y) => x - y); return v.length ? v[v.length >> 1] : null; };
+    report.costSummary = Object.fromEntries(['fresh', 'wrecked'].map(kind => [kind, { gpuP50: median(report.cost.filter(r => r.kind === kind).map(r => r.gpuP50)),
+      cpuP50: median(report.cost.filter(r => r.kind === kind).map(r => r.cpuP50)) }]));
+    log('cost summary', report.costSummary);
+    await page.evaluate(() => window.__game.damage.look(null));
   }
   report.ok = report.errors.length === 0;
 } catch (error) {

@@ -243,11 +243,12 @@ export class RemotePlayers {
       if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
         // Network ground points are relative to the physical chassis, including parked-model cars.
         this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt, Math.hypot(pose.vE, pose.vN));
-        // A driven damaged car vents steam or smoke from its engine bay (vehicle/mechanics.ts, from the same wire).
-        if (pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
-          const bay = mechanicsOf(pose.damage);
-          this.tyreEffects.engineBay(remote.effectSlot, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
-        }
+      }
+      // A driven damaged car vents steam or smoke from its engine bay (vehicle/mechanics.ts, from the same wire), also
+      // standing still, when its owner sends a pose only every second.
+      if (effectsDt > 0 && now - remote.receivedAt < 1500 && pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
+        const bay = mechanicsOf(pose.damage);
+        this.tyreEffects.engineBay(remote.effectSlot, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });

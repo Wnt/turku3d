@@ -42,21 +42,25 @@ export class DamageHud {
   private el: HTMLElement | null = null;
   private parts: { zones: HTMLElement[]; wheels: HTMLElement[]; bay: HTMLElement; lines: HTMLElement } | null = null;
   private wire: string | null = null;
+  private model: DamageHudModel | null = null;
   private changedAt = -Infinity;
-  private drawn = '';
+  /** The wire the panel shows (built lazily on the first damaged frame). */
+  private drawn: string | null = null;
   constructor(private readonly parent: HTMLElement) {}
 
   /** `wire`: the driven car's damage (VehicleState.damage), null when not driving; `now` in ms. */
   update(wire: string | null | undefined, now: number) {
-    const model = wire ? damageHudModel(mechanicsOf(wire)) : null;
-    if (!model) { if (this.el) this.el.hidden = true; this.wire = wire ?? null; return; }
-    // A new hit, or getting into a damaged car: full strength for a while.
-    if (wire !== this.wire) { this.changedAt = now; this.wire = wire!; }
+    // A new hit, or getting into a damaged car: full strength for a while. The model is rebuilt only on a change.
+    if ((wire ?? null) !== this.wire) {
+      this.wire = wire ?? null; this.changedAt = now;
+      this.model = wire ? damageHudModel(mechanicsOf(wire)) : null;
+    }
+    const model = this.model;
+    if (!model) { if (this.el) this.el.hidden = true; return; }
     const el = this.el ?? this.build();
     el.hidden = false;
-    const key = JSON.stringify(model);
-    if (key !== this.drawn) {
-      this.drawn = key;
+    if (this.drawn !== this.wire) {
+      this.drawn = this.wire;
       const p = this.parts!;
       model.zones.forEach((c, i) => { p.zones[i].style.background = c; });
       model.wheels.forEach((c, i) => { p.wheels[i].style.background = c; });
@@ -71,7 +75,7 @@ export class DamageHud {
     if (el.style.opacity !== opacity) el.style.opacity = opacity;
   }
 
-  dispose() { this.el?.remove(); this.el = this.parts = null; }
+  dispose() { this.el?.remove(); this.el = this.parts = this.drawn = null; }
 
   private build() {
     const el = this.el = document.createElement('div');

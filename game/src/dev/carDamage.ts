@@ -7,6 +7,11 @@ import type { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial } from '../actors/fleet/material';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
 import { applyHit, DamageState, encodeDamage } from '../vehicle/damage';
+import { mechanics, type Mechanics } from '../vehicle/mechanics';
+
+const deg = (rad: number) => Math.round(rad * 18000 / Math.PI) / 100;
+const levels = (m: Mechanics) => ({ cooling: m.cooling, engine: m.engine, steering: m.steering, suspension: m.suspension, zones: m.zones,
+  power: Math.round(m.power * 1000) / 1000, steerDeg: deg(m.steer), toeDeg: m.toe.map(deg), steam: m.steam, smoke: m.smoke });
 
 type Side = 'front' | 'rear' | 'left' | 'right' | 'roof' | 'front-left' | 'front-right' | 'rear-left' | 'rear-right';
 /** Push directions in the fleet model frame (+Z forward, +X the car's left): the car is pushed away from the side hit. */
@@ -57,8 +62,19 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         if (!geometry.boundingBox) geometry.computeBoundingBox();
         const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
         return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
-          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10) };
+          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)) };
       });
+    },
+    /** The starter car's drawn mechanical state (vehicle/mechanics.ts): levels, power and the pull (degrees). */
+    mechanics() { const s = car.rig?.state; return s ? levels(mechanics(s)) : null; },
+    /** Engine-bay sprites alive in the shared smoke draw (vehicle/tyreEffects.ts): white steam and dark smoke. */
+    smoke() {
+      const mesh = scene.getObjectByName('tyre-smoke') as THREE.InstancedMesh | undefined;
+      if (!mesh) return null;
+      const opacity = mesh.geometry.getAttribute('tyreOpacity'), shade = mesh.geometry.getAttribute('tyreShade');
+      let steam = 0, smoke = 0;
+      for (let i = 0; i < opacity.count; i++) if (opacity.getX(i) > 0) { if (shade.getX(i) > 1) steam++; else if (shade.getX(i) < .5) smoke++; }
+      return { steam, smoke };
     },
   };
   if (!dev) return { ...inspect, frame(_camera: THREE.PerspectiveCamera) {} };
