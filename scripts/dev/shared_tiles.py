@@ -1357,13 +1357,21 @@ class Farm:
                 if HASHED.fullmatch(path.stem):
                     yield kind, path, path.with_suffix('.lock')
 
-    def evict_raw_entries(self, raw, target, oldest_build):
+    def evict_raw_entries(self, raw, target, oldest_build, wanted=()):
         """While builds run, reclaim the oldest LiDAR, roof, vegetation and crown-canopy entries one by one.
 
         Only entries older than the oldest running build (so finished builds made them), past the grace
         period, that no process has open or mapped and whose lock is free; a build that later needs one
         decodes it again. With atime off, the entry's mtime (its publication) is the age (2026-11-06: these
-        caches were reclaimed only with no build running, so a long train held the disk under keep_free)."""
+        caches were reclaimed only with no build running, so a long train held the disk under keep_free).
+
+        A LiDAR source stays while a queued or running tile, or one within a tile of it, lies in its spans:
+        a build checks its sources first and opens their arrays later, so evicting one in between failed
+        builds (2026-11-06: t0_3_6, t0_3_7 FileNotFoundError on lidar/sources)."""
+        near = set()
+        for tile in wanted:
+            i, j = (int(v) for v in tile.split('_')[1:3])
+            near.update(f'c_{x}_{z}' for x in range(4 * i - 4, 4 * i + 8) for z in range(4 * j - 4, 4 * j + 8))
         now = time.time()
         horizon = min(now - self.grace_seconds, oldest_build if oldest_build is not None else now)
         # statvfs lags unlinks on a busy ZFS pool: the first round on 2026-11-06 deleted 47 GB for a 13 GB
@@ -1376,8 +1384,13 @@ class Farm:
                 modified = path.stat().st_mtime
             except FileNotFoundError:
                 continue
-            if modified < horizon:
-                entries.append((modified, kind, path, lock))
+            if modified >= horizon:
+                continue
+            if kind == 'lidar-source' and near:
+                spans = read_json(path / 'MANIFEST.json', {}).get('spans', {})
+                if not isinstance(spans, dict) or near.intersection(spans):
+                    continue
+            entries.append((modified, kind, path, lock))
         for _, kind, path, lock in sorted(entries, key=lambda e: e[0]):
             prefix = str(path) + '/'
             if str(path) in held or any(h.startswith(prefix) for h in held):
@@ -1540,7 +1553,8 @@ class Farm:
                 continue
             if self.free() >= target:
                 return True
-        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build):
+        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build,
+                                                   {tile for _, tile in jobs}):
             return True
         # Texture encoders also maintain their own bounded cache. Reclaim additional
         # old encodes only when no farm package can still be using the returned paths.

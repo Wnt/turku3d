@@ -519,6 +519,21 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(roof.exists() or source.exists())
         self.assertTrue(during.exists())
 
+    def test_raw_eviction_keeps_lidar_sources_that_queued_tiles_will_read(self):
+        farm = self.farm(workers=0, free=lambda: 0)
+        farm.jobs[(GEN, 't0_0_0')] = REV  # queued: it reads the sources whose spans reach it
+        raw, old = self.root / 'cache/raw-derived', time.time() - 7200
+        sources = {}
+        for name, cell in (('7', 'c_1_1'), ('8', 'c_40_40')):
+            source = raw / 'lidar' / ('d' * 64) / 'sources' / (name * 64)
+            source.mkdir(parents=True)
+            farm_module.atomic_json(source / 'MANIFEST.json', dict(spans={cell: [0, 1]}))
+            os.utime(source, (old, old))
+            sources[cell] = source
+        self.assertFalse(farm.make_room(farm_module.GIB))
+        self.assertTrue(sources['c_1_1'].exists())
+        self.assertFalse(sources['c_40_40'].exists())
+
     def test_raw_eviction_stops_on_released_bytes_while_free_space_lags(self):
         stale = 50 * farm_module.GIB  # statvfs that has not caught up with the unlinks yet
         farm = self.farm(workers=0, free=lambda: stale)
