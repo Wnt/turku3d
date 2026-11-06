@@ -85,6 +85,35 @@ def atomic_json(path, value):
     temp.replace(path)
 
 
+def open_or_mapped(root):
+    """Paths under ``root`` that any process has open or memory-mapped (empty without /proc). Unlinking such a
+    file frees nothing until its holder lets go, and the next reader decodes a second copy (2026-11-06: running
+    builds held 2.6 GB of evicted decoded arrays while the root disk ran short)."""
+    prefixes = tuple({str(root) + '/', os.path.realpath(root) + '/'})
+    paths = set()
+    try:
+        procs = [p for p in Path('/proc').iterdir() if p.name.isdigit()]
+    except OSError:
+        return paths
+    for proc in procs:
+        try:
+            for fd in (proc / 'fd').iterdir():
+                try:
+                    target = os.readlink(fd)
+                except OSError:
+                    continue
+                if target.startswith(prefixes):
+                    paths.add(target)
+            with (proc / 'maps').open() as maps:
+                for line in maps:
+                    parts = line.rstrip('\n').split(None, 5)
+                    if len(parts) == 6 and parts[5].startswith(prefixes):
+                        paths.add(parts[5])
+        except OSError:
+            continue
+    return paths
+
+
 def read_json(path, default=None):
     try:
         return json.loads(path.read_text())
@@ -1333,11 +1362,13 @@ class Farm:
             if self.free() >= target:
                 return True
         cache = self.root / 'cache'
-        # Decoded arrays are opened under their source lock and memory-mapped.
-        # Unlinking a cold entry cannot invalidate an existing reader's inode;
-        # do not wait for a city-wide queue to become idle before reclaiming it.
-        decoded = []
+        # Decoded arrays are opened under their source lock and memory-mapped. An entry a
+        # build still has open or mapped stays: unlinking it would free nothing until that
+        # build ends. Cold entries go without waiting for a city-wide queue to become idle.
+        decoded, held = [], open_or_mapped(cache / 'raw-derived/decoded')
         for path in (cache / 'raw-derived/decoded').glob('*/*.npy'):
+            if str(path) in held or os.path.realpath(path) in held:
+                continue
             if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
                 continue
             try:
