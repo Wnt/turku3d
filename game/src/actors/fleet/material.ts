@@ -40,7 +40,7 @@ function wornPaint(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysical
  *  cabin reads through it like GTA's tinted glass: the source glass's opacity and metalness scaled down, its tint
  *  darkened. Measured on city.lab: at the source values (opacity 0.74, metalness 0.7, a pale tint) the driver was not
  *  visible from any view. */
-const CABIN_GLASS = { opacity: 0.5, metalness: 0.3, tint: 0.6 };
+const CABIN_GLASS = { opacity: 0.34, metalness: 0.15, tint: 0.45 };
 export function fleetGlassDamageMaterial(): THREE.MeshPhysicalNodeMaterial {
   return damageableGlass ??= crackedGlass(deformByCage(buildGlass('Finnish fleet / damage-capable glass', CABIN_GLASS), true));
 }

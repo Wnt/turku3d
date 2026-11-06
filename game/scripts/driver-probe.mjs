@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 
-const mode = process.argv[2] ?? 'shots', out = path.resolve(process.argv[3] ?? 'driver-probe');
+// Modes (comma-separated): shots (rest, lock both ways, horn), brake, crash, remote (a second client), perf.
+const mode = process.argv[2] ?? 'shots,brake,crash,remote', modes = new Set(mode.split(',')), out = path.resolve(process.argv[3] ?? 'driver-probe');
 const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0';
 fs.mkdirSync(out, { recursive: true });
 const report = { mode, url, errors: [], shots: [], steps: [] }, t0 = Date.now();
@@ -22,17 +23,18 @@ const context = browser.contexts()[0] ?? await browser.newContext();
 async function open(name, own = context) {
   // REUSE=1: an already open game page of the session (a warm page skips the cold load).
   const warm = process.env.REUSE && own === context ? own.pages().find(p => p.url().includes('city.lab')) : null;
-  if (warm && await warm.evaluate(() => { const s = window.__game?.state?.(); return !!s && !s.startScreen && !s.loading; })) {
-    log(`${name} playing (reused)`); return warm;
+  const page = warm ?? await own.newPage();
+  if (warm) {
+    await page.waitForFunction(() => window.__game?.ready, null, { timeout: 240000 });
+    if (await page.evaluate(() => { const s = window.__game.state?.(); return !!s && !s.startScreen && !s.loading; })) { log(`${name} playing (reused)`); return page; }
   }
-  const page = await own.newPage();
   await page.setViewportSize({ width: 960, height: 540 });
   await page.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
   await (await own.newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', e => report.errors.push(`${name} pageerror: ${e.message}`.slice(0, 300)));
   page.on('console', m => { const t = m.text();
     if (/GPUValidationError|Invalid (ShaderModule|RenderPipeline|BindGroup)|WGSL|TypeError|ReferenceError/.test(t)) report.errors.push(`${name} console: ${t}`.slice(0, 300)); });
-  await page.goto(`${url}&probe=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
+  if (!warm) await page.goto(`${url}&probe=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 240000 });
   await page.getByText('Multiplayer', { exact: true }).click();
   await page.waitForFunction(() => { const s = window.__game.state?.(); return s && !s.startScreen && !s.loading && window.__game.damage?.bounds(); }, null, { timeout: 180000 });
@@ -213,16 +215,16 @@ try {
   await page.evaluate(() => window.__game.damage.clear());
   await page.waitForTimeout(3000);
   log('seated', { driver: await driver(page) });
-  if (mode === 'shots') {
-    report.fps = await waitFps(page);
-    log('fps', { fps: report.fps });
-    // Shots away from the spawn's parked cars: at the start of a clear straight.
-    const straight = await findStraight(page);
-    log('straight', { straight });
-    if (straight) {
-      await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
-      await page.waitForTimeout(2500);
-    }
+  report.fps = await waitFps(page);
+  log('fps', { fps: report.fps });
+  // Shots away from the spawn's parked cars: at the start of a clear straight.
+  const straight = modes.has('shots') || modes.has('brake') ? await findStraight(page) : null;
+  log('straight', { straight });
+  if (straight) {
+    await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
+    await page.waitForTimeout(2500);
+  }
+  if (modes.has('shots')) {
     report.views = {};
     for (const [name, steer] of [['rest', 0], ['lock-left', -1], ['lock-right', 1]]) {
       await hold(page, { steer, handbrake: 1 });
@@ -235,7 +237,8 @@ try {
     await page.waitForTimeout(800);
     await shot(page, 'a-horn-front', FRONT);
     await hold(page, null);
-    if (straight) {
+  }
+  if (modes.has('brake') && straight) {
       await waitFps(page);
       await page.evaluate(view => window.__game.damage.look(view), SIDE);
       report.braking = await run(page, straight, 70, 'brake');
@@ -244,7 +247,8 @@ try {
       await page.waitForTimeout(1200);
       await hold(page, { brake: 1, handbrake: 1 });
       await page.waitForTimeout(2500);
-    }
+  }
+  if (modes.has('crash')) {
     // PROBE_WALL='{"x":..,"y":..,"z":..,"yaw":..,"distance":..}' reuses a wall found before (from the start car).
     const wall = process.env.PROBE_WALL ? JSON.parse(process.env.PROBE_WALL) : await findWall(page);
     log('wall', { wall });
@@ -257,6 +261,8 @@ try {
       await hold(page, { handbrake: 1 });
       await page.waitForTimeout(1500);
     }
+  }
+  if (modes.has('remote')) {
     // A second player in the room sees A's driver (its own browser context: its own session).
     await hold(page, { steer: -1, handbrake: 1 });
     const b = await open('b', await browser.newContext());
@@ -272,7 +278,7 @@ try {
     await hold(page, null);
     await b.close();
   }
-  if (mode === 'perf') {
+  if (modes.has('perf')) {
     // 20 bench cars ahead, with and without animated drivers, alternating; a fixed camera over them.
     await hold(page, { handbrake: 1 });
     await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
