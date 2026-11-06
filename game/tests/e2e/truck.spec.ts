@@ -96,8 +96,8 @@ test('buys the trophy truck, drives it over a kerb at 40 km/h, to 120 km/h and o
   expect(seated.truck).toMatchObject({ visible: true, driver: true });
   await untilSim(page, () => (window as any).__game.state().truck.driver, null, 2);
   const driver = await page.evaluate(() => (window as any).__game.state());
-  // The driver's hips sit on the seat anchor inside the open cab.
-  expect(Math.hypot(...driver.scooter.riderPos.map((v: number, i: number) => v - driver.truck.seatPos[i]))).toBeLessThan(1.2);
+  // The seated driver's hips sit at the seat anchor inside the open cab (actors/driver).
+  expect(Math.hypot(...driver.truck.driverPos.map((v: number, i: number) => v - driver.truck.seatPos[i]))).toBeLessThan(0.3);
   // The chase camera frames the truck from higher up than the car's 0.9 m look-at.
   expect(driver.camera.pos[1] - driver.vehicle.pos[1]).toBeGreaterThan(1.2);
   await page.screenshot({ path: path.join(SHOTS, `${info.project.name}-truck-seated.png`) });
