@@ -69,9 +69,10 @@ pose is committed to the camera. Reset is R3/C. Leaving the car cancels pending 
 
 ## Tyres and handling (slip-curve cars)
 
-The starter car (`modelTuning(PLAYER_MODEL)`, `tuning.tyre`) drives on slip-curve tyres calibrated on Wreckfest 2's
-Bravion (`~/turku3d/research/wreckfest2/physics-study.md`, "Turku3D tuning targets"); every other vehicle keeps Rapier's
-ray-cast tyre until the fleet slice. Rapier still runs the suspension (spring, dampers, contact point, wheel load);
+Every fleet car (`modelTuning(id)`, `tuning.tyre`: the starter, parked cars a player takes, shared multiplayer cars)
+drives on slip-curve tyres calibrated on Wreckfest 2's Bravion (`~/turku3d/research/wreckfest2/physics-study.md`,
+"Turku3D tuning targets") through the starter; the trophy truck, the scooter, the generic `CAR` and ambient traffic
+(kinematic, traffic/flow.ts) keep their own driving. Rapier still runs the suspension (spring, dampers, contact point, wheel load);
 for a slip-curve car its side friction stiffness, engine force and brake are zero and `tyres.ts solveTyres` applies
 the tyre forces after the raycast, as impulses on the chassis:
 
@@ -109,6 +110,13 @@ the tyre forces after the raycast, as impulses on the chassis:
   thirds pressure, so the deceleration reaches 90 % in 0.15-0.18 s (Wreckfest 2: 0.16-0.19 s).
 - **Stability control** (`tuning.stability`, Wreckfest's "half" assist): once the rear axle's relaxed slip angle
   exceeds the front's by 2°, it cuts the drive and brakes the outside front wheel, up to 60 % at 8°.
+- **Fleet** (`slipCurveHandling`, from each model's spec): the same tyres, steering, keyboard slew, assists and
+  brake build-up; centre of mass at 0.375 × the body height (the starter's 0.52 m of 1.385 m) capped at track / 2.6
+  (static stability factor 1.3: no rollover on the tyres' grip); ride 1.75 × (1351 kg / mass)^0.15 Hz (0.7-1.05 ×;
+  the rear 1.5 / 1.75 of it); roll 3.6°/g × height / 1.385 m (1-1.6 ×); limited-slip 0.7 FWD, 0.35 RWD (Wreckfest's
+  Bravion), 0.5 AWD; brake force × mass / 1351 kg and spring force limit ≥ 5 × the corner load, so vans and buses
+  brake at their tyres' limit and do not sit on their bump stops. A shared multiplayer car spawns with its model's
+  tuning (net/sharedVehicles.ts), so a transferred or rejoined car drives as its owner's did.
 - **Car data** (`modelTuning`): steering lock barely falls with speed (`steerHalfSpeed` 40: 25° at 60 km/h), no body
   angular damping (the tyres damp the yaw; `angularDamping` absent stays 1.2), a 70 % load-split limited-slip
   differential (`differential`: an open diff spins the unloaded inner wheel and loses its side grip), keyboard
@@ -155,7 +163,23 @@ Slice 4, gravel against tarmac (same harness manoeuvres on a gravel slab; Wreckf
 | 9° step at 45 km/h: lateral g, front / rear slip | 0.77 g, 3.1 / 2.4° | 0.69 g, 5.3 / 4.3° | 0.89 | 0.86 (transient peaks) |
 | Slalom 18 m | clean to 60 km/h | clean at 40, the tail goes at 50 | | clean at 35 and 45 |
 
-Next slice: every fleet car from its mass and size.
+Slice 5, fleet (harness, each model's own tuning; all drivability checks pass except the 70 km/h slalom of the
+light FWD hatches, which Wreckfest's Bravion also loses at 68 km/h):
+
+| Model | Mass | CoM | Ride F / R | Roll | K | Max steady g (R 20 / R 30) | Braking 80 km/h |
+|---|---|---|---|---|---|---|---|
+| golf7 (starter, FWD) | 1351 kg | 0.53 m | 1.74 / 1.50 Hz | 3.66°/g | 0.92 / 0.75 | 1.00 / 0.92 | 1.41 g, 18.9 m |
+| yaris-2001 (FWD) | 850 kg | 0.56 m | 1.83 / 1.57 Hz | 4.61°/g | 1.09 / 0.91 | 0.96 / 0.90 | 1.39 g, 18.4 m |
+| e30 (RWD) | 1200 kg | 0.51 m | 1.78 / 1.52 Hz | 3.59°/g | 1.14 / 0.92 | 0.79 / 0.95 | 1.43 g, 18.4 m |
+| carla-ford-mustang (RWD, 330 kW) | 1700 kg | 0.49 m | 1.69 / 1.45 Hz | 3.61°/g | 1.06 / 0.88 | 0.97 / 0.92 | 1.43 g, 18.6 m |
+| crownvic-police (RWD) | 1860 kg | 0.57 m | 1.67 / 1.44 Hz | 3.96°/g | 1.22 / 0.99 | 0.80 / 0.95 | 1.42 g, 18.7 m |
+| prado-2010 (AWD SUV) | 2165 kg | 0.65 m | 1.63 / 1.40 Hz | 4.76°/g | 1.20 / 0.96 | 0.97 / 0.94 | 1.41 g, 18.8 m |
+| euro-van (RWD) | 2600 kg | 0.67 m | 1.59 / 1.37 Hz | 5.49°/g | 1.28 / 1.03 | 0.80 / 0.66 | 1.42 g, 18.6 m |
+| transit-bus (RWD) | 13500 kg | 0.72 m | 1.27 / 1.08 Hz | 5.98°/g | 1.90 / 1.32 | 0.37 / 0.53 | 1.43 g, 18.6 m |
+
+Further work: a gravel constant-radius reference and the contrasting light and heavy Wreckfest cars (the study's
+next steps) would calibrate the loose surfaces and the fleet scaling directly; the loose-surface estimates (soil,
+grass, sand) are not measured.
 
 ## Scooter (two-wheeler)
 

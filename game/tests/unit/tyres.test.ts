@@ -161,3 +161,25 @@ test('gravel: lower and slower side grip than tarmac, the same braking; unknown 
   expect(brake(gravel) / brake(null)).toBeCloseTo(1, 2);
   expect(TARMAC.surfaces.asphalt).toBeUndefined();
 });
+
+test('every fleet model drives on slip-curve tyres with a ride and centre of mass from its own size', async () => {
+  const { AUTHORED_MODELS } = await import('../../src/actors/fleet/registry');
+  const { modelTuning } = await import('../../src/vehicle/modelTuning');
+  const { comHeight, cornerLoads, rideSetup } = await import('../../src/vehicle/ride');
+  for (const model of AUTHORED_MODELS) {
+    const t = modelTuning(model.id)!, loads = cornerLoads(t, t.mass), track = t.wheels[1].z - t.wheels[0].z;
+    expect(t.tyre, model.id).toBe(TARMAC);
+    // No rollover on the tyres' grip: the static stability factor stays at least 1.3.
+    expect(track / (2 * comHeight(t, t.mass)), model.id).toBeGreaterThan(1.29);
+    expect(t.ride!.frequency[0], model.id).toBeGreaterThan(1.2); expect(t.ride!.frequency[0], model.id).toBeLessThan(1.9);
+    expect(t.maxSuspensionForce, model.id).toBeGreaterThanOrEqual(4 * Math.max(...loads));
+    // Brakes that reach the anti-lock limit: at least 1.6 g of demand.
+    expect(t.brakeForce * 60 * 4 / (t.mass * 9.81), model.id).toBeGreaterThan(1.6);
+    expect(rideSetup(t, t.mass)!.bars.every(b => b.rate >= 0), model.id).toBe(true);
+  }
+  // The starter keeps its Wreckfest 2 calibration: CoM 0.52 m, ride 1.75 / 1.5 Hz, 3.6°/g.
+  const golf = modelTuning('golf7')!;
+  expect(comHeight(golf, golf.mass)).toBeCloseTo(0.52, 2);
+  expect(golf.ride!.frequency[0]).toBeCloseTo(1.75, 3); expect(golf.ride!.frequency[1]).toBeCloseTo(1.5, 3);
+  expect(golf.ride!.roll).toBeCloseTo(3.6, 2);
+});
