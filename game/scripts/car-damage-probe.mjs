@@ -322,14 +322,15 @@ try {
     report.framesDamaged = await frames(page);
   }
   if (mode === 'handling') {
-    await page.evaluate(() => window.__game.enterVehicle('player'));
-    await page.waitForTimeout(1500);
-    const straight = report.straight = await findStraight(page);
-    log('straight', straight ?? {});
-    if (!straight) throw new Error('no flat clear straight near the start');
+    // Both searches on foot: a parked car holds its brake, a driven one with no pedal pressed rolls on a slope.
     const wall = report.wall = await findWall(page);
     log('wall', wall ?? {});
     if (!wall) throw new Error('no square wall with a clear run-up near the start');
+    const straight = report.straight = await findStraight(page);
+    log('straight', straight ?? {});
+    if (!straight) throw new Error('no flat clear straight near the start');
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
     report.handling = [];
     const measure = async label => {
       for (let i = 0; i < 2; i++) {
