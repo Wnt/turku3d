@@ -519,6 +519,19 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(roof.exists() or source.exists())
         self.assertTrue(during.exists())
 
+    def test_raw_eviction_stops_on_released_bytes_while_free_space_lags(self):
+        stale = 50 * farm_module.GIB  # statvfs that has not caught up with the unlinks yet
+        farm = self.farm(workers=0, free=lambda: stale)
+        raw, old = self.root / 'cache/raw-derived', time.time() - 7200
+        for i, name in enumerate('123'):
+            path = raw / 'vegetation' / ('d' * 64) / (name * 64 + '.npz')
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'entry')
+            os.utime(path, (old + i, old + i))
+        self.assertTrue(farm.evict_raw_entries(raw, stale + 1, None))  # a one-byte deficit
+        left = sorted(p.name[0] for p in (raw / 'vegetation' / ('d' * 64)).iterdir())
+        self.assertEqual(left, ['2', '3'])  # only the oldest went
+
     def test_seed_copies_from_a_generation_moved_to_another_filesystem_while_room_allows(self):
         import errno
         from unittest import mock
