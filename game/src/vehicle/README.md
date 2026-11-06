@@ -349,11 +349,10 @@ runs). Frame cost (same draws with and without the cage, alternating rounds, pre
 +0.5-0.7 ms for 20 damaged cars and +1.5 ms for 60 on the Air; no CPU change. Cage weights take about 10 ms per
 27k-vertex body at load, in frame-sized phases.
 
-Next iterations (hooks in DamageState: `energy`, `hits`, the bins): handling (toe/camber pull from front-zone
-depth, wheel mounts following the cage), mechanical states per system (radiator, engine, per-corner suspension), loose
-and detached parts (node pairs with hinges, high thresholds), glass stages, scratch and dirt masks, crease detail
-where the cage compresses, and Phase 3: the same rule for the whole fleet (parked and traffic batches would need
-per-instance pool slots or a damaged car's own draw).
+Next iterations (hooks in DamageState: `energy`, `hits`, the bins; handling and mechanical states are done, see
+Mechanical damage): loose and detached parts (node pairs with hinges, high thresholds), glass stages, scratch and dirt
+masks, crease detail where the cage compresses, and Phase 3: the same rule for the whole fleet (parked and traffic
+batches would need per-instance pool slots or a damaged car's own draw).
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-damage.test.ts tests/unit/parked-paint.test.ts
@@ -409,6 +408,31 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
 - **Wire** version 2 (224 bytes, 300 base64 characters): the body state plus wear (uint16, 8 (km/h)² units) and the
   steering side. Version 1 (body only, older saves) still decodes, unworn. The server checks only a bounded base64
   form. `mechanicsOf(wire)` caches the decode for the renderer, audio and HUD.
+
+Measured on city.lab (2026-11-06, headless Chrome on the M1 Air, `car-damage-probe.mjs handling`: real wall crashes,
+then runs on a flat straight driven through `input.driver`; means of two runs). Rapier tyres (build a175317e):
+
+| State | 0-50 km/h | 0-80 km/h | at 100 m | best | hands-off at 60 km/h | reverse probe |
+|---|---|---|---|---|---|---|
+| fresh | 2.19 s | 4.66 s | 89.5 km/h | 92.8 km/h | +0.01°/s | 0.33° |
+| after 49 km/h (16 cm crumple, nothing mechanical) | 2.19 s | 4.67 s | 89.6 | 92.9 | -0.05°/s | 0.48° |
+| after 75 km/h (42 cm; radiator 1, front zones 1, steering -0.13°, toe ±0.27°) | 2.31 s | 5.04 s | 87.5 | 90.6 | -0.88°/s | 1.18° |
+
+The 75 km/h crash costs 5-8 % acceleration and 2 % speed, the pull is what the 0.13° steering offset predicts
+(0.83°/s at 60 km/h) and the reverse probe gains 0.85° (Wreckfest 2: 0.36-0.86°; the in-game probe also counts the
+stop after the 2.5 s, which the headless one does not). On the slip-curve tyres (build e6cf9909) a 73 km/h crash gives
+the same levels and +0.57 to +0.74°/s hands off at 61-65 km/h, the reverse probe -0.6° against +0.13° fresh; the
+launch is traction-limited, so a radiator-1 car is as quick as a fresh one to 80 km/h (headless the same). The probe's
+hands-off runs on these tyres are sensitive to the line holder's last correction (no body angular damping): a
+fresh car spun once. A second client draws the steam, the smoke and the crushed body of the owner's car (`mpsmoke`).
+The room keeps every probe client's starter car after it leaves, so the probe's searches avoid other players' cars
+and park its own car back home; PROBE_WALL / PROBE_STRAIGHT pin a spot across runs.
+
+Next steps: loose and detached parts (Wreckfest 2 Realistic: the bumper beam hangs after 4 x 61.5 km/h; nothing
+detached otherwise), glass stages (side and roll loads break side glass, frontal deceleration does not), scratch and
+dirt masks, a leaking radiator that heats the engine over time (engine wear while driving), damage sound layers
+(steam hiss, rattles, remote cars' rough engines), the Realistic and Wrecker settings as alternative ladders, and the
+fleet (Phase 3).
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-mechanics.test.ts tests/unit/car-damage.test.ts

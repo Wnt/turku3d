@@ -87,7 +87,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
     frame(camera: THREE.PerspectiveCamera) {
       if (!view) return;
       // The starter car's chassis frame faces +X; a remote actor's mesh faces +Z (its +X is the car's left).
-      const remote = view.remote ? remoteCars()[0] : null;
+      // The most damaged remote car (a room keeps other players' parked starter cars too).
+      const remote = view.remote ? remoteCars().reduce<THREE.Mesh | null>((a, b) => !a || rigOf(b)!.state.hits > rigOf(a)!.state.hits ? b : a, null) : null;
       if (view.remote ? !remote : !car.root.visible) return;
       if (remote) forward.set(0, 0, 1).applyQuaternion(remote.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
       else forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
