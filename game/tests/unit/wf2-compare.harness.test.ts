@@ -14,12 +14,18 @@ import { GROUP } from '../../src/shared/col/materials';
 import { handling } from '../../src/vehicle/handling';
 import { rotate } from '../../src/vehicle/math';
 import type { VehicleInput } from '../../src/physics/protocol';
+import { modelDamageBox, modelTuning } from '../../src/vehicle/modelTuning';
+import { PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 
 const G = 9.81;
 const RUNS = process.env.WF2_RUNS ?? '/Users/wnt/turku3d/private/wreckfest/turku3d-runs';
-const REPORT = process.env.WF2_REPORT ?? '/Users/wnt/turku3d/research/wreckfest2/turku3d-baseline.md';
-const KINDS: VehicleKind[] = (process.env.WF2_KINDS ?? 'car,truck').split(',') as VehicleKind[];
-const SPAWN_Y: Record<VehicleKind, number> = { car: 0.75, truck: 1.0, scooter: 0.6 };
+const REPORT = process.env.WF2_REPORT ?? '/Users/wnt/turku3d/research/wreckfest2/turku3d-handling.md';
+/** `golf` is the starter car exactly as main.ts spawns it: the PLAYER_MODEL tuning (vehicle/modelTuning.ts) with its damage cage. */
+type RigKind = VehicleKind | 'golf';
+const KINDS: RigKind[] = (process.env.WF2_KINDS ?? 'golf').split(',') as RigKind[];
+const SPAWN_Y: Record<RigKind, number> = { car: 0.75, golf: 0.75, truck: 1.0, scooter: 0.6 };
+const LABEL: Record<RigKind, string> = { golf: 'Starter Golf (`golf7`, modelTuning)', car: 'Car (`CAR`)', truck: 'Trophy truck (`TRUCK`)', scooter: 'Scooter' };
+const tuningOf = (kind: RigKind): VehicleTuning => kind === 'golf' ? modelTuning(PLAYER_MODEL)! : VEHICLES[kind];
 const WHEEL = ['fl', 'fr', 'rl', 'rr'];
 /** Highest chassis speed at which the harness found the body asleep and woke it (it should only sleep at rest). */
 const WAKE_SPEED = { max: 0 };
@@ -117,13 +123,17 @@ class Rig {
   private prevPsi: number | null = null;
   private lastInput: VehicleInput = idle;
 
-  constructor(readonly kind: VehicleKind) {
-    this.t = VEHICLES[kind];
+  /** `slope`: the road rises along +X by this gradient (rise/run); its surface passes through the origin. */
+  constructor(readonly kind: RigKind, slope = 0) {
+    this.t = tuningOf(kind);
     this.comLocal = { x: 0, y: -this.t.comDrop, z: 0 };
     // A flat road slab with the same groups as a solid tile collider (physics/world.ts applyClass 'solid').
-    this.pw.world.createCollider(R.ColliderDesc.cuboid(4000, 0.5, 4000).setTranslation(0, -0.5, 0).setFriction(0.85)
+    const th = Math.atan(slope);
+    this.pw.world.createCollider(R.ColliderDesc.cuboid(4000, 0.5, 4000).setTranslation(0.5 * Math.sin(th), -0.5 * Math.cos(th), 0)
+      .setRotation({ x: 0, y: 0, z: Math.sin(th / 2), w: Math.cos(th / 2) }).setFriction(0.85)
       .setCollisionGroups(((GROUP.STATIC_SOLID & 0xffff) << 16) | ((GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00) & 0xffff)));
-    this.pw.spawnVehicle({ x: 0, y: SPAWN_Y[kind], z: 0 }, 0, { kind });
+    this.pw.spawnVehicle({ x: 0, y: SPAWN_Y[kind], z: 0 }, 0, kind === 'golf'
+      ? { tuning: this.t, damage: { box: modelDamageBox(PLAYER_MODEL)! } } : { kind });
     this.pw.driveVehicle('player');
   }
 
@@ -199,7 +209,9 @@ class Rig {
       const slide = state.wheels[i].tyre?.longitudinal ?? 0;
       return {
         comp: t.rest - (v.wheelSuspensionLength(i) ?? t.rest), load: v.wheelSuspensionForce(i) ?? 0,
-        fx: (v.wheelForwardImpulse(i) ?? 0) / DT, fy: (v.wheelSideImpulse(i) ?? 0) / DT,
+        // The slip-curve tyre (vehicle/tyres.ts) applies its own forces; Rapier's impulses are the old tyre's.
+        fx: car.tyreForces ? car.tyreForces.fx[i] : (v.wheelForwardImpulse(i) ?? 0) / DT,
+        fy: car.tyreForces ? car.tyreForces.fy[i] : (v.wheelSideImpulse(i) ?? 0) / DT,
         // Positive: the contact patch moves to the wheel's right of its heading (normal cornering in a left turn).
         alpha: contact && Math.abs(vl) > 0.5 ? deg(Math.atan2(vs, Math.abs(vl))) : 0,
         // The game's own longitudinal sliding estimate (tyreSlip.ts longitudinalSlip) over the wheel's rolling speed.
@@ -211,7 +223,8 @@ class Rig {
       t: this.time, x: p.x, y: p.y, z: p.z, psi, speed: Math.hypot(lv.x, lv.z),
       vFwd: lv.x * fh.x + lv.z * fh.z, vLat: lv.x * left.x + lv.z * left.z, ax, ay, yawRate: dpsi / DT, yawAngvel: w.y,
       roll: -deg(Math.asin(clamp(side.y, -1, 1))), pitch: deg(Math.asin(clamp(f.y, -1, 1))),
-      steer: v.wheelSteering(0) ?? 0, throttle: input.throttle, brake: input.brake, stick: input.steer, wheels,
+      // Road-wheel angle: the mean of the two front wheels (Ackermann toes them apart), WF's "input × 30°".
+      steer: ((v.wheelSteering(0) ?? 0) + (v.wheelSteering(1) ?? 0)) / 2, throttle: input.throttle, brake: input.brake, stick: input.steer, wheels,
     };
   }
 
@@ -231,7 +244,7 @@ class Rig {
 }
 
 // ------------------------------------------------------------------------------------------------ static / ride
-function statics(kind: VehicleKind) {
+function statics(kind: RigKind) {
   const rig = new Rig(kind), t = rig.t, M = t.mass, body = rig.car.body;
   rig.run(4, idle);
   const s0 = rig.log.at(-1)!;
@@ -293,7 +306,7 @@ interface SkidRow {
   lock: number; held: boolean; why: string; lltArm?: number; lltdFront?: number;
 }
 
-function skidpad(kind: VehicleKind, R0: number, speeds: number[]) {
+function skidpad(kind: RigKind, R0: number, speeds: number[]) {
   const rig = new Rig(kind), t = rig.t, L = rig.wheelbase, b = -t.wheels[2].x;
   rig.run(1, idle);
   const pi = new SpeedPI();
@@ -318,7 +331,9 @@ function skidpad(kind: VehicleKind, R0: number, speeds: number[]) {
   for (const [k, kmh] of speeds.entries()) {
     const target = kmh / 3.6, dur = k === 0 ? 10 : 6;
     const from = rig.log.length;
-    rig.run(dur, control(target));
+    // The speed rises to each step over 2 s (a step input saturates a driven front axle's grip with throttle).
+    const was = k === 0 ? target : speeds[k - 1] / 3.6, t0 = rig.time;
+    rig.run(dur, () => control(was + (target - was) * Math.min(1, (rig.time - t0) / 2))());
     const w = rig.log.slice(from).filter(s => s.t > rig.time - 2 + 1e-9);
     const speed = mean(w.map(s => s.speed)), r = mean(w.map(s => s.yawRate));
     const errs = w.map(s => radial(s));
@@ -349,7 +364,7 @@ function skidpad(kind: VehicleKind, R0: number, speeds: number[]) {
 }
 
 /** Full stick held with a PI speed hold: the largest steady lateral g the steering lock allows at each speed. */
-function fullStick(kind: VehicleKind, speeds: number[]) {
+function fullStick(kind: RigKind, speeds: number[]) {
   const rig = new Rig(kind), L = rig.wheelbase;
   rig.run(1, idle);
   const pi = new SpeedPI();
@@ -375,7 +390,7 @@ function fullStick(kind: VehicleKind, speeds: number[]) {
 }
 
 /** Full throttle, straight, for 60 s: the speed it settles at. */
-function topSpeed(kind: VehicleKind) {
+function topSpeed(kind: RigKind) {
   const rig = new Rig(kind);
   rig.run(1, idle);
   const s = rig.run(60, { throttle: 1, brake: 0, steer: 0, handbrake: false });
@@ -392,7 +407,7 @@ function cruise(rig: Rig, target: number, holdSeconds: number, maxSeconds = 45) 
   return held >= holdSeconds;
 }
 
-function braking(kind: VehicleKind, kmh: number) {
+function braking(kind: RigKind, kmh: number) {
   const rig = new Rig(kind), body = rig.car.body;
   rig.run(2, idle);
   const staticShare = (() => { const w = rig.log.at(-1)!.wheels; return (w[0].load + w[1].load) / w.reduce((a, x) => a + x.load, 0); })();
@@ -437,7 +452,7 @@ function braking(kind: VehicleKind, kmh: number) {
 }
 
 // ------------------------------------------------------------------------------------------------ step steer
-function stepSteer(kind: VehicleKind, stepDeg: number | 'lock', kmh = 60) {
+function stepSteer(kind: RigKind, stepDeg: number | 'lock' | 'key', kmh = 60) {
   const rig = new Rig(kind);
   rig.run(2, idle);
   const v0 = kmh / 3.6;
@@ -448,8 +463,9 @@ function stepSteer(kind: VehicleKind, stepDeg: number | 'lock', kmh = 60) {
   const throttle = mean(rig.log.slice(-60).map(s => s.throttle));
   const k0 = rig.log.length, tCmd = rig.time, vCmd = rig.forwardSpeed();
   const lock0 = rig.lock(vCmd);
-  const target = stepDeg === 'lock' ? lock0 : rad(stepDeg);
-  rig.run(4, () => ({ throttle, brake: 0, steer: stepDeg === 'lock' ? -1 : rig.stickFor(target), handbrake: false }));
+  const target = typeof stepDeg === 'string' ? lock0 : rad(stepDeg);
+  // 'key': the left key held, as a keyboard player does (VehicleInput.steerKey: the car slews it, tuning.keySteer).
+  rig.run(4, () => ({ throttle, brake: 0, steer: typeof stepDeg === 'string' ? -1 : rig.stickFor(target), handbrake: false, steerKey: stepDeg === 'key' }));
   const S = rig.log.slice(k0), ts = [tCmd, ...S.map(s => s.t)];
   const steer = [rig.log[k0 - 1].steer, ...S.map(s => s.steer)], yaw = [rig.log[k0 - 1].yawRate, ...S.map(s => s.yawRate)];
   const t50 = crossing(ts, steer, 0.5 * target, 1);
@@ -472,9 +488,101 @@ function stepSteer(kind: VehicleKind, stepDeg: number | 'lock', kmh = 60) {
     alphaF: mean(win.map(s => (s.wheels[0].alpha + s.wheels[1].alpha) / 2)), alphaR: mean(win.map(s => (s.wheels[2].alpha + s.wheels[3].alpha) / 2)),
     peakRoll: Math.max(...S.map(s => s.roll)), wheelLift: S.some(s => s.wheels.some(w => !w.contact)),
   };
-  rig.writeCsv(`stepsteer-${stepDeg === 'lock' ? 'lock' : stepDeg + 'deg'}`);
+  rig.writeCsv(`stepsteer-${typeof stepDeg === 'string' ? stepDeg : stepDeg + 'deg'}`);
   rig.free();
   return res;
+}
+
+// ------------------------------------------------------------------------------------------------ drivability
+interface Check { name: string; value: string; ok: boolean }
+/** Sideslip of the chassis (deg, + the nose inside a left turn). */
+const sideslip = (s: Sample) => deg(Math.atan2(s.vLat, Math.max(0.5, Math.abs(s.vFwd))));
+
+/** Pure pursuit from the rear axle on a path x → z (left is −z) with yaw-rate damping against the path's own yaw
+ *  rate (as Wreckfest 2's path law): the stick for the road-wheel angle it asks. */
+function pursue(rig: Rig, path: (x: number) => number) {
+  const p = rig.com(), psi = rig.heading(), v = Math.max(1, rig.forwardSpeed()), L = rig.wheelbase, b = -rig.t.wheels[2].x;
+  const rx = p.x - b * Math.cos(psi), rz = p.z + b * Math.sin(psi), ld = clamp(0.5 * v, 4, 12);
+  const tx = rx + ld, tz = path(tx);
+  const a = Math.atan2(-(tz - rz), tx - rx) - psi;
+  // Path yaw rate at the car: v × curvature of x → −z (left positive).
+  const h = 0.5, k = -(path(p.x + h) - 2 * path(p.x) + path(p.x - h)) / (h * h);
+  const r = rig.log.at(-1)?.yawRate ?? 0;
+  return rig.stickFor(Math.atan(2 * L * Math.sin(a) / ld) + 0.06 * (v * k - r));
+}
+
+/** Driven checks for the failure modes the tuning must avoid: a slalom, lift-off, braking and full throttle in a
+ *  steady corner, a handbrake turn, and creep at rest and on a 10 % slope. */
+function drivability(kind: RigKind): Check[] {
+  const checks: Check[] = [];
+  for (const kmh of [40, 50, 60, 70]) {
+    const rig = new Rig(kind), pi = new SpeedPI(), v0 = kmh / 3.6;
+    rig.run(1, idle);
+    rig.run(20, () => ({ throttle: pi.update(v0, rig.forwardSpeed()), brake: 0, steer: pursue(rig, () => 0), handbrake: false }));
+    // 18 m between cones (36 m wavelength), ±1.5 m, as Wreckfest 2's slalom.
+    const x0 = rig.com().x, path = (x: number) => x < x0 ? 0 : -1.5 * Math.sin(2 * Math.PI * (x - x0) / 36);
+    const k = rig.log.length;
+    rig.run(4 * 36 / v0, () => ({ throttle: pi.update(v0, rig.forwardSpeed()), brake: 0, steer: pursue(rig, path), handbrake: false }));
+    const S = rig.log.slice(k), err = S.map(s => s.z - path(s.x));
+    const beta = Math.max(...S.map(s => Math.abs(sideslip(s)))), ay = Math.max(...S.map(s => Math.abs(s.ay))) / G;
+    const rms = Math.sqrt(mean(err.map(e => e * e))), rear = Math.max(...S.map(s => Math.abs(s.wheels[2].alpha)));
+    checks.push({ name: `slalom 18 m at ${kmh} km/h`, value: `path error rms ${f(rms, 2)} m, peak ${f(ay, 2)} g, peak sideslip ${f(beta, 1)}°, peak rear slip ${f(rear, 1)}°`, ok: beta < 15 });
+    rig.writeCsv(`slalom-${kmh}`); rig.free();
+  }
+  // Steady left turn on R 30 m, then the steering held still and one input changed.
+  const corner = (kmh: number, label: string, input: Partial<VehicleInput>, seconds: number) => {
+    const rig = new Rig(kind), pi = new SpeedPI(), R0 = 30, v0 = kmh / 3.6;
+    rig.run(1, idle);
+    const path = (x: number) => -(R0 - Math.sqrt(Math.max(0, R0 * R0 - x * x)));
+    // Settle on the circle: pursue the circle through its arc ahead (x along the chord from the start).
+    const circle = () => {
+      const p = rig.com(), phi = Math.atan2(p.x, R0 + p.z), ahead = phi + clamp(0.5 * rig.forwardSpeed(), 4, 12) / R0;
+      const tx = R0 * Math.sin(ahead), tz = -(R0 - R0 * Math.cos(ahead)), psi = rig.heading(), L = rig.wheelbase;
+      const a = Math.atan2(-(tz - p.z), tx - p.x) - psi, d = Math.hypot(tx - p.x, tz - p.z);
+      return rig.stickFor(Math.atan(2 * L * Math.sin(Math.atan2(Math.sin(a), Math.cos(a))) / d));
+    };
+    void path;
+    rig.run(12, () => ({ throttle: pi.update(v0, rig.forwardSpeed()), brake: 0, steer: circle(), handbrake: false }));
+    const held = mean(rig.log.slice(-30).map(s => s.stick)), thr = mean(rig.log.slice(-30).map(s => s.throttle));
+    const before = rig.log.at(-1)!, k = rig.log.length;
+    rig.run(seconds, { throttle: thr, brake: 0, steer: held, handbrake: false, ...input });
+    const S = rig.log.slice(k), beta = Math.max(...S.map(s => Math.abs(sideslip(s))));
+    const yaw = Math.max(...S.map(s => deg(s.yawRate))), last = S.at(-1)!;
+    checks.push({ name: `${label} on R 30 m at ${kmh} km/h (${f(before.ay / G, 2)} g)`, value: `peak sideslip ${f(beta, 1)}°, peak yaw ${f(yaw, 0)}°/s (from ${f(deg(before.yawRate), 0)}), end ${f(last.speed * 3.6, 0)} km/h`, ok: beta < 20 });
+    rig.writeCsv(`corner-${label.replace(/\W+/g, '-')}-${kmh}`); rig.free();
+  };
+  corner(55, 'lift-off', { throttle: 0 }, 2);
+  corner(55, 'brake 0.5', { throttle: 0, brake: 0.5 }, 2.5);
+  corner(55, 'full brake', { throttle: 0, brake: 1 }, 2.5);
+  corner(40, 'full throttle', { throttle: 1 }, 3);
+  {
+    const rig = new Rig(kind), pi = new SpeedPI();
+    rig.run(1, idle);
+    rig.run(15, () => ({ throttle: pi.update(50 / 3.6, rig.forwardSpeed()), brake: 0, steer: pursue(rig, () => 0), handbrake: false }));
+    const psi0 = rig.heading(), k = rig.log.length;
+    rig.run(0.7, { throttle: 0, brake: 0, steer: -1, handbrake: true });
+    rig.run(3, { throttle: 0, brake: 0, steer: 0, handbrake: false });
+    const S = rig.log.slice(k), beta = Math.max(...S.map(s => Math.abs(sideslip(s))));
+    let turned = 0, prev = psi0;
+    for (const s of S) { turned += Math.atan2(Math.sin(s.psi - prev), Math.cos(s.psi - prev)); prev = s.psi; }
+    const end = S.at(-1)!;
+    checks.push({ name: 'handbrake turn at 50 km/h (full stick + handbrake 0.7 s, then hands off)', value: `turned ${f(deg(turned), 0)}°, peak sideslip ${f(beta, 0)}°, end sideslip ${f(sideslip(end), 1)}° at ${f(end.speed * 3.6, 0)} km/h`, ok: Math.abs(sideslip(end)) < 10 || end.speed < 1 });
+    rig.writeCsv('handbrake-50'); rig.free();
+  }
+  for (const slope of [0, 0.1]) {
+    const rig = new Rig(kind, slope), body = rig.car.body;
+    // Settle parked (no driver: half the brakes, vehicle/handling.ts); a held brake pedal would reverse at rest.
+    for (let i = 0; i < 180; i++) rig.pw.fixedStep(null, null);
+    const p0 = { ...body.translation() };
+    // Parked (no driver): the game holds half the brakes (vehicle/handling.ts).
+    for (let i = 0; i < 600; i++) { rig.pw.fixedStep(null, null); }
+    const p1 = { ...body.translation() }, moved = Math.hypot(p1.x - p0.x, p1.z - p0.z);
+    // Rapier's substeps leave a steady 0.06 m/s sink in the chassis velocity at rest (see the static notes); on a slope
+    // its along-slope share creeps a braked car a few cm per 10 s (Rapier's own tyre: CAR 16 cm downhill).
+    checks.push({ name: `parked 10 s on ${slope * 100} % slope`, value: `moved ${f(moved * 100, 2)} cm`, ok: moved < 0.1 });
+    rig.free();
+  }
+  return checks;
 }
 
 // ------------------------------------------------------------------------------------------------ report
@@ -492,20 +600,21 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
   const md: string[] = [];
   const notes: Record<string, Record<string, string>> = {};
   for (const kind of KINDS) {
-    const t = VEHICLES[kind];
+    const t = tuningOf(kind);
     const st = statics(kind);
     const pads = [20, 30].map(r => ({ r, rows: skidpad(kind, r, speeds) }));
     const stick = fullStick(kind, [30, 40, 50, 60, 70, 80, 90, 100, 110, 120]);
     const brakes = [50, 80, 100].map(v => braking(kind, v));
     const top = topSpeed(kind);
+    const checks = drivability(kind);
     const lock60 = deg(-handling({ ...idle, steer: 1 }, 60 / 3.6, t).steer);
-    const steps = [2, 4, 8, ...(Math.abs(lock60 - 8) > 0.05 ? ['lock' as const] : [])].map(d => stepSteer(kind, d));
-    out[kind] = { st, pads, stick, brakes, steps, top };
+    const steps = [2, 4, 8, ...(Math.abs(lock60 - 8) > 0.05 ? ['lock' as const] : []), ...(t.keySteer ? ['key' as const] : [])].map(d => stepSteer(kind, d));
+    out[kind] = { st, pads, stick, brakes, steps, top, checks };
     console.log(`wf2 ${kind} ${JSON.stringify({ st, pads, stick, brakes, steps }, (_, v) => typeof v === 'number' ? +v.toFixed(4) : v)}`);
 
     const L = st.L, track = t.wheels[1].z - t.wheels[0].z;
     const fits = pads.map(({ r, rows }) => {
-      const lin = rows.filter(x => x.held && x.ay < 0.4), held = rows.filter(x => x.held);
+      const lin = rows.filter(x => x.held && x.ay < 0.5), held = rows.filter(x => x.held);
       const K = linfit(lin.map(x => x.ay), lin.map(x => x.steer - x.ackermann));
       const roll = linfit(lin.map(x => x.ay), lin.map(x => x.roll));
       const rollAll = linfit(held.map(x => x.ay), held.map(x => x.roll));
@@ -528,7 +637,7 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
       lockStep: steps.find(x => x.stepDeg === 'lock') ? `${f(steps.find(x => x.stepDeg === 'lock')!.lock0, 2)}° at 60 → ${f(deg(-handling({ ...idle, steer: 1 }, steps.find(x => x.stepDeg === 'lock')!.speed4 / 3.6, t).steer), 2)}° at ${f(steps.find(x => x.stepDeg === 'lock')!.speed4, 1)} km/h` : 'n/a',
     };
 
-    md.push(`### ${kind === 'car' ? 'Car (`CAR`, every saloon in the fleet)' : 'Trophy truck (`TRUCK`, heavy second vehicle)'}`, '');
+    md.push(`### ${LABEL[kind]}`, '');
     md.push('#### Parameters', '');
     const brakeN = t.brakeForce / DT;
     md.push(table(['Parameter', 'Value'], [
@@ -550,7 +659,7 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
       ['Max road-wheel steer', `${f(deg(t.maxSteer), 1)}° at rest, lock = max / (1 + (v / ${t.steerHalfSpeed} m/s)²): ${f(deg(t.maxSteer / (1 + (50 / 3.6 / t.steerHalfSpeed) ** 2)), 1)}° at 50, ${f(lock60, 1)}° at 60, ${f(deg(t.maxSteer / (1 + (100 / 3.6 / t.steerHalfSpeed) ** 2)), 1)}° at 100 km/h`],
       ['Stick → steer input', 'left stick through a radial dead zone 0.16 and exponent 1.35 (input/bindings.ts), no smoothing; the harness feeds VehicleInput.steer after that curve'],
       ['Steering rate limit', `${t.steerRate} rad/s (${f(deg(t.steerRate), 0)}°/s) at the road wheel; both front wheels same angle (no Ackermann geometry)`],
-      ['Drivetrain', `${t.frontTorque ? `4WD, ${t.frontTorque * 100} % front` : 'RWD'}; ${t.engineForce} N per driven wheel (${t.engineForce * t.driven.length} N total), no gears or differential; force tapers to 0 over the last 5 m/s below ${t.topSpeed} m/s (${f(t.topSpeed * 3.6, 0)} km/h)`],
+      ['Drivetrain', `${t.frontTorque === 1 ? 'FWD' : t.frontTorque ? `4WD, ${t.frontTorque * 100} % front` : 'RWD'}; ${t.engineForce} N per driven wheel (${t.engineForce * t.driven.length} N total), no gears or differential; force tapers to 0 over the last 5 m/s below ${t.topSpeed} m/s (${f(t.topSpeed * 3.6, 0)} km/h)`],
       ['Brakes', `${t.brakeForce} N·s impulse per wheel per step = ${f(brakeN, 0)} N per wheel at 60 Hz, all four wheels equal (50/50); no brake ramp`],
       ['Aero drag', `decel = (0.015 + 0.004·v)·v m/s² (equivalent CdA ≈ ${f(0.004 * t.mass / 0.6125, 1)} m²)`],
       ['Assists', `body angular damping ${f(st.angularDamping, 1)} s⁻¹ (all axes); speed-dependent steering lock and rate limit; no ABS, TCS or ESC; no wheel spin DOF (wheels cannot lock)`],
@@ -576,9 +685,9 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
         `${f(x.loads[0], 0)} / ${f(x.loads[1], 0)}`, `${f(x.loads[2], 0)} / ${f(x.loads[3], 0)}`, `${f(x.err, 2)} (max ${f(x.errMax, 2)})`, x.held ? 'yes' : `no: ${x.why}`])), '');
     }
     md.push(table(['Fit', ...fits.map(x => `R = ${x.r} m`)], [
-      ['Understeer gradient K, ay < 0.4 g (deg/g)', ...fits.map(x => `${f(x.K.slope, 2)} (n = ${x.K.n})`)],
+      ['Understeer gradient K, ay < 0.5 g (deg/g)', ...fits.map(x => `${f(x.K.slope, 2)} (n = ${x.K.n})`)],
       ['K over all held steps (deg/g)', ...fits.map(x => `${f(x.Kall.slope, 2)} (n = ${x.Kall.n})`)],
-      ['Roll gradient, ay < 0.4 g (deg/g)', ...fits.map(x => `${f(x.roll.slope, 2)}`)],
+      ['Roll gradient, ay < 0.5 g (deg/g)', ...fits.map(x => `${f(x.roll.slope, 2)}`)],
       ['Roll gradient, all held steps (deg/g)', ...fits.map(x => f(x.rollAll.slope, 2))],
       ['Max steady lateral g (held)', ...fits.map(x => x.max ? `${f(x.max.ay, 3)} at ${f(x.max.speed, 1)} km/h` : 'n/a')],
       ['First step not held', ...fits.map(x => x.fail ? `${x.fail.target} km/h: ${x.fail.why}` : 'none')],
@@ -597,10 +706,12 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
       `${f(x.frontShare * 100, 1)} % / ${f(x.staticShare * 100, 1)} %`, `${f(x.fxF, 0)} / ${f(x.fxR, 0)}`, f(x.dragG, 3), `${f(x.kappaF, 3)} / ${f(x.kappaR, 3)}`,
       x.rearLift ? 'yes' : 'no', x.injected ? `injected (top ${f(x.plateau, 1)} km/h)` : 'driven'])), '');
 
+    md.push('#### Drivability checks', '');
+    md.push(table(['Check', 'Result', 'OK'], checks.map(c => [c.name, c.value, c.ok ? 'yes' : '**no**'])), '');
     md.push('#### Step steer at 60 km/h (throttle held at the 60 km/h value)', '');
     md.push(table(['Road-wheel step', 'Steer time to 90 / 100 % s', 'Steady yaw °/s', 'Steady lat g', 'Yaw 10–90 % rise s', 'Steer50 → yaw 10 / 90 % s', 'Steer50 → peak s',
       'Overshoot %', 'Settle ±5 % s', 'Yaw rate / kinematic v·δ/L', 'Front / rear slip °', 'Sideslip β °', 'Roll °', 'Throttle', 'Speed at step / 2–3 s / 4 s km/h'],
-    steps.map(x => [x.stepDeg === 'lock' ? `full stick (${f(x.lock0, 2)}° lock at 60)` : `${x.stepDeg}°`, `${f(x.steer90, 3)} / ${f(x.steer100, 3)}`, f(x.yawSS, 2), f(x.aySS, 3),
+    steps.map(x => [x.stepDeg === 'lock' ? `full stick (${f(x.lock0, 2)}° lock at 60)` : x.stepDeg === 'key' ? `key held (${f(x.lock0, 2)}° lock at 60)` : `${x.stepDeg}°`, `${f(x.steer90, 3)} / ${f(x.steer100, 3)}`, f(x.yawSS, 2), f(x.aySS, 3),
       f(x.rise, 3), `${f(x.d10, 3)} / ${f(x.d90, 3)}`, f(x.tPeak, 3), f(x.overshoot, 1), f(x.settle, 3), f(x.kinematicRatio, 3), `${f(x.alphaF, 2)} / ${f(x.alphaR, 2)}`,
       f(x.beta, 2), f(x.roll, 2), f(x.throttle, 3),
       `${f(x.speed0, 1)} / ${f(x.speedWin, 1)} / ${f(x.speed4, 1)}`])), '');
@@ -631,7 +742,7 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
   ];
   fs.mkdirSync(path.dirname(REPORT), { recursive: true });
   const col = (k: string) => KINDS.map(kind => notes[kind][k]);
-  const noteTable = ['### Reliability notes', '', table(['Issue', 'Effect on the metrics', ...KINDS.map(k => k === 'car' ? 'Car' : 'Truck')], [
+  const noteTable = ['### Reliability notes', '', table(['Issue', 'Effect on the metrics', ...KINDS.map(k => LABEL[k].split(' (')[0])], [
     ['Skidpad limit is the steering lock, not grip', 'the speed-dependent lock falls below the Ackermann angle at these speeds (R 20 / R 30); the circle is lost there with tyres far from saturation, so "max steady lateral g" on the circles is lock-limited', ...col('lock')],
     ['Largest steady lateral g anywhere', 'full stick with a speed hold (table under each skidpad); above it the inner front tyre saturates and the car understeers', ...col('grip')],
     ['No tyre slip curve', 'Rapier solves each contact patch to zero side velocity until the friction ellipse saturates; the remaining slip angles (about 0.6°/g front, 0.5°/g rear) are solver residue, so K ≈ 0 deg/g and slip angles are not comparable with a slip-curve tyre model', '', ''],
