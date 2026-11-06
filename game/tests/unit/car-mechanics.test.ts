@@ -263,3 +263,27 @@ describe('effects', () => {
     fx.dispose();
   });
 });
+
+describe('the damage indicator', () => {
+  test('nothing for an intact car; the damaged systems worst first, zones and wheels tinted by level', async () => {
+    const { damageHudModel, LEVEL_COLOURS } = await import('../../src/ui/damageHud');
+    expect(damageHudModel(mechanics(new DamageState(layout)))).toBeNull();
+    expect(damageHudModel(repeat(50, 1)[0])).toBeNull();
+    // One 80 km/h head-on: the radiator, both front zones at level 1, a mild pull.
+    const head = damageHudModel(repeat(80, 1)[0])!;
+    expect(head.lines.map(l => l.text)).toEqual(['Radiator', expect.stringMatching(/^Steering pull [←→]$/)]);
+    expect(head.zones).toEqual([LEVEL_COLOURS[1], LEVEL_COLOURS[1], LEVEL_COLOURS[0], LEVEL_COLOURS[0]]);
+    expect(head.bay).toBe(LEVEL_COLOURS[1]);
+    // Six at 61.5: terminal front zones, the engine before the radiator's lower level.
+    const six = damageHudModel(repeat(61.5, 6)[5])!;
+    expect(six.lines.slice(0, 2)).toEqual([{ text: 'Radiator', level: 2 }, { text: 'Engine', level: 1 }]);
+    expect(six.zones.slice(0, 2)).toEqual([LEVEL_COLOURS[4], LEVEL_COLOURS[4]]);
+    // A front-right corner hit pulls right; three side hits at the front-left wheel wreck its suspension.
+    const corner = damageHudModel(hits([{ dv: [0, 0, -75 / 3.6], at: [-.8, .5, 2.1], halfWidth: .2 }])[0])!;
+    expect(corner.lines.map(l => l.text)).toContain('Steering pull →');
+    const side: DamageHit = { dv: [-85 / 3.6, 0, 0], at: [1, .5, 1.3], halfWidth: .3 };
+    const wrecked = damageHudModel(hits([side, side, side])[2])!;
+    expect(wrecked.lines).toContainEqual({ text: 'Suspension front left', level: 1 });
+    expect(wrecked.wheels[0]).not.toBe(LEVEL_COLOURS[0]); expect(wrecked.wheels[3]).toBe(LEVEL_COLOURS[0]);
+  });
+});

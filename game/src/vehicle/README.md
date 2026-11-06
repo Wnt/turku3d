@@ -308,6 +308,11 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
   i.e. 0.36-0.86° more); six hits at 61.5 km/h pull over 0.8°. Hands off at 80 km/h after six hits at 61.5 the car
   turns 0.5-4°/s; a heavily wrecked car (three 85 km/h side hits at the front-left wheel, six frontal, one rear) 5.6°/s
   with all four wheels down.
+- **Indicator** (`ui/damageHud.ts`, while driving a damaged car): a 26 × 46 px top view at the bottom centre (the
+  rear-steer tag's place, which only the truck uses) with the four corner zones, wheels and the engine bay tinted
+  by level (yellow → red), and short lines for what is damaged, worst first ("Engine", "Radiator", "Steering pull ←",
+  "Suspension front left"). Hidden for an intact car; full strength for 6 s after a new hit or getting in, then dimmed
+  to 45 %. It shows no key.
 - **Wire** version 2 (224 bytes, 300 base64 characters): the body state plus wear (uint16, 8 (km/h)² units) and the
   steering side. Version 1 (body only, older saves) still decodes, unworn. The server checks only a bounded base64
   form. `mechanicsOf(wire)` caches the decode for the renderer, audio and HUD.

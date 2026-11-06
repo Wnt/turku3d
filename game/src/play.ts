@@ -71,6 +71,7 @@ import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT, VEHICLES, type VehicleKind } from './physics/constants';
 import { RearSteerControl } from './vehicle/rearSteerControl';
 import { RearSteerTag } from './ui/rearSteerTag';
+import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
@@ -125,6 +126,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const vehicleSignals = new VehicleSignals();
   const rearControl = new RearSteerControl();
   const rearTag = new RearSteerTag(document.body, VEHICLES.truck.rearSteer?.maxAngle ?? 1);
+  const damageHud = new DamageHud(document.body);
   const vehicleBeams = new VehicleBeams(root, physics);
   const tyreEffects = new TyreEffects(root, params.quality);
   const edgeMarker = new EdgeMarker(physics, manifest.collision); // the visible edge of the world (world/edgeMarker.ts)
@@ -751,6 +753,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       carIn.rearMode = autopilot.active ? 'auto' : rearMode;
     }
     rearTag.update(fourWheelSteer && !startScreen.active ? vs : null, input.source === 'touch' ? '' : input.prompt('sprint'), now);
+    damageHud.update(mode === 'car' && !startScreen.active ? vs?.damage : null, now);
     const ride = physics.latest?.vehicles.find(v => v.id === missions.rideId);
     const mission = storyCity ? missions.update(paused || startScreen.active ? 0 : dt, {
       position: { x: feet.x, y: feet.y, z: feet.z }, interact: !paused && input.consume('mission'), button: input.prompt('mission'),
@@ -1021,6 +1024,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       audio.emit({ type: 'horns', vehicles: [] });
       vehicleBeams.dispose();
       tyreEffects.dispose();
+      damageHud.dispose();
       walkers.dispose();
       parkedVisuals.dispose();
       poles.dispose();
