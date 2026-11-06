@@ -34,6 +34,8 @@ import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { SeatedVehicles } from './actors/seatedVehicles';
+import { Drivers, fleetDriverLayout, frontSteer } from './actors/driver/drivers';
+import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { DevLayers } from './ui/devLayers';
@@ -174,6 +176,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const car = new CarVisual(root);
   const seated = new SeatedVehicles(root, physics, groundAt, world.prepareGraphics);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
+  // Seated, animated drivers in every driven car and truck, local and remote (actors/driver/README.md).
+  const drivers = new Drivers(world.prepareGraphics);
   const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location), root, parkedVisuals);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
@@ -205,8 +209,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
     optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
+  if (player.template) drivers.setCharacter(player.template.scene, player.template.clips);
+  Object.assign(window.__game!, { drivers });
   let remoteEngines = new Set<string>();
-  const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects);
+  const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects, drivers);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
   streets.connectDrafts(coarse);
@@ -455,7 +461,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const v = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
     return { mode, paused, locomotion: player.locomotion, contacts: player.contacts, visualFeet: player.root.position.toArray(), visualVehicle: car.root.position.toArray(), cameraYaw: orbit.yaw, inputSource: input.source, feet: feet.toArray(), vel: vel.toArray(), grounded, groundMaterial: groundMat, E: en.E, N: en.N, H: en.H,
       vehicle: v ? { ...v, pos: [v.pos.x, v.pos.y, v.pos.z], modelLoaded: v.id === 'player' ? car.loaded : seated.of(v.id)?.loaded ?? true } : null,
-      ...seated.snapshot(player, drivenId),
+      ...seated.snapshot(player, drivenId, drivers.hipsOf('local')), drivers: drivers.snapshot(),
       vehicles: physics.latest?.vehicles.map(v => ({ ...v, pos: [v.pos.x, v.pos.y, v.pos.z] })) ?? [], drivenId,
       camera: { pos: camera.position.toArray(), fov: camera.fov, yaw: chase.yaw }, collision: physics.totals(), visTris: tiles.residentTris,
       visModels: tiles.residentModels, tilesSettled: !!coarse && coarse.progressAt(feet.x, feet.z).loaded === coarse.progressAt(feet.x, feet.z).total && !materials?.ground?.pending,
@@ -889,13 +895,19 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         tyreEffects.engineBay('local', vehicle.pos, vehicle.rot, bay.steam, bay.smoke, effectsDt);
       }
     }
-    seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
+    seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player, positionHud.characterHidden ? undefined : drivers);
+    // The local driver in a driven car: the starter car's body or the driven fleet car's own actor, at its drawn pose.
+    if (mode === 'car' && !positionHud.characterHidden) {
+      const id = drivenId ?? 'player', state = latestOf(id);
+      const fleet = !state || seated.of(id) ? null : id === 'player' ? car.frame && { actor: car.frame, model: PLAYER_MODEL } : parkedVisuals.driven(id);
+      if (state && fleet) drivers.seat('local', fleet.actor, fleetDriverLayout(fleet.model), { velocity: state.linvel, steer: frontSteer(state.wheels), impact: state.impact?.id });
+    }
     const renderCharacter = physics.characterRender.sample(now / 1000, extrapolating);
     if (mode === 'foot' && renderCharacter && !paused) {
       player.update(dt, new THREE.Vector3(renderCharacter.pos.x, renderCharacter.pos.y, renderCharacter.pos.z), vel, grounded, groundMat);
     }
 
-    player.root.visible = !positionHud.characterHidden && (mode === 'foot' || !!seated.of(drivenId));
+    player.root.visible = !positionHud.characterHidden && (mode === 'foot' || seated.rides(drivenId));
     const focus = mode === 'foot' ? tmp.copy(player.root.position).add(new THREE.Vector3(0, 1.25, 0)) : tmp.set(feet.x, feet.y + 1.8, feet.z);
     // The camera follows the drawn pose of the driven vehicle, never a newer raw physics state.
     const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
@@ -959,6 +971,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     viewClearance.update(camera, clearing, dt);
     if (multiplayerPlaying) remotePlayers.fadeLabels(camera);
     damageConsole.frame(camera);
+    drivers.finish(camera, now);
     renderFrame();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),

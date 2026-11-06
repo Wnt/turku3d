@@ -3,6 +3,7 @@ import type { WheelState } from '../../physics/protocol';
 import { TRUCK, TRUCK_STATIC_LENGTH } from '../../physics/constants';
 import { CORNERS, TruckLinkage, type Quat, type Vec } from './linkage';
 import type { TrophyAsset } from './asset';
+import { TRUCK_WHEEL, steeringAngle } from '../driver/layout';
 
 /** Binds the linkage solver (linkage.ts) to one truck model's bones: the local truck, extra draft trucks and every
  *  remote clone get their own rig (WeakMap per root, like the remote cars), driven only by `WheelState[]`, so a
@@ -10,8 +11,6 @@ import type { TrophyAsset } from './asset';
 
 /** The GLB ground origin in the chassis frame: hub static height below the wheel connection, then the tyre radius. */
 export const GROUND_Y = TRUCK.wheels[0].y - TRUCK_STATIC_LENGTH - TRUCK.wheelRadius;
-/** Steering-wheel turns per front steer (±42° front lock gives about ±270° at the wheel). */
-const STEERING_RATIO = 6.4;
 /** Solve again only when a hub moved or a steer changed by more than this (m, rad); parked trucks solve once. */
 const EPSILON = 5e-4;
 
@@ -91,7 +90,8 @@ class TrophyRig {
       this.set(name, [rest.p.x, rest.p.y, rest.p.z + offset]);
     }
     const wheel = this.bones.get('steer-wheel'), rest = this.asset.rest.get('steer-wheel');
-    if (wheel && rest) wheel.quaternion.copy(rest.q).multiply(q2.setFromAxisAngle(Y, STEERING_RATIO * (this.inputs[0].steer + this.inputs[1].steer) / 2));
+    // The steering wheel as the driver turns it (actors/driver: truck ratio 8, capped at ±250°).
+    if (wheel && rest) wheel.quaternion.copy(rest.q).multiply(q2.setFromAxisAngle(Y, steeringAngle(TRUCK_WHEEL, (this.inputs[0].steer + this.inputs[1].steer) / 2)));
   }
 }
 

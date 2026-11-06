@@ -8,9 +8,11 @@ import type { PlayerVisual } from './player';
 import { ScooterVisual } from './scooter';
 import { TruckVisual } from './truck';
 import { configureTrophyAsset } from './trophy4400/asset';
+import { frontSteer, type Drivers } from './driver/drivers';
 
-/** The bought vehicles whose rider or driver stays visible, seated on its anchor: the scooter and the trophy truck.
- *  Both exist as physics vehicles once bought (a loaded game places them in gameplay/saveGame.ts). */
+/** The bought vehicles: the scooter (its rider is the player character, seated on its anchor) and the trophy truck
+ *  (a seated driver, actors/driver/). Both exist as physics vehicles once bought (a loaded game places them in
+ *  gameplay/saveGame.ts). */
 export class SeatedVehicles {
   readonly scooter: ScooterVisual;
   readonly truck: TruckVisual;
@@ -55,8 +57,10 @@ export class SeatedVehicles {
     }
   }
 
-  /** The seated visual for physics vehicle `id`; undefined for a car, whose driver disappears into it. */
+  /** The seated visual for physics vehicle `id`; undefined for a car (drawn by actors/car.ts or the fleet). */
   of(id: string | null | undefined) { return id ? this.byId[id] : undefined; }
+  /** The player character itself rides vehicle `id` (the scooter); every other driver is a seated clone. */
+  rides(id: string | null | undefined) { return this.of(id) === this.scooter; }
 
   /** Spawns (or moves) the bought `kind` onto the ground at `spot`. */
   async park(kind: 'scooter' | 'truck', spot: V3 & { yaw: number }) {
@@ -70,8 +74,8 @@ export class SeatedVehicles {
     return this.park(kind, { x: at.x + view.x * metres, y: at.y, z: at.z + view.z * metres, yaw: Math.atan2(-view.z, view.x) });
   }
 
-  /** Follows each vehicle's latest state and seats the player on the one being driven. */
-  update(dt: number, latestOf: (id: string) => VehicleState | null, drivenId: string | null, player: PlayerVisual) {
+  /** Follows each vehicle's latest state, seats the player on the scooter and the driver in a driven truck. */
+  update(dt: number, latestOf: (id: string) => VehicleState | null, drivenId: string | null, player: PlayerVisual, drivers?: Drivers) {
     const scooter = latestOf(SCOOTER_ID), truck = latestOf(TRUCK_ID);
     this.scooter.root.visible = !!scooter;
     if (scooter) this.scooter.update(dt, scooter);
@@ -82,17 +86,22 @@ export class SeatedVehicles {
       if (state) actor.update(state);
       else actor.root.visible = false;
     }
-    const seat = this.of(drivenId);
-    if (seat && latestOf(drivenId!)) player.ride(dt, seat.seat);
+    const seat = this.of(drivenId), state = drivenId ? latestOf(drivenId) : null;
+    if (seat === this.scooter && state) player.ride(dt, seat.seat);
+    else if (seat instanceof TruckVisual && state && seat.loaded && seat.driverLayout && drivers) {
+      drivers.seat('local', seat.driverFrame, seat.driverLayout, { velocity: state.linvel, steer: frontSteer(state.wheels), impact: state.impact?.id });
+    }
   }
 
-  /** Test and debug view: visibility, the scooter's lean and where the rider or driver sits. */
-  snapshot(player: PlayerVisual, drivenId: string | null) {
+  /** Test and debug view: visibility, the scooter's lean and where the rider or driver sits (`driver`: the local
+   *  driver's hips, actors/driver/drivers.ts, while one is seated and drawn). */
+  snapshot(player: PlayerVisual, drivenId: string | null, driver?: number[] | null) {
     const riding = player.root.visible && player.locomotion === 'ride';
+    const truck = !!drivenId && (drivenId === TRUCK_ID || this.extraTrucks.has(drivenId));
     return {
       scooter: { visible: this.scooter.root.visible, lean: this.scooter.leanAngle, rider: riding,
         riderPos: player.root.position.toArray(), seatPos: this.scooter.seat.getWorldPosition(new THREE.Vector3()).toArray() },
-      truck: { visible: this.truck.root.visible, driver: riding && !!drivenId && (drivenId === TRUCK_ID || this.extraTrucks.has(drivenId)),
+      truck: { visible: this.truck.root.visible, driver: truck && !!driver, driverPos: truck ? driver ?? null : null,
         seatPos: this.truck.seat.getWorldPosition(new THREE.Vector3()).toArray() },
     };
   }

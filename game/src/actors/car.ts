@@ -65,6 +65,9 @@ export class CarVisual {
     this.loaded = true;
   }
 
+  /** The body in the fleet model frame (+Z forward, tyres on Y = 0): the seated driver's parent (actors/driver). */
+  get frame(): THREE.Object3D | null { return this.body ?? null; }
+
   update(s: VehicleState) {
     this.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.root.quaternion.set(s.rot.x, s.rot.y, s.rot.z, s.rot.w);

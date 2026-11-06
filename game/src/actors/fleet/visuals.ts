@@ -248,6 +248,13 @@ export class ParkedCarVisuals {
     }
     this.cars=this.cars.filter(c=>c.object_id!==id);
   }
+  /** Driven car `id`'s own actor in the fleet model frame and its drawn model id, once its real model is resident
+   *  (the seated driver's parent, actors/driver). */
+  driven(id:string):{actor:THREE.Object3D;model:string}|null {
+    const actor=this.dynamic.get(id),def=this.definitions.get(id);
+    if(!actor||!def||!(actor.geometry as THREE.BufferGeometry|undefined)?.getAttribute('position'))return null;
+    return {actor,model:this.resolve(def.model,id).id};
+  }
   requestRemoteModel(key:string) {
     const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
     if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;

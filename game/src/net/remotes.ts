@@ -28,6 +28,7 @@ import { vehiclePose } from './sharedVehicles';
 import type { SharedVehicles } from './sharedVehicles';
 import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
+import { fleetDriverLayout, frontSteer, type Drivers } from '../actors/driver/drivers';
 
 interface Remote {
   player: NetPlayer & { occupant?: string | null }; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
@@ -114,9 +115,10 @@ export class RemotePlayers {
   readonly engines: { id: string; state: EngineVoiceState }[] = [];
   /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
   readonly threats: WalkerThreat[] = [];
+  /** `drivers`: seats an animated driver in every remote car and truck that has one (actors/driver/drivers.ts). */
   constructor(private readonly root: THREE.Object3D, private readonly physics: PhysicsClient,
     private readonly sources: { player: PlayerVisual; scooter: ScooterVisual; truck: TruckVisual;
-      parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects) {}
+      parked: ParkedCarVisuals }, private readonly tyreEffects: TyreEffects, private readonly drivers?: Drivers) {}
 
   /** `drawn`: the render pose of a locally simulated vehicle (the driven one), else its latest physics state is used. */
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
@@ -157,8 +159,10 @@ export class RemotePlayers {
         const car = new THREE.Group();
         const scooter = this.sources.scooter.root.clone(true);
         scooter.getObjectByName('scooter-lean')!.position.y = -VEHICLE_POSE_HEIGHT;
-        // The truck root follows the chassis centre; its model's bones are cloned per remote (actors/truck.ts).
+        // The truck root follows the chassis centre; its model's bones are cloned per remote (actors/truck.ts). A local
+        // driver seated in the source truck at this moment is not part of the clone.
         const truck = cloneSkeleton(this.sources.truck.root);
+        for (let seat = truck.getObjectByName('driver-seat'); seat; seat = truck.getObjectByName('driver-seat')) seat.removeFromParent();
         const label = nickname(p.nick);
         const pizza = new THREE.Mesh(this.pizzaGeometry, this.pizzaMaterial);
         for (const visual of [car, scooter, truck]) visual.userData.devLayer = 'Vehicles/Other Players Cars';
@@ -249,6 +253,20 @@ export class RemotePlayers {
       if (effectsDt > 0 && now - remote.receivedAt < 1500 && pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
         const bay = mechanicsOf(pose.damage);
         this.tyreEffects.engineBay(p.id, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
+      }
+      // A driven car or truck shows its driver, animated from the drawn pose (no extra synced field): a player's own
+      // pose, or a shared record with an occupant. The local player's own shared car seats the local driver.
+      const occupied = !('occupant' in p) || !!p.occupant;
+      if (this.drivers && occupied && (pose.mode === 'car' || pose.mode === 'truck')) {
+        const key = p.occupant && p.occupant === selfId ? 'local' : `remote:${p.id}`;
+        const input = { velocity: { x: pose.vE, y: pose.vH, z: -pose.vN }, steer: frontSteer(pose.wheels) };
+        if (pose.mode === 'car' && remote.vehicleKey && remote.car.parent) {
+          const model = remote.vehicleKey === 'player' ? PLAYER_MODEL : remote.vehicleKey.split('/')[0];
+          this.drivers.seat(key, remote.car, fleetDriverLayout(model, remote.vehicleKey), input);
+        } else if (pose.mode === 'truck' && this.sources.truck.driverLayout) {
+          const frame = remote.truck.getObjectByName('driver-frame');
+          if (frame) this.drivers.seat(key, frame, this.sources.truck.driverLayout, input);
+        }
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });

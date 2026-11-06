@@ -26,6 +26,8 @@ export class PlayerVisual {
   private ik: FootIK | null = null;
   private positioned = false;
   private phase = 0;
+  /** The loaded character and its clips: seated drivers are cloned from it (actors/driver/drivers.ts). */
+  template: { scene: THREE.Object3D; clips: THREE.AnimationClip[] } | null = null;
   get contacts() { return this.ik?.contacts ?? []; }
 
   constructor(scene: THREE.Object3D, private raycast: FootRaycast) {
@@ -40,6 +42,7 @@ export class PlayerVisual {
     const model = gltf.scene;
     model.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; } });
     this.root.add(model);
+    this.template = { scene: model, clips: gltf.animations };
     this.ik = new FootIK(this.root, model, this.raycast);
     this.mixer = new THREE.AnimationMixer(model);
     const find = (n: string) => gltf.animations.find((a) => a.name === n);
@@ -104,7 +107,8 @@ export class PlayerVisual {
       hipHeight === undefined ? undefined : locomotionBodyHeight(hipHeight, w, this.stairWeight));
   }
 
-  /** Seated on a two-wheeler: the UAL driving pose, hips placed on `seat` (its +Z faces forward). */
+  /** Seated on the scooter: the UAL driving pose, hips placed on `seat` (its +Z faces forward). Car and truck drivers
+   *  are clones posed by actors/driver/. */
   ride(dt: number, seat: THREE.Object3D) {
     this.locomotion = 'ride';
     this.positioned = false;
