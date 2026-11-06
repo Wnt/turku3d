@@ -212,6 +212,32 @@ const frames = (page, n = 180) => page.evaluate(n => new Promise(resolve => {
   requestAnimationFrame(tick);
 }), n);
 
+/** A heading from the start car with open, flat ground for the bench rows ahead (32 m deep, 12 m wide, at the car's
+ *  ground height) and 12 m clear behind it for the camera; the spawn's own heading may face a wall or the river. */
+const findBench = page => page.evaluate(async () => {
+  const physics = window.__game.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
+  const ray = (o, d, max) => physics.raycast(o, d, max, 'solid');
+  const ground = await ray({ x: car.pos.x, y: car.pos.y + 3, z: car.pos.z }, { x: 0, y: -1, z: 0 }, 8);
+  if (!ground) return null;
+  let best = null;
+  for (let deg = 0; deg < 360; deg += 15) {
+    const yaw = deg * Math.PI / 180, d = { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) }, side = { x: -d.z, y: 0, z: d.x };
+    let ahead = 40, behind = 15, ok = true;
+    for (const k of [-6, -3, 0, 3, 6]) {
+      const o = { x: car.pos.x + side.x * k, y: ground.point.y + 1, z: car.pos.z + side.z * k };
+      const h = await ray(o, d, 40); if (h) ahead = Math.min(ahead, h.toi);
+      if (Math.abs(k) <= 3) { const b = await ray(o, { x: -d.x, y: 0, z: -d.z }, 15); if (b) behind = Math.min(behind, b.toi); }
+    }
+    if (ahead < 32 || behind < 12) continue;
+    for (const t of [8, 14, 20, 26]) for (const k of [-5, 0, 5]) {
+      const at = await ray({ x: car.pos.x + d.x * t + side.x * k, y: ground.point.y + 5, z: car.pos.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 12);
+      if (!at || Math.abs(at.point.y - ground.point.y) > .6) ok = false;
+    }
+    if (ok && (!best || ahead + behind > best.ahead + best.behind)) best = { yaw, deg, ahead: +ahead.toFixed(1), behind: +behind.toFixed(1), x: car.pos.x, y: ground.point.y, z: car.pos.z };
+  }
+  return best;
+});
+
 /** Waits (up to `ms`) until the draw count holds within 3 % over 10 s: the world around the bench is still streaming
  *  in after the load, and a growing scene hides the drivers' own cost. */
 const settleDraws = (page, ms = 120000) => page.evaluate(async ms => {
@@ -324,6 +350,12 @@ try {
     // 20 bench cars ahead, with and without animated drivers, alternating (PERF_ROUNDS pairs, default 5); a fixed
     // camera over them. Each pair is measured off then on, and the cost is the median of the pairs' differences: the
     // streaming world keeps changing the scene's own cost between rounds.
+    report.benchSpot = await findBench(page);
+    log('bench spot', { spot: report.benchSpot });
+    if (report.benchSpot) {
+      await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), report.benchSpot);
+      await page.waitForTimeout(2500);
+    }
     await hold(page, { handbrake: 1 });
     await page.evaluate(look => window.__game.damage.look(look), BENCH_LOOK);
     report.perf = [];
@@ -342,7 +374,9 @@ try {
           passes: passes ? Object.fromEntries(Object.entries(passes.gpuMs ?? {}).map(([k, v]) => [k, v?.p50 == null ? null : +v.p50.toFixed(2)])) : null }; });
       const ms = await page.evaluate(() => window.__game.drivers.frameMs);
       const drawn = await page.evaluate(() => window.__game.drivers.snapshot().drivers.filter(d => d.drawn).length);
-      const row = { round, drivers: on, seated, drawn, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws, passes: p.passes };
+      // Drivers in view: the instanced batch's count after its per-driver culling.
+      const inView = await page.evaluate(() => window.__game.drivers.mesh?.count ?? null);
+      const row = { round, drivers: on, seated, drawn, inView, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws, passes: p.passes };
       report.perf.push(row); log('perf', row);
     }
     await benchDrivers(page, false);
