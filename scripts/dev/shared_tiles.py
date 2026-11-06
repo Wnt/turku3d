@@ -10,6 +10,7 @@ import argparse
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
+import contextlib
 from contextlib import contextmanager
 import errno
 import fcntl
@@ -1331,7 +1332,9 @@ class Farm:
         with self.housekeeping_lock:
             with self.lock:
                 jobs, adopting, aliases = dict(self.jobs), set(self.adopting), dict(self.aliases)
-            return self._make_room(target, jobs, adopting, aliases)
+                started = [info.get('build_started') or time.time() for info in self.queue_info.values()
+                           if info.get('pid')]
+            return self._make_room(target, jobs, adopting, aliases, oldest_build=min(started, default=None))
 
     def skip_link(self, path, kind):
         """Eviction leaves directories moved to another filesystem alone; each is logged once per process."""
@@ -1339,7 +1342,67 @@ class Farm:
             self.skipped_links.add(path.name)
             self.event('eviction-skipped-link', what=kind, name=path.name, target=os.readlink(path))
 
-    def _make_room(self, target, jobs, adopting, aliases):
+    @staticmethod
+    def raw_entries(raw):
+        """Each LiDAR, roof, vegetation and crown-canopy cache entry with the lock its producer and readers take."""
+        for source in raw.glob('lidar/*/sources/*'):
+            if source.is_dir() and HASHED.fullmatch(source.name):
+                yield 'lidar-source', source, source.with_suffix('.lock')
+        for crop in raw.glob('lidar/*/crops/*.npy'):
+            yield 'lidar-crop', crop, None
+        for roof in raw.glob('coarse-roofs/*/*.class6.npy'):
+            yield 'roof', roof, roof.parent / 'locks' / roof.name.removesuffix('.class6.npy') / '.cache.lock'
+        for kind, pattern in (('vegetation', 'vegetation/*/*.npz'), ('crown-canopy', 'crown-canopy/*.npz')):
+            for path in raw.glob(pattern):
+                if HASHED.fullmatch(path.stem):
+                    yield kind, path, path.with_suffix('.lock')
+
+    def evict_raw_entries(self, raw, target, oldest_build):
+        """While builds run, reclaim the oldest LiDAR, roof, vegetation and crown-canopy entries one by one.
+
+        Only entries older than the oldest running build (so finished builds made them), past the grace
+        period, that no process has open or mapped and whose lock is free; a build that later needs one
+        decodes it again. With atime off, the entry's mtime (its publication) is the age (2026-11-06: these
+        caches were reclaimed only with no build running, so a long train held the disk under keep_free)."""
+        now = time.time()
+        horizon = min(now - self.grace_seconds, oldest_build if oldest_build is not None else now)
+        held = open_or_mapped(raw)
+        entries = []
+        for kind, path, lock in self.raw_entries(raw):
+            try:
+                modified = path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if modified < horizon:
+                entries.append((modified, kind, path, lock))
+        for _, kind, path, lock in sorted(entries, key=lambda e: e[0]):
+            prefix = str(path) + '/'
+            if str(path) in held or any(h.startswith(prefix) for h in held):
+                continue
+            try:
+                with contextlib.ExitStack() as stack:
+                    if lock is not None:
+                        lock.parent.mkdir(parents=True, exist_ok=True)
+                        handle = stack.enter_context(lock.open('a'))
+                        try:
+                            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            continue
+                    if path.is_dir():
+                        size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
+                        shutil.rmtree(path)
+                    else:
+                        size = path.stat().st_size
+                        path.unlink()
+            except FileNotFoundError:
+                continue
+            self.metrics['evicted_bytes'] += size
+            self.event('raw-entry-evicted', kind=kind, path=str(path.relative_to(raw)), bytes=size)
+            if self.free() >= target:
+                return True
+        return False
+
+    def _make_room(self, target, jobs, adopting, aliases, oldest_build=None):
         if self.free() >= target:
             return True
         for path in sorted((self.root / 'delivery/shared').glob('bundle.*.col'), key=lambda p: p.stat().st_mtime):
@@ -1472,6 +1535,8 @@ class Farm:
                 continue
             if self.free() >= target:
                 return True
+        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build):
+            return True
         # Texture encoders also maintain their own bounded cache. Reclaim additional
         # old encodes only when no farm package can still be using the returned paths.
         if not jobs:
@@ -1485,8 +1550,12 @@ class Farm:
             for path in ([] if adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
-                size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
-                shutil.rmtree(path)
+                if path.is_file():  # crown-canopy keeps its entries directly under its kind
+                    size = path.stat().st_size
+                    path.unlink()
+                else:
+                    size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
+                    shutil.rmtree(path)
                 self.metrics['evicted_bytes'] += size
                 self.event('raw-cache-evicted', path=str(path.relative_to(cache)), bytes=size)
                 if self.free() >= target:
