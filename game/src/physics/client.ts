@@ -1,6 +1,6 @@
 // Main-thread side of the physics worker.
 import { ActorCache } from './actorExchange';
-import type { PoleState, VehicleState } from './protocol';
+import type { DebrisSpec, DebrisState, PoleState, VehicleState } from './protocol';
 import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
@@ -32,6 +32,7 @@ export class PhysicsClient {
   private state: StateMsg | null = null;
   private vehicles = new ActorCache<VehicleState>();
   private poles = new ActorCache<PoleState>();
+  private debris = new ActorCache<DebrisState>();
   private frameAt = -Infinity;
   /** Reads the newest worker state for this render frame. `latest` keeps returning it until the next frame, so
    *  everything one frame draws (the car, the camera following it, the HUD) comes from the same snapshot. */
@@ -58,7 +59,8 @@ export class PhysicsClient {
       streamTrace.event('phys.stall', undefined, { ...fields, ago: performance.timeOrigin + performance.now() - wall });
     }
     this.state = { ...m, vehicles: this.vehicles.apply(m.vehicles, m.removedVehicles, m.actorsDelta ?? false),
-      poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false) };
+      poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false),
+      debris: this.debris.apply(m.debris ?? [], m.removedDebris, m.actorsDelta ?? false) };
     const now = performance.now() / 1000;
     const published = m.publishedAt === undefined ? now : (m.publishedAt - performance.timeOrigin) / 1000;
     this.characterRender.push(m.character, m.previousCharacter, m.tick, published);
@@ -174,6 +176,8 @@ export class PhysicsClient {
   vehicleImpulse(id: string, impulse: V3) { this.send({ type: 'vehicleImpulse', id, impulse }); }
   damageVehicle(id: string, hit: DamageHit) { this.send({ type: 'damageVehicle', id, hit }); }
   setVehicleDamage(id: string, state: string | null) { this.send({ type: 'vehicleDamage', id, state }); }
+  /** A car part that came off becomes a physics body for a while (world.ts spawnDebris). */
+  spawnDebris(spec: DebrisSpec) { this.send({ type: 'spawnDebris', spec }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }
   setPoles(add: PoleSpec[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'poles', add, remove }); }
   breakPole(id: string) { this.send({ type: 'breakPole', id }); }

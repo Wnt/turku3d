@@ -49,6 +49,9 @@ export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: Vehic
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
+/** A car part that came off (actors/fleet/debris.ts): a box body of `half` extents and `mass` (kg) at its drawn pose. */
+export interface DebrisSpec { id: string; pos: V3; rot: Quat; half: V3; mass: number; linvel: V3; angvel: V3 }
+export interface DebrisState { id: string; pos: V3; rot: Quat }
 
 /** `buildMs`: worker time spent building the cell; `pieces`: its install pieces; `waitMs`: request to install, queue included. */
 export interface TileStats { curbTris?: number; id: string; tris: number; prims: number; bytes: number; buildMs: number; colliders: number; pieces?: number; waitMs?: number }
@@ -115,6 +118,7 @@ export type ToWorker =
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }
+  | { type: 'spawnDebris'; spec: DebrisSpec }
   | { type: 'traffic'; config: Partial<TrafficConfig> }
   | { type: 'trafficTiles'; add: TrafficTile[]; remove: string[] }
   | { type: 'trafficPedestrians'; time: number; people: import('../traffic/pedestrians').TrafficPedestrian[] }
@@ -133,6 +137,8 @@ export type FromWorker =
   | { type: 'tileUnloaded'; id: string }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
   | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean; removedVehicles?: string[]; removedPoles?: string[]; seq: number; substeps: number; stepMs: number; tick: number; remainder: number; previousCharacter: CharacterState | null; character: CharacterState | null; previousVehicle: VehicleState | null; vehicle: VehicleState | null; vehicles: VehicleState[]; poles: PoleState[];
+      /** Car part debris bodies (deltas like the poles). */
+      debris?: DebrisState[]; removedDebris?: string[];
       /** Drawn ambient cars, physics/traffic.ts TRAFFIC_STRIDE numbers each; claim events until acknowledged. */
       traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number;
       /** Worker stalls not yet acknowledged (PhysStall). */

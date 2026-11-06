@@ -33,6 +33,7 @@ import { loading } from './core/loading';
 import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
+import { DebrisField } from './actors/fleet/debris';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
@@ -178,7 +179,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   // Seated, animated drivers in every driven car and truck, local and remote (actors/driver/README.md).
   const drivers = new Drivers(world.prepareGraphics);
-  const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location), root, parkedVisuals);
+  const debris = new DebrisField(root, physics);
+  const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location), root, parkedVisuals, debris);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
   const traffic = new TrafficClient(physics, parkedVisuals, parkedVehicles, manifest, params.traffic ?? TRAFFIC_CAPS[params.quality],
@@ -824,6 +826,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     physics.updateInput(charIn, carIn, simulating);
     const st = physics.latest;
     if (st) poles.update(st.poles, mode === 'car' ? st.vehicle?.pos ?? feet : feet, streamer.radius);
+    debris.update(st?.debris);
     clock.simSeconds = (st?.tick ?? 0) * DT;
     const renderVehicle = physics.vehicleRender.sample(now / 1000, extrapolating);
     if (renderVehicle && mode === 'car') { renderVehicle.lights = vehicleSignals.lights; renderVehicle.horn = vehicleSignals.horn; }
@@ -1038,7 +1041,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       audio.emit({ type: 'horns', vehicles: [] });
       vehicleBeams.dispose();
       tyreEffects.dispose();
-      damageHud.dispose();
+      damageHud.dispose(); debris.dispose();
       walkers.dispose();
       parkedVisuals.dispose();
       poles.dispose();

@@ -46,6 +46,13 @@ export function copyActorPaint(source: THREE.Object3D, clone: THREE.Object3D) {
   from.forEach((o, i) => { const paint = actorPaints.get(o); if (paint && to[i]) actorPaints.set(to[i], paint.clone()); });
 }
 
+/** Gives `target` the paint of the actor mesh `source` (a car part's debris copy); false when `source` has none. */
+export function shareActorPaint(source: THREE.Object3D, target: THREE.Object3D): boolean {
+  const paint = actorPaints.get(source);
+  if (paint) actorPaints.set(target, paint.clone());
+  return !!paint;
+}
+
 export function instancePaintOf(mesh: THREE.Object3D) { return instancePaints.get(mesh); }
 export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh); }
 

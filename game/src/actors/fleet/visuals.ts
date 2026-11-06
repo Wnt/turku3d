@@ -204,7 +204,7 @@ export class ParkedCarVisuals {
       if(this.keepers.has(model.id)||!this.geometries.has(`${model.id}/0`))continue;
       // Its damage cage weights first, in frame-sized phases (actor() would compute them in one go).
       const layout=modelLayout(model),glass=this.geometries.get(`${model.id}/0/glass`);
-      await skinToCageAsync(this.geometry(model,0),layout);if(glass)await skinToCageAsync(glass,layout);
+      await skinToCageAsync(this.geometry(model,0),layout);if(glass)await skinToCageAsync(glass,layout,'glass');
       if(this.keepers.has(model.id))continue;
       const keeper=this.actor(model,'silver',`keeper/${model.id}`);
       // Detached on purpose: the graphics queue prepares it even after the menu (render/graphicsPreparation.ts).
@@ -220,7 +220,7 @@ export class ParkedCarVisuals {
     const body=this.geometry(model,0);skinToCage(body,layout);
     const actor=new THREE.Mesh(body,fleetDamageMaterial()); paintActor(actor,color);rig.bind(actor);
     const glass=this.geometries.get(`${model.id}/0/glass`);
-    if(glass){skinToCage(glass,layout);const window=new THREE.Mesh(glass,fleetGlassDamageMaterial());window.receiveShadow=true;actor.add(window);rig.bind(window);}
+    if(glass){skinToCage(glass,layout,'glass');const window=new THREE.Mesh(glass,fleetGlassDamageMaterial());window.receiveShadow=true;actor.add(window);rig.bind(window);}
     if(parts)addAuthoredFleetWheels(actor,model,parts.wheels,fleetMaterial());
 
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;

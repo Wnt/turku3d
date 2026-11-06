@@ -65,7 +65,7 @@ describe('the mechanics travel in the damage wire', () => {
   test('wear and the steering side round-trip; a version-1 body state still reads, unworn', () => {
     const [m] = hits([{ dv: [-20 / 3.6, 0, -80 / 3.6], at: [.6, .5, 2] }]);
     const wire = encodeDamage(m.state), back = new DamageState(layout);
-    expect(wire).toHaveLength(300);
+    expect(wire).toHaveLength(324);
     expect(decodeDamage(wire, back)).toBe(true);
     for (let i = 0; i < back.wear.length; i++) expect(Math.abs(back.wear[i] - m.state.wear[i])).toBeLessThanOrEqual(4);
     expect(back.steerSide).toBe(m.state.steerSide);
@@ -85,7 +85,7 @@ describe('the mechanics travel in the damage wire', () => {
     // A wrong version for the length, or a steering side out of range, is malformed.
     const bad = Uint8Array.from(atob(wire), c => c.charCodeAt(0)); bad[0] = 1;
     expect(decodeDamage(btoa(String.fromCharCode(...bad)), old)).toBe(false);
-    bad[0] = 2; bad[bad.length - 2] = 5;
+    bad[0] = 3; bad[222] = 5;
     expect(decodeDamage(btoa(String.fromCharCode(...bad)), old)).toBe(false);
   });
   test('the server relays the mechanics in the vehicle pose; a replica reads the same levels', async () => {

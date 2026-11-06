@@ -2,8 +2,9 @@ import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { attribute, cross, int, ivec2, normalize, normalLocal, positionLocal, positionPrevious, textureLoad, uniform, vec3 } from 'three/tsl';
-import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, nodeIndex, type DamageLayout } from '../../vehicle/damage';
+import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, nodeIndex, PART_COUNT, PART_STATE, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
+import { noParts, PartPoses, partsOf, splitParts, type ModelParts, type PartInfo } from './damageParts';
 
 // Body damage on the GPU (vehicle/README.md "Body damage"). A damage-capable car body (the starter car, a driven or a
 // remote car) carries `skinIndex`/`skinWeight` to the 54-node deformation cage of vehicle/damage.ts, and its material
@@ -20,19 +21,21 @@ const RIGID_PART_M = .55;
 const MAX_TILT = .45, CABIN_TILT = .01;
 
 
-/** Adds `skinIndex`/`skinWeight` for the cage to a fleet body or glazing geometry (once per geometry). */
-export function skinToCage(geometry: THREE.BufferGeometry, layout: DamageLayout) {
-  for (const _ of skinSteps(geometry, layout)) { /* run every phase now */ }
+/** Adds `skinIndex`/`skinWeight` for the cage to a fleet body or glazing geometry (once per geometry), and the
+ *  body's loose parts (`damagePart`, damageParts.ts; glazing has none). */
+export function skinToCage(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 'body' | 'glass' = 'body') {
+  for (const _ of skinSteps(geometry, layout, kind)) { /* run every phase now */ }
 }
 
-/** The same in phases of a few milliseconds each (a 27k-vertex body takes about 10 ms in all), yielding to the next
+/** The same in phases of a few milliseconds each (a 27k-vertex body takes about 20 ms in all), yielding to the next
  *  frame in between: the fleet's actor warm-up skins every resident model while the game runs. */
-export async function skinToCageAsync(geometry: THREE.BufferGeometry, layout: DamageLayout) {
-  for (const _ of skinSteps(geometry, layout)) await new Promise(resolve => setTimeout(resolve, 0));
+export async function skinToCageAsync(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 'body' | 'glass' = 'body') {
+  for (const _ of skinSteps(geometry, layout, kind)) await new Promise(resolve => setTimeout(resolve, 0));
 }
 
-function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout): Generator<void> {
+function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 'body' | 'glass'): Generator<void> {
   if (geometry.getAttribute('skinIndex')) return;
+  if (kind === 'body') { splitParts(geometry, layout); yield; } else noParts(geometry);
   const attribute = geometry.getAttribute('position'), n = attribute.count;
   // Fleet geometry is flat float32 (authored.ts flattenFleetAsset); read its array directly.
   const flat = attribute instanceof THREE.BufferAttribute && attribute.array instanceof Float32Array && !attribute.normalized && attribute.itemSize === 3;
@@ -89,11 +92,15 @@ function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout): Gener
 /** Damaged cars drawn at once with their own shape; slot 0 is the undamaged identity every fresh car reads. A car
  *  beyond the pool takes the slot used longest ago (that car draws fresh until it takes one back). */
 export const DAMAGE_SLOTS = 32;
-const ROW = DAMAGE_NODES * 2;
+/** Texels per slot row: two per cage node, then two per part (0 the body, always identity; damageParts.ts). */
+const CAGE_TEXELS = DAMAGE_NODES * 2, PART_TEXELS = (PART_COUNT + 1) * 2, ROW = CAGE_TEXELS + PART_TEXELS;
 const poolData = new Uint16Array(ROW * DAMAGE_SLOTS * 4);
 const ONE = THREE.DataUtils.toHalfFloat(1);
+// Identity everywhere: quaternion w of every even texel, and the scale (w) of every part's translation texel.
 for (let i = 0; i < ROW * DAMAGE_SLOTS; i += 2) poolData[i * 4 + 3] = ONE;
-/** Per slot row, per node: the rotation quaternion, then the translation (xyz), in half floats. */
+for (let slot = 0; slot < DAMAGE_SLOTS; slot++) for (let k = 0; k <= PART_COUNT; k++) poolData[(slot * ROW + CAGE_TEXELS + k * 2 + 1) * 4 + 3] = ONE;
+/** Per slot row, per node: the rotation quaternion, then the translation (xyz), in half floats; then per part its
+ *  rotation and its translation and scale. */
 const pool = new THREE.DataTexture(poolData, ROW, DAMAGE_SLOTS, THREE.RGBAFormat, THREE.HalfFloatType);
 pool.name = 'fleet-damage-pool';
 pool.minFilter = pool.magFilter = THREE.NearestFilter;
@@ -101,6 +108,7 @@ pool.generateMipmaps = false;
 pool.colorSpace = THREE.NoColorSpace;
 pool.needsUpdate = true;
 const owners: (DamageRig | null)[] = new Array(DAMAGE_SLOTS).fill(null);
+const ZERO3: readonly number[] = [0, 0, 0];
 /** Each damage-capable mesh's rig (not userData: Object3D.copy clones that as JSON). */
 const rigs = new WeakMap<THREE.Object3D, DamageRig>();
 export const rigOf = (object: THREE.Object3D) => rigs.get(object);
@@ -115,8 +123,13 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M): M {
   material.setupPosition = (builder: NodeBuilder) => {
     const index = attribute('skinIndex', 'uvec4'), weight = attribute('skinWeight', 'vec4');
     const slot = int(uniform(0).onObjectUpdate(({ object }) => (object && rigs.get(object))?.slot ?? 0));
-    const position = attribute('position', 'vec3'), normal = attribute('normal', 'vec3');
     const turn = (q: Node<'vec4'>, v: Node<'vec3'>) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
+    // The vertex's part first (a loose part swings about its hinge, a detached one collapses), then the cage blend.
+    const part = int(attribute('damagePart', 'uvec4').x).mul(2).add(CAGE_TEXELS);
+    const partTurn = textureLoad(pool, ivec2(part, slot)) as unknown as Node<'vec4'>;
+    const partMove = textureLoad(pool, ivec2(part.add(1), slot)) as unknown as Node<'vec4'>;
+    const position = turn(partTurn, attribute('position', 'vec3')).mul(partMove.w).add(partMove.xyz);
+    const normal = turn(partTurn, attribute('normal', 'vec3'));
     let p: Node<'vec3'> = vec3(0), n: Node<'vec3'> = vec3(0);
     for (const k of ['x', 'y', 'z', 'w'] as const) {
       const column = int(index[k]).mul(2);
@@ -134,32 +147,82 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M): M {
   return material;
 }
 
+/** A part of a car just came off (debris.ts copies it into a physics body). `velocity`: the car's, world frame (m/s). */
+export interface DetachEvent { rig: DamageRig; body: THREE.Mesh; part: number; info: PartInfo; velocity: THREE.Vector3 }
+let detachListener: ((event: DetachEvent) => void) | null = null;
+/** The debris field (debris.ts) listens for parts coming off any drawn car, local or remote. */
+export const onPartDetached = (listener: ((event: DetachEvent) => void) | null) => { detachListener = listener; };
+
 /** One car's cage pose: the node transforms in the body's own (fleet model) frame, in the pool when damaged. Bind its
- *  meshes (body, glazing) with `bind`; `show` follows a wire state every frame (cheap when unchanged). */
+ *  meshes (body, glazing) with `bind`; `show` follows a wire state every frame (cheap when unchanged and no part is
+ *  loose). */
 export class DamageRig {
   readonly state: DamageState;
   /** The pool row this car's meshes read (0: the undamaged identity). */
   slot = 0;
   private wire: string | null = null;
+  private shown = false;
   private readonly rotations = new Float32Array(DAMAGE_NODES * 4);
   private readonly translations = new Float32Array(DAMAGE_NODES * 3);
+  private readonly parts = new PartPoses();
+  private readonly meshes: THREE.Mesh[] = [];
+  private readonly partStates = new Uint8Array(PART_COUNT);
+  // The body's motion for the loose parts' swing: last world position and velocity, smoothed acceleration (world).
+  private motion: { at: number; p: THREE.Vector3; v: THREE.Vector3; a: THREE.Vector3 } | null = null;
   constructor(readonly layout: DamageLayout) {
     this.state = new DamageState(layout);
     for (let i = 0; i < DAMAGE_NODES; i++) this.rotations[i * 4 + 3] = 1;
   }
-  /** A body or glazing mesh of this car (its geometry skinned with `skinToCage`, its material `deformByCage`). */
-  bind(mesh: THREE.Object3D) { rigs.set(mesh, this); }
-  /** Shows a wire damage state (vehicle/damage.ts encodeDamage); null or undefined is an undamaged body. */
-  show(wire: string | null | undefined) {
-    if ((wire ?? null) !== this.wire) {
+  /** A body or glazing mesh of this car (its geometry skinned with `skinToCage`, its material `deformByCage`); the
+   *  first bound is the body, whose parts can come loose. */
+  bind(mesh: THREE.Object3D) { rigs.set(mesh, this); if ((mesh as THREE.Mesh).isMesh) this.meshes.push(mesh as THREE.Mesh); }
+  /** The body's parts (damageParts.ts), from its geometry. */
+  get modelParts(): ModelParts | undefined { return this.meshes[0] && partsOf(this.meshes[0].geometry); }
+  /** Shows a wire damage state (vehicle/damage.ts encodeDamage); null or undefined is an undamaged body. `now` (ms)
+   *  drives the loose parts' swing. A part that comes off after the first state shown is announced (onPartDetached);
+   *  one already off when the car is first drawn (a remote car coming into view, a loaded save) is just gone. */
+  show(wire: string | null | undefined, now = performance.now()) {
+    if ((wire ?? null) !== this.wire || !this.shown) {
       this.wire = wire ?? null;
       if (!wire || !decodeDamage(wire, this.state)) this.state.clear();
       this.pose();
-    }
+      for (let i = 0; i < PART_COUNT; i++) {
+        const next = this.state.parts[i], info = this.modelParts?.[i];
+        if (this.shown && next === PART_STATE.detached && this.partStates[i] !== PART_STATE.detached && info && this.meshes[0])
+          detachListener?.({ rig: this, body: this.meshes[0], part: i, info, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
+        this.partStates[i] = next;
+      }
+      this.shown = true;
+      this.posePart(now, true);
+    } else this.posePart(now, false);
     if (!this.state.damaged) { this.release(); return; }
     if (this.slot === 0 || owners[this.slot] !== this) this.acquire();
     usedAt[this.slot] = ++clock;
   }
+  /** Follows the body's motion and steps the loose parts; uploads their transforms while any part is loose (and once
+   *  after a state change). */
+  private posePart(now: number, changed: boolean) {
+    const body = this.meshes[0];
+    let accel: readonly number[] = ZERO3, speed = 0;
+    if (body) {
+      const p = new THREE.Vector3().setFromMatrixPosition(body.matrixWorld), m = this.motion;
+      if (!m || now - m.at > 250 || now <= m.at) this.motion = { at: now, p, v: new THREE.Vector3(), a: new THREE.Vector3() };
+      else {
+        const dt = (now - m.at) / 1000, v = p.clone().sub(m.p).divideScalar(dt);
+        const a = v.clone().sub(m.v).divideScalar(dt).clampLength(0, 40);
+        m.a.lerp(a, Math.min(1, dt / .06)); m.v.copy(v); m.p.copy(p); m.at = now;
+      }
+      // Into the body (fleet) frame: +Z forward, +Y up, +X the car's left.
+      const q = new THREE.Quaternion().setFromRotationMatrix(body.matrixWorld).invert(), m2 = this.motion!;
+      const local = m2.a.clone().applyQuaternion(q), velocity = m2.v.clone().applyQuaternion(q);
+      accel = [local.x, local.y, local.z]; speed = velocity.z;
+    }
+    const dt = this.lastPartAt === null ? 0 : Math.min(.1, Math.max(0, (now - this.lastPartAt) / 1000));
+    this.lastPartAt = now;
+    const loose = this.state.damaged && this.parts.update(this.modelParts, this.state, dt, accel, speed);
+    if (loose || changed) this.uploadParts();
+  }
+  private lastPartAt: number | null = null;
   /** Gives the pool slot back (the car is gone or fresh again). */
   release() {
     if (this.slot && owners[this.slot] === this) owners[this.slot] = null;
@@ -171,7 +234,7 @@ export class DamageRig {
     const previous = owners[slot];
     if (previous && previous !== this) previous.slot = 0;
     owners[slot] = this; this.slot = slot;
-    this.upload();
+    this.upload(); this.uploadParts();
   }
   private upload() {
     if (!this.slot) return;
@@ -180,6 +243,16 @@ export class DamageRig {
       for (let k = 0; k < 4; k++) poolData[base + i * 8 + k] = THREE.DataUtils.toHalfFloat(this.rotations[i * 4 + k]);
       for (let k = 0; k < 3; k++) poolData[base + i * 8 + 4 + k] = THREE.DataUtils.toHalfFloat(this.translations[i * 3 + k]);
       poolData[base + i * 8 + 7] = 0;
+    }
+    pool.needsUpdate = true;
+  }
+  private uploadParts() {
+    if (!this.slot) return;
+    // Part 0 (the body) keeps its identity texels; parts 1.. follow PartPoses.
+    const base = (this.slot * ROW + CAGE_TEXELS + 2) * 4, r = this.parts.rotations, t = this.parts.translations;
+    for (let i = 0; i < PART_COUNT; i++) for (let k = 0; k < 4; k++) {
+      poolData[base + i * 8 + k] = THREE.DataUtils.toHalfFloat(r[i * 4 + k]);
+      poolData[base + i * 8 + 4 + k] = THREE.DataUtils.toHalfFloat(t[i * 4 + k]);
     }
     pool.needsUpdate = true;
   }
@@ -238,7 +311,13 @@ export class DamageRig {
   /** A vertex of a skinned geometry as the shader draws it (CPU, for bounds and measurements). */
   deform(geometry: THREE.BufferGeometry, vertex: number, out: THREE.Vector3): THREE.Vector3 {
     const position = geometry.getAttribute('position'), index = geometry.getAttribute('skinIndex'), weight = geometry.getAttribute('skinWeight');
-    const x = position.getX(vertex), y = position.getY(vertex), z = position.getZ(vertex), v = new THREE.Vector3(), q = new THREE.Quaternion();
+    const v = new THREE.Vector3(position.getX(vertex), position.getY(vertex), position.getZ(vertex)), q = new THREE.Quaternion();
+    const part = geometry.getAttribute('damagePart')?.getX(vertex) ?? 0;
+    if (part) {
+      const r = this.parts.rotations, t = this.parts.translations, k = (part - 1) * 4;
+      v.applyQuaternion(q.set(r[k], r[k + 1], r[k + 2], r[k + 3])).multiplyScalar(t[k + 3]).add(new THREE.Vector3(t[k], t[k + 1], t[k + 2]));
+    }
+    const x = v.x, y = v.y, z = v.z;
     out.set(0, 0, 0);
     for (let k = 0; k < 4; k++) {
       const w = weight.getComponent(vertex, k);
@@ -250,11 +329,39 @@ export class DamageRig {
     }
     return out;
   }
-  /** The deformed bounds of a skinned geometry in the body frame. */
+  /** The deformed bounds of a skinned geometry in the body frame, without its detached parts. */
   bounds(geometry: THREE.BufferGeometry): THREE.Box3 {
-    const box = new THREE.Box3(), v = new THREE.Vector3(), n = geometry.getAttribute('position').count;
-    for (let i = 0; i < n; i++) box.expandByPoint(this.deform(geometry, i, v));
+    const box = new THREE.Box3(), v = new THREE.Vector3(), n = geometry.getAttribute('position').count, part = geometry.getAttribute('damagePart');
+    for (let i = 0; i < n; i++) {
+      const p = part?.getX(i) ?? 0;
+      if (p && this.state.parts[p - 1] === PART_STATE.detached) continue;
+      box.expandByPoint(this.deform(geometry, i, v));
+    }
     return box;
+  }
+  /** A part as drawn now (deformed by the cage and its swing), as a plain geometry in the body frame: position,
+   *  normal, colour and surface (the debris copy of a detached part, before it collapses). */
+  partGeometry(geometry: THREE.BufferGeometry, info: PartInfo, part: number): THREE.BufferGeometry {
+    const saved = this.parts.translations[part * 4 + 3];
+    this.parts.translations[part * 4 + 3] = 1;
+    const triangles = info.triangles, out = new THREE.BufferGeometry(), v = new THREE.Vector3(), n = new THREE.Vector3();
+    const positions = new Float32Array(triangles.length * 3), normals = new Float32Array(triangles.length * 3);
+    const normal = geometry.getAttribute('normal'), colour = geometry.getAttribute('color'), surface = geometry.getAttribute('fleetSurface');
+    const colours = new Float32Array(triangles.length * 3), surfaces = new Float32Array(triangles.length * 4);
+    // The part's own transform without collapse; the normals turn with it (the cage's turn is small at a part).
+    const r = this.parts.rotations, q = new THREE.Quaternion(r[part * 4], r[part * 4 + 1], r[part * 4 + 2], r[part * 4 + 3]);
+    triangles.forEach((vertex, j) => {
+      this.deform(geometry, vertex, v); positions.set([v.x, v.y, v.z], j * 3);
+      n.fromBufferAttribute(normal, vertex).applyQuaternion(q); normals.set([n.x, n.y, n.z], j * 3);
+      if (colour) colours.set([colour.getX(vertex), colour.getY(vertex), colour.getZ(vertex)], j * 3);
+      if (surface) surfaces.set([surface.getX(vertex), surface.getY(vertex), surface.getZ(vertex), surface.getW(vertex)], j * 4);
+    });
+    this.parts.translations[part * 4 + 3] = saved;
+    out.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    out.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    out.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    out.setAttribute('fleetSurface', new THREE.BufferAttribute(surfaces, 4));
+    return out;
   }
 }
 

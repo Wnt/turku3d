@@ -122,6 +122,27 @@ export interface DamageHit { dv: readonly [number, number, number]; at?: readonl
 export const WEAR = { cooling: 0, engine: 1, steering: 2, corners: 3 } as const;
 export const WEAR_SYSTEMS = 7;
 
+/** Body parts that can work loose and come off, in wire order. The renderer finds each one in the model by region
+ *  (actors/fleet/damageParts.ts) and draws it as part `index + 1` (0 is the body). */
+export const PARTS = ['frontBumper', 'rearBumper', 'bonnet', 'bootLid', 'mirrorLeft', 'mirrorRight'] as const;
+export type PartName = typeof PARTS[number];
+export const PART_COUNT = PARTS.length;
+/** Part states: on the car, hanging loose (swinging on its remaining mount), torn off (debris, gone for good). */
+export const PART_STATE = { attached: 0, loose: 1, detached: 2 } as const;
+/** A part's load per hit is (km/h of its face's push - `v0`)² times its footprint share, summed over hits; it hangs loose
+ *  from `loose` and tears off from `off`. Wreckfest 2 detached nothing in single hits up to 84 km/h (Normal and
+ *  Realistic) and its bumper beam hung after 4 x 61.5 km/h on Realistic (damage-study.md Part 2); tear-off is a design
+ *  choice reachable with repeated hard hits. Bumpers: loose after 3 hits at 60 km/h or one at 75, off after 5 at 60 or
+ *  one at 90. Bonnet and boot lid (their latch, then the hinges): loose after 4 at 60 or one at 81, off after 7 at 60
+ *  or one at 99. Mirrors (side hits over the front two thirds, half of a roof hit): loose from one 27 km/h side
+ *  impact, off from one at 38 km/h or a few lighter ones. */
+export const PART_LOAD: Record<PartName, { v0: number; loose: number; off: number }> = {
+  frontBumper: { v0: 36, loose: 1500, off: 2600 }, rearBumper: { v0: 36, loose: 1500, off: 2600 },
+  bonnet: { v0: 36, loose: 2000, off: 4000 }, bootLid: { v0: 36, loose: 2000, off: 4000 },
+  mirrorLeft: { v0: 15, loose: 150, off: 500 }, mirrorRight: { v0: 15, loose: 150, off: 500 },
+};
+const partState = (part: PartName, load: number) => load >= PART_LOAD[part].off ? PART_STATE.detached : load >= PART_LOAD[part].loose ? PART_STATE.loose : PART_STATE.attached;
+
 /** One car's damage. `offsets` (xyz per node, metres) is the shape the renderer draws and multiplayer replicates;
  *  `bins` the absorbed energy per face region that saturation reads; `energy` and `hits` keep counting after the shape
  *  saturates (hooks for loose parts). `wear` is the mechanical systems' energy, (km/h)² beyond the crumple threshold
@@ -132,11 +153,17 @@ export class DamageState {
   readonly offsets = new Float32Array(DAMAGE_NODES * 3);
   readonly bins = new Float32Array(DAMAGE_BINS);
   readonly wear = new Float32Array(WEAR_SYSTEMS);
+  /** Per part (PARTS order): its load ((km/h)², PART_LOAD), its state (PART_STATE) and the end that comes free first
+   *  (+1 the car's left, -1 its right; bumpers hang from the other end, set when the part first works loose). */
+  readonly partLoad = new Float32Array(PART_COUNT);
+  readonly parts = new Uint8Array(PART_COUNT);
+  readonly partSide = new Int8Array(PART_COUNT);
   energy = 0; hits = 0; revision = 0; steerSide = 0;
   constructor(readonly layout: DamageLayout) {}
   get damaged() { return this.hits > 0; }
   clear() {
-    this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.energy = 0; this.hits = 0; this.steerSide = 0; this.revision++;
+    this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.partLoad.fill(0); this.parts.fill(0); this.partSide.fill(0);
+    this.energy = 0; this.hits = 0; this.steerSide = 0; this.revision++;
   }
 }
 
@@ -225,38 +252,67 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
   // A face is crushed when the contact pushes the car away from it: the front by a push towards -Z, and so on.
   const pushes: Record<Face, number> = { front: Math.max(0, -dz), rear: Math.max(0, dz), negX: Math.max(0, dx),
     posX: Math.max(0, -dx), top: Math.max(0, -dy) };
-  const shares = [0, 0, 0];
+  let loaded = false;
   for (const face of FACE_LIST) {
     const kmh = pushes[face] * KMH, raw = Math.max(0, kmh * kmh - CRUMPLE.thresholdKmh ** 2);
+    if (kmh <= 0) continue;
+    // Footprint share per bin. Bin centres: the laterals for the end faces, thirds of the length for the sides.
+    const shares = [1, 1, 1];
+    for (let b = 0; b < 3 && face !== 'top'; b++) {
+      if (face === 'front' || face === 'rear') shares[b] = lateralShare(Math.abs(layout.laterals[b] - (hit.at?.[0] ?? layout.laterals[1])), halfWidth);
+      else shares[b] = lateralShare(Math.abs(layout.min[2] + (b + .5) / 3 * layout.length - (hit.at?.[2] ?? (layout.min[2] + layout.max[2]) / 2)),
+        halfWidth + layout.length / 6);
+    }
+    loaded = partHit(state, face, kmh, shares, hit) || loaded;
     const e = raw / FACES[face].stiffness;
     const eBumper = face === 'front' || face === 'rear' ? Math.max(0, kmh * kmh - CRUMPLE.bumperKmh ** 2) : 0;
     if (e <= 0 && eBumper <= 0) continue;
     total += e; absorbed = true;
     const across = face === 'front' || face === 'rear' ? layout.length : face === 'top' ? layout.height : layout.width;
     const stop = FACES[face].stop * across;
-    const bins = face === 'top' ? [0] : [0, 1, 2];
-    for (const b of bins) {
-      // Bin centres: the laterals for the end faces, thirds of the length for the sides.
-      let share = 1;
-      if (face === 'front' || face === 'rear') share = lateralShare(Math.abs(layout.laterals[b] - (hit.at?.[0] ?? layout.laterals[1])), halfWidth);
-      else if (face !== 'top') {
-        const centre = layout.min[2] + (b + .5) / 3 * layout.length;
-        share = lateralShare(Math.abs(centre - (hit.at?.[2] ?? (layout.min[2] + layout.max[2]) / 2)), halfWidth + layout.length / 6);
-      }
-      shares[b] = share;
+    for (let b = 0; b < (face === 'top' ? 1 : 3); b++) {
       const index = BIN_OFFSET[face] + b, depth = faceDepth(face, state.bins[index], layout);
-      state.bins[index] += e * share * Math.max(0, 1 - depth / stop);
+      state.bins[index] += e * shares[b] * Math.max(0, 1 - depth / stop);
       added = Math.max(added, faceDepth(face, state.bins[index], layout) - depth);
-      if (face === 'front' || face === 'rear') state.bins[BUMPER_OFFSET[face] + b] += eBumper * share;
+      if (face === 'front' || face === 'rear') state.bins[BUMPER_OFFSET[face] + b] += eBumper * shares[b];
     }
     if (raw > 0) wearHit(state, face, raw, shares, hit);
   }
-  if (!absorbed) return 0;
+  // A hit too light to deform anything may still knock a mirror: it counts as a hit, with the shape unchanged.
+  if (!absorbed) { if (loaded) { state.hits++; state.revision++; } return 0; }
   const after = new Float32Array(DAMAGE_NODES * 3);
   shape(layout, state.bins, after);
   for (let i = 0; i < after.length; i++) state.offsets[i] = clampOffset(state.offsets[i] + after[i] - before[i]);
   state.energy += total; state.hits++; state.revision++;
   return added;
+}
+
+/** A face's push (km/h) on the parts it carries: the bumper beam takes its most loaded lateral (one beam), the bonnet
+ *  and boot lid the centre-weighted bay, a mirror the side's middle or front third (and half of a roof hit, a roll).
+ *  A part's state only ever moves on (there is no repair). */
+function partHit(state: DamageState, face: Face, kmh: number, shares: readonly number[], hit: DamageHit): boolean {
+  let loaded = false;
+  const add = (part: PartName, share: number) => {
+    const i = PARTS.indexOf(part), over = kmh - PART_LOAD[part].v0;
+    if (over <= 0 || share <= 0 || state.parts[i] === PART_STATE.detached) return;
+    state.partLoad[i] += over * over * share; loaded = true;
+    const next = partState(part, state.partLoad[i]);
+    if (next === state.parts[i]) return;
+    if (!state.partSide[i]) {
+      // The end that took more of the hit comes free first; a square hit picks a deterministic end.
+      const lean = face === 'front' || face === 'rear' ? shares[2] - shares[0] + (hit.at?.[0] ?? 0) / state.layout.width : 0;
+      state.partSide[i] = Math.abs(lean) > .05 ? Math.sign(lean) : jitter(state.hits + i, 9, Math.round(kmh)) < 1 ? 1 : -1;
+    }
+    state.parts[i] = next;
+  };
+  const [right, centre, left] = shares;
+  if (face === 'front') { add('frontBumper', Math.max(right, centre, left)); add('bonnet', .25 * right + .5 * centre + .25 * left); }
+  else if (face === 'rear') { add('rearBumper', Math.max(right, centre, left)); add('bootLid', .25 * right + .5 * centre + .25 * left); }
+  // Only the footprint itself reaches a mirror, not the panel pulled around it (lateralShare's floor of a quarter).
+  else if (face === 'posX') add('mirrorLeft', (Math.max(shares[1], shares[2]) - .25) / .75);
+  else if (face === 'negX') add('mirrorRight', (Math.max(shares[1], shares[2]) - .25) / .75);
+  else { add('mirrorLeft', .5); add('mirrorRight', .5); }
+  return loaded;
 }
 
 /** A face's share of a hit on the mechanical systems behind it. `raw`: (km/h)² beyond the crumple threshold, the
@@ -301,16 +357,18 @@ export function headOnLoss(layout: DamageLayout, kmh: number, hits = 1): number 
 }
 
 // ------------------------------------------------------------------ compact state (worker → renderer, multiplayer, saves)
-/** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins and wear to 8 (km/h)² in uint16. */
-const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 2;
+/** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins, wear and part loads to 8 (km/h)² in uint16. */
+const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 3;
 const clampOffset = (v: number) => Math.max(-127 * OFFSET_UNIT, Math.min(127 * OFFSET_UNIT, v));
-const HEADER = 8, SHAPE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3;
-/** Version 2 adds the wear (uint16 per system), the steering side (int8) and a spare byte; version 1 (body only,
- *  208 bytes, saves from before the mechanical damage) still reads, with unworn systems. */
-export const DAMAGE_WIRE_BYTES = SHAPE_BYTES + WEAR_SYSTEMS * 2 + 2;
+const HEADER = 8, SHAPE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3, MECHANICS_BYTES = SHAPE_BYTES + WEAR_SYSTEMS * 2 + 2;
+/** Version 3 adds the parts: per part its state and free end (one byte: state in bits 0-1, bit 2 a side is set, bit 3
+ *  it is the left) and its load (uint16). Version 2 (224 bytes: the wear as uint16 per system, the steering side as
+ *  int8 and a spare byte) and version 1 (body only, 208 bytes) still read, with unworn systems and attached parts. */
+export const DAMAGE_WIRE_BYTES = MECHANICS_BYTES + PART_COUNT * 3;
+const WIRE_LENGTHS = [0, SHAPE_BYTES, MECHANICS_BYTES, DAMAGE_WIRE_BYTES];
 
 /** Wire form of a damage state: base64 of version, node count, hits, energy (64 (km/h)² units), bins, offsets, wear,
- *  steering side. */
+ *  steering side, parts. */
 export function encodeDamage(state: DamageState): string {
   const bytes = new Uint8Array(DAMAGE_WIRE_BYTES), view = new DataView(bytes.buffer);
   view.setUint8(0, WIRE_VERSION); view.setUint8(1, DAMAGE_NODES); view.setUint16(2, Math.min(65535, state.hits), true);
@@ -320,6 +378,11 @@ export function encodeDamage(state: DamageState): string {
   for (let i = 0; i < DAMAGE_NODES * 3; i++) view.setInt8(base + i, Math.round(state.offsets[i] / OFFSET_UNIT));
   for (let i = 0; i < WEAR_SYSTEMS; i++) view.setUint16(SHAPE_BYTES + i * 2, Math.min(65535, Math.round(state.wear[i] / BIN_UNIT)), true);
   view.setInt8(SHAPE_BYTES + WEAR_SYSTEMS * 2, state.steerSide);
+  for (let i = 0; i < PART_COUNT; i++) {
+    const side = state.partSide[i];
+    view.setUint8(MECHANICS_BYTES + i, state.parts[i] | (side ? 4 : 0) | (side > 0 ? 8 : 0));
+    view.setUint16(MECHANICS_BYTES + PART_COUNT + i * 2, Math.min(65535, Math.round(state.partLoad[i] / BIN_UNIT)), true);
+  }
   let text = '';
   for (const b of bytes) text += String.fromCharCode(b);
   return btoa(text);
@@ -330,18 +393,24 @@ export function decodeDamage(wire: unknown, state: DamageState): boolean {
   if (typeof wire !== 'string' || wire.length > 4 * Math.ceil(DAMAGE_WIRE_BYTES / 3)) return false;
   let text: string;
   try { text = atob(wire); } catch { return false; }
-  const version = text.length === DAMAGE_WIRE_BYTES ? WIRE_VERSION : text.length === SHAPE_BYTES ? 1 : 0;
-  if (!version) return false;
+  const version = WIRE_LENGTHS.indexOf(text.length);
+  if (version < 1) return false;
   const bytes = Uint8Array.from(text, c => c.charCodeAt(0)), view = new DataView(bytes.buffer);
   if (view.getUint8(0) !== version || view.getUint8(1) !== DAMAGE_NODES) return false;
   const side = version > 1 ? view.getInt8(SHAPE_BYTES + WEAR_SYSTEMS * 2) : 0;
   if (side < -1 || side > 1) return false;
+  for (let i = 0; version > 2 && i < PART_COUNT; i++) if ((bytes[MECHANICS_BYTES + i] & 3) > PART_STATE.detached || bytes[MECHANICS_BYTES + i] > 15) return false;
   state.hits = view.getUint16(2, true); state.energy = view.getUint32(4, true) * 64;
   for (let i = 0; i < DAMAGE_BINS; i++) state.bins[i] = view.getUint16(HEADER + i * 2, true) * BIN_UNIT;
   const base = HEADER + DAMAGE_BINS * 2;
   for (let i = 0; i < DAMAGE_NODES * 3; i++) state.offsets[i] = view.getInt8(base + i) * OFFSET_UNIT;
   for (let i = 0; i < WEAR_SYSTEMS; i++) state.wear[i] = version > 1 ? view.getUint16(SHAPE_BYTES + i * 2, true) * BIN_UNIT : 0;
   state.steerSide = side;
+  for (let i = 0; i < PART_COUNT; i++) {
+    const b = version > 2 ? bytes[MECHANICS_BYTES + i] : 0;
+    state.parts[i] = b & 3; state.partSide[i] = b & 4 ? (b & 8 ? 1 : -1) : 0;
+    state.partLoad[i] = version > 2 ? view.getUint16(MECHANICS_BYTES + PART_COUNT + i * 2, true) * BIN_UNIT : 0;
+  }
   state.revision++;
   return true;
 }

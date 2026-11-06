@@ -25,7 +25,7 @@ async function prepare(id: string, color: string): Promise<THREE.Group> {
   const body = new THREE.Mesh(parts.body, fleetDamageMaterial()); paintActor(body, color);
   body.name = 'fleet-actor'; body.castShadow = true; body.receiveShadow = true;
   if (glass) {
-    skinToCage(glass, layout);
+    skinToCage(glass, layout, 'glass');
     const windows = new THREE.Mesh(glass, fleetGlassDamageMaterial()); windows.name = 'fleet-glass'; windows.receiveShadow = true; body.add(windows);
   }
   addAuthoredFleetWheels(body, model, parts.wheels, fleetMaterial());

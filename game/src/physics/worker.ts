@@ -2,7 +2,7 @@
 import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from './world';
 import { ActorUpdates } from './actorExchange';
-import type { VehicleState, PoleState } from './protocol';
+import type { VehicleState, PoleState, DebrisState } from './protocol';
 import { DT } from './constants';
 import { colReaderName, decoderReady } from './colTile';
 import { ColFormatError } from '../shared/col/colFormat';
@@ -51,7 +51,7 @@ let input: LiveInput | null = null;
 let jump = 0, stateSeq = 0;
 let statePending = false;
 let revision = 0, acknowledged = 0;
-const vehicles = new ActorUpdates<VehicleState>(), poleUpdates = new ActorUpdates<PoleState>();
+const vehicles = new ActorUpdates<VehicleState>(), poleUpdates = new ActorUpdates<PoleState>(), debrisUpdates = new ActorUpdates<DebrisState>();
 const clock = new PhysicsClock();
 const localBreaks = new Set<string>();
 function snapshot(seq: number, dt: number, character: LiveInput['character'], vehicle: LiveInput['vehicle']) {
@@ -65,11 +65,12 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   const vehicleDelta = vehicles.sample(pw.vehicleStates(), revision, acknowledged);
   // The renderer may skip snapshots. Keep locally-caused break edges until its stable-ID dedup consumes them.
   for (const p of poles) { if (p.brokeNow) localBreaks.add(p.id); p.brokeNow = localBreaks.has(p.id); }
-  const poleDelta = poleUpdates.sample(poles, revision, acknowledged);
+  const poleDelta = poleUpdates.sample(poles, revision, acknowledged), debrisDelta = debrisUpdates.sample(pw.debrisStates(), revision, acknowledged);
   const state: PhysicsState = { type: 'state', seq, revision, actorsDelta: true, removedVehicles: vehicleDelta.removed, removedPoles: poleDelta.removed, substeps, tick: pw.tick, remainder: pw.remainder,
     previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, coverageBlock: pw.coverageBlock,
     stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(),
     vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now(),
+    ...(debrisDelta.updates.length || debrisDelta.removed.length ? { debris: debrisDelta.updates, removedDebris: debrisDelta.removed } : {}),
     ...(pw.traffic ? { traffic: pw.traffic.publish(), trafficEvents: pw.traffic.pending(acknowledged, revision), trafficStats: pw.traffic.stats,
       trafficTime: pw.traffic.time } : {}), ...(stalls.length ? { stalls: pendingStalls() } : {}) };
   if (stateMailbox) stateMailbox.write(state);
@@ -165,6 +166,7 @@ function handle(msg: ToWorker) {
     case 'remotes': pw.setRemotes(msg.bodies); break;
     case 'poles': pw.setPoles(msg.add, msg.remove); break;
     case 'breakPole': pw.breakPole(msg.id); break;
+    case 'spawnDebris': pw.spawnDebris(msg.spec); break;
     case 'traffic': pw.trafficSim().configure(msg.config); break;
     case 'trafficTiles': pw.trafficSim().setTiles(msg.add, msg.remove); break;
     case 'trafficPedestrians': pw.trafficSim().flow.setPedestrians(msg.people, msg.time); break;

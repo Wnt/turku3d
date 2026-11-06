@@ -6,7 +6,8 @@ import { rigOf } from '../actors/fleet/damageRig';
 import type { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial } from '../actors/fleet/material';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
-import { applyHit, DamageState, encodeDamage } from '../vehicle/damage';
+import { applyHit, DamageState, encodeDamage, PARTS } from '../vehicle/damage';
+import type { DebrisField } from '../actors/fleet/debris';
 import { mechanics, type Mechanics } from '../vehicle/mechanics';
 
 const deg = (rad: number) => Math.round(rad * 18000 / Math.PI) / 100;
@@ -25,8 +26,12 @@ const PUSH: Record<Side, [number, number, number]> = {
  *  always; with developer tools (localhost, ?dev=1) also `dent()`, a hit as if the car struck a wall at `kmh`,
  *  `clear()`, a fresh body for measurements (the game itself has no repair), and `look()`, a camera held around the car
  *  for same-pose screenshots. `frame(camera)` runs before each render (play.ts). */
-export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D, fleet?: ParkedCarVisuals) {
-  const benched: THREE.Object3D[] = [];
+/** Part states by name (vehicle/damage.ts PARTS): 0 on, 1 loose, 2 off. */
+const partsOf = (s: DamageState) => Object.fromEntries(PARTS.map((name, i) => [name, s.parts[i]]));
+
+export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D, fleet?: ParkedCarVisuals, debris?: DebrisField) {
+  const benched: THREE.Object3D[] = [], benchWrecks: THREE.Object3D[] = [];
+  let benchWreck: string | null = null;
   let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean } | null = null;
   const forward = new THREE.Vector3(), target = new THREE.Vector3();
   /** Other players' cars drawn here (net/remotes.ts, fleet/visuals.ts actors named remote/...), with their damage. */
@@ -53,7 +58,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       if (!s) return null;
       let max = 0;
       for (let i = 0; i < s.offsets.length; i += 3) max = Math.max(max, Math.hypot(s.offsets[i], s.offsets[i + 1], s.offsets[i + 2]));
-      return { hits: s.hits, energy: Math.round(s.energy), revision: s.revision, maxOffsetCm: Math.round(max * 1000) / 10, bins: Array.from(s.bins, Math.round) };
+      return { hits: s.hits, energy: Math.round(s.energy), revision: s.revision, maxOffsetCm: Math.round(max * 1000) / 10, bins: Array.from(s.bins, Math.round),
+        parts: partsOf(s), partLoad: Array.from(s.partLoad, Math.round) };
     },
     /** Remote cars in view range with their drawn damage: hits and the crumple from their deformed bounds (cm). */
     remotes() {
@@ -62,8 +68,16 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         if (!geometry.boundingBox) geometry.computeBoundingBox();
         const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
         return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
-          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)) };
+          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)),
+          parts: partsOf(rig.state) };
       });
+    },
+    /** Car part debris lying around now (actors/fleet/debris.ts). */
+    debris() { return debris?.list() ?? []; },
+    /** The parts the starter car's body was split into (actors/fleet/damageParts.ts): triangles and rest bounds. */
+    split() {
+      return (car.rig?.modelParts ?? []).map((p, i) => p ? { part: PARTS[i], triangles: p.triangles.length / 3,
+        min: p.min.toArray().map(v => Math.round(v * 100) / 100), max: p.max.toArray().map(v => Math.round(v * 100) / 100) } : { part: PARTS[i], triangles: 0 });
     },
     /** The starter car's drawn mechanical state (vehicle/mechanics.ts): levels, power and the pull (degrees). */
     mechanics() { const s = car.rig?.state; return s ? levels(mechanics(s)) : null; },
@@ -85,6 +99,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: !!next.remote };
     },
     frame(camera: THREE.PerspectiveCamera) {
+      // Bench wrecks are not in any vehicle list: their rigs follow their (unchanged) state here, swinging loose parts.
+      for (const mesh of benchWrecks) rigOf(mesh)!.show(benchWreck);
       if (!view) return;
       // The starter car's chassis frame faces +X; a remote actor's mesh faces +Z (its +X is the car's left).
       // The most damaged remote car (a room keeps other players' parked starter cars too).
@@ -114,14 +130,20 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
      *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or as the same actors
      *  (body, glazing, hubs) with the plain fleet materials and no cage ('plain'); count 0 removes them. Returns how
      *  many are placed. */
-    bench({ count = 20, kind = 'damaged' }: { count?: number; kind?: 'damaged' | 'capable' | 'plain' } = {}) {
+    bench({ count = 20, kind = 'damaged' }: { count?: number; kind?: 'damaged' | 'wrecked' | 'capable' | 'plain' } = {}) {
       for (const o of benched.splice(0)) o.removeFromParent();
+      benchWrecks.length = 0;
       if (!count || !fleet || !car.root.visible) return 0;
       const sample = fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`);
       if (!sample) return 0;
       const state = new DamageState(rigOf(sample)!.layout);
       applyHit(state, { dv: [0, 0, -80 / 3.6] }); applyHit(state, { dv: [-.3 * 50 / 3.6, 0, .95 * 50 / 3.6], at: [.8, .6, -2] });
       const wire = encodeDamage(state);
+      // 'wrecked': the same crumple with both bumpers, the bonnet and the boot lid hanging loose and the left mirror off.
+      const wreck = new DamageState(state.layout);
+      applyHit(wreck, { dv: [0, 0, -80 / 3.6] }); applyHit(wreck, { dv: [-.3 * 50 / 3.6, 0, .95 * 50 / 3.6], at: [.8, .6, -2] });
+      wreck.parts.set([1, 1, 1, 1, 2, 0]); wreck.partSide.set([1, -1, 1, 1, 1, 1]);
+      const wrecked = encodeDamage(wreck);
       forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const side = new THREE.Vector3(-forward.z, 0, forward.x), yaw = Math.atan2(forward.x, forward.z);
       for (let i = 0; i < count; i++) {
@@ -134,6 +156,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         mesh.position.y -= .75; mesh.rotation.y = yaw;
         scene.add(mesh); benched.push(mesh);
         if (kind === 'damaged') rigOf(mesh)!.show(wire);
+        // First shown already wrecked: parts that are off are just gone (no debris), as for a car coming into view.
+        if (kind === 'wrecked') { benchWreck = wrecked; rigOf(mesh)!.show(wrecked); benchWrecks.push(mesh); }
       }
       return benched.length;
     },

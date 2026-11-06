@@ -9,6 +9,9 @@ export const DT = 1 / 60;
 /** Collision membership bit of remote players' car proxies (physics/world.ts setRemotes), beside the generated GROUP
  *  bits (shared/col/materials.ts): the local chassis and the character collide with it; wheel rays never see it. */
 export const REMOTE_VEHICLE = 128;
+/** Collision membership bit of car part debris (physics/world.ts spawnDebris): it rests on the world, cars push it
+ *  aside, and wheel rays, query rays and the character pass through it. At most `cap` pieces, each for `lifetimeS`. */
+export const DEBRIS = { group: 256, cap: 24, lifetimeS: 60 } as const;
 /** Hard bound for both wall-clock catch-up and the fixed-step accumulator. */
 export const MAX_SUBSTEPS = 5;
 

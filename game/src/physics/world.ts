@@ -8,7 +8,7 @@ import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from 
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES } from './constants';
+import { CHARACTER, DEBRIS, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -16,7 +16,7 @@ import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 import { TrafficSim } from './traffic';
 export { CHARACTER, DT };
 import type { DamageHit } from '../vehicle/damage';
-import type { CharacterInput, CharacterState, PoleSpec, PoleState, Quat, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
+import type { CharacterInput, CharacterState, DebrisSpec, DebrisState, PoleSpec, PoleState, Quat, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 import { chassisForward, type TrafficPedestrian, type TrafficVehicle } from '../traffic/pedestrians';
 
 type R = typeof RAPIER_NS;
@@ -73,6 +73,8 @@ export class PhysicsWorld {
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
   private brokenPoles = new Set<string>();
   private poleEvents: RAPIER_NS.EventQueue;
+  /** Car part debris, oldest first: its body, the tick it goes, and the last published state while it rests. */
+  private debris = new Map<string, { body: RAPIER_NS.RigidBody; until: number; solidAt: number; state: DebrisState | null }>();
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
   /** Walls along the true edges of the collision (edgeWalls.ts). */
@@ -647,6 +649,42 @@ export class PhysicsWorld {
     pole.body.wakeUp();
     pole.body.applyImpulse({ x: 0.7, y: 0.1, z: 0.7 }, true);
     pole.body.applyTorqueImpulse({ x: 0, y: 0, z: 8 }, true);
+  }
+
+  /** A car part that came off: a dynamic box at its drawn pose and velocity for DEBRIS.lifetimeS; the oldest piece
+   *  goes when the cap is reached. Spawned on every client from the shared damage state, so each simulates its own. */
+  spawnDebris(spec: DebrisSpec) {
+    this.removeDebris(spec.id);
+    while (this.debris.size >= DEBRIS.cap) this.removeDebris(this.debris.keys().next().value!);
+    const h = spec.half, body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(spec.pos.x, spec.pos.y, spec.pos.z)
+      .setRotation(spec.rot).setLinvel(spec.linvel.x, spec.linvel.y, spec.linvel.z).setAngvel(spec.angvel)
+      .setCanSleep(true).setCcdEnabled(true).setLinearDamping(.3).setAngularDamping(.6));
+    this.world.createCollider(this.R.ColliderDesc.cuboid(Math.max(.02, h.x), Math.max(.02, h.y), Math.max(.02, h.z)).setMass(spec.mass)
+      .setFriction(.6).setRestitution(.15)
+      .setCollisionGroups(groups(DEBRIS.group, GROUP.STATIC_SOLID | GROUP.DYNAMIC | DEBRIS.group)), body);
+    // It starts inside the car it came off: cars push it only once it has fallen clear (no depenetration kick).
+    this.debris.set(spec.id, { body, until: this.tick + Math.round(DEBRIS.lifetimeS / DT), solidAt: this.tick + Math.round(.6 / DT), state: null });
+  }
+  private removeDebris(id: string) {
+    const piece = this.debris.get(id);
+    if (!piece) return;
+    this.world.removeRigidBody(piece.body);
+    this.debris.delete(id);
+  }
+  /** Debris poses; a resting piece repeats its last state object (no delta). */
+  debrisStates(): DebrisState[] {
+    for (const [id, piece] of this.debris) {
+      if (this.tick >= piece.until) { this.removeDebris(id); continue; }
+      if (this.tick >= piece.solidAt && piece.solidAt >= 0) {
+        piece.body.collider(0).setCollisionGroups(groups(DEBRIS.group, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | DEBRIS.group));
+        piece.solidAt = -1;
+      }
+    }
+    return [...this.debris].map(([id, piece]) => {
+      if (piece.state && piece.body.isSleeping()) return piece.state;
+      const pos = piece.body.translation(), rot = piece.body.rotation();
+      return piece.state = { id, pos: { x: pos.x, y: pos.y, z: pos.z }, rot: { x: rot.x, y: rot.y, z: rot.z, w: rot.w } };
+    });
   }
 
   poleStates(brokenOnly = false): PoleState[] {
