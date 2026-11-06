@@ -11,6 +11,7 @@ import ast
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 from contextlib import contextmanager
+import errno
 import fcntl
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -209,6 +210,7 @@ class Farm:
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0,
                             migrations=0)
         self.skipped_links = set()
+        self.seed_copied = 0
         self.version = time.time_ns() // 1000000
         self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
@@ -1227,8 +1229,31 @@ class Farm:
             files.append(path)
         return files
 
+    def _adopt(self, source, target):
+        """Hard-link a private result into the shared cache. A generation moved to another filesystem (a
+        symlinked products/<gen>, 2026-11-06) cannot be linked from: copy it, unless the copy would take this
+        disk under keep_free. Returns False when skipped; an existing target raises FileExistsError as a link."""
+        try:
+            os.link(source, target)
+            return True
+        except OSError as error:
+            if error.errno != errno.EXDEV:
+                raise
+        if target.exists():
+            raise FileExistsError(target)
+        if self.free() - source.stat().st_size < self.keep_free:
+            return False
+        temporary = target.with_name(f'.seed-{os.getpid()}-{threading.get_ident()}-{target.name}')
+        try:
+            shutil.copyfile(source, temporary)
+            os.link(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        self.seed_copied += 1
+        return True
+
     def _seed_intermediates(self, generations):
-        linked = 0
+        linked, skipped, self.seed_copied = 0, 0, 0
         for generation, repo in generations.items():
             if not generation:
                 continue
@@ -1245,8 +1270,10 @@ class Farm:
                                 continue
                             temporary = Path(tempfile.mkdtemp(prefix='.seed-', dir=destination.parent))
                             try:
-                                for source in self.validate_shards(manifest.parent):
-                                    os.link(source, temporary / source.name)
+                                if not all(self._adopt(source, temporary / source.name)
+                                           for source in self.validate_shards(manifest.parent)):
+                                    skipped += 1
+                                    continue
                                 self.validate_shards(temporary)
                                 temporary.rename(destination)
                                 linked += len(list(destination.iterdir()))
@@ -1262,11 +1289,13 @@ class Farm:
                     target = shared / source.relative_to(local)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     try:
-                        os.link(source, target)
-                        linked += 1
+                        if self._adopt(source, target):
+                            linked += 1
+                        else:
+                            skipped += 1
                     except FileExistsError:
                         pass
-        self.event('intermediates-adopted', files=linked)
+        self.event('intermediates-adopted', files=linked, copied=self.seed_copied, skipped=skipped)
         return linked
 
     def has_room(self, target):

@@ -472,6 +472,42 @@ class FarmTests(unittest.TestCase):
             self.assertEqual(stream.read(), b'col' * 16)
         self.assertFalse(path.exists())
 
+    def test_seed_copies_from_a_generation_moved_to_another_filesystem_while_room_allows(self):
+        import errno
+        from unittest import mock
+
+        free = [100 * farm_module.GIB]
+        farm = self.farm(free=lambda: free[0])
+        repo = self.root / 'revisions' / REV / 'repo'
+        for name in ('config.py', 'vegetation/trees.py', 'buildings/reconstruct.py',
+                     'buildings/inputs.py', 'lidar/cache.py'):
+            p = repo / 'pipeline/turku3d' / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('producer')
+        local = farm.output(GEN) / 'work/cache/vegetation'
+        local.mkdir(parents=True)
+        (local / 'content.npz').write_bytes(b'complete')
+        link = os.link
+
+        def across(source, target, *args, **kw):  # products/<GEN> lives on another filesystem
+            if str(farm.output(GEN)) in str(source):
+                raise OSError(errno.EXDEV, 'Invalid cross-device link')
+            return link(source, target, *args, **kw)
+
+        with mock.patch.object(farm_module.os, 'link', across):
+            free[0] = 59 * farm_module.GIB  # under keep_free: a copy would deepen the shortage
+            self.assertEqual(farm.seed_intermediates(), 0)
+            shared = farm.intermediate_roots(repo)['vegetation'] / 'content.npz'
+            self.assertFalse(shared.exists())
+            free[0] = 100 * farm_module.GIB
+            self.assertEqual(farm.seed_intermediates(), 1)
+        self.assertEqual(shared.read_bytes(), b'complete')
+        self.assertNotEqual(shared.stat().st_ino, (local / 'content.npz').stat().st_ino)
+        self.assertEqual([p.name for p in shared.parent.iterdir()], ['content.npz'])  # no temporary left
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        adopted = [(e['files'], e['copied'], e['skipped']) for e in events if e['event'] == 'intermediates-adopted']
+        self.assertEqual(adopted, [(0, 0, 1), (1, 1, 0)])
+
     def test_raw_intermediates_share_by_producer_and_adopt_complete_private_files(self):
         farm = self.farm()
         repo = self.root / 'revisions' / REV / 'repo'
