@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { PART_COUNT, PART_STATE, PARTS, type DamageLayout, type DamageState, type PartName } from '../../vehicle/damage';
+import { PART_COUNT, PART_STATE, PARTS, WINDOWS, type DamageLayout, type DamageState, type PartName, type WindowName } from '../../vehicle/damage';
 
 // Loose and detached body parts (vehicle/README.md "Loose and detached parts"). Each damage-capable body is split by
 // region, once per geometry, into the parts of vehicle/damage.ts PARTS: the same rule for every fleet model, from its
@@ -165,10 +165,76 @@ export function splitParts(geometry: THREE.BufferGeometry, layout: DamageLayout)
   return true;
 }
 
-/** Glazing and other surfaces without parts: every vertex on the body (the shared damage program reads the attribute). */
-export function noParts(geometry: THREE.BufferGeometry) {
-  if (!geometry.getAttribute('damagePart')) geometry.setAttribute('damagePart', new THREE.BufferAttribute(new Uint8Array(geometry.getAttribute('position').count * 4), 4));
+/** Glazing: every vertex on the body, and each window found by its facing (vehicle/damage.ts WINDOWS): pieces above
+ *  `WINDOW_H` of the height (lower ones are lamp covers), facing the side beyond `SIDE_N` (left or right; front and
+ *  rear by the gap at the B-pillar: the side's foremost run of pieces is the front window) or else the windscreen
+ *  (ahead of the middle) and the rear window. `damagePart.y` is the window (index + 1, 0 none); `crackUV` (m) places
+ *  each vertex in its window's plane around the crack origin, a fixed point a little off the window's centre. */
+const WINDOW_H = .62, SIDE_N = .55;
+const WINDOW_ID = Object.fromEntries(WINDOWS.map((name, i) => [name, i + 1])) as Record<WindowName, number>;
+export function splitWindows(geometry: THREE.BufferGeometry, layout: DamageLayout) {
+  if (geometry.getAttribute('damagePart')) return;
+  const position = geometry.getAttribute('position'), normal = geometry.getAttribute('normal'), n = position.count;
+  const index = (geometry.index?.array as ArrayLike<number> | undefined) ?? Uint32Array.from({ length: n }, (_, i) => i);
+  const piece = pieces(position, index, false), centreX = (layout.min[0] + layout.max[0]) / 2;
+  // Per piece: bounds and the area-weighted normal.
+  const info = new Map<number, { box: THREE.Box3; normal: THREE.Vector3 }>();
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cross = new THREE.Vector3();
+  for (let t = 0; t < index.length; t += 3) {
+    a.fromBufferAttribute(position, index[t]); b.fromBufferAttribute(position, index[t + 1]); c.fromBufferAttribute(position, index[t + 2]);
+    let p = info.get(piece[index[t]]);
+    if (!p) { p = { box: new THREE.Box3(), normal: new THREE.Vector3() }; info.set(piece[index[t]], p); }
+    p.box.expandByPoint(a).expandByPoint(b).expandByPoint(c);
+    const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+    // Glazing is double-sided and its winding is not reliable: the vertex normals, flipped outwards, give the facing.
+    cross.set(0, 0, 0);
+    for (let k = 0; k < 3; k++) cross.add(b.fromBufferAttribute(normal, index[t + k]));
+    if (cross.dot(a.sub(c.set(centreX, (layout.min[1] + layout.max[1]) / 2, 0))) < 0) cross.negate();
+    p.normal.addScaledVector(cross.normalize(), area);
+  }
+  const window = new Map<number, number>(), sides: Record<'left' | 'right', { root: number; min: number; max: number }[]> = { left: [], right: [] };
+  for (const [root, p] of info) {
+    const mid = p.box.getCenter(new THREE.Vector3()), nrm = p.normal.clone().normalize();
+    if ((mid.y - layout.min[1]) / layout.height < WINDOW_H) continue;
+    if (Math.abs(nrm.x) > SIDE_N) sides[mid.x > centreX ? 'left' : 'right'].push({ root, min: p.box.min.z, max: p.box.max.z });
+    else window.set(root, mid.z > (layout.min[2] + layout.max[2]) / 2 ? WINDOW_ID.windscreen : WINDOW_ID.rearWindow);
+  }
+  for (const side of ['left', 'right'] as const) {
+    const list = sides[side].sort((x, y) => y.max - x.max);
+    // The foremost run of overlapping pieces is the front window; behind the first gap of 3 cm, the rear window.
+    let front = list[0]?.min ?? 0, rear = false;
+    for (const p of list) {
+      if (!rear && p.max < front - .03) rear = true;
+      if (!rear) front = Math.min(front, p.min);
+      window.set(p.root, WINDOW_ID[`${rear ? 'rear' : 'front'}${side === 'left' ? 'Left' : 'Right'}`]);
+    }
+  }
+  // Each window's plane: its centre, outward normal and two in-plane axes; the crack origin a fixed offset from the centre.
+  const planes = new Map<number, { centre: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 }>();
+  for (const id of new Set(window.values())) {
+    const box = new THREE.Box3(), nrm = new THREE.Vector3();
+    for (const [root, w] of window) if (w === id) { box.union(info.get(root)!.box); nrm.add(info.get(root)!.normal); }
+    nrm.normalize();
+    const u = new THREE.Vector3(0, 1, 0).cross(nrm).normalize(), v = nrm.clone().cross(u).normalize(), size = box.getSize(new THREE.Vector3());
+    const centre = box.getCenter(new THREE.Vector3()).addScaledVector(u, .18 * size.length() * (id % 2 ? 1 : -1)).addScaledVector(v, .08 * size.y);
+    planes.set(id, { centre, u, v });
+  }
+  const parts = new Uint8Array(n * 4), uv = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const id = window.get(piece[i]) ?? 0;
+    parts[i * 4 + 1] = id;
+    const plane = planes.get(id);
+    if (!plane) continue;
+    a.fromBufferAttribute(position, i).sub(plane.centre);
+    uv[i * 2] = a.dot(plane.u); uv[i * 2 + 1] = a.dot(plane.v);
+  }
+  geometry.setAttribute('damagePart', new THREE.BufferAttribute(parts, 4));
+  geometry.setAttribute('crackUV', new THREE.BufferAttribute(uv, 2));
+  windowsByGeometry.set(geometry, [...planes].map(([id, plane]) => ({ window: WINDOWS[id - 1], centre: plane.centre.clone() })));
 }
+const windowsByGeometry = new WeakMap<THREE.BufferGeometry, { window: WindowName; centre: THREE.Vector3 }[]>();
+/** The windows found in a glazing geometry (splitWindows), with their crack origins (fleet frame). */
+export const windowsOf = (geometry: THREE.BufferGeometry) => windowsByGeometry.get(geometry);
 
 // ------------------------------------------------------------------ loose parts: a cheap visual swing
 /** How a loose part hangs and swings: `axis` of its hinge in the fleet frame, the hinge at its bounds (`pivot`, as
@@ -177,14 +243,22 @@ export function noParts(geometry: THREE.BufferGeometry) {
  *  frequency (Hz) and damping ratio, which car-frame acceleration drives it (`drive`: axis and gain, rad per m/s²) and
  *  the angle limits. */
 interface Hinge { axis: 'x' | 'z'; pivot: (side: number) => [number, number, number]; rest: (info: PartInfo) => number; lift: number; hz: number; zeta: number;
-  drive: { axis: 0 | 1 | 2; gain: number }; limits: (info: PartInfo) => [number, number]; sign: (side: number) => number }
-const ground = (info: PartInfo) => Math.asin(Math.min(.6, Math.max(.05, (info.min.y - .02) / Math.max(.3, info.max.x - info.min.x))));
-const bumper: Hinge = { axis: 'z', pivot: side => [side > 0 ? 0 : 1, .75, .5], rest: info => .85 * ground(info), lift: 0, hz: 2.2, zeta: .15,
-  drive: { axis: 1, gain: .02 }, limits: info => [0, ground(info)], sign: side => side > 0 ? -1 : 1 };
+  drive: { axis: 0 | 1 | 2; gain: number }; limits: (info: PartInfo) => [number, number]; sign: (side: number) => number;
+  /** A fixed turn about the hinge before the swing (Euler x, y, z; rad): a hanging bumper's free end pulled out. */
+  set?: (side: number) => [number, number, number] }
+/** A hanging bumper's free end drops until its lower edge reaches the ground (4 cm below its rest height). */
+const ground = (info: PartInfo) => Math.asin(Math.min(.6, Math.max(.05, (info.min.y + .04) / Math.max(.3, info.max.x - info.min.x))));
+/** Bumpers hang from the end that held: the free end drops, sticks out 15-20 cm and its face tips outward. */
+const bumper = (front: boolean): Hinge => ({ axis: 'z', pivot: side => [side > 0 ? 0 : 1, .75, front ? .3 : .7], rest: info => .9 * ground(info), lift: 0,
+  hz: 2.2, zeta: .15, drive: { axis: 1, gain: .02 }, limits: info => [.3 * ground(info), ground(info)], sign: side => side > 0 ? -1 : 1,
+  set: side => [front ? .12 : -.12, (front ? -1 : 1) * side * .1, 0] });
 const HINGES: Record<PartName, Hinge> = {
-  frontBumper: bumper, rearBumper: bumper,
-  bonnet: { axis: 'x', pivot: () => [.5, 1, 0], rest: () => .07, lift: .0016, hz: 1.6, zeta: .2, drive: { axis: 1, gain: -.02 }, limits: () => [0, 1.05], sign: () => -1 },
-  bootLid: { axis: 'x', pivot: () => [.5, 1, 1], rest: () => .12, lift: .0004, hz: 1.4, zeta: .12, drive: { axis: 2, gain: .03 }, limits: () => [0, .9], sign: () => 1 },
+  frontBumper: bumper(true), rearBumper: bumper(false),
+  // A popped bonnet rides up on its hinges at the scuttle, more with speed (the wind under it) and on bumps.
+  bonnet: { axis: 'x', pivot: () => [.5, 1, 0], rest: () => .12, lift: .0016, hz: 1.6, zeta: .2, drive: { axis: 1, gain: -.02 }, limits: () => [.03, 1.05], sign: () => -1 },
+  // The boot lid hangs open from its upper edge and swings with braking and acceleration.
+  bootLid: { axis: 'x', pivot: () => [.5, 1, 1], rest: () => .35, lift: .0004, hz: 1.4, zeta: .12, drive: { axis: 2, gain: .03 }, limits: () => [.1, 1.1], sign: () => 1 },
+  // A mirror dangles on its cable and swings sideways.
   mirrorLeft: { axis: 'z', pivot: () => [0, .5, .5], rest: () => .9, lift: 0, hz: 2.5, zeta: .1, drive: { axis: 0, gain: .04 }, limits: () => [.3, 1.5], sign: () => -1 },
   mirrorRight: { axis: 'z', pivot: () => [1, .5, .5], rest: () => .9, lift: 0, hz: 2.5, zeta: .1, drive: { axis: 0, gain: -.04 }, limits: () => [.3, 1.5], sign: () => 1 },
 };
@@ -212,9 +286,8 @@ export class PartPoses {
       const r = i * 4;
       if (!info || s === PART_STATE.attached) { this.set(r, 0, 0, 0, 1, 0, 0, 0, 1); this.angle[i] = -1; continue; }
       if (s === PART_STATE.detached) {
-        // Collapsed onto its centre: no triangle left to draw.
-        this.p.copy(info.min).add(info.max).multiplyScalar(.5);
-        this.set(r, 0, 0, 0, 1, this.p.x, this.p.y, this.p.z, 0);
+        // Scale 0: the shader collapses every vertex of the part onto one point (no triangle left to draw).
+        this.set(r, 0, 0, 0, 1, 0, 0, 0, 0);
         continue;
       }
       loose = true;
@@ -233,6 +306,8 @@ export class PartPoses {
       this.p.set(info.min.x + f[0] * (info.max.x - info.min.x), info.min.y + f[1] * (info.max.y - info.min.y), info.min.z + f[2] * (info.max.z - info.min.z));
       const angle = hinge.sign(side) * this.angle[i];
       this.q.setFromAxisAngle(hinge.axis === 'x' ? X : Z, angle);
+      const set = hinge.set?.(side);
+      if (set) this.q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(set[0], set[1], set[2])));
       // x -> q (x - p) + p
       const t = this.p.clone().applyQuaternion(this.q);
       this.set(r, this.q.x, this.q.y, this.q.z, this.q.w, this.p.x - t.x, this.p.y - t.y, this.p.z - t.z, 1);

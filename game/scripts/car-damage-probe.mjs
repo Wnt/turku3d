@@ -5,7 +5,11 @@
 // Modes: `dent` (developer dents, slice A), `wall` (drives into a wall, slice B), `mp` (a second client sees the damage),
 // `perf` (the frame-cost bench), `handling` (mechanical damage: acceleration, speed and pull on a straight, fresh and
 // after real 50 and 75 km/h wall crashes, with Wreckfest 2's reverse pull probe), `mpsmoke` (a second client sees the
-// engine-bay steam and smoke and the deformed car; the frame cost of the smoke and the damage systems, A/B).
+// engine-bay steam and smoke and the deformed car; the frame cost of the smoke and the damage systems, A/B), `parts`
+// (loose and detached parts: hits that loosen and then tear them off, a drive with them swinging, the debris, a second
+// client that sees the same part states and spawns its own debris from a later change, and the frame cost of 20 wrecks
+// with loose parts against 20 plain cars: `partsperf`, under a perf lease), `glass` (crack, craze and shatter of a side
+// window, a roof hit, no glass from a frontal crash, a second client with the same stages and its own shards).
 // Writes OUT_DIR/result.json and PNGs; prints one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,6 +50,19 @@ async function shots(page, label, client = 'a', remote = false) {
   for (const [view, yaw] of VIEWS) {
     await page.evaluate(([yaw, remote]) => window.__game.damage.look({ yaw, pitch: 14, distance: 6.2, remote }), [yaw, remote]);
     await settle(page, 12);
+    const file = path.join(out, `${client}-${label}-${view}.png`);
+    await page.screenshot({ path: file });
+    report.shots.push(file);
+  }
+  await page.evaluate(() => window.__game.damage.look(null));
+}
+
+/** Close views of the parts and windows: [name, yaw, pitch, distance, height]. */
+const CLOSE = [['nose', 28, 10, 4.2, 0], ['mirror-left', 62, 8, 3.4, .35], ['tail', 152, 12, 4.4, 0], ['roof', 8, 32, 4.6, .3]];
+async function closeShots(page, label, client = 'a', remote = false, views = CLOSE) {
+  for (const [view, yaw, pitch, distance, height] of views) {
+    await page.evaluate(([yaw, pitch, distance, height, remote]) => window.__game.damage.look({ yaw, pitch, distance, height, remote }), [yaw, pitch, distance, height, remote]);
+    await settle(page, 14);
     const file = path.join(out, `${client}-${label}-${view}.png`);
     await page.screenshot({ path: file });
     report.shots.push(file);
@@ -444,6 +461,142 @@ try {
       cpuP50: median(report.cost.filter(r => r.kind === kind).map(r => r.cpuP50)) }]));
     log('cost summary', report.costSummary);
     await page.evaluate(() => window.__game.damage.look(null));
+  }
+  if (mode === 'parts') {
+    const parts = () => page.evaluate(() => ({ parts: window.__game.damage.state().parts, debris: window.__game.damage.debris() }));
+    const dents = list => page.evaluate(list => { for (const hit of list) window.__game.damage.dent(hit); }, list);
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(2500);
+    report.split = await page.evaluate(() => window.__game.damage.split());
+    log('split', { split: report.split });
+    // Loose: three hard hits on the front-left corner, a side knock at the left mirror, a hard rear hit.
+    await dents([...Array(3).fill({ kmh: 62, at: 'front', halfWidth: .3, offset: .8 }), { kmh: 32, at: 'left', halfWidth: .4, offset: .5 }, { kmh: 82, at: 'rear' }]);
+    await page.waitForTimeout(1500);
+    report.loose = await parts(page);
+    log('loose', report.loose);
+    await closeShots(page, 'loose');
+    // Off: a square 70 km/h front hit tears the hanging bumper off and pops the bonnet; a 40 km/h side hit the mirror.
+    await dents([{ kmh: 70, at: 'front' }, { kmh: 40, at: 'left', halfWidth: .4, offset: .5 }]);
+    await page.waitForTimeout(2500);
+    report.off = await parts(page);
+    log('off', report.off);
+    await closeShots(page, 'off');
+    if (report.off.debris.length < 2) report.errors.push(`expected two debris pieces, got ${JSON.stringify(report.off.debris)}`);
+    // Driving with the loose parts: the bonnet lifts in the wind, the boot lid and the rear bumper swing.
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(3500);
+    let file = path.join(out, 'a-off-driving.png'); await page.screenshot({ path: file }); report.shots.push(file);
+    await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS'); await page.waitForTimeout(2500); await page.keyboard.up('KeyS');
+    await page.waitForTimeout(1500);
+    // The second client: the same part states on A's car, no debris for parts already off when it first sees the car.
+    const b = await open('b', await browser.newContext());
+    const hits = await page.evaluate(() => window.__game.damage.state().hits);
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), hits, { timeout: 90000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    const replica = () => b.evaluate(hits => window.__game.damage.remotes().filter(r => r.hits === hits), hits);
+    report.bSees = { remotes: await replica(), debris: await b.evaluate(() => window.__game.damage.debris()) };
+    log('b sees a', report.bSees);
+    const same = (mine, theirs) => theirs.some(r => JSON.stringify(r.parts) === JSON.stringify(mine));
+    if (!same(report.off.parts, report.bSees.remotes)) report.errors.push(`replica parts differ: own ${JSON.stringify(report.off.parts)}, remote ${JSON.stringify(report.bSees.remotes.map(r => r.parts))}`);
+    await closeShots(b, 'off', 'b', true);
+    // A later change on A: a hard rear hit tears the hanging rear bumper off; B spawns its own debris from the state.
+    await page.evaluate(() => window.__game.damage.dent({ kmh: 70, at: 'rear' }));
+    await page.waitForTimeout(500);
+    report.rearOff = await parts(page);
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), hits + 1, { timeout: 30000 });
+    await b.waitForTimeout(1500);
+    report.bRearOff = { remotes: (await b.evaluate(hits => window.__game.damage.remotes().filter(r => r.hits === hits), hits + 1)),
+      debris: await b.evaluate(() => window.__game.damage.debris()) };
+    log('rear off', { a: report.rearOff, b: report.bRearOff });
+    if (!same(report.rearOff.parts, report.bRearOff.remotes)) report.errors.push('replica parts differ after the rear hit');
+    if (!report.bRearOff.debris.some(d => d.part === 'rearBumper')) report.errors.push(`b spawned no rear bumper debris: ${JSON.stringify(report.bRearOff.debris)}`);
+    await b.evaluate(() => window.__game.damage.look({ yaw: 160, pitch: 25, distance: 7, remote: true }));
+    await b.waitForTimeout(1500);
+    file = path.join(out, 'b-rear-off-debris.png'); await b.screenshot({ path: file }); report.shots.push(file);
+    await b.close();
+    await page.evaluate(() => window.__game.damage.look(null));
+  }
+  if (mode === 'partsperf') {
+    // Frame cost: 20 wrecks with four loose parts each (swinging, so their pool row uploads every frame) against the
+    // same 20 cars plain and 20 crumpled without parts; a fixed camera, alternating rounds.
+    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.waitForTimeout(25000);
+    report.perf = [];
+    for (let round = 0; round < 4; round++) for (const kind of ['plain', 'damaged', 'wrecked']) {
+      const placed = await page.evaluate(kind => window.__game.damage.bench({ count: 20, kind }), kind);
+      await page.waitForTimeout(2500);
+      await page.evaluate(() => window.__render.perf.reset());
+      await page.waitForTimeout(6000);
+      const p = await page.evaluate(() => ({ gpu: window.__perf.gpuMs, cpu: window.__perf.cpuMs, draws: window.__perf.drawCalls }));
+      const row = { kind, round, placed, gpuP50: p.gpu?.p50, cpuP50: p.cpu?.p50, draws: p.draws };
+      report.perf.push(row); log('perf', row);
+    }
+    const median = a => { const v = a.filter(Number.isFinite).sort((x, y) => x - y); return v.length ? v[v.length >> 1] : null; };
+    report.perfSummary = Object.fromEntries(['plain', 'damaged', 'wrecked'].map(kind => [kind, {
+      gpuP50: median(report.perf.filter(r => r.kind === kind).map(r => r.gpuP50)), cpuP50: median(report.perf.filter(r => r.kind === kind).map(r => r.cpuP50)) }]));
+    log('perf summary', report.perfSummary);
+    await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
+    await page.evaluate(() => window.__game.damage.look(null));
+  }
+  if (mode === 'glass') {
+    const glass = p => p.evaluate(() => ({ glass: window.__game.damage.state().glass, shards: window.__game.damage.shards() }));
+    const dents = list => page.evaluate(list => { for (const hit of list) window.__game.damage.dent(hit); }, list);
+    const views = [['side-left', 80, 6, 3.8, .35], ['front-left', 35, 14, 4.6, .3], ['windscreen', 4, 28, 4.4, .4]];
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(2500);
+    // The front-left door window: cracked by a 21 km/h knock, crazed by a 25 km/h one, shattered by a 30 km/h one.
+    for (const [label, kmh] of [['cracked', 21], ['crazed', 25], ['shattered', 30]]) {
+      await dents([{ kmh, at: 'left', halfWidth: .3, offset: .1 }]);
+      if (label === 'shattered') {
+        await page.waitForTimeout(250);
+        await page.evaluate(() => window.__game.damage.look({ yaw: 80, pitch: 6, distance: 3.8, height: .35 }));
+        await settle(page, 8);
+        const file = path.join(out, 'a-shards-flying.png'); await page.screenshot({ path: file }); report.shots.push(file);
+        await page.waitForTimeout(3000);
+      } else await page.waitForTimeout(800);
+      report[label] = await glass(page);
+      log(label, report[label]);
+      await closeShots(page, label, 'a', false, views);
+    }
+    if (!(report.shattered.shards > 0)) report.errors.push('no shards after the shatter');
+    // A roll onto the roof: the windscreen cracks, the side glass too.
+    await dents([{ kmh: 28, at: 'roof' }]);
+    await page.waitForTimeout(800);
+    report.roof = await glass(page);
+    log('roof', report.roof);
+    await closeShots(page, 'roof', 'a', false, views);
+    // A frontal crash at 80 km/h breaks no glass.
+    const before = JSON.stringify((await glass(page)).glass);
+    await dents([{ kmh: 80, at: 'front' }]);
+    await page.waitForTimeout(800);
+    report.frontal = await glass(page);
+    if (JSON.stringify(report.frontal.glass) !== before) report.errors.push(`a frontal crash changed the glass: ${before} -> ${JSON.stringify(report.frontal.glass)}`);
+    // The second client sees the same stages; a later shatter on A throws shards on B too.
+    const b = await open('b', await browser.newContext());
+    const hits = await page.evaluate(() => window.__game.damage.state().hits);
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), hits, { timeout: 90000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    const replica = n => b.evaluate(hits => window.__game.damage.remotes().filter(r => r.hits === hits).map(r => r.glass), n);
+    report.bSees = await replica(hits);
+    log('b sees a', { glass: report.bSees, seconds: report.replicaSeconds });
+    if (!report.bSees.some(g => JSON.stringify(g) === JSON.stringify(report.frontal.glass))) report.errors.push(`replica glass differs: ${JSON.stringify(report.bSees)}`);
+    await closeShots(b, 'replica', 'b', true, views);
+    await page.evaluate(() => window.__game.damage.dent({ kmh: 36, at: 'right', halfWidth: .3, offset: .1 }));
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), hits + 1, { timeout: 30000 });
+    report.bShards = await b.evaluate(() => window.__game.damage.shards());
+    report.rightOff = { a: (await glass(page)).glass, b: await replica(hits + 1) };
+    log('right shattered', { ...report.rightOff, bShards: report.bShards });
+    if (!(report.bShards > 0)) report.errors.push('b threw no shards for the remote shatter');
+    if (!report.rightOff.b.some(g => JSON.stringify(g) === JSON.stringify(report.rightOff.a))) report.errors.push('replica glass differs after the right shatter');
+    await b.evaluate(() => window.__game.damage.look({ yaw: -80, pitch: 8, distance: 4, height: .3, remote: true }));
+    await settle(b, 10);
+    const file = path.join(out, 'b-right-shattered.png'); await b.screenshot({ path: file }); report.shots.push(file);
+    await b.close();
   }
   report.ok = report.errors.length === 0;
 } catch (error) {

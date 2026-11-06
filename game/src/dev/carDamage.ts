@@ -6,8 +6,9 @@ import { rigOf } from '../actors/fleet/damageRig';
 import type { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial } from '../actors/fleet/material';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
-import { applyHit, DamageState, encodeDamage, PARTS } from '../vehicle/damage';
+import { applyHit, DamageState, encodeDamage, PARTS, WINDOWS } from '../vehicle/damage';
 import type { DebrisField } from '../actors/fleet/debris';
+import type { GlassShards } from '../actors/fleet/glassShards';
 import { mechanics, type Mechanics } from '../vehicle/mechanics';
 
 const deg = (rad: number) => Math.round(rad * 18000 / Math.PI) / 100;
@@ -28,8 +29,11 @@ const PUSH: Record<Side, [number, number, number]> = {
  *  for same-pose screenshots. `frame(camera)` runs before each render (play.ts). */
 /** Part states by name (vehicle/damage.ts PARTS): 0 on, 1 loose, 2 off. */
 const partsOf = (s: DamageState) => Object.fromEntries(PARTS.map((name, i) => [name, s.parts[i]]));
+/** Glass stages by window (vehicle/damage.ts WINDOWS): 0 intact, 1 cracked, 2 crazed, 3 shattered. */
+const glassOf = (s: DamageState) => Object.fromEntries(WINDOWS.map((name, i) => [name, s.glass[i]]));
 
-export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D, fleet?: ParkedCarVisuals, debris?: DebrisField) {
+export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D, fleet?: ParkedCarVisuals, debris?: DebrisField,
+  shards?: GlassShards) {
   const benched: THREE.Object3D[] = [], benchWrecks: THREE.Object3D[] = [];
   let benchWreck: string | null = null;
   let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean } | null = null;
@@ -59,7 +63,7 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       let max = 0;
       for (let i = 0; i < s.offsets.length; i += 3) max = Math.max(max, Math.hypot(s.offsets[i], s.offsets[i + 1], s.offsets[i + 2]));
       return { hits: s.hits, energy: Math.round(s.energy), revision: s.revision, maxOffsetCm: Math.round(max * 1000) / 10, bins: Array.from(s.bins, Math.round),
-        parts: partsOf(s), partLoad: Array.from(s.partLoad, Math.round) };
+        parts: partsOf(s), partLoad: Array.from(s.partLoad, Math.round), glass: glassOf(s), glassLoad: Array.from(s.glassLoad, Math.round) };
     },
     /** Remote cars in view range with their drawn damage: hits and the crumple from their deformed bounds (cm). */
     remotes() {
@@ -69,11 +73,13 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
         return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
           position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)),
-          parts: partsOf(rig.state) };
+          parts: partsOf(rig.state), glass: glassOf(rig.state) };
       });
     },
     /** Car part debris lying around now (actors/fleet/debris.ts). */
     debris() { return debris?.list() ?? []; },
+    /** Glass shards alive now (flying and lying; actors/fleet/glassShards.ts). */
+    shards() { return shards?.alive ?? 0; },
     /** The parts the starter car's body was split into (actors/fleet/damageParts.ts): triangles and rest bounds. */
     split() {
       return (car.rig?.modelParts ?? []).map((p, i) => p ? { part: PARTS[i], triangles: p.triangles.length / 3,

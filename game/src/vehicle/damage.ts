@@ -141,6 +141,28 @@ export const PART_LOAD: Record<PartName, { v0: number; loose: number; off: numbe
   bonnet: { v0: 36, loose: 2000, off: 4000 }, bootLid: { v0: 36, loose: 2000, off: 4000 },
   mirrorLeft: { v0: 15, loose: 150, off: 500 }, mirrorRight: { v0: 15, loose: 150, off: 500 },
 };
+/** Windows that crack and shatter, in wire order. The renderer finds each in the model's glazing by its facing
+ *  (actors/fleet/damageParts.ts splitWindows) and draws it as window `index + 1` (0: lamp covers, never broken). */
+export const WINDOWS = ['windscreen', 'rearWindow', 'frontLeft', 'rearLeft', 'frontRight', 'rearRight'] as const;
+export type WindowName = typeof WINDOWS[number];
+export const WINDOW_COUNT = WINDOWS.length;
+/** Glass stages: intact, a crack star at the impact, crazed all over, shattered (the frame stays empty). */
+export const GLASS_STAGE = { intact: 0, cracked: 1, crazed: 2, shattered: 3 } as const;
+/** A window's load per hit is (km/h of the push - `v0`)² times its share, summed over hits; it steps through the glass
+ *  stages at `steps`. Wreckfest 2 (damage-study.md Part 2): side glass goes from side and roll loads (four 16-25 km/h
+ *  side hits and a roll onto the side left none), frontal deceleration up to 84 km/h head-on leaves the rear window
+ *  whole. Side windows (tempered): a 20 km/h side knock cracks, three at 25 km/h or one at 35 shatter. The windscreen
+ *  (laminated) and the rear window take roof hits fully, a quarter of a side hit at their end, and only hard frontal or
+ *  rear crashes (8 % of (km/h - 50)²): the windscreen stands about twice the side glass. */
+export const GLASS_LOAD: Record<WindowName, { v0: number; steps: readonly [number, number, number] }> = {
+  windscreen: { v0: 10, steps: [200, 450, 800] }, rearWindow: { v0: 10, steps: [150, 400, 700] },
+  frontLeft: { v0: 10, steps: [100, 300, 600] }, rearLeft: { v0: 10, steps: [100, 300, 600] },
+  frontRight: { v0: 10, steps: [100, 300, 600] }, rearRight: { v0: 10, steps: [100, 300, 600] },
+};
+/** Where the windows sit along the car (fraction of the length from the rear; a five-door hatchback or saloon): the
+ *  share of a side hit a window takes falls off with its distance from the contact, as the crumple's footprint does. */
+const WINDOW_F: Record<WindowName, number> = { windscreen: .66, rearWindow: .06, frontLeft: .52, rearLeft: .28, frontRight: .52, rearRight: .28 };
+const glassStage = (window: WindowName, load: number) => { const steps = GLASS_LOAD[window].steps; let n = 0; while (n < 3 && load >= steps[n]) n++; return n; };
 const partState = (part: PartName, load: number) => load >= PART_LOAD[part].off ? PART_STATE.detached : load >= PART_LOAD[part].loose ? PART_STATE.loose : PART_STATE.attached;
 
 /** One car's damage. `offsets` (xyz per node, metres) is the shape the renderer draws and multiplayer replicates;
@@ -158,11 +180,15 @@ export class DamageState {
   readonly partLoad = new Float32Array(PART_COUNT);
   readonly parts = new Uint8Array(PART_COUNT);
   readonly partSide = new Int8Array(PART_COUNT);
+  /** Per window (WINDOWS order): its load ((km/h)², GLASS_LOAD) and its stage (GLASS_STAGE). */
+  readonly glassLoad = new Float32Array(WINDOW_COUNT);
+  readonly glass = new Uint8Array(WINDOW_COUNT);
   energy = 0; hits = 0; revision = 0; steerSide = 0;
   constructor(readonly layout: DamageLayout) {}
   get damaged() { return this.hits > 0; }
   clear() {
     this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.partLoad.fill(0); this.parts.fill(0); this.partSide.fill(0);
+    this.glassLoad.fill(0); this.glass.fill(0);
     this.energy = 0; this.hits = 0; this.steerSide = 0; this.revision++;
   }
 }
@@ -264,6 +290,7 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
         halfWidth + layout.length / 6);
     }
     loaded = partHit(state, face, kmh, shares, hit) || loaded;
+    loaded = glassHit(state, face, kmh, hit) || loaded;
     const e = raw / FACES[face].stiffness;
     const eBumper = face === 'front' || face === 'rear' ? Math.max(0, kmh * kmh - CRUMPLE.bumperKmh ** 2) : 0;
     if (e <= 0 && eBumper <= 0) continue;
@@ -315,6 +342,30 @@ function partHit(state: DamageState, face: Face, kmh: number, shares: readonly n
   return loaded;
 }
 
+/** A face's push (km/h) on the windows: a side hit loads each window on that side by its distance from the contact
+ *  (only the footprint itself, as for the mirrors), the windscreen and rear window a quarter of that, a hard crash on
+ *  an end face a small share of its window, and a roof hit every window (half for the side glass). */
+function glassHit(state: DamageState, face: Face, kmh: number, hit: DamageHit): boolean {
+  let loaded = false;
+  const add = (window: WindowName, share: number, over = kmh - GLASS_LOAD[window].v0) => {
+    const i = WINDOWS.indexOf(window);
+    if (over <= 0 || share <= 0 || state.glass[i] === GLASS_STAGE.shattered) return;
+    state.glassLoad[i] += over * over * share; loaded = true;
+    state.glass[i] = glassStage(window, state.glassLoad[i]);
+  };
+  const { min, length } = state.layout, halfWidth = hit.halfWidth ?? Infinity;
+  const reach = (window: WindowName) => hit.at
+    ? Math.max(0, (lateralShare(Math.abs(min[2] + WINDOW_F[window] * length - hit.at[2]), halfWidth) - .25) / .75) : 1;
+  if (face === 'posX' || face === 'negX') {
+    const left = face === 'posX';
+    for (const window of left ? ['frontLeft', 'rearLeft'] as const : ['frontRight', 'rearRight'] as const) add(window, reach(window));
+    add('windscreen', .25 * reach('windscreen')); add('rearWindow', .25 * reach('rearWindow'));
+  } else if (face === 'top') {
+    for (const window of WINDOWS) add(window, window === 'windscreen' || window === 'rearWindow' ? 1 : .5);
+  } else add(face === 'front' ? 'windscreen' : 'rearWindow', .08, kmh - 50);
+  return loaded;
+}
+
 /** A face's share of a hit on the mechanical systems behind it. `raw`: (km/h)² beyond the crumple threshold, the
  *  energy measure the crumple uses before the face's stiffness; `shares`: the footprint share per bin (end faces by
  *  lateral -X, centre, +X; sides by thirds rear, middle, front). The engine bay is at the front: its radiator and
@@ -358,17 +409,19 @@ export function headOnLoss(layout: DamageLayout, kmh: number, hits = 1): number 
 
 // ------------------------------------------------------------------ compact state (worker → renderer, multiplayer, saves)
 /** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins, wear and part loads to 8 (km/h)² in uint16. */
-const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 3;
+const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 4;
 const clampOffset = (v: number) => Math.max(-127 * OFFSET_UNIT, Math.min(127 * OFFSET_UNIT, v));
 const HEADER = 8, SHAPE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3, MECHANICS_BYTES = SHAPE_BYTES + WEAR_SYSTEMS * 2 + 2;
 /** Version 3 adds the parts: per part its state and free end (one byte: state in bits 0-1, bit 2 a side is set, bit 3
  *  it is the left) and its load (uint16). Version 2 (224 bytes: the wear as uint16 per system, the steering side as
  *  int8 and a spare byte) and version 1 (body only, 208 bytes) still read, with unworn systems and attached parts. */
-export const DAMAGE_WIRE_BYTES = MECHANICS_BYTES + PART_COUNT * 3;
-const WIRE_LENGTHS = [0, SHAPE_BYTES, MECHANICS_BYTES, DAMAGE_WIRE_BYTES];
+const PARTS_BYTES = MECHANICS_BYTES + PART_COUNT * 3;
+/** Version 4 adds the glass: per window its stage (uint8) and its load (uint16). */
+export const DAMAGE_WIRE_BYTES = PARTS_BYTES + WINDOW_COUNT * 3;
+const WIRE_LENGTHS = [0, SHAPE_BYTES, MECHANICS_BYTES, PARTS_BYTES, DAMAGE_WIRE_BYTES];
 
 /** Wire form of a damage state: base64 of version, node count, hits, energy (64 (km/h)² units), bins, offsets, wear,
- *  steering side, parts. */
+ *  steering side, parts, glass. */
 export function encodeDamage(state: DamageState): string {
   const bytes = new Uint8Array(DAMAGE_WIRE_BYTES), view = new DataView(bytes.buffer);
   view.setUint8(0, WIRE_VERSION); view.setUint8(1, DAMAGE_NODES); view.setUint16(2, Math.min(65535, state.hits), true);
@@ -382,6 +435,10 @@ export function encodeDamage(state: DamageState): string {
     const side = state.partSide[i];
     view.setUint8(MECHANICS_BYTES + i, state.parts[i] | (side ? 4 : 0) | (side > 0 ? 8 : 0));
     view.setUint16(MECHANICS_BYTES + PART_COUNT + i * 2, Math.min(65535, Math.round(state.partLoad[i] / BIN_UNIT)), true);
+  }
+  for (let i = 0; i < WINDOW_COUNT; i++) {
+    view.setUint8(PARTS_BYTES + i, state.glass[i]);
+    view.setUint16(PARTS_BYTES + WINDOW_COUNT + i * 2, Math.min(65535, Math.round(state.glassLoad[i] / BIN_UNIT)), true);
   }
   let text = '';
   for (const b of bytes) text += String.fromCharCode(b);
@@ -400,6 +457,7 @@ export function decodeDamage(wire: unknown, state: DamageState): boolean {
   const side = version > 1 ? view.getInt8(SHAPE_BYTES + WEAR_SYSTEMS * 2) : 0;
   if (side < -1 || side > 1) return false;
   for (let i = 0; version > 2 && i < PART_COUNT; i++) if ((bytes[MECHANICS_BYTES + i] & 3) > PART_STATE.detached || bytes[MECHANICS_BYTES + i] > 15) return false;
+  for (let i = 0; version > 3 && i < WINDOW_COUNT; i++) if (bytes[PARTS_BYTES + i] > GLASS_STAGE.shattered) return false;
   state.hits = view.getUint16(2, true); state.energy = view.getUint32(4, true) * 64;
   for (let i = 0; i < DAMAGE_BINS; i++) state.bins[i] = view.getUint16(HEADER + i * 2, true) * BIN_UNIT;
   const base = HEADER + DAMAGE_BINS * 2;
@@ -410,6 +468,10 @@ export function decodeDamage(wire: unknown, state: DamageState): boolean {
     const b = version > 2 ? bytes[MECHANICS_BYTES + i] : 0;
     state.parts[i] = b & 3; state.partSide[i] = b & 4 ? (b & 8 ? 1 : -1) : 0;
     state.partLoad[i] = version > 2 ? view.getUint16(MECHANICS_BYTES + PART_COUNT + i * 2, true) * BIN_UNIT : 0;
+  }
+  for (let i = 0; i < WINDOW_COUNT; i++) {
+    state.glass[i] = version > 3 ? bytes[PARTS_BYTES + i] : 0;
+    state.glassLoad[i] = version > 3 ? view.getUint16(PARTS_BYTES + WINDOW_COUNT + i * 2, true) * BIN_UNIT : 0;
   }
   state.revision++;
   return true;

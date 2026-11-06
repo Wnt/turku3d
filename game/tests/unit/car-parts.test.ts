@@ -1,11 +1,11 @@
 import './fleet-assets.fixture';
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, PART_STATE, PARTS, type PartName } from '../../src/vehicle/damage';
+import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, GLASS_STAGE, PART_STATE, PARTS, WINDOWS, type PartName, type WindowName } from '../../src/vehicle/damage';
 import { fleetDamageBox, FLEET_BY_ID, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
-import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
-import { DamageRig, modelLayout, onPartDetached, skinToCage, type DetachEvent } from '../../src/actors/fleet/damageRig';
-import { partsOf } from '../../src/actors/fleet/damageParts';
+import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
+import { DamageRig, modelLayout, onPartDetached, onWindowShattered, skinToCage, type DetachEvent, type ShatterEvent } from '../../src/actors/fleet/damageRig';
+import { partsOf, windowsOf } from '../../src/actors/fleet/damageParts';
 
 const golf = FLEET_BY_ID.get(PLAYER_MODEL)!;
 const layout = damageLayout(fleetDamageBox(golf));
@@ -68,7 +68,12 @@ describe('loose and detached parts (vehicle/damage.ts PART_LOAD)', () => {
     const off = new DamageState(layout); headOn(off, 95);
     const load = off.partLoad[0]; headOn(off, 95);
     expect(off.partLoad[0]).toBe(load);
-    // Version 2 (224 bytes) reads with every part attached.
+    // Version 3 (242 bytes) reads with intact glass, version 2 (224 bytes) with every part attached.
+    const v3 = Uint8Array.from(atob(encodeDamage(s)), c => c.charCodeAt(0)).slice(0, 242); v3[0] = 3;
+    const three = new DamageState(layout);
+    expect(decodeDamage(btoa(String.fromCharCode(...v3)), three)).toBe(true);
+    expect(Array.from(three.parts)).toEqual(Array.from(s.parts));
+    expect(Array.from(three.glass)).toEqual([0, 0, 0, 0, 0, 0]);
     const v2 = Uint8Array.from(atob(encodeDamage(s)), c => c.charCodeAt(0)).slice(0, 224); v2[0] = 2;
     const old = new DamageState(layout);
     expect(decodeDamage(btoa(String.fromCharCode(...v2)), old)).toBe(true);
@@ -167,5 +172,67 @@ describe('debris bodies in the physics world (world.ts spawnDebris)', () => {
     for (let i = 0; i < DEBRIS.lifetimeS / DT + 2; i++) pw.fixedStep(idle, null);
     expect(pw.debrisStates()).toHaveLength(0);
     pw.world.free();
+  });
+});
+
+const pane = (state: DamageState, name: WindowName) => state.glass[WINDOWS.indexOf(name)];
+describe('glass (vehicle/damage.ts GLASS_LOAD)', () => {
+  test('side glass breaks from side hits and rolls, not from frontal crashes; the windscreen stands about twice as much', () => {
+    const side = (kmh: number, z = 0) => { const s = new DamageState(layout); applyHit(s, { dv: [-kmh / 3.6, 0, 0], at: [1, .6, z], halfWidth: .5 }); return s; };
+    expect(pane(side(15), 'frontLeft')).toBe(GLASS_STAGE.intact);
+    expect(pane(side(21), 'frontLeft')).toBe(GLASS_STAGE.cracked);
+    expect(pane(side(36), 'frontLeft')).toBe(GLASS_STAGE.shattered);
+    expect(pane(side(36), 'frontRight')).toBe(GLASS_STAGE.intact);
+    expect(pane(side(36), 'windscreen')).toBeLessThan(GLASS_STAGE.crazed);
+    // A narrow hit at the front door: the rear door's window only cracks.
+    const pole = new DamageState(layout); applyHit(pole, { dv: [-36 / 3.6, 0, 0], at: [1, .6, .1], halfWidth: .3 });
+    expect(pane(pole, 'frontLeft')).toBe(GLASS_STAGE.shattered);
+    expect(pane(pole, 'rearLeft')).toBeLessThan(GLASS_STAGE.crazed);
+    // Three 25 km/h side hits (the AI derby's struck car) shatter it.
+    const derby = new DamageState(layout), stages: number[] = [];
+    for (let i = 0; i < 3; i++) { applyHit(derby, { dv: [-25 / 3.6, 0, 0], at: [1, .6, 0], halfWidth: .5 }); stages.push(pane(derby, 'frontLeft')); }
+    expect(stages).toEqual([1, 2, 3]);
+    // Head-on crashes up to 84 km/h, six at 61.5: no glass breaks (Wreckfest 2's rear window at 140 g).
+    const front = new DamageState(layout); applyHit(front, { dv: [0, 0, -84 / 3.6] });
+    const six = new DamageState(layout); for (let i = 0; i < 6; i++) applyHit(six, { dv: [0, 0, -61.5 / 3.6] });
+    for (const s of [front, six]) expect(Array.from(s.glass)).toEqual([0, 0, 0, 0, 0, 0]);
+    // A roof landing (a roll): every window loads, the windscreen and rear window fully, the side glass half.
+    const roll = new DamageState(layout); applyHit(roll, { dv: [0, -28 / 3.6, 0] });
+    expect(pane(roll, 'windscreen')).toBe(GLASS_STAGE.cracked);
+    expect(pane(roll, 'frontLeft')).toBe(GLASS_STAGE.cracked);
+    const hard = new DamageState(layout); applyHit(hard, { dv: [0, -40 / 3.6, 0] });
+    expect(pane(hard, 'windscreen')).toBe(GLASS_STAGE.shattered);
+    // Stages round-trip in the wire.
+    const back = new DamageState(layout);
+    expect(decodeDamage(encodeDamage(derby), back)).toBe(true);
+    expect(Array.from(back.glass)).toEqual(Array.from(derby.glass));
+  });
+  test('the Golf glazing has six windows found by facing, lamp covers stay unbroken; a shatter is announced once', async () => {
+    const glass = (await loadAuthoredFleet(PLAYER_MODEL, 0, 'glass'))!, cage = modelLayout(golf);
+    skinToCage(glass, cage, 'glass');
+    const windows = windowsOf(glass)!, tag = glass.getAttribute('damagePart'), position = glass.getAttribute('position');
+    expect(windows.map(w => w.window).sort()).toEqual([...WINDOWS].sort());
+    const where = (name: WindowName) => { const id = WINDOWS.indexOf(name) + 1, box = { minZ: Infinity, maxZ: -Infinity, minX: Infinity, maxX: -Infinity };
+      for (let i = 0; i < tag.count; i++) if (tag.getY(i) === id) { box.minZ = Math.min(box.minZ, position.getZ(i)); box.maxZ = Math.max(box.maxZ, position.getZ(i));
+        box.minX = Math.min(box.minX, position.getX(i)); box.maxX = Math.max(box.maxX, position.getX(i)); }
+      return box; };
+    expect(where('windscreen').minZ).toBeGreaterThan(0);
+    expect(where('rearWindow').maxZ).toBeLessThan(-1.4);
+    expect(where('frontLeft').minX).toBeGreaterThan(.5);
+    expect(where('frontLeft').minZ).toBeGreaterThan(where('rearLeft').maxZ - .05);
+    expect(where('rearRight').maxX).toBeLessThan(-.5);
+    // Lamp covers (low glass) belong to no window.
+    for (let i = 0; i < tag.count; i++) if (position.getY(i) < .75) expect(tag.getY(i)).toBe(0);
+    const events: ShatterEvent[] = [];
+    onWindowShattered(e => events.push(e));
+    const rig = new DamageRig(cage), body = new THREE.Mesh(new THREE.BufferGeometry()), panes = new THREE.Mesh(glass);
+    rig.bind(body); rig.bind(panes);
+    const state = new DamageState(cage);
+    rig.show(null, 0);
+    applyHit(state, { dv: [-36 / 3.6, 0, 0], at: [1, .6, .1], halfWidth: .3 });
+    rig.show(encodeDamage(state), 16); rig.show(encodeDamage(state), 32);
+    expect(events.map(e => WINDOWS[e.window])).toEqual(['frontLeft']);
+    expect(events[0].centre.x).toBeGreaterThan(.5);
+    onWindowShattered(null); rig.release();
   });
 });

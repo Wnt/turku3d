@@ -1,10 +1,10 @@
 import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { attribute, cross, int, ivec2, normalize, normalLocal, positionLocal, positionPrevious, textureLoad, uniform, vec3 } from 'three/tsl';
-import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, nodeIndex, PART_COUNT, PART_STATE, type DamageLayout } from '../../vehicle/damage';
+import { attribute, cross, float, int, ivec2, normalize, normalLocal, positionLocal, positionPrevious, step, textureLoad, uniform, vec3, vertexStage } from 'three/tsl';
+import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, GLASS_STAGE, nodeIndex, PART_COUNT, PART_STATE, WINDOW_COUNT, WINDOWS, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
-import { noParts, PartPoses, partsOf, splitParts, type ModelParts, type PartInfo } from './damageParts';
+import { PartPoses, partsOf, splitParts, splitWindows, windowsOf, type ModelParts, type PartInfo } from './damageParts';
 
 // Body damage on the GPU (vehicle/README.md "Body damage"). A damage-capable car body (the starter car, a driven or a
 // remote car) carries `skinIndex`/`skinWeight` to the 54-node deformation cage of vehicle/damage.ts, and its material
@@ -35,7 +35,7 @@ export async function skinToCageAsync(geometry: THREE.BufferGeometry, layout: Da
 
 function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 'body' | 'glass'): Generator<void> {
   if (geometry.getAttribute('skinIndex')) return;
-  if (kind === 'body') { splitParts(geometry, layout); yield; } else noParts(geometry);
+  if (kind === 'body') { splitParts(geometry, layout); yield; } else splitWindows(geometry, layout);
   const attribute = geometry.getAttribute('position'), n = attribute.count;
   // Fleet geometry is flat float32 (authored.ts flattenFleetAsset); read its array directly.
   const flat = attribute instanceof THREE.BufferAttribute && attribute.array instanceof Float32Array && !attribute.normalized && attribute.itemSize === 3;
@@ -92,8 +92,10 @@ function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 
 /** Damaged cars drawn at once with their own shape; slot 0 is the undamaged identity every fresh car reads. A car
  *  beyond the pool takes the slot used longest ago (that car draws fresh until it takes one back). */
 export const DAMAGE_SLOTS = 32;
-/** Texels per slot row: two per cage node, then two per part (0 the body, always identity; damageParts.ts). */
-const CAGE_TEXELS = DAMAGE_NODES * 2, PART_TEXELS = (PART_COUNT + 1) * 2, ROW = CAGE_TEXELS + PART_TEXELS;
+/** Texels per slot row: two per cage node, then two per part (0 the body, always identity; damageParts.ts), then
+ *  one per window (0 none; x the glass stage). */
+const CAGE_TEXELS = DAMAGE_NODES * 2, PART_TEXELS = (PART_COUNT + 1) * 2, WINDOW_BASE = CAGE_TEXELS + PART_TEXELS;
+const ROW = WINDOW_BASE + WINDOW_COUNT + 1;
 const poolData = new Uint16Array(ROW * DAMAGE_SLOTS * 4);
 const ONE = THREE.DataUtils.toHalfFloat(1);
 // Identity everywhere: quaternion w of every even texel, and the scale (w) of every part's translation texel.
@@ -115,20 +117,29 @@ export const rigOf = (object: THREE.Object3D) => rigs.get(object);
 const usedAt = new Float64Array(DAMAGE_SLOTS);
 let clock = 0;
 
-/** Fleet materials for damage-capable cars: the shared fleet look plus the cage deformation (see the file comment). */
-export function deformByCage<M extends THREE.NodeMaterial>(material: M): M {
+/** The pool row of the drawn object's car (a per-object uniform). */
+const slotNode = () => int(uniform(0).onObjectUpdate(({ object }) => (object && rigs.get(object))?.slot ?? 0));
+/** The glass stage of the drawn vertex's window (vehicle/damage.ts GLASS_STAGE), for the glazing's fragment stage. */
+export function windowStage(): Node<'float'> {
+  const texel = textureLoad(pool, ivec2(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slotNode())) as unknown as Node<'vec4'>;
+  return vertexStage(texel.x) as unknown as Node<'float'>;
+}
+
+/** Fleet materials for damage-capable cars: the shared fleet look plus the cage deformation (see the file comment).
+ *  `windows`: glazing, whose shattered windows collapse (the frame stays empty). */
+export function deformByCage<M extends THREE.NodeMaterial>(material: M, windows = false): M {
   // Vertices move before the model matrix: velocity and the normal prepass keep this program (rigidVelocity.ts).
   material.userData.vertexProgram = true;
   const setup = material.setupPosition.bind(material);
   material.setupPosition = (builder: NodeBuilder) => {
     const index = attribute('skinIndex', 'uvec4'), weight = attribute('skinWeight', 'vec4');
-    const slot = int(uniform(0).onObjectUpdate(({ object }) => (object && rigs.get(object))?.slot ?? 0));
+    const slot = slotNode();
     const turn = (q: Node<'vec4'>, v: Node<'vec3'>) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
     // The vertex's part first (a loose part swings about its hinge, a detached one collapses), then the cage blend.
     const part = int(attribute('damagePart', 'uvec4').x).mul(2).add(CAGE_TEXELS);
     const partTurn = textureLoad(pool, ivec2(part, slot)) as unknown as Node<'vec4'>;
     const partMove = textureLoad(pool, ivec2(part.add(1), slot)) as unknown as Node<'vec4'>;
-    const position = turn(partTurn, attribute('position', 'vec3')).mul(partMove.w).add(partMove.xyz);
+    const position = turn(partTurn, attribute('position', 'vec3')).add(partMove.xyz);
     const normal = turn(partTurn, attribute('normal', 'vec3'));
     let p: Node<'vec3'> = vec3(0), n: Node<'vec3'> = vec3(0);
     for (const k of ['x', 'y', 'z', 'w'] as const) {
@@ -138,6 +149,14 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M): M {
       p = p.add(turn(q, position).add(t).mul(weight[k]));
       n = n.add(turn(q, normal).mul(weight[k]));
     }
+    // A detached part (scale 0) collapses onto the origin after the blend: zero-area triangles draw nothing; so does
+    // a shattered window.
+    let keep: Node<'float'> = partMove.w as unknown as Node<'float'>;
+    if (windows) {
+      const stage = (textureLoad(pool, ivec2(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slot)) as unknown as Node<'vec4'>).x;
+      keep = keep.mul(float(1).sub(step(GLASS_STAGE.shattered - .5, stage)));
+    }
+    p = p.mul(keep);
     positionLocal.assign(p);
     normalLocal.assign(normalize(n));
     // The shape only changes in a crash: last frame's position is this one (motion comes from the model matrix).
@@ -150,6 +169,11 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M): M {
 /** A part of a car just came off (debris.ts copies it into a physics body). `velocity`: the car's, world frame (m/s). */
 export interface DetachEvent { rig: DamageRig; body: THREE.Mesh; part: number; info: PartInfo; velocity: THREE.Vector3 }
 let detachListener: ((event: DetachEvent) => void) | null = null;
+/** A window of a car just shattered (glassShards.ts throws its shards): `glass` the glazing mesh, `centre` the window's
+ *  crack origin (fleet frame). */
+export interface ShatterEvent { glass: THREE.Mesh; window: number; centre: THREE.Vector3; velocity: THREE.Vector3 }
+let shatterListener: ((event: ShatterEvent) => void) | null = null;
+export const onWindowShattered = (listener: ((event: ShatterEvent) => void) | null) => { shatterListener = listener; };
 /** The debris field (debris.ts) listens for parts coming off any drawn car, local or remote. */
 export const onPartDetached = (listener: ((event: DetachEvent) => void) | null) => { detachListener = listener; };
 
@@ -167,6 +191,7 @@ export class DamageRig {
   private readonly parts = new PartPoses();
   private readonly meshes: THREE.Mesh[] = [];
   private readonly partStates = new Uint8Array(PART_COUNT);
+  private readonly glassStages = new Uint8Array(WINDOW_COUNT);
   // The body's motion for the loose parts' swing: last world position and velocity, smoothed acceleration (world).
   private motion: { at: number; p: THREE.Vector3; v: THREE.Vector3; a: THREE.Vector3 } | null = null;
   constructor(readonly layout: DamageLayout) {
@@ -191,6 +216,13 @@ export class DamageRig {
         if (this.shown && next === PART_STATE.detached && this.partStates[i] !== PART_STATE.detached && info && this.meshes[0])
           detachListener?.({ rig: this, body: this.meshes[0], part: i, info, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
         this.partStates[i] = next;
+      }
+      const glass = this.meshes[1], windows = glass && windowsOf(glass.geometry);
+      for (let i = 0; i < WINDOW_COUNT; i++) {
+        const next = this.state.glass[i], window = windows?.find(w => w.window === WINDOWS[i]);
+        if (this.shown && next === GLASS_STAGE.shattered && this.glassStages[i] !== GLASS_STAGE.shattered && window)
+          shatterListener?.({ glass, window: i, centre: window.centre, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
+        this.glassStages[i] = next;
       }
       this.shown = true;
       this.posePart(now, true);
@@ -248,6 +280,8 @@ export class DamageRig {
   }
   private uploadParts() {
     if (!this.slot) return;
+    const windows = (this.slot * ROW + WINDOW_BASE + 1) * 4;
+    for (let i = 0; i < WINDOW_COUNT; i++) poolData[windows + i * 4] = THREE.DataUtils.toHalfFloat(this.state.glass[i]);
     // Part 0 (the body) keeps its identity texels; parts 1.. follow PartPoses.
     const base = (this.slot * ROW + CAGE_TEXELS + 2) * 4, r = this.parts.rotations, t = this.parts.translations;
     for (let i = 0; i < PART_COUNT; i++) for (let k = 0; k < 4; k++) {
@@ -313,9 +347,10 @@ export class DamageRig {
     const position = geometry.getAttribute('position'), index = geometry.getAttribute('skinIndex'), weight = geometry.getAttribute('skinWeight');
     const v = new THREE.Vector3(position.getX(vertex), position.getY(vertex), position.getZ(vertex)), q = new THREE.Quaternion();
     const part = geometry.getAttribute('damagePart')?.getX(vertex) ?? 0;
+    const k = (part - 1) * 4, scale = part ? this.parts.translations[k + 3] : 1;
     if (part) {
-      const r = this.parts.rotations, t = this.parts.translations, k = (part - 1) * 4;
-      v.applyQuaternion(q.set(r[k], r[k + 1], r[k + 2], r[k + 3])).multiplyScalar(t[k + 3]).add(new THREE.Vector3(t[k], t[k + 1], t[k + 2]));
+      const r = this.parts.rotations, t = this.parts.translations;
+      v.applyQuaternion(q.set(r[k], r[k + 1], r[k + 2], r[k + 3])).add(new THREE.Vector3(t[k], t[k + 1], t[k + 2]));
     }
     const x = v.x, y = v.y, z = v.z;
     out.set(0, 0, 0);
@@ -327,7 +362,7 @@ export class DamageRig {
       v.set(x, y, z).applyQuaternion(q).add(new THREE.Vector3(t[n * 3], t[n * 3 + 1], t[n * 3 + 2]));
       out.addScaledVector(v, w);
     }
-    return out;
+    return out.multiplyScalar(scale);
   }
   /** The deformed bounds of a skinned geometry in the body frame, without its detached parts. */
   bounds(geometry: THREE.BufferGeometry): THREE.Box3 {
