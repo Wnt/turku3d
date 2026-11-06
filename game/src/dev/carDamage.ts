@@ -173,6 +173,9 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       const wreck = new DamageState(state.layout);
       applyHit(wreck, { dv: [0, 0, -80 / 3.6] }); applyHit(wreck, { dv: [-.3 * 50 / 3.6, 0, .95 * 50 / 3.6], at: [.8, .6, -2] });
       wreck.parts.set([1, 1, 1, 1, 2, 0]); wreck.partSide.set([1, -1, 1, 1, 1, 1]);
+      // Cracked, crazed and shattered windows, and worn, scratched and dirty paint all round.
+      wreck.glass.set([1, 2, 3, 1, 0, 2]);
+      wreck.surfaceWear.forEach((_, i) => { wreck.surfaceWear[i] = (i * 37 % 16) / 16; wreck.surfaceDirt[i] = (i * 11 % 16) / 24; });
       const wrecked = encodeDamage(wreck);
       forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const side = new THREE.Vector3(-forward.z, 0, forward.x), yaw = Math.atan2(forward.x, forward.z);
