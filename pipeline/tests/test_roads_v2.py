@@ -343,3 +343,63 @@ def test_deck_paint_lies_on_the_built_deck_and_ground_paint_stays_below():
 
 if __name__ == "__main__":
     FIXTURE.write_text(json.dumps(fixture_graphs(), separators=(",", ":")) + "\n")
+
+
+def test_a_lane_line_on_the_centreline_survives_float_rounding():
+    """t0_6_0: a 1 + 3 lane road 7.2 m wide puts a lane line at 2.2e-16 m; GEOS offset_curve fails on such a
+    distance ("cannot create std::vector larger than max_size()"), which failed the whole tile's paint."""
+    bent = [(30, 120), (110, 120), (190, 160), (230, 160)]
+    ways = [
+        way(
+            bent,
+            "secondary",
+            31,
+            lanes="4",
+            **{"lanes:forward": "1", "lanes:backward": "3", "width": "7.2"},
+        )
+    ]
+    graph = build_tile_graph(ways, [], [], TILE_A.bbox, "t", TILE_A.size)
+    items = road_paint.markings(graph)
+    lanes = [p for p, _, _, kind in items if kind == "lane"]
+    assert lanes and road_paint.summary(items)["centre"]["polygons"] > 0
+    on_centre = [p for p in lanes if p.distance(shapely.LineString(bent)) < 1e-6]
+    assert on_centre, "the rounded lane line lies on the centreline"
+    line = shapely.LineString([(0, 0), (10, 0), (20, 5), (30, 5)])
+    tiny = road_paint._line(
+        line, [(0.0, 3.0), (8.0, 25.0)], 2.220446049250313e-16, road_paint.LINE_WIDTH
+    )
+    exact = road_paint._line(line, [(0.0, 3.0), (8.0, 25.0)], 0.0, road_paint.LINE_WIDTH)
+    assert len(tiny) == 2 and all(a.equals(b) for a, b in zip(tiny, exact, strict=True))
+
+
+def test_a_degenerate_marking_is_skipped_not_fatal(monkeypatch, capsys):
+    """A piece GEOS cannot offset, a non-finite offset or a NaN centreline costs only that marking."""
+    line = shapely.LineString([(0, 0), (0, 0), (10, 0), (20, 0)])
+    real = shapely.offset_curve
+
+    def fails_with_repeats(geometry, *args, **kwargs):
+        if len(geometry.coords) > len(set(geometry.coords)):
+            raise shapely.errors.GEOSException("cannot create std::vector larger than max_size()")
+        return real(geometry, *args, **kwargs)
+
+    monkeypatch.setattr(shapely, "offset_curve", fails_with_repeats)
+    repaired = road_paint._line(line, [(0.0, 20.0)], 1.5, road_paint.LINE_WIDTH)
+    assert len(repaired) == 1 and repaired[0].bounds[1] == pytest.approx(
+        1.5 - road_paint.LINE_WIDTH / 2
+    )
+    monkeypatch.setattr(
+        shapely,
+        "offset_curve",
+        lambda *a, **k: (_ for _ in ()).throw(shapely.errors.GEOSException("x")),
+    )
+    assert road_paint._line(line, [(0.0, 20.0)], 1.5, road_paint.LINE_WIDTH) == []
+    assert road_paint._line(line, [(0.0, 20.0)], float("nan"), road_paint.LINE_WIDTH) == []
+    monkeypatch.setattr(shapely, "offset_curve", real)
+    graph = tile_graph(TILE_B)
+    before = road_paint.summary(road_paint.markings(graph))
+    graph["edges"][0] = [*graph["edges"][0][:4], float("nan"), 50.0, *graph["edges"][0][6:]]
+    after = road_paint.summary(road_paint.markings(graph))
+    assert after and sum(k["polygons"] for k in after.values()) <= sum(
+        k["polygons"] for k in before.values()
+    )
+    assert capsys.readouterr().err.count("road paint: skipped") >= 3

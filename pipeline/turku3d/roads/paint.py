@@ -34,6 +34,10 @@ EDGE_INSET = 0.25  # m: edge line centre inside the carriageway edge
 # m past the lane-rule carriageway edge: zebras and stop lines reach the real kerb, where the drape onto
 # road triangles cuts them (OSM centrelines and default widths rarely match the surveyed kerbs).
 KERB_REACH = 1.5
+# m: a lane line offset this small lies on the centreline. The lane layout leaves float rounding there (a
+# 1 + 3 lane road 7.2 m wide puts a line at 2.2e-16 m), and GEOS offset_curve fails on such distances.
+ON_CENTRELINE = 1e-6
+REPEATED = 0.01  # m: vertices this close count as one when a line piece is repaired for its offset
 CENTRE_CLASSES = MAJOR | {
     "tertiary",
     "motorway_link",
@@ -109,18 +113,67 @@ def _subtract(intervals, cuts):
     return [(a, b) for a, b in intervals if b - a > 0.05]
 
 
-def _line(line, intervals, offset, width):
+def _offset(piece, offset):
+    """``piece`` moved ``offset`` m sideways, or None when it cannot be (logged on stderr).
+
+    A rounding-level offset is the piece itself: GEOS offset_curve fails on distances near 1e-16 ("cannot
+    create std::vector larger than max_size()", t0_6_0's lane lines). A piece GEOS still fails on is retried
+    once without its repeated vertices and otherwise skipped, so one bad marking never fails the tile's paint."""
     import shapely
+
+    if not math.isfinite(offset):
+        _skipped(piece, offset, "non-finite offset")
+        return None
+    if abs(offset) < ON_CENTRELINE:
+        return piece
+    try:
+        return shapely.offset_curve(piece, offset, join_style="mitre", mitre_limit=2.0)
+    except shapely.errors.GEOSException as error:
+        repaired = shapely.remove_repeated_points(piece, REPEATED)
+        if repaired.is_empty or len(repaired.coords) < 2 or repaired.length < 0.05:
+            _skipped(piece, offset, f"{error}; degenerate without repeated vertices")
+            return None
+        try:
+            return shapely.offset_curve(repaired, offset, join_style="mitre", mitre_limit=2.0)
+        except shapely.errors.GEOSException as again:
+            _skipped(piece, offset, str(again))
+            return None
+
+
+def _skipped(piece, offset, reason):
+    import sys
+
+    coords = list(piece.coords)
+    print(
+        f"road paint: skipped a line piece ({reason}): offset {offset:.3g} m, {len(coords)} vertices,"
+        f" {piece.length:.3f} m, from {coords[0]} to {coords[-1]}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _usable(line) -> bool:
+    """A carriageway centreline paint can follow: finite coordinates, two distinct vertices, some length."""
+    coords = list(line.coords)
+    return (
+        len(coords) >= 2
+        and all(math.isfinite(v) for point in coords for v in point)
+        and len(set(coords)) >= 2
+        and line.length >= 0.05
+    )
+
+
+def _line(line, intervals, offset, width):
     from shapely.ops import substring
 
     out = []
     for a, b in intervals:
         sub = substring(line, a, b)
-        if sub.is_empty or sub.length < 0.05:
+        if sub.is_empty or sub.length < 0.05 or sub.geom_type != "LineString":
             continue
         if offset:
-            sub = shapely.offset_curve(sub, offset, join_style="mitre", mitre_limit=2.0)
-            if sub.is_empty:
+            sub = _offset(sub, offset)
+            if sub is None or sub.is_empty:
                 continue
         poly = sub.buffer(width / 2, cap_style="flat", join_style="mitre", mitre_limit=2.0)
         if not poly.is_empty and poly.area > 0.001:
@@ -174,6 +227,9 @@ def markings(graph: dict | None, explicit=()) -> list:
         cumulative = _cumulative(points)
         length = cumulative[-1]
         if length < 0.2:
+            continue
+        if not _usable(line):  # Non-finite vertices: NaN lengths pass the check above.
+            _skipped(line, 0.0, "degenerate centreline")
             continue
         s0, total = attrs["s0"], attrs["length"]
         highway = HIGHWAYS[int(attrs["highway"])]
