@@ -245,6 +245,9 @@ class Farm:
                 self.aliases[alias] = revision
                 atomic_json(self.root / 'aliases.json', self.aliases)
                 self.version += 1
+                # /health is served from a snapshot: a moved alias must show at once (a pass started right after a
+                # registration resolved the previous revision of train8 from the 5 s old snapshot).
+                self._status_snapshot = None
             self.registrations_scanned = float('-inf')
         self.event('register', revision=revision, alias=alias, generation=meta['generation'])
         return dict(revision=revision, commit=meta.get('commit', revision),
