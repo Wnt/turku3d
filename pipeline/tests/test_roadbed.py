@@ -263,6 +263,34 @@ def test_one_outline_carries_a_link_at_its_own_level_behind_a_parapet():
     assert walls and max(w.positions[:, 1].max() for w in walls) >= 25.9
 
 
+def test_a_level_cut_that_folds_back_gets_a_parapet_per_run_not_a_failed_tile():
+    """t0_-10_7: the boundary between two deck levels folds back round a thin sliver of one of them;
+    one mitered wall along it raised "wall reverses direction" and failed the tile's whole build."""
+    from turku3d.coarse.bridges import level_parapets
+
+    fold = [(0, 0), (10, 0), (0, 0.4), (-2, 3)]
+    repeated = [(20, 0), (25, 0), (25, 0), (30, 0)]
+    cuts = shapely.MultiLineString([fold, repeated])
+
+    def main(xz):
+        return np.full(len(xz), 25.0)
+
+    def link(xz):
+        return np.full(len(xz), 24.0)
+
+    walls = level_parapets("t", cuts, main, link)
+    assert len(walls) == 3
+    for w in walls:
+        assert np.isfinite(w.positions).all()
+        assert w.positions[:, 1].min() == 24.0 and w.positions[:, 1].max() == 26.0
+    from turku3d.coarse.bridges import wall_runs
+
+    runs = wall_runs(fold)
+    assert [len(r) for r in runs] == [2, 3]  # split at the fold (10, 0), which both runs keep
+    assert np.allclose(runs[0][-1], runs[1][0])
+    assert [len(r) for r in wall_runs(repeated)] == [3]  # the repeated vertex is dropped
+
+
 def test_outline_beside_and_past_a_link_rides_on_the_link_not_the_main_deck():
     from turku3d.coarse.bridges import branch_height, deck_levels, slab
 
