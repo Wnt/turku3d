@@ -85,6 +85,9 @@ async function shot(page, label, view, both = true) {
   if (both) await glass(page, true);
 }
 
+// The bench camera (perf, ambientbench): behind the start car over the bench rows ahead of it; PERF_LOOK (JSON) overrides,
+// e.g. '{"yaw":5,"pitch":20,"distance":21,"height":0.5}' from ahead of the rows, looking back over them.
+const BENCH_LOOK = process.env.PERF_LOOK ? JSON.parse(process.env.PERF_LOOK) : { yaw: 180, pitch: 22, distance: 9, height: .5 };
 const CHASE = { yaw: 180, pitch: 13, distance: 6.2, height: 0.6 }, SIDE = { yaw: 90, pitch: 8, distance: 4.2, height: 0.45 };
 const FRONT = { yaw: 28, pitch: 9, distance: 4.4, height: 0.5 };
 
@@ -322,7 +325,7 @@ try {
     // camera over them. Each pair is measured off then on, and the cost is the median of the pairs' differences: the
     // streaming world keeps changing the scene's own cost between rounds.
     await hold(page, { handbrake: 1 });
-    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.evaluate(look => window.__game.damage.look(look), BENCH_LOOK);
     report.perf = [];
     await page.evaluate(() => window.__game.damage.bench({ count: 20, kind: 'capable' }));
     report.settle = await settleDraws(page);
@@ -368,7 +371,7 @@ try {
       return seats.length;
     }, models);
     await hold(page, { handbrake: 1 });
-    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.evaluate(look => window.__game.damage.look(look), BENCH_LOOK);
     await page.evaluate(() => window.__game.damage.bench({ count: 20, kind: 'capable' }));
     report.settle = await settleDraws(page);
     log('settled', report.settle);
@@ -377,11 +380,11 @@ try {
     for (let round = 0; round < rounds; round++) for (const [variant, models] of [['none', null], ['one', ['golf7']], ['mix', MIX]]) {
       const seated = await seat(page, models);
       await page.waitForTimeout(2500);
-      if (variant === 'one' && round === 0) for (const [name, view] of [['bench', null], ['close', { yaw: 160, pitch: 10, distance: 6, height: .6 }]]) {
+      if (variant === 'one' && round === 0) for (const [name, view] of [['bench', null], ['front', { yaw: 8, pitch: 5, distance: 11.5, height: .7 }]]) {
         if (view) await page.evaluate(view => window.__game.damage.look(view), view);
         await settle(page, 20);
         const file = path.join(out, `ambient-bench-${name}.png`); await page.screenshot({ path: file }); report.shots.push(file);
-        if (view) { await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 })); await settle(page, 20); }
+        if (view) { await page.evaluate(look => window.__game.damage.look(look), BENCH_LOOK); await settle(page, 20); }
       }
       await page.evaluate(() => window.__render?.perf?.reset?.());
       const f = await frames(page, 240);
