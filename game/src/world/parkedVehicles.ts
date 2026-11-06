@@ -1,7 +1,7 @@
 import {fleetWheelFootprint} from '../actors/fleet/wheelLayouts';
 import { wheelGroundProbes, wheelGroundPose } from '../vehicle/wheelGround';
 import { fleetModel } from '../actors/fleet/catalog';
-import { modelTuning } from '../vehicle/modelTuning';
+import { modelDamageBox, modelTuning } from '../vehicle/modelTuning';
 import type { ParkedCarVisuals } from '../actors/car';
 import type { SeatedVehicles } from '../actors/seatedVehicles';
 import { collisionTileAt, type V3 } from '../core/origin';
@@ -217,10 +217,12 @@ export class ParkedVehicles {
     }));
   }
 
-  /** The real model's own collision box and driving tuning (it fits the slot, actors/fleet/catalog.ts fitsSlot). */
+  /** The real model's own collision box, driving tuning and damage cage (it fits the slot, actors/fleet/catalog.ts
+   *  fitsSlot); the cage takes crashes once a player drives the car (vehicle.ts armDamage). */
   private body(id: string, car: ParkedVehicle) {
-    const m = fleetModel(car.model, id, car), tuning = m ? modelTuning(m.id) : undefined;
-    return { halfExt: { x: (m?.length ?? car.length) / 2, y: (m?.height ?? car.height) * .28, z: car.width / 2 }, ...(tuning ? { tuning } : {}) };
+    const m = fleetModel(car.model, id, car), tuning = m ? modelTuning(m.id) : undefined, box = m ? modelDamageBox(m.id) : undefined;
+    return { halfExt: { x: (m?.length ?? car.length) / 2, y: (m?.height ?? car.height) * .28, z: car.width / 2 }, ...(tuning ? { tuning } : {}),
+      ...(box ? { damage: { box } } : {}) };
   }
 
   private spawn(id: string, car: ParkedVehicle) {

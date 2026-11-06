@@ -585,6 +585,44 @@ loose bonnet and mirror and a steaming radiator runs the rattle and hiss loops.
 npm --prefix game test -- --run tests/unit/car-parts.test.ts tests/unit/audio.test.ts
 ```
 
+## Body damage across the fleet
+
+Phase 3 of the car-damage plan: the starter car's damage (all sections above) for every fleet model.
+
+- **Driven cars** (slice 1): every fleet car a player drives takes damage like the starter car. Parked bodies spawn
+  with their model's cage (`world/parkedVehicles.ts`, `modelDamageBox`), which takes crashes and scrapes once a
+  player drives the car (`vehicle.ts armDamage`, from `world.ts driveVehicle`); a shared vehicle record of any car
+  model spawns with its cage and continues from the damage in its pose (`net/sharedVehicles.ts`), so an owner change
+  keeps a wreck. The driven and remote actors already draw any model with the damage material.
+- **Validation at load** (`damageParts.ts`, in `skinToCage`, once per body and glazing geometry): the same rule for
+  every model, checked per model (`splitReport`, `windowReport`). A part stays on the body (deforms and wears, never
+  hangs loose or comes off) when it is implausible for its role (`PLAUSIBLE`): bumpers under 60 % of the width or 6
+  % of the height, a bonnet under half the width or 10 % of the length, a boot lid under 45 % of the width, fewer than
+  24 triangles (mirrors 12), or covering only a sliver of its region (bumpers 30 %, bonnet 35 %, boot lid 25 %: the
+  panel is fused to the shell and the rest of it would stay on the car). Glazing modelled as one shell (a piece over
+  60 % of the length, or one of 0.25 m² facing both the side and an end) is split triangle by triangle, with vertices
+  shared across windows duplicated; a window found far larger than its role (a windscreen over half the length, a side
+  window over 30 % of the width) stays intact. `cageFit`: the share of vertices more than 10 cm outside the model's box
+  (weights clamp to the box) and the body's centre offset along the length.
+- **Outcome** (all 55 models, `tests/unit/fleet-damage.test.ts` keeps the tables): 29 models split all six parts.
+  Left on the body: boot lids of 18 models (most vans and trucks, a bus, and hatchbacks with a glazed tailgate such as
+  fabia2, mazda3-bk, punto-1995), bonnets of 16 (fused to the wings), rear bumpers of 6 (carla-audi-etron,
+  carla-audi-tt, carla-carlamotors-firetruck, crownvic-police, crownvic-taxi, generic-sedan), the front bumper of
+  carla-carlamotors-carlacola, mirrors of 10 trucks, buses and vans without separate mirrors. No glazing to break: the
+  European HGV, the fire truck and the Sprinter ambulance (opaque or body glass). Windows kept intact: 8 models (one
+  or two each). Cage misfit: transit-bus (its body sits 27 cm off its origin along the length, so the front crumple
+  starts that far ahead of the bumper: a model fix). The rav4's glazing is one shell and now splits into five windows.
+- **Crash test** (`vehicle-gallery.html`, every model): K steps through a 50 km/h wall hit, a 60 km/h front-left
+  corner, a 40 km/h door, a 60 km/h rear hit, a 75 km/h head-on and a 30 km/h roof landing; Backspace gives a fresh
+  body; the status line names the parts that stay on the body. Real knocks in the gallery dent the car too. The hook
+  (`window.vehicleGallery`: `select(id)`, `crash({ kmh, push, at, halfWidth })`, `clearDamage()`, `damage()`, `view`)
+  drives `game/scripts/fleet-damage-sheet.mjs` (every model after a scripted 50 km/h dent, and as a wreck with its
+  parts hanging loose; `fleet-damage-sheet.py` tiles the shots).
+
+```sh
+npm --prefix game test -- --run tests/unit/fleet-damage.test.ts tests/unit/car-parts.test.ts
+```
+
 ## Tyre marks and smoke
 
 `Vehicle.step` measures wheel contact velocity (including chassis angular velocity) in each steered wheel's

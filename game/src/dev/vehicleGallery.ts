@@ -7,7 +7,10 @@ import * as THREE from 'three/webgpu';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { AUTHORED_MODELS, type AuthoredModel } from '../actors/fleet/registry';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
-import { modelTuning } from '../vehicle/modelTuning';
+import { modelDamageBox, modelTuning } from '../vehicle/modelTuning';
+import type { DamageHit } from '../vehicle/damage';
+import { rigOf } from '../actors/fleet/damageRig';
+import { splitReport, windowReport } from '../actors/fleet/damageParts';
 import { CarVisual } from '../actors/car';
 import { ScooterVisual } from '../actors/scooter';
 import { TruckVisual } from '../actors/truck';
@@ -112,6 +115,8 @@ const views = ENTRIES.map((entry, i) => {
 });
 
 type Visual = { update(state: VehicleState, dt: number): void; dispose(): void;
+  /** The damage-capable body mesh (fleet frame), when the vehicle has one. */
+  body?(): THREE.Mesh | undefined;
   /** Where the driver sits: the vehicle's fleet-frame Object3D and its layout (none on the scooter). */
   driver?(): { frame: THREE.Object3D; layout: DriverLayout } | null };
 type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visual: Visual; start: typeof START };
@@ -120,7 +125,7 @@ async function makeVisual(entry: Entry, index: number): Promise<Visual> {
   if (entry.kind === 'car') {
     const v = new CarVisual(scene, PLAYER_MODEL, PLAYER_COLOR); await v.load();
     return { update: s => v.update(s), dispose: () => v.root.removeFromParent(),
-      driver: () => v.frame && { frame: v.frame, layout: fleetDriverLayout(PLAYER_MODEL) } };
+      driver: () => v.frame && { frame: v.frame, layout: fleetDriverLayout(PLAYER_MODEL) }, body: () => v.frame as THREE.Mesh | undefined };
   }
   if (entry.kind === 'scooter') {
     const v = new ScooterVisual(scene); await v.load('/assets/vehicles/scooter.glb'); scene.add(v.root); v.root.visible = true;
@@ -136,7 +141,48 @@ async function makeVisual(entry: Entry, index: number): Promise<Visual> {
     width: model.width, height: model.height, length: model.length, clear_front_m: 5, clear_rear_m: 5 }];
   const visuals = new ParkedCarVisuals(scene); await visuals.load(manifest); visuals.takeOver('drive');
   return { update: s => { visuals.setView(camera); visuals.update([{ ...s, id: 'drive' }]); }, dispose: () => visuals.dispose(),
-    driver: () => { const d = visuals.driven('drive'); return d && { frame: d.actor, layout: fleetDriverLayout(d.model) }; } };
+    driver: () => { const d = visuals.driven('drive'); return d && { frame: d.actor, layout: fleetDriverLayout(d.model) }; },
+    body: () => visuals.driven('drive')?.actor as THREE.Mesh | undefined };
+}
+
+// Crash test (K, the gallery hook's `crash`): the same hits the game's physics applies (vehicle/damage.ts), on the
+// model in view: K steps through 50 km/h into a wall, a 60 km/h front-left corner, a 40 km/h door, a 60 km/h rear
+// hit, a 75 km/h head-on (bumpers and bonnet hang loose) and a 30 km/h roll onto the roof; Backspace a fresh body.
+// Fleet frame: +Z forward, +X the car's left; the push is away from the side hit; `at` in halves of the model's width
+// and length (and metres up).
+const CRASHES: { name: string; kmh: number; push: [number, number, number]; at?: [number, number, number]; halfWidth?: number }[] = [
+  { name: 'wall 50 km/h', kmh: 50, push: [0, 0, -1] },
+  { name: 'front-left corner 60 km/h', kmh: 60, push: [-Math.SQRT1_2, 0, -Math.SQRT1_2], at: [1, .6, 1], halfWidth: .3 },
+  { name: 'left door 40 km/h', kmh: 40, push: [-1, 0, 0], at: [1, .6, .15], halfWidth: .4 },
+  { name: 'rear 60 km/h', kmh: 60, push: [0, 0, 1] },
+  { name: 'wall 75 km/h', kmh: 75, push: [0, 0, -1] },
+  { name: 'roof 30 km/h', kmh: 30, push: [0, -1, 0] },
+];
+let crashStep = 0, crashNote = '';
+function crash(hit?: Partial<{ kmh: number; push: [number, number, number]; at: [number, number, number]; halfWidth: number }>) {
+  if (!active?.vehicle.damage) return null;
+  const preset = hit ? null : CRASHES[crashStep++ % CRASHES.length];
+  const box = active.vehicle.damage.layout, scaled = preset?.at && [preset.at[0] * box.width / 2, preset.at[1], preset.at[2] * box.length / 2] as [number, number, number];
+  const kmh = hit?.kmh ?? preset!.kmh, push = hit?.push ?? preset!.push, at = hit?.at ?? scaled, halfWidth = hit?.halfWidth ?? preset?.halfWidth;
+  const v = kmh / 3.6, damage: DamageHit = { dv: [push[0] * v, push[1] * v, push[2] * v], ...(at ? { at } : {}), ...(halfWidth ? { halfWidth } : {}) };
+  active.vehicle.damageHit(damage);
+  const report = damageReport(), dropped = report?.parts ? [...Object.entries(report.parts).filter(([, p]) => !p.kept).map(([name]) => name),
+    ...(report.glass?.dropped ?? [])] : [];
+  crashNote = `crash test: ${preset?.name ?? `${kmh} km/h`}${dropped.length ? ` (stays on the body: ${dropped.join(', ')})` : ''}`;
+  return damage;
+}
+addEventListener('keydown', e => {
+  if (e.repeat || !active) return;
+  if (e.code === 'KeyK') crash();
+  if (e.code === 'Backspace') { active.vehicle.setDamage(null); crashStep = 0; crashNote = ''; }
+});
+/** The active model's damage split (actors/fleet/damageParts.ts): parts kept or dropped, the cage fit, the windows. */
+function damageReport() {
+  const body = active?.visual.body?.(), rig = body && rigOf(body), glass = body?.children.find(c => (c as THREE.Mesh).isMesh && rigOf(c)) as THREE.Mesh | undefined;
+  if (!body || !rig) return null;
+  return { model: ENTRIES[active!.index].kind === 'fleet' ? (ENTRIES[active!.index] as Extract<Entry, { kind: 'fleet' }>).entry.id : PLAYER_MODEL,
+    ...splitReport(body.geometry), glass: glass ? windowReport(glass.geometry) ?? null : null, slot: rig.slot, hits: rig.state.hits,
+    partStates: Array.from(rig.state.parts), box: { length: rig.layout.length, width: rig.layout.width, height: rig.layout.height } };
 }
 let active: Active | null = null, pending = -1;
 
@@ -160,7 +206,10 @@ async function activate(index: number) {
   const kind = entry.kind === 'fleet' ? 'car' : entry.kind;
   const start = kind === 'truck' ? { x: -1.0, y: 1.5, z: -3.75 } : START;
   const tuning = entry.kind === 'fleet' ? modelTuning(entry.entry.id) : entry.kind === 'car' ? modelTuning(PLAYER_MODEL) : undefined;
-  const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind, ...(tuning ? { tuning } : {}) });
+  // Every car takes damage as in the game (vehicle/damage.ts): from real knocks here and from the crash test (K).
+  const box = entry.kind === 'fleet' ? modelDamageBox(entry.entry.id) : entry.kind === 'car' ? modelDamageBox(PLAYER_MODEL) : undefined;
+  const vehicle = new Vehicle(R, world, start, 0, new CurbQueries(R, world), { kind, ...(tuning ? { tuning } : {}), ...(box ? { damage: { box } } : {}) });
+  crashStep = 0; crashNote = '';
   const visual = await makeVisual(entry, index);
   if (pending !== index) { visual.dispose(); world.free(); return; }
   // Settle on the brakes (the soft truck bounces and would roll off the platform) before the opening view.
@@ -214,7 +263,20 @@ const hook = { state: () => active?.vehicle.state(), actions: () => input.action
   /** A fixed camera relative to the vehicle (yaw about +Y from its forward axis, degrees; metres; `ahead`: the point
    *  looked at that far forward of the vehicle's centre, e.g. a bus's cab), or the chase. */
   view: null as null | { yaw: number; pitch: number; distance: number; height: number; ahead?: number },
-  reset: () => { if (active) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); } }, scene };
+  reset: () => { if (active) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); } }, scene,
+  /** Crash test: a hit on the model in view (`kmh`, `push` away from the side hit, `at`, `halfWidth`; fleet frame), or
+   *  the next preset; `clearDamage` a fresh body; `damage` its split report and drawn state. */
+  crash, clearDamage: () => active?.vehicle.setDamage(null), damage: damageReport,
+  /** Scrolls entry `id` (a fleet model id, or car / scooter / truck) into view and resolves once it is active. */
+  select: async (id: string) => {
+    const index = views.findIndex(v => v.view.dataset.id === id);
+    if (index < 0) return false;
+    views[index].view.scrollIntoView({ block: 'center' });
+    await activate(index);
+    for (let i = 0; i < 600 && active?.index !== index; i++) await new Promise(r => setTimeout(r, 50));
+    return active?.index === index;
+  },
+  entries: () => views.map(v => v.view.dataset.id!) };
 Object.assign(window, { vehicleGallery: hook });
 let last = performance.now(), carry = 0;
 renderer.setAnimationLoop(() => {
@@ -249,6 +311,6 @@ renderer.setAnimationLoop(() => {
   audio.emit({ type: 'horns', vehicles: signals.horn ? [{ id: 'gallery', kind: active.vehicle.kind, position: state.pos }] : [] });
   const pads = [...(navigator.getGamepads?.() ?? [])].filter((g): g is Gamepad => !!g)
     .map(g => `${g.id.slice(0, 40)} (${g.mapping || 'no standard mapping'})`).join(', ') || 'none seen yet: press a controller button';
-  status.textContent = `${LIGHT_LABELS[signals.lights]}${signals.horn ? ' · horn' : ''}${night ? ' · night' : ''} · input: ${input.source} · controllers: ${pads}`;
+  status.textContent = `${LIGHT_LABELS[signals.lights]}${signals.horn ? ' · horn' : ''}${night ? ' · night' : ''}${crashNote ? ` · ${crashNote}` : ''} · input: ${input.source} · controllers: ${pads}`;
   renderer.render(scene, camera);
 });

@@ -511,7 +511,7 @@ export class PhysicsWorld {
     const previous = this.vehicles.get(this.drivenId ?? "");
     if (previous) previous.horn = false;
     this.drivenId = id;
-    if (id) { this.vehicles.get(id)!.lights = 1; this.vehicles.get(id)!.body.wakeUp(); }
+    if (id) { const vehicle = this.vehicles.get(id)!; vehicle.lights = 1; vehicle.body.wakeUp(); vehicle.armDamage(); }
   }
   resetVehicle(pos: V3, yaw: number, id = 'player') {
     const car = this.vehicles.get(id);

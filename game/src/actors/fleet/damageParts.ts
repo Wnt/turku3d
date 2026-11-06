@@ -1,6 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { PART_COUNT, PART_STATE, PARTS, WINDOWS, type DamageLayout, type DamageState, type PartName, type WindowName } from '../../vehicle/damage';
 
+// The split is the same rule for every fleet model and is checked per model (`splitReport`): a part that comes out
+// implausible stays on the body, so that model's damage keeps its deformation and wear there (vehicle/README.md
+// "Body damage across the fleet").
+
 // Loose and detached body parts (vehicle/README.md "Loose and detached parts"). Each damage-capable body is split by
 // region, once per geometry, into the parts of vehicle/damage.ts PARTS: the same rule for every fleet model, from its
 // damage box. A `damagePart` vertex attribute (x: part index + 1, 0 the body) picks the part's rigid transform in the
@@ -84,7 +88,7 @@ export function splitParts(geometry: THREE.BufferGeometry, layout: DamageLayout)
   const smooth = pieces(position, index, false), welded = smooth;
   // Per triangle: its region and area; per piece (triangle-connected: coincident positions often weld a mirror or a
   // bumper to the panel beside it): area by region and bounds.
-  const own = new Uint8Array(triangles), area = new Float32Array(triangles);
+  const own = new Uint8Array(triangles), regionOf = new Uint8Array(triangles), area = new Float32Array(triangles);
   const votes = new Map<number, Float64Array>(), bounds = new Map<number, THREE.Box3>(), smoothBounds = new Map<number, THREE.Box3>();
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), m = new THREE.Vector3();
   const lampOf = (t: number) => !!surface && surface.getW(index[t * 3]) >= .5;
@@ -93,7 +97,7 @@ export function splitParts(geometry: THREE.BufferGeometry, layout: DamageLayout)
     a.fromBufferAttribute(position, i0); b.fromBufferAttribute(position, i1); c.fromBufferAttribute(position, i2);
     m.copy(a).add(b).add(c).divideScalar(3);
     const ny = (normal.getY(i0) + normal.getY(i1) + normal.getY(i2)) / 3;
-    own[t] = lampOf(t) ? 0 : region(layout, m.x, m.y, m.z, ny);
+    own[t] = regionOf[t] = lampOf(t) ? 0 : region(layout, m.x, m.y, m.z, ny);
     area[t] = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2 + 1e-9;
     const r = welded[i0];
     let v = votes.get(r);
@@ -157,82 +161,239 @@ export function splitParts(geometry: THREE.BufferGeometry, layout: DamageLayout)
   const info: (PartInfo | null)[] = PARTS.map(() => null), lists = PARTS.map(() => [] as number[]);
   const finalPosition = geometry.getAttribute('position');
   for (let t = 0; t < triangles; t++) if (own[t]) lists[own[t] - 1].push(t);
+  // Per part: the area of its region (every non-lamp triangle there, whichever piece it belongs to) and of the part
+  // inside it, for the plausibility check.
+  const regionArea = new Float64Array(PART_COUNT + 1), covered = new Float64Array(PART_COUNT + 1);
+  for (let t = 0; t < triangles; t++) {
+    const r = regionOf[t];
+    regionArea[r] += area[t];
+    if (own[t] === r) covered[r] += area[t];
+  }
+  const report = {} as SplitReport['parts'];
   PARTS.forEach((name, i) => {
-    if (!lists[i].length) return;
+    const triangleCount = lists[i].length;
     const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
     for (const t of lists[i]) for (let k = 0; k < 3; k++) { a.fromBufferAttribute(finalPosition, out[t * 3 + k]); min.min(a); max.max(a); }
+    const coverage = regionArea[i + 1] > 0 ? covered[i + 1] / regionArea[i + 1] : 0;
+    const reason = triangleCount ? implausible(name, layout, min, max, triangleCount, coverage) : 'not found';
+    report[name] = { triangles: triangleCount, coverage: Math.round(coverage * 100) / 100, kept: !reason, ...(reason ? { reason } : {}) };
+    if (reason) {
+      // An implausible part stays on the body: it deforms and wears with it, and never hangs loose or comes off.
+      for (const t of lists[i]) for (let k = 0; k < 3; k++) parts[out[t * 3 + k] * 4] = 0;
+      return;
+    }
     info[i] = { name, min, max, triangles: Uint32Array.from(lists[i].flatMap(t => [out[t * 3], out[t * 3 + 1], out[t * 3 + 2]])) };
   });
   byGeometry.set(geometry, info);
+  reports.set(geometry, { parts: report, fit: cageFit(geometry, layout) });
   return true;
 }
+
+/** A split part a loose swing or a debris copy would show wrongly, and why: too narrow for its role (a badge or a
+ *  washer nozzle taken for a bonnet), too few triangles, or only a sliver of its region (the panel is fused to the
+ *  shell, so the rest of it would stay on the car). Fractions of the damage box; null when plausible. */
+export const PLAUSIBLE = {
+  bumper: { width: .6, height: .06, coverage: .3 }, bonnet: { width: .5, length: .1, coverage: .35 },
+  bootLid: { width: .45, height: .07, coverage: .25 }, triangles: 24, mirrorTriangles: 12,
+} as const;
+function implausible(name: PartName, layout: DamageLayout, min: THREE.Vector3, max: THREE.Vector3, triangles: number, coverage: number): string | null {
+  const width = (max.x - min.x) / layout.width, height = (max.y - min.y) / layout.height, length = (max.z - min.z) / layout.length;
+  if (name === 'mirrorLeft' || name === 'mirrorRight') return triangles < PLAUSIBLE.mirrorTriangles ? `${triangles} triangles` : null;
+  if (triangles < PLAUSIBLE.triangles) return `${triangles} triangles`;
+  const rule = name === 'bonnet' ? PLAUSIBLE.bonnet : name === 'bootLid' ? PLAUSIBLE.bootLid : PLAUSIBLE.bumper;
+  if (width < rule.width) return `${Math.round(width * 100)} % of the width`;
+  if ('height' in rule && height < rule.height) return `${Math.round(height * 100)} % of the height`;
+  if ('length' in rule && length < rule.length) return `${Math.round(length * 100)} % of the length`;
+  if (coverage < rule.coverage) return `${Math.round(coverage * 100)} % of its region`;
+  return null;
+}
+
+/** The outcome of a body's split (splitParts): per part its triangles, the share of its region it covers, kept or
+ *  why not; and how the body fits its cage (`cageFit`). */
+export interface SplitReport { parts: Record<PartName, { triangles: number; coverage: number; kept: boolean; reason?: string }>; fit: CageFit }
+
+/** How a body fits the cage of its model's box: the cage weights clamp to the box, so a vertex outside it moves with
+ *  the nearest face (a mirror, a towbar); `outside` is the share of vertices more than `FIT.margin` out, `offset` (m)
+ *  the body's bounds centre from the box centre along the length (a model not centred on its origin crumples short at
+ *  one end and over-long at the other). `ok` within FIT. */
+export interface CageFit { outside: number; offset: number; ok: boolean }
+export const FIT = { margin: .1, outside: .01, offset: .05 } as const;
+function cageFit(geometry: THREE.BufferGeometry, layout: DamageLayout): CageFit {
+  const position = geometry.getAttribute('position'), n = position.count;
+  let out = 0, low = Infinity, high = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const x = position.getX(i), y = position.getY(i), z = position.getZ(i);
+    low = Math.min(low, z); high = Math.max(high, z);
+    if (x < layout.min[0] - FIT.margin || x > layout.max[0] + FIT.margin || y < layout.min[1] - FIT.margin || y > layout.max[1] + FIT.margin
+      || z < layout.min[2] - FIT.margin || z > layout.max[2] + FIT.margin) out++;
+  }
+  const outside = n ? out / n : 0, offset = (low + high) / 2 - (layout.min[2] + layout.max[2]) / 2;
+  return { outside: Math.round(outside * 1e4) / 1e4, offset: Math.round(offset * 100) / 100, ok: outside <= FIT.outside && Math.abs(offset) <= FIT.offset };
+}
+const reports = new WeakMap<THREE.BufferGeometry, SplitReport>();
+/** The split report of a body geometry (splitParts). */
+export const splitReport = (geometry: THREE.BufferGeometry): SplitReport | undefined => reports.get(geometry);
 
 /** Glazing: every vertex on the body, and each window found by its facing (vehicle/damage.ts WINDOWS): pieces above
  *  `WINDOW_H` of the height (lower ones are lamp covers), facing the side beyond `SIDE_N` (left or right; front and
  *  rear by the gap at the B-pillar: the side's foremost run of pieces is the front window) or else the windscreen
- *  (ahead of the middle) and the rear window. `damagePart.y` is the window (index + 1, 0 none); `crackUV` (m) places
- *  each vertex in its window's plane around the crack origin, a fixed point a little off the window's centre. */
-const WINDOW_H = .62, SIDE_N = .55;
+ *  (ahead of the middle) and the rear window. A fused piece (glazing modelled as one shell: a piece over `FUSED_SPAN` of the
+ *  length, or one of `FUSED_AREA` m² or more that faces both the side and an end) is classified triangle by triangle instead, its front and
+ *  rear side glass split at the middle of that side's glazing, and vertices shared across windows are duplicated so
+ *  a shattered window never drags its neighbour's edge. `damagePart.y` is the window (index + 1, 0 none); `crackUV`
+ *  (m) places each vertex in its window's plane around the crack origin, a fixed point a little off the window's
+ *  centre. Each window found is checked for its place and size (`splitReport(body).windows` lists the kept ones). */
+const WINDOW_H = .62, SIDE_N = .55, FUSED_SPAN = .6, FUSED_SIDE = [.2, .8] as const, FUSED_AREA = .25;
 const WINDOW_ID = Object.fromEntries(WINDOWS.map((name, i) => [name, i + 1])) as Record<WindowName, number>;
 export function splitWindows(geometry: THREE.BufferGeometry, layout: DamageLayout) {
   if (geometry.getAttribute('damagePart')) return;
   const position = geometry.getAttribute('position'), normal = geometry.getAttribute('normal'), n = position.count;
   const index = (geometry.index?.array as ArrayLike<number> | undefined) ?? Uint32Array.from({ length: n }, (_, i) => i);
-  const piece = pieces(position, index, false), centreX = (layout.min[0] + layout.max[0]) / 2;
-  // Per piece: bounds and the area-weighted normal.
-  const info = new Map<number, { box: THREE.Box3; normal: THREE.Vector3 }>();
+  const triangles = index.length / 3, piece = pieces(position, index, false), centreX = (layout.min[0] + layout.max[0]) / 2;
+  const centre = new THREE.Vector3(centreX, (layout.min[1] + layout.max[1]) / 2, (layout.min[2] + layout.max[2]) / 2);
+  // Per triangle: its outward facing (glazing is double-sided and its winding is not reliable: the vertex normals,
+  // flipped outwards), area and centroid; per piece: bounds, the area-weighted normal and its side-facing share.
+  const facing = new Float32Array(triangles * 3), area = new Float32Array(triangles), mid = new Float32Array(triangles * 3);
+  const info = new Map<number, { box: THREE.Box3; normal: THREE.Vector3; area: number; side: number }>();
   const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cross = new THREE.Vector3();
-  for (let t = 0; t < index.length; t += 3) {
-    a.fromBufferAttribute(position, index[t]); b.fromBufferAttribute(position, index[t + 1]); c.fromBufferAttribute(position, index[t + 2]);
-    let p = info.get(piece[index[t]]);
-    if (!p) { p = { box: new THREE.Box3(), normal: new THREE.Vector3() }; info.set(piece[index[t]], p); }
+  for (let t = 0; t < triangles; t++) {
+    a.fromBufferAttribute(position, index[t * 3]); b.fromBufferAttribute(position, index[t * 3 + 1]); c.fromBufferAttribute(position, index[t * 3 + 2]);
+    let p = info.get(piece[index[t * 3]]);
+    if (!p) { p = { box: new THREE.Box3(), normal: new THREE.Vector3(), area: 0, side: 0 }; info.set(piece[index[t * 3]], p); }
     p.box.expandByPoint(a).expandByPoint(b).expandByPoint(c);
-    const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
-    // Glazing is double-sided and its winding is not reliable: the vertex normals, flipped outwards, give the facing.
+    const m = a.clone().add(b).add(c).divideScalar(3);
+    mid.set([m.x, m.y, m.z], t * 3);
+    area[t] = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
     cross.set(0, 0, 0);
-    for (let k = 0; k < 3; k++) cross.add(b.fromBufferAttribute(normal, index[t + k]));
-    if (cross.dot(a.sub(c.set(centreX, (layout.min[1] + layout.max[1]) / 2, 0))) < 0) cross.negate();
-    p.normal.addScaledVector(cross.normalize(), area);
+    for (let k = 0; k < 3; k++) cross.add(b.fromBufferAttribute(normal, index[t * 3 + k]));
+    if (cross.dot(m.clone().sub(centre).setZ(0)) < 0) cross.negate();
+    cross.normalize();
+    facing.set([cross.x, cross.y, cross.z], t * 3);
+    p.normal.addScaledVector(cross, area[t]); p.area += area[t];
+    if (Math.abs(cross.x) > SIDE_N) p.side += area[t];
   }
-  const window = new Map<number, number>(), sides: Record<'left' | 'right', { root: number; min: number; max: number }[]> = { left: [], right: [] };
+  const high = (y: number) => (y - layout.min[1]) / layout.height >= WINDOW_H;
+  const fused = (p: { box: THREE.Box3; area: number; side: number }) => high((p.box.min.y + p.box.max.y) / 2)
+    && (p.box.max.z - p.box.min.z > FUSED_SPAN * layout.length || (p.area > FUSED_AREA && p.side > FUSED_SIDE[0] * p.area && p.side < FUSED_SIDE[1] * p.area));
+  const end = (z: number) => z > centre.z ? WINDOW_ID.windscreen : WINDOW_ID.rearWindow;
+  // Side glass entries (a piece, or a triangle of a fused piece), for the front/rear split per side.
+  type Entry = { root: number; triangle: number; min: number; max: number; z: number };
+  const window = new Uint8Array(triangles), sides: Record<'left' | 'right', Entry[]> = { left: [], right: [] };
+  const pieceWindow = new Map<number, number>();
   for (const [root, p] of info) {
-    const mid = p.box.getCenter(new THREE.Vector3()), nrm = p.normal.clone().normalize();
-    if ((mid.y - layout.min[1]) / layout.height < WINDOW_H) continue;
-    if (Math.abs(nrm.x) > SIDE_N) sides[mid.x > centreX ? 'left' : 'right'].push({ root, min: p.box.min.z, max: p.box.max.z });
-    else window.set(root, mid.z > (layout.min[2] + layout.max[2]) / 2 ? WINDOW_ID.windscreen : WINDOW_ID.rearWindow);
+    if (fused(p)) continue;
+    const m = p.box.getCenter(new THREE.Vector3()), nrm = p.normal.clone().normalize();
+    if (!high(m.y)) continue;
+    if (Math.abs(nrm.x) > SIDE_N) sides[m.x > centreX ? 'left' : 'right'].push({ root, triangle: -1, min: p.box.min.z, max: p.box.max.z, z: m.z });
+    else pieceWindow.set(root, end(m.z));
+  }
+  let anyFused = false;
+  for (let t = 0; t < triangles; t++) {
+    const root = piece[index[t * 3]], p = info.get(root)!;
+    if (!fused(p)) continue;
+    anyFused = true;
+    if (!high(mid[t * 3 + 1])) continue;
+    const z = mid[t * 3 + 2];
+    if (Math.abs(facing[t * 3]) > SIDE_N) sides[mid[t * 3] > centreX ? 'left' : 'right'].push({ root, triangle: t, min: z, max: z, z });
+    else window[t] = end(z);
   }
   for (const side of ['left', 'right'] as const) {
-    const list = sides[side].sort((x, y) => y.max - x.max);
-    // The foremost run of overlapping pieces is the front window; behind the first gap of 3 cm, the rear window.
-    let front = list[0]?.min ?? 0, rear = false;
-    for (const p of list) {
-      if (!rear && p.max < front - .03) rear = true;
-      if (!rear) front = Math.min(front, p.min);
-      window.set(p.root, WINDOW_ID[`${rear ? 'rear' : 'front'}${side === 'left' ? 'Left' : 'Right'}`]);
+    const list = sides[side].sort((x, y) => y.max - x.max), suffix = side === 'left' ? 'Left' : 'Right';
+    const pieceList = list.filter(e => e.triangle < 0), triangleList = list.filter(e => e.triangle >= 0);
+    // Pieces: the foremost run of overlapping pieces is the front window; behind the first gap of 3 cm, the rear window.
+    let front = pieceList[0]?.min ?? 0, rear = false;
+    for (const e of pieceList) {
+      if (!rear && e.max < front - .03) rear = true;
+      if (!rear) front = Math.min(front, e.min);
+      pieceWindow.set(e.root, WINDOW_ID[`${rear ? 'rear' : 'front'}${suffix}`]);
+    }
+    // Fused side glass: front and rear at the middle of this side's glazing.
+    if (triangleList.length) {
+      const lo = Math.min(...list.map(e => e.min)), hi = Math.max(...list.map(e => e.max)), split = (lo + hi) / 2;
+      for (const e of triangleList) window[e.triangle] = WINDOW_ID[`${e.z > split ? 'front' : 'rear'}${suffix}`];
     }
   }
+  for (let t = 0; t < triangles; t++) { const w = pieceWindow.get(piece[index[t * 3]]); if (w !== undefined && !fused(info.get(piece[index[t * 3]])!)) window[t] = w; }
+  // Each window's bounds and facing; one that is not where and as big as that window would be stays unbreakable.
+  const boxes = WINDOWS.map(() => new THREE.Box3()), normals = WINDOWS.map(() => new THREE.Vector3()), areas = new Float64Array(WINDOWS.length);
+  for (let t = 0; t < triangles; t++) {
+    const w = window[t];
+    if (!w) continue;
+    for (let k = 0; k < 3; k++) boxes[w - 1].expandByPoint(a.fromBufferAttribute(position, index[t * 3 + k]));
+    normals[w - 1].add(b.set(facing[t * 3], facing[t * 3 + 1], facing[t * 3 + 2]).multiplyScalar(area[t])); areas[w - 1] += area[t];
+  }
+  const dropped: string[] = [];
+  WINDOWS.forEach((name, i) => {
+    const reason = boxes[i].isEmpty() ? null : implausibleWindow(name, layout, boxes[i]);
+    if (!reason) return;
+    dropped.push(`${name} (${reason})`);
+    for (let t = 0; t < triangles; t++) if (window[t] === i + 1) window[t] = 0;
+  });
+  // Vertices whose triangles lie in different windows are duplicated per extra window (only fused pieces have them).
+  let out: ArrayLike<number> = index, total = n;
+  const vertexWindow = new Int16Array(n).fill(-1);
+  if (anyFused) {
+    const copies = new Map<number, number>(), extra: number[] = [], next = new Uint32Array(index.length);
+    for (let t = 0; t < triangles; t++) for (let k = 0; k < 3; k++) {
+      const v = index[t * 3 + k], w = window[t];
+      if (vertexWindow[v] < 0 || vertexWindow[v] === w) { vertexWindow[v] = w; next[t * 3 + k] = v; continue; }
+      const key = v * 8 + w;
+      let copy = copies.get(key);
+      if (copy === undefined) { copy = n + extra.length; copies.set(key, copy); extra.push(v); }
+      next[t * 3 + k] = copy;
+    }
+    if (extra.length) {
+      total = n + extra.length;
+      for (const name of Object.keys(geometry.attributes)) {
+        const attribute = geometry.getAttribute(name) as THREE.BufferAttribute;
+        const size = attribute.itemSize, array = new (attribute.array.constructor as new (n: number) => THREE.TypedArray)(total * size);
+        array.set(attribute.array as THREE.TypedArray);
+        extra.forEach((v, j) => { for (let k = 0; k < size; k++) array[(n + j) * size + k] = attribute.array[v * size + k]; });
+        geometry.setAttribute(name, new THREE.BufferAttribute(array, size, attribute.normalized));
+      }
+      geometry.setIndex(new THREE.BufferAttribute(total > 65535 ? next : Uint16Array.from(next), 1));
+      out = next;
+    }
+  }
+  const ids = new Uint8Array(total);
+  for (let t = 0; t < triangles; t++) for (let k = 0; k < 3; k++) ids[out[t * 3 + k]] = window[t];
   // Each window's plane: its centre, outward normal and two in-plane axes; the crack origin a fixed offset from the centre.
   const planes = new Map<number, { centre: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 }>();
-  for (const id of new Set(window.values())) {
-    const box = new THREE.Box3(), nrm = new THREE.Vector3();
-    for (const [root, w] of window) if (w === id) { box.union(info.get(root)!.box); nrm.add(info.get(root)!.normal); }
-    nrm.normalize();
+  WINDOWS.forEach((_, i) => {
+    const id = i + 1;
+    if (!window.includes(id)) return;
+    const box = boxes[i], nrm = normals[i].clone().normalize();
     const u = new THREE.Vector3(0, 1, 0).cross(nrm).normalize(), v = nrm.clone().cross(u).normalize(), size = box.getSize(new THREE.Vector3());
-    const centre = box.getCenter(new THREE.Vector3()).addScaledVector(u, .18 * size.length() * (id % 2 ? 1 : -1)).addScaledVector(v, .08 * size.y);
-    planes.set(id, { centre, u, v });
-  }
-  const parts = new Uint8Array(n * 4), uv = new Float32Array(n * 2);
-  for (let i = 0; i < n; i++) {
-    const id = window.get(piece[i]) ?? 0;
+    const at = box.getCenter(new THREE.Vector3()).addScaledVector(u, .18 * size.length() * (id % 2 ? 1 : -1)).addScaledVector(v, .08 * size.y);
+    planes.set(id, { centre: at, u, v });
+  });
+  const finalPosition = geometry.getAttribute('position'), parts = new Uint8Array(total * 4), uv = new Float32Array(total * 2);
+  for (let i = 0; i < total; i++) {
+    const id = ids[i];
     parts[i * 4 + 1] = id;
     const plane = planes.get(id);
     if (!plane) continue;
-    a.fromBufferAttribute(position, i).sub(plane.centre);
+    a.fromBufferAttribute(finalPosition, i).sub(plane.centre);
     uv[i * 2] = a.dot(plane.u); uv[i * 2 + 1] = a.dot(plane.v);
   }
   geometry.setAttribute('damagePart', new THREE.BufferAttribute(parts, 4));
   geometry.setAttribute('crackUV', new THREE.BufferAttribute(uv, 2));
   windowsByGeometry.set(geometry, [...planes].map(([id, plane]) => ({ window: WINDOWS[id - 1], centre: plane.centre.clone() })));
+  windowReports.set(geometry, { windows: [...planes.keys()].sort().map(id => WINDOWS[id - 1]), dropped, fused: anyFused });
+}
+/** The outcome of a glazing's split (splitWindows): the windows that crack and shatter; `dropped` ones were found but
+ *  implausible (they stay intact), with the reason; `fused`: some glazing was one shell, split triangle by triangle. */
+export interface WindowReport { windows: WindowName[]; dropped: string[]; fused: boolean }
+const windowReports = new WeakMap<THREE.BufferGeometry, WindowReport>();
+export const windowReport = (geometry: THREE.BufferGeometry): WindowReport | undefined => windowReports.get(geometry);
+/** A window found where it cannot be (a lamp cover or trim taken for it) or far larger than that window. Fractions of
+ *  the damage box from the rear; null when plausible. */
+function implausibleWindow(name: WindowName, layout: DamageLayout, box: THREE.Box3): string | null {
+  const z0 = (box.min.z - layout.min[2]) / layout.length, z1 = (box.max.z - layout.min[2]) / layout.length;
+  const span = z1 - z0, across = (box.max.x - box.min.x) / layout.width, at = (z0 + z1) / 2;
+  if (name === 'windscreen') return at < .45 ? 'behind the middle' : span > .5 ? `${Math.round(span * 100)} % of the length` : across < .3 ? 'narrow' : null;
+  if (name === 'rearWindow') return at > .55 ? 'ahead of the middle' : span > .6 ? `${Math.round(span * 100)} % of the length` : across < .25 ? 'narrow' : null;
+  return across > .3 ? `${Math.round(across * 100)} % of the width` : span > .7 ? `${Math.round(span * 100)} % of the length` : null;
 }
 const windowsByGeometry = new WeakMap<THREE.BufferGeometry, { window: WindowName; centre: THREE.Vector3 }[]>();
 /** The windows found in a glazing geometry (splitWindows), with their crack origins (fleet frame). */

@@ -77,6 +77,9 @@ export class Vehicle {
   private readonly axles: { xf: number; xr: number; track: number } | null;
   /** Body damage of a damageable car (vehicle/damage.ts), owned here; null for vehicles without a damage cage. */
   readonly damage: DamageState | null;
+  /** Whether crashes and scrapes damage the body now: a parked car's cage waits until a player drives it
+   *  (`armDamage`); saved and shared states apply either way. */
+  private damageArmed: boolean;
   private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
   private mech: { revision: number; value: Mechanics } = { revision: -1, value: INTACT };
   /** Wheel mounts (chassis frame): the tuning's, moved with the damage cage along and across the car and up by a
@@ -157,6 +160,7 @@ export class Vehicle {
       : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
     this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
+    this.damageArmed = !spec.parked;
     this.mounts = t.wheels.map(w => ({ ...w }));
     this.tyreState = tyreState(t.wheels.length);
     this.tyreForces = t.tyre ? { fx: new Float32Array(t.wheels.length), fy: new Float32Array(t.wheels.length) } : null;
@@ -181,6 +185,9 @@ export class Vehicle {
     }
   }
 
+  /** From now on crashes and scrapes damage the body (a player drives the car). */
+  armDamage() { this.damageArmed = true; }
+
   /** A scrape along a face as the contacts would paint it (developer tools). */
   damageScrape(scrape: DamageScrape) { if (this.damage) applyScrape(this.damage, scrape, SCRAPE); }
 
@@ -197,7 +204,7 @@ export class Vehicle {
   private trackCrash(dt: number) {
     const before = this.damageBefore;
     this.damageBefore = null;
-    if (!this.damage) return;
+    if (!this.damage || !this.damageArmed) return;
     if (!before || this.body.isSleeping()) { this.finishCrash(); return; }
     const b = this.body, v = b.linvel(), w = b.angvel(), g = this.world.gravity.y * dt;
     const change = { x: v.x - before.v.x, y: v.y - before.v.y - g, z: v.z - before.v.z };
@@ -250,7 +257,7 @@ export class Vehicle {
    *  every half second. */
   private trackScrape(dt: number) {
     const d = this.damage;
-    if (!d || this.body.isSleeping()) { this.scrape.speed = 0; return; }
+    if (!d || !this.damageArmed || this.body.isSleeping()) { this.scrape.speed = 0; return; }
     if (++this.scrape.tick % 3) return;
     const b = this.body, lv = b.linvel(), w = b.angvel(), t = b.translation(), q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
     let fastest = 0;

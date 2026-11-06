@@ -281,17 +281,15 @@ export class SharedVehicles {
       // its exact last quaternion and velocity, including a flipped parked car.
       if (!present || (local !== this.driving?.local && (old || !this.fresh.has(v.id) || v.creator !== self))) {
         this.blockedUntil.set(v.id, performance.now() + 100);
-        // A starter car keeps its body damage across owners and reloads: the record is its last owner's state.
-        const starter = v.pose.vehicle === 'player';
-        // The car drives as its own model (vehicle/modelTuning.ts: the slip-curve handling), whoever spawned it.
-        const model = starter ? PLAYER_MODEL : v.pose.mode === 'car' ? v.pose.vehicle?.split('/')[0] : undefined;
-        const tuning = model ? modelTuning(model) : undefined;
+        // The car drives as its own model (vehicle/modelTuning.ts: the slip-curve handling), whoever spawned it, and
+        // keeps its body damage across owners and reloads: the record is its last owner's state.
+        const model = v.pose.vehicle === 'player' ? PLAYER_MODEL : v.pose.mode === 'car' ? v.pose.vehicle?.split('/')[0] : undefined;
+        const tuning = model ? modelTuning(model) : undefined, box = model ? modelDamageBox(model) : undefined;
         this.physics.spawnVehicle(
         { x: v.pose.E, y: v.pose.H + VEHICLE_POSE_HEIGHT, z: -v.pose.N }, v.pose.yaw + Math.PI / 2,
         { id: local, kind: v.pose.mode as 'car' | 'scooter' | 'truck', halfExt: v.half, rot: v.pose.rot,
-          linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN }, ...(tuning ? { tuning } : {}),
-          ...(starter ? { damage: { box: modelDamageBox(PLAYER_MODEL)! } } : {}) });
-        if (starter) this.physics.setVehicleDamage(local, v.pose.damage ?? null);
+          linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN }, ...(tuning ? { tuning } : {}), ...(box ? { damage: { box } } : {}) });
+        if (box) this.physics.setVehicleDamage(local, v.pose.damage ?? null);
       }
       this.fresh.delete(v.id);
       for (const [id, item] of this.managed) if (id !== v.id && item.local === local) {
