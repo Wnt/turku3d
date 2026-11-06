@@ -1,8 +1,8 @@
 import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { attribute, cross, float, int, ivec2, normalize, normalLocal, positionLocal, positionPrevious, step, textureLoad, uniform, vec3, vertexStage } from 'three/tsl';
-import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, GLASS_STAGE, nodeIndex, PART_COUNT, PART_STATE, WINDOW_COUNT, WINDOWS, type DamageLayout } from '../../vehicle/damage';
+import { abs, attribute, clamp, cross, float, int, ivec2, max, normalGeometry, normalize, normalLocal, positionGeometry, positionLocal, positionPrevious, select, step, texture, textureLoad, uniform, vec2, vec3, vertexStage } from 'three/tsl';
+import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, GLASS_STAGE, nodeIndex, PART_COUNT, PART_STATE, SURFACE_CELLS, SURFACE_SIZE, WINDOW_COUNT, WINDOWS, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
 import { PartPoses, partsOf, splitParts, splitWindows, windowsOf, type ModelParts, type PartInfo } from './damageParts';
 
@@ -109,6 +109,15 @@ pool.minFilter = pool.magFilter = THREE.NearestFilter;
 pool.generateMipmaps = false;
 pool.colorSpace = THREE.NoColorSpace;
 pool.needsUpdate = true;
+/** Surface wear per slot (vehicle/damage.ts SURFACE_SIZE cells square): R the scratch/paint-loss level, G the dirt;
+ *  bilinear, so the cells blend into each other (the shader adds the fine detail). */
+const maskData = new Uint8Array(SURFACE_SIZE * SURFACE_SIZE * DAMAGE_SLOTS * 4);
+const mask = new THREE.DataTexture(maskData, SURFACE_SIZE, SURFACE_SIZE * DAMAGE_SLOTS, THREE.RGBAFormat, THREE.UnsignedByteType);
+mask.name = 'fleet-damage-surface';
+mask.minFilter = mask.magFilter = THREE.LinearFilter;
+mask.generateMipmaps = false;
+mask.colorSpace = THREE.NoColorSpace;
+mask.needsUpdate = true;
 const owners: (DamageRig | null)[] = new Array(DAMAGE_SLOTS).fill(null);
 const ZERO3: readonly number[] = [0, 0, 0];
 /** Each damage-capable mesh's rig (not userData: Object3D.copy clones that as JSON). */
@@ -119,6 +128,22 @@ let clock = 0;
 
 /** The pool row of the drawn object's car (a per-object uniform). */
 const slotNode = () => int(uniform(0).onObjectUpdate(({ object }) => (object && rigs.get(object))?.slot ?? 0));
+/** The surface wear and dirt under a fragment of a damage-capable body (vehicle/damage.ts surfaceCell, evaluated
+ *  per pixel from the rest position and normal so the faces meet cleanly): x wear, y dirt, 0..1. */
+export function surfaceMask(): Node<'vec2'> {
+  const rig = (object: THREE.Object3D | null | undefined) => object ? rigs.get(object) : undefined;
+  const low = uniform(new THREE.Vector3()).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.min[0], l.min[1], l.min[2]) : self.value; });
+  const size = uniform(new THREE.Vector3(1, 1, 1)).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.width, l.height, l.length) : self.value; });
+  const slot = float(uniform(0).onObjectUpdate(({ object }) => rig(object)?.slot ?? 0));
+  const q = clamp(positionGeometry.sub(low).div(size), 0, .999), n = normalGeometry, ax = abs(n.x), ay = n.y, az = abs(n.z);
+  const side = ax.greaterThanEqual(max(ay, az)).or(ay.lessThan(-.5)), top = ay.greaterThan(max(ax, az));
+  const row = select(side, select(n.x.greaterThan(0), float(0), float(4)).add(q.y.mul(4)), select(top, q.x.mul(6).add(8), q.y.mul(2).add(14)));
+  const col = select(side.or(top), q.z.mul(SURFACE_SIZE), select(n.z.greaterThan(0), float(0), float(8)).add(q.x.mul(8)));
+  // Texel centres of this slot's tile only (no bleeding between cars).
+  const u = clamp(col, .5, SURFACE_SIZE - .5).div(SURFACE_SIZE), v = slot.mul(SURFACE_SIZE).add(clamp(row, .5, SURFACE_SIZE - .5)).div(SURFACE_SIZE * DAMAGE_SLOTS);
+  return (texture(mask, vec2(u, v)) as unknown as Node<'vec4'>).xy as unknown as Node<'vec2'>;
+}
+
 /** The glass stage of the drawn vertex's window (vehicle/damage.ts GLASS_STAGE), for the glazing's fragment stage. */
 export function windowStage(): Node<'float'> {
   const texel = textureLoad(pool, ivec2(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slotNode())) as unknown as Node<'vec4'>;
@@ -210,7 +235,7 @@ export class DamageRig {
     if ((wire ?? null) !== this.wire || !this.shown) {
       this.wire = wire ?? null;
       if (!wire || !decodeDamage(wire, this.state)) this.state.clear();
-      this.pose();
+      this.pose(); this.uploadSurface();
       for (let i = 0; i < PART_COUNT; i++) {
         const next = this.state.parts[i], info = this.modelParts?.[i];
         if (this.shown && next === PART_STATE.detached && this.partStates[i] !== PART_STATE.detached && info && this.meshes[0])
@@ -266,7 +291,7 @@ export class DamageRig {
     const previous = owners[slot];
     if (previous && previous !== this) previous.slot = 0;
     owners[slot] = this; this.slot = slot;
-    this.upload(); this.uploadParts();
+    this.upload(); this.uploadParts(); this.uploadSurface();
   }
   private upload() {
     if (!this.slot) return;
@@ -277,6 +302,12 @@ export class DamageRig {
       poolData[base + i * 8 + 7] = 0;
     }
     pool.needsUpdate = true;
+  }
+  private uploadSurface() {
+    if (!this.slot) return;
+    const base = this.slot * SURFACE_CELLS * 4, wear = this.state.surfaceWear, dirt = this.state.surfaceDirt;
+    for (let i = 0; i < SURFACE_CELLS; i++) { maskData[base + i * 4] = Math.round(wear[i] * 255); maskData[base + i * 4 + 1] = Math.round(dirt[i] * 255); }
+    mask.needsUpdate = true;
   }
   private uploadParts() {
     if (!this.slot) return;

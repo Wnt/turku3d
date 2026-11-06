@@ -6,7 +6,7 @@ import { onWindowShattered, type ShatterEvent } from './damageRig';
 // and lies there a while. One instanced draw for every burst; plain ballistic motion on the main thread (the ground is
 // the car's own wheel plane), nothing in physics and nothing synced: every client throws its own from the shared state.
 
-const SHARDS = 22, CAPACITY = 8 * SHARDS, LIE_S = 25, FADE_S = 3;
+const SHARDS = 36, CAPACITY = 8 * SHARDS, LIE_S = 25, FADE_S = 3;
 
 export class GlassShards {
   private readonly mesh: THREE.InstancedMesh;
@@ -22,8 +22,8 @@ export class GlassShards {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, .035, .006, .01, .012, 0, .04, -.02, .004, .018], 3));
     geometry.setIndex([0, 1, 2, 0, 2, 3]);
     geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardNodeMaterial({ name: 'glass shards', color: 0xd8e6ea, roughness: .08, metalness: .1,
-      transparent: true, opacity: .75, side: THREE.DoubleSide, depthWrite: false });
+    const material = new THREE.MeshStandardNodeMaterial({ name: 'glass shards', color: 0xe4eef0, roughness: .05, metalness: .2,
+      emissive: 0x1a2224, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false });
     this.mesh = new THREE.InstancedMesh(geometry, material, CAPACITY);
     this.mesh.name = 'glass-shards'; this.mesh.count = 0; this.mesh.frustumCulled = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

@@ -15,7 +15,7 @@ import { handling } from './handling.ts';
 import { rotate } from './math.ts';
 import { longitudinalSlip } from './tyreSlip.ts';
 import { dot, tyreRollImpulse } from './weightTransfer.ts';
-import { applyHit, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
+import { applyHit, applyScrape, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, stampSurface, type DamageHit, type DamageScrape, type SurfaceFace } from './damage.ts';
 import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
 import { resetTyres, solveTyres, tyreState, type TyrePatch, type TyreResult, type TyreState } from './tyres.ts';
 import { antiRoll, rideSetup, type RideSetup } from './ride.ts';
@@ -30,6 +30,10 @@ export const IMPACT_MIN_DELTA_V = 0.5;
  *  two quieter steps or `CRASH_STEPS` steps, and is applied as one hit (vehicle/damage.ts: its severity is the square
  *  of the whole velocity change, so a crash split over several solver steps must not count as several light ones). */
 export const CRASH_STEP_DV = 1, CRASH_STEPS = 18;
+/** Scrapes (Vehicle.trackScrape): contacts sliding faster than `minSpeed` (m/s) wear the paint `wearPerMetre` per metre
+ *  of sliding within `radius` (m) of the point (a 10 m scrape along a wall goes through to bare metal), and leave dirt
+ *  from the ground or grime from walls; a new wire at most every `commitSteps` solver steps. */
+export const SCRAPE = { minSpeed: 1.5, radius: .3, wearPerMetre: .06, dirtPerMetre: .1, grimePerMetre: .01, commitSteps: 30 } as const;
 
 export class Vehicle {
   lights: 0 | 1 | 2 = 0;
@@ -177,6 +181,9 @@ export class Vehicle {
     }
   }
 
+  /** A scrape along a face as the contacts would paint it (developer tools). */
+  damageScrape(scrape: DamageScrape) { if (this.damage) applyScrape(this.damage, scrape, SCRAPE); }
+
   /** Applies a body hit (fleet model frame, vehicle/damage.ts); returns the structural depth it added (m). */
   damageHit(hit: DamageHit): number {
     return this.damage ? applyHit(this.damage, hit) : 0;
@@ -236,6 +243,54 @@ export class Vehicle {
     const halfWidth = lateral > .5 * half ? Math.max(.15, half - lateral) : undefined;
     this.damageHit({ dv, ...(at ? { at } : {}), ...(halfWidth ? { halfWidth } : {}) });
   }
+
+  /** Scrapes wear the paint where the body slides along something: every third step, each chassis contact point's
+   *  sliding speed paints wear on the box face it lies on (vehicle/damage.ts stampSurface, `SCRAPE`); a contact with
+   *  the ground under a car on its side or roof adds dirt. Committed (a new damage revision, so a new wire) at most
+   *  every half second. */
+  private trackScrape(dt: number) {
+    const d = this.damage;
+    if (!d || this.body.isSleeping() || ++this.scrape.tick % 3) return;
+    const b = this.body, lv = b.linvel(), w = b.angvel(), t = b.translation(), q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+    if (Math.hypot(lv.x, lv.y, lv.z) > SCRAPE.minSpeed) {
+      const h = this.halfExt, box = d.layout, step = 3 * dt;
+      for (let i = 0; i < b.numColliders(); i++) {
+        const own = b.collider(i);
+        this.world.contactPairsWith(own, other => {
+          if (other.isSensor()) return;
+          const ov = other.parent()?.linvel() ?? { x: 0, y: 0, z: 0 };
+          this.world.contactPair(own, other, manifold => {
+            const n = manifold.normal();
+            for (let k = 0; k < manifold.numSolverContacts(); k++) {
+              const p = manifold.solverContactPoint(k);
+              if (!p) continue;
+              const r = { x: p.x - t.x, y: p.y - t.y, z: p.z - t.z };
+              const v = { x: lv.x + w.y * r.z - w.z * r.y - ov.x, y: lv.y + w.z * r.x - w.x * r.z - ov.y, z: lv.z + w.x * r.y - w.y * r.x - ov.z };
+              const vn = v.x * n.x + v.y * n.y + v.z * n.z, slide = Math.hypot(v.x - vn * n.x, v.y - vn * n.y, v.z - vn * n.z);
+              if (slide < SCRAPE.minSpeed) continue;
+              // The face of the box the point lies on (chassis frame +X forward, +Y up, +Z right); the underbody wears nothing.
+              const c = rotate(r, inverse), ax = Math.abs(c.x) / h.x, ay = Math.abs(c.y) / h.y, az = Math.abs(c.z) / h.z;
+              let face: SurfaceFace;
+              if (ay >= ax && ay >= az) { if (c.y < 0) continue; face = 'top'; }
+              else if (ax >= az) face = c.x > 0 ? 'front' : 'rear';
+              else face = c.z > 0 ? 'negX' : 'posX';
+              const at: [number, number, number] = [-c.z / h.z * box.width / 2, (box.min[1] + box.max[1]) / 2 + c.y / h.y * box.height / 2, c.x / h.x * box.length / 2];
+              // The ground under a car lying on its side or roof (an upward contact normal) leaves dirt; walls a little grime.
+              const ground = Math.abs(n.y) > .7, metres = slide * step;
+              if (stampSurface(d, face, at, SCRAPE.radius, metres * SCRAPE.wearPerMetre, metres * (ground ? SCRAPE.dirtPerMetre : SCRAPE.grimePerMetre)))
+                this.scrape.pending = true;
+            }
+          });
+        });
+      }
+    }
+    if (this.scrape.pending && this.scrape.tick - this.scrape.committed >= SCRAPE.commitSteps) {
+      this.scrape.pending = false; this.scrape.committed = this.scrape.tick;
+      if (!d.hits) d.scraped = true;
+      d.revision++;
+    }
+  }
+  private scrape = { tick: 0, committed: -Infinity, pending: false };
 
   /** The mechanical state of the car's damage (vehicle/mechanics.ts), recomputed only when a hit changed it. */
   mechanics(): Mechanics {
@@ -582,6 +637,7 @@ export class Vehicle {
    *  manifolds cannot measure crashes; resting contacts change nothing and stay quiet. */
   afterStep(dt: number) {
     this.trackCrash(dt);
+    this.trackScrape(dt);
     const before = this.beforeSolve;
     if (!before || this.body.isSleeping()) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);

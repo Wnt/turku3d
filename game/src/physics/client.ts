@@ -176,6 +176,7 @@ export class PhysicsClient {
   vehicleImpulse(id: string, impulse: V3) { this.send({ type: 'vehicleImpulse', id, impulse }); }
   damageVehicle(id: string, hit: DamageHit) { this.send({ type: 'damageVehicle', id, hit }); }
   setVehicleDamage(id: string, state: string | null) { this.send({ type: 'vehicleDamage', id, state }); }
+  scrapeVehicle(id: string, scrape: import('../vehicle/damage').DamageScrape) { this.send({ type: 'scrapeVehicle', id, scrape }); }
   /** A car part that came off becomes a physics body for a while (world.ts spawnDebris). */
   spawnDebris(spec: DebrisSpec) { this.send({ type: 'spawnDebris', spec }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }

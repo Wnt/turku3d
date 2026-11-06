@@ -162,6 +162,64 @@ export const GLASS_LOAD: Record<WindowName, { v0: number; steps: readonly [numbe
 /** Where the windows sit along the car (fraction of the length from the rear; a five-door hatchback or saloon): the
  *  share of a side hit a window takes falls off with its distance from the contact, as the crumple's footprint does. */
 const WINDOW_F: Record<WindowName, number> = { windscreen: .66, rearWindow: .06, frontLeft: .52, rearLeft: .28, frontRight: .52, rearRight: .28 };
+/** Surface wear: a 16 x 16 unwrap of the damage box into cells, per cell a scratch/paint-loss level (`wear`: light
+ *  scratches first, bare metal beyond half) and a dirt level, 0..1 each. Rows 0-3 the left (+X) side and 4-7 the
+ *  right side (16 along the length x 4 up), 8-13 the roof (16 along x 6 across), 14-15 the ends (front in columns
+ *  0-7, rear in 8-15; 8 across x 2 up). The renderer samples the same unwrap (actors/fleet/damageRig.ts surfaceMask). */
+export const SURFACE_SIZE = 16, SURFACE_CELLS = SURFACE_SIZE * SURFACE_SIZE;
+export type SurfaceFace = 'posX' | 'negX' | 'top' | 'front' | 'rear';
+/** The cell of a point on a face (fleet frame). */
+export function surfaceCell(layout: DamageLayout, face: SurfaceFace, x: number, y: number, z: number): number {
+  const f = clamp01((z - layout.min[2]) / layout.length), h = clamp01((y - layout.min[1]) / layout.height), a = clamp01((x - layout.min[0]) / layout.width);
+  const col = (v: number, n: number) => Math.min(n - 1, Math.floor(v * n));
+  if (face === 'posX' || face === 'negX') return ((face === 'posX' ? 0 : 4) + col(h, 4)) * SURFACE_SIZE + col(f, SURFACE_SIZE);
+  if (face === 'top') return (8 + col(a, 6)) * SURFACE_SIZE + col(f, SURFACE_SIZE);
+  return (14 + col(h, 2)) * SURFACE_SIZE + (face === 'front' ? 0 : 8) + col(a, 8);
+}
+const cellCentres = new WeakMap<DamageLayout, { face: SurfaceFace; at: [number, number, number] }[]>();
+/** Each cell's face and centre (fleet frame), on the box surface. */
+function cells(layout: DamageLayout) {
+  let list = cellCentres.get(layout);
+  if (list) return list;
+  list = [];
+  const { min, length, width, height } = layout, max = layout.max;
+  for (let i = 0; i < SURFACE_CELLS; i++) {
+    const row = Math.floor(i / SURFACE_SIZE), c = i % SURFACE_SIZE;
+    if (row < 8) list.push({ face: row < 4 ? 'posX' : 'negX', at: [row < 4 ? max[0] : min[0], min[1] + ((row % 4) + .5) / 4 * height, min[2] + (c + .5) / SURFACE_SIZE * length] });
+    else if (row < 14) list.push({ face: 'top', at: [min[0] + (row - 8 + .5) / 6 * width, max[1], min[2] + (c + .5) / SURFACE_SIZE * length] });
+    else list.push({ face: c < 8 ? 'front' : 'rear', at: [min[0] + ((c % 8) + .5) / 8 * width, min[1] + (row - 14 + .5) / 2 * height, c < 8 ? max[2] : min[2]] });
+  }
+  cellCentres.set(layout, list);
+  return list;
+}
+/** Adds wear and dirt to the cells of `face` within `radius` (m) of `at` (fleet frame), full at the centre; returns
+ *  whether any cell changed. The worker calls it for hits (applyHit) and for scrapes along walls and on the roof
+ *  (vehicle.ts). */
+export function stampSurface(state: DamageState, face: SurfaceFace, at: readonly [number, number, number], radius: number, wear: number, dirt = 0): boolean {
+  let changed = false;
+  for (const [i, cell] of cells(state.layout).entries()) {
+    if (cell.face !== face) continue;
+    const d = Math.hypot(cell.at[0] - at[0], cell.at[1] - at[1], cell.at[2] - at[2]), k = 1 - smooth(d / radius);
+    if (k <= 0) continue;
+    const w = Math.min(1, state.surfaceWear[i] + wear * k), g = Math.min(1, state.surfaceDirt[i] + dirt * k);
+    if (w !== state.surfaceWear[i] || g !== state.surfaceDirt[i]) changed = true;
+    state.surfaceWear[i] = w; state.surfaceDirt[i] = g;
+  }
+  return changed;
+}
+/** A scrape along a face (developer tools; the worker's own scrapes come from contacts, vehicle.ts trackScrape). */
+export interface DamageScrape { face: SurfaceFace; from: readonly [number, number, number]; to: readonly [number, number, number]; metres: number; ground?: boolean }
+/** Wear and dirt of `metres` of sliding (vehicle.ts SCRAPE rates) spread along a line on a face. */
+export function applyScrape(state: DamageState, scrape: DamageScrape, rates: { wearPerMetre: number; dirtPerMetre: number; grimePerMetre: number; radius: number }) {
+  const steps = 12;
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps, at = [0, 1, 2].map(i => scrape.from[i] + (scrape.to[i] - scrape.from[i]) * t) as [number, number, number];
+    const metres = scrape.metres / (steps + 1);
+    stampSurface(state, scrape.face, at, rates.radius, metres * rates.wearPerMetre * 3, metres * (scrape.ground ? rates.dirtPerMetre : rates.grimePerMetre) * 3);
+  }
+  if (!state.hits) state.scraped = true;
+  state.revision++;
+}
 const glassStage = (window: WindowName, load: number) => { const steps = GLASS_LOAD[window].steps; let n = 0; while (n < 3 && load >= steps[n]) n++; return n; };
 const partState = (part: PartName, load: number) => load >= PART_LOAD[part].off ? PART_STATE.detached : load >= PART_LOAD[part].loose ? PART_STATE.loose : PART_STATE.attached;
 
@@ -183,12 +241,17 @@ export class DamageState {
   /** Per window (WINDOWS order): its load ((km/h)², GLASS_LOAD) and its stage (GLASS_STAGE). */
   readonly glassLoad = new Float32Array(WINDOW_COUNT);
   readonly glass = new Uint8Array(WINDOW_COUNT);
+  /** Per surface cell (SURFACE_CELLS): scratch/paint-loss and dirt, 0..1. */
+  readonly surfaceWear = new Float32Array(SURFACE_CELLS);
+  readonly surfaceDirt = new Float32Array(SURFACE_CELLS);
+  /** Worn by scrapes alone (no hit yet): still a damaged car to draw and send. */
+  scraped = false;
   energy = 0; hits = 0; revision = 0; steerSide = 0;
   constructor(readonly layout: DamageLayout) {}
-  get damaged() { return this.hits > 0; }
+  get damaged() { return this.hits > 0 || this.scraped; }
   clear() {
     this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.partLoad.fill(0); this.parts.fill(0); this.partSide.fill(0);
-    this.glassLoad.fill(0); this.glass.fill(0);
+    this.glassLoad.fill(0); this.glass.fill(0); this.surfaceWear.fill(0); this.surfaceDirt.fill(0); this.scraped = false;
     this.energy = 0; this.hits = 0; this.steerSide = 0; this.revision++;
   }
 }
@@ -291,6 +354,7 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
     }
     loaded = partHit(state, face, kmh, shares, hit) || loaded;
     loaded = glassHit(state, face, kmh, hit) || loaded;
+    loaded = surfaceHit(state, face, kmh, hit) || loaded;
     const e = raw / FACES[face].stiffness;
     const eBumper = face === 'front' || face === 'rear' ? Math.max(0, kmh * kmh - CRUMPLE.bumperKmh ** 2) : 0;
     if (e <= 0 && eBumper <= 0) continue;
@@ -366,6 +430,21 @@ function glassHit(state: DamageState, face: Face, kmh: number, hit: DamageHit): 
   return loaded;
 }
 
+/** A hit scuffs the paint where it struck: from 12 km/h light scratches, bare metal from about 50 km/h, over the
+ *  footprint (a wall: the whole face at bumper height; the roof: all of it, with dirt from the ground). */
+function surfaceHit(state: DamageState, face: Face, kmh: number, hit: DamageHit): boolean {
+  const wear = Math.min(1, Math.max(0, (kmh - 12) / 45));
+  if (wear <= 0) return false;
+  const { min, max, length, width, height } = state.layout, at = hit.at, wide = !Number.isFinite(hit.halfWidth ?? Infinity);
+  if (face === 'top') return stampSurface(state, 'top', [(min[0] + max[0]) / 2, max[1], (min[2] + max[2]) / 2], length, wear * .8, wear * .6);
+  if (face === 'front' || face === 'rear') {
+    const z = face === 'front' ? max[2] : min[2], y = min[1] + .3 * height;
+    return stampSurface(state, face, [wide ? (min[0] + max[0]) / 2 : at?.[0] ?? 0, y, z], wide ? width : Math.max(.35, (hit.halfWidth ?? .3) * 1.6), wear);
+  }
+  const x = face === 'posX' ? max[0] : min[0];
+  return stampSurface(state, face, [x, min[1] + .45 * height, wide ? (min[2] + max[2]) / 2 : at?.[2] ?? 0], wide ? length : Math.max(.45, (hit.halfWidth ?? .3) * 1.8), wear);
+}
+
 /** A face's share of a hit on the mechanical systems behind it. `raw`: (km/h)² beyond the crumple threshold, the
  *  energy measure the crumple uses before the face's stiffness; `shares`: the footprint share per bin (end faces by
  *  lateral -X, centre, +X; sides by thirds rear, middle, front). The engine bay is at the front: its radiator and
@@ -409,19 +488,22 @@ export function headOnLoss(layout: DamageLayout, kmh: number, hits = 1): number 
 
 // ------------------------------------------------------------------ compact state (worker → renderer, multiplayer, saves)
 /** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins, wear and part loads to 8 (km/h)² in uint16. */
-const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 4;
+const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 5;
 const clampOffset = (v: number) => Math.max(-127 * OFFSET_UNIT, Math.min(127 * OFFSET_UNIT, v));
 const HEADER = 8, SHAPE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3, MECHANICS_BYTES = SHAPE_BYTES + WEAR_SYSTEMS * 2 + 2;
 /** Version 3 adds the parts: per part its state and free end (one byte: state in bits 0-1, bit 2 a side is set, bit 3
  *  it is the left) and its load (uint16). Version 2 (224 bytes: the wear as uint16 per system, the steering side as
  *  int8 and a spare byte) and version 1 (body only, 208 bytes) still read, with unworn systems and attached parts. */
 const PARTS_BYTES = MECHANICS_BYTES + PART_COUNT * 3;
-/** Version 4 adds the glass: per window its stage (uint8) and its load (uint16). */
-export const DAMAGE_WIRE_BYTES = PARTS_BYTES + WINDOW_COUNT * 3;
-const WIRE_LENGTHS = [0, SHAPE_BYTES, MECHANICS_BYTES, PARTS_BYTES, DAMAGE_WIRE_BYTES];
+/** Version 4 adds the glass: per window its stage (uint8) and its load (uint16); version 5 the surface: per cell its
+ *  wear (high nibble) and dirt (low nibble), in 15ths. */
+const GLASS_BYTES = PARTS_BYTES + WINDOW_COUNT * 3;
+export const DAMAGE_WIRE_BYTES = GLASS_BYTES + SURFACE_CELLS;
+const WIRE_LENGTHS = [0, SHAPE_BYTES, MECHANICS_BYTES, PARTS_BYTES, GLASS_BYTES, DAMAGE_WIRE_BYTES];
+const nibble = (v: number) => Math.max(0, Math.min(15, Math.round(v * 15)));
 
 /** Wire form of a damage state: base64 of version, node count, hits, energy (64 (km/h)² units), bins, offsets, wear,
- *  steering side, parts, glass. */
+ *  steering side, parts, glass, surface. */
 export function encodeDamage(state: DamageState): string {
   const bytes = new Uint8Array(DAMAGE_WIRE_BYTES), view = new DataView(bytes.buffer);
   view.setUint8(0, WIRE_VERSION); view.setUint8(1, DAMAGE_NODES); view.setUint16(2, Math.min(65535, state.hits), true);
@@ -440,6 +522,7 @@ export function encodeDamage(state: DamageState): string {
     view.setUint8(PARTS_BYTES + i, state.glass[i]);
     view.setUint16(PARTS_BYTES + WINDOW_COUNT + i * 2, Math.min(65535, Math.round(state.glassLoad[i] / BIN_UNIT)), true);
   }
+  for (let i = 0; i < SURFACE_CELLS; i++) bytes[GLASS_BYTES + i] = nibble(state.surfaceWear[i]) << 4 | nibble(state.surfaceDirt[i]);
   let text = '';
   for (const b of bytes) text += String.fromCharCode(b);
   return btoa(text);
@@ -473,6 +556,13 @@ export function decodeDamage(wire: unknown, state: DamageState): boolean {
     state.glass[i] = version > 3 ? bytes[PARTS_BYTES + i] : 0;
     state.glassLoad[i] = version > 3 ? view.getUint16(PARTS_BYTES + WINDOW_COUNT + i * 2, true) * BIN_UNIT : 0;
   }
+  let scraped = false;
+  for (let i = 0; i < SURFACE_CELLS; i++) {
+    const b = version > 4 ? bytes[GLASS_BYTES + i] : 0;
+    state.surfaceWear[i] = (b >> 4) / 15; state.surfaceDirt[i] = (b & 15) / 15;
+    scraped ||= b !== 0;
+  }
+  state.scraped = scraped;
   state.revision++;
   return true;
 }

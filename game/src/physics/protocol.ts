@@ -112,6 +112,8 @@ export type ToWorker =
   | { type: 'vehicleImpulse'; id: string; impulse: V3 }
   /** A hit on a damageable car's body, applied like a crash (developer tools; vehicle/damage.ts DamageHit). */
   | { type: 'damageVehicle'; id: string; hit: import('../vehicle/damage').DamageHit }
+  /** Developer tools: `metres` of scraping along a damageable car's `face` from `from` to `to` (fleet frame). */
+  | { type: 'scrapeVehicle'; id: string; scrape: import('../vehicle/damage').DamageScrape }
   /** Sets a damageable car's body damage: a saved or shared state (vehicle/damage.ts encodeDamage), or null for a
    *  fresh body (a new game, a progress reset). The game has no repair. */
   | { type: 'vehicleDamage'; id: string; state: string | null }

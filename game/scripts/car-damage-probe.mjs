@@ -9,7 +9,8 @@
 // (loose and detached parts: hits that loosen and then tear them off, a drive with them swinging, the debris, a second
 // client that sees the same part states and spawns its own debris from a later change, and the frame cost of 20 wrecks
 // with loose parts against 20 plain cars: `partsperf`, under a perf lease), `glass` (crack, craze and shatter of a side
-// window, a roof hit, no glass from a frontal crash, a second client with the same stages and its own shards).
+// window, a roof hit, no glass from a frontal crash, a second client with the same stages and its own shards),
+// `surface` (scuffs from hits, a scrape along the side and a roof slide with dirt, the same wear on a second client).
 // Writes OUT_DIR/result.json and PNGs; prints one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -596,6 +597,39 @@ try {
     await b.evaluate(() => window.__game.damage.look({ yaw: -80, pitch: 8, distance: 4, height: .3, remote: true }));
     await settle(b, 10);
     const file = path.join(out, 'b-right-shattered.png'); await b.screenshot({ path: file }); report.shots.push(file);
+    await b.close();
+  }
+  if (mode === 'surface') {
+    const surface = p => p.evaluate(() => window.__game.damage.surface());
+    const views = [['side-left', 80, 8, 4, .3], ['front-right', -40, 12, 4.4, .2], ['roof', 150, 48, 4.6, .4]];
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(2500);
+    // Scuffs from hits: a 25 km/h knock on the left front door, a 50 km/h hit on the right front corner (bare metal).
+    await page.evaluate(() => { window.__game.damage.dent({ kmh: 25, at: 'left', halfWidth: .35, offset: .2 });
+      window.__game.damage.dent({ kmh: 50, at: 'front-right', halfWidth: .3 }); });
+    await page.waitForTimeout(800);
+    report.hits = await surface(page);
+    log('hits', report.hits);
+    await closeShots(page, 'hits', 'a', false, views);
+    // A long scrape along the left side (a wall) and a slide on the roof (a roll on gravel: dirt).
+    await page.evaluate(() => { window.__game.damage.scrape({ side: 'left', metres: 12, from: .15, to: .85 });
+      window.__game.damage.scrape({ side: 'roof', metres: 6, from: .3, to: .7, ground: true }); });
+    await page.waitForTimeout(800);
+    report.scraped = await surface(page);
+    log('scraped', report.scraped);
+    await closeShots(page, 'scraped', 'a', false, views);
+    if (!(report.scraped.maxWear > .8) || !(report.scraped.maxDirt > .3)) report.errors.push(`scrape too light: ${JSON.stringify(report.scraped)}`);
+    const b = await open('b', await browser.newContext());
+    const hits = await page.evaluate(() => window.__game.damage.state().hits);
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits && r.surface.worn > 0), hits, { timeout: 90000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    report.bSees = await b.evaluate(hits => window.__game.damage.remotes().filter(r => r.hits === hits).map(r => r.surface), hits);
+    log('b sees a', { surface: report.bSees, seconds: report.replicaSeconds });
+    if (!report.bSees.some(r => r.worn === report.scraped.worn && Math.abs(r.maxWear - report.scraped.maxWear) < .05)) report.errors.push('replica surface differs');
+    await closeShots(b, 'replica', 'b', true, views);
     await b.close();
   }
   report.ok = report.errors.length === 0;

@@ -65,7 +65,7 @@ describe('the mechanics travel in the damage wire', () => {
   test('wear and the steering side round-trip; a version-1 body state still reads, unworn', () => {
     const [m] = hits([{ dv: [-20 / 3.6, 0, -80 / 3.6], at: [.6, .5, 2] }]);
     const wire = encodeDamage(m.state), back = new DamageState(layout);
-    expect(wire).toHaveLength(348);
+    expect(wire).toHaveLength(688);
     expect(decodeDamage(wire, back)).toBe(true);
     for (let i = 0; i < back.wear.length; i++) expect(Math.abs(back.wear[i] - m.state.wear[i])).toBeLessThanOrEqual(4);
     expect(back.steerSide).toBe(m.state.steerSide);
@@ -99,7 +99,7 @@ describe('the mechanics travel in the damage wire', () => {
     const relayed = cleanPose(pose).damage;
     expect(relayed).toBe(wire);
     expect(mechanicsOf(relayed)).toMatchObject({ cooling: 2, engine: 1, zones: [4, 4, 0, 0] });
-    expect(validPose({ ...pose, damage: 'A'.repeat(516) })).toBe(false);
+    expect(validPose({ ...pose, damage: 'A'.repeat(1028) })).toBe(false);
   });
 });
 

@@ -550,6 +550,8 @@ export class PhysicsWorld {
   damageVehicle(id: string, hit: DamageHit) {
     this.vehicles.get(id)?.damageHit(hit);
   }
+  /** A scrape along a damageable car's face (developer tools). */
+  scrapeVehicle(id: string, scrape: import('../vehicle/damage').DamageScrape) { this.vehicles.get(id)?.damageScrape(scrape); }
   /** A saved or shared damage state for a damageable car, or null for a fresh body. */
   setVehicleDamage(id: string, state: string | null) {
     this.vehicles.get(id)?.setDamage(state);

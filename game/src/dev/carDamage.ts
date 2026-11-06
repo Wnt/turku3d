@@ -73,7 +73,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
         return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
           position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)),
-          parts: partsOf(rig.state), glass: glassOf(rig.state) };
+          parts: partsOf(rig.state), glass: glassOf(rig.state),
+          surface: { worn: rig.state.surfaceWear.filter(v => v > .05).length, maxWear: Math.round(Math.max(...rig.state.surfaceWear) * 100) / 100 } };
       });
     },
     /** Car part debris lying around now (actors/fleet/debris.ts). */
@@ -132,6 +133,29 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       return hit;
     },
     clear() { physics.setVehicleDamage('player', null); },
+    /** A scrape along the car as a wall or the ground would leave it: `side` 'left' | 'right' | 'roof' | 'front' |
+     *  'rear', `metres` of sliding, along the middle band of that face from `from` to `to` (fractions of the length
+     *  from the rear, or of the width for the ends); `ground` leaves dirt as a roll would. */
+    scrape({ side = 'left', metres = 8, from = .25, to = .8, ground = false }: { side?: 'left' | 'right' | 'roof' | 'front' | 'rear'; metres?: number; from?: number; to?: number; ground?: boolean } = {}) {
+      const l = car.rig?.layout;
+      if (!l) return null;
+      const face = ({ left: 'posX', right: 'negX', roof: 'top', front: 'front', rear: 'rear' } as const)[side];
+      const along = (f: number) => l.min[2] + f * l.length, across = (f: number) => l.min[0] + f * l.width, y = l.min[1] + .45 * l.height;
+      const ends = face === 'posX' || face === 'negX' ? [[face === 'posX' ? l.max[0] : l.min[0], y, along(from)], [face === 'posX' ? l.max[0] : l.min[0], y, along(to)]]
+        : face === 'top' ? [[across(.5), l.max[1], along(from)], [across(.5), l.max[1], along(to)]]
+          : [[across(from), l.min[1] + .3 * l.height, face === 'front' ? l.max[2] : l.min[2]], [across(to), l.min[1] + .3 * l.height, face === 'front' ? l.max[2] : l.min[2]]];
+      const scrape = { face, from: ends[0] as [number, number, number], to: ends[1] as [number, number, number], metres, ground };
+      physics.scrapeVehicle('player', scrape);
+      return scrape;
+    },
+    /** The starter car's surface wear: worn and dirty cells, and the most worn and dirtiest. */
+    surface() {
+      const s = car.rig?.state;
+      if (!s) return null;
+      const round = (v: number) => Math.round(v * 100) / 100;
+      return { worn: s.surfaceWear.filter(v => v > .05).length, dirty: s.surfaceDirt.filter(v => v > .05).length,
+        maxWear: round(Math.max(...s.surfaceWear)), maxDirt: round(Math.max(...s.surfaceDirt)) };
+    },
     /** Frame-cost bench: `count` extra starter cars in rows in front of the starter car's nose, drawn as
      *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or as the same actors
      *  (body, glazing, hubs) with the plain fleet materials and no cage ('plain'); count 0 removes them. Returns how

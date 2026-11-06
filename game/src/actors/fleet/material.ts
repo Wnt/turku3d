@@ -1,9 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { abs, atan, attribute, float, fract, length, max, mix, select, sin, smoothstep, sRGBTransferEOTF, step, uniform, vec3 } from 'three/tsl';
+import { abs, atan, attribute, dot, float, floor, fract, length, max, mix, positionGeometry, select, sin, smoothstep, sRGBTransferEOTF, step, uniform, vec2, vec3 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { fleetLampNode } from './lamps';
 import { paintNode } from '../parkedPaint';
-import { deformByCage, windowStage } from './damageRig';
+import { deformByCage, surfaceMask, windowStage } from './damageRig';
 
 const decode = sRGBTransferEOTF as unknown as (srgb: Node<'vec3'>) => Node<'vec3'>;
 export const fleetNight = uniform(0);
@@ -16,7 +16,25 @@ export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
 /** The same surfaces for cars drawn on their own (starter, driven, remote): their bodies follow the damage cage
  *  (damageRig.ts). One program for all of them, apart from the instanced batches'. */
 export function fleetDamageMaterial(): THREE.MeshStandardNodeMaterial {
-  return damageable ??= deformByCage(buildFleetMaterial('Finnish fleet / damage-capable surfaces'));
+  return damageable ??= wornPaint(deformByCage(buildFleetMaterial('Finnish fleet / damage-capable surfaces')));
+}
+/** Surface wear on a damage-capable body (vehicle/damage.ts surface cells, damageRig.ts surfaceMask): light scratches
+ *  as thin streaks along the car, bare metal where the wear is deep (patchy at its edge), and dirt in blotches; the
+ *  detail follows the rest-frame body, so it moves with a dented panel. Scratches and bare metal only on paint. */
+function wornPaint(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysicalNodeMaterial {
+  const m = surfaceMask(), wear = m.x, dirt = m.y, surface = attribute('fleetSurface', 'vec4'), paint = surface.x, p = positionGeometry;
+  const hash = (v: Node<'vec2'>) => fract(sin(dot(v, vec2(12.9898, 78.233))).mul(43758.5453));
+  const streak = hash(floor(vec2(p.z.mul(4).add(p.y.mul(9)), p.y.add(p.x).mul(170))));
+  const blot = hash(floor(vec2(p.z.mul(12).add(p.x.mul(5)), p.y.mul(12).add(p.x.mul(9))))), blot2 = hash(floor(vec2(p.z.mul(7), p.y.mul(7).add(p.x.mul(7)))).add(7.1));
+  const scratches = step(float(1).sub(wear.mul(.85)), streak).mul(step(.03, wear)).mul(paint);
+  const loss = smoothstep(.5, .8, wear.add(blot.sub(.5).mul(.4))).mul(paint), grime = dirt.mul(smoothstep(.2, .7, blot2));
+  const color = material.colorNode as Node<'vec3'>, roughness = material.roughnessNode as Node<'float'>, metalness = material.metalnessNode as Node<'float'>;
+  const clearcoat = material.clearcoatNode as Node<'float'>;
+  material.colorNode = mix(mix(mix(color, vec3(.8, .8, .78), scratches.mul(.65)), vec3(.47, .48, .5), loss), vec3(.2, .17, .13), grime.mul(.85));
+  material.roughnessNode = mix(mix(roughness, float(.42), loss).add(scratches.mul(.2)), float(.95), grime);
+  material.metalnessNode = mix(metalness, float(.85), loss).mul(float(1).sub(grime.mul(.8)));
+  material.clearcoatNode = clearcoat.mul(float(1).sub(loss)).mul(float(1).sub(grime));
+  return material;
 }
 /** Glazing of the cars drawn on their own (starter, driven, remote): they carry a seated driver (actors/driver), so the
  *  cabin reads through it like GTA's tinted glass: the source glass's opacity and metalness scaled down, its tint
@@ -49,7 +67,7 @@ function crackedGlass(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysi
   material.roughnessNode = mix(surface.y, float(.55), max(crack, haze));
   return material;
 }
-function buildFleetMaterial(name: string): THREE.MeshStandardNodeMaterial {
+function buildFleetMaterial(name: string): THREE.MeshPhysicalNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({ name, side: THREE.DoubleSide });
   const surface=attribute('fleetSurface','vec4'), color=attribute('color','vec3');
   material.colorNode=mix(color,decode(paintNode()).mul(color),surface.x);

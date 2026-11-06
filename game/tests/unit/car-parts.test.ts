@@ -1,7 +1,7 @@
 import './fleet-assets.fixture';
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, GLASS_STAGE, PART_STATE, PARTS, WINDOWS, type PartName, type WindowName } from '../../src/vehicle/damage';
+import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, GLASS_STAGE, PART_STATE, PARTS, SURFACE_SIZE, surfaceCell, WINDOWS, type PartName, type WindowName } from '../../src/vehicle/damage';
 import { fleetDamageBox, FLEET_BY_ID, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 import { DamageRig, modelLayout, onPartDetached, onWindowShattered, skinToCage, type DetachEvent, type ShatterEvent } from '../../src/actors/fleet/damageRig';
@@ -234,5 +234,61 @@ describe('glass (vehicle/damage.ts GLASS_LOAD)', () => {
     expect(events.map(e => WINDOWS[e.window])).toEqual(['frontLeft']);
     expect(events[0].centre.x).toBeGreaterThan(.5);
     onWindowShattered(null); rig.release();
+  });
+});
+
+describe('surface wear (vehicle/damage.ts stampSurface)', () => {
+  test('a hit scuffs its footprint, a hard one to bare metal; the cells round-trip in the wire (version 5)', () => {
+    const s = new DamageState(layout);
+    applyHit(s, { dv: [0, 0, -16 / 3.6], at: [.7, .5, 2.1], halfWidth: .2 });
+    const corner = surfaceCell(layout, 'front', .7, .4, 2.1), other = surfaceCell(layout, 'front', -.7, .4, 2.1);
+    expect(s.surfaceWear[corner]).toBeGreaterThan(.05);
+    expect(s.surfaceWear[corner]).toBeLessThan(.2);
+    expect(s.surfaceWear[other]).toBe(0);
+    expect(s.hits).toBe(1);
+    const side = new DamageState(layout); applyHit(side, { dv: [-60 / 3.6, 0, 0], at: [1, .6, .3], halfWidth: .4 });
+    expect(side.surfaceWear[surfaceCell(layout, 'posX', 1, .6, .3)]).toBeGreaterThan(.8);
+    expect(side.surfaceWear[surfaceCell(layout, 'negX', -1, .6, .3)]).toBe(0);
+    // A roll onto the roof: the roof is scuffed and dirty.
+    const roof = new DamageState(layout); applyHit(roof, { dv: [0, -20 / 3.6, 0] });
+    const top = surfaceCell(layout, 'top', 0, 1.4, 0);
+    expect(roof.surfaceWear[top]).toBeGreaterThan(.1); expect(roof.surfaceDirt[top]).toBeGreaterThan(.1);
+    const back = new DamageState(layout);
+    expect(decodeDamage(encodeDamage(side), back)).toBe(true);
+    side.surfaceWear.forEach((w, i) => expect(Math.abs(back.surfaceWear[i] - w)).toBeLessThanOrEqual(1 / 30 + 1e-6));
+    expect(encodeDamage(side)).toHaveLength(688);
+    // The unwrap: 16 x 16 cells, every face in its own rows.
+    expect(surfaceCell(layout, 'posX', 1, 0, -2.1)).toBe(0);
+    expect(surfaceCell(layout, 'negX', -1, 1.38, 2.1)).toBe(8 * SURFACE_SIZE - 1);
+    expect(surfaceCell(layout, 'rear', .99, 1.38, -2.1)).toBe(SURFACE_SIZE * SURFACE_SIZE - 1);
+  });
+  test('sliding along a wall wears the side that touches it; the wire follows at most twice a second', async () => {
+    const R = await import('@dimforge/rapier3d');
+    const { PhysicsWorld } = await import('../../src/physics/world');
+    const { modelDamageBox, modelTuning } = await import('../../src/vehicle/modelTuning');
+    const pw = new PhysicsWorld(R);
+    pw.world.createCollider(R.ColliderDesc.cuboid(80, .5, 80).setTranslation(0, -.5, 0));
+    // A wall along +X at z = 1.2 (the car faces +X, its right side, +Z in the chassis frame, towards the wall).
+    pw.world.createCollider(R.ColliderDesc.cuboid(60, 1.5, .2).setTranslation(0, 1.5, 1.2 + .2));
+    pw.spawnVehicle({ x: -20, y: .8, z: 0 }, 0, { tuning: modelTuning(PLAYER_MODEL), damage: { box: modelDamageBox(PLAYER_MODEL)! } });
+    const idle = { vx: 0, vz: 0, jump: false };
+    for (let i = 0; i < 60; i++) pw.fixedStep(idle, null);
+    const car = pw.vehicle!, wires = new Set<string>();
+    for (let i = 0; i < 120; i++) {
+      car.body.setLinvel({ x: 12, y: car.body.linvel().y, z: .6 }, true);
+      pw.fixedStep(idle, null);
+      const wire = pw.vehicleStates()[0].damage;
+      if (wire) wires.add(wire);
+    }
+    const d = car.damage!, cage = d.layout;
+    const right = [...d.surfaceWear].slice(4 * SURFACE_SIZE, 8 * SURFACE_SIZE).reduce((a, b) => a + b), left = [...d.surfaceWear].slice(0, 4 * SURFACE_SIZE).reduce((a, b) => a + b);
+    expect(right).toBeGreaterThan(.2);
+    expect(left).toBe(0);
+    expect(d.damaged).toBe(true);
+    expect(d.hits).toBe(0);
+    // Two seconds of scraping: a handful of wire updates, not one per step.
+    expect(wires.size).toBeGreaterThan(0); expect(wires.size).toBeLessThanOrEqual(5);
+    void cage;
+    pw.world.free();
   });
 });
