@@ -103,14 +103,18 @@ part of 20 drivers saved time in proportion to the draws; four instanced draws c
   main-thread time of `finish()`; `__game.state().drivers` lists the seated drivers with their hands' distance from
   the grips.
 
-City.lab, M1 Air, perf lease, 20 bench cars in view with animated drivers against the same cars without, paired median
-of five alternating rounds (`driver-probe.mjs perf`):
+City.lab, M1 Air, perf lease, the same courtyard spawn with the 20 bench cars in view behind the start car, animated
+drivers against the same cars without, paired median of five alternating rounds (`driver-probe.mjs perf`). The world
+keeps streaming under the bench, so single pairs scatter by several ms; the CPU column is the steadiest:
 
 | Build | GPU p50 | Frame p50 | CPU p50 | Draws | `finish()` |
 |---|---|---|---|---|---|
 | 9e306c10 (a draw per part, distance tiers) | +6.7 ms | +6.6 ms | +7.8 ms | +78 | 2.7 ms |
-| c0ff17d8 (one skinned draw per driver), camera behind the rows | +1.9 ms | +1.5 ms | +2.8 ms | +24 | 0.65 ms |
-| c0ff17d8, camera ahead of the rows (all 20 faces in view) | +2.7 ms | +2.7 ms | +3.0 ms | +20 | 0.48 ms |
+| c0ff17d8 (one skinned draw per driver) | +1.9 ms | +1.5 ms | +2.8 ms | +24 | 0.65 ms |
+| c65cc2d9 (one instanced draw for all; 21 in view) | +0.3 ms | +0.3 ms | +1.7 ms | about +1 | 1.5 ms |
+
+`finish()` grows with the batch because it now does the skeleton refresh and bone upload the renderer did in its
+scene update before; the draw submission it replaces cost more.
 
 ## Ambient traffic
 
