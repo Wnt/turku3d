@@ -666,6 +666,29 @@ Measured on city.lab (2026-11-06, headless Chrome on the M1 Air):
 - `slots` (perf lease, build b9340735): 20, 60 and 100 wrecks (loose parts, broken glass, worn paint) in view at
   once each hold a distinct slot. GPU p50 plain / wrecked: 23.6 / 21.3 ms (20), 24.6 / 26.0 (60), 27.3 / 28.0 (100);
   CPU p50 19.3 / 19.8, 22.7 / 23.7, 25.7 / 26.5 ms; the same draw counts. Within the Air's ±2 ms noise at 20.
+- `parked` (builds 0a9b0e65 and ed2840c3): A's starter car rear-ends a parked carla-citroen-c3 (36 km/h impact:
+  each car takes about half, too little to count) and a 70 km/h developer dent leaves 31.4 cm rear crumple; the room
+  record holds it (owner A, with the damage), B draws the same wreck (31.4 cm) within 1.1 s and so does C after A has
+  left. The first damaged batches drew nothing: 11 vertex buffers against WebGPU's default 8 (the cage bytes, paint,
+  slot and lamps each had one); packed (`damageRig.ts packCage`, `damageBatch`; 8 buffers and 16 attributes with the
+  velocity pass, `fleet-damage.test.ts` checks both) a parked prado-2010 wreck (42.1 cm) draws in `wrecks/prado-2010/0`.
+- `traffic` (build f0e156ae): a 44.9 km/h run into a traffic prado-2010 standing in a queue claims it with a 23.7 km/h
+  hit (traffic stats `claimHit`); an 80 km/h developer dent on its nose then makes it vent steam (10 sprites).
+- Traffic soak (async, east 3 x 3, 30 min, build 7460af30): 107.3 exits/min in the last half (handover: 100.1), 0
+  locked over 300 s, 0 overlaps, 81 recycled, none in view.
+
+Next steps:
+- Recycle claimed traffic wrecks out of view, like a jam front: a claimed key stays suppressed in the flow (local and
+  through the room's `tr:` sources), so removing a wreck needs a room action that drops the `park:tr:` record and a
+  flow change (a `TRAFFIC.version` bump) so every peer suppresses or frees the key alike.
+- A lightly hit traffic car still stops (every contact with a player's car claims it); keeping it in the flow with
+  its dents needs per-car damage in the traffic batches and the worker.
+- Other players' shared wrecks draw as cars of their own (body, glazing, four hubs per car): drawing unoccupied
+  shared cars through the damaged batches would make them one draw per model there too.
+- Car-to-car hits below about 20 km/h of velocity change spread over several steps under the 1 m/s per-step crash
+  threshold and leave no damage on either car.
+- transit-bus: re-centre the model on its origin (27 cm off along the length).
+- The 20-wreck frame cost of the damaged batches on the Air (`parkedperf`), and the sheet with the closer framing.
 
 ```sh
 npm --prefix game test -- --run tests/unit/fleet-damage.test.ts tests/unit/car-parts.test.ts
