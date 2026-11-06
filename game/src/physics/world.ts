@@ -74,7 +74,7 @@ export class PhysicsWorld {
   private brokenPoles = new Set<string>();
   private poleEvents: RAPIER_NS.EventQueue;
   /** Car part debris, oldest first: its body, the tick it goes, and the last published state while it rests. */
-  private debris = new Map<string, { body: RAPIER_NS.RigidBody; until: number; solidAt: number; state: DebrisState | null }>();
+  private debris = new Map<string, { body: RAPIER_NS.RigidBody; until: number; solidAt: number; floor: number; state: DebrisState | null }>();
   get vehicle(): Vehicle | null { return this.vehicles.get('player') ?? null; }
   private curbQueries: CurbQueries;
   /** Walls along the true edges of the collision (edgeWalls.ts). */
@@ -665,7 +665,8 @@ export class PhysicsWorld {
       .setFriction(.6).setRestitution(.15)
       .setCollisionGroups(groups(DEBRIS.group, GROUP.STATIC_SOLID | GROUP.DYNAMIC | DEBRIS.group)), body);
     // It starts inside the car it came off: cars push it only once it has fallen clear (no depenetration kick).
-    this.debris.set(spec.id, { body, until: this.tick + Math.round(DEBRIS.lifetimeS / DT), solidAt: this.tick + Math.round(.6 / DT), state: null });
+    this.debris.set(spec.id, { body, until: this.tick + Math.round(DEBRIS.lifetimeS / DT), solidAt: this.tick + Math.round(.6 / DT),
+      floor: spec.pos.y - 10, state: null });
   }
   private removeDebris(id: string) {
     const piece = this.debris.get(id);
@@ -676,7 +677,8 @@ export class PhysicsWorld {
   /** Debris poses; a resting piece repeats its last state object (no delta). */
   debrisStates(): DebrisState[] {
     for (const [id, piece] of this.debris) {
-      if (this.tick >= piece.until) { this.removeDebris(id); continue; }
+      // Gone after its lifetime, or at once if it fell out of the world (through a gap in the ground).
+      if (this.tick >= piece.until || piece.body.translation().y < piece.floor) { this.removeDebris(id); continue; }
       if (this.tick >= piece.solidAt && piece.solidAt >= 0) {
         piece.body.collider(0).setCollisionGroups(groups(DEBRIS.group, GROUP.STATIC_SOLID | GROUP.VEHICLE | GROUP.DYNAMIC | DEBRIS.group));
         piece.solidAt = -1;

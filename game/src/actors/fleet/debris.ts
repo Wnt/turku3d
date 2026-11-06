@@ -26,6 +26,12 @@ export class DebrisField {
     geometry.computeBoundingBox();
     const box = geometry.boundingBox!, centre = box.getCenter(new THREE.Vector3()), half = box.getSize(new THREE.Vector3()).multiplyScalar(.5);
     geometry.translate(-centre.x, -centre.y, -centre.z);
+    // The body may be pressed into a wall and its lowest parts sit near the road: the box starts 10 cm in towards the
+    // car's middle (it ignores the car for its first 0.6 s) and clear of the wheel plane, so it never begins inside the
+    // world's colliders and gets pushed through them.
+    const inward = new THREE.Vector3(centre.x, 0, centre.z);
+    if (inward.lengthSq() > 1e-6) centre.addScaledVector(inward.normalize(), -.1);
+    centre.y = Math.max(centre.y, half.y + .04);
     geometry.computeBoundingSphere();
     const mesh = new THREE.Mesh(geometry, fleetMaterial());
     // The shared fleet program reads the paint per object (parkedPaint.ts): an unpainted mesh would not draw.
@@ -42,7 +48,7 @@ export class DebrisField {
     this.physics.spawnDebris({ id, pos: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
       rot: { x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w },
       half: { x: half.x, y: half.y, z: half.z }, mass: MASS[part],
-      linvel: { x: v.x + out.x * 1.2, y: v.y + 1, z: v.z + out.z * 1.2 }, angvel: { x: spin(), y: spin(), z: spin() } });
+      linvel: { x: v.x + out.x * .5, y: v.y + 1.2, z: v.z + out.z * .5 }, angvel: { x: spin(), y: spin(), z: spin() } });
     this.scene.add(mesh);
     this.pieces.set(id, { mesh, born: performance.now(), part });
     // The worker drops the oldest piece at the cap; drop its mesh now too.
