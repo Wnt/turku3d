@@ -534,6 +534,19 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(sources['c_1_1'].exists())
         self.assertFalse(sources['c_40_40'].exists())
 
+    def test_a_round_stops_on_what_it_evicted_while_free_space_lags(self):
+        stale = 50 * farm_module.GIB  # statvfs that has not caught up with the unlinks yet
+        farm = self.farm(workers=0, free=lambda: stale)
+        root = self.root / 'cache/raw-derived/decoded' / ('e' * 64)
+        root.mkdir(parents=True)
+        old = time.time() - 7200
+        for i, name in enumerate('fa'):
+            path = root / (name * 64 + '.npy')
+            path.write_bytes(b'decoded columns')
+            os.utime(path, (old + i, old + i))
+        self.assertTrue(farm.make_room(stale + 1))  # a one-byte deficit
+        self.assertEqual([p.name[0] for p in root.glob('*.npy')], ['a'])  # only the older array went
+
     def test_raw_eviction_stops_on_released_bytes_while_free_space_lags(self):
         stale = 50 * farm_module.GIB  # statvfs that has not caught up with the unlinks yet
         farm = self.farm(workers=0, free=lambda: stale)

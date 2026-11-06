@@ -212,6 +212,7 @@ class Farm:
                             migrations=0)
         self.skipped_links = set()
         self.seed_copied = 0
+        self.round_start, self.round_deficit = 0, 0
         self.version = time.time_ns() // 1000000
         self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
@@ -1420,9 +1421,17 @@ class Farm:
                 return True
         return False
 
+    def room(self, target):
+        """This round has made room: statvfs lags unlinks on a busy ZFS pool, so a round also stops once its
+        evictions cover the deficit it started with (2026-11-06: rounds deleted 47 GB and 21 GB for 13 and
+        2.5 GB). Counted sizes are apparent, so a round errs short; the next one reads statvfs again."""
+        return (self.free() >= target or
+                self.metrics['evicted_bytes'] - self.round_start >= self.round_deficit)
+
     def _make_room(self, target, jobs, adopting, aliases, oldest_build=None):
         if self.free() >= target:
             return True
+        self.round_start, self.round_deficit = self.metrics['evicted_bytes'], target - self.free()
         for path in sorted((self.root / 'delivery/shared').glob('bundle.*.col'), key=lambda p: p.stat().st_mtime):
             if time.time() - path.stat().st_mtime < self.grace_seconds:
                 continue
@@ -1430,7 +1439,7 @@ class Farm:
             path.unlink()
             self.metrics['evicted_bytes'] += size
             self.event('delivery-evicted', bytes=size)
-            if self.free() >= target:
+            if self.room(target):
                 return True
         pinned = {g for g, _ in jobs}
         pinned.update(adopting)
@@ -1469,7 +1478,7 @@ class Farm:
                         self.skip_link(snapshot, 'revision')
                         continue
                     shutil.rmtree(snapshot)
-            if self.free() >= target:
+            if self.room(target):
                 return True
         cache = self.root / 'cache'
         # Decoded arrays are opened under their source lock and memory-mapped. An entry a
@@ -1500,7 +1509,7 @@ class Farm:
                     self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size)
             except FileNotFoundError:
                 continue
-            if self.free() >= target:
+            if self.room(target):
                 return True
         # Map files are hard-linked into private products before the producer lock
         # is released, so old shared entries can be evicted even while builds run.
@@ -1528,7 +1537,7 @@ class Farm:
                 shutil.rmtree(path)
                 self.metrics['evicted_bytes'] += size
                 self.event('surface-maps-evicted', key=path.name, bytes=size)
-            if self.free() >= target:
+            if self.room(target):
                 return True
         wanted_tiles = {tile for _, tile in jobs}
         files = sorted((p for kind in ('inputs', 'stages') for p in (cache / kind).rglob('*.pkl')
@@ -1551,7 +1560,7 @@ class Farm:
                     self.event('cache-evicted', path=str(path.relative_to(cache)), bytes=stat.st_size)
             except FileNotFoundError:
                 continue
-            if self.free() >= target:
+            if self.room(target):
                 return True
         if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build,
                                                    {tile for _, tile in jobs}):
@@ -1564,7 +1573,7 @@ class Farm:
                     continue
                 self.metrics['evicted_bytes'] += path.stat().st_size
                 path.unlink()
-                if self.free() >= target:
+                if self.room(target):
                     return True
             for path in ([] if adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
@@ -1577,7 +1586,7 @@ class Farm:
                     shutil.rmtree(path)
                 self.metrics['evicted_bytes'] += size
                 self.event('raw-cache-evicted', path=str(path.relative_to(cache)), bytes=size)
-                if self.free() >= target:
+                if self.room(target):
                     return True
         return self.free() >= target
 
