@@ -632,6 +632,16 @@ Phase 3 of the car-damage plan: the starter car's damage (all sections above) fo
   European HGV, the fire truck and the Sprinter ambulance (opaque or body glass). Windows kept intact: 8 models (one
   or two each). Cage misfit: transit-bus (its body sits 27 cm off its origin along the length, so the front crumple
   starts that far ahead of the bumper: a model fix). The rav4's glazing is one shell and now splits into five windows.
+- **Ambient traffic** (slice 4): a traffic car that a player's car hits is claimed (as before: it leaves the flow and
+  becomes a dynamic vehicle, `physics/traffic.ts claim`), now with its drawn model's cage and the hit that claimed it:
+  in that step the traffic car was kinematic, so the hitter measured a wall; the claimed car takes the closing speed
+  along the line between the centres, shared by mass as in an inelastic car-to-car crash, at the face of its box
+  that faced the hitter (`claimHit`; a 60 km/h rear-end on a stopped car of the same mass is a 30 km/h hit). The
+  hitter's client claims it, so it owns the damage, and the claim is shared like a parked car's (a `park:tr:` record).
+  It then draws and keeps its damage as a parked wreck. One too damaged to drive (radiator or engine venting, or a
+  system or corner at level 2: `mechanics.ts wrecked`) stands with its hazard lights blinking (`indicator` 2, both
+  fleet lamp indicators; remote actors too) and its bay steaming (`play.ts`, `remotes.ts`). The flow itself is
+  unchanged: claims do not happen in the soaks, and drivers already pass claimed cars.
 - **Damage slots** (slice 2, `damageRig.ts`): the pool and the surface atlas are array textures with one layer per
   slot, 256 layers (WebGPU's guaranteed minimum; 255 damaged cars and the fresh identity, 129 + 256 texels a car,
   2 KB), and a change uploads only that car's layer (`addLayerUpdate`; before the first upload every layer goes). With

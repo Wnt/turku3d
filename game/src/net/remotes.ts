@@ -3,7 +3,8 @@ import { showFleetDamage } from '../actors/fleet/visuals';
 import { vehicleLamps } from '../vehicle/lamps';
 import type { HornEmitter } from '../audio/mix';
 import type { TyreEffects } from '../vehicle/tyreEffects';
-import { mechanicsOf } from '../vehicle/mechanics';
+import { hazardOn, mechanicsOf, wrecked } from '../vehicle/mechanics';
+import { CLAIM_PREFIX } from '../traffic/constants';
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -228,6 +229,10 @@ export class RemotePlayers {
       if (pose.mode === 'car' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
       // The owner's body damage (vehicle/damage.ts), replicated in the pose.
       if (pose.mode === 'car') showFleetDamage(remote.car, pose.damage);
+      // A claimed traffic car too damaged to drive (another player's wreck) blinks its hazard lights.
+      const wreck = pose.mode === 'car' && !p.occupant && p.id.startsWith(`park:${CLAIM_PREFIX}`) && wrecked(mechanicsOf(pose.damage));
+      if (wreck) { const lamps = remote.car.userData.vehicleLampState as THREE.Vector4 | undefined, on = hazardOn(now) ? 1 : 0;
+        lamps?.set(Math.max(1, lamps.x), 0, on, on); }
       if (pose.mode === 'truck' && pose.wheels) {
         applyTrophyRig(remote.truck, pose.wheels);
         // Driven remote trucks only (a player's own pose, or a shared record with an occupant): the engine voice.
@@ -250,9 +255,9 @@ export class RemotePlayers {
       }
       // A driven damaged car vents steam or smoke from its engine bay (vehicle/mechanics.ts, from the same wire), also
       // standing still, when its owner sends a pose only every second.
-      if (effectsDt > 0 && now - remote.receivedAt < 1500 && pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
+      if (effectsDt > 0 && pose.mode === 'car' && ((now - remote.receivedAt < 1500 && (!('occupant' in p) || !!p.occupant)) || wreck)) {
         const bay = mechanicsOf(pose.damage);
-        this.tyreEffects.engineBay(p.id, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
+        this.tyreEffects.engineBay(p.id, pos, remote.truck.quaternion, wreck ? Math.max(bay.steam, .35) : bay.steam, bay.smoke, effectsDt);
       }
       // A driven car or truck shows its driver, animated from the drawn pose (no extra synced field): a player's own
       // pose, or a shared record with an occupant. The local player's own shared car seats the local driver.

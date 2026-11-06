@@ -186,6 +186,8 @@ export class Vehicle {
     }
   }
 
+  /** The chassis velocity before this step's solve (null outside a step): what a car ran into something with. */
+  get velocityBeforeSolve(): V3 | null { return this.beforeSolve; }
   /** From now on another player's car damages this body too (this client drives or owns it). */
   ownDamage() { this.ownsDamage = true; }
   /** Whether the chassis touches another player's car proxy now (world.ts setRemotes, REMOTE_VEHICLE membership). */

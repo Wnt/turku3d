@@ -171,3 +171,26 @@ describe('damaged parked cars draw in their model\'s damaged batch (actors/fleet
     visuals.dispose();
   });
 });
+
+describe('a traffic car that is hit keeps the dent (physics/traffic.ts claimHit)', () => {
+  test('the claiming hit: closing speed shared by mass, pushed away from the hitter, at the face it struck', async () => {
+    const { claimHit } = await import('../../src/physics/traffic');
+    const passat = FLEET_BY_ID.get('passat-b8')!, half = { x: 2.3, z: .93 }, still = { x: 0, y: 0, z: 0 };
+    // Facing +X (identity chassis rotation); the hitter runs into its tail at 60 km/h, as heavy as the passat.
+    const mass = (await import('../../src/actors/fleet/registry')).AUTHORED_BY_ID.get('passat-b8')!.spec as { massKg?: number };
+    const tail = claimHit(passat, { x: 0, y: .75, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }, still, half,
+      { pos: { x: -4.5, y: .75, z: 0 }, vel: { x: 60 / 3.6, y: 0, z: 0 }, mass: mass.massKg ?? 1400 })!;
+    expect(tail.dv[2] * 3.6).toBeCloseTo(30, 0); expect(Math.abs(tail.dv[0])).toBeLessThan(1e-6);
+    expect(tail.at![2]).toBeCloseTo(-passat.length / 2, 1); expect(tail.halfWidth).toBeUndefined();
+    // A T-bone into its right front door (chassis +Z is the right): pushed to its left (+X fleet), near the front.
+    const side = claimHit(passat, { x: 0, y: .75, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }, still, half,
+      { pos: { x: 1.4, y: .75, z: 3 }, vel: { x: 0, y: 0, z: -50 / 3.6 }, mass: 1400 })!;
+    expect(side.dv[0]).toBeGreaterThan(0); expect(side.at![0]).toBeCloseTo(-passat.width / 2, 1); expect(side.at![2]).toBeGreaterThan(.5);
+    // A car driving away from it (a slower car behind) is no hit; the same hit on a moving traffic car counts the closing speed only.
+    expect(claimHit(passat, { x: 0, y: .75, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }, still, half,
+      { pos: { x: -4.5, y: .75, z: 0 }, vel: { x: -2, y: 0, z: 0 }, mass: 1400 })).toBeNull();
+    const moving = claimHit(passat, { x: 0, y: .75, z: 0 }, { x: 0, y: 0, z: 0, w: 1 }, { x: 40 / 3.6, y: 0, z: 0 }, half,
+      { pos: { x: -4.5, y: .75, z: 0 }, vel: { x: 60 / 3.6, y: 0, z: 0 }, mass: mass.massKg ?? 1400 })!;
+    expect(moving.dv[2] * 3.6).toBeCloseTo(10, 0);
+  });
+});

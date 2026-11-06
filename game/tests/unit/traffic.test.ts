@@ -320,11 +320,11 @@ describe('population ring', () => {
 
   test('the worker fills the cap, then creates cars only outside the near view cone, and claims on contact', () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
-    const spawned: string[] = [];
-    let driven: number | null = null;
-    const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: (_p, _y, spec) => spawned.push(spec.id),
+    const spawned: string[] = [], cages: unknown[] = [], dents: { id: string; hit: { dv: number[] } }[] = [];
+    let driven: number | null = null, hitter: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number }; mass: number } | null = null;
+    const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: (_p, _y, spec) => { spawned.push(spec.id); cages.push(spec.damage); },
       bodyKind: handle => handle === driven ? 'driven' : null, character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }),
-      pushCharacter: () => {} };
+      pushCharacter: () => {}, damageVehicle: (id, hit) => dents.push({ id, hit }), impact: handle => handle === 999 ? hitter : null };
     const sim = new TrafficSim(R, world, host);
     const tiles = city();
     sim.setTiles([...tiles].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
@@ -371,11 +371,16 @@ describe('population ring', () => {
     void inViewCreated;
     // A car the driven vehicle touches turns into a dynamic vehicle with a registry-safe id; the event repeats
     // until the snapshot that carried it is acknowledged.
-    const handle = sim.publish()[0];
-    const id = sim.claim(handle)!;
+    // It carries its drawn model's damage cage and the hit of the car that ran into it (5 m/s closing, from behind).
+    const flatNow = sim.publish(), handle = flatNow[0], at = { x: flatNow[3], y: flatNow[4], z: flatNow[5] }, v = { x: flatNow[10], z: flatNow[11] };
+    const speed = Math.hypot(v.x, v.z), f = speed > .1 ? { x: v.x / speed, z: v.z / speed } : { x: 1, z: 0 };
+    hitter = { pos: { x: at.x - f.x * 4.5, y: at.y, z: at.z - f.z * 4.5 }, vel: { x: v.x + f.x * 5, y: 0, z: v.z + f.z * 5 }, mass: 1400 };
+    const id = sim.claim(handle, 999)!;
     expect(id).toMatch(/^tr:t0_[01]_0:[0-9a-f]{8}:-?\d+$/);
     expect(`park:${id}`).toMatch(/^[A-Za-z0-9_.:-]{1,180}$/);
     expect(spawned).toEqual([id]);
+    expect(cages[0]).toMatchObject({ box: { center: [0, expect.any(Number), 0] } });
+    expect(dents).toHaveLength(1); expect(dents[0].id).toBe(id); expect(dents[0].hit.dv[2]).toBeGreaterThan(1);
     expect(sim.activeKeys()).not.toContain(id.slice(3));
     expect(sim.pending(0, 7).map(e => [e.id, e.revision])).toEqual([[id, 7]]);
     expect(sim.pending(6, 8)).toHaveLength(1);
@@ -572,7 +577,7 @@ describe('traffic density', () => {
   test('the drawn set thins without pops: a car whose slot goes empty stays until it is out of view', () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
-      character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {} };
+      character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {}, damageVehicle: () => {}, impact: () => null };
     const sim = new TrafficSim(R, world, host);
     // Real traffic enters/exits the resident graph; closed conveyor matching cycles are not birth portals.
     const through = new Map<string, RoadGraphJson>();
@@ -634,7 +639,7 @@ describe('car simulation tiers', () => {
   const setup = () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null,
-      character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 0, y: 0, z: 0 }), pushCharacter: () => {} };
+      character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 0, y: 0, z: 0 }), pushCharacter: () => {}, damageVehicle: () => {}, impact: () => null };
     const sim = new TrafficSim(R, world, host);
     const active = (sim as unknown as { active: Map<number, unknown> }).active;
     const car = (handle: number, x: number, z: number) => {

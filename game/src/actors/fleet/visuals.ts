@@ -3,7 +3,8 @@ import * as THREE from 'three/webgpu';
 import type { VehicleState, Quat, WheelState } from '../../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
-import { CHASSIS_LIFT } from '../../traffic/constants';
+import { CHASSIS_LIFT, CLAIM_PREFIX } from '../../traffic/constants';
+import { hazardOn, mechanicsOf, wrecked } from '../../vehicle/mechanics';
 import { paintActor, paintInstances } from '../parkedPaint';
 import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fallbackModel, fleetModel, type FleetModel } from './catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
@@ -416,8 +417,11 @@ export class ParkedCarVisuals {
     for(const car of this.cars) {
       const state=byId.get(car.object_id),pose=state??rest?.restingPose(car); if(!pose)continue;
       const def=this.definitions.get(car.object_id)!;
-      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:state?.wheels??pose.wheels,
-        damage:this.bench.get(car.object_id)??(state?state.damage:pose.damage)});
+      const damage=this.bench.get(car.object_id)??(state?state.damage:pose.damage);
+      // A claimed traffic car too damaged to drive stands with its hazard lights on (vehicle/mechanics.ts wrecked).
+      const hazard=!!damage&&car.object_id.startsWith(CLAIM_PREFIX)&&wrecked(mechanicsOf(damage));
+      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:state?.wheels??pose.wheels,damage,
+        ...(hazard?{powered:true,indicator:hazardOn()?2:0}:{})});
     }
     for(let i=0;i<this.traffic.length;i++) {
       const car=this.traffic[i], id=car.seed??`${car.model}/${i}`;

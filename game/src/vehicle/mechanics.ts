@@ -95,6 +95,12 @@ export function mechanics(state: DamageState): Mechanics {
 // per distinct wire. The wire layout is the same for every cage, so one scratch state serves all models.
 const scratch = new DamageState(damageLayout({ center: [0, 0, 0], half: [1, 1, 1] }));
 const cache = new Map<string, Mechanics>();
+/** A car too damaged to drive on: its radiator or engine vents, or a system or corner is at level 2 or more. A claimed
+ *  traffic car in this state stands with its hazard lights blinking and its bay steaming (fleet/visuals.ts, play.ts). */
+export const wrecked = (m: Mechanics) => m.steam > 0 || m.smoke > 0 || m.worst >= 2;
+/** Hazard lights' phase now: on for half of each 1.1 s (both indicators, `indicator` 2 of the fleet lamps). */
+export const hazardOn = (now = performance.now()) => now % 1100 < 550;
+
 export function mechanicsOf(wire: string | null | undefined): Mechanics {
   if (!wire) return INTACT;
   let m = cache.get(wire);

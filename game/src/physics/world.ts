@@ -100,6 +100,12 @@ export class PhysicsWorld {
       ground: (x, top, z, depth) => this.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, depth, 'solid')?.point.y ?? null,
       resident: (x, z) => { const c = collisionTileAt(x, z); return this.residentCells.has(collisionTileId(c.i, c.j)); },
       spawnVehicle: (pos, yaw, spec) => this.spawnVehicle(pos, yaw, spec),
+      damageVehicle: (id, hit) => this.damageVehicle(id, hit),
+      impact: handle => {
+        for (const vehicle of this.vehicles.values()) if (vehicle.body.handle === handle)
+          return { pos: { ...vehicle.body.translation() }, vel: { ...(vehicle.velocityBeforeSolve ?? vehicle.body.linvel()) }, mass: vehicle.body.mass() };
+        return null;
+      },
       bodyKind: handle => {
         if (!this.charEnabled && this.vehicles.get(this.drivenId ?? '')?.body.handle === handle) return 'driven';
         if (this.claimedBodies.has(handle)) return 'claimed';

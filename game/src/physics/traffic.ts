@@ -1,6 +1,8 @@
 import {fleetWheelFootprint} from '../actors/fleet/wheelLayouts';
 import { sampleWheelGround, wheelGroundPose, type WheelGroundPose } from '../vehicle/wheelGround';
-import { fleetModel, type FleetModel } from '../actors/fleet/catalog';
+import { fleetDamageBox, fleetModel, type FleetModel } from '../actors/fleet/catalog';
+import { AUTHORED_BY_ID } from '../actors/fleet/registry';
+import type { DamageBox, DamageHit } from '../vehicle/damage';
 // Ambient traffic inside the physics worker (street-richness plan §3.6). The network gives every car's position
 // as a function of shared time; this class picks the cars this client shows (traffic/ring.ts), keeps permanent
 // kinematic Rapier bodies on the ones near the player, and turns a car the player touches into an ordinary
@@ -48,7 +50,12 @@ export interface TrafficHost {
   ground(x: number, top: number, z: number, depth: number): number | null;
   /** Collision is resident under (x, z). */
   resident(x: number, z: number): boolean;
-  spawnVehicle(pos: V3, yaw: number, spec: { id: string; kind: 'car'; halfExt: V3; rot: Quat; linvel: V3 }): void;
+  spawnVehicle(pos: V3, yaw: number, spec: { id: string; kind: 'car'; halfExt: V3; rot: Quat; linvel: V3; damage?: { box: DamageBox } }): void;
+  /** A body hit on vehicle `id` (vehicle/damage.ts DamageHit, fleet frame). */
+  damageVehicle(id: string, hit: DamageHit): void;
+  /** Rigid body `handle` of a vehicle this client simulates: its centre, its velocity before this step's solve and
+   *  its mass (the car that just ran into a traffic car); null for anything else. */
+  impact(handle: number): { pos: V3; vel: V3; mass: number } | null;
   /** What a rigid body is to traffic: the vehicle the local player is driving, a car this client claimed, any
    *  other vehicle (parked cars, which traffic passes rather than shoves), or something else. */
   bodyKind(handle: number): 'driven' | 'claimed' | 'vehicle' | null;
@@ -288,30 +295,32 @@ export class TrafficSim {
    *  path, or a car this client claimed ahead of it, within the automatic-claim budget. */
   afterStep(events: RAPIER_NS.EventQueue) {
     const t0 = performance.now();
-    const hits = new Set<ActiveCar>();
+    const hits = new Map<ActiveCar, number | undefined>();
     events.drainCollisionEvents((a, b, started) => {
       if (!started) return;
       const car = this.colliderCar.get(a) ?? this.colliderCar.get(b);
       if (!car || !car.body) return;
       const other = this.world.getCollider(this.colliderCar.has(a) ? b : a)?.parent();
       const kind = other ? this.host.bodyKind(other.handle) : null;
-      if (kind === 'driven' || (kind === 'claimed' && this.autoBudget(true))) hits.add(car);
+      if (kind === 'driven' || (kind === 'claimed' && this.autoBudget(true))) hits.set(car, other?.handle);
     });
     const feet = this.host.character();
     if (feet) for (const car of this.active.values()) {
       if (!car.body || hits.has(car)) continue;
       const contact = footprint(car, feet);
-      if (contact.ahead && this.autoBudget(true)) hits.add(car);
+      if (contact.ahead && this.autoBudget(true)) hits.set(car, undefined);
       else if (contact.overlap) this.host.pushCharacter(contact.pushX, contact.pushZ);
     }
-    for (const car of hits) this.claim(car.handle);
+    for (const [car, by] of hits) this.claim(car.handle, by);
     const ms = this.substepMs + performance.now() - t0;
     this.stats.stepMs += (ms - this.stats.stepMs) * 0.05;
     this.stats.stepMax = Math.max(ms, this.stats.stepMax * 0.995);
   }
 
-  /** Converts an active car into a dynamic vehicle (contact, or the player entering it). Returns its id. */
-  claim(handle: number): string | null {
+  /** Converts an active car into a dynamic vehicle (contact, or the player entering it), with its model's damage
+   *  cage. Returns its id. `by`: the body that ran into it (a car this client simulates), whose hit dents it: the
+   *  traffic car was kinematic in that step, so the measured crash (vehicle.ts trackCrash) would miss it. */
+  claim(handle: number, by?: number): string | null {
     const car = this.active.get(handle);
     if (!car || !Number.isFinite(car.pose.y)) return null;
     const id = `tr:${car.key}`;
@@ -322,7 +331,10 @@ export class TrafficSim {
     this.claims.addLocal(car.key);
     this.flow.suppress(car.key);
     this.deactivate(car);
-    this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel });
+    const fleet = car.visualModel ??= fleetModel(model, String(hash32('appearance', car.key)));
+    this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel, damage: { box: fleetDamageBox(fleet) } });
+    const hitter = by === undefined ? null : this.host.impact(by);
+    if (hitter) { const hit = claimHit(fleet, pos, rot, linvel, { x: l / 2, z: w / 2 }, hitter); if (hit) this.host.damageVehicle(id, hit); }
     this.events.push({ revision: 0, handle, id, key: car.key, seed: String(hash32('appearance', car.key)), model, color: TRAFFIC_PAINTS[car.paint],
       size: [w, h, l], pos, rot, linvel });
     this.stats.claims++;
@@ -575,3 +587,33 @@ function interpolate(ys: Float64Array, cum: Float64Array, s: number): number {
 
 const round = (v: number) => Math.round(v * 1000) / 1000;
 const round4 = (v: number) => Math.round(v * 10000) / 10000;
+
+/** The hit a traffic car takes from the car that ran into it (`hitter`: centre, velocity before the solve, mass): the
+ *  closing speed along the line between their centres, shared by mass as in an inelastic car-to-car crash, in the
+ *  traffic car's fleet frame (+Z forward, +X left), at the point of its box facing the hitter; a point off the middle
+ *  of a face gets a footprint to the nearer corner, as vehicle.ts finishCrash. Null when they were not closing. */
+export function claimHit(model: FleetModel, pos: V3, rot: Quat, vel: V3, half: { x: number; z: number },
+  hitter: { pos: V3; vel: V3; mass: number }): DamageHit | null {
+  let nx = pos.x - hitter.pos.x, nz = pos.z - hitter.pos.z;
+  const n = Math.hypot(nx, nz);
+  if (n < 1e-3) return null;
+  nx /= n; nz /= n;
+  const closing = (hitter.vel.x - vel.x) * nx + (hitter.vel.z - vel.z) * nz;
+  if (closing <= 0) return null;
+  const mass = (AUTHORED_BY_ID.get(model.id)?.spec as { massKg?: number } | undefined)?.massKg ?? 1400;
+  const dv = closing * hitter.mass / (hitter.mass + mass);
+  // World to the chassis frame (+X forward, +Z right) by the inverse rotation, then to the fleet frame.
+  const inv = { x: -rot.x, y: -rot.y, z: -rot.z, w: rot.w };
+  const turn = (v: V3) => {
+    const tx = 2 * (inv.y * v.z - inv.z * v.y), ty = 2 * (inv.z * v.x - inv.x * v.z), tz = 2 * (inv.x * v.y - inv.y * v.x);
+    return { x: v.x + inv.w * tx + inv.y * tz - inv.z * ty, y: v.y + inv.w * ty + inv.z * tx - inv.x * tz, z: v.z + inv.w * tz + inv.x * ty - inv.y * tx };
+  };
+  const push = turn({ x: nx * dv, y: 0, z: nz * dv }), rel = turn({ x: hitter.pos.x - pos.x, y: 0, z: hitter.pos.z - pos.z });
+  const box = fleetDamageBox(model), [hw, , hl] = box.half;
+  const clamp = (v: number, h: number) => Math.max(-h, Math.min(h, v));
+  const at: [number, number, number] = [clamp(-rel.z / half.z * hw, hw), box.center[1], clamp(rel.x / half.x * hl, hl)];
+  const out: [number, number, number] = [-push.z, 0, push.x];
+  const end = Math.abs(out[2]) >= Math.abs(out[0]), lateral = Math.abs(end ? at[0] : at[2]), faceHalf = end ? hw : hl;
+  const halfWidth = lateral > .5 * faceHalf ? Math.max(.15, faceHalf - lateral) : undefined;
+  return { dv: out, at, ...(halfWidth ? { halfWidth } : {}) };
+}

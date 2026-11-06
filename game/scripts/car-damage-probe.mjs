@@ -398,10 +398,11 @@ try {
     await b.close();
   }
   if (mode === 'parked') {
-    // Parked cars take damage (Phase 3 slice 3): A drives its starter car into the back of a parked car at 40 km/h; the
-    // wreck draws in its model's damaged batch, the room keeps it (a shared record with A's damage), B draws the same
+    // Parked cars take damage (Phase 3 slice 3): A drives its starter car into the end of a parked car at up to 70
+    // km/h (each car then takes about half the closing speed, as in a real car-to-car crash), then a developer dent of
+    // 70 km/h on the parked car itself for a clear shape; the wreck draws in its model's damaged batch, the room keeps it (a shared record with A's damage), B draws the same
     // wreck, and after A has left a third client C still finds it wrecked.
-    const target = await page.evaluate(async () => {
+    const target = await page.evaluate(async RUN => {
       const g = window.__game, physics = g.physics, me = physics.latest.vehicles.find(v => v.id === 'player').pos;
       const cars = physics.latest.vehicles.filter(v => !['player', 'scooter', 'truck'].includes(v.id) && !v.id.startsWith('tr:') && v.kind === 'car' && v.speed < .1)
         .map(v => ({ v, d: Math.hypot(v.pos.x - me.x, v.pos.z - me.z) })).filter(c => c.d < 90).sort((a, b) => a.d - b.d);
@@ -410,16 +411,16 @@ try {
         fwd.x /= n; fwd.z /= n;
         for (const sign of [1, -1]) {
           // From behind (sign 1: along its forward axis, into its rear) or ahead (into its nose).
-          const d = { x: fwd.x * sign, z: fwd.z * sign }, start = { x: v.pos.x - d.x * 26, y: v.pos.y, z: v.pos.z - d.z * 26 };
+          const d = { x: fwd.x * sign, z: fwd.z * sign }, start = { x: v.pos.x - d.x * RUN, y: v.pos.y, z: v.pos.z - d.z * RUN };
           const ground = await physics.raycast({ x: start.x, y: start.y + 20, z: start.z }, { x: 0, y: -1, z: 0 }, 40);
           if (!ground || Math.abs(ground.point.y - (v.pos.y - .75)) > .6 || ground.normal.y < .98) continue;
           const o = { x: start.x, y: ground.point.y + .6, z: start.z };
-          const solid = await physics.raycast(o, { x: d.x, y: 0, z: d.z }, 30, 'solid');
-          if (solid && solid.toi < 28) continue;
-          const all = await physics.raycast(o, { x: d.x, y: 0, z: d.z }, 30, 'all');
-          if (!all || Math.abs(all.toi - (26 - 2.3)) > 1.2) continue;
+          const solid = await physics.raycast(o, { x: d.x, y: 0, z: d.z }, RUN + 4, 'solid');
+          if (solid && solid.toi < RUN + 2) continue;
+          const all = await physics.raycast(o, { x: d.x, y: 0, z: d.z }, RUN + 4, 'all');
+          if (!all || Math.abs(all.toi - (RUN - 2.3)) > 1.2) continue;
           let flat = true;
-          for (let t = 4; t < 22 && flat; t += 4) {
+          for (let t = 4; t < RUN - 4 && flat; t += 4) {
             const at = await physics.raycast({ x: o.x + d.x * t, y: o.y + 3, z: o.z + d.z * t }, { x: 0, y: -1, z: 0 }, 8);
             if (!at || Math.abs(at.point.y - ground.point.y) > .35) flat = false;
           }
@@ -428,13 +429,17 @@ try {
         }
       }
       return null;
-    });
+    }, 55);
     log('target', target ?? {});
     if (!target) throw new Error('no parked car with a clear, flat run-up near the start');
     report.target = target;
     await page.evaluate(() => window.__game.enterVehicle('player'));
     await page.waitForTimeout(1500);
-    report.run = await drive(page, target, 40);
+    report.run = await drive(page, target, 70);
+    await page.waitForTimeout(2500);
+    report.rammed = await page.evaluate(id => window.__game.damage.wrecks().find(w => w.id === id) ?? null, target.id);
+    log('rammed', { run: report.run, wreck: report.rammed });
+    await page.evaluate(([id, end]) => window.__game.damage.dent({ kmh: 70, at: end, id }), [target.id, target.end]);
     await page.waitForTimeout(2500);
     const wreckOf = p => p.evaluate(id => window.__game.damage.wrecks().find(w => w.id === id) ?? null, target.id);
     report.a = await wreckOf(page);

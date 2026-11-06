@@ -6,12 +6,12 @@ import { bindRoundReset } from './net/roundReset';
 import { VehicleSignals } from './vehicle/signals';
 import { VehicleBeams } from './vehicle/beams';
 import { TyreEffects } from './vehicle/tyreEffects';
-import { mechanicsOf } from './vehicle/mechanics';
+import { mechanicsOf, wrecked } from './vehicle/mechanics';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
 import { TrafficClient } from './traffic/client';
-import { TRAFFIC_CAPS } from './traffic/constants';
+import { CLAIM_PREFIX, TRAFFIC_CAPS } from './traffic/constants';
 import { TRAFFIC_VOICES } from './audio/mix';
 import { parkedNight } from './world/parkedOccupancy';
 // Play session over main.ts's persistent world: input, audio, UI, actors, missions, saves and frame loop.
@@ -905,6 +905,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         const bay = mechanicsOf(vehicle.damage);
         tyreEffects.engineBay('local', vehicle.pos, vehicle.rot, bay.steam, bay.smoke, effectsDt);
       }
+    }
+    // Claimed traffic cars too damaged to drive steam or smoke where they stand (vehicle/mechanics.ts wrecked).
+    if (effectsDt > 0) for (const v of st?.vehicles ?? []) {
+      if (!v.damage || !v.id?.startsWith(CLAIM_PREFIX) || v.id === drivenId || Math.hypot(v.pos.x - camera.position.x, v.pos.z - camera.position.z) > 120) continue;
+      const bay = mechanicsOf(v.damage);
+      if (wrecked(bay)) tyreEffects.engineBay(v.id, v.pos, v.rot, Math.max(bay.steam, .35), bay.smoke, effectsDt);
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player, positionHud.characterHidden ? undefined : drivers);
     // The local driver in a driven car: the starter car's body or the driven fleet car's own actor, at its drawn pose.
