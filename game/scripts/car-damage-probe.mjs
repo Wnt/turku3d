@@ -163,52 +163,64 @@ const findStraight = page => page.evaluate(async () => {
   return best;
 });
 
-const headingOf = q => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
-/** One handling run on the straight `s`, hands off the steering: full throttle from rest until the braking point, a
- *  full stop, then Wreckfest 2's pull probe (2.5 s of straight full reverse from rest). Per run: seconds to 50 and 80
- *  km/h, the speed after 100 m and the best speed, the heading drift (degrees/s, + left) and sideways offset (m) over
- *  the run's last 60 % (the car well under way), and the reverse probe's heading change (degrees). */
-async function straightRun(page, s) {
-  await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), s);
-  await page.waitForTimeout(1800);
-  await page.evaluate(() => {
-    const log = window.__probeLog = [];
-    const tick = () => { const v = window.__game.physics.latest?.vehicles.find(x => x.id === 'player');
-      if (v) log.push({ t: performance.now(), v: v.forwardSpeed, x: v.pos.x, z: v.pos.z, h: Math.atan2(2 * (v.rot.w * v.rot.y + v.rot.x * v.rot.z), 1 - 2 * (v.rot.y * v.rot.y + v.rot.z * v.rot.z)) });
-      if (log.length < 4000 && !window.__probeStop) requestAnimationFrame(tick); };
-    window.__probeStop = false; requestAnimationFrame(tick);
-  });
-  const state = () => page.evaluate(s => { const v = window.__game.physics.latest.vehicles.find(x => x.id === 'player');
-    return { v: v.forwardSpeed, along: (v.pos.x - s.x) * Math.cos(s.yaw) - (v.pos.z - s.z) * Math.sin(s.yaw), rot: v.rot }; }, s);
-  const start = Date.now();
-  await page.keyboard.down('KeyW');
-  for (;;) {
-    const st = await state();
-    if (st.along > s.length - 10 - st.v * st.v / 20 || Date.now() - start > 30000) break;
-    await page.waitForTimeout(20);
-  }
-  await page.keyboard.up('KeyW');
-  await page.keyboard.down('KeyS');
-  for (let i = 0; i < 400 && (await state()).v > .3; i++) await page.waitForTimeout(20);
-  await page.keyboard.up('KeyS');
-  await page.waitForTimeout(1200);
-  const log = await page.evaluate(() => { window.__probeStop = true; return window.__probeLog; });
-  // The pull probe: from rest, S held for 2.5 s (reverse), released, then the heading change once stopped.
-  const before = headingOf((await state()).rot);
-  await page.keyboard.down('KeyS'); await page.waitForTimeout(2500); await page.keyboard.up('KeyS');
-  await page.keyboard.down('KeyW'); for (let i = 0; i < 150 && (await state()).v < -.3; i++) await page.waitForTimeout(20); await page.keyboard.up('KeyW');
-  await page.waitForTimeout(600);
-  const reverseDeg = (headingOf((await state()).rot) - before) * 180 / Math.PI;
-  const moving = log.findIndex(e => e.v > .3), t0 = log[moving]?.t ?? 0;
-  const at = kmh => { const e = log.find(e => e.v * 3.6 >= kmh); return e ? +((e.t - t0) / 1000).toFixed(2) : null; };
-  const along = e => (e.x - s.x) * Math.cos(s.yaw) - (e.z - s.z) * Math.sin(s.yaw);
-  const across = e => -(e.x - s.x) * Math.sin(s.yaw) - (e.z - s.z) * Math.cos(s.yaw);
-  const peak = log.reduce((m, e, i) => e.v > log[m].v ? i : m, 0), run = log.slice(moving, peak + 1);
-  const from = run[Math.floor(run.length * .4)] ?? run[0], to = run[run.length - 1];
+/** One driven programme on the straight `s` through the game's own controller hook (`input.driver`, the autopilot's
+ *  way in), from a reset at `at` metres along it: 'accel' (full throttle from rest holding the line, then a full stop
+ *  before the end), 'pull' (holding the line up to 60 km/h, then 3 s hands off at that speed, then a stop) or
+ *  'reverse' (Wreckfest 2's probe: from rest, 2.5 s of straight full reverse hands off, then a stop). The line holder
+ *  steers on the heading error, its rate and the sideways offset. The game's own driver (the autopilot) is put back
+ *  after. Returns the per-update log. */
+const programme = (page, s, kind, at = 0) => page.evaluate(async ([s, kind, at]) => {
+  const g = window.__game, car = () => g.physics.latest.vehicles.find(v => v.id === 'player');
+  const c = Math.cos(s.yaw), n = Math.sin(s.yaw);
+  g.physics.resetVehicle({ x: s.x + c * at, y: s.y + .75, z: s.z - n * at }, s.yaw, 'player');
+  await new Promise(r => setTimeout(r, 1800));
+  const heading = q => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
-  return { t50: at(50), t80: at(80), v100: +((log.find(e => along(e) >= 100)?.v ?? NaN) * 3.6).toFixed(1), vmax: +(log[peak].v * 3.6).toFixed(1),
-    distance: +along(log[peak]).toFixed(1), driftDegPerS: +(wrap(to.h - from.h) * 180 / Math.PI / ((to.t - from.t) / 1000)).toFixed(3),
-    sideways: +(across(to) - across(from)).toFixed(2), reverseDeg: +reverseDeg.toFixed(3) };
+  const along = v => (v.pos.x - s.x) * c - (v.pos.z - s.z) * n, across = v => -(v.pos.x - s.x) * n - (v.pos.z - s.z) * c;
+  return await new Promise(resolve => {
+    const log = [], prior = g.input.driver; let t = 0, phase = 'go', since = 0, previous = null;
+    g.input.driver = (actions, dt) => {
+      const v = car(); if (!v) return;
+      t += dt; since += dt;
+      const h = wrap(heading(v.rot) - s.yaw), rate = previous === null || dt <= 0 ? 0 : wrap(h - previous) / dt; previous = h;
+      log.push({ t, phase, v: v.forwardSpeed, along: along(v), across: across(v), h });
+      const hold = Math.max(-1, Math.min(1, 2.5 * h + .3 * rate + .05 * across(v)));
+      let throttle = 0, brake = 0, steer = hold;
+      const next = p => { phase = p; since = 0; };
+      if (kind === 'accel') {
+        if (phase === 'go') { throttle = 1; if (along(v) > s.length - 10 - v.forwardSpeed ** 2 / 20) next('stop'); }
+      } else if (kind === 'pull') {
+        if (phase === 'go') { throttle = 1; if (v.forwardSpeed >= 60 / 3.6) next('hands'); }
+        else if (phase === 'hands') { throttle = v.forwardSpeed < 60 / 3.6 ? 1 : .35; steer = 0; if (since >= 3 || along(v) > s.length - 25) next('stop'); }
+      } else if (phase === 'go') { brake = 1; steer = 0; if (since >= 2.5) next('stop'); }
+      if (phase === 'stop') {
+        steer = kind === 'reverse' ? 0 : hold;
+        if (kind === 'reverse') throttle = v.forwardSpeed < -.3 ? 1 : 0; else brake = v.forwardSpeed > .3 ? 1 : 0;
+        if (Math.abs(v.forwardSpeed) < .3 && since > .4) phase = 'done';
+      }
+      if (phase === 'done') { throttle = 0; brake = 0; steer = 0; }
+      Object.assign(actions, { throttle, brake, steer, handbrake: 0 });
+      if (phase === 'done' || t > 40) { g.input.driver = prior; resolve(log); }
+    };
+  });
+}, [s, kind, at]);
+
+/** The handling numbers on the straight: 0-50 and 0-80 km/h (s), the speed after 100 m and the best before braking
+ *  (km/h), the hands-off yaw rate at 60 km/h (degrees/s, + left) and its sideways drift (m), and the reverse probe's
+ *  heading change (degrees, + left). */
+async function straightRun(page, s) {
+  const accel = await programme(page, s, 'accel');
+  const moving = accel.findIndex(e => e.v > .3), t0 = accel[moving]?.t ?? 0;
+  const at = kmh => { const e = accel.find(e => e.v * 3.6 >= kmh); return e ? +(e.t - t0).toFixed(2) : null; };
+  const peak = accel.reduce((m, e, i) => e.v > accel[m].v ? i : m, 0);
+  const pull = (await programme(page, s, 'pull')).filter(e => e.phase === 'hands');
+  const first = pull[0], last = pull[pull.length - 1];
+  const reverse = await programme(page, s, 'reverse', s.length - 4);
+  return { t50: at(50), t80: at(80), v100: +((accel.find(e => e.along >= 100)?.v ?? NaN) * 3.6).toFixed(1), vmax: +(accel[peak].v * 3.6).toFixed(1),
+    distance: +accel[peak].along.toFixed(1), lineHeldM: +Math.max(...accel.slice(moving, peak).map(e => Math.abs(e.across))).toFixed(2),
+    pullDegPerS: first && last && last.t > first.t ? +((last.h - first.h) * 180 / Math.PI / (last.t - first.t)).toFixed(3) : null,
+    pullKmh: first ? +(first.v * 3.6).toFixed(1) : null, pullSideways: first ? +(last.across - first.across).toFixed(2) : null,
+    reverseDeg: +((reverse[reverse.length - 1].h - reverse[0].h) * 180 / Math.PI).toFixed(3) };
 }
 const mech = page => page.evaluate(() => window.__game.damage.mechanics());
 
@@ -350,17 +362,14 @@ try {
       if (kmh === 75) {
         // The chase view while driving the damaged car: steam from the bonnet and the HUD indicator.
         await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
-        await page.waitForTimeout(1500);
-        await page.keyboard.down('KeyW'); await page.waitForTimeout(1200); await page.keyboard.up('KeyW');
-        await page.keyboard.down('KeyS'); await page.waitForTimeout(900); await page.keyboard.up('KeyS');
-        await page.waitForTimeout(1500);
+        await page.waitForTimeout(2500);
         report.smoke75 = await page.evaluate(() => window.__game.damage.smoke());
         const file = path.join(out, 'a-after75-chase.png'); await page.screenshot({ path: file }); report.shots.push(file);
         await shots(page, 'after75');
       }
     }
     const mean = (label, key) => { const r = report.handling.filter(h => h.label === label).map(h => h[key]).filter(Number.isFinite); return r.length ? +(r.reduce((a, b) => a + b, 0) / r.length).toFixed(3) : null; };
-    report.summary = ['fresh', 'after 50', 'after 75'].map(label => ({ label, ...Object.fromEntries(['t50', 't80', 'v100', 'vmax', 'driftDegPerS', 'reverseDeg'].map(k => [k, mean(label, k)])) }));
+    report.summary = ['fresh', 'after 50', 'after 75'].map(label => ({ label, ...Object.fromEntries(['t50', 't80', 'v100', 'vmax', 'pullDegPerS', 'pullSideways', 'reverseDeg'].map(k => [k, mean(label, k)])) }));
     log('summary', { summary: report.summary });
   }
   if (mode === 'mpsmoke') {
