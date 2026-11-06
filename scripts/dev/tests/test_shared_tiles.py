@@ -512,7 +512,7 @@ class FarmTests(unittest.TestCase):
         self.assertTrue(during.exists() and roof.exists() and source.exists())
         events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
         self.assertEqual([e['cache'] for e in events if e['event'] == 'raw-entry-evicted'],
-                         ['crown-canopy', 'lidar-crop', 'vegetation'])
+                         ['lidar-crop', 'vegetation', 'crown-canopy'])  # by kind, then age
         build.stdin.close()
         build.wait(5)
         farm.make_room(farm_module.GIB)
@@ -533,6 +533,37 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(farm.make_room(farm_module.GIB))
         self.assertTrue(sources['c_1_1'].exists())
         self.assertFalse(sources['c_40_40'].exists())
+
+    def test_eviction_takes_lidar_sources_then_roofs_then_vegetation_and_decoded_arrays_last(self):
+        free = [50 * farm_module.GIB]
+        farm = self.farm(workers=0, free=lambda: free[0])
+        cache, digest, now = self.root / 'cache', 'd' * 64, time.time()
+
+        def entry(path, age, data=b'entry'):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            os.utime(path, (now - age, now - age))
+            return path
+
+        decoded_old = entry(cache / 'raw-derived/decoded' / digest / ('f' * 64 + '.npy'), 9000)
+        decoded_recent = entry(cache / 'raw-derived/decoded' / digest / ('a' * 64 + '.npy'), 1800)  # used 30 min ago
+        roof = entry(cache / 'raw-derived/coarse-roofs' / digest / ('3' * 64 + '.class6.npy'), 8000)
+        vegetation = entry(cache / 'raw-derived/vegetation' / digest / ('1' * 64 + '.npz'), 8000)
+        source = cache / 'raw-derived/lidar' / digest / 'sources' / ('4' * 64)
+        entry(source / 'index.npy', 7000)
+        os.utime(source, (now - 7000, now - 7000))  # the youngest of the old entries, yet first
+
+        self.assertTrue(farm.make_room(free[0] + 1))  # a one-byte deficit
+        self.assertFalse(source.exists())
+        self.assertTrue(roof.exists() and vegetation.exists() and decoded_old.exists())
+
+        free[0] = 0  # now everything eligible goes, in order
+        self.assertFalse(farm.make_room(farm_module.GIB))
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        order = [e.get('cache', 'decoded') for e in events if e['event'] in ('raw-entry-evicted', 'decoded-cache-evicted')]
+        self.assertEqual(order, ['lidar-source', 'roof', 'vegetation', 'decoded'])
+        self.assertFalse(decoded_old.exists())
+        self.assertTrue(decoded_recent.exists())  # used within the hour: the next tiles read it again
 
     def test_a_round_stops_on_what_it_evicted_while_free_space_lags(self):
         stale = 50 * farm_module.GIB  # statvfs that has not caught up with the unlinks yet
@@ -643,6 +674,8 @@ class FarmTests(unittest.TestCase):
         cold.write_bytes(b'exact source columns')
         mapped.write_bytes(b'columns a build reads')
         locked.write_bytes(b'decoding')
+        for path in (cold, mapped, locked):  # last used two hours ago: past the decoded keep time
+            os.utime(path, (time.time() - 7200, time.time() - 7200))
         # A running build: another process that memory-maps one array and keeps it.
         build = subprocess.Popen([sys.executable, '-c', 'import mmap, sys\n'
                                   'stream = open(sys.argv[1], "rb")\n'

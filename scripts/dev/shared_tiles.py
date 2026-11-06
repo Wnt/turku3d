@@ -62,6 +62,8 @@ GIB = 2**30
 # Free space housekeeping keeps on this disk. At 60 GiB a train evicted ~1.2 GB of decoded LiDAR a minute that
 # builds decoded again (2026-11-06); 45 GiB keeps most of that working set. The disk watchdog uses the same line.
 KEEP_FREE_GIB = 45
+DECODED_KEEP_SECONDS = 3600  # a decoded LiDAR array used (touched) within this long is not evicted
+RAW_ORDER = ('lidar-source', 'lidar-crop', 'roof', 'vegetation', 'crown-canopy')  # eviction order
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
 BUILD_SECONDS = 7200  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min, over 60 with 8 builds
                       # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
@@ -1362,7 +1364,8 @@ class Farm:
                     yield kind, path, path.with_suffix('.lock')
 
     def evict_raw_entries(self, raw, target, oldest_build, wanted=()):
-        """While builds run, reclaim the oldest LiDAR, roof, vegetation and crown-canopy entries one by one.
+        """While builds run, reclaim LiDAR, roof, vegetation and crown-canopy entries one by one, by kind
+        (RAW_ORDER) and oldest first within a kind.
 
         Only entries older than the oldest running build (so finished builds made them), past the grace
         period, that no process has open or mapped and whose lock is free; a build that later needs one
@@ -1395,7 +1398,7 @@ class Farm:
                 if not isinstance(spans, dict) or near.intersection(spans):
                     continue
             entries.append((modified, kind, path, lock))
-        for _, kind, path, lock in sorted(entries, key=lambda e: e[0]):
+        for _, kind, path, lock in sorted(entries, key=lambda e: (RAW_ORDER.index(e[1]), e[0])):
             prefix = str(path) + '/'
             if str(path) in held or any(h.startswith(prefix) for h in held):
                 continue
@@ -1484,36 +1487,12 @@ class Farm:
             if self.room(target):
                 return True
         cache = self.root / 'cache'
-        # Decoded arrays are opened under their source lock and memory-mapped. An entry a
-        # build still has open or mapped stays: unlinking it would free nothing until that
-        # build ends. Cold entries go without waiting for a city-wide queue to become idle.
-        decoded, held = [], open_or_mapped(cache / 'raw-derived/decoded')
-        for path in (cache / 'raw-derived/decoded').glob('*/*.npy'):
-            if str(path) in held or os.path.realpath(path) in held:
-                continue
-            if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
-                continue
-            try:
-                decoded.append((path.stat().st_mtime, path))
-            except FileNotFoundError:
-                continue
-        for _, path in sorted(decoded):
-            try:
-                with path.with_suffix('.lock').open('a') as lock:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except BlockingIOError:
-                        continue
-                    stat = path.stat()
-                    if time.time() - stat.st_mtime < self.grace_seconds:
-                        continue
-                    path.unlink()
-                    self.metrics['evicted_bytes'] += stat.st_size
-                    self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size)
-            except FileNotFoundError:
-                continue
-            if self.room(target):
-                return True
+        # Raw-derived entries go before decoded arrays: LiDAR sources, roofs and vegetation away from the
+        # queued tiles are cold, while decoded arrays are what the next tiles' builds read again
+        # (2026-11-06: at the 45 GiB line every fresh decode was an array evicted earlier that day).
+        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build,
+                                                   {tile for _, tile in jobs}):
+            return True
         # Map files are hard-linked into private products before the producer lock
         # is released, so old shared entries can be evicted even while builds run.
         map_candidates = []
@@ -1565,9 +1544,37 @@ class Farm:
                 continue
             if self.room(target):
                 return True
-        if not adopting and self.evict_raw_entries(cache / 'raw-derived', target, oldest_build,
-                                                   {tile for _, tile in jobs}):
-            return True
+        # Decoded arrays are opened under their source lock and memory-mapped. An entry a
+        # build still has open or mapped stays: unlinking it would free nothing until that
+        # build ends. The reader touches an array on every use, so one used within the last hour stays; older
+        # ones go without waiting for a city-wide queue to become idle. These go last of the caches.
+        decoded, held = [], open_or_mapped(cache / 'raw-derived/decoded')
+        for path in (cache / 'raw-derived/decoded').glob('*/*.npy'):
+            if str(path) in held or os.path.realpath(path) in held:
+                continue
+            if not HASHED.fullmatch(path.stem) or not HASHED.fullmatch(path.parent.name):
+                continue
+            try:
+                decoded.append((path.stat().st_mtime, path))
+            except FileNotFoundError:
+                continue
+        for _, path in sorted(decoded):
+            try:
+                with path.with_suffix('.lock').open('a') as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    stat = path.stat()
+                    if time.time() - stat.st_mtime < max(self.grace_seconds, DECODED_KEEP_SECONDS):
+                        continue
+                    path.unlink()
+                    self.metrics['evicted_bytes'] += stat.st_size
+                    self.event('decoded-cache-evicted', key=path.stem, bytes=stat.st_size)
+            except FileNotFoundError:
+                continue
+            if self.room(target):
+                return True
         # Texture encoders also maintain their own bounded cache. Reclaim additional
         # old encodes only when no farm package can still be using the returned paths.
         if not jobs:
