@@ -35,10 +35,15 @@ export interface VehicleState { lights?: import('../vehicle/signals').LightState
   /** 4WS vehicles: the held rear-steer mode and whether the speed lockout centres the rear now. */
   rearMode?: import('../vehicle/rearSteer').RearSteerMode; rearLocked?: boolean;
   /** Drive command after handling (0..1 forward or reverse, 0 while braking), for engine load. */
-  throttleApplied?: number }
+  throttleApplied?: number;
+  /** Body damage of a damageable car (vehicle/damage.ts encodeDamage), absent while it is undamaged. */
+  damage?: string }
 export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean;
   /** Per-model driving tuning (vehicle/modelTuning.ts), replacing the kind's baseline. */
-  tuning?: VehicleTuning }
+  tuning?: VehicleTuning;
+  /** A damageable car: the fleet-frame box its damage cage spans (actors/fleet/catalog.ts fleetDamageBox), and the
+   *  damage it already has (a save or the shared vehicle record). */
+  damage?: { box: import('../vehicle/damage').DamageBox; state?: string } }
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
@@ -100,6 +105,9 @@ export type ToWorker =
   | { type: 'driveVehicle'; id: string | null }
   | { type: 'resetVehicle'; id: string; pos: V3; yaw: number }
   | { type: 'vehicleImpulse'; id: string; impulse: V3 }
+  /** A hit on a damageable car's body, applied like a crash, or null to clear it (developer tools only: the game has
+   *  no repair; vehicle/damage.ts DamageHit). */
+  | { type: 'damageVehicle'; id: string; hit: import('../vehicle/damage').DamageHit | null }
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }

@@ -1,5 +1,7 @@
 import { CAR, type VehicleTuning } from '../physics/constants';
 import { AUTHORED_BY_ID } from '../actors/fleet/registry';
+import { fleetDamageBox } from '../actors/fleet/catalog';
+import type { DamageBox } from './damage';
 
 /** Driving tuning of a real fleet model from its registry spec (actors/fleet/models/<id>.json): mass, the model's
  *  own hub layout and tyre radius, drivetrain, power, low-speed force from torque, top speed and the steering lock
@@ -32,4 +34,11 @@ export function modelTuning(id: string): VehicleTuning | undefined {
     topSpeed: Math.min((spec.topSpeedKmh ?? 200) / 3.6, 45),
     maxSteer: Math.max(.4, Math.min(.65, Math.atan(wheelbase / Math.max(1, turn / 2 - track / 2)))),
   };
+}
+
+/** The damage cage box of a real fleet model (vehicle/damage.ts), for its spawn spec; the renderer skins its body to
+ *  the same cage (actors/fleet/damageRig.ts). */
+export function modelDamageBox(id: string): DamageBox | undefined {
+  const entry = AUTHORED_BY_ID.get(id);
+  return entry ? fleetDamageBox(entry.fleet) : undefined;
 }

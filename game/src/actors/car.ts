@@ -7,6 +7,7 @@ import { loadAuthoredFleet, loadAuthoredFleetParts } from './fleet/authored';
 import { fleetGlassMaterial, fleetMaterial } from './fleet/material';
 import { addAuthoredFleetWheels, applyFleetWheels } from './fleet/wheels';
 import { copyActorPaint, paintActor } from './parkedPaint';
+import { DamageRig, deformedBounds, modelLayout, skinToCage } from './fleet/damageRig';
 
 // Concurrent consumers (player, drive replays, remote players' starter cars) share one prepared model;
 // Object3D clones keep their own wheel transforms and share the immutable geometry.
@@ -17,10 +18,16 @@ async function prepare(id: string, color: string): Promise<THREE.Group> {
   if (!model) throw new Error(`Unknown fleet model ${id}`);
   const [parts, glass] = await Promise.all([loadAuthoredFleetParts(id, 0), loadAuthoredFleet(id, 0, 'glass')]);
   if (!parts) throw new Error(`Fleet model ${id} has no articulated parts`);
+  // Body and glazing are skinned to the damage cage (fleet/damageRig.ts); each clone binds its own rig in load().
+  const layout = modelLayout(model);
+  skinToCage(parts.body, layout);
   const root = new THREE.Group();
-  const body = new THREE.Mesh(parts.body, fleetMaterial()); paintActor(body, color);
+  const body = new THREE.SkinnedMesh(parts.body, fleetMaterial()); paintActor(body, color);
   body.name = 'fleet-actor'; body.castShadow = true; body.receiveShadow = true;
-  if (glass) { const windows = new THREE.Mesh(glass, fleetGlassMaterial()); windows.receiveShadow = true; body.add(windows); }
+  if (glass) {
+    skinToCage(glass, layout);
+    const windows = new THREE.SkinnedMesh(glass, fleetGlassMaterial()); windows.name = 'fleet-glass'; windows.receiveShadow = true; body.add(windows);
+  }
   addAuthoredFleetWheels(body, model, parts.wheels, fleetMaterial());
   // Fleet meshes face +Z with the tyres on Y=0; the chassis frame faces +X with its centre CHASSIS_LIFT up.
   body.rotation.y = Math.PI / 2; body.position.y = -CHASSIS_LIFT;
@@ -31,7 +38,9 @@ async function prepare(id: string, color: string): Promise<THREE.Group> {
 /** The starter car (actors/fleet/catalog.ts PLAYER_MODEL), a real fleet model with articulated wheels. */
 export class CarVisual {
   readonly root = new THREE.Group();
-  private body: THREE.Object3D | undefined;
+  private body: THREE.SkinnedMesh | undefined;
+  /** The body's damage cage pose (vehicle/damage.ts), following the physics state's `damage`. */
+  rig: DamageRig | undefined;
   loaded = false;
 
   constructor(scene: THREE.Object3D, private readonly model = PLAYER_MODEL, private readonly color = PLAYER_COLOR) {
@@ -47,7 +56,12 @@ export class CarVisual {
     }
     const prototype = await pending, instance = prototype.clone(true);
     copyActorPaint(prototype, instance);
-    this.body = instance.getObjectByName('fleet-actor')!;
+    this.body = instance.getObjectByName('fleet-actor') as THREE.SkinnedMesh;
+    this.rig = new DamageRig(modelLayout(FLEET_BY_ID.get(this.model)!));
+    this.rig.bind(this.body);
+    const glass = this.body.getObjectByName('fleet-glass') as THREE.SkinnedMesh | undefined;
+    if (glass) this.rig.bind(glass);
+    this.rig.pose();
     this.root.clear(); this.root.add(instance);
     this.loaded = true;
   }
@@ -58,6 +72,13 @@ export class CarVisual {
     // The fleet's own lamp tags light up (vehicle/lamps.ts); the root has no lamp meshes of its own.
     if (this.body) vehicleLamps(this.body, 'car', s.lights ?? 0);
     if (this.body) applyFleetWheels(this.body, s.wheels);
+    this.rig?.show(s.damage);
+  }
+
+  /** The body's bounds in its model frame (+Z forward) as drawn now, and undeformed; null before load. */
+  bounds() {
+    if (!this.body) return null;
+    return { deformed: deformedBounds(this.body), fresh: this.body.geometry.boundingBox!.clone() };
   }
 }
 

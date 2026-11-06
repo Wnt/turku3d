@@ -15,6 +15,7 @@ import { remoteColliderHeight } from '../net/height';
 import { addCurbMesh, addCurbPrimitive } from '../vehicle/tileCurbs.ts';
 import { TrafficSim } from './traffic';
 export { CHARACTER, DT };
+import type { DamageHit } from '../vehicle/damage';
 import type { CharacterInput, CharacterState, PoleSpec, PoleState, Quat, RayFilter, RayHit, RemoteBody, TileStats, VehicleInput, VehicleState, VehicleSpec } from './protocol';
 import { chassisForward, type TrafficPedestrian, type TrafficVehicle } from '../traffic/pedestrians';
 
@@ -526,7 +527,8 @@ export class PhysicsWorld {
   vehicleStates(): VehicleState[] {
     return [...this.vehicles].map(([id, vehicle]) => {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
-      if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn) return old.state;
+      if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn
+        && old.state.damage === vehicle.damageWire()) return old.state;
       const state = { id, ...vehicle.state() };
       this.vehicleSnapshots.set(id, { state, sleeping });
       return state;
@@ -540,6 +542,12 @@ export class PhysicsWorld {
     const scale = size ? Math.min(1, 12000 / size, vehicle.body.mass() * 8 / size) : 0;
     vehicle.body.applyImpulse({ x: impulse.x * scale, y: 0, z: impulse.z * scale }, true);
     vehicle.recordImpact(size * scale);
+  }
+
+  /** A hit on a damageable car's body, or null to clear it (developer tools); a car without a damage cage ignores it. */
+  damageVehicle(id: string, hit: DamageHit | null) {
+    const vehicle = this.vehicles.get(id);
+    if (hit) vehicle?.damageHit(hit); else vehicle?.damage?.clear();
   }
 
   /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks

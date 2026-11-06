@@ -1,4 +1,5 @@
 import { AUTHORED_MODELS } from './registry';
+import type { DamageBox } from '../../vehicle/damage';
 
 /** Real-model fleet (actors/fleet/models/*.json): converted CC BY sources and Blender-authored models, true size,
  *  metres, +Z forward. The procedural and Kenney fleets are gone; every role draws one of these. */
@@ -12,6 +13,8 @@ export interface FleetModel {
   weight?: number;
 }
 export const FLEET: readonly FleetModel[] = AUTHORED_MODELS.map(model => model.fleet);
+/** The box the body-damage cage spans (vehicle/damage.ts): the model's true size, centred, tyres on Y = 0. */
+export const fleetDamageBox = (m: FleetModel): DamageBox => ({ center: [0, m.height / 2, 0], half: [m.width / 2, m.height / 2, m.length / 2] });
 export const FLEET_BY_ID = new Map(FLEET.map(model => [model.id, model]));
 /** Families that parking records and ambient traffic select from; special roles (bus, truck, ambulance, fire,
  *  microcar) need an exact id. */

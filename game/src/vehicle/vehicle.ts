@@ -15,6 +15,7 @@ import { handling } from './handling.ts';
 import { rotate } from './math.ts';
 import { longitudinalSlip } from './tyreSlip.ts';
 import { dot, tyreRollImpulse } from './weightTransfer.ts';
+import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
@@ -55,13 +56,17 @@ export class Vehicle {
   private throttleApplied = 0;
   /** 4WS axle layout: front and rear axle x and the track. */
   private readonly axles: { xf: number; xr: number; track: number } | null;
+  /** Body damage of a damageable car (vehicle/damage.ts), owned here; null for vehicles without a damage cage. */
+  readonly damage: DamageState | null;
+  private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
 
   private R: RapierApi;
   private world: Rapier.World;
   private surfaces: WheelQueries;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
-    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning } = {},
+    spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning;
+      damage?: { box: import('./damage.ts').DamageBox; state?: string } } = {},
     private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
@@ -107,6 +112,21 @@ export class Vehicle {
     this.drive = t.wheels.map((_, i) => !t.driven.includes(i) ? 0
       : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
+    this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
+    if (this.damage && spec.damage?.state) decodeDamage(spec.damage.state, this.damage);
+  }
+
+  /** Applies a body hit (fleet model frame, vehicle/damage.ts); returns the structural depth it added (m). */
+  damageHit(hit: DamageHit): number {
+    return this.damage ? applyHit(this.damage, hit) : 0;
+  }
+
+  /** The damage state's wire form, re-encoded only when a hit changed it; undefined while undamaged. */
+  damageWire(): string | undefined {
+    const d = this.damage;
+    if (!d || d.revision === this.wire.revision) return this.wire.text;
+    this.wire = { revision: d.revision, text: d.damaged ? encodeDamage(d) : undefined };
+    return this.wire.text;
   }
 
   recordImpact(impulse: number) {
@@ -327,7 +347,8 @@ export class Vehicle {
     const b = this.body, v = this.controller, lv = b.linvel();
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     const t = this.tuning, rear = t.rearSteer ? { rearMode: this.rear.mode, rearLocked: this.rear.locked } : {};
-    return { ...rear, throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    const damage = this.damageWire();
+    return { ...rear, ...(damage ? { damage } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.tuning.wheels.map((cp, i) => {
