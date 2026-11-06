@@ -20,6 +20,7 @@ import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { splitVisualBuffers } from './split_buffers.mjs';
 import { externalizeLibraryImages } from './shared_images.mjs';
+import { splitColourSpaces, SRGB_SLOTS } from './colour_spaces.mjs';
 
 const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
 const dep = (name) => import(pathToFileURL(require.resolve(name)).href);
@@ -191,11 +192,14 @@ async function assembleVisual(request) {
   for (const t of doc.getRoot().listTextures()) {
     if (!request.draftTextures && t.getExtras().facade_map && t.getMimeType() === 'image/ktx2') await encodeFacade(t, request);
   }
+  for (const split of splitColourSpaces(doc, { skip: t => t.getMimeType() === 'image/ktx2' })) {
+    console.warn(`${request.tile}: texture ${split.texture} split by colour space (${split.slots.join(', ')}; ${split.materials.join(', ')})`);
+  }
   await completed(doc.getRoot().listTextures().map(async t => {
     if (t.getMimeType() === 'image/ktx2') return;
     const slots = listTextureSlots(t);
-    const srgb = slots.some(s => s === 'baseColorTexture' || s === 'emissiveTexture');
-    if (srgb && slots.some(s => s !== 'baseColorTexture' && s !== 'emissiveTexture')) {
+    const srgb = slots.some(s => SRGB_SLOTS.has(s));
+    if (srgb && slots.some(s => !SRGB_SLOTS.has(s))) {
       throw new Error('One texture cannot serve both sRGB and linear material slots');
     }
     // Draft (coarse) tiles take the fastest ETC1S effort: half the encode time at the same size.
