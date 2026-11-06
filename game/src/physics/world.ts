@@ -511,7 +511,7 @@ export class PhysicsWorld {
     const previous = this.vehicles.get(this.drivenId ?? "");
     if (previous) previous.horn = false;
     this.drivenId = id;
-    if (id) { const vehicle = this.vehicles.get(id)!; vehicle.lights = 1; vehicle.body.wakeUp(); vehicle.armDamage(); }
+    if (id) { const vehicle = this.vehicles.get(id)!; vehicle.lights = 1; vehicle.body.wakeUp(); vehicle.ownDamage(); }
   }
   resetVehicle(pos: V3, yaw: number, id = 'player') {
     const car = this.vehicles.get(id);
@@ -556,6 +556,8 @@ export class PhysicsWorld {
   setVehicleDamage(id: string, state: string | null) {
     this.vehicles.get(id)?.setDamage(state);
   }
+  /** This client owns vehicle `id` (a shared record it holds): other players' cars damage it here too. */
+  ownVehicleDamage(id: string) { this.vehicles.get(id)?.ownDamage(); }
 
   /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks
    *  the local chassis like a moving wall, so cars never pass through each other between the server's contact impulses

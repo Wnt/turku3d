@@ -119,6 +119,8 @@ export type ToWorker =
   /** Sets a damageable car's body damage: a saved or shared state (vehicle/damage.ts encodeDamage), or null for a
    *  fresh body (a new game, a progress reset). The game has no repair. */
   | { type: 'vehicleDamage'; id: string; state: string | null }
+  /** This client owns vehicle `id` (its shared record): other players' cars damage it here too (vehicle.ts ownDamage). */
+  | { type: 'ownVehicleDamage'; id: string }
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }

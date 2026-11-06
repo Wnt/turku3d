@@ -77,9 +77,10 @@ export class Vehicle {
   private readonly axles: { xf: number; xr: number; track: number } | null;
   /** Body damage of a damageable car (vehicle/damage.ts), owned here; null for vehicles without a damage cage. */
   readonly damage: DamageState | null;
-  /** Whether crashes and scrapes damage the body now: a parked car's cage waits until a player drives it
-   *  (`armDamage`); saved and shared states apply either way. */
-  private damageArmed: boolean;
+  /** Whether this client decides every hit on the body. A parked car's local copy (every client simulates its own,
+   *  until one owns the shared record) takes no damage from another player's car: that player's client measures the
+   *  hit and shares the car with its damage (net/sharedVehicles.ts). `ownDamage` once this client drives or owns it. */
+  private ownsDamage: boolean;
   private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
   private mech: { revision: number; value: Mechanics } = { revision: -1, value: INTACT };
   /** Wheel mounts (chassis frame): the tuning's, moved with the damage cage along and across the car and up by a
@@ -88,7 +89,7 @@ export class Vehicle {
   private mounted = -1;
   /** Damageable cars: chassis velocities before the solver, and the crash being summed (chassis frame). */
   private damageBefore: { v: V3; w: V3 } | null = null;
-  private crash: { dv: V3; dw: V3; steps: number; quiet: number } | null = null;
+  private crash: { dv: V3; dw: V3; steps: number; quiet: number; remote: boolean } | null = null;
   /** Slip-curve tyres (vehicle/tyres.ts, tuning.tyre): the last step's per-wheel forces along the wheel heading and
    *  axle (N) for diagnostics; null for vehicles on Rapier's own tyre. */
   readonly tyreForces: { fx: Float32Array; fy: Float32Array } | null;
@@ -160,7 +161,7 @@ export class Vehicle {
       : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
     this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
-    this.damageArmed = !spec.parked;
+    this.ownsDamage = !spec.parked;
     this.mounts = t.wheels.map(w => ({ ...w }));
     this.tyreState = tyreState(t.wheels.length);
     this.tyreForces = t.tyre ? { fx: new Float32Array(t.wheels.length), fy: new Float32Array(t.wheels.length) } : null;
@@ -185,8 +186,16 @@ export class Vehicle {
     }
   }
 
-  /** From now on crashes and scrapes damage the body (a player drives the car). */
-  armDamage() { this.damageArmed = true; }
+  /** From now on another player's car damages this body too (this client drives or owns it). */
+  ownDamage() { this.ownsDamage = true; }
+  /** Whether the chassis touches another player's car proxy now (world.ts setRemotes, REMOTE_VEHICLE membership). */
+  private touchesRemote(): boolean {
+    let touching = false;
+    for (let i = 0; i < this.body.numColliders() && !touching; i++) this.world.contactPairsWith(this.body.collider(i), other => {
+      if (!touching && (other.collisionGroups() >>> 16) & REMOTE_VEHICLE) this.world.contactPair(this.body.collider(i), other, m => { if (m.numContacts() > 0) touching = true; });
+    });
+    return touching;
+  }
 
   /** A scrape along a face as the contacts would paint it (developer tools). */
   damageScrape(scrape: DamageScrape) { if (this.damage) applyScrape(this.damage, scrape, SCRAPE); }
@@ -204,14 +213,15 @@ export class Vehicle {
   private trackCrash(dt: number) {
     const before = this.damageBefore;
     this.damageBefore = null;
-    if (!this.damage || !this.damageArmed) return;
+    if (!this.damage) return;
     if (!before || this.body.isSleeping()) { this.finishCrash(); return; }
     const b = this.body, v = b.linvel(), w = b.angvel(), g = this.world.gravity.y * dt;
     const change = { x: v.x - before.v.x, y: v.y - before.v.y - g, z: v.z - before.v.z };
     const q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
     if (Math.hypot(change.x, change.y, change.z) >= CRASH_STEP_DV) {
       const dv = rotate(change, inverse), dw = rotate({ x: w.x - before.w.x, y: w.y - before.w.y, z: w.z - before.w.z }, inverse);
-      const c = this.crash ??= { dv: { x: 0, y: 0, z: 0 }, dw: { x: 0, y: 0, z: 0 }, steps: 0, quiet: 0 };
+      const c = this.crash ??= { dv: { x: 0, y: 0, z: 0 }, dw: { x: 0, y: 0, z: 0 }, steps: 0, quiet: 0, remote: false };
+      if (!this.ownsDamage && !c.remote) c.remote = this.touchesRemote();
       c.dv.x += dv.x; c.dv.y += dv.y; c.dv.z += dv.z; c.dw.x += dw.x; c.dw.y += dw.y; c.dw.z += dw.z;
       c.steps++; c.quiet = 0;
       if (c.steps >= CRASH_STEPS) this.finishCrash();
@@ -221,7 +231,8 @@ export class Vehicle {
   private finishCrash() {
     const c = this.crash;
     this.crash = null;
-    if (!c) return;
+    // Another player's car hit this parked copy: that player's client decides the damage.
+    if (!c || c.remote) return;
     // Contact line from the impulse J and its angular impulse L = I dw about the centre of mass: r = (J x L) / |J|^2
     // plus any point along J; the contact is where that line enters the chassis box against J.
     const m = this.body.mass(), J = { x: c.dv.x * m, y: c.dv.y * m, z: c.dv.z * m }, inertia = this.body.principalInertia();
@@ -257,7 +268,7 @@ export class Vehicle {
    *  every half second. */
   private trackScrape(dt: number) {
     const d = this.damage;
-    if (!d || !this.damageArmed || this.body.isSleeping()) { this.scrape.speed = 0; return; }
+    if (!d || this.body.isSleeping()) { this.scrape.speed = 0; return; }
     if (++this.scrape.tick % 3) return;
     const b = this.body, lv = b.linvel(), w = b.angvel(), t = b.translation(), q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
     let fastest = 0;
@@ -266,7 +277,7 @@ export class Vehicle {
       for (let i = 0; i < b.numColliders(); i++) {
         const own = b.collider(i);
         this.world.contactPairsWith(own, other => {
-          if (other.isSensor()) return;
+          if (other.isSensor() || (!this.ownsDamage && (other.collisionGroups() >>> 16) & REMOTE_VEHICLE)) return;
           const ov = other.parent()?.linvel() ?? { x: 0, y: 0, z: 0 };
           this.world.contactPair(own, other, manifold => {
             const n = manifold.normal();

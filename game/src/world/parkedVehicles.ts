@@ -11,8 +11,9 @@ import type { Manifest, ParkedVehicle } from './manifest';
 import { slotShown } from './parkedOccupancy';
 import { prerunnerPresent } from './prerunnerSchedule';
 
-/** Physics chassis pose: centre position and rotation, as the worker reports them. */
-export interface ParkedPose { pos: V3; rot: Quat; wheels?: VehicleState['wheels'] }
+/** Physics chassis pose: centre position and rotation, as the worker reports them; a damaged car's body damage
+ *  (vehicle/damage.ts encodeDamage), kept with the pose when its body goes (wrecks stay wrecked). */
+export interface ParkedPose { pos: V3; rot: Quat; wheels?: VehicleState['wheels']; damage?: string }
 
 const SPAWN_RADIUS = 120, DESPAWN_RADIUS = 170;
 /** A capped body moves to a closer car only when that car is at least 15% and 4 m nearer. Undoing
@@ -63,7 +64,7 @@ export class ParkedVehicles {
   private night = 0;
   private sharedUtcMs: number | undefined;
 
-  constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'> & Partial<Pick<PhysicsClient,'raycast'>>, 
+  constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'> & Partial<Pick<PhysicsClient,'raycast' | 'setVehicleDamage'>>, 
     private visuals: Pick<ParkedCarVisuals, 'load' | 'has'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
     private readonly cap = 60) {}
 
@@ -218,7 +219,8 @@ export class ParkedVehicles {
   }
 
   /** The real model's own collision box, driving tuning and damage cage (it fits the slot, actors/fleet/catalog.ts
-   *  fitsSlot); the cage takes crashes once a player drives the car (vehicle.ts armDamage). */
+   *  fitsSlot). A parked body takes damage from this client's cars; another player's car leaves that to its client
+   *  (vehicle.ts ownDamage). */
   private body(id: string, car: ParkedVehicle) {
     const m = fleetModel(car.model, id, car), tuning = m ? modelTuning(m.id) : undefined, box = m ? modelDamageBox(m.id) : undefined;
     return { halfExt: { x: (m?.length ?? car.length) / 2, y: (m?.height ?? car.height) * .28, z: car.width / 2 }, ...(tuning ? { tuning } : {}),
@@ -230,13 +232,15 @@ export class ParkedVehicles {
     const spec = { id, parked: true, kind: truck ? 'truck' as const : 'car' as const,
       ...(truck ? {} : this.body(id, car)), rot: pose.rot };
     this.physics.spawnVehicle(pose.pos, car.yaw - Math.PI / 2, spec);
+    if (pose.damage) this.physics.setVehicleDamage?.(id, pose.damage);
     this.spawned.set(id, car);
   }
 
   /** The visual keeps the body's last pose; a later body resumes from it. */
   private despawn(id: string, states: ReadonlyMap<string | undefined, VehicleState>) {
     const state = states.get(id);
-    if (state) this.rest.set(id, { pos: { ...state.pos }, rot: { ...state.rot }, wheels:state.wheels.map(w=>({...w,pos:{...w.pos}})) });
+    if (state) this.rest.set(id, { pos: { ...state.pos }, rot: { ...state.rot }, wheels:state.wheels.map(w=>({...w,pos:{...w.pos}})),
+      ...(state.damage ? { damage: state.damage } : {}) });
     this.physics.removeVehicle(id);
     this.spawned.delete(id);
   }

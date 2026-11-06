@@ -276,6 +276,8 @@ export class SharedVehicles {
       if (v.source && this.localId(v) === v.source) owned.add(v.source);
       const local = this.localId(v), old = this.managed.get(v.id);
       if (old?.epoch === v.epoch) continue;
+      // This client decides this car's damage now, also from other players' cars (vehicle.ts ownDamage).
+      this.physics.ownVehicleDamage(local);
       const present = this.physics.latest?.vehicles.some(s => s.id === local);
       // Preserve the just-registered local body. A transferred/rejoined body uses
       // its exact last quaternion and velocity, including a flipped parked car.
@@ -290,6 +292,7 @@ export class SharedVehicles {
         { id: local, kind: v.pose.mode as 'car' | 'scooter' | 'truck', halfExt: v.half, rot: v.pose.rot,
           linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN }, ...(tuning ? { tuning } : {}), ...(box ? { damage: { box } } : {}) });
         if (box) this.physics.setVehicleDamage(local, v.pose.damage ?? null);
+        this.physics.ownVehicleDamage(local);
       }
       this.fresh.delete(v.id);
       for (const [id, item] of this.managed) if (id !== v.id && item.local === local) {
@@ -319,9 +322,10 @@ export class SharedVehicles {
         if (Math.hypot(state.pos.x - this.starterAt.x, state.pos.z - this.starterAt.z) < .3
           && Math.hypot(state.linvel.x, state.linvel.z) < .3) continue;
       }
+      // A world car is shared once this client moved or damaged it: the room keeps its pose and its damage.
       const source = this.manifest.vehicles?.find(v => v.object_id === state.id);
       if (source && (this.client.state.vehicleSources.has(source.object_id)
-        || Math.hypot(state.pos.x - source.x, state.pos.z - source.z) < 0.3)) continue;
+        || (Math.hypot(state.pos.x - source.x, state.pos.z - source.z) < 0.3 && !state.damage))) continue;
       if (!source && !['player', 'scooter', 'truck'].includes(state.id)) continue;
       this.pending.add(state.id);
       const command = this.command(state, 'register');

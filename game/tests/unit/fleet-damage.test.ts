@@ -1,6 +1,6 @@
 import './fleet-assets.fixture';
 import { describe, expect, test } from 'vitest';
-import { FLEET, FLEET_BY_ID, fleetDamageBox } from '../../src/actors/fleet/catalog';
+import { FLEET, FLEET_BY_ID, fleetDamageBox, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 import { modelLayout, skinToCage } from '../../src/actors/fleet/damageRig';
 import { partsOf, splitReport, windowReport, windowsOf } from '../../src/actors/fleet/damageParts';
@@ -87,32 +87,38 @@ describe('every fleet model gets its damage cage, weights, parts and windows (ac
   }, 30000);
 });
 
-describe('any fleet car that a player drives takes damage (vehicle.ts armDamage)', () => {
-  test('a parked car keeps a fresh body when shoved, and dents once a player drives it', async () => {
+describe('parked and driven fleet cars take damage; another player\'s car leaves it to that player (vehicle.ts ownDamage)', () => {
+  test('a parked copy dents from this client\'s car, not from a remote player\'s; owned (driven or shared), from both', async () => {
     const R = await import('@dimforge/rapier3d');
     const { PhysicsWorld } = await import('../../src/physics/world');
     const { modelDamageBox, modelTuning } = await import('../../src/vehicle/modelTuning');
-    const pw = new PhysicsWorld(R), idle = { vx: 0, vz: 0, jump: false }, coast = { throttle: 0, steer: 0, brake: 0, handbrake: false };
-    pw.world.createCollider(R.ColliderDesc.cuboid(100, .5, 100).setTranslation(0, -.5, 0));
-    pw.world.createCollider(R.ColliderDesc.cuboid(.5, 3, 10).setTranslation(20.5, 3, 0));
-    const id = 'parked-passat';
-    pw.spawnVehicle({ x: 14, y: .8, z: 0 }, 0, { id, parked: true, tuning: modelTuning('passat-b8'), damage: { box: modelDamageBox('passat-b8')! } });
-    const ram = () => {
-      pw.resetVehicle({ x: 14, y: .8, z: 0 }, 0, id);
-      for (let i = 0; i < 20; i++) pw.fixedStep(idle, coast);
-      (pw as unknown as { vehicles: Map<string, { body: { setLinvel(v: object, wake: boolean): void } }> }).vehicles.get(id)!.body.setLinvel({ x: 60 / 3.6, y: 0, z: 0 }, true);
-      for (let i = 0; i < 150; i++) pw.fixedStep(idle, coast);
-      return pw.vehicleStates().find(v => v.id === id)!.damage;
-    };
-    expect(ram()).toBeUndefined();
-    pw.driveVehicle(id);
-    const wire = ram();
-    expect(typeof wire).toBe('string');
-    const state = new DamageState(modelLayout(FLEET_BY_ID.get('passat-b8')!));
     const { decodeDamage } = await import('../../src/vehicle/damage');
-    expect(decodeDamage(wire!, state)).toBe(true);
-    expect(state.hits).toBe(1);
-    pw.world.free();
+    const idle = { vx: 0, vz: 0, jump: false };
+    const box = modelDamageBox('passat-b8')!, layout = modelLayout(FLEET_BY_ID.get('passat-b8')!);
+    /** A parked passat at x 14; something runs into it at 60 km/h along +x: the local starter car, or a remote car proxy. */
+    async function hit(by: 'local' | 'remote', own: boolean) {
+      const pw = new PhysicsWorld(R);
+      pw.world.createCollider(R.ColliderDesc.cuboid(100, .5, 100).setTranslation(0, -.5, 0));
+      pw.spawnVehicle({ x: 14, y: .8, z: 0 }, 0, { id: 'parked', parked: true, tuning: modelTuning('passat-b8'), damage: { box } });
+      if (own) pw.ownVehicleDamage('parked');
+      if (by === 'local') pw.spawnVehicle({ x: 4, y: .8, z: 0 }, 0, { tuning: modelTuning(PLAYER_MODEL), damage: { box: modelDamageBox(PLAYER_MODEL)! } });
+      for (let i = 0; i < 30; i++) pw.fixedStep(idle, null);
+      if (by === 'local') (pw as unknown as { vehicles: Map<string, { body: { setLinvel(v: object, wake: boolean): void } }> }).vehicles.get('player')!.body.setLinvel({ x: 60 / 3.6, y: 0, z: 0 }, true);
+      for (let i = 0; i < 120; i++) {
+        if (by === 'remote') pw.setRemotes([{ id: 'other', pos: { x: 4 + i / 60 * 60 / 3.6, y: .8, z: 0 }, yaw: -Math.PI / 2, mode: 'car' }]);
+        pw.fixedStep(idle, null);
+      }
+      const state = pw.vehicleStates().find(v => v.id === 'parked')!, moved = state.pos.x - 14;
+      const damage = new DamageState(layout);
+      if (state.damage) decodeDamage(state.damage, damage);
+      pw.world.free();
+      return { moved, hits: damage.hits };
+    }
+    const local = await hit('local', false), remote = await hit('remote', false), owned = await hit('remote', true);
+    expect(local.moved).toBeGreaterThan(1); expect(remote.moved).toBeGreaterThan(1); expect(owned.moved).toBeGreaterThan(1);
+    expect(local.hits).toBeGreaterThan(0);
+    expect(remote.hits).toBe(0);
+    expect(owned.hits).toBeGreaterThan(0);
   });
   test('a shared record of any model spawns with its cage and continues from its damage', async () => {
     const { vi } = await import('vitest');
@@ -124,7 +130,7 @@ describe('any fleet car that a player drives takes damage (vehicle.ts armDamage)
       half: { x: 2.3, y: .4, z: 1 }, pose: { t: 1, E: 10, N: -20, H: 2, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'passat-b8/blue', carrying: false, damage: wire } };
     const client = Object.assign(new EventTarget(), { state: { connected: true, you: { id: self }, vehicles: new Map([[record.id, record]]),
       players: [], vehicleSources: new Set<string>() }, holdSeat() {}, vehicle: vi.fn() });
-    const physics = { latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn() };
+    const physics = { latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn() };
     const shared = new SharedVehicles(client as never, physics as never, { vehicles: [] } as never, { setShared() {}, resetRound() {} } as never);
     shared.update(0);
     expect(physics.spawnVehicle).toHaveBeenCalledWith(expect.anything(), expect.any(Number),

@@ -327,7 +327,7 @@ describe('damage survives saves and travels with the shared vehicle record', () 
       half: { x: 2, y: .4, z: .9 }, pose: { t: 1, E: 10, N: -20, H: 2, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'player', carrying: false, damage: wire } };
     const client = Object.assign(new EventTarget(), { state: { connected: true, you: { id: self }, vehicles: new Map([[record.id, record]]),
       players: [], vehicleSources: new Set<string>() }, holdSeat() {}, vehicle: vi.fn() });
-    const physics = { latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn() };
+    const physics = { latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn() };
     const shared = new SharedVehicles(client as never, physics as never, { vehicles: [] } as never, { setShared() {}, resetRound() {} } as never);
     shared.update(0);
     expect(physics.spawnVehicle).toHaveBeenCalledWith(expect.anything(), expect.any(Number),

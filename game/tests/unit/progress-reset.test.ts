@@ -154,7 +154,7 @@ describe('shared vehicles resync (net/sharedVehicles.ts)', () => {
     const car: VehicleState = { id: 'player', kind: 'car', pos: { x: 170, y: 4.6, z: 250 }, rot: { x: 0, y: 0, z: 0, w: 1 },
       linvel: { x: 0, y: 0, z: 0 }, speed: 0, forwardSpeed: 0, wheels: [], curbStrike: null };
     const scooter: VehicleState = { ...car, id: 'scooter', kind: 'scooter' };
-    const physics = { latest: { vehicles: [car, scooter] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn() };
+    const physics = { latest: { vehicles: [car, scooter] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn() };
     const parked = { setShared: vi.fn(), resetRound: vi.fn() };
     const shared = new SharedVehicles(client, physics as unknown as PhysicsClient, { vehicles: [] } as unknown as Manifest,
       parked as unknown as ParkedVehicles);

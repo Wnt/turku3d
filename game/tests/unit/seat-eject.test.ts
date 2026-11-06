@@ -42,7 +42,7 @@ function setup() {
       hour: {}, players: [], scores: [], vehicles: { upsert: vehicles, remove: [], sources: [] }, serverTime: 0 });
   };
   welcome();
-  const physics = { latest: { vehicles: [state] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn() };
+  const physics = { latest: { vehicles: [state] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), ownVehicleDamage: vi.fn() };
   const parked = { setShared: vi.fn() };
   const shared = new SharedVehicles(client, physics as unknown as PhysicsClient, { vehicles: [] } as unknown as Manifest, parked as unknown as ParkedVehicles);
   shared.drive('truck');
