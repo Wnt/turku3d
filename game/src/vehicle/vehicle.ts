@@ -16,6 +16,7 @@ import { rotate } from './math.ts';
 import { longitudinalSlip } from './tyreSlip.ts';
 import { dot, tyreRollImpulse } from './weightTransfer.ts';
 import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
+import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
@@ -63,6 +64,7 @@ export class Vehicle {
   /** Body damage of a damageable car (vehicle/damage.ts), owned here; null for vehicles without a damage cage. */
   readonly damage: DamageState | null;
   private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
+  private mech: { revision: number; value: Mechanics } = { revision: -1, value: INTACT };
   /** Damageable cars: chassis velocities before the solver, and the crash being summed (chassis frame). */
   private damageBefore: { v: V3; w: V3 } | null = null;
   private crash: { dv: V3; dw: V3; steps: number; quiet: number } | null = null;
@@ -182,6 +184,14 @@ export class Vehicle {
     this.damageHit({ dv, ...(at ? { at } : {}), ...(halfWidth ? { halfWidth } : {}) });
   }
 
+  /** The mechanical state of the car's damage (vehicle/mechanics.ts), recomputed only when a hit changed it. */
+  mechanics(): Mechanics {
+    const d = this.damage;
+    if (!d) return INTACT;
+    if (d.revision !== this.mech.revision) this.mech = { revision: d.revision, value: mechanics(d) };
+    return this.mech.value;
+  }
+
   /** Replaces the body damage with a saved or shared state (a malformed one is ignored), or a fresh body for null. */
   setDamage(state: string | null) {
     const d = this.damage;
@@ -230,6 +240,8 @@ export class Vehicle {
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
     const t = this.tuning, h = handling(input, speed, t);
+    // A damaged radiator or engine gives less force at every speed (lower torque and lower power alike).
+    h.engine *= this.mechanics().power;
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
     this.throttleApplied = h.drive;
     const rs = t.rearSteer, axles = this.axles;

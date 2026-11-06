@@ -2,9 +2,10 @@ const finite = (n, max) => typeof n === 'number' && Number.isFinite(n) && Math.a
 /** `drv` of a driven 4WS truck: [throttle % 0..100, rpm/10 0..800, gear -1..3, rear mode 0..3], integers only. */
 const DRV = [[0, 100], [0, 800], [-1, 3], [0, 3]];
 export const validDrv = d => Array.isArray(d) && d.length === 4 && d.every((n, i) => Number.isInteger(n) && n >= DRV[i][0] && n <= DRV[i][1]);
-/** `damage` of a damaged car: the owner's compact body state (game/src/vehicle/damage.ts encodeDamage, 208 bytes as
- *  base64). The server only relays it; its shallow pose patches send it when it changes. */
-export const validDamage = d => typeof d === 'string' && d.length === 280 && /^[A-Za-z0-9+/]+=?=?$/.test(d);
+/** `damage` of a damaged car: the owner's compact body and mechanical state (game/src/vehicle/damage.ts encodeDamage,
+ *  224 bytes as 300 base64 characters; its decoder checks the version). The server only relays it, so it checks the
+ *  form and a bound, not the layout; its shallow pose patches send it when it changes. */
+export const validDamage = d => typeof d === 'string' && d.length <= 512 && d.length % 4 === 0 && /^[A-Za-z0-9+/]+=?=?$/.test(d);
 export function validPose(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return false;
   return !(!finite(m.t, Number.MAX_SAFE_INTEGER) || m.t < 0 || !finite(m.E, 100_000) || !finite(m.N, 100_000)

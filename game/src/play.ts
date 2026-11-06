@@ -6,6 +6,7 @@ import { bindRoundReset } from './net/roundReset';
 import { VehicleSignals } from './vehicle/signals';
 import { VehicleBeams } from './vehicle/beams';
 import { TyreEffects } from './vehicle/tyreEffects';
+import { mechanicsOf } from './vehicle/mechanics';
 import type { PlayWorld } from './playWorld';
 export type { PlayWorld } from './playWorld';
 import { ParkedVehicles } from './world/parkedVehicles';
@@ -878,7 +879,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     if (carState) car.update(carState);
     if (effectsDt > 0 && mode === 'car') {
       const vehicle = latestOf(drivenId ?? 'player');
-      if (vehicle) tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
+      if (vehicle) {
+        tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
+        const bay = mechanicsOf(vehicle.damage);
+        tyreEffects.engineBay(0, vehicle.pos, vehicle.rot, bay.steam, bay.smoke, effectsDt);
+      }
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);
     const renderCharacter = physics.characterRender.sample(now / 1000, extrapolating);

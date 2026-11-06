@@ -82,16 +82,27 @@ export const DAMAGE_BINS = 19;
  *  footprint (m, default a wall wider than the car; a pole is ~0.15). */
 export interface DamageHit { dv: readonly [number, number, number]; at?: readonly [number, number, number]; halfWidth?: number }
 
+/** Mechanical systems a hit wears (vehicle/mechanics.ts reads their levels): the radiator, the engine, the steering
+ *  and the four wheel corners in the physics wheel order (front left, front right, rear left, rear right). */
+export const WEAR = { cooling: 0, engine: 1, steering: 2, corners: 3 } as const;
+export const WEAR_SYSTEMS = 7;
+
 /** One car's damage. `offsets` (xyz per node, metres) is the shape the renderer draws and multiplayer replicates;
  *  `bins` the absorbed energy per face region that saturation reads; `energy` and `hits` keep counting after the shape
- *  saturates (hooks for handling, mechanical damage and loose parts). `revision` changes with every applied hit. */
+ *  saturates (hooks for loose parts). `wear` is the mechanical systems' energy, (km/h)² beyond the crumple threshold
+ *  under each system, which never saturates (Wreckfest 2: the shape stops at the hard stop, the part states keep
+ *  stepping up per hit); `steerSide` the way a bent steering pulls (+1 the car's left, -1 its right, 0 not yet
+ *  bent). `revision` changes with every applied hit. */
 export class DamageState {
   readonly offsets = new Float32Array(DAMAGE_NODES * 3);
   readonly bins = new Float32Array(DAMAGE_BINS);
-  energy = 0; hits = 0; revision = 0;
+  readonly wear = new Float32Array(WEAR_SYSTEMS);
+  energy = 0; hits = 0; revision = 0; steerSide = 0;
   constructor(readonly layout: DamageLayout) {}
   get damaged() { return this.hits > 0; }
-  clear() { this.offsets.fill(0); this.bins.fill(0); this.energy = 0; this.hits = 0; this.revision++; }
+  clear() {
+    this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.energy = 0; this.hits = 0; this.steerSide = 0; this.revision++;
+  }
 }
 
 const smooth = (t: number) => { const x = Math.max(0, Math.min(1, t)); return x * x * (3 - 2 * x); };
@@ -179,9 +190,10 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
   // A face is crushed when the contact pushes the car away from it: the front by a push towards -Z, and so on.
   const pushes: Record<Face, number> = { front: Math.max(0, -dz), rear: Math.max(0, dz), negX: Math.max(0, dx),
     posX: Math.max(0, -dx), top: Math.max(0, -dy) };
+  const shares = [0, 0, 0];
   for (const face of FACE_LIST) {
-    const kmh = pushes[face] * KMH;
-    const e = Math.max(0, kmh * kmh - CRUMPLE.thresholdKmh ** 2) / FACES[face].stiffness;
+    const kmh = pushes[face] * KMH, raw = Math.max(0, kmh * kmh - CRUMPLE.thresholdKmh ** 2);
+    const e = raw / FACES[face].stiffness;
     const eBumper = face === 'front' || face === 'rear' ? Math.max(0, kmh * kmh - CRUMPLE.bumperKmh ** 2) : 0;
     if (e <= 0 && eBumper <= 0) continue;
     total += e; absorbed = true;
@@ -196,11 +208,13 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
         const centre = layout.min[2] + (b + .5) / 3 * layout.length;
         share = lateralShare(Math.abs(centre - (hit.at?.[2] ?? (layout.min[2] + layout.max[2]) / 2)), halfWidth + layout.length / 6);
       }
+      shares[b] = share;
       const index = BIN_OFFSET[face] + b, depth = faceDepth(face, state.bins[index], layout);
       state.bins[index] += e * share * Math.max(0, 1 - depth / stop);
       added = Math.max(added, faceDepth(face, state.bins[index], layout) - depth);
       if (face === 'front' || face === 'rear') state.bins[BUMPER_OFFSET[face] + b] += eBumper * share;
     }
+    if (raw > 0) wearHit(state, face, raw, shares, hit);
   }
   if (!absorbed) return 0;
   const after = new Float32Array(DAMAGE_NODES * 3);
@@ -208,6 +222,36 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
   for (let i = 0; i < after.length; i++) state.offsets[i] = clampOffset(state.offsets[i] + after[i] - before[i]);
   state.energy += total; state.hits++; state.revision++;
   return added;
+}
+
+/** A face's share of a hit on the mechanical systems behind it. `raw`: (km/h)² beyond the crumple threshold, the
+ *  energy measure the crumple uses before the face's stiffness; `shares`: the footprint share per bin (end faces by
+ *  lateral -X, centre, +X; sides by thirds rear, middle, front). The engine bay is at the front: its radiator and
+ *  engine span most of the width, the steering rack reaches both front wheels, and each corner takes the end and the
+ *  side bins over it (a side hit at a wheel is the classic way to bend one). */
+function wearHit(state: DamageState, face: Face, raw: number, shares: readonly number[], hit: DamageHit) {
+  const w = state.wear, [right, centre, left] = shares, c = WEAR.corners;
+  let steering = 0;
+  if (face === 'front') {
+    const bay = .25 * right + .5 * centre + .25 * left;
+    w[WEAR.cooling] += raw * bay; w[WEAR.engine] += raw * bay;
+    w[c] += raw * left; w[c + 1] += raw * right;
+    steering = raw * .5 * (left + right);
+  } else if (face === 'rear') { w[c + 2] += raw * left; w[c + 3] += raw * right; }
+  else if (face === 'posX' || face === 'negX') {
+    // posX is the car's left side; bins: rear, middle, front third.
+    const [rear, , front] = shares, side = face === 'posX' ? 0 : 1;
+    w[c + side] += raw * front; w[c + 2 + side] += raw * rear;
+    w[WEAR.engine] += raw * .25 * front;
+    steering = raw * .5 * front;
+  }
+  if (steering <= 0) return;
+  w[WEAR.steering] += steering;
+  // A bent steering pulls towards the side that took the hit; a square hit bends it whichever way the first one did.
+  if (!state.steerSide) {
+    const lateral = face === 'posX' ? 1 : face === 'negX' ? -1 : (hit.at?.[0] ?? 0) / (state.layout.width / 2);
+    state.steerSide = Math.abs(lateral) > .1 ? Math.sign(lateral) : jitter(state.hits, 5, Math.round(raw)) < 1 ? 1 : -1;
+  }
 }
 
 /** Predicted bounding-box length loss (m) of `hits` identical head-on wall hits at `kmh`: the least crushed point of
@@ -222,13 +266,16 @@ export function headOnLoss(layout: DamageLayout, kmh: number, hits = 1): number 
 }
 
 // ------------------------------------------------------------------ compact state (worker → renderer, multiplayer, saves)
-/** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins to 8 (km/h)² in uint16. */
-const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 1;
+/** Offsets are quantized to 5 mm in int8 (±63.5 cm), bins and wear to 8 (km/h)² in uint16. */
+const OFFSET_UNIT = .005, BIN_UNIT = 8, WIRE_VERSION = 2;
 const clampOffset = (v: number) => Math.max(-127 * OFFSET_UNIT, Math.min(127 * OFFSET_UNIT, v));
-const HEADER = 8;
-export const DAMAGE_WIRE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3;
+const HEADER = 8, SHAPE_BYTES = HEADER + DAMAGE_BINS * 2 + DAMAGE_NODES * 3;
+/** Version 2 adds the wear (uint16 per system), the steering side (int8) and a spare byte; version 1 (body only,
+ *  208 bytes, saves from before the mechanical damage) still reads, with unworn systems. */
+export const DAMAGE_WIRE_BYTES = SHAPE_BYTES + WEAR_SYSTEMS * 2 + 2;
 
-/** Wire form of a damage state: base64 of version, node count, hits, energy (64 (km/h)² units), bins, offsets. */
+/** Wire form of a damage state: base64 of version, node count, hits, energy (64 (km/h)² units), bins, offsets, wear,
+ *  steering side. */
 export function encodeDamage(state: DamageState): string {
   const bytes = new Uint8Array(DAMAGE_WIRE_BYTES), view = new DataView(bytes.buffer);
   view.setUint8(0, WIRE_VERSION); view.setUint8(1, DAMAGE_NODES); view.setUint16(2, Math.min(65535, state.hits), true);
@@ -236,6 +283,8 @@ export function encodeDamage(state: DamageState): string {
   for (let i = 0; i < DAMAGE_BINS; i++) view.setUint16(HEADER + i * 2, Math.min(65535, Math.round(state.bins[i] / BIN_UNIT)), true);
   const base = HEADER + DAMAGE_BINS * 2;
   for (let i = 0; i < DAMAGE_NODES * 3; i++) view.setInt8(base + i, Math.round(state.offsets[i] / OFFSET_UNIT));
+  for (let i = 0; i < WEAR_SYSTEMS; i++) view.setUint16(SHAPE_BYTES + i * 2, Math.min(65535, Math.round(state.wear[i] / BIN_UNIT)), true);
+  view.setInt8(SHAPE_BYTES + WEAR_SYSTEMS * 2, state.steerSide);
   let text = '';
   for (const b of bytes) text += String.fromCharCode(b);
   return btoa(text);
@@ -246,13 +295,18 @@ export function decodeDamage(wire: unknown, state: DamageState): boolean {
   if (typeof wire !== 'string' || wire.length > 4 * Math.ceil(DAMAGE_WIRE_BYTES / 3)) return false;
   let text: string;
   try { text = atob(wire); } catch { return false; }
-  if (text.length !== DAMAGE_WIRE_BYTES) return false;
+  const version = text.length === DAMAGE_WIRE_BYTES ? WIRE_VERSION : text.length === SHAPE_BYTES ? 1 : 0;
+  if (!version) return false;
   const bytes = Uint8Array.from(text, c => c.charCodeAt(0)), view = new DataView(bytes.buffer);
-  if (view.getUint8(0) !== WIRE_VERSION || view.getUint8(1) !== DAMAGE_NODES) return false;
+  if (view.getUint8(0) !== version || view.getUint8(1) !== DAMAGE_NODES) return false;
+  const side = version > 1 ? view.getInt8(SHAPE_BYTES + WEAR_SYSTEMS * 2) : 0;
+  if (side < -1 || side > 1) return false;
   state.hits = view.getUint16(2, true); state.energy = view.getUint32(4, true) * 64;
   for (let i = 0; i < DAMAGE_BINS; i++) state.bins[i] = view.getUint16(HEADER + i * 2, true) * BIN_UNIT;
   const base = HEADER + DAMAGE_BINS * 2;
   for (let i = 0; i < DAMAGE_NODES * 3; i++) state.offsets[i] = view.getInt8(base + i) * OFFSET_UNIT;
+  for (let i = 0; i < WEAR_SYSTEMS; i++) state.wear[i] = version > 1 ? view.getUint16(SHAPE_BYTES + i * 2, true) * BIN_UNIT : 0;
+  state.steerSide = side;
   state.revision++;
   return true;
 }

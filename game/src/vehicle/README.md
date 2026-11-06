@@ -269,6 +269,39 @@ per-instance pool slots or a damaged car's own draw).
 npm --prefix game test -- --run tests/unit/car-damage.test.ts tests/unit/parked-paint.test.ts
 ```
 
+## Mechanical damage (the starter car)
+
+Phase 2, iteration 2: damage affects the car. Same calibration source, same single state and wire as the body.
+
+- **Wear** (`damage.ts wearHit`, in `applyHit`): each face's `(km/h)² - 35²` of a hit (before the face stiffness) also
+  wears the systems behind it, scaled by the footprint share of its bins, and never saturates (Wreckfest 2: the shape
+  stops at the hard stop, the part states keep stepping per hit). Front: radiator and engine by `.25/.5/.25` of the
+  three laterals, each front corner by its lateral, the steering by half of both. Rear: the rear corners. Sides: the
+  corner under the front or rear third, the steering (half) and the engine (a quarter) from the front third. The
+  steering's side (`steerSide`, +1 the car's left) is the first steering hit's side, or a deterministic coin for a
+  square one. Seven systems: cooling, engine, steering, front-left, front-right, rear-left, rear-right (physics wheel
+  order).
+- **Levels** (`mechanics.ts LADDERS`, 0 intact, 1-3 damaged, 4 terminal, like Wreckfest's five states): cooling at
+  4000 / 10000 / 18000 / 28000, engine at 15000 / 24000 / 34000 / 46000, the body zone of each corner at 4000 / 7500 /
+  10000 / 12500, steering and suspension hardware at 16000 / 26000 / 38000 / 52000. This reproduces the Wreckfest 2
+  tables: nothing up to 72 km/h in one hit; the radiator from one ~75-80 km/h hit, the second at 61.5 or the seventh
+  at 42.5 km/h, its level 2 at the fourth at 61.5; the hit-side front zone 1 → 4 over hits 2-5 at 61.5; the engine at
+  the sixth; steering and suspension hardware intact through six hits at 61.5.
+- **Effects**: drive force and power (`Vehicle.step`, all speeds) × cooling `1 / .95 / .88 / .8 / .7` × engine
+  `1 / .88 / .76 / .62 / .5`, never below a third (the car stays drivable). Golf on a flat road, headless (0-50 km/h,
+  0-80, speed after 30 s): fresh 2.23 s, 4.40 s, 102 km/h; radiator 1 (one 80 km/h hit) 2.35, 4.70, 100; radiator 2 +
+  engine 1 (six at 61.5) 2.93, 6.23, 93. A rough engine (`rough`, misfires and hunting: `audio/mix.ts roughEngine`,
+  evaluated at the 30 Hz continuous-mix tick on the car engine loop's gain and rate, steadier under throttle). Steam
+  (cooling ≥ 1) and dark smoke (engine ≥ 1) from the bonnet front while the car is driven, local and remote
+  (`TyreEffects.engineBay`: sprites of the tyre smoke's one instanced draw, white or dark by a per-instance shade).
+- **Wire** version 2 (224 bytes, 300 base64 characters): the body state plus wear (uint16, 8 (km/h)² units) and the
+  steering side. Version 1 (body only, older saves) still decodes, unworn. The server checks only a bounded base64
+  form. `mechanicsOf(wire)` caches the decode for the renderer, audio and HUD.
+
+```sh
+npm --prefix game test -- --run tests/unit/car-mechanics.test.ts tests/unit/car-damage.test.ts
+```
+
 ## Tyre marks and smoke
 
 `Vehicle.step` measures wheel contact velocity (including chassis angular velocity) in each steered wheel's

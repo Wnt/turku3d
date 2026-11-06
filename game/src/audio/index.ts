@@ -4,7 +4,7 @@ import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { EngineVoices, type EngineVoiceState } from './engine/voices';
 import { MIX_HZ, POSITION_EPSILON, glide } from './automation';
-import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
+import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, roughEngine, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
@@ -321,9 +321,10 @@ export class GameAudio {
     }
     if (this.car) {
       const c = this.car, mix = carMix(c.rpm, c.throttle, c.speed, c.slip, c.running, c.kind);
+      const rough = roughEngine(c.rough ?? 0, c.throttle, this.clock());
       for (const sound of Object.values(ENGINE_SOUND)) {
         if (sound === ENGINE_SOUND.truck) continue;
-        this.loop(sound, 'vehicle', sound === ENGINE_SOUND[c.kind] ? mix.engine : 0, c.position, mix.rate);
+        this.loop(sound, 'vehicle', sound === ENGINE_SOUND[c.kind] ? mix.engine * rough.gain : 0, c.position, mix.rate * rough.rate);
       }
       this.loop('roll', 'vehicle', mix.roll, c.position);
       this.loop('screech', 'vehicle', mix.screech, c.position);

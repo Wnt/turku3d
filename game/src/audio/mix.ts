@@ -2,6 +2,7 @@ import type { V3 } from '../core/origin';
 import type { VehicleKind } from '../physics/constants';
 import { MATERIALS } from '../shared/col/materials';
 import type { EngineVoiceState } from './engine/voices';
+import { MIX_HZ } from './automation';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
   'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
@@ -67,6 +68,19 @@ export function carMix(rpm: number, throttle: number, speed: number, slip: numbe
     screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
 }
 
+/** A damaged engine runs rough (vehicle/mechanics.ts `rough`, 0..1): at each continuous-mix tick (MIX_HZ) an
+ *  irregular share of the ticks misfires, a one-tick dip of gain and pitch that the 40 ms parameter glide turns into a
+ *  stumble, and the revs hunt slowly; both settle as the throttle opens (combustion steadies under load). The pattern
+ *  is a function of the tick, so it costs nothing between ticks. Multipliers of the engine loop's gain and rate. */
+export function roughEngine(rough: number, throttle: number, time: number): { rate: number; gain: number } {
+  const r = clamp(rough) * (1 - .6 * clamp(throttle));
+  if (r <= 0 || !Number.isFinite(time)) return { rate: 1, gain: 1 };
+  let h = Math.imul(Math.floor(time * MIX_HZ) ^ 0x5bd1e995, 0x27d4eb2d);
+  h = Math.imul(h ^ h >>> 15, 0x165667b1); h ^= h >>> 13;
+  const misfire = (h >>> 0) / 4294967296 < .3 * r, hunt = Math.sin(time * 2 * Math.PI * 1.3);
+  return { rate: (1 + .03 * r * hunt) * (misfire ? 1 - .06 * r : 1), gain: misfire ? 1 - .55 * r : 1 };
+}
+
 /** Engine voices for ambient traffic (traffic/client.ts): at most this many, for the nearest moving cars. */
 export const TRAFFIC_VOICES = 8;
 
@@ -90,7 +104,8 @@ export type AudioEvent =
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
   | { type: 'crowd'; walkers: number }
-  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean }
+  /** The local vehicle; `rough`: a damaged engine's roughness (vehicle/mechanics.ts), absent or 0 when intact. */
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean; rough?: number }
   /** One frame of a synthesised truck engine voice (GameAudio.engineVoice); `state` null releases it. */
   | { type: 'engine-voice'; id: string; state: EngineVoiceState | null }
   /** Nearest moving ambient cars (stable `id`s) and the count within 150 m. */

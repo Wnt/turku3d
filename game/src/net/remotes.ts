@@ -3,6 +3,7 @@ import { showFleetDamage } from '../actors/fleet/visuals';
 import { vehicleLamps } from '../vehicle/lamps';
 import type { HornEmitter } from '../audio/mix';
 import type { TyreEffects } from '../vehicle/tyreEffects';
+import { mechanicsOf } from '../vehicle/mechanics';
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -242,6 +243,11 @@ export class RemotePlayers {
       if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
         // Network ground points are relative to the physical chassis, including parked-model cars.
         this.tyreEffects.vehicle(remote.effectSlot, pos, remote.truck.quaternion, pose.wheels, pose.mode, effectsDt, Math.hypot(pose.vE, pose.vN));
+        // A driven damaged car vents steam or smoke from its engine bay (vehicle/mechanics.ts, from the same wire).
+        if (pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
+          const bay = mechanicsOf(pose.damage);
+          this.tyreEffects.engineBay(remote.effectSlot, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
+        }
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, float, smoothstep, uniform, uv } from 'three/tsl';
+import { attribute, color, float, smoothstep, uniform, uv } from 'three/tsl';
 import type { Quat, WheelState } from '../physics/protocol';
 import type { V3 } from '../core/origin';
 import type { QualityTier } from '../render/quality';
@@ -8,6 +8,16 @@ import { TyreSlipFilter } from './tyreSlip';
 
 const SEGMENTS = 4096, PARTICLES = 384, TRACKS = 33 * 4;
 const LIFE = 3;
+/** Smoke sprite kinds sharing the one draw: tyre smoke, engine-bay steam (a damaged radiator) and engine smoke. Per
+ *  kind: lifetime (s), rise and drift (m/s), start size and growth (m, m/s), peak opacity and brightness (times the
+ *  tyre smoke's grey). */
+const KINDS = [
+  { life: LIFE, rise: .65, drift: .18, size: .35, growth: .85, opacity: .24, shade: 1 },
+  { life: 1.6, rise: 1.1, drift: .3, size: .2, growth: .9, opacity: .34, shade: 1.45 },
+  { life: 3, rise: .8, drift: .3, size: .3, growth: 1.1, opacity: .3, shade: .14 },
+] as const;
+/** Where a damaged engine bay vents, in the chassis frame (+X forward): the starter car's bonnet front. */
+export const ENGINE_BAY = { x: 1.45, y: .3, z: 0 } as const;
 
 /** Two permanent draws and materials, including during startup warmup. All runtime storage is bounded;
  * no geometries, materials, vectors or particle objects are created by the frame/emission paths. */
@@ -20,6 +30,10 @@ export class TyreEffects {
   private readonly strength = new THREE.BufferAttribute(new Float32Array(SEGMENTS * 4), 1).setUsage(THREE.DynamicDrawUsage);
   private readonly order = new THREE.BufferAttribute(new Float32Array(SEGMENTS * 4), 1).setUsage(THREE.DynamicDrawUsage);
   private readonly opacity = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLES), 1).setUsage(THREE.DynamicDrawUsage);
+  private readonly shade = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLES).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
+  private shadeDirty = false;
+  /** Fractional steam and smoke emissions per effect slot (0 the local car, then the reserved remote slots). */
+  private readonly bay = new Float32Array(33 * 2);
   private readonly smoke: THREE.InstancedMesh;
   private readonly track = new Float64Array(TRACKS * 9);
   private readonly active = new Uint8Array(TRACKS);
@@ -69,9 +83,12 @@ export class TyreEffects {
     this.root.add(mesh);
     const smokeGeometry = new THREE.PlaneGeometry(1, 1);
     smokeGeometry.setAttribute('tyreOpacity', this.opacity);
+    smokeGeometry.setAttribute('tyreShade', this.shade);
     const smokeMaterial = new THREE.MeshBasicNodeMaterial({ color: 0xc5c9cc, transparent: true, depthWrite: false,
       side: THREE.DoubleSide, forceSinglePass: true });
-    // Analytic soft sprites need no texture upload and use the same shader at every quality tier.
+    // Analytic soft sprites need no texture upload and use the same shader at every quality tier; steam and engine
+    // smoke are the same sprites, brighter or darker.
+    smokeMaterial.colorNode = color(0xc5c9cc).mul(attribute('tyreShade', 'float'));
     smokeMaterial.opacityNode = attribute('tyreOpacity', 'float')
       .mul(float(1).sub(smoothstep(0.1, 0.5, uv().sub(0.5).length())));
     this.smoke = new THREE.InstancedMesh(smokeGeometry, smokeMaterial, PARTICLES);
@@ -92,6 +109,7 @@ export class TyreEffects {
     for (let i = slot * 4; i < (slot + 1) * 4; i++) this.slip.reset(i);
     this.active.fill(0, slot * 4, (slot + 1) * 4);
     this.emission.fill(0, slot * 4, (slot + 1) * 4);
+    this.bay.fill(0, slot * 2, slot * 2 + 2);
   }
   begin(dt: number) {
     this.elapsed += dt;
@@ -145,16 +163,32 @@ export class TyreEffects {
     }
   }
 
+  /** A damaged car's engine bay (vehicle/mechanics.ts `steam` and `smoke`, 0..1) vents at ENGINE_BAY of the chassis
+   *  pose `pos`/`rot` while its engine runs: white steam from a leaking radiator, dark smoke from a damaged engine. */
+  engineBay(slot: number, pos: V3, rot: Quat, steam: number, smoke: number, dt: number) {
+    if (slot < 0 || slot >= 33 || (steam <= 0 && smoke <= 0)) return;
+    this.rotation.set(rot.x, rot.y, rot.z, rot.w);
+    this.point.set(ENGINE_BAY.x, ENGINE_BAY.y, ENGINE_BAY.z).applyQuaternion(this.rotation);
+    this.point.x += pos.x; this.point.y += pos.y; this.point.z += pos.z;
+    for (let kind = 1; kind <= 2; kind++) {
+      const amount = kind === 1 ? steam : smoke, k = slot * 2 + kind - 1;
+      if (amount <= 0) { this.bay[k] = 0; continue; }
+      this.bay[k] = Math.min(4, this.bay[k] + dt * this.density * .9 * amount);
+      while (this.bay[k] >= 1) { this.bay[k] -= 1; this.emit(amount, kind, 0); }
+    }
+  }
+
   private setTrack(k: number, lx: number, ly: number, lz: number, rx: number, ry: number, rz: number) {
     this.active[k / 9] = 1;
     this.track[k] = this.point.x; this.track[k + 1] = this.point.y; this.track[k + 2] = this.point.z;
     this.track[k + 3] = lx; this.track[k + 4] = ly; this.track[k + 5] = lz;
     this.track[k + 6] = rx; this.track[k + 7] = ry; this.track[k + 8] = rz;
   }
-  private emit(slip: number) {
-    const k = (this.nextParticle++ % PARTICLES) * 6;
-    this.particles[k] = this.point.x; this.particles[k + 1] = this.point.y + 0.1; this.particles[k + 2] = this.point.z;
-    this.particles[k + 3] = this.elapsed; this.particles[k + 4] = slip;
+  private emit(strength: number, kind = 0, lift = .1) {
+    const i = this.nextParticle++ % PARTICLES, k = i * 6;
+    this.particles[k] = this.point.x; this.particles[k + 1] = this.point.y + lift; this.particles[k + 2] = this.point.z;
+    this.particles[k + 3] = this.elapsed; this.particles[k + 4] = strength; this.particles[k + 5] = kind;
+    if (this.shade.array[i] !== KINDS[kind].shade) { this.shade.array[i] = KINDS[kind].shade; this.shadeDirty = true; }
   }
 
   dispose() {
@@ -177,17 +211,18 @@ export class TyreEffects {
       this.marksDirty = false;
     }
     for (let i = 0; i < PARTICLES; i++) {
-      const k = i * 6, age = this.elapsed - this.particles[k + 3], strength = this.particles[k + 4];
-      if (strength <= 0 || age >= LIFE) {
+      const k = i * 6, age = this.elapsed - this.particles[k + 3], strength = this.particles[k + 4], kind = KINDS[this.particles[k + 5]];
+      if (strength <= 0 || age >= kind.life) {
         this.opacity.array[i] = 0; this.matrix.makeScale(0, 0, 0);
       } else {
-        this.point.set(this.particles[k] + age * 0.18, this.particles[k + 1] + age * 0.65, this.particles[k + 2] + age * 0.1);
-        this.scale.setScalar(0.35 + age * 0.85);
+        this.point.set(this.particles[k] + age * kind.drift, this.particles[k + 1] + age * kind.rise, this.particles[k + 2] + age * 0.1);
+        this.scale.setScalar(kind.size + age * kind.growth);
         this.matrix.compose(this.point, camera.quaternion, this.scale);
-        this.opacity.array[i] = strength * Math.min(1, age / 0.12) * (1 - age / LIFE) * 0.24;
+        this.opacity.array[i] = strength * Math.min(1, age / 0.12) * (1 - age / kind.life) * kind.opacity;
       }
       this.smoke.setMatrixAt(i, this.matrix);
     }
     this.opacity.needsUpdate = this.smoke.instanceMatrix.needsUpdate = true;
+    if (this.shadeDirty) { this.shade.needsUpdate = true; this.shadeDirty = false; }
   }
 }

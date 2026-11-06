@@ -119,8 +119,9 @@ transform the contact data; visual model orientation corrections do not apply to
 All fields required. Numbers must be finite: `0≤t≤Number.MAX_SAFE_INTEGER`,
 `|E|,|N|≤100000`, `|H|≤10000`, `|yaw|≤2π`, each velocity component ≤200 in absolute
 value. `mode` is `"foot"`, `"car"`, `"scooter"` or `"truck"`; `carrying` is boolean.
-A vehicle pose may carry `damage`: a damaged car's body state, 280 base64 characters (`game/src/vehicle/damage.ts`
-encodeDamage), decided by the car's owner and only relayed by the server; shallow patches send it when it changes.
+A vehicle pose may carry `damage`: a damaged car's body and mechanical state, base64 of at most 512 characters
+(300 today, `game/src/vehicle/damage.ts` encodeDamage), decided by the car's owner and only relayed by the server;
+shallow patches send it when it changes.
 `vehicle` is null on foot, `"scooter"` on a scooter, `"truck"` in the trophy truck, `"player"` in the starter car,
 or `<model>/<colour>` in a driven parked car (the key in `manifest.vehicle_models`).
 It changes with the driven vehicle and lets receivers use its exact mesh and paint. These are

@@ -67,7 +67,7 @@ describe('compact state', () => {
     applyHit(state, { dv: [-20 / 3.6, 0, -70 / 3.6] });
     applyHit(state, { dv: [0, 0, 55 / 3.6], halfWidth: .2, at: [-.5, .5, -2] });
     const wire = encodeDamage(state), copy = new DamageState(layout);
-    expect(wire.length).toBeLessThan(300);
+    expect(wire.length).toBe(300);
     expect(decodeDamage(wire, copy)).toBe(true);
     expect(copy.hits).toBe(2);
     expect(Math.abs(copy.energy - state.energy)).toBeLessThan(64);
