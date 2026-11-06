@@ -179,6 +179,7 @@ class Farm:
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0,
                             migrations=0)
+        self.skipped_links = set()
         self.version = time.time_ns() // 1000000
         self.started = time.time()
         self.aliases = read_json(self.root / 'aliases.json', {})
@@ -1274,6 +1275,12 @@ class Farm:
                 jobs, adopting, aliases = dict(self.jobs), set(self.adopting), dict(self.aliases)
             return self._make_room(target, jobs, adopting, aliases)
 
+    def skip_link(self, path, kind):
+        """Eviction leaves directories moved to another filesystem alone; each is logged once per process."""
+        if path.name not in self.skipped_links:
+            self.skipped_links.add(path.name)
+            self.event('eviction-skipped-link', kind=kind, name=path.name, target=os.readlink(path))
+
     def _make_room(self, target, jobs, adopting, aliases):
         if self.free() >= target:
             return True
@@ -1303,8 +1310,11 @@ class Farm:
             if source:
                 revisions.add(source)
         products = self.root / 'products'
-        candidates = sorted(products.glob('*'), key=lambda p: p.stat().st_mtime)
+        candidates = sorted(products.glob('*'), key=lambda p: p.lstat().st_mtime)
         for path in candidates:
+            if path.is_symlink():  # Moved off this filesystem: unlinking frees nothing here and rmtree raises.
+                self.skip_link(path, 'generation')
+                continue
             if path.name in pinned or time.time() - path.stat().st_mtime < self.grace_seconds:
                 continue
             size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
@@ -1316,6 +1326,9 @@ class Farm:
             for snapshot in (self.root / 'revisions').iterdir():
                 meta = read_json(snapshot / 'revision.json', {})
                 if meta.get('generation') == path.name and snapshot.name not in revisions:
+                    if snapshot.is_symlink():
+                        self.skip_link(snapshot, 'revision')
+                        continue
                     shutil.rmtree(snapshot)
             if self.free() >= target:
                 return True

@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import tempfile
 import threading
 import time
@@ -177,6 +178,30 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(farm.output(GEN2).exists())
         self.assertEqual(farm.request(REV, 't0_1_0')[0], 507)
         self.assertFalse(farm.jobs)
+
+    def test_disk_eviction_skips_generations_and_snapshots_moved_to_another_filesystem(self):
+        free = [5 * farm_module.GIB]
+        farm = self.farm(free=lambda: free[0])
+        moved = self.root.parent / f'{self.root.name}-bulk'
+        self.addCleanup(shutil.rmtree, moved, True)
+        fake_build(REV, 't0_0_0', moved / ('e' * 64))
+        (self.root / 'products').mkdir(parents=True, exist_ok=True)
+        (self.root / 'products' / ('e' * 64)).symlink_to(moved / ('e' * 64))
+        os.utime(self.root / 'products' / ('e' * 64), (1, 1), follow_symlinks=False)  # oldest: met first
+        fake_build(REV2, 't0_0_0', farm.output(GEN2))
+        snapshot = self.root / 'revisions' / REV2
+        shutil.move(snapshot, moved / REV2)
+        snapshot.symlink_to(moved / REV2)
+        self.assertFalse(farm.make_room(27 * farm_module.GIB))  # completes the round instead of raising
+        self.assertFalse(farm.output(GEN2).exists())
+        self.assertTrue((self.root / 'products' / ('e' * 64) / 't0_0_0/manifest.json').exists())
+        self.assertTrue((snapshot / 'revision.json').exists())
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        skipped = [(e['kind'], e['name']) for e in events if e['event'] == 'eviction-skipped-link']
+        self.assertEqual(skipped, [('generation', 'e' * 64), ('revision', REV2)])
+        farm.make_room(27 * farm_module.GIB)
+        self.assertEqual(sum(e['event'] == 'eviction-skipped-link' for e in map(
+            json.loads, (self.root / 'events.jsonl').read_text().splitlines())), 2)  # logged once
 
     def test_disk_pressure_evicts_cold_area_cache_while_another_area_is_building(self):
         import fcntl
