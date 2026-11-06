@@ -187,6 +187,19 @@ const frames = (page, n = 180) => page.evaluate(n => new Promise(resolve => {
   requestAnimationFrame(tick);
 }), n);
 
+/** Waits (up to `ms`) until the draw count holds within 3 % over 10 s: the world around the bench is still streaming
+ *  in after the load, and a growing scene hides the drivers' own cost. */
+const settleDraws = (page, ms = 120000) => page.evaluate(async ms => {
+  const t0 = performance.now(), samples = [];
+  for (;;) {
+    await new Promise(r => setTimeout(r, 2000));
+    samples.push(window.__perf?.drawCalls ?? 0);
+    const last = samples.slice(-5), lo = Math.min(...last), hi = Math.max(...last);
+    if (last.length === 5 && hi - lo <= 0.03 * hi) return { draws: hi, seconds: Math.round((performance.now() - t0) / 1000), settled: true };
+    if (performance.now() - t0 > ms) return { draws: hi, seconds: Math.round((performance.now() - t0) / 1000), settled: false, samples };
+  }
+}, ms);
+
 /** Seats (or removes, count 0) a driver in each of the car-damage console's bench cars, animated every frame from a
  *  synthetic drive (each its own steer and speed wave), as 20 nearby driven cars would be. */
 const benchDrivers = (page, on) => page.evaluate(on => {
@@ -280,27 +293,20 @@ try {
     await b.close();
   }
   if (modes.has('perf')) {
-    // 20 bench cars ahead, with and without animated drivers, alternating; a fixed camera over them.
+    // 20 bench cars ahead, with and without animated drivers, alternating (PERF_ROUNDS pairs, default 5); a fixed
+    // camera over them. Each pair is measured off then on, and the cost is the median of the pairs' differences: the
+    // streaming world keeps changing the scene's own cost between rounds.
     await hold(page, { handbrake: 1 });
     await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
-    await page.waitForTimeout(20000);
     report.perf = [];
     await page.evaluate(() => window.__game.damage.bench({ count: 20, kind: 'capable' }));
-    // Which part of a driver costs: all of it, without its hair, skin, or clothes (material names, rig.ts).
-    const PARTS = { all: [], 'no-hair': ['Hair_short02'], 'no-skin': ['Skin'], 'no-clothes': ['Cloth_hoodie', 'Cloth_jeans'], 'no-wheel': ['wheel'] };
-    const variants = (process.env.PERF_PARTS ?? '').split(',').filter(Boolean);
-    const plan = [];
-    for (let round = 0; round < 3; round++) { plan.push([false, 'all'], [true, 'all']); for (const v of variants) plan.push([true, v]); }
-    for (const [on, part] of plan) {
+    report.settle = await settleDraws(page);
+    log('settled', report.settle);
+    const rounds = Number(process.env.PERF_ROUNDS ?? 5);
+    for (let round = 0; round < rounds; round++) for (const on of [false, true]) {
       const seated = await benchDrivers(page, on);
-      await page.evaluate(hide => {
-        for (const d of window.__game.drivers.drivers.values()) {
-          if (!d.key.startsWith('bench:')) continue;
-          d.rig.model.traverse(o => { if (o.isMesh && !['Teeth', 'Tongue', 'Cloth_shoes', 'Eye', 'Iris', 'Cornea', 'Eyebrow', 'Eyelash'].includes(o.material.name)) o.visible = !hide.includes(o.material.name); });
-          if (d.spin) d.spin.visible = !hide.includes('wheel');
-        }
-      }, PARTS[part]);
       await page.waitForTimeout(2500);
+      if (on && round === 0) { const file = path.join(out, 'perf-view.png'); await page.screenshot({ path: file }); report.shots.push(file); }
       await page.evaluate(() => window.__render?.perf?.reset?.());
       const f = await frames(page, 240);
       const p = await page.evaluate(() => { const s = window.__perf, passes = window.__render?.perf?.passSnapshot?.();
@@ -308,17 +314,18 @@ try {
           passes: passes ? Object.fromEntries(Object.entries(passes.gpuMs ?? {}).map(([k, v]) => [k, v?.p50 == null ? null : +v.p50.toFixed(2)])) : null }; });
       const ms = await page.evaluate(() => window.__game.drivers.frameMs);
       const drawn = await page.evaluate(() => window.__game.drivers.snapshot().drivers.filter(d => d.drawn).length);
-      const row = { drivers: on, part, seated, drawn, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws, passes: p.passes };
+      const row = { round, drivers: on, seated, drawn, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws, passes: p.passes };
       report.perf.push(row); log('perf', row);
     }
     await benchDrivers(page, false);
     await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
     await page.evaluate(() => window.__game.damage.look(null));
-    const median = a => { const s = [...a].filter(v => typeof v === 'number').sort((x, y) => x - y); return s[s.length >> 1]; };
-    const of = (on, key, part = 'all') => median(report.perf.filter(r => r.drivers === on && r.part === part).map(r => r[key]));
-    report.perfParts = Object.fromEntries(variants.map(v => [v, { gpuP50: of(true, 'gpuP50', v), p50: of(true, 'p50', v) }]));
+    const median = a => { const s = [...a].filter(v => typeof v === 'number').sort((x, y) => x - y); return s.length ? +s[s.length >> 1].toFixed(2) : null; };
+    const of = (on, key) => median(report.perf.filter(r => r.drivers === on).map(r => r[key]));
+    const delta = key => median(report.perf.filter(r => r.drivers).map(r => r[key] - report.perf.find(o => o.round === r.round && !o.drivers)[key]));
     report.perfSummary = { frameP50Without: of(false, 'p50'), frameP50With: of(true, 'p50'), cpuP50Without: of(false, 'cpuP50'), cpuP50With: of(true, 'cpuP50'),
-      gpuP50Without: of(false, 'gpuP50'), gpuP50With: of(true, 'gpuP50'), driversMsWith: of(true, 'driversMs'), drawsWithout: of(false, 'draws'), drawsWith: of(true, 'draws') };
+      gpuP50Without: of(false, 'gpuP50'), gpuP50With: of(true, 'gpuP50'), driversMsWith: of(true, 'driversMs'), drawsWithout: of(false, 'draws'), drawsWith: of(true, 'draws'),
+      pairedDelta: { frameP50: delta('p50'), gpuP50: delta('gpuP50'), cpuP50: delta('cpuP50'), draws: delta('draws') } };
     log('perf summary', report.perfSummary);
   }
   report.ok = report.errors.length === 0;

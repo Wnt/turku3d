@@ -217,7 +217,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
     optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
-  if (player.template) drivers.setCharacter(player.template.scene, player.template.clips);
+  if (player.template) drivers.setCharacter(player.template.scene, player.template.clips, renderer);
   Object.assign(window.__game!, { drivers });
   let remoteEngines = new Set<string>();
   const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects, drivers);

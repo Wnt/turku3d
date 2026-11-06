@@ -5,6 +5,7 @@ import { FLEET } from '../../src/actors/fleet/catalog';
 import { BODY, crown, steerFraction, steeringAngle, type DriverLayout } from '../../src/actors/driver/layout';
 import { fleetDriverLayout } from '../../src/actors/driver/drivers';
 import { DriverRig, DriverTemplate } from '../../src/actors/driver/rig';
+import { TIERS } from '../../src/actors/driver/model';
 import { DriverMotion, type MotionPose } from '../../src/actors/driver/motion';
 
 const DEG = Math.PI / 180;
@@ -67,6 +68,51 @@ test('the hands follow the rim as the wheel turns from the rest grips at 10 and 
   // The horn: the right hand on the hub, the left one stays on its grip.
   expect(hand('R').distanceTo(c)).toBeLessThan(0.13);
   expect(hand('L').distanceTo(left0)).toBeLessThan(0.005);
+});
+
+test('a driver is one skinned draw: body, wheel, legs and face in index tiers; the wheel bone puts the rim on the layout and turns it', async () => {
+  const t = await template();
+  const rig = new DriverRig(t), frame = new THREE.Group();
+  frame.add(rig.model);
+  const meshes: THREE.Mesh[] = [];
+  rig.model.traverse(o => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh); });
+  expect(meshes).toEqual([rig.mesh]);
+  const ends = t.model.tierEnds;
+  expect(ends).toHaveLength(TIERS);
+  for (let i = 1; i < TIERS; i++) expect(ends[i]).toBeGreaterThan(ends[i - 1]);
+  expect(ends[TIERS - 1]).toBe(rig.mesh.geometry.index!.count);
+  rig.detail(1); expect(rig.mesh.geometry.drawRange.count).toBe(ends[1]);
+  // A second driver keeps its own range over the same buffers.
+  const other = new DriverRig(t); other.detail(3);
+  expect(rig.mesh.geometry.drawRange.count).toBe(ends[1]);
+  expect(other.mesh.geometry.getAttribute('position')).toBe(rig.mesh.geometry.getAttribute('position'));
+  // The wheel's vertices, skinned on the CPU, in the seat frame: on a ring of the rim's radius about the layout centre.
+  const index = rig.mesh.geometry.index!, wheel = new Set<number>();
+  for (let i = ends[0]; i < ends[1]; i++) wheel.add(index.getX(i));
+  const skinned = (vertex: number) => {
+    const v = new THREE.Vector3().fromBufferAttribute(rig.mesh.geometry.getAttribute('position') as THREE.BufferAttribute, vertex);
+    return rig.mesh.applyBoneTransform(vertex, v).applyMatrix4(rig.mesh.matrixWorld);
+  };
+  const layout = fleetDriverLayout('corolla-e180'), c = new THREE.Vector3(...layout.wheel.centre);
+  // A marker: the rim's 12 o'clock in the unturned wheel (the highest wheel vertex of the unit model).
+  const y = rig.mesh.geometry.getAttribute('position');
+  const marker = [...wheel].reduce((best, v) => (y.getY(v) > y.getY(best) ? v : best));
+  const rim = (angle: number) => {
+    rig.pose(frame, layout, { ...still, bump: 0.03 }, angle); frame.updateMatrixWorld(true);
+    let far = 0;
+    for (const v of wheel) far = Math.max(far, skinned(v).distanceTo(c));
+    return { far, top: skinned(marker) };
+  };
+  const rest = rim(0);
+  expect(rest.far).toBeGreaterThan(layout.wheel.radius); expect(rest.far).toBeLessThan(layout.wheel.radius + 0.03);
+  expect(Math.abs(rest.top.x - c.x)).toBeLessThan(0.02); expect(rest.top.y - c.y).toBeGreaterThan(0.12);
+  // A quarter turn left (counter-clockwise as the driver sees it): 12 o'clock moves to the driver's left (+X).
+  const left = rim(Math.PI / 2);
+  expect(left.top.x - c.x).toBeGreaterThan(0.15); expect(Math.abs(left.top.y - c.y)).toBeLessThan(0.05);
+  // A vehicle that turns its own wheel (the trophy truck) collapses the drawn one.
+  rig.pose(frame, { ...layout, wheel: { ...layout.wheel, drawn: false } }, still, 0); frame.updateMatrixWorld(true);
+  const points = [...wheel].map(skinned);
+  expect(Math.max(...points.map(p => p.distanceTo(points[0])))).toBeLessThan(1e-6);
 });
 
 test('steering wheel angle: linear in the share of the lock, ±95° for cars (GTA), ±130° vans, ±180° buses', () => {

@@ -79,7 +79,7 @@ const status = document.getElementById('status')!;
 const drivers = new Drivers();
 const character = new PlayerVisual(new THREE.Group(), async () => null);
 void character.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer)
-  .then(() => { if (character.template) drivers.setCharacter(character.template.scene, character.template.clips); });
+  .then(() => { if (character.template) drivers.setCharacter(character.template.scene, character.template.clips, renderer); });
 
 type Entry = { kind: 'fleet'; entry: AuthoredModel } | { kind: 'car' | 'scooter' | 'truck'; name: string };
 const ENTRIES: Entry[] = [

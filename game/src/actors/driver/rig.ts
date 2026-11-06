@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { BODY, grip, hub, type DriverLayout, type V3 } from './layout';
+import { DRIVER_MESH, WHEEL_BONE, driverModel, type DriverModel } from './model';
 import { LOOK, type MotionPose } from './motion';
 
 /** The seated driver's skeleton pose: the UAL `Driving_Loop` clip as the base (legs, fingers' grip), the hips on the
@@ -15,11 +16,6 @@ const SPLIT = [0.4, 0.35, 0.25];
 const DRIVEN = ['DEF-hips', ...SPINE, 'DEF-neck', 'DEF-head', 'DEF-shoulderL', 'DEF-upper_armL', 'DEF-forearmL', 'DEF-handL',
   'DEF-shoulderR', 'DEF-upper_armR', 'DEF-forearmR', 'DEF-handR'] as const;
 type Driven = typeof DRIVEN[number];
-/** Never visible inside a car (and teeth are 7k triangles); face details only near the camera. */
-const HIDDEN_MATERIALS = new Set(['Teeth', 'Tongue', 'Cloth_shoes']);
-export const FACE_MATERIALS = new Set(['Eye', 'Iris', 'Cornea', 'Eyebrow', 'Eyelash']);
-/** Legs: mostly under the dash; drawn near the camera only. */
-const LEG_MATERIALS = new Set(['Cloth_jeans']);
 /** Clavicle swing allowed to reach a far grip (the crossing arm at lock). */
 const CLAVICLE = 0.35;
 /** The upper body leans and turns toward a grip still out of reach (a crossed arm at lock), at most this much. */
@@ -27,19 +23,22 @@ const REACH_LEAN = 25 * Math.PI / 180;
 
 interface Rest { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 }
 
-/** Built once from the loaded player character (actors/player.ts): its scene, the base pose and the frames the rig
- *  needs. Drivers are SkeletonUtils clones: geometry, materials (so programs) shared, bones per driver. */
+/** Built once from the loaded player character (actors/player.ts): the merged one-draw driver model (model.ts), the
+ *  base pose and the frames the rig needs. Drivers are SkeletonUtils clones of the model: buffers and the material (so
+ *  programs) shared, bones and a drawRange per driver. */
 export class DriverTemplate {
   readonly rest = new Map<string, Rest>();
   /** Model-space orientation of each driven bone's parent in the base pose. */
   readonly parents = new Map<Driven, THREE.Quaternion>();
   /** The hips joint in model space in the base pose. */
   readonly hips = new THREE.Vector3();
+  readonly model: DriverModel;
 
-  constructor(readonly scene: THREE.Object3D, clips: readonly THREE.AnimationClip[]) {
+  constructor(scene: THREE.Object3D, clips: readonly THREE.AnimationClip[]) {
     const clip = clips.find(c => c.name === 'Driving_Loop');
     if (!clip) throw new Error('character clip Driving_Loop missing');
-    const model = cloneSkeleton(scene);
+    this.model = driverModel(scene);
+    const model = cloneSkeleton(this.model.root);
     model.position.set(0, 0, 0); model.quaternion.identity(); model.scale.set(1, 1, 1);
     const mixer = new THREE.AnimationMixer(model);
     mixer.clipAction(clip).play();
@@ -62,34 +61,38 @@ const tmp = { a: new THREE.Vector3(), b: new THREE.Vector3(), c: new THREE.Vecto
 const ik = { shoulder: new THREE.Vector3(), elbow: new THREE.Vector3(), wrist: new THREE.Vector3(), goal: new THREE.Vector3(), root: new THREE.Vector3(),
   from: new THREE.Vector3(), to: new THREE.Vector3(), parent: new THREE.Quaternion(), local: new THREE.Quaternion() };
 const v3 = (v: V3, out: THREE.Vector3) => out.set(v[0], v[1], v[2]);
+const wheelBasis = new THREE.Matrix4(), Z = new THREE.Vector3(0, 0, 1);
 
 export class DriverRig {
   /** The character clone; a child of the seat frame. */
   readonly model: THREE.Object3D;
+  /** The driver's one skinned draw (model.ts), with its own geometry object over the shared buffers for its drawRange. */
+  readonly mesh: THREE.SkinnedMesh;
+  /** The drawn steering wheel's bone (a child of `model`): placed, turned and scaled to the rim by `pose`. */
+  private readonly wheel: THREE.Object3D;
   private readonly bones = new Map<Driven, THREE.Object3D>();
-  readonly face: THREE.Mesh[] = [];
-  readonly legs: THREE.Mesh[] = [];
   /** Hand-to-grip error of the last pose (m), for tests and the dev snapshot. */
   readonly reach = { left: 0, right: 0 };
 
   constructor(private readonly template: DriverTemplate) {
-    this.model = cloneSkeleton(template.scene);
+    this.model = cloneSkeleton(template.model.root);
     this.model.name = 'driver';
     this.model.position.set(0, 0, 0); this.model.quaternion.identity();
     this.model.traverse(o => {
       const rest = template.rest.get(o.name);
       if (rest && (o as THREE.Bone).isBone) { o.position.copy(rest.p); o.quaternion.copy(rest.q); o.scale.copy(rest.s); }
-      const mesh = o as THREE.SkinnedMesh;
-      if (!mesh.isMesh) return;
-      const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.Material;
-      // Inside the car body's shadow; a fixed sphere over the seated pose and the reach (no CPU skinning for culling).
-      mesh.castShadow = false; mesh.frustumCulled = true;
-      mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.75, -0.05), 0.95);
-      mesh.boundingBox = new THREE.Box3(new THREE.Vector3(-0.7, -0.1, -0.7), new THREE.Vector3(0.7, 1.6, 0.7));
-      if (HIDDEN_MATERIALS.has(material.name)) mesh.visible = false;
-      if (FACE_MATERIALS.has(material.name)) this.face.push(mesh);
-      if (LEG_MATERIALS.has(material.name)) this.legs.push(mesh);
     });
+    this.mesh = this.model.getObjectByName(DRIVER_MESH) as THREE.SkinnedMesh;
+    const shared = template.model.geometry, geometry = new THREE.BufferGeometry();
+    for (const [name, attribute] of Object.entries(shared.attributes)) geometry.setAttribute(name, attribute);
+    geometry.setIndex(shared.index);
+    this.mesh.geometry = geometry;
+    // Inside the car body's shadow; a fixed sphere over the seated pose, the reach and the wheel (no CPU skinning for culling).
+    this.mesh.castShadow = false; this.mesh.receiveShadow = true; this.mesh.frustumCulled = true;
+    this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.75, -0.05), 1.0);
+    this.mesh.boundingBox = new THREE.Box3(new THREE.Vector3(-0.7, -0.1, -0.7), new THREE.Vector3(0.7, 1.6, 0.9));
+    this.wheel = this.model.getObjectByName(WHEEL_BONE)!;
+    this.wheel.scale.setScalar(0);
     for (const name of DRIVEN) this.bones.set(name, this.model.getObjectByName(name)!);
   }
 
@@ -119,6 +122,7 @@ export class DriverRig {
     this.reset();
     const t = this.template;
     this.model.position.set(layout.hips[0] - t.hips.x, layout.hips[1] - t.hips.y + motion.bump, layout.hips[2] - t.hips.z);
+    this.placeWheel(layout.wheel, wheel);
     // Torso: the class recline at the lumbar joint, then lean (and the reverse look's upper-body turn) over the spine.
     const recline = layout.recline - BODY.recline;
     const back = motion.reverse;
@@ -227,11 +231,21 @@ export class DriverRig {
     bone.updateMatrixWorld(true);
   }
 
-  /** Detail by distance: the face and the legs are drawn near the camera only (each mesh is a draw; on the M1 Air a
-   *  draw of a skinned mesh costs about 50 µs of frame time whatever its size, tools: game/scripts/driver-probe.mjs). */
-  detail(face: boolean, legs: boolean) {
-    for (const mesh of this.face) mesh.visible = face;
-    for (const mesh of this.legs) mesh.visible = legs;
+  /** The drawn wheel in the seat frame: its centre, the column tilt (normal back to the driver and up), turned by
+   *  `angle` (counter-clockwise as the driver sees it) and scaled to the rim; collapsed where the vehicle turns its own. */
+  private placeWheel(w: DriverLayout['wheel'], angle: number) {
+    const bone = this.wheel, m = this.model.position;
+    bone.position.set(w.centre[0] - m.x, w.centre[1] - m.y, w.centre[2] - m.z);
+    // Wheel frame: X the driver's right, Y 12 o'clock, Z toward the driver (back and up by the tilt).
+    tmp.a.set(-1, 0, 0); tmp.b.set(0, Math.cos(w.tilt), Math.sin(w.tilt)); tmp.c.set(0, Math.sin(w.tilt), -Math.cos(w.tilt));
+    bone.quaternion.setFromRotationMatrix(wheelBasis.makeBasis(tmp.a, tmp.b, tmp.c)).multiply(tmp.q.setFromAxisAngle(Z, angle));
+    bone.scale.setScalar(w.drawn ? w.radius : 0);
+  }
+
+  /** Detail by distance (model.ts TIERS): the driver draws its index up to the tier's end; every tier is the same one
+   *  draw (on the M1 Air a draw costs about 50 µs of frame time whatever its size, game/scripts/driver-probe.mjs). */
+  detail(tier: number) {
+    this.mesh.geometry.setDrawRange(0, this.template.model.tierEnds[tier]);
   }
 }
 
