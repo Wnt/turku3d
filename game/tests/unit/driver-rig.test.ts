@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import { playerRig } from '../fixtures/playerRig';
 import { FLEET } from '../../src/actors/fleet/catalog';
 import { BODY, crown, steerFraction, steeringAngle, type DriverLayout } from '../../src/actors/driver/layout';
-import { fleetDriverLayout } from '../../src/actors/driver/drivers';
+import { Drivers, fleetDriverLayout } from '../../src/actors/driver/drivers';
 import { DriverRig, DriverTemplate } from '../../src/actors/driver/rig';
 import { TIERS } from '../../src/actors/driver/model';
 import { ownWheelBox, withoutOwnWheel } from '../../src/actors/driver/ownWheel';
@@ -75,7 +75,41 @@ test('the hands follow the rim as the wheel turns from the rest grips at 10 and 
   expect(hand('L').distanceTo(left0)).toBeLessThan(0.005);
 });
 
-test('a driver is one skinned draw: body, wheel, legs and face in index tiers; the wheel bone puts the rim on the layout and turns it', async () => {
+test('every driver is one instance of one draw: its seat-frame bones in its layer, its detail tier, culled one by one', async () => {
+  const gltf = await playerRig(), drivers = new Drivers(), scene = new THREE.Scene();
+  drivers.setCharacter(gltf.scene as unknown as THREE.Object3D, gltf.animations as unknown as THREE.AnimationClip[], undefined, scene);
+  const batch = drivers.mesh!;
+  expect(batch.parent).toBe(scene);
+  const car = (x: number, z: number) => { const c = new THREE.Group(); c.position.set(x, 0, z); c.rotation.y = 0.4; scene.add(c); return c; };
+  const near = car(0, 6), behind = car(0, -12), far = car(0, 90);
+  const camera = new THREE.PerspectiveCamera(60, 1.6, 0.1, 500); camera.position.set(0, 2, 0); camera.lookAt(0, 1, 10); scene.add(camera);
+  const layout = fleetDriverLayout('golf7'), input = { velocity: { x: 0, y: 0, z: 0 } };
+  for (let frame = 0; frame < 3; frame++) {
+    for (const [key, c] of [['near', near], ['behind', behind], ['far', far]] as const) drivers.seat(key, c, layout, input);
+    drivers.finish(camera, frame * 16);
+  }
+  // Only the one in view within 60 m is drawn, at its seat with its distance's tier (6 m: the face too).
+  expect(batch.count).toBe(1);
+  const seat = new THREE.Matrix4(); batch.getMatrixAt(0, seat);
+  seat.elements.forEach((e, i) => expect(e).toBeCloseTo(near.matrixWorld.elements[i], 6));
+  expect((batch.geometry.getAttribute('driverTier') as THREE.BufferAttribute).count).toBe(batch.geometry.getAttribute('position').count);
+  // Its layer's bones skin a vertex where its rig puts it: CPU skinning through the bone texture data.
+  const snapshot = drivers.snapshot().drivers.find(d => d.key === 'near')!;
+  expect(snapshot.drawn).toBe(true);
+  const rig = new DriverRig(new DriverTemplate(gltf.scene as unknown as THREE.Object3D, gltf.animations as unknown as THREE.AnimationClip[])), local = new THREE.Group();
+  local.add(rig.model);
+  const bones = new Float32Array(t0Stride(rig)); rig.pose(local, layout, still, 0); rig.writeBones(bones);
+  const geometry = rig.mesh.geometry, joints = geometry.getAttribute('skinIndex'), weights = geometry.getAttribute('skinWeight');
+  const hand = geometry.index!.getX(100), p = new THREE.Vector3().fromBufferAttribute(geometry.getAttribute('position') as THREE.BufferAttribute, hand);
+  const blended = new THREE.Vector3();
+  for (let k = 0; k < 4; k++) blended.addScaledVector(p.clone().applyMatrix4(new THREE.Matrix4().fromArray(bones, joints.getComponent(hand, k) * 16)), weights.getComponent(hand, k));
+  expect(blended.distanceTo(rig.mesh.applyBoneTransform(hand, p.clone()).applyMatrix4(rig.mesh.matrixWorld))).toBeLessThan(1e-5);
+  expect(drivers.snapshot().drivers.filter(d => d.drawn).map(d => d.key).sort()).toEqual(['behind', 'near']);
+});
+
+const t0Stride = (rig: DriverRig) => rig.mesh.skeleton.bones.length * 16;
+
+test('the merged driver: body, wheel, legs and face in index tiers; the wheel bone puts the rim on the layout and turns it', async () => {
   const t = await template();
   const rig = new DriverRig(t), frame = new THREE.Group();
   frame.add(rig.model);
@@ -86,11 +120,8 @@ test('a driver is one skinned draw: body, wheel, legs and face in index tiers; t
   expect(ends).toHaveLength(TIERS);
   for (let i = 1; i < TIERS; i++) expect(ends[i]).toBeGreaterThan(ends[i - 1]);
   expect(ends[TIERS - 1]).toBe(rig.mesh.geometry.index!.count);
-  rig.detail(1); expect(rig.mesh.geometry.drawRange.count).toBe(ends[1]);
-  // A second driver keeps its own range over the same buffers.
-  const other = new DriverRig(t); other.detail(3);
-  expect(rig.mesh.geometry.drawRange.count).toBe(ends[1]);
-  expect(other.mesh.geometry.getAttribute('position')).toBe(rig.mesh.geometry.getAttribute('position'));
+  const tier = rig.mesh.geometry.getAttribute('driverTier');
+  for (let k = 0; k < TIERS; k++) expect(tier.getX(rig.mesh.geometry.index!.getX(k ? ends[k - 1] : 0)), `tier ${k}`).toBe(k);
   // The wheel's vertices, skinned on the CPU, in the seat frame: on a ring of the rim's radius about the layout centre.
   const index = rig.mesh.geometry.index!, wheel = new Set<number>();
   for (let i = ends[0]; i < ends[1]; i++) wheel.add(index.getX(i));

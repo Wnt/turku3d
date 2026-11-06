@@ -70,7 +70,7 @@ const rotationOf = (o: THREE.Object3D, out: THREE.Quaternion) => { o.matrixWorld
 export class DriverRig {
   /** The character clone; a child of the seat frame. */
   readonly model: THREE.Object3D;
-  /** The driver's one skinned draw (model.ts), with its own geometry object over the shared buffers for its drawRange. */
+  /** The merged skinned mesh (model.ts): its skeleton is this driver's; the instanced batch draws it (batch.ts). */
   readonly mesh: THREE.SkinnedMesh;
   /** The drawn steering wheel's bone (a child of `model`): placed, turned and scaled to the rim by `pose`. */
   private readonly wheel: THREE.Object3D;
@@ -89,14 +89,6 @@ export class DriverRig {
       if (rest && (o as THREE.Bone).isBone) { o.position.copy(rest.p); o.quaternion.copy(rest.q); o.scale.copy(rest.s); }
     });
     this.mesh = this.model.getObjectByName(DRIVER_MESH) as THREE.SkinnedMesh;
-    const shared = template.model.geometry, geometry = new THREE.BufferGeometry();
-    for (const [name, attribute] of Object.entries(shared.attributes)) geometry.setAttribute(name, attribute);
-    geometry.setIndex(shared.index);
-    this.mesh.geometry = geometry;
-    // Inside the car body's shadow; a fixed sphere over the seated pose, the reach and the wheel (no CPU skinning for culling).
-    this.mesh.castShadow = false; this.mesh.receiveShadow = true; this.mesh.frustumCulled = true;
-    this.mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.75, -0.05), 1.0);
-    this.mesh.boundingBox = new THREE.Box3(new THREE.Vector3(-0.7, -0.1, -0.7), new THREE.Vector3(0.7, 1.6, 0.9));
     this.wheel = this.model.getObjectByName(WHEEL_BONE)!;
     this.wheel.scale.setScalar(0);
     for (const name of DRIVEN) this.bones.set(name, this.model.getObjectByName(name)!);
@@ -254,10 +246,14 @@ export class DriverRig {
     bone.scale.setScalar(w.drawn ? w.radius : 0);
   }
 
-  /** Detail by distance (model.ts TIERS): the driver draws its index up to the tier's end; every tier is the same one
-   *  draw (on the M1 Air a draw costs about 50 µs of frame time whatever its size, game/scripts/driver-probe.mjs). */
-  detail(tier: number) {
-    this.mesh.geometry.setDrawRange(0, this.template.model.tierEnds[tier]);
+  /** The skeleton's matrices in the seat frame (bone world matrix times its inverse bind; the model hangs under the
+   *  seat frame), 16 floats per bone, for the instanced batch's bone texture (batch.ts). */
+  writeBones(out: Float32Array) {
+    this.model.updateMatrixWorld(true);
+    const { bones, boneInverses } = this.mesh.skeleton, bind = this.mesh.bindMatrix;
+    for (let i = 0; i < bones.length; i++) bone.multiplyMatrices(bones[i].matrixWorld, boneInverses[i]).multiply(bind).toArray(out, i * 16);
   }
 }
+
+const bone = new THREE.Matrix4();
 

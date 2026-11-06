@@ -59,6 +59,8 @@ export interface DriverModel {
   material: THREE.MeshStandardNodeMaterial;
   /** Index count at the end of each detail tier. */
   tierEnds: number[];
+  /** Bones of its skeleton: the character's and the wheel's. */
+  boneCount: number;
   /** What the atlas holds, tile by tile (bakeAtlas). */
   sources: Source[];
 }
@@ -101,6 +103,7 @@ export function driverModel(scene: THREE.Object3D): DriverModel {
   for (const g of geometries) { vertices += g.getAttribute('position').count; indices += g.index ? g.index.count : g.getAttribute('position').count; }
   const position = new Float32Array(vertices * 3), normal = new Float32Array(vertices * 3), uvs = new Float32Array(vertices * 2);
   const joints = new Uint8Array(vertices * 4), weights = new Float32Array(vertices * 4), rough = new Float32Array(vertices);
+  const tiers = new Float32Array(vertices);
   if (wheelIndex > 255) throw new Error('driver skeleton exceeds 8-bit joint indices');
   const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
   const tierEnds = new Array<number>(TIERS).fill(0);
@@ -119,7 +122,7 @@ export function driverModel(scene: THREE.Object3D): DriverModel {
       uvs[o * 2] = u0 + (part.mesh ? t.getX(i) : 0.5) * us; uvs[o * 2 + 1] = vv0 + (part.mesh ? t.getY(i) : 0.5) * vs;
       if (part.mesh) for (let c = 0; c < 4; c++) { joints[o * 4 + c] = j.getComponent(i, c); weights[o * 4 + c] = w.getComponent(i, c); }
       else { joints[o * 4] = wheelIndex; weights[o * 4] = 1; }
-      rough[o] = r;
+      rough[o] = r; tiers[o] = part.tile.tier;
     }
     const count = g.index ? g.index.count : p.count;
     for (let i = 0; i < count; i++) index[i0 + i] = v0 + (g.index ? g.index.getX(i) : i);
@@ -129,13 +132,25 @@ export function driverModel(scene: THREE.Object3D): DriverModel {
   for (let t = 1; t < TIERS; t++) tierEnds[t] = Math.max(tierEnds[t], tierEnds[t - 1]);
   wheel.dispose();
 
+  // The float attributes interleaved in one vertex buffer and the joints in another: the instanced batch adds its
+  // own, and WebGPU allows 8 vertex buffers per pipeline.
+  const STRIDE = 14, floats = new Float32Array(vertices * STRIDE);
+  for (let v = 0; v < vertices; v++) {
+    const o = v * STRIDE;
+    floats.set(position.subarray(v * 3, v * 3 + 3), o); floats.set(normal.subarray(v * 3, v * 3 + 3), o + 3);
+    floats.set(uvs.subarray(v * 2, v * 2 + 2), o + 6); floats.set(weights.subarray(v * 4, v * 4 + 4), o + 8);
+    floats[o + 12] = rough[v]; floats[o + 13] = tiers[v];
+  }
+  const interleaved = new THREE.InterleavedBuffer(floats, STRIDE);
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
-  geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geometry.setAttribute('position', new THREE.InterleavedBufferAttribute(interleaved, 3, 0));
+  geometry.setAttribute('normal', new THREE.InterleavedBufferAttribute(interleaved, 3, 3));
+  geometry.setAttribute('uv', new THREE.InterleavedBufferAttribute(interleaved, 2, 6));
+  geometry.setAttribute('skinWeight', new THREE.InterleavedBufferAttribute(interleaved, 4, 8));
+  geometry.setAttribute('driverRoughness', new THREE.InterleavedBufferAttribute(interleaved, 1, 12));
+  // The detail tier of each vertex: the instanced batch (batch.ts) collapses the tiers beyond a driver's distance.
+  geometry.setAttribute('driverTier', new THREE.InterleavedBufferAttribute(interleaved, 1, 13));
   geometry.setAttribute('skinIndex', new THREE.BufferAttribute(joints, 4));
-  geometry.setAttribute('skinWeight', new THREE.BufferAttribute(weights, 4));
-  geometry.setAttribute('driverRoughness', new THREE.BufferAttribute(rough, 1));
   geometry.setIndex(new THREE.BufferAttribute(index, 1));
 
   // One material: the atlas (bakeAtlas) carries colour and the hair, brows and lashes' cutout alpha; roughness per vertex.
@@ -147,7 +162,7 @@ export function driverModel(scene: THREE.Object3D): DriverModel {
   // Bone matrices: the character's, then the wheel bone, whose inverse undoes the bind so its vertices sit in its frame.
   mesh.bind(new THREE.Skeleton([...bones, wheelBone], [...boneInverses, bindMatrix.clone().invert()]), bindMatrix);
   root.add(mesh);
-  return { root, geometry, material, tierEnds, sources };
+  return { root, geometry, material, tierEnds, sources, boneCount: bones.length + 1 };
 }
 
 /** Bakes the atlas on the GPU once: each tile is a fullscreen quad that keeps only its own rectangle and samples its

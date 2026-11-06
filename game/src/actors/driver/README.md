@@ -79,25 +79,38 @@ grips at every wheel angle to full lock; the rig's upper body leans and turns to
 
 ## Cost
 
-On the M1 Air a draw costs about 50 µs of frame time whatever its size (hiding the hair, the skin, the clothes or the
-wheel of 20 drivers saved 0.9-2.6 ms in proportion to the draws), so a driver is **one skinned draw** (`model.ts`):
-skin, hoodie, hair, jeans, eyes, brows, lashes and the drawn steering wheel merged into one geometry (about 14.5k
-vertices) with one material. Its colour atlas (2048 x 1024 sRGB with mipmaps, about 11 MB) is baked on the GPU once
-when the character loads: each source map times its material colour into its own tile (skin 1024, hoodie, hair and
-jeans 512, eyes, brows and lashes 256), with 4 px gutters; per-vertex roughness; one alpha cutout for the hair, brows
-and lashes; no normal maps. The steering wheel rides on an extra bone (placed, turned and scaled to the rim by the
-rig; collapsed where the vehicle turns its own). Teeth, tongue, shoes and the cornea are left out. Drivers are
-SkeletonUtils clones of that model: buffers and the material (so programs) shared; bones and a geometry object (for
-its drawRange) per driver. They cast no shadow and cull with a fixed sphere.
+On the M1 Air every draw costs about 90 µs of frame time, instanced or not, whatever its size (measured: hiding a
+part of 20 drivers saved time in proportion to the draws; four instanced draws cost 0.26 ms more than one). So
+**every animated driver is one instance of one draw** (`batch.ts`):
 
-The detail still falls with distance, as index ranges of the same draw (the index runs body, wheel, legs, face): skin,
-hoodie and hair always; the drawn steering wheel within 30 m; the jeans within 15 m; eyes, brows and lashes within
-8 m; beyond 30 m a driver is posed on alternate frames; beyond 60 m (5 m hysteresis) none is drawn. The arm IK reads
-bone world matrices directly and refreshes only the arm chain it moves. `drivers.frameMs` is the main-thread time of
-`finish()`; `__game.state().drivers` lists the seated drivers with their hands' distance from the grips.
+- `model.ts` merges skin, hoodie, hair, jeans, eyes, brows, lashes and the drawn steering wheel into one geometry
+  (about 14.5k vertices; the float attributes interleaved in one vertex buffer, the joints in another: WebGPU allows 8
+  per pipeline) with one material. Its colour atlas (2048 x 1024 sRGB with mipmaps, about 11 MB) is baked on the GPU
+  once when the character loads: each source map times its material colour into its own tile (skin 1024; hoodie, hair
+  and jeans 512; eyes, brows and lashes 256; 4 px gutters); per-vertex roughness; one alpha cutout for the hair, brows
+  and lashes; no normal maps. The steering wheel rides on an extra bone (placed, turned and scaled to the rim by the
+  rig; collapsed where the vehicle turns its own). Teeth, tongue, shoes and the cornea are left out.
+- Each driver's rig (a SkeletonUtils clone of that model) poses its skeleton in its own seat frame, off the scene graph,
+  and writes the bone matrices into its layer of a float bone texture (64 layers, one per pool slot; only changed
+  layers upload). The batch's vertex stage blends each vertex's four bones from the instance's layer; the instance
+  matrix carries the seat to the world every frame, so a driver posed on alternate frames still rides with its car. A
+  second texture keeps each layer's previous pose for the motion vectors (TRAA).
+- Detail still falls with distance: each vertex carries its tier and each instance its detail, and the vertex stage
+  collapses the tiers beyond it: skin, hoodie and hair always; the drawn steering wheel within 30 m; the jeans within
+  15 m; eyes, brows and lashes within 8 m. Beyond 30 m a driver is posed on alternate frames; beyond 60 m (5 m
+  hysteresis) none is drawn. Drivers are culled one by one on the CPU (a sphere over the seated body).
+- The arm IK reads bone world matrices directly and refreshes only the arm chain it moves. `drivers.frameMs` is the
+  main-thread time of `finish()`; `__game.state().drivers` lists the seated drivers with their hands' distance from
+  the grips.
 
-City.lab, M1 Air, perf lease, 20 bench cars in view with seated drivers against the same cars without (before the
-distance tiers): frame p50 20.3 -> 27.9 ms, GPU 19.7 -> 27.5 ms, +88 draws, `finish()` 2.9 ms.
+City.lab, M1 Air, perf lease, 20 bench cars in view with animated drivers against the same cars without, paired median
+of five alternating rounds (`driver-probe.mjs perf`):
+
+| Build | GPU p50 | Frame p50 | CPU p50 | Draws | `finish()` |
+|---|---|---|---|---|---|
+| 9e306c10 (a draw per part, distance tiers) | +6.7 ms | +6.6 ms | +7.8 ms | +78 | 2.7 ms |
+| c0ff17d8 (one skinned draw per driver), camera behind the rows | +1.9 ms | +1.5 ms | +2.8 ms | +24 | 0.65 ms |
+| c0ff17d8, camera ahead of the rows (all 20 faces in view) | +2.7 ms | +2.7 ms | +3.0 ms | +20 | 0.48 ms |
 
 ## Ambient traffic
 
@@ -108,18 +121,19 @@ face tiers, the same material); every car of that class is one instance of it, m
 its own model's. A street costs one instanced draw per class in view (traffic families: saloon, sports, hatch, SUV,
 van), whatever the car count. Parked cars stay empty.
 
-AMBIENT_RESULT
+Air, perf lease, the 20 bench cars in view (`ambientbench`, paired median of five): 20 static drivers of one class
++0.18 ms GPU (+0.21 ms frame), of four classes (four draws) +0.44 ms (+0.40 ms). On city.lab's streets at most a
+couple of traffic cars are within 40 m and in view at a time.
 
 ## Tests
 
 `npx vitest run tests/unit/driver-rig.test.ts` (from `game/`): the body constants against the shipped GLB, every
 fleet model's layout under its roof with both hands within 1.5 cm of the rim at rest and full lock, the lock angles,
-the horn hand and each motion channel. On the deployed share, `game/scripts/driver-probe.mjs` (`shots`: lock, braking,
-crash, a second client's view; `perf`: 20 animated drivers against none, alternating). The vehicle gallery (`vehicle-gallery.html`) seats a driver in every model;
+the horn hand, each motion channel, the instanced batch (bones, tiers, culling), the measured models' own-wheel cut and
+the ambient class poses. On the deployed share, `game/scripts/driver-probe.mjs` (`shots`: lock, braking,
+crash; `remote`: a second client's view; `perf`: 20 animated drivers against none, alternating, PERF_LOOK for the
+camera; `ambientbench`: 20 static drivers in the bench cars; `ambient`: a street with traffic). The vehicle gallery (`vehicle-gallery.html`) seats a driver in every model;
 `window.vehicleGallery.hold` / `.view` hold an input and a camera for scripted shots.
-
-After the distance tiers (city.lab 9e306c10, same bench, perf lease; the world was still streaming, baseline draws
-670 -> 790 over the run): frame p50 22.3 -> 29.5 ms (median of three alternating rounds), `finish()` 2.1 ms.
 
 ## Next steps
 
