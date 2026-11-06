@@ -18,6 +18,8 @@ type Driven = typeof DRIVEN[number];
 /** Never visible inside a car (and teeth are 7k triangles); face details only near the camera. */
 const HIDDEN_MATERIALS = new Set(['Teeth', 'Tongue', 'Cloth_shoes']);
 export const FACE_MATERIALS = new Set(['Eye', 'Iris', 'Cornea', 'Eyebrow', 'Eyelash']);
+/** Legs: mostly under the dash; drawn near the camera only. */
+const LEG_MATERIALS = new Set(['Cloth_jeans']);
 /** Clavicle swing allowed to reach a far grip (the crossing arm at lock). */
 const CLAVICLE = 0.35;
 /** The upper body leans and turns toward a grip still out of reach (a crossed arm at lock), at most this much. */
@@ -66,6 +68,7 @@ export class DriverRig {
   readonly model: THREE.Object3D;
   private readonly bones = new Map<Driven, THREE.Object3D>();
   readonly face: THREE.Mesh[] = [];
+  readonly legs: THREE.Mesh[] = [];
   /** Hand-to-grip error of the last pose (m), for tests and the dev snapshot. */
   readonly reach = { left: 0, right: 0 };
 
@@ -85,6 +88,7 @@ export class DriverRig {
       mesh.boundingBox = new THREE.Box3(new THREE.Vector3(-0.7, -0.1, -0.7), new THREE.Vector3(0.7, 1.6, 0.7));
       if (HIDDEN_MATERIALS.has(material.name)) mesh.visible = false;
       if (FACE_MATERIALS.has(material.name)) this.face.push(mesh);
+      if (LEG_MATERIALS.has(material.name)) this.legs.push(mesh);
     });
     for (const name of DRIVEN) this.bones.set(name, this.model.getObjectByName(name)!);
   }
@@ -223,7 +227,11 @@ export class DriverRig {
     bone.updateMatrixWorld(true);
   }
 
-  /** Face meshes are drawn near the camera only. */
-  showFace(visible: boolean) { for (const mesh of this.face) mesh.visible = visible; }
+  /** Detail by distance: the face and the legs are drawn near the camera only (each mesh is a draw; on the M1 Air a
+   *  draw of a skinned mesh costs about 50 µs of frame time whatever its size, tools: game/scripts/driver-probe.mjs). */
+  detail(face: boolean, legs: boolean) {
+    for (const mesh of this.face) mesh.visible = face;
+    for (const mesh of this.legs) mesh.visible = legs;
+  }
 }
 

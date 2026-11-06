@@ -218,7 +218,7 @@ try {
   report.fps = await waitFps(page);
   log('fps', { fps: report.fps });
   // Shots away from the spawn's parked cars: at the start of a clear straight.
-  const straight = modes.has('shots') || modes.has('brake') ? await findStraight(page) : null;
+  const straight = modes.has('shots') || modes.has('brake') || modes.has('crash') ? await findStraight(page) : null;
   log('straight', { straight });
   if (straight) {
     await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
@@ -249,8 +249,9 @@ try {
       await page.waitForTimeout(2500);
   }
   if (modes.has('crash')) {
-    // PROBE_WALL='{"x":..,"y":..,"z":..,"yaw":..,"distance":..}' reuses a wall found before (from the start car).
-    const wall = process.env.PROBE_WALL ? JSON.parse(process.env.PROBE_WALL) : await findWall(page);
+    // The clear straight ends at a solid hit (a building) when it is shorter than its 160 m search: crash into that;
+    // else PROBE_WALL='{"x":..,"y":..,"z":..,"yaw":..,"distance":..}' or a square wall near the start car.
+    const wall = straight && straight.length < 159 ? straight : process.env.PROBE_WALL ? JSON.parse(process.env.PROBE_WALL) : await findWall(page);
     log('wall', { wall });
     if (wall) {
       await waitFps(page);
@@ -285,22 +286,37 @@ try {
     await page.waitForTimeout(20000);
     report.perf = [];
     await page.evaluate(() => window.__game.damage.bench({ count: 20, kind: 'capable' }));
-    for (let round = 0; round < 3; round++) for (const on of [false, true]) {
+    // Which part of a driver costs: all of it, without its hair, skin, or clothes (material names, rig.ts).
+    const PARTS = { all: [], 'no-hair': ['Hair_short02'], 'no-skin': ['Skin'], 'no-clothes': ['Cloth_hoodie', 'Cloth_jeans'], 'no-wheel': ['wheel'] };
+    const variants = (process.env.PERF_PARTS ?? '').split(',').filter(Boolean);
+    const plan = [];
+    for (let round = 0; round < 3; round++) { plan.push([false, 'all'], [true, 'all']); for (const v of variants) plan.push([true, v]); }
+    for (const [on, part] of plan) {
       const seated = await benchDrivers(page, on);
+      await page.evaluate(hide => {
+        for (const d of window.__game.drivers.drivers.values()) {
+          if (!d.key.startsWith('bench:')) continue;
+          d.rig.model.traverse(o => { if (o.isMesh && !['Teeth', 'Tongue', 'Cloth_shoes', 'Eye', 'Iris', 'Cornea', 'Eyebrow', 'Eyelash'].includes(o.material.name)) o.visible = !hide.includes(o.material.name); });
+          if (d.spin) d.spin.visible = !hide.includes('wheel');
+        }
+      }, PARTS[part]);
       await page.waitForTimeout(2500);
       await page.evaluate(() => window.__render?.perf?.reset?.());
       const f = await frames(page, 240);
-      const p = await page.evaluate(() => { const s = window.__perf; return { gpu: s?.gpuMs?.p50, cpu: s?.cpuMs?.p50, draws: s?.drawCalls }; });
+      const p = await page.evaluate(() => { const s = window.__perf, passes = window.__render?.perf?.passSnapshot?.();
+        return { gpu: s?.gpuMs?.p50, cpu: s?.cpuMs?.p50, draws: s?.drawCalls,
+          passes: passes ? Object.fromEntries(Object.entries(passes.gpuMs ?? {}).map(([k, v]) => [k, v?.p50 == null ? null : +v.p50.toFixed(2)])) : null }; });
       const ms = await page.evaluate(() => window.__game.drivers.frameMs);
       const drawn = await page.evaluate(() => window.__game.drivers.snapshot().drivers.filter(d => d.drawn).length);
-      const row = { round, drivers: on, seated, drawn, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws };
+      const row = { drivers: on, part, seated, drawn, driversMs: +ms.toFixed(3), ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws, passes: p.passes };
       report.perf.push(row); log('perf', row);
     }
     await benchDrivers(page, false);
     await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
     await page.evaluate(() => window.__game.damage.look(null));
     const median = a => { const s = [...a].filter(v => typeof v === 'number').sort((x, y) => x - y); return s[s.length >> 1]; };
-    const of = (on, key) => median(report.perf.filter(r => r.drivers === on).map(r => r[key]));
+    const of = (on, key, part = 'all') => median(report.perf.filter(r => r.drivers === on && r.part === part).map(r => r[key]));
+    report.perfParts = Object.fromEntries(variants.map(v => [v, { gpuP50: of(true, 'gpuP50', v), p50: of(true, 'p50', v) }]));
     report.perfSummary = { frameP50Without: of(false, 'p50'), frameP50With: of(true, 'p50'), cpuP50Without: of(false, 'cpuP50'), cpuP50With: of(true, 'cpuP50'),
       gpuP50Without: of(false, 'gpuP50'), gpuP50With: of(true, 'gpuP50'), driversMsWith: of(true, 'driversMs'), drawsWithout: of(false, 'draws'), drawsWith: of(true, 'draws') };
     log('perf summary', report.perfSummary);

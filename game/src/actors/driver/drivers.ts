@@ -16,8 +16,9 @@ import { DriverRig, DriverTemplate } from './rig';
 /** Drivers animate fully within this distance (m) of the camera, with 5 m of hysteresis; beyond, none is drawn. */
 export const FULL_DISTANCE = 60;
 const HYSTERESIS = 5;
-/** Eyes, brows and lashes are drawn within this distance (m). */
-const FACE_DISTANCE = 8;
+/** Detail tiers (m from the camera): eyes, brows and lashes; the legs (under the dash); the drawn steering wheel; beyond
+ *  POSE_EVERY_OTHER a driver is posed on alternate frames (it holds its pose between). Each skinned mesh is one draw. */
+const FACE_DISTANCE = 8, LEG_DISTANCE = 15, WHEEL_DISTANCE = 30, POSE_EVERY_OTHER = 30;
 
 export interface DriverInput {
   /** World velocity of the drawn vehicle (m/s). */
@@ -31,7 +32,7 @@ export interface DriverInput {
 }
 
 interface Driver {
-  key: string; frame: THREE.Group; rig: DriverRig; motion: DriverMotion;
+  key: string; frame: THREE.Group; rig: DriverRig; motion: DriverMotion; index: number;
   wheel: THREE.Group | null; spin: THREE.Object3D | null; layout: DriverLayout | null;
   seatedFrame: number; input: DriverInput | null; drawn: boolean;
 }
@@ -72,6 +73,7 @@ export class Drivers {
   private readonly drivers = new Map<string, Driver>();
   private readonly free: Driver[] = [];
   private frameId = 0;
+  private created = 0;
   private readonly wheelGeometry = wheelGeometry();
   private readonly wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.55, metalness: 0.05 });
   private readonly camera = new THREE.Vector3();
@@ -111,7 +113,7 @@ export class Drivers {
     const frame = new THREE.Group(); frame.name = 'driver-seat';
     const rig = new DriverRig(this.template!);
     frame.add(rig.model);
-    return { key: '', frame, rig, motion: new DriverMotion(), wheel: null, spin: null, layout: null, seatedFrame: -1, input: null, drawn: false };
+    return { key: '', frame, rig, motion: new DriverMotion(), index: this.created++, wheel: null, spin: null, layout: null, seatedFrame: -1, input: null, drawn: false };
   }
 
   private useLayout(driver: Driver, layout: DriverLayout) {
@@ -155,11 +157,13 @@ export class Drivers {
       unit(e[8], e[9], e[10], fwd); unit(e[0], e[1], e[2], left); unit(e[4], e[5], e[6], up);
       const steer = steerFraction(layout, input.wheels);
       const pose = driver.motion.update({ t: now / 1000, v: input.velocity, fwd, left, up, steer, impact: input.impact, horn: input.horn });
+      driver.rig.detail(distance < FACE_DISTANCE, distance < LEG_DISTANCE);
+      if (driver.wheel) driver.wheel.visible = distance < WHEEL_DISTANCE;
+      if (distance > POSE_EVERY_OTHER && (this.frameId + driver.index) % 2) continue;
       // A vehicle with its own wheel node (the trophy truck) turns it by the same function (trophy4400/rig.ts).
       const angle = steeringAngle(layout.wheel, steer);
       if (driver.spin) driver.spin.rotation.z = angle;
       driver.rig.pose(frame, layout, pose, angle);
-      driver.rig.showFace(distance < FACE_DISTANCE);
     }
     this.frameId++;
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;

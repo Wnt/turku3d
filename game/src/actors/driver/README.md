@@ -73,9 +73,17 @@ grips at every wheel angle to full lock; the rig's upper body leans and turns to
 ## Cost
 
 Drivers are SkeletonUtils clones of the loaded character: geometry and materials (so programs) are shared, bones
-are per driver. A driver draws four meshes (skin, hoodie, jeans, hair; eyes, brows and lashes within 8 m; teeth,
-tongue and shoes never), casts no shadow and culls with a fixed sphere. `drivers.frameMs` is the main-thread time
-of `finish()`; `__game.state().drivers` lists the seated drivers with their hands' distance from the grips.
+are per driver. They cast no shadow and cull with a fixed sphere; teeth, tongue and shoes are never drawn. Each
+skinned mesh is one draw, and on the M1 Air a draw costs about 50 µs of frame time whatever its size (measured:
+hiding the hair, the skin, the clothes or the wheel of 20 drivers saved 0.9-2.6 ms in proportion to the draws, while
+the scene passes' own GPU time grew only 1.2 ms). So the detail falls with distance from the camera: skin, hoodie
+and hair always; the jeans within 15 m; the drawn steering wheel within 30 m; eyes, brows and lashes within 8 m;
+beyond 30 m a driver is posed on alternate frames; beyond 60 m (5 m hysteresis) none is drawn. `drivers.frameMs` is
+the main-thread time of `finish()` (about 0.14 ms per driver on the Air); `__game.state().drivers` lists the seated
+drivers with their hands' distance from the grips.
+
+City.lab, M1 Air, perf lease, 20 bench cars in view with seated drivers against the same cars without (before the
+distance tiers): frame p50 20.3 -> 27.9 ms, GPU 19.7 -> 27.5 ms, +88 draws, `finish()` 2.9 ms.
 
 ## Tests
 
