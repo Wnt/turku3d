@@ -8,7 +8,7 @@ function car(v: { x: number; z: number }, steer = 0, patch: Partial<TyrePatch> =
   const wheel = (x: number, z: number, axle: 0 | 1): TyrePatch => {
     const s = axle ? 0 : steer;
     return { point: { x, y: 0, z }, normal: up, forward: { x: Math.cos(s), y: 0, z: -Math.sin(s) }, side: { x: Math.sin(s), y: 0, z: Math.cos(s) },
-      load: 3300, axle, drive: 0, brake: 0, locked: false, grip: 1, ...patch };
+      load: 3300, axle, drive: 0, brake: 0, locked: false, surface: null, ...patch };
   };
   const body: BodyState = { lin: { x: v.x, y: 0, z: v.z }, ang: { x: 0, y: 0, z: 0 }, com: { x: 0, y: 0.72, z: 0 }, invMass: 1 / 1350,
     invInertia: [1 / 425, 0, 0, 0, 1 / 2186, 0, 0, 0, 1 / 1841], gravity: { x: 0, y: -9.81, z: 0 } };
@@ -139,4 +139,25 @@ test('brakes: the pressure builds over the ramp, the front takes most of the for
   const fx = car.tyreForces!.fx;
   expect(-(fx[0] + fx[1]) / plateau).toBeGreaterThan(0.65);
   pw.world.free();
+});
+
+test('gravel: lower and slower side grip than tarmac, the same braking; unknown surfaces grip like tarmac', () => {
+  const gravel = TARMAC.surfaces.gravel;
+  // Same 6° slip at 60 km/h, relaxed: tarmac against gravel.
+  const at = (surface: typeof gravel | null) => {
+    const state = tyreState(4); state.lag.fill(6 * deg);
+    return solve(car({ x: 16.7, z: 0 }, 6 * deg, { surface }), state).out[0];
+  };
+  const tarmac = at(null), loose = at(gravel);
+  expect(-loose.fy).toBeLessThan(-tarmac.fy * 0.85);
+  // The peak (25° of slip) is 0.87 of tarmac's.
+  const peak = (surface: typeof gravel | null) => {
+    const state = tyreState(4); state.lag.fill(25 * deg);
+    return -solve(car({ x: 16.7, z: 0 }, 25 * deg, { surface }), state).out[0].fy;
+  };
+  expect(peak(gravel) / peak(null)).toBeGreaterThan(0.83); expect(peak(gravel) / peak(null)).toBeLessThan(0.9);
+  // Braking at the anti-lock limit: the same as tarmac (Wreckfest 2: 0.99).
+  const brake = (surface: typeof gravel | null) => -solve(car({ x: 20, z: 0 }, 0, { brake: 20000, surface })).out[0].fx;
+  expect(brake(gravel) / brake(null)).toBeCloseTo(1, 2);
+  expect(TARMAC.surfaces.asphalt).toBeUndefined();
 });

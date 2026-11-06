@@ -9,6 +9,10 @@ import type { V3 } from '../core/origin.ts';
 /** μ(s) = peak · (1 − e^(−s / slip)): rises with slip and saturates without falling off (the study's axle fit). */
 export interface SlipCurve { readonly peak: number; readonly slip: number }
 
+/** A surface's grip against tarmac: the lateral peak, the initial side stiffness per axle (front, rear), and the
+ *  longitudinal peak, as multipliers. */
+export interface SurfaceGrip { readonly peak: number; readonly stiffness: readonly [number, number]; readonly longitudinal: number }
+
 export interface TyreTuning {
   /** Lateral μ against slip angle (rad), front and rear axle, at the reference load. */
   readonly lateral: readonly [front: SlipCurve, rear: SlipCurve];
@@ -29,6 +33,8 @@ export interface TyreTuning {
    *  within `relaxationTime` (s) at walking pace, where a distance alone would leave the car sliding. */
   readonly relaxation: number;
   readonly relaxationTime: number;
+  /** Grip per ground surface class (MATERIALS[].audio); a class without an entry grips like tarmac. */
+  readonly surfaces: Readonly<Record<string, SurfaceGrip>>;
 }
 
 /** Wreckfest 2 Bravion on tarmac (physics-study.md "Fits"): lateral axle fits 1.16 (1 − e^(−α/3.3°)) front and
@@ -47,6 +53,17 @@ export const TARMAC: TyreTuning = {
   rollCentre: [0, 0],
   relaxation: 1.0,
   relaxationTime: 0.1,
+  surfaces: {
+    // Wreckfest 2 gravel (physics-study.md section 7): lateral peak 0.86-0.88 of tarmac at about 12°, cornering
+    // stiffness 0.3 (front) to 0.55 (rear) of tarmac's, braking and traction as tarmac. The exponential curve cannot
+    // have both the front's low initial slope and its peak at 12°: 0.55 fits its axle points (μ 0.5 at 4.8°, 0.8 at
+    // 8.5°, 1.0 at 11.6°) within 0.1.
+    gravel: { peak: 0.87, stiffness: [0.55, 0.55], longitudinal: 1 },
+    // Not measured: estimates from gravel for a dirt track, a lawn and loose sand.
+    soil: { peak: 0.8, stiffness: [0.4, 0.48], longitudinal: 0.85 },
+    grass: { peak: 0.62, stiffness: [0.36, 0.42], longitudinal: 0.6 },
+    sand: { peak: 0.66, stiffness: [0.3, 0.36], longitudinal: 0.62 },
+  },
 };
 
 export const slipMu = (c: SlipCurve, slip: number) => c.peak * (1 - Math.exp(-Math.abs(slip) / c.slip));
@@ -58,14 +75,15 @@ export function loadFactor(t: TyreTuning, load: number, corner: number) {
 }
 
 /** One wheel in contact: world contact point and ground normal, the wheel's heading and axle projected on the
- *  ground plane (unit), its load, axle, drive force (N, + forward), brake force capacity (N) and surface grip. */
+ *  ground plane (unit), its load, axle, drive force (N, + forward), brake force capacity (N) and its surface's grip
+ *  (null: tarmac). */
 export interface TyrePatch {
   point: V3; normal: V3; forward: V3; side: V3;
   load: number; axle: 0 | 1;
   drive: number; brake: number;
   /** Locked by the handbrake: the patch slides with the full velocity. */
   locked: boolean;
-  grip: number;
+  surface: SurfaceGrip | null;
 }
 
 /** Rigid body velocity state in world space; `invInertia` is the world inverse inertia, row-major 3 × 3, and
@@ -122,12 +140,15 @@ export function solveTyres(body: BodyState, wheels: readonly (TyrePatch | null)[
     // The slip angle the side force follows: relaxed over `relaxation` metres of rolling (a fresh contact starts there).
     const alpha = Math.atan2(vy, Math.abs(vx));
     lag[i] += (alpha - lag[i]) * Math.min(1, Math.max(Math.abs(vx) / t.relaxation, 1 / t.relaxationTime) * dt);
-    const scale = loadFactor(t, w.load, corner) * w.grip, still = Math.max(0, 1 - speed / STATIC_SPEED);
-    const lat = t.lateral[w.axle], curve = slipMu(lat, lag[i]);
-    const capX = t.longitudinal.peak * scale * w.load * dt;
+    // A loose surface lowers the side peak and stretches the curve (its initial stiffness falls more than its peak).
+    const sf = w.surface, base = t.lateral[w.axle];
+    const lat = sf ? { peak: base.peak * sf.peak, slip: base.slip * sf.peak / sf.stiffness[w.axle] } : base;
+    const scale = loadFactor(t, w.load, corner), still = Math.max(0, 1 - speed / STATIC_SPEED), along = sf?.longitudinal ?? 1;
+    const curve = slipMu(lat, lag[i]);
+    const capX = t.longitudinal.peak * along * scale * w.load * dt;
     out[i].slip = alpha;
     if (w.locked) {
-      const cap = t.handbrake * t.longitudinal.sliding * scale * w.load * dt;
+      const cap = t.handbrake * t.longitudinal.sliding * along * scale * w.load * dt;
       out[i].slide = speed;
       return { w, rx, ry, ax, ay, mx, my, locked: true, cap, jd: 0, lo: 0, hi: 0, capY: 0, jx: 0, jy: 0 };
     }

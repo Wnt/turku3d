@@ -66,6 +66,8 @@ export class Vehicle {
   private readonly loaded: boolean[];
   /** Per-wheel surface grip multiplier from the last contact (tuning.grip.surface). */
   private readonly surfaceGrip: number[];
+  /** Per-wheel surface grip of a slip-curve tyre from the last contact (tuning.tyre.surfaces; null: tarmac). */
+  private readonly surface: (import('./tyres.ts').SurfaceGrip | null)[];
   private throttleApplied = 0;
   /** 4WS axle layout: front and rear axle x and the track. */
   private readonly axles: { xf: number; xr: number; track: number } | null;
@@ -141,6 +143,7 @@ export class Vehicle {
     this.rates = new Float64Array(t.wheels.length);
     this.loaded = t.wheels.map(() => false);
     this.surfaceGrip = t.wheels.map(() => 1);
+    this.surface = t.wheels.map(() => null);
     const fx = t.front.map(i => t.wheels[i].x), rx = t.wheels.filter((_, i) => !t.front.includes(i)).map(w => w.x);
     this.axles = t.rearSteer ? { xf: fx.reduce((a, b) => a + b, 0) / fx.length, xr: rx.reduce((a, b) => a + b, 0) / rx.length,
       track: Math.max(...t.front.map(i => t.wheels[i].z)) - Math.min(...t.front.map(i => t.wheels[i].z)) } : null;
@@ -418,7 +421,7 @@ export class Vehicle {
       const forward = { x: normal.y * s.z - normal.z * s.y, y: normal.z * s.x - normal.x * s.z, z: normal.x * s.y - normal.y * s.x };
       const front = t.front.includes(i);
       return { point, normal, forward, side: s, load: (v.wheelSuspensionForce(i) ?? 0) + this.bars[i], axle: front ? 0 : 1,
-        drive: drive[i], brake: brake[i] + (i === esc.wheel ? esc.brake : 0), locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
+        drive: drive[i], brake: brake[i] + (i === esc.wheel ? esc.brake : 0), locked: !front && h.handbrake, surface: this.surface[i] };
     });
     // Read the matrix at once: its getters view a scratch buffer that the next Rapier query (worldCom) overwrites.
     const m = b.effectiveWorldInvInertia(), invInertia = [m.m11, m.m12, m.m13, m.m12, m.m22, m.m23, m.m13, m.m23, m.m33];
@@ -500,16 +503,18 @@ export class Vehicle {
 
   /** After the raycast: suspension lengths and compression speed, load, and the surface grip of the contacts. */
   private trackSuspension(dt: number) {
-    const v = this.controller, t = this.tuning, grip = t.grip?.surface;
+    const v = this.controller, t = this.tuning, grip = t.grip?.surface, surfaces = t.tyre?.surfaces;
     for (let i = 0; i < t.wheels.length; i++) {
       const length = v.wheelSuspensionLength(i) ?? t.rest, contact = v.wheelIsInContact(i);
       const loaded = contact && (!this.corners[i] || length <= droopLength(t, i) + 1e-3);
       this.rates[i] = loaded && this.loaded[i] ? (this.lengths[i] - length) / dt : 0;
       this.lengths[i] = length; this.loaded[i] = loaded;
-      if (!grip) continue;
+      if (!grip && !surfaces) continue;
       const collider = contact ? v.wheelGroundObject(i) : null, point = collider ? v.wheelContactPoint(i) : null;
       if (!collider || !point) continue;
-      const pair = grip[MATERIALS[this.contactMaterial(collider, point)]?.audio ?? ''];
+      const surface = MATERIALS[this.contactMaterial(collider, point)]?.audio ?? '';
+      if (surfaces) this.surface[i] = surfaces[surface] ?? null;
+      const pair = grip?.[surface];
       this.surfaceGrip[i] = pair ? pair[t.front.includes(i) ? 0 : 1] : 1;
     }
   }

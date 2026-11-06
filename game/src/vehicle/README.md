@@ -84,6 +84,11 @@ the tyre forces after the raycast, as impulses on the chassis:
   brakes give way to the rear tyres' side force (cornering brake control), so braking in a turn never takes the tail
   away; the handbrake locks the rear wheels (sliding friction at 0.75 × μ 1.31 against the patch velocity).
 - **Combined**: when longitudinal use and side use exceed the friction ellipse, both shrink in proportion.
+- **Surfaces** (`TARMAC.surfaces`, keyed by the contact's `MATERIALS[].audio` class, read in `trackSuspension`):
+  gravel from Wreckfest 2 (side peak × 0.87, initial stiffness × 0.55 to fit its axle points μ 0.5 / 0.8 / 1.0 at
+  4.8 / 8.5 / 11.6°, braking and traction × 1); soil (× 0.8, stiffness 0.4 / 0.48, longitudinal × 0.85), grass
+  (× 0.62, 0.36 / 0.42, × 0.6) and sand (× 0.66, 0.3 / 0.36, × 0.62) are estimates; asphalt, concrete, stone, metal
+  and wood grip as tarmac.
 - **Solver**: projected Gauss-Seidel over the four patches, each a velocity constraint bounded by its curve force. At
   road speed the bound binds (force = μ(α, Fz)·Fz); at walking pace the constraint binds and the tyre holds like
   static friction. Warm started; the coming world step's gravity is solved against (no creep on slopes beyond
@@ -142,7 +147,15 @@ skidpad on a 20 m circle held to 50 km/h at 1.01 g; braking from 80 km/h with S 
 key at 59 km/h turned the wheels to 24.6°. The Air rendered 4.4 fps headless beside another agent's Chrome, so the
 page's controller and samples ran at that rate.
 
-Next slices: surfaces (gravel: 0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from its mass and size.
+Slice 4, gravel against tarmac (same harness manoeuvres on a gravel slab; Wreckfest 2 section 7):
+
+| Measure | Tarmac | Gravel | Ratio | Wreckfest 2 ratio |
+|---|---|---|---|---|
+| Braking from 50 km/h | 1.37 g, 8.2 m | 1.37 g, 8.2 m | 1.00 | 0.99 |
+| 9° step at 45 km/h: lateral g, front / rear slip | 0.77 g, 3.1 / 2.4° | 0.69 g, 5.3 / 4.3° | 0.89 | 0.86 (transient peaks) |
+| Slalom 18 m | clean to 60 km/h | clean at 40, the tail goes at 50 | | clean at 35 and 45 |
+
+Next slice: every fleet car from its mass and size.
 
 ## Scooter (two-wheeler)
 

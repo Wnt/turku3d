@@ -10,7 +10,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { PhysicsWorld } from '../../src/physics/world';
 import { DT, VEHICLES, type VehicleKind, type VehicleTuning } from '../../src/physics/constants';
-import { GROUP } from '../../src/shared/col/materials';
+import { GROUP, MAT } from '../../src/shared/col/materials';
 import { handling } from '../../src/vehicle/handling';
 import { rotate } from '../../src/vehicle/math';
 import type { VehicleInput } from '../../src/physics/protocol';
@@ -25,6 +25,8 @@ type RigKind = VehicleKind | 'golf';
 const KINDS: RigKind[] = (process.env.WF2_KINDS ?? 'golf').split(',') as RigKind[];
 const SPAWN_Y: Record<RigKind, number> = { car: 0.75, golf: 0.75, truck: 1.0, scooter: 0.6 };
 const LABEL: Record<RigKind, string> = { golf: 'Starter Golf (`golf7`, modelTuning)', car: 'Car (`CAR`)', truck: 'Trophy truck (`TRUCK`)', scooter: 'Scooter' };
+/** Ground material of the rigs' road slab (null: the world's default, tarmac-like); the gravel runs set it. */
+let GROUND: number | null = null;
 const tuningOf = (kind: RigKind): VehicleTuning => kind === 'golf' ? modelTuning(PLAYER_MODEL)! : VEHICLES[kind];
 const WHEEL = ['fl', 'fr', 'rl', 'rr'];
 /** Highest chassis speed at which the harness found the body asleep and woke it (it should only sleep at rest). */
@@ -132,6 +134,11 @@ class Rig {
     this.pw.world.createCollider(R.ColliderDesc.cuboid(4000, 0.5, 4000).setTranslation(0.5 * Math.sin(th), -0.5 * Math.cos(th), 0)
       .setRotation({ x: 0, y: 0, z: Math.sin(th / 2), w: Math.cos(th / 2) }).setFriction(0.85)
       .setCollisionGroups(((GROUP.STATIC_SOLID & 0xffff) << 16) | ((GROUP.CHARACTER | GROUP.VEHICLE | GROUP.DYNAMIC | 0xff00) & 0xffff)));
+    // A material for the slab as a tile collider has one (physics/world.ts materialAt reads colliderInfo).
+    if (GROUND !== null) {
+      const slab = this.pw.world.colliders.getAll().at(-1)!;
+      (this.pw as unknown as { colliderInfo: Map<number, unknown> }).colliderInfo.set(slab.handle, { tile: null, triMat: null, mat: GROUND, locator: null });
+    }
     this.pw.spawnVehicle({ x: 0, y: SPAWN_Y[kind], z: 0 }, 0, kind === 'golf'
       ? { tuning: this.t, damage: { box: modelDamageBox(PLAYER_MODEL)! } } : { kind });
     this.pw.driveVehicle('player');
@@ -237,7 +244,7 @@ class Rig {
     const lines = this.log.map(s => [s.t, s.x, s.y, s.z, deg(s.psi), s.speed * 3.6, s.vFwd, s.vLat, s.ax / G, s.ay / G,
       deg(s.yawRate), deg(s.yawAngvel), s.roll, s.pitch, deg(s.steer), s.throttle, s.brake, s.stick,
       ...s.wheels.flatMap(w => [w.comp, w.load, w.fx, w.fy, w.alpha, w.kappa, w.contact])].map(f6).join(','));
-    fs.writeFileSync(path.join(RUNS, `${this.kind}-${name}.csv`), [head.join(','), ...lines].join('\n') + '\n');
+    fs.writeFileSync(path.join(RUNS, `${this.kind}${GROUND === MAT.gravel ? '-gravel' : ''}-${name}.csv`), [head.join(','), ...lines].join('\n') + '\n');
   }
 
   free() { this.pw.world.free(); }
@@ -613,6 +620,12 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
     const brakes = [50, 80, 100].map(v => braking(kind, v));
     const top = topSpeed(kind);
     const checks = drivability(kind);
+    // Gravel (Wreckfest 2 section 7): the same manoeuvres on a gravel slab.
+    const tarmacStep = t.tyre ? stepSteer(kind, 9, 45) : null;
+    GROUND = MAT.gravel;
+    const gravel = t.tyre ? { brake: braking(kind, 50), step: stepSteer(kind, 9, 45), stick: fullStick(kind, [30, 40, 50]),
+      slalom: drivability(kind).filter(c => /slalom 18 m at (40|50)/.test(c.name)) } : null;
+    GROUND = null;
     const lock60 = deg(-handling({ ...idle, steer: 1 }, 60 / 3.6, t).steer);
     const steps = [2, 4, 8, ...(Math.abs(lock60 - 8) > 0.05 ? ['lock' as const] : []), ...(t.keySteer ? ['key' as const] : [])].map(d => stepSteer(kind, d));
     out[kind] = { st, pads, stick, brakes, steps, top, checks };
@@ -712,6 +725,18 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
       `${f(x.frontShare * 100, 1)} % / ${f(x.staticShare * 100, 1)} %`, `${f(x.fxF, 0)} / ${f(x.fxR, 0)}`, f(x.dragG, 3), `${f(x.kappaF, 3)} / ${f(x.kappaR, 3)}`,
       x.rearLift ? 'yes' : 'no', x.injected ? `injected (top ${f(x.plateau, 1)} km/h)` : 'driven'])), '');
 
+    if (gravel && tarmacStep) {
+      md.push('#### Gravel against tarmac', '');
+      const tb = brakes[0], tStick = stick.slice(0, 3);
+      md.push(table(['Measure', 'Tarmac', 'Gravel', 'Gravel / tarmac', 'Wreckfest 2 gravel / tarmac'], [
+        ['Braking from 50 km/h, mean decel', `${f(tb.meanDecel, 3)} g, ${f(tb.stopDist, 2)} m`, `${f(gravel.brake.meanDecel, 3)} g, ${f(gravel.brake.stopDist, 2)} m`, f(gravel.brake.meanDecel / tb.meanDecel, 2), '0.99'],
+        ['Full stick at 30 / 40 / 50 km/h, lateral g', tStick.map(x => f(x.ay, 2)).join(' / '), gravel.stick.map(x => f(x.ay, 2)).join(' / '),
+          gravel.stick.map((x, i) => f(x.ay / (tStick[i]?.ay ?? NaN), 2)).join(' / '), '0.86 (transient peaks)'],
+        ['9° step at 45 km/h: yaw, lat g', `${f(tarmacStep.yawSS, 1)}°/s, ${f(tarmacStep.aySS, 2)} g`, `${f(gravel.step.yawSS, 1)}°/s, ${f(gravel.step.aySS, 2)} g`, f(gravel.step.aySS / tarmacStep.aySS, 2), ''],
+        ['9° step at 45 km/h: front / rear slip', `${f(tarmacStep.alphaF, 1)} / ${f(tarmacStep.alphaR, 1)}°`, `${f(gravel.step.alphaF, 1)} / ${f(gravel.step.alphaR, 1)}°`, '', 'gravel: rear 16 vs front 11°'],
+        ...gravel.slalom.map(c => [`gravel ${c.name}`, '', c.value, '', ''] as string[]),
+      ]), '');
+    }
     md.push('#### Drivability checks', '');
     md.push(table(['Check', 'Result', 'OK'], checks.map(c => [c.name, c.value, c.ok ? 'yes' : '**no**'])), '');
     md.push('#### Step steer at 60 km/h (throttle held at the 60 km/h value)', '');
