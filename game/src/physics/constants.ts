@@ -2,6 +2,7 @@
 import type { RearSteerTuning } from '../vehicle/rearSteer.ts';
 import type { SuspensionCurve } from '../vehicle/suspension.ts';
 import type { TyreTuning } from '../vehicle/tyres.ts';
+import type { RideTuning } from '../vehicle/ride.ts';
 
 /** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
 export const DT = 1 / 60;
@@ -94,6 +95,12 @@ export interface VehicleTuning {
   /** Keyboard steering: a held key moves the steer input at `rate` per second (1 = full lock) and back towards
    *  centre at `centre`, instead of the instant ±1 of a key. Absent: keys steer like a stick. */
   keySteer?: { rate: number; centre: number };
+  /** Springs, dampers and anti-roll bars from ride frequency, damping ratios and a roll gradient (vehicle/ride.ts),
+   *  keeping this tuning's static ride height. Absent: `suspensionStiffness` and the dampers on every wheel. */
+  ride?: RideTuning;
+  /** Stability control of a slip-curve car (vehicle/vehicle.ts `stability`): rear slip angle beyond the front's (deg)
+   *  at which it starts and reaches `max`, its strongest share of drive cut and outside-front braking. Absent: none. */
+  stability?: { onset: number; full: number; max: number };
 }
 
 export const CAR = {

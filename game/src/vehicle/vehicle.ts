@@ -18,6 +18,7 @@ import { dot, tyreRollImpulse } from './weightTransfer.ts';
 import { applyHit, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
 import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
 import { resetTyres, solveTyres, tyreState, type TyrePatch, type TyreResult, type TyreState } from './tyres.ts';
+import { antiRoll, rideSetup, type RideSetup } from './ride.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
@@ -83,6 +84,9 @@ export class Vehicle {
   private readonly tyreResults: TyreResult[] = [];
   /** Slip-curve tyre solver memory (vehicle/tyres.ts). */
   private readonly tyreState: TyreState;
+  /** Springs, dampers and anti-roll bars from tuning.ride (vehicle/ride.ts), and the bars' last forces per wheel. */
+  private readonly ride: RideSetup | null;
+  private readonly bars: Float64Array;
 
   private R: RapierApi;
   private world: Rapier.World;
@@ -112,12 +116,18 @@ export class Vehicle {
     v.indexUpAxis = 1;
     // Rapier exposes this setter under the name setIndexForwardAxis.
     v.setIndexForwardAxis = 0;
-    for (const w of t.wheels) v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, t.rest, t.wheelRadius);
+    // A ride tuning sets each wheel's spring and dampers from its axle's frequency and damping ratios (ride.ts).
+    const ride = this.ride = rideSetup(t, mass);
+    this.bars = new Float64Array(t.wheels.length);
+    const spring = (i: number) => ride?.wheels[i] ?? { stiffness: t.suspensionStiffness, compression: t.suspensionCompression,
+      relaxation: t.suspensionRelaxation, rest: t.rest, travel: t.suspensionTravel };
+    t.wheels.forEach((w, i) => v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, spring(i).rest, t.wheelRadius));
     for (let i = 0; i < t.wheels.length; i++) {
-      v.setWheelSuspensionStiffness(i, t.suspensionStiffness);
-      v.setWheelSuspensionCompression(i, t.suspensionCompression);
-      v.setWheelSuspensionRelaxation(i, t.suspensionRelaxation);
-      v.setWheelMaxSuspensionTravel(i, t.suspensionTravel);
+      const k = spring(i);
+      v.setWheelSuspensionStiffness(i, k.stiffness);
+      v.setWheelSuspensionCompression(i, k.compression);
+      v.setWheelSuspensionRelaxation(i, k.relaxation);
+      v.setWheelMaxSuspensionTravel(i, k.travel);
       v.setWheelMaxSuspensionForce(i, t.maxSuspensionForce);
       // A slip-curve tyre applies its own forces (applyTyres): Rapier's side impulse is switched off.
       v.setWheelSideFrictionStiffness(i, t.tyre ? 0 : 1.1);
@@ -156,8 +166,9 @@ export class Vehicle {
       mount.x = w.x + o[2]; mount.y = w.y + (m.sag[i] ?? 0); mount.z = w.z - o[0];
       v.setWheelChassisConnectionPointCs(i, mount);
       if (this.corners[i]) continue;
-      v.setWheelSuspensionCompression(i, t.suspensionCompression * (m.damping[i] ?? 1));
-      v.setWheelSuspensionRelaxation(i, t.suspensionRelaxation * (m.damping[i] ?? 1));
+      const base = this.ride?.wheels[i];
+      v.setWheelSuspensionCompression(i, (base?.compression ?? t.suspensionCompression) * (m.damping[i] ?? 1));
+      v.setWheelSuspensionRelaxation(i, (base?.relaxation ?? t.suspensionRelaxation) * (m.damping[i] ?? 1));
     }
   }
 
@@ -324,6 +335,7 @@ export class Vehicle {
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
     this.trackSuspension(dt);
+    this.applyBars(dt, input !== null);
     if (t.tyre) this.applyTyres(dt, h, input !== null);
     else if (t.rollTransfer) {
       const up = rotate({ x: 0, y: 1, z: 0 }, q), com = b.worldCom();
@@ -381,8 +393,11 @@ export class Vehicle {
    *  in Rapier's wheel steering, its sag and damping in the suspension, its power loss in `h.engine`. */
   private applyTyres(dt: number, h: ReturnType<typeof handling>, driven: boolean) {
     const t = this.tuning, v = this.controller, b = this.body, q = b.rotation();
+    // Stability control (tuning.stability): when the rear axle slides more than the front (oversteer), it cuts the
+    // drive and brakes the front wheel on the outside of the yaw, by the excess of the rear's relaxed slip angle.
+    const esc = this.stability();
     // Drive force per wheel: each driven axle's total, split evenly by an open differential, by load by a locked one.
-    const drive = t.wheels.map((_, i) => h.engine * this.drive[i]), lock = t.differential ?? 0;
+    const drive = t.wheels.map((_, i) => h.engine * this.drive[i] * (1 - esc.cut)), lock = t.differential ?? 0;
     if (lock > 0) for (const axle of [t.front, t.wheels.map((_, i) => i).filter(i => !t.front.includes(i))]) {
       const wheels = axle.filter(i => this.drive[i] !== 0 && v.wheelIsInContact(i));
       const total = wheels.reduce((a, i) => a + drive[i], 0), load = wheels.reduce((a, i) => a + (v.wheelSuspensionForce(i) ?? 0), 0);
@@ -400,8 +415,8 @@ export class Vehicle {
       s.x /= length; s.y /= length; s.z /= length;
       const forward = { x: normal.y * s.z - normal.z * s.y, y: normal.z * s.x - normal.x * s.z, z: normal.x * s.y - normal.y * s.x };
       const front = t.front.includes(i);
-      return { point, normal, forward, side: s, load: v.wheelSuspensionForce(i) ?? 0, axle: front ? 0 : 1,
-        drive: drive[i], brake: h.brake / BRAKE_STEP, locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
+      return { point, normal, forward, side: s, load: (v.wheelSuspensionForce(i) ?? 0) + this.bars[i], axle: front ? 0 : 1,
+        drive: drive[i], brake: h.brake / BRAKE_STEP + (i === esc.wheel ? esc.brake : 0), locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
     });
     // Read the matrix at once: its getters view a scratch buffer that the next Rapier query (worldCom) overwrites.
     const m = b.effectiveWorldInvInertia(), invInertia = [m.m11, m.m12, m.m13, m.m12, m.m22, m.m23, m.m13, m.m23, m.m33];
@@ -413,6 +428,39 @@ export class Vehicle {
     b.applyImpulse(r.impulse, driven);
     b.applyTorqueImpulse(r.angular, driven);
     for (let i = 0; i < t.wheels.length; i++) { this.tyreForces!.fx[i] = this.tyreResults[i].fx; this.tyreForces!.fy[i] = this.tyreResults[i].fy; }
+  }
+
+  /** Stability control of a slip-curve car from the last step's relaxed slip angles (vehicle/tyres.ts): its share
+   *  0..`max` rises from `onset` to `full` degrees of rear slip beyond the front's; `cut` scales the drive and `brake`
+   *  (N) goes to the front wheel on the outside of the yaw. */
+  private stability(): { cut: number; brake: number; wheel: number } {
+    const s = this.tuning.stability, t = this.tuning, lag = this.tyreState.lag, v = this.controller;
+    if (!s) return { cut: 0, brake: 0, wheel: -1 };
+    const mean = (wheels: number[]) => { const on = wheels.filter(i => v.wheelIsInContact(i));
+      return on.length ? on.reduce((a, i) => a + Math.abs(lag[i]), 0) / on.length : 0; };
+    const rear = t.wheels.map((_, i) => i).filter(i => !t.front.includes(i));
+    const excess = (mean(rear) - mean([...t.front])) * 180 / Math.PI;
+    const u = s.max * Math.min(1, Math.max(0, (excess - s.onset) / (s.full - s.onset)));
+    if (u <= 0) return { cut: 0, brake: 0, wheel: -1 };
+    // Yawing left (+y), the outside is the right (+z) front wheel.
+    const left = this.body.angvel().y > 0, wheel = [...t.front].sort((p, q) => t.wheels[p].z - t.wheels[q].z)[left ? t.front.length - 1 : 0];
+    return { cut: u, brake: u * this.body.mass() * Math.abs(this.world.gravity.y) / t.wheels.length, wheel };
+  }
+
+  /** Anti-roll bars (tuning.ride, ride.ts): a force pair at each axle's wheel mounts against the difference of their
+   *  compressions, which also moves that much load between the axle's tyres (the tyre layer adds `bars`). */
+  private applyBars(dt: number, driven: boolean) {
+    const ride = this.ride, v = this.controller;
+    if (!ride) return;
+    antiRoll(ride, i => v.wheelIsInContact(i) ? ride.wheels[i].rest - (v.wheelSuspensionLength(i) ?? ride.wheels[i].rest) : null,
+      i => v.wheelSuspensionForce(i) ?? 0, this.bars);
+    const b = this.body, q = b.rotation(), p = b.translation(), up = rotate({ x: 0, y: 1, z: 0 }, q);
+    for (let i = 0; i < this.bars.length; i++) {
+      const f = this.bars[i] * dt;
+      if (!f) continue;
+      const at = rotate(this.mounts[i], q);
+      b.applyImpulseAtPoint({ x: up.x * f, y: up.y * f, z: up.z * f }, { x: p.x + at.x, y: p.y + at.y, z: p.z + at.z }, driven);
+    }
   }
 
   /** Keyboard steering (tuning.keySteer, Wreckfest 2: a held key turns the road wheels at about 46°/s): the digital

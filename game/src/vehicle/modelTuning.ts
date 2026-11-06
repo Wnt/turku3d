@@ -40,6 +40,13 @@ export function modelTuning(id: string): VehicleTuning | undefined {
       tyre: TARMAC, steerHalfSpeed: 40, angularDamping: 0, differential: 0.7,
       // Wreckfest 2's keyboard rate: 1.5 of full input per second, about 46°/s at the road wheel at rest.
       keySteer: { rate: 1.55, centre: 3.1 },
+      // Wreckfest 2's Bravion (vehicle/ride.ts): ride 1.75 / 1.5 Hz, damping 0.45 / 0.41 bump and 0.59 / 0.5 rebound,
+      // roll 3.6°/g with the game's 64 % front roll stiffness (its measured 52 % of the transfer includes roll-centre
+      // geometry this model has not: 52 % here loosened the tail at the limit), the centre of mass 0.52 m up.
+      ride: { frequency: [1.75, 1.5], bump: [0.45, 0.41], rebound: [0.59, 0.5], roll: 3.6, rollFront: 0.64 },
+      comDrop: 0.2,
+      // A light stability control, as Wreckfest's default "half": it acts only once the tail slides 2° more than the nose.
+      stability: { onset: 2, full: 8, max: 0.6 },
     } : {}),
   };
 }

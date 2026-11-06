@@ -43,7 +43,8 @@ export const TARMAC: TyreTuning = {
   brakeShare: 0.95,
   traction: 1,
   handbrake: 0.75,
-  rollCentre: [0.23, 0.23],
+  // At the patches: springs and anti-roll bars (vehicle/ride.ts) carry the whole lateral load transfer.
+  rollCentre: [0, 0],
   relaxation: 1.0,
   relaxationTime: 0.1,
 };
@@ -88,6 +89,10 @@ const mul = (m: readonly number[], v: V3): V3 => ({
   x: m[0] * v.x + m[1] * v.y + m[2] * v.z, y: m[3] * v.x + m[4] * v.y + m[5] * v.z, z: m[6] * v.x + m[7] * v.y + m[8] * v.z,
 });
 const ITERATIONS = 6, WARM = 0.9;
+/** Normalised slip angle (α / α0) at which a slip-limiting traction control or anti-lock leaves 71 % of the
+ *  longitudinal peak: a tyre's force follows its slip direction, so at the slip angle of the side peak a wheel held
+ *  near its peak slip ratio transmits about as much along as across, and at 25° little along. */
+const COMBINED = 2;
 /** Below this contact speed (m/s) a tyre holds like static friction: its side bound rises to the peak. */
 const STATIC_SPEED = 1;
 
@@ -129,12 +134,13 @@ export function solveTyres(body: BodyState, wheels: readonly (TyrePatch | null)[
     // Longitudinal use of the peak: drive (traction control cuts it at its limit; without it, drive beyond the peak
     // spins the wheel at its sliding μ) and the brakes, which bound a constraint that stops the patch rolling: at
     // speed they pull their whole bound, at rest they hold.
+    const limit = 1 / Math.hypot(1, lag[i] / lat.slip / COMBINED);
     const demand = Math.abs(w.drive * dt) / capX, spinning = t.traction === undefined && demand > 1;
-    const drive = spinning ? t.longitudinal.sliding / t.longitudinal.peak : Math.min(demand, t.traction ?? 1);
+    const drive = spinning ? t.longitudinal.sliding / t.longitudinal.peak : Math.min(demand, (t.traction ?? 1) * limit);
     const side = curve / lat.peak, moving = Math.abs(vx) > STATIC_SPEED;
     // Rear brakes give way to the rear tyres' side force (brake-force distribution with cornering brake control), so
     // braking in a turn cannot take the tail's grip away; the front brakes share their tyre's ellipse.
-    const brake = Math.min(w.brake * dt / capX, t.brakeShare * (w.axle && moving ? Math.sqrt(Math.max(0, 1 - side * side)) : 1));
+    const brake = Math.min(w.brake * dt / capX, t.brakeShare * (moving ? limit : 1) * (w.axle && moving ? Math.sqrt(Math.max(0, 1 - side * side)) : 1));
     // Friction ellipse: when the longitudinal use and the slip curve's side use together exceed it, both shrink in
     // proportion (the side force keeps a share at full throttle instead of vanishing).
     const long = drive + (moving ? brake : 0), over = Math.hypot(long, side);

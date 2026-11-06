@@ -57,6 +57,9 @@ export class Input {
   /** A program producing actions like a controller (gameplay/autopilot): called every update after the devices are
    *  merged, with the merged actions to read (a human takeover) and overwrite. Edges, sprint and prompts follow. */
   driver: ((actions: Actions, dt: number) => void) | null = null;
+  /** The steer action is the held keys' own value (−1, 0 or 1: no stick, touch or driver in it), so a car slews it
+   *  as a keyboard steers (VehicleInput.steerKey). */
+  steerFromKeys = false;
 
   constructor(el: HTMLElement, private readonly activate: () => void = () => {}, private readonly toggleFullscreen: () => void = () => {}, private readonly copyPosition: () => void = () => {}) {
     const options = { signal: this.listeners.signal };
@@ -161,6 +164,9 @@ export class Input {
     if (this.touch.active) this.source = 'touch';
     for (const a of ACTIONS) if (Math.abs(touch.actions[a]) > Math.abs(next[a])) next[a] = touch.actions[a];
     this.driver?.(next, dt);
+    let keyed = 0;
+    for (const b of bindings.steer) if (b.kind === 'key' && this.keys.has(b.code)) keyed += b.scale ?? 1;
+    this.steerFromKeys = this.source === 'keyboard' && next.steer === Math.max(-1, Math.min(1, keyed));
     const taps = this.tapped.size ? mapActions(null, this.tapped, bindings) : NO_TAPS;
     this.tapped.clear();
     this.edges.clear();

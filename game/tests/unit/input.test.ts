@@ -112,6 +112,24 @@ test('keyboard autorepeat does not activate audio or recreate input edges', () =
 });
 
 
+test('steer from held keys is marked for the car to slew; a driver steering through the actions is not', () => {
+  const events = new EventTarget();
+  vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+  vi.stubGlobal('navigator', { getGamepads: () => [] });
+  const input = new Input(new EventTarget() as HTMLElement, () => {});
+  const key = (type: 'keydown' | 'keyup', code: string) => events.dispatchEvent(Object.assign(new Event(type), { code, repeat: false }));
+  key('keydown', 'KeyA'); input.update(1 / 60);
+  expect(input.actions.steer).toBe(-1); expect(input.steerFromKeys).toBe(true);
+  // An autopilot or a probe writing analog steer through the driver hook.
+  input.driver = actions => { actions.steer = 0.3; };
+  input.update(1 / 60);
+  expect(input.steerFromKeys).toBe(false);
+  input.driver = null; key('keyup', 'KeyA'); input.update(1 / 60);
+  // Released keys centre at the keyboard rate too.
+  expect(input.actions.steer).toBe(0); expect(input.steerFromKeys).toBe(true);
+  input.dispose();
+});
+
 test('F10 requests fullscreen within the gesture and ignores autorepeat', () => {
   const events = new EventTarget(), toggle = vi.fn();
   vi.stubGlobal('addEventListener', events.addEventListener.bind(events));

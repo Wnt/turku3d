@@ -87,7 +87,20 @@ the tyre forces after the raycast, as impulses on the chassis:
 - **Solver**: projected Gauss-Seidel over the four patches, each a velocity constraint bounded by its curve force. At
   road speed the bound binds (force = μ(α, Fz)·Fz); at walking pace the constraint binds and the tyre holds like
   static friction. Warm started; the coming world step's gravity is solved against (no creep on slopes beyond
-  Rapier's own sink artefact). Side force acts at a roll-centre height (`rollCentre`), drive and brake at the contact.
+  Rapier's own sink artefact). All forces act at the patches (`rollCentre` 0): springs and anti-roll bars carry the
+  whole lateral load transfer.
+- **Traction and anti-lock follow the slip angle**: a tyre's force follows its slip direction, so at α = 2 α0 a wheel
+  held at its peak slip ratio gives 71 % of the longitudinal peak and at 25° little (`COMBINED`); at full lock under
+  power the front no longer pushes the nose round with drive force.
+- **Ride** (`tuning.ride`, `ride.ts`): springs and dampers from 1.75 / 1.5 Hz and damping ratios 0.45 / 0.41 bump,
+  0.59 / 0.5 rebound at each axle's static corner load; the rest length grows by the softer spring's extra sag, so
+  the static ride height (and the drawn stance) stays the base tuning's. Anti-roll bars add what the springs lack for
+  3.6°/g of roll (counting the weight's own moment as the body rolls) with 64 % of the roll stiffness on the front
+  (Wreckfest's own figure; its measured 52 % of the transfer includes roll-centre geometry this model lacks, and 52 %
+  here let the tail go at the limit); a bar's force pair acts at the wheel mounts and moves that load between the
+  axle's tyres. Centre of mass 0.52 m (`comDrop` 0.2).
+- **Stability control** (`tuning.stability`, Wreckfest's "half" assist): once the rear axle's relaxed slip angle
+  exceeds the front's by 2°, it cuts the drive and brakes the outside front wheel, up to 60 % at 8°.
 - **Car data** (`modelTuning`): steering lock barely falls with speed (`steerHalfSpeed` 40: 25° at 60 km/h), no body
   angular damping (the tyres damp the yaw; `angularDamping` absent stays 1.2), a 70 % load-split limited-slip
   differential (`differential`: an open diff spins the unloaded inner wheel and loses its side grip), keyboard
@@ -102,22 +115,30 @@ Headless harness (`tests/unit/wf2-compare.harness.test.ts`, the same `PhysicsWor
 `WF2_COMPARE=1 WF2_REPORT=out.md npx vitest run tests/unit/wf2-compare.harness.test.ts` in `game/`): skidpads R 20/30,
 full stick, braking 50/80/100, step steer 2/4/8°, full stick and a held key at 60 km/h, ride, and drivability checks
 (slalom 40-70 km/h, lift-off, braking and full throttle in a corner, handbrake turn, parked on a slope).
-Slice 1 (tyres and steering), starter Golf before → after, Wreckfest 2 Bravion target:
+Starter Golf before → slice 1 (tyres, steering) → slice 2 (ride, CoM, bars, stability control), Wreckfest 2 Bravion:
 
-| Metric | Before | Slice 1 | Wreckfest 2 |
-|---|---|---|---|
-| Max steady lateral g, R 20 / R 30 | 1.41 / 1.48 (lock-limited) | 0.98 / 0.94 (grip; 1.07-1.12 at the edge) | 1.07 / 1.06 (grip) |
-| Understeer gradient < 0.5 g | 0.08 / 0.05 deg/g | 0.96 / 0.85 deg/g | 0.9 deg/g |
-| Slip angles at 0.63 g, front / rear | 0.14 / −0.06° | 1.95 / 1.52° | 2.8 / 2.1° |
-| Road-wheel lock at 60 km/h | 7.8° | 25.0° | about 25° (keyboard) |
-| Yaw rise 10-90 %, overshoot (2-8° steps) | 0.03-0.12 s, 0-6 % | 0.13-0.20 s, 5-9 % | 0.16-0.26 s, 7-13 % |
-| Held key at 60 km/h: steer to 90 % | 0.05 s | 0.57 s | 0.50 s |
-| Slalom 18 m | (not run) | clean to 70 km/h, sideslip ≤ 3° | clean to 60, rear out at 68 |
+| Metric | Before | Slice 1 | Slice 2 | Wreckfest 2 |
+|---|---|---|---|---|
+| Max steady lateral g, R 20 / R 30 | 1.41 / 1.48 (lock-limited) | 0.98 / 0.94 (grip) | 1.00 / 0.95 (grip; 1.06-1.07 in the lock steps) | 1.07 / 1.06 (grip) |
+| Understeer gradient < 0.5 g | 0.08 / 0.05 deg/g | 0.96 / 0.85 | 0.91 / 0.74 | 0.9 |
+| Slip angles at 0.63 g, front / rear | 0.14 / −0.06° | 1.95 / 1.52° | 2.0 / 1.6° | 2.8 / 2.1° |
+| Road-wheel lock at 60 km/h | 7.8° | 25.0° | 25.0° | about 25° (keyboard) |
+| Yaw rise 10-90 %, overshoot (2-8° steps) | 0.03-0.12 s, 0-6 % | 0.13-0.20 s, 5-9 % | 0.12-0.18 s, 6-9 % | 0.16-0.26 s, 7-13 % |
+| Held key at 60 km/h: steer to 90 %, slips | 0.05 s | 0.57 s, 30 / 22° | 0.57 s, 19 / 5° | 0.50 s, 25 / 9° |
+| Ride frequency front / rear, damping | 1.92 / 2.00 Hz, 0.76-0.91 | unchanged | 1.74 / 1.45 Hz, 0.48 / 0.40 | 1.76 / 1.48 Hz, 0.41-0.59 |
+| CoM height | 0.723 m | 0.723 m | 0.521 m | 0.52 m |
+| Roll gradient | 3.18 deg/g | 3.33 | 3.66 | 3.65 |
+| Braking 80 km/h: mean, front share, pitch | 1.40 g, 90 %, 2.1° | 1.22 g, 85 %, 1.9° | 1.31 g, 78 %, 2.3° | 1.34 g, 75 %, 2.6° |
+| Slalom 18 m | (not run) | clean to 70 km/h | clean to 60, the tail goes at 70 | clean to 60, rear out at 68 |
+| Brake 0.5 in a 0.79 g turn, steering held | (not run) | 17° sideslip | 3.8° | |
 
-Next slices: suspension and CoM (ride 1.75/1.5 Hz, damping 0.45/0.55, roll 3.6 deg/g, pitch 1.8 deg/g, CoM 0.52 m:
-roll-centre and anti-roll bars instead of the slice-1 roll centre 0.23 m), the brake ramp and ABS character (1.33 g
-building over 0.2 s, 60 % front), surfaces (gravel: 0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from
-its mass and size.
+In the browser (`scripts/handling-probe.mjs` on the Air against city.lab, slice 1, virtual pad and keyboard): the
+skidpad on a 20 m circle held to 50 km/h at 1.01 g; braking from 80 km/h with S held 1.26 g mean, 21.8 m; a held A
+key at 59 km/h turned the wheels to 24.6°. The Air rendered 4.4 fps headless beside another agent's Chrome, so the
+page's controller and samples ran at that rate.
+
+Next slices: the brake ramp and ABS character (1.33 g building over 0.2 s, 60 % front balance), surfaces (gravel:
+0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from its mass and size.
 
 ## Scooter (two-wheeler)
 

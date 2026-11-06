@@ -256,10 +256,12 @@ function statics(kind: RigKind) {
     angularDamping: body.angularDamping(), weight: total,
   };
   // Analytic corner numbers from Rapier's suspension law F = M·(k·(rest − L) − c·dL/dt) per wheel.
-  const k = t.suspensionStiffness * M;
-  const corner = loads.map(F => {
-    const m = F / G;
-    return { m, fn: Math.sqrt(k / m) / (2 * Math.PI), zc: t.suspensionCompression * M / (2 * Math.sqrt(k * m)), zr: t.suspensionRelaxation * M / (2 * Math.sqrt(k * m)) };
+  // Per wheel, as Rapier runs them (a ride tuning sets each axle's own, vehicle/ride.ts).
+  const c = rig.car.controller, ks = loads.map((_, i) => (c.wheelSuspensionStiffness(i) ?? t.suspensionStiffness) * M), k = ks[0];
+  const corner = loads.map((F, i) => {
+    const m = F / G, ki = ks[i];
+    return { m, fn: Math.sqrt(ki / m) / (2 * Math.PI), zc: (c.wheelSuspensionCompression(i) ?? 0) * M / (2 * Math.sqrt(ki * m)),
+      zr: (c.wheelSuspensionRelaxation(i) ?? 0) * M / (2 * Math.sqrt(ki * m)) };
   });
   // Heave: release the settled car 5 cm higher with zero velocity.
   const settle = () => {
@@ -294,9 +296,11 @@ function statics(kind: RigKind) {
   const pts = pitch.map(s => s.t);
   const pitchFit = fitSecondOrder(pts, pitch.map(s => s.pitch));
   const pitchPeak = Math.min(...pitch.map(s => s.pitch)), pitchOvershoot = (pitchFit.c - pitchPeak) / (pitch[0].pitch - pitchFit.c);
+  const axle = (i: number) => ({ k: ks[i], c: (c.wheelSuspensionCompression(i) ?? 0) * M, r: (c.wheelSuspensionRelaxation(i) ?? 0) * M });
+  const axles = [axle(0), axle(2)];
   rig.writeCsv('static-drop');
   rig.free();
-  return { ...st, k, corner, heaveFit, frontFit, rearFit, heaveOvershoot, heaveContactLost, pitchFit, pitchOvershoot, pitchInit: deg(theta), L, wakes: rig.wakes };
+  return { ...st, k, axles, corner, heaveFit, frontFit, rearFit, heaveOvershoot, heaveContactLost, pitchFit, pitchOvershoot, pitchInit: deg(theta), L, wakes: rig.wakes };
 }
 
 // ------------------------------------------------------------------------------------------------ skidpad
@@ -649,9 +653,9 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
       ['Static axle split front / rear (suspension forces)', `${f(st.frontShare * 100, 1)} / ${f(100 - st.frontShare * 100, 1)} %`],
       ['Tyre radius', `${t.wheelRadius} m`],
       ['Suspension rest length / travel', `${t.rest} m / ±${t.suspensionTravel} m`],
-      ['Spring rate per wheel', `${f(st.k, 0)} N/m (Rapier stiffness ${t.suspensionStiffness} × mass)`],
+      ['Spring rate per wheel, front / rear', `${f(st.axles[0].k, 0)} / ${f(st.axles[1].k, 0)} N/m${t.ride ? ' (tuning.ride, vehicle/ride.ts)' : ` (Rapier stiffness ${t.suspensionStiffness} × mass)`}`],
       ['Static compression per wheel', `${f(st.comp[0] * 100, 2)} cm (k alone: ${f(st.loads[0] / st.k * 100, 2)} cm; the damper term carries the rest, see notes)`],
-      ['Damping per wheel, bump / rebound', `${f(t.suspensionCompression * t.mass, 0)} / ${f(t.suspensionRelaxation * t.mass, 0)} N·s/m (${t.suspensionCompression} / ${t.suspensionRelaxation} × mass)`],
+      ['Damping per wheel, bump / rebound, front; rear', `${f(st.axles[0].c, 0)} / ${f(st.axles[0].r, 0)}; ${f(st.axles[1].c, 0)} / ${f(st.axles[1].r, 0)} N·s/m`],
       ['Max suspension force per wheel', `${t.maxSuspensionForce} N`],
       ['Anti-roll bars, roll centre geometry', 'none; lateral tyre force acts at the contact point'],
       ['Tyre friction (Rapier frictionSlip μ)', `front 2.4 − min(0.5, v/60), rear 2.2 − min(0.4, v/65) (v in m/s); handbrake rear 0.65`],

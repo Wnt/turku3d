@@ -90,3 +90,27 @@ test('the starter car steers about 25° at 60 km/h and corners on its tyres, not
   expect(yaw).toBeGreaterThan(0.3); expect(yaw).toBeLessThan(1.2);
   pw.world.free();
 });
+
+test('ride: axle frequencies, damping ratios and roll gradient from targets, at the base ride height', async () => {
+  const { rideSetup, cornerLoads, comHeight } = await import('../../src/vehicle/ride');
+  const { modelTuning } = await import('../../src/vehicle/modelTuning');
+  const { PLAYER_MODEL } = await import('../../src/actors/fleet/catalog');
+  const t = modelTuning(PLAYER_MODEL)!, m = t.mass, setup = rideSetup(t, m)!, loads = cornerLoads(t, m);
+  expect(comHeight(t, m)).toBeGreaterThan(0.49); expect(comHeight(t, m)).toBeLessThan(0.55);
+  setup.wheels.forEach((w, i) => {
+    const a = t.front.includes(i) ? 0 : 1, mc = loads[i] / 9.81, k = w.stiffness * m;
+    expect(Math.sqrt(k / mc) / (2 * Math.PI)).toBeCloseTo(t.ride!.frequency[a], 3);
+    expect(w.compression * m / (2 * Math.sqrt(k * mc))).toBeCloseTo(t.ride!.bump[a], 3);
+    expect(w.relaxation * m / (2 * Math.sqrt(k * mc))).toBeCloseTo(t.ride!.rebound[a], 3);
+    // The static suspension length stays the base tuning's: the softer spring's extra sag goes into the rest length.
+    expect(w.rest - loads[i] / k).toBeCloseTo(t.rest - loads[i] / (t.suspensionStiffness * m), 6);
+  });
+  // Springs plus bars give the roll stiffness the gradient asks for, split by rollFront.
+  const roll = setup.bars.map(b => {
+    const track = t.wheels[b.right].z - t.wheels[b.left].z;
+    return (setup.wheels[b.left].stiffness + setup.wheels[b.right].stiffness) * m * track * track / 4 + b.rate * track * track;
+  });
+  const total = m * 9.81 * comHeight(t, m) * (1 / (t.ride!.roll * Math.PI / 180) + 1);
+  expect(roll[0] + roll[1]).toBeCloseTo(total, -2);
+  expect(roll[0] / (roll[0] + roll[1])).toBeCloseTo(t.ride!.rollFront, 2);
+});

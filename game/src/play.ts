@@ -740,8 +740,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     } else {
       desiredVelocity.set(0, 0);
       carIn = menuOpen ? { throttle: 0, steer: 0, brake: 0, handbrake: true }
-        // Keys steer digitally (the car slews them, VehicleInput.steerKey); the autopilot drives through the same actions.
-        : { throttle: input.actions.throttle, steer: input.actions.steer, steerKey: input.source === 'keyboard' && !autopilot.active,
+        // Keys steer digitally: the car slews them (VehicleInput.steerKey), not a stick, touch or the autopilot.
+        : { throttle: input.actions.throttle, steer: input.actions.steer, steerKey: input.steerFromKeys,
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }
