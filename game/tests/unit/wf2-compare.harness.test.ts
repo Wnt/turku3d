@@ -21,13 +21,17 @@ const G = 9.81;
 const RUNS = process.env.WF2_RUNS ?? '/Users/wnt/turku3d/private/wreckfest/turku3d-runs';
 const REPORT = process.env.WF2_REPORT ?? '/Users/wnt/turku3d/research/wreckfest2/turku3d-handling.md';
 /** `golf` is the starter car exactly as main.ts spawns it: the PLAYER_MODEL tuning (vehicle/modelTuning.ts) with its damage cage. */
-type RigKind = VehicleKind | 'golf';
+type RigKind = VehicleKind | 'golf' | `model:${string}`;
 const KINDS: RigKind[] = (process.env.WF2_KINDS ?? 'golf').split(',') as RigKind[];
-const SPAWN_Y: Record<RigKind, number> = { car: 0.75, golf: 0.75, truck: 1.0, scooter: 0.6 };
-const LABEL: Record<RigKind, string> = { golf: 'Starter Golf (`golf7`, modelTuning)', car: 'Car (`CAR`)', truck: 'Trophy truck (`TRUCK`)', scooter: 'Scooter' };
+const SPAWN: Partial<Record<RigKind, number>> = { car: 0.75, golf: 0.75, truck: 1.0, scooter: 0.6 };
+/** Spawn height: a fleet model's own wheels and rest length (plus 0.2 m) when it has no fixed value. */
+const spawnY = (kind: RigKind, t: VehicleTuning) => SPAWN[kind] ?? -t.wheels[0].y + t.rest + t.wheelRadius + 0.2;
+const LABELS: Partial<Record<RigKind, string>> = { golf: 'Starter Golf (`golf7`, modelTuning)', car: 'Car (`CAR`)', truck: 'Trophy truck (`TRUCK`)', scooter: 'Scooter' };
+const LABEL = new Proxy(LABELS, { get: (o, k: string) => o[k as RigKind] ?? `Fleet model \`${k.slice(6)}\` (modelTuning)` }) as Record<RigKind, string>;
 /** Ground material of the rigs' road slab (null: the world's default, tarmac-like); the gravel runs set it. */
 let GROUND: number | null = null;
-const tuningOf = (kind: RigKind): VehicleTuning => kind === 'golf' ? modelTuning(PLAYER_MODEL)! : VEHICLES[kind];
+const tuningOf = (kind: RigKind): VehicleTuning => kind === 'golf' ? modelTuning(PLAYER_MODEL)!
+  : kind.startsWith('model:') ? modelTuning(kind.slice(6))! : VEHICLES[kind as VehicleKind];
 const WHEEL = ['fl', 'fr', 'rl', 'rr'];
 /** Highest chassis speed at which the harness found the body asleep and woke it (it should only sleep at rest). */
 const WAKE_SPEED = { max: 0 };
@@ -139,8 +143,8 @@ class Rig {
       const slab = this.pw.world.colliders.getAll().at(-1)!;
       (this.pw as unknown as { colliderInfo: Map<number, unknown> }).colliderInfo.set(slab.handle, { tile: null, triMat: null, mat: GROUND, locator: null });
     }
-    this.pw.spawnVehicle({ x: 0, y: SPAWN_Y[kind], z: 0 }, 0, kind === 'golf'
-      ? { tuning: this.t, damage: { box: modelDamageBox(PLAYER_MODEL)! } } : { kind });
+    this.pw.spawnVehicle({ x: 0, y: spawnY(kind, this.t), z: 0 }, 0, kind === 'golf'
+      ? { tuning: this.t, damage: { box: modelDamageBox(PLAYER_MODEL)! } } : kind.startsWith('model:') ? { tuning: this.t } : { kind: kind as VehicleKind });
     this.pw.driveVehicle('player');
   }
 
@@ -244,7 +248,7 @@ class Rig {
     const lines = this.log.map(s => [s.t, s.x, s.y, s.z, deg(s.psi), s.speed * 3.6, s.vFwd, s.vLat, s.ax / G, s.ay / G,
       deg(s.yawRate), deg(s.yawAngvel), s.roll, s.pitch, deg(s.steer), s.throttle, s.brake, s.stick,
       ...s.wheels.flatMap(w => [w.comp, w.load, w.fx, w.fy, w.alpha, w.kappa, w.contact])].map(f6).join(','));
-    fs.writeFileSync(path.join(RUNS, `${this.kind}${GROUND === MAT.gravel ? '-gravel' : ''}-${name}.csv`), [head.join(','), ...lines].join('\n') + '\n');
+    fs.writeFileSync(path.join(RUNS, `${this.kind.replace(":", "-")}${GROUND === MAT.gravel ? '-gravel' : ''}-${name}.csv`), [head.join(','), ...lines].join('\n') + '\n');
   }
 
   free() { this.pw.world.free(); }
@@ -272,7 +276,7 @@ function statics(kind: RigKind) {
   });
   // Heave: release the settled car 5 cm higher with zero velocity.
   const settle = () => {
-    body.setTranslation({ x: 0, y: SPAWN_Y[kind], z: 0 }, true);
+    body.setTranslation({ x: 0, y: spawnY(kind, t), z: 0 }, true);
     body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, true); body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     rig.resetPrev(); rig.run(4, idle);

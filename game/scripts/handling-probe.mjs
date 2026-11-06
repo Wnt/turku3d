@@ -10,8 +10,8 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 
 const out = path.resolve(process.argv[2] ?? 'handling-probe');
-// Low quality and a small viewport: the page's controller and samples run at its frame rate.
-const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0&quality=low';
+// A small viewport: the page's controller and samples run at its frame rate.
+const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0';
 fs.mkdirSync(out, { recursive: true });
 const report = { url, errors: [], shots: [], steps: [] }, t0 = Date.now();
 const log = (step, data = {}) => { const e = { t: +((Date.now() - t0) / 1000).toFixed(1), step, ...data }; report.steps.push(e); console.error(JSON.stringify(e)); };
@@ -40,8 +40,10 @@ await page.evaluate(() => window.__game.enterVehicle('player'));
 await page.waitForTimeout(1500);
 
 /** The largest flat disc near the start with no solid hit at bumper height out to its radius (16 directions), the
- *  ground on each ring within 0.5 m and flat; candidate centres on rings every 12 m out to 240 m. */
-const findDisc = () => page.evaluate(async () => {
+ *  ground on each ring within 0.5 m and flat; candidate centres on rings every 12 m out to 240 m. With `materials`,
+ *  only ground of those materials (loose surfaces: a lawn is less flat, so its slope may reach 11°). */
+const findDisc = (materials = null) => page.evaluate(async materials => {
+  const ok = h => !!h && (materials ? materials.includes(h.material) && h.normal.y > .98 : h.normal.y > .995);
   const physics = window.__game.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
   const ray = (o, d, max) => physics.raycast(o, d, max, 'solid');
   let best = null;
@@ -50,21 +52,21 @@ const findDisc = () => page.evaluate(async () => {
     for (let a = 0; a < n && !(best?.R >= 26); a++) {
       const cx = car.pos.x + r * Math.cos(2 * Math.PI * a / n), cz = car.pos.z + r * Math.sin(2 * Math.PI * a / n);
       const g = await ray({ x: cx, y: car.pos.y + 30, z: cz }, { x: 0, y: -1, z: 0 }, 60);
-      if (!g || g.normal.y < .995 || Math.abs(g.point.y - car.pos.y) > 8) continue;
+      if (!ok(g) || Math.abs(g.point.y - car.pos.y) > 8) continue;
       let R = 0;
-      for (const rr of [10, 14, 18, 22, 26]) {
+      for (const rr of materials ? [8, 10, 12, 14, 18] : [10, 14, 18, 22, 26]) {
         const dirs = Array.from({ length: 16 }, (_, k) => ({ x: Math.cos(k * Math.PI / 8), y: 0, z: Math.sin(k * Math.PI / 8) }));
         const walls = await Promise.all(dirs.map(d => ray({ x: cx, y: g.point.y + .6, z: cz }, d, rr)));
         if (walls.some(Boolean)) break;
         const ground = await Promise.all(dirs.map(d => ray({ x: cx + d.x * rr, y: g.point.y + 4, z: cz + d.z * rr }, { x: 0, y: -1, z: 0 }, 8)));
-        if (ground.some(h => !h || h.normal.y < .99 || Math.abs(h.point.y - g.point.y) > .5)) break;
+        if (ground.some(h => !ok(h) || Math.abs(h.point.y - g.point.y) > .5)) break;
         R = rr;
       }
-      if (R > (best?.R ?? 0)) best = { x: cx, y: g.point.y, z: cz, R };
+      if (R > (best?.R ?? 0)) best = { x: cx, y: g.point.y, z: cz, R, material: g.material };
     }
   }
   return best;
-});
+}, materials);
 
 /** The longest flat corridor (no solid hit at bumper height, ground level and flat) near the start, up to 230 m. */
 const findStraight = () => page.evaluate(async () => {
@@ -192,6 +194,8 @@ async function keyRun(s, kmh, then) {
 const heading = q => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
 function brakeStats({ reached, cmd, trace }) {
   const after = trace.filter(e => e.t >= cmd), v0 = after[0]?.v ?? 0;
+  // The build-up: mean deceleration over the first 0.1, 0.2 and 0.3 s after the press.
+  const by = s => { const e = after.find(x => x.t >= cmd + s); return e ? +((v0 - e.v) / (e.t - cmd) / 9.81).toFixed(2) : null; };
   const cross = level => { for (let i = 1; i < after.length; i++) if (after[i].v <= level) {
     const a = after[i - 1], b = after[i]; return a.t + (b.t - a.t) * (a.v - level) / (a.v - b.v); } return NaN; };
   const t90 = cross(.9 * v0), t10 = cross(.1 * v0), tStop = cross(.3);
@@ -199,7 +203,7 @@ function brakeStats({ reached, cmd, trace }) {
   const peak = Math.max(...decel.map(d => d.g)), rise = decel.find(d => d.g >= .9 * peak);
   const stop = after.find(e => e.v <= .3) ?? after.at(-1), first = after[0];
   return { startKmh: +(v0 * 3.6).toFixed(1), reached, meanDecelG: +(.8 * v0 / (t10 - t90) / 9.81).toFixed(3), peakG: +peak.toFixed(3),
-    toPeak90S: rise ? +(rise.t - cmd).toFixed(3) : null, stopM: +Math.hypot(stop.x - first.x, stop.z - first.z).toFixed(2), stopS: +(tStop - cmd).toFixed(2),
+    toPeak90S: rise ? +(rise.t - cmd).toFixed(3) : null, meanG: [by(.1), by(.2), by(.3)], stopM: +Math.hypot(stop.x - first.x, stop.z - first.z).toFixed(2), stopS: +(tStop - cmd).toFixed(2),
     samples: after.length };
 }
 function turnStats({ reached, cmd, trace }) {
@@ -230,6 +234,16 @@ try {
     report.skidpad.maxSteadyG = held.length ? Math.max(...held.map(r => r.latG)) : null;
     const file = path.join(out, 'skidpad.png'); await page.screenshot({ path: file }); report.shots.push(file);
   }
+  // Loose ground (gravel, grass, soil, sand, low vegetation: shared/col/materials.ts MAT 9-12, 29), slip-curve surfaces.
+  const loose = report.loose = await findDisc([9, 10, 11, 12, 29]);
+  log('loose disc', loose ?? {});
+  if (loose && loose.R >= 10) {
+    const R0 = loose.R - 3;
+    report.looseSkidpad = { R: R0, material: loose.material, rows: await skidpad(loose, R0, [15, 20, 25, 30, 35, 40].filter(k => (k / 3.6) ** 2 / R0 < 1.2 * 9.81)) };
+    const held = report.looseSkidpad.rows.filter(r => r.held);
+    report.looseSkidpad.maxSteadyG = held.length ? Math.max(...held.map(r => r.latG)) : null;
+    log('loose skidpad', report.looseSkidpad);
+  }
   const straight = report.straight = await findStraight();
   log('straight', straight ?? {});
   if (straight) {
@@ -244,6 +258,6 @@ try {
   report.errors.push(`probe: ${e.message}`.slice(0, 400));
 }
 fs.writeFileSync(path.join(out, 'result.json'), JSON.stringify(report, null, 1));
-console.log(JSON.stringify({ release: report.release, fps: report.fps, disc: report.disc, skidpad: report.skidpad, brakes: report.brakes, keyTurn: report.keyTurn, errors: report.errors.length }));
+console.log(JSON.stringify({ release: report.release, fps: report.fps, disc: report.disc, skidpad: report.skidpad, loose: report.looseSkidpad, brakes: report.brakes, keyTurn: report.keyTurn, errors: report.errors.length }));
 await page.close();
 await browser.close().catch(() => {});
