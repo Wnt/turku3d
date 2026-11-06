@@ -505,7 +505,9 @@ debris; a part that is off stays off (there is no repair).
   sees the state change copies the part as drawn (CPU deform) into a mesh and a Rapier box (`actors/fleet/debris.ts`,
   `physics/world.ts spawnDebris`: 7 kg bumpers, 14 kg bonnet, 11 kg boot lid, 1.5 kg mirrors; 60 s each, at most 24,
   oldest first). Debris collides with the world, cars (after 0.6 s, once clear of the body it came off) and other
-  debris; wheel rays, query rays and the character pass through it (`DEBRIS.group`). A car first drawn with parts
+  debris; wheel rays, query rays and the character pass through it (`DEBRIS.group`). A piece starts 10 cm in towards
+  the car's middle and clear of the wheel plane (a body pressed into a wall pushed one bumper through the road), and
+  one that falls 10 m below its start goes at once. A car first drawn with parts
   already off (a remote car coming into view, a loaded save) just lacks them.
 - **Wire** version 3: per part its state and free end (one byte) and its load (uint16).
 
