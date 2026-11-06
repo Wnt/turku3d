@@ -368,12 +368,13 @@ export class ParkedCarVisuals {
     // A damaged car draws in its model's damaged batch while it holds a pool slot (within 105 m); its rig follows the
     // state every frame it is drawn (loose parts swing) and its hubs move with the cage.
     let group=this.groups.get(`${draw.model.id}/${lod}`),wreck:Wreck|null=null;
-    if(draw.damage){
+    // Beyond LOD1 a wreck draws plain and leaves its slot to nearer ones.
+    if(draw.damage&&lod<2){
       wreck=this.wreck(draw.id,draw.model,draw.color);
       if(wreck){
         wreck.body.matrix.copy(matrix);wreck.body.matrixWorld.copy(matrix);wreck.rig.seenAt=performance.now();
         wreck.rig.show(draw.damage);
-        const key=`${draw.model.id}/${lod}`,damaged=lod<2&&wreck.rig.slot?this.damaged.get(key):undefined;
+        const key=`${draw.model.id}/${lod}`,damaged=wreck.rig.slot?this.damaged.get(key):undefined;
         if(damaged&&damaged.count<damaged.mesh.instanceMatrix.count)group=damaged;
         else if(damaged)void this.damagedBatch(draw.model,lod,damaged.mesh.instanceMatrix.count*2).catch(error=>console.warn(`[fleet] wreck batch: ${error}`));
         if(!wreck.rig.state.damaged)wreck=null;

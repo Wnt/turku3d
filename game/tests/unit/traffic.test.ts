@@ -320,7 +320,7 @@ describe('population ring', () => {
 
   test('the worker fills the cap, then creates cars only outside the near view cone, and claims on contact', () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
-    const spawned: string[] = [], cages: unknown[] = [], dents: { id: string; hit: { dv: number[] } }[] = [];
+    const spawned: string[] = [], cages: unknown[] = [], dents: { id: string; hit: { dv: readonly number[] } }[] = [];
     let driven: number | null = null, hitter: { pos: { x: number; y: number; z: number }; vel: { x: number; y: number; z: number }; mass: number } | null = null;
     const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: (_p, _y, spec) => { spawned.push(spec.id); cages.push(spec.damage); },
       bodyKind: handle => handle === driven ? 'driven' : null, character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }),
