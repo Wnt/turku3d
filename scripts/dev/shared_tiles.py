@@ -1279,7 +1279,7 @@ class Farm:
         """Eviction leaves directories moved to another filesystem alone; each is logged once per process."""
         if path.name not in self.skipped_links:
             self.skipped_links.add(path.name)
-            self.event('eviction-skipped-link', kind=kind, name=path.name, target=os.readlink(path))
+            self.event('eviction-skipped-link', what=kind, name=path.name, target=os.readlink(path))
 
     def _make_room(self, target, jobs, adopting, aliases):
         if self.free() >= target:

@@ -197,7 +197,7 @@ class FarmTests(unittest.TestCase):
         self.assertTrue((self.root / 'products' / ('e' * 64) / 't0_0_0/manifest.json').exists())
         self.assertTrue((snapshot / 'revision.json').exists())
         events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
-        skipped = [(e['kind'], e['name']) for e in events if e['event'] == 'eviction-skipped-link']
+        skipped = [(e['what'], e['name']) for e in events if e['event'] == 'eviction-skipped-link']
         self.assertEqual(skipped, [('generation', 'e' * 64), ('revision', REV2)])
         farm.make_room(27 * farm_module.GIB)
         self.assertEqual(sum(e['event'] == 'eviction-skipped-link' for e in map(
