@@ -12,8 +12,10 @@ reverse look), Wreckfest 2 where only it was measured (lean, seat bounce, crash)
 |---|---|
 | `layout.ts` | Six posture classes, the per-model wheel anchors (`anchors.json`), the seat solve, the steering ratio |
 | `motion.ts` | The motion channels from the drawn pose: lean, seat spring, whiplash, head look, reverse look |
-| `rig.ts` | The character clone's pose: base `Driving_Loop`, spine/neck/head rotations, two-bone arm IK to the rim |
-| `drivers.ts` | `Drivers`: who is seated this frame, distance LOD, the drawn steering wheel, the dev snapshot |
+| `model.ts` | The one-draw driver: the character's meshes and the steering wheel merged over a GPU-baked colour atlas |
+| `rig.ts` | The character clone's pose: base `Driving_Loop`, spine/neck/head rotations, two-bone arm IK to the rim, the wheel bone |
+| `drivers.ts` | `Drivers`: who is seated this frame, distance detail tiers, the dev snapshot |
+| `ownWheel.ts` | One steering wheel: the measured models' own static wheel left out of the driven/remote car's body |
 
 ## Frame and flow
 
@@ -33,10 +35,14 @@ the player character itself (`PlayerVisual.ride`).
 
 The steering wheel turns linearly in the front wheels' share of the vehicle's lock (`modelTuning(id).maxSteer`; the
 mean of the pair, the inner wheel on the 4WS trophy truck) to the class lock angle. The wheel centre is the model's own steering wheel where its source names one (`anchors.json`, from the
-importer's `roles.json` bounds: corolla, generic sedan, S90, W212, Prado, Yaris, euro-van), otherwise the class
+importer's `roles.json` bounds: corolla, generic sedan, S90, W212, Prado, Yaris, euro-van, transit-bus), otherwise the class
 position: the class lateral offset, the class H-point height plus the wheel rise, and a class fraction of the
 wheelbase behind the front axle (ahead of it for cab-over trucks and buses). The H-point height is lowered under
-a low roof (7 cm headroom over the hair). The seat's fore-aft position is solved the way a driver sets it: the rest
+a low roof (7 cm headroom over the hair); an anchor's `hip` sets it from the model's seat (the bus: cushion at 0.83 m,
+H-point 0.85 m under its low, flat wheel). One wheel only: an anchor's `own` box (the source steering-wheel parts' bounds)
+drops every connected part lying wholly inside it from the body that driven and remote cars draw (`ownWheel.ts`,
+`fleet/visuals.ts actorBody`: the rim, spokes and hub, not the dashboard or column), and the rig draws its turning wheel
+in its place; parked and traffic batches keep the source wheel. The seat's fore-aft position is solved the way a driver sets it: the rest
 grips at a 0.43 m shoulder-to-wrist distance (elbows about 105°), moved forward until both hands reach their
 grips at every wheel angle to full lock; the rig's upper body leans and turns toward a grip still beyond reach. The trophy truck uses its own `seat-driver` and articulated `steer-wheel`
 (its rig turns it with the same `steeringAngle`); fleet cars get a drawn wheel (rim, three spokes, hub).
@@ -72,15 +78,22 @@ grips at every wheel angle to full lock; the rig's upper body leans and turns to
 
 ## Cost
 
-Drivers are SkeletonUtils clones of the loaded character: geometry and materials (so programs) are shared, bones
-are per driver. They cast no shadow and cull with a fixed sphere; teeth, tongue and shoes are never drawn. Each
-skinned mesh is one draw, and on the M1 Air a draw costs about 50 µs of frame time whatever its size (measured:
-hiding the hair, the skin, the clothes or the wheel of 20 drivers saved 0.9-2.6 ms in proportion to the draws, while
-the scene passes' own GPU time grew only 1.2 ms). So the detail falls with distance from the camera: skin, hoodie
-and hair always; the jeans within 15 m; the drawn steering wheel within 30 m; eyes, brows and lashes within 8 m;
-beyond 30 m a driver is posed on alternate frames; beyond 60 m (5 m hysteresis) none is drawn. `drivers.frameMs` is
-the main-thread time of `finish()` (about 0.14 ms per driver on the Air); `__game.state().drivers` lists the seated
-drivers with their hands' distance from the grips.
+On the M1 Air a draw costs about 50 µs of frame time whatever its size (hiding the hair, the skin, the clothes or the
+wheel of 20 drivers saved 0.9-2.6 ms in proportion to the draws), so a driver is **one skinned draw** (`model.ts`):
+skin, hoodie, hair, jeans, eyes, brows, lashes and the drawn steering wheel merged into one geometry (about 14.5k
+vertices) with one material. Its colour atlas (2048 x 1024 sRGB with mipmaps, about 11 MB) is baked on the GPU once
+when the character loads: each source map times its material colour into its own tile (skin 1024, hoodie, hair and
+jeans 512, eyes, brows and lashes 256), with 4 px gutters; per-vertex roughness; one alpha cutout for the hair, brows
+and lashes; no normal maps. The steering wheel rides on an extra bone (placed, turned and scaled to the rim by the
+rig; collapsed where the vehicle turns its own). Teeth, tongue, shoes and the cornea are left out. Drivers are
+SkeletonUtils clones of that model: buffers and the material (so programs) shared; bones and a geometry object (for
+its drawRange) per driver. They cast no shadow and cull with a fixed sphere.
+
+The detail still falls with distance, as index ranges of the same draw (the index runs body, wheel, legs, face): skin,
+hoodie and hair always; the drawn steering wheel within 30 m; the jeans within 15 m; eyes, brows and lashes within
+8 m; beyond 30 m a driver is posed on alternate frames; beyond 60 m (5 m hysteresis) none is drawn. The arm IK reads
+bone world matrices directly and refreshes only the arm chain it moves. `drivers.frameMs` is the main-thread time of
+`finish()`; `__game.state().drivers` lists the seated drivers with their hands' distance from the grips.
 
 City.lab, M1 Air, perf lease, 20 bench cars in view with seated drivers against the same cars without (before the
 distance tiers): frame p50 20.3 -> 27.9 ms, GPU 19.7 -> 27.5 ms, +88 draws, `finish()` 2.9 ms.
@@ -98,18 +111,10 @@ After the distance tiers (city.lab 9e306c10, same bench, perf lease; the world w
 
 ## Next steps
 
-- **Fewer draws per driver**: the cost is per draw, not per triangle. Merge the skin, hoodie, jeans and hair into one
-  skinned mesh (a texture atlas or an array texture indexed by a vertex attribute) so a driver is one or two draws;
-  then measure again with a settled world (wait for the draw count to stop growing).
-- **Own steering wheels**: the models with a measured wheel (`anchors.json`) still draw their static wheel under the
-  turning one. Drop those triangles from the driven/remote actor's body index (box from the source roles.json), or
-  have the fleet importer split a `steering_wheel` part like the `wheel_*` hubs and turn it instead of drawing one.
 - **More anchors**: most CARLA and Sketchfab bodies merge the interior; derive the wheel and seat from the geometry
   (the glazing's windscreen base, the seat cushion) for the rest of the fleet.
 - **Trophy truck**: its `seat-driver` is 0.55 m behind and only 0.24 m below its wheel; at ±130° the crossing hand is
   3-5 cm short of the rim even with the seat moved 20 cm and the torso leaning. Move the seat anchor or the wheel in
   the model, or lower the trophy's lock.
-- **transit-bus** is drawn backwards relative to its physics front (board note 2026-11-06); its driver follows the
-  physics front.
 - Entry and exit animations (GTA: 2.7 s door closed, 1.7 s open, 1.6 s exit; 1.2x for high cabs); drivers for the
   ambient traffic; per-player character looks.

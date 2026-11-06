@@ -45,7 +45,8 @@ Converted source cars: `game/scripts/import-fleet-gltf.mjs` turns permissively l
 into the same articulated LOD format. It maps source materials to fleet roles (tintable paint, fixed liveries for
 taxi/police/ambulance/bus/truck, glass, lamps, indicators, blank plates), samples base-colour textures into vertex
 colours (no images ship; `flattenFleetAsset` multiplies them), drops emblems (small centreline parts at the nose or tail,
-plus per-model boxes), orients to +Z/Y-up metres, splits four hub-centred wheels (front and rear-most axle; middle axles
+plus per-model boxes), orients to +Z/Y-up metres (front from the lamps unless `forward` says; `mirror` turns a
+right-hand-drive source into left-hand drive, as for the transit bus), splits four hub-centred wheels (front and rear-most axle; middle axles
 stay in the body; skinned CARLA sources split by their `Wheel_*` bones) and simplifies with meshoptimizer to about
 32k/8k/3k triangles (60k/12k/4k for trucks and buses). Normals and colours ship as 8-bit. CARLA emblems are modelled into
 grilles, so `emblems.extra` boxes drop or flatten them (`flat` presses relief onto one plane with the box's median colour).
