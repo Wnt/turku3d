@@ -151,17 +151,31 @@ try {
   if (mode === 'perf') {
     // GPU frame time (window.__perf, timestamp queries) with N extra starter cars in view: damaged, damage-capable but
     // undamaged, and the plain fleet material without the cage. A fixed camera; 5 s settle, then a fresh 10 s window.
+    // The world must be streamed in first: a moving baseline (draws growing) would swamp a sub-millisecond change.
     await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.waitForTimeout(25000);
     report.perf = [];
-    for (const [kind, count] of [['none', 0], ['plain', 20], ['capable', 20], ['damaged', 20], ['plain', 60], ['damaged', 60], ['none', 0]]) {
+    const configs = [['none', 0], ...Array.from({ length: 4 }, () => [['plain', 20], ['damaged', 20], ['plain', 60], ['damaged', 60]]).flat(), ['none', 0]];
+    for (const [kind, count] of configs) {
       const placed = await page.evaluate(([kind, count]) => window.__game.damage.bench({ count, kind }), [kind, count]);
-      await page.waitForTimeout(5000);
+      await page.waitForTimeout(2500);
       await page.evaluate(() => window.__render.perf.reset());
-      await page.waitForTimeout(10000);
-      const p = await page.evaluate(() => { const s = window.__perf; return { gpu: s.gpuMs, cpu: s.cpuMs, frame: s.frameMs, draws: s.drawCalls, status: s.gpuStatus }; });
-      const row = { kind, count, placed, gpuP50: p.gpu?.p50, gpuP95: p.gpu?.p95, cpuP50: p.cpu?.p50, frameP50: p.frame?.p50, samples: p.gpu?.samples, draws: p.draws, status: p.status };
-      report.perf.push(row); log('perf', row);
+      await page.waitForTimeout(6000);
+      const p = await page.evaluate(() => { const s = window.__perf, passes = window.__render.perf.passSnapshot?.();
+        return { gpu: s.gpuMs, cpu: s.cpuMs, draws: s.drawCalls, status: s.gpuStatus,
+          passes: passes ? Object.fromEntries(Object.entries(passes.gpuMs ?? {}).map(([k, v]) => [k, v?.p50 ?? null])) : null }; });
+      const scene = p.passes ? ['prepass', 'shadows', 'beauty'].reduce((s, k) => s + (p.passes[k] ?? 0), 0) : null;
+      const row = { kind, count, placed, gpuP50: p.gpu?.p50, gpuP95: p.gpu?.p95, sceneP50: scene, cpuP50: p.cpu?.p50, samples: p.gpu?.samples, draws: p.draws, passes: p.passes };
+      report.perf.push(row); log('perf', { ...row, passes: undefined });
     }
+    // Medians over the alternating rounds: the damage cost is damaged minus plain at the same count and draws.
+    const median = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+    report.perfSummary = [20, 60].map(count => {
+      const of = (kind, key) => median(report.perf.filter(r => r.kind === kind && r.count === count).map(r => r[key]));
+      return { count, plainGpu: of('plain', 'gpuP50'), damagedGpu: of('damaged', 'gpuP50'), plainScene: of('plain', 'sceneP50'), damagedScene: of('damaged', 'sceneP50'),
+        plainCpu: of('plain', 'cpuP50'), damagedCpu: of('damaged', 'cpuP50') };
+    });
+    log('perf summary', { summary: report.perfSummary });
     await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
     await shots(page, 'perf');
   }

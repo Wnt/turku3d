@@ -4,8 +4,7 @@ import type { PhysicsClient } from '../physics/client';
 import type { DamageHit } from '../vehicle/damage';
 import { rigOf } from '../actors/fleet/damageRig';
 import type { ParkedCarVisuals } from '../actors/fleet/visuals';
-import { fleetMaterial } from '../actors/fleet/material';
-import { paintActor } from '../actors/parkedPaint';
+import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial } from '../actors/fleet/material';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
 import { applyHit, DamageState, encodeDamage } from '../vehicle/damage';
 
@@ -95,8 +94,9 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
     },
     clear() { physics.setVehicleDamage('player', null); },
     /** Frame-cost bench: `count` extra starter cars in rows in front of the starter car's nose, drawn as
-     *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or with the plain fleet
-     *  material and no cage ('plain'); count 0 removes them. Returns how many are placed. */
+     *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or as the same actors
+     *  (body, glazing, hubs) with the plain fleet materials and no cage ('plain'); count 0 removes them. Returns how
+     *  many are placed. */
     bench({ count = 20, kind = 'damaged' }: { count?: number; kind?: 'damaged' | 'capable' | 'plain' } = {}) {
       for (const o of benched.splice(0)) o.removeFromParent();
       if (!count || !fleet || !car.root.visible) return 0;
@@ -108,8 +108,9 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const side = new THREE.Vector3(-forward.z, 0, forward.x), yaw = Math.atan2(forward.x, forward.z);
       for (let i = 0; i < count; i++) {
-        const mesh = kind === 'plain' ? new THREE.Mesh(sample.geometry, fleetMaterial()) : fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`)!;
-        if (kind === 'plain') { paintActor(mesh, PLAYER_COLOR); mesh.castShadow = mesh.receiveShadow = true; }
+        const mesh = fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`)!;
+        if (kind === 'plain') mesh.traverse(o => { const m = o as THREE.Mesh;
+          if (m.material === fleetDamageMaterial()) m.material = fleetMaterial(); else if (m.material === fleetGlassDamageMaterial()) m.material = fleetGlassMaterial(); });
         mesh.name = `bench/${i}`;
         const row = Math.floor(i / 5), column = i % 5 - 2;
         mesh.position.copy(car.root.position).addScaledVector(forward, 7 + row * 5.5).addScaledVector(side, column * 2.6);
