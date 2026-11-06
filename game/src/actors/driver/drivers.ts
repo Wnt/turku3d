@@ -2,7 +2,9 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { FLEET_BY_ID, fleetModel } from '../fleet/catalog';
 import { AUTHORED_BY_ID } from '../fleet/registry';
-import { fleetLayout, steeringAngle, type DriverLayout } from './layout';
+import { CAR } from '../../physics/constants';
+import { modelTuning } from '../../vehicle/modelTuning';
+import { fleetLayout, steerFraction, steeringAngle, type DriverLayout } from './layout';
 import { DriverMotion, type Vec } from './motion';
 import { DriverRig, DriverTemplate } from './rig';
 
@@ -20,22 +22,18 @@ const FACE_DISTANCE = 8;
 export interface DriverInput {
   /** World velocity of the drawn vehicle (m/s). */
   velocity: Vec;
-  /** Mean front road-wheel angle (rad, + left). */
-  steer: number;
+  /** The drawn wheel states (front pair first): their steer turns the steering wheel and the head. */
+  wheels?: readonly { steer: number }[];
   /** Physics impact event id (locally simulated vehicles). */
   impact?: number;
+  /** The horn sounds (vehicle signals; remote poses carry it): the right hand presses the hub. */
+  horn?: boolean;
 }
 
 interface Driver {
   key: string; frame: THREE.Group; rig: DriverRig; motion: DriverMotion;
   wheel: THREE.Group | null; spin: THREE.Object3D | null; layout: DriverLayout | null;
   seatedFrame: number; input: DriverInput | null; drawn: boolean;
-}
-
-/** The mean front road-wheel angle of a vehicle's wheel states (FL, FR first). */
-export function frontSteer(wheels: readonly { steer: number }[] | undefined): number {
-  if (!wheels?.length) return 0;
-  return wheels.length > 1 ? (wheels[0].steer + wheels[1].steer) / 2 : wheels[0].steer;
 }
 
 const layouts = new Map<string, DriverLayout>();
@@ -46,7 +44,7 @@ export function fleetDriverLayout(id: string, seed = id): DriverLayout {
   if (!layout) {
     const pivots = AUTHORED_BY_ID.get(model.id)?.wheels.pivots;
     const frontAxle = pivots ? Math.max(pivots.wheel_FL[2], pivots.wheel_FR[2]) : model.wheelbase / 2;
-    layout = fleetLayout({ ...model, frontAxle });
+    layout = fleetLayout({ ...model, frontAxle, steerLock: modelTuning(model.id)?.maxSteer ?? CAR.maxSteer });
     layouts.set(model.id, layout);
   }
   return layout;
@@ -155,9 +153,10 @@ export class Drivers {
       const unit = (x: number, y: number, z: number, out: Vec) => { const l = Math.hypot(x, y, z) || 1; out.x = x / l; out.y = y / l; out.z = z / l; return out; };
       const { fwd, left, up } = this.basis;
       unit(e[8], e[9], e[10], fwd); unit(e[0], e[1], e[2], left); unit(e[4], e[5], e[6], up);
-      const pose = driver.motion.update({ t: now / 1000, v: input.velocity, fwd, left, up, steer: input.steer, impact: input.impact });
+      const steer = steerFraction(layout, input.wheels);
+      const pose = driver.motion.update({ t: now / 1000, v: input.velocity, fwd, left, up, steer, impact: input.impact, horn: input.horn });
       // A vehicle with its own wheel node (the trophy truck) turns it by the same function (trophy4400/rig.ts).
-      const angle = steeringAngle(layout.wheel, input.steer);
+      const angle = steeringAngle(layout.wheel, steer);
       if (driver.spin) driver.spin.rotation.z = angle;
       driver.rig.pose(frame, layout, pose, angle);
       driver.rig.showFace(distance < FACE_DISTANCE);

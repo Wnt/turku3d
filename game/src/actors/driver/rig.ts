@@ -1,13 +1,14 @@
 import * as THREE from 'three/webgpu';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
-import { BODY, grip, type DriverLayout, type V3 } from './layout';
-import type { MotionPose } from './motion';
+import { BODY, grip, hub, type DriverLayout, type V3 } from './layout';
+import { LOOK, type MotionPose } from './motion';
 
 /** The seated driver's skeleton pose: the UAL `Driving_Loop` clip as the base (legs, fingers' grip), the hips on the
- *  layout's H-point plus the seat bounce, recline and g-lean over the three spine bones (0.4 / 0.35 / 0.25), head look,
- *  whiplash and counter-roll on neck and head, and two-bone arm IK to grip points on the steering-wheel rim that turn
- *  with it (hands never leave the rim; the arms cross at lock). Every rotation is applied about the joint in the seat
- *  frame (x left, y up, z forward), so bone roll conventions do not matter. */
+ *  layout's H-point plus the seat bounce, recline and g-lean over the three spine bones (0.4 / 0.35 / 0.25), head look
+ *  (25 % neck, 75 % head), whiplash and counter-roll, and two-bone arm IK to grip points on the steering-wheel rim
+ *  that turn with it (fixed grips, the arms cross at lock); the right hand leaves the rim for the hub (horn) or the
+ *  passenger seat's backrest (reversing). Every rotation is applied about the joint in the seat frame (x left, y up,
+ *  z forward), so bone roll conventions do not matter. */
 
 const SPINE = ['DEF-spine001', 'DEF-spine002', 'DEF-spine003'] as const;
 const SPLIT = [0.4, 0.35, 0.25];
@@ -19,6 +20,8 @@ const HIDDEN_MATERIALS = new Set(['Teeth', 'Tongue', 'Cloth_shoes']);
 export const FACE_MATERIALS = new Set(['Eye', 'Iris', 'Cornea', 'Eyebrow', 'Eyelash']);
 /** Clavicle swing allowed to reach a far grip (the crossing arm at lock). */
 const CLAVICLE = 0.35;
+/** The upper body leans and turns toward a grip still out of reach (a crossed arm at lock), at most this much. */
+const REACH_LEAN = 25 * Math.PI / 180;
 
 interface Rest { p: THREE.Vector3; q: THREE.Quaternion; s: THREE.Vector3 }
 
@@ -114,20 +117,26 @@ export class DriverRig {
     const back = motion.reverse;
     for (let i = 0; i < 3; i++) {
       const pitch = SPLIT[i] * motion.pitch - (i === 0 ? recline : 0);
-      const yaw = i === 2 ? -back * 20 * Math.PI / 180 : 0;
+      const yaw = i === 2 ? -back * LOOK.backSpine : 0;
       this.turn(SPINE[i], DriverRig.rotation(yaw, pitch, SPLIT[i] * motion.roll, tmp.q));
     }
     // Head: level the eyes against the recline, look, nod and whiplash pitch; half the spine roll counter-rolled.
-    const headYaw = motion.headYaw - back * 70 * Math.PI / 180;
-    this.turn('DEF-neck', DriverRig.rotation(0.4 * headYaw, 0.5 * recline + 0.4 * motion.headPitch, -0.25 * motion.roll, tmp.q));
-    this.turn('DEF-head', DriverRig.rotation(0.6 * headYaw, 0.5 * recline + 0.6 * motion.headPitch, -0.25 * motion.roll, tmp.q));
+    const headYaw = motion.headYaw - back * LOOK.back;
+    this.turn('DEF-neck', DriverRig.rotation(0.25 * headYaw, 0.5 * recline + 0.4 * motion.headPitch, -0.25 * motion.roll, tmp.q));
+    this.turn('DEF-head', DriverRig.rotation(0.75 * headYaw, 0.5 * recline + 0.6 * motion.headPitch, -0.25 * motion.roll, tmp.q));
     frame.updateWorldMatrix(true, false);
     this.model.updateMatrixWorld(true);
     const world = frame.matrixWorld;
+    this.lean(layout, wheel, world);
     for (const side of [1, -1] as const) {
       const suffix = side > 0 ? 'L' : 'R';
       const g = grip(layout.wheel, side * layout.wheel.grip + wheel);
       const target = v3(g.wrist, tmp.a).applyMatrix4(world), point = v3(g.point, tmp.b).applyMatrix4(world);
+      if (side < 0 && motion.horn > 0) {
+        // The horn: the right palm on the hub.
+        const h = hub(layout.wheel);
+        target.lerp(v3(h.wrist, tmp.c).applyMatrix4(world), motion.horn); point.lerp(v3(h.point, tmp.c).applyMatrix4(world), motion.horn);
+      }
       if (side < 0 && back > 0) {
         // Reversing: the passenger-side hand leaves the rim for the passenger seat's backrest.
         const rest = v3([layout.hips[0] - 0.62, layout.hips[1] + 0.42, layout.hips[2] - 0.08], tmp.c).applyMatrix4(world);
@@ -138,6 +147,24 @@ export class DriverRig {
       const error = this.arm(suffix, target, point, pole);
       if (side > 0) this.reach.left = error; else this.reach.right = error;
     }
+  }
+
+  /** Leans the upper spine forward and turns it toward the hand whose grip is beyond the arm and clavicle. */
+  private lean(layout: DriverLayout, wheel: number, world: THREE.Matrix4) {
+    let deficit = 0, toward = 0;
+    for (const side of [1, -1] as const) {
+      const upper = this.bones.get(side > 0 ? 'DEF-upper_armL' : 'DEF-upper_armR')!;
+      const shoulder = upper.getWorldPosition(tmp.d);
+      const target = v3(grip(layout.wheel, side * layout.wheel.grip + wheel).wrist, tmp.e).applyMatrix4(world);
+      const short = shoulder.distanceTo(target) - (BODY.upperArm + BODY.forearm + 0.02);
+      if (short > deficit) { deficit = short; toward = side; }
+    }
+    if (deficit <= 0) return;
+    // About 0.45 m from the upper spine joint to the shoulder: the angle that closes the gap, mostly a forward lean, partly
+    // a turn that brings the short side's shoulder forward (the right shoulder comes forward as the torso turns left).
+    const angle = Math.min(REACH_LEAN, deficit / 0.45);
+    this.turn('DEF-spine003', DriverRig.rotation(-toward * angle * 0.5, angle * 0.85, 0, tmp.q));
+    this.model.updateMatrixWorld(true);
   }
 
   /** Two-bone IK of one arm to the wrist `target` (world), elbow toward `pole`, hand pointed at the grip `point`;

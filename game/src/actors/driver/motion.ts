@@ -1,8 +1,8 @@
 /** A seated driver's motion channels, derived on every client from what it already draws of a vehicle: its world
- *  velocity and axes (the drawn pose), the mean front road-wheel angle and, for a locally simulated car, the physics
- *  impact event. Remote players' drivers therefore move like the sender's: no new synced field.
- *  Values: ~/turku3d/research/driver-animation/study.md "Turku3D driver rig targets" (Wreckfest 2 measured; head look
- *  is a design starting value until GTA V is measured). Angles in radians, distances in metres. */
+ *  velocity and axes (the drawn pose), the front wheels' share of the steering lock, the horn and, for a locally
+ *  simulated car, the physics impact event. Remote players' drivers therefore move like the sender's: no new synced
+ *  field. Values: ~/turku3d/research/driver-animation/study.md "Turku3D driver rig targets" (lean, bounce and crash
+ *  Wreckfest 2 measured; head look, reverse look and horn GTA V). Angles in radians, distances in metres. */
 
 export interface Vec { x: number; y: number; z: number }
 export interface MotionSample {
@@ -12,8 +12,10 @@ export interface MotionSample {
   v: Vec;
   /** The vehicle's world unit axes: forward, the driver's left, up. */
   fwd: Vec; left: Vec; up: Vec;
-  /** Mean front road-wheel angle (rad, + left). */
+  /** Front road-wheel angle as a fraction of the lock (-1..1, + left). */
   steer: number;
+  /** The horn sounds. */
+  horn?: boolean;
   /** Physics impact event id of a locally simulated vehicle (VehicleState.impact.id). */
   impact?: number;
 }
@@ -26,6 +28,8 @@ export interface MotionPose {
   headYaw: number; headPitch: number;
   /** Reverse look over the passenger-side shoulder, 0..1. */
   reverse: number;
+  /** The right hand on the hub for the horn, 0..1. */
+  horn: number;
   /** Filtered body-frame g (diagnostics, tests). */
   gLon: number; gLat: number;
 }
@@ -40,10 +44,11 @@ export const BUMP = { hz: 3, zeta: 0.6, down: 0.04, up: 0.015, nod: 10 * DEG };
  *  is a change of at least `trigger` (m/s) within `span` (s); a local impact event lowers it to `eventTrigger`. */
 export const WHIP = { travel: 0.0035, pitch: 0.6 * DEG, pitchMax: 30 * DEG, travelMax: 0.2, attack: 0.05, hold: 0.1, release: 0.15,
   span: 0.12, trigger: 2.5, eventTrigger: 1.2, refractory: 0.35, torso: 0.65 };
-/** Head look into turns (+ left): yaw rate gain (s), road-wheel gain, limit, time constant. Reverse look: head 70° and
- *  upper spine 20° to the right, entered after 0.3 s below -0.8 m/s over 0.4 s, left over 0.3 s. */
-export const LOOK = { rate: 0.12, steer: 0.8, max: 35 * DEG, tau: 0.25, back: 70 * DEG, backSpine: 20 * DEG,
-  reverseSpeed: -0.8, reverseAfter: 0.3, enter: 0.4, leave: 0.3 };
+/** Head look into turns (+ left, GTA): 42° at full lock, even at rest, plus 0.05 s of yaw rate for slides; ±45°,
+ *  τ 0.2 s. Reverse look: head 70° and upper spine 20° to the right, entered after 0.3 s below -0.8 m/s over 0.4 s,
+ *  left over 0.4 s. Horn: the right hand to the hub over 0.15 s and back. */
+export const LOOK = { lock: 42 * DEG, rate: 0.05, max: 45 * DEG, tau: 0.2, back: 70 * DEG, backSpine: 20 * DEG,
+  reverseSpeed: -0.8, reverseAfter: 0.3, enter: 0.4, leave: 0.4, horn: 0.15 };
 
 const dot = (a: Vec, b: Vec) => a.x * b.x + a.y * b.y + a.z * b.z;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -58,15 +63,16 @@ export class DriverMotion {
   private spring = { x: 0, v: 0 };
   private look = 0;
   private back = { value: 0, below: 0 };
+  private horn = 0;
   /** The crash being shown: its peak velocity change (body frame, km/h: forward and left components) and age. */
   private whip = { lon: 0, lat: 0, age: Infinity };
   private impact: number | undefined;
-  readonly pose: MotionPose = { pitch: 0, roll: 0, bump: 0, headYaw: 0, headPitch: 0, reverse: 0, gLon: 0, gLat: 0 };
+  readonly pose: MotionPose = { pitch: 0, roll: 0, bump: 0, headYaw: 0, headPitch: 0, reverse: 0, horn: 0, gLon: 0, gLat: 0 };
 
   /** Forget the past (a teleport, a new vehicle): no acceleration across the gap. */
   reset() {
     this.history = []; this.lean = { pitch: 0, roll: 0, gLon: 0, gLat: 0 }; this.spring = { x: 0, v: 0 }; this.look = 0;
-    this.back = { value: 0, below: 0 }; this.whip = { lon: 0, lat: 0, age: Infinity }; this.impact = undefined;
+    this.back = { value: 0, below: 0 }; this.horn = 0; this.whip = { lon: 0, lat: 0, age: Infinity }; this.impact = undefined;
   }
 
   /** The velocity at time `t`, interpolated (the oldest sample's if the history is shorter). */
@@ -120,13 +126,13 @@ export class DriverMotion {
     // Crash whiplash: the body keeps the pre-impact velocity; the body-frame change over the crash span sets it.
     this.whipUpdate(s, step);
 
-    // Head look: yaw rate (rad/s, + left) from the drawn forward axis, plus the road-wheel angle.
+    // Head look: the steer fraction, plus the yaw rate (rad/s, + left) from the drawn forward axis.
     let rate = 0;
     if (prevFwd && dt > 0) {
       const cx = prevFwd.y * s.fwd.z - prevFwd.z * s.fwd.y, cy = prevFwd.z * s.fwd.x - prevFwd.x * s.fwd.z, cz = prevFwd.x * s.fwd.y - prevFwd.y * s.fwd.x;
       rate = Math.atan2(cx * s.up.x + cy * s.up.y + cz * s.up.z, dot(prevFwd, s.fwd)) / dt;
     }
-    const lookTarget = clamp(LOOK.rate * rate + LOOK.steer * s.steer, -LOOK.max, LOOK.max);
+    const lookTarget = clamp(LOOK.lock * s.steer + LOOK.rate * rate, -LOOK.max, LOOK.max);
     if (step > 0) this.look = follow(this.look, lookTarget, step, LOOK.tau);
     const forwardSpeed = dot(s.v, s.fwd);
     this.back.below = forwardSpeed < LOOK.reverseSpeed ? this.back.below + step : 0;
@@ -147,6 +153,8 @@ export class DriverMotion {
     p.headPitch = whipPitch + nod;
     const reverse = smooth(this.back.value);
     p.reverse = reverse;
+    this.horn = s.horn ? Math.min(1, this.horn + step / LOOK.horn) : Math.max(0, this.horn - step / LOOK.horn);
+    p.horn = smooth(this.horn);
     p.headYaw = this.look * (1 - reverse);
     p.gLon = this.lean.gLon; p.gLat = this.lean.gLat;
     return p;

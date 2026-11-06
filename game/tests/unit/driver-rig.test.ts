@@ -2,13 +2,13 @@ import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { playerRig } from '../fixtures/playerRig';
 import { FLEET } from '../../src/actors/fleet/catalog';
-import { BODY, crown, steeringAngle, type DriverLayout } from '../../src/actors/driver/layout';
+import { BODY, crown, steerFraction, steeringAngle, type DriverLayout } from '../../src/actors/driver/layout';
 import { fleetDriverLayout } from '../../src/actors/driver/drivers';
 import { DriverRig, DriverTemplate } from '../../src/actors/driver/rig';
 import { DriverMotion, type MotionPose } from '../../src/actors/driver/motion';
 
 const DEG = Math.PI / 180;
-const still: MotionPose = { pitch: 0, roll: 0, bump: 0, headYaw: 0, headPitch: 0, reverse: 0, gLon: 0, gLat: 0 };
+const still: MotionPose = { pitch: 0, roll: 0, bump: 0, headYaw: 0, headPitch: 0, reverse: 0, horn: 0, gLon: 0, gLat: 0 };
 
 async function template() {
   const gltf = await playerRig();
@@ -39,7 +39,7 @@ test('every fleet model seats its driver under the roof with both hands on the r
     expect(crown(layout.hips, layout.recline)[1], model.id).toBeLessThan(model.height - 0.05);
     expect(layout.hips[1], model.id).toBeGreaterThan(0.3);
     expect(Math.abs(layout.hips[2]), model.id).toBeLessThan(model.length / 2);
-    for (const angle of [0, 90 * DEG, -90 * DEG, layout.wheel.cap, -layout.wheel.cap]) {
+    for (const angle of [0, layout.wheel.lock / 2, -layout.wheel.lock / 2, layout.wheel.lock, -layout.wheel.lock]) {
       rig.pose(frame, layout, still, angle);
       worst.push({ id: model.id, angle: Math.round(angle / DEG), error: Math.max(rig.reach.left, rig.reach.right) });
     }
@@ -49,7 +49,7 @@ test('every fleet model seats its driver under the roof with both hands on the r
   expect(worst[0].error).toBeLessThan(0.015);
 });
 
-test('the hands follow the rim as the wheel turns, the rest grips at about ±70°', async () => {
+test('the hands follow the rim as the wheel turns from the rest grips at 10 and 2; the right hand presses the horn', async () => {
   const t = await template();
   const rig = new DriverRig(t), frame = new THREE.Group();
   frame.add(rig.model);
@@ -59,21 +59,26 @@ test('the hands follow the rim as the wheel turns, the rest grips at about ±70�
   const c = new THREE.Vector3(...layout.wheel.centre);
   const left0 = hand('L'), right0 = hand('R');
   expect(left0.x).toBeGreaterThan(c.x + 0.1); expect(right0.x).toBeLessThan(c.x - 0.1);
-  rig.pose(frame, layout, still, 90 * DEG);
-  // A quarter turn left: the right hand is over the top, the left one at the bottom.
-  expect(hand('R').y).toBeGreaterThan(hand('L').y + 0.2);
-  rig.pose(frame, layout, still, 180 * DEG);
-  // Half a turn: the hands have swapped sides below the centre (arms crossed), no re-grip.
-  expect(hand('L').x).toBeLessThan(c.x); expect(hand('R').x).toBeGreaterThan(c.x);
+  rig.pose(frame, layout, still, layout.wheel.lock);
+  // Full lock left (95°): the outer (right) hand over the top at about 11 o'clock, the left one low on the left.
+  expect(hand('R').x).toBeGreaterThan(c.x); expect(hand('R').y).toBeGreaterThan(hand('L').y + 0.15);
+  expect(Math.max(rig.reach.left, rig.reach.right)).toBeLessThan(0.015);
+  rig.pose(frame, layout, { ...still, horn: 1 }, 0);
+  // The horn: the right hand on the hub, the left one stays on its grip.
+  expect(hand('R').distanceTo(c)).toBeLessThan(0.13);
+  expect(hand('L').distanceTo(left0)).toBeLessThan(0.005);
 });
 
-test('steering wheel angle: 6.3 x the road-wheel angle for cars, capped at 200°; trucks 8 to 250°, buses 10 to 300°', () => {
-  const car = fleetDriverLayout('golf7').wheel, van = fleetDriverLayout('euro-van').wheel, bus = fleetDriverLayout('transit-bus').wheel;
-  expect(steeringAngle(car, 10 * DEG) / DEG).toBeCloseTo(63, 5);
-  expect(steeringAngle(car, -40 * DEG) / DEG).toBeCloseTo(-200, 5);
-  expect(steeringAngle(van, 40 * DEG) / DEG).toBeCloseTo(250, 5);
-  expect(steeringAngle(bus, 20 * DEG) / DEG).toBeCloseTo(200, 5);
-  expect(steeringAngle(bus, 40 * DEG) / DEG).toBeCloseTo(300, 5);
+test('steering wheel angle: linear in the share of the lock, ±95° for cars (GTA), ±130° vans, ±180° buses', () => {
+  const car = fleetDriverLayout('golf7'), van = fleetDriverLayout('euro-van'), bus = fleetDriverLayout('transit-bus');
+  const at = (layout: DriverLayout, steer: number) => steeringAngle(layout.wheel, steerFraction(layout, [{ steer }, { steer }])) / DEG;
+  expect(at(car, car.steerLock / 2)).toBeCloseTo(47.5, 5);
+  expect(at(car, -car.steerLock)).toBeCloseTo(-95, 5);
+  expect(at(car, -2 * car.steerLock)).toBeCloseTo(-95, 5);
+  expect(at(van, van.steerLock)).toBeCloseTo(130, 5);
+  expect(at(bus, bus.steerLock)).toBeCloseTo(180, 5);
+  // 4WS trucks measure the inner wheel.
+  expect(steerFraction({ steerLock: 0.7, steerFrom: 'inner' }, [{ steer: 0.7 }, { steer: 0.4 }])).toBeCloseTo(1, 5);
 });
 
 // A car moving along +Z (fleet frame = world) with the given speed history.
@@ -127,26 +132,43 @@ test('a landing dips the hips up to 4 cm on the 3 Hz seat spring', () => {
   expect(Math.abs(m.pose.bump)).toBeLessThan(0.005);
 });
 
-test('head looks into a turn and over the right shoulder when reversing', () => {
+test('head looks into a turn (GTA: 42° at full lock, even at rest) and over the right shoulder when reversing', () => {
   const m = new DriverMotion();
   let p = m.pose;
-  // Turning left at 30°/s with 10° of road-wheel angle.
+  // Turning left at 30°/s with 30 % of the lock.
   for (let t = 0, yaw = 0; t < 1.5; t += 1 / 60, yaw += 30 * DEG / 60) {
     p = m.update({ t, v: { x: 8 * Math.sin(yaw), y: 0, z: 8 * Math.cos(yaw) }, fwd: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) },
-      left: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) }, up: { x: 0, y: 1, z: 0 }, steer: 10 * DEG });
+      left: { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) }, up: { x: 0, y: 1, z: 0 }, steer: 0.3 });
   }
-  expect(p.headYaw / DEG).toBeCloseTo(0.12 * 30 + 0.8 * 10, 0);
+  expect(p.headYaw / DEG).toBeCloseTo(42 * 0.3 + 0.05 * 30, 0);
+  expect(drive(new DriverMotion(), () => 0, 1.5, 0, -1).headYaw / DEG).toBeCloseTo(-42, 0);
   const r = new DriverMotion();
   const reversing = drive(r, () => -2, 1.2);
   expect(reversing.reverse).toBeGreaterThan(0.95);
-  const stopped = drive(r, () => 0, 1.6, 1.2 + 1 / 60);
-  expect(stopped.reverse).toBe(0);
+  expect(reversing.headYaw).toBe(0);
+  const stopping = drive(r, () => 0, 1.4, 1.2 + 1 / 60);
+  expect(stopping.reverse).toBeGreaterThan(0.2);
+  expect(drive(r, () => 0, 1.7, 1.4 + 1 / 60).reverse).toBe(0);
 });
 
-test('a layout carries the class presets', () => {
+test('the horn hand blends to the hub over 0.15 s and back', () => {
+  const m = new DriverMotion(), sample = (t: number, horn: boolean) => m.update({ t, v: { x: 0, y: 0, z: 0 },
+    fwd: { x: 0, y: 0, z: 1 }, left: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 }, steer: 0, horn });
+  let t = 0;
+  for (; t < 0.1; t += 1 / 60) sample(t, true);
+  expect(m.pose.horn).toBeGreaterThan(0.3); expect(m.pose.horn).toBeLessThan(1);
+  for (; t < 0.5; t += 1 / 60) sample(t, true);
+  expect(m.pose.horn).toBe(1);
+  for (; t < 0.7; t += 1 / 60) sample(t, false);
+  expect(m.pose.horn).toBe(0);
+});
+
+test('posture classes (GTA grips and recline for cars, a sports preset for low cars)', () => {
   const classes = new Map(FLEET.map(m => [m.id, fleetDriverLayout(m.id).cls]));
-  expect(classes.get('golf7')).toBe('hatch'); expect(classes.get('s90')).toBe('saloon'); expect(classes.get('prado-2010')).toBe('suv');
-  expect(classes.get('euro-van')).toBe('van'); expect(classes.get('transit-bus')).toBe('bus'); expect(classes.get('garbage-truck')).toBe('truck');
-  const l: DriverLayout = fleetDriverLayout('golf7');
-  expect(l.wheel.grip / DEG).toBe(70);
+  expect(classes.get('carla-ford-mustang')).toBe('sports'); expect(classes.get('corolla-e180')).toBe('saloon');
+  expect(classes.get('carla-nissan-micra')).toBe('hatch'); expect(classes.get('prado-2010')).toBe('suv');
+  expect(classes.get('carla-tesla-cybertruck')).toBe('pickup'); expect(classes.get('euro-van')).toBe('van');
+  expect(classes.get('transit-bus')).toBe('bus'); expect(classes.get('garbage-truck')).toBe('truck');
+  expect(fleetDriverLayout('corolla-e180').wheel.grip / DEG).toBeCloseTo(58, 6);
+  expect(fleetDriverLayout('carla-ford-mustang').recline / DEG).toBeCloseTo(27, 6);
 });

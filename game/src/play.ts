@@ -34,7 +34,7 @@ import { PlayerVisual, SPEED } from './actors/player';
 import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { SeatedVehicles } from './actors/seatedVehicles';
-import { Drivers, fleetDriverLayout, frontSteer } from './actors/driver/drivers';
+import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
@@ -900,7 +900,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     if (mode === 'car' && !positionHud.characterHidden) {
       const id = drivenId ?? 'player', state = latestOf(id);
       const fleet = !state || seated.of(id) ? null : id === 'player' ? car.frame && { actor: car.frame, model: PLAYER_MODEL } : parkedVisuals.driven(id);
-      if (state && fleet) drivers.seat('local', fleet.actor, fleetDriverLayout(fleet.model), { velocity: state.linvel, steer: frontSteer(state.wheels), impact: state.impact?.id });
+      if (state && fleet) drivers.seat('local', fleet.actor, fleetDriverLayout(fleet.model), { velocity: state.linvel, wheels: state.wheels, impact: state.impact?.id, horn: state.horn });
     }
     const renderCharacter = physics.characterRender.sample(now / 1000, extrapolating);
     if (mode === 'foot' && renderCharacter && !paused) {

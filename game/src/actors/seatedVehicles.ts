@@ -8,7 +8,7 @@ import type { PlayerVisual } from './player';
 import { ScooterVisual } from './scooter';
 import { TruckVisual } from './truck';
 import { configureTrophyAsset } from './trophy4400/asset';
-import { frontSteer, type Drivers } from './driver/drivers';
+import type { Drivers } from './driver/drivers';
 
 /** The bought vehicles: the scooter (its rider is the player character, seated on its anchor) and the trophy truck
  *  (a seated driver, actors/driver/). Both exist as physics vehicles once bought (a loaded game places them in
@@ -89,7 +89,7 @@ export class SeatedVehicles {
     const seat = this.of(drivenId), state = drivenId ? latestOf(drivenId) : null;
     if (seat === this.scooter && state) player.ride(dt, seat.seat);
     else if (seat instanceof TruckVisual && state && seat.loaded && seat.driverLayout && drivers) {
-      drivers.seat('local', seat.driverFrame, seat.driverLayout, { velocity: state.linvel, steer: frontSteer(state.wheels), impact: state.impact?.id });
+      drivers.seat('local', seat.driverFrame, seat.driverLayout, { velocity: state.linvel, wheels: state.wheels, impact: state.impact?.id, horn: state.horn });
     }
   }
 

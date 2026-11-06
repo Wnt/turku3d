@@ -22,6 +22,9 @@ import { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { draftManifest } from '../world/manifest';
 import { Input } from '../input';
 import { ChaseCamera } from '../vehicle/chaseCamera';
+import { PlayerVisual } from '../actors/player';
+import { Drivers, fleetDriverLayout } from '../actors/driver/drivers';
+import type { DriverLayout } from '../actors/driver/layout';
 
 const R = await import('@dimforge/rapier3d');
 const { Vehicle } = await import('../vehicle/vehicle');
@@ -72,6 +75,11 @@ addEventListener('keydown', e => {
   void makeVisual(ENTRIES[a.index], a.index).then(visual => { if (active === a) a.visual = visual; else visual.dispose(); status.textContent = `paint ${COLORS[paint[a.index]]}`; });
 });
 const status = document.getElementById('status')!;
+// Every vehicle is shown with its seated, animated driver (actors/driver), cloned from the game's player character.
+const drivers = new Drivers();
+const character = new PlayerVisual(new THREE.Group(), async () => null);
+void character.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer)
+  .then(() => { if (character.template) drivers.setCharacter(character.template.scene, character.template.clips); });
 
 type Entry = { kind: 'fleet'; entry: AuthoredModel } | { kind: 'car' | 'scooter' | 'truck'; name: string };
 const ENTRIES: Entry[] = [
@@ -103,13 +111,16 @@ const views = ENTRIES.map((entry, i) => {
   return { view, still };
 });
 
-type Visual = { update(state: VehicleState, dt: number): void; dispose(): void };
+type Visual = { update(state: VehicleState, dt: number): void; dispose(): void;
+  /** Where the driver sits: the vehicle's fleet-frame Object3D and its layout (none on the scooter). */
+  driver?(): { frame: THREE.Object3D; layout: DriverLayout } | null };
 type Active = { index: number; world: InstanceType<typeof R.World>; vehicle: InstanceType<typeof Vehicle>; visual: Visual; start: typeof START };
 
 async function makeVisual(entry: Entry, index: number): Promise<Visual> {
   if (entry.kind === 'car') {
     const v = new CarVisual(scene, PLAYER_MODEL, PLAYER_COLOR); await v.load();
-    return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
+    return { update: s => v.update(s), dispose: () => v.root.removeFromParent(),
+      driver: () => v.frame && { frame: v.frame, layout: fleetDriverLayout(PLAYER_MODEL) } };
   }
   if (entry.kind === 'scooter') {
     const v = new ScooterVisual(scene); await v.load('/assets/vehicles/scooter.glb'); scene.add(v.root); v.root.visible = true;
@@ -117,13 +128,15 @@ async function makeVisual(entry: Entry, index: number): Promise<Visual> {
   }
   if (entry.kind === 'truck') {
     configureTrophyAsset(import.meta.env.BASE_URL, renderer); const v = new TruckVisual(scene); await v.load(); v.root.visible = true;
-    return { update: s => v.update(s), dispose: () => v.root.removeFromParent() };
+    return { update: s => v.update(s), dispose: () => v.root.removeFromParent(),
+      driver: () => v.driverLayout && { frame: v.driverFrame, layout: v.driverLayout } };
   }
   const model = (entry as Extract<Entry, { kind: 'fleet' }>).entry.fleet, manifest = draftManifest(location.origin + '/');
   manifest.vehicles = [{ object_id: 'drive', model: model.id, color: COLORS[paint[index]], x: 0, y: 0, z: 0, yaw: 0,
     width: model.width, height: model.height, length: model.length, clear_front_m: 5, clear_rear_m: 5 }];
   const visuals = new ParkedCarVisuals(scene); await visuals.load(manifest); visuals.takeOver('drive');
-  return { update: s => { visuals.setView(camera); visuals.update([{ ...s, id: 'drive' }]); }, dispose: () => visuals.dispose() };
+  return { update: s => { visuals.setView(camera); visuals.update([{ ...s, id: 'drive' }]); }, dispose: () => visuals.dispose(),
+    driver: () => { const d = visuals.driven('drive'); return d && { frame: d.actor, layout: fleetDriverLayout(d.model) }; } };
 }
 let active: Active | null = null, pending = -1;
 
@@ -194,8 +207,14 @@ const DRIVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', '
 addEventListener('keydown', e => { if (DRIVE_KEYS.has(e.code)) e.preventDefault(); });
 
 const listenerForward = new THREE.Vector3();
-// Test hook: the active vehicle's state and the input the game would read.
-Object.assign(window, { vehicleGallery: { state: () => active?.vehicle.state(), actions: () => input.actions, source: () => input.source } });
+// Test hook: the active vehicle's state, the input the game would read, and for scripted views a held drive input
+// (`hold`, replacing the controls), the chase camera and the drivers.
+const hook = { state: () => active?.vehicle.state(), actions: () => input.actions, source: () => input.source,
+  hold: null as null | { throttle: number; steer: number; brake: number; handbrake?: boolean; horn?: boolean }, drivers: () => drivers.snapshot(),
+  /** A fixed camera relative to the vehicle (yaw about +Y from its forward axis, degrees; metres), or the chase. */
+  view: null as null | { yaw: number; pitch: number; distance: number; height: number },
+  reset: () => { if (active) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); } }, scene };
+Object.assign(window, { vehicleGallery: hook });
 let last = performance.now(), carry = 0;
 renderer.setAnimationLoop(() => {
   const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
@@ -203,13 +222,26 @@ renderer.setAnimationLoop(() => {
   if (!active) return;
   const a = input.actions;
   if (input.consume('vehicleReset')) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); }
-  signals.update(true, input.consume('lights'), a.horn > 0.5);
-  const drive = { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5, lights: signals.lights, horn: signals.horn };
+  signals.update(true, input.consume('lights'), a.horn > 0.5 || !!hook.hold?.horn);
+  const held = hook.hold;
+  const drive = held ? { throttle: held.throttle, steer: held.steer, brake: held.brake, handbrake: !!held.handbrake, lights: signals.lights, horn: signals.horn }
+    : { throttle: a.throttle, steer: a.steer, brake: a.brake, handbrake: a.handbrake > 0.5, lights: signals.lights, horn: signals.horn };
   for (carry += dt; carry >= 1 / 60; carry -= 1 / 60) { active.vehicle.step(1 / 60, drive); active.world.step(); }
   const state = { ...active.vehicle.state(), id: 'drive', lights: signals.lights, horn: signals.horn };
   chase.update(dt, state, input.lookX, input.lookY, input.consume('cameraReset'));
+  if (hook.view) {
+    const v = hook.view, q = new THREE.Quaternion(state.rot.x, state.rot.y, state.rot.z, state.rot.w);
+    const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
+    const dir = forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), v.yaw * Math.PI / 180);
+    const target = new THREE.Vector3(state.pos.x, state.pos.y + v.height, state.pos.z);
+    camera.position.copy(target).addScaledVector(dir, v.distance * Math.cos(v.pitch * Math.PI / 180)).setY(target.y + v.distance * Math.sin(v.pitch * Math.PI / 180));
+    camera.lookAt(target);
+  }
   followSun(state.pos);
   active.visual.update(state, dt);
+  const seat = active.visual.driver?.();
+  if (seat) drivers.seat('gallery', seat.frame, seat.layout, { velocity: state.linvel, wheels: state.wheels, impact: state.impact?.id, horn: state.horn });
+  drivers.finish(camera, now);
   beams.update(state, now);
   camera.getWorldDirection(listenerForward);
   audio.emit({ type: 'listener', position: camera.position, forward: listenerForward, up: camera.up, paused: false });

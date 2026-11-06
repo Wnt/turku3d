@@ -34,7 +34,7 @@ export class TruckVisual {
     const seat = asset.rest.get('seat-driver')!;
     this.seat.position.set(seat.p.x, seat.p.y + GROUND_Y, seat.p.z); this.seat.rotation.set(0, Math.PI / 2, 0);
     const wheel = asset.rest.get('steer-wheel');
-    if (wheel) this.driverLayout = trophyDriverLayout(seat.p, wheel.p, new T.Vector3(0, 1, 0).applyQuaternion(wheel.q));
+    if (wheel) this.driverLayout = trophyDriverLayout(seat.p, wheel.p, new T.Vector3(0, 1, 0).applyQuaternion(wheel.q), TRUCK.maxSteer);
     // Physical hub markers (remote bounds and checks read `vehicle-wheel-*`).
     for (let i = 0; i < TRUCK.wheels.length; i++) { const marker = new T.Object3D(); marker.name = `vehicle-wheel-${i}`; this.root.add(marker); }
     // The lamp lenses' own materials exist before the model is prepared (actors/seatedVehicles.ts), so those are drawn.

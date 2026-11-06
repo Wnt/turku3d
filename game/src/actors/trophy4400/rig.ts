@@ -3,7 +3,7 @@ import type { WheelState } from '../../physics/protocol';
 import { TRUCK, TRUCK_STATIC_LENGTH } from '../../physics/constants';
 import { CORNERS, TruckLinkage, type Quat, type Vec } from './linkage';
 import type { TrophyAsset } from './asset';
-import { TRUCK_WHEEL, steeringAngle } from '../driver/layout';
+import { TRUCK_WHEEL, steerFraction, steeringAngle } from '../driver/layout';
 
 /** Binds the linkage solver (linkage.ts) to one truck model's bones: the local truck, extra draft trucks and every
  *  remote clone get their own rig (WeakMap per root, like the remote cars), driven only by `WheelState[]`, so a
@@ -90,8 +90,10 @@ class TrophyRig {
       this.set(name, [rest.p.x, rest.p.y, rest.p.z + offset]);
     }
     const wheel = this.bones.get('steer-wheel'), rest = this.asset.rest.get('steer-wheel');
-    // The steering wheel as the driver turns it (actors/driver: truck ratio 8, capped at ±250°).
-    if (wheel && rest) wheel.quaternion.copy(rest.q).multiply(q2.setFromAxisAngle(Y, steeringAngle(TRUCK_WHEEL, (this.inputs[0].steer + this.inputs[1].steer) / 2)));
+    // The steering wheel as the driver turns it (actors/driver/layout.ts): linear in the inner front wheel's share of
+    // the lock, ±130° at full lock.
+    const fraction = steerFraction({ steerLock: TRUCK.maxSteer, steerFrom: 'inner' }, this.inputs);
+    if (wheel && rest) wheel.quaternion.copy(rest.q).multiply(q2.setFromAxisAngle(Y, steeringAngle(TRUCK_WHEEL, fraction)));
   }
 }
 

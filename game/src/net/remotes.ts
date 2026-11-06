@@ -28,7 +28,7 @@ import { vehiclePose } from './sharedVehicles';
 import type { SharedVehicles } from './sharedVehicles';
 import { PoseBuffer } from './interpolation';
 import { remoteRootHeight, VEHICLE_POSE_HEIGHT } from './height';
-import { fleetDriverLayout, frontSteer, type Drivers } from '../actors/driver/drivers';
+import { fleetDriverLayout, type Drivers } from '../actors/driver/drivers';
 
 interface Remote {
   player: NetPlayer & { occupant?: string | null }; buffer: PoseBuffer; foot: THREE.Object3D | null; distant: THREE.Mesh;
@@ -259,7 +259,7 @@ export class RemotePlayers {
       const occupied = !('occupant' in p) || !!p.occupant;
       if (this.drivers && occupied && (pose.mode === 'car' || pose.mode === 'truck')) {
         const key = p.occupant && p.occupant === selfId ? 'local' : `remote:${p.id}`;
-        const input = { velocity: { x: pose.vE, y: pose.vH, z: -pose.vN }, steer: frontSteer(pose.wheels) };
+        const input = { velocity: { x: pose.vE, y: pose.vH, z: -pose.vN }, wheels: pose.wheels, horn: !!pose.horn };
         if (pose.mode === 'car' && remote.vehicleKey && remote.car.parent) {
           const model = remote.vehicleKey === 'player' ? PLAYER_MODEL : remote.vehicleKey.split('/')[0];
           this.drivers.seat(key, remote.car, fleetDriverLayout(model, remote.vehicleKey), input);
