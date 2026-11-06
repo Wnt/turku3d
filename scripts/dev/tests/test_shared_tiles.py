@@ -721,6 +721,12 @@ class FarmTests(unittest.TestCase):
             self.assertTrue(farm.lock.acquire(timeout=1))  # make_room does not hold the farm lock while it waits
             farm.lock.release()
 
+    def test_a_registered_alias_shows_in_health_at_once(self):
+        farm = self.farm(execute=None)
+        farm.status_cached(max_age=60)
+        farm.register(REV, 'integration')
+        self.assertEqual(farm.status_cached(max_age=60)['aliases'].get('integration'), REV)
+
     def test_adopted_workers_keep_disk_and_total_runtime_limits(self):
         from unittest.mock import patch
         farm = self.farm(execute=None)
