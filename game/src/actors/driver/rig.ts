@@ -249,11 +249,16 @@ export class DriverRig {
   /** The skeleton's matrices in the seat frame (bone world matrix times its inverse bind; the model hangs under the
    *  seat frame), 16 floats per bone, for the instanced batch's bone texture (batch.ts). */
   writeBones(out: Float32Array) {
-    this.model.updateMatrixWorld(true);
-    const { bones, boneInverses } = this.mesh.skeleton, bind = this.mesh.bindMatrix;
-    for (let i = 0; i < bones.length; i++) bone.multiplyMatrices(bones[i].matrixWorld, boneInverses[i]).multiply(bind).toArray(out, i * 16);
+    // pose() refreshed the whole skeleton before the arm IK and the arm chains during it: only the fingers are stale.
+    this.arms.L[3].updateMatrixWorld(true); this.arms.R[3].updateMatrixWorld(true);
+    const { bones, boneInverses } = this.mesh.skeleton, bind = this.mesh.bindMatrix, unbound = bind.equals(IDENTITY);
+    for (let i = 0; i < bones.length; i++) {
+      bone.multiplyMatrices(bones[i].matrixWorld, boneInverses[i]);
+      if (!unbound) bone.multiply(bind);
+      bone.toArray(out, i * 16);
+    }
   }
 }
 
-const bone = new THREE.Matrix4();
+const bone = new THREE.Matrix4(), IDENTITY = new THREE.Matrix4();
 
