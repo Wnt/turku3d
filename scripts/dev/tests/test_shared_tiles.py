@@ -505,26 +505,44 @@ class FarmTests(unittest.TestCase):
         for name in roots:
             self.assertNotEqual(decoded_roots[name], roots[name])
 
+    @unittest.skipUnless(Path('/proc/self/maps').exists(), 'open and mapped files are read from /proc')
     def test_decoded_eviction_during_build_preserves_locked_and_mapped_sources(self):
         import fcntl
-        import mmap
+        import subprocess
+        import sys
 
         farm = self.farm(workers=0, free=lambda: 0)
         farm.jobs[(GEN, 't0_0_0')] = REV
         root = self.root / 'cache/raw-derived/decoded' / ('e' * 64)
         root.mkdir(parents=True)
-        cold, locked = root / ('f' * 64 + '.npy'), root / ('a' * 64 + '.npy')
+        cold, mapped, locked = (root / (c * 64 + '.npy') for c in 'fba')
         cold.write_bytes(b'exact source columns')
+        mapped.write_bytes(b'columns a build reads')
         locked.write_bytes(b'decoding')
-        with cold.open('rb') as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            with locked.with_suffix('.lock').open('a') as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
-                self.assertFalse(farm.make_room(farm_module.GIB))
-                self.assertTrue(locked.exists())
-            self.assertFalse(cold.exists())
-            self.assertEqual(data[:], b'exact source columns')
+        # A running build: another process that memory-maps one array and keeps it.
+        build = subprocess.Popen([sys.executable, '-c', 'import mmap, sys\n'
+                                  'stream = open(sys.argv[1], "rb")\n'
+                                  'data = mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ)\n'
+                                  'stream.close()\n'
+                                  'print("mapped", flush=True)\n'
+                                  'sys.stdin.read()\n'
+                                  'print(data[:].decode(), flush=True)', str(mapped)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(build.kill)
+        self.assertEqual(build.stdout.readline().strip(), 'mapped')
+        with locked.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.assertFalse(farm.make_room(farm_module.GIB))
+            self.assertTrue(locked.exists())
+        self.assertFalse(cold.exists())
+        self.assertTrue(mapped.exists())  # unlinking it would free nothing while the build maps it
         self.assertTrue(cold.with_suffix('.lock').exists())
         self.assertEqual(farm.metrics['evicted_bytes'], len(b'exact source columns'))
+        build.stdin.close()
+        self.assertEqual(build.stdout.read().strip(), 'columns a build reads')
+        build.wait(5)
+        farm.make_room(farm_module.GIB)  # once the build lets go, the entry is cold like any other
+        self.assertFalse(mapped.exists())
 
     def test_raw_reducers_ignore_unrelated_geometry_but_track_local_helpers(self):
         farm = self.farm()
