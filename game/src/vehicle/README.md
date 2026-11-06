@@ -366,7 +366,8 @@ a deformation cage evaluated on the GPU, no extra geometry, one damage state own
   texture (a layer of 54 nodes per car, half floats), selected by the car's slot (a per-object uniform). One program per pass
   for all of them; r186 SkinnedMeshes would name every skeleton's bone buffer apart and build programs per car. The
   pool re-uploads only when a car's damage changes; nothing runs per frame. The wheel hubs follow the cage at their
-  pivots, as the physics wheel mounts do (see Mechanical damage). Instanced batches (parked, traffic) stay undamaged.
+  pivots, as the physics wheel mounts do (see Mechanical damage). Parked wrecks draw in damaged batches (see "Body
+  damage across the fleet"); ambient traffic batches stay undamaged.
 - **Developer console** (`dev/carDamage.ts`, `window.__game.damage`): `bounds()` (crumple from the drawn body's
   deformed bounds, cm), `state()`; with developer tools (`?dev=1`) `dent({ kmh, at, halfWidth, offset })`, `clear()`
   and `look({ yaw, pitch, distance })`, a camera held around the car. Deployed check:
@@ -590,10 +591,29 @@ npm --prefix game test -- --run tests/unit/car-parts.test.ts tests/unit/audio.te
 Phase 3 of the car-damage plan: the starter car's damage (all sections above) for every fleet model.
 
 - **Driven cars** (slice 1): every fleet car a player drives takes damage like the starter car. Parked bodies spawn
-  with their model's cage (`world/parkedVehicles.ts`, `modelDamageBox`), which takes crashes and scrapes once a
-  player drives the car (`vehicle.ts armDamage`, from `world.ts driveVehicle`); a shared vehicle record of any car
-  model spawns with its cage and continues from the damage in its pose (`net/sharedVehicles.ts`), so an owner change
-  keeps a wreck. The driven and remote actors already draw any model with the damage material.
+  with their model's cage (`world/parkedVehicles.ts`, `modelDamageBox`); a shared vehicle record of any car model
+  spawns with its cage and continues from the damage in its pose (`net/sharedVehicles.ts`), so an owner change keeps a
+  wreck. The driven and remote actors draw any model with the damage material.
+- **Parked cars** (slice 3) take damage when hit, and wrecks stay wrecked (no repair):
+  - *Who decides*: the hitter. Every client simulates its own copy of a parked car until one owns its shared record.
+    A local copy takes damage from this client's own cars and debris; a crash that touched another player's car proxy
+    (`REMOTE_VEHICLE`) is left to that player (`vehicle.ts ownsDamage`, `touchesRemote`), and so are scrapes against
+    it, so no hit is counted twice. Once this client drives a car or owns its record (`world.ts ownVehicleDamage`,
+    from `driveVehicle` and `SharedVehicles.sync`), every contact counts. A damaged world car is registered as a shared
+    vehicle like a moved one (`SharedVehicles.update`), so the room keeps its pose and damage (`park:` records stay
+    when their owner leaves) and every other client drops its copy and draws the owner's. The room's contact rule
+    hands an empty shared car to the player whose car hits it, whose client then measures that hit.
+  - *Persistence*: a body that leaves the 60-car physics cap keeps its damage with its rest pose and gets it back
+    when it respawns (`ParkedVehicles.despawn/spawn`); the rested car keeps drawing damaged.
+  - *Drawing* (`fleet/visuals.ts`): a damaged parked car draws in its model's damaged batch (one instanced draw per
+    model and LOD 0/1, glazing a second; `wrecks/<model>/<lod>`) on the damage material, with its pool slot as an
+    instance attribute (`damageRig.ts damageBatch`; a node graph per batch, like the fleet paint). Each wreck has its
+    own `DamageRig` with stand-in body and glazing meshes (never drawn) that carry its pose and paint for the loose
+    parts' swing, debris and glass shards; its hubs move with the cage. LOD1 bodies are skinned and split too (dents to
+    105 m; beyond, the plain far batch), and the batches are built after the model's cage weights, in the actor
+    warm-up. A batch starts with room for 8 wrecks of a model and doubles (prepared first; meanwhile the extra wrecks
+    draw plain), and a wreck without a pool slot draws plain. Cheaper than a car drawn on its own (body, glazing and
+    four hub draws per car in every pass): one or two draws per model.
 - **Validation at load** (`damageParts.ts`, in `skinToCage`, once per body and glazing geometry): the same rule for
   every model, checked per model (`splitReport`, `windowReport`). A part stays on the body (deforms and wears, never
   hangs loose or comes off) when it is implausible for its role (`PLAUSIBLE`): bumpers under 60 % of the width or 6

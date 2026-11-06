@@ -36,7 +36,7 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
   shards?: GlassShards) {
   const benched: THREE.Object3D[] = [], benchWrecks: THREE.Object3D[] = [];
   let benchWreck: string | null = null;
-  let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean; driven: boolean } | null = null;
+  let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean | string; driven: boolean; wreck: string | null } | null = null;
   const forward = new THREE.Vector3(), target = new THREE.Vector3();
   /** Other players' cars drawn here (net/remotes.ts, fleet/visuals.ts actors named remote/...), with their damage. */
   const remoteCars = (prefix = 'remote/') => {
@@ -79,6 +79,18 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
     remotes() { return drawnCars('remote/'); },
     /** Fleet cars this client drives or drove (fleet/visuals.ts actors named driven/...), with their drawn damage. */
     driven() { return drawnCars('driven/'); },
+    /** Damaged parked cars drawn in the fleet's damaged batches, with their drawn damage (crumple from the stand-in's
+     *  deformed bounds, cm). */
+    wrecks() {
+      return (fleet?.wreckBodies() ?? []).map(({ id, model, body, rig }) => {
+        const geometry = body.geometry;
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
+        return { id, model, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
+          position: new THREE.Vector3().setFromMatrixPosition(body.matrixWorld).toArray().map(v => Math.round(v * 10) / 10),
+          parts: partsOf(rig.state), glass: glassOf(rig.state), seenMsAgo: Math.round(performance.now() - rig.seenAt) };
+      });
+    },
     /** The damage pool (actors/fleet/damageRig.ts): slots taken, and the frame-cost bench cars' slots (distinct, none). */
     slots() {
       const own = benched.map(o => rigOf(o)?.slot ?? 0);
@@ -109,9 +121,9 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
   return { ...inspect,
     /** Hold the camera at `yaw` degrees around the car from its nose (0 front, 90 its left, 180 rear), `pitch` degrees
      *  up, `distance` metres from a point `height` m above the chassis centre; null hands the camera back. */
-    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number; remote?: boolean; driven?: boolean } | null) {
-      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: !!next.remote,
-        driven: !!next.driven };
+    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number; remote?: boolean | string; driven?: boolean; wreck?: string } | null) {
+      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: next.remote ?? false,
+        driven: !!next.driven, wreck: next.wreck ?? null };
     },
     frame(camera: THREE.PerspectiveCamera) {
       // Bench wrecks are not in any vehicle list: their rigs follow their (unchanged) state here, swinging loose parts.
@@ -120,9 +132,11 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       // The starter car's chassis frame faces +X; a remote actor's mesh faces +Z (its +X is the car's left).
       // The most damaged remote car (a room keeps other players' parked starter cars too).
       // A fleet car this client drives (driven: true) is held like a remote one.
-      const remote = view.remote || view.driven ? remoteCars(view.driven ? 'driven/' : 'remote/')
-        .reduce<THREE.Mesh | null>((a, b) => !a || rigOf(b)!.state.hits > rigOf(a)!.state.hits ? b : a, null) : null;
-      if (view.remote || view.driven ? !remote : !car.root.visible) return;
+      // A parked wreck (wreck: its id) is held by its stand-in body.
+      const remote = view.wreck ? fleet?.wreckBodies().find(w => w.id === view!.wreck)?.body ?? null
+        : view.remote || view.driven ? remoteCars(view.driven ? 'driven/' : typeof view.remote === 'string' ? view.remote : 'remote/')
+          .reduce<THREE.Mesh | null>((a, b) => !a || rigOf(b)!.state.hits > rigOf(a)!.state.hits ? b : a, null) : null;
+      if (view.remote || view.driven || view.wreck ? !remote : !car.root.visible) return;
       if (remote) forward.set(0, 0, 1).applyQuaternion(remote.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
       else forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const heading = Math.atan2(-forward.z, forward.x), yaw = heading + view.yaw * Math.PI / 180, pitch = view.pitch * Math.PI / 180;
@@ -165,6 +179,16 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       const round = (v: number) => Math.round(v * 100) / 100;
       return { worn: s.surfaceWear.filter(v => v > .05).length, dirty: s.surfaceDirt.filter(v => v > .05).length,
         maxWear: round(Math.max(...s.surfaceWear)), maxDirt: round(Math.max(...s.surfaceDirt)) };
+    },
+    /** Frame-cost bench of parked wrecks: the `count` parked cars nearest the starter car drawn with the bench wreck
+     *  state in the fleet's damaged batches (`kind` 'wrecked'), or plain ('plain'); visual only. */
+    parkedBench({ count = 20, kind = 'wrecked' }: { count?: number; kind?: 'wrecked' | 'plain' } = {}) {
+      if (!fleet) return 0;
+      const state = new DamageState(rigOf(fleet.remoteModel(`${PLAYER_MODEL}/${PLAYER_COLOR}`)!)!.layout);
+      applyHit(state, { dv: [0, 0, -80 / 3.6] }); applyHit(state, { dv: [-.3 * 50 / 3.6, 0, .95 * 50 / 3.6], at: [.8, .6, -2] });
+      state.parts.set([1, 1, 1, 1, 2, 0]); state.partSide.set([1, -1, 1, 1, 1, 1]); state.glass.set([1, 2, 3, 1, 0, 2]);
+      state.surfaceWear.forEach((_, i) => { state.surfaceWear[i] = (i * 37 % 16) / 16; state.surfaceDirt[i] = (i * 11 % 16) / 24; });
+      return fleet.benchWrecks(kind === 'wrecked' ? count : 0, encodeDamage(state), car.root.position);
     },
     /** Frame-cost bench: `count` extra starter cars in rows in front of the starter car's nose, drawn as
      *  damage-capable actors with a heavy crumple (`kind` 'damaged'), undamaged ('capable'), or as the same actors

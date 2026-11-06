@@ -14,7 +14,7 @@ import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
-import { DamageRig, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
+import { DamageRig, damageBatch, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
 import { shareParts } from './damageParts';
 import { ownWheelBox, withoutOwnWheel } from '../driver/ownWheel';
 import { AMBIENT_DISTANCE } from '../driver/ambient';
@@ -24,8 +24,17 @@ export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null
 export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
 interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:boolean}
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
-interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean }
-interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1; braking?: boolean }
+interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean;
+  /** A batch of damaged cars (damageRig.ts damageBatch): each instance's pool slot. */
+  slots?: THREE.InstancedBufferAttribute }
+interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1 | 2; braking?: boolean;
+  /** Body damage (vehicle/damage.ts encodeDamage): the car draws in its model's damaged batch. */
+  damage?: string }
+/** A damaged car drawn in a batch: its cage pose, and stand-ins for its body and glazing (never drawn) that carry its
+ *  pose, paint and geometry for the rig's swing, debris and glass shards (damageRig.ts onDamage). */
+interface Wreck { rig: DamageRig; body: THREE.Mesh; model: string }
+/** Damaged batches start with room for this many cars of a model and grow by doubling. */
+const WRECK_CAPACITY = 8;
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
 const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
 
@@ -34,6 +43,11 @@ const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
 export class ParkedCarVisuals {
   private cars: ParkedVehicle[]=[];
   private groups=new Map<string,Batch>();
+  /** Per model and LOD 0/1: the batch of its damaged parked cars, on the damage material (built after its cage). */
+  private damaged=new Map<string,Batch>();
+  private growing=new Set<string>();
+  private wrecks=new Map<string,Wreck>();
+  private hubOffset=new THREE.Vector3();
   private wheelGroups=new Map<string,WheelBatch>();
   private designs=new Map<string,WheelDesign[]>();
   private authoredParts=new Map<string,AuthoredFleetParts>();
@@ -201,6 +215,7 @@ export class ParkedCarVisuals {
       if(model){this.definitions.set(car.object_id,{model,color:car.color,size:car});resident.add(car.object_id);}
     }
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
+    for(const [id,wreck] of this.wrecks)if(!this.definitions.has(id)||this.dynamic.has(id)){wreck.rig.release();this.wrecks.delete(id);}
     this.cars=cars.filter(c=>resident.has(c.object_id)&&!this.dynamic.has(c.object_id));
     void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
   }
@@ -213,6 +228,10 @@ export class ParkedCarVisuals {
       const layout=modelLayout(model),glass=this.geometries.get(`${model.id}/0/glass`);
       await skinToCageAsync(this.geometry(model,0),layout);if(glass)await skinToCageAsync(glass,layout,'glass');
       if(this.keepers.has(model.id))continue;
+      // LOD1 on the cage too: damaged parked cars keep their dents out to 105 m.
+      const lod1=this.geometries.get(`${model.id}/1`),glass1=this.geometries.get(`${model.id}/1/glass`);
+      if(lod1)await skinToCageAsync(lod1,layout);if(glass1)await skinToCageAsync(glass1,layout,'glass');
+      for(const lod of [0,1])await this.damagedBatch(model,lod,WRECK_CAPACITY);
       const keeper=this.actor(model,'silver',`keeper/${model.id}`);
       // Detached on purpose: the graphics queue prepares it even after the menu (render/graphicsPreparation.ts).
       keeper.userData.preparesDetached=true;
@@ -220,6 +239,52 @@ export class ParkedCarVisuals {
       await this.prepare(keeper);
     }
   }
+  /** The damaged batch of `model` at `lod` with room for `capacity` cars, prepared before it replaces a smaller one
+   *  (until then the extra wrecks draw in the plain batch). */
+  private async damagedBatch(model:FleetModel,lod:number,capacity:number) {
+    const key=`${model.id}/${lod}`,body=this.geometries.get(key);
+    if(!body?.getAttribute('skinIndex')||(this.damaged.get(key)?.mesh.instanceMatrix.count??0)>=capacity||this.growing.has(key))return;
+    this.growing.add(key);
+    try {
+      const mesh=new THREE.InstancedMesh(body,fleetDamageMaterial(),capacity);
+      mesh.name=`wrecks/${key}`;mesh.castShadow=lod===0;mesh.receiveShadow=true;mesh.userData.prepareHidden=true;
+      mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
+      const glassGeometry=this.geometries.get(`${key}/glass`);
+      const glass=glassGeometry?.getAttribute('skinIndex')?new THREE.InstancedMesh(glassGeometry,fleetGlassDamageMaterial(),capacity):undefined;
+      if(glass){glass.name=`wrecks-glass/${key}`;glass.instanceMatrix=mesh.instanceMatrix;glass.count=0;glass.receiveShadow=true;mesh.add(glass);}
+      const slots=damageBatch(mesh,modelLayout(model),glass);
+      await this.prepare(mesh);
+      if(this.disposed){glass?.dispose();mesh.dispose();return;}
+      const old=this.damaged.get(key);if(old){old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}
+      this.damaged.set(key,{mesh,glass,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true,slots});this.scene.add(mesh);
+    } finally { this.growing.delete(key); }
+  }
+  private disposed=false;
+  /** The cage pose and stand-ins of damaged car `id` (created on its first damaged frame). */
+  private wreck(id:string,model:FleetModel,color:string):Wreck|null {
+    let wreck=this.wrecks.get(id);
+    if(wreck?.model===model.id)return wreck;
+    wreck?.rig.release();
+    const body=this.geometries.get(`${model.id}/0`);
+    if(!body?.getAttribute('skinIndex'))return null;
+    const rig=new DamageRig(modelLayout(model)),proxy=new THREE.Mesh(body);proxy.matrixAutoUpdate=false;proxy.name=`wreck/${id}`;
+    paintActor(proxy,color);rig.bind(proxy);
+    const glass=this.geometries.get(`${model.id}/0/glass`);
+    if(glass?.getAttribute('skinIndex')){const window=new THREE.Mesh(glass);window.matrixAutoUpdate=false;proxy.add(window);rig.bind(window);}
+    wreck={rig,body:proxy,model:model.id};this.wrecks.set(id,wreck);return wreck;
+  }
+  /** Damaged cars drawn in batches (parked wrecks), for the developer console: their rigs and stand-in bodies. */
+  wreckBodies():{id:string;model:string;body:THREE.Mesh;rig:DamageRig}[] { return [...this.wrecks].map(([id,w])=>({id,...w})); }
+  /** Frame-cost bench (developer console): the `count` parked cars nearest `at` draw with damage state `wire` (visual
+   *  only: no physics or room state changes); count 0 ends it. Returns how many. */
+  benchWrecks(count:number,wire:string|null,at:{x:number;z:number}) {
+    this.bench.clear();
+    if(!count||!wire)return 0;
+    const near=[...this.cars].sort((a,b)=>Math.hypot(a.x-at.x,a.z-at.z)-Math.hypot(b.x-at.x,b.z-at.z)).slice(0,count);
+    for(const car of near)this.bench.set(car.object_id,wire);
+    return near.length;
+  }
+  private bench=new Map<string,string>();
   /** A car drawn on its own (the driven car, a remote player's car): body and glazing follow the model's damage cage
    *  (damageRig.ts), so a damage state from physics or the network shows on it (showFleetDamage). */
   private actor(model:FleetModel,color:string,name:string) {
@@ -245,6 +310,8 @@ export class ParkedCarVisuals {
    *  without it the car would stay drawn from its raw physics body (traffic/client.ts) until that load. */
   takeOver(id:string,record?:ParkedVehicle) {
     if(this.dynamic.has(id))return;
+    // A parked wreck driven away draws on its own from now on: its batch rig gives its slot back.
+    this.wrecks.get(id)?.rig.release();this.wrecks.delete(id);
     if(!this.definitions.has(id)&&record){const model=fleetModel(record.model,record.object_id,record);if(model)this.definitions.set(id,{model,color:record.color,size:record});}
     const def=this.definitions.get(id);if(!def)return;
     const model=this.resolve(def.model,id);
@@ -295,9 +362,25 @@ export class ParkedCarVisuals {
     if(d>320)return null;
     this.sphere.center.set(draw.pos.x,draw.pos.y,draw.pos.z);
     if(this.hasView&&d>30&&!this.frustum.intersectsSphere(this.sphere))return null;
-    const lod=d<42?0:d<105?1:2, group=this.groups.get(`${draw.model.id}/${lod}`);
+    const lod=d<42?0:d<105?1:2;
+    const matrix=this.transform(draw);
+    // A damaged car draws in its model's damaged batch while it holds a pool slot (within 105 m); its rig follows the
+    // state every frame it is drawn (loose parts swing) and its hubs move with the cage.
+    let group=this.groups.get(`${draw.model.id}/${lod}`),wreck:Wreck|null=null;
+    if(draw.damage){
+      wreck=this.wreck(draw.id,draw.model,draw.color);
+      if(wreck){
+        wreck.body.matrix.copy(matrix);wreck.body.matrixWorld.copy(matrix);wreck.rig.seenAt=performance.now();
+        wreck.rig.show(draw.damage);
+        const key=`${draw.model.id}/${lod}`,damaged=lod<2&&wreck.rig.slot?this.damaged.get(key):undefined;
+        if(damaged&&damaged.count<damaged.mesh.instanceMatrix.count)group=damaged;
+        else if(damaged)void this.damagedBatch(draw.model,lod,damaged.mesh.instanceMatrix.count*2).catch(error=>console.warn(`[fleet] wreck batch: ${error}`));
+        if(!wreck.rig.state.damaged)wreck=null;
+      }
+    }
     if(!group||group.count>=group.mesh.instanceMatrix.count)return null;
-    const matrix=this.transform(draw),offset=group.count*16,array=group.mesh.instanceMatrix.array;
+    if(group.slots&&group.slots.getX(group.count)!==wreck!.rig.slot){group.slots.setX(group.count,wreck!.rig.slot);group.slots.needsUpdate=true;}
+    const offset=group.count*16,array=group.mesh.instanceMatrix.array;
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
     if(changed){group.mesh.setMatrixAt(group.count,matrix);group.dirty=true;}
@@ -308,6 +391,7 @@ export class ParkedCarVisuals {
       if(index>=wheel.instanceMatrix.count)throw Error('Wheel design batch capacity exceeded');
       const state=draw.wheels?.[i],steer=state?.steer??(i<2?ackermann(draw.steer??0,draw.model.wheelbase,-side*(draw.model.width/2-.075)):0);
       this.hubPosition.set(design.pivot.x,(state||draw.wheelY)?((state?.pos.y??draw.wheelY![i])+CHASSIS_LIFT)/this.scale.y:design.pivot.y,design.pivot.z);
+      if(wreck){wreck.rig.offsetAt(design.pivot.x,design.pivot.y,design.pivot.z,this.hubOffset);this.hubPosition.x+=this.hubOffset.x;this.hubPosition.z+=this.hubOffset.z;}
       const spin=state?.rotation??draw.spin??0;
       // Rotate the shared outward rim to the opposite side. Reverse its local spin
       // so all four tyres still roll forward, with the parked spoke phase preserved.
@@ -326,12 +410,14 @@ export class ParkedCarVisuals {
   update(states:VehicleState[],rest?:ParkedRest) {
     const byId=new Map(states.map(s=>[s.id,s]));
     for(const b of this.groups.values()){b.count=0;b.dirty=false;}
+    for(const b of this.damaged.values()){b.count=0;b.dirty=false;}
     for(const b of this.wheelGroups.values()){b.count=0;b.dirty=false;}
     this.trafficSeatCount=0;
     for(const car of this.cars) {
-      const pose=byId.get(car.object_id)??rest?.restingPose(car); if(!pose)continue;
+      const state=byId.get(car.object_id),pose=state??rest?.restingPose(car); if(!pose)continue;
       const def=this.definitions.get(car.object_id)!;
-      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:byId.get(car.object_id)?.wheels??pose.wheels});
+      this.draw({id:car.object_id,...def,pos:pose.pos,rot:pose.rot,wheels:state?.wheels??pose.wheels,
+        damage:this.bench.get(car.object_id)??(state?state.damage:pose.damage)});
     }
     for(let i=0;i<this.traffic.length;i++) {
       const car=this.traffic[i], id=car.seed??`${car.model}/${i}`;
@@ -356,7 +442,7 @@ export class ParkedCarVisuals {
     }
     const liveMotion=new Set(this.traffic.map((c,i)=>c.seed??`${c.model}/${i}`));
     for(const id of this.wheelMotion.keys())if(!liveMotion.has(id))this.wheelMotion.delete(id);
-    for(const b of this.groups.values()) {
+    for(const b of [...this.groups.values(),...this.damaged.values()]) {
       const changedCount=b.mesh.count!==b.count;
       b.mesh.count=b.count;b.mesh.visible=b.count>0;
       if(b.glass)b.glass.count=b.count;
@@ -381,14 +467,16 @@ export class ParkedCarVisuals {
     }
   }
   dispose() {
-    for(const b of this.groups.values()){b.mesh.removeFromParent();b.glass?.dispose();b.mesh.dispose();}
+    this.disposed=true;
+    for(const b of [...this.groups.values(),...this.damaged.values()]){b.mesh.removeFromParent();b.glass?.dispose();b.mesh.dispose();}
+    for(const w of this.wrecks.values())w.rig.release();this.wrecks.clear();this.damaged.clear();
     for(const b of this.wheelGroups.values()){b.mesh.removeFromParent();b.mesh.dispose();}
     for(const actor of this.dynamic.values())actor.removeFromParent();
     this.designs.clear();this.authoredParts.clear();this.groups.clear();this.wheelGroups.clear();this.dynamic.clear();this.definitions.clear();this.wheelMotion.clear();
     for(const geometry of this.geometries.values())geometry.dispose();this.geometries.clear();
   }
   snapshot() {
-    const active=[...this.groups.values()].filter(b=>b.count),wheels=[...this.wheelGroups.values()].filter(b=>b.count);
+    const active=[...this.groups.values(),...this.damaged.values()].filter(b=>b.count),wheels=[...this.wheelGroups.values()].filter(b=>b.count);
     const triangles=(mesh:THREE.Mesh)=>(mesh.geometry.index?.count??mesh.geometry.getAttribute('position').count)/3;
     return {catalogue:FLEET.length,models:[...new Set(active.map(b=>b.model.id))],instances:active.reduce((s,b)=>s+b.count,0),draws:active.reduce((s,b)=>s+1+Number(!!b.glass),0)+wheels.length,
       lods:[0,1,2].map(lod=>active.filter(b=>b.lod===lod).reduce((s,b)=>s+b.count,0)),

@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { abs, attribute, clamp, cross, float, int, ivec2, max, normalGeometry, normalize, normalLocal, positionGeometry, positionLocal, positionPrevious, select, step, texture, textureLoad, uniform, vec2, vec3, vertexStage } from 'three/tsl';
+import { abs, attribute, clamp, cross, float, Fn, instancedBufferAttribute, int, ivec2, max, normalGeometry, normalize, normalLocal, positionGeometry, positionLocal, positionPrevious, select, step, texture, textureLoad, uniform, vec2, vec3, vertexStage } from 'three/tsl';
 import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, GLASS_STAGE, nodeIndex, PART_COUNT, PART_STATE, SURFACE_CELLS, SURFACE_SIZE, WINDOW_COUNT, WINDOWS, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
 import { PartPoses, partsOf, splitParts, splitWindows, windowsOf, type ModelParts, type PartInfo } from './damageParts';
@@ -143,19 +143,36 @@ export function damagePool() {
   return { slots: DAMAGE_SLOTS - 1, taken };
 }
 
-/** The pool layer of the drawn object's car (a per-object uniform); drawing it marks the car as seen. */
-const slotNode = () => int(uniform(0).onObjectUpdate(({ object }) => {
-  const rig = object && rigs.get(object);
-  if (!rig) return 0;
-  rig.seenAt = performance.now();
-  return rig.slot;
-}));
+/** Instanced batches of damaged cars (parked wrecks, fleet/visuals.ts): per instance its car's slot, and the model's
+ *  cage (every instance of a batch is one model). */
+const batches = new WeakMap<THREE.Object3D, { slots: THREE.InstancedBufferAttribute; layout: DamageLayout }>();
+/** Makes `mesh` (and its glazing, sharing its instances) a batch of damaged cars of the model with cage `layout`:
+ *  the returned attribute holds each instance's slot, written by the caller (who marks its cars seen). */
+export function damageBatch(mesh: THREE.InstancedMesh, layout: DamageLayout, glass?: THREE.InstancedMesh): THREE.InstancedBufferAttribute {
+  const slots = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count), 1);
+  batches.set(mesh, { slots, layout });
+  if (glass) batches.set(glass, { slots, layout });
+  return slots;
+}
+const layoutOf = (object: THREE.Object3D | null | undefined) => object ? rigs.get(object)?.layout ?? batches.get(object)?.layout : undefined;
+/** The pool layer of the drawn car: an instanced batch's per-instance slot, else a per-object uniform, whose update
+ *  marks the car as seen. Node graphs build per object (like the fleet paint, parkedPaint.ts). */
+const slotNode = Fn((builder: NodeBuilder) => {
+  const batch = batches.get(builder.object);
+  // +0.5: a fragment-stage read is interpolated, and the value is the same at every corner.
+  if (batch) return int((instancedBufferAttribute(batch.slots, 'float') as unknown as Node<'float'>).add(.5));
+  return int(uniform(0).onObjectUpdate(({ object }) => {
+    const rig = object && rigs.get(object);
+    if (!rig) return 0;
+    rig.seenAt = performance.now();
+    return rig.slot;
+  }));
+}) as unknown as () => Node<'int'>;
 /** The surface wear and dirt under a fragment of a damage-capable body (vehicle/damage.ts surfaceCell, evaluated
  *  per pixel from the rest position and normal so the faces meet cleanly): x wear, y dirt, 0..1. */
 export function surfaceMask(): Node<'vec2'> {
-  const rig = (object: THREE.Object3D | null | undefined) => object ? rigs.get(object) : undefined;
-  const low = uniform(new THREE.Vector3()).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.min[0], l.min[1], l.min[2]) : self.value; });
-  const size = uniform(new THREE.Vector3(1, 1, 1)).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.width, l.height, l.length) : self.value; });
+  const low = uniform(new THREE.Vector3()).onObjectUpdate(({ object }, self) => { const l = layoutOf(object); return l ? self.value.set(l.min[0], l.min[1], l.min[2]) : self.value; });
+  const size = uniform(new THREE.Vector3(1, 1, 1)).onObjectUpdate(({ object }, self) => { const l = layoutOf(object); return l ? self.value.set(l.width, l.height, l.length) : self.value; });
   const slot = slotNode();
   const q = clamp(positionGeometry.sub(low).div(size), 0, .999), n = normalGeometry, ax = abs(n.x), ay = n.y, az = abs(n.z);
   const side = ax.greaterThanEqual(max(ay, az)).or(ay.lessThan(-.5)), top = ay.greaterThan(max(ax, az));

@@ -1,5 +1,6 @@
 import './fleet-assets.fixture';
 import { describe, expect, test } from 'vitest';
+import * as THREE from 'three/webgpu';
 import { FLEET, FLEET_BY_ID, fleetDamageBox, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 import { modelLayout, skinToCage } from '../../src/actors/fleet/damageRig';
@@ -136,5 +137,37 @@ describe('parked and driven fleet cars take damage; another player\'s car leaves
     expect(physics.spawnVehicle).toHaveBeenCalledWith(expect.anything(), expect.any(Number),
       expect.objectContaining({ damage: { box: fleetDamageBox(passat) } }));
     expect(physics.setVehicleDamage).toHaveBeenCalledWith(expect.any(String), wire);
+  });
+});
+
+describe('damaged parked cars draw in their model\'s damaged batch (actors/fleet/visuals.ts)', () => {
+  test('a wreck moves from the plain batch to the damaged one with its slot; its hubs follow the cage; fresh again, back', async () => {
+    const { ParkedCarVisuals } = await import('../../src/actors/car');
+    const { draftManifest } = await import('../../src/world/manifest');
+    const { instancePaintOf } = await import('../../src/actors/parkedPaint');
+    const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
+    const car = (object_id: string, x: number) => ({ object_id, model: 'corolla-e180', color: 'red', x, y: 2, z: 5, yaw: 0, width: 1.85, length: 4.62, height: 1.47, clear_front_m: 10, clear_rear_m: 10 });
+    manifest.vehicles = [car('a', 10), car('b', 20)];
+    await visuals.load(manifest);
+    for (let i = 0; i < 400 && !scene.getObjectByName('wrecks/corolla-e180/1'); i++) await new Promise(r => setTimeout(r, 10));
+    const corolla = FLEET_BY_ID.get('corolla-e180')!, state = new DamageState(modelLayout(corolla));
+    applyHit(state, { dv: [0, 0, -80 / 3.6] });
+    const wire = encodeDamage(state), at = (x: number) => ({ pos: { x, y: 2.75, z: 5 }, rot: { x: 0, y: 0, z: 0, w: 1 } });
+    const states = (damage?: string) => [{ id: 'a', ...at(10), ...(damage ? { damage } : {}) }, { id: 'b', ...at(20) }] as never;
+    visuals.update(states(wire));
+    const plain = scene.getObjectByName('parked/corolla-e180/0') as THREE.InstancedMesh, wrecks = scene.getObjectByName('wrecks/corolla-e180/0') as THREE.InstancedMesh;
+    expect(wrecks.count).toBe(1); expect(plain.count).toBe(1);
+    expect(wrecks.geometry).toBe(plain.geometry);
+    const m = new THREE.Matrix4(); wrecks.getMatrixAt(0, m);
+    expect(new THREE.Vector3().setFromMatrixPosition(m).x).toBe(10);
+    expect(Array.from(instancePaintOf(wrecks)!.array.slice(0, 3)).every(v => v > 0)).toBe(true);
+    // The front hubs moved back with the crushed front (an 80 km/h head-on); a fresh car's stay at their pivots.
+    const wheels = scene.children.filter(o => o.name.startsWith('wheels/') && (o as THREE.InstancedMesh).count) as THREE.InstancedMesh[];
+    const hubs = wheels.flatMap(w => Array.from({ length: w.count }, (_, i) => { w.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m); }));
+    const front = (x: number) => Math.max(...hubs.filter(h => Math.abs(h.x - x) < 3).map(h => h.x));
+    expect(front(20) - front(10)).toBeGreaterThan(10 + .05);
+    visuals.update(states());
+    expect(wrecks.count).toBe(0); expect(plain.count).toBe(2);
+    visuals.dispose();
   });
 });
