@@ -59,6 +59,7 @@ async function shots(page, label, client = 'a', remote = false) {
  *  within 0.5 m of the start. The longest such run-up wins (up to 125 m, enough for 80 km/h). */
 const findWall = page => page.evaluate(async () => {
   const g = window.__game, physics = g.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
+  const cars = g.damage.remotes().map(r => r.position);
   const ray = (o, d, max, filter = 'solid') => physics.raycast(o, d, max, filter);
   let best = null;
   const starts = [[0, 0]];
@@ -82,6 +83,10 @@ const findWall = page => page.evaluate(async () => {
       for (let t = 4; clear && t < hit.toi - 2; t += 4) for (const k of [-.85, 0, .85]) {
         const at = await ray({ x: o.x + d.x * t + side.x * k, y: y + 3, z: o.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 8);
         if (!at || Math.abs(at.point.y - ground.point.y) > .5) { clear = false; break; }
+      }
+      for (const r of cars) {
+        const along = (r[0] - o.x) * d.x + (r[2] - o.z) * d.z, across = (r[0] - o.x) * side.x + (r[2] - o.z) * side.z;
+        if (Math.abs(across) < 3 && along > -6 && along < hit.toi + 3) clear = false;
       }
       if (clear) best = { x: o.x, y: ground.point.y, z: o.z, yaw, deg: Math.round(yaw * 180 / Math.PI), distance: hit.toi, wall: hit.point, tile: hit.tile };
     }
@@ -129,6 +134,7 @@ const bounds = page => page.evaluate(() => ({ bounds: window.__game.damage.bound
  *  (normal y > 0.99). The longest usable corridor wins, up to 230 m. */
 const findStraight = page => page.evaluate(async () => {
   const physics = window.__game.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
+  const cars = window.__game.damage.remotes().map(r => r.position);
   const ray = (o, d, max) => physics.raycast(o, d, max, 'solid');
   let best = null;
   const starts = [[0, 0]];
@@ -156,6 +162,11 @@ const findStraight = page => page.evaluate(async () => {
         }
         if (!ok) break;
         usable = t;
+      }
+      // Other players' cars (parked shared records too) are not in the 'solid' rays: the corridor ends 6 m before one.
+      for (const r of cars) {
+        const along = (r[0] - ground.point.x) * d.x + (r[2] - ground.point.z) * d.z, across = (r[0] - ground.point.x) * side.x + (r[2] - ground.point.z) * side.z;
+        if (Math.abs(across) < 3 && along > -6) usable = Math.min(usable, along - 6);
       }
       if (usable > (best?.length ?? 120)) best = { x: ground.point.x, y: ground.point.y, z: ground.point.z, yaw, deg, length: usable };
     }
@@ -334,6 +345,8 @@ try {
     report.framesDamaged = await frames(page);
   }
   if (mode === 'handling') {
+    report.home = await page.evaluate(() => { const v = window.__game.physics.latest.vehicles.find(v => v.id === 'player');
+      return { pos: { ...v.pos, y: v.pos.y + .2 }, yaw: Math.atan2(2 * (v.rot.w * v.rot.y + v.rot.x * v.rot.z), 1 - 2 * (v.rot.y * v.rot.y + v.rot.z * v.rot.z)) }; });
     // Both searches on foot: a parked car holds its brake, a driven one with no pedal pressed rolls on a slope.
     const wall = report.wall = await findWall(page);
     log('wall', wall ?? {});
@@ -371,6 +384,9 @@ try {
     const mean = (label, key) => { const r = report.handling.filter(h => h.label === label).map(h => h[key]).filter(Number.isFinite); return r.length ? +(r.reduce((a, b) => a + b, 0) / r.length).toFixed(3) : null; };
     report.summary = ['fresh', 'after 50', 'after 75'].map(label => ({ label, ...Object.fromEntries(['t50', 't80', 'v100', 'vmax', 'pullDegPerS', 'pullSideways', 'reverseDeg'].map(k => [k, mean(label, k)])) }));
     log('summary', { summary: report.summary });
+    // The room keeps this client's car after it leaves: park it back where it started, off the test corridors.
+    await page.evaluate(p => window.__game.physics.resetVehicle(p.pos, p.yaw, 'player'), report.home);
+    await page.waitForTimeout(1500);
   }
   if (mode === 'mpsmoke') {
     await page.evaluate(() => window.__game.enterVehicle('player'));
