@@ -1366,6 +1366,9 @@ class Farm:
         caches were reclaimed only with no build running, so a long train held the disk under keep_free)."""
         now = time.time()
         horizon = min(now - self.grace_seconds, oldest_build if oldest_build is not None else now)
+        # statvfs lags unlinks on a busy ZFS pool: the first round on 2026-11-06 deleted 47 GB for a 13 GB
+        # deficit. Count what each deletion releases (blocks of files with no other link) and stop on that.
+        deficit, released = target - self.free(), 0
         held = open_or_mapped(raw)
         entries = []
         for kind, path, lock in self.raw_entries(raw):
@@ -1388,17 +1391,19 @@ class Farm:
                             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                         except BlockingIOError:
                             continue
+                    files = [p.lstat() for p in path.rglob('*') if p.is_file()] if path.is_dir() else [path.lstat()]
+                    size = sum(f.st_size for f in files)
+                    disk = sum(max(f.st_blocks * 512, f.st_size) for f in files if f.st_nlink == 1)
                     if path.is_dir():
-                        size = sum(p.stat().st_size for p in path.rglob('*') if p.is_file())
                         shutil.rmtree(path)
                     else:
-                        size = path.stat().st_size
                         path.unlink()
             except FileNotFoundError:
                 continue
+            released += disk
             self.metrics['evicted_bytes'] += size
             self.event('raw-entry-evicted', cache=kind, path=str(path.relative_to(raw)), bytes=size)
-            if self.free() >= target:
+            if released >= deficit or self.free() >= target:
                 return True
         return False
 
