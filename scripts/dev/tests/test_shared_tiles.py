@@ -511,7 +511,7 @@ class FarmTests(unittest.TestCase):
         self.assertFalse(crown.exists() or crop.exists() or vegetation.exists())
         self.assertTrue(during.exists() and roof.exists() and source.exists())
         events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
-        self.assertEqual([e['kind'] for e in events if e['event'] == 'raw-entry-evicted'],
+        self.assertEqual([e['cache'] for e in events if e['event'] == 'raw-entry-evicted'],
                          ['crown-canopy', 'lidar-crop', 'vegetation'])
         build.stdin.close()
         build.wait(5)

@@ -1397,7 +1397,7 @@ class Farm:
             except FileNotFoundError:
                 continue
             self.metrics['evicted_bytes'] += size
-            self.event('raw-entry-evicted', kind=kind, path=str(path.relative_to(raw)), bytes=size)
+            self.event('raw-entry-evicted', cache=kind, path=str(path.relative_to(raw)), bytes=size)
             if self.free() >= target:
                 return True
         return False
