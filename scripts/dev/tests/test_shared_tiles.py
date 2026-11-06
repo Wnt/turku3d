@@ -583,7 +583,7 @@ class FarmTests(unittest.TestCase):
             return link(source, target, *args, **kw)
 
         with mock.patch.object(farm_module.os, 'link', across):
-            free[0] = 59 * farm_module.GIB  # under keep_free: a copy would deepen the shortage
+            free[0] = farm.keep_free - farm_module.GIB  # under keep_free: a copy would deepen the shortage
             self.assertEqual(farm.seed_intermediates(), 0)
             shared = farm.intermediate_roots(repo)['vegetation'] / 'content.npz'
             self.assertFalse(shared.exists())

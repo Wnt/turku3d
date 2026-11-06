@@ -59,6 +59,9 @@ PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicl
           'lights', 'vehicle_models', 'buildingPlacements', 'generation',
           'migrations', 'migration_base')
 GIB = 2**30
+# Free space housekeeping keeps on this disk. At 60 GiB a train evicted ~1.2 GB of decoded LiDAR a minute that
+# builds decoded again (2026-11-06); 45 GiB keeps most of that working set. The disk watchdog uses the same line.
+KEEP_FREE_GIB = 45
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
 BUILD_SECONDS = 7200  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min, over 60 with 8 builds
                       # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
@@ -171,7 +174,7 @@ MIGRATION_WORKERS = 2
 
 class Farm:
     def __init__(self, root, runner, *, workers=2, queue_limit=128, floor_gib=10,
-                 reserve_gib=1, keep_free_gib=60, grace_seconds=900, execute=None, free=None, stop=None,
+                 reserve_gib=1, keep_free_gib=KEEP_FREE_GIB, grace_seconds=900, execute=None, free=None, stop=None,
                  migrate=None, navigate=None):
         self.root, self.runner = Path(root).resolve(), Path(runner).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
