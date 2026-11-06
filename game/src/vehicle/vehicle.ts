@@ -33,7 +33,7 @@ export const CRASH_STEP_DV = 1, CRASH_STEPS = 18;
 /** Scrapes (Vehicle.trackScrape): contacts sliding faster than `minSpeed` (m/s) wear the paint `wearPerMetre` per metre
  *  of sliding within `radius` (m) of the point (a 10 m scrape along a wall goes through to bare metal), and leave dirt
  *  from the ground or grime from walls; a new wire at most every `commitSteps` solver steps. */
-export const SCRAPE = { minSpeed: 1.5, radius: .3, wearPerMetre: .06, dirtPerMetre: .1, grimePerMetre: .01, commitSteps: 30 } as const;
+export const SCRAPE = { minSpeed: 1.5, radius: .3, wearPerMetre: .06, dirtPerMetre: .2, grimePerMetre: .01, commitSteps: 30 } as const;
 
 export class Vehicle {
   lights: 0 | 1 | 2 = 0;

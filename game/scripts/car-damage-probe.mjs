@@ -621,7 +621,8 @@ try {
     report.scraped = await surface(page);
     log('scraped', report.scraped);
     await closeShots(page, 'scraped', 'a', false, views);
-    if (!(report.scraped.maxWear > .8) || !(report.scraped.maxDirt > .3)) report.errors.push(`scrape too light: ${JSON.stringify(report.scraped)}`);
+    // 12 m of sliding at 0.06 per metre; 6 m on the ground at 0.2 dirt per metre (vehicle.ts SCRAPE).
+    if (!(report.scraped.maxWear > .6) || !(report.scraped.maxDirt > .3)) report.errors.push(`scrape too light: ${JSON.stringify(report.scraped)}`);
     const b = await open('b', await browser.newContext());
     const hits = await page.evaluate(() => window.__game.damage.state().hits);
     const started = Date.now();

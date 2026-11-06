@@ -28,7 +28,7 @@ function wornPaint(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysical
   const row = floor(p.y.add(p.x.mul(.3)).mul(200)), streak = hash(vec2(floor(p.z.mul(2.5).add(hash(vec2(row, 3.1)).mul(4))), row));
   const blot = hash(floor(vec2(p.z.mul(12).add(p.x.mul(5)), p.y.mul(12).add(p.x.mul(9))))), blot2 = hash(floor(vec2(p.z.mul(7), p.y.mul(7).add(p.x.mul(7)))).add(7.1));
   const scratches = step(float(1).sub(wear.mul(.85)), streak).mul(step(.03, wear)).mul(paint);
-  const loss = smoothstep(.5, .8, wear.add(blot.sub(.5).mul(.4))).mul(paint), grime = dirt.mul(smoothstep(.2, .7, blot2));
+  const loss = smoothstep(.5, .8, wear.add(blot.sub(.5).mul(.4))).mul(paint), grime = dirt.mul(1.8).min(1).mul(smoothstep(.15, .6, blot2));
   const color = material.colorNode as Node<'vec3'>, roughness = material.roughnessNode as Node<'float'>, metalness = material.metalnessNode as Node<'float'>;
   const clearcoat = material.clearcoatNode as Node<'float'>;
   material.colorNode = mix(mix(mix(color, vec3(.8, .8, .78), scratches.mul(.65)), vec3(.47, .48, .5), loss), vec3(.2, .17, .13), grime.mul(.85));

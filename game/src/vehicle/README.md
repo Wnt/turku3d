@@ -509,6 +509,17 @@ debris; a part that is off stays off (there is no repair).
   already off (a remote car coming into view, a loaded save) just lacks them.
 - **Wire** version 3: per part its state and free end (one byte) and its load (uint16).
 
+Measured on city.lab (2026-11-06, headless Chrome on the M1 Air, `car-damage-probe.mjs parts`, build 37f0b4ff):
+three 62 km/h hits on the front-left corner, a 32 km/h knock at the left mirror and an 82 km/h rear hit leave the
+front and rear bumpers, the boot lid and the left mirror loose; a square 70 km/h front hit then tears the front
+bumper off and pops the bonnet, a 40 km/h side hit the mirror (two debris pieces on the ground, gone 60 s later). A
+second client draws the same part states within 0.7 s, spawns no debris for parts already off when it first sees the
+car, and spawns its own rear bumper debris when a later 70 km/h rear hit tears it off. Frame cost (`partsperf`, perf
+lease, build 394c3247, fixed camera, 20 bench cars, four alternating rounds): GPU p50 14.0 / 13.0 / 13.1 ms and CPU
+p50 20.2 / 20.6 / 20.6 ms for plain fleet cars / crumpled damage-capable cars / wrecks with four loose swinging
+parts, three broken windows and worn, dirty paint each; the per-round differences stay within the ±2 ms run-to-run
+noise and the draw counts match (836-957 per frame).
+
 ## Glass (the starter car)
 
 - **Windows** (`damageParts.ts splitWindows`): glazing pieces above 62 % of the height (lower ones are lamp covers,
@@ -528,6 +539,11 @@ debris; a part that is off stays off (there is no repair).
   plane, 25 s on the ground then fading).
 - **Wire** version 4: per window its stage and load.
 
+Measured on city.lab (`glass`, build 394c3247): the front-left door window cracks at a 21 km/h side knock, crazes at
+a further 25 and shatters at 30 (36 shards); a 28 km/h roof landing crazes the windscreen and cracks the rear and
+the other side windows; an 80 km/h head-on crash changes no glass. A second client draws the same six stages within
+0.8 s and throws its own 36 shards when the owner's front-right window shatters later.
+
 ## Surface wear (the starter car)
 
 - **Cells** (`damage.ts surfaceCell`): a 16 x 16 unwrap of the damage box: the sides 16 along x 4 up, the roof 16 x 6,
@@ -535,7 +551,7 @@ debris; a part that is off stays off (there is no repair).
 - **Painted** by hits (`surfaceHit`: from 12 km/h, bare metal from about 50, over the footprint; a wall the whole face
   at bumper height; a roof hit all of the roof with dirt) and by scrapes (`vehicle.ts trackScrape`, every third step:
   each chassis contact sliding faster than 1.5 m/s wears 0.06 per metre within 0.3 m of the point on the face it lies
-  on; ground under a car on its side or roof adds 0.1 dirt per metre, walls 0.01 grime). Scrapes commit a new wire at
+  on; ground under a car on its side or roof adds 0.2 dirt per metre, walls 0.01 grime). Scrapes commit a new wire at
   most every half second (a 2 s slide along a wall: a handful of updates). A scrape alone marks the car damaged.
 - **Drawing** (`damageRig.ts surfaceMask`, `material.ts wornPaint`): one 16 x 512 RGBA8 atlas (32 slots, 32 KB,
   bilinear), uploaded on change; the body's fragment stage picks the face from the rest normal and samples its cell,
@@ -543,6 +559,11 @@ debris; a part that is off stays off (there is no repair).
   hashes of the rest position (the detail stays on the panel as it dents). Scratches and bare metal only on paint.
 - **Wire** version 5: per cell one byte (wear and dirt in 15ths); 516 bytes, 688 base64 characters (the server's
   bound is 1024).
+
+Measured on city.lab (`surface`, build 9e306c10): a 25 km/h door knock and a 50 km/h corner hit scuff 11 cells (up to
+0.4); a 12 m scrape along the left side and a 6 m roof slide on the ground bring 44 cells to wear up to 0.73 and 28
+to dirt up to 0.2 (scratch streaks and bare patches along the side). A second client draws the same 44 worn cells
+within 0.4 s.
 
 ## Damage sounds
 
@@ -552,7 +573,9 @@ panel), `scrape` (grinding loop), `glass-break` (a crack and a shower of high pi
 play a positional crunch scaled by the per-hit speed change (from the state's energy; 0 at 12 km/h, full at 80) and a
 glass break; the driven car's continuous mix (`audio/mix.ts damageLoops`, at MIX_HZ) grinds while its body slides along
 something (`VehicleState.scrape`, m/s), rattles with its loose parts and speed, and hisses while the radiator steams.
-The loops start on first use only. Remote cars get the one-shots, not the loops.
+The loops start on first use only. Remote cars get the one-shots, not the loops. On city.lab (`sounds`, build
+9e306c10): five damaging hits play five crunches, a shattered side window one glass break, and driving off with a
+loose bonnet and mirror and a steaming radiator runs the rattle and hiss loops.
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-parts.test.ts tests/unit/audio.test.ts
