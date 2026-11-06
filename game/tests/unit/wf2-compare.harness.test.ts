@@ -586,6 +586,19 @@ function drivability(kind: RigKind): Check[] {
     checks.push({ name: 'handbrake turn at 50 km/h (full stick + handbrake 0.7 s, then hands off)', value: `turned ${f(deg(turned), 0)}°, peak sideslip ${f(beta, 0)}°, end sideslip ${f(sideslip(end), 1)}° at ${f(end.speed * 3.6, 0)} km/h`, ok: Math.abs(sideslip(end)) < 10 || end.speed < 1 });
     rig.writeCsv('handbrake-50'); rig.free();
   }
+  // Half stick held with a speed hold that floods the throttle as the car scrubs: on tarmac, soil and grass.
+  for (const [label, mat] of [['tarmac', null], ['soil', MAT.soil], ['grass', MAT.grass]] as const) for (const kmh of [35, 45]) {
+    const was = GROUND; GROUND = mat;
+    const rig = new Rig(kind), pi = new SpeedPI();
+    GROUND = was;
+    rig.run(1, idle);
+    rig.run(12, () => ({ throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), brake: 0, steer: pursue(rig, () => 0), handbrake: false }));
+    const k = rig.log.length;
+    rig.run(4, () => ({ throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), brake: 0, steer: -0.5, handbrake: false }));
+    const S = rig.log.slice(k), beta = Math.max(...S.map(s => Math.abs(sideslip(s)))), end = S.at(-1)!;
+    checks.push({ name: `half stick and speed hold on ${label} at ${kmh} km/h`, value: `peak sideslip ${f(beta, 1)}°, end ${f(end.speed * 3.6, 0)} km/h, ${f(end.ay / G, 2)} g`, ok: beta < 20 });
+    rig.free();
+  }
   for (const slope of [0, 0.1]) {
     const rig = new Rig(kind, slope), body = rig.car.body;
     // Settle parked (no driver: half the brakes, vehicle/handling.ts); a held brake pedal would reverse at rest.

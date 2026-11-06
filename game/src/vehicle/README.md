@@ -109,7 +109,9 @@ the tyre forces after the raycast, as impulses on the chassis:
   60 % of the force on the front axle; anti-lock caps each wheel at 95 % of its peak, which it reaches at about two
   thirds pressure, so the deceleration reaches 90 % in 0.15-0.18 s (Wreckfest 2: 0.16-0.19 s).
 - **Stability control** (`tuning.stability`, Wreckfest's "half" assist): once the rear axle's relaxed slip angle
-  exceeds the front's by 2°, it cuts the drive and brakes the outside front wheel, up to 60 % at 8°.
+  exceeds the front's by 2°, or the body slides tail-out against its yaw by 8° (all four tyres past their peak, as on
+  soil or grass with the throttle floored), it cuts the drive and brakes the outside front wheel, up to 60 % at 8°
+  of excess or 16° of sideslip. Without the sideslip trigger a half-stick turn at 45 km/h on soil spun the car.
 - **Fleet** (`slipCurveHandling`, from each model's spec): the same tyres, steering, keyboard slew, assists and
   brake build-up; centre of mass at 0.375 × the body height (the starter's 0.52 m of 1.385 m) capped at track / 2.6
   (static stability factor 1.3: no rollover on the tyres' grip); ride 1.75 × (1351 kg / mass)^0.15 Hz (0.7-1.05 ×;

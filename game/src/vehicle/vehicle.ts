@@ -456,7 +456,12 @@ export class Vehicle {
       return on.length ? on.reduce((a, i) => a + Math.abs(lag[i]), 0) / on.length : 0; };
     const rear = t.wheels.map((_, i) => i).filter(i => !t.front.includes(i));
     const excess = (mean(rear) - mean([...t.front])) * 180 / Math.PI;
-    const u = s.max * Math.min(1, Math.max(0, (excess - s.onset) / (s.full - s.onset)));
+    // The whole car sliding tail-out (all four tyres past their peak, as on a loose surface under power): the body's
+    // sideslip against its yaw, from `sideslip` to twice it.
+    const b = this.body, q = b.rotation(), lv = b.linvel(), f = rotate({ x: 1, y: 0, z: 0 }, q), l = rotate({ x: 0, y: 0, z: -1 }, q);
+    const along = lv.x * f.x + lv.y * f.y + lv.z * f.z, across = lv.x * l.x + lv.y * l.y + lv.z * l.z, yaw = b.angvel().y;
+    const beta = Math.abs(along) > 3 && across * yaw < 0 ? Math.abs(Math.atan2(across, Math.abs(along))) * 180 / Math.PI : 0;
+    const u = s.max * Math.min(1, Math.max(0, (excess - s.onset) / (s.full - s.onset), (beta - s.sideslip) / s.sideslip));
     if (u <= 0) return { cut: 0, brake: 0, wheel: -1 };
     // Yawing left (+y), the outside is the right (+z) front wheel.
     const left = this.body.angvel().y > 0, wheel = [...t.front].sort((p, q) => t.wheels[p].z - t.wheels[q].z)[left ? t.front.length - 1 : 0];
