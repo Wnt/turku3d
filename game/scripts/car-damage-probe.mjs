@@ -354,10 +354,11 @@ try {
     report.home = await page.evaluate(() => { const v = window.__game.physics.latest.vehicles.find(v => v.id === 'player');
       return { pos: { ...v.pos, y: v.pos.y + .2 }, yaw: Math.atan2(2 * (v.rot.w * v.rot.y + v.rot.x * v.rot.z), 1 - 2 * (v.rot.y * v.rot.y + v.rot.z * v.rot.z)) }; });
     // Both searches on foot: a parked car holds its brake, a driven one with no pedal pressed rolls on a slope.
-    const wall = report.wall = await findWall(page);
+    // PROBE_WALL / PROBE_STRAIGHT (JSON as logged) reuse a known spot, so runs on different builds compare directly.
+    const wall = report.wall = process.env.PROBE_WALL ? JSON.parse(process.env.PROBE_WALL) : await findWall(page);
     log('wall', wall ?? {});
     if (!wall) throw new Error('no square wall with a clear run-up near the start');
-    const straight = report.straight = await findStraight(page);
+    const straight = report.straight = process.env.PROBE_STRAIGHT ? JSON.parse(process.env.PROBE_STRAIGHT) : await findStraight(page);
     log('straight', straight ?? {});
     if (!straight) throw new Error('no flat clear straight near the start');
     await page.evaluate(() => window.__game.enterVehicle('player'));
