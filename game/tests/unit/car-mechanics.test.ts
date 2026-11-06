@@ -251,7 +251,9 @@ describe('effects', () => {
     const draws = fx.root.children.length, rot = { x: 0, y: 0, z: 0, w: 1 }, pos = { x: 10, y: 1, z: 5 };
     const opacity = smoke.geometry.getAttribute('tyreOpacity'), shade = smoke.geometry.getAttribute('tyreShade');
     const lit = () => Array.from({ length: opacity.count }, (_, i) => i).filter(i => opacity.getX(i) > 0);
-    for (let i = 0; i < 30; i++) { fx.begin(1 / 30); fx.engineBay(0, pos, rot, .35, 0, 1 / 30); fx.end(camera); }
+    // A busy room takes every tyre slot (a slot per remote car); venting needs none.
+    while (fx.reserve() >= 0) { /* take them all */ }
+    for (let i = 0; i < 30; i++) { fx.begin(1 / 30); fx.engineBay('remote:a', pos, rot, .35, 0, 1 / 30); fx.end(camera); }
     const steam = lit();
     expect(steam.length).toBeGreaterThan(3);
     expect(steam.every(i => shade.getX(i) > 1)).toBe(true);
@@ -259,9 +261,9 @@ describe('effects', () => {
     smoke.getMatrixAt(steam[0], m); p.setFromMatrixPosition(m);
     // Above the bonnet front, 1.45 m ahead of the chassis centre (+X forward).
     expect(p.x).toBeGreaterThan(11.4); expect(p.y).toBeGreaterThan(1.3);
-    for (let i = 0; i < 60; i++) { fx.begin(1 / 30); fx.engineBay(0, pos, rot, 0, .8, 1 / 30); fx.end(camera); }
+    for (let i = 0; i < 60; i++) { fx.begin(1 / 30); fx.engineBay('local', pos, rot, 0, .8, 1 / 30); fx.end(camera); }
     expect(lit().some(i => shade.getX(i) < .5)).toBe(true);
-    for (let i = 0; i < 120; i++) { fx.begin(1 / 30); fx.engineBay(0, pos, rot, 0, 0, 1 / 30); fx.end(camera); }
+    for (let i = 0; i < 120; i++) { fx.begin(1 / 30); fx.engineBay('local', pos, rot, 0, 0, 1 / 30); fx.end(camera); }
     expect(lit()).toHaveLength(0);
     expect(fx.root.children.length).toBe(draws);
     fx.dispose();

@@ -886,7 +886,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       if (vehicle) {
         tyreEffects.vehicle(0, vehicle.pos, vehicle.rot, vehicle.wheels, vehicle.kind ?? 'car', effectsDt, vehicle.speed);
         const bay = mechanicsOf(vehicle.damage);
-        tyreEffects.engineBay(0, vehicle.pos, vehicle.rot, bay.steam, bay.smoke, effectsDt);
+        tyreEffects.engineBay('local', vehicle.pos, vehicle.rot, bay.steam, bay.smoke, effectsDt);
       }
     }
     seated.update(dt, latestOf, mode === 'car' ? drivenId : null, player);

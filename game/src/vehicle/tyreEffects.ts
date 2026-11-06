@@ -32,8 +32,9 @@ export class TyreEffects {
   private readonly opacity = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLES), 1).setUsage(THREE.DynamicDrawUsage);
   private readonly shade = new THREE.InstancedBufferAttribute(new Float32Array(PARTICLES).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
   private shadeDirty = false;
-  /** Fractional steam and smoke emissions per effect slot (0 the local car, then the reserved remote slots). */
-  private readonly bay = new Float32Array(33 * 2);
+  /** Fractional steam and smoke emissions per venting car (by id, apart from the tyre slots, which a busy room can
+   *  use up); a car not vented in a frame is dropped. */
+  private readonly bays = new Map<string, { steam: number; smoke: number; seen: boolean }>();
   private readonly smoke: THREE.InstancedMesh;
   private readonly track = new Float64Array(TRACKS * 9);
   private readonly active = new Uint8Array(TRACKS);
@@ -109,7 +110,6 @@ export class TyreEffects {
     for (let i = slot * 4; i < (slot + 1) * 4; i++) this.slip.reset(i);
     this.active.fill(0, slot * 4, (slot + 1) * 4);
     this.emission.fill(0, slot * 4, (slot + 1) * 4);
-    this.bay.fill(0, slot * 2, slot * 2 + 2);
   }
   begin(dt: number) {
     this.elapsed += dt;
@@ -165,17 +165,18 @@ export class TyreEffects {
 
   /** A damaged car's engine bay (vehicle/mechanics.ts `steam` and `smoke`, 0..1) vents at ENGINE_BAY of the chassis
    *  pose `pos`/`rot` while its engine runs: white steam from a leaking radiator, dark smoke from a damaged engine. */
-  engineBay(slot: number, pos: V3, rot: Quat, steam: number, smoke: number, dt: number) {
-    if (slot < 0 || slot >= 33 || (steam <= 0 && smoke <= 0)) return;
+  engineBay(id: string, pos: V3, rot: Quat, steam: number, smoke: number, dt: number) {
+    if (steam <= 0 && smoke <= 0) return;
+    let bay = this.bays.get(id);
+    if (!bay) { bay = { steam: 0, smoke: 0, seen: true }; this.bays.set(id, bay); }
+    bay.seen = true;
     this.rotation.set(rot.x, rot.y, rot.z, rot.w);
     this.point.set(ENGINE_BAY.x, ENGINE_BAY.y, ENGINE_BAY.z).applyQuaternion(this.rotation);
     this.point.x += pos.x; this.point.y += pos.y; this.point.z += pos.z;
-    for (let kind = 1; kind <= 2; kind++) {
-      const amount = kind === 1 ? steam : smoke, k = slot * 2 + kind - 1;
-      if (amount <= 0) { this.bay[k] = 0; continue; }
-      this.bay[k] = Math.min(4, this.bay[k] + dt * this.density * .9 * amount);
-      while (this.bay[k] >= 1) { this.bay[k] -= 1; this.emit(amount, kind, 0); }
-    }
+    bay.steam = steam > 0 ? Math.min(4, bay.steam + dt * this.density * .9 * steam) : 0;
+    bay.smoke = smoke > 0 ? Math.min(4, bay.smoke + dt * this.density * .9 * smoke) : 0;
+    while (bay.steam >= 1) { bay.steam -= 1; this.emit(steam, 1, 0); }
+    while (bay.smoke >= 1) { bay.smoke -= 1; this.emit(smoke, 2, 0); }
   }
 
   private setTrack(k: number, lx: number, ly: number, lz: number, rx: number, ry: number, rz: number) {
@@ -202,6 +203,7 @@ export class TyreEffects {
   }
 
   end(camera: THREE.Camera) {
+    for (const [id, bay] of this.bays) { if (!bay.seen) this.bays.delete(id); else bay.seen = false; }
     for (let i = 0; i < TRACKS; i++) {
       if (!this.seen[i]) this.slip.reset(i);
       if (!this.touched[i]) { this.active[i] = 0; this.emission[i] = 0; }

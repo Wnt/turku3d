@@ -248,7 +248,7 @@ export class RemotePlayers {
       // standing still, when its owner sends a pose only every second.
       if (effectsDt > 0 && now - remote.receivedAt < 1500 && pose.mode === 'car' && (!('occupant' in p) || !!p.occupant)) {
         const bay = mechanicsOf(pose.damage);
-        this.tyreEffects.engineBay(remote.effectSlot, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
+        this.tyreEffects.engineBay(p.id, pos, remote.truck.quaternion, bay.steam, bay.smoke, effectsDt);
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
