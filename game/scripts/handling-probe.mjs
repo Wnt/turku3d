@@ -10,7 +10,8 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 
 const out = path.resolve(process.argv[2] ?? 'handling-probe');
-const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0';
+// Low quality and a small viewport: the page's controller and samples run at its frame rate.
+const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0&quality=low';
 fs.mkdirSync(out, { recursive: true });
 const report = { url, errors: [], shots: [], steps: [] }, t0 = Date.now();
 const log = (step, data = {}) => { const e = { t: +((Date.now() - t0) / 1000).toFixed(1), step, ...data }; report.steps.push(e); console.error(JSON.stringify(e)); };
@@ -18,7 +19,7 @@ const browser = await chromium.connectOverCDP(process.env.BROWSER_CDP, { timeout
 const context = browser.contexts()[0] ?? await browser.newContext();
 
 const page = await context.newPage();
-await page.setViewportSize({ width: 960, height: 540 });
+await page.setViewportSize({ width: 640, height: 360 });
 // A virtual standard-mapping pad the probe drives (window.__pad); hidden until __padOn, so the keyboard runs see none.
 await page.addInitScript(() => {
   const pad = { id: 'Virtual DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)', index: 0, connected: true,

@@ -47,6 +47,9 @@ export function modelTuning(id: string): VehicleTuning | undefined {
       comDrop: 0.2,
       // A light stability control, as Wreckfest's default "half": it acts only once the tail slides 2° more than the nose.
       stability: { onset: 2, full: 8, max: 0.6 },
+      // Wreckfest 2: deceleration reaches 90 % in 0.16-0.19 s (the pressure ramps over 0.26 s; anti-lock caps the
+      // force at about two thirds of it) and releases as fast; 60 % front balance.
+      brakes: { ramp: 0.26, front: 0.6 },
     } : {}),
   };
 }

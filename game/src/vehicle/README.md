@@ -99,6 +99,9 @@ the tyre forces after the raycast, as impulses on the chassis:
   (Wreckfest's own figure; its measured 52 % of the transfer includes roll-centre geometry this model lacks, and 52 %
   here let the tail go at the limit); a bar's force pair acts at the wheel mounts and moves that load between the
   axle's tyres. Centre of mass 0.52 m (`comDrop` 0.2).
+- **Brakes** (`tuning.brakes`): the pressure builds over 0.26 s to the pedal's share (and releases as fast) with
+  60 % of the force on the front axle; anti-lock caps each wheel at 95 % of its peak, which it reaches at about two
+  thirds pressure, so the deceleration reaches 90 % in 0.15-0.18 s (Wreckfest 2: 0.16-0.19 s).
 - **Stability control** (`tuning.stability`, Wreckfest's "half" assist): once the rear axle's relaxed slip angle
   exceeds the front's by 2°, it cuts the drive and brakes the outside front wheel, up to 60 % at 8°.
 - **Car data** (`modelTuning`): steering lock barely falls with speed (`steerHalfSpeed` 40: 25° at 60 km/h), no body
@@ -129,6 +132,8 @@ Starter Golf before → slice 1 (tyres, steering) → slice 2 (ride, CoM, bars, 
 | CoM height | 0.723 m | 0.723 m | 0.521 m | 0.52 m |
 | Roll gradient | 3.18 deg/g | 3.33 | 3.66 | 3.65 |
 | Braking 80 km/h: mean, front share, pitch | 1.40 g, 90 %, 2.1° | 1.22 g, 85 %, 1.9° | 1.31 g, 78 %, 2.3° | 1.34 g, 75 %, 2.6° |
+| Slice 3 braking 50 / 80 / 100 km/h: mean decel | | | 1.37 / 1.41 / 1.45 g (tyres about 1.29 g; the rest is the game's 10 × aero drag) | 1.31 / 1.34 / 1.34 g |
+| Slice 3: to 90 % of the deceleration, slip ratio, stop 100-0 | 0.017 s, no wheel slip | | 0.15-0.18 s, 0.11, 27.8 m | 0.16-0.19 s, 0.1-0.2, 31.9 m |
 | Slalom 18 m | (not run) | clean to 70 km/h | clean to 60, the tail goes at 70 | clean to 60, rear out at 68 |
 | Brake 0.5 in a 0.79 g turn, steering held | (not run) | 17° sideslip | 3.8° | |
 
@@ -137,8 +142,7 @@ skidpad on a 20 m circle held to 50 km/h at 1.01 g; braking from 80 km/h with S 
 key at 59 km/h turned the wheels to 24.6°. The Air rendered 4.4 fps headless beside another agent's Chrome, so the
 page's controller and samples ran at that rate.
 
-Next slices: the brake ramp and ABS character (1.33 g building over 0.2 s, 60 % front balance), surfaces (gravel:
-0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from its mass and size.
+Next slices: surfaces (gravel: 0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from its mass and size.
 
 ## Scooter (two-wheeler)
 

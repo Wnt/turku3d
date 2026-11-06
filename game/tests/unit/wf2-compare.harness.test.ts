@@ -433,7 +433,9 @@ function braking(kind: RigKind, kmh: number) {
   const t90 = crossing(ts, vs, 0.9 * vStart, -1), t10 = crossing(ts, vs, 0.1 * vStart, -1), tStop = crossing(ts, vs, 0, -1);
   const smooth = dec.map((_, i) => mean(dec.slice(Math.max(0, i - 2), i + 3)));
   const peak = Math.max(...dec), peakSmooth = Math.max(...smooth);
-  const t90peak = ts[dec.findIndex(d => d >= 0.9 * peak)] - tIn;
+  // As the Wreckfest study: time until the (5-step) deceleration first reaches 90 % of the steady mean (90→10 %).
+  const steady = 0.8 * vStart / (t10 - t90) / G;
+  const t90peak = ts[smooth.findIndex(d => d >= 0.9 * steady)] - tIn;
   const win = B.filter(s => s.t >= t90 && s.t <= t10);
   // Distance along the initial heading to the (interpolated) stop.
   const last = B.at(-1)!, prevS = B.at(-2)!;
@@ -704,7 +706,7 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
         f(x.throttle, 3), f(x.kappaR, 3), x.steady ? 'yes' : 'no'])), '');
 
     md.push('#### Straight-line braking (full brake, steering straight)', '');
-    md.push(table(['Start km/h', 'Mean decel 90→10 % (g)', 'Peak decel g (raw / 5-step)', 'Brake → 90 % peak s', 'Stop distance m', 'Stop time s', 'Pitch nose down ° (mean / peak)',
+    md.push(table(['Start km/h', 'Mean decel 90→10 % (g)', 'Peak decel g (raw / 5-step)', 'Brake → 90 % of mean s', 'Stop distance m', 'Stop time s', 'Pitch nose down ° (mean / peak)',
       'Front load share braking / static', 'Fx front / rear N', 'Aero drag at start g', 'Slip ratio est. front / rear', 'Rear wheel lifts', 'Start'],
     brakes.map(x => [x.kmh, f(x.meanDecel, 3), `${f(x.peak, 3)} / ${f(x.peakSmooth, 3)}`, f(x.t90peak, 3), f(x.stopDist, 2), f(x.stopTime, 2), `${f(x.pitch, 2)} / ${f(x.peakPitch, 2)}`,
       `${f(x.frontShare * 100, 1)} % / ${f(x.staticShare * 100, 1)} %`, `${f(x.fxF, 0)} / ${f(x.fxR, 0)}`, f(x.dragG, 3), `${f(x.kappaF, 3)} / ${f(x.kappaR, 3)}`,

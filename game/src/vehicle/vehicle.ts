@@ -46,6 +46,8 @@ export class Vehicle {
   private steering = 0;
   /** Slewed keyboard steer input (tuning.keySteer), following the raw input while a stick or the autopilot steers. */
   private keySteer = 0;
+  /** Brake pressure 0..1 of a slip-curve car (tuning.brakes), building towards the pedal's share of `brakeForce`. */
+  private brakePressure = 0;
   private impactId = 0;
   private impact: VehicleState['impact'] = null;
   private impactCooldown = 0;
@@ -265,7 +267,7 @@ export class Vehicle {
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.keySteer = 0; this.impact = null; this.impactCooldown = 0;
+    this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.keySteer = 0; this.brakePressure = 0; this.impact = null; this.impactCooldown = 0;
     this.crash = null; this.damageBefore = null;
     this.rear = rearSteerIdle(this.rear.mode);
     this.lengths.fill(this.tuning.rest); this.rates.fill(0); this.loaded.fill(false);
@@ -395,7 +397,7 @@ export class Vehicle {
     const t = this.tuning, v = this.controller, b = this.body, q = b.rotation();
     // Stability control (tuning.stability): when the rear axle slides more than the front (oversteer), it cuts the
     // drive and brakes the front wheel on the outside of the yaw, by the excess of the rear's relaxed slip angle.
-    const esc = this.stability();
+    const esc = this.stability(), brake = this.brakeForces(h.brake, dt);
     // Drive force per wheel: each driven axle's total, split evenly by an open differential, by load by a locked one.
     const drive = t.wheels.map((_, i) => h.engine * this.drive[i] * (1 - esc.cut)), lock = t.differential ?? 0;
     if (lock > 0) for (const axle of [t.front, t.wheels.map((_, i) => i).filter(i => !t.front.includes(i))]) {
@@ -416,7 +418,7 @@ export class Vehicle {
       const forward = { x: normal.y * s.z - normal.z * s.y, y: normal.z * s.x - normal.x * s.z, z: normal.x * s.y - normal.y * s.x };
       const front = t.front.includes(i);
       return { point, normal, forward, side: s, load: (v.wheelSuspensionForce(i) ?? 0) + this.bars[i], axle: front ? 0 : 1,
-        drive: drive[i], brake: h.brake / BRAKE_STEP + (i === esc.wheel ? esc.brake : 0), locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
+        drive: drive[i], brake: brake[i] + (i === esc.wheel ? esc.brake : 0), locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
     });
     // Read the matrix at once: its getters view a scratch buffer that the next Rapier query (worldCom) overwrites.
     const m = b.effectiveWorldInvInertia(), invInertia = [m.m11, m.m12, m.m13, m.m12, m.m22, m.m23, m.m13, m.m23, m.m33];
@@ -428,6 +430,17 @@ export class Vehicle {
     b.applyImpulse(r.impulse, driven);
     b.applyTorqueImpulse(r.angular, driven);
     for (let i = 0; i < t.wheels.length; i++) { this.tyreForces!.fx[i] = this.tyreResults[i].fx; this.tyreForces!.fy[i] = this.tyreResults[i].fy; }
+  }
+
+  /** Brake force per wheel (N) of a slip-curve car: Rapier's per-step brake impulse taken as that force, and with
+   *  tuning.brakes a pressure that builds over `ramp` seconds and a front/rear balance of the same total. */
+  private brakeForces(brake: number, dt: number): number[] {
+    const t = this.tuning, b = t.brakes, n = t.wheels.length;
+    if (!b) return t.wheels.map(() => brake / BRAKE_STEP);
+    const want = t.brakeForce > 0 ? brake / t.brakeForce : 0, step = dt / Math.max(dt, b.ramp);
+    this.brakePressure += Math.max(-step, Math.min(step, want - this.brakePressure));
+    const total = this.brakePressure * t.brakeForce / BRAKE_STEP * n, front = t.front.length;
+    return t.wheels.map((_, i) => t.front.includes(i) ? total * b.front / front : total * (1 - b.front) / (n - front));
   }
 
   /** Stability control of a slip-curve car from the last step's relaxed slip angles (vehicle/tyres.ts): its share

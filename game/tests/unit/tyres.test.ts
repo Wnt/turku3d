@@ -114,3 +114,29 @@ test('ride: axle frequencies, damping ratios and roll gradient from targets, at 
   expect(roll[0] + roll[1]).toBeCloseTo(total, -2);
   expect(roll[0] / (roll[0] + roll[1])).toBeCloseTo(t.ride!.rollFront, 2);
 });
+
+test('brakes: the pressure builds over the ramp, the front takes most of the force and no wheel exceeds anti-lock', async () => {
+  const R = await import('@dimforge/rapier3d');
+  const { PhysicsWorld } = await import('../../src/physics/world');
+  const { modelTuning } = await import('../../src/vehicle/modelTuning');
+  const { PLAYER_MODEL } = await import('../../src/actors/fleet/catalog');
+  const t = modelTuning(PLAYER_MODEL)!, pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(2000, .5, 2000).setTranslation(0, -.5, 0));
+  pw.spawnVehicle({ x: -1500, y: .8, z: 0 }, 0, { tuning: t });
+  pw.driveVehicle('player');
+  for (let i = 0; i < 60; i++) pw.fixedStep(null, { throttle: 0, brake: 0, steer: 0, handbrake: false });
+  const car = pw.vehicle!;
+  car.body.setLinvel({ x: 80 / 3.6, y: 0, z: 0 }, true);
+  const braking = () => -Array.from(car.tyreForces!.fx).reduce((a, b) => a + b, 0);
+  const forces: number[] = [];
+  for (let i = 0; i < 40; i++) { pw.fixedStep(null, { throttle: 0, brake: 1, steer: 0, handbrake: false }); forces.push(braking()); }
+  // A quarter of the ramp in: well under the plateau; past the ramp: at it.
+  const plateau = forces.slice(-5).reduce((a, b) => a + b, 0) / 5;
+  expect(forces[Math.round(t.brakes!.ramp * 60 / 4) - 1]).toBeLessThan(0.45 * plateau);
+  expect(forces[Math.round(t.brakes!.ramp * 60) + 2]).toBeGreaterThan(0.9 * plateau);
+  // About 1.2-1.4 g from the tyres (Wreckfest 2: 1.31-1.34 g with ABS), most of it on the front.
+  expect(plateau / (t.mass * 9.81)).toBeGreaterThan(1.15); expect(plateau / (t.mass * 9.81)).toBeLessThan(1.45);
+  const fx = car.tyreForces!.fx;
+  expect(-(fx[0] + fx[1]) / plateau).toBeGreaterThan(0.65);
+  pw.world.free();
+});

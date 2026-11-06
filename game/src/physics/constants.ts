@@ -101,6 +101,9 @@ export interface VehicleTuning {
   /** Stability control of a slip-curve car (vehicle/vehicle.ts `stability`): rear slip angle beyond the front's (deg)
    *  at which it starts and reaches `max`, its strongest share of drive cut and outside-front braking. Absent: none. */
   stability?: { onset: number; full: number; max: number };
+  /** Brakes of a slip-curve car: seconds for the pressure to build from none to full (and to release), and the front
+   *  axle's share of the brake force. Absent: full force in one step, equal on every wheel. */
+  brakes?: { ramp: number; front: number };
 }
 
 export const CAR = {
