@@ -35,6 +35,7 @@ import { ChaseCamera } from './vehicle/chaseCamera';
 import { CarVisual, ParkedCarVisuals } from './actors/car';
 import { DebrisField } from './actors/fleet/debris';
 import { GlassShards } from './actors/fleet/glassShards';
+import { onDamage } from './actors/fleet/damageRig';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
@@ -181,6 +182,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // Seated, animated drivers in every driven car and truck, local and remote (actors/driver/README.md).
   const drivers = new Drivers(world.prepareGraphics);
   const debris = new DebrisField(root, physics), shards = new GlassShards(root);
+  // Damage sounds of every drawn car, local or remote (audio/mix.ts): a crunch per damaging hit, a window breaking.
+  const at = (o: THREE.Object3D) => { const p = o.getWorldPosition(new THREE.Vector3()); return { x: p.x, y: p.y, z: p.z }; };
+  const damageSounds = [onDamage('hit', e => audio.emit({ type: 'crunch', position: at(e.body), kmh: e.kmh })),
+    onDamage('shatter', e => audio.emit({ type: 'glass', position: at(e.glass) }))];
   const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location), root, parkedVisuals, debris, shards);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
   // Ambient traffic shares the parked batches, so it reserves their instances before the first load.
@@ -1042,7 +1047,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       audio.emit({ type: 'horns', vehicles: [] });
       vehicleBeams.dispose();
       tyreEffects.dispose();
-      damageHud.dispose(); debris.dispose(); shards.dispose();
+      damageHud.dispose(); debris.dispose(); shards.dispose(); for (const stop of damageSounds) stop();
       walkers.dispose();
       parkedVisuals.dispose();
       poles.dispose();

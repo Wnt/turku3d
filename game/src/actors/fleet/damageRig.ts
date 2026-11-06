@@ -193,14 +193,21 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M, windows 
 
 /** A part of a car just came off (debris.ts copies it into a physics body). `velocity`: the car's, world frame (m/s). */
 export interface DetachEvent { rig: DamageRig; body: THREE.Mesh; part: number; info: PartInfo; velocity: THREE.Vector3 }
-let detachListener: ((event: DetachEvent) => void) | null = null;
 /** A window of a car just shattered (glassShards.ts throws its shards): `glass` the glazing mesh, `centre` the window's
  *  crack origin (fleet frame). */
 export interface ShatterEvent { glass: THREE.Mesh; window: number; centre: THREE.Vector3; velocity: THREE.Vector3 }
-let shatterListener: ((event: ShatterEvent) => void) | null = null;
-export const onWindowShattered = (listener: ((event: ShatterEvent) => void) | null) => { shatterListener = listener; };
-/** The debris field (debris.ts) listens for parts coming off any drawn car, local or remote. */
-export const onPartDetached = (listener: ((event: DetachEvent) => void) | null) => { detachListener = listener; };
+/** A drawn car took hits (damage sounds): `kmh` the per-hit equivalent speed change from the state's energy. */
+export interface HitEvent { body: THREE.Mesh; hits: number; kmh: number }
+const listeners = { detach: new Set<(event: DetachEvent) => void>(), shatter: new Set<(event: ShatterEvent) => void>(), hit: new Set<(event: HitEvent) => void>() };
+type Events = { detach: DetachEvent; shatter: ShatterEvent; hit: HitEvent };
+/** Follows damage changes of every drawn car, local or remote, after the first state shown (a car first drawn
+ *  already damaged announces nothing): parts coming off, windows shattering, hits. Returns the unsubscribe. */
+export function onDamage<K extends keyof Events>(kind: K, listener: (event: Events[K]) => void): () => void {
+  const set = listeners[kind] as Set<(event: Events[K]) => void>;
+  set.add(listener);
+  return () => { set.delete(listener); };
+}
+const emit = <K extends keyof Events>(kind: K, event: Events[K]) => { for (const l of listeners[kind] as Set<(event: Events[K]) => void>) l(event); };
 
 /** One car's cage pose: the node transforms in the body's own (fleet model) frame, in the pool when damaged. Bind its
  *  meshes (body, glazing) with `bind`; `show` follows a wire state every frame (cheap when unchanged and no part is
@@ -234,19 +241,23 @@ export class DamageRig {
   show(wire: string | null | undefined, now = performance.now()) {
     if ((wire ?? null) !== this.wire || !this.shown) {
       this.wire = wire ?? null;
+      const hits = this.state.hits, energy = this.state.energy;
       if (!wire || !decodeDamage(wire, this.state)) this.state.clear();
+      // Crash energy is (km/h)² beyond the 35 km/h crumple threshold per hit; lighter hits count as 20 km/h knocks.
+      const more = this.state.hits - hits, gained = this.state.energy - energy;
+      if (this.shown && more > 0 && this.meshes[0]) emit('hit', { body: this.meshes[0], hits: more, kmh: gained > 0 ? Math.sqrt(gained / more + 35 * 35) : 20 });
       this.pose(); this.uploadSurface();
       for (let i = 0; i < PART_COUNT; i++) {
         const next = this.state.parts[i], info = this.modelParts?.[i];
         if (this.shown && next === PART_STATE.detached && this.partStates[i] !== PART_STATE.detached && info && this.meshes[0])
-          detachListener?.({ rig: this, body: this.meshes[0], part: i, info, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
+          emit('detach', { rig: this, body: this.meshes[0], part: i, info, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
         this.partStates[i] = next;
       }
       const glass = this.meshes[1], windows = glass && windowsOf(glass.geometry);
       for (let i = 0; i < WINDOW_COUNT; i++) {
         const next = this.state.glass[i], window = windows?.find(w => w.window === WINDOWS[i]);
         if (this.shown && next === GLASS_STAGE.shattered && this.glassStages[i] !== GLASS_STAGE.shattered && window)
-          shatterListener?.({ glass, window: i, centre: window.centre, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
+          emit('shatter', { glass, window: i, centre: window.centre, velocity: this.motion?.v.clone() ?? new THREE.Vector3() });
         this.glassStages[i] = next;
       }
       this.shown = true;

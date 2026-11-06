@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, GLASS_STAGE, PART_STATE, PARTS, SURFACE_SIZE, surfaceCell, WINDOWS, type PartName, type WindowName } from '../../src/vehicle/damage';
 import { fleetDamageBox, FLEET_BY_ID, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
-import { DamageRig, modelLayout, onPartDetached, onWindowShattered, skinToCage, type DetachEvent, type ShatterEvent } from '../../src/actors/fleet/damageRig';
+import { DamageRig, modelLayout, onDamage, skinToCage, type DetachEvent, type ShatterEvent } from '../../src/actors/fleet/damageRig';
 import { partsOf, windowsOf } from '../../src/actors/fleet/damageParts';
 
 const golf = FLEET_BY_ID.get(PLAYER_MODEL)!;
@@ -115,7 +115,7 @@ describe('the starter car is split into its parts by region (actors/fleet/damage
     skinToCage(body, cage);
     const mesh = new THREE.Mesh(body), rig = new DamageRig(cage); rig.bind(mesh); mesh.updateMatrixWorld();
     const events: DetachEvent[] = [];
-    onPartDetached(e => events.push(e));
+    const stop = onDamage('detach', e => events.push(e));
     const split = partsOf(body)!, bumper = split[0]!, tag = body.getAttribute('damagePart');
     const vertex = Array.from(bumper.triangles).find(v => tag.getX(v) === 1)!, rest = new THREE.Vector3(), now = new THREE.Vector3();
     const state = new DamageState(cage);
@@ -146,7 +146,7 @@ describe('the starter car is split into its parts by region (actors/fleet/damage
     // A car first drawn with parts already off (a remote car coming into view) announces nothing.
     const late = new DamageRig(cage); late.bind(new THREE.Mesh(body)); late.show(off, 0);
     expect(events).toHaveLength(1);
-    onPartDetached(null); rig.release(); late.release();
+    stop(); rig.release(); late.release();
   });
 });
 
@@ -224,7 +224,7 @@ describe('glass (vehicle/damage.ts GLASS_LOAD)', () => {
     // Lamp covers (low glass) belong to no window.
     for (let i = 0; i < tag.count; i++) if (position.getY(i) < .75) expect(tag.getY(i)).toBe(0);
     const events: ShatterEvent[] = [];
-    onWindowShattered(e => events.push(e));
+    const stop = onDamage('shatter', e => events.push(e));
     const rig = new DamageRig(cage), body = new THREE.Mesh(new THREE.BufferGeometry()), panes = new THREE.Mesh(glass);
     rig.bind(body); rig.bind(panes);
     const state = new DamageState(cage);
@@ -233,7 +233,7 @@ describe('glass (vehicle/damage.ts GLASS_LOAD)', () => {
     rig.show(encodeDamage(state), 16); rig.show(encodeDamage(state), 32);
     expect(events.map(e => WINDOWS[e.window])).toEqual(['frontLeft']);
     expect(events[0].centre.x).toBeGreaterThan(.5);
-    onWindowShattered(null); rig.release();
+    stop(); rig.release();
   });
 });
 
@@ -290,5 +290,32 @@ describe('surface wear (vehicle/damage.ts stampSurface)', () => {
     expect(wires.size).toBeGreaterThan(0); expect(wires.size).toBeLessThanOrEqual(5);
     void cage;
     pw.world.free();
+  });
+});
+
+describe('damage sounds (audio/mix.ts)', () => {
+  test('a crunch scales with the hit, the scrape with the sliding speed, rattles with loose parts and speed', async () => {
+    const { crunchGain, damageLoops, oneShot } = await import('../../src/audio/mix');
+    expect(crunchGain(10)).toBe(0);
+    expect(crunchGain(40)).toBeGreaterThan(crunchGain(25));
+    expect(crunchGain(120)).toBeCloseTo(.8);
+    expect(oneShot({ type: 'crunch', position: { x: 0, y: 0, z: 0 }, kmh: 60 })).toMatchObject({ sound: 'crunch', channel: 'vehicle' });
+    expect(oneShot({ type: 'glass', position: { x: 0, y: 0, z: 0 } })?.sound).toBe('glass-break');
+    expect(damageLoops(1, 0, 0, 10).scrape).toBe(0);
+    expect(damageLoops(8, 0, 0, 10).scrape).toBeGreaterThan(damageLoops(4, 0, 0, 10).scrape);
+    expect(damageLoops(0, 2, 0, 0).rattle).toBe(0);
+    expect(damageLoops(0, 2, 0, 15).rattle).toBeGreaterThan(damageLoops(0, 1, 0, 15).rattle);
+    expect(damageLoops(0, 0, .6, 0).hiss).toBeGreaterThan(0);
+  });
+  test('a drawn car announces its hits with the per-hit speed change from the state energy', () => {
+    const rig = new DamageRig(layout), body = new THREE.Mesh(new THREE.BufferGeometry()); rig.bind(body);
+    const heard: number[] = [], stop = onDamage('hit', e => heard.push(Math.round(e.kmh)));
+    const s = new DamageState(layout);
+    rig.show(null, 0);
+    applyHit(s, { dv: [0, 0, -60 / 3.6] }); rig.show(encodeDamage(s), 16);
+    applyHit(s, { dv: [-25 / 3.6, 0, 0], at: [1, .6, 0], halfWidth: .4 }); rig.show(encodeDamage(s), 32);
+    stop(); rig.release();
+    expect(heard[0]).toBeGreaterThan(55); expect(heard[0]).toBeLessThan(66);
+    expect(heard[1]).toBe(20);
   });
 });

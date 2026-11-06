@@ -4,7 +4,7 @@ import type { DebrisState } from '../../physics/protocol';
 import { DEBRIS } from '../../physics/constants';
 import type { PartName } from '../../vehicle/damage';
 import { shareActorPaint } from '../parkedPaint';
-import { onPartDetached, type DetachEvent } from './damageRig';
+import { onDamage, type DetachEvent } from './damageRig';
 import { fleetMaterial } from './material';
 
 // Car parts that came off (vehicle/README.md "Loose and detached parts"). Whenever a drawn car's damage state shows a
@@ -19,7 +19,7 @@ export class DebrisField {
   private readonly pieces = new Map<string, { mesh: THREE.Mesh; born: number; part: PartName }>();
   private serial = 0;
   constructor(private readonly scene: THREE.Object3D, private readonly physics: PhysicsClient) {
-    onPartDetached(event => this.spawn(event));
+    this.unsubscribe = onDamage('detach', event => this.spawn(event));
   }
   private spawn(event: DetachEvent) {
     const geometry = event.rig.partGeometry(event.body.geometry, event.info, event.part);
@@ -69,5 +69,6 @@ export class DebrisField {
   }
   /** Pieces now, for the developer console and probes. */
   list() { return [...this.pieces].map(([id, p]) => ({ id, part: p.part, position: p.mesh.position.toArray().map(v => Math.round(v * 100) / 100) })); }
-  dispose() { onPartDetached(null); for (const id of [...this.pieces.keys()]) this.remove(id); }
+  private readonly unsubscribe: () => void;
+  dispose() { this.unsubscribe(); for (const id of [...this.pieces.keys()]) this.remove(id); }
 }

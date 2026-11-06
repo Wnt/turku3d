@@ -14,6 +14,8 @@ const noise = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; retu
 const brown = () => (low = low * 0.97 + noise() * 0.03);
 const sine = (hz, t) => Math.sin(tau * hz * t);
 const pulse = (t, decay) => (1 - Math.exp(-t * 1200)) * Math.exp(-t * decay);
+/** A generator's own noise source (-1..1), so adding a sound never changes the others. */
+const seeded = start => { let state = start >>> 0; return () => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return state / 2147483648 - 1; }; };
 const definitions = {
   'step-asphalt': [0.23, t => pulse(t, 22) * (0.5 * noise() + sine(110, t))],
   'step-stone': [0.25, t => pulse(t, 27) * (noise() * 0.4 + sine(200, t) + 0.3 * sine(870, t))],
@@ -59,6 +61,45 @@ const definitions = {
       }
       return out;
     };
+  })()],
+  // Car damage (vehicle/README.md "Damage sounds"), each with its own seeded noise so the others stay unchanged.
+  // A crash: a low body thump, a burst of crumpling sheet metal (noise in a few short decaying bursts) and a ringing panel.
+  crunch: [0.9, (() => {
+    const n = seeded(0x51a7e3);
+    return t => pulse(t, 9) * (sine(55, t) * 0.9 + sine(92, t) * 0.4) + n() * 0.8 * (Math.exp(-t * 14) + 0.5 * Math.exp(-Math.max(0, t - 0.07) * 22) * (t > 0.07)
+      + 0.35 * Math.exp(-Math.max(0, t - 0.16) * 30) * (t > 0.16)) + 0.18 * Math.exp(-t * 6) * (sine(612, t) + 0.6 * sine(1347, t));
+  })()],
+  // Metal dragged along a wall: band-limited grinding noise, chattering at a few tens of hertz.
+  scrape: [4, (() => {
+    const n = seeded(0x2c9f17);
+    let a = 0, b = 0;
+    return t => { a += (n() - a) * 0.5; b += (a - b) * 0.25; return (a - b) * 3 * (0.6 + 0.4 * Math.abs(sine(31, t + 0.002 * sine(3, t)))) + 0.08 * sine(890 + 60 * sine(2, t), t); };
+  })()],
+  // A window shattering: a sharp crack, then a shower of tinkling glass (short high pings at random times and pitches).
+  'glass-break': [1.3, (() => {
+    const n = seeded(0x7e11a5), pings = Array.from({ length: 70 }, () => ({ at: Math.abs(n()) * 0.9 * Math.abs(n()), hz: 2600 + Math.abs(n()) * 5200, g: 0.2 + Math.abs(n()) * 0.5 }));
+    return t => {
+      let out = Math.exp(-t * 60) * n() * 1.4;
+      for (const p of pings) if (t >= p.at && t < p.at + 0.05) out += p.g * Math.exp(-(t - p.at) * 90) * sine(p.hz, t - p.at);
+      return out;
+    };
+  })()],
+  // A loose panel rattling: irregular clicks and knocks against the body.
+  rattle: [4, (() => {
+    const n = seeded(0x3d41b9), hits = [];
+    for (let at = 0; at < 4; at += 0.035 + Math.abs(n()) * 0.11) hits.push({ at, hz: 180 + Math.abs(n()) * 520, g: 0.3 + Math.abs(n()) * 0.7 });
+    let i = 0;
+    return t => {
+      while (i < hits.length - 1 && hits[i + 1].at <= t) i++;
+      const h = hits[i], u = t - h.at;
+      return u >= 0 ? h.g * Math.exp(-u * 70) * (sine(h.hz, u) + 0.5 * n()) : 0;
+    };
+  })()],
+  // Steam from a holed radiator: a fluttering high hiss.
+  hiss: [4, (() => {
+    const n = seeded(0x4f0e2d);
+    let lowpass = 0;
+    return t => { const white = n(); lowpass += (white - lowpass) * 0.12; return (white - lowpass) * (0.75 + 0.25 * sine(1.7, t) * sine(0.6, t + 0.3)); };
   })()],
 };
 // `node scripts/prepare-audio.mjs [name ...]` regenerates only the named sounds and keeps the other manifest rows.

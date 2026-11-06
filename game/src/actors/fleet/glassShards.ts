@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { onWindowShattered, type ShatterEvent } from './damageRig';
+import { onDamage, type ShatterEvent } from './damageRig';
 
 // Glass shards of shattered car windows (vehicle/README.md "Glass"): when a drawn car's damage state shows a window
 // newly shattered (damageRig.ts), a burst of small glass flakes leaves the window, falls to the ground under the car
@@ -28,7 +28,7 @@ export class GlassShards {
     this.mesh.name = 'glass-shards'; this.mesh.count = 0; this.mesh.frustumCulled = false;
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(this.mesh);
-    onWindowShattered(event => this.burst(event));
+    this.unsubscribe = onDamage('shatter', event => this.burst(event));
   }
   private burst(event: ShatterEvent) {
     event.glass.updateWorldMatrix(true, false);
@@ -78,5 +78,6 @@ export class GlassShards {
   }
   /** Shards alive now (flying and lying), for the developer console and probes. */
   get alive() { return this.active; }
-  dispose() { onWindowShattered(null); this.mesh.removeFromParent(); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
+  private readonly unsubscribe: () => void;
+  dispose() { this.unsubscribe(); this.mesh.removeFromParent(); this.mesh.geometry.dispose(); (this.mesh.material as THREE.Material).dispose(); }
 }

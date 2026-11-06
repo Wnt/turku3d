@@ -6,7 +6,7 @@ import { MIX_HZ } from './automation';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
   'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
-  'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd'] as const;
+  'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd', 'crunch', 'scrape', 'glass-break', 'rattle', 'hiss'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
 export const clamp = (v: number, max = 1) => Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
@@ -81,6 +81,15 @@ export function roughEngine(rough: number, throttle: number, time: number): { ra
   return { rate: (1 + .03 * r * hunt) * (misfire ? 1 - .06 * r : 1), gain: misfire ? 1 - .55 * r : 1 };
 }
 
+/** A damaging hit's crunch: from a 12 km/h knock to full at 80 km/h. */
+export const crunchGain = (kmh: number) => clamp((kmh - 12) / 68) * 0.8;
+/** Damage loops of the driven car: the scrape grinds from 1.5 m/s of sliding (louder and higher as it speeds up), loose
+ *  parts rattle with the car's speed (more with more of them), a holed radiator hisses while it steams. */
+export function damageLoops(scrape: number, loose: number, steam: number, speed: number) {
+  const s = clamp((scrape - 1.5) / 10);
+  return { scrape: s * 0.42, scrapeRate: 0.8 + s * 0.5, rattle: clamp(loose / 2) * clamp(Math.abs(speed) / 12) * 0.16, hiss: clamp(steam) * 0.2 };
+}
+
 /** Engine voices for ambient traffic (traffic/client.ts): at most this many, for the nearest moving cars. */
 export const TRAFFIC_VOICES = 8;
 
@@ -98,6 +107,9 @@ export type AudioEvent =
   | { type: 'horns'; vehicles: HornEmitter[] }
   | { type: 'footstep'; material: number; position: V3; speed: number }
   | { type: 'curb' | 'impact'; position: V3; impulse: number }
+  /** A car's body took a damaging hit (actors/fleet/damageRig.ts 'hit'), `kmh` its speed change; a window shattered. */
+  | { type: 'crunch'; position: V3; kmh: number }
+  | { type: 'glass'; position: V3 }
   | { type: 'door'; position: V3; open: boolean }
   | { type: 'gamepad-connected' }
   | { type: 'mute' }
@@ -105,7 +117,9 @@ export type AudioEvent =
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
   | { type: 'crowd'; walkers: number }
   /** The local vehicle; `rough`: a damaged engine's roughness (vehicle/mechanics.ts), absent or 0 when intact. */
-  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean; rough?: number }
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean; rough?: number;
+    /** Damage layers (damageLoops): the body sliding along something (m/s), parts hanging loose, the radiator's steam. */
+    scrape?: number; loose?: number; steam?: number }
   /** One frame of a synthesised truck engine voice (GameAudio.engineVoice); `state` null releases it. */
   | { type: 'engine-voice'; id: string; state: EngineVoiceState | null }
   /** Nearest moving ambient cars (stable `id`s) and the count within 150 m. */
@@ -119,6 +133,8 @@ export function oneShot(event: AudioEvent): { sound: Sound; channel: Channel; ga
     }
     case 'curb': case 'impact': return { sound: event.type, channel: 'vehicle', gain: clamp(event.impulse / 6000) * 0.65, position: event.position };
     case 'door': return { sound: event.open ? 'door-open' : 'door-close', channel: 'vehicle', gain: 0.35, position: event.position };
+    case 'crunch': return { sound: 'crunch', channel: 'vehicle', gain: crunchGain(event.kmh), position: event.position };
+    case 'glass': return { sound: 'glass-break', channel: 'vehicle', gain: 0.5, position: event.position };
     case 'gamepad-connected': return { sound: 'connect', channel: 'ui', gain: 0.25 };
     default: return null;
   }

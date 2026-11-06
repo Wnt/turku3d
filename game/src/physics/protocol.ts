@@ -39,7 +39,9 @@ export interface VehicleState { lights?: import('../vehicle/signals').LightState
   /** Drive command after handling (0..1 forward or reverse, 0 while braking), for engine load. */
   throttleApplied?: number;
   /** Body damage of a damageable car (vehicle/damage.ts encodeDamage), absent while it is undamaged. */
-  damage?: string }
+  damage?: string;
+  /** A damageable car's body sliding along something: the fastest contact's sliding speed (m/s), absent when none. */
+  scrape?: number }
 export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean;
   /** Per-model driving tuning (vehicle/modelTuning.ts), replacing the kind's baseline. */
   tuning?: VehicleTuning;

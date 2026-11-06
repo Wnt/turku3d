@@ -4,7 +4,7 @@ import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { EngineVoices, type EngineVoiceState } from './engine/voices';
 import { MIX_HZ, POSITION_EPSILON, glide } from './automation';
-import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, duckGain, oneShot, roughEngine, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
+import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, damageLoops, duckGain, oneShot, roughEngine, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
 import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
@@ -328,6 +328,10 @@ export class GameAudio {
       }
       this.loop('roll', 'vehicle', mix.roll, c.position);
       this.loop('screech', 'vehicle', mix.screech, c.position);
+      const damage = damageLoops(c.scrape ?? 0, c.loose ?? 0, c.running ? c.steam ?? 0 : 0, c.speed);
+      // Started on first use only: an undamaged car runs no silent damage voices.
+      for (const [sound, gain, rate] of [['scrape', damage.scrape, damage.scrapeRate], ['rattle', damage.rattle, 1], ['hiss', damage.hiss, 1]] as const)
+        if (gain > 0 || this.loops.has(sound)) this.loop(sound, 'vehicle', gain, c.position, rate);
     }
   }
 

@@ -250,8 +250,10 @@ export class Vehicle {
    *  every half second. */
   private trackScrape(dt: number) {
     const d = this.damage;
-    if (!d || this.body.isSleeping() || ++this.scrape.tick % 3) return;
+    if (!d || this.body.isSleeping()) { this.scrape.speed = 0; return; }
+    if (++this.scrape.tick % 3) return;
     const b = this.body, lv = b.linvel(), w = b.angvel(), t = b.translation(), q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+    let fastest = 0;
     if (Math.hypot(lv.x, lv.y, lv.z) > SCRAPE.minSpeed) {
       const h = this.halfExt, box = d.layout, step = 3 * dt;
       for (let i = 0; i < b.numColliders(); i++) {
@@ -268,6 +270,7 @@ export class Vehicle {
               const v = { x: lv.x + w.y * r.z - w.z * r.y - ov.x, y: lv.y + w.z * r.x - w.x * r.z - ov.y, z: lv.z + w.x * r.y - w.y * r.x - ov.z };
               const vn = v.x * n.x + v.y * n.y + v.z * n.z, slide = Math.hypot(v.x - vn * n.x, v.y - vn * n.y, v.z - vn * n.z);
               if (slide < SCRAPE.minSpeed) continue;
+              fastest = Math.max(fastest, slide);
               // The face of the box the point lies on (chassis frame +X forward, +Y up, +Z right); the underbody wears nothing.
               const c = rotate(r, inverse), ax = Math.abs(c.x) / h.x, ay = Math.abs(c.y) / h.y, az = Math.abs(c.z) / h.z;
               let face: SurfaceFace;
@@ -284,13 +287,14 @@ export class Vehicle {
         });
       }
     }
+    this.scrape.speed = Math.round(fastest * 10) / 10;
     if (this.scrape.pending && this.scrape.tick - this.scrape.committed >= SCRAPE.commitSteps) {
       this.scrape.pending = false; this.scrape.committed = this.scrape.tick;
       if (!d.hits) d.scraped = true;
       d.revision++;
     }
   }
-  private scrape = { tick: 0, committed: -Infinity, pending: false };
+  private scrape = { tick: 0, committed: -Infinity, pending: false, speed: 0 };
 
   /** The mechanical state of the car's damage (vehicle/mechanics.ts), recomputed only when a hit changed it. */
   mechanics(): Mechanics {
@@ -654,7 +658,7 @@ export class Vehicle {
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     const t = this.tuning, rear = t.rearSteer ? { rearMode: this.rear.mode, rearLocked: this.rear.locked } : {};
     const damage = this.damageWire();
-    return { ...rear, ...(damage ? { damage } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
+    return { ...rear, ...(damage ? { damage } : {}), ...(this.scrape.speed ? { scrape: this.scrape.speed } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.mounts.map((cp, i) => {

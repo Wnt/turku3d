@@ -85,10 +85,11 @@ export class GameplayAudio {
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
       const kind = v.kind ?? 'car', rpm = kind === 'truck' ? this.truck(frame.tick, v, input, throttle, mode === 'car') : engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
-      const rough = mechanicsOf(v.damage).rough;
+      const { rough, steam, loose } = mechanicsOf(v.damage);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
         throttle, speed: contact ? v.speed : 0, slip,
-        running: mode === 'car', ...(rough ? { rough } : {}) });
+        running: mode === 'car', ...(rough ? { rough } : {}), ...(steam ? { steam } : {}), ...(loose ? { loose } : {}),
+        ...(v.scrape ? { scrape: v.scrape } : {}) });
     }
     if ((!v || v.kind !== 'truck' || mode !== 'car') && this.truckId) {
       this.emit({ type: 'engine-voice', id: this.truckId, state: null });

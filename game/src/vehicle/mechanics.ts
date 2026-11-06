@@ -3,7 +3,7 @@
 // effects (vehicle/vehicle.ts), the renderer the engine-bay smoke, the audio the rough engine and the HUD the levels,
 // all from the same damage wire. Calibration: ~/turku3d/research/wreckfest2/damage-study.md, docs in
 // vehicle/README.md "Mechanical damage".
-import { DamageState, WEAR, decodeDamage, damageLayout } from './damage';
+import { DamageState, PART_STATE, WEAR, decodeDamage, damageLayout } from './damage';
 
 /** Five states per system as in Wreckfest 2: 0 intact, 1-3 damaged, 4 terminal. A level is the number of rungs its
  *  wear has passed; wear is (km/h)² beyond the 35 km/h crumple threshold under the system, summed over hits. Fitted to
@@ -65,10 +65,12 @@ export interface Mechanics {
   readonly steer: number; readonly toe: readonly number[];
   /** Per corner: how far its mount moved up into the body (m) and its damping factor. */
   readonly sag: readonly number[]; readonly damping: readonly number[];
+  /** Body parts hanging loose (vehicle/damage.ts PARTS): they rattle. */
+  readonly loose: number;
 }
 
 export const INTACT: Mechanics = { cooling: 0, engine: 0, steering: 0, suspension: [0, 0, 0, 0], zones: [0, 0, 0, 0],
-  power: 1, rough: 0, steam: 0, smoke: 0, worst: 0, steer: 0, toe: [0, 0, 0, 0], sag: [0, 0, 0, 0], damping: [1, 1, 1, 1] };
+  power: 1, rough: 0, steam: 0, smoke: 0, worst: 0, steer: 0, toe: [0, 0, 0, 0], sag: [0, 0, 0, 0], damping: [1, 1, 1, 1], loose: 0 };
 
 /** The mechanical state of a damage state. */
 export function mechanics(state: DamageState): Mechanics {
@@ -85,7 +87,8 @@ export function mechanics(state: DamageState): Mechanics {
     steer: state.steerSide * saturate(w[WEAR.steering], ALIGNMENT.steer),
     // Out at the front (the left wheel turns left), in at the rear; corners 0 and 2 are on the car's left.
     toe: corners.map((x, i) => (i % 2 ? -1 : 1) * (i < 2 ? 1 : -1) * saturate(x, ALIGNMENT.toe)),
-    sag: suspension.map(n => ALIGNMENT.sag[n]), damping: suspension.map(n => ALIGNMENT.damping[n]) };
+    sag: suspension.map(n => ALIGNMENT.sag[n]), damping: suspension.map(n => ALIGNMENT.damping[n]),
+    loose: state.parts.reduce((n, p) => n + Number(p === PART_STATE.loose), 0) };
 }
 
 // The mechanics of a wire state (renderer, audio, HUD: every frame, for the local and the remote cars), decoded once

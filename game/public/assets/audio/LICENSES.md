@@ -1,6 +1,6 @@
 # Turku3D audio v1 — CC0
 
-All 20 `.ogg` files in this directory are original procedural sound effects created for Turku3D
+All 25 `.ogg` files in this directory are original procedural sound effects created for Turku3D
 on 2026-10-25. Source: [`game/scripts/prepare-audio.mjs`](../../../scripts/prepare-audio.mjs).
 No third-party samples, recordings, voices, music or model-generated audio were used.
 
@@ -26,6 +26,11 @@ including commercial use, without attribution. No warranty is provided.
 | `wind.ogg` | Original filtered gusting noise | CC0-1.0 |
 | `connect.ogg` | Original two-tone UI blip | CC0-1.0 |
 | `crowd.ogg` | Original crowd murmur: syllable-rate envelopes over speech-band noise, no voices (added 2026-11-01) | CC0-1.0 |
+| `crunch.ogg` | Original crash: low thump, crumpling noise bursts and a ringing panel (added 2026-11-06) | CC0-1.0 |
+| `scrape.ogg` | Original metal-on-wall grinding loop (added 2026-11-06) | CC0-1.0 |
+| `glass-break.ogg` | Original window shatter: a noise crack and random high pings (added 2026-11-06) | CC0-1.0 |
+| `rattle.ogg` | Original loose-panel rattle loop of irregular knocks (added 2026-11-06) | CC0-1.0 |
+| `hiss.ogg` | Original fluttering steam hiss loop (added 2026-11-06) | CC0-1.0 |
 
 The trophy truck's engine, tyre, suspension and rear-steer sounds have no audio file: they are synthesised at
 runtime by Turku3D code (`game/src/audio/engine/`, added 2026-11-05), an additive crossplane-V8 model with noise
