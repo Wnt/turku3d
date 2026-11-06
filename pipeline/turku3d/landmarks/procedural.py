@@ -136,12 +136,17 @@ def roof_surface(width, height, spec, seed, density=40):
 
 
 def copper(width, height, spec, seed, density=40):
+    # A zero seam width is the reference estimator's empty answer ("seam_m": 0 in three frozen
+    # descriptions, 103371533K on t0_-3_-2). As a panel width it divided by zero: the NaN surface
+    # packed a black albedo and a byte-identical black normal map. Such a roof takes the default
+    # standing-seam width, like a description without the field.
+    seam = spec.get("seam_m") or 0.58
     rgb, relief = masonry(
         width,
         height,
         dict(
             colour=spec["colour"],
-            size_m=[spec.get("seam_m", 0.58), 2.0],
+            size_m=[seam if seam > 0 else 0.58, 2.0],
             mortar_m=0.008,
             mortar_colour=[48, 65, 61],
         ),
