@@ -51,35 +51,38 @@ async function shots(page, label, client = 'a') {
 }
 
 /** A square building wall with a flat, clear run-up near the starter car: rays at bumper height in 5-degree steps
- *  from candidate start points, the wall face square to the ray (and as far on two parallel rays 0.9 m to each side),
- *  the ground along the way within 0.5 m of the start. Returns the start, heading (chassis yaw) and distance. */
+ *  from candidate start points; a hit wall's own normal then sets the heading (the car square to it), and along that
+ *  heading the wall must be flat across the car (two parallel rays 0.85 m to each side within 3 cm) and the ground
+ *  within 0.5 m of the start. The longest such run-up wins (up to 125 m, enough for 80 km/h). */
 const findWall = page => page.evaluate(async () => {
   const g = window.__game, physics = g.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
   const ray = (o, d, max, filter = 'solid') => physics.raycast(o, d, max, filter);
   let best = null;
-  for (const [ox, oz] of [[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12], [20, 20], [-20, -20], [20, -20], [-20, 20]]) {
-    const top = { x: car.pos.x + ox, y: car.pos.y + 30, z: car.pos.z + oz };
-    const ground = await ray(top, { x: 0, y: -1, z: 0 }, 60);
-    if (!ground || Math.abs(ground.point.y - car.pos.y) > 3) continue;
-    const y = ground.point.y + .55;
+  const starts = [[0, 0]];
+  for (const r of [15, 30, 45]) for (let a = 0; a < 8; a++) starts.push([r * Math.cos(a * Math.PI / 4), r * Math.sin(a * Math.PI / 4)]);
+  for (const [ox, oz] of starts) {
+    const ground = await ray({ x: car.pos.x + ox, y: car.pos.y + 30, z: car.pos.z + oz }, { x: 0, y: -1, z: 0 }, 60);
+    if (!ground || Math.abs(ground.point.y - car.pos.y) > 4 || ground.normal.y < .99) continue;
+    const y = ground.point.y + .55, o = { x: ground.point.x, y, z: ground.point.z };
     for (let deg = 0; deg < 360; deg += 5) {
-      const yaw = deg * Math.PI / 180, d = { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) }, side = { x: -d.z, y: 0, z: d.x };
-      const o = { x: ground.point.x, y, z: ground.point.z };
+      const yaw0 = deg * Math.PI / 180, first = await ray(o, { x: Math.cos(yaw0), y: 0, z: -Math.sin(yaw0) }, 130);
+      if (!first || first.toi < 60 || Math.abs(first.normal.y) > .1) continue;
+      const n = Math.hypot(first.normal.x, first.normal.z), d = { x: -first.normal.x / n, y: 0, z: -first.normal.z / n };
+      const yaw = Math.atan2(-d.z, d.x), side = { x: -d.z, y: 0, z: d.x };
       const hit = await ray(o, d, 130);
-      if (!hit || hit.toi < 45 || -(hit.normal.x * d.x + hit.normal.z * d.z) < .97 || Math.abs(hit.normal.y) > .2) continue;
-      if (best && hit.toi <= best.distance) continue;
+      if (!hit || hit.toi < 60 || hit.toi > 125 || (best && hit.toi <= best.distance) || -(hit.normal.x * d.x + hit.normal.z * d.z) < .9986) continue;
       let clear = true;
-      for (const k of [-.9, .9]) {
+      for (const k of [-.85, .85]) {
         const h = await ray({ x: o.x + side.x * k, y, z: o.z + side.z * k }, d, 140);
-        if (!h || Math.abs(h.toi - hit.toi) > 1) { clear = false; break; }
+        if (!h || Math.abs(h.toi - hit.toi) > .03) { clear = false; break; }
       }
-      for (let t = 4; clear && t < hit.toi - 2; t += 4) {
-        const at = await ray({ x: o.x + d.x * t, y: y + 3, z: o.z + d.z * t }, { x: 0, y: -1, z: 0 }, 8);
-        if (!at || Math.abs(at.point.y - ground.point.y) > .5) clear = false;
+      for (let t = 4; clear && t < hit.toi - 2; t += 4) for (const k of [-.85, 0, .85]) {
+        const at = await ray({ x: o.x + d.x * t + side.x * k, y: y + 3, z: o.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 8);
+        if (!at || Math.abs(at.point.y - ground.point.y) > .5) { clear = false; break; }
       }
-      if (clear) best = { x: o.x, y: ground.point.y, z: o.z, yaw, deg, distance: hit.toi, wall: hit.point, tile: hit.tile };
+      if (clear) best = { x: o.x, y: ground.point.y, z: o.z, yaw, deg: Math.round(yaw * 180 / Math.PI), distance: hit.toi, wall: hit.point, tile: hit.tile };
     }
-    if (best && best.distance > 70) break;
+    if (best && best.distance > 85) break;
   }
   return best;
 });
