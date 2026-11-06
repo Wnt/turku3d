@@ -169,6 +169,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
+  const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location));
   const seated = new SeatedVehicles(root, physics, groundAt, world.prepareGraphics);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
@@ -486,7 +487,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     return at ? () => { autopilot.goTo({ x: at.x, z: at.z }, { ...(at.mode ? { mode: at.mode } : {}), ...(at.speed ? { speed: at.speed } : {}) }); } : null;
   })();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
-  Object.assign(window.__game!, { damage: carDamageConsole(physics, car, devToolsEnabled(location)), vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
+  Object.assign(window.__game!, { damage: damageConsole, vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
 
   // Tests and the trip bench leave through a portal as its trigger does (the ticket, the ride, the money).
@@ -943,6 +944,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       velocity: vel, mode };
     viewClearance.update(camera, clearing, dt);
     if (multiplayerPlaying) remotePlayers.fadeLabels(camera);
+    damageConsole.frame(camera);
     renderFrame();
     if (!startScreen.active && !paused) {
       telemetry?.tick(now, camera, () => ({ x: feet.x, y: feet.y, z: feet.z, speed: Math.hypot(vel.x, vel.z),
