@@ -84,6 +84,23 @@ test('traffic draws real model ids; a family name or unknown id draws as a fallb
   warn.mockRestore();visuals.dispose();
 });
 
+test('moving traffic drawn in view within 40 m are the ambient drivers\' seats (model and model-frame matrix)',async()=>{
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=FALLBACK_MODELS.map((model,i)=>({object_id:`f${i}`,model,color:'silver',x:i*3,y:0,z:0,yaw:0,width:2,length:4.6,height:1.5,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const car=(seed:string,x:number)=>({seed,model:FALLBACK_MODELS[0],color:'blue',x,y:.75,z:6,q:{x:0,y:0,z:0,w:1}});
+  visuals.setTraffic([car('a',0),car('b',6),car('c',60)]);
+  const camera=new THREE.PerspectiveCamera(60,1.6,.1,1000);camera.position.set(3,4,-14);camera.lookAt(3,0,6);
+  visuals.setView(camera);visuals.update([]);
+  expect(visuals.trafficSeatCount).toBe(2);
+  expect(visuals.trafficSeats.slice(0,2).map(s=>s.model)).toEqual([FALLBACK_MODELS[0],FALLBACK_MODELS[0]]);
+  expect(new THREE.Vector3().setFromMatrixPosition(visuals.trafficSeats[1].matrix).toArray().map(v=>+v.toFixed(3))).toEqual([6,0,6]);
+  // Behind the camera: none.
+  camera.lookAt(3,0,-40);visuals.setView(camera);visuals.update([]);
+  expect(visuals.trafficSeatCount).toBe(0);
+  visuals.dispose();
+});
+
 test('a registry without the traffic families or the fallbacks (a stale dev glob) still yields catalog models',async()=>{
   const stale=AUTHORED_MODELS.filter(m=>['golf7','garbage-truck','transit-bus'].includes(m.id));
   vi.resetModules();vi.doMock('../../src/actors/fleet/registry',()=>({AUTHORED_MODELS:stale,AUTHORED_BY_ID:new Map(stale.map(m=>[m.id,m]))}));

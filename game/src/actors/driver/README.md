@@ -16,6 +16,7 @@ reverse look), Wreckfest 2 where only it was measured (lean, seat bounce, crash)
 | `rig.ts` | The character clone's pose: base `Driving_Loop`, spine/neck/head rotations, two-bone arm IK to the rim, the wheel bone |
 | `drivers.ts` | `Drivers`: who is seated this frame, distance detail tiers, the dev snapshot |
 | `ownWheel.ts` | One steering wheel: the measured models' own static wheel left out of the driven/remote car's body |
+| `ambient.ts` | Static drivers in the ambient traffic near the camera: one instanced draw per posture class |
 
 ## Frame and flow
 
@@ -98,6 +99,17 @@ bone world matrices directly and refreshes only the arm chain it moves. `drivers
 City.lab, M1 Air, perf lease, 20 bench cars in view with seated drivers against the same cars without (before the
 distance tiers): frame p50 20.3 -> 27.9 ms, GPU 19.7 -> 27.5 ms, +88 draws, `finish()` 2.9 ms.
 
+## Ambient traffic
+
+Moving traffic cars drawn in view within 40 m of the camera (`fleet/visuals.ts trafficSeats`) show a static driver
+(`ambient.ts`): no IK, no motion, no drawn wheel (the traffic batches draw each model's own). The first model seen of a
+posture class poses the rig at rest (steering straight) and skins it on the CPU into a plain geometry (body, legs and
+face tiers, the same material); every car of that class is one instance of it, moved from that model's H-point to
+its own model's. A street costs one instanced draw per class in view (traffic families: saloon, sports, hatch, SUV,
+van), whatever the car count. Parked cars stay empty.
+
+AMBIENT_RESULT
+
 ## Tests
 
 `npx vitest run tests/unit/driver-rig.test.ts` (from `game/`): the body constants against the shipped GLB, every
@@ -116,5 +128,5 @@ After the distance tiers (city.lab 9e306c10, same bench, perf lease; the world w
 - **Trophy truck**: its `seat-driver` is 0.55 m behind and only 0.24 m below its wheel; at ±130° the crossing hand is
   3-5 cm short of the rim even with the seat moved 20 cm and the torso leaning. Move the seat anchor or the wheel in
   the model, or lower the trophy's lock.
-- Entry and exit animations (GTA: 2.7 s door closed, 1.7 s open, 1.6 s exit; 1.2x for high cabs); drivers for the
-  ambient traffic; per-player character looks.
+- Entry and exit animations (GTA: 2.7 s door closed, 1.7 s open, 1.6 s exit; 1.2x for high cabs); per-player
+  character looks.

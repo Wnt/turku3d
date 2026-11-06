@@ -12,7 +12,7 @@ import path from 'node:path';
 import { chromium } from '@playwright/test';
 
 // Modes (comma-separated): shots (rest, lock both ways, horn), brake, crash, remote (a second client), perf, ambient
-// (traffic drivers on against off; set PROBE_URL with traffic on).
+// (traffic drivers on against off; set PROBE_URL with traffic on), ambientbench (20 static drivers in the bench cars).
 const mode = process.argv[2] ?? 'shots,brake,crash,remote', modes = new Set(mode.split(',')), out = path.resolve(process.argv[3] ?? 'driver-probe');
 const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0';
 fs.mkdirSync(out, { recursive: true });
@@ -34,7 +34,7 @@ async function open(name, own = context) {
   await (await own.newCDPSession(page)).send('Emulation.setFocusEmulationEnabled', { enabled: true });
   page.on('pageerror', e => report.errors.push(`${name} pageerror: ${e.message}`.slice(0, 300)));
   page.on('console', m => { const t = m.text();
-    if (/GPUValidationError|Invalid (ShaderModule|RenderPipeline|BindGroup)|WGSL|TypeError|ReferenceError/.test(t)) report.errors.push(`${name} console: ${t}`.slice(0, 300)); });
+    if (m.type() === 'error' || /GPUValidationError|Invalid (ShaderModule|RenderPipeline|BindGroup)|WGSL|TypeError|ReferenceError/.test(t)) report.errors.push(`${name} console: ${t}`.slice(0, 300)); });
   if (!warm) await page.goto(`${url}&probe=${Date.now()}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 240000 });
   await page.getByText('Multiplayer', { exact: true }).click();
@@ -117,6 +117,27 @@ const findStraight = page => page.evaluate(async () => {
     if (best && best.length > 120) break;
   }
   return best;
+});
+
+/** A pavement spot 7-11 m beside a moving traffic car near the start car (flat, at the road's height), with the car's
+ *  heading along the traffic and which side the street is on (1: the car's left). */
+const findStreet = page => page.evaluate(async () => {
+  const g = window.__game, physics = g.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
+  const ray = (o, d, max) => physics.raycast(o, d, max, 'solid');
+  const down = async (x, z) => { const h = await ray({ x, y: car.pos.y + 40, z }, { x: 0, y: -1, z: 0 }, 90); return h && h.normal.y > .97 ? h.point.y : null; };
+  const cars = g.traffic.debugCars().cars.filter(c => Math.hypot(c.vx, c.vz) > 2)
+    .sort((a, b) => Math.hypot(a.x - car.pos.x, a.z - car.pos.z) - Math.hypot(b.x - car.pos.x, b.z - car.pos.z));
+  for (const c of cars.slice(0, 20)) {
+    const road = await down(c.x, c.z); if (road === null) continue;
+    const v = Math.hypot(c.vx, c.vz), dx = c.vx / v, dz = c.vz / v;
+    for (const side of [1, -1]) for (const off of [7, 9, 11]) {
+      // The spot is `side` of the street: the street is on the parked car's left for side 1.
+      const x = c.x - side * off * dz, z = c.z + side * off * dx, y = await down(x, z);
+      if (y === null || Math.abs(y - road) > .5) continue;
+      return { x, y, z, yaw: Math.atan2(-dz, dx), side, traffic: cars.length, from: Math.round(Math.hypot(c.x - car.pos.x, c.z - car.pos.z)) };
+    }
+  }
+  return null;
 });
 
 /** A square wall with a clear run-up (car-damage-probe.mjs findWall). */
@@ -332,6 +353,52 @@ try {
       pairedDelta: { frameP50: delta('p50'), gpuP50: delta('gpuP50'), cpuP50: delta('cpuP50'), draws: delta('draws') } };
     log('perf summary', report.perfSummary);
   }
+  if (modes.has('ambientbench')) {
+    // Ambient (static) drivers in the 20 bench cars instead of the street's traffic: all one class (one instanced draw)
+    // and a mix of five classes (five draws), against none; a busy street has fewer cars than this within 40 m.
+    const MIX = ['golf7', 'corolla-e180', 'prado-2010', 'euro-van', 'carla-ford-mustang'];
+    const seat = (page, models) => page.evaluate(models => {
+      const g = window.__game, d = g.drivers;
+      d.__ambient ??= d.ambient;
+      if (!models) { d.ambient = d.__ambient; return 0; }
+      let root = [...d.drivers.values()][0]?.frame; while (root?.parent) root = root.parent;
+      const cars = []; root.traverse(o => { if (o.name.startsWith('bench/')) cars.push(o); });
+      const seats = cars.map((car, i) => ({ model: models[i % models.length], matrix: car.matrixWorld }));
+      d.ambient = parent => d.__ambient.call(d, parent, seats, seats.length);
+      return seats.length;
+    }, models);
+    await hold(page, { handbrake: 1 });
+    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.evaluate(() => window.__game.damage.bench({ count: 20, kind: 'capable' }));
+    report.settle = await settleDraws(page);
+    log('settled', report.settle);
+    report.ambientBench = [];
+    const rounds = Number(process.env.PERF_ROUNDS ?? 5);
+    for (let round = 0; round < rounds; round++) for (const [variant, models] of [['none', null], ['one', ['golf7']], ['mix', MIX]]) {
+      const seated = await seat(page, models);
+      await page.waitForTimeout(2500);
+      if (variant === 'one' && round === 0) for (const [name, view] of [['bench', null], ['close', { yaw: 160, pitch: 10, distance: 6, height: .6 }]]) {
+        if (view) await page.evaluate(view => window.__game.damage.look(view), view);
+        await settle(page, 20);
+        const file = path.join(out, `ambient-bench-${name}.png`); await page.screenshot({ path: file }); report.shots.push(file);
+        if (view) { await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 })); await settle(page, 20); }
+      }
+      await page.evaluate(() => window.__render?.perf?.reset?.());
+      const f = await frames(page, 240);
+      const p = await page.evaluate(() => { const s = window.__perf; return { gpu: s?.gpuMs?.p50, cpu: s?.cpuMs?.p50, draws: s?.drawCalls }; });
+      const drawn = await page.evaluate(() => window.__game.drivers.snapshot().ambient);
+      const row = { round, variant, seated, drawn, ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws };
+      report.ambientBench.push(row); log('ambientbench', row);
+    }
+    await seat(page, null);
+    await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
+    await page.evaluate(() => window.__game.damage.look(null));
+    const median = a => { const s = [...a].filter(v => typeof v === 'number').sort((x, y) => x - y); return s.length ? +s[s.length >> 1].toFixed(2) : null; };
+    const delta = (variant, key) => median(report.ambientBench.filter(r => r.variant === variant)
+      .map(r => r[key] - report.ambientBench.find(o => o.round === r.round && o.variant === 'none')[key]));
+    report.ambientBenchSummary = Object.fromEntries(['one', 'mix'].map(v => [v, { frameP50: delta(v, 'p50'), gpuP50: delta(v, 'gpuP50'), cpuP50: delta(v, 'cpuP50'), draws: delta(v, 'draws') }]));
+    log('ambientbench summary', report.ambientBenchSummary);
+  }
   if (modes.has('ambient')) {
     // Static drivers in the ambient traffic (actors/driver/ambient.ts): the same street with them and without,
     // alternating (PERF_ROUNDS pairs); run with traffic on: PROBE_URL without traffic=0.
@@ -342,10 +409,32 @@ try {
       let root = [...d.drivers.values()][0]?.frame; while (root?.parent) root = root.parent;
       root?.traverse(o => { if (o.name.startsWith('ambient-drivers/') && !on) o.visible = false; });
     }, on);
+    // The start car to the pavement of a street with moving traffic, parallel to it; the camera on its far side looks
+    // over it at the street.
+    // Traffic spawns around the player after the load: wait (up to 90 s) for moving cars.
+    report.traffic = await page.evaluate(async () => {
+      const t0 = performance.now(), g = window.__game;
+      for (;;) {
+        const car = g.physics.latest.vehicles.find(v => v.id === 'player'), cars = g.traffic.debugCars().cars;
+        const moving = cars.filter(c => Math.hypot(c.vx, c.vz) > 2);
+        const nearest = Math.min(...cars.map(c => Math.hypot(c.x - car.pos.x, c.z - car.pos.z)));
+        if (moving.length >= 3 || performance.now() - t0 > 90000) return { cars: cars.length, moving: moving.length, nearest: Math.round(nearest), seconds: Math.round((performance.now() - t0) / 1000) };
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    });
+    log('traffic', report.traffic);
+    report.street = await findStreet(page);
+    log('street', { street: report.street });
+    if (report.street) {
+      await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), report.street);
+      await page.waitForTimeout(2500);
+    }
     await hold(page, { handbrake: 1 });
-    await page.evaluate(() => window.__game.damage.look({ yaw: 150, pitch: 14, distance: 9, height: 1 }));
+    await page.evaluate(yaw => window.__game.damage.look({ yaw, pitch: 12, distance: 8, height: 1 }), report.street?.side === -1 ? 90 : 270);
     report.settle = await settleDraws(page);
     log('settled', report.settle);
+    log('seats', await page.evaluate(() => { const g = window.__game;
+      return { seats: g.parkedVisuals.trafficSeatCount, ambient: g.drivers.snapshot().ambient, traffic: g.traffic.debugCars().cars.length }; }));
     report.ambient = [];
     const rounds = Number(process.env.PERF_ROUNDS ?? 5);
     for (let round = 0; round < rounds; round++) for (const on of [false, true]) {
