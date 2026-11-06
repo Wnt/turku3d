@@ -163,12 +163,15 @@ const findStraight = page => page.evaluate(async () => {
         if (!ok) break;
         usable = t;
       }
-      // Other players' cars (parked shared records too) are not in the 'solid' rays: the corridor ends 6 m before one.
-      for (const r of cars) {
-        const along = (r[0] - ground.point.x) * d.x + (r[2] - ground.point.z) * d.z, across = (r[0] - ground.point.x) * side.x + (r[2] - ground.point.z) * side.z;
-        if (Math.abs(across) < 3 && along > -6) usable = Math.min(usable, along - 6);
-      }
-      if (usable > (best?.length ?? 120)) best = { x: ground.point.x, y: ground.point.y, z: ground.point.z, yaw, deg, length: usable };
+      // Other players' cars (parked shared records too) are not in the 'solid' rays: each blocks 7 m either side of it,
+      // and the run uses the longest free stretch (its start moves past a car parked at the corridor's beginning).
+      const blocked = cars.map(r => [(r[0] - ground.point.x) * d.x + (r[2] - ground.point.z) * d.z, (r[0] - ground.point.x) * side.x + (r[2] - ground.point.z) * side.z])
+        .filter(([along, across]) => Math.abs(across) < 3 && along > -7 && along < usable + 7).map(([along]) => along).sort((a, b) => a - b);
+      let from = 0, stretch = [0, 0];
+      for (const at of [...blocked, usable + 7]) { if (at - 7 - from > stretch[1] - stretch[0]) stretch = [from, at - 7]; from = Math.max(from, at + 7); }
+      const length = stretch[1] - stretch[0];
+      if (length > (best?.length ?? 120))
+        best = { x: ground.point.x + d.x * stretch[0], y: ground.point.y, z: ground.point.z + d.z * stretch[0], yaw, deg, length, skipped: +stretch[0].toFixed(1) };
     }
   }
   return best;

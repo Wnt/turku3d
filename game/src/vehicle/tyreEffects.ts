@@ -13,7 +13,7 @@ const LIFE = 3;
  *  tyre smoke's grey). */
 const KINDS = [
   { life: LIFE, rise: .65, drift: .18, size: .35, growth: .85, opacity: .24, shade: 1 },
-  { life: 1.6, rise: 1.1, drift: .3, size: .2, growth: .9, opacity: .34, shade: 1.45 },
+  { life: 1.3, rise: .7, drift: .35, size: .25, growth: 1.3, opacity: .3, shade: 1.45 },
   { life: 3, rise: .8, drift: .3, size: .3, growth: 1.1, opacity: .3, shade: .14 },
 ] as const;
 /** Where a damaged engine bay vents, in the chassis frame (+X forward): the starter car's bonnet front. */
