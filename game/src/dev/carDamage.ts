@@ -79,6 +79,8 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
     remotes() { return drawnCars('remote/'); },
     /** Fleet cars this client drives or drove (fleet/visuals.ts actors named driven/...), with their drawn damage. */
     driven() { return drawnCars('driven/'); },
+    /** The fleet's damaged batches in use (developer check). */
+    wreckBatches() { return fleet?.wreckBatches() ?? []; },
     /** Damaged parked cars drawn in the fleet's damaged batches, with their drawn damage (crumple from the stand-in's
      *  deformed bounds, cm). */
     wrecks() {

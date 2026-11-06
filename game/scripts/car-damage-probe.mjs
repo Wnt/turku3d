@@ -449,7 +449,8 @@ try {
     report.a = await wreckOf(page);
     report.record = await page.evaluate(id => { const v = window.__game.multiplayerClient()?.state.vehicles.get(`park:${id}`);
       return v ? { owner: v.owner, me: window.__game.multiplayerClient().state.you?.id, damage: !!v.pose.damage, vehicle: v.pose.vehicle } : null; }, target.id);
-    log('a wreck', { run: report.run, wreck: report.a, record: report.record });
+    report.batches = await page.evaluate(() => window.__game.damage.wreckBatches());
+    log('a wreck', { run: report.run, wreck: report.a, record: report.record, batches: report.batches });
     if (!report.a || report.a.hits < 1 || !report.a.slot) report.errors.push(`no wreck drawn for ${target.id}: ${JSON.stringify(report.a)}`);
     if (!report.record?.damage || report.record.owner !== report.record.me) report.errors.push(`room record: ${JSON.stringify(report.record)}`);
     for (const [view, yaw] of [...VIEWS, ['front', 0]]) {
@@ -473,16 +474,19 @@ try {
         report.errors.push(`${label} draws ${JSON.stringify(seen)} against A's ${report.a?.frontLoss}/${report.a?.rearLoss} cm`);
       return { ...seen, seconds: (Date.now() - started) / 1000 };
     };
-    const b = await open('b', await browser.newContext());
-    report.b = await seeWreck(b, 'b');
-    report.bLocalWreck = await wreckOf(b);
-    if (report.bLocalWreck) report.errors.push('b also draws its own copy of the wreck');
-    await b.close();
-    await page.close();
-    await new Promise(r => setTimeout(r, 4000));
-    const c = await open('c', await browser.newContext());
-    report.c = await seeWreck(c, 'c');
-    await c.close();
+    // PARKED_SOLO=1: only A's side (the wreck, its batch and the room record).
+    if (!process.env.PARKED_SOLO) {
+      const b = await open('b', await browser.newContext());
+      report.b = await seeWreck(b, 'b');
+      report.bLocalWreck = await wreckOf(b);
+      if (report.bLocalWreck) report.errors.push('b also draws its own copy of the wreck');
+      await b.close();
+      await page.close();
+      await new Promise(r => setTimeout(r, 4000));
+      const c = await open('c', await browser.newContext());
+      report.c = await seeWreck(c, 'c');
+      await c.close();
+    }
   }
   if (mode === 'traffic') {
     // Ambient traffic (Phase 3 slice 4; run with traffic on: PROBE_URL without traffic=0). A drives its starter car into
@@ -491,11 +495,12 @@ try {
     await page.evaluate(() => window.__game.enterVehicle('player'));
     await page.waitForTimeout(1500);
     let claimed = null;
-    for (let attempt = 0; attempt < 6 && !claimed; attempt++) {
+    for (let attempt = 0; attempt < 14 && !claimed; attempt++) {
       const target = await page.evaluate(async () => {
         const g = window.__game, physics = g.physics, me = physics.latest.vehicles.find(v => v.id === 'player').pos;
-        const cars = (g.traffic.instances ?? []).filter(c => (c.speed ?? 1) < .2 && !String(c.seed).startsWith('tr:'))
-          .map(c => ({ c, d: Math.hypot(c.x - me.x, c.z - me.z) })).filter(e => e.d < 150).sort((a, b) => a.d - b.d);
+        // Standing or creeping (a queue at a light): the 50 km/h run-up still closes in on it.
+        const cars = (g.traffic.instances ?? []).filter(c => (c.speed ?? 9) < 2.5 && !String(c.seed).startsWith('tr:'))
+          .map(c => ({ c, d: Math.hypot(c.x - me.x, c.z - me.z) })).filter(e => e.d < 220).sort((a, b) => a.d - b.d);
         for (const { c } of cars) {
           const q = c.q, f = { x: 1 - 2 * (q.y * q.y + q.z * q.z), z: 2 * (q.x * q.z - q.w * q.y) }, n = Math.hypot(f.x, f.z);
           f.x /= n; f.z /= n;

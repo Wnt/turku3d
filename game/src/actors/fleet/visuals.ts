@@ -274,6 +274,14 @@ export class ParkedCarVisuals {
     if(glass?.getAttribute('skinIndex')){const window=new THREE.Mesh(glass);window.matrixAutoUpdate=false;proxy.add(window);rig.bind(window);}
     wreck={rig,body:proxy,model:model.id};this.wrecks.set(id,wreck);return wreck;
   }
+  /** The damaged batches in use, for the developer console: instances, visibility and the first one's place and slot. */
+  wreckBatches() {
+    const m=new THREE.Matrix4(),p=new THREE.Vector3();
+    return [...this.damaged].filter(([,b])=>b.mesh.count).map(([key,b])=>{b.mesh.getMatrixAt(0,m);p.setFromMatrixPosition(m);
+      return {key,count:b.mesh.count,visible:b.mesh.visible,inScene:!!b.mesh.parent,first:p.toArray().map(v=>Math.round(v*10)/10),slot:b.slots?.getX(0),
+        sphere:b.mesh.boundingSphere?[...b.mesh.boundingSphere.center.toArray().map(v=>Math.round(v)),Math.round(b.mesh.boundingSphere.radius)]:null,
+        glass:b.glass?.count??null};});
+  }
   /** Damaged cars drawn in batches (parked wrecks), for the developer console: their rigs and stand-in bodies. */
   wreckBodies():{id:string;model:string;body:THREE.Mesh;rig:DamageRig}[] { return [...this.wrecks].map(([id,w])=>({id,...w})); }
   /** Frame-cost bench (developer console): the `count` parked cars nearest `at` draw with damage state `wire` (visual
