@@ -152,10 +152,17 @@ Starter Golf before → slice 1 (tyres, steering) → slice 2 (ride, CoM, bars, 
 | Slalom 18 m | (not run) | clean to 70 km/h | clean to 60, the tail goes at 70 | clean to 60, rear out at 68 |
 | Brake 0.5 in a 0.79 g turn, steering held | (not run) | 17° sideslip | 3.8° | |
 
-In the browser (`scripts/handling-probe.mjs` on the Air against city.lab, slice 1, virtual pad and keyboard): the
-skidpad on a 20 m circle held to 50 km/h at 1.01 g; braking from 80 km/h with S held 1.26 g mean, 21.8 m; a held A
-key at 59 km/h turned the wheels to 24.6°. The Air rendered 4.4 fps headless beside another agent's Chrome, so the
-page's controller and samples ran at that rate.
+In the browser (`scripts/handling-probe.mjs` on the Air against city.lab: a virtual pad drives a closed-loop skidpad
+on the largest clear flat disc near the start, the keyboard brakes and steers on the longest straight; run it with
+`~/turku3d/tools/host-lease/session.py run air NAME --kind func --headless --load-timeout 240 -- node
+scripts/handling-probe.mjs OUT`). The disc it finds near the start is a soil field (material 11). The page's
+controller and samples run at its frame rate, 4-15 fps headless beside other agents' Chromes:
+
+| Build | Skidpad (virtual pad) | Brake from 80 km/h (S held) | Held A key |
+|---|---|---|---|
+| slice 1 (e6cf9909, 4.4 fps) | R 20 held to 50 km/h, 1.01 g | 1.26 g, 21.8 m | 24.6° at 59 km/h |
+| slice 2 (901770c4, 14.9 fps) | R 20 held to 50 km/h, 0.90 g | 1.33 g, 19.9 m | 26.5° at 52 km/h |
+| slices 3-4 (dad25927, 5.7 fps) | soil R 15 held to 35 km/h, 0.64 g; R 20 lost at 25 km/h (the 5.7 Hz controller) | 1.23 g, 22.2 m; build-up 0.30 / 0.59 / 0.84 g over the first 0.1 / 0.2 / 0.3 s | 26.6° at 51 km/h |
 
 Slice 4, gravel against tarmac (same harness manoeuvres on a gravel slab; Wreckfest 2 section 7):
 
