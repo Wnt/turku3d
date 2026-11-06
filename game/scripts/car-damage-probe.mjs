@@ -179,7 +179,7 @@ const findStraight = page => page.evaluate(async () => {
 
 /** One driven programme on the straight `s` through the game's own controller hook (`input.driver`, the autopilot's
  *  way in), from a reset at `at` metres along it: 'accel' (full throttle from rest holding the line, then a full stop
- *  before the end), 'pull' (holding the line up to 60 km/h, then 3 s hands off at that speed, then a stop) or
+ *  before the end), 'pull' (holding the line up to 60 km/h and 2 s more, then 3 s hands off at that speed, then a stop) or
  *  'reverse' (Wreckfest 2's probe: from rest, 2.5 s of straight full reverse hands off, then a stop). The line holder
  *  steers on the heading error, its rate and the sideways offset. The game's own driver (the autopilot) is put back
  *  after. Returns the per-update log. */
@@ -187,7 +187,7 @@ const programme = (page, s, kind, at = 0) => page.evaluate(async ([s, kind, at])
   const g = window.__game, car = () => g.physics.latest.vehicles.find(v => v.id === 'player');
   const c = Math.cos(s.yaw), n = Math.sin(s.yaw);
   g.physics.resetVehicle({ x: s.x + c * at, y: s.y + .75, z: s.z - n * at }, s.yaw, 'player');
-  await new Promise(r => setTimeout(r, 1800));
+  await new Promise(r => setTimeout(r, 2500));
   const heading = q => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
   const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
   const along = v => (v.pos.x - s.x) * c - (v.pos.z - s.z) * n, across = v => -(v.pos.x - s.x) * n - (v.pos.z - s.z) * c;
@@ -198,13 +198,14 @@ const programme = (page, s, kind, at = 0) => page.evaluate(async ([s, kind, at])
       t += dt; since += dt;
       const h = wrap(heading(v.rot) - s.yaw), rate = previous === null || dt <= 0 ? 0 : wrap(h - previous) / dt; previous = h;
       log.push({ t, phase, v: v.forwardSpeed, along: along(v), across: across(v), h });
-      const hold = Math.max(-1, Math.min(1, 2.5 * h + .3 * rate + .05 * across(v)));
+      const hold = Math.max(-1, Math.min(1, 2.5 * h + .6 * rate + .05 * across(v)));
       let throttle = 0, brake = 0, steer = hold;
       const next = p => { phase = p; since = 0; };
       if (kind === 'accel') {
         if (phase === 'go') { throttle = 1; if (along(v) > s.length - 10 - v.forwardSpeed ** 2 / 20) next('stop'); }
       } else if (kind === 'pull') {
-        if (phase === 'go') { throttle = 1; if (v.forwardSpeed >= 60 / 3.6) next('hands'); }
+        if (phase === 'go') { throttle = 1; if (v.forwardSpeed >= 60 / 3.6) next('settle'); }
+        else if (phase === 'settle') { throttle = v.forwardSpeed < 60 / 3.6 ? 1 : .35; if (since >= 2) next('hands'); }
         else if (phase === 'hands') { throttle = v.forwardSpeed < 60 / 3.6 ? 1 : .35; steer = 0; if (since >= 3 || along(v) > s.length - 25) next('stop'); }
       } else if (phase === 'go') { brake = 1; steer = 0; if (since >= 2.5) next('stop'); }
       if (phase === 'stop') {
@@ -224,10 +225,12 @@ const programme = (page, s, kind, at = 0) => page.evaluate(async ([s, kind, at])
  *  heading change (degrees, + left). */
 async function straightRun(page, s) {
   const accel = await programme(page, s, 'accel');
-  const moving = accel.findIndex(e => e.v > .3), t0 = accel[moving]?.t ?? 0;
+  // Timed from the first update with the throttle open (the car at rest after the reset's settle).
+  const moving = 0, t0 = accel[0]?.t ?? 0;
   const at = kmh => { const e = accel.find(e => e.v * 3.6 >= kmh); return e ? +(e.t - t0).toFixed(2) : null; };
   const peak = accel.reduce((m, e, i) => e.v > accel[m].v ? i : m, 0);
-  const pull = (await programme(page, s, 'pull')).filter(e => e.phase === 'hands');
+  // The hands-off pull after a 0.5 s transient (the line holder's last correction dying out).
+  const hands = (await programme(page, s, 'pull')).filter(e => e.phase === 'hands'), pull = hands.filter(e => e.t - hands[0].t >= .5);
   const first = pull[0], last = pull[pull.length - 1];
   const reverse = await programme(page, s, 'reverse', s.length - 4);
   return { t50: at(50), t80: at(80), v100: +((accel.find(e => e.along >= 100)?.v ?? NaN) * 3.6).toFixed(1), vmax: +(accel[peak].v * 3.6).toFixed(1),
