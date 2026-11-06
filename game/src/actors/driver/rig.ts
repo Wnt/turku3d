@@ -62,6 +62,10 @@ const ik = { shoulder: new THREE.Vector3(), elbow: new THREE.Vector3(), wrist: n
   from: new THREE.Vector3(), to: new THREE.Vector3(), parent: new THREE.Quaternion(), local: new THREE.Quaternion() };
 const v3 = (v: V3, out: THREE.Vector3) => out.set(v[0], v[1], v[2]);
 const wheelBasis = new THREE.Matrix4(), Z = new THREE.Vector3(0, 0, 1);
+/** World position and rotation from an object's current world matrix (getWorldPosition would refresh every ancestor). */
+const at = (o: THREE.Object3D, out: THREE.Vector3) => out.setFromMatrixPosition(o.matrixWorld);
+const unused = { p: new THREE.Vector3(), s: new THREE.Vector3() };
+const rotationOf = (o: THREE.Object3D, out: THREE.Quaternion) => { o.matrixWorld.decompose(unused.p, out, unused.s); return out; };
 
 export class DriverRig {
   /** The character clone; a child of the seat frame. */
@@ -71,6 +75,8 @@ export class DriverRig {
   /** The drawn steering wheel's bone (a child of `model`): placed, turned and scaled to the rim by `pose`. */
   private readonly wheel: THREE.Object3D;
   private readonly bones = new Map<Driven, THREE.Object3D>();
+  /** Each arm's chain, clavicle to hand (each the parent of the next). */
+  private readonly arms: Record<'L' | 'R', THREE.Object3D[]>;
   /** Hand-to-grip error of the last pose (m), for tests and the dev snapshot. */
   readonly reach = { left: 0, right: 0 };
 
@@ -94,6 +100,8 @@ export class DriverRig {
     this.wheel = this.model.getObjectByName(WHEEL_BONE)!;
     this.wheel.scale.setScalar(0);
     for (const name of DRIVEN) this.bones.set(name, this.model.getObjectByName(name)!);
+    const arm = (side: 'L' | 'R') => (['shoulder', 'upper_arm', 'forearm', 'hand'] as const).map(b => this.bones.get(`DEF-${b}${side}`)!);
+    this.arms = { L: arm('L'), R: arm('R') };
   }
 
   private reset() {
@@ -165,7 +173,7 @@ export class DriverRig {
     let deficit = 0, toward = 0;
     for (const side of [1, -1] as const) {
       const upper = this.bones.get(side > 0 ? 'DEF-upper_armL' : 'DEF-upper_armR')!;
-      const shoulder = upper.getWorldPosition(tmp.d);
+      const shoulder = at(upper, tmp.d);
       const target = v3(grip(layout.wheel, side * layout.wheel.grip + wheel).wrist, tmp.e).applyMatrix4(world);
       const short = shoulder.distanceTo(target) - (BODY.upperArm + BODY.forearm + 0.02);
       if (short > deficit) { deficit = short; toward = side; }
@@ -181,21 +189,20 @@ export class DriverRig {
   /** Two-bone IK of one arm to the wrist `target` (world), elbow toward `pole`, hand pointed at the grip `point`;
    *  the clavicle swings toward a target beyond reach. Returns the remaining wrist error (m). */
   private arm(side: 'L' | 'R', target: THREE.Vector3, point: THREE.Vector3, pole: THREE.Vector3): number {
-    const clavicle = this.bones.get(`DEF-shoulder${side}`)!, upper = this.bones.get(`DEF-upper_arm${side}`)!;
-    const fore = this.bones.get(`DEF-forearm${side}`)!, hand = this.bones.get(`DEF-hand${side}`)!;
-    const shoulder = upper.getWorldPosition(ik.shoulder), elbow = fore.getWorldPosition(ik.elbow), wrist = hand.getWorldPosition(ik.wrist);
+    const chain = this.arms[side], [clavicle, upper, fore, hand] = chain;
+    const shoulder = at(upper, ik.shoulder), elbow = at(fore, ik.elbow), wrist = at(hand, ik.wrist);
     const a = shoulder.distanceTo(elbow), b = elbow.distanceTo(wrist);
     let d = shoulder.distanceTo(target);
     const limit = (a + b) * 0.995;
     if (d > limit) {
       // Swing the clavicle about its joint toward the target, by the angle that closes the gap (at most CLAVICLE).
-      const root = clavicle.getWorldPosition(ik.root), arm = shoulder.distanceTo(root);
+      const root = at(clavicle, ik.root), arm = shoulder.distanceTo(root);
       tmp.r.setFromUnitVectors(tmp.d.subVectors(shoulder, root).normalize(), tmp.e.subVectors(target, root).normalize());
       const full = 2 * Math.acos(Math.min(1, Math.abs(tmp.r.w)));
       if (full > 1e-4 && arm > 1e-3) {
         tmp.r.slerp(tmp.s.identity(), 1 - Math.min(1, Math.min(CLAVICLE, 1.2 * (d - limit) / arm) / full));
-        this.rotateWorld(clavicle, tmp.r);
-        upper.getWorldPosition(shoulder); fore.getWorldPosition(elbow); hand.getWorldPosition(wrist);
+        this.rotateWorld(chain, 0, tmp.r);
+        at(upper, shoulder); at(fore, elbow); at(hand, wrist);
         d = shoulder.distanceTo(target);
       }
     }
@@ -206,29 +213,34 @@ export class DriverRig {
     if (bend.lengthSq() < 1e-8) bend.set(0, -1, 0).addScaledVector(dir, -dir.y);
     bend.normalize();
     const elbowTarget = ik.goal.copy(shoulder).addScaledVector(dir, a * cos).addScaledVector(bend, a * sin);
-    this.aim(upper, shoulder, elbow, elbowTarget);
-    fore.getWorldPosition(elbow); hand.getWorldPosition(wrist);
-    this.aim(fore, elbow, wrist, target);
-    hand.getWorldPosition(wrist);
+    this.aim(chain, 1, shoulder, elbow, elbowTarget);
+    at(fore, elbow); at(hand, wrist);
+    this.aim(chain, 2, elbow, wrist, target);
+    at(hand, wrist);
     // The hand points from the wrist at the grip; its roll stays the clip's grip.
-    const tip = tmp.d.set(0, 1, 0).applyQuaternion(hand.getWorldQuaternion(tmp.q)).add(wrist);
-    this.aim(hand, wrist, tip, point);
+    const tip = tmp.d.set(0, 1, 0).applyQuaternion(rotationOf(hand, tmp.q)).add(wrist);
+    this.aim(chain, 3, wrist, tip, point);
     return wrist.distanceTo(target);
   }
 
-  /** Rotates `bone` about its joint so that `child` (world) turns toward `goal` (world). */
-  private aim(bone: THREE.Object3D, joint: THREE.Vector3, child: THREE.Vector3, goal: THREE.Vector3) {
+  /** Rotates `chain[i]` about its joint so that `child` (world) turns toward `goal` (world). */
+  private aim(chain: readonly THREE.Object3D[], i: number, joint: THREE.Vector3, child: THREE.Vector3, goal: THREE.Vector3) {
     const from = ik.from.subVectors(child, joint), to = ik.to.subVectors(goal, joint);
     if (from.lengthSq() < 1e-10 || to.lengthSq() < 1e-10) return;
-    this.rotateWorld(bone, tmp.r.setFromUnitVectors(from.normalize(), to.normalize()));
+    this.rotateWorld(chain, i, tmp.r.setFromUnitVectors(from.normalize(), to.normalize()));
   }
 
-  /** Applies the world rotation `r` to `bone` about its joint and refreshes its subtree's world matrices. */
-  private rotateWorld(bone: THREE.Object3D, r: THREE.Quaternion) {
-    const parent = bone.parent!.getWorldQuaternion(ik.parent);
+  /** Applies the world rotation `r` to `chain[i]` about its joint and refreshes the world matrices down the arm chain
+   *  only (clavicle, upper arm, forearm, hand): the IK reads nothing else, and the fingers follow in the renderer's own
+   *  scene update. */
+  private rotateWorld(chain: readonly THREE.Object3D[], i: number, r: THREE.Quaternion) {
+    const bone = chain[i], parent = rotationOf(bone.parent!, ik.parent);
     const local = ik.local.copy(parent).invert().multiply(r).multiply(parent);
     bone.quaternion.premultiply(local);
-    bone.updateMatrixWorld(true);
+    for (let k = i; k < chain.length; k++) {
+      const b = chain[k];
+      b.updateMatrix(); b.matrixWorld.multiplyMatrices(b.parent!.matrixWorld, b.matrix);
+    }
   }
 
   /** The drawn wheel in the seat frame: its centre, the column tilt (normal back to the driver and up), turned by

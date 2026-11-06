@@ -211,8 +211,9 @@ const listenerForward = new THREE.Vector3();
 // (`hold`, replacing the controls), the chase camera and the drivers.
 const hook = { state: () => active?.vehicle.state(), actions: () => input.actions, source: () => input.source,
   hold: null as null | { throttle: number; steer: number; brake: number; handbrake?: boolean; horn?: boolean }, drivers: () => drivers.snapshot(),
-  /** A fixed camera relative to the vehicle (yaw about +Y from its forward axis, degrees; metres), or the chase. */
-  view: null as null | { yaw: number; pitch: number; distance: number; height: number },
+  /** A fixed camera relative to the vehicle (yaw about +Y from its forward axis, degrees; metres; `ahead`: the point
+   *  looked at that far forward of the vehicle's centre, e.g. a bus's cab), or the chase. */
+  view: null as null | { yaw: number; pitch: number; distance: number; height: number; ahead?: number },
   reset: () => { if (active) { active.vehicle.reset(active.start, 0); openingView(active.vehicle.state()); } }, scene };
 Object.assign(window, { vehicleGallery: hook });
 let last = performance.now(), carry = 0;
@@ -232,8 +233,8 @@ renderer.setAnimationLoop(() => {
   if (hook.view) {
     const v = hook.view, q = new THREE.Quaternion(state.rot.x, state.rot.y, state.rot.z, state.rot.w);
     const forward = new THREE.Vector3(1, 0, 0).applyQuaternion(q).setY(0).normalize();
+    const target = new THREE.Vector3(state.pos.x, state.pos.y + v.height, state.pos.z).addScaledVector(forward, v.ahead ?? 0);
     const dir = forward.applyAxisAngle(new THREE.Vector3(0, 1, 0), v.yaw * Math.PI / 180);
-    const target = new THREE.Vector3(state.pos.x, state.pos.y + v.height, state.pos.z);
     camera.position.copy(target).addScaledVector(dir, v.distance * Math.cos(v.pitch * Math.PI / 180)).setY(target.y + v.distance * Math.sin(v.pitch * Math.PI / 180));
     camera.lookAt(target);
   }
