@@ -12,6 +12,24 @@ from functools import lru_cache
 import numpy as np
 from PIL import Image, ImageDraw
 
+METALS = ("copper", "metal", "zinc")
+
+
+def copper_start(d):
+    """Height above the building base (m) where walls turn to the roof's metal; inf without a band.
+
+    ``tower.copper_start_m`` 0 (or missing) is the reference estimator's empty answer: 35 of the 42
+    automatic descriptions carry it, and their notes say "no copper tower stage". Read as a band
+    from the ground, it drew every narrow survey wall piece and tower wall of those landmarks in
+    the roof maps (Turun kaasukello's drum dark grey instead of its salmon render). Such walls keep
+    the wall material. Only a description whose ``wall_material`` is itself a metal has metal
+    walls from the ground; the estimator's wall materials (``references.py``) name none today.
+    """
+    start = (d.get("tower") or {}).get("copper_start_m") or 0
+    if start > 0:
+        return float(start)
+    return 0.0 if d.get("wall_material") in METALS else math.inf
+
 
 def png(array):
     stream = io.BytesIO()
@@ -244,7 +262,7 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7, density=40
         stone, srelief = fieldstone(width, height, d["stone"], seed, density)
         rgb[mask] = stone[mask]
         relief[mask] = srelief[mask]
-        mask = heights >= d["tower"]["copper_start_m"]
+        mask = heights >= copper_start(d)
         metal, mrelief = roof_surface(width, height, d["roof"], seed, density)
         rgb[mask] = metal[mask]
         relief[mask] = mrelief[mask]
@@ -333,8 +351,8 @@ def wall_maps(width, height, bottom, description_json, tower, seed=7, density=40
                     fill=(215, 192, 110),
                     width=max(2, round(0.1 * sx)),
                 )
-        if d["roof"]["material"] == "copper" and bottom + height > d["tower"]["copper_start_m"] + 4:
-            opening(width / 2, d["tower"]["copper_start_m"] + 1, width * 0.42, 6, False)
+        if d["roof"]["material"] == "copper" and bottom + height > copper_start(d) + 4:
+            opening(width / 2, copper_start(d) + 1, width * 0.42, 6, False)
     else:
         w = d["windows"]
         pointed = (

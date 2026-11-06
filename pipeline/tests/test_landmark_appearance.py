@@ -194,6 +194,47 @@ def test_narrow_tower_wall_keeps_copper_above_its_stage():
     )
 
 
+def test_zero_copper_start_is_no_band_so_narrow_and_tower_walls_keep_the_wall_material():
+    from io import BytesIO
+
+    from PIL import Image
+    from turku3d import config as C
+    from turku3d.landmarks.appearance import material_wall_parts
+    from turku3d.landmarks.descriptions import ROOT, resolve
+    from turku3d.landmarks.procedural import wall_maps
+
+    # Turun kaasukello's estimate: salmon render walls, a dark metal coping, "copper_start_m": 0
+    # (the estimator's empty answer, in 35 of 42 descriptions). Its drum is narrow survey pieces.
+    d = json.loads((ROOT / "103371570S.json").read_text())
+    d.update(building_id="drum", wall_material="render", night_lighting=None)
+    d["brick"].update(colour=[188, 112, 92], variation=0)
+    d["roof"].update(material="metal", colour=[72, 72, 68])
+    d["tower"].update(minimum_height_m=999, maximum_width_m=0, stone_top_m=0, copper_start_m=0)
+    store = C.work_root() / "landmark-descriptions"
+    store.mkdir(parents=True)
+    (store / "drum.json").write_text(json.dumps(d))
+    b = SimpleNamespace(facade_key="drum", key="drum", base=0.0, top=35.0, attributes={}, roof_parts=[])
+    piece = np.array([[1.2, 2, 0], [0, 2, 0], [0, 35, 0], [1.2, 35, 0]], float)  # above the plinth
+    assert {kind for _, kind in material_wall_parts(b, piece, resolve(b))} == {"wall"}
+    meshes = wall_meshes(b, piece, np.zeros(3))
+    rgb = np.asarray(Image.open(BytesIO(meshes[0].image)).convert("RGB"), float).reshape(-1, 3)
+    wall = np.median(rgb, axis=0)
+    assert np.abs(wall - [188, 112, 92]).max() < 25, f"narrow drum piece drawn {wall}, not its render"
+
+    # A tower stage without a copper band stays wall above its stone stage.
+    d["tower"].update(minimum_height_m=20, maximum_width_m=6, stone_top_m=2)
+    albedo, _, _ = wall_maps(4.0, 30.0, 0.0, json.dumps(d, sort_keys=True), True)
+    top = np.asarray(Image.open(BytesIO(albedo)).convert("RGB"), float)[:200].reshape(-1, 3)
+    assert np.abs(np.median(top, axis=0) - [188, 112, 92]).max() < 25
+
+    # A measured band keeps the roof metal above its stage, below stays wall.
+    d["tower"]["copper_start_m"] = 21.8
+    (store / "drum.json").write_text(json.dumps(d))
+    parts = list(material_wall_parts(b, piece, resolve(b)))
+    assert {kind for _, kind in parts} == {"wall", "roof"}
+    assert min(v[:, 1].min() for v, kind in parts if kind == "roof") == pytest.approx(21.8)
+
+
 def test_atlas_batches_all_pbr_maps_without_losing_geometry_or_bleeding_edges():
     import io
 

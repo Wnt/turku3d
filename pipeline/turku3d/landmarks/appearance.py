@@ -8,7 +8,7 @@ from turku3d.package.gltf import GlbMesh, vertex_normals
 
 from .atlas import batch, merge
 from .descriptions import resolve
-from .procedural import maps, material_maps, roof_surface, wall_maps, window_rows
+from .procedural import copper_start, maps, material_maps, roof_surface, wall_maps, window_rows
 
 
 def visible_walls(building, walls):
@@ -74,7 +74,7 @@ def material_wall_parts(building, walls, description):
         low, high = q[:, 1].min(), q[:, 1].max()
         tower = high - building.base > d["tower"]["minimum_height_m"]
         stone = building.base + (d["tower"]["stone_top_m"] if tower else 1.5)
-        copper = building.base + d["tower"]["copper_start_m"]
+        copper = building.base + copper_start(d)
         levels = sorted(set([low, high, *[v for v in (stone, copper) if low < v < high]]))
         face = shapely.Polygon(np.c_[[0, width, width, 0], q[:, 1]])
         for lo, hi in zip(levels[:-1], levels[1:], strict=True):
@@ -227,7 +227,7 @@ def wall_meshes(building, walls, origin, description=None):
         if repeat:
             kind = band_kind or (
                 "roof"
-                if high - building.base > d["tower"]["copper_start_m"]
+                if high - building.base > copper_start(d)
                 else "stone"
                 if high - building.base < 1.5
                 else "wall"
@@ -372,9 +372,8 @@ def night_wash(meshes, building, origin, description):
     profile = description.get('night_lighting')
     if not profile:
         return meshes
-    tower = description.get('tower', {})
     start, end = profile.get('tower_ramp_m', [12, 28])
-    copper = tower.get('copper_start_m', float('inf'))
+    copper = copper_start(description)
     fade = profile.get('copper_fade_m', 3)
     for mesh in meshes:
         split_night_levels(mesh, [h + building.base - origin[1]
