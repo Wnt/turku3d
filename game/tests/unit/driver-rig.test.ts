@@ -8,6 +8,7 @@ import { fleetDriverLayout } from '../../src/actors/driver/drivers';
 import { DriverRig, DriverTemplate } from '../../src/actors/driver/rig';
 import { TIERS } from '../../src/actors/driver/model';
 import { ownWheelBox, withoutOwnWheel } from '../../src/actors/driver/ownWheel';
+import { AmbientDrivers, bakePose } from '../../src/actors/driver/ambient';
 import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 import ANCHORS from '../../src/actors/driver/anchors.json';
 import { DriverMotion, type MotionPose } from '../../src/actors/driver/motion';
@@ -246,3 +247,33 @@ test('one steering wheel: a driven model with a measured wheel leaves its own st
   }
   expect(ownWheelBox('golf7')).toBeNull();
 }, 30000);
+
+test('ambient traffic drivers: the rest pose baked per posture class, one instanced draw per class at each model\'s H-point', async () => {
+  const t = await template(), corolla = fleetDriverLayout('corolla-e180'), sedan = fleetDriverLayout('generic-sedan'), van = fleetDriverLayout('euro-van');
+  expect(corolla.cls).toBe(sedan.cls); expect(van.cls).not.toBe(corolla.cls);
+  // The baked pose is the rig's skinned rest pose (steering straight), without the drawn wheel.
+  const baked = bakePose(t, corolla), rig = new DriverRig(t), frame = new THREE.Group();
+  frame.add(rig.model); rig.pose(frame, corolla, still, 0); frame.updateMatrixWorld(true);
+  const first = t.model.geometry.index!.getX(0);
+  const skinned = rig.mesh.applyBoneTransform(first, new THREE.Vector3().fromBufferAttribute(t.model.geometry.getAttribute('position') as THREE.BufferAttribute, first))
+    .applyMatrix4(rig.mesh.matrixWorld);
+  expect(new THREE.Vector3().fromBufferAttribute(baked.getAttribute('position') as THREE.BufferAttribute, 0).distanceTo(skinned)).toBeLessThan(1e-4);
+  const ends = t.model.tierEnds;
+  expect(baked.index!.count).toBe(ends[TIERS - 1] - (ends[1] - ends[0]));
+  const parent = new THREE.Group(), ambient = new AmbientDrivers(t, parent, async () => {});
+  const at = (x: number) => new THREE.Matrix4().makeTranslation(x, 0, 0);
+  ambient.update([{ layout: corolla, matrix: at(0) }, { layout: sedan, matrix: at(10) }, { layout: van, matrix: at(20) }]);
+  expect(ambient.snapshot()).toEqual({ [corolla.cls]: 2, [van.cls]: 1 });
+  expect(parent.children).toHaveLength(2);
+  const saloon = parent.children.find(o => o.name.endsWith(corolla.cls)) as THREE.InstancedMesh, m = new THREE.Matrix4();
+  saloon.getMatrixAt(1, m);
+  // The generic sedan's instance: the class pose moved from the corolla's H-point to its own.
+  expect(new THREE.Vector3().setFromMatrixPosition(m).toArray().map(v => +v.toFixed(4)))
+    .toEqual([10 + sedan.hips[0] - corolla.hips[0], sedan.hips[1] - corolla.hips[1], sedan.hips[2] - corolla.hips[2]].map(v => +v.toFixed(4)));
+  // Fewer cars next frame: the rest hide; more than the capacity: the batch grows.
+  ambient.update([{ layout: van, matrix: at(0) }]);
+  expect(ambient.snapshot()).toEqual({ [corolla.cls]: 0, [van.cls]: 1 }); expect(saloon.visible).toBe(false);
+  ambient.update(Array.from({ length: 20 }, (_, i) => ({ layout: corolla, matrix: at(i * 5) })));
+  expect(ambient.snapshot()[corolla.cls]).toBe(20);
+  expect((parent.children.find(o => o.name.endsWith(corolla.cls)) as THREE.InstancedMesh).count).toBe(20);
+});

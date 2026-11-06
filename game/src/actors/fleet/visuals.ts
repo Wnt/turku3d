@@ -17,6 +17,7 @@ import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, flee
 import { DamageRig, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
 import { shareParts } from './damageParts';
 import { ownWheelBox, withoutOwnWheel } from '../driver/ownWheel';
+import { AMBIENT_DISTANCE } from '../driver/ambient';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 /** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
@@ -43,6 +44,10 @@ export class ParkedCarVisuals {
   /** Traffic model ids not in the catalog, warned about once each. */
   private unknown=new Set<string>();
   private traffic: readonly TrafficInstance[]=[];
+  /** Moving traffic cars drawn this frame in view within AMBIENT_DISTANCE of the camera: their drawn model and its
+   *  model-frame matrix (+Z forward, tyres on Y = 0), the seats of the ambient drivers (actors/driver/ambient.ts). */
+  readonly trafficSeats:{model:string;matrix:THREE.Matrix4}[]=[];
+  trafficSeatCount=0;
   private reserve=0;
   private camera=new THREE.Vector3();
   private frustum=new THREE.Frustum();
@@ -283,14 +288,15 @@ export class ParkedCarVisuals {
     this.scale.set(1,1,1);
     return this.matrix.compose(this.position,this.rotation,this.scale);
   }
-  private draw(draw:Draw) {
+  /** Draws one car; returns its drawn model (this.matrix then holds its transform), or null when it is not drawn. */
+  private draw(draw:Draw):FleetModel|null {
     draw={...draw,model:this.resolve(draw.model,draw.id)};
     const d=Math.hypot(draw.pos.x-this.camera.x,draw.pos.z-this.camera.z);
-    if(d>320)return;
+    if(d>320)return null;
     this.sphere.center.set(draw.pos.x,draw.pos.y,draw.pos.z);
-    if(this.hasView&&d>30&&!this.frustum.intersectsSphere(this.sphere))return;
+    if(this.hasView&&d>30&&!this.frustum.intersectsSphere(this.sphere))return null;
     const lod=d<42?0:d<105?1:2, group=this.groups.get(`${draw.model.id}/${lod}`);
-    if(!group||group.count>=group.mesh.instanceMatrix.count)return;
+    if(!group||group.count>=group.mesh.instanceMatrix.count)return null;
     const matrix=this.transform(draw),offset=group.count*16,array=group.mesh.instanceMatrix.array;
     let changed=false;
     for(let i=0;i<16;i++)if(array[offset+i]!==Math.fround(matrix.elements[i])){changed=true;break;}
@@ -315,11 +321,13 @@ export class ParkedCarVisuals {
     }
     group.paints[group.count]=draw.color;group.indicators[group.count]=draw.indicator??0;
     group.brakes[group.count]=draw.braking?1:0;group.lamps[group.count++]=draw.powered?1:0;
+    return draw.model;
   }
   update(states:VehicleState[],rest?:ParkedRest) {
     const byId=new Map(states.map(s=>[s.id,s]));
     for(const b of this.groups.values()){b.count=0;b.dirty=false;}
     for(const b of this.wheelGroups.values()){b.count=0;b.dirty=false;}
+    this.trafficSeatCount=0;
     for(const car of this.cars) {
       const pose=byId.get(car.object_id)??rest?.restingPose(car); if(!pose)continue;
       const def=this.definitions.get(car.object_id)!;
@@ -339,7 +347,12 @@ export class ParkedCarVisuals {
         motion.steer=Math.max(-.65,Math.min(.65,Math.atan(model.wheelbase*turn/signed)));
       }else if(distance>=5){motion.spin=0;motion.steer=0;}
       motion.x=car.x;motion.z=car.z;motion.yaw=yaw;
-      this.draw({id,model,wheelY:car.wheelY,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
+      const drawn=this.draw({id,model,wheelY:car.wheelY,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
+      if(drawn&&this.hasView&&Math.hypot(car.x-this.camera.x,car.y-this.camera.y,car.z-this.camera.z)<AMBIENT_DISTANCE&&this.frustum.intersectsSphere(this.sphere)){
+        let seat=this.trafficSeats[this.trafficSeatCount];
+        if(!seat)this.trafficSeats.push(seat={model:'',matrix:new THREE.Matrix4()});
+        seat.model=drawn.id;seat.matrix.copy(this.matrix);this.trafficSeatCount++;
+      }
     }
     const liveMotion=new Set(this.traffic.map((c,i)=>c.seed??`${c.model}/${i}`));
     for(const id of this.wheelMotion.keys())if(!liveMotion.has(id))this.wheelMotion.delete(id);

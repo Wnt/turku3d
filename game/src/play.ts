@@ -857,6 +857,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       const drivenRender = renderVehicle && drivenId && renderVehicle.id === drivenId ? renderVehicle : null;
       parkedVisuals.update(drivenRender ? st.vehicles.map(v => v.id === drivenId ? { ...v, pos: drivenRender.pos, rot: drivenRender.rot, wheels: drivenRender.wheels } : v)
         : st.vehicles, parkedVehicles);
+      // Static drivers in the moving traffic near the camera (actors/driver/ambient.ts).
+      drivers.ambient(root, parkedVisuals.trafficSeats, parkedVisuals.trafficSeatCount);
       const activeCar = st.vehicles.find(v => v.id === drivenId);
       if (activeCar) {
         if (multiplayerPlaying && mode === 'car' && activeCar.impact && activeCar.impact.id !== lastCrash) {

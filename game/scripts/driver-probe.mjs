@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from '@playwright/test';
 
-// Modes (comma-separated): shots (rest, lock both ways, horn), brake, crash, remote (a second client), perf.
+// Modes (comma-separated): shots (rest, lock both ways, horn), brake, crash, remote (a second client), perf, ambient
+// (traffic drivers on against off; set PROBE_URL with traffic on).
 const mode = process.argv[2] ?? 'shots,brake,crash,remote', modes = new Set(mode.split(',')), out = path.resolve(process.argv[3] ?? 'driver-probe');
 const url = process.env.PROBE_URL ?? 'https://city.lab.madekivi.fi/?dev=1&time=13:00&weather=clear&traffic=0&walkers=0';
 fs.mkdirSync(out, { recursive: true });
@@ -277,8 +278,10 @@ try {
     }
   }
   if (modes.has('remote')) {
-    // A second player in the room sees A's driver (its own browser context: its own session).
+    // A second player in the room sees A's driver (its own browser context: its own session). B's remote look frames
+    // the most damaged remote car, and a room keeps other players' parked cars: a light dent makes it A's.
     await hold(page, { steer: -1, handbrake: 1 });
+    await page.evaluate(() => window.__game.damage.dent({ kmh: 20, at: 'rear' }));
     const b = await open('b', await browser.newContext());
     await b.waitForFunction(() => window.__game.drivers.snapshot().drivers.some(d => d.key.startsWith('remote:') && d.drawn), null, { timeout: 90000 })
       .catch(() => report.errors.push('b: no remote driver drawn within 90 s'));
@@ -290,6 +293,7 @@ try {
     await b.screenshot({ path: path.join(out, 'b-remote-driver-noglass.png') }); report.shots.push(path.join(out, 'b-remote-driver-noglass.png'));
     log('remote', { drivers: report.remote.map(d => ({ key: d.key, drawn: d.drawn, reach: d.reach, headYawDeg: +(d.pose.headYaw * 57.3).toFixed(1) })) });
     await hold(page, null);
+    await page.evaluate(() => window.__game.damage.clear());
     await b.close();
   }
   if (modes.has('perf')) {
@@ -327,6 +331,41 @@ try {
       gpuP50Without: of(false, 'gpuP50'), gpuP50With: of(true, 'gpuP50'), driversMsWith: of(true, 'driversMs'), drawsWithout: of(false, 'draws'), drawsWith: of(true, 'draws'),
       pairedDelta: { frameP50: delta('p50'), gpuP50: delta('gpuP50'), cpuP50: delta('cpuP50'), draws: delta('draws') } };
     log('perf summary', report.perfSummary);
+  }
+  if (modes.has('ambient')) {
+    // Static drivers in the ambient traffic (actors/driver/ambient.ts): the same street with them and without,
+    // alternating (PERF_ROUNDS pairs); run with traffic on: PROBE_URL without traffic=0.
+    const ambient = on => page.evaluate(on => {
+      const g = window.__game, d = g.drivers;
+      d.__ambient ??= d.ambient;
+      d.ambient = on ? d.__ambient : () => {};
+      let root = [...d.drivers.values()][0]?.frame; while (root?.parent) root = root.parent;
+      root?.traverse(o => { if (o.name.startsWith('ambient-drivers/') && !on) o.visible = false; });
+    }, on);
+    await hold(page, { handbrake: 1 });
+    await page.evaluate(() => window.__game.damage.look({ yaw: 150, pitch: 14, distance: 9, height: 1 }));
+    report.settle = await settleDraws(page);
+    log('settled', report.settle);
+    report.ambient = [];
+    const rounds = Number(process.env.PERF_ROUNDS ?? 5);
+    for (let round = 0; round < rounds; round++) for (const on of [false, true]) {
+      await ambient(on);
+      await page.waitForTimeout(2500);
+      if (on && round === 0) { const file = path.join(out, 'ambient-view.png'); await page.screenshot({ path: file }); report.shots.push(file); }
+      await page.evaluate(() => window.__render?.perf?.reset?.());
+      const f = await frames(page, 240);
+      const p = await page.evaluate(() => { const s = window.__perf; return { gpu: s?.gpuMs?.p50, cpu: s?.cpuMs?.p50, draws: s?.drawCalls }; });
+      const seated = await page.evaluate(() => Object.values(window.__game.drivers.snapshot().ambient ?? {}).reduce((a, b) => a + b, 0));
+      const row = { round, ambient: on, seated, ...f, gpuP50: p.gpu, cpuP50: p.cpu, draws: p.draws };
+      report.ambient.push(row); log('ambient', row);
+    }
+    await ambient(true);
+    await page.evaluate(() => window.__game.damage.look(null));
+    const median = a => { const s = [...a].filter(v => typeof v === 'number').sort((x, y) => x - y); return s.length ? +s[s.length >> 1].toFixed(2) : null; };
+    const delta = key => median(report.ambient.filter(r => r.ambient).map(r => r[key] - report.ambient.find(o => o.round === r.round && !o.ambient)[key]));
+    report.ambientSummary = { seated: median(report.ambient.filter(r => r.ambient).map(r => r.seated)),
+      pairedDelta: { frameP50: delta('p50'), gpuP50: delta('gpuP50'), cpuP50: delta('cpuP50'), draws: delta('draws') } };
+    log('ambient summary', report.ambientSummary);
   }
   report.ok = report.errors.length === 0;
 } catch (error) {

@@ -4,6 +4,7 @@ import { AUTHORED_BY_ID } from '../fleet/registry';
 import { CAR } from '../../physics/constants';
 import { modelTuning } from '../../vehicle/modelTuning';
 import { fleetLayout, steerFraction, steeringAngle, type DriverLayout } from './layout';
+import { AmbientDrivers, type AmbientSeat } from './ambient';
 import { bakeAtlas } from './model';
 import { DriverMotion, type Vec } from './motion';
 import { DriverRig, DriverTemplate } from './rig';
@@ -60,6 +61,8 @@ export class Drivers {
   private readonly camera = new THREE.Vector3();
   private readonly at = new THREE.Vector3();
   private readonly basis = { fwd: { x: 0, y: 0, z: 1 }, left: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
+  private ambientDrivers: AmbientDrivers | null = null;
+  private readonly ambientSeats: AmbientSeat[] = [];
   /** Main-thread ms spent in finish() (smoothed), for the frame-cost measurement. */
   frameMs = 0;
 
@@ -132,6 +135,17 @@ export class Drivers {
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
   }
 
+  /** Static drivers in this frame's ambient traffic cars near the camera (fleet/visuals.ts `trafficSeats`: model id
+   *  and model-frame matrix), drawn under `parent` (ambient.ts). */
+  ambient(parent: THREE.Object3D, seats: readonly { model: string; matrix: THREE.Matrix4 }[], count: number) {
+    if (!this.template) return;
+    for (let i = 0; i < count; i++) {
+      const seat = this.ambientSeats[i] ??= { layout: null as unknown as DriverLayout, matrix: new THREE.Matrix4() };
+      seat.layout = fleetDriverLayout(seats[i].model); seat.matrix.copy(seats[i].matrix);
+    }
+    (this.ambientDrivers ??= new AmbientDrivers(this.template, parent, this.prepare)).update(this.ambientSeats, count);
+  }
+
   /** World position of driver `key`'s hips while it is seated and drawn (the seated-vehicle snapshot). */
   hipsOf(key: string): number[] | null {
     const d = this.drivers.get(key);
@@ -140,7 +154,7 @@ export class Drivers {
 
   /** Dev and test view: each seated driver, whether drawn, its hands' distance from the rim grips and motion. */
   snapshot() {
-    return { frameMs: this.frameMs, pool: this.free.length, drivers: [...this.drivers.values()].map(d => ({
+    return { frameMs: this.frameMs, pool: this.free.length, ambient: this.ambientDrivers?.snapshot() ?? {}, drivers: [...this.drivers.values()].map(d => ({
       key: d.key, drawn: d.drawn && d.frame.visible, cls: d.layout?.cls, reach: { ...d.rig.reach },
       hips: d.rig.model.getObjectByName('DEF-hips')?.getWorldPosition(new THREE.Vector3()).toArray(),
       head: d.rig.model.getObjectByName('DEF-head')?.getWorldPosition(new THREE.Vector3()).toArray(),
