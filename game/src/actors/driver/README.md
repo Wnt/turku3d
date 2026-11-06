@@ -92,3 +92,24 @@ fleet model's layout under its roof with both hands within 1.5 cm of the rim at 
 the horn hand and each motion channel. On the deployed share, `game/scripts/driver-probe.mjs` (`shots`: lock, braking,
 crash, a second client's view; `perf`: 20 animated drivers against none, alternating). The vehicle gallery (`vehicle-gallery.html`) seats a driver in every model;
 `window.vehicleGallery.hold` / `.view` hold an input and a camera for scripted shots.
+
+After the distance tiers (city.lab 9e306c10, same bench, perf lease; the world was still streaming, baseline draws
+670 -> 790 over the run): frame p50 22.3 -> 29.5 ms (median of three alternating rounds), `finish()` 2.1 ms.
+
+## Next steps
+
+- **Fewer draws per driver**: the cost is per draw, not per triangle. Merge the skin, hoodie, jeans and hair into one
+  skinned mesh (a texture atlas or an array texture indexed by a vertex attribute) so a driver is one or two draws;
+  then measure again with a settled world (wait for the draw count to stop growing).
+- **Own steering wheels**: the models with a measured wheel (`anchors.json`) still draw their static wheel under the
+  turning one. Drop those triangles from the driven/remote actor's body index (box from the source roles.json), or
+  have the fleet importer split a `steering_wheel` part like the `wheel_*` hubs and turn it instead of drawing one.
+- **More anchors**: most CARLA and Sketchfab bodies merge the interior; derive the wheel and seat from the geometry
+  (the glazing's windscreen base, the seat cushion) for the rest of the fleet.
+- **Trophy truck**: its `seat-driver` is 0.55 m behind and only 0.24 m below its wheel; at ±130° the crossing hand is
+  3-5 cm short of the rim even with the seat moved 20 cm and the torso leaning. Move the seat anchor or the wheel in
+  the model, or lower the trophy's lock.
+- **transit-bus** is drawn backwards relative to its physics front (board note 2026-11-06); its driver follows the
+  physics front.
+- Entry and exit animations (GTA: 2.7 s door closed, 1.7 s open, 1.6 s exit; 1.2x for high cabs); drivers for the
+  ambient traffic; per-player character looks.
