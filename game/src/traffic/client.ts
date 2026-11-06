@@ -230,7 +230,8 @@ export class TrafficClient {
     for (const [id, claim] of this.claims) {
       if (this.visuals.renders(id)) { this.claims.delete(id); continue; }
       const body = state.vehicles.find(v => v.id === id);
-      if (body) this.instances.push({ seed: id, model: claim.model, color: claim.color, x: body.pos.x, y: body.pos.y, z: body.pos.z, q: body.rot });
+      if (body) this.instances.push({ seed: id, model: claim.model, color: claim.color, x: body.pos.x, y: body.pos.y, z: body.pos.z, q: body.rot,
+        ...(body.damage ? { damage: body.damage } : {}) });
     }
   }
 

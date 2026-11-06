@@ -22,7 +22,9 @@ import { AMBIENT_DISTANCE } from '../driver/ambient';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 /** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
-export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean }
+export interface TrafficInstance { model: string; color: string; x: number; y: number; z: number; q: Quat; seed?: string; wheelY?: readonly number[]; indicator?: -1 | 0 | 1; braking?: boolean;
+  /** A just-claimed car's body damage (traffic/client.ts draws it from its physics body until its record loads). */
+  damage?: string }
 interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:boolean}
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
 interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean;
@@ -447,7 +449,10 @@ export class ParkedCarVisuals {
         motion.steer=Math.max(-.65,Math.min(.65,Math.atan(model.wheelbase*turn/signed)));
       }else if(distance>=5){motion.spin=0;motion.steer=0;}
       motion.x=car.x;motion.z=car.z;motion.yaw=yaw;
-      const drawn=this.draw({id,model,wheelY:car.wheelY,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,indicator:car.indicator,braking:car.braking});
+      // A just-claimed car already shows its dents (and its hazards when wrecked), keyed like its record.
+      const hazard=!!car.damage&&wrecked(mechanicsOf(car.damage));
+      const drawn=this.draw({id,model,wheelY:car.wheelY,spin:motion.spin,steer:motion.steer,color:car.color,pos:car,rot:car.q,powered:true,
+        indicator:hazard?(hazardOn()?2:0):car.indicator,braking:car.braking,...(car.damage?{damage:car.damage}:{})});
       if(drawn&&this.hasView&&Math.hypot(car.x-this.camera.x,car.y-this.camera.y,car.z-this.camera.z)<AMBIENT_DISTANCE&&this.frustum.intersectsSphere(this.sphere)){
         let seat=this.trafficSeats[this.trafficSeatCount];
         if(!seat)this.trafficSeats.push(seat={model:'',matrix:new THREE.Matrix4()});
