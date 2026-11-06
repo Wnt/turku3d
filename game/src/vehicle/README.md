@@ -382,10 +382,9 @@ runs). Frame cost (same draws with and without the cage, alternating rounds, pre
 +0.5-0.7 ms for 20 damaged cars and +1.5 ms for 60 on the Air; no CPU change. Cage weights take about 10 ms per
 27k-vertex body at load, in frame-sized phases.
 
-Next iterations (hooks in DamageState: `energy`, `hits`, the bins; handling and mechanical states are done, see
-Mechanical damage): loose and detached parts (node pairs with hinges, high thresholds), glass stages, scratch and dirt
-masks, crease detail where the cage compresses, and Phase 3: the same rule for the whole fleet (parked and traffic
-batches would need per-instance pool slots or a damaged car's own draw).
+Next iterations (handling, mechanical states, loose parts, glass and surface wear are done, see below): crease detail
+where the cage compresses, and Phase 3: the same rule for the whole fleet (parked and traffic batches would need
+per-instance pool slots or a damaged car's own draw).
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-damage.test.ts tests/unit/parked-paint.test.ts
@@ -463,17 +462,100 @@ dents: radiator 3, engine 1, 49.1 cm crumple) with the same shape and levels wit
 the Air, chase view, the wrecked car venting against a fresh body, alternating rounds: GPU p50 28.18 / 28.26 ms and
 25.11 / 26.17 ms (wrecked / fresh), CPU p50 25.07 / 25.14 and 22.81 / 22.45 ms: within run-to-run noise, the draw
 count unchanged (the sprites share the tyre smoke draw).
-The room keeps every probe client's starter car after it leaves, so the probe's searches avoid other players' cars
-and park its own car back home; PROBE_WALL / PROBE_STRAIGHT pin a spot across runs.
+The room drops a departed player's starter car ten minutes after its owner left unless someone sits in it
+(`server/vehicles.js` `starterOfflineMs`, like the trophy trucks' five-minute rule); the probe's searches still avoid
+other players' cars and park its own car back home; PROBE_WALL / PROBE_STRAIGHT pin a spot across runs.
 
-Next steps: loose and detached parts (Wreckfest 2 Realistic: the bumper beam hangs after 4 x 61.5 km/h; nothing
-detached otherwise), glass stages (side and roll loads break side glass, frontal deceleration does not), scratch and
-dirt masks, a leaking radiator that heats the engine over time (engine wear while driving), damage sound layers
-(steam hiss, rattles, remote cars' rough engines), the Realistic and Wrecker settings as alternative ladders, and the
-fleet (Phase 3).
+Next steps: a leaking radiator that heats the engine over time (engine wear while driving), remote cars' rough
+engines, the Realistic and Wrecker settings as alternative ladders, and the fleet (Phase 3).
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-mechanics.test.ts tests/unit/car-damage.test.ts
+```
+
+## Loose and detached parts (the starter car)
+
+Phase 2, iteration 3. Bumpers, bonnet, boot lid and both mirrors hang loose after repeated hard hits and tear off into
+debris; a part that is off stays off (there is no repair).
+
+- **Split by region** (`actors/fleet/damageParts.ts splitParts`, once per body geometry, with the cage weights): each
+  triangle-connected piece of the body goes to a part when 70 % of its area lies in that part's region of the damage
+  box and its bounds stay inside it (10 cm margin), so authored panels stay whole and wheel-arch liners, the side
+  shell and the scuttle stay on the body; only a fused shell spanning 80 % of the length would be cut triangle by
+  triangle. Regions: bumpers the lower 45 % of the end 17 % of the length; bonnet the up-facing panel of the front
+  30 % inside the wings; boot lid the rear 16 % between 42 and 72 % of the height (a hatchback's glazed tailgate half
+  stays on the body); mirrors small pieces sticking out past 93 % of the half-width near the A-pillars. Lamps stay on
+  the body. Vertices shared across a part boundary are duplicated (the Golf: 6 of 26935). The Golf's split: front
+  bumper 4054 triangles, rear 4632, bonnet 1005, boot lid 1591, mirrors 233 / 231. The same rule serves every model.
+- **Loads** (`vehicle/damage.ts PART_LOAD`, in `applyHit`): per hit (km/h of the part's face push - `v0`)² times its
+  footprint share, summed; loose from `loose`, off from `off`. Bumpers (v0 36, 1500 / 2600): loose after 3 hits at 60
+  km/h or one at 75, off after 5 at 60 or one at 90 (Wreckfest 2 detached nothing in single hits up to 84 km/h, and its
+  bumper beam hung after 4 x 61.5 on Realistic). Bonnet and boot lid (36, 2000 / 4000): loose after 4 at 60 or one at
+  81, off after 7 at 60 or one at 99. Mirrors (15, 150 / 500; side hits over the front two thirds, half a roof hit):
+  loose from one 27 km/h side impact, off from one at 38. Parking knocks (20 x 30 km/h from each side) loosen nothing.
+  A corner hit frees the bumper end it struck (`partSide`).
+- **Loose** (`PartPoses`, render side): a cheap damped swing about the part's remaining mount, driven by the drawn
+  body's own acceleration (from its world pose, so local and remote cars swing alike): a bumper hangs from the end that
+  held, its free end dropped to the ground, pulled out 10-20 cm and tipped outward; the bonnet pops 0.12 rad and lifts
+  in the wind (+0.0016 rad per (m/s)², up to 1.05 rad); the boot lid hangs 0.35 rad open and swings with braking; a
+  mirror dangles 0.9 rad on its cable. The transforms live in the damage pool row (two texels per part after the
+  cage) and the vertex stage applies them before the cage blend; the row re-uploads every frame only while a part
+  hangs loose.
+- **Detached**: the part's vertices collapse after the cage blend (scale 0, zero-area triangles); every client that
+  sees the state change copies the part as drawn (CPU deform) into a mesh and a Rapier box (`actors/fleet/debris.ts`,
+  `physics/world.ts spawnDebris`: 7 kg bumpers, 14 kg bonnet, 11 kg boot lid, 1.5 kg mirrors; 60 s each, at most 24,
+  oldest first). Debris collides with the world, cars (after 0.6 s, once clear of the body it came off) and other
+  debris; wheel rays, query rays and the character pass through it (`DEBRIS.group`). A car first drawn with parts
+  already off (a remote car coming into view, a loaded save) just lacks them.
+- **Wire** version 3: per part its state and free end (one byte) and its load (uint16).
+
+## Glass (the starter car)
+
+- **Windows** (`damageParts.ts splitWindows`): glazing pieces above 62 % of the height (lower ones are lamp covers,
+  never broken) facing sideways are side windows (front and rear by the gap at the B-pillar), the others the windscreen
+  and the rear window. Each vertex gets its window and `crackUV`, its place in the window's plane around a crack origin
+  a little off the window's centre.
+- **Loads** (`damage.ts GLASS_LOAD`, stages intact / cracked / crazed / shattered): per hit (km/h - 10)² times a share.
+  Side windows take side hits by their distance from the contact (as the crumple footprint), half of a roof hit; the
+  windscreen and the rear window a quarter of a side hit at their end, all of a roof hit and 8 % of (km/h - 50)² of a
+  crash on their end face. Steps: side glass 100 / 300 / 600 (a 21 km/h knock cracks, three at 25 km/h or one at 35
+  shatter), windscreen 200 / 450 / 800, rear window 150 / 400 / 700. Wreckfest 2: side and roll loads break side glass;
+  a head-on crash up to 84 km/h (and six at 61.5) breaks none.
+- **Drawing**: the glazing's fragment stage reads its window's stage (one pool texel per window, a vertex-stage
+  varying) and draws a crack star (11 wobbling spokes and broken rings, 0.26 m across) at stage 1, crazed all over
+  with a milky haze at 2; a shattered window collapses in the vertex stage (an open frame) and throws 36 flakes
+  (`actors/fleet/glassShards.ts`: one instanced draw for every burst, ballistic on the main thread to the car's wheel
+  plane, 25 s on the ground then fading).
+- **Wire** version 4: per window its stage and load.
+
+## Surface wear (the starter car)
+
+- **Cells** (`damage.ts surfaceCell`): a 16 x 16 unwrap of the damage box: the sides 16 along x 4 up, the roof 16 x 6,
+  the ends 8 x 2; per cell a wear level (light scratches, bare metal beyond half) and a dirt level.
+- **Painted** by hits (`surfaceHit`: from 12 km/h, bare metal from about 50, over the footprint; a wall the whole face
+  at bumper height; a roof hit all of the roof with dirt) and by scrapes (`vehicle.ts trackScrape`, every third step:
+  each chassis contact sliding faster than 1.5 m/s wears 0.06 per metre within 0.3 m of the point on the face it lies
+  on; ground under a car on its side or roof adds 0.1 dirt per metre, walls 0.01 grime). Scrapes commit a new wire at
+  most every half second (a 2 s slide along a wall: a handful of updates). A scrape alone marks the car damaged.
+- **Drawing** (`damageRig.ts surfaceMask`, `material.ts wornPaint`): one 16 x 512 RGBA8 atlas (32 slots, 32 KB,
+  bilinear), uploaded on change; the body's fragment stage picks the face from the rest normal and samples its cell,
+  then adds thin scratch streaks along the car, patchy bare metal (metallic, no clear coat) and dirt blotches, from
+  hashes of the rest position (the detail stays on the panel as it dents). Scratches and bare metal only on paint.
+- **Wire** version 5: per cell one byte (wear and dirt in 15ths); 516 bytes, 688 base64 characters (the server's
+  bound is 1024).
+
+## Damage sounds
+
+Original procedural sounds (`scripts/prepare-audio.mjs`, CC0): `crunch` (low thump, crumpling bursts, a ringing
+panel), `scrape` (grinding loop), `glass-break` (a crack and a shower of high pings), `rattle` (irregular knocks) and
+`hiss` (fluttering steam). Every drawn car's damage changes (`damageRig.ts onDamage`: `hit`, `detach`, `shatter`)
+play a positional crunch scaled by the per-hit speed change (from the state's energy; 0 at 12 km/h, full at 80) and a
+glass break; the driven car's continuous mix (`audio/mix.ts damageLoops`, at MIX_HZ) grinds while its body slides along
+something (`VehicleState.scrape`, m/s), rattles with its loose parts and speed, and hisses while the radiator steams.
+The loops start on first use only. Remote cars get the one-shots, not the loops.
+
+```sh
+npm --prefix game test -- --run tests/unit/car-parts.test.ts tests/unit/audio.test.ts
 ```
 
 ## Tyre marks and smoke

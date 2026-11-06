@@ -262,7 +262,7 @@ export class DamageRig {
       }
       this.shown = true;
       this.posePart(now, true);
-    } else this.posePart(now, false);
+    } else if (this.state.damaged) this.posePart(now, false);
     if (!this.state.damaged) { this.release(); return; }
     if (this.slot === 0 || owners[this.slot] !== this) this.acquire();
     usedAt[this.slot] = ++clock;
