@@ -227,6 +227,17 @@ def test_zero_copper_start_is_no_band_so_narrow_and_tower_walls_keep_the_wall_ma
     top = np.asarray(Image.open(BytesIO(albedo)).convert("RGB"), float)[:200].reshape(-1, 3)
     assert np.abs(np.median(top, axis=0) - [188, 112, 92]).max() < 25
 
+    # Walls the description's prose names metal keep the roof metal (Turun konserttitalo's
+    # auditorium); metal-clad chimneys or a negated stage do not make the walls metal.
+    d["tower"].update(minimum_height_m=999, maximum_width_m=0, stone_top_m=0)
+    for observation, kinds in (
+        ("Two large red sheet-metal-clad chimney stacks are visible.", {"wall"}),
+        ("copper_start_m is zero to indicate that no copper-clad tower stage is established.", {"wall"}),
+        ("A curved metal-clad auditorium above a long glazed foyer.", {"roof"}),
+    ):
+        (store / "drum.json").write_text(json.dumps(dict(d, observations=[observation])))
+        assert {kind for _, kind in material_wall_parts(b, piece, resolve(b))} == kinds, observation
+
     # A measured band keeps the roof metal above its stage, below stays wall.
     d["tower"]["copper_start_m"] = 21.8
     (store / "drum.json").write_text(json.dumps(d))

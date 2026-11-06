@@ -7,12 +7,30 @@ colour, dimensions and opening arrangements come only from building parameters.
 import io
 import json
 import math
+import re
 from functools import lru_cache
 
 import numpy as np
 from PIL import Image, ImageDraw
 
 METALS = ("copper", "metal", "zinc")
+_METAL, _CLAD = r"(?:metal|copper|zinc|aluminium|aluminum)", r"(?:clad|cladding|envelope)"
+METAL_CLAD = re.compile(rf"\b{_METAL}\b[^.;:]*?\b{_CLAD}\b|\b{_CLAD}\b[^.;:]*?\b{_METAL}\b", re.I)
+# Metal-clad parts that are not the walls, and negated stages ("no copper-clad tower stage").
+NOT_WALLS = re.compile(r"\b(?:no|not|never|without|chimneys?|stacks?|canop(?:y|ies)|coping|flashings?|"
+                       r"railings?|gutters?|finials?|dormers?|doors?|windows?|frames?|vents?)\b", re.I)
+
+
+def metal_walls(d):
+    """Whether a description names metal walls. Its ``wall_material`` cannot (the estimator's choices
+    are brick, stone, render, wood and concrete), so they are only in its prose: an observation
+    sentence that puts metal cladding on the body, as Turun konserttitalo's "curved metal-clad
+    auditorium" whose roof parameters "describe the visible metal auditorium envelope". Sentences
+    about metal-clad chimneys, canopies or flashings, or a negated stage, do not count."""
+    if d.get("wall_material") in METALS:
+        return True
+    return any(METAL_CLAD.search(s) and not NOT_WALLS.search(s)
+               for text in d.get("observations") or () for s in re.split(r"(?<=[.;])\s+", text))
 
 
 def copper_start(d):
@@ -22,13 +40,13 @@ def copper_start(d):
     automatic descriptions carry it, and their notes say "no copper tower stage". Read as a band
     from the ground, it drew every narrow survey wall piece and tower wall of those landmarks in
     the roof maps (Turun kaasukello's drum dark grey instead of its salmon render). Such walls keep
-    the wall material. Only a description whose ``wall_material`` is itself a metal has metal
-    walls from the ground; the estimator's wall materials (``references.py``) name none today.
+    the wall material; only walls the description names metal (``metal_walls``) keep the roof's
+    metal from the ground.
     """
     start = (d.get("tower") or {}).get("copper_start_m") or 0
     if start > 0:
         return float(start)
-    return 0.0 if d.get("wall_material") in METALS else math.inf
+    return 0.0 if metal_walls(d) else math.inf
 
 
 def png(array):
