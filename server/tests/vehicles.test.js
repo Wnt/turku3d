@@ -284,6 +284,33 @@ test('player-spawned trucks go once their owner has left; a truck that fell out 
   assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:car`));
 });
 
+test('a departed player\'s starter car goes ten minutes after it left, unless someone else drives it', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(), c = f.connect(); a.send(pose); b.send(pose); c.send(pose);
+  const starter = client => `${client.welcome.you.id}:player`;
+  for (const client of [a, b, c]) client.send(car(client, { id: starter(client), localId: 'player', pose: { ...pose, mode: 'car', vehicle: 'player', vE: 0 } }));
+  // b drives off in its own car and leaves while seated; c takes a's empty car.
+  b.send(car(b, { id: starter(b), localId: 'player', action: 'acquire' }));
+  f.room.disconnect(a.c); f.room.disconnect(b.c);
+  f.advance(VEHICLE_LIMITS.starterOfflineMs - 1000);
+  c.send({ type: 'vehicle', action: 'acquire', id: starter(a), request: 'take' });
+  assert.equal(result(c).ok, true);
+  f.advance(2000);
+  // b's seat was freed after the reconnect grace; its car goes ten minutes after b left. a's car has a driver.
+  assert.equal(f.room.vehicles.entries.has(starter(b)), false);
+  assert.ok(f.room.vehicles.entries.has(starter(a)));
+  // The connected player's own empty car stays.
+  assert.ok(f.room.vehicles.entries.has(starter(c)));
+  // An owner who comes back within the ten minutes keeps theirs.
+  const d = f.connect(); d.send(pose);
+  d.send(car(d, { id: starter(d), localId: 'player', pose: { ...pose, mode: 'car', vehicle: 'player', vE: 0 } }));
+  f.room.disconnect(d.c);
+  f.advance(VEHICLE_LIMITS.starterOfflineMs / 2);
+  const back = f.connect(d.welcome.session);
+  f.advance(VEHICLE_LIMITS.starterOfflineMs);
+  assert.equal(back.welcome.you.id, d.welcome.you.id);
+  assert.ok(f.room.vehicles.entries.has(starter(d)));
+});
+
 test('a trip never leaves a seat behind: moving out frees it at once, an arrival hello frees a reserved one', () => {
   const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
   a.send(car(a, { id: 'park:bay', source: 'bay', action: 'acquire' }));

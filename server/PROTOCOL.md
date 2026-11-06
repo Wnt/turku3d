@@ -197,7 +197,9 @@ Empty records expire one hour after last seat use. Expiry/removal releases their
 original parked slots. Records survive score-hour rollover but live only in memory;
 a server restart clears the registry. This is bounded session state, not persistence.
 Disconnected owners' empty records also survive the five-minute reconnect grace,
-even at the end of their lifetime. A retained-session hello renews the lifetime of
+even at the end of their lifetime. A trophy truck the player spawned goes five minutes after it became empty once
+its owner is offline past that grace; a starter car (`pose.vehicle` `"player"`) goes ten minutes after its owner
+left, unless someone sits in it. A retained-session hello renews the lifetime of
 its owned records. The session token stored by the tab identifies the player across
 reloads; a new socket does not create a new owner. A fresh client restores its
 registry bodies and occupied seat before publishing poses.
