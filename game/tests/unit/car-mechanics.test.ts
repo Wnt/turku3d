@@ -290,6 +290,8 @@ describe('the damage indicator', () => {
     const side: DamageHit = { dv: [-85 / 3.6, 0, 0], at: [1, .5, 1.3], halfWidth: .3 };
     const wrecked = damageHudModel(hits([side, side, side])[2])!;
     expect(wrecked.lines).toContainEqual({ text: 'Suspension front left', level: 1 });
+    // A car damaged everywhere lists its three worst systems.
+    expect(damageHudModel(hits([side, side, side, ...Array.from({ length: 6 }, () => headOn(61.5))]).at(-1)!)!.lines).toHaveLength(3);
     expect(wrecked.wheels[0]).not.toBe(LEVEL_COLOURS[0]); expect(wrecked.wheels[3]).toBe(LEVEL_COLOURS[0]);
   });
 });

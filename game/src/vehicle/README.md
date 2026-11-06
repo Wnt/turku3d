@@ -435,8 +435,8 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
   (`tyres.ts`): toe and pull go through the wheel steering, sag and damping through the suspension.
 - **Indicator** (`ui/damageHud.ts`, while driving a damaged car): a 26 × 46 px top view at the bottom centre (the
   rear-steer tag's place, which only the truck uses) with the four corner zones, wheels and the engine bay tinted
-  by level (yellow → red), and short lines for what is damaged, worst first ("Engine", "Radiator", "Steering pull ←",
-  "Suspension front left"). Hidden for an intact car; full strength for 6 s after a new hit or getting in, then dimmed
+  by level (yellow → red), and up to three short lines for what is damaged, worst first ("Engine", "Radiator",
+  "Steering pull ←", "Suspension front left"). Hidden for an intact car; full strength for 6 s after a new hit or getting in, then dimmed
   to 45 %. It shows no key.
 - **Wire** version 2 (224 bytes, 300 base64 characters): the body state plus wear (uint16, 8 (km/h)² units) and the
   steering side. Version 1 (body only, older saves) still decodes, unworn. The server checks only a bounded base64
@@ -457,7 +457,12 @@ stop after the 2.5 s, which the headless one does not). On the slip-curve tyres 
 the same levels and +0.57 to +0.74°/s hands off at 61-65 km/h, the reverse probe -0.6° against +0.13° fresh; the
 launch is traction-limited, so a radiator-1 car is as quick as a fresh one to 80 km/h (headless the same). The probe's
 hands-off runs on these tyres are sensitive to the line holder's last correction (no body angular damping): a
-fresh car spun once. A second client draws the steam, the smoke and the crushed body of the owner's car (`mpsmoke`).
+fresh car spun once. A second client (`mpsmoke`, build 2ef113ff) draws the owner's wrecked car (four 78 km/h
+dents: radiator 3, engine 1, 49.1 cm crumple) with the same shape and levels within 0.9 s, and its steam and smoke (12 and
+10 live sprites; a busy room used to leave a remote car without a tyre-effect slot and so without steam). Frame cost on
+the Air, chase view, the wrecked car venting against a fresh body, alternating rounds: GPU p50 28.18 / 28.26 ms and
+25.11 / 26.17 ms (wrecked / fresh), CPU p50 25.07 / 25.14 and 22.81 / 22.45 ms: within run-to-run noise, the draw
+count unchanged (the sprites share the tyre smoke draw).
 The room keeps every probe client's starter car after it leaves, so the probe's searches avoid other players' cars
 and park its own car back home; PROBE_WALL / PROBE_STRAIGHT pin a spot across runs.
 

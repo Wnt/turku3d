@@ -28,7 +28,9 @@ export function damageHudModel(m: Mechanics): DamageHudModel | null {
   const pull = (m.steer + (m.toe[0] + m.toe[1]) / 2) * 180 / Math.PI;
   if (Math.abs(pull) >= PULL_DEG || m.steering) lines.push({ text: `Steering pull ${pull > 0 ? '←' : '→'}`, level: Math.max(1, m.steering) });
   m.suspension.forEach((level, i) => { if (level) lines.push({ text: `Suspension ${CORNERS[i]}`, level }); });
+  // Worst first, at most three lines (the top view still shows every corner): the panel stays small.
   lines.sort((a, b) => b.level - a.level);
+  if (lines.length > 3) lines.splice(3);
   // A wheel shows the worse of its suspension and a visible toe (a quarter degree reads as level 1).
   const wheels = m.suspension.map((level, i) => LEVEL_COLOURS[Math.max(level, Math.abs(m.toe[i]) * 180 / Math.PI >= .25 ? 1 : 0)]);
   return { zones: m.zones.map(level => LEVEL_COLOURS[level]), wheels, bay: LEVEL_COLOURS[Math.max(m.cooling, m.engine)], lines };

@@ -418,7 +418,9 @@ try {
     log('b sees a', report.b);
     file = path.join(out, 'b-remote-smoke.png'); await b.screenshot({ path: file }); report.shots.push(file);
     await shots(b, 'wrecked', 'b', true);
-    const theirs = report.b.remotes.find(r => r.hits === report.a.state.hits);
+    // The room may hold other damaged cars: A's replica is the one with A's hits nearest A's shape.
+    const theirs = report.b.remotes.filter(r => r.hits === report.a.state.hits)
+      .sort((x, y) => Math.abs(x.frontLoss - report.a.bounds.frontLoss) - Math.abs(y.frontLoss - report.a.bounds.frontLoss))[0];
     if (!theirs || Math.abs(theirs.frontLoss - report.a.bounds.frontLoss) > .2) report.errors.push(`replica shape differs: own ${report.a.bounds.frontLoss} cm, remote ${theirs?.frontLoss}`);
     if (!theirs || theirs.mechanics.cooling !== report.a.mechanics.cooling || theirs.mechanics.engine !== report.a.mechanics.engine) report.errors.push('replica mechanics differ');
     if (!(report.b.smoke?.steam > 0) || !(report.b.smoke?.smoke > 0)) report.errors.push(`no remote steam/smoke on b: ${JSON.stringify(report.b.smoke)}`);
