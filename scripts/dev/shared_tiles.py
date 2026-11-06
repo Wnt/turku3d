@@ -60,7 +60,7 @@ PUBLIC = ('coarse', 'tile', 'visual', 'collision', 'roads', 'pass_kind', 'vehicl
           'migrations', 'migration_base')
 GIB = 2**30
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
-BUILD_SECONDS = 3600  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min
+BUILD_SECONDS = 7200  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min, over 60 with 8 builds
                       # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
 DEMAND_SECONDS = 120   # game demand without a request for this long has been left behind
 FAR_TILES = 8          # 2 km beyond every live player: dropped after half a minute
