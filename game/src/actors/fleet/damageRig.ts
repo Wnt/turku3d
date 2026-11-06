@@ -27,64 +27,84 @@ export function cageWeights(layout: DamageLayout, x: number, y: number, z: numbe
   while (s < stations.length - 2 && z > stations[s + 1]) s++;
   let l = 0;
   while (l < laterals.length - 2 && x > laterals[l + 1]) l++;
-  const clamp = (v: number) => Math.max(0, Math.min(1, v));
-  const t = [clamp((x - laterals[l]) / (laterals[l + 1] - laterals[l])), clamp((y - levels[0]) / (levels[1] - levels[0])),
-    clamp((z - stations[s]) / (stations[s + 1] - stations[s]))];
-  // Walk from the cell's low corner along the axes in decreasing order of their coordinate.
-  const order = [0, 1, 2].sort((a, b) => t[b] - t[a] || a - b);
-  const corner = [l, 0, s];
-  let previous = 1;
-  for (let k = 0; k < 4; k++) {
-    const next = k < 3 ? t[order[k]] : 0;
-    index[at + k] = nodeIndex(corner[2], corner[1], corner[0]);
-    weight[at + k] = previous - next;
-    previous = next;
-    if (k < 3) corner[order[k]]++;
-  }
+  const tx = clamp01((x - laterals[l]) / (laterals[l + 1] - laterals[l])), ty = clamp01((y - levels[0]) / (levels[1] - levels[0]));
+  const tz = clamp01((z - stations[s]) / (stations[s + 1] - stations[s]));
+  // Walk from the cell's low corner along the axes in decreasing order of their coordinate (ties: x, y, z).
+  let a = 0, ta = tx, b = 1, tb = ty, c = 2, tc = tz;
+  if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; }
+  if (tc > tb) { [b, tb, c, tc] = [c, tc, b, tb]; if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; } }
+  let cl = l, ch = 0, cs = s;
+  index[at] = nodeIndex(cs, ch, cl); weight[at] = 1 - ta;
+  if (a === 0) cl++; else if (a === 1) ch++; else cs++;
+  index[at + 1] = nodeIndex(cs, ch, cl); weight[at + 1] = ta - tb;
+  if (b === 0) cl++; else if (b === 1) ch++; else cs++;
+  index[at + 2] = nodeIndex(cs, ch, cl); weight[at + 2] = tb - tc;
+  if (c === 0) cl++; else if (c === 1) ch++; else cs++;
+  index[at + 3] = nodeIndex(cs, ch, cl); weight[at + 3] = tc;
 }
+const clamp01 = (v: number) => v < 0 ? 0 : v > 1 ? 1 : v;
 
 /** Adds `skinIndex`/`skinWeight` for the cage to a fleet body or glazing geometry (once per geometry). */
 export function skinToCage(geometry: THREE.BufferGeometry, layout: DamageLayout) {
+  for (const _ of skinSteps(geometry, layout)) { /* run every phase now */ }
+}
+
+/** The same in phases of a few milliseconds each (a 27k-vertex body takes about 10 ms in all), yielding to the next
+ *  frame in between: the fleet's actor warm-up skins every resident model while the game runs. */
+export async function skinToCageAsync(geometry: THREE.BufferGeometry, layout: DamageLayout) {
+  for (const _ of skinSteps(geometry, layout)) await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout): Generator<void> {
   if (geometry.getAttribute('skinIndex')) return;
-  const position = geometry.getAttribute('position'), n = position.count;
+  const attribute = geometry.getAttribute('position'), n = attribute.count;
+  // Fleet geometry is flat float32 (authored.ts flattenFleetAsset); read its array directly.
+  const flat = attribute instanceof THREE.BufferAttribute && attribute.array instanceof Float32Array && !attribute.normalized && attribute.itemSize === 3;
+  const xyz = flat ? attribute.array as Float32Array : Float32Array.from({ length: n * 3 }, (_, k) => attribute.getComponent(Math.floor(k / 3), k % 3));
+  const position = { getX: (i: number) => xyz[i * 3], getY: (i: number) => xyz[i * 3 + 1], getZ: (i: number) => xyz[i * 3 + 2] };
   // Connected parts: shared triangle corners, and coincident positions (hard edges split the welded vertices).
   const parent = new Int32Array(n).map((_, i) => i);
   const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
   const union = (a: number, b: number) => { a = find(a); b = find(b); if (a !== b) parent[a] = b; };
   const index = geometry.index;
-  if (index) for (let i = 0; i < index.count; i += 3) { union(index.getX(i), index.getX(i + 1)); union(index.getX(i), index.getX(i + 2)); }
+  if (index) { const ix = index.array; for (let i = 0; i < index.count; i += 3) { union(ix[i], ix[i + 1]); union(ix[i], ix[i + 2]); } }
   else for (let i = 0; i < n; i += 3) { union(i, i + 1); union(i, i + 2); }
-  const seen = new Map<string, number>();
+  yield;
+  // Millimetre position keys (±10 m per axis fits 53 bits).
+  const seen = new Map<number, number>();
   for (let i = 0; i < n; i++) {
-    const key = `${Math.round(position.getX(i) * 1000)},${Math.round(position.getY(i) * 1000)},${Math.round(position.getZ(i) * 1000)}`;
+    const key = ((Math.round(position.getX(i) * 1000) + 10000) * 20001 + Math.round(position.getY(i) * 1000) + 10000) * 20001
+      + Math.round(position.getZ(i) * 1000) + 10000;
     const other = seen.get(key);
     if (other === undefined) seen.set(key, i); else union(i, other);
   }
-  const parts = new Map<number, { min: number[]; max: number[]; sum: number[]; count: number }>();
+  yield;
+  // Per part root: bounds and centroid sums (typed arrays, no per-vertex allocation).
+  const low = new Float32Array(n * 3).fill(Infinity), high = new Float32Array(n * 3).fill(-Infinity), sum = new Float64Array(n * 3), count = new Uint32Array(n);
+  const root = new Int32Array(n);
   for (let i = 0; i < n; i++) {
-    const root = find(i), x = position.getX(i), y = position.getY(i), z = position.getZ(i);
-    let part = parts.get(root);
-    if (!part) { part = { min: [x, y, z], max: [x, y, z], sum: [0, 0, 0], count: 0 }; parts.set(root, part); }
-    part.min = [Math.min(part.min[0], x), Math.min(part.min[1], y), Math.min(part.min[2], z)];
-    part.max = [Math.max(part.max[0], x), Math.max(part.max[1], y), Math.max(part.max[2], z)];
-    part.sum[0] += x; part.sum[1] += y; part.sum[2] += z; part.count++;
+    const r = root[i] = find(i), x = position.getX(i), y = position.getY(i), z = position.getZ(i);
+    low[r * 3] = Math.min(low[r * 3], x); low[r * 3 + 1] = Math.min(low[r * 3 + 1], y); low[r * 3 + 2] = Math.min(low[r * 3 + 2], z);
+    high[r * 3] = Math.max(high[r * 3], x); high[r * 3 + 1] = Math.max(high[r * 3 + 1], y); high[r * 3 + 2] = Math.max(high[r * 3 + 2], z);
+    sum[r * 3] += x; sum[r * 3 + 1] += y; sum[r * 3 + 2] += z; count[r]++;
   }
   const rigid = new Map<number, { index: number[]; weight: number[] }>();
-  for (const [root, part] of parts) {
-    if (Math.hypot(part.max[0] - part.min[0], part.max[1] - part.min[1], part.max[2] - part.min[2]) >= RIGID_PART_M) continue;
+  for (let r = 0; r < n; r++) {
+    if (!count[r] || Math.hypot(high[r * 3] - low[r * 3], high[r * 3 + 1] - low[r * 3 + 1], high[r * 3 + 2] - low[r * 3 + 2]) >= RIGID_PART_M) continue;
     const weights = { index: [0, 0, 0, 0], weight: [0, 0, 0, 0] };
-    cageWeights(layout, part.sum[0] / part.count, part.sum[1] / part.count, part.sum[2] / part.count, weights.index, weights.weight);
-    rigid.set(root, weights);
+    cageWeights(layout, sum[r * 3] / count[r], sum[r * 3 + 1] / count[r], sum[r * 3 + 2] / count[r], weights.index, weights.weight);
+    rigid.set(r, weights);
   }
+  yield;
   const skinIndex = new Uint8Array(n * 4), skinWeight = new Uint8Array(n * 4), w = new Float32Array(4);
   for (let i = 0; i < n; i++) {
-    const part = rigid.get(find(i));
+    const part = rigid.get(root[i]);
     if (part) { skinIndex.set(part.index, i * 4); w.set(part.weight); }
     else cageWeights(layout, position.getX(i), position.getY(i), position.getZ(i), skinIndex, w, i * 4);
     // Unsigned bytes that sum to exactly 255: the rounding remainder goes to the largest weight.
-    let sum = 0, largest = 0;
-    for (let k = 0; k < 4; k++) { skinWeight[i * 4 + k] = Math.round(w[k] * 255); sum += skinWeight[i * 4 + k]; if (w[k] > w[largest]) largest = k; }
-    skinWeight[i * 4 + largest] += 255 - sum;
+    let total = 0, largest = 0;
+    for (let k = 0; k < 4; k++) { skinWeight[i * 4 + k] = Math.round(w[k] * 255); total += skinWeight[i * 4 + k]; if (w[k] > w[largest]) largest = k; }
+    skinWeight[i * 4 + largest] += 255 - total;
   }
   geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4, true));

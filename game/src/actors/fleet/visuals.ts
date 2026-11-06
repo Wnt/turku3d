@@ -14,7 +14,7 @@ import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
-import { DamageRig, modelLayout, rigOf, skinToCage } from './damageRig';
+import { DamageRig, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 /** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
@@ -202,6 +202,10 @@ export class ParkedCarVisuals {
   private async warmActors(models:readonly FleetModel[]) {
     for(const model of models) {
       if(this.keepers.has(model.id)||!this.geometries.has(`${model.id}/0`))continue;
+      // Its damage cage weights first, in frame-sized phases (actor() would compute them in one go).
+      const layout=modelLayout(model),glass=this.geometries.get(`${model.id}/0/glass`);
+      await skinToCageAsync(this.geometry(model,0),layout);if(glass)await skinToCageAsync(glass,layout);
+      if(this.keepers.has(model.id))continue;
       const keeper=this.actor(model,'silver',`keeper/${model.id}`);
       // Detached on purpose: the graphics queue prepares it even after the menu (render/graphicsPreparation.ts).
       keeper.userData.preparesDetached=true;

@@ -12,19 +12,20 @@ test('each loaded design prepares one detached driven-car actor ahead of any tak
   const prepared: THREE.Object3D[] = [];
   const visuals = new ParkedCarVisuals(scene, vi.fn(async (model: THREE.Object3D) => { prepared.push(model); }));
   manifest.vehicles = [car, { ...car, object_id: 'two' }]; await visuals.load(manifest);
-  await new Promise(resolve => setTimeout(resolve, 0));
+  // The keeper follows its model's damage-cage weights, computed in frame-sized phases (fleet/damageRig.ts).
+  await vi.waitFor(() => expect(prepared.some(m => m.name === 'keeper/corolla-e180')).toBe(true));
   const keepers = prepared.filter(m => m.name === 'keeper/corolla-e180');
   expect(keepers).toHaveLength(1);
   expect(keepers[0].parent).toBeNull();
   expect(keepers[0].userData.preparesDetached).toBe(true);
-  // The keeper is the same kind of draw a takeover adds: a plain Mesh with the shared fleet material.
+  // The keeper is the same kind of draw a takeover adds: a plain Mesh with the shared damage-capable fleet material.
   visuals.takeOver('one');
   const driven = scene.getObjectByName('driven/one') as THREE.Mesh;
   expect((driven as unknown as THREE.InstancedMesh).isInstancedMesh).toBeFalsy();
   expect(driven.material).toBe((keepers[0] as THREE.Mesh).material);
   expect(driven.geometry).toBe((keepers[0] as THREE.Mesh).geometry);
   // A second load of the same design adds no keeper.
-  await visuals.load(manifest); await new Promise(resolve => setTimeout(resolve, 0));
+  await visuals.load(manifest); await new Promise(resolve => setTimeout(resolve, 20));
   expect(prepared.filter(m => m.name.startsWith('keeper/'))).toHaveLength(1);
 });
 
