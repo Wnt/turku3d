@@ -65,8 +65,9 @@ export function slipCurveHandling(base: VehicleTuning, height: number, drive: st
     ride: { frequency: [ride, ride * 1.5 / 1.75], bump: [0.45, 0.41], rebound: [0.59, 0.5],
       roll: 3.6 * Math.min(1.6, Math.max(1, height / 1.385)), rollFront: 0.64 },
     comDrop: Math.max(0, comHeight({ ...base, comDrop: 0 }, m) - com),
-    // A light stability control, as Wreckfest's default "half": it acts only once the tail slides 2° more than the nose.
-    stability: { onset: 2, full: 8, max: 0.6 },
+    // A light stability control, as Wreckfest's default "half": it acts only once the tail slides 2° more than the nose
+    // or the whole car slides tail-out by 8° (a loose surface under power).
+    stability: { onset: 2, full: 8, max: 0.6, sideslip: 8 },
     // Wreckfest 2: deceleration reaches 90 % in 0.16-0.19 s (the pressure ramps over 0.26 s; anti-lock caps the force at
     // about two thirds of it) and releases as fast; 60 % front balance. Brake force and spring force limits scale with
     // the weight, so a van or a bus also brakes at its tyres' limit and does not sit on its bump stops.
