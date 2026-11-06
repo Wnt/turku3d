@@ -656,6 +656,17 @@ Phase 3 of the car-damage plan: the starter car's damage (all sections above) fo
   drives `game/scripts/fleet-damage-sheet.mjs` (every model after a scripted 50 km/h dent, and as a wreck with its
   parts hanging loose; `fleet-damage-sheet.py` tiles the shots).
 
+Measured on city.lab (2026-11-06, headless Chrome on the M1 Air):
+- `fleet-damage-sheet.mjs` (build 1a9ae5c5): all 55 models load, skin and split in the gallery (about 4.5 s each,
+  none failed); sheets of the 50 km/h dent and of the wrecks with their parts hanging, front and rear, in
+  `~/turku3d/loops/car-damage/proof/fleet-sheet/sheet-*.jpg` (local).
+- `fleetmp` (build b9340735): A takes the nearest parked car (a carla-audi-tt), drives off (a real knock: 3.6 cm),
+  and two dents leave it at 33.7 cm front and 6.0 cm rear crumple, radiator 1, front bumper hanging, left mirror
+  off; B draws the same model with the same crumple, parts and glass within 0.6 s.
+- `slots` (perf lease, build b9340735): 20, 60 and 100 wrecks (loose parts, broken glass, worn paint) in view at
+  once each hold a distinct slot. GPU p50 plain / wrecked: 23.6 / 21.3 ms (20), 24.6 / 26.0 (60), 27.3 / 28.0 (100);
+  CPU p50 19.3 / 19.8, 22.7 / 23.7, 25.7 / 26.5 ms; the same draw counts. Within the Air's ±2 ms noise at 20.
+
 ```sh
 npm --prefix game test -- --run tests/unit/fleet-damage.test.ts tests/unit/car-parts.test.ts
 ```
