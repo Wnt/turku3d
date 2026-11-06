@@ -132,20 +132,31 @@ describe('cage skinning of the real starter car', () => {
     expect(rig.slot).toBe(0);
     expect(rig.bounds(body).max.z).toBeCloseTo(fresh.max.z, 5);
   }, 30_000);
-  test('damaged cars share the pool: each holds a slot, the oldest gives its slot up when it overflows', () => {
+  test('damaged cars share the pool: each holds a layer; when full, a car in view takes the layer of one out of view', async () => {
     const state = new DamageState(layout);
     applyHit(state, { dv: [0, 0, -60 / 3.6] });
     const wire = encodeDamage(state), rigs = Array.from({ length: DAMAGE_SLOTS }, () => new DamageRig(layout));
     const mesh = new THREE.Object3D();
     rigs[0].bind(mesh);
     expect(rigOf(mesh)).toBe(rigs[0]);
-    for (const rig of rigs) rig.show(wire);
-    // 31 damaged slots: the first car shown is the oldest and draws fresh until it is shown again.
-    expect(new Set(rigs.slice(1).map(r => r.slot)).size).toBe(DAMAGE_SLOTS - 1);
-    expect(rigs[0].slot).toBe(0);
-    rigs[0].show(wire);
-    expect(rigs[0].slot).toBeGreaterThan(0);
-    expect(rigs[1].slot).toBe(0);
+    const last = rigs[DAMAGE_SLOTS - 1], now = performance.now();
+    for (const rig of rigs) { rig.seenAt = now; rig.show(wire); }
+    // 255 damaged layers (0 is the fresh identity): the last car draws fresh while every other car is in view.
+    expect(new Set(rigs.slice(0, -1).map(r => r.slot)).size).toBe(DAMAGE_SLOTS - 1);
+    expect(last.slot).toBe(0);
+    last.show(wire);
+    expect(last.slot).toBe(0);
+    // One car has been out of view for 5 s: the next look (a few times a second) takes its layer; the car out of view
+    // keeps its state and does not take a layer back while it is not drawn.
+    const away = rigs[3], slot = away.slot;
+    away.seenAt = now - 5000;
+    await new Promise(resolve => setTimeout(resolve, 300));
+    last.seenAt = performance.now(); last.show(wire);
+    expect(last.slot).toBe(slot);
+    expect(away.slot).toBe(0);
+    away.show(wire);
+    expect(away.slot).toBe(0);
+    expect(away.state.hits).toBe(1);
     for (const rig of rigs) rig.release();
   });
 });

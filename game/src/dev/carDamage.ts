@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import type { CarVisual } from '../actors/car';
 import type { PhysicsClient } from '../physics/client';
 import type { DamageHit } from '../vehicle/damage';
-import { rigOf } from '../actors/fleet/damageRig';
+import { damagePool, rigOf } from '../actors/fleet/damageRig';
 import type { ParkedCarVisuals } from '../actors/fleet/visuals';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial } from '../actors/fleet/material';
 import { PLAYER_COLOR, PLAYER_MODEL } from '../actors/fleet/catalog';
@@ -36,14 +36,24 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
   shards?: GlassShards) {
   const benched: THREE.Object3D[] = [], benchWrecks: THREE.Object3D[] = [];
   let benchWreck: string | null = null;
-  let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean } | null = null;
+  let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean; driven: boolean } | null = null;
   const forward = new THREE.Vector3(), target = new THREE.Vector3();
   /** Other players' cars drawn here (net/remotes.ts, fleet/visuals.ts actors named remote/...), with their damage. */
-  const remoteCars = () => {
+  const remoteCars = (prefix = 'remote/') => {
     const cars: THREE.Mesh[] = [];
-    scene.traverse(o => { if (o.name.startsWith('remote/') && (o as THREE.Mesh).isMesh && rigOf(o) && o.visible) cars.push(o as THREE.Mesh); });
+    scene.traverse(o => { if (o.name.startsWith(prefix) && (o as THREE.Mesh).isMesh && rigOf(o) && o.visible) cars.push(o as THREE.Mesh); });
     return cars;
   };
+  /** Fleet cars drawn on their own with their drawn damage: hits and the crumple from their deformed bounds (cm). */
+  const drawnCars = (prefix: string) => remoteCars(prefix).map(mesh => {
+    const rig = rigOf(mesh)!, geometry = mesh.geometry;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
+    return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
+      position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)),
+      parts: partsOf(rig.state), glass: glassOf(rig.state),
+      surface: { worn: rig.state.surfaceWear.filter(v => v > .05).length, maxWear: Math.round(Math.max(...rig.state.surfaceWear) * 100) / 100 } };
+  });
   const inspect = {
     /** Crumple from the drawn, deformed body against the fresh one (cm): length lost at each end, growth across. */
     bounds() {
@@ -66,16 +76,13 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
         parts: partsOf(s), partLoad: Array.from(s.partLoad, Math.round), glass: glassOf(s), glassLoad: Array.from(s.glassLoad, Math.round) };
     },
     /** Remote cars in view range with their drawn damage: hits and the crumple from their deformed bounds (cm). */
-    remotes() {
-      return remoteCars().map(mesh => {
-        const rig = rigOf(mesh)!, geometry = mesh.geometry;
-        if (!geometry.boundingBox) geometry.computeBoundingBox();
-        const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
-        return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
-          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10), mechanics: levels(mechanics(rig.state)),
-          parts: partsOf(rig.state), glass: glassOf(rig.state),
-          surface: { worn: rig.state.surfaceWear.filter(v => v > .05).length, maxWear: Math.round(Math.max(...rig.state.surfaceWear) * 100) / 100 } };
-      });
+    remotes() { return drawnCars('remote/'); },
+    /** Fleet cars this client drives or drove (fleet/visuals.ts actors named driven/...), with their drawn damage. */
+    driven() { return drawnCars('driven/'); },
+    /** The damage pool (actors/fleet/damageRig.ts): slots taken, and the frame-cost bench cars' slots (distinct, none). */
+    slots() {
+      const own = benched.map(o => rigOf(o)?.slot ?? 0);
+      return { ...damagePool(), bench: own.length, benchWithSlot: own.filter(Boolean).length, benchDistinct: new Set(own.filter(Boolean)).size };
     },
     /** Car part debris lying around now (actors/fleet/debris.ts). */
     debris() { return debris?.list() ?? []; },
@@ -102,8 +109,9 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
   return { ...inspect,
     /** Hold the camera at `yaw` degrees around the car from its nose (0 front, 90 its left, 180 rear), `pitch` degrees
      *  up, `distance` metres from a point `height` m above the chassis centre; null hands the camera back. */
-    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number; remote?: boolean } | null) {
-      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: !!next.remote };
+    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number; remote?: boolean; driven?: boolean } | null) {
+      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: !!next.remote,
+        driven: !!next.driven };
     },
     frame(camera: THREE.PerspectiveCamera) {
       // Bench wrecks are not in any vehicle list: their rigs follow their (unchanged) state here, swinging loose parts.
@@ -111,8 +119,10 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       if (!view) return;
       // The starter car's chassis frame faces +X; a remote actor's mesh faces +Z (its +X is the car's left).
       // The most damaged remote car (a room keeps other players' parked starter cars too).
-      const remote = view.remote ? remoteCars().reduce<THREE.Mesh | null>((a, b) => !a || rigOf(b)!.state.hits > rigOf(a)!.state.hits ? b : a, null) : null;
-      if (view.remote ? !remote : !car.root.visible) return;
+      // A fleet car this client drives (driven: true) is held like a remote one.
+      const remote = view.remote || view.driven ? remoteCars(view.driven ? 'driven/' : 'remote/')
+        .reduce<THREE.Mesh | null>((a, b) => !a || rigOf(b)!.state.hits > rigOf(a)!.state.hits ? b : a, null) : null;
+      if (view.remote || view.driven ? !remote : !car.root.visible) return;
       if (remote) forward.set(0, 0, 1).applyQuaternion(remote.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
       else forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const heading = Math.atan2(-forward.z, forward.x), yaw = heading + view.yaw * Math.PI / 180, pitch = view.pitch * Math.PI / 180;
@@ -124,15 +134,15 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
     },
     /** "Dent here": the car hit `at` with a velocity change of `kmh`; `halfWidth` (m) narrows the footprint from a
      *  wall to e.g. a pole (0.15), `offset` (m) moves it along the face (+X / forward). */
-    dent({ kmh = 50, at = 'front', halfWidth, offset = 0 }: { kmh?: number; at?: Side; halfWidth?: number; offset?: number } = {}) {
+    dent({ kmh = 50, at = 'front', halfWidth, offset = 0, id = 'player' }: { kmh?: number; at?: Side; halfWidth?: number; offset?: number; id?: string } = {}) {
       const push = PUSH[at], v = kmh / 3.6;
       // The contact: on the side named, else `offset` along the face.
       const x = at.includes('left') ? 1 : at.includes('right') ? -1 : offset, z = at.startsWith('front') ? 2.5 : at.startsWith('rear') ? -2.5 : offset;
       const hit: DamageHit = { dv: [push[0] * v, push[1] * v, push[2] * v], at: [x, .6, z], ...(halfWidth ? { halfWidth } : {}) };
-      physics.damageVehicle('player', hit);
+      physics.damageVehicle(id, hit);
       return hit;
     },
-    clear() { physics.setVehicleDamage('player', null); },
+    clear(id = 'player') { physics.setVehicleDamage(id, null); },
     /** A scrape along the car as a wall or the ground would leave it: `side` 'left' | 'right' | 'roof' | 'front' |
      *  'rear', `metres` of sliding, along the middle band of that face from `from` to `to` (fractions of the length
      *  from the rear, or of the width for the ends); `ground` leaves dirt as a roll would. */

@@ -11,7 +11,9 @@
 // with loose parts against 20 plain cars: `partsperf`, under a perf lease), `glass` (crack, craze and shatter of a side
 // window, a roof hit, no glass from a frontal crash, a second client with the same stages and its own shards),
 // `surface` (scuffs from hits, a scrape along the side and a roof slide with dirt, the same wear on a second client),
-// `sounds` (crunches, a glass break, rattles and the radiator's hiss while driving).
+// `sounds` (crunches, a glass break, rattles and the radiator's hiss while driving), `slots` (20, 60 and 100 wrecks
+// in view at once, each with its own pool slot, and their frame cost against plain cars; under a perf lease),
+// `fleetmp` (a parked car of any model driven and dented by one client, the same dents on a second client).
 // Writes OUT_DIR/result.json and PNGs; prints one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -348,6 +350,51 @@ try {
       report.errors.push(`replica differs: own ${mine.frontLoss}/${mine.rearLoss} cm, remote ${theirs?.frontLoss}/${theirs?.rearLoss} cm`);
     await b.close();
   }
+  if (mode === 'fleetmp') {
+    // Any fleet car a player drives (Phase 3 slice 1): client A takes the nearest parked car, drives it a little (it
+    // registers as a shared record), dents it; client B must draw the same model with the same dents.
+    const id = await page.evaluate(() => {
+      const g = window.__game, me = g.physics.latest.vehicles.find(v => v.id === 'player').pos;
+      const cars = g.physics.latest.vehicles.filter(v => !['player', 'scooter', 'truck'].includes(v.id) && !v.id.startsWith('tr:') && v.kind === 'car')
+        .map(v => ({ id: v.id, d: Math.hypot(v.pos.x - me.x, v.pos.z - me.z) })).sort((a, b) => a.d - b.d);
+      return cars[0]?.id ?? null;
+    });
+    if (!id) throw new Error('no parked car near the start');
+    await page.evaluate(id => window.__game.enterVehicle(id), id);
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(3000);
+    report.car = await page.evaluate(() => window.__game.damage.driven());
+    log('a drives', { id, driven: report.car });
+    await page.evaluate(id => { window.__game.damage.dent({ kmh: 78, at: 'front', id }); window.__game.damage.dent({ kmh: 55, at: 'rear-left', id }); }, id);
+    await page.waitForTimeout(800);
+    report.a = await page.evaluate(() => window.__game.damage.driven());
+    const mine = report.a.reduce((a, b) => !a || b.hits > a.hits ? b : a, null);
+    log('a dented', { mine });
+    if (!mine || mine.hits !== 2) report.errors.push(`driven car shows ${mine?.hits} hits`);
+    await shots(page, 'fleet-dented', 'a');
+    for (const [view, yaw] of VIEWS) {
+      await page.evaluate(yaw => window.__game.damage.look({ yaw, pitch: 14, distance: 6.2, driven: true }), yaw);
+      await settle(page, 12);
+      const file = path.join(out, `a-fleet-${view}.png`); await page.screenshot({ path: file }); report.shots.push(file);
+    }
+    await page.evaluate(() => window.__game.damage.look(null));
+    const b = await open('b', await browser.newContext());
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), mine?.hits ?? 2, { timeout: 90000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    report.b = await b.evaluate(() => window.__game.damage.remotes());
+    const theirs = report.b.find(r => r.hits === mine?.hits);
+    log('b sees a', { theirs, seconds: report.replicaSeconds });
+    for (const [view, yaw] of VIEWS) {
+      await b.evaluate(yaw => window.__game.damage.look({ yaw, pitch: 14, distance: 6.2, remote: true }), yaw);
+      await settle(b, 12);
+      const file = path.join(out, `b-fleet-${view}.png`); await b.screenshot({ path: file }); report.shots.push(file);
+    }
+    if (!theirs || Math.abs(theirs.frontLoss - mine.frontLoss) > .3 || Math.abs(theirs.rearLoss - mine.rearLoss) > .3)
+      report.errors.push(`replica differs: own ${mine?.name} ${mine?.frontLoss}/${mine?.rearLoss} cm, remote ${theirs?.name} ${theirs?.frontLoss}/${theirs?.rearLoss} cm`);
+    await b.close();
+  }
   if (mode === 'wall') {
     await page.evaluate(() => window.__game.enterVehicle('player'));
     await page.waitForTimeout(1500);
@@ -539,6 +586,34 @@ try {
     report.perfSummary = Object.fromEntries(['plain', 'damaged', 'wrecked'].map(kind => [kind, {
       gpuP50: median(report.perf.filter(r => r.kind === kind).map(r => r.gpuP50)), cpuP50: median(report.perf.filter(r => r.kind === kind).map(r => r.cpuP50)) }]));
     log('perf summary', report.perfSummary);
+    await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
+    await page.evaluate(() => window.__game.damage.look(null));
+  }
+  if (mode === 'slots') {
+    // More damaged cars than the old 32-row pool: 20, 60 and 100 wrecks (loose parts, broken glass, worn paint) in
+    // view at once, every one with its own slot, against the same cars plain; a fixed camera, alternating rounds.
+    await page.evaluate(() => window.__game.damage.look({ yaw: 180, pitch: 22, distance: 9, height: .5 }));
+    await page.waitForTimeout(25000);
+    report.perf = [];
+    for (let round = 0; round < 3; round++) for (const count of [20, 60, 100]) for (const kind of ['plain', 'wrecked']) {
+      const placed = await page.evaluate(([kind, count]) => window.__game.damage.bench({ count, kind }), [kind, count]);
+      await page.waitForTimeout(2500);
+      await page.evaluate(() => window.__render.perf.reset());
+      await page.waitForTimeout(6000);
+      const p = await page.evaluate(() => ({ gpu: window.__perf.gpuMs, cpu: window.__perf.cpuMs, draws: window.__perf.drawCalls, slots: window.__game.damage.slots() }));
+      const row = { kind, count, round, placed, gpuP50: p.gpu?.p50, cpuP50: p.cpu?.p50, draws: p.draws, slots: p.slots };
+      report.perf.push(row); log('perf', row);
+      if (round === 0 && kind === 'wrecked') {
+        const file = path.join(out, `a-slots-${count}.png`); await page.screenshot({ path: file }); report.shots.push(file);
+        if (p.slots.benchWithSlot !== count || p.slots.benchDistinct !== count) report.errors.push(`${count} wrecks: ${p.slots.benchWithSlot} with a slot, ${p.slots.benchDistinct} distinct`);
+      }
+    }
+    const median = a => { const v = a.filter(Number.isFinite).sort((x, y) => x - y); return v.length ? v[v.length >> 1] : null; };
+    report.perfSummary = [20, 60, 100].map(count => Object.fromEntries([['count', count], ...['plain', 'wrecked'].flatMap(kind => {
+      const rows = report.perf.filter(r => r.kind === kind && r.count === count);
+      return [[`${kind}Gpu`, median(rows.map(r => r.gpuP50))], [`${kind}Cpu`, median(rows.map(r => r.cpuP50))], [`${kind}Draws`, median(rows.map(r => r.draws))]];
+    })]));
+    log('perf summary', { summary: report.perfSummary });
     await page.evaluate(() => window.__game.damage.bench({ count: 0 }));
     await page.evaluate(() => window.__game.damage.look(null));
   }

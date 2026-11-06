@@ -363,7 +363,7 @@ a deformation cage evaluated on the GPU, no extra geometry, one damage state own
   car: a new game or a progress reset). There is no repair.
 - **Drawing**: the starter car (`actors/car.ts`) and every car drawn on its own (`fleet/visuals.ts actor`: driven,
   remote) use `fleetDamageMaterial`, which blends node rotation and translation in the vertex stage from one pool
-  texture (32 rows of 54 nodes, half floats), selected by the car's slot (a per-object uniform). One program per pass
+  texture (a layer of 54 nodes per car, half floats), selected by the car's slot (a per-object uniform). One program per pass
   for all of them; r186 SkinnedMeshes would name every skeleton's bone buffer apart and build programs per car. The
   pool re-uploads only when a car's damage changes; nothing runs per frame. The wheel hubs follow the cage at their
   pivots, as the physics wheel mounts do (see Mechanical damage). Instanced batches (parked, traffic) stay undamaged.
@@ -557,7 +557,7 @@ the other side windows; an 80 km/h head-on crash changes no glass. A second clie
   each chassis contact sliding faster than 1.5 m/s wears 0.06 per metre within 0.3 m of the point on the face it lies
   on; ground under a car on its side or roof adds 0.2 dirt per metre, walls 0.01 grime). Scrapes commit a new wire at
   most every half second (a 2 s slide along a wall: a handful of updates). A scrape alone marks the car damaged.
-- **Drawing** (`damageRig.ts surfaceMask`, `material.ts wornPaint`): one 16 x 512 RGBA8 atlas (32 slots, 32 KB,
+- **Drawing** (`damageRig.ts surfaceMask`, `material.ts wornPaint`): one 16 x 16 RGBA8 layer per slot (256 layers,
   bilinear), uploaded on change; the body's fragment stage picks the face from the rest normal and samples its cell,
   then adds thin scratch streaks along the car, patchy bare metal (metallic, no clear coat) and dirt blotches, from
   hashes of the rest position (the detail stays on the panel as it dents). Scratches and bare metal only on paint.
@@ -612,6 +612,13 @@ Phase 3 of the car-damage plan: the starter car's damage (all sections above) fo
   European HGV, the fire truck and the Sprinter ambulance (opaque or body glass). Windows kept intact: 8 models (one
   or two each). Cage misfit: transit-bus (its body sits 27 cm off its origin along the length, so the front crumple
   starts that far ahead of the bumper: a model fix). The rav4's glazing is one shell and now splits into five windows.
+- **Damage slots** (slice 2, `damageRig.ts`): the pool and the surface atlas are array textures with one layer per
+  slot, 256 layers (WebGPU's guaranteed minimum; 255 damaged cars and the fresh identity, 129 + 256 texels a car,
+  2 KB), and a change uploads only that car's layer (`addLayerUpdate`; before the first upload every layer goes). With
+  every slot taken, a damaged car that is being drawn takes the slot of the car drawn longest ago once that one has
+  not been drawn for a second (drawing stamps `seenAt` in the slot uniform's update); it looks a few times a second,
+  so cars in view never trade slots frame by frame. A car without a slot keeps its state and draws fresh until it gets
+  one back. The draws stay as they are: one program for every damage-capable car.
 - **Crash test** (`vehicle-gallery.html`, every model): K steps through a 50 km/h wall hit, a 60 km/h front-left
   corner, a 40 km/h door, a 60 km/h rear hit, a 75 km/h head-on and a 30 km/h roof landing; Backspace gives a fresh
   body; the status line names the parts that stay on the body. Real knocks in the gallery dent the car too. The hook

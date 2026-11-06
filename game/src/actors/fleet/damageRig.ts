@@ -89,10 +89,14 @@ function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 
   geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4, true));
 }
 
-/** Damaged cars drawn at once with their own shape; slot 0 is the undamaged identity every fresh car reads. A car
- *  beyond the pool takes the slot used longest ago (that car draws fresh until it takes one back). */
-export const DAMAGE_SLOTS = 32;
-/** Texels per slot row: two per cage node, then two per part (0 the body, always identity; damageParts.ts), then
+/** Damaged cars drawn at once with their own shape; slot 0 is the undamaged identity every fresh car reads. Slots are
+ *  layers of two array textures (WebGPU guarantees 256 layers), so a change uploads only that car's layer. When all
+ *  are taken, a damaged car that is being drawn takes the slot of the car drawn longest ago, once that car has not
+ *  been drawn for `SEEN_MS` (it keeps its state and takes a slot back when it is drawn again; until then, and while
+ *  every slot belongs to a car in view, it draws fresh). */
+export const DAMAGE_SLOTS = 256;
+const SEEN_MS = 1000;
+/** Texels per slot layer: two per cage node, then two per part (0 the body, always identity; damageParts.ts), then
  *  one per window (0 none; x the glass stage). */
 const CAGE_TEXELS = DAMAGE_NODES * 2, PART_TEXELS = (PART_COUNT + 1) * 2, WINDOW_BASE = CAGE_TEXELS + PART_TEXELS;
 const ROW = WINDOW_BASE + WINDOW_COUNT + 1;
@@ -101,54 +105,76 @@ const ONE = THREE.DataUtils.toHalfFloat(1);
 // Identity everywhere: quaternion w of every even texel, and the scale (w) of every part's translation texel.
 for (let i = 0; i < ROW * DAMAGE_SLOTS; i += 2) poolData[i * 4 + 3] = ONE;
 for (let slot = 0; slot < DAMAGE_SLOTS; slot++) for (let k = 0; k <= PART_COUNT; k++) poolData[(slot * ROW + CAGE_TEXELS + k * 2 + 1) * 4 + 3] = ONE;
-/** Per slot row, per node: the rotation quaternion, then the translation (xyz), in half floats; then per part its
+/** Per slot layer, per node: the rotation quaternion, then the translation (xyz), in half floats; then per part its
  *  rotation and its translation and scale. */
-const pool = new THREE.DataTexture(poolData, ROW, DAMAGE_SLOTS, THREE.RGBAFormat, THREE.HalfFloatType);
+const pool = new THREE.DataArrayTexture(poolData, ROW, 1, DAMAGE_SLOTS);
+pool.format = THREE.RGBAFormat; pool.type = THREE.HalfFloatType;
 pool.name = 'fleet-damage-pool';
 pool.minFilter = pool.magFilter = THREE.NearestFilter;
 pool.generateMipmaps = false;
 pool.colorSpace = THREE.NoColorSpace;
 pool.needsUpdate = true;
-/** Surface wear per slot (vehicle/damage.ts SURFACE_SIZE cells square): R the scratch/paint-loss level, G the dirt;
- *  bilinear, so the cells blend into each other (the shader adds the fine detail). */
+/** Surface wear per slot layer (vehicle/damage.ts SURFACE_SIZE cells square): R the scratch/paint-loss level, G the
+ *  dirt; bilinear, so the cells blend into each other (the shader adds the fine detail). */
 const maskData = new Uint8Array(SURFACE_SIZE * SURFACE_SIZE * DAMAGE_SLOTS * 4);
-const mask = new THREE.DataTexture(maskData, SURFACE_SIZE, SURFACE_SIZE * DAMAGE_SLOTS, THREE.RGBAFormat, THREE.UnsignedByteType);
+const mask = new THREE.DataArrayTexture(maskData, SURFACE_SIZE, SURFACE_SIZE, DAMAGE_SLOTS);
+mask.format = THREE.RGBAFormat; mask.type = THREE.UnsignedByteType;
 mask.name = 'fleet-damage-surface';
 mask.minFilter = mask.magFilter = THREE.LinearFilter;
 mask.generateMipmaps = false;
 mask.colorSpace = THREE.NoColorSpace;
 mask.needsUpdate = true;
+/** Marks one slot's layer of a pool texture for upload. Until the texture's first upload (which sends every layer;
+ *  r186 creates it and then copies only the marked layers when any are) nothing is marked. */
+const uploaded = new WeakSet<THREE.Texture>();
+for (const texture of [pool, mask]) texture.onUpdate = () => { uploaded.add(texture); };
+const touch = (texture: THREE.DataArrayTexture, slot: number) => {
+  if (uploaded.has(texture)) texture.addLayerUpdate(slot);
+  texture.needsUpdate = true;
+};
 const owners: (DamageRig | null)[] = new Array(DAMAGE_SLOTS).fill(null);
 const ZERO3: readonly number[] = [0, 0, 0];
 /** Each damage-capable mesh's rig (not userData: Object3D.copy clones that as JSON). */
 const rigs = new WeakMap<THREE.Object3D, DamageRig>();
 export const rigOf = (object: THREE.Object3D) => rigs.get(object);
-const usedAt = new Float64Array(DAMAGE_SLOTS);
-let clock = 0;
+/** Damage-capable cars in use (holding a slot or not): the pool's load, for the developer console. */
+export function damagePool() {
+  const taken = owners.filter(Boolean).length - (owners[0] ? 1 : 0);
+  return { slots: DAMAGE_SLOTS - 1, taken };
+}
 
-/** The pool row of the drawn object's car (a per-object uniform). */
-const slotNode = () => int(uniform(0).onObjectUpdate(({ object }) => (object && rigs.get(object))?.slot ?? 0));
+/** The pool layer of the drawn object's car (a per-object uniform); drawing it marks the car as seen. */
+const slotNode = () => int(uniform(0).onObjectUpdate(({ object }) => {
+  const rig = object && rigs.get(object);
+  if (!rig) return 0;
+  rig.seenAt = performance.now();
+  return rig.slot;
+}));
 /** The surface wear and dirt under a fragment of a damage-capable body (vehicle/damage.ts surfaceCell, evaluated
  *  per pixel from the rest position and normal so the faces meet cleanly): x wear, y dirt, 0..1. */
 export function surfaceMask(): Node<'vec2'> {
   const rig = (object: THREE.Object3D | null | undefined) => object ? rigs.get(object) : undefined;
   const low = uniform(new THREE.Vector3()).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.min[0], l.min[1], l.min[2]) : self.value; });
   const size = uniform(new THREE.Vector3(1, 1, 1)).onObjectUpdate(({ object }, self) => { const l = rig(object)?.layout; return l ? self.value.set(l.width, l.height, l.length) : self.value; });
-  const slot = float(uniform(0).onObjectUpdate(({ object }) => rig(object)?.slot ?? 0));
+  const slot = slotNode();
   const q = clamp(positionGeometry.sub(low).div(size), 0, .999), n = normalGeometry, ax = abs(n.x), ay = n.y, az = abs(n.z);
   const side = ax.greaterThanEqual(max(ay, az)).or(ay.lessThan(-.5)), top = ay.greaterThan(max(ax, az));
   const row = select(side, select(n.x.greaterThan(0), float(0), float(4)).add(q.y.mul(4)), select(top, q.x.mul(6).add(8), q.y.mul(2).add(14)));
   const col = select(side.or(top), q.z.mul(SURFACE_SIZE), select(n.z.greaterThan(0), float(0), float(8)).add(q.x.mul(8)));
-  // Texel centres of this slot's tile only (no bleeding between cars).
-  const u = clamp(col, .5, SURFACE_SIZE - .5).div(SURFACE_SIZE), v = slot.mul(SURFACE_SIZE).add(clamp(row, .5, SURFACE_SIZE - .5)).div(SURFACE_SIZE * DAMAGE_SLOTS);
-  return (texture(mask, vec2(u, v)) as unknown as Node<'vec4'>).xy as unknown as Node<'vec2'>;
+  // Texel centres of this face's cells only (no bleeding between faces), in this car's layer.
+  const u = clamp(col, .5, SURFACE_SIZE - .5).div(SURFACE_SIZE), v = clamp(row, .5, SURFACE_SIZE - .5).div(SURFACE_SIZE);
+  return ((texture(mask, vec2(u, v)) as unknown as { depth(node: Node<'int'>): Node<'vec4'> }).depth(slot) as Node<'vec4'>).xy as unknown as Node<'vec2'>;
 }
 
 /** The glass stage of the drawn vertex's window (vehicle/damage.ts GLASS_STAGE), for the glazing's fragment stage. */
 export function windowStage(): Node<'float'> {
-  const texel = textureLoad(pool, ivec2(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slotNode())) as unknown as Node<'vec4'>;
+  const texel = load(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slotNode());
   return vertexStage(texel.x) as unknown as Node<'float'>;
 }
+
+/** Texel `column` of slot layer `slot` of the pool. */
+const load = (column: Node<'int'>, slot: Node<'int'>) =>
+  (textureLoad(pool, ivec2(column, int(0))) as unknown as { depth(node: Node<'int'>): Node<'vec4'> }).depth(slot) as Node<'vec4'>;
 
 /** Fleet materials for damage-capable cars: the shared fleet look plus the cage deformation (see the file comment).
  *  `windows`: glazing, whose shattered windows collapse (the frame stays empty). */
@@ -162,15 +188,13 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M, windows 
     const turn = (q: Node<'vec4'>, v: Node<'vec3'>) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
     // The vertex's part first (a loose part swings about its hinge, a detached one collapses), then the cage blend.
     const part = int(attribute('damagePart', 'uvec4').x).mul(2).add(CAGE_TEXELS);
-    const partTurn = textureLoad(pool, ivec2(part, slot)) as unknown as Node<'vec4'>;
-    const partMove = textureLoad(pool, ivec2(part.add(1), slot)) as unknown as Node<'vec4'>;
+    const partTurn = load(part, slot), partMove = load(part.add(1), slot);
     const position = turn(partTurn, attribute('position', 'vec3')).add(partMove.xyz);
     const normal = turn(partTurn, attribute('normal', 'vec3'));
     let p: Node<'vec3'> = vec3(0), n: Node<'vec3'> = vec3(0);
     for (const k of ['x', 'y', 'z', 'w'] as const) {
       const column = int(index[k]).mul(2);
-      const q = textureLoad(pool, ivec2(column, slot)) as unknown as Node<'vec4'>;
-      const t = (textureLoad(pool, ivec2(column.add(1), slot)) as unknown as Node<'vec4'>).xyz;
+      const q = load(column, slot), t = load(column.add(1), slot).xyz;
       p = p.add(turn(q, position).add(t).mul(weight[k]));
       n = n.add(turn(q, normal).mul(weight[k]));
     }
@@ -178,7 +202,7 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M, windows 
     // a shattered window.
     let keep: Node<'float'> = partMove.w as unknown as Node<'float'>;
     if (windows) {
-      const stage = (textureLoad(pool, ivec2(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slot)) as unknown as Node<'vec4'>).x;
+      const stage = load(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slot).x;
       keep = keep.mul(float(1).sub(step(GLASS_STAGE.shattered - .5, stage)));
     }
     p = p.mul(keep);
@@ -214,8 +238,12 @@ const emit = <K extends keyof Events>(kind: K, event: Events[K]) => { for (const
  *  loose). */
 export class DamageRig {
   readonly state: DamageState;
-  /** The pool row this car's meshes read (0: the undamaged identity). */
+  /** The pool layer this car's meshes read (0: the undamaged identity). */
   slot = 0;
+  /** When one of its meshes was last drawn (performance.now ms; slotNode). */
+  seenAt = -Infinity;
+  /** When it last looked for a slot and found none taken by a car out of view (ms). */
+  private waitedAt = -Infinity;
   private wire: string | null = null;
   private shown = false;
   private readonly rotations = new Float32Array(DAMAGE_NODES * 4);
@@ -264,8 +292,7 @@ export class DamageRig {
       this.posePart(now, true);
     } else if (this.state.damaged) this.posePart(now, false);
     if (!this.state.damaged) { this.release(); return; }
-    if (this.slot === 0 || owners[this.slot] !== this) this.acquire();
-    usedAt[this.slot] = ++clock;
+    if (this.slot === 0 || owners[this.slot] !== this) this.acquire(performance.now());
   }
   /** Follows the body's motion and steps the loose parts; uploads their transforms while any part is loose (and once
    *  after a state change). */
@@ -296,9 +323,18 @@ export class DamageRig {
     if (this.slot && owners[this.slot] === this) owners[this.slot] = null;
     this.slot = 0;
   }
-  private acquire() {
+  private acquire(now: number) {
+    this.slot = 0;
     let slot = owners.indexOf(null, 1);
-    if (slot < 0) { slot = 1; for (let i = 2; i < DAMAGE_SLOTS; i++) if (usedAt[i] < usedAt[slot]) slot = i; }
+    if (slot < 0) {
+      // Full: only a car being drawn takes a slot, and only from a car out of view (checked a few times a second).
+      if (now - this.seenAt > SEEN_MS || now - this.waitedAt < 250) return;
+      for (let i = 1; i < DAMAGE_SLOTS; i++) {
+        const owner = owners[i]!;
+        if (now - owner.seenAt > SEEN_MS && (slot < 0 || owner.seenAt < owners[slot]!.seenAt)) slot = i;
+      }
+      if (slot < 0) { this.waitedAt = now; return; }
+    }
     const previous = owners[slot];
     if (previous && previous !== this) previous.slot = 0;
     owners[slot] = this; this.slot = slot;
@@ -312,25 +348,28 @@ export class DamageRig {
       for (let k = 0; k < 3; k++) poolData[base + i * 8 + 4 + k] = THREE.DataUtils.toHalfFloat(this.translations[i * 3 + k]);
       poolData[base + i * 8 + 7] = 0;
     }
-    pool.needsUpdate = true;
+    touch(pool, this.slot);
   }
   private uploadSurface() {
     if (!this.slot) return;
     const base = this.slot * SURFACE_CELLS * 4, wear = this.state.surfaceWear, dirt = this.state.surfaceDirt;
     for (let i = 0; i < SURFACE_CELLS; i++) { maskData[base + i * 4] = Math.round(wear[i] * 255); maskData[base + i * 4 + 1] = Math.round(dirt[i] * 255); }
-    mask.needsUpdate = true;
+    touch(mask, this.slot);
   }
   private uploadParts() {
     if (!this.slot) return;
     const windows = (this.slot * ROW + WINDOW_BASE + 1) * 4;
-    for (let i = 0; i < WINDOW_COUNT; i++) poolData[windows + i * 4] = THREE.DataUtils.toHalfFloat(this.state.glass[i]);
-    // Part 0 (the body) keeps its identity texels; parts 1.. follow PartPoses.
+    // Part 0 (the body) keeps its identity texels; parts 1.. follow PartPoses. A swing that has settled (the same half
+    // floats) uploads nothing.
     const base = (this.slot * ROW + CAGE_TEXELS + 2) * 4, r = this.parts.rotations, t = this.parts.translations;
+    let changed = false;
+    const put = (at: number, value: number) => { const h = THREE.DataUtils.toHalfFloat(value); if (poolData[at] !== h) { poolData[at] = h; changed = true; } };
+    for (let i = 0; i < WINDOW_COUNT; i++) put(windows + i * 4, this.state.glass[i]);
     for (let i = 0; i < PART_COUNT; i++) for (let k = 0; k < 4; k++) {
-      poolData[base + i * 8 + k] = THREE.DataUtils.toHalfFloat(r[i * 4 + k]);
-      poolData[base + i * 8 + 4 + k] = THREE.DataUtils.toHalfFloat(t[i * 4 + k]);
+      put(base + i * 8 + k, r[i * 4 + k]);
+      put(base + i * 8 + 4 + k, t[i * 4 + k]);
     }
-    pool.needsUpdate = true;
+    if (changed) touch(pool, this.slot);
   }
   /** The cage offset at a body point (fleet frame), e.g. a wheel hub pushed back with its crushed arch. */
   offsetAt(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
