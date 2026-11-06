@@ -135,12 +135,15 @@ function shape(layout: DamageLayout, bins: Float32Array, out: Float32Array) {
         const bumper = end ? bumperDepth(bins[BUMPER_OFFSET[face] + l]) : 0;
         if (D <= 0 && bumper <= 0) continue;
         const a = falloff(face, depth, length), sign = front ? -1 : 1;
-        out[o + 2] += sign * (a * D + bumper);
+        // The rigid end (full falloff) crumples unevenly, up to a quarter deeper here and there, so it never reads as
+        // a clean cut; its least crushed point still defines the calibrated length loss. The band behind it stays
+        // smooth, which keeps the stations in order at the hard stop.
+        out[o + 2] += sign * (a * D * (a >= 1 ? 1 + .3125 * (jitter(i, f, 3) - .6) : 1) + bumper);
         // Buckle and bulge peak inside the crumple band, zero at the end face and from the cabin on.
         const band = Math.sin(Math.PI * Math.min(1, depth / (FACES[face].s1 * length)));
-        if (h === levels.length - 1) out[o + 1] += .25 * band * D * jitter(i, f, 0) * (l === 1 ? 1 : .6);
+        if (h === levels.length - 1) out[o + 1] += .3 * band * D * jitter(i, f, 0) * (l === 1 ? 1 : .7);
         else out[o + 1] -= .03 * band * D * jitter(i, f, 1);
-        if (l !== 1) out[o] += Math.sign(x - layout.laterals[1]) * .07 * band * D * jitter(i, f, 2);
+        if (l !== 1) out[o] += Math.sign(x - layout.laterals[1]) * .1 * band * D * jitter(i, f, 2);
         out[o + 1] -= .1 * a * D;
       } else if (face === 'negX' || face === 'posX') {
         const neg = face === 'negX', depth = neg ? x - min[0] : max[0] - x;
@@ -207,12 +210,15 @@ export function applyHit(state: DamageState, hit: DamageHit): number {
   return added;
 }
 
-/** Predicted bounding-box length loss (m) of `hits` identical head-on wall hits at `kmh`: the end face's structural
- *  depth plus the bumper layer, as the renderer's deformed bounds measure it. For tests and calibration. */
+/** Predicted bounding-box length loss (m) of `hits` identical head-on wall hits at `kmh`: the least crushed point of
+ *  the front station (structural depth plus the bumper layer), as the renderer's deformed bounds measure it. For tests
+ *  and calibration. */
 export function headOnLoss(layout: DamageLayout, kmh: number, hits = 1): number {
   const state = new DamageState(layout);
   for (let i = 0; i < hits; i++) applyHit(state, { dv: [0, 0, -kmh / KMH] });
-  return -Math.min(...[0, 1, 2].map(l => state.offsets[nodeIndex(layout.stations.length - 1, 0, l) * 3 + 2]));
+  // The bounding box ends at the least crushed point of the front station.
+  const front = layout.stations.length - 1;
+  return -Math.max(...[0, 1].flatMap(h => [0, 1, 2].map(l => state.offsets[nodeIndex(front, h, l) * 3 + 2])));
 }
 
 // ------------------------------------------------------------------ compact state (worker → renderer, multiplayer, saves)

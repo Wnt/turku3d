@@ -21,6 +21,10 @@ import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
 /** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
 export const IMPACT_MIN_DELTA_V = 0.5;
+/** Body damage: a step whose contact velocity change reaches this (m/s) starts or continues a crash; a crash ends after
+ *  two quieter steps or `CRASH_STEPS` steps, and is applied as one hit (vehicle/damage.ts: its severity is the square
+ *  of the whole velocity change, so a crash split over several solver steps must not count as several light ones). */
+export const CRASH_STEP_DV = 1, CRASH_STEPS = 18;
 
 export class Vehicle {
   lights: 0 | 1 | 2 = 0;
@@ -59,6 +63,9 @@ export class Vehicle {
   /** Body damage of a damageable car (vehicle/damage.ts), owned here; null for vehicles without a damage cage. */
   readonly damage: DamageState | null;
   private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
+  /** Damageable cars: chassis velocities before the solver, and the crash being summed (chassis frame). */
+  private damageBefore: { v: V3; w: V3 } | null = null;
+  private crash: { dv: V3; dw: V3; steps: number; quiet: number } | null = null;
 
   private R: RapierApi;
   private world: Rapier.World;
@@ -121,6 +128,59 @@ export class Vehicle {
     return this.damage ? applyHit(this.damage, hit) : 0;
   }
 
+  /** Sums each solver step's contact velocity change (beyond gravity, chassis frame) into one crash and applies it
+   *  when the contact ends. Rapier reports no contact impulses against trimesh walls (afterStep), so the chassis
+   *  momentum is the measure here too; its angular change locates the contact on the box. In multiplayer a remote
+   *  car's kinematic proxy is such a contact as well, so the server's contact impulse (world.ts vehicleImpulse) adds
+   *  no second hit: each owner measures its own car. */
+  private trackCrash(dt: number) {
+    const before = this.damageBefore;
+    this.damageBefore = null;
+    if (!this.damage) return;
+    if (!before || this.body.isSleeping()) { this.finishCrash(); return; }
+    const b = this.body, v = b.linvel(), w = b.angvel(), g = this.world.gravity.y * dt;
+    const change = { x: v.x - before.v.x, y: v.y - before.v.y - g, z: v.z - before.v.z };
+    const q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w };
+    if (Math.hypot(change.x, change.y, change.z) >= CRASH_STEP_DV) {
+      const dv = rotate(change, inverse), dw = rotate({ x: w.x - before.w.x, y: w.y - before.w.y, z: w.z - before.w.z }, inverse);
+      const c = this.crash ??= { dv: { x: 0, y: 0, z: 0 }, dw: { x: 0, y: 0, z: 0 }, steps: 0, quiet: 0 };
+      c.dv.x += dv.x; c.dv.y += dv.y; c.dv.z += dv.z; c.dw.x += dw.x; c.dw.y += dw.y; c.dw.z += dw.z;
+      c.steps++; c.quiet = 0;
+      if (c.steps >= CRASH_STEPS) this.finishCrash();
+    } else if (this.crash && ++this.crash.quiet >= 2) this.finishCrash();
+  }
+
+  private finishCrash() {
+    const c = this.crash;
+    this.crash = null;
+    if (!c) return;
+    // Contact line from the impulse J and its angular impulse L = I dw about the centre of mass: r = (J x L) / |J|^2
+    // plus any point along J; the contact is where that line enters the chassis box against J.
+    const m = this.body.mass(), J = { x: c.dv.x * m, y: c.dv.y * m, z: c.dv.z * m }, inertia = this.body.principalInertia();
+    const L = { x: c.dw.x * inertia.x, y: c.dw.y * inertia.y, z: c.dw.z * inertia.z };
+    const j2 = J.x * J.x + J.y * J.y + J.z * J.z, h = this.halfExt;
+    let at: [number, number, number] | undefined;
+    if (j2 > 0) {
+      const t = this.tuning, com = { x: t.comAhead ?? 0, y: -(t.comDrop ?? 0), z: 0 };
+      const r = { x: (J.y * L.z - J.z * L.y) / j2 + com.x, y: (J.z * L.x - J.x * L.z) / j2 + com.y, z: (J.x * L.y - J.y * L.x) / j2 + com.z };
+      const n = Math.sqrt(j2), d = { x: J.x / n, y: J.y / n, z: J.z / n };
+      // Slab entry: the largest entry parameter over the axes along -d, clamped back onto the box.
+      let s = -Infinity;
+      for (const k of ['x', 'y', 'z'] as const) if (Math.abs(d[k]) > 1e-6) s = Math.max(s, Math.min((-h[k] - r[k]) / d[k], (h[k] - r[k]) / d[k]));
+      const p = Number.isFinite(s) ? { x: r.x + s * d.x, y: r.y + s * d.y, z: r.z + s * d.z } : r;
+      const clamp = (v: number, k: 'x' | 'y' | 'z') => Math.max(-h[k], Math.min(h[k], v));
+      // Chassis (+X forward, +Z right) to the fleet model frame (+Z forward, +X left), scaled to the model's box.
+      const box = this.damage!.layout, fx = -clamp(p.z, 'z') / h.z * box.width / 2, fz = clamp(p.x, 'x') / h.x * box.length / 2;
+      at = [fx, (box.min[1] + box.max[1]) / 2, fz];
+    }
+    // A hit off the middle of a face has a footprint from its point to the nearer corner; a centred one is a wall.
+    const box = this.damage!.layout, dv: [number, number, number] = [-c.dv.z, c.dv.y, c.dv.x];
+    const end = Math.abs(dv[2]) >= Math.abs(dv[0]);
+    const lateral = at ? Math.abs(end ? at[0] : at[2]) : 0, half = end ? box.width / 2 : box.length / 2;
+    const halfWidth = lateral > .25 * half ? Math.max(.15, half - lateral) : undefined;
+    this.damageHit({ dv, ...(at ? { at } : {}), ...(halfWidth ? { halfWidth } : {}) });
+  }
+
   /** The damage state's wire form, re-encoded only when a hit changed it; undefined while undamaged. */
   damageWire(): string | undefined {
     const d = this.damage;
@@ -139,6 +199,7 @@ export class Vehicle {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
+    this.crash = null; this.damageBefore = null;
     this.rear = rearSteerIdle(this.rear.mode);
     this.lengths.fill(this.tuning.rest); this.rates.fill(0); this.loaded.fill(false);
     this.beforeSolve = null;
@@ -153,6 +214,8 @@ export class Vehicle {
       this.rear = { ...this.rear, mode: input.rearMode };
     }
     this.beforeSolve = null;
+    // A sleeping damageable car still measures a hit that wakes it during the coming solver step.
+    this.damageBefore = this.damage && this.body.isSleeping() ? { v: { x: 0, y: 0, z: 0 }, w: { x: 0, y: 0, z: 0 } } : null;
     if (!input && this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
@@ -246,6 +309,7 @@ export class Vehicle {
     this.strikeCurbs(dt, input);
     this.detectBump(dt);
     this.beforeSolve = { ...b.linvel() };
+    if (this.damage) this.damageBefore = { v: { ...this.beforeSolve }, w: { ...b.angvel() } };
   }
 
   /** Long travel (suspension.ts): sets each corner's Rapier spring and dampers for the coming raycast. */
@@ -332,6 +396,7 @@ export class Vehicle {
    *  Rapier reports no contact impulses between the chassis and trimesh walls (every building in the tiles), so the
    *  manifolds cannot measure crashes; resting contacts change nothing and stay quiet. */
   afterStep(dt: number) {
+    this.trackCrash(dt);
     const before = this.beforeSolve;
     if (!before || this.body.isSleeping()) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);

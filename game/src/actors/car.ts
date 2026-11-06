@@ -73,6 +73,7 @@ export class CarVisual {
     if (this.body) vehicleLamps(this.body, 'car', s.lights ?? 0);
     if (this.body) applyFleetWheels(this.body, s.wheels);
     this.rig?.show(s.damage);
+    if (this.body) this.rig?.placeWheels(this.body);
   }
 
   /** The body's bounds in its model frame (+Z forward) as drawn now, and undeformed; null before load. */

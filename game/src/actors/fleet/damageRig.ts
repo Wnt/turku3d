@@ -11,8 +11,9 @@ const IDENTITY = new THREE.Matrix4();
 /** Parts smaller than this (bounding-box diagonal, m) move rigidly with the cage at their centroid: lamps, grille,
  *  mirrors, handles, seats. Bigger connected surfaces (panels, glazing, bumpers) blend per vertex. */
 const RIGID_PART_M = .55;
-/** The displaced cage's local rotation is clamped, so a crushed corner never spins a lever arm through the body. */
-const MAX_TILT = .45;
+/** The displaced cage's local rotation is clamped, so a crushed corner never spins a lever arm through the body; the
+ *  stiff cabin stations (the middle of the car) barely turn, so its roof and pillars stay put. */
+const MAX_TILT = .45, CABIN_TILT = .01;
 
 /** Up to four cage nodes and weights for a point: Kuhn tetrahedra of the station × level × lateral cell it lies in
  *  (clamped to the cage), so the weights reproduce any affine offset field exactly and stay continuous across cells. */
@@ -117,6 +118,29 @@ export class DamageRig {
     if (!wire || !decodeDamage(wire, this.state)) this.state.clear();
     this.pose();
   }
+  /** The cage offset at a body point (fleet frame), e.g. a wheel hub pushed back with its crushed arch. */
+  offsetAt(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+    const index = [0, 0, 0, 0], weight = [0, 0, 0, 0], offsets = this.state.offsets;
+    cageWeights(this.layout, x, y, z, index, weight);
+    out.set(0, 0, 0);
+    for (let k = 0; k < 4; k++) out.add(new THREE.Vector3(offsets[index[k] * 3], offsets[index[k] * 3 + 1], offsets[index[k] * 3 + 2]).multiplyScalar(weight[k]));
+    return out;
+  }
+  /** Moves the four authored hubs (actors/fleet/wheels.ts, after applyFleetWheels set their suspension height) with
+   *  the cage at their pivots. Visual only: the physics wheels keep their mounts (handling effects come later). */
+  placeWheels(actor: THREE.Object3D) {
+    if (!this.state.damaged) return;
+    for (let i = 0; i < 4; i++) {
+      const hub = actor.getObjectByName(`fleet-wheel-${i}`), pivot = hub?.userData.pivot as { x: number; y: number; z: number } | undefined;
+      if (!hub || !pivot) continue;
+      if (this.hubRevision !== this.state.revision) this.offsetAt(pivot.x, pivot.y, pivot.z, this.hubs[i]);
+      hub.position.x = pivot.x + this.hubs[i].x; hub.position.z = pivot.z + this.hubs[i].z;
+      hub.position.y += this.hubs[i].y;
+    }
+    this.hubRevision = this.state.revision;
+  }
+  private hubs = [0, 1, 2, 3].map(() => new THREE.Vector3());
+  private hubRevision = -1;
   /** Node transforms from the offsets: translation by the offset, rotation by the polar part of the displaced cage's
    *  local gradient (finite differences over the lattice neighbours), so dented panels turn their normals too. */
   pose() {
@@ -138,7 +162,9 @@ export class DamageRig {
       f.set(1 + e[0], e[3], e[6], e[1], 1 + e[4], e[7], e[2], e[5], 1 + e[8]);
       polarRotation(f, q);
       const angle = 2 * Math.acos(Math.min(1, Math.abs(q.w)));
-      if (angle > MAX_TILT) q.slerp(new THREE.Quaternion(), 1 - MAX_TILT / angle);
+      const along = (stations[s] - stations[0]) / (stations[stations.length - 1] - stations[0]);
+      const limit = along > .2 && along < .8 ? CABIN_TILT : MAX_TILT;
+      if (angle > limit) q.slerp(new THREE.Quaternion(), 1 - limit / angle);
       const bone = this.bones[i];
       p.set(nodes[i * 3], nodes[i * 3 + 1], nodes[i * 3 + 2]);
       // M = T(p + u) R T(-p)

@@ -25,7 +25,7 @@ export function addAuthoredFleetWheels(actor:THREE.Object3D,model:FleetModel,
   actor.userData.fleetModel=model;
   wheels.forEach((part,i)=>{
     const hub=new THREE.Group();hub.name=`fleet-wheel-${i}`;
-    hub.position.set(part.pivot.x,part.pivot.y,part.pivot.z);
+    hub.position.set(part.pivot.x,part.pivot.y,part.pivot.z);hub.userData.pivot={...part.pivot};
     const mesh=new THREE.Mesh(part.geometry,material);paintActor(mesh,'silver');
     mesh.castShadow=true;mesh.receiveShadow=true;hub.add(mesh);actor.add(hub);
   });

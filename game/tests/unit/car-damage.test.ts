@@ -22,7 +22,8 @@ describe('crumple model against the Wreckfest 2 table', () => {
     const six = [1, 2, 3, 4, 5, 6].map(n => cm(headOnLoss(layout, 61.5, n)));
     [28, 32, 38, 42, 44, 46].forEach((wreckfest, i) => expect(Math.abs(six[i] - wreckfest * scale), `hit ${i + 1}`).toBeLessThan(5));
     for (let i = 1; i < six.length; i++) expect(six[i] - six[i - 1]).toBeLessThan(i === 1 ? 10 : 6);
-    expect(cm(headOnLoss(layout, 61.5, 20))).toBeLessThanOrEqual(cm(.105 * golf.length + .03) + .01);
+    // The hard stop holds at the least crushed point (bumper layer and the end's unevenness on top).
+    expect(cm(headOnLoss(layout, 61.5, 20))).toBeLessThanOrEqual(cm(.105 * golf.length * 1.1 + .03));
     expect(Math.abs(cm(headOnLoss(layout, 42.5, 8)) - cm(headOnLoss(layout, 70)))).toBeLessThan(5);
   });
   test('the cabin stays nearly rigid and the cage never folds through itself', () => {
@@ -151,7 +152,8 @@ describe('the physics worker owns the damage state', () => {
     expect(pw.vehicle!.body.isSleeping()).toBe(sleeping);
     const drawn = new DamageState(layout);
     expect(decodeDamage(wire, drawn)).toBe(true);
-    expect(cm(-drawn.offsets[nodeIndex(8, 0, 1) * 3 + 2])).toBeCloseTo(cm(headOnLoss(layout, 70)), 0);
+    const front = Math.max(...[0, 1].flatMap(h => [0, 1, 2].map(l => drawn.offsets[nodeIndex(8, h, l) * 3 + 2])));
+    expect(Math.abs(cm(-front) - cm(headOnLoss(layout, 70)))).toBeLessThan(.5);
     // A respawn of the same car keeps its damage; a car without a cage ignores dents.
     pw.spawnVehicle({ x: 3, y: .8, z: 0 }, 0, { tuning: modelTuning(PLAYER_MODEL) });
     expect(pw.vehicleStates()[0].damage).toBe(wire);
@@ -161,5 +163,58 @@ describe('the physics worker owns the damage state', () => {
     pw.damageVehicle('player', null);
     expect(pw.vehicleStates()[0].damage).toBeUndefined();
     pw.world.free();
+  });
+});
+
+describe('crashes in the physics world become hits', () => {
+  /** Drives the starter car (coasting, no input brake) into a 1 m thick wall `hits` times at `kmh`; per hit the
+   *  impact speed and the front loss of the published state. */
+  async function crash(kmh: number, { yawDeg = 0, hits = 1, trimesh = false } = {}) {
+    const R = await import('@dimforge/rapier3d');
+    const { PhysicsWorld } = await import('../../src/physics/world');
+    const { modelDamageBox, modelTuning } = await import('../../src/vehicle/modelTuning');
+    const pw = new PhysicsWorld(R), idle = { vx: 0, vz: 0, jump: false }, coast = { throttle: 0, steer: 0, brake: 0, handbrake: false };
+    pw.world.createCollider(R.ColliderDesc.cuboid(100, .5, 100).setTranslation(0, -.5, 0));
+    // Building walls in the tiles are trimeshes, which report no contact impulses: the chassis momentum still sees them.
+    if (trimesh) pw.world.createCollider(R.ColliderDesc.trimesh(new Float32Array([20, 0, -10, 20, 0, 10, 20, 5, 10, 20, 5, -10]), new Uint32Array([0, 1, 2, 0, 2, 3])));
+    else pw.world.createCollider(R.ColliderDesc.cuboid(.5, 3, 10).setTranslation(20.5, 3, 0));
+    pw.spawnVehicle({ x: 0, y: .8, z: 0 }, 0, { tuning: modelTuning(PLAYER_MODEL), damage: { box: modelDamageBox(PLAYER_MODEL)! } });
+    const out: { impact: number; loss: number; state: DamageState }[] = [];
+    for (let h = 0; h < hits; h++) {
+      pw.resetVehicle({ x: 14, y: .8, z: 0 }, yawDeg * Math.PI / 180);
+      for (let i = 0; i < 20; i++) pw.fixedStep(idle, coast);
+      pw.vehicle!.body.setLinvel({ x: kmh / 3.6, y: 0, z: 0 }, true);
+      let impact = 0;
+      for (let i = 0; i < 150; i++) {
+        const before = pw.vehicle!.body.linvel().x;
+        pw.fixedStep(idle, coast);
+        if (!impact && pw.vehicle!.body.linvel().x < before - 1) impact = before * 3.6;
+      }
+      const state = new DamageState(layout), wire = pw.vehicleStates()[0].damage;
+      if (wire) decodeDamage(wire, state);
+      const front = Math.max(...[0, 1].flatMap(level => [0, 1, 2].map(l => state.offsets[nodeIndex(8, level, l) * 3 + 2])));
+      out.push({ impact, loss: -front, state });
+    }
+    pw.world.free();
+    return out;
+  }
+  test('head-on wall hits at 30, 50 and 80 km/h crumple as the measured curve, against boxes and trimeshes', async () => {
+    for (const kmh of [30, 50, 80]) {
+      const [hit] = await crash(kmh);
+      expect(hit.impact).toBeGreaterThan(kmh - 3);
+      expect(hit.state.hits, `${kmh} km/h`).toBe(1);
+      expect(Math.abs(cm(hit.loss) - cm(headOnLoss(layout, hit.impact))), `${kmh} km/h`).toBeLessThan(1.5);
+    }
+    const [mesh] = await crash(50, { trimesh: true });
+    expect(cm(mesh.loss)).toBeGreaterThan(10);
+  });
+  test('repeat hits at 61.5 km/h saturate; an off-square hit crushes one corner and hides behind the other', async () => {
+    const hits = await crash(61.5, { hits: 4 });
+    hits.forEach((hit, i) => expect(Math.abs(cm(hit.loss) - cm(headOnLoss(layout, hit.impact, i + 1))), `hit ${i + 1}`).toBeLessThan(2));
+    expect(hits[3].state.hits).toBe(4);
+    const [angled] = await crash(50, { yawDeg: 10 });
+    const bins = angled.state.bins;
+    expect(Math.max(bins[0], bins[2])).toBeGreaterThan(3 * Math.min(bins[0], bins[2]));
+    expect(cm(angled.loss)).toBeLessThan(8);
   });
 });
