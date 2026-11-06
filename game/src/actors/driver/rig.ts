@@ -55,7 +55,10 @@ export class DriverTemplate {
 }
 
 const tmp = { a: new THREE.Vector3(), b: new THREE.Vector3(), c: new THREE.Vector3(), d: new THREE.Vector3(), e: new THREE.Vector3(),
-  q: new THREE.Quaternion(), r: new THREE.Quaternion(), s: new THREE.Quaternion(), m: new THREE.Matrix4(), euler: new THREE.Euler(0, 0, 0, 'YXZ') };
+  q: new THREE.Quaternion(), r: new THREE.Quaternion(), s: new THREE.Quaternion(), euler: new THREE.Euler(0, 0, 0, 'YXZ') };
+/** Scratch of the arm IK (no allocation per frame). */
+const ik = { shoulder: new THREE.Vector3(), elbow: new THREE.Vector3(), wrist: new THREE.Vector3(), goal: new THREE.Vector3(), root: new THREE.Vector3(),
+  from: new THREE.Vector3(), to: new THREE.Vector3(), parent: new THREE.Quaternion(), local: new THREE.Quaternion() };
 const v3 = (v: V3, out: THREE.Vector3) => out.set(v[0], v[1], v[2]);
 
 export class DriverRig {
@@ -172,14 +175,13 @@ export class DriverRig {
   private arm(side: 'L' | 'R', target: THREE.Vector3, point: THREE.Vector3, pole: THREE.Vector3): number {
     const clavicle = this.bones.get(`DEF-shoulder${side}`)!, upper = this.bones.get(`DEF-upper_arm${side}`)!;
     const fore = this.bones.get(`DEF-forearm${side}`)!, hand = this.bones.get(`DEF-hand${side}`)!;
-    const shoulder = upper.getWorldPosition(new THREE.Vector3()), elbow = fore.getWorldPosition(new THREE.Vector3());
-    const wrist = hand.getWorldPosition(new THREE.Vector3());
+    const shoulder = upper.getWorldPosition(ik.shoulder), elbow = fore.getWorldPosition(ik.elbow), wrist = hand.getWorldPosition(ik.wrist);
     const a = shoulder.distanceTo(elbow), b = elbow.distanceTo(wrist);
     let d = shoulder.distanceTo(target);
     const limit = (a + b) * 0.995;
     if (d > limit) {
       // Swing the clavicle about its joint toward the target, by the angle that closes the gap (at most CLAVICLE).
-      const root = clavicle.getWorldPosition(tmp.c), arm = shoulder.distanceTo(root);
+      const root = clavicle.getWorldPosition(ik.root), arm = shoulder.distanceTo(root);
       tmp.r.setFromUnitVectors(tmp.d.subVectors(shoulder, root).normalize(), tmp.e.subVectors(target, root).normalize());
       const full = 2 * Math.acos(Math.min(1, Math.abs(tmp.r.w)));
       if (full > 1e-4 && arm > 1e-3) {
@@ -195,7 +197,7 @@ export class DriverRig {
     const bend = tmp.e.copy(pole).addScaledVector(dir, -pole.dot(dir));
     if (bend.lengthSq() < 1e-8) bend.set(0, -1, 0).addScaledVector(dir, -dir.y);
     bend.normalize();
-    const elbowTarget = new THREE.Vector3().copy(shoulder).addScaledVector(dir, a * cos).addScaledVector(bend, a * sin);
+    const elbowTarget = ik.goal.copy(shoulder).addScaledVector(dir, a * cos).addScaledVector(bend, a * sin);
     this.aim(upper, shoulder, elbow, elbowTarget);
     fore.getWorldPosition(elbow); hand.getWorldPosition(wrist);
     this.aim(fore, elbow, wrist, target);
@@ -208,15 +210,15 @@ export class DriverRig {
 
   /** Rotates `bone` about its joint so that `child` (world) turns toward `goal` (world). */
   private aim(bone: THREE.Object3D, joint: THREE.Vector3, child: THREE.Vector3, goal: THREE.Vector3) {
-    const from = new THREE.Vector3().subVectors(child, joint), to = new THREE.Vector3().subVectors(goal, joint);
+    const from = ik.from.subVectors(child, joint), to = ik.to.subVectors(goal, joint);
     if (from.lengthSq() < 1e-10 || to.lengthSq() < 1e-10) return;
     this.rotateWorld(bone, tmp.r.setFromUnitVectors(from.normalize(), to.normalize()));
   }
 
   /** Applies the world rotation `r` to `bone` about its joint and refreshes its subtree's world matrices. */
   private rotateWorld(bone: THREE.Object3D, r: THREE.Quaternion) {
-    const parent = bone.parent!.getWorldQuaternion(new THREE.Quaternion());
-    const local = new THREE.Quaternion().copy(parent).invert().multiply(r).multiply(parent);
+    const parent = bone.parent!.getWorldQuaternion(ik.parent);
+    const local = ik.local.copy(parent).invert().multiply(r).multiply(parent);
     bone.quaternion.premultiply(local);
     bone.updateMatrixWorld(true);
   }
