@@ -529,7 +529,7 @@ class FarmTests(unittest.TestCase):
             path.write_bytes(b'entry')
             os.utime(path, (old + i, old + i))
         self.assertTrue(farm.evict_raw_entries(raw, stale + 1, None))  # a one-byte deficit
-        left = sorted(p.name[0] for p in (raw / 'vegetation' / ('d' * 64)).iterdir())
+        left = sorted(p.name[0] for p in (raw / 'vegetation' / ('d' * 64)).glob('*.npz'))
         self.assertEqual(left, ['2', '3'])  # only the oldest went
 
     def test_seed_copies_from_a_generation_moved_to_another_filesystem_while_room_allows(self):
