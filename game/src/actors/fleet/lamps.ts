@@ -2,7 +2,10 @@ import * as THREE from 'three/webgpu';
 import { Fn, instancedBufferAttribute, uniform } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-const states=new WeakMap<THREE.Object3D,THREE.InstancedBufferAttribute>();
+import { sharedNode } from '../parkedPaint';
+const states=new WeakMap<THREE.Object3D,THREE.InstancedBufferAttribute|THREE.InterleavedBufferAttribute>();
+/** A batch whose lamp states share an instanced buffer with other per-instance data (damageRig.ts damageBatch). */
+export function shareLampBuffer(mesh:THREE.InstancedMesh,attribute:THREE.InterleavedBufferAttribute){states.set(mesh,attribute);}
 /** Parked engines are off; ambient traffic and driven actors power their lamps. `indicators`: -1 left, 1 right, 2 both
  *  (hazard lights). */
 export function fleetLamps(mesh:THREE.InstancedMesh, powered:readonly number[], indicators:readonly number[]=[], brakes:readonly number[]=[]) {
@@ -19,5 +22,7 @@ export function fleetLamps(mesh:THREE.InstancedMesh, powered:readonly number[], 
 }
 export const fleetLampNode=Fn((builder:NodeBuilder)=>{
   const attribute=states.get(builder.object);
-  return attribute?instancedBufferAttribute(attribute,'vec4'):uniform(new THREE.Vector4(0,0,0,0)).onObjectUpdate(({object})=>object?.userData.vehicleLampState ?? new THREE.Vector4(0,0,0,0));
+  const shared=attribute as THREE.InterleavedBufferAttribute|undefined;
+  if(shared?.isInterleavedBufferAttribute)return sharedNode(shared,'vec4');
+  return attribute?instancedBufferAttribute(attribute as THREE.InstancedBufferAttribute,'vec4'):uniform(new THREE.Vector4(0,0,0,0)).onObjectUpdate(({object})=>object?.userData.vehicleLampState ?? new THREE.Vector4(0,0,0,0));
 }) as unknown as ()=>Node<'vec4'>;

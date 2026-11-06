@@ -377,7 +377,15 @@ export function splitWindows(geometry: THREE.BufferGeometry, layout: DamageLayou
     uv[i * 2] = a.dot(plane.u); uv[i * 2 + 1] = a.dot(plane.v);
   }
   geometry.setAttribute('damagePart', new THREE.BufferAttribute(parts, 4));
-  geometry.setAttribute('crackUV', new THREE.BufferAttribute(uv, 2));
+  // The crack coordinates share the colour's buffer (one vertex buffer fewer: damageRig.ts damageBatch).
+  const colour = geometry.getAttribute('color');
+  if (colour && !(colour as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute && colour.itemSize === 3) {
+    const both = new Float32Array(total * 5);
+    for (let i = 0; i < total; i++) { both[i * 5] = colour.getX(i); both[i * 5 + 1] = colour.getY(i); both[i * 5 + 2] = colour.getZ(i); both[i * 5 + 3] = uv[i * 2]; both[i * 5 + 4] = uv[i * 2 + 1]; }
+    const buffer = new THREE.InterleavedBuffer(both, 5);
+    geometry.setAttribute('color', new THREE.InterleavedBufferAttribute(buffer, 3, 0, colour.normalized));
+    geometry.setAttribute('crackUV', new THREE.InterleavedBufferAttribute(buffer, 2, 3));
+  } else geometry.setAttribute('crackUV', new THREE.BufferAttribute(uv, 2));
   windowsByGeometry.set(geometry, [...planes].map(([id, plane]) => ({ window: WINDOWS[id - 1], centre: plane.centre.clone() })));
   windowReports.set(geometry, { windows: [...planes.keys()].sort().map(id => WINDOWS[id - 1]), dropped, fused: anyFused });
 }

@@ -27,7 +27,7 @@ interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
 interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean;
   /** A batch of damaged cars (damageRig.ts damageBatch): each instance's pool slot. */
-  slots?: THREE.InstancedBufferAttribute }
+  slots?: THREE.InterleavedBufferAttribute }
 interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:number;z:number}; rot: Quat; wheels?: readonly WheelState[]; wheelY?: readonly number[]; spin?: number; steer?: number; size?: ParkedVehicle; powered?: boolean; indicator?: -1 | 0 | 1 | 2; braking?: boolean;
   /** Body damage (vehicle/damage.ts encodeDamage): the car draws in its model's damaged batch. */
   damage?: string }
@@ -249,11 +249,12 @@ export class ParkedCarVisuals {
     try {
       const mesh=new THREE.InstancedMesh(body,fleetDamageMaterial(),capacity);
       mesh.name=`wrecks/${key}`;mesh.castShadow=lod===0;mesh.receiveShadow=true;mesh.userData.prepareHidden=true;
-      mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
+      mesh.count=0;mesh.setMatrixAt(0,HIDDEN);
       const glassGeometry=this.geometries.get(`${key}/glass`);
       const glass=glassGeometry?.getAttribute('skinIndex')?new THREE.InstancedMesh(glassGeometry,fleetGlassDamageMaterial(),capacity):undefined;
       if(glass){glass.name=`wrecks-glass/${key}`;glass.instanceMatrix=mesh.instanceMatrix;glass.count=0;glass.receiveShadow=true;mesh.add(glass);}
-      const slots=damageBatch(mesh,modelLayout(model),glass);
+      // Paint and slot share one instanced buffer (damageRig.ts damageBatch), so register it before the paint.
+      const slots=damageBatch(mesh,modelLayout(model),glass);paintInstances(mesh,[]);fleetLamps(mesh,[]);
       await this.prepare(mesh);
       if(this.disposed){glass?.dispose();mesh.dispose();return;}
       const old=this.damaged.get(key);if(old){old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}

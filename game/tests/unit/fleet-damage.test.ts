@@ -66,10 +66,12 @@ describe('every fleet model gets its damage cage, weights, parts and windows (ac
       skinToCage(body, layout); if (glass) skinToCage(glass, layout, 'glass');
       // Weights: every vertex has four bytes summing to 255 on cage nodes; no triangle is lost.
       expect(body.index!.count, m.id).toBe(triangles);
-      const weight = body.getAttribute('skinWeight').array as Uint8Array, index = body.getAttribute('skinIndex').array as Uint8Array;
-      for (let i = 0; i < weight.length; i += 4) {
-        if (weight[i] + weight[i + 1] + weight[i + 2] + weight[i + 3] !== 255) throw Error(`${m.id} vertex ${i / 4} weights`);
-        if (Math.max(index[i], index[i + 1], index[i + 2], index[i + 3]) >= layout.count) throw Error(`${m.id} vertex ${i / 4} node`);
+      // The shader reads them packed (damageRig.ts packCage: 12 bytes a vertex, one uint32x3 attribute).
+      const bytes = new Uint8Array((body.getAttribute('cagePack') as THREE.BufferAttribute).array.buffer);
+      expect(bytes.length, m.id).toBe(body.getAttribute('position').count * 12);
+      for (let i = 0; i < bytes.length; i += 12) {
+        if (bytes[i + 4] + bytes[i + 5] + bytes[i + 6] + bytes[i + 7] !== 255) throw Error(`${m.id} vertex ${i / 12} weights`);
+        if (Math.max(bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]) >= layout.count) throw Error(`${m.id} vertex ${i / 12} node`);
       }
       const report = splitReport(body)!, kept = partsOf(body)!;
       const off = PARTS.filter((name, i) => !report.parts[name].kept && !kept[i]);
@@ -193,4 +195,38 @@ describe('a traffic car that is hit keeps the dent (physics/traffic.ts claimHit)
       { pos: { x: -4.5, y: .75, z: 0 }, vel: { x: 60 / 3.6, y: 0, z: 0 }, mass: mass.massKg ?? 1400 })!;
     expect(moving.dv[2] * 3.6).toBeCloseTo(10, 0);
   });
+});
+
+describe('damage-capable draws fit WebGPU\'s default vertex limits (8 buffers, 16 attributes)', () => {
+  test.each([false, true])('wreck batches, their glazing and the actors (velocity pass %s)', async motion => {
+    const { mrt, normalView, velocity } = await import('three/tsl');
+    const { GameRenderer } = await import('../../src/render/shadowMaterials');
+    const { ParkedCarVisuals } = await import('../../src/actors/car');
+    const { draftManifest } = await import('../../src/world/manifest');
+    type Builder = { scene: THREE.Scene; camera: THREE.Camera; build(): void; vertexShader: string; attributes: { name: string }[];
+      bufferAttributes: { node: { attribute: THREE.InterleavedBufferAttribute } }[] };
+    const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+    renderer.hasFeature = () => false; Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
+    if (motion) { renderer.setRenderTarget(new THREE.RenderTarget()); renderer.setMRT(mrt({ output: normalView, velocity })); }
+    const backend = renderer.backend as unknown as { createNodeBuilder(o: THREE.Object3D, r: THREE.WebGPURenderer): Builder };
+    const scene = new THREE.Scene(), visuals = new ParkedCarVisuals(scene), manifest = draftManifest('http://localhost/');
+    manifest.vehicles = [{ object_id: 'a', model: 'corolla-e180', color: 'red', x: 0, y: 0, z: 0, yaw: 0, width: 1.85, length: 4.62, height: 1.47, clear_front_m: 10, clear_rear_m: 10 }];
+    await visuals.load(manifest);
+    for (let i = 0; i < 400 && !scene.getObjectByName('wrecks/corolla-e180/1'); i++) await new Promise(r => setTimeout(r, 10));
+    const actor = visuals.remoteModel('corolla-e180/red')!;
+    const objects = ['wrecks/corolla-e180/0', 'wrecks-glass/corolla-e180/0', 'wrecks/corolla-e180/1'].map(n => scene.getObjectByName(n)!)
+      .concat([actor, actor.children.find(c => (c as THREE.Mesh).isMesh)!]);
+    for (const object of objects) {
+      const b = backend.createNodeBuilder(object, renderer);
+      renderer.debug.onNodeBuilderCreated!(b as never, { object } as never);
+      b.scene = new THREE.Scene(); b.camera = new THREE.PerspectiveCamera(); b.build();
+      const geometry = (object as THREE.Mesh).geometry, buffers = new Set<unknown>();
+      for (const a of b.attributes) { const g = geometry.getAttribute(a.name) as THREE.BufferAttribute & { data?: unknown }; if (g) buffers.add(g.data ?? g); }
+      for (const a of b.bufferAttributes) buffers.add(a.node.attribute.data ?? a.node.attribute);
+      const main = b.vertexShader.slice(b.vertexShader.indexOf('fn main('), b.vertexShader.indexOf('{', b.vertexShader.indexOf('fn main(')));
+      expect(buffers.size, object.name).toBeLessThanOrEqual(8);
+      expect((main.match(/@location\( *\d+ *\)/g) ?? []).length, object.name).toBeLessThanOrEqual(16);
+    }
+    visuals.dispose();
+  }, 30000);
 });

@@ -1,10 +1,12 @@
 import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
-import { abs, attribute, clamp, cross, float, Fn, instancedBufferAttribute, int, ivec2, max, normalGeometry, normalize, normalLocal, positionGeometry, positionLocal, positionPrevious, select, step, texture, textureLoad, uniform, vec2, vec3, vertexStage } from 'three/tsl';
+import { abs, attribute, clamp, cross, float, Fn, int, ivec2, max, normalGeometry, uint, normalize, normalLocal, positionGeometry, positionLocal, positionPrevious, select, step, texture, textureLoad, uniform, vec2, vec3, vertexStage } from 'three/tsl';
 import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, GLASS_STAGE, nodeIndex, PART_COUNT, PART_STATE, SURFACE_CELLS, SURFACE_SIZE, WINDOW_COUNT, WINDOWS, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
 import { PartPoses, partsOf, splitParts, splitWindows, windowsOf, type ModelParts, type PartInfo } from './damageParts';
+import { sharedNode, sharePaintBuffer } from '../parkedPaint';
+import { shareLampBuffer } from './lamps';
 
 // Body damage on the GPU (vehicle/README.md "Body damage"). A damage-capable car body (the starter car, a driven or a
 // remote car) carries `skinIndex`/`skinWeight` to the 54-node deformation cage of vehicle/damage.ts, and its material
@@ -85,8 +87,24 @@ function* skinSteps(geometry: THREE.BufferGeometry, layout: DamageLayout, kind: 
     for (let k = 0; k < 4; k++) { skinWeight[i * 4 + k] = Math.round(w[k] * 255); total += skinWeight[i * 4 + k]; if (w[k] > w[largest]) largest = k; }
     skinWeight[i * 4 + largest] += 255 - total;
   }
-  geometry.setAttribute('skinIndex', new THREE.BufferAttribute(skinIndex, 4));
-  geometry.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4, true));
+  packCage(geometry, skinIndex, skinWeight);
+}
+
+/** The cage bytes of every vertex in one buffer (12 bytes: skinIndex, skinWeight normalised, damagePart): the shader
+ *  reads them as one uint32x3 attribute, `cagePack` (cageByte), so a damage-capable draw binds one vertex buffer and
+ *  one attribute for them (WebGPU's default limits are eight buffers and sixteen attributes: damageBatch); the byte
+ *  views stay for the CPU (deform, the part split). */
+function packCage(geometry: THREE.BufferGeometry, skinIndex: Uint8Array, skinWeight: Uint8Array) {
+  const part = geometry.getAttribute('damagePart') as THREE.BufferAttribute, n = skinIndex.length / 4, bytes = new Uint8Array(n * 12);
+  for (let i = 0; i < n; i++) {
+    bytes.set(skinIndex.subarray(i * 4, i * 4 + 4), i * 12); bytes.set(skinWeight.subarray(i * 4, i * 4 + 4), i * 12 + 4);
+    for (let k = 0; k < 4; k++) bytes[i * 12 + 8 + k] = part.getComponent(i, k);
+  }
+  const buffer = new THREE.InterleavedBuffer(bytes, 12);
+  geometry.setAttribute('cagePack', new THREE.BufferAttribute(new Uint32Array(bytes.buffer), 3));
+  geometry.setAttribute('skinIndex', new THREE.InterleavedBufferAttribute(buffer, 4, 0));
+  geometry.setAttribute('skinWeight', new THREE.InterleavedBufferAttribute(buffer, 4, 4, true));
+  geometry.setAttribute('damagePart', new THREE.InterleavedBufferAttribute(buffer, 4, 8));
 }
 
 /** Damaged cars drawn at once with their own shape; slot 0 is the undamaged identity every fresh car reads. Slots are
@@ -145,11 +163,17 @@ export function damagePool() {
 
 /** Instanced batches of damaged cars (parked wrecks, fleet/visuals.ts): per instance its car's slot, and the model's
  *  cage (every instance of a batch is one model). */
-const batches = new WeakMap<THREE.Object3D, { slots: THREE.InstancedBufferAttribute; layout: DamageLayout }>();
+const batches = new WeakMap<THREE.Object3D, { slots: THREE.InterleavedBufferAttribute; layout: DamageLayout }>();
 /** Makes `mesh` (and its glazing, sharing its instances) a batch of damaged cars of the model with cage `layout`:
- *  the returned attribute holds each instance's slot, written by the caller (who marks its cars seen). */
-export function damageBatch(mesh: THREE.InstancedMesh, layout: DamageLayout, glass?: THREE.InstancedMesh): THREE.InstancedBufferAttribute {
-  const slots = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count), 1);
+ *  the returned attribute holds each instance's slot, written by the caller (who marks its cars seen). WebGPU binds
+ *  at most eight vertex buffers per draw (the default limit): the body's five (position, normal, colour, surface and
+ *  the packed cage bytes, `packCage`; glazing packs its crack coordinates with its colour), the instance matrices,
+ *  last frame's for the velocity pass, and one buffer of paint, slot and lamp state per instance. */
+export function damageBatch(mesh: THREE.InstancedMesh, layout: DamageLayout, glass?: THREE.InstancedMesh): THREE.InterleavedBufferAttribute {
+  const pack = new THREE.InstancedInterleavedBuffer(new Float32Array(mesh.instanceMatrix.count * 8), 8);
+  const slots = new THREE.InterleavedBufferAttribute(pack, 1, 3);
+  sharePaintBuffer(mesh, new THREE.InterleavedBufferAttribute(pack, 3, 0));
+  shareLampBuffer(mesh, new THREE.InterleavedBufferAttribute(pack, 4, 4));
   batches.set(mesh, { slots, layout });
   if (glass) batches.set(glass, { slots, layout });
   return slots;
@@ -160,7 +184,7 @@ const layoutOf = (object: THREE.Object3D | null | undefined) => object ? rigs.ge
 const slotNode = Fn((builder: NodeBuilder) => {
   const batch = batches.get(builder.object);
   // +0.5: a fragment-stage read is interpolated, and the value is the same at every corner.
-  if (batch) return int((instancedBufferAttribute(batch.slots, 'float') as unknown as Node<'float'>).add(.5));
+  if (batch) return int((sharedNode(batch.slots, 'float') as unknown as Node<'float'>).add(.5));
   return int(uniform(0).onObjectUpdate(({ object }) => {
     const rig = object && rigs.get(object);
     if (!rig) return 0;
@@ -185,10 +209,14 @@ export function surfaceMask(): Node<'vec2'> {
 
 /** The glass stage of the drawn vertex's window (vehicle/damage.ts GLASS_STAGE), for the glazing's fragment stage. */
 export function windowStage(): Node<'float'> {
-  const texel = load(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slotNode());
+  const texel = load(cageByte(2, 1).add(WINDOW_BASE), slotNode());
   return vertexStage(texel.x) as unknown as Node<'float'>;
 }
 
+/** Byte `k` of word `word` of the vertex's packed cage bytes (`packCage`: 0 the four node indices, 1 their weights
+ *  in 255ths, 2 the part and the window): one vertex attribute for all of them. */
+const cageByte = (word: 0 | 1 | 2, k: number) =>
+  int((attribute('cagePack', 'uvec3') as unknown as Node<'uvec3'>)[(['x', 'y', 'z'] as const)[word]].shiftRight(uint(8 * k)).bitAnd(uint(255)));
 /** Texel `column` of slot layer `slot` of the pool. */
 const load = (column: Node<'int'>, slot: Node<'int'>) =>
   (textureLoad(pool, ivec2(column, int(0))) as unknown as { depth(node: Node<'int'>): Node<'vec4'> }).depth(slot) as Node<'vec4'>;
@@ -200,26 +228,25 @@ export function deformByCage<M extends THREE.NodeMaterial>(material: M, windows 
   material.userData.vertexProgram = true;
   const setup = material.setupPosition.bind(material);
   material.setupPosition = (builder: NodeBuilder) => {
-    const index = attribute('skinIndex', 'uvec4'), weight = attribute('skinWeight', 'vec4');
     const slot = slotNode();
     const turn = (q: Node<'vec4'>, v: Node<'vec3'>) => v.add(cross(q.xyz, cross(q.xyz, v).add(v.mul(q.w))).mul(2));
     // The vertex's part first (a loose part swings about its hinge, a detached one collapses), then the cage blend.
-    const part = int(attribute('damagePart', 'uvec4').x).mul(2).add(CAGE_TEXELS);
+    const part = cageByte(2, 0).mul(2).add(CAGE_TEXELS);
     const partTurn = load(part, slot), partMove = load(part.add(1), slot);
     const position = turn(partTurn, attribute('position', 'vec3')).add(partMove.xyz);
     const normal = turn(partTurn, attribute('normal', 'vec3'));
     let p: Node<'vec3'> = vec3(0), n: Node<'vec3'> = vec3(0);
-    for (const k of ['x', 'y', 'z', 'w'] as const) {
-      const column = int(index[k]).mul(2);
+    for (let k = 0; k < 4; k++) {
+      const column = cageByte(0, k).mul(2), weight = float(cageByte(1, k)).div(255);
       const q = load(column, slot), t = load(column.add(1), slot).xyz;
-      p = p.add(turn(q, position).add(t).mul(weight[k]));
-      n = n.add(turn(q, normal).mul(weight[k]));
+      p = p.add(turn(q, position).add(t).mul(weight));
+      n = n.add(turn(q, normal).mul(weight));
     }
     // A detached part (scale 0) collapses onto the origin after the blend: zero-area triangles draw nothing; so does
     // a shattered window.
     let keep: Node<'float'> = partMove.w as unknown as Node<'float'>;
     if (windows) {
-      const stage = load(int(attribute('damagePart', 'uvec4').y).add(WINDOW_BASE), slot).x;
+      const stage = load(cageByte(2, 1).add(WINDOW_BASE), slot).x;
       keep = keep.mul(float(1).sub(step(GLASS_STAGE.shattered - .5, stage)));
     }
     p = p.mul(keep);

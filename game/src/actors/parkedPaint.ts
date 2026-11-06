@@ -17,7 +17,18 @@ export function paintOf(color: string): readonly [number, number, number] {
 // r186 binds the InstancedBufferAttribute itself (instance step, re-uploaded on needsUpdate), and
 // the renderer releases it with the InstancedMesh. A driven or remote car
 // carries its paint as an object uniform, so it needs no buffer or geometry of its own.
-const instancePaints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute>();
+const instancePaints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute | THREE.InterleavedBufferAttribute>();
+const sharedNodes = new WeakMap<THREE.InterleavedBufferAttribute, Node>();
+/** The node that reads one attribute of a shared instanced buffer: one node per attribute, so every stage and every
+ *  read of it binds the same vertex attribute (a node with a stride is not deduplicated by its buffer). */
+export function sharedNode(attribute: THREE.InterleavedBufferAttribute, type: 'float' | 'vec3' | 'vec4'): Node {
+  let node = sharedNodes.get(attribute);
+  if (!node) { node = instancedBufferAttribute(attribute.data, type, attribute.data.stride, attribute.offset) as unknown as Node; sharedNodes.set(attribute, node); }
+  return node;
+}
+/** A batch whose paints share an instanced buffer with other per-instance data (actors/fleet/damageRig.ts damageBatch:
+ *  WebGPU binds at most eight vertex buffers per draw): `attribute` is its paint (rgb), written by paintInstances. */
+export function sharePaintBuffer(mesh: THREE.InstancedMesh, attribute: THREE.InterleavedBufferAttribute) { instancePaints.set(mesh, attribute); }
 const actorPaints = new WeakMap<THREE.Object3D, THREE.Vector3>();
 
 /** Writes `colors` as the paints of instances offset..offset+n-1 of `mesh` (0..n-1 by default). */
@@ -60,7 +71,9 @@ export function actorPaintOf(mesh: THREE.Object3D) { return actorPaints.get(mesh
 // its object uniform. Neither the count nor the paints enter the shader text.
 export const paintNode = Fn((builder: NodeBuilder) => {
   const instances = instancePaints.get(builder.object);
-  if (instances) return instancedBufferAttribute(instances, 'vec3');
+  if (instances) return (instances as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
+    ? sharedNode(instances as THREE.InterleavedBufferAttribute, 'vec3')
+    : instancedBufferAttribute(instances as THREE.InstancedBufferAttribute, 'vec3');
   if (!actorPaints.has(builder.object)) throw new Error(`parked paint missing for ${builder.object.name}`);
   return uniform(new THREE.Vector3()).onObjectUpdate(({ object }) => actorPaints.get(object!));
 }) as unknown as () => Node<'vec3'>;
