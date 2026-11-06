@@ -17,9 +17,12 @@ import { longitudinalSlip } from './tyreSlip.ts';
 import { dot, tyreRollImpulse } from './weightTransfer.ts';
 import { applyHit, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
 import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
+import { resetTyres, solveTyres, tyreState, type TyrePatch, type TyreResult, type TyreState } from './tyres.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
+/** Rapier's brake is an impulse per 1/60 s step: the slip-curve tyre takes it as that force (N). */
+const BRAKE_STEP = 1 / 60;
 /** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
 export const IMPACT_MIN_DELTA_V = 0.5;
 /** Body damage: a step whose contact velocity change reaches this (m/s) starts or continues a crash; a crash ends after
@@ -40,6 +43,8 @@ export class Vehicle {
   private strikeId = 0;
   private lastStrike: VehicleState['curbStrike'] = null;
   private steering = 0;
+  /** Slewed keyboard steer input (tuning.keySteer), following the raw input while a stick or the autopilot steers. */
+  private keySteer = 0;
   private impactId = 0;
   private impact: VehicleState['impact'] = null;
   private impactCooldown = 0;
@@ -72,6 +77,12 @@ export class Vehicle {
   /** Damageable cars: chassis velocities before the solver, and the crash being summed (chassis frame). */
   private damageBefore: { v: V3; w: V3 } | null = null;
   private crash: { dv: V3; dw: V3; steps: number; quiet: number } | null = null;
+  /** Slip-curve tyres (vehicle/tyres.ts, tuning.tyre): the last step's per-wheel forces along the wheel heading and
+   *  axle (N) for diagnostics; null for vehicles on Rapier's own tyre. */
+  readonly tyreForces: { fx: Float32Array; fy: Float32Array } | null;
+  private readonly tyreResults: TyreResult[] = [];
+  /** Slip-curve tyre solver memory (vehicle/tyres.ts). */
+  private readonly tyreState: TyreState;
 
   private R: RapierApi;
   private world: Rapier.World;
@@ -86,7 +97,7 @@ export class Vehicle {
     const t = this.tuning = spec.tuning ?? VEHICLES[this.kind];
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
-      .setCanSleep(true).setCcdEnabled(true).setAngularDamping(1.2));
+      .setCanSleep(true).setCcdEnabled(true).setAngularDamping(t.angularDamping ?? 1.2));
     const h = this.halfExt = spec.halfExt ?? t.halfExt, mass = spec.mass ?? t.mass;
     const chassis = R.ColliderDesc.cuboid(h.x, h.y, h.z).setFriction(0.5);
     // A lowered centre of mass keeps the narrow outrigger layout upright; inertia stays the box's own.
@@ -108,7 +119,8 @@ export class Vehicle {
       v.setWheelSuspensionRelaxation(i, t.suspensionRelaxation);
       v.setWheelMaxSuspensionTravel(i, t.suspensionTravel);
       v.setWheelMaxSuspensionForce(i, t.maxSuspensionForce);
-      v.setWheelSideFrictionStiffness(i, 1.1);
+      // A slip-curve tyre applies its own forces (applyTyres): Rapier's side impulse is switched off.
+      v.setWheelSideFrictionStiffness(i, t.tyre ? 0 : 1.1);
     }
     this.corners = corners(t);
     // Long travel: the short end of Rapier's clamp is each corner's full bump.
@@ -127,6 +139,8 @@ export class Vehicle {
     if (spec.parked) this.body.sleep();
     this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
     this.mounts = t.wheels.map(w => ({ ...w }));
+    this.tyreState = tyreState(t.wheels.length);
+    this.tyreForces = t.tyre ? { fx: new Float32Array(t.wheels.length), fy: new Float32Array(t.wheels.length) } : null;
   }
 
   /** Follows a damage change: the wheel mounts move with the cage at each hub (fleet frame +Z forward, +X left; the
@@ -240,13 +254,13 @@ export class Vehicle {
     this.body.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.impact = null; this.impactCooldown = 0;
+    this.contacts.clear(); this.lastStrike = null; this.steering = 0; this.keySteer = 0; this.impact = null; this.impactCooldown = 0;
     this.crash = null; this.damageBefore = null;
     this.rear = rearSteerIdle(this.rear.mode);
     this.lengths.fill(this.tuning.rest); this.rates.fill(0); this.loaded.fill(false);
     this.beforeSolve = null;
     this.bumps.reset();
-    this.longitudinal.fill(0); this.lateral.fill(0);
+    this.longitudinal.fill(0); this.lateral.fill(0); resetTyres(this.tyreState);
   }
 
   step(dt: number, input: VehicleInput | null) {
@@ -262,7 +276,7 @@ export class Vehicle {
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
-    const t = this.tuning, h = handling(input, speed, t), m = this.mechanics();
+    const t = this.tuning, h = handling(this.keyboard(input, dt), speed, t), m = this.mechanics();
     this.mountWheels();
     // A damaged radiator or engine gives less force at every speed (lower torque and lower power alike).
     h.engine *= m.power;
@@ -281,6 +295,7 @@ export class Vehicle {
           Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), at.z) : 0)
         // Damage: a bent steering turns the steered wheels, each damaged corner has its own toe (mechanics.ts).
         + (m.toe[i] ?? 0) + (t.steered.includes(i) ? m.steer : 0));
+      if (t.tyre) continue;
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
       v.setWheelBrake(i, h.brake + (driven && !isFront && h.handbrake ? t.brakeForce : 0));
@@ -309,7 +324,8 @@ export class Vehicle {
     }
     v.updateVehicle(dt, this.R.QueryFilterFlags.EXCLUDE_SENSORS, group);
     this.trackSuspension(dt);
-    if (t.rollTransfer) {
+    if (t.tyre) this.applyTyres(dt, h, input !== null);
+    else if (t.rollTransfer) {
       const up = rotate({ x: 0, y: 1, z: 0 }, q), com = b.worldCom();
       let contacts = 0;
       for (let i = 0; i < t.wheels.length; i++) if (v.wheelIsInContact(i)) contacts++;
@@ -344,7 +360,8 @@ export class Vehicle {
       b.setAngvel({ x: w.x + z.x * change, y: w.y + z.y * change, z: w.z + z.z * change }, true);
     }
     for (let i = 0; i < t.wheels.length; i++) {
-      this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],
+      if (t.tyre) this.longitudinal[i] = this.tyreResults[i]?.slide ?? 0;
+      else this.longitudinal[i] = longitudinalSlip(this.longitudinal[i],
         Math.abs(h.engine * this.drive[i]) * dt + (v.wheelBrake(i) ?? 0),
         (v.wheelSuspensionForce(i) ?? 0) * dt * (v.wheelFrictionSlip(i) ?? 0));
       if (!v.wheelIsInContact(i)) this.lateral[i] = this.longitudinal[i] = 0;
@@ -357,6 +374,56 @@ export class Vehicle {
     this.detectBump(dt);
     this.beforeSolve = { ...b.linvel() };
     if (this.damage) this.damageBefore = { v: { ...this.beforeSolve }, w: { ...b.angvel() } };
+  }
+
+  /** Slip-curve tyres (vehicle/tyres.ts): after the raycast has applied the suspension, solves and applies the tyre
+   *  forces from each wheel's slip angle, load, drive and brake. The damage layer's toe and steering pull are already
+   *  in Rapier's wheel steering, its sag and damping in the suspension, its power loss in `h.engine`. */
+  private applyTyres(dt: number, h: ReturnType<typeof handling>, driven: boolean) {
+    const t = this.tuning, v = this.controller, b = this.body, q = b.rotation();
+    // Drive force per wheel: each driven axle's total, split evenly by an open differential, by load by a locked one.
+    const drive = t.wheels.map((_, i) => h.engine * this.drive[i]), lock = t.differential ?? 0;
+    if (lock > 0) for (const axle of [t.front, t.wheels.map((_, i) => i).filter(i => !t.front.includes(i))]) {
+      const wheels = axle.filter(i => this.drive[i] !== 0 && v.wheelIsInContact(i));
+      const total = wheels.reduce((a, i) => a + drive[i], 0), load = wheels.reduce((a, i) => a + (v.wheelSuspensionForce(i) ?? 0), 0);
+      if (wheels.length < 2 || load <= 0) continue;
+      for (const i of wheels) drive[i] = total * ((1 - lock) / wheels.length + lock * (v.wheelSuspensionForce(i) ?? 0) / load);
+    }
+    const contacts = t.wheels.map((_, i): TyrePatch | null => {
+      const point = v.wheelIsInContact(i) ? v.wheelContactPoint(i) : null, normal = point ? v.wheelContactNormal(i) : null;
+      if (!point || !normal) return null;
+      const steer = v.wheelSteering(i) ?? 0, axle = rotate({ x: Math.sin(steer), y: 0, z: Math.cos(steer) }, q);
+      const along = dot(axle, normal);
+      const s = { x: axle.x - normal.x * along, y: axle.y - normal.y * along, z: axle.z - normal.z * along };
+      const length = Math.hypot(s.x, s.y, s.z);
+      if (length < 1e-3) return null;
+      s.x /= length; s.y /= length; s.z /= length;
+      const forward = { x: normal.y * s.z - normal.z * s.y, y: normal.z * s.x - normal.x * s.z, z: normal.x * s.y - normal.y * s.x };
+      const front = t.front.includes(i);
+      return { point, normal, forward, side: s, load: v.wheelSuspensionForce(i) ?? 0, axle: front ? 0 : 1,
+        drive: drive[i], brake: h.brake / BRAKE_STEP, locked: !front && h.handbrake, grip: this.surfaceGrip[i] };
+    });
+    // Read the matrix at once: its getters view a scratch buffer that the next Rapier query (worldCom) overwrites.
+    const m = b.effectiveWorldInvInertia(), invInertia = [m.m11, m.m12, m.m13, m.m12, m.m22, m.m23, m.m13, m.m23, m.m33];
+    const body = { lin: { ...b.linvel() }, ang: { ...b.angvel() }, com: { ...b.worldCom() }, invMass: 1 / b.mass(), invInertia,
+      gravity: { ...this.world.gravity } };
+    const corner = b.mass() * Math.abs(this.world.gravity.y) / t.wheels.length;
+    const r = solveTyres(body, contacts, t.tyre!, corner, dt, this.tyreResults, this.tyreState);
+    // Like Rapier's own tyre impulses, these wake only a driven car: a parked one holding its brakes may fall asleep.
+    b.applyImpulse(r.impulse, driven);
+    b.applyTorqueImpulse(r.angular, driven);
+    for (let i = 0; i < t.wheels.length; i++) { this.tyreForces!.fx[i] = this.tyreResults[i].fx; this.tyreForces!.fy[i] = this.tyreResults[i].fy; }
+  }
+
+  /** Keyboard steering (tuning.keySteer, Wreckfest 2: a held key turns the road wheels at about 46°/s): the digital
+   *  ±1 of a key becomes a ramp towards it, faster back towards centre. Analog input passes through. */
+  private keyboard(input: VehicleInput | null, dt: number): VehicleInput | null {
+    const k = this.tuning.keySteer;
+    if (!input || !k || !input.steerKey) { this.keySteer = input?.steer ?? 0; return input; }
+    const target = Math.max(-1, Math.min(1, input.steer)), now = this.keySteer;
+    const rate = target * now < 0 || Math.abs(target) < Math.abs(now) ? k.centre : k.rate;
+    this.keySteer = now + Math.max(-rate * dt, Math.min(rate * dt, target - now));
+    return { ...input, steer: this.keySteer };
   }
 
   /** Long travel (suspension.ts): sets each corner's Rapier spring and dampers for the coming raycast. */

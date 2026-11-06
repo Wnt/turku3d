@@ -1,6 +1,7 @@
 import { CAR, type VehicleTuning } from '../physics/constants';
 import { AUTHORED_BY_ID } from '../actors/fleet/registry';
-import { fleetDamageBox } from '../actors/fleet/catalog';
+import { fleetDamageBox, PLAYER_MODEL } from '../actors/fleet/catalog';
+import { TARMAC } from './tyres';
 import type { DamageBox } from './damage';
 
 /** Driving tuning of a real fleet model from its registry spec (actors/fleet/models/<id>.json): mass, the model's
@@ -33,6 +34,13 @@ export function modelTuning(id: string): VehicleTuning | undefined {
     engineForce: CAR.engineForce * (spec.torqueNm ?? 250) / 250,
     topSpeed: Math.min((spec.topSpeedKmh ?? 200) / 3.6, 45),
     maxSteer: Math.max(.4, Math.min(.65, Math.atan(wheelbase / Math.max(1, turn / 2 - track / 2)))),
+    // The starter car drives on slip-curve tyres (vehicle/tyres.ts, Wreckfest 2 calibration): the tyre's slip, not a
+    // shrinking lock, now limits cornering, so the lock barely falls with speed (about 25° at 60 km/h, as there).
+    ...(id === PLAYER_MODEL ? {
+      tyre: TARMAC, steerHalfSpeed: 40, angularDamping: 0, differential: 0.7,
+      // Wreckfest 2's keyboard rate: 1.5 of full input per second, about 46°/s at the road wheel at rest.
+      keySteer: { rate: 1.55, centre: 3.1 },
+    } : {}),
   };
 }
 

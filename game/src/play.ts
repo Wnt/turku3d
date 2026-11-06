@@ -740,7 +740,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     } else {
       desiredVelocity.set(0, 0);
       carIn = menuOpen ? { throttle: 0, steer: 0, brake: 0, handbrake: true }
-        : { throttle: input.actions.throttle, steer: input.actions.steer,
+        : { throttle: input.actions.throttle, steer: input.actions.steer, steerKey: input.source === 'keyboard',
           brake: input.actions.brake, handbrake: input.actions.handbrake > 0.5 };
     }
     if (carIn) { carIn.lights = vehicleSignals.lights; carIn.horn = vehicleSignals.horn; }

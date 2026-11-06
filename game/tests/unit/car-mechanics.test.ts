@@ -121,19 +121,20 @@ describe('effects', () => {
     const heading = () => { const q = body.rotation(); return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z)); };
     return { pw, step, body, heading, done: () => pw.world.free() };
   }
-  /** Full throttle from rest for 30 s with a driver holding the heading (a damaged car pulls): seconds to 50 and
+  /** Full throttle from rest for 30 s with a driver holding the heading (a damaged car pulls): seconds to 50, 70 and
    *  80 km/h and the speed at the end. */
   async function drive(wire: string | null) {
     const { step, body, heading, done } = await road(wire);
-    let t50 = NaN, t80 = NaN, top = 0;
+    let t50 = NaN, t70 = NaN, t80 = NaN, top = 0;
     for (let i = 1; i <= 30 * 60; i++) {
       step({ throttle: 1, steer: Math.max(-1, Math.min(1, 3 * heading() + .5 * body.angvel().y)) });
       top = Math.hypot(body.linvel().x, body.linvel().z) * 3.6;
       if (Number.isNaN(t50) && top >= 50) t50 = i / 60;
+      if (Number.isNaN(t70) && top >= 70) t70 = i / 60;
       if (Number.isNaN(t80) && top >= 80) t80 = i / 60;
     }
     done();
-    return { t50, t80, top };
+    return { t50, t70, t80, top };
   }
   /** Wreckfest 2's pull probe: from rest, 2.5 s of straight full reverse, hands off; the heading change (degrees). */
   async function reversePull(wire: string | null) {
@@ -163,14 +164,17 @@ describe('effects', () => {
   test('power loss: a leaking radiator costs a little, a damaged engine more; the car stays drivable', async () => {
     const fresh = await drive(null), radiator = await drive(wireOf([headOn(80)]));
     const wrecked = await drive(wireOf(Array.from({ length: 6 }, () => headOn(61.5))));
-    // The starter Golf: 0-50 km/h in about 2.2 s, 0-80 in 4.4, about 100 km/h after 30 s.
-    expect(fresh.t50).toBeGreaterThan(1.8); expect(fresh.t50).toBeLessThan(2.7);
+    // The starter Golf: 0-50 km/h in about 2.8 s, about 100 km/h after 30 s. On slip-curve tyres (vehicle/tyres.ts)
+    // the launch is traction-limited to about 66 km/h (Wreckfest 2's Bravion: 0-50 in 2.6 s, traction-limited), so
+    // power shows from 70 km/h on: 70-80 km/h takes about 1 s.
+    expect(fresh.t50).toBeGreaterThan(1.8); expect(fresh.t50).toBeLessThan(3.2);
     expect(fresh.top).toBeGreaterThan(95);
-    // Radiator 1 (5 % power): about 5 % slower to 50 and 80 km/h, 1-3 % lower speed.
-    expect(radiator.t50 / fresh.t50).toBeGreaterThan(1.02); expect(radiator.t50 / fresh.t50).toBeLessThan(1.1);
+    const seg = (d: { t70: number; t80: number }) => (d.t80 - d.t70) / (fresh.t80 - fresh.t70);
+    // Radiator 1 (5 % power): 70-80 km/h about 8 % slower, 1-3 % lower speed.
+    expect(seg(radiator)).toBeGreaterThan(1.03); expect(seg(radiator)).toBeLessThan(1.15);
     expect(radiator.top / fresh.top).toBeGreaterThan(.97); expect(radiator.top / fresh.top).toBeLessThan(.995);
-    // Radiator 2 and engine 1 (77 % power): about a third slower, 6-11 % lower speed, still past 80 km/h.
-    expect(wrecked.t80 / fresh.t80).toBeGreaterThan(1.25); expect(wrecked.t80 / fresh.t80).toBeLessThan(1.6);
+    // Radiator 2 and engine 1 (77 % power): 70-80 km/h about two thirds slower, 6-11 % lower speed, still past 80 km/h.
+    expect(seg(wrecked)).toBeGreaterThan(1.35); expect(seg(wrecked)).toBeLessThan(2);
     expect(wrecked.top / fresh.top).toBeGreaterThan(.89); expect(wrecked.top / fresh.top).toBeLessThan(.94);
   });
   test('steering pull after frontal hits within the Wreckfest 2 probe: none fresh or at 50 km/h, mild from 75', async () => {

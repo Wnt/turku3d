@@ -1,6 +1,7 @@
 // Character and car tuning shared by the worker (physics/world.ts) and the visuals.
 import type { RearSteerTuning } from '../vehicle/rearSteer.ts';
 import type { SuspensionCurve } from '../vehicle/suspension.ts';
+import type { TyreTuning } from '../vehicle/tyres.ts';
 
 /** Fixed physics substep (60 Hz). `__game.clock.simSeconds` counts these steps. */
 export const DT = 1 / 60;
@@ -80,6 +81,19 @@ export interface VehicleTuning {
   /** Airborne pitch: damping of the pitch rate (1/s) with all wheels off the ground, and the throttle/brake pitch
    *  authority (rad/s², throttle lifts the nose like spinning wheels do, brake drops it). Absent: none. */
   airPitch?: { damping: number; control: number };
+  /** Slip-curve tyres (vehicle/tyres.ts) instead of Rapier's ray-cast tyre: side force from the slip angle and load,
+   *  anti-lock braking and wheel spin. `frontGrip`/`rearGrip` speed fades, `frictionCircle` and `rollTransfer` then
+   *  do not apply. Absent: Rapier's tyre. */
+  tyre?: TyreTuning;
+  /** Rapier angular damping of the chassis (1/s, all axes). Absent: 1.2, which also brakes the yaw of a car on
+   *  Rapier's tyre; slip-curve tyres damp the yaw themselves. */
+  angularDamping?: number;
+  /** Limited-slip differential of a slip-curve car: the share of each driven axle's drive force split by wheel load
+   *  instead of evenly, so the unloaded inner wheel of a turn does not spin up and lose its side grip. Absent: open. */
+  differential?: number;
+  /** Keyboard steering: a held key moves the steer input at `rate` per second (1 = full lock) and back towards
+   *  centre at `centre`, instead of the instant ±1 of a key. Absent: keys steer like a stick. */
+  keySteer?: { rate: number; centre: number };
 }
 
 export const CAR = {

@@ -67,6 +67,58 @@ The chase camera grows from 6.5 to 10.1 m and from 60° to 73.5° vertical FOV; 
 without look input while moving. A 0.3 m sphere sweep in the physics worker protects its near plane, and only a swept
 pose is committed to the camera. Reset is R3/C. Leaving the car cancels pending camera results.
 
+## Tyres and handling (slip-curve cars)
+
+The starter car (`modelTuning(PLAYER_MODEL)`, `tuning.tyre`) drives on slip-curve tyres calibrated on Wreckfest 2's
+Bravion (`~/turku3d/research/wreckfest2/physics-study.md`, "Turku3D tuning targets"); every other vehicle keeps Rapier's
+ray-cast tyre until the fleet slice. Rapier still runs the suspension (spring, dampers, contact point, wheel load);
+for a slip-curve car its side friction stiffness, engine force and brake are zero and `tyres.ts solveTyres` applies
+the tyre forces after the raycast, as impulses on the chassis:
+
+- **Lateral**: μ(α) = peak · (1 − e^(−α/α0)) per axle, front 1.16 / 3.45°, rear 1.09 / 2.7°, no fall-off to 25°;
+  load sensitivity μ × (Fz / 1.75 F_static)^−0.12 (≈1.35 at 0.6 × static load, ≈1.17 at 2 ×); the slip angle relaxes
+  over 1 m of rolling (at most 0.1 s), which gives the yaw response its Wreckfest-like lag and overshoot.
+- **Longitudinal**: no wheel-spin DOF. Drive is the engine force up to the tyre's peak (μ 1.35; traction control
+  `traction: 1` keeps the wheels from spinning, without it a wheel spins at μ 1.31); brakes bound a constraint that
+  stops the patch rolling, capped at 95 % of the peak (`brakeShare`: an ideal anti-lock, so no wheel locks). The rear
+  brakes give way to the rear tyres' side force (cornering brake control), so braking in a turn never takes the tail
+  away; the handbrake locks the rear wheels (sliding friction at 0.75 × μ 1.31 against the patch velocity).
+- **Combined**: when longitudinal use and side use exceed the friction ellipse, both shrink in proportion.
+- **Solver**: projected Gauss-Seidel over the four patches, each a velocity constraint bounded by its curve force. At
+  road speed the bound binds (force = μ(α, Fz)·Fz); at walking pace the constraint binds and the tyre holds like
+  static friction. Warm started; the coming world step's gravity is solved against (no creep on slopes beyond
+  Rapier's own sink artefact). Side force acts at a roll-centre height (`rollCentre`), drive and brake at the contact.
+- **Car data** (`modelTuning`): steering lock barely falls with speed (`steerHalfSpeed` 40: 25° at 60 km/h), no body
+  angular damping (the tyres damp the yaw; `angularDamping` absent stays 1.2), a 70 % load-split limited-slip
+  differential (`differential`: an open diff spins the unloaded inner wheel and loses its side grip), keyboard
+  steering slews at 1.55 of full input per second, 3.1 back to centre (`keySteer`, `VehicleInput.steerKey` from
+  play.ts: about 46°/s at the road wheel as Wreckfest's keyboard).
+- **Damage** plugs in unchanged: the toe and steering pull are in Rapier's wheel steering, sag and damping in the
+  suspension, power loss in the engine force; the tyre layer reads them from there.
+- **Diagnostics**: `Vehicle.tyreForces` (per-wheel N along heading and axle); `state().wheels[].tyre.lateral` is the
+  patch's side velocity as before, `longitudinal` the tyre's sliding estimate.
+
+Headless harness (`tests/unit/wf2-compare.harness.test.ts`, the same `PhysicsWorld.fixedStep` path as the worker;
+`WF2_COMPARE=1 WF2_REPORT=out.md npx vitest run tests/unit/wf2-compare.harness.test.ts` in `game/`): skidpads R 20/30,
+full stick, braking 50/80/100, step steer 2/4/8°, full stick and a held key at 60 km/h, ride, and drivability checks
+(slalom 40-70 km/h, lift-off, braking and full throttle in a corner, handbrake turn, parked on a slope).
+Slice 1 (tyres and steering), starter Golf before → after, Wreckfest 2 Bravion target:
+
+| Metric | Before | Slice 1 | Wreckfest 2 |
+|---|---|---|---|
+| Max steady lateral g, R 20 / R 30 | 1.41 / 1.48 (lock-limited) | 0.98 / 0.94 (grip; 1.07-1.12 at the edge) | 1.07 / 1.06 (grip) |
+| Understeer gradient < 0.5 g | 0.08 / 0.05 deg/g | 0.96 / 0.85 deg/g | 0.9 deg/g |
+| Slip angles at 0.63 g, front / rear | 0.14 / −0.06° | 1.95 / 1.52° | 2.8 / 2.1° |
+| Road-wheel lock at 60 km/h | 7.8° | 25.0° | about 25° (keyboard) |
+| Yaw rise 10-90 %, overshoot (2-8° steps) | 0.03-0.12 s, 0-6 % | 0.13-0.20 s, 5-9 % | 0.16-0.26 s, 7-13 % |
+| Held key at 60 km/h: steer to 90 % | 0.05 s | 0.57 s | 0.50 s |
+| Slalom 18 m | (not run) | clean to 70 km/h, sideslip ≤ 3° | clean to 60, rear out at 68 |
+
+Next slices: suspension and CoM (ride 1.75/1.5 Hz, damping 0.45/0.55, roll 3.6 deg/g, pitch 1.8 deg/g, CoM 0.52 m:
+roll-centre and anti-roll bars instead of the slice-1 roll centre 0.23 m), the brake ramp and ABS character (1.33 g
+building over 0.2 s, 60 % front), surfaces (gravel: 0.87 × peak, 0.3-0.55 × stiffness), then every fleet car from
+its mass and size.
+
 ## Scooter (two-wheeler)
 
 `new Vehicle(R, world, pos, yaw, surfaces, { kind: 'scooter' })` uses the `SCOOTER` tuning instead of `CAR`

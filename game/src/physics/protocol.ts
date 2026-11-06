@@ -16,7 +16,9 @@ export interface CharacterInput {
 /** `rearMode`: the rear-steer mode to hold from now on (the vehicle persists it like `lights`); only a 4WS vehicle
  *  reads it. */
 export interface VehicleInput { throttle: number; steer: number; brake: number; handbrake: boolean; lights?: import('../vehicle/signals').LightState; horn?: boolean;
-  rearMode?: import('../vehicle/rearSteer').RearSteerMode }
+  rearMode?: import('../vehicle/rearSteer').RearSteerMode;
+  /** `steer` comes from digital keys (−1, 0, 1): a car with `keySteer` tuning slews it (vehicle/vehicle.ts). */
+  steerKey?: boolean }
 
 /** `water`: only the water sensor surfaces (the river), which every other filter passes through. */
 export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';
