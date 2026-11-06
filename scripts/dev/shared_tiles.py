@@ -1585,7 +1585,9 @@ class Farm:
                 path.unlink()
                 if self.room(target):
                     return True
-            for path in ([] if adopting else sorted((cache / 'raw-derived').glob('*/*'), key=lambda p: p.stat().st_mtime)):
+            # Decoded arrays keep their own phase above: one used within DECODED_KEEP_SECONDS stays.
+            for path in ([] if adopting else sorted((p for p in (cache / 'raw-derived').glob('*/*')
+                                                     if p.parent.name != 'decoded'), key=lambda p: p.stat().st_mtime)):
                 if time.time() - path.stat().st_mtime < self.grace_seconds:
                     continue
                 if path.is_file():  # crown-canopy keeps its entries directly under its kind
