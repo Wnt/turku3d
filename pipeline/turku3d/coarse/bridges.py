@@ -917,13 +917,28 @@ def level_parapets(key, cuts, main_height, link_height):
 
     meshes = []
     for cut in shapely.get_parts(cuts):
-        points = shapely.get_coordinates(cut)
-        if len(points) < 2:
-            continue
-        main, link = main_height(points), link_height(points)
-        meshes.append(details.wall(key + ":level-cut", points, np.minimum(main, link),
-                                   np.maximum(main, link) + PARAPET, 0.25, "concrete"))
+        for points in wall_runs(shapely.get_coordinates(cut)):
+            main, link = main_height(points), link_height(points)
+            meshes.append(details.wall(key + ":level-cut", points, np.minimum(main, link),
+                                       np.maximum(main, link) + PARAPET, 0.25, "concrete"))
     return meshes
+
+
+def wall_runs(points, reverse=0.1):
+    """A cut line as polylines a mitered wall can follow: repeated vertices dropped, split at each corner
+    where it doubles back (1 + cos(turn) < ``reverse``, the limit of ``profile_wall``). The boundary
+    between two deck levels folds back round a thin sliver of one of them (t0_-10_7)."""
+    points = np.asarray(points, dtype=np.float64)
+    if len(points):
+        points = points[np.r_[True, np.linalg.norm(np.diff(points, axis=0), axis=1) >= 1e-6]]
+    runs, start = [], 0
+    for k in range(1, len(points) - 1):
+        a, b = points[k] - points[k - 1], points[k + 1] - points[k]
+        if 1 + a @ b / (np.linalg.norm(a) * np.linalg.norm(b)) < reverse:
+            runs.append(points[start:k + 1])
+            start = k
+    runs.append(points[start:])
+    return [run for run in runs if len(run) >= 2]
 
 
 def branch_height(profiles, xz, fallback, reach=None):
