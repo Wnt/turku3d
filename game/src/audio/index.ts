@@ -358,7 +358,7 @@ export class GameAudio {
     parent.append(panel);
   }
 
-  snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size,
+  snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size, loopSounds: [...this.loops.keys()],
     trafficVoices: this.trafficVoices.filter(s => s.car !== null).length, engines: this.engines.snapshot(),
     voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors],
     music: { state: this.musicState, deadline: this.musicDeadline, muffle: this.musicMuffle,

@@ -10,7 +10,8 @@
 // client that sees the same part states and spawns its own debris from a later change, and the frame cost of 20 wrecks
 // with loose parts against 20 plain cars: `partsperf`, under a perf lease), `glass` (crack, craze and shatter of a side
 // window, a roof hit, no glass from a frontal crash, a second client with the same stages and its own shards),
-// `surface` (scuffs from hits, a scrape along the side and a roof slide with dirt, the same wear on a second client).
+// `surface` (scuffs from hits, a scrape along the side and a roof slide with dirt, the same wear on a second client),
+// `sounds` (crunches, a glass break, rattles and the radiator's hiss while driving).
 // Writes OUT_DIR/result.json and PNGs; prints one JSON line.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -631,6 +632,32 @@ try {
     if (!report.bSees.some(r => r.worn === report.scraped.worn && Math.abs(r.maxWear - report.scraped.maxWear) < .05)) report.errors.push('replica surface differs');
     await closeShots(b, 'replica', 'b', true, views);
     await b.close();
+  }
+  if (mode === 'sounds') {
+    // The damage sounds: crunches for damaging hits, a window breaking, rattles of loose parts and the radiator's hiss
+    // while driving (audio.snapshot: one-shots played per sound, the running loops).
+    const audio = () => page.evaluate(() => { const a = window.__game.audio.snapshot(); return { state: a.state, played: a.played, loops: a.loopSounds }; });
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    report.before = await audio();
+    // One hit at a time: hits within one worker snapshot reach the renderer as one change (one crunch).
+    for (const hit of [...Array(3).fill({ kmh: 62, at: 'front', halfWidth: .3, offset: .8 }), { kmh: 76, at: 'front' }, { kmh: 36, at: 'left', halfWidth: .3, offset: .1 }]) {
+      await page.evaluate(hit => window.__game.damage.dent(hit), hit);
+      await page.waitForTimeout(400);
+    }
+    await page.waitForTimeout(1000);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(3500);
+    report.driving = await audio();
+    await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS'); await page.waitForTimeout(2000); await page.keyboard.up('KeyS');
+    report.state = await page.evaluate(() => ({ parts: window.__game.damage.state().parts, glass: window.__game.damage.state().glass, mechanics: window.__game.damage.mechanics() }));
+    log('sounds', { before: report.before, driving: report.driving, state: report.state });
+    const played = s => (report.driving.played[s] ?? 0) - (report.before.played[s] ?? 0);
+    if (report.driving.state !== 'running') report.errors.push(`audio ${report.driving.state}`);
+    else {
+      if (played('crunch') < 4) report.errors.push(`crunches: ${played('crunch')}`);
+      if (played('glass-break') < 1) report.errors.push('no glass break');
+      for (const loop of ['rattle', 'hiss']) if (!report.driving.loops.includes(loop)) report.errors.push(`no ${loop} loop`);
+    }
   }
   report.ok = report.errors.length === 0;
 } catch (error) {
