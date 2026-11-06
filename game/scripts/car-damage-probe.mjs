@@ -198,7 +198,8 @@ const programme = (page, s, kind, at = 0) => page.evaluate(async ([s, kind, at])
       t += dt; since += dt;
       const h = wrap(heading(v.rot) - s.yaw), rate = previous === null || dt <= 0 ? 0 : wrap(h - previous) / dt; previous = h;
       log.push({ t, phase, v: v.forwardSpeed, along: along(v), across: across(v), h });
-      const hold = Math.max(-1, Math.min(1, 2.5 * h + .6 * rate + .05 * across(v)));
+      // Gains for the slip-curve Golf's lock (25° still at 60 km/h): stronger ones spin it.
+      const hold = Math.max(-1, Math.min(1, .8 * h + .25 * rate + .02 * across(v)));
       let throttle = 0, brake = 0, steer = hold;
       const next = p => { phase = p; since = 0; };
       if (kind === 'accel') {

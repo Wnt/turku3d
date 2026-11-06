@@ -378,9 +378,11 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
   at 42.5 km/h, its level 2 at the fourth at 61.5; the hit-side front zone 1 → 4 over hits 2-5 at 61.5; the engine at
   the sixth; steering and suspension hardware intact through six hits at 61.5.
 - **Effects**: drive force and power (`Vehicle.step`, all speeds) × cooling `1 / .95 / .88 / .8 / .7` × engine
-  `1 / .88 / .76 / .62 / .5`, never below a third (the car stays drivable). Golf on a flat road, headless (0-50 km/h,
-  0-80, speed after 30 s): fresh 2.23 s, 4.40 s, 102 km/h; radiator 1 (one 80 km/h hit) 2.35, 4.70, 100; radiator 2 +
-  engine 1 (six at 61.5) 2.93, 6.23, 93. A rough engine (`rough`, misfires and hunting: `audio/mix.ts roughEngine`,
+  `1 / .88 / .76 / .62 / .5`, never below a third (the car stays drivable). The power study has no Wreckfest numbers
+  for damaged engines, so these steps are a judgement. On the slip-curve tyres the launch is traction-limited up to
+  about 66 km/h, so the loss shows above that. Golf on a flat road, headless (0-50 km/h, 0-80, 70-80, speed after
+  30 s): fresh 2.83 s, 5.22 s, 0.98 s, 102 km/h; radiator 1 (one 80 km/h hit) 2.72, 5.17, 1.07, 100; radiator 2 +
+  engine 1 (six at 61.5) 2.93, 6.27, 1.62, 93. A rough engine (`rough`, misfires and hunting: `audio/mix.ts roughEngine`,
   evaluated at the 30 Hz continuous-mix tick on the car engine loop's gain and rate, steadier under throttle). Steam
   (cooling ≥ 1) and dark smoke (engine ≥ 1) from the bonnet front while the car is driven, local and remote
   (`TyreEffects.engineBay`: sprites of the tyre smoke's one instanced draw, white or dark by a per-instance shade).
@@ -395,9 +397,10 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
   is not modelled: Rapier's ray-cast wheel projects its axle onto the contact plane (Wreckfest 2: under 0.35°). No
   wheel comes off. Wreckfest 2's pull probe (2.5 s of straight full reverse from rest, hands off), headless: fresh
   0.00°, after 50 km/h 0.00°, 75 km/h 0.54°, 80 km/h 0.69° (Wreckfest: -0.14° fresh, -0.5 to -1.0° after 80 km/h,
-  i.e. 0.36-0.86° more); six hits at 61.5 km/h pull over 0.8°. Hands off at 80 km/h after six hits at 61.5 the car
-  turns 0.5-4°/s; a heavily wrecked car (three 85 km/h side hits at the front-left wheel, six frontal, one rear) 5.6°/s
-  with all four wheels down.
+  i.e. 0.36-0.86° more); six hits at 61.5 km/h 1.55°. Hands off at 80 km/h after one 75 km/h hit the car turns
+  0.67°/s; after six hits at 61.5 0.5-4°/s; a heavily wrecked car (three 85 km/h side hits at the front-left wheel,
+  six frontal, one rear) under 6°/s with all four wheels down. Same on Rapier's tyres and on the slip-curve tyres
+  (`tyres.ts`): toe and pull go through the wheel steering, sag and damping through the suspension.
 - **Indicator** (`ui/damageHud.ts`, while driving a damaged car): a 26 × 46 px top view at the bottom centre (the
   rear-steer tag's place, which only the truck uses) with the four corner zones, wheels and the engine bay tinted
   by level (yellow → red), and short lines for what is damaged, worst first ("Engine", "Radiator", "Steering pull ←",
