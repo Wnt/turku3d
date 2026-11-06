@@ -264,7 +264,7 @@ export class RemotePlayers {
           const model = remote.vehicleKey === 'player' ? PLAYER_MODEL : remote.vehicleKey.split('/')[0];
           this.drivers.seat(key, remote.car, fleetDriverLayout(model, remote.vehicleKey), input);
         } else if (pose.mode === 'truck' && this.sources.truck.driverLayout) {
-          const frame = remote.truck.getObjectByName('driver-frame');
+          const frame = (remote.truck.userData.driverFrame ??= remote.truck.getObjectByName('driver-frame')) as THREE.Object3D | undefined;
           if (frame) this.drivers.seat(key, frame, this.sources.truck.driverLayout, input);
         }
       }
