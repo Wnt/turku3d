@@ -24,7 +24,8 @@ export function fleetDamageMaterial(): THREE.MeshStandardNodeMaterial {
 function wornPaint(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysicalNodeMaterial {
   const m = surfaceMask(), wear = m.x, dirt = m.y, surface = attribute('fleetSurface', 'vec4'), paint = surface.x, p = positionGeometry;
   const hash = (v: Node<'vec2'>) => fract(sin(dot(v, vec2(12.9898, 78.233))).mul(43758.5453));
-  const streak = hash(floor(vec2(p.z.mul(4).add(p.y.mul(9)), p.y.add(p.x).mul(170))));
+  // Long thin streaks along the car (40 cm by 5 mm cells, staggered row by row).
+  const row = floor(p.y.add(p.x.mul(.3)).mul(200)), streak = hash(vec2(floor(p.z.mul(2.5).add(hash(vec2(row, 3.1)).mul(4))), row));
   const blot = hash(floor(vec2(p.z.mul(12).add(p.x.mul(5)), p.y.mul(12).add(p.x.mul(9))))), blot2 = hash(floor(vec2(p.z.mul(7), p.y.mul(7).add(p.x.mul(7)))).add(7.1));
   const scratches = step(float(1).sub(wear.mul(.85)), streak).mul(step(.03, wear)).mul(paint);
   const loss = smoothstep(.5, .8, wear.add(blot.sub(.5).mul(.4))).mul(paint), grime = dirt.mul(smoothstep(.2, .7, blot2));

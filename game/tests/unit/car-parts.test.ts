@@ -319,3 +319,15 @@ describe('damage sounds (audio/mix.ts)', () => {
     expect(heard[1]).toBe(20);
   });
 });
+
+describe('a developer scrape paints as the contacts would', () => {
+  test('twelve metres along the whole side wear it towards bare metal there, the other side untouched', async () => {
+    const { applyScrape, surfaceCell } = await import('../../src/vehicle/damage');
+    const { SCRAPE } = await import('../../src/vehicle/vehicle');
+    const s = new DamageState(layout);
+    applyScrape(s, { face: 'posX', from: [1, .6, -1.5], to: [1, .6, 1.5], metres: 12 }, SCRAPE);
+    expect(s.surfaceWear[surfaceCell(layout, 'posX', 1, .6, 0)]).toBeGreaterThan(.5);
+    expect(s.surfaceWear[surfaceCell(layout, 'negX', -1, .6, 0)]).toBe(0);
+    expect(s.damaged).toBe(true);
+  });
+});

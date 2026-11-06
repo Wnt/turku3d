@@ -209,13 +209,14 @@ export function stampSurface(state: DamageState, face: SurfaceFace, at: readonly
 }
 /** A scrape along a face (developer tools; the worker's own scrapes come from contacts, vehicle.ts trackScrape). */
 export interface DamageScrape { face: SurfaceFace; from: readonly [number, number, number]; to: readonly [number, number, number]; metres: number; ground?: boolean }
-/** Wear and dirt of `metres` of sliding (vehicle.ts SCRAPE rates) spread along a line on a face. */
+/** Wear and dirt of the whole line from `from` to `to` on a face sliding `metres` along something (vehicle.ts SCRAPE
+ *  rates): stamps every few centimetres, each weighted so the cells along the line add up to the sliding. */
 export function applyScrape(state: DamageState, scrape: DamageScrape, rates: { wearPerMetre: number; dirtPerMetre: number; grimePerMetre: number; radius: number }) {
-  const steps = 12;
+  const length = Math.hypot(scrape.to[0] - scrape.from[0], scrape.to[1] - scrape.from[1], scrape.to[2] - scrape.from[2]);
+  const steps = Math.max(1, Math.ceil(length / (rates.radius / 3))), share = Math.min(1, length / steps / rates.radius);
   for (let k = 0; k <= steps; k++) {
     const t = k / steps, at = [0, 1, 2].map(i => scrape.from[i] + (scrape.to[i] - scrape.from[i]) * t) as [number, number, number];
-    const metres = scrape.metres / (steps + 1);
-    stampSurface(state, scrape.face, at, rates.radius, metres * rates.wearPerMetre * 3, metres * (scrape.ground ? rates.dirtPerMetre : rates.grimePerMetre) * 3);
+    stampSurface(state, scrape.face, at, rates.radius, scrape.metres * rates.wearPerMetre * share, scrape.metres * (scrape.ground ? rates.dirtPerMetre : rates.grimePerMetre) * share);
   }
   if (!state.hits) state.scraped = true;
   state.revision++;
