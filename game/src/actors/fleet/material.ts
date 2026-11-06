@@ -18,8 +18,13 @@ export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
 export function fleetDamageMaterial(): THREE.MeshStandardNodeMaterial {
   return damageable ??= deformByCage(buildFleetMaterial('Finnish fleet / damage-capable surfaces'));
 }
+/** Glazing of the cars drawn on their own (starter, driven, remote): they carry a seated driver (actors/driver), so the
+ *  cabin reads through it like GTA's tinted glass: the source glass's opacity and metalness scaled down, its tint
+ *  darkened. Measured on city.lab: at the source values (opacity 0.74, metalness 0.7, a pale tint) the driver was not
+ *  visible from any view. */
+const CABIN_GLASS = { opacity: 0.5, metalness: 0.3, tint: 0.6 };
 export function fleetGlassDamageMaterial(): THREE.MeshPhysicalNodeMaterial {
-  return damageableGlass ??= crackedGlass(deformByCage(buildGlass('Finnish fleet / damage-capable glass'), true));
+  return damageableGlass ??= crackedGlass(deformByCage(buildGlass('Finnish fleet / damage-capable glass', CABIN_GLASS), true));
 }
 /** Glass damage stages on the glazing (vehicle/damage.ts GLASS_STAGE, damageRig.ts windowStage): a crack star around
  *  the window's crack origin (`crackUV`, metres in its plane: spokes and broken rings, about 0.25 m across), then
@@ -37,8 +42,10 @@ function crackedGlass(material: THREE.MeshPhysicalNodeMaterial): THREE.MeshPhysi
   const crack = max(lines, float(1).sub(smoothstep(.006, .02, r))).mul(step(.5, stage));
   const haze = step(1.5, stage).mul(.22);
   const surface = attribute('fleetSurface', 'vec4');
-  material.colorNode = mix(attribute('color', 'vec3'), vec3(.9, .92, .93), max(crack, haze));
-  material.opacityNode = max(surface.w, max(crack.mul(.9), haze.add(surface.w)));
+  // The cabin glass's own (see-through) tint and opacity under the cracks.
+  const opacity = surface.w.mul(CABIN_GLASS.opacity);
+  material.colorNode = mix(attribute('color', 'vec3').mul(CABIN_GLASS.tint), vec3(.9, .92, .93), max(crack, haze));
+  material.opacityNode = max(opacity, max(crack.mul(.9), haze.add(opacity)));
   material.roughnessNode = mix(surface.y, float(.55), max(crack, haze));
   return material;
 }
@@ -63,13 +70,13 @@ function buildFleetMaterial(name: string): THREE.MeshStandardNodeMaterial {
 export function fleetGlassMaterial(): THREE.MeshPhysicalNodeMaterial {
   return sharedGlass ??= buildGlass('Finnish fleet / glass');
 }
-function buildGlass(name: string): THREE.MeshPhysicalNodeMaterial {
+function buildGlass(name: string, scale = { opacity: 1, metalness: 1, tint: 1 }): THREE.MeshPhysicalNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({ name,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
     clearcoat: 1, clearcoatRoughness: .08 });
   const surface=attribute('fleetSurface','vec4');
-  material.colorNode=attribute('color','vec3');
-  material.roughnessNode=surface.y; material.metalnessNode=surface.z;
-  material.opacityNode=surface.w;
+  material.colorNode=attribute('color','vec3').mul(scale.tint);
+  material.roughnessNode=surface.y; material.metalnessNode=surface.z.mul(scale.metalness);
+  material.opacityNode=surface.w.mul(scale.opacity);
   return material;
 }

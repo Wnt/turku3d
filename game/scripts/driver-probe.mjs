@@ -20,6 +20,11 @@ const browser = await chromium.connectOverCDP(process.env.BROWSER_CDP, { timeout
 const context = browser.contexts()[0] ?? await browser.newContext();
 
 async function open(name, own = context) {
+  // REUSE=1: an already open game page of the session (a warm page skips the cold load).
+  const warm = process.env.REUSE && own === context ? own.pages().find(p => p.url().includes('city.lab')) : null;
+  if (warm && await warm.evaluate(() => { const s = window.__game?.state?.(); return !!s && !s.startScreen && !s.loading; })) {
+    log(`${name} playing (reused)`); return warm;
+  }
   const page = await own.newPage();
   await page.setViewportSize({ width: 960, height: 540 });
   await page.addInitScript(() => Object.defineProperty(navigator, 'getGamepads', { value: () => [] }));
@@ -38,6 +43,17 @@ async function open(name, own = context) {
 const settle = (page, frames = 20) => page.evaluate(n => new Promise(resolve => {
   let left = n; const tick = () => (--left <= 0 ? resolve() : requestAnimationFrame(tick)); requestAnimationFrame(tick);
 }), frames);
+
+/** Waits (up to `ms`) until the page renders at least `min` frames per second over one second: a shared host's slow
+ *  phases (first-use builds, another session's load) feed the physics worker too seldom for scripted driving. */
+const waitFps = (page, min = 15, ms = 120000) => page.evaluate(async ([min, ms]) => {
+  const t0 = performance.now();
+  for (;;) {
+    const f0 = performance.now(); let n = 0;
+    await new Promise(r => { const t = () => { n++; if (performance.now() - f0 < 1000) requestAnimationFrame(t); else r(); }; requestAnimationFrame(t); });
+    if (n >= min || performance.now() - t0 > ms) return n;
+  }
+}, [min, ms]);
 
 /** The local driver's snapshot entry (hands' distance from the grips, motion channels). */
 const driver = (page, key = 'local') => page.evaluate(key => window.__game.drivers.snapshot().drivers.find(d => d.key === key) ?? null, key);
@@ -198,6 +214,15 @@ try {
   await page.waitForTimeout(3000);
   log('seated', { driver: await driver(page) });
   if (mode === 'shots') {
+    report.fps = await waitFps(page);
+    log('fps', { fps: report.fps });
+    // Shots away from the spawn's parked cars: at the start of a clear straight.
+    const straight = await findStraight(page);
+    log('straight', { straight });
+    if (straight) {
+      await page.evaluate(s => window.__game.physics.resetVehicle({ x: s.x, y: s.y + .75, z: s.z }, s.yaw, 'player'), straight);
+      await page.waitForTimeout(2500);
+    }
     report.views = {};
     for (const [name, steer] of [['rest', 0], ['lock-left', -1], ['lock-right', 1]]) {
       await hold(page, { steer, handbrake: 1 });
@@ -210,10 +235,8 @@ try {
     await page.waitForTimeout(800);
     await shot(page, 'a-horn-front', FRONT);
     await hold(page, null);
-
-    const straight = await findStraight(page);
-    log('straight', { straight });
     if (straight) {
+      await waitFps(page);
       await page.evaluate(view => window.__game.damage.look(view), SIDE);
       report.braking = await run(page, straight, 70, 'brake');
       await page.screenshot({ path: path.join(out, 'a-braking-side.png') }); report.shots.push(path.join(out, 'a-braking-side.png'));
@@ -222,9 +245,11 @@ try {
       await hold(page, { brake: 1, handbrake: 1 });
       await page.waitForTimeout(2500);
     }
-    const wall = await findWall(page);
+    // PROBE_WALL='{"x":..,"y":..,"z":..,"yaw":..,"distance":..}' reuses a wall found before (from the start car).
+    const wall = process.env.PROBE_WALL ? JSON.parse(process.env.PROBE_WALL) : await findWall(page);
     log('wall', { wall });
     if (wall) {
+      await waitFps(page);
       await page.evaluate(view => window.__game.damage.look(view), SIDE);
       report.crash = await run(page, wall, 45, 'coast');
       await page.screenshot({ path: path.join(out, 'a-crash-side.png') }); report.shots.push(path.join(out, 'a-crash-side.png'));
