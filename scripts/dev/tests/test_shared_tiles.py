@@ -472,6 +472,53 @@ class FarmTests(unittest.TestCase):
             self.assertEqual(stream.read(), b'col' * 16)
         self.assertFalse(path.exists())
 
+    @unittest.skipUnless(Path('/proc/self/maps').exists(), 'open and mapped files are read from /proc')
+    def test_raw_entries_of_finished_builds_go_oldest_first_while_a_build_runs(self):
+        import fcntl
+        import subprocess
+        import sys
+
+        farm = self.farm(workers=0, free=lambda: 0)
+        farm.jobs[(GEN, 't0_0_0')] = REV
+        farm.queue_info[(GEN, 't0_0_0')] = dict(pid=os.getpid(), build_started=time.time() - 3600)
+        raw, digest, old = self.root / 'cache/raw-derived', 'd' * 64, time.time() - 7200
+
+        def entry(path, age):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'entry')
+            os.utime(path, (age, age))
+            return path
+
+        crown = entry(raw / 'crown-canopy' / ('6' * 64 + '.npz'), old - 300)
+        crop = entry(raw / 'lidar' / digest / 'crops' / ('5' * 64 + '.npy'), old - 200)
+        vegetation = entry(raw / 'vegetation' / digest / ('1' * 64 + '.npz'), old - 100)
+        during = entry(raw / 'vegetation' / digest / ('2' * 64 + '.npz'), time.time() - 1800)  # running build's
+        roof = entry(raw / 'coarse-roofs' / digest / ('3' * 64 + '.class6.npy'), old)
+        source = raw / 'lidar' / digest / 'sources' / ('4' * 64)
+        entry(source / 'index.npy', old)
+        os.utime(source, (old, old))
+        build = subprocess.Popen([sys.executable, '-c', 'import mmap, sys\n'
+                                  'stream = open(sys.argv[1], "rb")\n'
+                                  'data = mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ)\n'
+                                  'print("mapped", flush=True)\n'
+                                  'sys.stdin.read()', str(roof)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.addCleanup(build.kill)
+        self.assertEqual(build.stdout.readline().strip(), 'mapped')
+        with source.with_suffix('.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)  # a build decoding or reading this source
+            self.assertFalse(farm.make_room(farm_module.GIB))
+        self.assertFalse(crown.exists() or crop.exists() or vegetation.exists())
+        self.assertTrue(during.exists() and roof.exists() and source.exists())
+        events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+        self.assertEqual([e['kind'] for e in events if e['event'] == 'raw-entry-evicted'],
+                         ['crown-canopy', 'lidar-crop', 'vegetation'])
+        build.stdin.close()
+        build.wait(5)
+        farm.make_room(farm_module.GIB)
+        self.assertFalse(roof.exists() or source.exists())
+        self.assertTrue(during.exists())
+
     def test_seed_copies_from_a_generation_moved_to_another_filesystem_while_room_allows(self):
         import errno
         from unittest import mock
