@@ -171,6 +171,12 @@ describe('debris bodies in the physics world (world.ts spawnDebris)', () => {
     expect(pw.debrisStates()).toHaveLength(DEBRIS.cap);
     for (let i = 0; i < DEBRIS.lifetimeS / DT + 2; i++) pw.fixedStep(idle, null);
     expect(pw.debrisStates()).toHaveLength(0);
+    // A piece that would start inside the ground (a crushed nose over a kerb) is lifted clear and rests on top.
+    pw.spawnDebris({ id: 'sunk', pos: { x: -10, y: .05, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, half: { x: .85, y: .3, z: .3 }, mass: 7,
+      linvel: { x: 0, y: 0, z: 0 }, angvel: { x: 0, y: 0, z: 0 } });
+    for (let i = 0; i < 120; i++) pw.fixedStep(idle, null);
+    expect(pw.debrisStates().find(d => d.id === 'sunk')!.pos.y).toBeGreaterThan(.2);
+    for (let i = 0; i < DEBRIS.lifetimeS / DT + 2; i++) pw.fixedStep(idle, null);
     // A piece that falls out of the world (no ground under it) goes at once.
     pw.spawnDebris({ id: 'lost', pos: { x: 200, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, half: { x: .2, y: .1, z: .1 }, mass: 2,
       linvel: { x: 0, y: 0, z: 0 }, angvel: { x: 0, y: 0, z: 0 } });

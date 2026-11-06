@@ -658,10 +658,22 @@ export class PhysicsWorld {
   spawnDebris(spec: DebrisSpec) {
     this.removeDebris(spec.id);
     while (this.debris.size >= DEBRIS.cap) this.removeDebris(this.debris.keys().next().value!);
-    const h = spec.half, body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(spec.pos.x, spec.pos.y, spec.pos.z)
+    // A part is a shell, not a solid block: its box is a little smaller than its bounds. It must not start inside the
+    // world (a kerb or a slope under a crushed nose, a wall it was pressed into): the solver would push it through the
+    // thin ground. Lifted in 10 cm steps until it is clear (up to 1.6 m).
+    const h = { x: Math.max(.02, spec.half.x * .85), y: Math.max(.02, spec.half.y * .85), z: Math.max(.02, spec.half.z * .85) };
+    const shape = new this.R.Cuboid(h.x, h.y, h.z), pos = { ...spec.pos };
+    for (let k = 0; k < 16; k++) {
+      let blocked = false;
+      this.world.intersectionsWithShape(pos, spec.rot, shape, () => { blocked = true; return false; },
+        this.R.QueryFilterFlags.EXCLUDE_SENSORS, groups(0xff00, GROUP.STATIC_SOLID));
+      if (!blocked) break;
+      pos.y += .1;
+    }
+    const body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation(spec.rot).setLinvel(spec.linvel.x, spec.linvel.y, spec.linvel.z).setAngvel(spec.angvel)
       .setCanSleep(true).setCcdEnabled(true).setLinearDamping(.3).setAngularDamping(.6));
-    this.world.createCollider(this.R.ColliderDesc.cuboid(Math.max(.02, h.x), Math.max(.02, h.y), Math.max(.02, h.z)).setMass(spec.mass)
+    this.world.createCollider(this.R.ColliderDesc.cuboid(h.x, h.y, h.z).setMass(spec.mass)
       .setFriction(.6).setRestitution(.15)
       .setCollisionGroups(groups(DEBRIS.group, GROUP.STATIC_SOLID | GROUP.DYNAMIC | DEBRIS.group)), body);
     // It starts inside the car it came off: cars push it only once it has fallen clear (no depenetration kick).
