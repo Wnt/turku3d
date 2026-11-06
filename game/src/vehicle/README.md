@@ -248,7 +248,22 @@ a deformation cage evaluated on the GPU, no extra geometry, one damage state own
   deformed bounds, cm), `state()`; with developer tools (`?dev=1`) `dent({ kmh, at, halfWidth, offset })`, `clear()`
   and `look({ yaw, pitch, distance })`, a camera held around the car. Deployed check:
   `~/turku3d/tools/host-lease/session.py run air NAME --kind func --headless --load-timeout 240 -- node
-  game/scripts/car-damage-probe.mjs dent|wall|mp OUT_DIR` (four views per state, wall runs at 30/50/80 and 3 × 60 km/h).
+  game/scripts/car-damage-probe.mjs dent|wall|mp|perf OUT_DIR` (four views per state, wall runs at 30/50/80 and
+  3 × 60 km/h, a second client, the frame-cost bench `damage.bench({ count, kind })` under a perf lease).
+
+Measured on city.lab (2026-11-06, headless Chrome on the M1 Air, the Golf driven into a building wall, crumple from
+the drawn body's deformed bounds): 30 km/h 0.8 cm, 49.5 km/h 15.1 cm, 74.5 km/h 37.7 cm (a 59 m run-up), three at
+59-60 km/h 20.5 / 27.6 / 32.4 cm; a second client draws the owner's car with the same bounds within 0.5 s. A facade
+flat to only a few centimetres makes a hit corner-first, which crushes that corner more (as Wreckfest's off-square
+runs). Frame cost (same draws with and without the cage, alternating rounds, prepass + shadow + beauty GPU time):
++0.5-0.7 ms for 20 damaged cars and +1.5 ms for 60 on the Air; no CPU change. Cage weights take about 10 ms per
+27k-vertex body at load, in frame-sized phases.
+
+Next iterations (hooks in DamageState: `energy`, `hits`, the bins): handling (toe/camber pull from front-zone
+depth, wheel mounts following the cage), mechanical states per system (radiator, engine, per-corner suspension), loose
+and detached parts (node pairs with hinges, high thresholds), glass stages, scratch and dirt masks, crease detail
+where the cage compresses, and Phase 3: the same rule for the whole fleet (parked and traffic batches would need
+per-instance pool slots or a damaged car's own draw).
 
 ```sh
 npm --prefix game test -- --run tests/unit/car-damage.test.ts tests/unit/parked-paint.test.ts
