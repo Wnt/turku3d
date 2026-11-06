@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 import type { CarVisual } from '../actors/car';
 import type { PhysicsClient } from '../physics/client';
 import type { DamageHit } from '../vehicle/damage';
+import { rigOf } from '../actors/fleet/damageRig';
 
 type Side = 'front' | 'rear' | 'left' | 'right' | 'roof' | 'front-left' | 'front-right' | 'rear-left' | 'rear-right';
 /** Push directions in the fleet model frame (+Z forward, +X the car's left): the car is pushed away from the side hit. */
@@ -15,9 +16,15 @@ const PUSH: Record<Side, [number, number, number]> = {
  *  always; with developer tools (localhost, ?dev=1) also `dent()`, a hit as if the car struck a wall at `kmh`,
  *  `clear()`, a fresh body for measurements (the game itself has no repair), and `look()`, a camera held around the car
  *  for same-pose screenshots. `frame(camera)` runs before each render (play.ts). */
-export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean) {
-  let view: { yaw: number; pitch: number; distance: number; height: number } | null = null;
+export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: boolean, scene: THREE.Object3D) {
+  let view: { yaw: number; pitch: number; distance: number; height: number; remote: boolean } | null = null;
   const forward = new THREE.Vector3(), target = new THREE.Vector3();
+  /** Other players' cars drawn here (net/remotes.ts, fleet/visuals.ts actors named remote/...), with their damage. */
+  const remoteCars = () => {
+    const cars: THREE.Mesh[] = [];
+    scene.traverse(o => { if (o.name.startsWith('remote/') && (o as THREE.Mesh).isMesh && rigOf(o) && o.visible) cars.push(o as THREE.Mesh); });
+    return cars;
+  };
   const inspect = {
     /** Crumple from the drawn, deformed body against the fresh one (cm): length lost at each end, growth across. */
     bounds() {
@@ -38,20 +45,34 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       for (let i = 0; i < s.offsets.length; i += 3) max = Math.max(max, Math.hypot(s.offsets[i], s.offsets[i + 1], s.offsets[i + 2]));
       return { hits: s.hits, energy: Math.round(s.energy), revision: s.revision, maxOffsetCm: Math.round(max * 1000) / 10, bins: Array.from(s.bins, Math.round) };
     },
+    /** Remote cars in view range with their drawn damage: hits and the crumple from their deformed bounds (cm). */
+    remotes() {
+      return remoteCars().map(mesh => {
+        const rig = rigOf(mesh)!, geometry = mesh.geometry;
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        const fresh = geometry.boundingBox!, drawn = rig.bounds(geometry), cm = (v: number) => Math.round(v * 1000) / 10;
+        return { name: mesh.name, hits: rig.state.hits, slot: rig.slot, frontLoss: cm(fresh.max.z - drawn.max.z), rearLoss: cm(drawn.min.z - fresh.min.z),
+          position: mesh.getWorldPosition(new THREE.Vector3()).toArray().map(v => Math.round(v * 10) / 10) };
+      });
+    },
   };
   if (!dev) return { ...inspect, frame(_camera: THREE.PerspectiveCamera) {} };
   return { ...inspect,
     /** Hold the camera at `yaw` degrees around the car from its nose (0 front, 90 its left, 180 rear), `pitch` degrees
      *  up, `distance` metres from a point `height` m above the chassis centre; null hands the camera back. */
-    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number } | null) {
-      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1 };
+    look(next: { yaw?: number; pitch?: number; distance?: number; height?: number; remote?: boolean } | null) {
+      view = next && { yaw: next.yaw ?? 35, pitch: next.pitch ?? 12, distance: next.distance ?? 6.5, height: next.height ?? .1, remote: !!next.remote };
     },
     frame(camera: THREE.PerspectiveCamera) {
-      if (!view || !car.root.visible) return;
-      // The chassis frame faces +X; yaw turns from the nose towards the car's left (+Z of the chassis, the fleet +X).
-      forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
+      if (!view) return;
+      // The starter car's chassis frame faces +X; a remote actor's mesh faces +Z (its +X is the car's left).
+      const remote = view.remote ? remoteCars()[0] : null;
+      if (view.remote ? !remote : !car.root.visible) return;
+      if (remote) forward.set(0, 0, 1).applyQuaternion(remote.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
+      else forward.set(1, 0, 0).applyQuaternion(car.root.quaternion).setY(0).normalize();
       const heading = Math.atan2(-forward.z, forward.x), yaw = heading + view.yaw * Math.PI / 180, pitch = view.pitch * Math.PI / 180;
-      target.copy(car.root.position).setY(car.root.position.y + view.height);
+      if (remote) target.copy(remote.getWorldPosition(new THREE.Vector3())).setY(remote.getWorldPosition(new THREE.Vector3()).y + .6 + view.height);
+      else target.copy(car.root.position).setY(car.root.position.y + view.height);
       camera.position.set(target.x + Math.cos(yaw) * Math.cos(pitch) * view.distance, target.y + Math.sin(pitch) * view.distance,
         target.z - Math.sin(yaw) * Math.cos(pitch) * view.distance);
       camera.lookAt(target); camera.updateMatrixWorld();
@@ -66,6 +87,6 @@ export function carDamageConsole(physics: PhysicsClient, car: CarVisual, dev: bo
       physics.damageVehicle('player', hit);
       return hit;
     },
-    clear() { physics.damageVehicle('player', null); },
+    clear() { physics.setVehicleDamage('player', null); },
   };
 }

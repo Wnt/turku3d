@@ -41,9 +41,9 @@ export interface VehicleState { lights?: import('../vehicle/signals').LightState
 export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean;
   /** Per-model driving tuning (vehicle/modelTuning.ts), replacing the kind's baseline. */
   tuning?: VehicleTuning;
-  /** A damageable car: the fleet-frame box its damage cage spans (actors/fleet/catalog.ts fleetDamageBox), and the
-   *  damage it already has (a save or the shared vehicle record). */
-  damage?: { box: import('../vehicle/damage').DamageBox; state?: string } }
+  /** A damageable car: the fleet-frame box its damage cage spans (actors/fleet/catalog.ts fleetDamageBox). Saved or
+   *  shared damage arrives with `vehicleDamage`. */
+  damage?: { box: import('../vehicle/damage').DamageBox } }
 export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
@@ -105,9 +105,11 @@ export type ToWorker =
   | { type: 'driveVehicle'; id: string | null }
   | { type: 'resetVehicle'; id: string; pos: V3; yaw: number }
   | { type: 'vehicleImpulse'; id: string; impulse: V3 }
-  /** A hit on a damageable car's body, applied like a crash, or null to clear it (developer tools only: the game has
-   *  no repair; vehicle/damage.ts DamageHit). */
-  | { type: 'damageVehicle'; id: string; hit: import('../vehicle/damage').DamageHit | null }
+  /** A hit on a damageable car's body, applied like a crash (developer tools; vehicle/damage.ts DamageHit). */
+  | { type: 'damageVehicle'; id: string; hit: import('../vehicle/damage').DamageHit }
+  /** Sets a damageable car's body damage: a saved or shared state (vehicle/damage.ts encodeDamage), or null for a
+   *  fresh body (a new game, a progress reset). The game has no repair. */
+  | { type: 'vehicleDamage'; id: string; state: string | null }
   | { type: 'remotes'; bodies: RemoteBody[] }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }

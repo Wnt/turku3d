@@ -52,6 +52,8 @@ export interface SaveGame {
   clock: { timeOfDay: string } | null;
   /** `devMoney`: euros of `money` from the developer tools (localhost only); missing in older saves. */
   stats: { deliveries: number; money: number; devMoney?: number };
+  /** The start car's body damage (vehicle/damage.ts encodeDamage); absent for an undamaged car and in older saves. */
+  carDamage?: string;
 }
 
 interface SaveFile { version: 1; slots: Partial<Record<SlotId, SaveGame>> }
@@ -86,6 +88,7 @@ function validGame(v: unknown): SaveGame | null {
   if (g.clock !== null && !(typeof g.clock?.timeOfDay === 'string' && Number.isFinite(Date.parse(g.clock.timeOfDay)))) return null;
   if (!finite(g.stats?.deliveries) || !finite(g.stats?.money)) return null;
   if (g.stats.devMoney !== undefined && !finite(g.stats.devMoney)) return null;
+  if (g.carDamage !== undefined && typeof g.carDamage !== 'string') return null;
   return g as SaveGame;
 }
 

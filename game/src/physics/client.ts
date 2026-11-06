@@ -172,7 +172,8 @@ export class PhysicsClient {
   driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.placed(id, pos); this.send({ type: 'resetVehicle', id, pos, yaw }); }
   vehicleImpulse(id: string, impulse: V3) { this.send({ type: 'vehicleImpulse', id, impulse }); }
-  damageVehicle(id: string, hit: DamageHit | null) { this.send({ type: 'damageVehicle', id, hit }); }
+  damageVehicle(id: string, hit: DamageHit) { this.send({ type: 'damageVehicle', id, hit }); }
+  setVehicleDamage(id: string, state: string | null) { this.send({ type: 'vehicleDamage', id, state }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }
   setPoles(add: PoleSpec[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'poles', add, remove }); }
   breakPole(id: string) { this.send({ type: 'breakPole', id }); }

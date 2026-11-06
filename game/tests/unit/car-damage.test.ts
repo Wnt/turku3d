@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, headOnLoss, nodeIndex, validDamageWire, DAMAGE_NODES } from '../../src/vehicle/damage';
 import { fleetDamageBox, FLEET_BY_ID, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
-import { cageWeights, DamageRig, deformedBounds, modelLayout, skinToCage } from '../../src/actors/fleet/damageRig';
+import { cageWeights, DAMAGE_SLOTS, DamageRig, modelLayout, rigOf, skinToCage } from '../../src/actors/fleet/damageRig';
 
 const golf = FLEET_BY_ID.get(PLAYER_MODEL)!;
 const layout = damageLayout(fleetDamageBox(golf));
@@ -104,16 +104,15 @@ describe('cage skinning of the real starter car', () => {
       expect([0, 1, 2, 3].reduce((s, k) => s + skinWeight.getComponent(i, k), 0)).toBeCloseTo(1, 5);
       for (let k = 0; k < 4; k++) expect(skinIndex.getComponent(i, k)).toBeLessThan(DAMAGE_NODES);
     }
-    const mesh = new THREE.SkinnedMesh(parts.body, new THREE.MeshBasicMaterial());
-    const rig = new DamageRig(cage);
-    rig.bind(mesh);
-    rig.pose();
-    const fresh = deformedBounds(mesh);
-    expect(fresh.max.z).toBeCloseTo(parts.body.boundingBox!.max.z, 4);
+    const rig = new DamageRig(cage), body = parts.body;
+    body.computeBoundingBox();
+    const fresh = rig.bounds(body);
+    expect(fresh.max.z).toBeCloseTo(body.boundingBox!.max.z, 4);
     const state = new DamageState(cage);
     applyHit(state, { dv: [0, 0, -80 / 3.6] });
     rig.show(encodeDamage(state));
-    const hit = deformedBounds(mesh);
+    expect(rig.slot).toBeGreaterThan(0);
+    const hit = rig.bounds(body);
     const loss = fresh.max.z - hit.max.z;
     expect(Math.abs(loss - headOnLoss(cage, 80))).toBeLessThan(.03);
     expect(Math.abs(hit.min.z - fresh.min.z)).toBeLessThan(.005);
@@ -125,13 +124,30 @@ describe('cage skinning of the real starter car', () => {
     for (let i = 0; i < position.count; i++) {
       v.fromBufferAttribute(position, i);
       if (Math.abs(v.z) > .6) continue;
-      const moved = mesh.applyBoneTransform(i, v.clone()).distanceTo(v);
+      const moved = rig.deform(body, i, new THREE.Vector3()).distanceTo(v);
       cabin = Math.max(cabin, moved);
     }
     expect(cabin).toBeLessThan(.015);
     rig.show(undefined);
-    expect(deformedBounds(mesh).max.z).toBeCloseTo(fresh.max.z, 5);
+    expect(rig.slot).toBe(0);
+    expect(rig.bounds(body).max.z).toBeCloseTo(fresh.max.z, 5);
   }, 30_000);
+  test('damaged cars share the pool: each holds a slot, the oldest gives its slot up when it overflows', () => {
+    const state = new DamageState(layout);
+    applyHit(state, { dv: [0, 0, -60 / 3.6] });
+    const wire = encodeDamage(state), rigs = Array.from({ length: DAMAGE_SLOTS }, () => new DamageRig(layout));
+    const mesh = new THREE.Object3D();
+    rigs[0].bind(mesh);
+    expect(rigOf(mesh)).toBe(rigs[0]);
+    for (const rig of rigs) rig.show(wire);
+    // 31 damaged slots: the first car shown is the oldest and draws fresh until it is shown again.
+    expect(new Set(rigs.slice(1).map(r => r.slot)).size).toBe(DAMAGE_SLOTS - 1);
+    expect(rigs[0].slot).toBe(0);
+    rigs[0].show(wire);
+    expect(rigs[0].slot).toBeGreaterThan(0);
+    expect(rigs[1].slot).toBe(0);
+    for (const rig of rigs) rig.release();
+  });
 });
 
 describe('the physics worker owns the damage state', () => {
@@ -160,7 +176,7 @@ describe('the physics worker owns the damage state', () => {
     pw.spawnVehicle({ x: 10, y: .8, z: 0 }, 0, { id: 'plain' });
     pw.damageVehicle('plain', { dv: [0, 0, -70 / 3.6] });
     expect(pw.vehicleStates().find(v => v.id === 'plain')!.damage).toBeUndefined();
-    pw.damageVehicle('player', null);
+    pw.setVehicleDamage('player', null);
     expect(pw.vehicleStates()[0].damage).toBeUndefined();
     pw.world.free();
   });
@@ -216,5 +232,95 @@ describe('crashes in the physics world become hits', () => {
     const bins = angled.state.bins;
     expect(Math.max(bins[0], bins[2])).toBeGreaterThan(3 * Math.min(bins[0], bins[2]));
     expect(cm(angled.loss)).toBeLessThan(8);
+  });
+});
+
+describe('damage survives saves and travels with the shared vehicle record', () => {
+  const damaged = () => {
+    const state = new DamageState(layout);
+    applyHit(state, { dv: [0, 0, -70 / 3.6] });
+    return encodeDamage(state);
+  };
+  test('a save keeps the start car damage; loading puts it back, a new game starts with a fresh body', async () => {
+    const { vi } = await import('vitest');
+    const { SaveGameController } = await import('../../src/gameplay/saveGame');
+    const { SaveStore, SAVES_KEY } = await import('../../src/core/save');
+    const { draftManifest } = await import('../../src/world/manifest');
+    const { parseRoadGraph } = await import('../../src/gameplay/roadGraph');
+    vi.stubGlobal('window', new EventTarget());
+    vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }));
+    const wire = damaged(), ground = { toi: 2, point: { x: 10, y: 2, z: 20 }, normal: { x: 0, y: 1, z: 0 }, material: 1, tile: 'c_0_0' };
+    const car = { id: 'player', kind: 'car' as const, pos: { x: 15, y: 2.75, z: 20 }, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 0, y: 0, z: 0 },
+      speed: 0, forwardSpeed: 0, wheels: [], curbStrike: null, damage: wire };
+    const physics = { latest: { vehicles: [car], character: { pos: { x: 10, y: 2, z: 20 } } }, loaded: new Map([['c_0_0', {}]]),
+      resetVehicle: vi.fn(), setVehicleDamage: vi.fn(), spawnVehicle: vi.fn(), setCharacterEnabled: vi.fn(), step: vi.fn(), driveVehicle: vi.fn(),
+      raycast: vi.fn(async (_p: unknown, dir: { y: number }, _d: number, filter?: string) => filter === 'water' || dir.y === 1 ? null : ground),
+      cameraCast: vi.fn(async (_p: unknown, _d: unknown, distance: number) => distance) };
+    const store = { value: '', getItem(k: string) { return k === SAVES_KEY ? this.value || null : null; }, setItem(_k: string, v: string) { this.value = v; }, removeItem() {} };
+    const o = { physics, streamer: { update() {} }, manifest: draftManifest('http://localhost/'),
+      router: { graph: parseRoadGraph({ format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [0, 0, 50, 50], nodes: [0, 0, 50, 0], edges: [[0, 1, 3, 0]] }) },
+      missions: { vehicle: 'none', lastAddress: null, serialize: () => '{}', restore: vi.fn(), begin: vi.fn(), deliveries: 0, money: 0, devMoney: 0 },
+      recovery: { restart: vi.fn() }, saves: new SaveStore(store, () => { throw Error(); }),
+      startScreen: { active: false, close() {}, show() {} }, pauseMenu: { close() {}, show() {} },
+      clock: () => new Date(), spawn: { x: 10, y: 2, z: 20, yaw: 0 }, car: { x: 15, y: 2, z: 20, yaw: 0 },
+      view: () => ({ mode: 'foot', drivenId: null, feet: { x: 10, y: 2, z: 20 }, cameraYaw: 1 }),
+      leaveCar() {}, placed: vi.fn(), enterVehicle: vi.fn(), setPaused: vi.fn(), showIntro: vi.fn(), fail: vi.fn() };
+    const controller = new SaveGameController(o as unknown as ConstructorParameters<typeof SaveGameController>[0]);
+    window.dispatchEvent(new Event('pagehide'));
+    const game = new SaveStore(store, () => { throw Error(); }).get('auto')!;
+    expect(game.carDamage).toBe(wire);
+    controller.dispose();
+    const reload = new SaveGameController(o as unknown as ConstructorParameters<typeof SaveGameController>[0]);
+    await reload.prepare(game);
+    reload.hooks.play(game);
+    await vi.waitFor(() => expect(o.setPaused).toHaveBeenLastCalledWith(false));
+    expect(physics.setVehicleDamage).toHaveBeenLastCalledWith('player', wire);
+    await reload.prepare(null);
+    reload.hooks.play(null);
+    await vi.waitFor(() => expect(physics.setVehicleDamage).toHaveBeenLastCalledWith('player', null));
+    expect(o.fail).not.toHaveBeenCalled();
+    reload.dispose();
+    vi.unstubAllGlobals();
+  });
+  test('the owner sends its state in the vehicle pose; the server keeps it; a replica draws the same shape', async () => {
+    const { vehiclePose, vehicleFingerprint } = await import('../../src/net/sharedVehicles');
+    const { cleanPose, validDamage, validPose } = await import('../../../server/pose.js');
+    const wire = damaged();
+    const car = { id: 'player', kind: 'car' as const, pos: { x: 1, y: 2, z: 3 }, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 0, y: 0, z: 0 },
+      speed: 0, forwardSpeed: 0, wheels: [], curbStrike: null };
+    const fresh = vehiclePose(car, 'player', 5), hit = vehiclePose({ ...car, damage: wire }, 'player', 5);
+    expect(fresh.damage).toBeUndefined();
+    expect(hit.damage).toBe(wire);
+    // A new shape is a change to send even when the car stands still.
+    expect(vehicleFingerprint(hit)).not.toBe(vehicleFingerprint(fresh));
+    expect(validDamage(wire)).toBe(true);
+    expect(validPose(hit)).toBe(true);
+    const relayed = cleanPose(hit);
+    expect(relayed.damage).toBe(wire);
+    for (const bad of [wire.slice(1), `${wire}A`, 12, wire.replace(/.$/, '!')]) {
+      expect(validPose({ ...hit, damage: bad }), String(bad).slice(0, 8)).toBe(false);
+      expect(cleanPose({ ...hit, damage: bad }).damage).toBeUndefined();
+    }
+    const owner = new DamageRig(layout), replica = new DamageRig(layout);
+    owner.show(wire); replica.show(relayed.damage);
+    const v = new THREE.Vector3(), w = new THREE.Vector3(), geometry = new THREE.BoxGeometry(1.9, 1.3, 4.2, 4, 4, 8).translate(0, .7, 0);
+    skinToCage(geometry, layout);
+    for (let i = 0; i < geometry.getAttribute('position').count; i += 7) expect(owner.deform(geometry, i, v).distanceTo(replica.deform(geometry, i, w))).toBe(0);
+    owner.release(); replica.release();
+  });
+  test('an owner taking over a starter car record continues from its damage', async () => {
+    const { vi } = await import('vitest');
+    const { SharedVehicles } = await import('../../src/net/sharedVehicles');
+    const wire = damaged(), self = 'me';
+    const record = { id: 'other:player', source: null, creator: 'other', localId: 'player', owner: self, occupant: null, epoch: 2, revision: 4,
+      half: { x: 2, y: .4, z: .9 }, pose: { t: 1, E: 10, N: -20, H: 2, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'player', carrying: false, damage: wire } };
+    const client = Object.assign(new EventTarget(), { state: { connected: true, you: { id: self }, vehicles: new Map([[record.id, record]]),
+      players: [], vehicleSources: new Set<string>() }, holdSeat() {}, vehicle: vi.fn() });
+    const physics = { latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn() };
+    const shared = new SharedVehicles(client as never, physics as never, { vehicles: [] } as never, { setShared() {}, resetRound() {} } as never);
+    shared.update(0);
+    expect(physics.spawnVehicle).toHaveBeenCalledWith(expect.anything(), expect.any(Number),
+      expect.objectContaining({ id: record.id, damage: { box: fleetDamageBox(golf) } }));
+    expect(physics.setVehicleDamage).toHaveBeenCalledWith(record.id, wire);
   });
 });

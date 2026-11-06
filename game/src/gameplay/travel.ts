@@ -23,8 +23,9 @@ export interface TravelTicket {
   to: CityName;
   /** The Turku portal of the trip (left through, or returned to). */
   portal: string | null;
-  /** The vehicle the player drove through in, or null on foot. */
-  ride: { id: string; kind: VehicleKind } | null;
+  /** The vehicle the player drove through in, or null on foot; `damage`: the start car's body damage
+   *  (vehicle/damage.ts), which a page-load arrival puts back on it. */
+  ride: { id: string; kind: VehicleKind; damage?: string } | null;
   /** MissionSystem.serialize() at departure. */
   mission: string;
   multiplayer: boolean;
@@ -39,7 +40,8 @@ function validTicket(v: unknown): TravelTicket | null {
   if (!t || t.v !== 1 || !isCityName(t.from) || !isCityName(t.to) || typeof t.mission !== 'string'
     || typeof t.multiplayer !== 'boolean' || typeof t.at !== 'number' || !Number.isFinite(t.at)) return null;
   if (t.portal !== null && typeof t.portal !== 'string') return null;
-  if (t.ride !== null && !(t.ride && typeof t.ride.id === 'string' && KINDS.includes(t.ride.kind))) return null;
+  if (t.ride !== null && !(t.ride && typeof t.ride.id === 'string' && KINDS.includes(t.ride.kind)
+    && (t.ride.damage === undefined || typeof t.ride.damage === 'string'))) return null;
   return t as TravelTicket;
 }
 

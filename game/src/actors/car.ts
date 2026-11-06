@@ -4,10 +4,10 @@ import type { VehicleState } from '../physics/protocol';
 import { CHASSIS_LIFT } from '../traffic/constants';
 import { FLEET_BY_ID, PLAYER_COLOR, PLAYER_MODEL } from './fleet/catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from './fleet/authored';
-import { fleetGlassMaterial, fleetMaterial } from './fleet/material';
+import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetMaterial } from './fleet/material';
 import { addAuthoredFleetWheels, applyFleetWheels } from './fleet/wheels';
 import { copyActorPaint, paintActor } from './parkedPaint';
-import { DamageRig, deformedBounds, modelLayout, skinToCage } from './fleet/damageRig';
+import { DamageRig, modelLayout, skinToCage } from './fleet/damageRig';
 
 // Concurrent consumers (player, drive replays, remote players' starter cars) share one prepared model;
 // Object3D clones keep their own wheel transforms and share the immutable geometry.
@@ -18,15 +18,15 @@ async function prepare(id: string, color: string): Promise<THREE.Group> {
   if (!model) throw new Error(`Unknown fleet model ${id}`);
   const [parts, glass] = await Promise.all([loadAuthoredFleetParts(id, 0), loadAuthoredFleet(id, 0, 'glass')]);
   if (!parts) throw new Error(`Fleet model ${id} has no articulated parts`);
-  // Body and glazing are skinned to the damage cage (fleet/damageRig.ts); each clone binds its own rig in load().
+  // Body and glazing follow the damage cage (fleet/damageRig.ts); each clone binds its own rig in load().
   const layout = modelLayout(model);
   skinToCage(parts.body, layout);
   const root = new THREE.Group();
-  const body = new THREE.SkinnedMesh(parts.body, fleetMaterial()); paintActor(body, color);
+  const body = new THREE.Mesh(parts.body, fleetDamageMaterial()); paintActor(body, color);
   body.name = 'fleet-actor'; body.castShadow = true; body.receiveShadow = true;
   if (glass) {
     skinToCage(glass, layout);
-    const windows = new THREE.SkinnedMesh(glass, fleetGlassMaterial()); windows.name = 'fleet-glass'; windows.receiveShadow = true; body.add(windows);
+    const windows = new THREE.Mesh(glass, fleetGlassDamageMaterial()); windows.name = 'fleet-glass'; windows.receiveShadow = true; body.add(windows);
   }
   addAuthoredFleetWheels(body, model, parts.wheels, fleetMaterial());
   // Fleet meshes face +Z with the tyres on Y=0; the chassis frame faces +X with its centre CHASSIS_LIFT up.
@@ -38,7 +38,7 @@ async function prepare(id: string, color: string): Promise<THREE.Group> {
 /** The starter car (actors/fleet/catalog.ts PLAYER_MODEL), a real fleet model with articulated wheels. */
 export class CarVisual {
   readonly root = new THREE.Group();
-  private body: THREE.SkinnedMesh | undefined;
+  private body: THREE.Mesh | undefined;
   /** The body's damage cage pose (vehicle/damage.ts), following the physics state's `damage`. */
   rig: DamageRig | undefined;
   loaded = false;
@@ -56,12 +56,11 @@ export class CarVisual {
     }
     const prototype = await pending, instance = prototype.clone(true);
     copyActorPaint(prototype, instance);
-    this.body = instance.getObjectByName('fleet-actor') as THREE.SkinnedMesh;
+    this.body = instance.getObjectByName('fleet-actor') as THREE.Mesh;
     this.rig = new DamageRig(modelLayout(FLEET_BY_ID.get(this.model)!));
     this.rig.bind(this.body);
-    const glass = this.body.getObjectByName('fleet-glass') as THREE.SkinnedMesh | undefined;
+    const glass = this.body.getObjectByName('fleet-glass');
     if (glass) this.rig.bind(glass);
-    this.rig.pose();
     this.root.clear(); this.root.add(instance);
     this.loaded = true;
   }
@@ -79,7 +78,8 @@ export class CarVisual {
   /** The body's bounds in its model frame (+Z forward) as drawn now, and undeformed; null before load. */
   bounds() {
     if (!this.body) return null;
-    return { deformed: deformedBounds(this.body), fresh: this.body.geometry.boundingBox!.clone() };
+    if (!this.body.geometry.boundingBox) this.body.geometry.computeBoundingBox();
+    return { deformed: this.rig!.bounds(this.body.geometry), fresh: this.body.geometry.boundingBox!.clone() };
   }
 }
 

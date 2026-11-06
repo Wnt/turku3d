@@ -13,6 +13,8 @@ export interface NetPose {
   rot?: Quat; wheels?: WheelState[];
   /** A driven 4WS truck's throttle, rpm, gear and rear mode (net/drv.ts); absent otherwise. */
   drv?: import('./drv').Drv;
+  /** A damaged car's body damage (vehicle/damage.ts encodeDamage), decided by its owner; absent while undamaged. */
+  damage?: string;
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }

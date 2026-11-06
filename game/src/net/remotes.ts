@@ -1,4 +1,5 @@
 import { applyFleetWheels } from '../actors/fleet/wheels';
+import { showFleetDamage } from '../actors/fleet/visuals';
 import { vehicleLamps } from '../vehicle/lamps';
 import type { HornEmitter } from '../audio/mix';
 import type { TyreEffects } from '../vehicle/tyreEffects';
@@ -220,6 +221,8 @@ export class RemotePlayers {
       remote.scooter.quaternion.copy(vehicleRotation(pose, false));
       remote.truck.quaternion.copy(vehicleRotation(pose, false));
       if (pose.mode === 'car' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
+      // The owner's body damage (vehicle/damage.ts), replicated in the pose.
+      if (pose.mode === 'car') showFleetDamage(remote.car, pose.damage);
       if (pose.mode === 'truck' && pose.wheels) {
         applyTrophyRig(remote.truck, pose.wheels);
         // Driven remote trucks only (a player's own pose, or a shared record with an occupant): the engine voice.

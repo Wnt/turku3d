@@ -3,14 +3,23 @@ import { attribute, mix, select, sRGBTransferEOTF, uniform } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { fleetLampNode } from './lamps';
 import { paintNode } from '../parkedPaint';
+import { deformByCage } from './damageRig';
 
 const decode = sRGBTransferEOTF as unknown as (srgb: Node<'vec3'>) => Node<'vec3'>;
 export const fleetNight = uniform(0);
-let shared: THREE.MeshStandardNodeMaterial | undefined;
-let sharedGlass: THREE.MeshPhysicalNodeMaterial | undefined;
+let shared: THREE.MeshStandardNodeMaterial | undefined, damageable: THREE.MeshStandardNodeMaterial | undefined;
+let sharedGlass: THREE.MeshPhysicalNodeMaterial | undefined, damageableGlass: THREE.MeshPhysicalNodeMaterial | undefined;
 /** Opaque fleet surfaces share one material (instanced batches and single actors); glazing uses a separate pass. */
 export function fleetMaterial(): THREE.MeshStandardNodeMaterial {
   return shared ??= buildFleetMaterial('Finnish fleet / shared surfaces');
+}
+/** The same surfaces for cars drawn on their own (starter, driven, remote): their bodies follow the damage cage
+ *  (damageRig.ts). One program for all of them, apart from the instanced batches'. */
+export function fleetDamageMaterial(): THREE.MeshStandardNodeMaterial {
+  return damageable ??= deformByCage(buildFleetMaterial('Finnish fleet / damage-capable surfaces'));
+}
+export function fleetGlassDamageMaterial(): THREE.MeshPhysicalNodeMaterial {
+  return damageableGlass ??= deformByCage(buildGlass('Finnish fleet / damage-capable glass'));
 }
 function buildFleetMaterial(name: string): THREE.MeshStandardNodeMaterial {
   const material = new THREE.MeshPhysicalNodeMaterial({ name, side: THREE.DoubleSide });
@@ -31,13 +40,15 @@ function buildFleetMaterial(name: string): THREE.MeshStandardNodeMaterial {
 
 /** One extra shared instanced pass per visible authored model/LOD, never per vehicle. */
 export function fleetGlassMaterial(): THREE.MeshPhysicalNodeMaterial {
-  if (sharedGlass) return sharedGlass;
-  const material = new THREE.MeshPhysicalNodeMaterial({ name: 'Finnish fleet / glass',
+  return sharedGlass ??= buildGlass('Finnish fleet / glass');
+}
+function buildGlass(name: string): THREE.MeshPhysicalNodeMaterial {
+  const material = new THREE.MeshPhysicalNodeMaterial({ name,
     transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
     clearcoat: 1, clearcoatRoughness: .08 });
   const surface=attribute('fleetSurface','vec4');
   material.colorNode=attribute('color','vec3');
   material.roughnessNode=surface.y; material.metalnessNode=surface.z;
   material.opacityNode=surface.w;
-  return sharedGlass=material;
+  return material;
 }

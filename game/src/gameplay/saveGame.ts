@@ -166,7 +166,8 @@ export class SaveGameController {
     if (last) this.lastVehicle = captureVehicle(last, !!driven, yawOf(last.rot), this.o.manifest, this.lastVehicle);
     if (this.lastVehicle && !driven) this.lastVehicle = { ...this.lastVehicle, seated: false };
     const clock = this.o.clock();
-    return { version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clock), mission: missions.serialize(),
+    const carDamage = physics.latest?.vehicles.find(v => v.id === OWN_VEHICLE_ID)?.damage;
+    return { ...(carDamage ? { carDamage } : {}), version: 1, savedAt: Date.now(), label: formatLabel(missions.lastAddress, clock), mission: missions.serialize(),
       // In a car the camera sits behind the chassis: its yaw is the chassis yaw minus a quarter turn.
       player: { E: p.E, N: p.N, H: p.H, yaw: driven ? yawOf(driven.rot) - Math.PI / 2 : view.cameraYaw },
       vehicle: own && c ? { owned: missions.vehicle !== 'none', E: c.E, N: c.N, H: c.H, yaw: yawOf(own.rot) } : null,
@@ -258,6 +259,10 @@ export class SaveGameController {
     const car = saved && !bought ? saved : this.o.car;
     const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
+    // The start car's body: a loaded game's damage, a fresh body for a new game. A join or an arrival (`override`)
+    // keeps the car as it is; multiplayer then restores the room's record of it.
+    if (game) physics.setVehicleDamage(OWN_VEHICLE_ID, game.carDamage ?? null);
+    else if (!override) physics.setVehicleDamage(OWN_VEHICLE_ID, null);
     if (bought) {
       // The saved vehicle, or (a save from before the scooter) at the kerb behind the start car.
       const at = saved ?? kerbBehind(car);

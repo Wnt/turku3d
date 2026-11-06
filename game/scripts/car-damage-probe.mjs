@@ -39,9 +39,9 @@ const settle = (page, frames = 20) => page.evaluate(n => new Promise(resolve => 
   let left = n; const tick = () => (--left <= 0 ? resolve() : requestAnimationFrame(tick)); requestAnimationFrame(tick);
 }), frames);
 
-async function shots(page, label, client = 'a') {
+async function shots(page, label, client = 'a', remote = false) {
   for (const [view, yaw] of VIEWS) {
-    await page.evaluate(yaw => window.__game.damage.look({ yaw, pitch: 14, distance: 6.2 }), yaw);
+    await page.evaluate(([yaw, remote]) => window.__game.damage.look({ yaw, pitch: 14, distance: 6.2, remote }), [yaw, remote]);
     await settle(page, 12);
     const file = path.join(out, `${client}-${label}-${view}.png`);
     await page.screenshot({ path: file });
@@ -52,7 +52,7 @@ async function shots(page, label, client = 'a') {
 
 /** A square building wall with a flat, clear run-up near the starter car: rays at bumper height in 5-degree steps
  *  from candidate start points; a hit wall's own normal then sets the heading (the car square to it), and along that
- *  heading the wall must be flat across the car (two parallel rays 0.85 m to each side within 3 cm) and the ground
+ *  heading the wall must be flat across the car (two parallel rays 0.85 m to each side within 7 cm) and the ground
  *  within 0.5 m of the start. The longest such run-up wins (up to 125 m, enough for 80 km/h). */
 const findWall = page => page.evaluate(async () => {
   const g = window.__game, physics = g.physics, car = physics.latest.vehicles.find(v => v.id === 'player');
@@ -66,15 +66,15 @@ const findWall = page => page.evaluate(async () => {
     const y = ground.point.y + .55, o = { x: ground.point.x, y, z: ground.point.z };
     for (let deg = 0; deg < 360; deg += 5) {
       const yaw0 = deg * Math.PI / 180, first = await ray(o, { x: Math.cos(yaw0), y: 0, z: -Math.sin(yaw0) }, 130);
-      if (!first || first.toi < 60 || Math.abs(first.normal.y) > .1) continue;
+      if (!first || first.toi < 50 || Math.abs(first.normal.y) > .1) continue;
       const n = Math.hypot(first.normal.x, first.normal.z), d = { x: -first.normal.x / n, y: 0, z: -first.normal.z / n };
       const yaw = Math.atan2(-d.z, d.x), side = { x: -d.z, y: 0, z: d.x };
       const hit = await ray(o, d, 130);
-      if (!hit || hit.toi < 60 || hit.toi > 125 || (best && hit.toi <= best.distance) || -(hit.normal.x * d.x + hit.normal.z * d.z) < .9986) continue;
+      if (!hit || hit.toi < 50 || hit.toi > 125 || (best && hit.toi <= best.distance) || -(hit.normal.x * d.x + hit.normal.z * d.z) < .998) continue;
       let clear = true;
       for (const k of [-.85, .85]) {
         const h = await ray({ x: o.x + side.x * k, y, z: o.z + side.z * k }, d, 140);
-        if (!h || Math.abs(h.toi - hit.toi) > .03) { clear = false; break; }
+        if (!h || Math.abs(h.toi - hit.toi) > .07) { clear = false; break; }
       }
       for (let t = 4; clear && t < hit.toi - 2; t += 4) for (const k of [-.85, 0, .85]) {
         const at = await ray({ x: o.x + d.x * t + side.x * k, y: y + 3, z: o.z + d.z * t + side.z * k }, { x: 0, y: -1, z: 0 }, 8);
@@ -82,7 +82,7 @@ const findWall = page => page.evaluate(async () => {
       }
       if (clear) best = { x: o.x, y: ground.point.y, z: o.z, yaw, deg: Math.round(yaw * 180 / Math.PI), distance: hit.toi, wall: hit.point, tile: hit.tile };
     }
-    if (best && best.distance > 85) break;
+    if (best && best.distance > 80) break;
   }
   return best;
 });
@@ -147,6 +147,33 @@ try {
       await shots(page, label);
     }
     report.framesDamaged = await frames(page);
+  }
+  if (mode === 'mp') {
+    // Client A drives its starter car a little (it registers as a shared record), client B joins the same room and
+    // must draw A's dents exactly: hits and the crumple from B's own deformed bounds.
+    await page.evaluate(() => window.__game.enterVehicle('player'));
+    await page.waitForTimeout(1500);
+    await page.keyboard.down('KeyW'); await page.waitForTimeout(900); await page.keyboard.up('KeyW');
+    await page.waitForTimeout(2500);
+    const b = await open('b');
+    await b.waitForFunction(() => window.__game.damage.remotes().length > 0, null, { timeout: 90000 });
+    report.bFresh = await b.evaluate(() => window.__game.damage.remotes());
+    log('b sees a', { remotes: report.bFresh });
+    await shots(b, 'fresh', 'b', true);
+    await page.evaluate(() => { window.__game.damage.dent({ kmh: 80, at: 'front' }); window.__game.damage.dent({ kmh: 55, at: 'rear-left' }); });
+    await page.waitForTimeout(500);
+    report.a = await bounds(page);
+    const started = Date.now();
+    await b.waitForFunction(hits => window.__game.damage.remotes().some(r => r.hits === hits), report.a.state.hits, { timeout: 30000 });
+    report.replicaSeconds = (Date.now() - started) / 1000;
+    report.b = await b.evaluate(() => window.__game.damage.remotes());
+    log('replicated', { a: { hits: report.a.state.hits, front: report.a.bounds.frontLoss, rear: report.a.bounds.rearLoss }, b: report.b, seconds: report.replicaSeconds });
+    await shots(page, 'dented', 'a');
+    await shots(b, 'dented', 'b', true);
+    const mine = report.a.bounds, theirs = report.b.find(r => r.hits === report.a.state.hits);
+    if (!theirs || Math.abs(theirs.frontLoss - mine.frontLoss) > .2 || Math.abs(theirs.rearLoss - mine.rearLoss) > .2)
+      report.errors.push(`replica differs: own ${mine.frontLoss}/${mine.rearLoss} cm, remote ${theirs?.frontLoss}/${theirs?.rearLoss} cm`);
+    await b.close();
   }
   if (mode === 'wall') {
     await page.evaluate(() => window.__game.enterVehicle('player'));

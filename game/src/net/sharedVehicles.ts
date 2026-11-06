@@ -11,10 +11,12 @@ import { VEHICLE_POSE_HEIGHT } from './height';
 import type { MultiplayerClient, NetPose } from './client';
 import type { Drv } from './drv';
 import type { SharedVehicle, VehicleCommand, VehicleUpdate } from './vehicleTypes';
+import { modelDamageBox } from '../vehicle/modelTuning';
+import { PLAYER_MODEL } from '../actors/fleet/catalog';
 
 export function vehiclePose(state: VehicleState, model: string, now: number, drv?: Drv): NetPose {
   const yaw = yawOf(state.rot) - Math.PI / 2;
-  return { ...(drv ? { drv } : {}), lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
+  return { ...(drv ? { drv } : {}), ...(state.damage ? { damage: state.damage } : {}), lights: state.lights ?? 0, horn: state.horn ?? false, t: now, E: state.pos.x, N: -state.pos.z, H: state.pos.y - VEHICLE_POSE_HEIGHT,
     yaw: Math.atan2(Math.sin(yaw), Math.cos(yaw)), rot: state.rot, wheels: state.wheels,
     vE: state.linvel.x, vN: -state.linvel.z, vH: state.linvel.y,
     mode: state.kind ?? 'car', vehicle: model, carrying: false };
@@ -26,7 +28,7 @@ export function vehicleFingerprint(p: NetPose): string {
   return JSON.stringify([p.lights, p.horn]) + JSON.stringify([p.E, p.N, p.H, p.vE, p.vN, p.vH].map(v => Math.round(v * 100)))
     + JSON.stringify(p.rot && [p.rot.x, p.rot.y, p.rot.z, p.rot.w].map(v => Math.round(v * 1000)))
     + JSON.stringify(p.wheels?.map(w => [w.steer, w.rotation, w.suspension].map(v => Math.round(v * 100))))
-    + (p.drv ? JSON.stringify(p.drv) : '');
+    + (p.drv ? JSON.stringify(p.drv) : '') + (p.damage ?? '');
 }
 
 export const SEAT_CONFLICT_GRACE_MS = 3000;
@@ -279,10 +281,13 @@ export class SharedVehicles {
       // its exact last quaternion and velocity, including a flipped parked car.
       if (!present || (local !== this.driving?.local && (old || !this.fresh.has(v.id) || v.creator !== self))) {
         this.blockedUntil.set(v.id, performance.now() + 100);
+        // A starter car keeps its body damage across owners and reloads: the record is its last owner's state.
+        const starter = v.pose.vehicle === 'player';
         this.physics.spawnVehicle(
         { x: v.pose.E, y: v.pose.H + VEHICLE_POSE_HEIGHT, z: -v.pose.N }, v.pose.yaw + Math.PI / 2,
         { id: local, kind: v.pose.mode as 'car' | 'scooter' | 'truck', halfExt: v.half, rot: v.pose.rot,
-          linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN } });
+          linvel: { x: v.pose.vE, y: v.pose.vH, z: -v.pose.vN }, ...(starter ? { damage: { box: modelDamageBox(PLAYER_MODEL)! } } : {}) });
+        if (starter) this.physics.setVehicleDamage(local, v.pose.damage ?? null);
       }
       this.fresh.delete(v.id);
       for (const [id, item] of this.managed) if (id !== v.id && item.local === local) {

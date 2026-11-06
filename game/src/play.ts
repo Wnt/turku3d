@@ -169,7 +169,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   if (hot ? hot.hudVisible !== hud.visible : !params.hud && hud.visible) hud.toggle();
   const player = new PlayerVisual(root, origin => physics.raycast(origin, { x: 0, y: -1, z: 0 }, 1.3, 'foot'));
   const car = new CarVisual(root);
-  const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location));
+  const damageConsole = carDamageConsole(physics, car, devToolsEnabled(location), root);
   const seated = new SeatedVehicles(root, physics, groundAt, world.prepareGraphics);
   const parkedVisuals = new ParkedCarVisuals(root, world.prepareGraphics);
   const parkedVehicles = new ParkedVehicles(manifest, physics, parkedVisuals, seated, QUALITY[params.quality].parkedBodies);
@@ -359,6 +359,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     autopilot.cancel('progress reset'); fly?.set(false);
     saves.clear(); clearProgress(browserStorage(), sessionStore());
     missions.restore(null);
+    // The new game's start car is a fresh one: its body damage goes with the progress.
+    physics.setVehicleDamage(OWN_VEHICLE_ID, null);
     if (multiplayerPlaying) { sharedVehicles?.resetRound(); multiplayerRunId = crypto.randomUUID(); }
     // The room forgets this tab's player also when it is only connected (solo after a multiplayer game); offline,
     // the next hello carries the reset.
@@ -507,7 +509,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     if (multiplayerPlaying) sharedVehicles?.release(drivenId);
     if (!multiplayerPlaying) saveGame.autosave.save('travel');
     writeTicket(sessionStore(), { v: 1, from: CITY.name, to, portal: home?.id ?? portal?.id ?? null,
-      ride: driven && drivenId ? { id: drivenId, kind: driven.kind ?? 'car' } : null, mission: missions.serialize(),
+      ride: driven && drivenId ? { id: drivenId, kind: driven.kind ?? 'car', ...(driven.damage ? { damage: driven.damage } : {}) } : null,
+      mission: missions.serialize(),
       multiplayer: multiplayerPlaying, at: Date.now() });
     showTransition(document.body, CITIES[to]);
     paused = true;
@@ -524,6 +527,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const y = exit && home ? await groundBelow(spot.x, spot.z, home.rayTop) : world.car.y;
     if (y === null) return null;
     await parkRide(id, spot, y);
+    // The start car's dents travel with it (a page-load arrival spawned it fresh).
+    if (id === OWN_VEHICLE_ID && ride.id === OWN_VEHICLE_ID && ride.damage) physics.setVehicleDamage(id, ride.damage);
     const t0 = performance.now();
     while (!physics.latest?.vehicles.some(v => v.id === id && Math.hypot(v.pos.x - spot.x, v.pos.z - spot.z) < 1)) {
       if (performance.now() - t0 > 10000) return null;

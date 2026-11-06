@@ -13,7 +13,8 @@ import { addAuthoredFleetWheels, applyFleetWheels } from './wheels';
 import { vehicleLamps } from '../../vehicle/lamps';
 import { fleetLamps } from './lamps';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
-import { fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
+import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
+import { DamageRig, modelLayout, rigOf, skinToCage } from './damageRig';
 
 export interface ParkedRest { restingPose(car: ParkedVehicle): ParkedPose | null }
 /** A drawn moving car. `model` is a real fleet model id (catalog.ts fleetModel picks it within the traffic family). */
@@ -208,11 +209,14 @@ export class ParkedCarVisuals {
       await this.prepare(keeper);
     }
   }
+  /** A car drawn on its own (the driven car, a remote player's car): body and glazing follow the model's damage cage
+   *  (damageRig.ts), so a damage state from physics or the network shows on it (showFleetDamage). */
   private actor(model:FleetModel,color:string,name:string) {
-    const parts=this.authoredParts.get(`${model.id}/0`);
-    const actor=new THREE.Mesh(this.geometry(model,0),fleetMaterial()); paintActor(actor,color);
+    const parts=this.authoredParts.get(`${model.id}/0`), layout=modelLayout(model), rig=new DamageRig(layout);
+    const body=this.geometry(model,0);skinToCage(body,layout);
+    const actor=new THREE.Mesh(body,fleetDamageMaterial()); paintActor(actor,color);rig.bind(actor);
     const glass=this.geometries.get(`${model.id}/0/glass`);
-    if(glass){const window=new THREE.Mesh(glass,fleetGlassMaterial());window.receiveShadow=true;actor.add(window);}
+    if(glass){skinToCage(glass,layout);const window=new THREE.Mesh(glass,fleetGlassDamageMaterial());window.receiveShadow=true;actor.add(window);rig.bind(window);}
     if(parts)addAuthoredFleetWheels(actor,model,parts.wheels,fleetMaterial());
 
     actor.name=name;actor.castShadow=true;actor.receiveShadow=true;return actor;
@@ -339,6 +343,7 @@ export class ParkedCarVisuals {
       actor.matrix.copy(this.transform({id,...this.definitions.get(id)!,pos:state.pos,rot:state.rot}));
       actor.matrix.decompose(actor.position,actor.quaternion,actor.scale);
       applyFleetWheels(actor,state.wheels);
+      showFleetDamage(actor,state.damage);
     }
   }
   dispose() {
@@ -362,6 +367,13 @@ export class ParkedCarVisuals {
     const projected=actor.position.clone().project(camera);
     return {parented:actor.parent===this.scene,visible:actor.visible&&frustum.intersectsObject(actor),position:actor.position.toArray(),projected:projected.toArray(),castShadow:actor.castShadow,staticInstances:this.cars.filter(c=>c.object_id===id).length};
   }
+}
+
+/** Shows a damage state on a car drawn by `actor` (after applyFleetWheels: the hubs follow the cage). */
+export function showFleetDamage(actor:THREE.Object3D,damage:string|undefined) {
+  const rig=rigOf(actor);
+  if(!rig)return;
+  rig.show(damage);rig.placeWheels(actor);
 }
 
 if(import.meta.hot)import.meta.hot.accept();

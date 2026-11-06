@@ -98,7 +98,7 @@ describe('last-used vehicle save', () => {
     const vehicle = state('truck', 'truck');
     const physics = {
       latest: { vehicles: [vehicle], character: { pos: { x: 10, y: 2, z: 20 } } }, loaded: new Map([['c_0_0', {}]]),
-      resetVehicle: vi.fn(), spawnVehicle: vi.fn((pos, _yaw, spec) => { vehicle.id = spec.id; vehicle.pos = pos; }),
+      resetVehicle: vi.fn(), setVehicleDamage: vi.fn(), spawnVehicle: vi.fn((pos, _yaw, spec) => { vehicle.id = spec.id; vehicle.pos = pos; }),
       setCharacterEnabled: vi.fn((_on, pos) => { if (pos) physics.latest.character.pos = pos; }), step: vi.fn(),
       driveVehicle: vi.fn(), raycast: vi.fn(async (_p, dir, _d, filter) => filter === 'water' || dir.y === 1 ? null : hit()),
       cameraCast: vi.fn(async (_p, _d, distance) => distance),

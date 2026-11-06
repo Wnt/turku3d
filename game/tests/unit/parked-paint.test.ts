@@ -6,6 +6,7 @@ import { mrt, normalView, velocity } from 'three/tsl';
 // @ts-expect-error r186 internal pipeline manager has no DefinitelyTyped declaration.
 import Pipelines from 'three/src/renderers/common/Pipelines.js';
 import { ParkedCarVisuals } from '../../src/actors/car';
+import { fleetDamageMaterial } from '../../src/actors/fleet/material';
 import { actorPaintOf, instancePaintOf, paintOf } from '../../src/actors/parkedPaint';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { draftManifest, type ParkedVehicle } from '../../src/world/manifest';
@@ -26,10 +27,11 @@ test('resting, claimed, driven and remote fleet cars preserve pose and paint',as
   expect(Array.from(instancePaintOf(draw)!.array.slice(0,3))).toEqual(paintOf('red').map(Math.fround));
   visuals.takeOver('a');visuals.update([],rest);
   const driven=scene.getObjectByName('driven/a') as THREE.Mesh;
-  expect(driven.material).toBe(draw.material);expect(driven.geometry).toBe(draw.geometry);
+  // Cars drawn on their own share the batch geometry and one damage-capable material (fleet/damageRig.ts).
+  expect(driven.material).toBe(fleetDamageMaterial());expect(driven.geometry).toBe(draw.geometry);
   expect(actorPaintOf(driven)!.toArray()).toEqual([...paintOf('red')]);expect(draw.count).toBe(1);
   const remote=visuals.remoteModel('corolla-e180/beige')!;
-  expect(remote.material).toBe(draw.material);expect(remote.geometry).toBe(draw.geometry);
+  expect(remote.material).toBe(fleetDamageMaterial());expect(remote.geometry).toBe(draw.geometry);
   expect(actorPaintOf(remote)!.toArray()).toEqual([...paintOf('beige')]);
 });
 

@@ -205,6 +205,55 @@ is null until a speed change of 0.5 m/s (`IMPACT_MIN_DELTA_V`, 600 N·s for the 
 retains the latest `{id, impulse}` for consumers to deduplicate. Reports are limited to one per 150 ms and reset
 clears the retained event. The audio adapter uses it for positional impact loudness, haptics for the crash rumble.
 
+## Body damage (the starter car)
+
+Phase 2 of the car-damage plan, calibrated on the Wreckfest 2 study (`~/turku3d/research/wreckfest2/damage-study.md`):
+a deformation cage evaluated on the GPU, no extra geometry, one damage state owned by the physics worker.
+
+- **Cage** (`damage.ts damageLayout`): 54 nodes from the model's box (`actors/fleet/catalog.ts fleetDamageBox`):
+  9 stations along the length (fractions 0, .07, .14, .235, .5 and mirrored: dense at both crumple zones, one cabin
+  station), 2 levels (bumper/sill, belt/bonnet line), 3 laterals. The same rule serves every fleet model.
+- **Weights** (`actors/fleet/damageRig.ts skinToCage`, at load, once per geometry): Kuhn tetrahedra of the cage cell
+  give each vertex 4 nodes whose weights reproduce any affine offset field exactly; parts under 0.55 m (connected by
+  triangles and coincident positions: lamps, grille, mirrors, handles, seats) move rigidly with the weights at their
+  centroid. `skinIndex`/`skinWeight` are 8-bit.
+- **Crumple model** (`damage.ts applyHit`): per face (front, rear, both sides, roof) the push component of the hit's
+  velocity change counts `(km/h)² - 35²` of energy into bins under the footprint (front/rear by lateral, sides by
+  thirds, one roof bin), less as a bin nears its stop (deformed structure is harder). Face depth
+  `D = 0.149 L (1 - exp(-E / 6000))`, hard stop `0.105 L` (sides `0.15 W`, roof `0.12 H`, stiffer); a soft bumper
+  layer adds up to 3 cm from 15 km/h. The end face moves by `D` up to 0.117 L deep, falling linearly to 3 % at
+  0.235 L (the cabin stays within 1.5 cm) and 0 at mid-car; the bonnet/boot buckles up, the band bulges, the end
+  droops, and the rigid end is uneven (deterministic per node). Node offsets accumulate the change of this shape.
+  Golf, single head-on: 30 km/h 2 cm (bumper), 50 15 cm, 70 32, 80 40; six at 61.5 km/h 25 → 43 cm (Wreckfest 2,
+  scaled to 4.255 m: 0, 19-21, 32, 40; 27 → 44). An off-square hit crushes its leading corner (Wreckfest's bimodal
+  results).
+- **Hits from physics** (`vehicle.ts trackCrash`): the chassis velocity change of each solver step beyond gravity
+  (the same measure as collision telemetry, so trimesh walls count) is summed in the chassis frame while steps exceed
+  1 m/s, and applied as one hit after two quiet steps or 0.3 s. The angular impulse places the contact on the chassis
+  box; a contact beyond half of the face's half-width gets a footprint to its nearer corner, else it is a wall. A
+  sleeping damageable car measures the hit that wakes it. Hits from below (landings) do nothing. Multiplayer contact
+  impulses from the server add no hit: the remote car's kinematic proxy is already a local contact.
+- **State**: `DamageState` (offsets, 19 energy bins, unbounded `energy` and `hits` as hooks for handling, mechanics and
+  loose parts). Wire form (`encodeDamage`): 208 bytes, base64 280 characters, offsets at 5 mm in int8. It rides in
+  `VehicleState.damage` (absent while undamaged), in the shared vehicle pose (`server/PROTOCOL.md`), in saves
+  (`SaveGame.carDamage`) and in a travel ticket's ride. `vehicleDamage` sets it (a load, a record, null for a fresh
+  car: a new game or a progress reset). There is no repair.
+- **Drawing**: the starter car (`actors/car.ts`) and every car drawn on its own (`fleet/visuals.ts actor`: driven,
+  remote) use `fleetDamageMaterial`, which blends node rotation and translation in the vertex stage from one pool
+  texture (32 rows of 54 nodes, half floats), selected by the car's slot (a per-object uniform). One program per pass
+  for all of them; r186 SkinnedMeshes would name every skeleton's bone buffer apart and build programs per car. The
+  pool re-uploads only when a car's damage changes; nothing runs per frame. The wheel hubs follow the cage at their
+  pivots (visual only). Instanced batches (parked, traffic) stay undamaged.
+- **Developer console** (`dev/carDamage.ts`, `window.__game.damage`): `bounds()` (crumple from the drawn body's
+  deformed bounds, cm), `state()`; with developer tools (`?dev=1`) `dent({ kmh, at, halfWidth, offset })`, `clear()`
+  and `look({ yaw, pitch, distance })`, a camera held around the car. Deployed check:
+  `~/turku3d/tools/host-lease/session.py run air NAME --kind func --headless --load-timeout 240 -- node
+  game/scripts/car-damage-probe.mjs dent|wall|mp OUT_DIR` (four views per state, wall runs at 30/50/80 and 3 × 60 km/h).
+
+```sh
+npm --prefix game test -- --run tests/unit/car-damage.test.ts tests/unit/parked-paint.test.ts
+```
+
 ## Tyre marks and smoke
 
 `Vehicle.step` measures wheel contact velocity (including chassis angular velocity) in each steered wheel's

@@ -544,10 +544,13 @@ export class PhysicsWorld {
     vehicle.recordImpact(size * scale);
   }
 
-  /** A hit on a damageable car's body, or null to clear it (developer tools); a car without a damage cage ignores it. */
-  damageVehicle(id: string, hit: DamageHit | null) {
-    const vehicle = this.vehicles.get(id);
-    if (hit) vehicle?.damageHit(hit); else vehicle?.damage?.clear();
+  /** A hit on a damageable car's body (developer tools); a car without a damage cage ignores it. */
+  damageVehicle(id: string, hit: DamageHit) {
+    this.vehicles.get(id)?.damageHit(hit);
+  }
+  /** A saved or shared damage state for a damageable car, or null for a fresh body. */
+  setVehicleDamage(id: string, state: string | null) {
+    this.vehicles.get(id)?.setDamage(state);
   }
 
   /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks

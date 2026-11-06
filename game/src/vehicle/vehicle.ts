@@ -73,7 +73,7 @@ export class Vehicle {
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
     spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning;
-      damage?: { box: import('./damage.ts').DamageBox; state?: string } } = {},
+      damage?: { box: import('./damage.ts').DamageBox } } = {},
     private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
@@ -120,7 +120,6 @@ export class Vehicle {
       : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
     this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
-    if (this.damage && spec.damage?.state) decodeDamage(spec.damage.state, this.damage);
   }
 
   /** Applies a body hit (fleet model frame, vehicle/damage.ts); returns the structural depth it added (m). */
@@ -173,12 +172,22 @@ export class Vehicle {
       const box = this.damage!.layout, fx = -clamp(p.z, 'z') / h.z * box.width / 2, fz = clamp(p.x, 'x') / h.x * box.length / 2;
       at = [fx, (box.min[1] + box.max[1]) / 2, fz];
     }
-    // A hit off the middle of a face has a footprint from its point to the nearer corner; a centred one is a wall.
+    // A hit clearly off the middle of a face (a corner, a pole beside the centre) has a footprint from its point to
+    // the nearer corner; anything nearer the middle is a wall. A square wall hit a few degrees off still reads as a
+    // wall: the first corner's yaw impulse puts its estimate up to about a third of the way out.
     const box = this.damage!.layout, dv: [number, number, number] = [-c.dv.z, c.dv.y, c.dv.x];
     const end = Math.abs(dv[2]) >= Math.abs(dv[0]);
     const lateral = at ? Math.abs(end ? at[0] : at[2]) : 0, half = end ? box.width / 2 : box.length / 2;
-    const halfWidth = lateral > .25 * half ? Math.max(.15, half - lateral) : undefined;
+    const halfWidth = lateral > .5 * half ? Math.max(.15, half - lateral) : undefined;
     this.damageHit({ dv, ...(at ? { at } : {}), ...(halfWidth ? { halfWidth } : {}) });
+  }
+
+  /** Replaces the body damage with a saved or shared state (a malformed one is ignored), or a fresh body for null. */
+  setDamage(state: string | null) {
+    const d = this.damage;
+    if (!d || (state ?? undefined) === this.damageWire()) return;
+    if (state === null) { if (d.damaged) d.clear(); }
+    else decodeDamage(state, d);
   }
 
   /** The damage state's wire form, re-encoded only when a hit changed it; undefined while undamaged. */

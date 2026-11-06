@@ -161,6 +161,7 @@ function handle(msg: ToWorker) {
     case 'resetVehicle': pw.resetVehicle(msg.pos, msg.yaw, msg.id); break;
     case 'vehicleImpulse': pw.vehicleImpulse(msg.id, msg.impulse); break;
     case 'damageVehicle': pw.damageVehicle(msg.id, msg.hit); break;
+    case 'vehicleDamage': pw.setVehicleDamage(msg.id, msg.state); break;
     case 'remotes': pw.setRemotes(msg.bodies); break;
     case 'poles': pw.setPoles(msg.add, msg.remove); break;
     case 'breakPole': pw.breakPole(msg.id); break;
