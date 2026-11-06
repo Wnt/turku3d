@@ -404,8 +404,9 @@ try {
     // km/h (each car then takes about half the closing speed, as in a real car-to-car crash), then a developer dent of
     // 70 km/h on the parked car itself for a clear shape; the wreck draws in its model's damaged batch, the room keeps it (a shared record with A's damage), B draws the same
     // wreck, and after A has left a third client C still finds it wrecked.
-    const target = await page.evaluate(async RUN => {
+    const target = await page.evaluate(async RUNS => {
       const g = window.__game, physics = g.physics, me = physics.latest.vehicles.find(v => v.id === 'player').pos;
+      for (const RUN of RUNS) {
       const cars = physics.latest.vehicles.filter(v => !['player', 'scooter', 'truck'].includes(v.id) && !v.id.startsWith('tr:') && v.kind === 'car' && v.speed < .1)
         .map(v => ({ v, d: Math.hypot(v.pos.x - me.x, v.pos.z - me.z) })).filter(c => c.d < 90).sort((a, b) => a.d - b.d);
       for (const { v } of cars) {
@@ -427,17 +428,18 @@ try {
             if (!at || Math.abs(at.point.y - ground.point.y) > .35) flat = false;
           }
           if (!flat) continue;
-          return { id: v.id, x: o.x, y: ground.point.y, z: o.z, yaw: Math.atan2(-d.z, d.x), distance: all.toi + 2.2 - .1, end: sign > 0 ? 'rear' : 'front' };
+          return { id: v.id, x: o.x, y: ground.point.y, z: o.z, yaw: Math.atan2(-d.z, d.x), distance: all.toi + 2.2 - .1, end: sign > 0 ? 'rear' : 'front', run: RUN };
         }
       }
+      }
       return null;
-    }, 55);
+    }, [55, 40, 28]);
     log('target', target ?? {});
     if (!target) throw new Error('no parked car with a clear, flat run-up near the start');
     report.target = target;
     await page.evaluate(() => window.__game.enterVehicle('player'));
     await page.waitForTimeout(1500);
-    report.run = await drive(page, target, 70);
+    report.run = await drive(page, target, Math.min(70, target.run * 1.6));
     await page.waitForTimeout(2500);
     report.rammed = await page.evaluate(id => window.__game.damage.wrecks().find(w => w.id === id) ?? null, target.id);
     log('rammed', { run: report.run, wreck: report.rammed });
@@ -520,10 +522,11 @@ try {
     }
     if (!claimed) throw new Error('no traffic car claimed by a crash');
     report.claimed = claimed;
-    await page.waitForTimeout(1500);
+    report.claimHit = await page.evaluate(() => window.__game.traffic.snapshot().stats?.claimHit ?? null);
     const wreckOf = (p, id) => p.evaluate(id => window.__game.damage.wrecks().find(w => w.id === id) ?? null, id);
-    report.afterHit = await wreckOf(page, claimed.id);
-    log('claimed wreck', { wreck: report.afterHit });
+    // The claimed car joins the parked batches once its record's appearance has loaded (traffic/client.ts).
+    for (let i = 0; i < 60 && !(report.afterHit = await wreckOf(page, claimed.id)); i++) await page.waitForTimeout(500);
+    log('claimed wreck', { claimHit: report.claimHit, wreck: report.afterHit });
     if (!report.afterHit?.hits) report.errors.push(`the claimed car shows no hit: ${JSON.stringify(report.afterHit)}`);
     for (const [view, yaw] of [['rear', 180], ['rear-left', 140]]) {
       await page.evaluate(([yaw, id]) => window.__game.damage.look({ yaw, pitch: 14, distance: 6.5, wreck: id }), [yaw, claimed.id]);

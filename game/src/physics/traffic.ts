@@ -131,7 +131,9 @@ export class TrafficSim {
    *  recent peak (decaying), `activationMs` the last ring pass. */
   stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0,
     /** Drawn cars per tier: real, dummy, far. */
-    tiers: [0, 0, 0] };
+    tiers: [0, 0, 0],
+    /** The last claim's hit on the claimed car (km/h), or why it took none. */
+    claimHit: null as number | string | null };
   private substepMs = 0;
   private previousTime = 0;
   private ground = (x: number, top: number, z: number, depth: number) => this.host.ground(x, top, z, depth);
@@ -334,7 +336,10 @@ export class TrafficSim {
     const fleet = car.visualModel ??= fleetModel(model, String(hash32('appearance', car.key)));
     this.host.spawnVehicle(pos, yaw, { id, kind: 'car', halfExt: { x: l / 2, y: h * 0.28, z: w / 2 }, rot, linvel, damage: { box: fleetDamageBox(fleet) } });
     const hitter = by === undefined ? null : this.host.impact(by);
-    if (hitter) { const hit = claimHit(fleet, pos, rot, linvel, { x: l / 2, z: w / 2 }, hitter); if (hit) this.host.damageVehicle(id, hit); }
+    const hit = hitter && claimHit(fleet, pos, rot, linvel, { x: l / 2, z: w / 2 }, hitter);
+    if (hit) this.host.damageVehicle(id, hit);
+    // The last claim's hit (km/h of the push, or why none), for QA.
+    this.stats.claimHit = hit ? Math.round(Math.hypot(...hit.dv) * 36) / 10 : by === undefined ? 'no contact' : hitter ? 'not closing' : 'no hitter';
     this.events.push({ revision: 0, handle, id, key: car.key, seed: String(hash32('appearance', car.key)), model, color: TRAFFIC_PAINTS[car.paint],
       size: [w, h, l], pos, rot, linvel });
     this.stats.claims++;

@@ -50,7 +50,7 @@ for (const id of ids) {
     await frames(10);
     const box = await page.evaluate(() => window.vehicleGallery.damage()?.box);
     if (!box) throw Error('no damage rig');
-    const d = Math.max(5.2, box.length * 1.25), height = box.height * .35;
+    const d = Math.max(4.4, box.length * 1.02), height = box.height * .35;
     const front = { yaw: 38, pitch: 12, distance: d, height }, rear = { yaw: 215, pitch: 12, distance: d, height };
     await page.evaluate(() => window.vehicleGallery.crash({ kmh: 50, push: [0, 0, -1] }));
     const dent = await shot(id, 'dent50', front);
