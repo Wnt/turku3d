@@ -243,7 +243,7 @@ a deformation cage evaluated on the GPU, no extra geometry, one damage state own
   texture (32 rows of 54 nodes, half floats), selected by the car's slot (a per-object uniform). One program per pass
   for all of them; r186 SkinnedMeshes would name every skeleton's bone buffer apart and build programs per car. The
   pool re-uploads only when a car's damage changes; nothing runs per frame. The wheel hubs follow the cage at their
-  pivots (visual only). Instanced batches (parked, traffic) stay undamaged.
+  pivots, as the physics wheel mounts do (see Mechanical damage). Instanced batches (parked, traffic) stay undamaged.
 - **Developer console** (`dev/carDamage.ts`, `window.__game.damage`): `bounds()` (crumple from the drawn body's
   deformed bounds, cm), `state()`; with developer tools (`?dev=1`) `dent({ kmh, at, halfWidth, offset })`, `clear()`
   and `look({ yaw, pitch, distance })`, a camera held around the car. Deployed check:
@@ -294,6 +294,20 @@ Phase 2, iteration 2: damage affects the car. Same calibration source, same sing
   evaluated at the 30 Hz continuous-mix tick on the car engine loop's gain and rate, steadier under throttle). Steam
   (cooling ≥ 1) and dark smoke (engine ≥ 1) from the bonnet front while the car is driven, local and remote
   (`TyreEffects.engineBay`: sprites of the tyre smoke's one instanced draw, white or dark by a per-instance shade).
+- **Handling** (`mechanics.ts ALIGNMENT`, applied in `Vehicle.step` and `mountWheels`): the wheel alignment changes
+  before any hardware level. A bent steering turns the steered wheels towards `steerSide` by `0.4° (1 - exp(-(w -
+  2000) / 8000))` of steering wear; each corner's toe turns its wheel out (front) or in (rear) by `1° (1 - exp(-(w -
+  1500) / 12000))`, so a square hit's toe cancels across the axle and a corner hit pulls towards that corner. Each
+  wheel mount (`setWheelChassisConnectionPointCs`) follows the cage at its hub along and across the car (one 80 km/h
+  head-on moves the front mounts back 11 cm, shortening the wheelbase; the drawn hubs move with the same
+  `cageOffset`) and a corner with suspension level n moves up into the body by 0 / 1 / 2 / 3.5 / 5 cm (the corner
+  sits lower; the drawn hub height comes from the physics wheel) with its dampers × 1 / .85 / .7 / .55 / .4. Camber
+  is not modelled: Rapier's ray-cast wheel projects its axle onto the contact plane (Wreckfest 2: under 0.35°). No
+  wheel comes off. Wreckfest 2's pull probe (2.5 s of straight full reverse from rest, hands off), headless: fresh
+  0.00°, after 50 km/h 0.00°, 75 km/h 0.54°, 80 km/h 0.69° (Wreckfest: -0.14° fresh, -0.5 to -1.0° after 80 km/h,
+  i.e. 0.36-0.86° more); six hits at 61.5 km/h pull over 0.8°. Hands off at 80 km/h after six hits at 61.5 the car
+  turns 0.5-4°/s; a heavily wrecked car (three 85 km/h side hits at the front-left wheel, six frontal, one rear) 5.6°/s
+  with all four wheels down.
 - **Wire** version 2 (224 bytes, 300 base64 characters): the body state plus wear (uint16, 8 (km/h)² units) and the
   steering side. Version 1 (body only, older saves) still decodes, unworn. The server checks only a bounded base64
   form. `mechanicsOf(wire)` caches the decode for the renderer, audio and HUD.

@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { attribute, cross, int, ivec2, normalize, normalLocal, positionLocal, positionPrevious, textureLoad, uniform, vec3 } from 'three/tsl';
-import { DAMAGE_NODES, DamageState, damageLayout, decodeDamage, nodeIndex, type DamageLayout } from '../../vehicle/damage';
+import { cageOffset, cageWeights, DAMAGE_NODES, DamageState, damageLayout, decodeDamage, nodeIndex, type DamageLayout } from '../../vehicle/damage';
 import { fleetDamageBox, type FleetModel } from './catalog';
 
 // Body damage on the GPU (vehicle/README.md "Body damage"). A damage-capable car body (the starter car, a driven or a
@@ -19,30 +19,6 @@ const RIGID_PART_M = .55;
  *  stiff cabin stations (the middle of the car) barely turn, so its roof and pillars stay put. */
 const MAX_TILT = .45, CABIN_TILT = .01;
 
-/** Up to four cage nodes and weights for a point: Kuhn tetrahedra of the station × level × lateral cell it lies in
- *  (clamped to the cage), so the weights reproduce any affine offset field exactly and stay continuous across cells. */
-export function cageWeights(layout: DamageLayout, x: number, y: number, z: number, index: Uint8Array | number[], weight: Float32Array | number[], at = 0) {
-  const { stations, levels, laterals } = layout;
-  let s = 0;
-  while (s < stations.length - 2 && z > stations[s + 1]) s++;
-  let l = 0;
-  while (l < laterals.length - 2 && x > laterals[l + 1]) l++;
-  const tx = clamp01((x - laterals[l]) / (laterals[l + 1] - laterals[l])), ty = clamp01((y - levels[0]) / (levels[1] - levels[0]));
-  const tz = clamp01((z - stations[s]) / (stations[s + 1] - stations[s]));
-  // Walk from the cell's low corner along the axes in decreasing order of their coordinate (ties: x, y, z).
-  let a = 0, ta = tx, b = 1, tb = ty, c = 2, tc = tz;
-  if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; }
-  if (tc > tb) { [b, tb, c, tc] = [c, tc, b, tb]; if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; } }
-  let cl = l, ch = 0, cs = s;
-  index[at] = nodeIndex(cs, ch, cl); weight[at] = 1 - ta;
-  if (a === 0) cl++; else if (a === 1) ch++; else cs++;
-  index[at + 1] = nodeIndex(cs, ch, cl); weight[at + 1] = ta - tb;
-  if (b === 0) cl++; else if (b === 1) ch++; else cs++;
-  index[at + 2] = nodeIndex(cs, ch, cl); weight[at + 2] = tb - tc;
-  if (c === 0) cl++; else if (c === 1) ch++; else cs++;
-  index[at + 3] = nodeIndex(cs, ch, cl); weight[at + 3] = tc;
-}
-const clamp01 = (v: number) => v < 0 ? 0 : v > 1 ? 1 : v;
 
 /** Adds `skinIndex`/`skinWeight` for the cage to a fleet body or glazing geometry (once per geometry). */
 export function skinToCage(geometry: THREE.BufferGeometry, layout: DamageLayout) {
@@ -209,14 +185,12 @@ export class DamageRig {
   }
   /** The cage offset at a body point (fleet frame), e.g. a wheel hub pushed back with its crushed arch. */
   offsetAt(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
-    const index = [0, 0, 0, 0], weight = [0, 0, 0, 0], offsets = this.state.offsets;
-    cageWeights(this.layout, x, y, z, index, weight);
-    out.set(0, 0, 0);
-    for (let k = 0; k < 4; k++) out.add(new THREE.Vector3(offsets[index[k] * 3], offsets[index[k] * 3 + 1], offsets[index[k] * 3 + 2]).multiplyScalar(weight[k]));
-    return out;
+    const o = cageOffset(this.state, x, y, z, [0, 0, 0]);
+    return out.set(o[0], o[1], o[2]);
   }
-  /** Moves the four authored hubs (actors/fleet/wheels.ts, after applyFleetWheels set their suspension height) with
-   *  the cage at their pivots. Visual only: the physics wheels keep their mounts (handling effects come later). */
+  /** Moves the four authored hubs (actors/fleet/wheels.ts, after applyFleetWheels set their suspension height) along
+   *  and across the car with the cage at their pivots, as the physics moves the wheel mounts (vehicle.ts); their
+   *  height comes from the physics wheel state, which includes a damaged corner's sag. */
   placeWheels(actor: THREE.Object3D) {
     if (!this.state.damaged) return;
     for (let i = 0; i < 4; i++) {
@@ -224,7 +198,6 @@ export class DamageRig {
       if (!hub || !pivot) continue;
       if (this.hubRevision !== this.state.revision) this.offsetAt(pivot.x, pivot.y, pivot.z, this.hubs[i]);
       hub.position.x = pivot.x + this.hubs[i].x; hub.position.z = pivot.z + this.hubs[i].z;
-      hub.position.y += this.hubs[i].y;
     }
     this.hubRevision = this.state.revision;
   }

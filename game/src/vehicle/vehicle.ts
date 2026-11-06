@@ -15,7 +15,7 @@ import { handling } from './handling.ts';
 import { rotate } from './math.ts';
 import { longitudinalSlip } from './tyreSlip.ts';
 import { dot, tyreRollImpulse } from './weightTransfer.ts';
-import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
+import { applyHit, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, type DamageHit } from './damage.ts';
 import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
@@ -65,6 +65,10 @@ export class Vehicle {
   readonly damage: DamageState | null;
   private wire: { revision: number; text: string | undefined } = { revision: -1, text: undefined };
   private mech: { revision: number; value: Mechanics } = { revision: -1, value: INTACT };
+  /** Wheel mounts (chassis frame): the tuning's, moved with the damage cage along and across the car and up by a
+   *  damaged corner's sag (vehicle/mechanics.ts); `mounted` is the damage revision they follow. */
+  private readonly mounts: { x: number; y: number; z: number }[];
+  private mounted = -1;
   /** Damageable cars: chassis velocities before the solver, and the crash being summed (chassis frame). */
   private damageBefore: { v: V3; w: V3 } | null = null;
   private crash: { dv: V3; dw: V3; steps: number; quiet: number } | null = null;
@@ -122,6 +126,25 @@ export class Vehicle {
       : t.front.includes(i) ? t.frontTorque * t.driven.length / front : (1 - t.frontTorque) * t.driven.length / rear);
     if (spec.parked) this.body.sleep();
     this.damage = spec.damage ? new DamageState(damageLayout(spec.damage.box)) : null;
+    this.mounts = t.wheels.map(w => ({ ...w }));
+  }
+
+  /** Follows a damage change: the wheel mounts move with the cage at each hub (fleet frame +Z forward, +X left; the
+   *  chassis frame +X forward, +Z right) and up by the corner's sag, and a damaged corner's dampers soften. */
+  private mountWheels() {
+    const d = this.damage;
+    if (!d || d.revision === this.mounted) return;
+    this.mounted = d.revision;
+    const t = this.tuning, v = this.controller, m = this.mechanics(), o: [number, number, number] = [0, 0, 0];
+    for (let i = 0; i < t.wheels.length; i++) {
+      const w = t.wheels[i], mount = this.mounts[i];
+      cageOffset(d, -w.z, t.wheelRadius, w.x, o);
+      mount.x = w.x + o[2]; mount.y = w.y + (m.sag[i] ?? 0); mount.z = w.z - o[0];
+      v.setWheelChassisConnectionPointCs(i, mount);
+      if (this.corners[i]) continue;
+      v.setWheelSuspensionCompression(i, t.suspensionCompression * (m.damping[i] ?? 1));
+      v.setWheelSuspensionRelaxation(i, t.suspensionRelaxation * (m.damping[i] ?? 1));
+    }
   }
 
   /** Applies a body hit (fleet model frame, vehicle/damage.ts); returns the structural depth it added (m). */
@@ -239,9 +262,10 @@ export class Vehicle {
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
-    const t = this.tuning, h = handling(input, speed, t);
+    const t = this.tuning, h = handling(input, speed, t), m = this.mechanics();
+    this.mountWheels();
     // A damaged radiator or engine gives less force at every speed (lower torque and lower power alike).
-    h.engine *= this.mechanics().power;
+    h.engine *= m.power;
     this.steering += Math.max(-dt * t.steerRate, Math.min(dt * t.steerRate, h.steer - this.steering));
     this.throttleApplied = h.drive;
     const rs = t.rearSteer, axles = this.axles;
@@ -250,11 +274,13 @@ export class Vehicle {
     const front = rs && this.rear.mode === 'crab' ? Math.max(-rs.maxAngle, Math.min(rs.maxAngle, this.steering)) : this.steering;
     for (let i = 0; i < t.wheels.length; i++) {
       const isFront = t.front.includes(i), driven = t.driven.includes(i), at = t.wheels[i];
-      v.setWheelSteering(i, rs && axles
+      v.setWheelSteering(i, (rs && axles
         ? (isFront || rs.wheels.includes(i) ? ackermann4(front, this.rear.angle, axles.xf, axles.xr, axles.track, at.x, at.z,
           isFront ? t.maxSteer : rs.maxAngle) : 0)
         : t.steered.includes(i) ? ackermann(this.steering,
-          Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), at.z) : 0);
+          Math.max(...t.wheels.map(w => w.x)) - Math.min(...t.wheels.map(w => w.x)), at.z) : 0)
+        // Damage: a bent steering turns the steered wheels, each damaged corner has its own toe (mechanics.ts).
+        + (m.toe[i] ?? 0) + (t.steered.includes(i) ? m.steer : 0));
       v.setWheelEngineForce(i, h.engine * this.drive[i]);
       // The handbrake locks the driven rear wheels only.
       v.setWheelBrake(i, h.brake + (driven && !isFront && h.handbrake ? t.brakeForce : 0));
@@ -272,7 +298,7 @@ export class Vehicle {
     // Contact velocity includes yaw: rear wheels slide differently from the chassis centre.
     const q = b.rotation(), angular = b.angvel();
     for (let i = 0; i < t.wheels.length; i++) {
-      const offset = rotate(t.wheels[i], q), steer = v.wheelSteering(i) ?? 0;
+      const offset = rotate(this.mounts[i], q), steer = v.wheelSteering(i) ?? 0;
       const forward = rotate({ x: Math.cos(steer), y: 0, z: -Math.sin(steer) }, q);
       const side = rotate({ x: Math.sin(steer), y: 0, z: Math.cos(steer) }, q);
       const vx = lv.x + angular.y * offset.z - angular.z * offset.y;
@@ -382,7 +408,7 @@ export class Vehicle {
     }
     const t = this.tuning;
     for (let i = 0; i < t.wheels.length; i++) {
-      const wheel = t.wheels[i];
+      const wheel = this.mounts[i];
       const offset = rotate({ x: wheel.x, y: wheel.y - (this.controller.wheelSuspensionLength(i) ?? t.rest), z: wheel.z }, q);
       const center = { x: p.x + offset.x, y: p.y + offset.y + 0.015, z: p.z + offset.z };
       const hit = this.surfaces.castWheel(center, dir, distance, t.wheelRadius);
@@ -437,7 +463,7 @@ export class Vehicle {
     return { ...rear, ...(damage ? { damage } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
       forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
-      wheels: this.tuning.wheels.map((cp, i) => {
+      wheels: this.mounts.map((cp, i) => {
         // A long-travel wheel hangs from its limit strap: past full droop it is unloaded and drawn at the strap.
         const raw = v.wheelSuspensionLength(i) ?? t.rest, curve = !!this.corners[i];
         const suspension = curve ? Math.min(raw, droopLength(t, i)) : raw;

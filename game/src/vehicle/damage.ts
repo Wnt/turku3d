@@ -40,6 +40,41 @@ export function damageLayout(box: DamageBox): DamageLayout {
   return { count: DAMAGE_NODES, nodes, stations, levels, laterals, min, max, length, width, height };
 }
 
+/** Up to four cage nodes and weights for a point: Kuhn tetrahedra of the station × level × lateral cell it lies in
+ *  (clamped to the cage), so the weights reproduce any affine offset field exactly and stay continuous across cells. */
+export function cageWeights(layout: DamageLayout, x: number, y: number, z: number, index: Uint8Array | number[], weight: Float32Array | number[], at = 0) {
+  const { stations, levels, laterals } = layout;
+  let s = 0;
+  while (s < stations.length - 2 && z > stations[s + 1]) s++;
+  let l = 0;
+  while (l < laterals.length - 2 && x > laterals[l + 1]) l++;
+  const tx = clamp01((x - laterals[l]) / (laterals[l + 1] - laterals[l])), ty = clamp01((y - levels[0]) / (levels[1] - levels[0]));
+  const tz = clamp01((z - stations[s]) / (stations[s + 1] - stations[s]));
+  // Walk from the cell's low corner along the axes in decreasing order of their coordinate (ties: x, y, z).
+  let a = 0, ta = tx, b = 1, tb = ty, c = 2, tc = tz;
+  if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; }
+  if (tc > tb) { [b, tb, c, tc] = [c, tc, b, tb]; if (tb > ta) { [a, ta, b, tb] = [b, tb, a, ta]; } }
+  let cl = l, ch = 0, cs = s;
+  index[at] = nodeIndex(cs, ch, cl); weight[at] = 1 - ta;
+  if (a === 0) cl++; else if (a === 1) ch++; else cs++;
+  index[at + 1] = nodeIndex(cs, ch, cl); weight[at + 1] = ta - tb;
+  if (b === 0) cl++; else if (b === 1) ch++; else cs++;
+  index[at + 2] = nodeIndex(cs, ch, cl); weight[at + 2] = tb - tc;
+  if (c === 0) cl++; else if (c === 1) ch++; else cs++;
+  index[at + 3] = nodeIndex(cs, ch, cl); weight[at + 3] = tc;
+}
+const clamp01 = (v: number) => v < 0 ? 0 : v > 1 ? 1 : v;
+
+/** The cage offset (m, fleet frame) at a body point of a damage state, e.g. a wheel hub pushed back with its crushed
+ *  arch: the drawn body and the physics wheel mounts (vehicle.ts) both move by it. */
+export function cageOffset(state: DamageState, x: number, y: number, z: number, out: [number, number, number]) {
+  const index = [0, 0, 0, 0], weight = [0, 0, 0, 0], offsets = state.offsets;
+  cageWeights(state.layout, x, y, z, index, weight);
+  out[0] = out[1] = out[2] = 0;
+  for (let k = 0; k < 4; k++) for (let a = 0; a < 3; a++) out[a] += offsets[index[k] * 3 + a] * weight[k];
+  return out;
+}
+
 // ------------------------------------------------------------------ crumple model
 /** Energy-like hit severity is (dv km/h)² minus the threshold², counted per face. Fitted to the Wreckfest 2 table:
  *  single head-on hits 0 cm at 33 km/h, 20 at 52, 33 at 71, 42 at 81; six 61.5 km/h hits 28 → 46 cm; eight 42.5 km/h

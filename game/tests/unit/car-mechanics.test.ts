@@ -69,8 +69,12 @@ describe('the mechanics travel in the damage wire', () => {
     expect(decodeDamage(wire, back)).toBe(true);
     for (let i = 0; i < back.wear.length; i++) expect(Math.abs(back.wear[i] - m.state.wear[i])).toBeLessThanOrEqual(4);
     expect(back.steerSide).toBe(m.state.steerSide);
-    expect(mechanics(back)).toEqual(mechanics(m.state));
-    expect(mechanicsOf(wire)).toEqual(mechanics(m.state));
+    // Levels exactly; the alignment within the wear quantization (8 (km/h)²).
+    const levels = ({ cooling, engine, steering, suspension, zones, power }: ReturnType<typeof mechanics>) => ({ cooling, engine, steering, suspension, zones, power });
+    expect(levels(mechanics(back))).toEqual(levels(mechanics(m.state)));
+    expect(mechanics(back).steer).toBeCloseTo(mechanics(m.state).steer, 5);
+    mechanics(back).toe.forEach((toe, i) => expect(toe).toBeCloseTo(mechanics(m.state).toe[i], 5));
+    expect(mechanicsOf(wire)).toEqual(mechanics(back));
     // Version 1: 208 bytes, the body only (saves from before the mechanics).
     const v1 = Uint8Array.from(atob(wire), c => c.charCodeAt(0)).slice(0, 208); v1[0] = 1;
     const old = new DamageState(layout);
@@ -100,29 +104,65 @@ describe('the mechanics travel in the damage wire', () => {
 });
 
 describe('effects', () => {
-  /** Full throttle from rest on a flat 3 km road: seconds to 50 and 80 km/h, and the speed after 30 s. */
-  async function drive(wire: string | null) {
+  /** A flat 3 km road along +X with the starter car at rest at its west end, damaged with `wire`. */
+  async function road(wire: string | null) {
     const R = await import('@dimforge/rapier3d');
     const { PhysicsWorld } = await import('../../src/physics/world');
     const { modelDamageBox, modelTuning } = await import('../../src/vehicle/modelTuning');
     const pw = new PhysicsWorld(R), idle = { vx: 0, vz: 0, jump: false };
-    pw.world.createCollider(R.ColliderDesc.cuboid(1600, .5, 40).setTranslation(0, -.5, 0));
+    pw.world.createCollider(R.ColliderDesc.cuboid(1600, .5, 200).setTranslation(0, -.5, 0));
     pw.spawnVehicle({ x: -1500, y: .8, z: 0 }, 0, { tuning: modelTuning(PLAYER_MODEL), damage: { box: modelDamageBox(PLAYER_MODEL)! } });
     pw.setVehicleDamage('player', wire);
-    for (let i = 0; i < 60; i++) pw.fixedStep(idle, { throttle: 0, steer: 0, brake: 0, handbrake: false });
+    const step = (input: { throttle?: number; brake?: number; steer?: number } = {}) =>
+      pw.fixedStep(idle, { throttle: 0, steer: 0, brake: 0, handbrake: false, ...input });
+    for (let i = 0; i < 60; i++) step();
+    const body = pw.vehicle!.body;
+    /** Heading (rad, + is a turn to the left) and yaw rate. */
+    const heading = () => { const q = body.rotation(); return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z)); };
+    return { pw, step, body, heading, done: () => pw.world.free() };
+  }
+  /** Full throttle from rest for 30 s with a driver holding the heading (a damaged car pulls): seconds to 50 and
+   *  80 km/h and the speed at the end. */
+  async function drive(wire: string | null) {
+    const { step, body, heading, done } = await road(wire);
     let t50 = NaN, t80 = NaN, top = 0;
     for (let i = 1; i <= 30 * 60; i++) {
-      pw.fixedStep(idle, { throttle: 1, steer: 0, brake: 0, handbrake: false });
-      top = pw.vehicle!.body.linvel().x * 3.6;
+      step({ throttle: 1, steer: Math.max(-1, Math.min(1, 3 * heading() + .5 * body.angvel().y)) });
+      top = Math.hypot(body.linvel().x, body.linvel().z) * 3.6;
       if (Number.isNaN(t50) && top >= 50) t50 = i / 60;
       if (Number.isNaN(t80) && top >= 80) t80 = i / 60;
     }
-    pw.world.free();
+    done();
     return { t50, t80, top };
   }
+  /** Wreckfest 2's pull probe: from rest, 2.5 s of straight full reverse, hands off; the heading change (degrees). */
+  async function reversePull(wire: string | null) {
+    const { step, heading, done } = await road(wire);
+    const start = heading();
+    for (let i = 0; i < 150; i++) step({ brake: 1 });
+    const pull = (heading() - start) * 180 / Math.PI;
+    done();
+    return pull;
+  }
+  /** Hands off at a steady ~80 km/h: yaw rate (degrees/s, + left) over 3 s once settled, and whether every wheel kept
+   *  its contact throughout. */
+  async function cruise(wire: string | null) {
+    const { pw, step, body, heading, done } = await road(wire);
+    for (let i = 0; i < 4 * 60; i++) step({ throttle: 1, steer: Math.max(-1, Math.min(1, 3 * heading() + .5 * body.angvel().y)) });
+    let contact = true, h0 = 0;
+    for (let i = 0; i < 4 * 60; i++) {
+      step({ throttle: Math.hypot(body.linvel().x, body.linvel().z) < 22 ? 1 : .3 });
+      if (i === 60) h0 = heading();
+      contact &&= pw.vehicleStates()[0].wheels.every(w => w.contact);
+    }
+    const rate = (heading() - h0) / 3 * 180 / Math.PI, kmh = Math.hypot(body.linvel().x, body.linvel().z) * 3.6;
+    done();
+    return { rate, contact, kmh };
+  }
+  const wireOf = (list: readonly DamageHit[]) => encodeDamage(hits(list).at(-1)!.state);
   test('power loss: a leaking radiator costs a little, a damaged engine more; the car stays drivable', async () => {
-    const fresh = await drive(null), radiator = await drive(encodeDamage(repeat(80, 1)[0].state));
-    const wrecked = await drive(encodeDamage(repeat(61.5, 6)[5].state));
+    const fresh = await drive(null), radiator = await drive(wireOf([headOn(80)]));
+    const wrecked = await drive(wireOf(Array.from({ length: 6 }, () => headOn(61.5))));
     // The starter Golf: 0-50 km/h in about 2.2 s, 0-80 in 4.4, about 100 km/h after 30 s.
     expect(fresh.t50).toBeGreaterThan(1.8); expect(fresh.t50).toBeLessThan(2.7);
     expect(fresh.top).toBeGreaterThan(95);
@@ -132,6 +172,62 @@ describe('effects', () => {
     // Radiator 2 and engine 1 (77 % power): about a third slower, 6-11 % lower speed, still past 80 km/h.
     expect(wrecked.t80 / fresh.t80).toBeGreaterThan(1.25); expect(wrecked.t80 / fresh.t80).toBeLessThan(1.6);
     expect(wrecked.top / fresh.top).toBeGreaterThan(.89); expect(wrecked.top / fresh.top).toBeLessThan(.94);
+  });
+  test('steering pull after frontal hits within the Wreckfest 2 probe: none fresh or at 50 km/h, mild from 75', async () => {
+    // Wreckfest 2: -0.14 ± 0.02° fresh, -0.5 to -1.0° after an 80 km/h hit, i.e. 0.36-0.86° more.
+    const fresh = await reversePull(null);
+    expect(Math.abs(fresh)).toBeLessThan(.05);
+    expect(Math.abs(await reversePull(wireOf([headOn(50)])) - fresh)).toBeLessThan(.05);
+    for (const kmh of [75, 80]) {
+      const pull = Math.abs(await reversePull(wireOf([headOn(kmh)])) - fresh);
+      expect(pull, `${kmh} km/h`).toBeGreaterThan(.36); expect(pull, `${kmh} km/h`).toBeLessThan(.86);
+    }
+    // Six hits at 61.5 km/h pull more, still a correctable drift at speed with every wheel down.
+    const six = wireOf(Array.from({ length: 6 }, () => headOn(61.5)));
+    expect(Math.abs(await reversePull(six) - fresh)).toBeGreaterThan(.8);
+    const cruising = await cruise(six);
+    expect(Math.abs(cruising.rate)).toBeGreaterThan(.5); expect(Math.abs(cruising.rate)).toBeLessThan(4);
+    expect(cruising.contact).toBe(true); expect(cruising.kmh).toBeGreaterThan(70);
+  });
+  test('a corner hit pulls towards that corner; its wheel mount moves back with the cage, as the drawn hub does', async () => {
+    const left = wireOf([{ dv: [0, 0, -75 / 3.6], at: [.8, .5, 2.1], halfWidth: .2 }]);
+    const m = mechanicsOf(left);
+    expect(m.toe[0]).toBeGreaterThan(m.toe[1] > 0 ? m.toe[1] : -m.toe[1]);
+    expect(m.steer).toBeGreaterThan(0);
+    expect((await cruise(left)).rate).toBeGreaterThan(.3);
+    expect((await cruise(wireOf([{ dv: [0, 0, -75 / 3.6], at: [-.8, .5, 2.1], halfWidth: .2 }]))).rate).toBeLessThan(-.3);
+    // The physics mount follows the cage at the hub along and across the car, the drawn hub the same offset.
+    const { pw, done } = await road(left);
+    const { modelTuning } = await import('../../src/vehicle/modelTuning');
+    const { DamageRig } = await import('../../src/actors/fleet/damageRig');
+    const tuned = modelTuning(PLAYER_MODEL)!.wheels, c = pw.vehicle!.controller;
+    const rig = new DamageRig(layout); rig.show(left);
+    for (let i = 0; i < 4; i++) {
+      const mount = c.wheelChassisConnectionPointCs(i)!, hub = rig.offsetAt(-tuned[i].z, modelTuning(PLAYER_MODEL)!.wheelRadius, tuned[i].x, new THREE.Vector3());
+      expect(mount.x - tuned[i].x).toBeCloseTo(hub.z, 4); expect(mount.z - tuned[i].z).toBeCloseTo(-hub.x, 4);
+      expect(mount.y).toBeCloseTo(tuned[i].y, 4);
+    }
+    // The hit front-left wheel moved back several centimetres, more than the front-right; the rear stayed.
+    const back = (i: number) => tuned[i].x - c.wheelChassisConnectionPointCs(i)!.x;
+    expect(back(0)).toBeGreaterThan(.05); expect(back(0)).toBeGreaterThan(back(1) + .02);
+    expect(Math.abs(back(2)) + Math.abs(back(3))).toBeLessThan(.005);
+    rig.release(); done();
+  });
+  test('a wrecked corner sags and softens; the car keeps all four wheels and stays drivable', async () => {
+    // Side hits at the front-left wheel past the suspension ladder (wear 16000+): three at 85 km/h.
+    const side: DamageHit = { dv: [-85 / 3.6, 0, 0], at: [1, .5, 1.3], halfWidth: .3 };
+    const m = mechanicsOf(wireOf([side, side, side]));
+    expect(m.suspension[0]).toBeGreaterThanOrEqual(1); expect(m.sag[0]).toBeGreaterThan(0); expect(m.damping[0]).toBeLessThan(1);
+    const { pw, step, done } = await road(wireOf([side, side, side]));
+    for (let i = 0; i < 60; i++) step();
+    const state = pw.vehicleStates()[0], c = pw.vehicle!.controller;
+    expect(c.wheelChassisConnectionPointCs(0)!.y - c.wheelChassisConnectionPointCs(3)!.y).toBeCloseTo(m.sag[0], 3);
+    // The sagging corner sits lower: its wheel is drawn higher in the body.
+    expect(state.wheels[0].pos.y).toBeGreaterThan(state.wheels[1].pos.y + m.sag[0] / 2);
+    expect(state.wheels.every(w => w.contact)).toBe(true);
+    done();
+    const wrecked = await cruise(wireOf([side, side, side, ...Array.from({ length: 6 }, () => headOn(61.5)), { dv: [0, 0, 70 / 3.6] }]));
+    expect(wrecked.contact).toBe(true); expect(wrecked.kmh).toBeGreaterThan(65); expect(Math.abs(wrecked.rate)).toBeLessThan(6);
   });
   test('a rough engine: steady when intact; misfires and hunting with damage, steadier under throttle', () => {
     const ticks = (rough: number, throttle: number) => Array.from({ length: 600 }, (_, i) => roughEngine(rough, throttle, i / 30));

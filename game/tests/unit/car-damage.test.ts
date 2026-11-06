@@ -1,10 +1,10 @@
 import './fleet-assets.fixture';
 import { describe, expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { applyHit, DamageState, damageLayout, decodeDamage, encodeDamage, headOnLoss, nodeIndex, validDamageWire, DAMAGE_NODES } from '../../src/vehicle/damage';
+import { applyHit, cageWeights, DamageState, damageLayout, decodeDamage, encodeDamage, headOnLoss, nodeIndex, validDamageWire, DAMAGE_NODES } from '../../src/vehicle/damage';
 import { fleetDamageBox, FLEET_BY_ID, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
 import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
-import { cageWeights, DAMAGE_SLOTS, DamageRig, modelLayout, rigOf, skinToCage } from '../../src/actors/fleet/damageRig';
+import { DAMAGE_SLOTS, DamageRig, modelLayout, rigOf, skinToCage } from '../../src/actors/fleet/damageRig';
 
 const golf = FLEET_BY_ID.get(PLAYER_MODEL)!;
 const layout = damageLayout(fleetDamageBox(golf));

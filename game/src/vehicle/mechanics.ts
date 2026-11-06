@@ -34,6 +34,21 @@ const EFFECTS = {
 } as const;
 const MIN_POWER = 1 / 3;
 
+/** Wheel alignment, which changes before any hardware level (Wreckfest 2 after one 80 km/h frontal hit: a mild pull of
+ *  -0.5 to -1.0° heading per 2.5 s of straight full reverse against -0.14° fresh, camber within 0.35°, no wheel
+ *  off). The steering pulls towards `steerSide` by `steer` rad once its wear passes `w0` ((km/h)²), saturating at
+ *  `max`; each corner's toe turns its wheel out (front) or in (rear) the same way, so a square hit's toe cancels across
+ *  the axle and a corner hit pulls towards it. Camber is not modelled: Rapier's ray-cast wheel projects its axle onto
+ *  the contact plane, so a camber angle would change nothing but the drawing, and Wreckfest's stays under 0.35°.
+ *  Suspension levels lower their corner (`sag`, m: the mount moves up into the body) and soften its damping. */
+export const ALIGNMENT = {
+  steer: { w0: 2000, scale: 8000, max: .4 * Math.PI / 180 },
+  toe: { w0: 1500, scale: 12000, max: 1 * Math.PI / 180 },
+  sag: [0, .01, .02, .035, .05],
+  damping: [1, .85, .7, .55, .4],
+} as const;
+const saturate = (wear: number, c: { w0: number; scale: number; max: number }) => c.max * (1 - Math.exp(-Math.max(0, wear - c.w0) / c.scale));
+
 const level = (wear: number, ladder: readonly number[]) => { let n = 0; while (n < ladder.length && wear >= ladder[n]) n++; return n; };
 
 export interface Mechanics {
@@ -46,10 +61,14 @@ export interface Mechanics {
   readonly rough: number; readonly steam: number; readonly smoke: number;
   /** Highest level of any system or zone: 0 for an intact car (the HUD shows nothing). */
   readonly worst: number;
+  /** Steering offset of the steered wheels and toe per wheel (rad, + turns the wheel to the car's left). */
+  readonly steer: number; readonly toe: readonly number[];
+  /** Per corner: how far its mount moved up into the body (m) and its damping factor. */
+  readonly sag: readonly number[]; readonly damping: readonly number[];
 }
 
 export const INTACT: Mechanics = { cooling: 0, engine: 0, steering: 0, suspension: [0, 0, 0, 0], zones: [0, 0, 0, 0],
-  power: 1, rough: 0, steam: 0, smoke: 0, worst: 0 };
+  power: 1, rough: 0, steam: 0, smoke: 0, worst: 0, steer: 0, toe: [0, 0, 0, 0], sag: [0, 0, 0, 0], damping: [1, 1, 1, 1] };
 
 /** The mechanical state of a damage state. */
 export function mechanics(state: DamageState): Mechanics {
@@ -62,7 +81,11 @@ export function mechanics(state: DamageState): Mechanics {
     power: Math.max(MIN_POWER, EFFECTS.coolingPower[cooling] * EFFECTS.enginePower[engine]),
     rough: Math.max(EFFECTS.coolingRough[cooling], EFFECTS.engineRough[engine]),
     steam: EFFECTS.steam[cooling], smoke: EFFECTS.smoke[engine],
-    worst: Math.max(cooling, engine, steering, ...suspension, ...zones) };
+    worst: Math.max(cooling, engine, steering, ...suspension, ...zones),
+    steer: state.steerSide * saturate(w[WEAR.steering], ALIGNMENT.steer),
+    // Out at the front (the left wheel turns left), in at the rear; corners 0 and 2 are on the car's left.
+    toe: corners.map((x, i) => (i % 2 ? -1 : 1) * (i < 2 ? 1 : -1) * saturate(x, ALIGNMENT.toe)),
+    sag: suspension.map(n => ALIGNMENT.sag[n]), damping: suspension.map(n => ALIGNMENT.damping[n]) };
 }
 
 // The mechanics of a wire state (renderer, audio, HUD: every frame, for the local and the remote cars), decoded once
