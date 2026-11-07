@@ -5,12 +5,13 @@ import type { VehicleState } from '../physics/protocol';
 import { instance, trophyAsset } from './trophy4400/asset';
 import { GROUND_Y, applyTrophyRig, staticWheels, useTrophyAsset } from './trophy4400/rig';
 import { trophyDriverLayout, type DriverLayout } from './driver/layout';
+import { ActorGroup } from '../world/frozenTransforms';
 
 /** The #19-style 4400 trophy truck (SPEC; model in public/assets/vehicles/trophy4400). The root follows the chassis
  *  (physics frame: +X forward, +Y up, wheel order FL/FR/RL/RR); the GLB model sits under it at its ground origin.
  *  Geometry, materials and textures are shared by every local and remote truck; the rig's bones are per actor. */
 export class TruckVisual {
-  readonly root = new T.Group();
+  readonly root = new ActorGroup();
   readonly seat = new T.Object3D();
   /** The driver's frame (actors/driver): the fleet convention (+Z forward, +X left) on the ground under the truck. */
   readonly driverFrame = new T.Group();
