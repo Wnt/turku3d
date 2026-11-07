@@ -1,6 +1,6 @@
 // Initial actors must stand on supported streets, never a roof returned by a sky ray.
 import { MAT, MATERIALS, MAT_FLAG } from '../shared/col/materials';
-import { CAR, type RoadGraphJson } from '../gameplay/roadGraph';
+import { CAR, EDGE, type RoadGraphJson } from '../gameplay/roadGraph';
 import type { V3 } from '../core/origin';
 import type { RayHit } from '../physics/protocol';
 
@@ -9,25 +9,41 @@ type Spot = V3 & { yaw: number };
 export type GroundProbe = (x: number, z: number) => Promise<RayHit | null>;
 const DRIVABLE = new Set<number>([MAT.road, MAT.crossing, MAT.cobblestone, MAT.paving_slab, MAT.gravel, MAT.bridge_deck, MAT.ramp]);
 
-export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): (Point & { yaw: number })[] {
-  const candidates = new Map<string, Point & { yaw: number }>();
-  for (const graph of graphs) for (const edge of graph.edges) {
-    if (!(edge[2] & CAR)) continue;
-    const points = [graph.nodes[2 * edge[0]], graph.nodes[2 * edge[0] + 1], ...edge.slice(4),
-      graph.nodes[2 * edge[1]], graph.nodes[2 * edge[1] + 1]];
-    for (let i = 0; i + 3 < points.length; i += 2) {
-      const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
-      const length = Math.hypot(dx, dz);
-      if (length < 0.01) continue;
-      const projection = Math.max(0, Math.min(length, ((at.x - ax) * dx + (at.z - az) * dz) / length));
-      for (const distance of [projection, ...Array.from({ length: Math.ceil(length / 3) + 1 }, (_, j) => Math.min(length, j * 3))]) {
-        const x = ax + dx * distance / length, z = az + dz * distance / length;
-        if (Math.hypot(x - at.x, z - at.z) <= radius) candidates.set(`${x.toFixed(2)},${z.toFixed(2)}`, { x, z, yaw: Math.atan2(-dz, dx) });
+/** A street point whose sky ray lands this far (m) from the street's own surface height is under a deck, a canopy or a
+ *  building (a covered street, a building passage): the support rays would park the car on whatever covers it. */
+export const STREET_LEVEL_M = 1.5;
+
+/** Points on CAR edges within `radius` of `at`, nearest first, with the street's surface height `y` where the graph has
+ *  heights. Tunnels and building passages (roads.json TUNNEL) are never starts: a start faces an open street. */
+export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): (Point & { yaw: number; y?: number })[] {
+  const candidates = new Map<string, Point & { yaw: number; y?: number }>();
+  for (const graph of graphs) {
+    const flagColumn = graph.edgeAttrColumns?.indexOf('flags') ?? -1;
+    graph.edges.forEach((edge, index) => {
+      if (!(edge[2] & CAR)) return;
+      if (flagColumn >= 0 && (graph.edgeAttrs?.[index]?.[flagColumn] ?? 0) & EDGE.TUNNEL) return;
+      const heights = graph.edgeHeights?.[index] ?? null;
+      const points = [graph.nodes[2 * edge[0]], graph.nodes[2 * edge[0] + 1], ...edge.slice(4),
+        graph.nodes[2 * edge[1]], graph.nodes[2 * edge[1] + 1]];
+      for (let i = 0; i + 3 < points.length; i += 2) {
+        const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
+        const length = Math.hypot(dx, dz);
+        if (length < 0.01) continue;
+        const y0 = heights?.[i / 2], y1 = heights?.[i / 2 + 1];
+        const projection = Math.max(0, Math.min(length, ((at.x - ax) * dx + (at.z - az) * dz) / length));
+        for (const distance of [projection, ...Array.from({ length: Math.ceil(length / 3) + 1 }, (_, j) => Math.min(length, j * 3))]) {
+          const x = ax + dx * distance / length, z = az + dz * distance / length;
+          const y = y0 !== undefined && y1 !== undefined && Number.isFinite(y0) && Number.isFinite(y1) ? y0 + (y1 - y0) * distance / length : undefined;
+          if (Math.hypot(x - at.x, z - at.z) <= radius) candidates.set(`${x.toFixed(2)},${z.toFixed(2)}`, { x, z, yaw: Math.atan2(-dz, dx), ...(y !== undefined ? { y } : {}) });
+        }
       }
-    }
+    });
   }
   return [...candidates.values()].sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z));
 }
+
+/** The support found over a street point is the street itself, not a deck, canopy or roof above it. */
+const onStreetLevel = (street: { y?: number }, spot: { y: number }) => street.y === undefined || Math.abs(spot.y - street.y) <= STREET_LEVEL_M;
 
 export function safeSurface(hit: RayHit | null, car = false): hit is RayHit {
   if (!hit || hit.normal.y < 0.85 || !Number.isFinite(hit.point.y)) return false;
@@ -160,7 +176,7 @@ async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sam
   for (const candidate of streetCandidates(desired, graphs)) {
     if (!covers(candidate.x, candidate.z, 3) || !spotClear(obstacles, candidate, true)) continue;
     const car = await supportedSpot(candidate, sample, true);
-    if (!car) continue;
+    if (!car || !onStreetLevel(candidate, car)) continue;
     // Nearest first, but a spot whose chase camera would sit in the car only if no other one is free.
     const walking = [-1, 1].flatMap(side => [3.2, 4.2, 5.2].map(distance => ({
       x: car.x + side * distance * Math.sin(car.yaw), z: car.z + side * distance * Math.cos(car.yaw), yaw: car.yaw,
@@ -222,6 +238,7 @@ export async function openGround(desired: Point, graphs: readonly RoadGraphJson[
     }
     return null;
   });
-  const car = await nearestSpot(streets, async p => free(await supportedSpot(p, probe, true))) ?? await park(true) ?? await park(false);
+  const car = await nearestSpot(streets, async p => { const spot = free(await supportedSpot(p, probe, true)); return spot && onStreetLevel(p, spot) ? spot : null; })
+    ?? await park(true) ?? await park(false);
   return car ? { spawn, car } : null;
 }

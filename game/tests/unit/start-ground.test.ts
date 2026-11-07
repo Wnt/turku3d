@@ -80,3 +80,20 @@ test('the car never parks over furniture or a parked car, and the first chase ca
   const viewed = await findInitialGround({ x: 10, z: 2 }, roads, async (x, z) => ground(x, z), () => true, { view: { dx: 0, dz: -1 } });
   expect(cameraInCar(viewed!.spawn, viewed!.car, { dx: 0, dz: -1 })).toBe(false);
 });
+
+test('tunnels and building passages are never street starts', () => {
+  const tunnel: RoadGraphJson = { ...roads[0], edgeAttrColumns: ['way', 'flags'], edgeAttrs: [[1, 8]] };
+  expect(streetCandidates({ x: 10, z: 2 }, [tunnel])).toEqual([]);
+  expect(streetCandidates({ x: 10, z: 2 }, [{ ...tunnel, edgeAttrs: [[1, 1]] }]).length).toBeGreaterThan(0);
+});
+
+test('a street under a deck does not park the car on the deck above it (Tapiola, Merituulentie)', async () => {
+  // The street is 2 m up per its heights; a deck at 9 m covers x 0..20, open street beyond.
+  const covered: RoadGraphJson = { ...roads[0], edgeHeights: [[2, 2]] };
+  const probe = async (x: number, z: number) => ground(x, z, MAT.road, x <= 20 ? 9 : 2);
+  const result = await findInitialGround({ x: 10, z: 2 }, [covered], probe, () => true);
+  expect(result?.car.x).toBeGreaterThan(20);
+  expect(result?.car.y).toBe(2);
+  // Without heights (v1 graphs) the old behaviour stands.
+  expect((await findInitialGround({ x: 10, z: 2 }, roads, probe, () => true))?.car.y).toBe(9);
+});

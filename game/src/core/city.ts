@@ -48,8 +48,13 @@ export const CITIES: Record<CityName, CityProfile> = {
   espoo: {
     name: 'espoo', title: 'Espoo', crs: 'EPSG:3879', heightDatum: 'N2000', projection: { kind: 'gk', meridian: 25 },
     origin: { E: 25489000, N: 6674000 }, trueNorthGridBearingDeg: 0.172,
-    spawn: { E: 25489150, N: 6673640, headingDeg: 0, label: 'Tapiontori, Tapiola' },
-    latLon: { lat: 60.17548, lon: 24.80452 }, tiles: '/cities/espoo/coarse/', room: '/city/espoo',
+    // Tapionaukio, the open street and car park at the bus stop between Tapiontori and the Keskusallas: the own car
+    // parks on the one-way street and both face west-south-west along it toward the centre and its tower. (The
+    // first spawn, E 25489150 N 6673640, was the centroid of the Ainoa mall on the pedestrian deck above the
+    // Merituulentie passage and its service tunnel, with no street a car could leave by; the generator profile keeps
+    // it as its prewarm centre.) The return arch 12 m ahead stands on the square, clear of the carriageway.
+    spawn: { E: 25489240, N: 6673793, headingDeg: 255, label: 'Tapionaukio, Tapiola' },
+    latLon: { lat: 60.17686, lon: 24.80612 }, tiles: '/cities/espoo/coarse/', room: '/city/espoo',
   },
   amsterdam: {
     name: 'amsterdam', title: 'Amsterdam', crs: 'EPSG:28992', heightDatum: 'NAP', projection: { kind: 'rd' },
