@@ -2,6 +2,8 @@
 
 import json
 import re
+import threading
+import time
 
 from turku3d import config as C
 
@@ -41,7 +43,53 @@ def complete(root, tile, value):
         return False
 
 
+FRAGMENT_FRESH_S = 5.0  # a tile's served fragment is reused this long before it is read from disk again
+
+
 def retained_fragment(builder, tile):
+    """The tile's served fragment (see _retained_fragment), kept in memory per tile: every manifest and collision
+    poll asks for it, and reading it parses its manifests and stats every payload and shared model, which took up to
+    2-3 s on a loaded host (city.lab Espoo 2026-11-07, load 45-60). A kept fragment is reused while no build has
+    finished (builder.version), the producer code and the tile's candidate files are unchanged; after
+    FRAGMENT_FRESH_S it still answers while one re-read runs behind it."""
+    memo = getattr(builder, "fragment_memo", None)
+    if memo is None:
+        return _retained_fragment(builder, tile)
+    key = (builder.version, builder.code(), tuple(_signature(builder.root / tile / name) for name in CANDIDATES))
+    hit = memo.get(tile)
+    if hit is not None and hit[0] == key:
+        if time.monotonic() - hit[2] >= FRAGMENT_FRESH_S and tile not in builder.fragment_refreshing:
+            builder.fragment_refreshing.add(tile)
+
+            def refresh():
+                try:
+                    value = _retained_fragment(builder, tile)
+                    if memo.get(tile, (None,))[0] == key:  # no build finished while this read
+                        memo[tile] = (key, value, time.monotonic())
+                except Exception:  # noqa: BLE001 - the next poll reads again
+                    memo.pop(tile, None)
+                finally:
+                    builder.fragment_refreshing.discard(tile)
+
+            threading.Thread(target=refresh, name=f"coarse-fragment-{tile}", daemon=True).start()
+        return None if hit[1] is None else dict(hit[1])
+    value = _retained_fragment(builder, tile)
+    memo[tile] = (key, value, time.monotonic())
+    return None if value is None else dict(value)
+
+
+CANDIDATES = ("manifest.json", "last-full.json", "collision.json", "first.json")
+
+
+def _signature(path):
+    try:
+        st = path.stat()
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
+def _retained_fragment(builder, tile):
     """Keep last-good full visuals with their own collision until a full pair replaces them.
 
     Fresh first-pass collision belongs to its basic visual, never to retained full
@@ -52,7 +100,7 @@ def retained_fragment(builder, tile):
             and complete(builder.root, tile, manifest)):
         return {**manifest, "generation": manifest.get("code")}
     candidates = []
-    for name in ("manifest.json", "last-full.json", "collision.json", "first.json"):
+    for name in CANDIDATES:
         path = builder.root / tile / name
         try:
             value = json.loads(path.read_text())

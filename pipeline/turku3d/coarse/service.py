@@ -165,6 +165,8 @@ class Builder:
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.current: dict[str, tuple] = {}  # tile -> ((manifest mtime, size, code), current?, checked at)
         self.rechecking: set[str] = set()  # tiles whose expired verdict is being checked again behind the answer
+        self.fragment_memo: dict[str, tuple] = {}  # tile -> ((version, code), served fragment, read at): serving.py
+        self.fragment_refreshing: set[str] = set()
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.failure_codes: dict[str, tuple] = {}

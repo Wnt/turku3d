@@ -113,3 +113,27 @@ def test_a_first_freshness_check_runs_before_the_scheduler_lock(tmp_path, monkey
         release.set()
         request.join(2)
         builder.stop()
+
+
+def test_a_served_fragment_is_kept_until_a_build_finishes_or_its_files_change(tmp_path, monkeypatch):
+    """Each poll re-read the tile's manifests and stat'ed every payload: 2-3 s on a loaded host."""
+    from turku3d.coarse import serving
+
+    reads = []
+    monkeypatch.setattr(serving, "_retained_fragment", lambda builder, tile: reads.append(tile) or {"tile": tile})
+    builder = Builder(tmp_path, code="test", workers=0)
+    try:
+        manifest = builder.manifest("t0_0_0")
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}")
+        first = serving.retained_fragment(builder, "t0_0_0")
+        first["failure"] = {"state": "failed"}  # callers may decorate their copy
+        assert serving.retained_fragment(builder, "t0_0_0") == {"tile": "t0_0_0"} and reads == ["t0_0_0"]
+        builder.version += 1  # a build finished
+        serving.retained_fragment(builder, "t0_0_0")
+        assert reads == ["t0_0_0", "t0_0_0"]
+        manifest.write_text('{"changed": true}')  # a file written outside a build
+        serving.retained_fragment(builder, "t0_0_0")
+        assert len(reads) == 3
+    finally:
+        builder.stop()
