@@ -541,9 +541,9 @@ export class PhysicsWorld {
     if (id && !this.vehicles.has(id)) throw new Error(`unknown vehicle ${id}`);
     this.coverageHold.clear();
     const previous = this.vehicles.get(this.drivenId ?? "");
-    if (previous) previous.horn = false;
+    if (previous) { previous.horn = false; previous.seated = false; }
     this.drivenId = id;
-    if (id) { const vehicle = this.vehicles.get(id)!; vehicle.lights = 1; vehicle.body.wakeUp(); vehicle.ownDamage(); }
+    if (id) { const vehicle = this.vehicles.get(id)!; vehicle.lights = 1; vehicle.seated = true; vehicle.body.wakeUp(); vehicle.ownDamage(); }
   }
   resetVehicle(pos: V3, yaw: number, id = 'player') {
     const car = this.vehicles.get(id);

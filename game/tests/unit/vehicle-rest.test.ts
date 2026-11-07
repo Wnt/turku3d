@@ -47,3 +47,22 @@ test('an asleep car wakes on its driver\'s throttle or steering, and its state s
   expect(body.isSleeping()).toBe(false);
   expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBeUndefined();
 });
+
+test('a seated car is never put to rest, even while its driver sends no input; leaving it lets it sleep again', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+  pw.spawnVehicle({ x: 20, y: 1.2, z: 0 }, 0, { id: 'player', kind: 'car', tuning: modelTuning(PLAYER_MODEL)! });
+  pw.spawnCharacter({ x: 50, y: 2, z: 50 });
+  const body = (pw as unknown as { vehicles: Map<string, { body: R.RigidBody }> }).vehicles.get('player')!.body;
+  pw.driveVehicle('player');
+  for (let k = 0; k < 240; k++) pw.fixedStep(null, null);
+  expect(body.isSleeping()).toBe(false);
+  pw.driveVehicle(null);
+  for (let k = 0; k < 240; k++) pw.fixedStep(idle, null);
+  expect(body.isSleeping()).toBe(true);
+  // Braking alone wakes it too.
+  pw.driveVehicle('player'); body.sleep();
+  pw.fixedStep(null, { ...coast, brake: 1 });
+  expect(body.isSleeping()).toBe(false);
+});
+
