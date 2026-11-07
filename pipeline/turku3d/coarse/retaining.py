@@ -39,6 +39,8 @@ def sections(line, spacing=2.0, radius=2.5):
     return centres, centres - sides, centres + sides
 
 
+PARAPET_STEP = 1.0  # m: a mapped wall over a drop this high gets its parapet (tags["_parapet"], m above the top)
+PARAPET_THICKNESS = 0.25  # m
 HILLSIDE = 0.5  # upper ground rising faster than this (27 deg) beyond the rail is a slope
 
 
@@ -186,6 +188,24 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
                     )
                     faces.face(wall)
                     faces.face(wall[::-1])
+                    if tags.get("_parapet") and float(np.min(hi - lo)) >= PARAPET_STEP:
+                        # A walled drop of a metre or more in a street (a garage ramp, a sunken yard) stands behind a
+                        # parapet: the mapped wall line is its outer face, the upper ground its foot.
+                        upper = 0 if np.mean(local[0]) > np.mean(local[1]) else 1
+                        inward = (left if upper == 0 else right)[j] - centres[j]
+                        inward = inward / np.linalg.norm(inward) * PARAPET_THICKNESS
+                        crest = hi + float(tags["_parapet"])
+                        a, b = ends, ends + inward
+                        for quad in (
+                            [[*a[0, :1], hi[0], a[0, 1]], [*a[1, :1], hi[1], a[1, 1]],
+                             [*a[1, :1], crest[1], a[1, 1]], [*a[0, :1], crest[0], a[0, 1]]],
+                            [[*b[0, :1], hi[0], b[0, 1]], [*b[1, :1], hi[1], b[1, 1]],
+                             [*b[1, :1], crest[1], b[1, 1]], [*b[0, :1], crest[0], b[0, 1]]],
+                            [[*a[0, :1], crest[0], a[0, 1]], [*a[1, :1], crest[1], a[1, 1]],
+                             [*b[1, :1], crest[1], b[1, 1]], [*b[0, :1], crest[0], b[0, 1]]],
+                        ):
+                            faces.face(np.array(quad))
+                            faces.face(np.array(quad)[::-1])
                 for side, edge in enumerate((left, right)):
                     outer = edge[j : j + 2]
                     xz = np.array([p, q, outer[1], outer[0]])

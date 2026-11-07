@@ -200,3 +200,21 @@ def test_unsurveyed_wall_at_a_hill_foot_keeps_its_step_and_aprons_follow_the_slo
     apron = next(m for m in meshes if m.metadata.get("terrain"))
     upper = apron.positions[apron.positions[:, 2] > 1e-6]
     np.testing.assert_allclose(upper[:, 1], [sample(x, z) for x, _, z in upper], atol=1e-9)
+
+
+def test_a_bgt_wall_over_a_ramp_drop_stands_as_a_parapet_on_the_street_side():
+    """Amsterdam Rokin: the garage ramps' BGT walls; a car on the street meets a parapet, not a 2 m drop."""
+    deep = [(g, {**t, "_parapet": retaining_survey.BGT_PARAPET}, f) for g, t, f in records(step=2.0)]
+    meshes, _ = retaining.produce(VisualTile(0, 0, 0), deep, lambda x, z: 1.2)
+    walls = [m for m in meshes if not m.metadata.get("terrain")]
+    upper = max(np.max(t["_survey"]["heights"]) for _, t, _ in deep)
+    top = max(m.positions[:, 1].max() for m in walls)
+    assert abs(top - (upper + retaining_survey.BGT_PARAPET)) < 0.15
+    above = np.concatenate([m.positions[m.positions[:, 1] > upper + 0.1] for m in walls])
+    assert (above[:, 2] >= -1e-6).all() and (above[:, 2] <= retaining.PARAPET_THICKNESS + 1e-6).all()  # street side
+    # A shallow step (a ramp mouth, a kerb-high terrace) keeps no parapet, and neither does an unflagged survey wall.
+    shallow = [(g, {**t, "_parapet": retaining_survey.BGT_PARAPET}, f) for g, t, f in records(step=0.6)]
+    for survey in (shallow, records(step=2.0)):
+        meshes, _ = retaining.produce(VisualTile(0, 0, 0), survey, lambda x, z: 1.2)
+        heights = max(np.max(t["_survey"]["heights"]) for _, t, _ in survey)
+        assert max(m.positions[:, 1].max() for m in meshes if not m.metadata.get("terrain")) <= heights + 1e-6

@@ -37,6 +37,7 @@ def ground_points(cloud, within=None):
 # Along-line support for one cap/ledge level: long enough to cancel per-section
 # lidar noise, short enough to keep a ramped quay or a stepped garden wall.
 LEVEL_REACH = 5.0
+BGT_PARAPET = 0.9  # m above the upper ground: a Dutch street wall at a garage ramp or sunken yard
 
 
 def regular_levels(stations, levels):
@@ -122,12 +123,12 @@ def prepare(tile, vector, paths):
     if vector is None or not paths:
         return []
     rows = frame(vector, tile.bbox.buffered(3))
-    lines = [(str(r.feature_key), shapely.force_2d(r.geometry_local))
+    lines = [(str(r.feature_key), shapely.force_2d(r.geometry_local), getattr(r, "bgt_type", None))
              for r in rows.itertuples() if str(r.kplkoodi) == "66634"]
     result = []
     survey = {p.stem: p for p in paths}
     store = TileStore(source_paths=survey)
-    for key, geometry in lines:
+    for key, geometry, bgt_type in lines:
         for line in shapely.get_parts(geometry):
             if line.geom_type != "LineString" or line.length < 1.5:
                 continue
@@ -136,6 +137,8 @@ def prepare(tile, vector, paths):
                 continue
             cloud = store.query(bounds).query(classes=[2, 12], last_return=True)
             for index, (edge, profile) in enumerate(measure(line, ground_points(cloud))):
-                result.append((edge, {"barrier": "retaining_wall", "_survey": profile,
-                                      "source": f"wfs:{key}:{index}"}, False))
+                tags = {"barrier": "retaining_wall", "_survey": profile, "source": f"wfs:{key}:{index}"}
+                if bgt_type == "muur":
+                    tags["_parapet"] = BGT_PARAPET  # a BGT wall stands above the ground it retains
+                result.append((edge, tags, False))
     return result

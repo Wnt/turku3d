@@ -206,3 +206,33 @@ def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
     assert (facade == 1).all() and (boat == 1).all() and (car == 1).all()
     assert (crown == 5).mean() > 0.95
     assert (wire == 1).mean() > 0.9
+
+
+def test_bgt_ground_walls_become_retaining_survey_lines(monkeypatch):
+    """BGT scheiding 'muur' at level 0 feeds the retaining survey (kanta:Rakenne 66634); a facade, a quay edge, the
+    water, a carriageway interior and walls off the ground level are left out."""
+    import shapely
+
+    line = lambda *p: shapely.LineString(p)  # noqa: E731
+    feats = [("scheiding_lijn", "ramp", {"type": "muur", "relatieve_hoogteligging": 0}, line((0, 50), (30, 50))),
+             ("scheiding_lijn", "facade", {"type": "muur", "relatieve_hoogteligging": 0}, line((0, 10.2), (20, 10.2))),
+             ("scheiding_lijn", "quay", {"type": "muur", "relatieve_hoogteligging": 0}, line((40, 0), (40, 30))),
+             ("scheiding_lijn", "tunnel", {"type": "muur", "relatieve_hoogteligging": -2}, line((0, 60), (30, 60))),
+             ("scheiding_lijn", "fence", {"type": "hek", "relatieve_hoogteligging": 0}, line((0, 70), (30, 70))),
+             ("scheiding_lijn", "across", {"type": "muur", "relatieve_hoogteligging": 0}, line((70, 40), (100, 40))),
+             ("scheiding_vlak", "kade", {"type": "kademuur", "relatieve_hoogteligging": 0},
+              shapely.box(40.3, 0, 41, 30)),
+             ("pand", "house", {}, shapely.box(0, 0, 20, 10)),
+             ("waterdeel", "canal", {}, shapely.box(41, 0, 60, 30)),
+             ("wegdeel", "road", {"functie": "rijbaan lokale weg", "relatieve_hoogteligging": 0},
+              shapely.box(80, 30, 90, 50))]
+    monkeypatch.setattr(convert, "bgt_features", lambda cols, bbox, log: [f for f in feats if f[0] in cols])
+    rows = convert.walls_bgt((0, 0, 100, 100))
+    by_key = {}
+    for r in rows:
+        by_key.setdefault(r["feature_key"], []).append(r)
+    assert set(by_key) == {"ramp", "across"}
+    assert all(r["kplkoodi"] == "66634" and r["layer"] == "kanta:Rakenne" and r["bgt_type"] == "muur" for r in rows)
+    assert by_key["ramp"][0]["geometry"].length == 30
+    across = sorted(round(r["geometry"].length, 1) for r in by_key["across"])
+    assert across == [10.3, 10.3]  # cut where it crosses the carriageway, kept up to 0.3 m into its edge
