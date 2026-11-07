@@ -108,8 +108,9 @@ export class ParkedVehicles {
     const rest = this.rest.get(id);
     if (rest) return rest;
     const sampled=this.terrain.get(car);
-    if(!sampled&&this.physics.raycast&&car.model!=='truck'&&!this.terrainPending.has(car)&&(this.terrainRetry.get(car)??0)<=Date.now()
-      &&this.terrainPending.size<4&&Math.hypot(car.x-this.view.x,car.z-this.view.z)<100&&this.supported(id,car)){
+    // Asked for every parked car each frame: the distance goes before the clock and map reads.
+    if(!sampled&&this.physics.raycast&&car.model!=='truck'&&Math.hypot(car.x-this.view.x,car.z-this.view.z)<100
+      &&!this.terrainPending.has(car)&&(this.terrainRetry.get(car)??0)<=Date.now()&&this.terrainPending.size<4&&this.supported(id,car)){
       this.terrainPending.add(car);this.terrainRetry.set(car,Date.now()+2000);
       const m=fleetModel(car.model,id,car);if(!m)return this.slot(car);const footprint=fleetWheelFootprint(m);
       const yaw=car.yaw-Math.PI/2,at={x:car.x,y:car.y,z:car.z};

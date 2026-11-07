@@ -378,12 +378,18 @@ export class ParkedCarVisuals {
     return this.matrix.compose(this.position,this.rotation,this.scale);
   }
   /** Draws one car; returns its drawn model (this.matrix then holds its transform), or null when it is not drawn. */
-  private draw(draw:Draw):FleetModel|null {
-    draw={...draw,model:this.resolve(draw.model,draw.id)};
-    const d=Math.hypot(draw.pos.x-this.camera.x,draw.pos.z-this.camera.z);
+  /** Beyond 320 m, or off screen beyond 30 m, a car is not drawn; null then, else its camera distance. */
+  private seen(pos:{x:number;y:number;z:number}):number|null {
+    const d=Math.hypot(pos.x-this.camera.x,pos.z-this.camera.z);
     if(d>320)return null;
-    this.sphere.center.set(draw.pos.x,draw.pos.y,draw.pos.z);
+    this.sphere.center.set(pos.x,pos.y,pos.z);
     if(this.hasView&&d>30&&!this.frustum.intersectsSphere(this.sphere))return null;
+    return d;
+  }
+  private draw(draw:Draw):FleetModel|null {
+    const d=this.seen(draw.pos);
+    if(d===null)return null;
+    draw={...draw,model:this.resolve(draw.model,draw.id)};
     const lod=d<42?0:d<105?1:2;
     const matrix=this.transform(draw);
     // A damaged car draws in its model's damaged batch while it holds a pool slot (within 105 m); its rig follows the
@@ -438,6 +444,9 @@ export class ParkedCarVisuals {
     this.trafficSeatCount=0;
     for(const car of this.cars) {
       const state=byId.get(car.object_id),pose=state??rest?.restingPose(car); if(!pose)continue;
+      // Every parked car of every resident tile passes here each frame: cull before building its draw (two object
+      // spreads and lookups per car were 3 % of the M1 Max main thread on a Turku drive, frame-mp mac-drive-1).
+      if(this.seen(pose.pos)===null)continue;
       const def=this.definitions.get(car.object_id)!;
       const damage=this.bench.get(car.object_id)??(state?state.damage:pose.damage);
       // A claimed traffic car too damaged to drive stands with its hazard lights on (vehicle/mechanics.ts wrecked).
