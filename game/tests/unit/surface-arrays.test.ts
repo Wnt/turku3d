@@ -10,7 +10,7 @@ import { MaterialStyler } from '../../src/render/materials';
 import { modelTextures } from '../../src/render/textureUploads';
 import { PreparationBudget } from '../../src/render/preparationBudget';
 import { QUALITY } from '../../src/render/quality';
-import { SURFACE_LAYER } from '../../src/render/surfaceArrays';
+import { SURFACE_LAYER, mergeSurfaceSteps, type SurfaceArrays } from '../../src/render/surfaceArrays';
 
 /** A KTX2-decoded shared library texture: compressed mips kept on the CPU, content hash from the asset URL. */
 function compressedTexture(asset: string, size: number, srgb: boolean, seed: number) {
@@ -226,3 +226,14 @@ test('a tile released part-way through async styling is restored and styling sto
   for (const [mesh, material] of originals) { expect(mesh.parent).toBe(a.root); expect((mesh as THREE.Mesh).material).toBe(material); }
   expect((styler as unknown as { owned: Map<THREE.Object3D, unknown> }).owned.has(a.model)).toBe(false);
 });
+
+test('the ground merge scans a big tile in slices: it yields within the scan, not only after it', () => {
+  const model = new THREE.Group(), material = new THREE.MeshStandardMaterial();
+  for (let i = 0; i < 300; i++) model.add(surfaceMesh('draft_asphalt_worn', material, i));
+  // Nothing qualifies (kindOf null): every yield comes from the scan itself.
+  const { steps } = mergeSurfaceSteps(model, {} as SurfaceArrays, () => null);
+  let yields = 0;
+  while (!steps.next().done) yields++;
+  expect(yields).toBe(Math.floor(300 / 64));
+});
+

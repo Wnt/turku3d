@@ -213,6 +213,8 @@ export class SurfaceArrays {
 }
 
 const position = new THREE.Vector3(), normal = new THREE.Vector3(), normalMatrix = new THREE.Matrix3();
+/** Meshes mergeSurfaceSteps scans between yields. */
+const SCAN_SLICE = 64;
 /** One mesh per parent for the merged slices; sources detach (restored by `restore`). `steps` yields after each
  * copied source, so a tile's ground merges across frames (MaterialStyler.applyAsync); a group's merged mesh replaces
  * its sources only once complete, and `restore` undoes the completed groups (also when stopped part-way). */
@@ -221,12 +223,18 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
   function* steps(): Generator<void> {
     const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number }[] }>();
     model.updateWorldMatrix(true, true);
-    model.traverse(object => {
+    // The scan yields too (every SCAN_SLICE meshes): a whole tile's ground in one step took ~16 ms per tile on the
+    // Windows laptop while driving (frame-mp win-drive-1, 105 long frames).
+    const stack: THREE.Object3D[] = [model];
+    for (let seen = 0; stack.length;) {
+      const object = stack.pop()!;
+      for (let k = object.children.length - 1; k >= 0; k--) stack.push(object.children[k]);
       const mesh = object as THREE.Mesh;
-      if (!mesh.isMesh || !mesh.parent) return;
+      if (!mesh.isMesh || !mesh.parent) continue;
+      if (++seen % SCAN_SLICE === 0) yield;
       let owner: THREE.Object3D | null = mesh;
       while (owner && !owner.userData.layer) owner = owner.parent;
-      if (owner?.userData.layer !== 'ground') return;
+      if (owner?.userData.layer !== 'ground') continue;
       // Ground maps feed the arrays now or in a later tile: their CPU mips stay after upload.
       for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
         const standard = material as THREE.MeshStandardMaterial;
@@ -236,12 +244,12 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       const style = kindOf(mesh);
       const slice = style && surfaceSlice(mesh, style.kind, style.key);
       const layer = slice && arrays.layer(slice);
-      if (!slice || layer === null || layer === undefined) return;
+      if (!slice || layer === null || layer === undefined) continue;
       const group = `${mesh.parent.uuid}:${slice.wet}`;
       let entry = groups.get(group);
       if (!entry) groups.set(group, entry = { parent: mesh.parent, wet: slice.wet, sources: [] });
       entry.sources.push({ mesh, layer });
-    });
+    }
     for (const { parent, wet, sources } of groups.values()) {
       if (sources.length < 2) continue;
       let vertices = 0, indices = 0;
