@@ -412,10 +412,20 @@ def indoor(tags):
     return bool(levels) and max(levels) >= 1
 
 
+def below_grade(tags):
+    """A tunnel=yes way two levels down (``layer`` <= -2) or a garage aisle (``service=parking_aisle``): never a road
+    at grade, and the ground model under a mall or a square says nothing about its depth (Tapiola's garages under
+    Ainoa read a false metre-scale dip from the interpolated ground there). Covered ways are never deep."""
+    if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
+        return False
+    layer = _number(tags.get("layer"))
+    return layer is not None and (layer <= -2 or (layer <= -1 and tags.get("service") == "parking_aisle"))
+
+
 def unmodelled(tags, xz, shells, bounds=None):
-    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings, or any deeper way
-    (``layer`` <= -2) or garage aisle: with no measured depth the coarse world cannot show it. Ways at grade under a
-    building (hospital roads, layer -1) keep their tube and building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
+    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings: with no measured depth
+    the coarse world cannot show it. Ways at grade under a building (hospital roads, layer -1) keep their tube and
+    building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
     stay as they are. Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
     every building."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
@@ -423,9 +433,6 @@ def unmodelled(tags, xz, shells, bounds=None):
     layer = _number(tags.get("layer"))
     if layer is None or layer > -1:
         return False
-    if layer <= -2 or tags.get("service") == "parking_aisle":
-        # Two levels down, or a garage aisle: never a road at grade under a building (Tapiola's garages under Ainoa).
-        return True
     if bounds is not None:
         near = ((xz >= np.asarray(bounds[:2]) - 10) & (xz <= np.asarray(bounds[2:]) + 10)).all(axis=1)
         xz = xz[near] if near.any() else xz
@@ -433,6 +440,29 @@ def unmodelled(tags, xz, shells, bounds=None):
     for building, _ in shells:
         inside |= shapely.contains_xy(building.footprint, xz[:, 0], xz[:, 1])
     return float(np.mean(~inside)) > 0.5
+
+
+PASSAGE_STRIP = 2.0  # m across a passage per floor strip: the ground grid's own spacing
+
+
+def passage_floors(xz, offset, width, height_at):
+    """Floor triangles of a passage's clearance volume, in strips about PASSAGE_STRIP wide across it, each lifted
+    so its plane never passes below the ground sampled at its centroid and edge midpoints. One triangle spanning a
+    wide passage (Merituulentie's merged carriageways under Ainoa, 26 m) cut through the crown of the road it
+    should only clear above: the carve keeps ground below floor + 4 cm."""
+    rows = [xz + offset * (width / 2) * a for a in np.linspace(1, -1, max(1, int(np.ceil(width / PASSAGE_STRIP))) + 1)]
+    floors = []
+    for i in range(len(xz) - 1):
+        for lo, hi in zip(rows[:-1], rows[1:], strict=True):
+            for side in ([lo[i], lo[i + 1], hi[i + 1]], [lo[i], hi[i + 1], hi[i]]):
+                q = np.asarray(side)
+                heights = np.array([height_at(x, z) for x, z in q])
+                probes = np.vstack([q.mean(axis=0), (q + np.roll(q, -1, axis=0)) / 2])
+                plane = np.r_[heights.mean(), (heights + np.roll(heights, -1)) / 2]
+                measured = np.array([height_at(x, z) for x, z in probes])
+                lift = float(np.max(measured - plane, initial=0.0))
+                floors.append(np.c_[q[:, 0], heights + max(lift, 0.0), q[:, 1]])
+    return floors
 
 
 def drop_unbuilt(graph, corridors):
@@ -547,6 +577,7 @@ def produce(
             floor = np.minimum(floor, cover - clearance - 0.3)
         if not road_top and not vaulted and (
             indoor(tags)
+            or (not passage and below_grade(tags))
             or (
                 not passage
                 and not repaired.any()
@@ -574,15 +605,8 @@ def produce(
             # it with a one-dimensional slab opens gaps across sloping entrances.
             if corridor.intersects(window):
                 profiles.append((line, distances, floor, width))
-                for i in range(len(xz) - 1):
-                    for side in (
-                        [left[i], left[i + 1], right[i + 1]],
-                        [left[i], right[i + 1], right[i]],
-                    ):
-                        q = np.asarray(side)
-                        heights = np.array([height_at(x, z) for x, z in q])
-                        openings.floors.append(np.c_[q[:, 0], heights, q[:, 1]])
-                        openings.heights.append(clearance)
+                openings.floors.extend(passage_floors(xz, offset, width, height_at))
+                openings.heights.extend([clearance] * (len(openings.floors) - len(openings.heights)))
             continue
 
         # OSM also maps roads below buildings as tunnel=yes or covered/layer ways.

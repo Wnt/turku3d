@@ -536,3 +536,33 @@ def test_unbuilt_tunnel_edges_leave_the_published_graph():
     assert after["edgeIds"] == ["street"] and after["edges"] == [[2, 3, 3, 80]]
     assert after["edgeAttrs"] == [[8, 1]] and after["edgeEvents"] == [[[10, 17, -1]]] and after["edgeHeights"] == [[2, 2]]
     assert after["signalPosts"] == [[0, 0, 1, 72, 10, 2]]
+
+
+def test_garage_aisles_are_unbuilt_even_over_a_false_dip():
+    """Tapiola: the ground interpolated under the mall dips a metre, which read as measured depth."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (120, 40)])
+    hump = lambda x, z: 2 + max(0.0, 6 - abs(x - 70) / 5)  # noqa: E731
+    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"}):
+        garage = produce(tile, [("garage", line, {"highway": "service", **tags})], pos, idx, [], extrude, hump)
+        assert not garage.profiles and len(garage.unbuilt) == 1
+
+
+def test_a_wide_passage_never_carves_the_crown_of_its_road():
+    from turku3d.coarse.tunnels import passage_floors
+
+    line = shapely.LineString([(0, 0), (40, 0)])
+    xz = shapely.get_coordinates(shapely.line_interpolate_point(line, np.linspace(0, 40, 21)))
+    offset = np.tile([0.0, 1.0], (len(xz), 1))
+
+    def crowned(x, z):  # 0.4 m higher on the centreline than at the 13 m edges
+        return 6.0 - 0.4 * abs(z) / 13
+
+    floors = np.asarray(passage_floors(xz, offset, 26.0, crowned))
+    assert len(floors) == 20 * 13 * 2
+    for tri in floors[::7]:
+        centre = tri.mean(axis=0)
+        assert centre[1] >= crowned(centre[0], centre[2]) - 1e-9  # the plane is never below the ground
+        assert centre[1] - crowned(centre[0], centre[2]) < 0.05  # and stays on it
