@@ -298,6 +298,7 @@ if (new URLSearchParams(location.search).get('drawSort') === 'material')
   (renderer as unknown as { setOpaqueSort(sort: ReturnType<typeof materialBandSort>): void }).setOpaqueSort(materialBandSort());
 // ?tileShadows=chunks: every cascade draws tile shadows per 62.5 m chunk (the A/B against whole-tile outer cascades).
 tileShadows.chunksEverywhere = new URLSearchParams(location.search).get('tileShadows') === 'chunks';
+tileShadows.shortReachChunks = new URLSearchParams(location.search).get('shortShadowChunks') !== '0';
 /** Ground height under the camera for the altitude rule: the lowest content of the tile there, else sea level. */
 let groundBelow: (x: number, z: number) => number = () => 0;
 window.__render!.bundles = bundles;
