@@ -60,14 +60,18 @@ function rainRings(point: THREE.Node<'vec2'>, seconds: THREE.Node<'float'>): THR
   return total;
 }
 
-/** One tiny mipmapped slope field, sampled at crossing scales for long ripples and fine capillary detail. */
+/** One tiny mipmapped slope field, sampled at crossing scales for long ripples and fine capillary detail. Every river
+ *  surface shares it: each water mesh of each streamed tile built its own (riverWavePixels: 15 ms per build on the
+ *  Windows laptop, frame-mp win-drive-1) and uploaded and mipmapped it again. */
+let sharedWaves: THREE.DataTexture | null = null;
 function waveTexture() {
+  if (sharedWaves) return sharedWaves;
   const size = 128, map = new THREE.DataTexture(riverWavePixels(size), size, size);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.magFilter = THREE.LinearFilter; map.minFilter = THREE.LinearMipmapLinearFilter;
   map.generateMipmaps = true; map.needsUpdate = true;
   map.name = 'Aura directional wave slopes';
-  return map;
+  return sharedWaves = map;
 }
 
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
@@ -76,7 +80,8 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   history: WaterHistory | null = null, screenReflection = false, sloped = false): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
-  let disposeSurface = () => waves.dispose();
+  // The shared wave texture outlives any one surface.
+  let disposeSurface = () => {};
   const flow = uniform(new THREE.Vector4());
   flow.onRenderUpdate(() => {
     // The main world frame supplies server-synchronised UTC; fixed QA poses use phase zero.
