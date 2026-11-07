@@ -565,7 +565,8 @@ export class PhysicsWorld {
       const sleeping = vehicle.body.isSleeping(), old = this.vehicleSnapshots.get(id);
       if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn
         && old.state.damage === vehicle.damageWire()) return old.state;
-      const state = { id, ...vehicle.state() };
+      // Asleep or held for missing collision (Fixed): flagged, since an asleep car's state is the one it fell asleep with.
+      const state: VehicleState = { id, ...vehicle.state(), ...(sleeping ? { asleep: true } : {}), ...(this.heldVehicles.has(id) ? { held: true } : {}) };
       this.vehicleSnapshots.set(id, { state, sleeping });
       return state;
     });

@@ -383,6 +383,9 @@ export class Vehicle {
     }
     this.beforeSolve = null;
     this.driven = input !== null;
+    // A driver's throttle or steering wakes the car itself: Rapier wakes a body only for a non-zero impulse, and two
+    // of seven start-pair cars stayed asleep under the autopilot until a reset (verify-all r3/r4: pose frozen to the cm).
+    if (input && (input.throttle !== 0 || input.steer !== 0) && this.body.isSleeping()) this.body.wakeUp();
     // A sleeping damageable car still measures a hit that wakes it during the coming solver step.
     this.damageBefore = this.damage && this.body.isSleeping() ? { v: { x: 0, y: 0, z: 0 }, w: { x: 0, y: 0, z: 0 } } : null;
     if (!input && this.body.isSleeping()) return;

@@ -36,6 +36,8 @@ export interface BumpState { id: number; wheel: number; height: number; jolt: nu
 export interface VehicleState { lights?: import('../vehicle/signals').LightState; horn?: boolean; id?: string; kind?: VehicleKind; impact?: { id: number; impulse: number } | null; bump?: BumpState | null; curbStrike: CurbStrikeState | null; pos: V3; rot: Quat; linvel: V3; speed: number; forwardSpeed: number; wheels: WheelState[];
   /** 4WS vehicles: the held rear-steer mode and whether the speed lockout centres the rear now. */
   rearMode?: import('../vehicle/rearSteer').RearSteerMode; rearLocked?: boolean;
+  /** The body sleeps (its state is the one it fell asleep with) / is held Fixed until its collision arrives. */
+  asleep?: boolean; held?: boolean;
   /** Drive command after handling (0..1 forward or reverse, 0 while braking), for engine load. */
   throttleApplied?: number;
   /** Body damage of a damageable car (vehicle/damage.ts encodeDamage), absent while it is undamaged. */
