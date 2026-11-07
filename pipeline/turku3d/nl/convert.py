@@ -419,17 +419,25 @@ class OsmSurfaces:
         import geopandas as gpd
         import shapely
 
-        self.geoms, self.values, self.areas = [], [], []
+        self.geoms, self.values, self.areas, markets = [], [], [], []
         window = shapely.box(*bbox)
         for path in sorted(C.raw_dir("osm").glob("coarse-osm-*/*.parquet")):
-            frame = gpd.read_parquet(path, columns=["surface", "geometry"])
-            frame = frame[frame.surface.isin(list(OSM_SURFACE))]
+            frame = gpd.read_parquet(path, columns=["surface", "amenity", "geometry"])
             frame = frame[frame.geometry.intersects(window)]
+            for g in frame.geometry[(frame.amenity == "marketplace").to_numpy()]:
+                if g.geom_type in ("Polygon", "MultiPolygon"):
+                    markets.append(shapely.make_valid(g))
+            frame = frame[frame.surface.isin(list(OSM_SURFACE))]
             for g, value in zip(frame.geometry, frame.surface, strict=True):
                 self.geoms.append(g)
                 self.values.append(value)
                 self.areas.append(g.geom_type in ("Polygon", "MultiPolygon"))
         self.tree = shapely.STRtree(self.geoms) if self.geoms else None
+        self.markets = shapely.union_all(markets) if markets else None
+
+    def market(self, polygon):
+        """Most of the polygon lies in an OSM amenity=marketplace area (a market square market vans drive onto)."""
+        return self.markets is not None and self.markets.intersection(polygon).area > 0.5 * max(polygon.area, 1e-9)
 
     def at(self, polygon):
         if self.tree is None:
@@ -447,7 +455,7 @@ class OsmSurfaces:
         return OSM_SURFACE[best] if best and score >= (1.0 if not self.areas else 0) else None
 
 
-def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
+def appearance(functie, fysiek, plus, osm=None, market=False) -> tuple[str, str]:
     """Surface (Pintamateriaali, code), in precedence: an explicit BGT appearance (plus_fysiek_voorkomen or a
     specific fysiek_voorkomen), the OSM surface tag of the way or area on the polygon, then Dutch street
     convention for generic element paving: clinker brick on carriageways, concrete tiles on footways. Asphalt
@@ -457,7 +465,7 @@ def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
     if not plus and (fysiek or "") in GENERIC and osm is not None:
         found = osm
     elif not plus and (fysiek or "") == "open verharding":
-        if (functie or "").startswith("rijbaan") or functie in ("woonerf", "fietspad"):
+        if (functie or "").startswith("rijbaan") or functie in ("woonerf", "fietspad") or market:
             found = ("Maatiili", "21")
         elif functie in ("voetpad", "voetgangersgebied", "verkeerseiland", None):
             found = ("Betonilaatta", "8")
@@ -467,7 +475,9 @@ def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
         # Unspecified element paving (OSM paving_stones, BGT "open verharding"/"sierbestrating"): Turku's
         # Betonikivi finish is red-brown concrete stone, which Dutch streets lay as fired clay klinkers on the
         # carriageway and as grey concrete pavers on the pavement (Damrak/Rokin/NZ Voorburgwal panoramas).
-        return ("Maatiili", "21") if vehicular(functie) else ("Betonilaatta", "8")
+        # A market square is laid like a carriageway (the market vans drive onto it): Rotterdam's Binnenrotte
+        # (OSM amenity=marketplace, BGT voetpad) is red-brown klinkers in herringbone in every panorama.
+        return ("Maatiili", "21") if vehicular(functie) or market else ("Betonilaatta", "8")
     return found
 
 
@@ -506,7 +516,7 @@ def streets_bgt(bbox, log=print):
             functie = None
         part_kind = kind(functie) if functie is not None else ("Muu", "6")
         for i, part in enumerate(getattr(g, "geoms", [g])):
-            material = appearance(functie, fysiek, plus, osm.at(part))
+            material = appearance(functie, fysiek, plus, osm.at(part), osm.market(part))
             rows.append(
                 {
                     "layer": "GIS:Katualueet",
@@ -634,8 +644,9 @@ def derive(layer, area, adapter: str, log=print) -> dict:
         return _derive(layer, area, adapter, bbox, log)
 
 
-ADAPTER_VERSION = 7  # 5: BGT > OSM surface > Dutch paving convention, paved terrain; 6: no underground street parts;
-# 7: unspecified element paving is clay klinkers on vehicle parts and grey concrete pavers elsewhere
+ADAPTER_VERSION = 8  # 5: BGT > OSM surface > Dutch paving convention, paved terrain; 6: no underground street parts;
+# 7: unspecified element paving is clay klinkers on vehicle parts and grey concrete pavers elsewhere;
+# 8: and on OSM marketplace squares
 
 
 def _derive(layer, area, adapter, bbox, log):

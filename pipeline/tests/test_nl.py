@@ -102,6 +102,25 @@ def test_generic_paving_follows_dutch_convention():
     assert convert.appearance("rijbaan lokale weg", "asfalt", None, sett) == ("Asfalttibetoni", "1")
 
 
+def test_market_square_paving_is_klinkers():
+    import shapely
+
+    sett, pavers = convert.OSM_SURFACE["sett"], convert.OSM_SURFACE["paving_stones"]
+    # A BGT footway on an OSM marketplace (market vans drive onto it) is laid as clay klinkers like a carriageway.
+    assert convert.appearance("voetpad", "open verharding", None, None, True) == ("Maatiili", "21")
+    assert convert.appearance("voetpad", "open verharding", None, pavers, True) == ("Maatiili", "21")
+    # An explicit appearance, a specific OSM surface and closed paving keep their own finish.
+    assert convert.appearance("voetpad", "open verharding", "betonstraatstenen", None, True) == ("Betonilaatta", "8")
+    assert convert.appearance("voetpad", "open verharding", None, sett, True) == ("Noppakivi", "6")
+    assert convert.appearance("voetpad", "gesloten verharding", None, None, True)[1] == "1"
+    osm = object.__new__(convert.OsmSurfaces)
+    osm.markets = shapely.box(0, 0, 10, 10)
+    assert osm.market(shapely.box(2, 2, 8, 8)) and osm.market(shapely.box(4, 0, 14, 10))
+    assert not osm.market(shapely.box(6, 0, 16, 10))  # 40 % inside
+    osm.markets = None
+    assert not osm.market(shapely.box(2, 2, 8, 8))
+
+
 def test_bgt_points_become_register_trees_and_lamps(monkeypatch):
     import shapely
 
@@ -132,7 +151,7 @@ def test_underground_street_parts_are_no_ground_surface(monkeypatch):
              ("onbegroeidterreindeel", "pit", {"fysiek_voorkomen": "open verharding",
                                                "relatieve_hoogteligging": -2}, square)]
     monkeypatch.setattr(convert, "bgt_features", lambda cols, bbox, log: [f for f in feats if f[0] in cols])
-    monkeypatch.setattr(convert, "OsmSurfaces", lambda bbox: type("NoOsm", (), {"at": lambda self, g: None})())
+    monkeypatch.setattr(convert, "OsmSurfaces", lambda bbox: type("NoOsm", (), {"at": lambda self, g: None, "market": lambda self, g: False})())
     rows = convert.streets_bgt((0, 0, 10, 10))
     assert sorted(r["feature_key"] for r in rows) == ["deck", "square"]
 
