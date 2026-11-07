@@ -9,6 +9,11 @@ two-way roads with islands) and edges on bridges or in tunnels stay, and so do t
 with the shift tapered in over TAPER from each end. A vertex off every surveyed street part (a garage ramp, a yard, a
 quay) is not placed: a short gap between placed vertices is bridged, a longer run stays where OSM has it and the shift
 tapers out towards it (the Rokin garage ramp's parking aisle had been pulled 3 m onto the ramp wall).
+
+An edge without an OSM width tag also takes the surveyed carriageway's width (the median of its placed stations) when
+that is narrower than the lane-count default: the lanes are laid out across the edge's width, and a two-way canal
+street with the 6.5 m default put its lanes 1.6 m off the middle of a 3.5 m carriageway, over the quay edge and the
+lamp posts on it (Amsterdam Grimburgwal).
 """
 
 from __future__ import annotations
@@ -26,10 +31,12 @@ MIN_SHIFT = 0.2  # m: smaller corrections are survey noise
 GAP = 2 * STEP  # m: unplaced vertices between placed ones this close follow them; a longer run stays put
 OFF_STREET = 0.5  # m: a vertex farther than this from every surveyed street part is not on the street
 STRUCTURE = ("BRIDGE", "TUNNEL")
+MIN_WIDTH = 2.5  # m: a narrower surveyed carriageway still carries one car lane of this width
 
 
 def _cut(carriageway, x, z, nx, nz):
-    """Signed offset (along the normal) of the middle of the carriageway piece under (x, z), or None."""
+    """(signed offset along the normal of the middle of the carriageway piece under (x, z), the piece's width), or
+    None."""
     section = shapely.LineString([(x - nx * HALF, z - nz * HALF), (x + nx * HALF, z + nz * HALF)])
     cut = section.intersection(carriageway)
     pieces = [p for p in getattr(cut, "geoms", [cut]) if p.geom_type == "LineString" and p.length > 0.5]
@@ -40,7 +47,24 @@ def _cut(carriageway, x, z, nx, nz):
     if piece.distance(point) > REACH or piece.length > WIDE:
         return None
     middle = piece.interpolate(0.5, normalized=True)
-    return float(np.clip((middle.x - x) * nx + (middle.y - z) * nz, -MAX_SHIFT, MAX_SHIFT))
+    return float(np.clip((middle.x - x) * nx + (middle.y - z) * nz, -MAX_SHIFT, MAX_SHIFT)), float(piece.length)
+
+
+def _narrow(graph, k, widths, stats):
+    """An untagged edge of one or two lanes wider than its surveyed carriageway (median of ``widths``) takes that
+    width. A wider way can be one OSM line over two surveyed carriageways (a tram reservation between them): the piece
+    under it is then only one of them."""
+    columns = graph["edgeAttrColumns"]
+    row = graph["edgeAttrs"][k]
+    if "width" not in columns or row[columns.index("flags")] & graph["bits"]["edge_flags"]["WIDTH_TAGGED"]:
+        return
+    if row[columns.index("lanes_fwd")] + row[columns.index("lanes_bwd")] > 2:
+        return
+    surveyed = round(max(float(np.median(widths)), MIN_WIDTH), 1)
+    if surveyed < row[columns.index("width")]:
+        row[columns.index("width")] = surveyed
+        if stats is not None:
+            stats["narrowed_edges"] += 1
 
 
 def centre(graph: dict, carriageway, stats=None, streets=None) -> dict:
@@ -77,13 +101,14 @@ def centre(graph: dict, carriageway, stats=None, streets=None) -> dict:
         tangent = ahead - behind
         tangent /= np.maximum(np.linalg.norm(tangent, axis=1), 1e-9)[:, None]
         normal = np.c_[-tangent[:, 1], tangent[:, 0]]
-        offsets = [_cut(carriageway, x, z, nx, nz) for (x, z), (nx, nz) in zip(xz, normal, strict=True)]
-        known = np.array([o is not None for o in offsets])
+        cuts = [_cut(carriageway, x, z, nx, nz) for (x, z), (nx, nz) in zip(xz, normal, strict=True)]
+        known = np.array([c is not None for c in cuts])
         if streets is not None:
             known &= shapely.dwithin(streets, shapely.points(xz), OFF_STREET)
         if not known.any():
             continue
-        shift = np.where(known, [o if o is not None else 0.0 for o in offsets], 0.0)
+        _narrow(graph, k, [cuts[i][1] for i in np.flatnonzero(known)], stats)
+        shift = np.where(known, [c[0] if c is not None else 0.0 for c in cuts], 0.0)
         # An unplaced vertex between placed ones within GAP follows them; a longer unplaced run stays and is an
         # anchor like the end nodes. A lone outlier is smoothed away.
         placed = np.flatnonzero(known)

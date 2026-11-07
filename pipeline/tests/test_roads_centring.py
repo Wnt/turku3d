@@ -84,3 +84,27 @@ def test_a_short_unsurveyed_gap_between_placed_vertices_follows_them():
     centring.centre(g, road, Counter(), streets)
     middle = [z for x, z in interior(g["edges"][0]) if centring.TAPER <= x <= 80 - centring.TAPER]
     assert middle and all(abs(z - 3.0) < 0.05 for z in middle)
+
+
+def test_an_untagged_two_way_edge_takes_the_narrower_surveyed_carriageway_width():
+    """Grimburgwal: a two-way canal street with the 6.5 m default over a 3.5 m carriageway put the eastbound lane 1.6 m
+    off the middle, over the quay edge and its lamp posts. Tagged widths, wider carriageways, multi-lane ways and
+    edges off the survey keep their width."""
+    road = shapely.box(-10, 1.75, 60, 5.25)  # 3.5 m carriageway centred on the OSM line at z 3.5
+    columns = list(ATTR_COLUMNS)
+
+    def width_after(width, flags=0, lanes=(1, 1), carriageway=road):
+        g = graph([(0, 3.5), (40, 3.5)], flags=flags)
+        row = g["edgeAttrs"][0]
+        row[columns.index("width")] = width
+        row[columns.index("lanes_fwd")], row[columns.index("lanes_bwd")] = lanes
+        stats = Counter()
+        centring.centre(g, carriageway, stats)
+        return row[columns.index("width")], stats["narrowed_edges"]
+
+    assert width_after(6.5) == (3.5, 1)  # already centred: no shift, still narrowed
+    assert width_after(6.5, flags=EDGE_FLAGS["WIDTH_TAGGED"]) == (6.5, 0)
+    assert width_after(3.2) == (3.2, 0)  # a one-lane default narrower than the street stays
+    assert width_after(13.0, lanes=(2, 2)) == (13.0, 0)
+    assert width_after(6.5, carriageway=shapely.box(-10, 2.5, 60, 4.5)) == (centring.MIN_WIDTH, 1)
+    assert width_after(6.5, carriageway=shapely.box(-10, 8, 60, 12)) == (6.5, 0)  # another street: not measured
