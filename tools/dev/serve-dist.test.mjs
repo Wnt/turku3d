@@ -309,3 +309,49 @@ test('--public serves only the game and its services: no uploads, internals or d
     fs.rmSync(path.join(dir, '.secret')); fs.rmSync(path.join(dir, 'version.json'));
   }
 });
+
+test('under systemd it accepts on the inherited socket, and SIGTERM lets the request in flight finish', async () => {
+  const http = (await import('node:http')).default;
+  const glb = Buffer.alloc(300000, 9); glb.write('glTF', 0);
+  const slow = http.createServer((req, res) => setTimeout(() => {
+    res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length, 'Cache-Control': 'public,max-age=31536000,immutable' });
+    res.end(glb);
+  }, 800));
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  // The socket systemd would hold: bound and listening before the server starts, handed over as fd 3.
+  const activate = [
+    'import os, socket, sys',
+    's = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(64)',
+    'print(s.getsockname()[1], flush=True)',
+    'os.dup2(s.fileno(), 3); os.set_inheritable(3, True)',
+    'os.environ["LISTEN_FDS"] = "1"; os.environ.pop("LISTEN_PID", None)',
+    'os.execv(sys.argv[1], sys.argv[1:])',
+  ].join('\n');
+  const child = spawn('python3', ['-c', activate, process.execPath, new URL('./serve-dist.mjs', import.meta.url).pathname,
+    '--root', dir, '--public', '--coarse', `http://127.0.0.1:${slow.address().port}`]);
+  const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
+  try {
+    const port = await new Promise((resolve, reject) => {
+      let text = '';
+      child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+      child.stdout.on('data', (d) => {
+        text += d;
+        if (/serve-dist: .*\(systemd socket\)/.test(text)) resolve(Number(text.split('\n')[0]));
+      });
+    });
+    const answer = new Promise((resolve) => http.get({ host: '127.0.0.1', port, path: `/coarse/_v/${'a'.repeat(64)}/t0_0_0/vis.glb`,
+      headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => resolve({ x, body: Buffer.concat(c) })); }));
+    await new Promise((r) => setTimeout(r, 200));
+    const stopped = Date.now();
+    child.kill('SIGTERM'); // a restart while the payload is in flight
+    const { x, body } = await answer;
+    assert.equal(x.statusCode, 200);
+    assert.equal(Number(x.headers['content-length']), body.length);
+    assert.ok(zlib.brotliDecompressSync(body).equals(glb), 'the drained answer is whole');
+    assert.equal(await exited, 0);
+    assert.ok(Date.now() - stopped < 3000, 'the drain ends with the last request, not at its cap');
+  } finally {
+    child.kill('SIGKILL');
+    await new Promise((r) => { slow.closeAllConnections?.(); slow.close(r); });
+  }
+});

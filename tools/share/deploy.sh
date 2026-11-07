@@ -30,6 +30,8 @@
 #   city-mp         server/index.js, 127.0.0.1:7782, TURKU_MP_ORIGINS=https://city.lab.madekivi.fi, own scores dir;
 #                   restarted only when server/ changes (players reconnect with their session)
 #   city-forwarder  forwarder-agent --tunnel city:http:city.lab.madekivi.fi:7780 (token: ~/.config/turku3d/forwarder.env)
+# city-web and city-tiles listen on city-web.socket / city-tiles.socket (socket activation, tools/dev/systemdListen.mjs):
+# a restart drains the requests in flight and new ones wait in the held socket, so a deploy answers nobody 502.
 # The farm, scenery and COPC services the share reads run as shared-tiles, local-horizon and lidar-copc user units.
 #
 # Env overrides: TURKU3D_SHARE_REPO, TURKU3D_SHARE_SSH (osgallery-dev), TURKU3D_SHARE_PIN (a tile-service.json),
@@ -157,11 +159,19 @@ mv "$STAGE/tiles.json" "$C/tiles.json.tmp" && mv "$C/tiles.json.tmp" "$C/tiles.j
 # Switch, install units, restart what changed, prune old releases (never the ones `current` or `mp` use).
 ln -sfn "releases/$SHA" "$C/current.new" && mv -T "$C/current.new" "$C/current"
 changed=''
-for f in "$C"/current/src/tools/share/units/*.service; do
-  cmp -s "$f" "$U/$(basename "$f")" || { cp "$f" "$U/"; changed="$changed $(basename "$f" .service)"; }
+for f in "$C"/current/src/tools/share/units/*.service "$C"/current/src/tools/share/units/*.socket; do
+  u=$(basename "$f")
+  cmp -s "$f" "$U/$u" || { cp "$f" "$U/"; changed="$changed ${u%.service}"; }
 done
 systemctl --user daemon-reload
-systemctl --user enable -q city-web city-tiles city-mp city-forwarder
+systemctl --user enable -q city-web city-tiles city-mp city-forwarder city-web.socket city-tiles.socket
+# city-web and city-tiles accept on sockets systemd holds across their restarts (requests wait instead of failing).
+# A new or changed socket takes over the port its service bound itself (or the old socket): stop the service first.
+for s in city-tiles city-web; do
+  if [[ " $changed " == *" $s.socket "* ]] || ! systemctl --user is-active -q "$s.socket"; then
+    systemctl --user stop "$s"; systemctl --user restart "$s.socket"
+  fi
+done
 mp_tree=$(cat "$C/mp/src/server.tree" 2>/dev/null || true)
 if [ "$mp_tree" != "$SERVER_TREE" ] || [[ " $changed " == *' city-mp '* ]] || ! systemctl --user is-active -q city-mp; then
   ln -sfn "releases/$SHA" "$C/mp.new" && mv -T "$C/mp.new" "$C/mp"

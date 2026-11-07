@@ -3,6 +3,8 @@
 # With `follow: "train"` each tile comes from the newest train<N> alias (same base generation) that finished it, else the pin.
 [Unit]
 Description=Turku3D city share: tile proxy on 127.0.0.1:7781
+After=city-tiles.socket
+Requires=city-tiles.socket
 
 [Service]
 Type=simple
@@ -10,6 +12,7 @@ WorkingDirectory=%h/turku3d-local/city/current/src
 ExecStart=/usr/bin/node scripts/dev/shared-tile-proxy.mjs 7781 %h/turku3d-local/city/tiles.json
 Restart=always
 RestartSec=3
+# SIGTERM drains the requests in flight (at most 4 s, tools/dev/systemdListen.mjs) before the process exits.
 TimeoutStopSec=10
 UMask=0077
 NoNewPrivileges=true

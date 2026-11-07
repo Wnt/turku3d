@@ -1,0 +1,12 @@
+# Installed by tools/share/deploy.sh. city-tiles' listener, held by systemd across restarts (socket activation):
+# city-web's tile requests wait in this backlog while city-tiles restarts instead of failing over to 503.
+[Unit]
+Description=Turku3D city share: city-tiles listening socket 127.0.0.1:7781
+
+[Socket]
+ListenStream=127.0.0.1:7781
+NoDelay=true
+Backlog=1024
+
+[Install]
+WantedBy=sockets.target

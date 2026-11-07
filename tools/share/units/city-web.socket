@@ -1,0 +1,13 @@
+# Installed by tools/share/deploy.sh. city-web's listener, held by systemd across restarts (socket activation):
+# requests that reach the share while city-web restarts wait in this backlog instead of being refused (the tunnel
+# answered those 502). serve-dist.mjs accepts on the inherited fd (tools/dev/systemdListen.mjs).
+[Unit]
+Description=Turku3D city share: city-web listening socket 127.0.0.1:7780
+
+[Socket]
+ListenStream=127.0.0.1:7780
+NoDelay=true
+Backlog=1024
+
+[Install]
+WantedBy=sockets.target

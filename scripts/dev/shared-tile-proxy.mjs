@@ -374,5 +374,7 @@ export function createSharedTileProxy(configFile) {
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const [port, config] = process.argv.slice(2);
   if (!port || !config) throw new Error('Usage: shared-tile-proxy.mjs PORT CONFIG.json');
-  createSharedTileProxy(config).listen(Number(port), '127.0.0.1', () => console.log(`shared tiles proxy :${port}`));
+  // Under systemd the unit's socket is inherited (connections wait across a restart); SIGTERM drains.
+  const { listen } = await import('../../tools/dev/systemdListen.mjs');
+  listen(createSharedTileProxy(config), { port: Number(port), onListening: inherited => console.log(`shared tiles proxy :${port}${inherited ? ' (systemd socket)' : ''}`) });
 }

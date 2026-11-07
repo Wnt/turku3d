@@ -33,6 +33,7 @@ import path from 'node:path';
 import { workRoot, port } from './environment.mjs';
 import { candidatesRoot, facadeCandidates, isFacadeCandidates } from './facadeCandidates.mjs';
 import { coarseProxy, publicProxy, resolveUnder, serveFile, telemetryHandler } from './http.mjs';
+import { listen } from './systemdListen.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -149,7 +150,10 @@ async function handler(req, res) {
 if (!fs.existsSync(ROOT)) { console.error(`root ${ROOT} does not exist`); process.exit(2); }
 const server = http.createServer((req, res) => handler(req, res).catch((e) => { console.error(e); if (!res.headersSent) res.writeHead(500); res.end(); }));
 // The multiplayer socket: the raw upgrade request goes to the server, which checks its Origin and path itself.
+const upgraded = new Set(); // multiplayer pipes: a restart ends them at once (clients reconnect) instead of holding its drain
 if (MP) server.on('upgrade', (req, socket, head) => {
+  upgraded.add(socket);
+  socket.on('close', () => upgraded.delete(socket));
   const upstream = net.connect(Number(MP.port), MP.hostname, () => {
     const lines = [`${req.method} ${req.url} HTTP/${req.httpVersion}`];
     for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
@@ -163,8 +167,10 @@ if (MP) server.on('upgrade', (req, socket, head) => {
   socket.on('close', () => upstream.destroy());
   upstream.on('close', () => socket.destroy());
 });
-server.listen(PORT, HOST, () => {
-  console.log(`serve-dist: http://${HOST}:${server.address().port}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}`);
+// Under systemd the unit's socket is inherited (connections wait across a restart); SIGTERM drains (systemdListen.mjs).
+listen(server, { port: PORT, host: HOST, onStop: () => upgraded.forEach((s) => s.destroy()), onListening: (inherited) => {
+  const a = server.address();
+  console.log(`serve-dist: http://${a.address}:${a.port}/ -> ${ROOT}${MOUNTS.map(([p, d]) => `\n  ${p}/ -> ${d}`).join('')}${inherited ? ' (systemd socket)' : ''}`);
   console.log(PUBLIC ? `  public: GET/HEAD only, /coarse -> ${COARSE.origin}${MP ? `, multiplayer -> ${MP.origin}` : ''}`
     : `  COOP/COEP on, brotli ${COMPRESS ? 'on' : 'off'}, ranges on, POST /telemetry -> ${TELEMETRY_DIR}`);
-});
+} });
