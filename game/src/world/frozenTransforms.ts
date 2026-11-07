@@ -26,6 +26,16 @@ export class StaticGroup extends THREE.Group {
   }
 }
 
+/** The root of a pooled actor that is often hidden (the player's truck rig, remote players' trucks): while hidden its
+ *  subtree's matrices are not recomposed by every frame's scene.updateMatrixWorld (a hidden truck rig is ~140 nodes).
+ *  Shown again, the root composes its own matrix and so updates every node below it in that frame's update. */
+export class ActorGroup extends THREE.Group {
+  override updateMatrixWorld(force?: boolean) {
+    if (!this.visible) { this.matrixWorldNeedsUpdate = true; return; }
+    updateMatrixWorld.call(this, force);
+  }
+}
+
 /** Add a node whose local matrix is fixed (`matrixAutoUpdate` off) under `parent`, with its world matrix composed now.
  *  Neither a frozen model nor the non-forcing scene root ever composes such a node, so without this it keeps its
  *  creation-time world matrix (identity) and draws at the parent's local origin: scenery cell trees 2026-11-05. */

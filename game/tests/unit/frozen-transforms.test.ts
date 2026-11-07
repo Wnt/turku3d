@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { StaticGroup, attachStatic, freezeModel } from '../../src/world/frozenTransforms';
+import { ActorGroup, StaticGroup, attachStatic, freezeModel } from '../../src/world/frozenTransforms';
 
 /** A tile owner with placed building clones (wrapper > root > two meshes), as BuildingModels.attach builds them. */
 function tile(placements: number, frozen: boolean) {
@@ -67,4 +67,17 @@ test('a fixed-matrix node attached under a frozen model is composed at once, pla
   expect(at(plain)).toEqual([0, 0, 0]); // the failure mode the helper exists for
   expect(at(attached)).toEqual([-740, 2, 770]);
   expect(at(attached.children[0])).toEqual([-740, 2, 770]);
+});
+
+test('a hidden actor root skips its subtree in the world update and is current again in the frame it shows', () => {
+  const scene = new THREE.Scene(), actor = new ActorGroup(), wheel = new THREE.Mesh();
+  wheel.position.set(1, 0, 0); actor.add(wheel); scene.add(actor);
+  scene.matrixAutoUpdate = false; // as main.ts
+  actor.visible = false; actor.position.set(10, 0, 0);
+  const compose = vi.spyOn(THREE.Matrix4.prototype, 'compose');
+  try { scene.updateMatrixWorld(); expect(compose).not.toHaveBeenCalled(); } finally { compose.mockRestore(); }
+  actor.visible = true; scene.updateMatrixWorld();
+  expect(wheel.matrixWorld.elements[12]).toBe(11);
+  actor.position.x = 20; scene.updateMatrixWorld();
+  expect(wheel.matrixWorld.elements[12]).toBe(21);
 });

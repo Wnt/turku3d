@@ -262,7 +262,10 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     mesh.boundingSphere!.center.sub(centre);mesh.boundingSphere!.radius+=.001;
     mesh.castShadow = true; mesh.receiveShadow = true;
     const lod = new THREE.LOD(); lod.position.copy(centre);
-    lod.addLevel(mesh, 0); lod.addLevel(new THREE.Object3D(), 110);
+    // The far level is an empty node that never moves: composed once, not by every frame's scene update (110 such
+    // nodes composed per frame in a Windows drive census, frame-mp win-drive-4).
+    const far = new THREE.Object3D(); far.matrixAutoUpdate = false;
+    lod.addLevel(mesh, 0); lod.addLevel(far, 110);
     root.add(lod);
   }
   const instances=[...cells.values()].reduce((sum,rows)=>sum+rows.length,0);
