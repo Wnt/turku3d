@@ -177,7 +177,8 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   if (model.userData.scenery || prepared.has(model) || model.getObjectByName('facade-modules')) return;
   model.updateWorldMatrix(true, true);
   const inverse = model.matrixWorld.clone().invert();
-  const cells = new Map<string, { matrix: THREE.Matrix4; colour: THREE.Color; plane: THREE.Plane }[]>();
+  // Keyed by the 64 m cell as one number (insertion order is the same as with the former string keys).
+  const cells = new Map<number, { matrix: THREE.Matrix4; colour: THREE.Color; plane: THREE.Plane }[]>();
   const up = new THREE.Vector3(0, 1, 0), scale = new THREE.Vector3(), position = new THREE.Vector3(), centreOf = new THREE.Vector3();
   const basis = new THREE.Matrix4(), normalMatrix = new THREE.Matrix3(), side = new THREE.Vector3(), back = new THREE.Vector3();
   const profiles = new Float64Array(35);
@@ -189,13 +190,14 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
   let openingCount=0;
   for(const source of sources){
     const transform = inverse.clone().multiply(source.matrixWorld);
+    normalMatrix.getNormalMatrix(transform);
     for (const opening of yield* openingSteps(source.geometry)) {
       if(openingCount++%32===0)yield;
       const { origin, tangent, normal, width:w, height:h } = opening;
       // Box profiles are X-symmetric; derive their orientation from the wall
       // normal so mirrored UVs never create unsupported negative instances.
       basis.makeBasis(side.copy(normal).cross(up).normalize(),up,back.copy(normal).negate());
-      const wallNormal=normal.clone().applyNormalMatrix(normalMatrix.getNormalMatrix(transform));
+      const wallNormal=normal.clone().applyNormalMatrix(normalMatrix);
       const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(wallNormal,position.copy(origin).applyMatrix4(transform));
       // Five capped profiles / 50 triangles per opening. Frames sit in the existing reveal;
       // a shallow metal sill extends past its outer face and sheds rain.
@@ -209,7 +211,7 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
         position.copy(origin).addScaledVector(tangent, x).addScaledVector(up, y).addScaledVector(normal, z);
         const matrix = new THREE.Matrix4().copy(basis).scale(scale.set(profiles[k + 3], profiles[k + 4], profiles[k + 5])).setPosition(position).premultiply(transform);
         const p = centreOf.setFromMatrixPosition(matrix);
-        const key = `${Math.floor(p.x/64)}/${Math.floor(p.z/64)}`;
+        const key = (Math.floor(p.x/64) + 32768) * 65536 + Math.floor(p.z/64) + 32768;
         const rows = cells.get(key) ?? []; if (!cells.has(key)) cells.set(key, rows);
         rows.push({matrix, colour:sill ? opening.trim : opening.frame,plane});
       }
