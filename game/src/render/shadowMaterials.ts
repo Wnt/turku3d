@@ -51,6 +51,16 @@ export class ShadowMaterials {
   }
 }
 
+/** What r186's shadow pass takes from each caster's material (Renderer._getShadowNodes). */
+export interface ShadowNodes { version: number; colorNode: THREE.Node | null; depthNode: THREE.Node | null; positionNode: THREE.Node | null }
+/** Whether a caster's shadow depends on its alpha: an alpha test or a mask discards, a cast-shadow node colours the
+ *  transmitted shadow (off here: PCF, render/renderer.ts). Otherwise the shadow pass writes depth whatever the alpha. */
+export function shadowReadsAlpha(material: THREE.Material) {
+  const m = material as THREE.NodeMaterial;
+  return m.alphaTest > 0 || m.castShadowNode?.isNode === true || m.maskShadowNode?.isNode === true || m.maskNode?.isNode === true;
+}
+const baseShadowNodes = (THREE.WebGPURenderer.prototype as unknown as { _getShadowNodes(material: THREE.Material): ShadowNodes })._getShadowNodes;
+
 type Draw = Parameters<THREE.WebGPURenderer['renderObject']>;
 export interface ShadowPass { override: THREE.Material; camera: THREE.Camera; target: THREE.RenderTarget | null;
   mrt: ReturnType<THREE.WebGPURenderer['getMRT']>; depth: number; context: THREE.WebGPURenderer['contextNode'] }
@@ -70,6 +80,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
   /** Every node-program build, for `__render.census()`. */
   readonly builds = new BuildLog();
   private shadowMaterials = new ShadowMaterials();
+  private opaqueShadows = new WeakMap<ShadowNodes, ShadowNodes>();
   private readonly shadowContext = this.contextNode;
   /** Each live cascade's shadow draw state, keyed by three's per-light override material: preparation builds tiles'
    * shadow programs ahead with it (render/post.ts) instead of each new caster building them inside a frame (147 of
@@ -156,6 +167,18 @@ export class GameRenderer extends THREE.WebGPURenderer {
     finally { scope?.end(); self._currentRenderBundle = outer; }
   }
   override dispose() { this.releaseModules?.(); this.staticRefresh?.release(); this.geometryPool?.release(); this.uniformPool?.release(); this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  /** r186 gives a textured or colour-graph caster's shadow its alpha through a node bound to that material
+   *  (reference('map', 'texture', material).a, or its colorNode's alpha). Node ids are part of the program key, so each
+   *  such material built its own shadow program, carrying its colour graph and a map sample per shadow fragment:
+   *  every player-character part at the play switch, every landmark wall. Where nothing reads the alpha
+   *  (shadowReadsAlpha), the caster keeps only its depth and position nodes and shares the plain shadow program. */
+  _getShadowNodes(material: THREE.Material): ShadowNodes {
+    const nodes = baseShadowNodes.call(this, material);
+    if (nodes.colorNode === null || shadowReadsAlpha(material)) return nodes;
+    let opaque = this.opaqueShadows.get(nodes);
+    if (!opaque) this.opaqueShadows.set(nodes, opaque = { ...nodes, colorNode: null });
+    return opaque;
+  }
   override renderObject(object: Draw[0], scene: Draw[1], camera: Draw[2], geometry: Draw[3], material: Draw[4],
     group: Draw[5], lights: Draw[6], clipping: Draw[7] = null, pass: Draw[8] = null) {
     if (!hasDrawVertices(geometry, group)) return;

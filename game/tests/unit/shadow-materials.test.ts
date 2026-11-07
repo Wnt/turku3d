@@ -5,7 +5,8 @@ import RenderObjects from 'three/src/renderers/common/RenderObjects.js';
 // @ts-expect-error r186 render-object internals have no DefinitelyTyped declarations.
 import RenderObject from 'three/src/renderers/common/RenderObject.js';
 import { NormalPrepass } from '../../src/render/normalPrepass';
-import { GameRenderer, ShadowMaterials, hasDrawVertices } from '../../src/render/shadowMaterials';
+import { GameRenderer, ShadowMaterials, hasDrawVertices, shadowReadsAlpha } from '../../src/render/shadowMaterials';
+import { bool, positionLocal } from 'three/tsl';
 
 test('empty geometry, groups and disjoint draw ranges are skipped before pass encoding', () => {
   const geometry = new THREE.BufferGeometry();
@@ -82,4 +83,28 @@ test('normal alpha identifies wet minerals across alternating receivers and auth
   expect(prepass.select(leaf)).toBeNull();
   expect(leaf.userData.weatherReceiver).toBe(0);
   prepass.dispose();
+});
+
+test('casters whose shadow reads no alpha keep only their position and depth nodes: one shadow program for all', () => {
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const own = (renderer as unknown as { _getShadowNodes(m: THREE.Material): { colorNode: unknown; positionNode: unknown; depthNode: unknown } });
+  const base = (THREE.WebGPURenderer.prototype as unknown as typeof own)._getShadowNodes;
+  const [a, b] = [new THREE.Texture(), new THREE.Texture()].map(map => new THREE.MeshStandardNodeMaterial({ map }));
+  // r186: an alpha node bound to each material (node ids are in the program key).
+  expect(base.call(renderer, a).colorNode).not.toBeNull();
+  expect(base.call(renderer, a).colorNode).not.toBe(base.call(renderer, b).colorNode);
+  expect(own._getShadowNodes(a).colorNode).toBeNull();
+  expect(own._getShadowNodes(a)).toBe(own._getShadowNodes(a));
+  // A vertex program still moves the shadow (walkers' VAT, wind).
+  const moved = new THREE.MeshStandardNodeMaterial({ map: new THREE.Texture() });
+  moved.positionNode = positionLocal.add(1);
+  expect(own._getShadowNodes(moved).positionNode).toBe(moved.positionNode);
+  expect(own._getShadowNodes(moved).colorNode).toBeNull();
+  // Cutouts, masks and dissolve twins discard by alpha: r186's nodes stay.
+  const cutout = new THREE.MeshStandardNodeMaterial({ map: new THREE.Texture(), alphaTest: 0.5 });
+  expect(own._getShadowNodes(cutout).colorNode).not.toBeNull();
+  const masked = new THREE.MeshStandardNodeMaterial(); masked.maskShadowNode = bool(true);
+  expect(own._getShadowNodes(masked).colorNode).not.toBeNull();
+  expect(shadowReadsAlpha(a)).toBe(false);
+  expect(shadowReadsAlpha(cutout)).toBe(true);
 });
