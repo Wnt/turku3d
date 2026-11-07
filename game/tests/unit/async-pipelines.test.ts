@@ -34,10 +34,10 @@ test('r186 draws only once a pipeline isReady, right after updateForRender (the 
   expect(source).toMatch(/this\._pipelines\.updateForRender\( renderObject \);\s*\/\/\s*if \( this\._pipelines\.isReady\( renderObject \) \)/);
 });
 
-test('live first-use draws create at most the frame budget of new shader modules; the rest wait for a later frame', async () => {
+test('live first-use draws take new shader modules from a wall-time budget; the rest wait for a later frame', async () => {
   const { ShaderModuleBudget } = await import('../../src/render/shaderModules');
-  let frame = 1;
-  const budget = new ShaderModuleBudget(() => frame, 3);
+  let now = 0;
+  const budget = new ShaderModuleBudget(() => now, 10, 3); // 10 ms per module, at most 3 saved up
   const device = { createShaderModule: (descriptor: unknown) => ({ descriptor }) };
   budget.wrap(device);
   const programs = { vertex: new Map<string, unknown>(), fragment: new Map<string, unknown>() };
@@ -58,14 +58,16 @@ test('live first-use draws create at most the frame budget of new shader modules
   asyncFirstUsePipelines(pipelines as never, () => true, budget);
   const draw = (name: string, vs: string, fs: string) => ({ name, getNodeBuilderState: () => ({ vertexShader: vs, fragmentShader: fs }) });
   const a = draw('a', 'va', 'fa'), b = draw('b', 'vb', 'fb'), c = draw('c', 'va', 'fa'), d = draw('d', 'vd', 'fd');
-  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
-  // a creates two modules; b needs two more (over 3) and waits; c reuses a's program; d waits too.
+  const frame = () => { for (const x of [a, b, c, d]) pipelines.updateForRender(x); };
+  frame();
+  // a spends two of the three saved modules; b needs two more and waits; c reuses a's program; d waits too.
   expect(requested).toEqual(['a', 'c']);
-  frame++;
-  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
+  expect(budget.takeDeferred()).toBe(2);
+  now += 10; frame(); // one more module's worth: b goes, d still waits
   expect(requested).toEqual(['a', 'c', 'b']);
-  frame++;
-  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
+  now += 5; frame();  // half a module: d waits
+  expect(requested).toEqual(['a', 'c', 'b']);
+  now += 200; frame(); // a slow frame saved up the maximum
   expect(requested).toEqual(['a', 'c', 'b', 'd']);
   expect(budget.created).toBe(6);
 });
