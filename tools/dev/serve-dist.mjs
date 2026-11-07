@@ -22,7 +22,7 @@
 //
 // Usage: node tools/dev/serve-dist.mjs [--root <dir>] [--port PORT] [--host 127.0.0.1] [--mount /tiles=$TURKU3D_WORK/dist/tiles] [--no-compress]
 //          [--telemetry-dir <dir>] [--coarse http://127.0.0.1:PORT] [--candidates <dir>] [--public] [--mp http://127.0.0.1:PORT]
-//          [--edits <dir> [--edits-quota-mb N]] [--payload-cache-mb N]
+//          [--edits <dir> [--edits-quota-mb N]] [--payload-cache-mb N] [--restart-wait-ms N]
 import http from 'node:http';
 import net from 'node:net';
 import { captureMiddleware } from './capture.mjs';
@@ -58,7 +58,9 @@ const STATUS = /^\/coarse\/(?:_v\/[a-f0-9]{40,64}\/)?(?:status|health|want|deman
 // The game reads only these of a service status (world/coarseTiles.ts); queues, failures and generations stay inside.
 const publicStatus = publicProxy(COARSE, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) });
 // Encoded revision-named tile payloads for every player (a city's hot set is a few hundred MB compressed).
-const publicCoarse = publicProxy(COARSE, { cacheBytes: Number(opt('--payload-cache-mb', 1024)) * 1024 * 1024 });
+// A tile service restarting (a city service takes 10-20 s) is waited out for up to RESTART_WAIT_MS per payload GET.
+const RESTART_WAIT_MS = Number(opt('--restart-wait-ms', 30_000));
+const publicCoarse = publicProxy(COARSE, { cacheBytes: Number(opt('--payload-cache-mb', 1024)) * 1024 * 1024, retryMs: RESTART_WAIT_MS });
 const mp = MP && publicProxy(MP);
 // Other cities' tile services (--cities FILE): one status and one payload proxy per upstream, the file re-read on change.
 const CITIES_FILE = opt('--cities') ? expand(opt('--cities')) : null;
@@ -87,7 +89,7 @@ function cityUpstream(name) {
   if (!cityProxies.has(origin)) {
     const target = new URL(origin);
     cityProxies.set(origin, { status: publicProxy(target, { reduce: (s) => ({ state: s?.state ?? 'offline', ...(typeof s?.version === 'number' ? { version: s.version } : {}) }) }),
-      payload: publicProxy(target, { cacheBytes: 256 * 1024 * 1024 }), local: coarseProxy(target) });
+      payload: publicProxy(target, { cacheBytes: 256 * 1024 * 1024, retryMs: RESTART_WAIT_MS }), local: coarseProxy(target) });
   }
   return cityProxies.get(origin);
 }

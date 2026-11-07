@@ -169,7 +169,8 @@ const gzipAsync = (body) => new Promise((resolve, reject) => zlib.gzip(body, { l
  *  keeps the prefix under the payload's one-year immutable Cache-Control (city.lab 2026-11-07: a 385,991-byte prefix
  *  of a 1,042,328-byte GLB held a Windows player on the loading screen). An upstream body with no framing (neither a
  *  length nor chunked: it ends when the connection closes) cannot be told from a cut one, so it is served no-cache. */
-export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'], cacheBytes = 0 } = {}) {
+export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'], cacheBytes = 0,
+  retryMs = 0 } = {}) {
   const cache = encodedCache(cacheBytes);
   return (req, res) => {
     const ae = String(req.headers['accept-encoding'] ?? '');
@@ -181,17 +182,34 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
       return res.end(req.method === 'HEAD' ? undefined : hit.body);
     }
     const headers = Object.fromEntries(forwarded.filter((h) => req.headers[h] !== undefined).map((h) => [h, req.headers[h]]));
+    // `retryMs`: an upstream that refuses, resets or cuts a GET before anything went out is asked again (backoff up
+    // to 1 s) for this long, so a tile service's restart is a wait, not an error: a city service restarting during
+    // a Windows load turned 299 texture requests into 503s within 6 s, and the client gave ~20 up (verify-all, 08:45).
+    const started = Date.now();
+    let current = null, gone = false;
+    res.on('close', () => { if (!res.writableFinished) { gone = true; current?.destroy(); } }); // the player moved on
+    const retry = (n) => {
+      if (!retryMs || gone || res.headersSent || req.method !== 'GET' || Date.now() - started >= retryMs) return false;
+      setTimeout(() => attempt(n + 1), Math.min(1000, 100 * 2 ** n));
+      return true;
+    };
+    const attempt = (n = 0) => {
+    let over = false; // one outcome per attempt: a retry, an answer or a reset
     const failed = () => {
+      if (over) return;
+      over = true;
+      if (retry(n)) return;
       if (res.headersSent) return res.destroy();
       res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '1', ...ISOLATION });
       res.end('{"error":"upstream answer incomplete"}\n');
     };
-    const upstream = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers }, (up) => {
+    const upstream = current = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers }, (up) => {
       const out = { ...up.headers, ...ISOLATION };
       for (const h of ['access-control-allow-origin', 'connection', 'keep-alive', 'transfer-encoding']) delete out[h]; // hop-by-hop or same-origin
       const declared = up.headers['content-length'] === undefined ? null : Number(up.headers['content-length']);
       if (req.method === 'HEAD' || declared > WHOLE_MAX) {
         // The upstream's own length goes out with it; a cut body resets the connection, so no hop can end it cleanly.
+        over = true;
         res.writeHead(up.statusCode ?? 502, out);
         up.on('close', () => { if (!up.complete) res.destroy(); });
         return up.pipe(res);
@@ -212,12 +230,14 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
           let reduced;
           try { reduced = Buffer.from(JSON.stringify(reduce(JSON.parse(body.toString('utf8') || 'null'))) + '\n'); }
           catch { reduced = Buffer.from('{}\n'); }
+          over = true;
           res.writeHead(up.statusCode ?? 502, { ...out, 'content-length': reduced.length });
           return res.end(reduced);
         }
         const encodable = up.statusCode === 200 && !up.headers['content-encoding'] && !req.headers.range
           && ENCODABLE.test(up.headers['content-type'] ?? '');
         if (!encodable || !wanted) {
+          over = true;
           res.writeHead(up.statusCode ?? 502, { ...out, ...(encodable ? { vary: 'Accept-Encoding' } : {}), 'content-length': body.length });
           return res.end(body);
         }
@@ -230,19 +250,24 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
           if (key && cache.max && framed && /\bimmutable\b/.test(up.headers['cache-control'] ?? '') && encoded.length <= cache.max / 8) {
             cache.set(key, { headers: sent, body: encoded });
           }
-          if (res.destroyed) return;
+          if (res.destroyed || over) return;
+          over = true;
           res.writeHead(200, { ...sent, 'content-length': encoded.length });
           res.end(encoded);
         }, failed);
       });
     });
     upstream.on('error', () => {
+      if (over) return;
+      over = true;
+      if (retry(n)) return;
       if (res.headersSent) return res.destroy();
       res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '5', ...ISOLATION });
       res.end('{"state":"offline"}\n');
     });
-    res.on('close', () => { if (!res.writableFinished) upstream.destroy(); }); // the player moved on
     upstream.end();
+    };
+    attempt();
   };
 }
 
