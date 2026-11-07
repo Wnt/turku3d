@@ -164,6 +164,36 @@ test('each city is its own room: players in Turku and Espoo never see each other
   for (const ws of [turku, espoo, again]) ws.terminate();
 });
 
+test('a private room (?room=<id>) is a room of its own per city: drive tests never meet players or each other', async t => {
+  const app = await start(t);
+  const join = async path => {
+    const ws = await socket(`${app.ws}${path}`);
+    const welcome = messageOf(ws, 'welcome');
+    ws.send(JSON.stringify({ v: 2, type: 'hello' }));
+    return { ws, self: await welcome };
+  };
+  const player = await join('/');
+  const runA = await join('/?room=run-a1');
+  const runA2 = await join('/?room=run-a1');
+  const runB = await join('/city/espoo?room=run-a1');
+  // The public room sees only its player; the private Turku room its two, the private Espoo room of the same id one.
+  assert.deepEqual(player.self.players.map(p => p.id), [player.self.you.id]);
+  assert.deepEqual(runA.self.players.map(p => p.id), [runA.self.you.id]);
+  assert.equal(runA2.self.players.length, 2);
+  assert.equal(runB.self.players.length, 1);
+  assert.equal((await (await fetch(`${app.http}/live.json`)).json()).players.length, 1);
+  assert.deepEqual((await (await fetch(`${app.http}/healthz`)).json()).private, { rooms: 2, connections: 3 });
+  for (const path of ['/?room=A', '/?room=x', '/city/narnia?room=run-1', `/?room=${'a'.repeat(41)}`]) {
+    assert.equal(await denied(`${app.ws}${path}`, 'https://wnt.github.io'), 404, path);
+  }
+  // A move keeps to private rooms when it names one.
+  const arrived = messageOf(runA.ws, 'welcome');
+  runA.ws.send(JSON.stringify({ v: 2, type: 'move', room: '/city/espoo?room=run-a1' }));
+  runA.ws.send(JSON.stringify({ v: 2, type: 'hello' }));
+  assert.equal((await arrived).players.length, 2);
+  for (const ws of [player.ws, runA.ws, runA2.ws, runB.ws]) ws.terminate();
+});
+
 test('a move carries the socket to another city room: the old room sees the player go, the new one sees it arrive', async t => {
   const app = await start(t);
   const watcher = await socket(`${app.ws}/`);

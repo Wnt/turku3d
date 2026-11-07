@@ -19,6 +19,14 @@ function moveOf(data) {
  *  `/live.json?city=<name>` and `/scores/...?city=<name>`, stored under `<scores>/cities/<name>/`. */
 export const CITY_ROOMS = Object.freeze(['espoo', 'amsterdam', 'rotterdam']);
 
+/** A private room: `?room=<id>` on a city's socket path (`/?room=run-1a2b`, `/city/espoo?room=run-1a2b`) is a room
+ *  of its own for that city, made on demand: drive tests and tools play there, never in the players' room or in each
+ *  other's lanes. It keeps no scores or rounds on disk and goes PRIVATE_IDLE_MS after its last connection. */
+export const PRIVATE_ROOM = /^[a-z0-9][a-z0-9-]{2,39}$/;
+export const PRIVATE_ROOMS = 48;
+export const PRIVATE_IDLE_MS = 10 * 60_000;
+const memoryStore = { write() {}, prune() {}, rounds: () => [], writeRounds() {}, read: () => null, index: () => [] };
+
 /** Pages and localhost, plus the exact `extra` origins of a share host's own server (TURKU_MP_ORIGINS, index.js). */
 export function allowedOrigin(origin, extra = []) {
   if (origin === 'https://wnt.github.io' || (typeof origin === 'string' && extra.includes(origin))) return true;
@@ -35,8 +43,35 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
     stores.set(city, cityStore);
     rooms.set(city, new Room({ store: cityStore, now }));
   }
-  /** The room of a socket path, or null for an unknown one. */
-  const roomAt = path => path === '/' ? room : /^\/city\/[a-z]{2,24}$/.test(path) && path.slice(6) !== 'turku' ? rooms.get(path.slice(6)) ?? null : null;
+  /** Private rooms by `<city>/<id>`, and since when each one has had no connection. */
+  const privateRooms = new Map();
+  /** The room of a socket path (with an optional `?room=<id>`: a private room), or null for an unknown one. */
+  const roomAt = target => {
+    let url;
+    try { url = new URL(target, 'http://localhost'); } catch { return null; }
+    const path = url.pathname, id = url.searchParams.get('room');
+    const city = path === '/' ? 'turku' : /^\/city\/[a-z]{2,24}$/.test(path) && path.slice(6) !== 'turku' && rooms.has(path.slice(6)) ? path.slice(6) : null;
+    if (!city) return null;
+    if (id === null) return rooms.get(city);
+    if (!PRIVATE_ROOM.test(id)) return null;
+    const key = `${city}/${id}`;
+    let entry = privateRooms.get(key);
+    if (!entry) {
+      if (privateRooms.size >= PRIVATE_ROOMS) return null;
+      privateRooms.set(key, entry = { room: new Room({ store: memoryStore, now }), idleSince: null });
+    }
+    return entry.room;
+  };
+  const allRooms = () => [...rooms.values(), ...[...privateRooms.values()].map(e => e.room)];
+  /** Private rooms nobody has been in for PRIVATE_IDLE_MS go. */
+  const reapPrivate = () => {
+    const t = now();
+    for (const [key, entry] of privateRooms) {
+      if (entry.room.connections.size) entry.idleSince = null;
+      else if (entry.idleSince === null) entry.idleSince = t;
+      else if (t - entry.idleSince > PRIVATE_IDLE_MS) privateRooms.delete(key);
+    }
+  };
   const sockets = new WebSocketServer({ noServer: true, maxPayload: LIMITS.messageBytes, perMessageDeflate: false });
   const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -52,7 +87,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
     if (req.method === 'OPTIONS') { answer(204, null); return; }
     if (req.method !== 'GET') { res.setHeader('Allow', 'GET, OPTIONS'); answer(405, { error: 'method' }); return; }
     try {
-      for (const r of rooms.values()) r.tick();
+      for (const r of allRooms()) r.tick();
       const url = new URL(req.url, 'http://localhost'), path = url.pathname;
       const city = url.searchParams.get('city') ?? 'turku';
       const here = rooms.get(city), hereStore = stores.get(city);
@@ -60,7 +95,8 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
         answer(200, { ok: true, v: VERSION, hour: room.hour, connections: room.connections.size,
           online: room.livePlayers().length, stats: room.stats,
           cities: Object.fromEntries([...rooms].filter(([name]) => name !== 'turku').map(([name, r]) =>
-            [name, { connections: r.connections.size, online: r.livePlayers().length }])) });
+            [name, { connections: r.connections.size, online: r.livePlayers().length }])),
+          private: { rooms: privateRooms.size, connections: [...privateRooms.values()].reduce((n, e) => n + e.room.connections.size, 0) } });
       } else if ((path === '/live.json' || path.startsWith('/scores/')) && !here) {
         answer(404, { error: 'city' });
       } else if (path === '/live.json') {
@@ -121,7 +157,7 @@ export function createServer({ store, now = Date.now, onConnection = () => {}, o
     ws.on('close', () => room.disconnect(c));
     ws.on('error', () => { room.reject(); room.disconnect(c); });
   });
-  const tick = setInterval(() => { for (const r of rooms.values()) { r.tick(); r.flushPoses(); } }, 50);
+  const tick = setInterval(() => { for (const r of allRooms()) { r.tick(); r.flushPoses(); } reapPrivate(); }, 50);
   const ping = setInterval(() => {
     for (const ws of sockets.clients) {
       if (!ws.alive) { ws.terminate(); continue; }

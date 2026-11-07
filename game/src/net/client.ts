@@ -130,8 +130,9 @@ export class MultiplayerClient extends EventTarget {
   adopt(socket: WebSocket) {
     if (this.closed || this.ws || this.retry) return;
     if (socket.readyState !== WebSocket.OPEN) { socket.close(); this.connect(); return; }
-    this.listen(socket, loading.begin(`Multiplayer move to ${new URL(this.url).pathname}`));
-    socket.send(JSON.stringify({ v: 2, type: 'move', room: new URL(this.url).pathname }));
+    const target = new URL(this.url), room = target.pathname + target.search;
+    this.listen(socket, loading.begin(`Multiplayer move to ${room}`));
+    socket.send(JSON.stringify({ v: 2, type: 'move', room }));
     this.hello(socket);
   }
 

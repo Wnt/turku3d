@@ -174,6 +174,10 @@ describe('city switch state', () => {
     expect(multiplayerUrl(share, CITIES.espoo)).toBe('ws://127.0.0.1:7700/city/espoo');
     expect(multiplayerUrl({ ...share, search: '?mp=ws://10.0.0.2:7700/' }, CITIES.amsterdam)).toBe('ws://10.0.0.2:7700/city/amsterdam');
     expect(multiplayerUrl({ hostname: 'wnt.github.io', search: '' }, CITIES.rotterdam)).toBe('wss://turku.lab.madekivi.fi/city/rotterdam');
+    // ?room=<id>: the city's private room (drive tests); an invalid id is the players' room.
+    expect(multiplayerUrl({ ...share, search: '?room=run-1a2b' }, CITIES.turku)).toBe('ws://127.0.0.1:7700/?room=run-1a2b');
+    expect(multiplayerUrl({ ...share, search: '?room=run-1a2b' }, CITIES.espoo)).toBe('ws://127.0.0.1:7700/city/espoo?room=run-1a2b');
+    expect(multiplayerUrl({ ...share, search: '?room=Bad Id' }, CITIES.espoo)).toBe('ws://127.0.0.1:7700/city/espoo');
     expect(draftsUrl({ hostname: 'localhost' }, CITIES.espoo)).toBe('/coarse/');
     expect(draftsUrl({ hostname: 'wnt.github.io' }, CITIES.espoo)).toBeNull();
   });
