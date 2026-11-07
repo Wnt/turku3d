@@ -5,11 +5,13 @@ from functools import lru_cache
 import numpy as np
 import shapely
 
-from .tunnels import dimensions
+from .tunnels import dimensions, indoor
 
 
 def carried_roads(ways, roads):
-    """Join full source ways once per area, before tile clipping (including split carriageways)."""
+    """Join full source ways once per area, before tile clipping (including split carriageways). An indoor corridor
+    is never built (tunnels.indoor), so it carries no road: its bank repair lifted the graded passage floor of
+    Merituulentie under Tapiola's mall by 0.3 m above the clearance floors, which then carved holes in the lane."""
     tree = shapely.STRtree([line for line, _ in roads])
     result = []
     for key, line, tags in ways:
@@ -18,6 +20,7 @@ def carried_roads(ways, roads):
             tags.get("highway") in {"footway", "path", "cycleway", "pedestrian", "steps"}
             and tags.get("tunnel") != "building_passage"
             and tags.get("vault") != "barrel"
+            and not indoor(tags)
         ):
             for index in tree.query(line, predicate="crosses"):
                 road, road_tags = roads[index]

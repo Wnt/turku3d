@@ -110,6 +110,16 @@ def test_only_crossing_surface_roads_select_box_underpass():
         )
 
 
+def test_an_indoor_corridor_carries_no_road():
+    """Tapiola: mall corridors under Merituulentie's deck are never built; as carried underpasses their bank repair
+    lifted the passage floor above its clearance floors, which carved holes in the lane."""
+    line = shapely.LineString([(0, 0), (0, 20)])
+    road = (shapely.LineString([(-10, 10), (10, 10)]), {"highway": "residential"})
+    assert "road_top" in road_top.carried_roads([("a", line, {"highway": "footway"})], [road])[0][2]
+    for tags in ({"highway": "footway", "indoor": "yes"}, {"highway": "footway", "layer": "-1", "level": "2"}):
+        assert "road_top" not in road_top.carried_roads([("a", line, tags)], [road])[0][2]
+
+
 def test_carried_road_excludes_tree_crowns_and_parked_car_footprints():
     from turku3d.coarse.forests import produce
     from turku3d.coarse.parked import place
