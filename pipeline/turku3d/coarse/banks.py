@@ -415,7 +415,8 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
     from . import water_levels
 
     levels = water_levels.stage(cache, tile, inputs)
-    quays = surveyed_quays(tile)
+    # Only a tile with water reads the survey's quay edges (a dry tile has no bank to keep).
+    quays = surveyed_quays(tile) if inputs.water else []
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     water = inputs.water
