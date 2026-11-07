@@ -213,12 +213,19 @@ def passes_under(bridge, way):
     An indoor way (a station or mall corridor) runs inside the structure that carries
     the deck, such as a driveway over a building set into a slope. It asks no road
     headroom, supports or stair access: lifting the deck over it raises a free span
-    metres above the roof and drags the surrounding terrain up with it.
+    metres above the roof and drags the surrounding terrain up with it. Neither does a way
+    in a tunnel below the ground (``tunnel=yes`` at layer or level -1 and deeper): Tapiola
+    Park's access tunnel under Merituulentie (layer -2) asked road headroom above the street
+    and lifted the bridge over a cycleway underpass 3-5 m above both approaches.
     """
     if way["id"] in bridge.get("members", [bridge["id"]]):
         return False
     tags = way.get("tags", {})
     if tags.get("indoor") not in (None, "no") or tags.get("highway") == "corridor":
+        return False
+    from .tunnels import depth
+
+    if tags.get("tunnel", "no") not in ("no", "building_passage", "covered") and (depth(tags) or 0) <= -1:
         return False
     if way["layer"] > bridge["layer"] or (way["bridge"] and way["layer"] >= bridge["layer"]):
         return False

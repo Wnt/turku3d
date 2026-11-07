@@ -85,6 +85,20 @@ def test_indoor_corridor_below_a_roof_driveway_asks_no_headroom():
     assert not passes_under(deck, corridor)
 
 
+def test_a_way_in_a_tunnel_below_ground_asks_no_headroom():
+    """Tapiola: Merituulentie's short bridge over a cycleway underpass also crosses Tapiola Park's access tunnel
+    (highway=service, tunnel=yes, layer -2); its road headroom over the street lifted the deck 3-5 m."""
+    deck = way("merituulentie", [(0, 0), (15, 0)])
+    lower = way("tunnel", [(7, -30), (7, 30)], layer=-2, bridge=False)
+    for tags in ({"highway": "service", "tunnel": "yes", "layer": "-2"}, {"highway": "service", "tunnel": "yes", "level": "-1"}):
+        lower["tags"] = tags
+        assert not passes_under(deck, lower)
+    # A way at grade under the deck, or under a canopy, still asks its headroom.
+    for tags in ({"highway": "cycleway"}, {"highway": "service", "tunnel": "covered", "layer": "-1"}):
+        lower["tags"] = tags
+        assert passes_under(deck, lower)
+
+
 def test_clipped_neighbour_decks_share_boundary_and_never_emit_full_duplicate():
     mesh = profile_wall("bridge", [[240, 10], [260, 10]], [4, 5], [4.4, 5.4], thickness=3)
     left = clip_mesh(mesh, C.VisualTile(0, 0, 0).bbox)
