@@ -318,6 +318,32 @@ describe('population ring', () => {
     expect(mustRemove(RING.removeInView + 1, true)).toBe(true);
   });
 
+  test('the worker warms its flow up over several steps and draws no car until the replay reaches the clock', () => {
+    const world = new R.World({ x: 0, y: -9.81, z: 0 });
+    const host: TrafficHost = { ground: () => 0, resident: () => true, spawnVehicle: () => {}, bodyKind: () => null, character: () => null,
+      players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }), pushCharacter: () => {}, damageVehicle: () => {}, impact: () => null };
+    const sim = new TrafficSim(R, world, host);
+    sim.setTiles([...city()].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
+    sim.configure({ cap: 12, density: 1e6 });
+    sim.setView({ x: 200, z: 100, fx: 1, fz: 0, halfFov: 0.7 });
+    // A tick costs far more than the budget allows at once: the first step replays only a slice of the 90-150 s.
+    sim.flow.warmUpBudgetMs = 0;
+    let t = T0;
+    sim.beforeStep(t += 1 / 60);
+    expect(sim.flow.warmingUp).toBe(true);
+    expect(sim.publish()).toEqual([]);
+    // Idle worker time (loading) goes on with it.
+    const tick = sim.flow.tick;
+    sim.idle(t, 0);
+    expect(sim.flow.tick).toBe(tick + 1);
+    let steps = 1;
+    while (sim.flow.warmingUp && steps < 5000) { sim.beforeStep(t += 1 / 60); steps++; if (sim.flow.warmingUp) expect(sim.activeKeys().length).toBe(0); }
+    expect(sim.flow.warmingUp).toBe(false);
+    expect(steps).toBeGreaterThan(100);
+    for (let i = 0; i < 30; i++) sim.beforeStep(t += 1 / 60);
+    expect(sim.activeKeys().length).toBe(12);
+  });
+
   test('the worker fills the cap, then creates cars only outside the near view cone, and claims on contact', () => {
     const world = new R.World({ x: 0, y: -9.81, z: 0 });
     const spawned: string[] = [], cages: unknown[] = [], dents: { id: string; hit: { dv: readonly number[] } }[] = [];
@@ -326,6 +352,9 @@ describe('population ring', () => {
       bodyKind: handle => handle === driven ? 'driven' : null, character: () => null, players: () => ({ people: [], vehicles: [] }), player: () => ({ x: 200, y: 0, z: 100 }),
       pushCharacter: () => {}, damageVehicle: (id, hit) => dents.push({ id, hit }), impact: handle => handle === 999 ? hitter : null };
     const sim = new TrafficSim(R, world, host);
+    // The worker spreads its start-up warm-up over steps (next test); here it runs at once, so the ring sees the same
+    // clock on every machine.
+    sim.flow.warmUpBudgetMs = Infinity;
     const tiles = city();
     sim.setTiles([...tiles].map(([tile, roads]) => ({ tile, hash: roadHash(roads), bounds: [...tileBounds(tile)!] as [number, number, number, number], roads })), []);
     // Every slot carries a car (the conveyor's capacity), so the ring alone decides what is drawn.

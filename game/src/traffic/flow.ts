@@ -327,8 +327,29 @@ export class TrafficFlow {
       this.epoch ??= Math.floor(t / 60) * 60 - 90;
       this.job = null;
       this.reset(this.epoch);
-    } else if (target - this.tick > this.clockJumps.catchUp) this.skip(target - 1);
-    while (this.tick < target) this.step();
+      this.warming = true;
+    } else if (!this.warming && target - this.tick > this.clockJumps.catchUp) this.skip(target - 1);
+    if (this.warming) this.warmUp(target, this.warmUpBudgetMs);
+    else while (this.tick < target) this.step();
+  }
+
+  /** Wall time (ms) one update may spend on the warm-up replay from the epoch (at least one tick); the cars are
+   *  not drawn until it reaches the clock (`warmingUp`). Infinity replays within the update that starts it. The
+   *  physics worker sets a few ms: replaying 90-150 s at once held its first step 3.5 s on the M1 Air. */
+  warmUpBudgetMs = Infinity;
+  private warming = false;
+  /** The warm-up replay has not reached the clock yet: the flow's cars are behind it. */
+  get warmingUp() { return this.warming; }
+
+  /** Idle worker time (loading, the menu): goes on with a warm-up already started, for at most `budgetMs`. */
+  idle(t: number, budgetMs: number) {
+    if (this.warming && this.ready) this.warmUp(Math.floor((t + 1e-7) / FLOW_STEP), budgetMs);
+  }
+
+  private warmUp(target: number, budgetMs: number) {
+    const end = performance.now() + budgetMs;
+    do { if (this.tick < target) this.step(); } while (this.tick < target && performance.now() < end);
+    if (this.tick >= target) this.warming = false;
   }
 
   /** Moves the clock to `tick` without simulating the gap: the cars go on from where they are, and each source

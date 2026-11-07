@@ -101,8 +101,8 @@ interface ActiveCar {
   groundAt?: {x:number;z:number;yaw:number};
 }
 
-/** Wall time (ms) a physics step may spend on a traffic graph rebuild. */
-const REBUILD_MS_PER_STEP = 3;
+/** Wall time (ms) a physics step may spend on a traffic graph rebuild, and on the flow's start-up warm-up replay. */
+const REBUILD_MS_PER_STEP = 3, WARM_UP_MS_PER_STEP = 3;
 
 export class TrafficSim {
   readonly network = new TrafficNetwork();
@@ -144,6 +144,7 @@ export class TrafficSim {
     this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
     // A tile install rebuilds the traffic graph over several steps instead of stalling one (worker step budget).
     this.flow.rebuildBudgetMs = REBUILD_MS_PER_STEP;
+    this.flow.warmUpBudgetMs = WARM_UP_MS_PER_STEP;
     this.flow.clockJumps = LIVE_CLOCK_JUMPS;
   }
 
@@ -211,6 +212,9 @@ export class TrafficSim {
     return (wall - this.pauseOffset + this.config.offsetMs - TRAFFIC.epochMs) / 1000;
   }
 
+  /** Worker time while nothing runs (loading, the menu): goes on with the flow's warm-up for at most `budgetMs`. */
+  idle(t: number, budgetMs: number) { this.flow.idle(t, budgetMs); }
+
   /** Before one fixed substep at traffic time t: ring, poses and kinematic targets. */
   beforeStep(t: number) {
     const t0 = performance.now();
@@ -219,7 +223,11 @@ export class TrafficSim {
     this.flow.setPlayers(players.people, players.vehicles, t);
     if (!this.config.shared) this.flow.setWatchers(this.view ? [{ ...this.view }] : null);
     this.flow.update(t);
-    if (this.config.cap <= 0) { if (this.active.size) this.clear(); this.substepMs = 0; this.stats.active = this.stats.bodies = 0; return; }
+    // Nothing is drawn while the flow's warm-up replay is behind the clock (TrafficFlow.warmUpBudgetMs).
+    if (this.config.cap <= 0 || this.flow.warmingUp) {
+      if (this.active.size) this.clear();
+      this.substepMs = this.config.cap <= 0 ? 0 : performance.now() - t0; this.stats.active = this.stats.bodies = 0; return;
+    }
     if (t - this.lastActivation >= RING.activationPeriod || t < this.lastActivation) {
       const a0 = performance.now();
       this.activate(t); this.lastActivation = t;

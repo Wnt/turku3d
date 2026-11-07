@@ -29,6 +29,8 @@ ctx.onmessage = (ev: MessageEvent<ToWorker>) => {
 /** Worker time per physics tick for queued cell installs (ms): while an actor moves, while one is held at missing
  *  collision, and while nothing runs (menu, pause, start-up loading). A piece is ~1-2 ms. */
 const INSTALL_BUDGET = { running: 2, blocked: 8, idle: 12 } as const;
+/** Worker time per idle tick for the ambient traffic warm-up (TrafficSim.idle). */
+const TRAFFIC_IDLE_MS = 6;
 /** Stall reports: a tick gap longer than GAP_MS, a snapshot step longer than STEP_MS, one install piece longer
  *  than PIECE_MS. Kept until acknowledged (at most MAX_STALLS). */
 const STALL = { gapMs: 50, stepMs: 12, pieceMs: 6, max: 32 } as const;
@@ -107,6 +109,8 @@ function schedule() {
       if (pw?.traffic) {
         pw.traffic.setView(input?.view ?? null);
         pw.trafficTime = pw.traffic.clock(performance.timeOrigin + now, running);
+        // Loading and the menu leave the worker idle between install pieces: the traffic warm-up goes on there.
+        if (!running) pw.traffic.idle(pw.trafficTime, TRAFFIC_IDLE_MS);
       }
       if (input && dt > 0) {
         const s0 = performance.now();
