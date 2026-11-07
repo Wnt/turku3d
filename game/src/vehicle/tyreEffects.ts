@@ -44,12 +44,13 @@ export class TyreEffects {
   private readonly touched = new Uint8Array(TRACKS);
   private readonly reserved = new Uint8Array(33);
   private readonly particles = new Float32Array(PARTICLES * 6);
+  /** Particles whose dead (zero) matrix and opacity the buffers already hold. */
+  private readonly cleared = new Uint8Array(PARTICLES);
   private readonly point = new THREE.Vector3();
   private readonly normal = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private readonly rotation = new THREE.Quaternion();
   private readonly matrix = new THREE.Matrix4();
-  private readonly scale = new THREE.Vector3();
   private nextSegment = 0;
   private nextParticle = 0;
   private elapsed = 0;
@@ -189,6 +190,7 @@ export class TyreEffects {
     const i = this.nextParticle++ % PARTICLES, k = i * 6;
     this.particles[k] = this.point.x; this.particles[k + 1] = this.point.y + lift; this.particles[k + 2] = this.point.z;
     this.particles[k + 3] = this.elapsed; this.particles[k + 4] = strength; this.particles[k + 5] = kind;
+    this.cleared[i] = 0;
     if (this.shade.array[i] !== KINDS[kind].shade) { this.shade.array[i] = KINDS[kind].shade; this.shadeDirty = true; }
     this.smokeUntil = Math.max(this.smokeUntil, this.elapsed + KINDS[kind].life);
   }
@@ -220,17 +222,31 @@ export class TyreEffects {
     const alive = this.elapsed < this.smokeUntil;
     if (!alive && this.smokeCleared) { if (this.shadeDirty) { this.shade.needsUpdate = true; this.shadeDirty = false; } return; }
     this.smokeCleared = !alive;
+    // Billboards share the camera's rotation: Matrix4.compose's rotation terms once per frame, each scaled per particle
+    // as compose scales them. A dead particle already written dead is skipped (a fast drive keeps smoke alive: the
+    // full pass was 4.7 s of a 5.5-min Windows drive, frame-mp win-drive-4).
+    const { x, y, z, w } = camera.quaternion, x2 = x + x, y2 = y + y, z2 = z + z;
+    const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
+    const r0 = 1 - (yy + zz), r1 = xy + wz, r2 = xz - wy, r4 = xy - wz, r5 = 1 - (xx + zz), r6 = yz + wx;
+    const r8 = xz + wy, r9 = yz - wx, r10 = 1 - (xx + yy);
+    const matrices = this.smoke.instanceMatrix.array as Float32Array, opacity = this.opacity.array as Float32Array;
     for (let i = 0; i < PARTICLES; i++) {
       const k = i * 6, age = this.elapsed - this.particles[k + 3], strength = this.particles[k + 4], kind = KINDS[this.particles[k + 5]];
+      const m = i * 16;
       if (strength <= 0 || age >= kind.life) {
-        this.opacity.array[i] = 0; this.matrix.makeScale(0, 0, 0);
-      } else {
-        this.point.set(this.particles[k] + age * kind.drift, this.particles[k + 1] + age * kind.rise, this.particles[k + 2] + age * 0.1);
-        this.scale.setScalar(kind.size + age * kind.growth);
-        this.matrix.compose(this.point, camera.quaternion, this.scale);
-        this.opacity.array[i] = strength * Math.min(1, age / 0.12) * (1 - age / kind.life) * kind.opacity;
+        if (this.cleared[i]) continue;
+        this.cleared[i] = 1; opacity[i] = 0;
+        // makeScale(0, 0, 0)
+        matrices.fill(0, m, m + 15); matrices[m + 15] = 1;
+        continue;
       }
-      this.smoke.setMatrixAt(i, this.matrix);
+      const s = kind.size + age * kind.growth;
+      matrices[m] = r0 * s; matrices[m + 1] = r1 * s; matrices[m + 2] = r2 * s; matrices[m + 3] = 0;
+      matrices[m + 4] = r4 * s; matrices[m + 5] = r5 * s; matrices[m + 6] = r6 * s; matrices[m + 7] = 0;
+      matrices[m + 8] = r8 * s; matrices[m + 9] = r9 * s; matrices[m + 10] = r10 * s; matrices[m + 11] = 0;
+      matrices[m + 12] = this.particles[k] + age * kind.drift; matrices[m + 13] = this.particles[k + 1] + age * kind.rise;
+      matrices[m + 14] = this.particles[k + 2] + age * 0.1; matrices[m + 15] = 1;
+      opacity[i] = strength * Math.min(1, age / 0.12) * (1 - age / kind.life) * kind.opacity;
     }
     this.opacity.needsUpdate = this.smoke.instanceMatrix.needsUpdate = true;
     if (this.shadeDirty) { this.shade.needsUpdate = true; this.shadeDirty = false; }
