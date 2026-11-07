@@ -15,13 +15,11 @@ import type { CasterVolumes } from '../world/vegetationLod';
  *  caster in every other one (one draw per tile instead of one per 62.5 m chunk). `chunked`: every cascade takes the
  *  chunks, when the shadows end close (Environment.setShadowReach) and the outer cascades span a few chunks each. */
 export function cascadeLayerMask(cascade: number, chunked = false) {
-  const chunks = cascade === 0 || (chunked && tileShadows.shortReachChunks) || tileShadows.chunksEverywhere;
+  const chunks = cascade === 0 || chunked || tileShadows.chunksEverywhere;
   return 1 | 1 << TILE_SHADOW_LAYER | 1 << (chunks ? TILE_SHADOW_CHUNK_LAYER : TILE_SHADOW_WHOLE_LAYER);
 }
-/** A/B (?tileShadows=chunks, owner perf3): every cascade draws the per-chunk casters, as before 2026-11-03.
- *  A/B (?shortShadowChunks=0, owner frame-lowend, decided by Windows route runs at governor level 4; the losing path
- *  goes within ten merges): the short-reach cascades keep whole-tile casters (fewer draws, more triangles). */
-export const tileShadows = { chunksEverywhere: false, shortReachChunks: true };
+/** A/B (?tileShadows=chunks, owner perf3): every cascade draws the per-chunk casters, as before 2026-11-03. */
+export const tileShadows = { chunksEverywhere: false };
 import { litFraction, sampleMoved, windowUseLevels, timecycle, type TimecycleSample } from './timecycle';
 import { nightUniforms } from './nightLights';
 import { WEATHER_PRESETS, type WeatherSample } from './weather/schedule';
