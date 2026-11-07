@@ -54,6 +54,7 @@ QUEUE_MAX = 12  # queued tiles at most with a known player position; the ring al
 STATUS_ITEMS = 12  # queue entries, failures, waiting tiles and timings /coarse/status lists
 ETA_BUILDS = 8  # recent builds averaged for the queue's time estimates
 STALE_REBUILDS = 3  # a build stale on arrival is redone at most this often in a row
+CURRENT_TTL = 30.0  # s a tile's "manifest is current" verdict is reused while its manifest file is unchanged
 WORKERS = 1  # Finish the imminent crossing before spending CPU on neighbours or upgrades.
 MIME = {
     ".json": "application/json",
@@ -162,6 +163,7 @@ class Builder:
         self.recent: list[float] = []  # first-pass service seconds for deadline estimates
         self.full_recent: list[float] = []
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
+        self.current: dict[str, tuple] = {}  # tile -> ((manifest mtime, size, code), current?, checked at)
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.failure_codes: dict[str, tuple] = {}
@@ -223,7 +225,24 @@ class Builder:
         return self.root / tile / "manifest.json"
 
     def built(self, tile: str, code: str | None = None) -> bool:
-        return tile_current(self, tile, code)
+        """Whether the tile's manifest is current. Every manifest poll asks this under the scheduler lock, and the
+        full check (facade parameter hash over the building keys, the raw input key) costs 0.3-4 s on a busy host,
+        so a tile's verdict is kept while its manifest file and the producer code are unchanged, for CURRENT_TTL s
+        (raw data landing for a tile is noticed within that)."""
+        try:
+            st = self.manifest(tile).stat()
+        except OSError:
+            self.current.pop(tile, None)
+            return False
+        code = code or self.code()
+        key = (st.st_mtime_ns, st.st_size, code)
+        now = time.monotonic()
+        hit = self.current.get(tile)
+        if hit is not None and hit[0] == key and now - hit[2] < CURRENT_TTL:
+            return hit[1]
+        verdict = tile_current(self, tile, code)
+        self.current[tile] = (key, verdict, now)
+        return verdict
 
     def failure_key(self, tile):
         return failed_identity(self, tile)
