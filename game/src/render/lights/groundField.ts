@@ -2,7 +2,7 @@
 // light people, posts and foliage; this field has no per-lamp draw. Floodlit venues light every material through the
 // light set's area light instead (floodArea.ts): pitches and tracks are dry surfaces that never sample this map.
 import * as THREE from 'three/webgpu';
-import { Fn, If, float, normalWorldGeometry, positionWorld, smoothstep, texture, uniform, vec3 } from 'three/tsl';
+import { Fn, If, float, normalWorldGeometry, positionWorld, renderGroup, smoothstep, texture, uniform, vec3 } from 'three/tsl';
 import type { Lamp } from './lampField';
 import { sightBlocked } from './pools';
 import type { Footprint } from './tileScan';
@@ -12,8 +12,10 @@ const pixels = new Uint16Array(SIZE * SIZE * 4);
 const map = new THREE.DataTexture(pixels, SIZE, SIZE, THREE.RGBAFormat, THREE.HalfFloatType);
 map.minFilter = map.magFilter = THREE.LinearFilter;
 map.needsUpdate = true;
+// One value for the whole frame: render-group uniforms, so a draw's own (object) group holds none of them and an
+// unchanged ground draw skips its refresh (render/staticRefresh.ts) as the weather uniforms let it.
 export const groundLampField = {
-  map, origin: uniform(new THREE.Vector2()), night: uniform(0), ready: uniform(0),
+  map, origin: uniform(new THREE.Vector2()).setGroup(renderGroup), night: uniform(0).setGroup(renderGroup), ready: uniform(0).setGroup(renderGroup),
 };
 
 /** Added to diffuse indirect irradiance, so albedo and occlusion still shape each pool. */

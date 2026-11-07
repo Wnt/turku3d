@@ -1,0 +1,184 @@
+import { modelNormalMatrix, modelWorldMatrixInverse, velocity } from 'three/tsl';
+
+/** r186 refreshes every node-material draw in full on every frame: NodeMaterialObserver.needsRefresh returns FULL for
+ *  any material with a node property (`hasNode`) and for every draw of a pass with a velocity MRT (beauty under TRAA),
+ *  before it compares anything. A full refresh runs the program's per-object node updates, re-checks every uniform of
+ *  its object groups, every vertex attribute and every bound texture. Its `object.static` and bundle shortcuts only
+ *  ever served classic materials. Windows (Radeon 560X laptop), city.lab play: the main thread was ~100 % busy and
+ *  draws took 37 % of it (win-prof1); the M1 Max's headless play was the same (mac-fix4-1, 57 %).
+ *
+ *  A draw whose per-object state the observer can see in full takes the observer's own classic-material path: it is
+ *  refreshed once per program and pass (SHARED, so the program's shared groups and render-wide nodes still update)
+ *  and skipped after that (NONE) while `equals` finds its world matrix, material uniforms, geometry, instancing,
+ *  lights and environment unchanged. The observer sees all of it when every per-object node of the program reads only
+ *  those: the object's world matrix (Object3DNode/ModelNode scopes of matrixWorld, the normal and inverse matrices),
+ *  the draw's own material through the observer's `refreshUniforms`, motion vectors (VelocityNode) and its textures'
+ *  uv transform and flip (TextureNode; no texture transform is animated after load). A program with
+ *  any other per-object update (onObjectUpdate callbacks, texture transforms, camera-relative uniforms), or a draw with
+ *  a per-object uniform no such node owns (a value code may set at any time), keeps r186's full refresh. Bound
+ *  textures are checked per draw (identity and version, as Bindings._update does), so a swap or an upload still binds.
+ *  After any change a draw refreshes in full for one more frame: the motion-vector update keeps last frame's matrix.
+ *  `audit(frames)` runs the full update behind every skipped draw for a while and reports what it would have missed. */
+export const Refresh = { NONE: 0, SHARED: 1, FULL: 2 } as const;
+
+interface Node {
+  updateType?: string; updateBeforeType?: string; updateAfterType?: string; isUniformNode?: boolean; name?: string;
+  isMaterialReferenceNode?: boolean; material?: unknown; property?: string; scope?: string; node?: Node | null;
+  uniformNode?: Node; previousModelWorldMatrix?: Node; isUniformGroup?: boolean; _matrixUniform?: Node | null;
+  _flipYUniform?: Node | null; constructor: { type?: string };
+}
+export interface Binding {
+  isSampledTexture?: boolean; isNodeUniformsGroup?: boolean; isUniformBuffer?: boolean; isStorageBuffer?: boolean;
+  groupNode?: { shared?: boolean }; name?: string;
+  texture?: { version: number } | null; textureNode?: { value: unknown } | null; version?: number;
+  uniforms?: { nodeUniform?: { node?: Node } }[];
+  update?(): boolean; clearUpdateRanges?(): void; updateRanges?: unknown[];
+}
+export interface State { updateNodes: Iterable<Node>; updateBeforeNodes: Iterable<Node>; updateAfterNodes: Iterable<Node> }
+export interface Monitor {
+  hasAnimation: boolean; renderId: number; refreshUniforms: readonly string[];
+  hasDynamicInstancing(object: unknown): boolean; firstInitialization(renderObject: Draw): boolean;
+  getLights(lightsNode: unknown, renderId: number): unknown; equals(renderObject: Draw, lights: unknown, renderId: number): boolean;
+}
+export interface Draw {
+  object: { name?: string; isSkinnedMesh?: boolean; isBatchedMesh?: boolean; morphTargetInfluences?: unknown };
+  material?: { name?: string }; lightsNode: unknown;
+  getMonitor(): Monitor; getNodeBuilderState(): State; getBindings(): { bindings: Binding[] }[];
+}
+interface Nodes {
+  needsRefresh(renderObject: Draw): number; getNodeFrameForRender(renderObject: Draw): { renderId: number };
+  updateForRender(renderObject: Draw): void;
+}
+
+const OBJECT = 'object';
+/** Object3DNode scopes that follow from matrixWorld alone (viewPosition reads the camera too). */
+const WORLD_SCOPES = new Set(['worldMatrix', 'position', 'scale', 'direction']);
+/** r186's per-object matrix uniforms derived from matrixWorld (onObjectUpdate callbacks of its own). */
+const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse]);
+
+/** Whether the observer's `equals` covers every per-object node update of the program. */
+export function observable(state: State, refreshUniforms: readonly string[]): boolean {
+  for (const node of state.updateBeforeNodes) if (node.updateBeforeType === OBJECT) return false;
+  for (const node of state.updateAfterNodes) if (node.updateAfterType === OBJECT && node !== velocity) return false;
+  for (const node of state.updateNodes) {
+    if (node.updateType !== OBJECT) continue;
+    if (node === velocity || MATRIX_UNIFORMS.has(node) || node.isUniformGroup) continue;
+    const type = node.constructor.type;
+    // A texture's uv transform and flip: set from the texture when it is made (none is animated after load); a
+    // texture swap is a binding change texturesChanged sees.
+    if (type === 'TextureNode') continue;
+    if ((type === 'Object3DNode' || type === 'ModelNode') && WORLD_SCOPES.has(node.scope ?? '')) continue;
+    if (node.isMaterialReferenceNode && node.material === null && refreshUniforms.includes(node.property ?? '')) continue;
+    return false;
+  }
+  return true;
+}
+
+/** The uniform nodes the program's covered update nodes write. */
+export function ownedUniforms(state: State) {
+  const owned = new Set<unknown>(MATRIX_UNIFORMS);
+  for (const node of state.updateNodes) {
+    if (node.uniformNode) owned.add(node.uniformNode);
+    if (node.isMaterialReferenceNode && node.node) owned.add(node.node);
+    if (node === velocity && node.previousModelWorldMatrix) owned.add(node.previousModelWorldMatrix);
+    if (node.constructor.type === 'TextureNode') { if (node._matrixUniform) owned.add(node._matrixUniform); if (node._flipYUniform) owned.add(node._flipYUniform); }
+  }
+  return owned;
+}
+
+/** Whether every per-object buffer binding of the draw holds only uniforms the covered nodes own. Shared groups
+ *  update in the program's SHARED refresh; storage buffers and plain uniform buffers are never covered. */
+export function coveredBindings(draw: Draw, owned: Set<unknown>): boolean {
+  for (const group of draw.getBindings()) for (const binding of group.bindings) {
+    if (binding.isStorageBuffer) return false;
+    if (!binding.isUniformBuffer && !binding.isNodeUniformsGroup) continue;
+    if (binding.groupNode?.shared === true) continue;
+    if (!binding.isNodeUniformsGroup) return false;
+    for (const uniform of binding.uniforms ?? []) if (!owned.has(uniform.nodeUniform?.node)) return false;
+  }
+  return true;
+}
+
+/** Whether a bound texture changed since the draw's last full refresh: another texture behind its node, or a new version. */
+export function texturesChanged(draw: Draw): boolean {
+  for (const group of draw.getBindings()) for (const binding of group.bindings) {
+    if (!binding.isSampledTexture) continue;
+    const texture = binding.texture;
+    if (binding.textureNode && binding.textureNode.value !== texture) return true;
+    if (texture && binding.version !== texture.version) return true;
+  }
+  return false;
+}
+
+export type Audit = { frames: number; skipped: number; missed: number; rows: [string, number][] };
+
+/** Install on an initialized r186 renderer (its node manager exists). `updateBinding` uploads a uniform group (the
+ *  backend's), used only by `audit`. */
+export function staticRefresh(renderer: object) {
+  const nodes = (renderer as { _nodes: Nodes })._nodes;
+  const backend = (renderer as { backend: { updateBinding(binding: Binding): void } }).backend;
+  const info = (renderer as { info: { frame: number } }).info;
+  const needsRefresh = nodes.needsRefresh;
+  /** Per program: the uniforms its covered nodes own, or null when the observer does not cover it. */
+  const programs = new WeakMap<object, Set<unknown> | null>();
+  /** Per draw: whether its bindings are covered (a draw's bindings are created with it and never replaced). */
+  const draws = new WeakMap<Draw, boolean>();
+  /** Draws that refresh in full once more after a change (motion vectors keep last frame's matrix for one frame). */
+  const settling = new WeakSet<Draw>();
+  const stats = { full: 0, shared: 0, none: 0 };
+  let audit: { until: number; start: number; skipped: number; missed: number; rows: Map<string, number>; done: (a: Audit) => void } | null = null;
+
+  /** Audit: the full node and uniform update behind a skipped draw; a uniform it changes is a miss (uploaded now). */
+  const check = (self: Nodes, draw: Draw) => {
+    self.updateForRender(draw);
+    for (const group of draw.getBindings()) for (const binding of group.bindings) {
+      if (!binding.isNodeUniformsGroup || binding.groupNode?.shared === true || !binding.update) continue;
+      if (binding.update()) {
+        audit!.missed++;
+        const key = `${draw.object.name || '?'} | ${draw.material?.name || '?'} | ${binding.name ?? '?'}`;
+        audit!.rows.set(key, (audit!.rows.get(key) ?? 0) + 1);
+        backend.updateBinding(binding);
+      }
+      if (binding.updateRanges?.length) binding.clearUpdateRanges?.();
+    }
+  };
+
+  nodes.needsRefresh = function (this: Nodes, draw: Draw) {
+    if (audit && info.frame >= audit.until) {
+      const { start, skipped, missed, rows, done } = audit;
+      audit = null;
+      done({ frames: info.frame - start, skipped, missed, rows: [...rows].sort((a, b) => b[1] - a[1]) });
+    }
+    const state = draw.getNodeBuilderState(), monitor = draw.getMonitor();
+    let owned = programs.get(state);
+    if (owned === undefined) {
+      owned = observable(state, monitor.refreshUniforms) ? ownedUniforms(state) : null;
+      programs.set(state, owned);
+    }
+    const object = draw.object;
+    if (owned === null || monitor.hasAnimation || object.isSkinnedMesh || object.isBatchedMesh || object.morphTargetInfluences
+      || monitor.hasDynamicInstancing(object)) { stats.full++; return needsRefresh.call(this, draw); }
+    let covered = draws.get(draw);
+    if (covered === undefined) { covered = coveredBindings(draw, owned); draws.set(draw, covered); }
+    if (!covered) { stats.full++; return needsRefresh.call(this, draw); }
+    if (monitor.firstInitialization(draw)) { settling.add(draw); stats.full++; return Refresh.FULL; }
+    const { renderId } = this.getNodeFrameForRender(draw);
+    let refresh: number = Refresh.NONE;
+    if (monitor.renderId !== renderId) { monitor.renderId = renderId; refresh = Refresh.SHARED; }
+    // equals() runs every time: it keeps the observer's snapshot of this draw current.
+    const same = monitor.equals(draw, monitor.getLights(draw.lightsNode, renderId), renderId);
+    if (!same || texturesChanged(draw)) { settling.add(draw); stats.full++; return Refresh.FULL; }
+    if (settling.has(draw)) { settling.delete(draw); stats.full++; return Refresh.FULL; }
+    if (refresh === Refresh.SHARED) stats.shared++; else stats.none++;
+    if (audit) { audit.skipped++; check(this, draw); }
+    return refresh;
+  };
+  return {
+    stats,
+    /** Run the full update behind every skipped draw for `frames` frames; resolves with what it would have missed. */
+    audit(frames = 120) {
+      return new Promise<Audit>(done => { audit = { until: info.frame + frames, start: info.frame, skipped: 0, missed: 0, rows: new Map(), done }; });
+    },
+    release() { nodes.needsRefresh = needsRefresh; },
+  };
+}
