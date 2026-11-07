@@ -122,3 +122,24 @@ test('visible builds jump the queue, nearest first; detached objects leave unbui
   t = 4000; expect(builds.share).toBe(0);
   vi.unstubAllGlobals();
 });
+
+test('a draw that goes ahead hands its render object to r186\'s next lookup with the same arguments, once', () => {
+  const states = new Map<object, { nodeBuilderState?: unknown }>();
+  let lookups = 0;
+  const nodes = { nodeBuilderCache: new Map<number, unknown>(), get(object: object) { let d = states.get(object); if (!d) states.set(object, d = { nodeBuilderState: 'built' }); return d; },
+    getForRenderCacheKey: () => 1, getForRenderAsync: () => Promise.resolve() };
+  const objects = { get: (object: object) => { lookups++; return { isRenderObject: true, of: object }; } };
+  const renderer = { _nodes: nodes, _objects: objects, _currentRenderContext: 'ctx', debug: { onNodeBuilderCreated: null } } as unknown as THREE.WebGPURenderer;
+  const { ready } = asyncFirstUseBuilds(renderer, () => true);
+  const internal = renderer as unknown as { _objects: { get(...a: unknown[]): unknown } };
+  const object = new Object3D(), material = {} as THREE.Material, scene = new Scene(), camera = new PerspectiveCamera();
+  expect(ready(object, material, scene, camera, null, null, null, 'p')).toBe(true);
+  expect(lookups).toBe(1);
+  const first = internal._objects.get(object, material, scene, camera, null, 'ctx', null, 'p');   // r186's own lookup
+  expect(lookups).toBe(1); expect((first as { of: object }).of).toBe(object);
+  internal._objects.get(object, material, scene, camera, null, 'ctx', null, 'p');                  // handed over once only
+  expect(lookups).toBe(2);
+  expect(ready(object, material, scene, camera, null, null, null, 'p')).toBe(true);
+  internal._objects.get(object, material, scene, camera, null, 'ctx', null, 'other pass');         // different arguments: a real lookup
+  expect(lookups).toBe(4);
+});

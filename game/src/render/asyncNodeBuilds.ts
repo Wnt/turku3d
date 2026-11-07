@@ -75,6 +75,25 @@ const percentile = (values: number[], p: number) => {
 
 export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () => boolean, now = () => performance.now()) {
   const internal = renderer as unknown as Internals;
+  // The render object `ready` finds for its check is the one r186's _renderObjectDirect looks up again at once with the
+  // same arguments (RenderObjects.get: four WeakMap levels, then clipping, geometry and material-version checks with a
+  // dynamic cache key; about 1 % of the M1 Air's main thread during a drive). The draw that goes ahead hands it over
+  // to that next lookup instead. Plain variables, not an argument array: this runs for every draw of every pass.
+  const objects = internal._objects, lookup = objects.get.bind(objects);
+  let handed: RenderObject | null = null, hObject: unknown, hMaterial: unknown, hScene: unknown, hCamera: unknown, hLights: unknown,
+    hContext: unknown, hClipping: unknown, hPass: unknown;
+  objects.get = function (object, material, scene, camera, lightsNode, renderContext, clippingContext, passId) {
+    const renderObject = handed; handed = null;
+    if (renderObject && object === hObject && material === hMaterial && scene === hScene && camera === hCamera && lightsNode === hLights
+      && renderContext === hContext && clippingContext === hClipping && passId === hPass) return renderObject;
+    return lookup(object, material, scene, camera, lightsNode, renderContext, clippingContext, passId);
+  };
+  const handOver = (renderObject: RenderObject, object: unknown, material: unknown, scene: unknown, camera: unknown, lightsNode: unknown,
+    renderContext: unknown, clippingContext: unknown, passId: unknown) => {
+    handed = renderObject; hObject = object; hMaterial = material; hScene = scene; hCamera = camera; hLights = lightsNode;
+    hContext = renderContext; hClipping = clippingContext; hPass = passId;
+    return true;
+  };
   const pending = new Map<number, Promise<void>>();
   const waiting = new Map<number, Job>();
   let draining: Promise<void> | null = null;
@@ -104,12 +123,13 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
   let deferred = 0;
   /** True when the draw may go ahead now; false when it is skipped while its program builds after the frame. */
   const ready: (...args: Parameters<DirectDraw>) => boolean = (object, material, scene, camera, lightsNode, _group, clippingContext, passId) => {
+    handed = null;
     if (!active() || (object as { isQuadMesh?: boolean }).isQuadMesh === true) return true;
-    const nodes = internal._nodes;
-    const renderObject = internal._objects.get(object, material, scene, camera, lightsNode, internal._currentRenderContext, clippingContext, passId);
-    if (nodes.get(renderObject).nodeBuilderState !== undefined) return true;
+    const nodes = internal._nodes, context = internal._currentRenderContext;
+    const renderObject = objects.get(object, material, scene, camera, lightsNode, context, clippingContext, passId);
+    if (nodes.get(renderObject).nodeBuilderState !== undefined) return handOver(renderObject, object, material, scene, camera, lightsNode, context, clippingContext, passId);
     const key = nodes.getForRenderCacheKey(renderObject);
-    if (nodes.nodeBuilderCache.has(key)) return true;
+    if (nodes.nodeBuilderCache.has(key)) return handOver(renderObject, object, material, scene, camera, lightsNode, context, clippingContext, passId);
     const at = now(), o = object.matrixWorld?.elements, c = camera.matrixWorld?.elements;
     const distance = o && c ? Math.hypot(o[12] - c[12], o[13] - c[13], o[14] - c[14]) : Infinity;
     const job = waiting.get(key);
