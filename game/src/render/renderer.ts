@@ -5,6 +5,7 @@ import { GameRenderer } from './shadowMaterials';
 import { APPLE_REDUCED_PROBE_MS, QUALITY, renderPixelRatio, type QualityTier } from './quality';
 import { GameLighting } from './lighting';
 import { retainRendererPrograms } from './programCache';
+import { stampRendererUniformRanges } from './uniformRanges';
 import { gpuProbe, type GpuProbe } from './gpuProbe';
 
 /**
@@ -66,6 +67,7 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   await renderer.init();
   // Diagnostics (city-switch memory runs): __render.flushIdlePrograms() forgets the idle node-builder states.
   (renderer as unknown as { flushIdlePrograms?: () => void }).flushIdlePrograms = retainRendererPrograms(renderer).flush;
+  stampRendererUniformRanges(renderer);
   const backend = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend ? 'WebGPU' : 'WebGL2';
   const device = (renderer.backend as { device?: GPUDevice }).device;
   const info = device?.adapterInfo;
