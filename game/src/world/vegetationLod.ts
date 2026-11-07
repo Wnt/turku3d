@@ -9,6 +9,7 @@ import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 import { shareInstanceProgram } from '../render/instancePrograms';
 import { stableMaterial } from '../render/lodFade';
+import { StaticGroup } from './frozenTransforms';
 
 export function vegetationLevel(distance: number, range: { near:number; mid:number }) {
   return distance < range.near ? 0 : distance < range.mid ? 1 : 2;
@@ -176,7 +177,7 @@ export class VegetationLod {
   private pending = new Map<THREE.Object3D, { cancelled: boolean; promise: Promise<void> }>();
   /** With a scene, each asset LOD draws once for the whole city (census at spawn: 97 tree draws, one per species
    * per tile). Per-tile parts keep their selection, buffers and preparation but are not drawn themselves. */
-  private poolRoot: THREE.Group | null = null;
+  private poolRoot: StaticGroup | null = null;
   private pools = new Map<string, Pool>();
   /** Developer object editor previews (dev/editor): a world matrix per placement id, null hides it. Visual only. */
   private edits = new Map<string, THREE.Matrix4 | null>();
@@ -199,7 +200,7 @@ export class VegetationLod {
       if (this.disposed) return;
       this.library = lib;
       if (scene && QUALITY[tier].grass.density > 0) { this.grass = new GrassField(lib, tier); scene.add(this.grass.root); }
-      if (scene) { this.poolRoot = new THREE.Group(); this.poolRoot.name = 'vegetation-pools'; scene.add(this.poolRoot); }
+      if (scene) { this.poolRoot = new StaticGroup(); this.poolRoot.name = 'vegetation-pools'; scene.add(this.poolRoot.freeze()); }
     };
     if (library instanceof Promise) this.ready = library.then(loaded);
     else { loaded(library); this.ready = Promise.resolve(); }
@@ -445,7 +446,9 @@ export class VegetationLod {
   }
 
   private createDraw(source: THREE.InstancedMesh, owner: THREE.Object3D, asset: NatureAsset, count: number, shadows: boolean): Draw {
-    const root = new THREE.Group();
+    // Draw roots and their instanced parts never move (instances carry the trees' transforms): frozen, so the per-frame
+    // scene.updateMatrixWorld skips them (frame-mp's matrix census: ~400 vegetation nodes recomposed every frame).
+    const root = new StaticGroup();
     root.name = `vegetation-lod:${asset.name}`; root.userData.vegetationLod = true;
     root.position.copy(source.position); root.quaternion.copy(source.quaternion); root.scale.copy(source.scale);
     // One instance buffer per group: each drawn LOD, and the shadow casters, which are selected on their own.
@@ -482,7 +485,7 @@ export class VegetationLod {
     // still shades the road ahead (update, selectCasters).
     const lods = levels.length;
     if (shadows && asset.lods.length > 1) levels.push(group(asset.lods[1].parts, 0, true));
-    source.parent!.add(root);
+    source.parent!.add(root.freeze());
     return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, lods, shadow: levels.length > lods ? lods : -1, height: asset.height,
       selections: levels.map(() => []), pool: [], used: 0, previous: levels.map(() => []) };
   }
@@ -768,6 +771,7 @@ export class VegetationLod {
       this.poolRoot!.add(mesh);
       return mesh;
     });
+    this.poolRoot!.freeze();
   }
 
   remove(model: THREE.Object3D) {
