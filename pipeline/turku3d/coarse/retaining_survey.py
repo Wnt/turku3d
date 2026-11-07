@@ -124,6 +124,41 @@ def upper_side(profile) -> int:
     return 0 if np.nanmean(heights[:, 0]) > np.nanmean(heights[:, 1]) else 1
 
 
+NEAR = (0.3, 0.9)  # m off the line: the ground just beside a wall face
+FAR = (1.8, 2.4)  # m off the line: the ground beyond a slope's foot or crest
+VERTICAL_SHARE = 0.7  # of the far step that must already be there within NEAR for a wall face
+
+
+def vertical(profile, points, along=0.5) -> bool:
+    """Whether a measured step is a wall face rather than a slope: at most stations the ground within NEAR of the line
+    already differs by VERTICAL_SHARE of the difference FAR out. A BGT wall line at the foot of a planted bank (Rotterdam
+    Binnenrotte's raised lawn: a seat wall and a 2 m slope) measures a step too, but the ground climbs over metres."""
+    centres, left, right = (np.asarray(profile[k]) for k in ("centres", "left", "right"))
+    if len(centres) < 2 or not len(points):
+        return False
+    xz = points[:, [0, 2]]
+    votes = []
+    for i, c in enumerate(centres):
+        n = right[i] - left[i]
+        n = n / np.linalg.norm(n)
+        t = np.array([n[1], -n[0]])
+        rel = xz - c
+        u, v = rel @ n, rel @ t
+        near_along = np.abs(v) <= along
+        level = {}
+        for name, (a, b) in (("near", NEAR), ("far", FAR)):
+            for side, sign in (("l", -1), ("r", 1)):
+                m = near_along & (sign * u >= a) & (sign * u <= b)
+                level[name + side] = float(np.median(points[m, 1])) if m.sum() >= 3 else None
+        if None in level.values():
+            continue
+        far = level["farr"] - level["farl"]
+        if abs(far) < 0.3:
+            continue
+        votes.append((level["nearr"] - level["nearl"]) / far >= VERTICAL_SHARE)
+    return bool(votes) and sum(votes) * 2 > len(votes)
+
+
 def prepare(tile, vector, paths):
     """Complete WFS 66634 lines use raw class 2/12, never the already blended path grid."""
     if vector is None or not paths:
@@ -143,7 +178,10 @@ def prepare(tile, vector, paths):
             if not all(b.name in survey for b in C.laz_tiles_for_bbox(bounds)):
                 continue
             cloud = store.query(bounds).query(classes=[2, 12], last_return=True)
-            for index, (edge, profile) in enumerate(measure(line, ground_points(cloud))):
+            points = ground_points(cloud)
+            for index, (edge, profile) in enumerate(measure(line, points)):
+                if bgt_type == "muur" and not vertical(profile, points):
+                    continue  # a planted slope or a ramp beside the wall line, not a wall face
                 tags = {"barrier": "retaining_wall", "_survey": profile, "source": f"wfs:{key}:{index}"}
                 if bgt_type == "muur" and "lr"[upper_side(profile)] in paved:
                     tags["_parapet"] = BGT_PARAPET  # a street wall over a drop stands above the paving it retains

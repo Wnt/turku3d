@@ -223,3 +223,18 @@ def test_a_bgt_wall_over_a_ramp_drop_stands_as_a_parapet_on_the_street_side():
 def test_upper_side_is_the_higher_survey_column():
     (_, tags, _), = records(step=2.0)  # the cloud rises towards +z, the survey's right
     assert retaining_survey.upper_side(tags["_survey"]) == 1
+
+
+def test_a_slope_beside_a_bgt_wall_line_is_no_wall_face():
+    """Rotterdam Binnenrotte: a raised lawn's planted 2 m slope beside the BGT wall line measures a step, but the
+    ground climbs over metres; the Rokin garage ramp's wall drops within a few decimetres."""
+    x, z = np.meshgrid(np.arange(-4, 25, 0.2), np.arange(-4, 4.01, 0.2))
+    x, z = x.ravel(), z.ravel()
+    wall = np.c_[x, 1.2 + np.where(z > 0, 2.0, 0.0), z]
+    # a 0.5 m seat wall at the foot of a bank rising 1.5 m more over 3 m
+    bank = np.c_[x, 1.2 + np.where(z > 0, 0.5 + np.clip(z, 0, 3.0) * 0.5, 0.0), z]
+    line = shapely.LineString([(0, 0), (20, 0)])
+    (_, steep), = retaining_survey.measure(line, wall)
+    assert retaining_survey.vertical(steep, wall)
+    seat = retaining_survey.measure(line, bank)
+    assert seat and not any(retaining_survey.vertical(p, bank) for _, p in seat)
