@@ -567,8 +567,8 @@ def quay_edges(bbox, log=print):
     """Surveyed hard water edges (BGT scheiding kademuur/walbescherming) intersecting an RD bbox, as RD polygons."""
     out = []
     for _, _, p, g in bgt_features(("scheiding_vlak", "scheiding_lijn"), bbox, log):
-        if p.get("type") not in QUAY_EDGES:
-            continue
+        if p.get("type") not in QUAY_EDGES or (p.get("relatieve_hoogteligging") or 0) < 0:
+            continue  # tunnel and basement walls are not a water edge
         if g.geom_type in ("LineString", "MultiLineString"):
             g = g.buffer(QUAY_LINE_WIDTH / 2, cap_style="flat")
         if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty:
