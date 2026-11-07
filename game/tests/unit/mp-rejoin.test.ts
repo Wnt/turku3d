@@ -65,7 +65,7 @@ function setup(kind: VehicleKind, seated: boolean, source: string | null = null)
   expect(Socket.current.sent[0]).toMatchObject({ type: 'hello', session: 'a'.repeat(64) });
   const latest = { vehicles: [] as VehicleState[], character: { pos: { x: 720, y: 4, z: 800 } } };
   const physics = { latest, loaded: new Map(), step: vi.fn(),
-    resetVehicle: vi.fn((pos, _yaw, id) => { latest.vehicles = [{ ...state, id, pos }]; }), setVehicleDamage: vi.fn(),
+    resetVehicle: vi.fn((pos, _yaw, id) => { latest.vehicles = [{ ...state, id, pos }]; }), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn(),
     spawnVehicle: vi.fn((pos, _yaw, spec) => {
       latest.vehicles = [...latest.vehicles.filter(s => s.id !== spec.id),
         { ...state, id: spec.id, pos, rot: spec.rot, linvel: spec.linvel }];
