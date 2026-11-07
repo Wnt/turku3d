@@ -67,6 +67,11 @@ interface Step { lane: Lane; via: 'start' | 'move' | 'seam' | 'change'; route: M
 const U_TURN = 2.6;
 /** A car this close (m) to a lane is on its carriageway: route starts are these lanes (LaneRouter.route). */
 export const START_REACH_M = 8;
+/** A goal lane up to GOAL_NEAR_M (m) from the target costs 2 m of driving per metre it ends off the target; each metre
+ *  beyond costs GOAL_FAR_COST m, so a route drives the legal way round rather than stop tens of metres short (Espoo
+ *  Tapionaukio: the car's own lane 57 m off the target beat the 412 m legal route, and the trip "arrived" at once). */
+const GOAL_NEAR_M = 12, GOAL_FAR_COST = 25;
+const goalPenalty = (d: number) => 2 * d + Math.max(0, d - GOAL_NEAR_M) * GOAL_FAR_COST;
 
 /** A lane start this close to a lane end (m), heading within 60°, continues it even where the data has no link. */
 const NEAR_JOIN = 8, NEAR_PENALTY = 15;
@@ -274,7 +279,7 @@ export class LaneRouter {
       }
       return { ...c, penalty };
     });
-    const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }, 60, 12).map(g => [g.lane, { s: g.s, penalty: 2 * g.distance }]));
+    const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }, 60, 12).map(g => [g.lane, { s: g.s, penalty: goalPenalty(g.distance) }]));
     if (!starts.length || !goals.size) return null;
     const flow = this.graph();
     // g(lane) is the cost at the lane's start; a start lane begins s metres in.
