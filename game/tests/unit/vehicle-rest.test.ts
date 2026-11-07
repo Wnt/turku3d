@@ -32,3 +32,18 @@ test('a fleet car nobody drives falls asleep again once it stands still, and sti
   for (let k = 0; k < 600; k++) pw.fixedStep(idle, coast);
   expect(body('parked').isSleeping()).toBe(true);
 });
+
+test('an asleep car wakes on its driver\'s throttle or steering, and its state says when it sleeps', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+  pw.spawnVehicle({ x: 20, y: 1.2, z: 0 }, 0, { id: 'player', kind: 'car', tuning: modelTuning(PLAYER_MODEL)! });
+  pw.spawnCharacter({ x: 50, y: 2, z: 50 });
+  const body = (pw as unknown as { vehicles: Map<string, { body: R.RigidBody }> }).vehicles.get('player')!.body;
+  for (let k = 0; k < 240; k++) pw.fixedStep(idle, null);
+  expect(body.isSleeping()).toBe(true);
+  expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBe(true);
+  pw.driveVehicle('player'); body.sleep();
+  pw.fixedStep(null, { ...coast, steer: 0.3 });
+  expect(body.isSleeping()).toBe(false);
+  expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBeUndefined();
+});
