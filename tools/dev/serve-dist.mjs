@@ -65,12 +65,23 @@ const CITIES_FILE = opt('--cities') ? expand(opt('--cities')) : null;
 const CITY_TILES = /^\/cities\/([a-z]{2,24})(\/coarse(?:\/.*)?)$/;
 let cityMap = { mtime: -1, upstreams: {} };
 const cityProxies = new Map();
+// Re-read in the background at most every second: a synchronous stat per request stalled this whole event loop
+// whenever the loaded host's disk did (osgallery-dev, 2026-11-07).
+let citiesCheckedAt = 0, citiesReading = null;
+function refreshCities() {
+  citiesCheckedAt = Date.now();
+  citiesReading ??= fs.promises.stat(CITIES_FILE).then(async (st) => {
+    if (st.mtimeMs !== cityMap.mtime) cityMap = { mtime: st.mtimeMs, upstreams: JSON.parse(await fs.promises.readFile(CITIES_FILE, 'utf8')) ?? {} };
+  }).catch(() => { cityMap = { mtime: -1, upstreams: {} }; }).finally(() => { citiesReading = null; });
+}
+if (CITIES_FILE) {
+  try { cityMap = { mtime: fs.statSync(CITIES_FILE).mtimeMs, upstreams: JSON.parse(fs.readFileSync(CITIES_FILE, 'utf8')) ?? {} }; }
+  catch { cityMap = { mtime: -1, upstreams: {} }; }
+  citiesCheckedAt = Date.now();
+}
 function cityUpstream(name) {
   if (!CITIES_FILE) return null;
-  try {
-    const mtime = fs.statSync(CITIES_FILE).mtimeMs;
-    if (mtime !== cityMap.mtime) cityMap = { mtime, upstreams: JSON.parse(fs.readFileSync(CITIES_FILE, 'utf8')) ?? {} };
-  } catch { cityMap = { mtime: -1, upstreams: {} }; }
+  if (Date.now() - citiesCheckedAt > 1000) refreshCities();
   const origin = typeof cityMap.upstreams[name] === 'string' ? cityMap.upstreams[name] : null;
   if (!origin) return null;
   if (!cityProxies.has(origin)) {

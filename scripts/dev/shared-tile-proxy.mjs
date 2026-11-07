@@ -240,7 +240,9 @@ export function createSharedTileProxy(configFile) {
   const sceneryQuery = sceneryCache();
   return http.createServer(async (req, res) => {
     let config;
-    try { config = JSON.parse(fs.readFileSync(configFile, 'utf8')); }
+    // Read per request (a pin change applies at once), asynchronously: a synchronous read that stalls on a loaded
+    // host's disk would hold every request of this single event loop.
+    try { config = JSON.parse(await fs.promises.readFile(configFile, 'utf8')); }
     catch (error) { res.writeHead(503); res.end(JSON.stringify({ error: error.message })); return; }
     const url = new URL(req.url, 'http://local');
     const scenery = /^\/coarse\/scenery(?:\/|$)/.test(url.pathname);
