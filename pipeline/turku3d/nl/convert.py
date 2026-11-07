@@ -556,6 +556,26 @@ def lamps_bgt(bbox, log=print):
                    lambda p: {"Tasonimi": "rr:js,pylväs,valaisin", "bgt_type": "lichtmast"})
 
 
+# BGT scheiding types that are a hard water edge: masonry quay walls and bank protection (sheet piling,
+# stone revetment). The bank stage keeps the paving at their crest and drops a vertical face into the water
+# instead of grading a natural bank (turku3d.coarse.banks.surveyed_quays).
+QUAY_EDGES = ("kademuur", "walbescherming")
+QUAY_LINE_WIDTH = 0.6  # m: a scheiding line (wall axis) as a wall-top strip
+
+
+def quay_edges(bbox, log=print):
+    """Surveyed hard water edges (BGT scheiding kademuur/walbescherming) intersecting an RD bbox, as RD polygons."""
+    out = []
+    for _, _, p, g in bgt_features(("scheiding_vlak", "scheiding_lijn"), bbox, log):
+        if p.get("type") not in QUAY_EDGES:
+            continue
+        if g.geom_type in ("LineString", "MultiLineString"):
+            g = g.buffer(QUAY_LINE_WIDTH / 2, cap_style="flat")
+        if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty:
+            out.append(g)
+    return out
+
+
 ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt,
             "bgt-trees": trees_bgt, "bgt-lamps": lamps_bgt}
 

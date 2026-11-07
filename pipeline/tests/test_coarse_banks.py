@@ -95,6 +95,30 @@ def test_mapped_quay_faces_water_and_matches_collision():
     )
 
 
+def test_surveyed_quay_keeps_the_paving_level_and_finish_to_the_water():
+    # A Dutch canal street (BGT kademuur at the edge): paving at 4 m reaches the wall, no graded soil slope.
+    tile = C.VisualTile(0, 0, 0)
+    p, ix = grid_mesh(tile, np.full((CELLS + 1, CELLS + 1), 4.0))
+    water = shapely.Polygon([(90.3, -20), (130.3, 270), (300, 270), (300, -20)])
+    paved = np.full(len(ix), mat_id("cobblestone"), np.uint8)
+    args = (p, ix, paved, np.ones(len(ix), bool), [water], -0.4)
+    natural, *_ = produce(*args)
+    wall = shapely.LineString([(90.3, -20), (130.3, 270)]).buffer(0.3)
+    dry, _, bank, _ = produce(*args, quays=[wall])
+    near = shapely.distance(shapely.points(dry.positions[:, [0, 2]]), water) < 3
+    assert near.any()
+    np.testing.assert_allclose(dry.positions[near, 1], 4, atol=1e-9)
+    assert np.all(bank.material == mat_id("quay"))
+    centres = dry.positions[dry.indices].mean(axis=1)
+    shore = shapely.distance(shapely.points(centres[:, [0, 2]]), water) < 2.5
+    assert np.all(dry.material[shore] == mat_id("cobblestone"))
+    # Without the survey the same edge is a natural bank: lowered soil.
+    low = shapely.distance(shapely.points(natural.positions[:, [0, 2]]), water) < 1
+    assert natural.positions[low, 1].max() < 4
+    centres = natural.positions[natural.indices].mean(axis=1)
+    assert np.any(natural.material[shapely.distance(shapely.points(centres[:, [0, 2]]), water) < 2.5] == mat_id("soil"))
+
+
 def test_retaining_wall_selects_stone_and_dry_tile_is_unchanged():
     line = shapely.LineString([(90.3, -20), (130.3, 270)])
     *_, (_, _, bank, _) = river_mesh(barriers=[(line, {"barrier": "retaining_wall"})])

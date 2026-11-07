@@ -171,7 +171,7 @@ def pond_levels(water, paths):
 
 
 def produce(positions, indices, materials, keep, water, level, regions=(), barriers=(), ponds=(), walks=(),
-            ground=(), levels=None):
+            ground=(), levels=None, quays=()):
     """Cut both sides on the same outline, keeping grid and collision-tile constraints.
 
     Mapped quays/walls retain the surveyed rim and descend vertically. Tidal banks
@@ -181,6 +181,8 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     from 30 cm at the shore, so a ditch is never carved to sea level. Small ponds
     instead have a two-metre grassy lip and a 65 cm bed without natural vertical faces.
     The bed is collision only; the bank faces are identical in the visual and solid meshes.
+    ``quays`` are surveyed hard edges (surveyed_quays): masonry like a mapped quay, and the paving
+    beside them keeps its own finish instead of the natural bank's soil strip.
     """
     empty = Mesh(np.empty((0, 3)), np.empty((0, 3), np.uint32), np.empty(0, np.uint8))
     from . import walkable
@@ -206,6 +208,8 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
         or tags.get("man_made") in ("quay", "embankment")
         or tags.get("embankment") == "yes"
     )
+    # A surveyed wall stands at the water's edge: its masonry reaches over the whole three-metre bank blend.
+    mapped.extend(g.buffer(1.0) for g in quays)
     quay = shapely.union_all(mapped).buffer(2.0)
     def grade_ponds(points):
         height = points[:, 1].copy()
@@ -238,7 +242,10 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     # Paved quay corridors retain their surface through the shoreline cut.
     # Natural grading must not turn their last three metres into bare soil.
     paving = shapely.union_all([p["line"].buffer(p["width"] / 2) for p in walks])
-    cuts = [(body.buffer(3).difference(paving), mat_id("soil"))]
+    natural = body.buffer(3).difference(paving)
+    if len(quays):
+        natural = natural.difference(shapely.union_all(list(quays)).buffer(3.5))
+    cuts = [(natural, mat_id("soil"))]
     for pond, _ in ponds:
         cuts.extend([(pond.buffer(2), mat_id("grass")), (pond.buffer(-1), mat_id("water"))])
     cuts.append((body, mat_id("water")))
@@ -365,6 +372,31 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     return dry, wet_mesh, bank, solid
 
 
+def surveyed_quays(tile, margin=40.0):
+    """Hard water edges from the city's own survey, tile-local polygons; empty for a city without one.
+
+    Dutch cities (BGT): every canal and harbour edge is surveyed as a quay wall (kademuur) or bank protection
+    (walbescherming), while OSM rarely tags them man_made=quay. Without them each carriageway within three metres
+    of a canal was graded into a soil slope down to the water. Turku and Espoo get their quays from OSM and the
+    register paving, unchanged.
+    """
+    from turku3d import cities
+    from turku3d import config as C
+
+    if cities.require_applied().ground != "nl-ahn":
+        return []
+    from turku3d.nl import convert
+
+    window = tile.bbox.buffered(margin)
+    out = []
+    for g in convert.quay_edges(window.to_en().as_tuple()):
+        local = shapely.transform(g, lambda en: np.column_stack([en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]]))
+        local = shapely.make_valid(local).intersection(shapely.box(*window.as_tuple()))
+        if not local.is_empty and local.area > 0:
+            out.append(local)
+    return out
+
+
 def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
     from pathlib import Path
 
@@ -383,6 +415,7 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
     from . import water_levels
 
     levels = water_levels.stage(cache, tile, inputs)
+    quays = surveyed_quays(tile)
     centres = grid_pos[grid_idx].mean(axis=1)
     ids = surfaces.classify(centres, inputs.ortho, tile, inputs.streets, inputs.surfaces)
     water = inputs.water
@@ -403,9 +436,9 @@ def stage(cache, tile, grid_pos, grid_idx, inputs, keep, level, separate_decks):
             Path(__file__).parents[1] / "col/materials_v1.json",
         ),
         [grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable,
-         inputs.points, levels],
+         inputs.points, levels, quays],
         lambda: produce(
             grid_pos, grid_idx, ids, keep, water, level, inputs.surfaces, inputs.barriers, ponds, inputs.walkable,
-            inputs.points, levels
+            inputs.points, levels, quays
         ),
     )
