@@ -47,8 +47,29 @@ def dimensions(tags):
     return width, height
 
 
+# Railway objects that are areas or stops, not a way a tunnel box follows.
+RAIL_AREAS = {"station", "platform", "platform_edge", "halt", "stop", "subway_entrance"}
+
+
+def deep(tags):
+    """Mapped two or more levels below ground (layer or level <= -2)."""
+    for key in ("layer", "level"):
+        for value in str(tags.get(key, "0")).split(";"):
+            try:
+                if float(value) <= -2:
+                    return True
+            except ValueError:
+                continue
+    return False
+
+
 def selected(tags):
     if not (tags.get("highway") or tags.get("railway")):
+        return False
+    if not tags.get("highway") and (tags.get("railway") in RAIL_AREAS or deep(tags)):
+        # Metro and city rail two levels down are bored or cut-and-cover far below the street, and their mouths
+        # are mapped as shallower segments. Drawn as a clear box at grade they stood as 5 m walls across the
+        # Dam (Noord/Zuidlijn, layer -2) and the Binnenrotte.
         return False
     if tags.get("tunnel") in {"yes", "building_passage", "culvert"}:
         return True

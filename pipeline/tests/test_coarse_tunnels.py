@@ -20,6 +20,13 @@ def test_selection_and_clearance():
     assert not selected({"highway": "residential", "covered": "yes", "layer": "1"})
     assert dimensions({"highway": "trunk", "lanes": "3"}) == (11.5, 4.5)
     assert not selected({"waterway": "stream", "tunnel": "culvert"})
+    # Deep metro/rail and underground stations are not boxes at grade; a shallow rail tunnel still is.
+    assert not selected({"railway": "subway", "tunnel": "yes", "layer": "-2", "level": "-3"})
+    assert not selected({"railway": "rail", "tunnel": "yes", "level": "-2"})
+    assert not selected({"railway": "station", "layer": "-2", "location": "underground"})
+    assert not selected({"railway": "platform", "layer": "-6"})
+    assert selected({"railway": "subway", "tunnel": "yes", "layer": "-1"})
+    assert selected({"highway": "trunk", "tunnel": "yes", "layer": "-2"})
     assert dimensions({"highway": "footway"}) == (3, 2.5)
     assert dimensions({"highway": "residential", "width": "8 m"}) == (8, 4.5)
 
