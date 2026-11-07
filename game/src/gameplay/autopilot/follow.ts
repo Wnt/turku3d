@@ -67,6 +67,13 @@ const STUCK_AFTER = 2.2;
 const REVERSE_TIME = 1.8, REVERSE_M = 4;
 /** A car farther than this from its path has left it: the caller re-plans. */
 const OFF_PATH_M = 9;
+/** A turn in the street starts when the path's aim point lies this far behind the car (cosine to the heading) at a
+ *  standstill, and ends once the car faces within TURN_DONE_COS of it. */
+const TURN_START_COS = -0.2, TURN_DONE_COS = 0.6;
+/** Back-and-forth rounds of a turn in the street before the follower leaves the car to the stuck recovery. */
+const TURN_ROUNDS = 4;
+/** A turn's forward leg ends after this long (s) without moving or this long overall. */
+const TURN_FWD_STALL_S = 1.0, TURN_FWD_MAX_S = 6;
 
 export class DriveFollower {
   s = 0;
@@ -77,13 +84,21 @@ export class DriveFollower {
   private lastPose: VehiclePose | null = null;
   /** The steer of a reverse-out waiting for the caller's ground check (options.checkReverse), else null. */
   pendingReverse: number | null = null;
+  /** The pending reverse is a turn in the street's backing leg: a failed ground check skips to the forward leg
+   *  (skipTurnBack) instead of ending the trip. */
+  pendingTurn = false;
+  /** A turn in the street (the path leaves behind the car: a U-turn, a dead end): back with the lock that swings the
+   *  nose toward the path, forward with the other, until the car faces the path. Not a stuck recovery. */
+  private turn: { phase: 'back' | 'fwd'; side: number; rounds: number; fwdFor: number; stillFor: number } | null = null;
+  /** Turns in the street so far (tests, HUD). */
+  turns = 0;
   recoveries = 0;
   private readonly sample: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 };
 
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
 
   /** Swap in a re-planned path; progress restarts from the nearest point. */
-  setPath(path: Path) { this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; }
+  setPath(path: Path) { this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; }
 
   private locate(pose: VehiclePose | null) {
     if (!pose) return { s: 0, distance: 0, x: 0, z: 0, lateral: 0 };
@@ -110,8 +125,14 @@ export class DriveFollower {
   }
 
   /** Starts the reverse-out with `steer` (after the caller's ground check). */
+  /** The ground behind a turn in the street is not clear: the turn goes on with its forward leg. */
+  skipTurnBack() {
+    this.pendingReverse = null; this.pendingTurn = false;
+    if (this.turn) { this.turn.phase = 'fwd'; this.turn.fwdFor = 0; this.turn.stillFor = 0; }
+  }
+
   reverse(steer: number) {
-    this.pendingReverse = null; this.stuckFor = 0;
+    this.pendingReverse = null; this.pendingTurn = false; this.stuckFor = 0;
     this.reverseFor = REVERSE_TIME; this.reverseSteer = steer;
     this.reverseFrom = this.lastPose ? { x: this.lastPose.x, z: this.lastPose.z } : null;
   }
@@ -136,7 +157,10 @@ export class DriveFollower {
     if (this.reverseFor > 0) {
       this.reverseFor -= dt;
       const moved = this.reverseFrom ? Math.hypot(pose.x - this.reverseFrom.x, pose.z - this.reverseFrom.z) : 0;
-      if (this.reverseFor <= 0 || moved > REVERSE_M) { this.reverseFor = 0; this.stuckFor = 0; }
+      if (this.reverseFor <= 0 || moved > REVERSE_M) {
+        this.reverseFor = 0; this.stuckFor = 0;
+        if (this.turn) { this.turn.phase = 'fwd'; this.turn.fwdFor = 0; this.turn.stillFor = 0; }
+      }
       // LT reverses once stopped (vehicle/handling.ts): the brake pedal is the reverse throttle.
       return { command: { throttle: 0, brake: 0.7, steer: this.reverseSteer, handbrake: false }, status: 'recovering',
         s: this.s, lateral: at.lateral, target: -1 };
@@ -158,6 +182,31 @@ export class DriveFollower {
     wheel += Math.atan(0.35 * -at.lateral / (speed + 2)) * 0.5;
     const lock = g.maxSteer / (1 + (speed / g.steerHalfSpeed) ** 2);
     const steer = clamp(wheel / lock, -1, 1);
+
+    // Turn in the street: the aim point behind the car at a standstill. Back first with the lock that swings the nose
+    // toward the path (reversing with left lock turns the nose right), then forward with full lock toward it.
+    const cosAim = (ax * pose.hx + az * pose.hz) / ld;
+    if (this.turn && cosAim > TURN_DONE_COS) this.turn = null;
+    if (!this.turn && cosAim < TURN_START_COS && speed < 1.5 && this.turns < TURN_ROUNDS * 3) {
+      this.turn = { phase: 'back', side: Math.sign(sinAlpha) || 1, rounds: 0, fwdFor: 0, stillFor: 0 };
+      this.turns++;
+    }
+    if (this.turn) {
+      const t = this.turn;
+      if (t.phase === 'back') {
+        t.rounds++;
+        if (t.rounds > TURN_ROUNDS) { this.turn = null; }
+        else {
+          if (this.options.checkReverse) { this.pendingReverse = -t.side; this.pendingTurn = true; } else this.reverse(-t.side);
+          return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 };
+        }
+      } else {
+        t.fwdFor += dt; t.stillFor = speed < 0.3 ? t.stillFor + dt : 0;
+        if ((t.stillFor > TURN_FWD_STALL_S && t.fwdFor > 1.5) || t.fwdFor > TURN_FWD_MAX_S) t.phase = 'back';
+        return { command: { throttle: speed < 2 ? 0.45 : 0, brake: 0, steer: t.side, handbrake: false }, status: 'recovering',
+          s: this.s, lateral: at.lateral, target: 2 };
+      }
+    }
 
     const target = this.plannedSpeed(this.s, speed);
     let throttle = 0, brake = 0;
