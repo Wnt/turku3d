@@ -150,3 +150,12 @@ def test_slots_give_way_to_lamps_and_furniture_by_their_footprints():
     bays = parked.place(TILE, (features, city), zeros, kerb=kerb)
     lamps = [Prop(f"lamp-{x}", "lamp", x, 0, 105.35) for x in range(770, 990, 25)]
     assert parked.place(TILE, (features, city), zeros, poles=lamps, kerb=kerb) == bays
+
+
+def test_bus_bays_closed_to_cars_stay_empty():
+    """Tapiola bus terminal: amenity=parking, parking=lane, bus=yes, access=no between Merituulentie's lanes."""
+    open_lot = parked.place(TILE, (fixture(), []), np.zeros((129, 129)))
+    assert open_lot
+    for tags in ({"access": "no", "bus": "yes", "parking": "lane"}, {"motor_vehicle": "no"}):
+        closed = [Feature("lot", shapely.box(770, 30, 970, 130), {"amenity": "parking", **tags})]
+        assert not parked.place(TILE, (closed, []), np.zeros((129, 129)))

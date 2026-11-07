@@ -480,6 +480,9 @@ def unmodelled(tags, xz, shells, bounds=None):
     return float(np.mean(~inside)) > 0.5
 
 
+SPUR_REACH = 60.0  # m; a tunnel set whose surface mouths all lie this close together enters and leaves at one place
+
+
 def dead_ends(groups):
     """Indices of tunnel ways that lead only into unbuilt ones: an end with no surface road at it (no approach) that
     touches only unbuilt tunnel ways (indoor, garage or deep, see `below_grade`) makes the way a spur into nothing,
@@ -515,6 +518,30 @@ def dead_ends(groups):
                     unbuilt.add(i)
                     changed = True
                     break
+    # An entry and exit ramp pair (Tapiolanympyra: two one-way ramps meeting underground before the unbuilt
+    # service tunnel) keeps each other alive above. A connected set of remaining tunnel ways that leads into unbuilt
+    # ones and reaches the surface at one place only (all its open ends within SPUR_REACH) is a spur as a whole.
+    remaining = [i for i, (_, _, tags) in enumerate(groups) if i not in unbuilt and candidate(tags)]
+    seen = set()
+    for start in remaining:
+        if start in seen:
+            continue
+        component, stack = set(), [start]
+        while stack:
+            i = stack.pop()
+            if i in component:
+                continue
+            component.add(i)
+            for point, _ in ends[i]:
+                stack.extend(int(j) for j in tree.query(point, predicate="dwithin", distance=1.0)
+                             if int(j) in remaining and int(j) not in component)
+        seen |= component
+        into_unbuilt = any(
+            not surface and any(int(j) in unbuilt for j in tree.query(point, predicate="dwithin", distance=1.0))
+            for i in component for point, surface in ends[i])
+        mouths = [point for i in component for point, surface in ends[i] if surface]
+        if into_unbuilt and max((a.distance(b) for a in mouths for b in mouths), default=0.0) <= SPUR_REACH:
+            unbuilt |= component
     return unbuilt - seeds
 
 

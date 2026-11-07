@@ -84,6 +84,12 @@ def prepare(tile, osm, streets=None, buildings=None):
     return features, city
 
 
+def closed_to_cars(tags):
+    """A parking area no car may use: access=no, or motor_vehicle/motorcar=no (Tapiola bus terminal: the bus
+    bays on Merituulentie are amenity=parking, parking=lane, bus=yes, access=no). Its slots stay empty."""
+    return tags.get("access") == "no" or "no" in (tags.get("motor_vehicle"), tags.get("motorcar"))
+
+
 def unique(features):
     """A closed OSM way can come both as its ring and as its area: keep the first parking area."""
     seen, out = set(), []
@@ -258,7 +264,7 @@ def place(
 
     # (key, source, x, z, yaw, area, kind, street, priority) in a fixed order: areas, then kerbs.
     slots, capacity = [], {}
-    areas = [f for f in features if f.geometry.geom_type in ("Polygon", "MultiPolygon")]
+    areas = [f for f in features if f.geometry.geom_type in ("Polygon", "MultiPolygon") and not closed_to_cars(f.tags)]
     aisles = [
         f
         for f in features

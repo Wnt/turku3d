@@ -628,3 +628,28 @@ def test_a_ramp_into_an_unbuilt_garage_is_a_spur_and_not_built():
     through = ("through", shapely.LineString([(40, 40), (40, 120)]), {"highway": "service", "tunnel": "yes"})
     kept = produce(tile, [ramp, through], pos, idx, [], extrude, hill)
     assert len(kept.profiles) == 2 and not kept.unbuilt
+
+
+def test_an_entry_and_exit_ramp_pair_into_an_unbuilt_tunnel_is_a_spur():
+    """Tapiolanympyra: two one-way ramps from the roundabout meet underground before the unbuilt service tunnel."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    hill = lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5))  # noqa: E731
+    road_in, road_out = shapely.LineString([(0, 30), (20, 30)]), shapely.LineString([(0, 50), (20, 50)])
+    entry = ("in", shapely.LineString([(20, 30), (40, 40)]),
+             {"highway": "service", "tunnel": "yes", "layer": "-1", "_approaches": [road_in, None]})
+    exit_ = ("out", shapely.LineString([(40, 40), (20, 50)]),
+             {"highway": "service", "tunnel": "yes", "layer": "-1", "_approaches": [None, road_out]})
+    deep = ("deep", shapely.LineString([(40, 40), (120, 40)]), {"highway": "service", "tunnel": "yes", "layer": "-2"})
+    result = produce(tile, [entry, exit_, deep], pos, idx, [], extrude, hill)
+    assert not result.profiles and len(result.unbuilt) == 3
+    # A through tunnel with mouths far apart keeps its tube even with an unbuilt branch.
+    far_out = shapely.LineString([(200, 40), (220, 40)])
+    through = ("through", shapely.LineString([(20, 30), (40, 40), (200, 40)]),
+               {"highway": "service", "tunnel": "yes", "layer": "-1", "_approaches": [road_in, far_out]})
+    branch = ("garage", shapely.LineString([(40, 40), (40, 120)]),
+              {"highway": "service", "tunnel": "yes", "layer": "-1", "service": "parking_aisle"})
+    kept = produce(tile, [through, branch], pos, idx, [], extrude,
+                   lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5, (195 - x) / 5)))
+    assert len(kept.profiles) == 1 and len(kept.unbuilt) == 1
