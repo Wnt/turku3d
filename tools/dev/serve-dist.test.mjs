@@ -216,7 +216,8 @@ test('--public serves only the game and its services: no uploads, internals or d
   fs.writeFileSync(path.join(dir, '.secret'), 's');
   fs.writeFileSync(path.join(dir, 'version.json'), '{"sha":"abc"}');
   const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', '0',
-    '--public', '--coarse', `http://127.0.0.1:${coarse.address().port}`, '--mp', `http://127.0.0.1:${mp.address().port}`]);
+    '--public', '--coarse', `http://127.0.0.1:${coarse.address().port}`, '--mp', `http://127.0.0.1:${mp.address().port}`,
+    '--restart-wait-ms', '400']);
   try {
     const base = await new Promise((resolve, reject) => {
       child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
@@ -275,7 +276,7 @@ test('--public serves only the game and its services: no uploads, internals or d
     assert.equal(cut.x.headers['cache-control'], 'no-store');
     const cutAsked = seen.length;
     await fetchRaw(cutGlb);
-    assert.equal(seen.length, cutAsked + 1, 'a cut payload is asked again');
+    assert.ok(seen.length > cutAsked + 1, 'a cut payload is asked again, also within the restart wait');
     // A body that only ends with its connection cannot be told from a cut one: served whole, never cached.
     const unframedGlb = `/coarse/_v/${'a'.repeat(64)}/t0_0_0/unframed.glb`;
     const unframed = await fetchRaw(unframedGlb);
@@ -353,5 +354,34 @@ test('under systemd it accepts on the inherited socket, and SIGTERM lets the req
   } finally {
     child.kill('SIGKILL');
     await new Promise((r) => { slow.closeAllConnections?.(); slow.close(r); });
+  }
+});
+
+test('a tile service that restarts is waited out: a payload GET retries a refused upstream until it answers', async () => {
+  const http = (await import('node:http')).default;
+  const net = (await import('node:net')).default;
+  const glb = Buffer.alloc(50000, 4); glb.write('glTF', 0);
+  const port = await new Promise((r) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
+  const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', '0',
+    '--public', '--coarse', `http://127.0.0.1:${port}`, '--restart-wait-ms', '5000']);
+  let upstream;
+  try {
+    const base = await new Promise((resolve, reject) => {
+      child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
+      child.stdout.on('data', (d) => { const m = /serve-dist: (http:\/\/[^/]+)\//.exec(String(d)); if (m) resolve(m[1]); });
+    });
+    const started = Date.now();
+    const answer = new Promise((res) => http.get(`${base}/coarse/_v/${'a'.repeat(64)}/t0_0_0/vis.glb`,
+      { headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res({ x, body: Buffer.concat(c) })); }));
+    await new Promise((r) => setTimeout(r, 700)); // the service comes back after its restart
+    upstream = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length }); res.end(glb); });
+    await new Promise((r) => upstream.listen(port, '127.0.0.1', r));
+    const { x, body } = await answer;
+    assert.equal(x.statusCode, 200);
+    assert.ok(zlib.brotliDecompressSync(body).equals(glb));
+    assert.ok(Date.now() - started >= 700, 'the answer waited for the restarted service');
+  } finally {
+    await new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
+    if (upstream) await new Promise((r) => { upstream.closeAllConnections?.(); upstream.close(r); });
   }
 });
