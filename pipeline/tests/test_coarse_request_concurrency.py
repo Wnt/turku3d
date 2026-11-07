@@ -137,3 +137,25 @@ def test_a_served_fragment_is_kept_until_a_build_finishes_or_its_files_change(tm
         assert len(reads) == 3
     finally:
         builder.stop()
+
+
+def test_a_restart_warms_tile_verdicts_and_fragments_most_recent_then_outward(tmp_path, monkeypatch):
+    """After a restart each tile's first poll waited on its cold check (3.7-14.7 s), and an unpolled tile answered
+    roads.json 404: the warm pass checks the tiles on disk behind the first requests and marks served ones."""
+    from turku3d.coarse import service, serving
+
+    checked = []
+    monkeypatch.setattr(service, "tile_current", lambda builder, tile, code=None: checked.append(tile) or True)
+    monkeypatch.setattr(serving, "_retained_fragment", lambda builder, tile: {"tile": tile})
+    for tile in ("t0_3_0", "t0_0_0", "t0_-1_1", "t0_5_5"):
+        (tmp_path / tile).mkdir()
+        (tmp_path / tile / "manifest.json").write_text("{}")
+    builder = Builder(tmp_path, code="test", workers=0)
+    try:
+        builder.journal.record("t0_5_5", 0)
+        builder._warm()
+        assert checked == ["t0_5_5", "t0_0_0", "t0_-1_1", "t0_3_0"]
+        assert {"t0_5_5", "t0_0_0", "t0_-1_1", "t0_3_0"} <= builder.servable
+        assert builder.built("t0_0_0") and len(checked) == 4, "the request finds the warmed verdict"
+    finally:
+        builder.stop()
