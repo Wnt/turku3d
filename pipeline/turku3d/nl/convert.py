@@ -658,6 +658,10 @@ def walls_bgt(bbox, log=print):
             quays.append(g)
         elif kind_ in WALL_TYPES and g.geom_type in ("LineString", "MultiLineString"):
             walls.append((key, g))
+        elif kind_ in WALL_TYPES and g.geom_type in ("Polygon", "MultiPolygon"):
+            lines = [line for part in getattr(g, "geoms", [g]) for line in wall_axes(part)]
+            if lines:
+                walls.append((key, shapely.MultiLineString(lines)))
     if not walls:
         return []
     for collection, _, p, g in bgt_features(STREET_COLLECTIONS + ("onbegroeidterreindeel",), bbox, log):
@@ -691,6 +695,28 @@ def walls_bgt(bbox, log=print):
 
 
 WALL_CORNER = 35.0  # deg: a sharper turn starts a new survey line
+WALL_THIN = 1.0  # m: a BGT wall polygon (scheiding_vlak) at most this thick is a wall; its axis is the survey line
+
+
+def wall_axes(polygon, step=0.2):
+    """The axis lines of a thin BGT wall polygon (scheiding_vlak "muur", e.g. the U of walls around the De Kolk garage
+    ramp on Nieuwezijds Voorburgwal): the interior edges of the Voronoi diagram of its densified outline, away from
+    the outline, merged. A thick polygon (a solid structure) yields none."""
+    import shapely
+
+    if polygon.is_empty or polygon.length == 0:
+        return []
+    width = 2 * polygon.area / polygon.length
+    if width > WALL_THIN:
+        return []
+    points = shapely.MultiPoint(list(shapely.segmentize(polygon.exterior, step).coords))
+    edges = shapely.voronoi_polygons(points, only_edges=True)
+    inner = [e for e in shapely.get_parts(edges) if polygon.contains(e) and e.distance(polygon.exterior) > width * 0.25]
+    if not inner:
+        return []
+    merged = shapely.line_merge(shapely.union_all(inner))
+    return [line.simplify(0.1) for line in shapely.get_parts(merged) if line.length >= WALL_MIN_LENGTH]
+
 
 
 def split_corners(line):

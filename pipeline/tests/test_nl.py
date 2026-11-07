@@ -264,3 +264,14 @@ def test_wall_lines_split_at_sharp_corners():
     assert [len(p.coords) for p in pieces] == [2, 2] and pieces[1].coords[0] == (315.1, 450.2)
     gentle = shapely.LineString([(0, 0), (10, 0), (20, 2)])  # an 11 deg bend stays one line
     assert len(convert.split_corners(gentle)) == 1
+
+
+def test_thin_bgt_wall_polygons_are_surveyed_along_their_axes():
+    """De Kolk garage ramp (Nieuwezijds Voorburgwal): BGT maps its U of walls as one 0.33 m thick scheiding_vlak."""
+    import shapely
+
+    u = shapely.LineString([(0, 0), (20, 0), (20, 3), (0, 3)]).buffer(0.17, cap_style="flat", join_style="mitre")
+    axes = convert.wall_axes(u)
+    assert axes and sum(a.length for a in axes) > 38
+    assert all(u.contains(a) for a in axes)
+    assert convert.wall_axes(shapely.box(0, 0, 10, 4)) == []  # a 4 m block is no wall
