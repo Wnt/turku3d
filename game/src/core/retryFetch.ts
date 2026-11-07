@@ -3,12 +3,16 @@
  *  so three.js loaders (GLTFLoader, FileLoader, KTX2Loader, ImageBitmapLoader) and our own fetches share it.
  *
  *  Only idempotent reads of static content retry. Streams that run their own outage handling keep plain fetch:
- *  /coarse and /cities tiles (world/coarseTiles.ts ServiceDown), multiplayer /live.json and /scores, dev /__ routes. */
+ *  /coarse and /cities tiles (world/coarseTiles.ts ServiceDown), multiplayer /live.json and /scores, dev /__ routes.
+ *  A tile's versioned assets (`/coarse/_v/<revision>/...`: its GLBs and their shared models, KTX2 textures and buffers,
+ *  and the same under /cities/<name>/coarse) are static content loaded by GLTFLoader/KTX2Loader and retry: a deploy's
+ *  ~1 s restart of city-web answered 502 to four shared KTX2 loads and left those surfaces untextured for the session
+ *  (city.lab 2026-11-07 02:13 UTC). A gateway's Retry-After (seconds) lengthens a wait up to 10 s. */
 
 /** Waits before tries 2, 3 and 4: four tries over about 10 s. */
 export const RETRY_DELAYS_MS: readonly number[] = [1000, 3000, 6000];
 const TRANSIENT = new Set([502, 503, 504]);
-const OWN_RETRIES = /^\/(?:coarse(?:\/|$)|cities\/|__|live\.json$|scores\/|telemetry$)/;
+const OWN_RETRIES = /^\/(?:coarse(?:\/(?!_v\/)|$)|cities\/(?![^/]+\/coarse\/_v\/)|__|live\.json$|scores\/|telemetry$)/;
 
 export interface RetryOptions {
   delays?: readonly number[];
@@ -51,8 +55,9 @@ export function retryingFetch(base: typeof fetch, { delays = RETRY_DELAYS_MS, sl
       }
       if (last || !TRANSIENT.has(response.status)) return response;
       console.info(`[fetch] ${url.pathname}: HTTP ${response.status}; retry ${attempt + 1}/${delays.length}`);
+      const after = Number(response.headers.get('retry-after'));
       void response.body?.cancel().catch(() => {});
-      await sleep(delays[attempt], signal);
+      await sleep(Number.isFinite(after) && after > 0 ? Math.max(delays[attempt], Math.min(10_000, after * 1000)) : delays[attempt], signal);
     }
   };
 }

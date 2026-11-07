@@ -55,6 +55,17 @@ describe('retryingFetch', () => {
       expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(false);
     expect(retriedByDefault(new URL('http://h/assets/a.glb'), 'POST')).toBe(false);
   });
+
+  it('retries a tile\'s versioned assets (GLB, shared KTX2) but not its manifests, honouring Retry-After', async () => {
+    for (const path of ['/coarse/_v/4ce47d65/t0_-1_-1/vis.03c053cc.glb', '/coarse/_v/ddda450d/shared/9d4beee5.ktx2',
+      '/cities/espoo/coarse/_v/ab12/shared/x.glb']) expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(true);
+    for (const path of ['/coarse/t0_0_0/manifest.json', '/coarse/t0_0_0/collision.json', '/coarse/demand', '/cities/espoo/coarse/t0_0_0/manifest.json'])
+      expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(false);
+    const sleeps: number[] = [];
+    const base = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response('', { status: 502, headers: { 'Retry-After': '4' } })).mockResolvedValueOnce(answer(200));
+    const res = await retryingFetch(base, { sleep: async ms => { sleeps.push(ms); } })('http://h/coarse/_v/r/shared/a.ktx2');
+    expect(res.status).toBe(200); expect(sleeps).toEqual([4000]);
+  });
 });
 
 describe('optional', () => {
