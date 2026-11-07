@@ -194,3 +194,26 @@ test('with no smoke alive, the frame end leaves the particle buffers alone; new 
   for (let i = 0; i < 30; i++) advance(fx, 20 + i * 0.4, wheel());
   expect(smoke.instanceMatrix.version).toBeGreaterThan(version);
 });
+
+test('live smoke billboards equal Matrix4.compose with the camera rotation; dead ones stay at zero scale', () => {
+  const fx = new TyreEffects(new THREE.Group(), 'high');
+  const smoke = meshes(fx)[1] as THREE.InstancedMesh;
+  const camera = new THREE.PerspectiveCamera(); camera.position.set(3, 2, 5); camera.lookAt(0, 0.5, 0); camera.updateMatrixWorld();
+  for (let i = 0; i < 40; i++) { fx.begin(1 / 30); fx.vehicle(0, { ...pos, x: i * 0.4 }, q, [wheel()], 'car', 1 / 30, 11); fx.end(camera); }
+  // Reference: the particle state the pass reads (private), composed the way the old pass did.
+  const state = fx as unknown as { particles: Float32Array };
+  const point = new THREE.Vector3(), scale = new THREE.Vector3(), m = new THREE.Matrix4(), out = new THREE.Matrix4();
+  let live = 0;
+  for (let i = 0; i < smoke.count; i++) {
+    smoke.getMatrixAt(i, out);
+    const strength = state.particles[i * 6 + 4];
+    if (strength <= 0 || out.elements[0] === 0 && out.elements[5] === 0 && out.elements[10] === 0) continue;
+    live++;
+    // Its scale is the length of the first column; its position the last.
+    const s = Math.hypot(out.elements[0], out.elements[1], out.elements[2]);
+    point.set(out.elements[12], out.elements[13], out.elements[14]);
+    m.compose(point, camera.quaternion, scale.setScalar(s));
+    for (let e = 0; e < 16; e++) expect(out.elements[e]).toBeCloseTo(m.elements[e], 5);
+  }
+  expect(live).toBeGreaterThan(5);
+});
