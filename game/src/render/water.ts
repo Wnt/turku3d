@@ -41,6 +41,8 @@ export function riverReflection(tier: QualityTier, sloped: boolean): RiverReflec
   return wanted === 'planar' && sloped ? 'sky' : wanted;
 }
 
+let riverMrt: THREE.MRTNode | null = null;
+
 export class RiverMaterial {
   readonly material = new THREE.NodeMaterial();
   /** Where this reach's mirror plane is real water: the reflection pass draws only what can land on it. */
@@ -109,9 +111,13 @@ export class RiverMaterial {
     if (this.history) this.material.depthWrite = false;
     // W7: TRAA reprojects river pixels with the water's own motion. Without it they carried whatever was below the
     // surface (mostly the sky box's rotation-only motion), and ripples smeared while the camera moved along the river.
-    if (WATER_SWITCHES.motion && WATER_HISTORY.beautyVelocity) this.material.mrtNode = mrt({ velocity: vec4(velocity as unknown as THREE.Node<'vec2'>, 0, 1) });
+    // One node for every reach: node identity is part of the program key (render/riverSurface.ts sharedSurfaces).
+    if (WATER_SWITCHES.motion && WATER_HISTORY.beautyVelocity) this.material.mrtNode = riverMrt ??= mrt({ velocity: vec4(velocity as unknown as THREE.Node<'vec2'>, 0, 1) });
     this.material.name = `river-${this.mode}`;
   }
+
+  /** This reach's measured water colour (the shared surface graphs read it per mesh, render/riverSurface.ts). */
+  get body() { return this.bodyColour; }
 
   /** Rebuild the material graph in place; keep streamed geometry and the reflection target resident. */
   setSurface(factory: typeof riverSurface) {

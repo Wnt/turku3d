@@ -4,6 +4,7 @@ import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { Environment } from '../../src/render/environment';
 import { RiverMaterial } from '../../src/render/water';
+import { riverBodies } from '../../src/render/riverSurface';
 import { WATER_SWITCHES, parseWaterSwitches } from '../../src/render/waterSwitches';
 import type { QualityTier } from '../../src/render/quality';
 import { WATER_HISTORY } from '../../src/render/waterHistory';
@@ -115,4 +116,38 @@ test('sky fallbacks show the sky at its visible display scale, and screen-space 
     expect(riverShader(tier, water, true).fragment).toMatch(/smoothstep\( 0\.07, 0\.26,/);
   const ssr = riverShader('reduced', null, true).fragment;
   expect((ssr.match(/textureSampleLevel/g) ?? []).length).toBeGreaterThanOrEqual(4);
+});
+
+test('mirror-less reaches share one surface graph and read their own body colour per draw', () => {
+  vi.stubGlobal('requestAnimationFrame', () => 1);
+  const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  renderer.hasFeature = () => false;
+  Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 }, renderer });
+  const scene = new THREE.Scene(), env = new Environment(scene, renderer, 'mobile');
+  const reach = (rgb: number[], slope = false) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2));
+    mesh.userData.water_color = rgb; if (slope) mesh.userData.water_slope = true;
+    const river = new RiverMaterial(mesh, env, 'mobile', false, renderer);
+    riverBodies.set(mesh, river.body);
+    return { mesh, river };
+  };
+  const a = reach([0.1, 0.2, 0.3]), b = reach([0.3, 0.2, 0.1]), steep = reach([0.1, 0.2, 0.3], true);
+  expect(a.river.material.name).toBe('river-sky');
+  // Node identity is part of r186's program key: shared nodes mean one program for both reaches.
+  expect(b.river.material.colorNode).toBe(a.river.material.colorNode);
+  expect(b.river.material.mrtNode).toBe(a.river.material.mrtNode);
+  expect(steep.river.material.colorNode).not.toBe(a.river.material.colorNode);
+  const bodies: THREE.UniformNode<'color', THREE.Color>[] = [];
+  (a.river.material.colorNode as THREE.Node).traverse(node => {
+    const u = node as unknown as THREE.UniformNode<'color', THREE.Color>;
+    if (u.isUniformNode && u.updateType === 'object' && (u.value as THREE.Color)?.isColor) bodies.push(u);
+  });
+  expect(bodies.length).toBe(1);
+  for (const { mesh, river } of [a, b]) {
+    bodies[0].update({ object: mesh } as never);
+    expect(bodies[0].value.getHex()).toBe(river.body.getHex());
+  }
+  expect(a.river.body.getHex()).not.toBe(b.river.body.getHex());
+  for (const r of [a, b, steep]) r.river.dispose();
+  env.dispose();
 });

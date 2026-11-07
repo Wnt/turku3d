@@ -74,10 +74,42 @@ function waveTexture() {
   return sharedWaves = map;
 }
 
+/** Each river mesh's body colour (its reach's measured water colour), read per draw by the shared graphs below. */
+export const riverBodies = new WeakMap<THREE.Object3D, THREE.Color>();
+const DEFAULT_BODY = new THREE.Color(0.075, 0.062, 0.035);
+/** Surface graphs of reaches without a planar mirror (screen-space or sky reflection), one per environment and
+ *  variant. Node identity is part of r186's program key: a graph per reach built a program per reach and pass, plus
+ *  dissolve twins (27 river program builds in one Windows drive, win-prof2; each a large shader). The body colour is
+ *  the one per-reach input, a per-draw uniform from riverBodies. Planar reaches keep their own graph (their mirror). */
+type SurfaceNodes = { color: THREE.NodeMaterial['colorNode']; opacity: THREE.NodeMaterial['opacityNode']; inputs: unknown[] };
+const sharedSurfaces = new WeakMap<Environment, Map<string, SurfaceNodes>>();
+
 /** Build just the surface graph so local water iterations can hot-replace it without reloading tiles. */
 export function riverSurface(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
-  reflection: ReturnType<typeof reflector> | null, bodyColour = new THREE.Color(0.075, 0.062, 0.035),
+  reflection: ReturnType<typeof reflector> | null, bodyColour = DEFAULT_BODY,
   history: WaterHistory | null = null, screenReflection = false, sloped = false): () => void {
+  if (reflection) return riverGraph(material, env, deterministic, reflection, bodyColour, history, screenReflection, sloped);
+  let graphs = sharedSurfaces.get(env);
+  if (!graphs) sharedSurfaces.set(env, graphs = new Map());
+  const key = `${deterministic}|${screenReflection}|${sloped}|${!!history}`;
+  // The graph samples TRAA's history targets, which a post-chain rebuild replaces (render/post.ts).
+  const inputs = [history?.depth, history?.color, history?.camera];
+  let graph = graphs.get(key);
+  if (!graph || graph.inputs.some((input, i) => input !== inputs[i])) {
+    const body = uniform(new THREE.Color()).onObjectUpdate(({ object }, self) => self.value.copy((object && riverBodies.get(object)) || DEFAULT_BODY));
+    const scratch = new THREE.NodeMaterial();
+    riverGraph(scratch, env, deterministic, null, DEFAULT_BODY, history, screenReflection, sloped, body);
+    graph = { color: scratch.colorNode, opacity: scratch.opacityNode, inputs };
+    graphs.set(key, graph);
+  }
+  material.colorNode = graph.color;
+  material.opacityNode = graph.opacity;
+  return () => {};
+}
+
+function riverGraph(material: THREE.NodeMaterial, env: Environment, deterministic: boolean,
+  reflection: ReturnType<typeof reflector> | null, bodyColour: THREE.Color,
+  history: WaterHistory | null, screenReflection: boolean, sloped: boolean, bodyNode: THREE.Node<'color'> | null = null): () => void {
   const waves = waveTexture();
   const baseUV = reflection?.uvNode;
   // The shared wave texture outlives any one surface.
@@ -147,7 +179,7 @@ export function riverSurface(material: THREE.NodeMaterial, env: Environment, det
   const sunIntensity = uniform('float').onRenderUpdate(() => env.sun.intensity);
   const alignment = max(dot(reflect(sunDir.negate(), normal), view), 0);
   // Each body carries its measured water colour beneath the dynamic sky reflection.
-  let sediment = uniform(bodyColour).mul(daylight);
+  let sediment = (bodyNode ?? uniform(bodyColour)).mul(daylight);
   // Whitewater is a bright, rough body that mirrors little.
   if (sloped) sediment = mix(sediment, vec3(...RIVER_FLOW.foamColour).mul(daylight), whitewater);
   let specular;

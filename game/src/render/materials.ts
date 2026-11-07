@@ -13,6 +13,7 @@ import { facadeKitMaterial } from './facadeKit';
 import { interleaveProgram, interleaveProgramAsync } from './facadeProgramAttributes';
 import { QUALITY, type QualityTier } from './quality';
 import { RiverMaterial, waterSurface } from './water';
+import { riverBodies } from './riverSurface';
 import { waterSharingKey } from './waterAppearance';
 import { GroundBindings } from './ground/binding';
 import { streamingBudget } from './preparationBudget';
@@ -176,6 +177,7 @@ export class MaterialStyler {
             this.rivers.set(key, shared);
           }
           shared.meshes.add(mesh); shared.river.coverage.add(mesh); this.riverKeys.set(mesh, key);
+          riverBodies.set(mesh, shared.river.body);
           rivers.push(mesh);
           mesh.castShadow = false;
           return shared.river.material;
