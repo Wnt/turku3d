@@ -20,7 +20,11 @@ export function* weldVertexSteps(geometry: THREE.BufferGeometry, tolerance = 1e-
   const hashMultiplier = Math.pow(10, exponent), hashAdditive = halfTolerance * hashMultiplier;
   const index = geometry.getIndex(), count = index ? index.count : geometry.getAttribute('position').count;
   const arrays = attributes.map(a => a.array as THREE.TypedArray), sizes = attributes.map(a => a.itemSize);
-  const normalized = attributes.map(a => a.normalized), { denormalize, normalize } = THREE.MathUtils;
+  const normalized = attributes.map(a => a.normalized);
+  // MathUtils types only the integer arrays a normalized attribute can hold.
+  type Scaled = Parameters<typeof THREE.MathUtils.denormalize>[1];
+  const denormalize = (value: number, array: THREE.TypedArray) => THREE.MathUtils.denormalize(value, array as Scaled);
+  const normalize = (value: number, array: THREE.TypedArray) => THREE.MathUtils.normalize(value, array as Scaled);
   const width = sizes.reduce((sum, n) => sum + n, 0);
   // The integer tuple mergeVertices joins into its string key, per first-seen vertex.
   const keys = new Float64Array(count * width), key = new Float64Array(width);
