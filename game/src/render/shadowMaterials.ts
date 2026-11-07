@@ -13,7 +13,7 @@ import type { ReflectionScope } from './reflectionScope';
 import { poolUniformBuffers } from './uniformPool';
 import { poolGeometryBuffers } from './geometryPool';
 import { staticRefresh } from './staticRefresh';
-import { ShaderModuleBudget } from './shaderModules';
+import { ShaderModuleBudget, animationFrames } from './shaderModules';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -111,7 +111,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
     const webgpu = (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
     const device = (this.backend as { device?: { createShaderModule(descriptor: unknown): unknown } }).device;
     if (webgpu && device && !this.shaderModules) {
-      this.shaderModules = new ShaderModuleBudget(() => this.info.frame);
+      this.shaderModules = new ShaderModuleBudget(animationFrames());
       this.releaseModules = this.shaderModules.wrap(device);
     }
     if (this.poolUniforms && !this.uniformPool && webgpu)

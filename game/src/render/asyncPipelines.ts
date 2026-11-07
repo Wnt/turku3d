@@ -23,7 +23,7 @@ export function asyncFirstUsePipelines(pipelines: Pipelines, active: () => boole
   pipelines.updateForRender = function (this: Pipelines, renderObject: DrawObject) {
     if (!active() || renderObject.object?.isQuadMesh === true) { update.call(this, renderObject); return; }
     if (modules && this.programs && this.get && this.get(renderObject).pipeline === undefined
-      && !modules.room(ShaderModuleBudget.missing(this.programs, renderObject.getNodeBuilderState?.()))) return;
+      && !modules.room(ShaderModuleBudget.missing(this.programs, renderObject.getNodeBuilderState?.()))) { modules.defer(); return; }
     const promises: Promise<void>[] = [];
     this.getForRender(renderObject, promises);
     for (const promise of promises) { pending.add(promise); void promise.finally(() => pending.delete(promise)); }
