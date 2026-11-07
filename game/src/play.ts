@@ -595,8 +595,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const arrive = (t: TravelTicket) => {
     startScreen.close();
     const home = TURKU_PORTALS.find(p => p.id === t.portal && isHome()) ?? null;
-    // world.spawn is the city centre, or in Turku the ?spawn= exit pose the leaving page asked for.
-    const at = { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw };
+    // world.spawn is the city centre, or in Turku the ?spawn= exit pose the leaving page asked for. An arrival is a
+    // fresh start there: in a room it takes its slot's start pair like a join (solo: the start itself).
+    const at = { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, fresh: true };
     const seat = t.ride ? () => seatRide(t.ride!, home) : undefined;
     const solo = () => saveGame.playAt(at, seat, t.mission);
     if (!t.multiplayer) { void solo().catch(fail); return; }
