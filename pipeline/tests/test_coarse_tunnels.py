@@ -50,6 +50,19 @@ def test_rail_tunnel_is_drawn_only_near_its_mouth():
     assert rail_stretch("road", shapely.LineString([(400, 0), (600, 0)]), road, rails)[2] is road
 
 
+def test_a_deep_metro_or_a_platform_is_no_mouth_for_the_tunnel_meeting_it():
+    """Rotterdam's Calandlijn: layer -1 tunnel ways meet the layer -2 ways and platforms of Beurs/Blaak stations, which
+    are not built as tubes (deep rule) but are no open track either; counted as track they made the -1 ways boxes
+    along Blaak again."""
+    from turku3d.coarse.tunnels import open_track
+
+    assert open_track({"railway": "subway"}) and open_track({"railway": "rail", "bridge": "yes", "layer": "1"})
+    assert not open_track({"railway": "subway", "tunnel": "yes", "layer": "-2"})
+    assert not open_track({"railway": "subway", "layer": "-2"})
+    assert not open_track({"railway": "platform"}) and not open_track({"railway": "abandoned"})
+    assert not open_track({"railway": "tram", "tunnel": "covered", "layer": "-1"})
+
+
 def test_rail_tunnel_stretch_is_buried_at_its_inner_end():
     tile = C.VisualTile(0, 0, 0)
     pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250], [250, 2, 250]], float)

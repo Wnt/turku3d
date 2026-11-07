@@ -88,6 +88,25 @@ RAIL_MOUTH_REACH = 150.0
 RAIL_COVER = 1.0  # m of ground over the box where the drawn stretch ends inside the tunnel
 
 
+# Running track a tunnel mouth opens onto; platforms, stations and disused lines are no mouth.
+TRACKS = {"rail", "light_rail", "subway", "tram", "narrow_gauge", "monorail", "funicular", "preserved"}
+
+
+def open_track(tags):
+    """Railway track in the open: at grade or on a bridge, never in a tunnel, covered or below ground (a deep metro
+    way that is not built as a tube is still underground, so a tunnel way meeting it has no mouth there)."""
+    if tags.get("railway") not in TRACKS or tags.get("tunnel", "no") != "no" or tags.get("covered", "no") != "no":
+        return False
+    for key in ("layer", "level"):
+        for value in str(tags.get(key, "0")).split(";"):
+            try:
+                if float(value) < 0:
+                    return False
+            except ValueError:
+                continue
+    return True
+
+
 def rail_mouths(line, tags, rails, reach=0.5):  # rails: STRtree of at-grade railway lines, or None
     """For a railway-only tunnel way: which of its ends is a mouth, i.e. meets an at-grade (or bridge) railway way.
     None for roads and other ways (their boxes are drawn whole)."""
@@ -143,7 +162,7 @@ def prepare(tile, path):
                 and line.geom_type == "LineString"
             ):
                 roads.append((line, tags))
-            if tags.get("railway") and not selected(tags) and line.geom_type == "LineString":
+            if open_track(tags) and line.geom_type == "LineString":
                 rails.append(line)
             if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
                 continue
