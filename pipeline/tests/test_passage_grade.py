@@ -2,7 +2,6 @@
 
 import numpy as np
 import shapely
-
 from turku3d.coarse.passage_grade import MAX_GRADE, grader, limited
 
 
@@ -41,10 +40,10 @@ def test_a_carriageway_split_into_ways_is_graded_as_one_floor():
     tags = {"highway": "primary", "tunnel": "building_passage", "lanes": "2"}
 
     def ground(x, z):  # the ground grid steps 4.5 m between two vertices 2 m apart
-        return float(np.interp(x, [99.0, 101.0], [6.5, 2.0]))
+        return float(np.interp(x, [98.0, 100.0], [6.5, 2.0]))
 
     grade = grader([("a", a, tags), ("b", b, tags)], ground, 2.0)
-    xs = np.arange(1.5, 199.0, 2.0)  # ground grid vertices 2 m apart
+    xs = np.arange(1.0, 199.0, 2.0)  # halfway between the ground grid vertices
     q = np.column_stack([xs, np.zeros_like(xs)])
     h = grade(q, [ground(x, z) for x, z in q])
     assert np.max(np.abs(np.diff(h))) <= 2 * MAX_GRADE + 0.05  # one continuous 8 % ramp, no joint step
@@ -52,3 +51,62 @@ def test_a_carriageway_split_into_ways_is_graded_as_one_floor():
     side = np.column_stack([np.full(12, 100.5), np.linspace(0, 11, 12)])
     hs = grade(side, [ground(x, z) for x, z in side])
     assert np.max(np.abs(np.diff(hs))) < 1.0
+
+
+def grid_ground(step, height):
+    """A sampler of the ground grid's triangles over world-aligned vertices at multiples of `step`."""
+
+    def sample(x, z):
+        u, v = x / step, z / step
+        i, j = int(np.floor(u)), int(np.floor(v))
+        fu, fv = u - i, v - j
+        h = lambda a, b: height(a * step, b * step)  # noqa: E731
+        if fu + fv <= 1:
+            return h(i, j) * (1 - fu - fv) + h(i + 1, j) * fu + h(i, j + 1) * fv
+        return h(i + 1, j + 1) * (fu + fv - 1) + h(i, j + 1) * (1 - fu) + h(i + 1, j) * (1 - fv)
+
+    return sample
+
+
+def test_parallel_carriageways_over_a_diagonal_step_get_one_ramp_without_a_hump():
+    """Tapiola: under Ainoa the interpolated ground falls 4.5 m along a diagonal across both Merituulentie
+    carriageways and the service passage. Each corridor graded along its own centreline, blended where they
+    overlap, lifted the westbound lane into a 1.5 m hump the car could not climb."""
+    step = 250 / 128
+    tags = {"highway": "primary", "tunnel": "building_passage", "lanes": "2"}
+    service = {"highway": "service", "tunnel": "building_passage"}
+    ways = [
+        ("west", shapely.LineString([(250, 0), (0, 0)]), tags),
+        ("east", shapely.LineString([(0, 7.5), (250, 7.5)]), tags),
+        ("service", shapely.LineString([(0, 14), (250, 14)]), service),
+    ]
+    ground = grid_ground(step, lambda x, z: 6.5 if x + 1.2 * z < 125 else 2.0)
+    grade = grader(ways, ground, step)
+    xs = np.arange(0, 251) * step / 2  # every vertex and the midpoint between
+    for lane in (0.0, 7.5, 14.0):
+        q = np.column_stack([xs, np.full_like(xs, lane)])
+        h = grade(q, [ground(x, z) for x, z in q])
+        inner = (xs > 30) & (xs < 220)
+        assert np.all(np.diff(h[inner]) <= 1e-9)  # falls all the way: no hump on any lane
+        assert np.max(np.abs(np.diff(h[inner]) / np.diff(xs[inner]))) <= MAX_GRADE + 1e-6
+        assert h[inner].max() <= 6.5 + 1e-9 and h[inner].min() >= 2.0 - 1e-9
+    # Across the carriageways the floor keeps the grade too.
+    zs = np.arange(-4, 18.01, step / 2)
+    for x in (100.0, 115.0, 130.0):
+        q = np.column_stack([np.full_like(zs, x), zs])
+        h = grade(q, [ground(*p) for p in q])
+        assert np.max(np.abs(np.diff(h) / np.diff(zs))) <= MAX_GRADE + 1e-6
+
+
+def test_separate_floors_do_not_pull_on_each_other():
+    """Two passages 60 m apart and 9 m apart in height: each floor is graded alone."""
+    step = 2.0
+    tags = {"highway": "primary", "tunnel": "building_passage", "lanes": "2"}
+    ways = [("low", shapely.LineString([(0, 0), (100, 0)]), tags), ("high", shapely.LineString([(0, 60), (100, 60)]), tags)]
+
+    def ground(x, z):
+        return 1.0 if z < 30 else 10.0 + (0 if x < 50 else -3.0)
+
+    grade = grader(ways, ground, step)
+    q = np.array([[20.0, 0.0], [80.0, 0.0]])
+    np.testing.assert_allclose(grade(q, [ground(*p) for p in q]), [1.0, 1.0])
