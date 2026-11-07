@@ -557,6 +557,24 @@ def test_underground_way_without_measured_depth_under_open_ground_is_not_built()
         assert len(kept.profiles) == 1 and not kept.unbuilt
 
 
+def test_indoor_corridor_under_a_carriageway_is_not_built():
+    """Amsterdam Rokin: a metro concourse corridor (indoor=yes, layer -1) under the carriageway was built as a road-top
+    underpass, and its open mouth cut a 2.8 m walled pit into the lane. An underpass under the same road stays."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (120, 40)])
+    road = shapely.box(0, 30, 200, 50)
+    concourse = {"highway": "footway", "indoor": "yes", "layer": "-1", "level": "-1", "road_top": road}
+    result = produce(tile, [("concourse", line, concourse)], pos, idx, [], extrude, lambda x, z: 2,
+                     deck_sample=lambda x, z: 2)
+    assert not result.profiles and not result.meshes and len(result.unbuilt) == 1
+    underpass = {"highway": "footway", "tunnel": "yes", "layer": "-1", "road_top": road}
+    kept = produce(tile, [("underpass", line, underpass)], pos, idx, [], extrude, lambda x, z: 2,
+                   deck_sample=lambda x, z: 2)
+    assert len(kept.profiles) == 1 and not kept.unbuilt
+
+
 def test_underground_way_under_a_building_keeps_its_tube():
     tile = C.VisualTile(0, 0, 0)
     pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)

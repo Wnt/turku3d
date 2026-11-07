@@ -714,9 +714,8 @@ def produce(
             # Keep the measured floor unless a bank is too low for the stated clearance.
             cover = np.min([[deck_sample(*q) for q in side] for side in (left, xz, right)], axis=0)
             floor = np.minimum(floor, cover - clearance - 0.3)
-        if not road_top and not vaulted and (
-            indoor(tags)
-            or (not passage and below_grade(tags))
+        if indoor(tags) or not road_top and not vaulted and (
+            (not passage and below_grade(tags))
             or (
                 not passage
                 and not repaired.any()
@@ -730,7 +729,8 @@ def produce(
             # chord. A tube here would stand on the street as a clearance-high concrete box, and an indoor corridor's
             # tube or passage would cut holes through the building and the carriageway beside it (Tapiola centre).
             # The coarse world has no underground or indoor levels: the way is not built, and its edges leave the
-            # published graph (Tunnels.roads).
+            # published graph (Tunnels.roads). An indoor corridor stays unbuilt under a carriageway too: as a road-top
+            # underpass its open mouth cut a 2.8 m walled pit into the Rokin lane (a metro concourse, Amsterdam).
             unbuilt.append(corridor)
             continue
         if passage:
