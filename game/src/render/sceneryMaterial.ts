@@ -1,6 +1,6 @@
 // Far openings retain the detailed facade's program or baked glazing mask.
 import * as THREE from 'three/webgpu';
-import { attribute, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
+import { attribute, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uniform, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
 import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
@@ -29,9 +29,16 @@ export interface ShellRoof { map: THREE.Texture; u: readonly [number, number, nu
 function shellPigment(roof?: ShellRoof) {
   if (!roof) return sceneryPigment;
   const p = vec3(positionWorld.x, positionWorld.z, 1);
-  const coord = vec2(dot(p, vec3(...roof.u)), dot(p, vec3(...roof.v)));
-  return mix(texture(roof.map, coord).rgb, vertexColor().rgb, wallFrame().wall);
+  // Per drawn mesh (shellRoofOf): one roofed material and program per layer and colour space serve every block. With
+  // the photo and its mapping baked in, each roofed block built its own program while driving (Windows laptop:
+  // 47 of 192 programs built in 6 min of driving, each a build stage of 50-110 ms on the low-end machines).
+  const u = uniform(new THREE.Vector3(...roof.u)).onObjectUpdate(({ object }, self) => { const r = object && shellRoofOf.get(object); return r ? self.value.set(...r.u) : self.value; });
+  const v = uniform(new THREE.Vector3(...roof.v)).onObjectUpdate(({ object }, self) => { const r = object && shellRoofOf.get(object); return r ? self.value.set(...r.v) : self.value; });
+  const photo = texture(roof.map, vec2(dot(p, u), dot(p, v))).onObjectUpdate(({ object }) => (object && shellRoofOf.get(object)?.map) || roof.map);
+  return mix(photo.rgb, vertexColor().rgb, wallFrame().wall);
 }
+/** The roof photo and mapping each block shell mesh draws with (styleBlockLod); read per draw by shellPigment. */
+const shellRoofOf = new WeakMap<THREE.Object3D, ShellRoof>();
 
 /** The procedural windows of a glazed shell wall: the HD kit's own bay, storey and opening size where the shell-look
  *  migration wrote them (`_shell_grid`), else the distant city's 2.6 m x 3.2 m grid with a 0.5 x 0.6 opening. */
@@ -206,7 +213,9 @@ export function styleBlockLod(root: THREE.Object3D, owner: THREE.Object3D, share
     if (!mesh.isMesh) return;
     const glazed = mesh.userData.lod === 'walls-glazed';
     const layer = !glazed ? 'buildings-lod' : mesh.geometry.hasAttribute('_shell_grid') ? 'buildings-lod-glazed-grid' : 'buildings-lod-glazed';
-    const key = roof ? `block-lod:${layer}:${roof.map.uuid}:${[...roof.u, ...roof.v].map(x => x.toPrecision(9)).join(',')}` : `block-lod:${layer}`;
+    // Roofed shells share one material per layer, colour space and sampler: the photo and its mapping are per mesh.
+    const key = roof ? `block-lod:${layer}:roof:${roof.map.colorSpace}:${roof.map.wrapS}:${roof.map.minFilter}` : `block-lod:${layer}`;
+    if (roof) shellRoofOf.set(mesh, roof);
     const create = () => sceneryMaterial(layer, undefined, null, 5, roof);
     mesh.material = shared ? shared.styled.acquire(lodSource, key, owner, create) : create();
     mesh.castShadow = true; mesh.receiveShadow = true;

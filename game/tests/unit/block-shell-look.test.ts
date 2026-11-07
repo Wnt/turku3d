@@ -41,3 +41,30 @@ test('glazed shells with the migration\'s kit grid get the grid variant of the w
   expect((plain.material as THREE.Material).name).toBe('distant-city-buildings-lod-glazed');
   expect((gridded.material as THREE.Material).name).toBe('distant-city-buildings-lod-glazed-grid');
 });
+
+test('roofed shells of different blocks share one material (one program); each mesh draws its own photo and mapping', async () => {
+  const { SharedMaterials } = await import('../../src/render/sharedMaterials');
+  const shared = new SharedMaterials(), owner = new THREE.Group();
+  const mapA = new THREE.Texture(), mapB = new THREE.Texture();
+  const roofA = { map: mapA, u: [1, 0, 0] as const, v: [0, 1, 0] as const }, roofB = { map: mapB, u: [0.5, 0, 2] as const, v: [0, 0.5, 3] as const };
+  const shell = (roof: typeof roofA) => {
+    const root = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry());
+    root.add(mesh); styleBlockLod(root, owner, shared, roof); return mesh;
+  };
+  const a = shell(roofA), b = shell(roofB);
+  expect(a.material).toBe(b.material);
+  // The per-object nodes of the shared graph pick each drawn mesh's own roof.
+  const nodes: { updateType?: string; update?(frame: object): void; value?: unknown }[] = [];
+  const seen = new Set<object>();
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return; seen.add(node);
+    const n = node as { isNode?: boolean; updateType?: string };
+    if (n.isNode && n.updateType === 'object') nodes.push(n as never);
+    for (const value of Object.values(node)) if (value && typeof value === 'object') walk(value);
+  };
+  walk((a.material as THREE.MeshStandardNodeMaterial).colorNode);
+  const values = (mesh: THREE.Mesh) => nodes.map(node => { node.update!({ object: mesh }); const v = node.value as { isTexture?: boolean; toArray?(): number[] };
+    return v?.isTexture ? v : v?.toArray?.(); });
+  expect(values(a)).toEqual(expect.arrayContaining([mapA, [1, 0, 0], [0, 1, 0]]));
+  expect(values(b)).toEqual(expect.arrayContaining([mapB, [0.5, 0, 2], [0, 0.5, 3]]));
+});
