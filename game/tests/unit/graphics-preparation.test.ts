@@ -154,6 +154,28 @@ test('an aborted job stops waiting for a preparation that never settles, and the
   expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 2, activeMs: null });
 });
 
+test('finished jobs leave no listener on the city signal, which would keep every prepared model alive', async () => {
+  // Node's view of an EventTarget's listeners (missing from this @types/node).
+  const { getEventListeners } = await import('node:events') as unknown as { getEventListeners(target: EventTarget, type: string): unknown[] };
+  const scene = new THREE.Scene(), life = new AbortController();
+  const queue = new GraphicsPreparation(scene, () => {}, release => release(), () => Promise.resolve());
+  const models = Array.from({ length: 6 }, () => new THREE.Group());
+  scene.add(...models);
+  await Promise.all(models.map((model, i) => queue.enqueue(model, () => {
+    if (i === 2) throw new Error('prepare failed');
+  }, life.signal, false, i % 2 ? 'scenery' : 'tile').catch(() => {})));
+  expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 6 });
+  expect(getEventListeners(life.signal, 'abort')).toHaveLength(0);
+  // A job still queued at the abort answers its waiter as before.
+  let answered = false;
+  void queue.enqueue(new THREE.Group(), () => new Promise(() => {}), life.signal).then(() => { answered = true; });
+  await turn();
+  expect(getEventListeners(life.signal, 'abort').length).toBeGreaterThan(0);
+  life.abort();
+  await turn();
+  expect(answered).toBe(true);
+});
+
 test('a queued job of a released city answers its waiter at the abort and never runs', async () => {
   const { GraphicsPreparation } = await import('../../src/render/graphicsPreparation');
   const THREE3 = await import('three/webgpu');

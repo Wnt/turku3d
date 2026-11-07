@@ -15,6 +15,21 @@ export type PreparationPriority = 'actor' | 'tile' | 'scenery';
 const MAX_DEFER_MS = 4000;
 const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
 
+/** Resolves at `signal`'s abort; `off()` takes the listener away again. The signal is the city's and outlives every
+ *  job: a listener left on it (`once` only removes it when the abort fires) kept the job's closures and so every model
+ *  ever prepared alive, with its geometry arrays and texture mips: the page grew ~4 MB/s while driving on the M1 Max
+ *  (framecheck mac-buf-1: 2.2 GB of the 3.8 GB of ArrayBuffers held by AbortSignal listeners after 7 minutes). */
+function abortion(signal: AbortSignal) {
+  let off = () => {};
+  const promise = new Promise<void>(resolve => {
+    if (signal.aborted) { resolve(); return; }
+    const listener = () => resolve();
+    signal.addEventListener('abort', listener, { once: true });
+    off = () => signal.removeEventListener('abort', listener);
+  });
+  return { promise, off };
+}
+
 /** A model's name for diagnostics: its trace id (tile or cell), name and size. */
 function describe(model: THREE.Object3D) {
   let meshes = 0;
@@ -80,10 +95,8 @@ export class GraphicsPreparation {
       this.activeSince = performance.now(); this.activeModel = model;
       // An aborted job (its city was released) stops waiting at once: a preparation of models that are gone may
       // never settle, and the whole queue waits behind it.
-      const aborted = signal ? new Promise<void>(resolve => {
-        if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true });
-      }) : null;
-      const until = (work: Promise<unknown>) => aborted ? Promise.race([work, aborted]) : work;
+      const aborted = signal ? abortion(signal) : null;
+      const until = (work: Promise<unknown>) => aborted ? Promise.race([work, aborted.promise]) : work;
       try {
         // Preserve the streaming queue's task-after-animation entry and per-draw budgets.
         await until(this.nextTask());
@@ -94,6 +107,7 @@ export class GraphicsPreparation {
         streamTrace.event('gfx.prepare', model.userData.traceId as string | undefined, { wait: started - queuedAt, ms: performance.now() - started,
           compiles: compileStats.count - compiles, compileMs: compileStats.ms - compileMs, scenery: !!model.userData.scenery });
       } finally {
+        aborted?.off();
         if (this.activeSince !== null) {
           const ms = performance.now() - this.activeSince;
           if (ms > 1000) { this.slowest.push({ ms: Math.round(ms), lane, model: describe(model) }); this.slowest.sort((a, b) => b.ms - a.ms); this.slowest.length = Math.min(this.slowest.length, 8); }
@@ -105,9 +119,8 @@ export class GraphicsPreparation {
     const result = prepared.then(() => requeued);
     if (!signal) return result;
     // Its waiter (a released city's install) goes on at the abort, not when the queue reaches the job.
-    return Promise.race([result, new Promise<void>(resolve => {
-      if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true });
-    })]);
+    const abort = abortion(signal);
+    return Promise.race([result, abort.promise]).finally(abort.off);
   }
 
   /** Called after the menu/animation loop is installed; the caller never waits for backfill. */
