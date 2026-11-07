@@ -58,6 +58,8 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   // Unchanged static draws skip r186's per-frame full refresh (render/staticRefresh.ts). ?staticRefresh=0 keeps it: A/B,
   // owner frame-lowend, decided by Windows/Mac route runs and the audit; the losing path goes within ten merges.
   renderer.staticDraws = search.get('staticRefresh') !== '0';
+  // QA stills wait for a settled world, not for pipelines: their first-use draws take every new shader module at once.
+  renderer.paceShaderModules = !opts.qa;
   // Installed once, before any compile: the tier's light slots exist for the whole session.
   renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile, QUALITY[opts.quality ?? 'medium'].maxPixels));

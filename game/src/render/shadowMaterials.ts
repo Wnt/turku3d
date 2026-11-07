@@ -105,12 +105,14 @@ export class GameRenderer extends THREE.WebGPURenderer {
   staticRefresh: ReturnType<typeof staticRefresh> | null = null;
   /** New shader modules per frame (render/shaderModules.ts): live first-use draws and streaming preparation. */
   shaderModules: ShaderModuleBudget | null = null;
+  /** Pace new shader modules (render/shaderModules.ts); set before init. */
+  paceShaderModules = true;
   private releaseModules?: () => void;
   override async init(): Promise<this> {
     await super.init();
     const webgpu = (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
     const device = (this.backend as { device?: { createShaderModule(descriptor: unknown): unknown } }).device;
-    if (webgpu && device && !this.shaderModules) {
+    if (webgpu && device && this.paceShaderModules && !this.shaderModules) {
       this.shaderModules = new ShaderModuleBudget(animationFrames());
       this.releaseModules = this.shaderModules.wrap(device);
     }
