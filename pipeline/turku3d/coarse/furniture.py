@@ -203,6 +203,22 @@ def _outside(polygon, point, clearance=CLEARANCE):
     return edge.distance(point), edge.x + dx / length * clearance, edge.y + dz / length * clearance
 
 
+def _out_of_lanes(p, lanes, stats, why=""):
+    """Whether ``p`` stands clear of the traffic lanes, moving it to the nearest kerb within POST_SHIFT
+    first; False when it is not built."""
+    point = shapely.Point(p.x, p.z)
+    if lanes is None or not lanes.covers(point):
+        return True
+    depth, x, z = _outside(lanes, point)
+    label = f"{p.kind}_{why}" if why else p.kind
+    if depth > POST_SHIFT or lanes.covers(shapely.Point(x, z)):
+        stats[f"dropped_in_lane:{label}"] += 1
+        return False
+    p.x, p.z = x, z
+    stats[f"moved_out_of_lane:{label}"] += 1
+    return True
+
+
 def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=(), overhead=None,
             spans=None):
     from turku3d.props import seating, visual_bytes
@@ -240,16 +256,12 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
             if above is None or height_at(p.x, p.z) + POST_REACH > above - DECK_GAP:
                 stats["lamp_through_deck"] += 1
                 continue
-        if p.kind in ("lamp", "sign", "bus_stop", *COLLIDES) and lanes is not None and lanes.covers(point):
+        if p.kind in ("lamp", "sign", "bus_stop", *COLLIDES):
             # A post, sign or bollard in a traffic lane stops every car that drives it (Kalevan's south
             # joint, the t0_0_-3 underpass): it moves to the nearest kerb, or is not built.
-            depth, x, z = _outside(lanes, point)
-            if depth > POST_SHIFT or lanes.covers(shapely.Point(x, z)):
-                stats[f"dropped_in_lane:{p.kind}"] += 1
+            if not _out_of_lanes(p, lanes, stats):
                 continue
-            p.x, p.z = x, z
-            point = shapely.Point(x, z)
-            stats[f"moved_out_of_lane:{p.kind}"] += 1
+            point = shapely.Point(p.x, p.z)
         flooded = [water[i] for i in wet.query(point)] if wet is not None else []
         flooded = [w for w in flooded if w.covers(point)]
         if flooded:
@@ -294,6 +306,11 @@ def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=
     if benches:
         cloud = seating.survey_cloud(tile.bbox, benches, list(laz))
         for p in seating.place(benches, cloud, barriers, footprints, water, stats, roads):
+            # The survey snap can put a bench on a blob in the carriageway (a parked van or a
+            # parklet beside the lane): the lanes are cleared again (Rotterdam Meent, a wooden bench
+            # mid-street at the Goudsesingel corner).
+            if not _out_of_lanes(p, lanes, stats, "snap"):
+                continue
             if not tile.bbox.contains(p.x, p.z):
                 stats["left_tile:bench"] += 1
                 continue
