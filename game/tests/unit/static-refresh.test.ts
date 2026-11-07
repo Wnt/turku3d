@@ -86,11 +86,11 @@ test('a covered static draw refreshes once per program and pass, and in full for
 test('a texture swap or upload behind a covered draw is seen per draw', () => {
   const { draw } = fixture();
   const map = new THREE.Texture(), value = draw(new THREE.MeshStandardNodeMaterial({ map }));
-  for (const group of value.getBindings()) for (const binding of group.bindings) if (binding.isSampledTexture) binding.update();
+  for (const group of value.getBindings()) for (const binding of group.bindings) if (binding.isSampledTexture) binding.update?.();
   expect(texturesChanged(value)).toBe(false);
   map.needsUpdate = true;
   expect(texturesChanged(value)).toBe(true);
-  for (const group of value.getBindings()) for (const binding of group.bindings) if (binding.isSampledTexture) binding.update();
+  for (const group of value.getBindings()) for (const binding of group.bindings) if (binding.isSampledTexture) binding.update?.();
   expect(texturesChanged(value)).toBe(false);
 });
 

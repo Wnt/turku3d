@@ -33,3 +33,39 @@ test('r186 draws only once a pipeline isReady, right after updateForRender (the 
   const source = fs.readFileSync(new URL('../../node_modules/three/src/renderers/common/Renderer.js', import.meta.url), 'utf8');
   expect(source).toMatch(/this\._pipelines\.updateForRender\( renderObject \);\s*\/\/\s*if \( this\._pipelines\.isReady\( renderObject \) \)/);
 });
+
+test('live first-use draws create at most the frame budget of new shader modules; the rest wait for a later frame', async () => {
+  const { ShaderModuleBudget } = await import('../../src/render/shaderModules');
+  let frame = 1;
+  const budget = new ShaderModuleBudget(() => frame, 3);
+  const device = { createShaderModule: (descriptor: unknown) => ({ descriptor }) };
+  budget.wrap(device);
+  const programs = { vertex: new Map<string, unknown>(), fragment: new Map<string, unknown>() };
+  const data = new Map<object, { pipeline?: unknown }>();
+  const requested: string[] = [];
+  const pipelines = {
+    programs,
+    get(draw: object) { let d = data.get(draw); if (!d) data.set(draw, d = {}); return d; },
+    getForRender(draw: { name: string; getNodeBuilderState(): { vertexShader: string; fragmentShader: string } }, promises: Promise<void>[] | null = null) {
+      if (this.get(draw).pipeline) return;
+      const state = draw.getNodeBuilderState();
+      for (const [stage, code] of [['vertex', state.vertexShader], ['fragment', state.fragmentShader]] as const)
+        if (!programs[stage].has(code)) { programs[stage].set(code, device.createShaderModule({ code })); }
+      this.get(draw).pipeline = {}; requested.push(draw.name); promises?.push(Promise.resolve());
+    },
+    updateForRender(draw: object) { void draw; },
+  };
+  asyncFirstUsePipelines(pipelines as never, () => true, budget);
+  const draw = (name: string, vs: string, fs: string) => ({ name, getNodeBuilderState: () => ({ vertexShader: vs, fragmentShader: fs }) });
+  const a = draw('a', 'va', 'fa'), b = draw('b', 'vb', 'fb'), c = draw('c', 'va', 'fa'), d = draw('d', 'vd', 'fd');
+  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
+  // a creates two modules; b needs two more (over 3) and waits; c reuses a's program; d waits too.
+  expect(requested).toEqual(['a', 'c']);
+  frame++;
+  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
+  expect(requested).toEqual(['a', 'c', 'b']);
+  frame++;
+  for (const x of [a, b, c, d]) pipelines.updateForRender(x);
+  expect(requested).toEqual(['a', 'c', 'b', 'd']);
+  expect(budget.created).toBe(6);
+});

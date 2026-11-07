@@ -2,6 +2,8 @@ import type * as THREE from 'three/webgpu';
 import { addNodeBuilderHook } from './nodeBuilderHooks';
 import { PreparationBudget } from './preparationBudget';
 import { streamTrace } from '../telemetry/streamTrace';
+import { afterRender } from './afterRender';
+import type { ShaderModuleBudget } from './shaderModules';
 
 type RenderContexts = { get(target: THREE.RenderTarget | null, mrt: ReturnType<THREE.WebGPURenderer['getMRT']>, depth?: number): unknown };
 
@@ -63,6 +65,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
   const pending = budget.checkpoint();
   if (pending) await pending;
+  const modules = (renderer as unknown as { shaderModules?: ShaderModuleBudget | null }).shaderModules ?? null;
   model.updateWorldMatrix(true, true);
   const meshes: THREE.Mesh[] = [];
   model.traverse(object => {
@@ -125,6 +128,8 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       finally { removeHook(); }
       const nextFrame = budget.checkpoint();
       if (nextFrame) await nextFrame;
+      // This frame's new shader modules are spent (render/shaderModules.ts): the next compile waits for a frame.
+      while (modules && !modules.room(2)) await new Promise<void>(resolve => afterRender(resolve));
     }
   }
 }

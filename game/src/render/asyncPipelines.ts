@@ -6,14 +6,24 @@
  * createRenderPipelineAsync; r186 already skips the draw until `isReady`, so a first-use draw appears a few frames
  * later instead of stalling the frame. Fullscreen effect quads and every other render (IBL bakes, compileAsync
  * preparation, one-shot captures) keep the synchronous path. */
-interface DrawObject { object?: { isQuadMesh?: boolean } }
-interface Pipelines { updateForRender(renderObject: DrawObject): void; getForRender(renderObject: DrawObject, promises?: Promise<void>[] | null): unknown }
+import { ShaderModuleBudget } from './shaderModules';
 
-export function asyncFirstUsePipelines(pipelines: Pipelines, active: () => boolean) {
+interface DrawObject { object?: { isQuadMesh?: boolean }; getNodeBuilderState?(): { vertexShader: string; fragmentShader: string } }
+interface Pipelines {
+  updateForRender(renderObject: DrawObject): void; getForRender(renderObject: DrawObject, promises?: Promise<void>[] | null): unknown;
+  get?(renderObject: DrawObject): { pipeline?: unknown };
+  programs?: { vertex: Map<string, unknown>; fragment: Map<string, unknown> };
+}
+
+/** `modules`: a live first-use draw whose program's shader modules do not exist yet waits for a frame with room for
+ *  them (render/shaderModules.ts); it is not drawn until then, as it is not drawn before its pipeline compiles. */
+export function asyncFirstUsePipelines(pipelines: Pipelines, active: () => boolean, modules: ShaderModuleBudget | null = null) {
   const update = pipelines.updateForRender;
   const pending = new Set<Promise<void>>();
   pipelines.updateForRender = function (this: Pipelines, renderObject: DrawObject) {
     if (!active() || renderObject.object?.isQuadMesh === true) { update.call(this, renderObject); return; }
+    if (modules && this.programs && this.get && this.get(renderObject).pipeline === undefined
+      && !modules.room(ShaderModuleBudget.missing(this.programs, renderObject.getNodeBuilderState?.()))) return;
     const promises: Promise<void>[] = [];
     this.getForRender(renderObject, promises);
     for (const promise of promises) { pending.add(promise); void promise.finally(() => pending.delete(promise)); }
