@@ -216,6 +216,22 @@ def vrt_bounds(text: str) -> tuple[float, float, float, float]:
     return e0, n0 + h * dy, e0 + w * dx, n0
 
 
+READERS = 16  # threads reading source summaries; the reads wait on the disk, not the interpreter
+_READER = None
+_READER_LOCK = threading.Lock()
+
+
+def _reader():
+    """One shared pool for summary reads (created on first use)."""
+    global _READER
+    with _READER_LOCK:
+        if _READER is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            _READER = ThreadPoolExecutor(READERS, thread_name_prefix="source-summaries")
+        return _READER
+
+
 class _Files:
     """Files matching a glob, listed at most every MAX_AGE seconds (or after ``invalidate``), each
     parsed again only when its size or mtime changes (JSON by default)."""
@@ -241,20 +257,17 @@ class _Files:
                 return self.listing
             out = []
             seen = set()
-            for path in sorted(self.root.glob(self.pattern)):
-                try:
-                    st = path.stat()
-                except OSError:
+            paths = sorted(self.root.glob(self.pattern))
+            # Stat and parse on READERS threads: a cold index of a whole city (Espoo: ~5000 WFS summaries) read one
+            # file at a time on a loaded pool kept every tile request waiting on this lock for 15 minutes.
+            rows = (_reader().map(self._read, paths, chunksize=32) if len(paths) > READERS
+                    else map(self._read, paths))
+            for path, present, cached in rows:
+                if present:
+                    seen.add(path)
+                if cached is None:
                     continue
-                sig = (st.st_size, st.st_mtime_ns)
-                seen.add(path)
-                cached = self.cache.get(path)
-                if not cached or cached[0] != sig:
-                    try:
-                        cached = (sig, self.parse(path.read_text()))
-                    except (OSError, ValueError, TypeError):
-                        continue
-                    self.cache[path] = cached
+                self.cache[path] = cached
                 out.append((path, cached[1]))
             for gone in set(self.cache) - seen:
                 del self.cache[gone]
@@ -266,6 +279,21 @@ class _Files:
                 self.queries.clear()
             self.listed_at = time.monotonic()
             return self.listing
+
+    def _read(self, path):
+        """(path, present, (signature, parsed) or None): the cached parse while size and mtime stay."""
+        try:
+            st = path.stat()
+        except OSError:
+            return path, False, None
+        sig = (st.st_size, st.st_mtime_ns)
+        cached = self.cache.get(path)
+        if cached and cached[0] == sig:
+            return path, True, cached
+        try:
+            return path, True, (sig, self.parse(path.read_text()))
+        except (OSError, ValueError, TypeError):
+            return path, True, None
 
     def named(self, name):
         self.items()

@@ -115,6 +115,27 @@ def test_named_source_index_refreshes_changed_and_removed_summaries(tmp_path):
     assert files.named(summary.name) == ()
 
 
+def test_a_large_source_index_is_read_in_parallel_in_order_and_refreshes(tmp_path):
+    import json
+
+    from turku3d.coarse.sources import READERS, _Files
+
+    names = [f"area-{k:03d}/a.summary.json" for k in range(READERS * 4)]
+    for k, name in enumerate(names):
+        (tmp_path / name).parent.mkdir()
+        (tmp_path / name).write_text(json.dumps({"k": k}))
+    (tmp_path / "area-007/a.summary.json").write_text("{broken")
+    files = _Files(tmp_path, "*/*.summary.json")
+    rows = files.items()
+    assert [p.relative_to(tmp_path).as_posix() for p, _ in rows] == [n for n in names if "007" not in n]
+    assert [v["k"] for _, v in rows] == [k for k in range(len(names)) if k != 7]
+    (tmp_path / "area-003/a.summary.json").write_text(json.dumps({"k": "new"}))
+    (tmp_path / "area-005/a.summary.json").unlink()
+    files.invalidate()
+    rows = dict((p.parent.name, v) for p, v in files.items())
+    assert rows["area-003"] == {"k": "new"} and "area-005" not in rows and len(rows) == len(names) - 2
+
+
 def test_nested_vrt_dependencies_follow_child_edits(tmp_path):
     from turku3d.coarse.sources import content_paths
 
