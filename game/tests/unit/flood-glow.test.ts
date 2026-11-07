@@ -94,6 +94,9 @@ describe('glow programs', () => {
   };
 
   test('domes and beams compile one program each for any venue count, weather and hour', () => {
+    // r186 orders a program's render-group struct differently on the process's first build (the shared camera
+    // uniforms register then); build once so the comparison sees steady-state programs.
+    { const sprites = new LightSprites('medium'), glow = new FloodGlow(sprites.scene, sprites.sceneDepth); build(glow.domes); build(glow.beams); }
     const programs = [[0, 0, 0], [1, 1, 1]].map(([count, night, mist]) => {
       const sprites = new LightSprites('medium');
       const glow = new FloodGlow(sprites.scene, sprites.sceneDepth);

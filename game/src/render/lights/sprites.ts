@@ -4,7 +4,7 @@
 // buffer: each fragment compares itself with the scene's resolved depth, so walls hide lamps behind them.
 import * as THREE from 'three/webgpu';
 import { attribute, cameraFar, cameraNear, cameraPosition, cameraViewMatrix, clamp, dot, exp, float, length, max, mix, pass,
-  perspectiveDepthToViewZ, positionGeometry, screenUV, select, smoothstep, texture, uniform, varying, vec2, vec3, vec4 } from 'three/tsl';
+  perspectiveDepthToViewZ, positionGeometry, screenUV, renderGroup, select, smoothstep, texture, uniform, varying, vec2, vec3, vec4 } from 'three/tsl';
 import { isPrecompiling } from '../compileModel';
 import type { SpriteLight } from './lampField';
 import type { QualityTier } from '../quality';
@@ -60,13 +60,14 @@ export class LightSprites {
   readonly mesh: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.NodeMaterial>;
   /** The sprites' mirror images on the water (REFLECTED_SPRITES): the same instances, a second draw. */
   readonly reflections: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.NodeMaterial>;
-  readonly night = uniform(0);
+  // night and the camera terms below are set per frame before the render, so one value for every draw: render group (static refresh skips unchanged draws).
+  readonly night = uniform(0).setGroup(renderGroup);
   readonly capacity: number;
   /** Seconds on this object's clock; birth times use the same clock. */
-  private readonly now = uniform(0);
-  private readonly projection = uniform(new THREE.Matrix4());
-  private readonly focal = uniform(1);
-  private readonly viewport = uniform(new THREE.Vector2(1, 1));
+  private readonly now = uniform(0).setGroup(renderGroup);
+  private readonly projection = uniform(new THREE.Matrix4()).setGroup(renderGroup);
+  private readonly focal = uniform(1).setGroup(renderGroup);
+  private readonly viewport = uniform(new THREE.Vector2(1, 1)).setGroup(renderGroup);
   /** The scene's resolved depth; bound by `overlay` (a placeholder keeps the material complete for prebuilds). */
   readonly sceneDepth = texture(new THREE.DepthTexture(1, 1));
   private readonly centres: THREE.InstancedBufferAttribute;

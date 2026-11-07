@@ -6,7 +6,7 @@
 // the beams grow stronger, and the scene's fog distance dims a far venue's dome.
 import * as THREE from 'three/webgpu';
 import { attribute, cameraFar, cameraNear, cameraViewMatrix, clamp, cross, exp, float, length, max, normalize,
-  perspectiveDepthToViewZ, positionGeometry, pow, screenUV, sign, smoothstep, sqrt, uniform, varying, vec3, vec4 } from 'three/tsl';
+  perspectiveDepthToViewZ, positionGeometry, pow, screenUV, sign, renderGroup, smoothstep, sqrt, uniform, varying, vec3, vec4 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { FLOOD, type FloodMast } from './floodlights';
 import type { AreaVenue } from './floodArea';
@@ -83,10 +83,11 @@ export class FloodGlow {
   readonly beams: THREE.Mesh<THREE.InstancedBufferGeometry, THREE.NodeMaterial>;
   /** Night x mist strength of domes (x) and beams (y), the fog distance (z) and 1 at night (w): by day the proxies
    *  collapse, so the draws (and their programs, built at the first frame) cost no fragments. */
-  private readonly level = uniform(new THREE.Vector4(0, 0, 2600, 0));
-  private readonly projection = uniform(new THREE.Matrix4());
-  private readonly eye = uniform(new THREE.Vector3());
-  private readonly forward = uniform(new THREE.Vector3(0, 0, -1));
+  private readonly level = uniform(new THREE.Vector4(0, 0, 2600, 0)).setGroup(renderGroup);
+  // These and level are set per frame before the render, so one value for every draw: render group (static refresh skips unchanged draws).
+  private readonly projection = uniform(new THREE.Matrix4()).setGroup(renderGroup);
+  private readonly eye = uniform(new THREE.Vector3()).setGroup(renderGroup);
+  private readonly forward = uniform(new THREE.Vector3(0, 0, -1)).setGroup(renderGroup);
   private readonly dome = { centre: this.instanced(GLOW.domes), axis: this.instanced(GLOW.domes), size: this.instanced(GLOW.domes) };
   private readonly beam = { from: this.instanced(GLOW.beams), to: this.instanced(GLOW.beams), tint: this.instanced(GLOW.beams) };
   domeCount = 0;

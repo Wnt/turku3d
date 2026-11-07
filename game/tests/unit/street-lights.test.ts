@@ -267,6 +267,9 @@ describe('shader programs', () => {
   };
 
   test('the sprite draw compiles one program for any sprite count and night level', () => {
+    // r186 orders a program's render-group struct differently on the process's first build (the shared camera
+    // uniforms register then); build once so the comparison sees steady-state programs.
+    build(new LightSprites('medium').mesh);
     const programs = [[1, 0], [4000, 1]].map(([count, night]) => {
       const sprites = new LightSprites('medium');
       sprites.setGroup('lamps', Array.from({ length: count }, (_, i) => ({ x: i, y: 5, z: 0, radius: 0.85, r: 3, g: 2, b: 1, day: 0 })));
@@ -293,6 +296,9 @@ describe('shader programs', () => {
   });
 
   test('the lamp-post draw compiles one program for any post count and night level', () => {
+    // r186 orders a program's render-group struct differently on the process's first build (the shared camera
+    // uniforms register then); build once so the comparison sees steady-state programs.
+    build(new LampPosts(1024).mesh);
     const programs = [[1, 0], [600, 1]].map(([count, night]) => {
       const posts = new LampPosts(1024);
       posts.setLamps(Array.from({ length: count }, (_, i) => ({ key: String(i), x: i * 0.1, y: 0, z: 0, yaw: i, scale: 1 })));

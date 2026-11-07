@@ -2,7 +2,7 @@
 // Posts fade by scale-to-zero on the CPU (no discard, no positionNode), so the prepass keeps its cheap normal
 // material and every pass draws the same count-independent instanced program (render/instancePrograms.ts).
 import * as THREE from 'three/webgpu';
-import { attribute, uniform, vec3 } from 'three/tsl';
+import { attribute, renderGroup, uniform, vec3 } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /** Post dimensions at scale 1, metres. Origin at the base; the arm points along local +X toward the road. */
@@ -45,8 +45,8 @@ const _m = new THREE.Matrix4(), _s = new THREE.Vector3();
 
 export class LampPosts {
   readonly mesh: THREE.InstancedMesh;
-  /** Night level 0..1 for the diffusers' emissive glow. */
-  readonly night = uniform(0);
+  /** Night level 0..1 for the diffusers' emissive glow; set per frame before the render, so one value for every draw: render group (static refresh skips unchanged draws). */
+  readonly night = uniform(0).setGroup(renderGroup);
   private lamps: readonly PostLamp[] = [];
   private slots = new Map<string, number>();
   private free: number[] = [];
