@@ -16,7 +16,7 @@ def test_bgt_vocabulary_maps_to_register_values():
     assert convert.kind("onbekend") == ("Muu", "6")
     assert convert.surface("open verharding", "gebakken klinkers") == ("Maatiili", "21")
     assert convert.surface("gesloten verharding", None) == ("Asfalttibetoni", "1")
-    assert convert.surface("open verharding", "betonstraatstenen") == ("Betonikivi", "9")
+    assert convert.surface("open verharding", "betonstraatstenen") == ("Betonilaatta", "8")  # grey concrete pavers
     assert convert.surface(None, None) == ("Ei tietoa", "0")
 
 
@@ -89,11 +89,15 @@ def test_3dbag_rows_carry_semantic_surfaces(bag_tile):
 def test_generic_paving_follows_dutch_convention():
     assert convert.appearance("rijbaan lokale weg", "open verharding", None) == ("Maatiili", "21")
     assert convert.appearance("voetpad", "open verharding", None) == ("Betonilaatta", "8")
-    assert convert.appearance("parkeervlak", "open verharding", None) == ("Betonikivi", "9")
+    assert convert.appearance("parkeervlak", "open verharding", None) == ("Maatiili", "21")
     assert convert.appearance("fietspad", "gesloten verharding", None)[1] == "20"  # red asphalt
     # An explicit BGT appearance wins over OSM, OSM over the convention.
     sett = convert.OSM_SURFACE["sett"]
-    assert convert.appearance("rijbaan lokale weg", "open verharding", "betonstraatstenen", sett) == ("Betonikivi", "9")
+    assert convert.appearance("rijbaan lokale weg", "open verharding", "betonstraatstenen", sett) == ("Betonilaatta", "8")
+    # OSM paving_stones (Dutch mappers' word for klinkers): clay on the carriageway, grey pavers on the pavement.
+    pavers = convert.OSM_SURFACE["paving_stones"]
+    assert convert.appearance("rijbaan lokale weg", "open verharding", None, pavers) == ("Maatiili", "21")
+    assert convert.appearance("voetpad", "open verharding", None, pavers) == ("Betonilaatta", "8")
     assert convert.appearance("rijbaan lokale weg", "open verharding", None, sett) == ("Noppakivi", "6")
     assert convert.appearance("rijbaan lokale weg", "asfalt", None, sett) == ("Asfalttibetoni", "1")
 

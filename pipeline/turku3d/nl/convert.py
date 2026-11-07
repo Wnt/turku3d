@@ -62,7 +62,7 @@ BGT_SURFACE = (
     ("gebakken klinkers", ("Maatiili", "21")),  # red clinker brick: street_materials.BRICK
     ("asfalt", ("Asfalttibetoni", "1")),
     ("cementbeton", ("Betoni", "14")),
-    ("betonstraatstenen", ("Betonikivi", "9")),
+    ("betonstraatstenen", ("Betonilaatta", "8")),  # concrete pavers: grey (street_materials.CONCRETE_PAVERS)
     ("sierbestrating", ("Betonikivi", "9")),
     ("grasbetontegels", ("Betonilaatta", "8")),
     ("tegels", ("Betonilaatta", "8")),
@@ -463,7 +463,20 @@ def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
             found = ("Betonilaatta", "8")
     if functie == "fietspad" and found[0] == "Asfalttibetoni":
         return ("Asfalttibetoni, punainen (AB 16, rautaoksidi FeO2)", "20")
+    if found[0] == "Betonikivi":
+        # Unspecified element paving (OSM paving_stones, BGT "open verharding"/"sierbestrating"): Turku's
+        # Betonikivi finish is red-brown concrete stone, which Dutch streets lay as fired clay klinkers on the
+        # carriageway and as grey concrete pavers on the pavement (Damrak/Rokin/NZ Voorburgwal panoramas).
+        return ("Maatiili", "21") if vehicular(functie) else ("Betonilaatta", "8")
     return found
+
+
+VEHICULAR = ("woonerf", "parkeervlak", "inrit", "OV-baan", "transitie", "overweg")
+
+
+def vehicular(functie) -> bool:
+    """A BGT street part that carries cars (carriageway, living street, parking bay, drive)."""
+    return (functie or "").startswith("rijbaan") or functie in VEHICULAR
 
 
 def underground(props) -> bool:
@@ -621,7 +634,8 @@ def derive(layer, area, adapter: str, log=print) -> dict:
         return _derive(layer, area, adapter, bbox, log)
 
 
-ADAPTER_VERSION = 6  # 5: BGT > OSM surface > Dutch paving convention, paved terrain; 6: no underground street parts
+ADAPTER_VERSION = 7  # 5: BGT > OSM surface > Dutch paving convention, paved terrain; 6: no underground street parts;
+# 7: unspecified element paving is clay klinkers on vehicle parts and grey concrete pavers elsewhere
 
 
 def _derive(layer, area, adapter, bbox, log):
