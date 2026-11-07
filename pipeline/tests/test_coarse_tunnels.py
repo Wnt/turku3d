@@ -610,7 +610,10 @@ def test_underground_way_under_a_building_keeps_its_tube():
                      [(building, extrude(building))], extrude, lambda x, z: 2)
     assert len(result.profiles) == 1 and not result.unbuilt
     # A garage aisle or a way two levels down under the same building is no road at grade: not built.
-    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"}):
+    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"},
+                 # Amsterdam De Kolk: a basement aisle tagged only by its floor, as a building passage.
+                 {"tunnel": "building_passage", "level": "-1", "service": "parking_aisle"},
+                 {"tunnel": "yes", "level": "-2"}):
         garage = produce(tile, [("garage", line, {"highway": "service", **tags})], pos, idx,
                          [(building, extrude(building))], extrude, lambda x, z: 2)
         assert not garage.profiles and len(garage.unbuilt) == 1
@@ -641,7 +644,10 @@ def test_garage_aisles_are_unbuilt_even_over_a_false_dip():
     idx = np.array([[0, 2, 1]], np.uint32)
     line = shapely.LineString([(20, 40), (120, 40)])
     hump = lambda x, z: 2 + max(0.0, 6 - abs(x - 70) / 5)  # noqa: E731
-    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"}):
+    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"},
+                 # Amsterdam De Kolk: a basement aisle tagged only by its floor, as a building passage.
+                 {"tunnel": "building_passage", "level": "-1", "service": "parking_aisle"},
+                 {"tunnel": "yes", "level": "-2"}):
         garage = produce(tile, [("garage", line, {"highway": "service", **tags})], pos, idx, [], extrude, hump)
         assert not garage.profiles and len(garage.unbuilt) == 1
 

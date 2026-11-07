@@ -479,25 +479,35 @@ def indoor(tags):
     return bool(levels) and max(levels) >= 1
 
 
+def depth(tags):
+    """The way's level against the ground: OSM ``layer``, else its lowest negative ``level`` (a basement way tagged
+    only by its floor, such as the De Kolk garage aisle under Amsterdam's Nieuwezijds Voorburgwal, ``level=-1``)."""
+    layer = _number(tags.get("layer"))
+    if layer is not None:
+        return layer
+    levels = [v for v in (_number(x) for x in str(tags.get("level", "")).split(";")) if v is not None]
+    return min(levels) if levels and min(levels) < 0 else None
+
+
 def below_grade(tags):
-    """A tunnel=yes way two levels down (``layer`` <= -2) or a garage aisle (``service=parking_aisle``): never a road
+    """A tunnel=yes way two levels down (``depth`` <= -2) or a garage aisle (``service=parking_aisle``): never a road
     at grade, and the ground model under a mall or a square says nothing about its depth (Tapiola's garages under
     Ainoa read a false metre-scale dip from the interpolated ground there). Covered ways are never deep."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
         return False
-    layer = _number(tags.get("layer"))
+    layer = depth(tags)
     return layer is not None and (layer <= -2 or (layer <= -1 and tags.get("service") == "parking_aisle"))
 
 
 def unmodelled(tags, xz, shells, bounds=None):
-    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings: with no measured depth
+    """A way OSM puts below ground (``depth`` <= -1) whose line runs mostly outside buildings: with no measured depth
     the coarse world cannot show it. Ways at grade under a building (hospital roads, layer -1) keep their tube and
     building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
     are openings (`opening`). Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
     every building."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
         return False
-    layer = _number(tags.get("layer"))
+    layer = depth(tags)
     if layer is None or layer > -1:
         return False
     if bounds is not None:
@@ -724,8 +734,9 @@ def produce(
             # Keep the measured floor unless a bank is too low for the stated clearance.
             cover = np.min([[deck_sample(*q) for q in side] for side in (left, xz, right)], axis=0)
             floor = np.minimum(floor, cover - clearance - 0.3)
+        # A below-grade passage (a garage aisle tagged building_passage under a street) is no passage at grade.
         if indoor(tags) or not road_top and not vaulted and (
-            (not passage and below_grade(tags))
+            below_grade(tags)
             or (
                 not passage
                 and not repaired.any()

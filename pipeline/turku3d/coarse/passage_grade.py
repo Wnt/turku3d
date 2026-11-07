@@ -43,11 +43,13 @@ def limited(heights, positions, grade=MAX_GRADE):
 def chains(ways):
     """Car passage centrelines joined end to end (one per run of OSM ways), each with its widest way's width: a
     carriageway split into short ways gets one continuous floor, not a step at every joint."""
-    from .tunnels import dimensions
+    from .tunnels import below_grade, dimensions
 
     lines, widths = [], []
     for _, line, tags in ways:
         if tags.get("tunnel") != "building_passage" or tags.get("highway") in PATHS or not tags.get("highway"):
+            continue
+        if below_grade(tags):  # a garage aisle under the street is unbuilt, not a floor at grade (De Kolk)
             continue
         lines.append(line)
         widths.append(dimensions(tags)[0])

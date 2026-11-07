@@ -110,3 +110,20 @@ def test_separate_floors_do_not_pull_on_each_other():
     grade = grader(ways, ground, step)
     q = np.array([[20.0, 0.0], [80.0, 0.0]])
     np.testing.assert_allclose(grade(q, [ground(*p) for p in q]), [1.0, 1.0])
+
+
+def test_a_garage_aisle_below_the_street_is_no_passage_floor():
+    """Amsterdam De Kolk: the garage aisle under Nieuwezijds Voorburgwal (tunnel=building_passage, level=-1,
+    service=parking_aisle) was graded at ground level between the two ramp floors, sinking the street 1.4 m.
+    Tapiola's Merituulentie passages (building_passage, layer=-1, primary) stay graded floors."""
+    line = shapely.LineString([(0, 0), (200, 0)])
+
+    def ground(x, z):
+        return 6.5 if x < 100 else 2.0
+
+    for tags in ({"level": "-1"}, {"layer": "-1"}, {"level": "-2;-1"}):
+        aisle = {"highway": "service", "service": "parking_aisle", "tunnel": "building_passage", **tags}
+        assert grader([("aisle", line, aisle)], ground, 2.0) is None
+    road = {"highway": "primary", "tunnel": "building_passage", "layer": "-1", "lanes": "2"}
+    grade = grader([("road", line, road)], ground, 2.0)
+    assert grade is not None and grade(np.array([[90.0, 0.0]]), [6.5])[0] < 6.5
