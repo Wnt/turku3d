@@ -33,6 +33,23 @@ test('parked and moving fleet draw real models, share one material and switch di
   visuals.dispose();
 });
 
+test('parked cars beyond 320 m or off screen beyond 30 m are culled before drawing; near ones behind still draw',async()=>{
+  const m=FLEET_BY_ID.get('golf7')!;
+  const scene=new THREE.Scene(),visuals=new ParkedCarVisuals(scene),manifest=draftManifest('http://localhost/');
+  const at:[number,number][]=[[0,-20],[0,-200],[0,-330],[0,25],[0,60],[300,-100]];
+  manifest.vehicles=at.map(([x,z],i)=>({object_id:`cull-${i}`,model:m.id,color:'silver',x,y:0,z,yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const camera=new THREE.PerspectiveCamera(60,1,.1,1000);camera.position.set(0,2,0);camera.lookAt(0,2,-10);visuals.setView(camera);
+  const asked:string[]=[];
+  const rest={restingPose:(c:NonNullable<typeof manifest.vehicles>[number])=>{asked.push(c.object_id);return {pos:{x:c.x,y:.75,z:c.z},rot:{x:0,y:0,z:0,w:1}};}};
+  visuals.update([],rest);
+  // In view: -20 (LOD0), -200 (LOD2); 25 m behind still draws (within 30 m); -330 is past 320 m; 60 m behind and
+  // (300,-100) outside the 60-degree view are culled.
+  expect(visuals.snapshot().lods).toEqual([2,0,1]);
+  expect(asked).toHaveLength(at.length);
+  visuals.dispose();
+});
+
 test('a parking slot no real model fits stays empty instead of stretching a car',()=>{
   const slot={length:3,clear_front_m:0,clear_rear_m:0};
   for(let i=0;i<50;i++)expect(fleetModel('hatchback-sports',`short-${i}`,slot)).toBeNull();
