@@ -316,8 +316,13 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
   let start = street;
   if (away(street) > START_NEAR_M) {
     if (!open) return null;
-    const ground = await openGround(desired, graphs, sample, covers, options);
-    start = away(ground) < away(street) ? ground : street;
+    // The player starts beside its car: a street start within START_FAR_M wins over open ground nearer the requested
+    // point, whose car parks on the nearest street round it (Turku: the yard behind the office, the car 33 m round
+    // the block). Open ground is the start where no street start is in reach (a pedestrian centre, a square).
+    if (away(street) > START_FAR_M) {
+      const ground = await openGround(desired, graphs, sample, covers, options);
+      start = away(ground) < away(street) ? ground : street;
+    }
   }
   return start && withView(start, options);
 }
@@ -332,6 +337,8 @@ async function withView(start: { spawn: Spot; car: Spot }, { view, ray }: StartO
 
 /** The player stands within this distance (m) of the requested start, or the open-ground search is tried. */
 export const START_NEAR_M = 15;
+/** A street start (the player beside its car) this far (m) from the requested point still wins over open ground. */
+export const START_FAR_M = 40;
 
 /** A car on `street` with its heading (carHeading), or null; a spot without open road ahead only as `weak`. */
 async function parkOn(street: StreetCandidate, sample: GroundProbe, obstacles: readonly Obstacle[], ray?: RayProbe) {

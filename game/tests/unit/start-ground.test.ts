@@ -55,13 +55,18 @@ test('with no street surface in reach the car parks on flat walkable ground', as
 });
 
 test('a square start keeps the player on the square and parks the car on the street beyond it', async () => {
-  // The street runs 40 m south of the requested point across open paving.
-  const far: RoadGraphJson[] = [{ ...roads[0], nodes: [-30, 40, 30, 40] }];
-  const probe = async (x: number, z: number) => ground(x, z, z >= 37 ? MAT.road : MAT.paving_slab);
+  // The street runs 60 m south of the requested point across open paving: beyond START_FAR_M.
+  const far: RoadGraphJson[] = [{ ...roads[0], nodes: [-30, 60, 30, 60] }];
+  const probe = async (x: number, z: number) => ground(x, z, z >= 57 ? MAT.road : MAT.paving_slab);
   expect(await findInitialGround({ x: 0, z: 0 }, far, probe, () => true)).toBeNull(); // waits for the start collision
   const result = await findInitialGround({ x: 0, z: 0 }, far, probe, () => true, { open: true });
   expect(result?.spawn).toMatchObject({ x: 0, z: 0 });
-  expect(result?.car).toMatchObject({ z: 40 });
+  expect(result?.car).toMatchObject({ z: 60 });
+  // A street 40 m away is in reach: the player starts beside the car there instead.
+  const near: RoadGraphJson[] = [{ ...roads[0], nodes: [-30, 36, 30, 36] }];
+  const beside = await findInitialGround({ x: 0, z: 0 }, near, async (x, z) => ground(x, z, z >= 33 ? MAT.road : MAT.paving_slab), () => true, { open: true });
+  expect(beside!.car.z).toBeCloseTo(36);
+  expect(Math.hypot(beside!.spawn.x - beside!.car.x, beside!.spawn.z - beside!.car.z)).toBeLessThanOrEqual(5.3);
 });
 
 test('the car never parks over furniture or a parked car, and the first chase camera is not inside it', async () => {
@@ -176,4 +181,13 @@ test('players of one room get start pairs: their cars apart, each player beside 
       expect(insideCar(b.car, a.spawn.x, a.spawn.z, 0.5)).toBe(false);
     }
   }
+});
+
+test('a start beside the car across the street beats open ground behind the block with the car far round it', async () => {
+  // The requested point is in a block (roof, z -14..-2) between the street (z = 0) and a yard (open paving z < -14);
+  // the yard's own street is far: the open-ground start would put the car 30+ m from the player.
+  const probe = async (x: number, z: number) => z > -14 && z < -2 ? ground(x, z, MAT.roof, 20) : ground(x, z, z >= -2 ? MAT.road : MAT.paving_slab);
+  const result = await findInitialGround({ x: 0, z: -12 }, [town], probe, () => true, { open: true });
+  expect(result!.car.z).toBeCloseTo(0);
+  expect(Math.hypot(result!.spawn.x - result!.car.x, result!.spawn.z - result!.car.z)).toBeLessThanOrEqual(5.3);
 });
