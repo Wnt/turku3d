@@ -46,3 +46,70 @@ def test_current_verdict_is_reused_until_the_manifest_changes(tmp_path, monkeypa
         assert not builder.built("t0_0_0")
     finally:
         builder.stop()
+
+
+def test_an_expired_verdict_answers_at_once_while_it_is_checked_again(tmp_path, monkeypatch):
+    """city.lab Espoo 2026-11-07: the 30 s re-check of a tile's raw input key took 10-30 s on the loaded host, under
+    the scheduler lock, and every tile request waited on it. The kept verdict answers; the check runs behind it."""
+    from turku3d.coarse import service
+
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def current(builder, tile, code=None):
+        calls.append(tile)
+        if len(calls) > 1:
+            entered.set()
+            assert release.wait(2)
+            return False
+        return True
+
+    monkeypatch.setattr(service, "tile_current", current)
+    monkeypatch.setattr(service, "CURRENT_TTL", 0.0)
+    builder = Builder(tmp_path, code="test", workers=0)
+    try:
+        manifest = builder.manifest("t0_0_0")
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}")
+        assert builder.built("t0_0_0")
+        assert builder.built("t0_0_0"), "the expired verdict answers while it is checked again"
+        assert entered.wait(1)
+        assert builder.lock.acquire(timeout=.5), "the re-check held the scheduler condition"
+        builder.lock.release()
+        assert builder.built("t0_0_0") and len(calls) == 2, "one re-check per tile at a time"
+        release.set()
+        for _ in range(100):
+            if not builder.rechecking:
+                break
+            threading.Event().wait(.01)
+        assert not builder.built("t0_0_0"), "the re-check's verdict replaces the kept one"
+    finally:
+        release.set()
+        builder.stop()
+
+
+def test_a_first_freshness_check_runs_before_the_scheduler_lock(tmp_path, monkeypatch):
+    from turku3d.coarse import service
+
+    entered, release = threading.Event(), threading.Event()
+
+    def current(builder, tile, code=None):
+        entered.set()
+        assert release.wait(2)
+        return True
+
+    monkeypatch.setattr(service, "tile_current", current)
+    builder = Builder(tmp_path, code="test", workers=0)
+    manifest = builder.manifest("t0_0_0")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("{}")
+    request = threading.Thread(target=builder.request, args=("t0_0_0", 0))
+    request.start()
+    try:
+        assert entered.wait(1)
+        assert builder.lock.acquire(timeout=.5), "a tile's first freshness check held the scheduler condition"
+        builder.lock.release()
+    finally:
+        release.set()
+        request.join(2)
+        builder.stop()

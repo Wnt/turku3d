@@ -164,6 +164,7 @@ class Builder:
         self.full_recent: list[float] = []
         self.stale: dict[str, int] = {}  # tile -> builds in a row that were stale on arrival
         self.current: dict[str, tuple] = {}  # tile -> ((manifest mtime, size, code), current?, checked at)
+        self.rechecking: set[str] = set()  # tiles whose expired verdict is being checked again behind the answer
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.failure_codes: dict[str, tuple] = {}
@@ -227,8 +228,10 @@ class Builder:
     def built(self, tile: str, code: str | None = None) -> bool:
         """Whether the tile's manifest is current. Every manifest poll asks this under the scheduler lock, and the
         full check (facade parameter hash over the building keys, the raw input key) costs 0.3-4 s on a busy host,
-        so a tile's verdict is kept while its manifest file and the producer code are unchanged, for CURRENT_TTL s
-        (raw data landing for a tile is noticed within that)."""
+        so a tile's verdict is kept while its manifest file and the producer code are unchanged. After CURRENT_TTL s
+        the kept verdict still answers at once while one check runs again behind it (raw data landing for a tile is
+        noticed then): on a loaded host that check took 10-30 s under the scheduler lock, and every tile request
+        of every player waited on it (city.lab Espoo, 2026-11-07 05:21: collision.json past 10 s)."""
         try:
             st = self.manifest(tile).stat()
         except OSError:
@@ -238,11 +241,32 @@ class Builder:
         key = (st.st_mtime_ns, st.st_size, code)
         now = time.monotonic()
         hit = self.current.get(tile)
-        if hit is not None and hit[0] == key and now - hit[2] < CURRENT_TTL:
+        if hit is not None and hit[0] == key:
+            if now - hit[2] >= CURRENT_TTL:
+                self._recheck(tile, key, code)
             return hit[1]
         verdict = tile_current(self, tile, code)
         self.current[tile] = (key, verdict, now)
         return verdict
+
+    def _recheck(self, tile: str, key: tuple, code: str) -> None:
+        """Check an expired verdict again on its own thread, one at a time per tile, outside every lock."""
+        if tile in self.rechecking:
+            return
+        self.rechecking.add(tile)
+
+        def run():
+            try:
+                verdict = tile_current(self, tile, code)
+                hit = self.current.get(tile)
+                if hit is None or hit[0] == key:  # the manifest did not change while this ran
+                    self.current[tile] = (key, verdict, time.monotonic())
+            except Exception as error:  # noqa: BLE001 - the next poll checks again
+                print(f"coarse {tile}: freshness recheck failed: {error}", file=sys.stderr, flush=True)
+            finally:
+                self.rechecking.discard(tile)
+
+        threading.Thread(target=run, name=f"coarse-recheck-{tile}", daemon=True).start()
 
     def failure_key(self, tile):
         return failed_identity(self, tile)
@@ -260,6 +284,9 @@ class Builder:
 
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
+        # The tile's first freshness check reads its manifest and raw input key: do it before taking the scheduler
+        # lock, so the checks below are cache hits and no other tile's request waits on this one's disk reads.
+        self.built(tile)
         with self.lock:
             self.requested[tile] = time.time()
             if unavailable := unavailable_reply(self, tile):
