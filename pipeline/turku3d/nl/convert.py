@@ -639,6 +639,10 @@ WALL_QUAY_CLEARANCE = 1.0  # m: kademuur/walbescherming beside it
 WALL_WATER_CLEARANCE = 1.5  # m: a canal edge is a bank, not a retaining wall
 WALL_CARRIAGEWAY_INSET = 0.3  # m: a line may run on a carriageway's edge, never across it
 WALL_MIN_LENGTH = 1.5  # m: the retaining survey's shortest line
+# BGT wegdeel functions people walk, cycle, park or drive on (first word): a parapet guards a drop from these;
+# rail beds, verges and traffic islands are not street paving.
+STREET_SURFACES = ("rijbaan", "voetpad", "fietspad", "OV-baan", "parkeervlak", "inrit", "woonerf",
+                   "voetgangersgebied", "transitie")
 
 
 def walls_bgt(bbox, log=print):
@@ -661,9 +665,13 @@ def walls_bgt(bbox, log=print):
             continue
         if (p.get("functie") or "").startswith("rijbaan"):
             carriageways.append(g)
-        if collection != "onbegroeidterreindeel" or (p.get("fysiek_voorkomen") or "") in PAVED_TERRAIN:
-            if not any(t in (p.get("fysiek_voorkomen") or "") for t in GREEN):
-                paved.append(g)
+        functie = p.get("functie") or ""
+        if collection == "onbegroeidterreindeel":
+            street_surface = (p.get("fysiek_voorkomen") or "") in PAVED_TERRAIN
+        else:
+            street_surface = functie.split(" ")[0] in STREET_SURFACES
+        if street_surface and not any(t in (p.get("fysiek_voorkomen") or "") for t in GREEN):
+            paved.append(g)
     facades = [g.boundary for _, _, _, g in bgt_features(("pand",), bbox, log) if g.geom_type in ("Polygon", "MultiPolygon")]
     water = [g for _, _, p, g in bgt_features(WATER_COLLECTIONS, bbox, log) if not underground(p)]
     blocked = shapely.union_all([
