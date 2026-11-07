@@ -28,6 +28,14 @@ export class Footprint {
     const i = Math.floor((x - this.x0) / Footprint.CELL), k = Math.floor((z - this.z0) / Footprint.CELL);
     return i >= 0 && k >= 0 && i < this.nx && k < this.nz && this.cells[k * this.nx + i] === 1;
   }
+  /** Whether any covered cell meets the box [x0, x1] x [z0, z1]: covers() is false everywhere in it otherwise. */
+  coversAny(x0: number, z0: number, x1: number, z1: number) {
+    const C = Footprint.CELL;
+    const i0 = Math.max(0, Math.floor((x0 - this.x0) / C)), i1 = Math.min(this.nx - 1, Math.floor((x1 - this.x0) / C));
+    const k0 = Math.max(0, Math.floor((z0 - this.z0) / C)), k1 = Math.min(this.nz - 1, Math.floor((z1 - this.z0) / C));
+    for (let k = k0; k <= k1; k++) for (let i = i0; i <= i1; i++) if (this.cells[k * this.nx + i] === 1) return true;
+    return false;
+  }
   /** Mark the cells whose centres lie inside one triangle's XZ projection (`det`: twice its signed XZ area). */
   fill(xs: number[], zs: number[], det: number) {
     const C = Footprint.CELL;

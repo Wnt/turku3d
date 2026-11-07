@@ -66,4 +66,21 @@ describe('mapped lamp ground irradiance', () => {
     field.update(150, 0, 0); expect(field.pending).toBe(false);
     expect(groundLampField.night.value).toBe(0);
   });
+  test('a lamp skips the sight test only where no footprint cell can cover a sample', () => {
+    let seed = 5; const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const grid = new Footprint(-41.3, 17.9, 40, 80);
+    for (let i = 0; i < grid.cells.length; i++) grid.cells[i] = random() < 0.01 ? 1 : 0;
+    for (let n = 0; n < 300; n++) {
+      const x0 = -60 + random() * 110, z0 = 0 + random() * 90, x1 = x0 + random() * 12, z1 = z0 + random() * 12;
+      let sampled = false;
+      for (let x = x0; x <= x1 && !sampled; x += 0.25) for (let z = z0; z <= z1; z += 0.25) if (grid.covers(x, z)) { sampled = true; break; }
+      if (sampled) expect(grid.coversAny(x0, z0, x1, z1)).toBe(true);
+      if (!grid.coversAny(x0, z0, x1, z1)) expect(sampled).toBe(false);
+    }
+    // A wall beyond the pool radius leaves the pool as if there were none.
+    const far = new Footprint(30, -32, 34, 32); far.cells.fill(1);
+    const open = new GroundLampField(() => []), walled = new GroundLampField(() => [far]);
+    open.setLamps([lamp(0)]); settle(open); const pool = value(15, 1);
+    walled.setLamps([lamp(0)]); settle(walled); expect(value(15, 1)).toBe(pool);
+  });
 });

@@ -82,14 +82,17 @@ export type SightTest = (ax: number, az: number, bx: number, bz: number) => bool
 /** A sight test over footprint grids (tileScan.ts). The first and last `sightEnds` metres are not tested: a camera
  *  pressed against a wall, a lamp head reaching over a kerb. */
 export function footprintSight(grids: () => Iterable<{ covers(x: number, z: number): boolean }>): SightTest {
-  return (ax, az, bx, bz) => {
-    const length = Math.hypot(bx - ax, bz - az);
-    for (let d = POOL.sightEnds; d < length - POOL.sightEnds; d += POOL.sightStep) {
-      const x = ax + (bx - ax) * d / length, z = az + (bz - az) * d / length;
-      for (const grid of grids()) if (grid.covers(x, z)) return true;
-    }
-    return false;
-  };
+  return (ax, az, bx, bz) => sightBlocked([...grids()], ax, az, bx, bz);
+}
+/** footprintSight's test over a fixed list of grids. */
+export function sightBlocked(grids: readonly { covers(x: number, z: number): boolean }[], ax: number, az: number, bx: number, bz: number) {
+  if (!grids.length) return false;
+  const length = Math.hypot(bx - ax, bz - az);
+  for (let d = POOL.sightEnds; d < length - POOL.sightEnds; d += POOL.sightStep) {
+    const x = ax + (bx - ax) * d / length, z = az + (bz - az) * d / length;
+    for (let g = 0; g < grids.length; g++) if (grids[g].covers(x, z)) return true;
+  }
+  return false;
 }
 
 export class LampPools {
