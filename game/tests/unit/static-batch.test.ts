@@ -94,3 +94,20 @@ test('placements batch per generator block, else per 125 m cell', async () => {
   const owners = batches.map(b => staticBatchPlacements(b)!.map(p => p.userData.placementId).sort());
   expect(owners.sort()).toEqual([['p10', 'p40'], ['p140', 'p300']]);
 });
+
+test('the batch scan yields within a big tile, and a second run cannot start while one is scanning', () => {
+  const model = new THREE.Group();
+  for (let i = 0; i < 200; i++) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.position.set(i * 3, 0, 0); mesh.userData.layer = 'ground'; model.add(mesh);
+  }
+  const first = staticBatchSteps(model);
+  first.next();
+  // Mid-scan: another preparation of the same model ends at once instead of batching it twice.
+  expect([...staticBatchSteps(model)].length).toBe(0);
+  let yields = 1;
+  while (!first.next().done) yields++;
+  // Every mesh has its own material: nothing merges, so every yield is the scan's.
+  expect(yields).toBe(Math.floor(200 / 64));
+  expect(model.children.length).toBe(200);
+});

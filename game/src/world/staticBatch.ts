@@ -24,6 +24,8 @@ const owners = new WeakMap<THREE.Object3D, Batch[]>();
 /** Source meshes a model's static batches detached (they return on release): memory census. */
 export function staticBatchSources(model: THREE.Object3D): THREE.Mesh[] { return (owners.get(model) ?? []).flatMap(batch => batch.sources); }
 const budget = streamingBudget();
+/** Meshes staticBatchSteps scans between yields. */
+const SCAN_SLICE = 64;
 
 /** Only the canonical, tightly packed facade layout can bypass the general attribute merger. */
 function packedPrograms(sources: THREE.Mesh[]) {
@@ -72,27 +74,41 @@ function cloneBase(geometry: THREE.BufferGeometry) {
 /** Merge opaque static neighbours with the same material/layout, retaining semantic index ranges.
  * Small spatial buckets preserve culling; mutable props, instances and transparent ordering stay separate. */
 export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
-  if (owners.has(model)) return;
+  // The scan yields before the model has its batches (owners): a second run must not start meanwhile.
+  if (owners.has(model) || scanning.has(model)) return;
+  scanning.add(model);
+  try { yield* batchSteps(model); } finally { scanning.delete(model); }
+}
+const scanning = new WeakSet<THREE.Object3D>();
+function* batchSteps(model: THREE.Object3D): Generator<void> {
   model.updateWorldMatrix(true, true);
   const buckets = new Map<string, THREE.Mesh[]>(), center = new THREE.Vector3();
   const geometryUsers = new Map<THREE.BufferGeometry, number>();
   const placements = new Map<THREE.Mesh, THREE.Object3D>();
-  model.traverse(object => {
+  // The scan yields every SCAN_SLICE meshes: bounds, keys and placements of a whole tile in one step took ~17 ms on the
+  // Windows laptop while driving (frame-mp win-drive-1). Same pre-order as Object3D.traverse.
+  const stack: THREE.Object3D[] = [model];
+  scan: for (let seen = 0; stack.length;) {
+    const object = stack.pop()!;
+    for (let k = object.children.length - 1; k >= 0; k--) stack.push(object.children[k]);
     const mesh = object as THREE.Mesh;
-    if (mesh.isMesh) geometryUsers.set(mesh.geometry, (geometryUsers.get(mesh.geometry) ?? 0) + 1);
+    if (mesh.isMesh) {
+      geometryUsers.set(mesh.geometry, (geometryUsers.get(mesh.geometry) ?? 0) + 1);
+      if (++seen % SCAN_SLICE === 0) yield;
+    }
     if (!mesh.isMesh || !mesh.visible || mesh.children.length || !mesh.parent || Array.isArray(mesh.material)
       || (mesh as THREE.InstancedMesh).isInstancedMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh
       || mesh.material.transparent || mesh.geometry.groups.length || Object.keys(mesh.geometry.morphAttributes).length
       || mesh.geometry.drawRange.start !== 0 || mesh.geometry.drawRange.count !== Infinity
-      || !['ground', 'buildings', 'structures'].includes(mesh.userData.layer)) return;
+      || !['ground', 'buildings', 'structures'].includes(mesh.userData.layer)) continue;
     // Explicitly dynamic structures (breakable poles etc.) must retain their object/range owners.
-    if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) return;
+    if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) continue;
     mesh.geometry.computeBoundingBox();
     mesh.geometry.boundingBox!.getCenter(center).applyMatrix4(mesh.matrixWorld);
     const placement = placementOf(mesh, model);
     if (placement) {
       // Hidden subparts/debug masks are independent of placement visibility; never bake them into a visible draw.
-      for (let node: THREE.Object3D | null = mesh.parent; node && node !== placement; node = node.parent) if (!node.visible) return;
+      for (let node: THREE.Object3D | null = mesh.parent; node && node !== placement; node = node.parent) if (!node.visible) continue scan;
       placements.set(mesh, placement);
     }
     // Placements batch per generator block (nearby buildings), else per 125 m cell: small enough for frustum and
@@ -106,7 +122,7 @@ export function* staticBatchSteps(model: THREE.Object3D): Generator<void> {
     const key = JSON.stringify([placement ? model.uuid : mesh.parent.uuid, !!placement, mesh.material.uuid, mesh.userData.layer, mesh.layers.mask,
       mesh.renderOrder, ...cell, !!mesh.geometry.index, layout]);
     const bucket = buckets.get(key) ?? []; bucket.push(mesh); buckets.set(key, bucket);
-  });
+  }
   const batches: Batch[] = []; owners.set(model, batches);
   for (const sources of buckets.values()) {
     if (sources.length < 2) continue;
