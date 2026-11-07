@@ -697,6 +697,8 @@ def slab(key, polygon, line, stations, heights, material, height_at=None, thickn
     # between them (Kalevan: 2.6 m below the deck in the middle of its main carriageway).
     ends = np.asarray(shapely.get_coordinates(line))[[0, -1]]
     along = ends[1] - ends[0]
+    # A station cut can leave empty parts (a deck piece wholly outside the strip): no coordinates to offset.
+    pieces = [(part, fn) for part, fn in pieces if not part.is_empty]
     if np.linalg.norm(along) > 1e-6 and pieces:
         along /= np.linalg.norm(along)
         across = np.array([-along[1], along[0]])

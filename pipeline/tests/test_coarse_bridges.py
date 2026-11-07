@@ -623,3 +623,10 @@ def test_deck_resting_on_ground_over_nothing_is_a_terrace_with_railings_only_at_
     kept = drop_edges(edges, height, ground)
     assert kept.length > 19
     assert shapely.get_coordinates(kept)[:, 1].max() < -2.9  # only the street edge
+
+
+def test_bridge_slab_of_an_empty_level_draws_nothing():
+    """Rotterdam t0_1_1: a deck level cut away entirely left only empty pieces, and the cross-deck cuts took the
+    minimum of no coordinates (ValueError), failing the whole tile."""
+    line = shapely.LineString([(0, 0), (20, 0)])
+    assert slab("empty", [(shapely.Polygon(), None)], line, np.array([0, 10, 20]), np.array([2, 2, 2]), "road") == []
