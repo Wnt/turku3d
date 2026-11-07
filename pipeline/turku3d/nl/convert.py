@@ -793,9 +793,10 @@ def _derive(layer, area, adapter, bbox, log):
     return s
 
 
-def rederive(log=print, adapters=None) -> int:
+def rederive(log=print, adapters=None, force=False) -> int:
     """Derive every profile-derived WFS layer of each converted area that is missing, absent (a gap the
-    profile now fills) or from an older adapter version; the tiles over it rebuild."""
+    profile now fills) or from an older adapter version; the tiles over it rebuild. ``force`` re-derives the named
+    ``adapters`` whatever their summaries say (one adapter's rule changed; the others' layers stay)."""
     from turku3d.coarse.sources import AREA_PREFIX, block_area
     from turku3d.fetch.sources import WFS_LAYERS as ALL
 
@@ -810,7 +811,7 @@ def rederive(log=print, adapters=None) -> int:
             layer = next(l for l in ALL if l.name == name)
             summary = area_dir / f"{layer.slug}.summary.json"
             s = json.loads(summary.read_text()) if summary.exists() else {}
-            if s.get("derived") == adapter and s.get("adapter_version") == ADAPTER_VERSION:
+            if s.get("derived") == adapter and s.get("adapter_version") == ADAPTER_VERSION and not (force and adapters):
                 continue
             summary.unlink(missing_ok=True)
             derive(layer, area, adapter, log=log)
@@ -823,10 +824,11 @@ if __name__ == "__main__":
 
     err = lambda *a: print(*a, file=sys.stderr)  # noqa: E731
     if sys.argv[1:2] == ["rederive"]:
-        print(json.dumps({"rederived": rederive(err, sys.argv[2:] or None)}))
+        names = [a for a in sys.argv[2:] if a != "--force"]
+        print(json.dumps({"rederived": rederive(err, names or None, force="--force" in sys.argv[2:])}))
     elif sys.argv[1:2] == ["pointclouds"]:
         from .lidar import pointclouds
 
         print(json.dumps({"pointclouds": pointclouds(err)}))
     else:
-        raise SystemExit("python -m turku3d.nl.convert rederive [ADAPTER ...] | pointclouds")
+        raise SystemExit("python -m turku3d.nl.convert rederive [--force] [ADAPTER ...] | pointclouds")
