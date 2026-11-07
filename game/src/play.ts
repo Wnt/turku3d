@@ -531,6 +531,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     cameraBasis: () => orbit.basis(),
     footRoute: (a, b) => router.route(a, b, 'foot'),
     carRoute: (a, b) => router.route(a, b, 'car'),
+    groundRay: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
   }, coarse);
   input.driver = (actions, dt) => autopilot.control(actions, dt);
   const driveMeThere = new DriveMeThere(missions, autopilot);

@@ -18,6 +18,7 @@ import { DriveFollower, WalkFollower, type DriveStyle, type VehicleGeometry, typ
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
 import { makePath, type Path, type PathPoint } from './path';
+import { reverseClear, type GroundRay } from './reverseCheck';
 
 export type AutopilotMode = 'drive' | 'walk';
 export type AutopilotState = 'planning' | 'driving' | 'arrived' | 'failed' | 'cancelled';
@@ -82,13 +83,16 @@ export interface AutopilotWorld {
   footRoute(from: PathPoint, to: PathPoint): PathPoint[] | null;
   /** Driving fallback over street centrelines when no lane route exists. */
   carRoute?(from: PathPoint, to: PathPoint): PathPoint[] | null;
+  /** Downward rays against static collision: a stuck car backs out only over ground it can drive (reverseCheck.ts). */
+  groundRay?: GroundRay;
 }
 
 export function vehicleGeometry(kind: VehicleKind = 'car'): VehicleGeometry {
   const t = VEHICLES[kind];
   const axle = t.front.map(i => t.wheels[i].x), rest = t.wheels.filter((_, i) => !t.front.includes(i)).map(w => w.x);
   const front = axle.reduce((a, b) => a + b, 0) / axle.length, rear = Math.min(...rest);
-  return { wheelbase: front - rear, rearOffset: -rear, maxSteer: t.maxSteer, steerHalfSpeed: t.steerHalfSpeed, rearSteer: t.rearSteer };
+  return { wheelbase: front - rear, rearOffset: -rear, maxSteer: t.maxSteer, steerHalfSpeed: t.steerHalfSpeed, rearSteer: t.rearSteer,
+    back: t.halfExt.x, halfWidth: t.halfExt.z };
 }
 
 /** Chassis pose from a vehicle snapshot: forward is chassis +X rotated by the body quaternion. */
@@ -113,6 +117,8 @@ class Trip implements AutopilotHandle {
   walk: WalkFollower | null = null;
   limit: ((s: number) => number) | null = null;
   elapsed = 0; replans = 0; speed = 0; target = 0; lateral = 0;
+  /** A reverse-out's ground check is running. */
+  probing = false;
   planning: Promise<void> | null = null;
   readonly done: Promise<AutopilotResult>;
   private resolve!: (r: AutopilotResult) => void;
@@ -217,7 +223,8 @@ export class Autopilot {
       const speed = o.speed ?? 30;
       const cap = limit ? (s: number) => Math.min(limit(s), speed) : undefined;
       if (trip.drive) { trip.drive.setPath(path); trip.drive.options = { ...trip.drive.options, limit: cap }; }
-      else trip.drive = new DriveFollower(path, vehicleGeometry(kind), { speed: limit ? Math.min(speed, 40) : (o.speed ?? 12), style: o.style, stop: o.stop, arrive: o.arrive, limit: cap });
+      else trip.drive = new DriveFollower(path, vehicleGeometry(kind), { speed: limit ? Math.min(speed, 40) : (o.speed ?? 12), style: o.style, stop: o.stop, arrive: o.arrive, limit: cap,
+        checkReverse: !!this.world.groundRay });
     } else if (trip.walk) trip.walk.setPath(path);
     else trip.walk = new WalkFollower(path, { pace: o.pace ?? 'run', arrive: o.arrive });
     trip.state = 'driving';
@@ -251,6 +258,7 @@ export class Autopilot {
     this.command = c;
     if (step.status === 'arrived') { trip.finish('arrived'); return; }
     if (trip.drive.recoveries > (trip.options.recoveries ?? 4)) { trip.finish('failed', 'stuck'); return; }
+    if (trip.drive.pendingReverse !== null && !trip.probing) this.checkReverse(trip, trip.drive, pose);
     const replan = step.status === 'off-path' || (step.status === 'stuck' && trip.drive.recoveries >= 2);
     if (replan && !trip.planning && !trip.options.path) {
       trip.replans++;
@@ -259,6 +267,23 @@ export class Autopilot {
       trip.planning = this.plan(trip, true).catch(error => trip.finish('failed', `re-plan: ${(error as Error).message}`))
         .finally(() => { trip.planning = null; });
     } else if (step.status === 'off-path' && !trip.planning) trip.finish('failed', 'off path');
+  }
+
+  /** Backs a stuck car out only over drivable ground: the way it wants (opposite lock), else the other lock, else
+   *  straight back; when none is clear (a quay edge, a drop, water behind) the trip ends stuck instead. */
+  private checkReverse(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
+    const ray = this.world.groundRay, want = follower.pendingReverse!;
+    if (!ray) { follower.reverse(want); return; }
+    trip.probing = true;
+    void (async () => {
+      for (const steer of [want, -want, 0]) if (await reverseClear(pose, steer, follower.geometry, ray)) return steer;
+      return null;
+    })().then(steer => {
+      trip.probing = false;
+      if (trip.drive !== follower || trip.state !== 'driving') return;
+      if (steer === null) trip.finish('failed', 'stuck: no safe way back');
+      else follower.reverse(steer);
+    }, () => { trip.probing = false; if (trip.drive === follower) follower.reverse(want); });
   }
 
   private walkStep(trip: Trip, actions: Actions, dt: number) {

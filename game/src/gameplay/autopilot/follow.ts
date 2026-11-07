@@ -25,6 +25,9 @@ export interface VehicleGeometry {
   steerHalfSpeed: number;
   /** A 4WS vehicle in its passive AUTO mode turns like a shorter car (SPEC §3.2). */
   rearSteer?: RearSteerTuning;
+  /** Chassis origin to the rear end (m) and half width (m): the reverse-out ground check (reverseCheck.ts). */
+  back?: number;
+  halfWidth?: number;
 }
 
 export type DriveStyle = 'calm' | 'normal' | 'fast';
@@ -47,6 +50,9 @@ export interface DriveOptions {
   arrive?: number;
   /** Per-arc-length speed limit (m/s), e.g. the lanes' own limits. */
   limit?: (s: number) => number;
+  /** The caller checks the ground behind before each reverse-out (reverseCheck.ts) and starts it with reverse(), or
+   *  ends the trip; the car holds meanwhile. Without it the follower backs out at once. */
+  checkReverse?: boolean;
 }
 
 export type FollowStatus = 'driving' | 'arrived' | 'stuck' | 'off-path' | 'recovering';
@@ -68,6 +74,9 @@ export class DriveFollower {
   private reverseFor = 0;
   private reverseFrom: { x: number; z: number } | null = null;
   private reverseSteer = 0;
+  private lastPose: VehiclePose | null = null;
+  /** The steer of a reverse-out waiting for the caller's ground check (options.checkReverse), else null. */
+  pendingReverse: number | null = null;
   recoveries = 0;
   private readonly sample: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 };
 
@@ -100,8 +109,16 @@ export class DriveFollower {
     return Math.max(0, target);
   }
 
+  /** Starts the reverse-out with `steer` (after the caller's ground check). */
+  reverse(steer: number) {
+    this.pendingReverse = null; this.stuckFor = 0;
+    this.reverseFor = REVERSE_TIME; this.reverseSteer = steer;
+    this.reverseFrom = this.lastPose ? { x: this.lastPose.x, z: this.lastPose.z } : null;
+  }
+
   step(pose: VehiclePose, dt: number): DriveStep {
     const g = this.geometry, path = this.path;
+    this.lastPose = pose;
     const at = this.locate(pose);
     const v = pose.forwardSpeed, speed = Math.abs(v);
     const progressed = at.s - this.s;
@@ -113,6 +130,8 @@ export class DriveFollower {
     }
     if (at.distance > OFF_PATH_M) return { command: hold, status: 'off-path', s: this.s, lateral: at.lateral, target: 0 };
 
+    // Waiting for the ground check behind before a reverse-out: hold still.
+    if (this.pendingReverse !== null) return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 };
     // Reverse-out manoeuvre after being stuck: back up with opposite lock, then resume.
     if (this.reverseFor > 0) {
       this.reverseFor -= dt;
@@ -155,8 +174,9 @@ export class DriveFollower {
     if (throttle > 0.3 && speed < 0.5 && progressed < 0.02) this.stuckFor += dt; else if (speed > 1) this.stuckFor = 0;
     if (this.stuckFor > STUCK_AFTER) {
       this.recoveries++;
-      this.stuckFor = 0; this.reverseFor = REVERSE_TIME; this.reverseFrom = { x: pose.x, z: pose.z };
-      this.reverseSteer = -Math.sign(steer || 1);
+      this.stuckFor = 0;
+      const away = -Math.sign(steer || 1);
+      if (this.options.checkReverse) this.pendingReverse = away; else this.reverse(away);
       return { command: { throttle: 0, brake: 0, steer: 0, handbrake: false }, status: 'stuck', s: this.s, lateral: at.lateral, target };
     }
     return { command: { throttle, brake, steer, handbrake }, status: 'driving', s: this.s, lateral: at.lateral, target };

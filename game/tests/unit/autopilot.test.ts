@@ -152,6 +152,78 @@ describe('drive follower on the real vehicle', () => {
   }, 30_000);
 });
 
+describe('reverse-out ground check', () => {
+  test('the checked arc is the one the car backs along, and a drop behind it blocks the reverse', async () => {
+    const { reversePoints, reverseClear } = await import('../../src/gameplay/autopilot/reverseCheck');
+    const pw = await devWorld();
+    const geometry = vehicleGeometry('car');
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 40; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pose = vehiclePose(pw.vehicleState()!);
+    // Back out with full right lock (the brake pedal reverses at a standstill), as the follower's reverse-out does.
+    for (let k = 0; k < 60 * 1.8; k++) pw.fixedStep(null, { throttle: 0, steer: 1, brake: 0.7, handbrake: false });
+    const end = vehiclePose(pw.vehicleState()!);
+    const rows = reversePoints(pose, 1, geometry);
+    // The car's lateral drift (right of its start heading) has the sign of the checked arc's.
+    const right = (p: { x: number; z: number }) => (p.x - pose.x) * -pose.hz + (p.z - pose.z) * pose.hx;
+    expect(Math.sign(right(end))).toBe(Math.sign(right(rows[rows.length - 1][1])));
+    const ray = async (o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, max: number) => pw.raycast(o, d, max, 'solid');
+    expect(await reverseClear(pose, 0, geometry, ray)).toBe(true);
+    // A quay 3 m behind the rear axle: the ground ends there (a canal below the edge).
+    const quay = async (o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, max: number) =>
+      (o.x - pose.x) * pose.hx + (o.z - pose.z) * pose.hz < -geometry.rearOffset - 3 ? null : pw.raycast(o, d, max, 'solid');
+    expect(await reverseClear(pose, 0, geometry, quay)).toBe(false);
+    pw.world.free();
+  }, 30_000);
+
+  test('a stuck car with a drop behind ends its trip stuck instead of backing over the edge', async () => {
+    const pw = await devWorld();
+    pw.spawnVehicle({ x: 170, y: G + 0.8, z: 208 }, 0);
+    // Nosed into the block the car stands at x ~190: the ground ends 3-4 m behind it (a quay edge), nothing at x < 184.
+    const ray = async (o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, max: number) =>
+      o.x < 184 ? null : pw.raycast(o, d, max, 'solid');
+    const pilot = new Autopilot({ mode: () => 'car', vehicle: () => pw.vehicleState(), feet: () => ({ x: 0, y: 0, z: 0 }),
+      cameraBasis: () => ({ fx: 0, fz: -1, rx: 1, rz: 0 }), lanes: new LaneRouter(), footRoute: (a, b) => [a, b], groundRay: ray });
+    // Straight into the dev building block (x 192–212, z 200–216).
+    const trip = pilot.goTo({ x: 240, z: 208 }, { mode: 'drive', path: [{ x: 170, z: 208 }, { x: 240, z: 208 }], speed: 6 });
+    let maxX = 0, backed = 0;
+    for (let k = 0; k < 60 * 20 && trip.state !== 'failed'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const x = pw.vehicleState()!.pos.x;
+      maxX = Math.max(maxX, x); backed = Math.max(backed, maxX - x);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    expect(trip.state).toBe('failed');
+    expect(trip.reason).toBe('stuck: no safe way back');
+    // It never backed toward the edge.
+    expect(backed).toBeLessThan(0.5);
+    pw.world.free();
+  }, 30_000);
+
+  test('with drivable ground behind, the checked reverse-out still backs the car away', async () => {
+    const pw = await devWorld();
+    pw.spawnVehicle({ x: 170, y: G + 0.8, z: 208 }, 0);
+    const pilot = new Autopilot({ mode: () => 'car', vehicle: () => pw.vehicleState(), feet: () => ({ x: 0, y: 0, z: 0 }),
+      cameraBasis: () => ({ fx: 0, fz: -1, rx: 1, rz: 0 }), lanes: new LaneRouter(), footRoute: (a, b) => [a, b],
+      groundRay: async (o, d, max) => pw.raycast(o, d, max, 'solid') });
+    const trip = pilot.goTo({ x: 240, z: 208 }, { mode: 'drive', path: [{ x: 170, z: 208 }, { x: 240, z: 208 }], speed: 6 });
+    let maxX = 0, backed = 0;
+    for (let k = 0; k < 60 * 14 && backed < 1; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const x = pw.vehicleState()!.pos.x;
+      maxX = Math.max(maxX, x); backed = Math.max(backed, maxX - x);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    expect(trip.progress.recoveries).toBeGreaterThan(0);
+    expect(backed).toBeGreaterThan(1);
+    pw.world.free();
+  }, 30_000);
+});
+
 describe('autopilot controller', () => {
   const world = (mode: 'foot' | 'car'): AutopilotWorld => ({
     mode: () => mode, vehicle: () => null, feet: () => ({ x: 0, y: 0, z: 0 }),
