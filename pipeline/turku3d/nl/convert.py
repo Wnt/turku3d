@@ -645,7 +645,7 @@ def walls_bgt(bbox, log=print):
     """kanta:Rakenne retaining-wall lines (66634) from BGT scheiding_lijn "muur" at relatieve_hoogteligging 0."""
     import shapely
 
-    walls, quays, carriageways = [], [], []
+    walls, quays, carriageways, paved = [], [], [], []
     for _, key, p, g in bgt_features(("scheiding_vlak", "scheiding_lijn"), bbox, log):
         if int(p.get("relatieve_hoogteligging") or 0) != 0:
             continue
@@ -656,9 +656,14 @@ def walls_bgt(bbox, log=print):
             walls.append((key, g))
     if not walls:
         return []
-    for _, _, p, g in bgt_features(STREET_COLLECTIONS, bbox, log):
-        if (p.get("functie") or "").startswith("rijbaan") and not underground(p) and g.geom_type in ("Polygon", "MultiPolygon"):
+    for collection, _, p, g in bgt_features(STREET_COLLECTIONS + ("onbegroeidterreindeel",), bbox, log):
+        if underground(p) or g.geom_type not in ("Polygon", "MultiPolygon"):
+            continue
+        if (p.get("functie") or "").startswith("rijbaan"):
             carriageways.append(g)
+        if collection != "onbegroeidterreindeel" or (p.get("fysiek_voorkomen") or "") in PAVED_TERRAIN:
+            if not any(t in (p.get("fysiek_voorkomen") or "") for t in GREEN):
+                paved.append(g)
     facades = [g.boundary for _, _, _, g in bgt_features(("pand",), bbox, log) if g.geom_type in ("Polygon", "MultiPolygon")]
     water = [g for _, _, p, g in bgt_features(WATER_COLLECTIONS, bbox, log) if not underground(p)]
     blocked = shapely.union_all([
@@ -667,6 +672,7 @@ def walls_bgt(bbox, log=print):
         *[w.buffer(WALL_WATER_CLEARANCE) for w in water],
         *[c.buffer(-WALL_CARRIAGEWAY_INSET) for c in carriageways],
     ])
+    street = shapely.union_all(paved) if paved else shapely.Polygon()
     rows = []
     for key, g in walls:
         kept = g.difference(blocked) if not blocked.is_empty else g
@@ -675,8 +681,28 @@ def walls_bgt(bbox, log=print):
         for i, part in enumerate(parts):
             rows.append({"layer": "kanta:Rakenne", "feature_key": key, "gml_id": key, "geom_index": i, "geometry": part,
                          "geom_type": "LineString", "geom_role": "scheiding_lijn", "surface_type": "", "part_id": "",
-                         "surface_id": "", "kplkoodi": RETAINING_CODE, "bgt_type": "muur"})
+                         "surface_id": "", "kplkoodi": RETAINING_CODE, "bgt_type": "muur",
+                         "bgt_paved_sides": paved_sides(part, street)})
     return rows
+
+
+def paved_sides(line, street, reach=1.5, share=0.5) -> str:
+    """Which sides of a wall line (in the engine frame, the retaining survey's left/right of the line's direction)
+    are mostly street paving within ``reach``: "", "l", "r" or "lr". A parapet stands only on a paved upper side
+    (a garage ramp in a street), never on a raised lawn or a planted bank (Rotterdam Binnenrotte)."""
+    import shapely
+
+    if street.is_empty:
+        return ""
+    # The survey's left of a line is centre - (-dz, dx) in the engine frame (x east, z south); mirrored back into RD
+    # (north up) that is the side shapely buffers for a positive single-sided distance.
+    left = line.buffer(reach, single_sided=True)
+    right = line.buffer(-reach, single_sided=True)
+    sides = ""
+    for name, band in (("l", left), ("r", right)):
+        if band.area > 0 and band.intersection(street).area / band.area >= share:
+            sides += name
+    return sides
 
 
 ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt,

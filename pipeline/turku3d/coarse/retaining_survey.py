@@ -118,17 +118,24 @@ def measure(line, points):
     return runs
 
 
+def upper_side(profile) -> int:
+    """0 when the left side of a measured run is the higher one (the survey's ``heights`` columns), else 1."""
+    heights = np.asarray(profile["heights"], float)
+    return 0 if np.nanmean(heights[:, 0]) > np.nanmean(heights[:, 1]) else 1
+
+
 def prepare(tile, vector, paths):
     """Complete WFS 66634 lines use raw class 2/12, never the already blended path grid."""
     if vector is None or not paths:
         return []
     rows = frame(vector, tile.bbox.buffered(3))
-    lines = [(str(r.feature_key), shapely.force_2d(r.geometry_local), getattr(r, "bgt_type", None))
+    lines = [(str(r.feature_key), shapely.force_2d(r.geometry_local), getattr(r, "bgt_type", None),
+              str(getattr(r, "bgt_paved_sides", "") or ""))
              for r in rows.itertuples() if str(r.kplkoodi) == "66634"]
     result = []
     survey = {p.stem: p for p in paths}
     store = TileStore(source_paths=survey)
-    for key, geometry, bgt_type in lines:
+    for key, geometry, bgt_type, paved in lines:
         for line in shapely.get_parts(geometry):
             if line.geom_type != "LineString" or line.length < 1.5:
                 continue
@@ -138,7 +145,7 @@ def prepare(tile, vector, paths):
             cloud = store.query(bounds).query(classes=[2, 12], last_return=True)
             for index, (edge, profile) in enumerate(measure(line, ground_points(cloud))):
                 tags = {"barrier": "retaining_wall", "_survey": profile, "source": f"wfs:{key}:{index}"}
-                if bgt_type == "muur":
-                    tags["_parapet"] = BGT_PARAPET  # a BGT wall stands above the ground it retains
+                if bgt_type == "muur" and "lr"[upper_side(profile)] in paved:
+                    tags["_parapet"] = BGT_PARAPET  # a street wall over a drop stands above the paving it retains
                 result.append((edge, tags, False))
     return result

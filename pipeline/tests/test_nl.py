@@ -236,3 +236,20 @@ def test_bgt_ground_walls_become_retaining_survey_lines(monkeypatch):
     assert by_key["ramp"][0]["geometry"].length == 30
     across = sorted(round(r["geometry"].length, 1) for r in by_key["across"])
     assert across == [10.3, 10.3]  # cut where it crosses the carriageway, kept up to 0.3 m into its edge
+
+
+def test_paved_sides_follow_the_retaining_surveys_left_and_right():
+    """The survey's left of an engine-frame line (x east, z south) is north for a line running east; the same line in
+    RD has that paving on its left too (Rotterdam Binnenrotte: lawn above, street below, so no parapet)."""
+    import shapely
+
+    from turku3d.coarse import retaining
+
+    east = shapely.LineString([(0, 0), (10, 0)])  # RD: running east
+    north_paving = shapely.box(0, 0, 10, 2)  # RD north of the line
+    assert convert.paved_sides(east, north_paving) == "l"
+    assert convert.paved_sides(east, shapely.box(0, -2, 10, 2)) == "lr"
+    assert convert.paved_sides(east, shapely.Polygon()) == ""
+    # The same line in the engine frame: the survey's left rail lies north (-z).
+    centres, left, right = retaining.sections(shapely.LineString([(0, 0), (10, 0)]))
+    assert left[0][1] < 0 < right[0][1]

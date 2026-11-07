@@ -218,3 +218,8 @@ def test_a_bgt_wall_over_a_ramp_drop_stands_as_a_parapet_on_the_street_side():
         meshes, _ = retaining.produce(VisualTile(0, 0, 0), survey, lambda x, z: 1.2)
         heights = max(np.max(t["_survey"]["heights"]) for _, t, _ in survey)
         assert max(m.positions[:, 1].max() for m in meshes if not m.metadata.get("terrain")) <= heights + 1e-6
+
+
+def test_upper_side_is_the_higher_survey_column():
+    (_, tags, _), = records(step=2.0)  # the cloud rises towards +z, the survey's right
+    assert retaining_survey.upper_side(tags["_survey"]) == 1
