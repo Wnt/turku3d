@@ -105,9 +105,11 @@ def unique(features):
 def signed_areas(city, posts, features):
     """City "other traffic areas" (Katuosalaji 12) that carry a parking sign become parking areas,
     unless OSM maps parking over most of them; E4.1 posts make their bays perpendicular, E4.3
-    diagonal."""
+    diagonal. A Dutch BGT parkeervlak is a parking bay by definition and needs no sign (the Dutch
+    cities have no sign register): strip depth then decides parallel or perpendicular bays."""
     allow = [p for p in posts if p.allows]
-    if not allow:
+    bays = [f for f in city if f.tags.get("bgt_functie") == "parkeervlak"]
+    if not allow and not bays:
         return []
     mapped = shapely.union_all(
         [
@@ -116,14 +118,14 @@ def signed_areas(city, posts, features):
             if f.tags.get("amenity") == "parking" and f.geometry.geom_type in ("Polygon", "MultiPolygon")
         ]
     )
-    points = shapely.STRtree([shapely.Point(p.x, p.z) for p in allow])
+    points = shapely.STRtree([shapely.Point(p.x, p.z) for p in allow]) if allow else None
     out = []
     for f in city:
         g = f.geometry
         if f.tags.get("Katuosalaji_koodi") != "12" or g.geom_type not in ("Polygon", "MultiPolygon"):
             continue
-        hits = [allow[i] for i in points.query(g.buffer(3), predicate="intersects")]
-        if not hits or g.intersection(mapped).area > 0.3 * g.area:
+        hits = [allow[i] for i in points.query(g.buffer(3), predicate="intersects")] if points else []
+        if not (hits or f.tags.get("bgt_functie") == "parkeervlak") or g.intersection(mapped).area > 0.3 * g.area:
             continue
         kinds = {p.orientation for p in hits}
         tags = {"amenity": "parking", "source": "city"}
@@ -132,7 +134,8 @@ def signed_areas(city, posts, features):
                 tags["orientation"] = kind
                 break
         key = str(f.tags.get("feature_key") or hashlib.sha1(g.wkb).hexdigest())[:16]
-        out.append(Feature(f"city:{key}", g, tags))
+        surveyed = not hits  # a BGT bay: its outline is the bay, so cars stay inside it (fit_at)
+        out.append(Feature(f"{'bgt' if surveyed else 'city'}:{key}", g, dict(tags, source="bgt") if surveyed else tags))
     return out
 
 
@@ -286,7 +289,7 @@ def place(
             ways = [aisles[i] for i in aisle_tree.query(f.geometry, predicate="intersects")]
             lot = list(aisle_candidates(f, ways))
         toward = None
-        if street is not None:
+        if street is not None and not f.id.startswith("bgt:"):  # a surveyed bay's row runs on its midline
             near = street.line.interpolate(street.line.project(f.geometry.centroid))
             toward = (near.x, near.y)
         # Mapped aisles lay the lot out; the grid is for lots without them.
@@ -370,8 +373,9 @@ def place(
             shape = footprint(x, z, yaw, width, length)
             if not bounds.covers(shape):
                 return "bounds"
-            # Strip bays stand at the kerb and may overhang the outline on the street side.
-            margin = -0.2 if kind == "lot" else 0.5 if street is not None else 0.15
+            # Strip bays stand at the kerb and may overhang the outline on the street side; a surveyed
+            # BGT bay is the bay itself (an Amsterdam canal street is a 3 m carriageway beside it).
+            margin = -0.2 if kind == "lot" else 0.0 if source.startswith("bgt:") else 0.5 if street is not None else 0.15
             if area is not None and not area.buffer(margin).covers(shape):
                 return "bay"
             if excluded.intersects(shape) or blocked_by_street(shape, kind, street, area):

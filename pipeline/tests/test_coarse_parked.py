@@ -159,3 +159,24 @@ def test_bus_bays_closed_to_cars_stay_empty():
     for tags in ({"access": "no", "bus": "yes", "parking": "lane"}, {"motor_vehicle": "no"}):
         closed = [Feature("lot", shapely.box(770, 30, 970, 130), {"amenity": "parking", **tags})]
         assert not parked.place(TILE, (closed, []), np.zeros((129, 129)))
+
+
+def test_a_dutch_bgt_parking_bay_needs_no_sign_and_keeps_its_cars_inside():
+    """Rotterdam: BGT parkeervlak polygons line Botersloot, but without a sign register no city 'other traffic
+    area' became parking and the street stood empty. A BGT bay is a parking bay by definition; its cars stay inside
+    its outline (Amsterdam canal streets are a 3 m carriageway beside the bay row)."""
+    street = shapely.LineString([(760, 100), (990, 100)])
+    carriage = street.buffer(2.5, cap_style="flat")
+    bay = shapely.box(770, 102.5, 960, 104.6)  # a 2.1 m strip along the south kerb
+    features = [Feature("osm:way:1", street, {"highway": "residential", "name": "A"})]
+    city = [
+        Feature("city:1", carriage, {"Katuosalaji_koodi": "1", "bgt_functie": "rijbaan lokale weg"}),
+        Feature("city:2", bay, {"Katuosalaji_koodi": "12", "bgt_functie": "parkeervlak", "feature_key": "b1"}),
+        Feature("city:3", shapely.box(770, 110, 960, 112), {"Katuosalaji_koodi": "12", "bgt_functie": "voetpad"}),
+    ]
+    areas = parked.signed_areas(city, [], features)
+    assert [f.id for f in areas] == ["bgt:b1"] and areas[0].tags["amenity"] == "parking"
+    cars = parked.place(TILE, (features, city), np.zeros((129, 129)))
+    assert len(cars) > 5
+    for car in cars:
+        assert bay.covers(footprint(car["x"], car["z"], car["yaw"], car["width"], car["length"]))
