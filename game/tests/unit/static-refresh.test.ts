@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { modelViewPosition, uniform, vec3 } from 'three/tsl';
+import { materialReference, modelViewPosition, uniform, vec3 } from 'three/tsl';
 import fs from 'node:fs';
 // @ts-expect-error r186 internal cache has no DefinitelyTyped declaration.
 import NodeManager from 'three/src/renderers/common/nodes/NodeManager.js';
@@ -27,7 +27,7 @@ function fixture() {
 }
 const covers = (value: Draw) => {
   const state = value.getNodeBuilderState();
-  return observable(state, value.getMonitor().refreshUniforms) && coveredBindings(value, ownedUniforms(state));
+  return observable(state) && coveredBindings(value, ownedUniforms(state));
 };
 
 test('r186 programs whose per-object inputs the observer sees are covered; callbacks, camera terms and free uniforms are not', () => {
@@ -89,6 +89,38 @@ test('a covered static draw refreshes once per program and pass, and in full for
   expect(refresh.stats.none).toBe(5);
   refresh.release();
   expect(nodes.needsRefresh).toBe(own);
+});
+
+test('a reference to another property of the draw\'s material (the puddle receiver flag) is compared per draw', () => {
+  const { renderer, nodes, draw } = fixture();
+  const refresh = staticRefresh({ _nodes: nodes, backend: renderer.backend, info: { frame: 0 } });
+  const frame = nodes.getNodeFrame();
+  // render/post.ts writes materialReference('userData.weatherReceiver') into the beauty MRT of every wet tier.
+  const flag = vec3(materialReference('userData.weatherReceiver', 'float') as unknown as THREE.Node<'float'>);
+  const receiver = (wet: number) => {
+    const material = new THREE.MeshStandardNodeMaterial();
+    material.colorNode = flag;
+    material.userData.weatherReceiver = wet;
+    return material;
+  };
+  const [dry, wet] = [receiver(0), receiver(1)];
+  const a = draw(dry), b = draw(wet);
+  expect(covers(a)).toBe(true);
+  const pass = () => { frame.renderId++; return [nodes.needsRefresh(a), nodes.needsRefresh(b)]; };
+  pass(); pass();
+  expect(pass()).toEqual([Refresh.SHARED, Refresh.NONE]);
+  dry.userData.weatherReceiver = 1;                     // no version bump, no refresh uniform
+  expect(pass()).toEqual([Refresh.FULL, Refresh.NONE]);
+  expect(pass()).toEqual([Refresh.FULL, Refresh.NONE]);
+  expect(pass()).toEqual([Refresh.SHARED, Refresh.NONE]);
+  // An object value may change in place: only a full refresh reads it.
+  const tinted = new THREE.MeshStandardNodeMaterial();
+  tinted.colorNode = materialReference('userData.tint', 'color') as unknown as THREE.Node<'color'>;
+  tinted.userData.tint = new THREE.Color(1, 0, 0);
+  const c = draw(tinted);
+  for (let i = 0; i < 4; i++) { frame.renderId++; expect(nodes.needsRefresh(c)).toBe(Refresh.FULL); }
+  expect(refresh.explain(c)).toBe('reference object userData.tint');
+  refresh.release();
 });
 
 test('draws of one program with different maps skip too: a shared map node holds the last draw\'s texture', () => {

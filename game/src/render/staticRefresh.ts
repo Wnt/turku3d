@@ -12,7 +12,8 @@ import { materialEnvIntensity, materialEnvRotation, modelNormalMatrix, modelWorl
  *  and skipped after that (NONE) while `equals` finds its world matrix, material uniforms, geometry, instancing,
  *  lights and environment unchanged. The observer sees all of it when every per-object node of the program reads only
  *  those: the object's world matrix (Object3DNode/ModelNode scopes of matrixWorld, the normal and inverse matrices),
- *  the draw's own material through the observer's `refreshUniforms`, motion vectors (VelocityNode), its textures'
+ *  the draw's own material (the observer's `refreshUniforms`, which `equals` compares, and any other property, whose
+ *  primitive or texture value is compared per draw), motion vectors (VelocityNode), its textures'
  *  uv transform and flip (TextureNode; no texture transform is animated after load), references and uniform arrays in a
  *  shared group (the scene's fog, CSM's cascades), which the program's SHARED refresh updates, and r186's copy of
  *  instance matrices into the previous ones after a velocity draw (equal while instanceMatrix.version is). A program with
@@ -75,12 +76,12 @@ const previousInstances = (node: Node) => node.previousInstances === true
   || (typeof node.callback === 'function' && String(node.callback).includes('previousInstanceMatrix'));
 
 /** Whether the observer's `equals` covers every per-object node update of the program. */
-export function observable(state: State, refreshUniforms: readonly string[]): boolean {
-  return uncovered(state, refreshUniforms) === null;
+export function observable(state: State): boolean {
+  return uncovered(state) === null;
 }
 
 /** The first per-object node update the observer does not cover (its class and scope/property/name), else null. */
-export function uncovered(state: State, refreshUniforms: readonly string[]): string | null {
+export function uncovered(state: State): string | null {
   for (const node of state.updateBeforeNodes) if (node.updateBeforeType === OBJECT) return `before ${describe(node)}`;
   for (const node of state.updateAfterNodes)
     if (node.updateAfterType === OBJECT && node !== velocity && !previousInstances(node)) return `after ${describe(node)}`;
@@ -92,7 +93,9 @@ export function uncovered(state: State, refreshUniforms: readonly string[]): str
     // texture swap is a binding change texturesChanged sees.
     if (type === 'TextureNode') continue;
     if ((type === 'Object3DNode' || type === 'ModelNode') && WORLD_SCOPES.has(node.scope ?? '')) continue;
-    if (node.isMaterialReferenceNode && node.material === null && refreshUniforms.includes(node.property ?? '')) continue;
+    // The draw's own material: a refresh uniform equals() compares, or any other property (userData.weatherReceiver,
+    // render/post.ts) whose value needsRefresh compares per draw (referencePaths).
+    if (node.isMaterialReferenceNode && node.material === null) continue;
     // A reference into a shared group (r186's scene fog: colour, near, far in the render group) holds one value for
     // every draw; the program's SHARED refresh updates it once per pass.
     if (node.group?.shared === true || node.groupNode?.shared === true) continue;
@@ -100,6 +103,27 @@ export function uncovered(state: State, refreshUniforms: readonly string[]): str
   }
   return null;
 }
+
+/** The properties of the draw's own material the program references beyond the observer's refreshUniforms, split
+ *  into keys as r186's ReferenceNode reads them. */
+export function referencePaths(state: State, refreshUniforms: readonly string[]): string[][] {
+  const paths = new Map<string, string[]>();
+  for (const node of state.updateNodes) {
+    const property = node.property ?? '';
+    if (node.updateType === OBJECT && node.isMaterialReferenceNode && node.material === null && !refreshUniforms.includes(property))
+      paths.set(property, property.split('.'));
+  }
+  return [...paths.values()];
+}
+
+/** A referenced property's value on `material`: a primitive or a texture (by identity), else UNSEEN (an object whose
+ *  contents may change in place, which only a full refresh reads). */
+export function referenceValue(material: unknown, keys: readonly string[]): unknown {
+  let value = material as Record<string, unknown> | undefined;
+  for (const key of keys) { value = value?.[key] as Record<string, unknown> | undefined; if (value === undefined || value === null) return value; }
+  return typeof value !== 'object' || (value as { isTexture?: boolean }).isTexture ? value : UNSEEN;
+}
+export const UNSEEN = Symbol('unseen');
 
 /** The texture nodes the program's material references set per draw (the draw's own maps). */
 export function materialTextures(state: State) {
@@ -169,7 +193,20 @@ export function staticRefresh(renderer: object) {
   const needsRefresh = nodes.needsRefresh;
   /** Per program: the uniforms its covered nodes own and its per-draw material textures, or null when the observer
    *  does not cover it. */
-  const programs = new WeakMap<object, { owned: Set<unknown>; maps: Set<unknown> } | null>();
+  const programs = new WeakMap<object, { owned: Set<unknown>; maps: Set<unknown>; paths: string[][] } | null>();
+  /** Per draw: the values of its program's referencePaths at its last full refresh. */
+  const references = new WeakMap<Draw, unknown[]>();
+  /** Whether the draw's referenced material values are those of its last full refresh (and stores them when not). */
+  const sameReferences = (draw: Draw, paths: string[][]) => {
+    if (paths.length === 0) return true;
+    let seen = references.get(draw), same = seen !== undefined;
+    if (!seen) references.set(draw, seen = new Array(paths.length));
+    for (let i = 0; i < paths.length; i++) {
+      const value = referenceValue(draw.material, paths[i]);
+      if (value === UNSEEN || value !== seen[i]) { same = false; seen[i] = value; }
+    }
+    return same;
+  };
   /** Per draw: whether its bindings are covered (a draw's bindings are created with it and never replaced). */
   const draws = new WeakMap<Draw, boolean>();
   /** Draws that refresh in full once more after a change (motion vectors keep last frame's matrix for one frame). */
@@ -201,7 +238,8 @@ export function staticRefresh(renderer: object) {
     const state = draw.getNodeBuilderState(), monitor = draw.getMonitor();
     let program = programs.get(state);
     if (program === undefined) {
-      program = observable(state, monitor.refreshUniforms) ? { owned: ownedUniforms(state), maps: materialTextures(state) } : null;
+      program = observable(state)
+        ? { owned: ownedUniforms(state), maps: materialTextures(state), paths: referencePaths(state, monitor.refreshUniforms) } : null;
       programs.set(state, program);
     }
     const object = draw.object;
@@ -210,13 +248,15 @@ export function staticRefresh(renderer: object) {
     let covered = draws.get(draw);
     if (covered === undefined) { covered = coveredBindings(draw, program.owned); draws.set(draw, covered); }
     if (!covered) { stats.full++; return needsRefresh.call(this, draw); }
-    if (monitor.firstInitialization(draw)) { settling.add(draw); stats.full++; return Refresh.FULL; }
+    if (monitor.firstInitialization(draw)) { sameReferences(draw, program.paths); settling.add(draw); stats.full++; return Refresh.FULL; }
     const { renderId } = this.getNodeFrameForRender(draw);
     let refresh: number = Refresh.NONE;
     if (monitor.renderId !== renderId) { monitor.renderId = renderId; refresh = Refresh.SHARED; }
     // equals() runs every time: it keeps the observer's snapshot of this draw current.
     const same = monitor.equals(draw, monitor.getLights(draw.lightsNode, renderId), renderId);
-    if (!same || texturesChanged(draw, program.maps)) { settling.add(draw); stats.full++; return Refresh.FULL; }
+    // Both run every time: each keeps its snapshot of this draw current.
+    const referenced = sameReferences(draw, program.paths);
+    if (!same || !referenced || texturesChanged(draw, program.maps)) { settling.add(draw); stats.full++; return Refresh.FULL; }
     if (settling.has(draw)) { settling.delete(draw); stats.full++; return Refresh.FULL; }
     if (refresh === Refresh.SHARED) stats.shared++; else stats.none++;
     if (audit) { audit.skipped++; check(this, draw); }
@@ -230,10 +270,12 @@ export function staticRefresh(renderer: object) {
     /** Why a draw keeps r186's full refresh ('covered' when it does not). Diagnostics. */
     explain(draw: Draw) {
       const state = draw.getNodeBuilderState(), monitor = draw.getMonitor(), object = draw.object;
-      const program = uncovered(state, monitor.refreshUniforms);
+      const program = uncovered(state);
       if (program) return `program ${program}`;
       if (monitor.hasAnimation || object.isSkinnedMesh || object.isBatchedMesh || object.morphTargetInfluences) return 'animated';
       if (monitor.hasDynamicInstancing(object)) return 'dynamic instancing';
+      const unseen = referencePaths(state, monitor.refreshUniforms).find(keys => referenceValue(draw.material, keys) === UNSEEN);
+      if (unseen) return `reference object ${unseen.join('.')}`;
       return freeBinding(draw, ownedUniforms(state)) ?? 'covered';
     },
     /** Run the full update behind every skipped draw for `frames` frames; resolves with what it would have missed. */
