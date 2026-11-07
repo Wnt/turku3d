@@ -253,3 +253,14 @@ def test_paved_sides_follow_the_retaining_surveys_left_and_right():
     # The same line in the engine frame: the survey's left rail lies north (-z).
     centres, left, right = retaining.sections(shapely.LineString([(0, 0), (10, 0)]))
     assert left[0][1] < 0 < right[0][1]
+
+
+def test_wall_lines_split_at_sharp_corners():
+    """The Rokin garage ramp's U-shaped BGT wall: the garage mouth and the long side are surveyed separately."""
+    import shapely
+
+    u = shapely.LineString([(311.3, 449.3), (315.1, 450.2), (308.4, 480.3)])
+    pieces = convert.split_corners(u)
+    assert [len(p.coords) for p in pieces] == [2, 2] and pieces[1].coords[0] == (315.1, 450.2)
+    gentle = shapely.LineString([(0, 0), (10, 0), (20, 2)])  # an 11 deg bend stays one line
+    assert len(convert.split_corners(gentle)) == 1

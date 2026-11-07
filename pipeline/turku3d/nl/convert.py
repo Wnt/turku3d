@@ -684,14 +684,38 @@ def walls_bgt(bbox, log=print):
     rows = []
     for key, g in walls:
         kept = g.difference(blocked) if not blocked.is_empty else g
-        parts = [part for part in getattr(kept, "geoms", [kept])
-                 if part.geom_type == "LineString" and part.length >= WALL_MIN_LENGTH]
+        parts = [piece for part in getattr(kept, "geoms", [kept]) if part.geom_type == "LineString"
+                 for piece in split_corners(part) if piece.length >= WALL_MIN_LENGTH]
         for i, part in enumerate(parts):
             rows.append({"layer": "kanta:Rakenne", "feature_key": key, "gml_id": key, "geom_index": i, "geometry": part,
                          "geom_type": "LineString", "geom_role": "scheiding_lijn", "surface_type": "", "part_id": "",
                          "surface_id": "", "kplkoodi": RETAINING_CODE, "bgt_type": "muur",
                          "bgt_paved_sides": paved_sides(part, street)})
     return rows
+
+
+WALL_CORNER = 35.0  # deg: a sharper turn starts a new survey line
+
+
+def split_corners(line):
+    """A wall line split at its sharp corners. The survey interpolates each segment's cross-section direction between
+    the mitres at its ends, so across a U-shaped ramp wall (a 100 deg corner at the garage mouth) every section of the
+    long side stood skewed and the lidar step went unmeasured."""
+    import math
+
+    import shapely
+
+    coords = list(line.coords)
+    pieces, start = [], 0
+    for i in range(1, len(coords) - 1):
+        (ax, ay), (bx, by), (cx, cy) = coords[i - 1], coords[i], coords[i + 1]
+        a1, a2 = math.atan2(by - ay, bx - ax), math.atan2(cy - by, cx - bx)
+        turn = abs((math.degrees(a2 - a1) + 180) % 360 - 180)
+        if turn > WALL_CORNER:
+            pieces.append(shapely.LineString(coords[start:i + 1]))
+            start = i
+    pieces.append(shapely.LineString(coords[start:]))
+    return pieces
 
 
 def paved_sides(line, street, reach=1.5, share=0.5) -> str:
