@@ -81,6 +81,18 @@ def selected(tags):
         return False
 
 
+def buried_rail(line, tags, rails, reach=0.5):  # rails: STRtree of at-grade railway lines, or None
+    """A railway-only tunnel way neither of whose ends meets an at-grade (or bridge) railway way: an inner piece
+    of a tunnel that runs under the city (the Willemsspoortunnel and the Calandlijn metro under Rotterdam's
+    Binnenrotte and Blaak, mapped layer -1 and -2). Its floor would follow the street above (no portal to
+    anchor it), so its clear box stood as 5 m walls across squares and streets. A rail tunnel with a mouth
+    keeps its box: the way at the mouth meets the open track. Roads always keep theirs."""
+    if not tags.get("railway") or tags.get("highway") or line.geom_type != "LineString":
+        return False
+    ends = shapely.points([line.coords[0], line.coords[-1]])
+    return rails is None or not any(len(rails.query(p, predicate="dwithin", distance=reach)) for p in ends)
+
+
 def prepare(tile, path):
     """Keep full way extents for stable portals; clip only the emitted geometry to the tile."""
     from pathlib import Path
@@ -94,7 +106,7 @@ def prepare(tile, path):
     def area_tunnels():
         from .road_top import carried_roads
 
-        out, roads = [], []
+        out, roads, rails = [], [], []
         quay = passages(path)
         passage_ids = {key for key, _, _ in quay}
         for k, row in rows(path, columns=("osm_id", "tags", "geometry_local")):
@@ -108,10 +120,14 @@ def prepare(tile, path):
                 and line.geom_type == "LineString"
             ):
                 roads.append((line, tags))
+            if tags.get("railway") and not selected(tags) and line.geom_type == "LineString":
+                rails.append(line)
             if not selected(tags) or str(row.get("osm_id", k)) in passage_ids:
                 continue
             if line.geom_type == "LineString" and line.length > 0.5:
                 out.append((str(row.get("osm_id", k)), line, tags))
+        rail_tree = shapely.STRtree(rails) if rails else None
+        out = [way for way in out if not buried_rail(way[1], way[2], rail_tree)]
         return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
 
     ways = cached(

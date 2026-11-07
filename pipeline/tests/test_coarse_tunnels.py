@@ -7,7 +7,7 @@ import shapely
 from turku3d import config as C
 from turku3d.coarse.build import extrude
 from turku3d.coarse.inputs import Building
-from turku3d.coarse.tunnels import dimensions, floor_profile, produce, selected
+from turku3d.coarse.tunnels import buried_rail, dimensions, floor_profile, produce, selected
 from turku3d.roads import build_graph, encode
 
 
@@ -29,6 +29,21 @@ def test_selection_and_clearance():
     assert selected({"highway": "trunk", "tunnel": "yes", "layer": "-2"})
     assert dimensions({"highway": "footway"}) == (3, 2.5)
     assert dimensions({"highway": "residential", "width": "8 m"}) == (8, 4.5)
+
+
+def test_rail_tunnel_without_a_mouth_is_buried():
+    """Rotterdam: the rail tunnel and metro under Binnenrotte and Blaak are chains of tunnel ways (layer -1/-2);
+    only a way that meets the open track has a mouth. The inner ways stood as 5 m boxes at street level."""
+    open_track = shapely.LineString([(0, 0), (100, 0)])
+    rails = shapely.STRtree([open_track])
+    mouth = shapely.LineString([(100, 0), (300, 0)])  # starts where the open track ends
+    inner = shapely.LineString([(300, 0), (600, 0)])  # tunnel to tunnel
+    rail = {"railway": "rail", "tunnel": "yes", "layer": "-1"}
+    assert not buried_rail(mouth, rail, rails)
+    assert buried_rail(inner, rail, rails)
+    assert buried_rail(inner, {"railway": "subway", "tunnel": "yes"}, None)
+    # Roads keep their boxes whatever their ends meet.
+    assert not buried_rail(inner, {"highway": "primary", "tunnel": "yes"}, rails)
 
 
 def test_outside_passages_skip_ground_but_keep_owned_building_openings():
