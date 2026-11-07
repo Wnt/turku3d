@@ -80,6 +80,7 @@ import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
+import { openView, streetViews } from './world/startGround';
 import { browserStorage, sessionStore } from './core/storage';
 import { StreamHint } from './ui/streamHint';
 import { prepareMultiplayer } from './net/preparedStart';
@@ -406,6 +407,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     spawn, car: world.car,
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
+    face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
+      { along: streetViews(at, coarse?.roadGraphs() ?? []), car: world.car }),
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
     onQuit: () => { sharedVehicles?.stop(drivenId); multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();

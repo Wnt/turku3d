@@ -1,5 +1,14 @@
 import { enToEngine, type V3 } from '../core/origin';
 import type { SaveGame } from '../core/save';
+import room from '../../../server/spawns.json';
+
+/** Half size (m) of the box around each of the Turku room's spawn slots that the start car keeps out of. */
+export const ROOM_SLOT_M = 1.2;
+/** The Turku room's spawn slots (server/spawns.json: E = engine x, N = -engine z) as boxes the own car never parks
+ *  on (world/startGround.ts obstacles): a player joining the room stands on one, never in or on the car. */
+export function roomSlotFootprints() {
+  return room.points.map(p => ({ minX: p.E - ROOM_SLOT_M, maxX: p.E + ROOM_SLOT_M, minZ: -p.N - ROOM_SLOT_M, maxZ: -p.N + ROOM_SLOT_M }));
+}
 
 /** Multiplayer uses local E/N; saves use EPSG:3877. Keep that conversion at this boundary. */
 export function multiplayerStart(you: { spawn: { E: number; N: number; yaw: number } },

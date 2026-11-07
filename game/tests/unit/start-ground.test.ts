@@ -82,7 +82,7 @@ test('the car never parks over furniture or a parked car, and the first chase ca
 });
 
 test('tunnels and building passages are never street starts', () => {
-  const tunnel: RoadGraphJson = { ...roads[0], edgeAttrColumns: ['way', 'flags'], edgeAttrs: [[1, 8]] };
+  const tunnel: RoadGraphJson = { ...roads[0], revision: 2, edgeIds: ['w1'], edgeAttrColumns: ['way', 'flags'], edgeAttrs: [[1, 8]] };
   expect(streetCandidates({ x: 10, z: 2 }, [tunnel])).toEqual([]);
   expect(streetCandidates({ x: 10, z: 2 }, [{ ...tunnel, edgeAttrs: [[1, 1]] }]).length).toBeGreaterThan(0);
 });
@@ -96,4 +96,47 @@ test('a street under a deck does not park the car on the deck above it (Tapiola,
   expect(result?.car.y).toBe(2);
   // Without heights (v1 graphs) the old behaviour stands.
   expect((await findInitialGround({ x: 10, z: 2 }, roads, probe, () => true))?.car.y).toBe(9);
+});
+
+// A through street along z = 0 leaving the loaded area at both ends (seam nodes), and a courtyard loop south of it
+// behind one gate edge (Läntinen Rantakatu 15: the office courtyard behind its fence).
+const STREET = 2 | (2 << 3), SERVICE = 2 | (1 << 3);
+const town: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [-50, -40, 50, 10],
+  nodes: [-50, 0, 0, 0, 50, 0, 0, -10, 10, -10, 10, -25, 0, -25],
+  edges: [[0, 1, STREET, 50], [1, 2, STREET, 50], [1, 3, SERVICE, 10], [3, 4, SERVICE, 10], [4, 5, SERVICE, 15], [5, 6, SERVICE, 10], [6, 3, SERVICE, 15]],
+  nodeFlags: [32, 0, 32, 0, 0, 0, 0] };
+
+test('courtyards and dead ends behind one connection are pockets; a street to the edge of the loaded area is not', async () => {
+  const { pocketEdges } = await import('../../src/world/startGround');
+  const { parseRoadGraph } = await import('../../src/gameplay/roadGraph');
+  expect([...pocketEdges(parseRoadGraph(town))]).toEqual([0, 0, 1, 1, 1, 1, 1]);
+  // A stub that leaves the loaded area is a street, not a dead end.
+  expect([...pocketEdges(parseRoadGraph({ ...town, nodeFlags: [32, 0, 32, 32, 0, 0, 0] }))]).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  // The courtyard is nearer, but the through street comes first.
+  const candidates = streetCandidates({ x: 5, z: -12 }, [town]);
+  expect(candidates[0]).toMatchObject({ z: 0, pocket: false });
+  expect(candidates.find(c => c.pocket)).toBeDefined();
+});
+
+test('the start car faces open road along its street and the player faces open street, not a wall', async () => {
+  const { openView } = await import('../../src/world/startGround');
+  // A fence across the street at x = 15 and the facade of a building along z = -6.
+  const ray = async (o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, max: number): Promise<RayHit | null> => {
+    const hits: RayHit[] = [];
+    if (d.x > 1e-6 && o.x < 15) { const t = (15 - o.x) / d.x, z = o.z + d.z * t; if (t <= max && Math.abs(z) < 8) hits.push({ ...ground(15, z, MAT.fence), toi: t, normal: { x: -1, y: 0, z: 0 } }); }
+    if (d.z < -1e-6 && o.z > -6) { const t = (-6 - o.z) / d.z; if (t <= max) hits.push({ ...ground(o.x + d.x * t, -6, MAT.building), toi: t, normal: { x: 0, y: 0, z: 1 } }); }
+    return hits.sort((a, b) => a.toi - b.toi)[0] ?? null;
+  };
+  const north = { dx: 0, dz: -1 };
+  const result = await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), () => true, { view: north, ray });
+  expect(result!.car.z).toBeCloseTo(0);
+  expect(Math.cos(result!.car.yaw)).toBeLessThan(-0.9); // facing -x, away from the fence
+  // The player looks along the open street (-x), not into the facade 3 m ahead.
+  expect(-Math.sin(result!.spawn.yaw)).toBeLessThan(-0.9);
+  // An open requested view is kept.
+  expect(await openView({ x: 0, y: 2, z: 3 }, Math.PI, ray)).toBe(Math.PI);
+  // Without rays the car keeps the street's direction and the requested view stands.
+  const plain = await findInitialGround({ x: 5, z: 3 }, [town], async (x, z) => ground(x, z), () => true, { view: north });
+  expect(plain!.car.z).toBeCloseTo(0);
+  expect(plain!.spawn.yaw).toBeCloseTo(0);
 });

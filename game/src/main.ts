@@ -48,6 +48,7 @@ import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
+import { roomSlotFootprints } from './gameplay/startPoints';
 import { parkedFootprints, propFootprints } from './world/propLod';
 /** Reach (m) of the start search's obstacle lookup: the street candidates (80 m) plus a car length. */
 const START_SEARCH_M = 90;
@@ -600,8 +601,12 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
         (x, z, radius) => streamer.supports(x, z, radius), {
           // Open ground once the start's collision is complete: no street near the spawn may support a car.
           open: streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending,
-          obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M)],
-          view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) } });
+          // Turku's room places joining players on its spawn slots along the office facade: the car parks clear of them.
+          obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M),
+            ...isHome() && !params.spawnGiven ? roomSlotFootprints() : []],
+          view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) },
+          // The car faces open road along its street, the player open street (not the facade a few metres away).
+          ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi) });
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
@@ -932,7 +937,8 @@ async function runPlay() {
     const { spawn, car: parking } = await placeStart(physics, streamer, coarse, manifest);
     const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
     physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
-    const yaw0 = headingToYaw(params.spawn.headingDeg);
+    // The requested heading, or the open street when it faces a wall (startGround openView).
+    const yaw0 = spawn.yaw;
     // The own car (OWN_VEHICLE_ID): spawned at boot, carried over (reset to the new start) on a city switch.
     // The starter car: the real PLAYER_MODEL with its own driving tuning (vehicle/modelTuning.ts).
     // Its body takes damage (vehicle/damage.ts) that stays until the car is replaced or progress is reset.

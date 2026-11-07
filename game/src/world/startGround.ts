@@ -1,45 +1,131 @@
 // Initial actors must stand on supported streets, never a roof returned by a sky ray.
 import { MAT, MATERIALS, MAT_FLAG } from '../shared/col/materials';
-import { CAR, EDGE, type RoadGraphJson } from '../gameplay/roadGraph';
+import { CAR, EDGE, NODE, ONEWAY, edgeLength, mergeRoadGraphs, parseRoadGraph, type RoadGraph, type RoadGraphJson } from '../gameplay/roadGraph';
 import type { V3 } from '../core/origin';
 import type { RayHit } from '../physics/protocol';
 
 type Point = { x: number; z: number };
 type Spot = V3 & { yaw: number };
 export type GroundProbe = (x: number, z: number) => Promise<RayHit | null>;
+/** A ray against static solid collision (physics raycast): clearance ahead of the car and along the start view. */
+export type RayProbe = (origin: V3, dir: V3, maxToi: number) => Promise<RayHit | null>;
 const DRIVABLE = new Set<number>([MAT.road, MAT.crossing, MAT.cobblestone, MAT.paving_slab, MAT.gravel, MAT.bridge_deck, MAT.ramp]);
 
 /** A street point whose sky ray lands this far (m) from the street's own surface height is under a deck, a canopy or a
  *  building (a covered street, a building passage): the support rays would park the car on whatever covers it. */
 export const STREET_LEVEL_M = 1.5;
 
-/** Points on CAR edges within `radius` of `at`, nearest first, with the street's surface height `y` where the graph has
- *  heights. Tunnels and building passages (roads.json TUNNEL) are never starts: a start faces an open street. */
-export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): (Point & { yaw: number; y?: number })[] {
-  const candidates = new Map<string, Point & { yaw: number; y?: number }>();
-  for (const graph of graphs) {
-    const flagColumn = graph.edgeAttrColumns?.indexOf('flags') ?? -1;
-    graph.edges.forEach((edge, index) => {
-      if (!(edge[2] & CAR)) return;
-      if (flagColumn >= 0 && (graph.edgeAttrs?.[index]?.[flagColumn] ?? 0) & EDGE.TUNNEL) return;
-      const heights = graph.edgeHeights?.[index] ?? null;
-      const points = [graph.nodes[2 * edge[0]], graph.nodes[2 * edge[0] + 1], ...edge.slice(4),
-        graph.nodes[2 * edge[1]], graph.nodes[2 * edge[1] + 1]];
-      for (let i = 0; i + 3 < points.length; i += 2) {
-        const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
-        const length = Math.hypot(dx, dz);
-        if (length < 0.01) continue;
-        const y0 = heights?.[i / 2], y1 = heights?.[i / 2 + 1];
-        const projection = Math.max(0, Math.min(length, ((at.x - ax) * dx + (at.z - az) * dz) / length));
-        for (const distance of [projection, ...Array.from({ length: Math.ceil(length / 3) + 1 }, (_, j) => Math.min(length, j * 3))]) {
-          const x = ax + dx * distance / length, z = az + dz * distance / length;
-          const y = y0 !== undefined && y1 !== undefined && Number.isFinite(y0) && Number.isFinite(y1) ? y0 + (y1 - y0) * distance / length : undefined;
-          if (Math.hypot(x - at.x, z - at.z) <= radius) candidates.set(`${x.toFixed(2)},${z.toFixed(2)}`, { x, z, yaw: Math.atan2(-dz, dx), ...(y !== undefined ? { y } : {}) });
+/** Car road (m) behind a single connection below which that side is a pocket: a courtyard, a gated yard, a dead-end
+ *  driveway or a parking aisle loop with one way in. Turku's office courtyard behind Läntinen Rantakatu 15 is ~115 m
+ *  of service ways behind one gate in a fence. */
+export const POCKET_M = 300;
+
+/**
+ * Car edges of `graph` in a pocket: cut off from the rest of the loaded road network by one bridge edge (an edge on no
+ * cycle) whose far side holds less than POCKET_M of car road, or in a component that small. A street leaving the
+ * loaded area (a seam node, NODE.SEAM) reaches the city's network, so the side that holds one is never a pocket.
+ */
+export function pocketEdges(graph: RoadGraph): Uint8Array {
+  const n = graph.nodes.length / 2, out = n, pocket = new Uint8Array(graph.edges.length);
+  // Arcs over car edges (edge index) and virtual seam links to `out` (negative ids).
+  const adj: { to: number; edge: number }[][] = Array.from({ length: n + 1 }, () => []);
+  graph.edges.forEach((e, i) => {
+    if (!(e.flags & CAR) || e.a === e.b) return;
+    adj[e.a].push({ to: e.b, edge: i }); adj[e.b].push({ to: e.a, edge: i });
+  });
+  let seams = 0;
+  for (let v = 0; v < n; v++) if (graph.nodeFlags[v] & NODE.SEAM && adj[v].length) {
+    const id = -1 - seams++;
+    adj[v].push({ to: out, edge: id }); adj[out].push({ to: v, edge: id });
+  }
+  // Iterative DFS (Tarjan bridges). Each edge is owned by its deeper end, so a subtree's weight is the car road on
+  // the child's side of the tree edge above it, that edge included.
+  const tin = new Int32Array(n + 1).fill(-1), low = new Int32Array(n + 1), last = new Int32Array(n + 1);
+  const parent = new Int32Array(n + 1).fill(-1), owner = new Int32Array(graph.edges.length).fill(-1);
+  const rootOf = new Int32Array(n + 1), order: number[] = [];
+  const bridges: { edge: number; child: number }[] = [];
+  let timer = 0;
+  for (const root of [out, ...Array.from({ length: n }, (_, i) => i)]) {
+    if (tin[root] >= 0 || !adj[root].length) continue;
+    tin[root] = low[root] = timer++; rootOf[root] = root; order.push(root);
+    const stack = [{ v: root, via: Number.NaN, next: 0 }];
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      if (top.next < adj[top.v].length) {
+        const { to, edge } = adj[top.v][top.next++];
+        if (edge === top.via) continue;
+        if (tin[to] < 0) {
+          tin[to] = low[to] = timer++; parent[to] = top.v; rootOf[to] = root; order.push(to);
+          if (edge >= 0) owner[edge] = to;
+          stack.push({ v: to, via: edge, next: 0 });
+        } else {
+          low[top.v] = Math.min(low[top.v], tin[to]);
+          if (edge >= 0 && owner[edge] < 0) owner[edge] = tin[to] > tin[top.v] ? to : top.v;
+        }
+      } else {
+        stack.pop();
+        last[top.v] = timer - 1;
+        const up = stack[stack.length - 1];
+        if (up) {
+          low[up.v] = Math.min(low[up.v], low[top.v]);
+          if (low[top.v] > tin[up.v] && top.via >= 0) bridges.push({ edge: top.via, child: top.v });
         }
       }
-    });
+    }
   }
-  return [...candidates.values()].sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z));
+  const weight = new Float64Array(n + 1);
+  graph.edges.forEach((e, i) => { if (owner[i] >= 0) weight[owner[i]] += edgeLength(e); });
+  for (let k = order.length - 1; k > 0; k--) { const v = order[k]; if (parent[v] >= 0) weight[parent[v]] += weight[v]; }
+  const inside = (v: number, child: number) => tin[v] >= tin[child] && tin[v] <= last[child];
+  const mark = (test: (ownerNode: number) => boolean) => owner.forEach((v, i) => { if (v >= 0 && test(v)) pocket[i] = 1; });
+  for (const { edge, child } of bridges) {
+    const root = rootOf[child], total = weight[root], near = weight[child];
+    if (near < POCKET_M) mark(v => inside(v, child));
+    // The root's side (the bridge included) of a component no seam reaches.
+    if (root !== out && total - near + edgeLength(graph.edges[edge]) < POCKET_M) {
+      mark(v => rootOf[v] === root && !inside(v, child)); pocket[edge] = 1;
+    }
+  }
+  for (let v = 0; v < n; v++) if (rootOf[v] === v && tin[v] >= 0 && v !== out && weight[v] < POCKET_M) mark(u => rootOf[u] === v);
+  return pocket;
+}
+
+/** One graph over the loaded tiles; a tile whose roads.json does not parse is left out rather than failing the start. */
+function mergedRoads(graphs: readonly RoadGraphJson[]): RoadGraph {
+  try { return mergeRoadGraphs(graphs); } catch {
+    return mergeRoadGraphs(graphs.filter(g => { try { parseRoadGraph(g); return true; } catch { return false; } }));
+  }
+}
+
+export type StreetCandidate = Point & { yaw: number; y?: number; pocket: boolean; oneway: boolean };
+
+/** Points on CAR edges within `radius` of `at`, with the street's surface height `y` where the graph has heights:
+ *  streets of the through network first (pocketEdges: never a courtyard or a dead-end driveway while a through street
+ *  is in reach), nearest first within each. `yaw` (car axes) runs along the edge, its legal direction on a one-way.
+ *  Tunnels and building passages (roads.json TUNNEL) are never starts: a start faces an open street. */
+export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): StreetCandidate[] {
+  const candidates = new Map<string, StreetCandidate>();
+  const graph = mergedRoads(graphs), pockets = pocketEdges(graph);
+  graph.edges.forEach((edge, index) => {
+    if (!(edge.flags & CAR) || edge.eflags & EDGE.TUNNEL) return;
+    const { points, heights } = edge, pocket = pockets[index] === 1, oneway = (edge.flags & ONEWAY) !== 0;
+    for (let i = 0; i + 3 < points.length; i += 2) {
+      const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
+      const length = Math.hypot(dx, dz);
+      if (length < 0.01) continue;
+      const y0 = heights?.[i / 2], y1 = heights?.[i / 2 + 1];
+      const projection = Math.max(0, Math.min(length, ((at.x - ax) * dx + (at.z - az) * dz) / length));
+      for (const distance of [projection, ...Array.from({ length: Math.ceil(length / 3) + 1 }, (_, j) => Math.min(length, j * 3))]) {
+        const x = ax + dx * distance / length, z = az + dz * distance / length;
+        const y = y0 !== undefined && y1 !== undefined && Number.isFinite(y0) && Number.isFinite(y1) ? y0 + (y1 - y0) * distance / length : undefined;
+        const key = `${x.toFixed(2)},${z.toFixed(2)}`;
+        if (Math.hypot(x - at.x, z - at.z) > radius || (candidates.get(key) && !candidates.get(key)!.pocket)) continue;
+        candidates.set(key, { x, z, yaw: Math.atan2(-dz, dx), ...(y !== undefined ? { y } : {}), pocket, oneway });
+      }
+    }
+  });
+  return [...candidates.values()].sort((a, b) => Number(a.pocket) - Number(b.pocket)
+    || Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z));
 }
 
 /** The support found over a street point is the street itself, not a deck, canopy or roof above it. */
@@ -80,8 +166,71 @@ export interface StartOptions {
   open?: boolean;
   /** Furniture, poles and parked cars near the start (ground rays do not see props without collision). */
   obstacles?: readonly Obstacle[];
-  /** The start view's horizontal forward: the chase camera sits behind the player along it, never inside the car. */
+  /** The requested start view's horizontal forward: the chase camera sits behind the player along it, never inside
+   *  the car. */
   view?: { dx: number; dz: number };
+  /** Rays against static solid collision. With them the car faces the way along its street with open road ahead
+   *  (CLEAR_AHEAD_M) and the player the requested view only where it is open (openView); without, both keep the
+   *  street's direction and the requested view. */
+  ray?: RayProbe;
+}
+
+/** Open road (m) the start car needs straight ahead of its front. */
+export const CLEAR_AHEAD_M = 12;
+/** Open view (m) the player needs ahead at eye height; a closer wall turns the start view (openView). */
+export const OPEN_VIEW_M = 15;
+/** How far the clearance and view rays look (m). */
+const LOOK_M = 60;
+
+/** Camera yaw (forward (-sin yaw, -cos yaw), core/origin headingToYaw) looking the way a car with `carYaw` faces. */
+export const viewAlong = (carYaw: number) => Math.atan2(-Math.cos(carYaw), Math.sin(carYaw));
+const viewDir = (yaw: number) => ({ dx: -Math.sin(yaw), dz: -Math.cos(yaw) });
+const viewYaw = (view: { dx: number; dz: number }) => Math.atan2(-view.dx, -view.dz);
+
+/** Open length (m) along the horizontal `dir` from `from`: the nearest solid that is not walkable ground rising ahead
+ *  (normal.y >= 0.7: a ramp or a street climbing a hill). */
+async function openLength(from: V3, dir: { dx: number; dz: number }, ray: RayProbe, heights: readonly number[], max = LOOK_M) {
+  const hits = await Promise.all(heights.map(h => ray({ x: from.x, y: from.y + h, z: from.z }, { x: dir.dx, y: 0, z: dir.dz }, max)));
+  return Math.min(max, ...hits.map(hit => hit && hit.normal.y < 0.7 ? hit.toi : max));
+}
+
+/** The car's heading along its street (car axes) with the most open road ahead of its front, at bumper and bonnet
+ *  height: either way on a two-way street, the legal one on a one-way. Null when no way has CLEAR_AHEAD_M. */
+async function carHeading(car: Spot, street: StreetCandidate, ray: RayProbe): Promise<number | null> {
+  let best: number | null = null, open = -1;
+  for (const yaw of street.oneway ? [street.yaw] : [street.yaw, street.yaw > 0 ? street.yaw - Math.PI : street.yaw + Math.PI]) {
+    const dx = Math.cos(yaw), dz = -Math.sin(yaw);
+    const front = { x: car.x + dx * (CAR_HALF.length + 0.1), y: car.y, z: car.z + dz * (CAR_HALF.length + 0.1) };
+    const length = await openLength(front, { dx, dz }, ray, [0.5, 1.2]);
+    if (length > open) { open = length; best = yaw; }
+  }
+  return open >= CLEAR_AHEAD_M ? best : null;
+}
+
+/**
+ * The start view (camera yaw) for a player at `at`: `yaw` when OPEN_VIEW_M ahead of the eyes is open, else the more
+ * open way along the street (`along`, camera yaws), else the most open of 16 directions; never one that puts the
+ * first chase camera in the car. A start never faces a wall or a fence a few metres away.
+ */
+export async function openView(at: V3, yaw: number, ray: RayProbe, { along = [], car }: { along?: readonly number[]; car?: Point & { yaw: number } } = {}) {
+  const usable = (y: number) => !car || !cameraInCar(at, car, viewDir(y));
+  const open = (y: number) => openLength(at, viewDir(y), ray, [1.6]);
+  if (usable(yaw) && await open(yaw) >= OPEN_VIEW_M) return yaw;
+  const best = async (yaws: readonly number[]) => {
+    let pick: number | null = null, length = -1;
+    for (const y of yaws.filter(usable)) { const l = await open(y); if (l > length) { length = l; pick = y; } }
+    return { pick, length };
+  };
+  const street = await best(along);
+  if (street.pick !== null && street.length >= OPEN_VIEW_M) return street.pick;
+  const any = await best(Array.from({ length: 16 }, (_, k) => yaw + k * Math.PI / 8));
+  return any.pick ?? street.pick ?? yaw;
+}
+
+/** Camera yaws along the street nearest to `at` (through streets first, within `radius`), both ways. */
+export function streetViews(at: Point, graphs: readonly RoadGraphJson[], radius = 25) {
+  const street = streetCandidates(at, graphs, radius)[0];
+  return street ? [viewAlong(street.yaw), viewAlong(street.yaw + Math.PI)] : [];
 }
 
 const CAR_HALF = { length: 2.6, width: 1.15 };
@@ -161,36 +310,60 @@ export async function findInitialGround(desired: Point, graphs: readonly RoadGra
   };
   const street = await streetStart(desired, graphs, sample, covers, options);
   const away = (start: { spawn: Spot } | null) => start ? Math.hypot(start.spawn.x - desired.x, start.spawn.z - desired.z) : Infinity;
-  if (away(street) <= START_NEAR_M) return street;
-  if (!open) return null;
-  const ground = await openGround(desired, graphs, sample, covers, options);
-  return away(ground) < away(street) ? ground : street;
+  let start = street;
+  if (away(street) > START_NEAR_M) {
+    if (!open) return null;
+    const ground = await openGround(desired, graphs, sample, covers, options);
+    start = away(ground) < away(street) ? ground : street;
+  }
+  return start && withView(start, options);
+}
+
+/** The start's view as `spawn.yaw` (camera yaw): the requested view, turned to open street by openView when rays are
+ *  given and it faces a wall. */
+async function withView(start: { spawn: Spot; car: Spot }, { view, ray }: StartOptions) {
+  const requested = view ? viewYaw(view) : viewAlong(start.car.yaw);
+  const yaw = ray ? await openView(start.spawn, requested, ray, { along: [viewAlong(start.car.yaw), viewAlong(start.car.yaw + Math.PI)], car: start.car }) : requested;
+  return { spawn: { ...start.spawn, yaw }, car: start.car };
 }
 
 /** The player stands within this distance (m) of the requested start, or the open-ground search is tried. */
 export const START_NEAR_M = 15;
 
+/** A car on `street` with its heading (carHeading), or null; a spot without open road ahead only as `weak`. */
+async function parkOn(street: StreetCandidate, sample: GroundProbe, obstacles: readonly Obstacle[], ray?: RayProbe) {
+  if (!spotClear(obstacles, street, true)) return null;
+  const car = await supportedSpot(street, sample, true);
+  if (!car || !onStreetLevel(street, car)) return null;
+  if (!ray) return { car, weak: false };
+  const yaw = await carHeading(car, street, ray);
+  return yaw === null ? { car, weak: true } : { car: { ...car, yaw }, weak: false };
+}
+
 async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sample: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view }: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
-  let fallback: { spawn: Spot; car: Spot } | null = null;
+  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view, ray }: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
+  let fallback: { spawn: Spot; car: Spot } | null = null, weak: { spawn: Spot; car: Spot } | null = null;
   for (const candidate of streetCandidates(desired, graphs)) {
-    if (!covers(candidate.x, candidate.z, 3) || !spotClear(obstacles, candidate, true)) continue;
-    const car = await supportedSpot(candidate, sample, true);
-    if (!car || !onStreetLevel(candidate, car)) continue;
-    // Nearest first, but a spot whose chase camera would sit in the car only if no other one is free.
+    if (!covers(candidate.x, candidate.z, 3)) continue;
+    const parked = await parkOn(candidate, sample, obstacles, ray);
+    if (!parked) continue;
+    const { car } = parked;
+    // Nearest first, but a spot whose chase camera would sit in the car only if no other one is free. With rays the
+    // view is chosen after the spot (withView), so only the requested one without them decides here.
     const walking = [-1, 1].flatMap(side => [3.2, 4.2, 5.2].map(distance => ({
       x: car.x + side * distance * Math.sin(car.yaw), z: car.z + side * distance * Math.cos(car.yaw), yaw: car.yaw,
-    }))).sort((a, b) => Number(cameraInCar(a, car, view)) - Number(cameraInCar(b, car, view))
+    }))).sort((a, b) => Number(!ray && cameraInCar(a, car, view)) - Number(!ray && cameraInCar(b, car, view))
       || Math.hypot(a.x - desired.x, a.z - desired.z) - Math.hypot(b.x - desired.x, b.z - desired.z));
     for (const point of walking) {
       if (!covers(point.x, point.z, 0.5) || !spotClear(obstacles, point, false)) continue;
       const spawn = await supportedSpot(point, sample, false);
       if (!spawn) continue;
-      if (!cameraInCar(spawn, car, view)) return { spawn, car };
+      if (parked.weak) { weak ??= { spawn, car }; break; }
+      if (ray || !cameraInCar(spawn, car, view)) return { spawn, car };
       fallback ??= { spawn, car };
     }
   }
-  return fallback;
+  return fallback ?? weak;
 }
 
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
@@ -219,15 +392,16 @@ async function nearestSpot<T>(points: readonly T[], test: (point: T) => Promise<
 }
 
 /** The player on the nearest open walkable spot to `desired` (a sky ray hits walkable ground there); the car on the
- *  nearest supported CAR street point around the player, else the nearest flat street surface, else the nearest
- *  flat walkable ground (a car parked on a square). */
+ *  nearest supported CAR street point around the player (through streets first, open road ahead when rays are given),
+ *  else the nearest flat street surface, else the nearest flat walkable ground (a car parked on a square). */
 export async function openGround(desired: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view }: StartOptions = {}) {
+  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view, ray }: StartOptions = {}) {
   const spawn = await nearestSpot(openPoints(desired).filter(p => covers(p.x, p.z, 0.5) && spotClear(obstacles, { ...p, yaw: 0 }, false)), async p =>
     safeSurface(await probe(p.x, p.z)) ? supportedSpot({ ...p, yaw: 0 }, probe, false) : null);
   if (!spawn) return null;
   const clear = (p: Point) => Math.hypot(p.x - spawn.x, p.z - spawn.z) >= 4 && covers(p.x, p.z, 3);
-  const free = (spot: Spot | null) => spot && spotClear(obstacles, spot, true) && !cameraInCar(spawn, spot, view) ? spot : null;
+  // With rays the view turns after parking (withView); without, the requested one keeps the camera out of the car.
+  const free = (spot: Spot | null) => spot && spotClear(obstacles, spot, true) && (ray || !cameraInCar(spawn, spot, view)) ? spot : null;
   const streets = streetCandidates(spawn, graphs).filter(clear);
   const around = openPoints(spawn).filter(clear);
   const park = (drivable: boolean) => nearestSpot(around, async p => {
@@ -238,7 +412,14 @@ export async function openGround(desired: Point, graphs: readonly RoadGraphJson[
     }
     return null;
   });
-  const car = await nearestSpot(streets, async p => { const spot = free(await supportedSpot(p, probe, true)); return spot && onStreetLevel(p, spot) ? spot : null; })
-    ?? await park(true) ?? await park(false);
+  // In order: a street spot with open road ahead, then one without, then any flat street surface or ground.
+  let weak: Spot | null = null;
+  const onStreet = async (p: StreetCandidate) => {
+    const parked = await parkOn(p, probe, obstacles, ray);
+    const spot = parked && free(parked.car);
+    if (spot && parked.weak) { weak ??= spot; return null; }
+    return spot;
+  };
+  const car = await nearestSpot(streets, onStreet) ?? weak ?? await park(true) ?? await park(false);
   return car ? { spawn, car } : null;
 }

@@ -65,6 +65,9 @@ interface SaveGameOptions {
   leaveCar: () => void;
   /** The character now stands at `at`; the camera turns to `yaw`. */
   placed: (at: V3, yaw: number) => void;
+  /** The view for a placement at a given pose (a room's spawn slot, an arrival): its yaw, or the open street when that
+   *  faces a wall (world/startGround.ts openView). */
+  face?: (at: V3, yaw: number) => Promise<number>;
   setPaused: (paused: boolean) => void;
   /** Opening story shown after a new solo game is placed. */
   showIntro: () => Promise<void>;
@@ -271,7 +274,8 @@ export class SaveGameController {
     }
     const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
     const y = prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
-    await this.putCharacter({ x: at.x, y, z: at.z }, at.yaw);
+    const yaw = override && this.o.face ? await this.o.face({ x: at.x, y, z: at.z }, at.yaw) : at.yaw;
+    await this.putCharacter({ x: at.x, y, z: at.z }, yaw);
     this.restoreLastVehicle(game?.lastVehicle);
     if (game?.lastVehicle) {
       const last = game.lastVehicle;
