@@ -13,7 +13,8 @@
 # game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
-# changed and checks the public URL. /version.json names the deployed commit.
+# changed and checks the public URL. /version.json names the deployed commit. Content-hashed assets of the builds
+# deployed in the last 12 h stay served next to the new ones, so a page that loaded an earlier build keeps working.
 #
 # Tiles resolve per tile (scripts/dev/shared-tile-proxy.mjs `follow`): newest first through the farm's train<N>
 # aliases on the pin's base generation, then the pin. A tile comes from the newest train that finished it; tiles a city
@@ -115,7 +116,7 @@ fi
 say "publishing from osgallery-dev$([ "$LOCAL_BUILD" = 1 ] || echo ' (remote build)')"
 ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $SERVER_TREE $STAGE $LOCAL_BUILD $PUBLIC_HOST $KEEP" <<'REMOTE'
 set -euo pipefail
-SHA=$1 SERVER_TREE=$2 STAGE=$HOME/$3 LOCAL_BUILD=$4 PUBLIC_HOST=$5 KEEP=$6
+SHA=$1 SERVER_TREE=$2 STAGE=$HOME/$3 LOCAL_BUILD=$4 PUBLIC_HOST=$5 KEEP=$6 ASSET_HOURS=12
 C=$HOME/turku3d-local/city U=$HOME/.config/systemd/user R=$C/releases/$SHA
 trap 'rm -rf "$STAGE"' EXIT
 if [ "$LOCAL_BUILD" = 0 ]; then
@@ -140,6 +141,17 @@ if [ "$LOCAL_BUILD" = 0 ]; then
 fi
 mkdir -p "$R/dist" "$R/src"
 rsync -a --delete "$STAGE/dist/" "$R/dist/"
+# Earlier builds' assets stay served for ASSET_HOURS: a page loaded before this deploy (or still loading across it)
+# fetches its lazy chunks and workers by their old content-hashed names. Each release carries the files of the kept
+# releases that this build lacks, hard-linked (they were written by their own build; that mtime ages them out).
+for old in "$C"/releases/*/dist/assets; do
+  [ -d "$old" ] && [ "$old" != "$R/dist/assets" ] || continue
+  (cd "$old" && find . -type f -mmin -$((ASSET_HOURS * 60)) -print0) | while IFS= read -r -d '' f; do
+    [ -e "$R/dist/assets/$f" ] && continue
+    mkdir -p "$(dirname "$R/dist/assets/$f")"
+    ln "$old/$f" "$R/dist/assets/$f" 2>/dev/null || cp -p "$old/$f" "$R/dist/assets/$f"
+  done || echo "warning: earlier assets from $old not all carried"
+done
 # Server sources (only what the units run); keep an installed server/node_modules across a redeploy of this release.
 rsync -a --delete --exclude /server/node_modules --exclude /game --exclude /pipeline --exclude /dist --exclude /work --exclude /.git \
   --exclude /version.json --exclude /tiles.json "$STAGE/" "$R/src/"
