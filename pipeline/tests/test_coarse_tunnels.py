@@ -513,6 +513,11 @@ def test_underground_way_under_a_building_keeps_its_tube():
     result = produce(tile, [("under", line, {"highway": "service", "tunnel": "yes", "layer": "-1"})], pos, idx,
                      [(building, extrude(building))], extrude, lambda x, z: 2)
     assert len(result.profiles) == 1 and not result.unbuilt
+    # A garage aisle or a way two levels down under the same building is no road at grade: not built.
+    for tags in ({"tunnel": "yes", "layer": "-2"}, {"tunnel": "yes", "layer": "-1", "service": "parking_aisle"}):
+        garage = produce(tile, [("garage", line, {"highway": "service", **tags})], pos, idx,
+                         [(building, extrude(building))], extrude, lambda x, z: 2)
+        assert not garage.profiles and len(garage.unbuilt) == 1
 
 
 def test_unbuilt_tunnel_edges_leave_the_published_graph():

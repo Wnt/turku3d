@@ -413,9 +413,9 @@ def indoor(tags):
 
 
 def unmodelled(tags, xz, shells, bounds=None):
-    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings: with no measured
-    depth the coarse world cannot show it. Ways at grade under a building (hospital roads) keep their tube and
-    building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
+    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings, or any deeper way
+    (``layer`` <= -2) or garage aisle: with no measured depth the coarse world cannot show it. Ways at grade under a
+    building (hospital roads, layer -1) keep their tube and building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
     stay as they are. Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
     every building."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
@@ -423,6 +423,9 @@ def unmodelled(tags, xz, shells, bounds=None):
     layer = _number(tags.get("layer"))
     if layer is None or layer > -1:
         return False
+    if layer <= -2 or tags.get("service") == "parking_aisle":
+        # Two levels down, or a garage aisle: never a road at grade under a building (Tapiola's garages under Ainoa).
+        return True
     if bounds is not None:
         near = ((xz >= np.asarray(bounds[:2]) - 10) & (xz <= np.asarray(bounds[2:]) + 10)).all(axis=1)
         xz = xz[near] if near.any() else xz
