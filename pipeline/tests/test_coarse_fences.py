@@ -212,3 +212,13 @@ def test_mapped_retaining_wall_takes_its_measured_step_and_keeps_unmeasured_part
     assert end
     np.testing.assert_allclose(np.abs(np.diff(end[0]["_survey"]["heights"], axis=1)), 1.5,
                                atol=0.15)
+
+
+def test_a_fence_outlining_a_shrub_or_flower_bed_is_low_unless_tagged():
+    from turku3d.coarse.fences import BED_FENCE, DEFAULTS, height
+
+    assert height({"barrier": "fence"}) == DEFAULTS["fence"]
+    for bed in ({"natural": "scrub"}, {"natural": "heath"}, {"landuse": "flowerbed"}):
+        assert height({"barrier": "fence", **bed}) == BED_FENCE
+    assert height({"barrier": "fence", "natural": "scrub", "height": "2"}) == 2.0
+    assert height({"barrier": "wall", "natural": "scrub"}) == DEFAULTS["wall"]

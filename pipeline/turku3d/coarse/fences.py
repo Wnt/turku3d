@@ -67,7 +67,17 @@ def style(tags):
     return "bars" if tags.get("fence_type") in ("bars", "railing", "steel") else "chain"
 
 
+BED_FENCE = 0.6  # m: an unmeasured fence mapped as the outline of a shrub or flower bed
+
+
 def height(tags):
+    """The tagged height, else the barrier's default. A fence that is itself a shrub or flower bed's outline
+    (``natural=scrub``/``heath`` or ``landuse=flowerbed`` on the same way) is a low edging: Tapiolanympyra's shrub
+    beds stood behind 1.6 m panels where the street panoramas show waist-high shrubs and a knee-high wire edge."""
+    if "height" not in tags and tags["barrier"] == "fence" and (
+        tags.get("natural") in ("scrub", "heath") or tags.get("landuse") == "flowerbed"
+    ):
+        return BED_FENCE
     try:
         value = float(str(tags.get("height", DEFAULTS[tags["barrier"]])).removesuffix(" m"))
         return min(max(value, 0.3), 12.0) if math.isfinite(value) else DEFAULTS[tags["barrier"]]
