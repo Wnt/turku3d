@@ -73,6 +73,8 @@ export class Vehicle {
   private beforeSolve: V3 | null = null;
   /** This step's input came from a driver (step(dt, input)). */
   private driven = false;
+  /** A driver sits in it (PhysicsWorld.driveVehicle): never put to rest, also while its input is momentarily absent. */
+  seated = false;
   /** The pose a resting undriven car has kept, and for how many steps (REST). */
   private rest: { p: V3; q: { x: number; y: number; z: number; w: number }; steps: number } | null = null;
   private bumps = new BumpDetector();
@@ -383,9 +385,9 @@ export class Vehicle {
     }
     this.beforeSolve = null;
     this.driven = input !== null;
-    // A driver's throttle or steering wakes the car itself: Rapier wakes a body only for a non-zero impulse, and two
-    // of seven start-pair cars stayed asleep under the autopilot until a reset (verify-all r3/r4: pose frozen to the cm).
-    if (input && (input.throttle !== 0 || input.steer !== 0) && this.body.isSleeping()) this.body.wakeUp();
+    // Any driver input wakes the car itself: Rapier wakes a body only for a non-zero impulse, and two of seven
+    // start-pair cars stayed asleep under the autopilot until a reset (verify-all r3/r4: pose frozen to the cm).
+    if (input && (input.throttle !== 0 || input.steer !== 0 || input.brake !== 0 || input.handbrake) && this.body.isSleeping()) this.body.wakeUp();
     // A sleeping damageable car still measures a hit that wakes it during the coming solver step.
     this.damageBefore = this.damage && this.body.isSleeping() ? { v: { x: 0, y: 0, z: 0 }, w: { x: 0, y: 0, z: 0 } } : null;
     if (!input && this.body.isSleeping()) return;
@@ -695,10 +697,10 @@ export class Vehicle {
     }
   }
 
-  /** Sleeps an undriven car that has kept one pose for REST.steps steps (REST). */
+  /** Sleeps an undriven, unseated car that has kept one pose for REST.steps steps (REST). */
   private settle() {
     const b = this.body;
-    if (this.driven || b.isSleeping()) { this.rest = null; return; }
+    if (this.driven || this.seated || b.isSleeping()) { this.rest = null; return; }
     const p = b.translation(), q = b.rotation(), r = this.rest;
     if (r && Math.abs(p.x - r.p.x) < REST.move && Math.abs(p.y - r.p.y) < REST.move && Math.abs(p.z - r.p.z) < REST.move
       && 1 - Math.abs(q.x * r.q.x + q.y * r.q.y + q.z * r.q.z + q.w * r.q.w) < REST.turn) {
