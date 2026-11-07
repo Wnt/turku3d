@@ -37,8 +37,7 @@ test('r186 draws only once a pipeline isReady, right after updateForRender (the 
 test('live first-use draws take new shader modules from a budget of estimated translation time; the rest wait', async () => {
   const { ShaderModuleBudget } = await import('../../src/render/shaderModules');
   let now = 0;
-  const budget = new ShaderModuleBudget(() => now, 0.5, 40); // half the wall time, at most 40 ms saved up
-  budget.msPerChar = 0.01; // 1,000 characters: 10 ms
+  const budget = new ShaderModuleBudget(0.01, () => now, 0.5, 40); // 1,000 characters: 10 ms; half the wall time, 40 ms saved
   const device = { createShaderModule: (descriptor: { code?: string }) => ({ descriptor }) };
   budget.wrap(device);
   const programs = { vertex: new Map<string, unknown>(), fragment: new Map<string, unknown>() };
@@ -73,20 +72,5 @@ test('live first-use draws take new shader modules from a budget of estimated tr
   expect(requested).toEqual(['a', 'c', 'd', 'b']);
   expect(budget.room(1000)).toBe(false);
   expect(budget.created).toBe(6);
-});
-
-test('the translation rate follows the fastest module timed alone on this device', async () => {
-  const { ShaderModuleBudget, START_MS_PER_CHAR } = await import('../../src/render/shaderModules');
-  let now = 0;
-  const budget = new ShaderModuleBudget(() => now);
-  const pending: (() => void)[] = [];
-  const device = { createShaderModule: (descriptor: { code?: string }) => ({ descriptor, getCompilationInfo: () => new Promise<void>(resolve => pending.push(resolve)) }) };
-  budget.wrap(device);
-  expect(budget.msPerChar).toBe(START_MS_PER_CHAR);
-  device.createShaderModule({ code: 'x'.repeat(10_000) });   // timed: nothing else in flight
-  device.createShaderModule({ code: 'y'.repeat(10_000) });   // not timed: it queues behind the first
-  now += 20; pending.shift()!(); await Promise.resolve();
-  now += 500; pending.shift()!(); await Promise.resolve();
-  expect(budget.msPerChar).toBeCloseTo(20 / 10_000);        // a fast GPU process: 2 ms per 1,000 characters
 });
 

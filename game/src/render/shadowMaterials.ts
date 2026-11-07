@@ -13,7 +13,7 @@ import type { ReflectionScope } from './reflectionScope';
 import { poolUniformBuffers } from './uniformPool';
 import { poolGeometryBuffers } from './geometryPool';
 import { staticRefresh } from './staticRefresh';
-import { ShaderModuleBudget } from './shaderModules';
+import { SLOW_MS_PER_CHAR, ShaderModuleBudget } from './shaderModules';
 
 type ShadowMaterial = THREE.Material & { isShadowPassMaterial?: boolean };
 
@@ -116,15 +116,16 @@ export class GameRenderer extends THREE.WebGPURenderer {
   staticRefresh: ReturnType<typeof staticRefresh> | null = null;
   /** New shader modules per frame (render/shaderModules.ts): live first-use draws and streaming preparation. */
   shaderModules: ShaderModuleBudget | null = null;
-  /** Pace new shader modules (render/shaderModules.ts); set before init. */
+  /** Pace new shader modules (render/shaderModules.ts) at this translation rate (ms per WGSL character); set before init. */
   paceShaderModules = true;
+  shaderModuleRate = SLOW_MS_PER_CHAR;
   private releaseModules?: () => void;
   override async init(): Promise<this> {
     await super.init();
     const webgpu = (this.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
     const device = (this.backend as { device?: { createShaderModule(descriptor: unknown): unknown } }).device;
     if (webgpu && device && this.paceShaderModules && !this.shaderModules) {
-      this.shaderModules = new ShaderModuleBudget();
+      this.shaderModules = new ShaderModuleBudget(this.shaderModuleRate);
       this.releaseModules = this.shaderModules.wrap(device);
     }
     if (this.poolUniforms && !this.uniformPool && webgpu)

@@ -2,6 +2,7 @@
 import { loading } from '../core/loading';
 import * as THREE from 'three/webgpu';
 import { GameRenderer } from './shadowMaterials';
+import { FAST_MS_PER_CHAR, SLOW_MS_PER_CHAR } from './shaderModules';
 import { APPLE_REDUCED_PROBE_MS, QUALITY, renderPixelRatio, type QualityTier } from './quality';
 import { GameLighting } from './lighting';
 import { retainRendererPrograms } from './programCache';
@@ -60,6 +61,8 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   renderer.staticDraws = search.get('staticRefresh') !== '0';
   // QA stills wait for a settled world, not for pipelines: their first-use draws take every new shader module at once.
   renderer.paceShaderModules = !opts.qa;
+  // The reduced tiers' GPU processes (Radeon 560X laptop, base M1) translate at the 560X's rate; medium and up faster.
+  renderer.shaderModuleRate = ['mobile', 'low', 'reduced'].includes(opts.quality ?? 'medium') ? SLOW_MS_PER_CHAR : FAST_MS_PER_CHAR;
   // Installed once, before any compile: the tier's light slots exist for the whole session.
   renderer.lighting = new GameLighting(QUALITY[opts.quality ?? 'medium'].lights);
   renderer.setPixelRatio(renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, !!opts.qa, opts.mobile, QUALITY[opts.quality ?? 'medium'].maxPixels));
