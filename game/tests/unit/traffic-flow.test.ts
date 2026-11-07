@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGraph';
-import { TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, unseen, type FlowCar } from '../../src/traffic/flow';
+import { LIVE_CLOCK_JUMPS, TrafficFlow, signalState, sampleFlowPose, interpolateFlowPose, unseen, type FlowCar } from '../../src/traffic/flow';
 import { TrafficNetwork } from '../../src/traffic/network';
 import { trafficRoads } from '../../src/traffic/roads';
 import { honking, vehicleLights } from '../../src/traffic/lights';
@@ -70,6 +70,36 @@ describe('responsive traffic', () => {
     expect(state(a)).toEqual(state(b));
     expect(a.stats.entered).toBeGreaterThan(10);
     expect(a.stats.exited).toBeGreaterThan(5);
+  });
+
+  test('a live clock: a correction back holds the flow and a long jump forward is skipped; neither replays the session', () => {
+    const flow = new TrafficFlow(flowNetwork(intersection(true)));
+    flow.clockJumps = LIVE_CLOCK_JUMPS;
+    let t = 5000.03;
+    for (let k = 0; k < 120 * 60; k++) flow.update(t += 1 / 60);
+    const state = () => [...flow.cars.values()].map(c => [c.key, c.lane.id, c.s, c.speed]);
+    const before = state(), ticks = flow.stats.ticks, resets = flow.stats.resets, tick = flow.tick;
+    expect(before.length).toBeGreaterThan(3);
+    // Multiplayer re-estimates the server offset on every welcome: tens of milliseconds back.
+    flow.update(t - 0.35);
+    expect([flow.tick, flow.stats.ticks, flow.stats.resets]).toEqual([tick, ticks, resets]);
+    expect(state()).toEqual(before);
+    flow.update(t += 0.2);
+    expect(flow.tick).toBe(Math.floor((t + 1e-7) / 0.1));
+    // A hidden multiplayer tab: five minutes later, one tick of work and the same cars going on.
+    const keys = new Set(flow.cars.keys()), worked = flow.stats.ticks;
+    flow.update(t += 300);
+    expect(flow.tick).toBe(Math.floor((t + 1e-7) / 0.1));
+    expect(flow.stats.ticks - worked).toBe(1);
+    expect([...flow.cars.keys()].filter(k => keys.has(k)).length).toBeGreaterThan(keys.size / 2);
+    const entered = flow.stats.entered;
+    for (let k = 0; k < 60; k++) flow.update(t += 1 / 60);
+    expect(flow.stats.entered - entered).toBeLessThan(4);
+    // A real move back (a clock set back by minutes) warms up again from just before it, as at start-up.
+    flow.update(t -= 600);
+    expect(flow.tick).toBe(Math.floor((t + 1e-7) / 0.1));
+    expect(flow.stats.resets).toBe(resets + 1);
+    expect(flow.cars.size).toBeGreaterThan(3);
   });
 
   test.each([false, true])('ten simulated minutes have zero body overlaps at a busy intersection (signals=%s)', signal => {

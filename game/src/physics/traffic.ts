@@ -20,7 +20,7 @@ import { GROUP } from '../shared/col/materials';
 import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
-import { FLOW_STEP, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
+import { FLOW_STEP, LIVE_CLOCK_JUMPS, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
 import { honking, vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
@@ -144,6 +144,7 @@ export class TrafficSim {
     this.network.density = { hourAt: t => this.hourAt(t), multiplier: 1 };
     // A tile install rebuilds the traffic graph over several steps instead of stalling one (worker step budget).
     this.flow.rebuildBudgetMs = REBUILD_MS_PER_STEP;
+    this.flow.clockJumps = LIVE_CLOCK_JUMPS;
   }
 
   /** Clock hour at traffic time t. Multiplayer: the shared cycle, so every client thins alike. Single player: the

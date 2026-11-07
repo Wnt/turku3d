@@ -16,6 +16,13 @@ import { PASS_CLEAR_LINE, planPass, unseen, watchDistance, type Obstacle, type P
 export { unseen, type TrafficWatcher } from './driver';
 
 export const FLOW_STEP = 0.1;
+/** Clock jumps (ticks) of a live clock (the physics worker's TrafficSim): a move back of at most `hold` (a
+ *  multiplayer server offset re-estimated on a welcome or a rounds message moves it by tens of milliseconds) holds
+ *  the flow until the clock is there again, and a move forward of more than `catchUp` (a hidden multiplayer tab,
+ *  which never pauses) is skipped. Replaying instead held one physics step for the whole session since the start-up
+ *  epoch: 1.3 s after one minute of play, 11.6 s after fourteen (nine Turku centre tiles, node on the M1 Max), 3.7 s
+ *  in a city.lab drive (framecheck mac-fix4-1). */
+export const LIVE_CLOCK_JUMPS = { hold: 600, catchUp: 10 } as const;
 const GAP = 2, BRAKE = 3.5, ACCEL = 1.6;
 /** Going round a stopped player car (or a crashed one): the driver waits PASS_AFTER seconds (scaled by its honk
  *  patience), keeps PASS_MARGIN metres beside it, never leaves the lane by more than PASS_MAX metres, and needs the
@@ -300,17 +307,36 @@ export class TrafficFlow {
     if (car) { this.unoccupy(car); this.cars.delete(key); }
   }
 
-  /** Reconstruct from a shared hourly epoch on a graph change or clock jump. No random wall-time seed.
-   * A generation-pinned multiplayer world can call reset(epoch) once and advance the same fixed ticks. */
+  /** Clock jumps (ticks) this flow absorbs: the defaults replay every tick exactly and rebuild from the epoch on any
+   *  move back (tests, previews); the physics worker sets LIVE_CLOCK_JUMPS. */
+  clockJumps: { hold: number; catchUp: number } = { hold: 0, catchUp: Infinity };
+
+  /** Advances the fixed ticks to `t`. The first update warms up from the epoch (a minute boundary 90-150 s before
+   *  `t` unless the constructor pinned one); no random wall-time seed. A generation-pinned multiplayer world can call
+   *  reset(epoch) once and advance the same fixed ticks. */
   update(t: number) {
     const target = Math.floor((t + 1e-7) / FLOW_STEP);
     if (this.ready && (this.job || this.revision !== this.network.revision) && target >= this.tick) this.advanceRebuild();
-    if (!this.ready || target < this.tick) {
+    if (this.ready && target < this.tick) {
+      if (target >= this.tick - this.clockJumps.hold) return;
+      // A live clock moved back further than any correction: warm up again just before it, not from the first epoch.
+      if (this.clockJumps.hold > 0) this.epoch = Math.floor(t / 60) * 60 - 90;
+      this.ready = false;
+    }
+    if (!this.ready) {
       this.epoch ??= Math.floor(t / 60) * 60 - 90;
       this.job = null;
       this.reset(this.epoch);
-    }
+    } else if (target - this.tick > this.clockJumps.catchUp) this.skip(target - 1);
     while (this.tick < target) this.step();
+  }
+
+  /** Moves the clock to `tick` without simulating the gap: the cars go on from where they are, and each source
+   *  resumes at its current slot rather than admitting every car of the gap at once. */
+  private skip(tick: number) {
+    this.tick = tick;
+    const t = tick * FLOW_STEP;
+    for (const lane of this.sources) this.demand.set(lane, Math.max(this.demand.get(lane) ?? 0, Math.ceil((t - lane.phase) / TRAFFIC.headway)));
   }
 
   /** Wall time (ms) one update may spend rebuilding the graph after a tile change; the live graph keeps running
