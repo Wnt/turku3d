@@ -273,15 +273,40 @@ test('player-spawned trucks go once their owner has left; a truck that fell out 
   f.advance(1);
   // Empty and below the world floor: removed; the connected owner's parked truck stays.
   assert.equal(f.room.vehicles.entries.has(`${b.welcome.you.id}:truck`), false);
-  f.advance(VEHICLE_LIMITS.spawnedTruckEmptyMs);
+  f.advance(VEHICLE_LIMITS.abandonedEmptyMs);
   assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`));
   f.room.disconnect(a.c);
   f.advance(VEHICLE_LIMITS.reconnectMs - 1);
   assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`));
   f.advance(2);
   assert.equal(f.room.vehicles.entries.has(`${a.welcome.you.id}:truck`), false);
-  // Other personal kinds keep the hour lifetime.
+  // The starter car has its own ten minutes (next test).
   assert.ok(f.room.vehicles.entries.has(`${a.welcome.you.id}:car`));
+});
+
+test('cars a departed player left empty go five minutes after both; not while the owner plays or someone sits in one', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send(pose);
+  const kinds = [
+    { id: 'park:t0_0_0:GIS:12', source: 't0_0_0:GIS:12', localId: 't0_0_0:GIS:12', pose: { ...pose, mode: 'car', vehicle: 'sedan/red', vE: 0 } },
+    { id: 'park:tr:t0_0_0:7:3', source: 'tr:t0_0_0:7:3', localId: 'tr:t0_0_0:7:3', pose: { ...pose, mode: 'car', vehicle: 'prius-2012/white', vE: 0 } },
+    { id: `${a.welcome.you.id}:scooter`, source: null, localId: 'scooter', pose: { ...pose, mode: 'scooter', vehicle: 'scooter', vE: 0 } },
+  ];
+  for (const k of kinds) a.send(car(a, k));
+  a.send(car(a, { id: 'park:t0_0_0:GIS:13', source: 't0_0_0:GIS:13', localId: 't0_0_0:GIS:13', pose: { ...pose, mode: 'car', vehicle: 'sedan/blue', vE: 0 } }));
+  assert.equal(f.room.vehicles.entries.size, 4);
+  // The owner plays on: its empty cars keep the hour lifetime.
+  f.advance(VEHICLE_LIMITS.abandonedEmptyMs * 2);
+  assert.equal(f.room.vehicles.entries.size, 4);
+  // b sits in one of them; a leaves. Within the reconnect grace nothing goes.
+  b.send({ type: 'vehicle', action: 'acquire', id: 'park:t0_0_0:GIS:13', request: 'take' });
+  assert.equal(result(b).ok, true);
+  f.room.disconnect(a.c);
+  f.advance(VEHICLE_LIMITS.reconnectMs - 1000);
+  assert.equal(f.room.vehicles.entries.size, 4);
+  f.advance(2000);
+  // Past the grace and empty for five minutes: gone, and their slots are free again; b's ride stays.
+  assert.deepEqual([...f.room.vehicles.entries.keys()], ['park:t0_0_0:GIS:13']);
+  assert.deepEqual(f.room.vehicles.sources(), ['t0_0_0:GIS:13']);
 });
 
 test('a departed player\'s starter car goes ten minutes after it left, unless someone else drives it', () => {

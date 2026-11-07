@@ -5,10 +5,12 @@ export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, r
   // A car registered by a bot client (hello bot:true, the delivery bots of tools/drivetest/bots.sh) is gone once it is
   // empty this long, or once its bot has been offline this long, seated or not: bot cars never pile up.
   botEmptyMs: 30_000, botOfflineMs: 10_000,
-  // A truck a player spawned (the trophy-truck job, not a parked world vehicle) is gone once it has been empty this
-  // long and its owner is offline past the reconnect grace: job trucks do not pile up across sessions. An empty vehicle below `floor`
-  // (H, m) has fallen out of the world and is removed at once.
-  spawnedTruckEmptyMs: 300_000, floor: -100,
+  // A vehicle left empty this long whose owner is offline past the reconnect grace is gone (a moved world car, a claimed
+  // traffic car, a bought scooter, a job truck; not the starter car, which has starterOfflineMs): finished sessions
+  // left their cars standing in the lanes for the whole `lifetime` (city.lab 2026-11-07: 39 records of 11 test runs
+  // around the Turku spawn jammed the drive routes). Its parked or traffic slot comes back. An empty vehicle below
+  // `floor` (H, m) has fallen out of the world and is removed at once.
+  abandonedEmptyMs: 300_000, floor: -100,
   // A starter car (pose.vehicle "player") whose owner left this long ago is gone unless someone sits in it: every
   // client that ever joined brings one, and departed players' cars piled up around the spawn.
   starterOfflineMs: 600_000 };
@@ -130,11 +132,12 @@ export class VehicleRegistry {
       const reconnecting = owner && !owner.connection && now - owner.disconnectedAt < VEHICLE_LIMITS.reconnectMs;
       if (!v.occupant && !reconnecting && now - v.used >= VEHICLE_LIMITS.lifetime) { this.entries.delete(id); continue; }
       if (!v.occupant && v.pose.H < VEHICLE_LIMITS.floor) { this.entries.delete(id); continue; }
-      if (!v.occupant && !reconnecting && v.source === null && v.pose.mode === 'truck' && !owner?.connection
-        && now - v.used >= VEHICLE_LIMITS.spawnedTruckEmptyMs) { this.entries.delete(id); continue; }
+      const starter = v.source === null && v.pose.mode === 'car' && v.pose.vehicle === 'player';
+      if (!v.occupant && !reconnecting && !starter && !owner?.connection
+        && now - v.used >= VEHICLE_LIMITS.abandonedEmptyMs) { this.entries.delete(id); continue; }
       // The owner's departure counts (a car it drove off in stays seated through the reconnect grace); an owner the
       // hourly reset dropped has been offline past that grace, so the car's last use stands in.
-      if (!v.occupant && v.source === null && v.pose.mode === 'car' && v.pose.vehicle === 'player' && !owner?.connection
+      if (!v.occupant && starter && !owner?.connection
         && now - (owner?.disconnectedAt ?? v.used) >= VEHICLE_LIMITS.starterOfflineMs) { this.entries.delete(id); continue; }
       if (v.bot) {
         const creator = this.room.players.get(v.creator);
