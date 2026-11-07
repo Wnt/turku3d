@@ -197,6 +197,8 @@ export function shareInstanceHooks(state: { updateAfterNodes?: { callback?: (fra
       if (object === owner) original(frame);
       if (object?.isInstancedMesh) keepPreviousInstances(object);
     };
+    // render/staticRefresh.ts: still the previous-matrix copy (equal values while instanceMatrix.version is unchanged).
+    (node as { previousInstances?: boolean }).previousInstances = true;
   }
 }
 

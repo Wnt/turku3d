@@ -23,3 +23,11 @@ test('quay LED bars are ordinary night_ emitters', () => {
   expect(bar.userData.nightSurface).toBe(true);
   expect(nodesOf(bar).has(nightUniforms.night)).toBe(true);
 });
+
+test('materials of one night key share one emissive graph (node identity is part of the program key)', () => {
+  const walls = [0.2, 0.6].map(r => nightSurface(new THREE.MeshStandardNodeMaterial({ color: new THREE.Color(r, .3, .3) }), 'night_landmark_wall'));
+  expect(walls[0].emissiveNode).toBe(walls[1].emissiveNode);
+  expect(walls[0].customProgramCacheKey()).toBe(walls[1].customProgramCacheKey());
+  const bar = nightSurface(new THREE.MeshStandardNodeMaterial(), 'night_quay_bar');
+  expect(bar.emissiveNode).not.toBe(walls[0].emissiveNode);
+});

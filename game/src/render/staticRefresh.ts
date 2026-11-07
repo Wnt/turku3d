@@ -13,8 +13,9 @@ import { modelNormalMatrix, modelWorldMatrixInverse, velocity } from 'three/tsl'
  *  lights and environment unchanged. The observer sees all of it when every per-object node of the program reads only
  *  those: the object's world matrix (Object3DNode/ModelNode scopes of matrixWorld, the normal and inverse matrices),
  *  the draw's own material through the observer's `refreshUniforms`, motion vectors (VelocityNode), its textures'
- *  uv transform and flip (TextureNode; no texture transform is animated after load), and references into a shared
- *  group (the scene's fog), which the program's SHARED refresh updates. A program with
+ *  uv transform and flip (TextureNode; no texture transform is animated after load), references and uniform arrays in a
+ *  shared group (the scene's fog, CSM's cascades), which the program's SHARED refresh updates, and r186's copy of
+ *  instance matrices into the previous ones after a velocity draw (equal while instanceMatrix.version is). A program with
  *  any other per-object update (onObjectUpdate callbacks, texture transforms, camera-relative uniforms), or a draw with
  *  a per-object uniform no such node owns (a value code may set at any time), keeps r186's full refresh. Bound
  *  textures are checked per draw (identity and version, as Bindings._update does), so a swap or an upload still binds.
@@ -26,7 +27,8 @@ interface Node {
   updateType?: string; updateBeforeType?: string; updateAfterType?: string; isUniformNode?: boolean; name?: string;
   isMaterialReferenceNode?: boolean; material?: unknown; property?: string; scope?: string; node?: Node | null;
   uniformNode?: Node; previousModelWorldMatrix?: Node; isUniformGroup?: boolean; _matrixUniform?: Node | null;
-  _flipYUniform?: Node | null; group?: { shared?: boolean } | null; constructor: { type?: string };
+  _flipYUniform?: Node | null; group?: { shared?: boolean } | null; groupNode?: { shared?: boolean; name?: string } | null;
+  callback?: unknown; previousInstances?: boolean; value?: unknown; constructor: { type?: string };
 }
 export interface Binding {
   isSampledTexture?: boolean; isNodeUniformsGroup?: boolean; isUniformBuffer?: boolean; isStorageBuffer?: boolean;
@@ -57,7 +59,12 @@ const WORLD_SCOPES = new Set(['worldMatrix', 'position', 'scale', 'direction']);
 /** r186's per-object matrix uniforms derived from matrixWorld (onObjectUpdate callbacks of its own). */
 const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse]);
 
-const describe = (node: Node) => `${node.constructor.type ?? '?'}:${node.scope ?? node.property ?? node.name ?? ''}`;
+const describe = (node: Node) => `${node.constructor.type ?? '?'}:${node.scope ?? node.property ?? node.name ?? ''}`
+  + `:${(node.value as { constructor?: { name?: string } } | null | undefined)?.constructor?.name ?? typeof node.value}:${node.groupNode?.name ?? ''}`;
+/** r186's after-draw copy of an instanced mesh's matrices into its previous ones (Instance.js, or instancePrograms'
+ *  wrapper of it): with unchanged matrices (the observer compares instanceMatrix.version) it copies equal values. */
+const previousInstances = (node: Node) => node.previousInstances === true
+  || (typeof node.callback === 'function' && String(node.callback).includes('previousInstanceMatrix'));
 
 /** Whether the observer's `equals` covers every per-object node update of the program. */
 export function observable(state: State, refreshUniforms: readonly string[]): boolean {
@@ -67,7 +74,8 @@ export function observable(state: State, refreshUniforms: readonly string[]): bo
 /** The first per-object node update the observer does not cover (its class and scope/property/name), else null. */
 export function uncovered(state: State, refreshUniforms: readonly string[]): string | null {
   for (const node of state.updateBeforeNodes) if (node.updateBeforeType === OBJECT) return `before ${describe(node)}`;
-  for (const node of state.updateAfterNodes) if (node.updateAfterType === OBJECT && node !== velocity) return `after ${describe(node)}`;
+  for (const node of state.updateAfterNodes)
+    if (node.updateAfterType === OBJECT && node !== velocity && !previousInstances(node)) return `after ${describe(node)}`;
   for (const node of state.updateNodes) {
     if (node.updateType !== OBJECT) continue;
     if (node === velocity || MATRIX_UNIFORMS.has(node) || node.isUniformGroup) continue;
@@ -79,7 +87,7 @@ export function uncovered(state: State, refreshUniforms: readonly string[]): str
     if (node.isMaterialReferenceNode && node.material === null && refreshUniforms.includes(node.property ?? '')) continue;
     // A reference into a shared group (r186's scene fog: colour, near, far in the render group) holds one value for
     // every draw; the program's SHARED refresh updates it once per pass.
-    if (node.group?.shared === true) continue;
+    if (node.group?.shared === true || node.groupNode?.shared === true) continue;
     return `update ${describe(node)}`;
   }
   return null;
