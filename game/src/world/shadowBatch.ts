@@ -83,15 +83,30 @@ function* shadowBatchSteps(model: THREE.Object3D): Generator<void, THREE.Mesh | 
         transform.multiply(instance);
       }
       const offset = vertexOffset;
+      // Plain (unnormalized, not interleaved) positions are read from their array with applyMatrix4's arithmetic:
+      // Vector3.fromBufferAttribute/applyMatrix4 per vertex and index getX were 1.2 s of a 6.7-min Windows drive.
+      const plain = (attribute as THREE.BufferAttribute).isBufferAttribute && !attribute.normalized ? attribute.array : null;
+      const e = transform.elements, stride = attribute.itemSize;
       for (let i = 0; i < attribute.count; i++) {
         if (i % 4096 === 0) yield;
-        point.fromBufferAttribute(attribute, i).applyMatrix4(transform);
-        positions[vertexOffset * 3] = point.x; positions[vertexOffset * 3 + 1] = point.y; positions[vertexOffset * 3 + 2] = point.z;
+        if (plain) {
+          const x = plain[i * stride], y = plain[i * stride + 1], z = plain[i * stride + 2];
+          const w = 1 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
+          positions[vertexOffset * 3] = (e[0] * x + e[4] * y + e[8] * z + e[12]) * w;
+          positions[vertexOffset * 3 + 1] = (e[1] * x + e[5] * y + e[9] * z + e[13]) * w;
+          positions[vertexOffset * 3 + 2] = (e[2] * x + e[6] * y + e[10] * z + e[14]) * w;
+        } else {
+          point.fromBufferAttribute(attribute, i).applyMatrix4(transform);
+          positions[vertexOffset * 3] = point.x; positions[vertexOffset * 3 + 1] = point.y; positions[vertexOffset * 3 + 2] = point.z;
+        }
         vertexOffset++;
       }
-      if (index) for (let i = 0; i < index.count; i++) {
-        if (i % 4096 === 0) yield;
-        indices[indexOffset++] = offset + index.getX(i);
+      if (index) {
+        const source = index.array;
+        for (let i = 0; i < index.count; i++) {
+          if (i % 4096 === 0) yield;
+          indices[indexOffset++] = offset + source[i];
+        }
       }
       else for (let i = 0; i < attribute.count; i++) indices[indexOffset++] = offset + i;
     }
