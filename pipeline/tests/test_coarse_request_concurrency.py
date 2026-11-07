@@ -159,3 +159,30 @@ def test_a_restart_warms_tile_verdicts_and_fragments_most_recent_then_outward(tm
         assert builder.built("t0_0_0") and len(checked) == 4, "the request finds the warmed verdict"
     finally:
         builder.stop()
+
+
+def test_a_poll_writes_the_request_journal_outside_the_scheduler_lock(tmp_path, monkeypatch):
+    from turku3d.coarse import request_journal
+
+    entered, release = threading.Event(), threading.Event()
+    original = request_journal.Path.replace
+
+    def slow_replace(self, target):
+        if self.name.startswith(".requests.json"):
+            entered.set()
+            assert release.wait(2)
+        return original(self, target)
+
+    monkeypatch.setattr(request_journal.Path, "replace", slow_replace)
+    builder = Builder(tmp_path, code="test", workers=0, inputs=lambda tile: ["missing-input"])
+    request = threading.Thread(target=builder.request, args=("t0_0_0", 0))
+    request.start()
+    try:
+        assert entered.wait(1)
+        assert builder.lock.acquire(timeout=.5), "the journal write held the scheduler condition"
+        builder.lock.release()
+    finally:
+        release.set()
+        request.join(2)
+        builder.stop()
+    assert "t0_0_0" in request_journal.RequestJournal(tmp_path).rows
