@@ -54,3 +54,33 @@ def test_stair_input_reads_only_nearby_complete_ways(tmp_path):
     assert len(lines) == 1 and not areas
     assert lines[0][0] == "0"
     assert list(lines[0][1].coords) == [(10, 10), (20, 10)]
+
+
+def test_indoor_and_upper_level_steps_are_not_built_on_the_ground(tmp_path):
+    """Tapiola: deck stairs at level 4;6 crossed Merituulentie as a stair slope; indoor mall flights too."""
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.stairs import prepare
+
+    path = tmp_path / "osm.parquet"
+    kinds = [
+        {"highway": "steps"},
+        {"highway": "steps", "level": "0;1"},  # from the ground floor up: stands on the ground
+        {"highway": "steps", "level": "4;6", "layer": "1"},
+        {"highway": "steps", "indoor": "yes", "level": "0;1"},
+        {"highway": "steps", "level": "1;2"},
+        {"highway": "steps", "level": "1", "layer": "1", "bridge": "yes"},  # drawn on its deck
+    ]
+    pq.write_table(
+        pa.Table.from_pylist(
+            [
+                dict(osm_id=i, tags=json.dumps(tags), geometry_local=shapely.LineString([(10, 10 + 5 * i), (20, 10 + 5 * i)]).wkb)
+                for i, tags in enumerate(kinds)
+            ]
+        ),
+        path,
+    )
+    lines, _ = prepare(C.VisualTile(0, 0, 0), path)
+    assert sorted(key for key, _, _ in lines) == ["0", "1", "5"]

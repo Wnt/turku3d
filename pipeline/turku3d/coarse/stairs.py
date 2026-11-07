@@ -42,7 +42,7 @@ def prepare(tile, path, survey_paths=()):
         ) not in ("0", "")
         if tags.get("highway") != "steps" and tags.get("area:highway") != "steps" and not counted:
             continue
-        if not geom.intersects(window):
+        if not geom.intersects(window) or indoor(tags):
             continue
         if tags.get("area:highway") == "steps" or tags.get("area") == "yes":
             if geom.geom_type == "LineString" and geom.is_ring:
@@ -59,6 +59,24 @@ def prepare(tile, path, survey_paths=()):
 
     stair_rails.attach(rows, rail_paths)
     return rows, areas
+
+
+def indoor(tags):
+    """Steps mapped inside a building (``indoor=*``) or wholly above its ground floor (every ``level`` >= 1): no flight
+    stands on the ground. Tapiola: the centre's deck stairs (level 4;6) stood as a stair slope and side walls across
+    both Merituulentie carriageways, and the mall's indoor flights on the ground beside them. A bridge's flight
+    keeps its level: it is drawn on its deck, not on the ground."""
+    if tags.get("indoor") not in (None, "", "no"):
+        return True
+    if tags.get("bridge", "no") != "no":
+        return False
+    levels = []
+    for value in str(tags.get("level", "")).split(";"):
+        try:
+            levels.append(float(value))
+        except ValueError:
+            continue
+    return bool(levels) and min(levels) >= 1
 
 
 def number(value, default):
