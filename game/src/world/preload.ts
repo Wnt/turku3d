@@ -90,8 +90,12 @@ export async function preloadWorld(world: PlayWorld, focus: { x: number; z: numb
     warmFrame(renderFrame);
     // A warmup frame creates a few new shader modules (render/shaderModules.ts: Dawn translates each on the GPU
     // process's main thread); the draws it turned away take the next frames, so the loading screen keeps moving.
-    const modules = (renderer as unknown as { shaderModules?: { takeDeferred(): number } | null }).shaderModules;
-    for (let i = 0; i < 900 && modules?.takeDeferred(); i++) { await frame(); warmFrame(renderFrame); }
+    const modules = (renderer as unknown as { shaderModules?: { takeDeferred(): number; duty: number } | null }).shaderModules;
+    // Behind the loading screen the GPU process may translate full time; play keeps half of it for frames.
+    const duty = modules?.duty ?? 0;
+    if (modules) modules.duty = 1;
+    try { for (let i = 0; i < 900 && modules?.takeDeferred(); i++) { await frame(); warmFrame(renderFrame); } }
+    finally { if (modules) modules.duty = duty; }
     // First-use pipelines of the live frame compile asynchronously (render/asyncPipelines.ts): wait for them here,
     // so the menu opens with the initial view's pipelines ready.
     await (renderer as unknown as { pipelinesSettled?: () => Promise<void> }).pipelinesSettled?.();

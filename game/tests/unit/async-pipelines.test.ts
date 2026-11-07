@@ -34,11 +34,12 @@ test('r186 draws only once a pipeline isReady, right after updateForRender (the 
   expect(source).toMatch(/this\._pipelines\.updateForRender\( renderObject \);\s*\/\/\s*if \( this\._pipelines\.isReady\( renderObject \) \)/);
 });
 
-test('live first-use draws take new shader modules from a wall-time budget; the rest wait for a later frame', async () => {
+test('live first-use draws take new shader modules from a budget of estimated translation time; the rest wait', async () => {
   const { ShaderModuleBudget } = await import('../../src/render/shaderModules');
   let now = 0;
-  const budget = new ShaderModuleBudget(() => now, 10, 3); // 10 ms per module, at most 3 saved up
-  const device = { createShaderModule: (descriptor: unknown) => ({ descriptor }) };
+  const budget = new ShaderModuleBudget(() => now, 0.5, 40); // half the wall time, at most 40 ms saved up
+  budget.msPerChar = 0.01; // 1,000 characters: 10 ms
+  const device = { createShaderModule: (descriptor: { code?: string }) => ({ descriptor }) };
   budget.wrap(device);
   const programs = { vertex: new Map<string, unknown>(), fragment: new Map<string, unknown>() };
   const data = new Map<object, { pipeline?: unknown }>();
@@ -56,18 +57,36 @@ test('live first-use draws take new shader modules from a wall-time budget; the 
     updateForRender(draw: object) { void draw; },
   };
   asyncFirstUsePipelines(pipelines as never, () => true, budget);
+  const code = (tag: string, chars: number) => tag.padEnd(chars, '.');
   const draw = (name: string, vs: string, fs: string) => ({ name, getNodeBuilderState: () => ({ vertexShader: vs, fragmentShader: fs }) });
-  const a = draw('a', 'va', 'fa'), b = draw('b', 'vb', 'fb'), c = draw('c', 'va', 'fa'), d = draw('d', 'vd', 'fd');
+  // a: 5 ms + 25 ms; b: a big lit fragment (40 ms); c reuses a's program; d: two small modules (2 + 2 ms).
+  const a = draw('a', code('va', 500), code('fa', 2500)), b = draw('b', code('vb', 500), code('fb', 4000));
+  const c = draw('c', code('va', 500), code('fa', 2500)), d = draw('d', code('vd', 200), code('fd', 200));
   const frame = () => { for (const x of [a, b, c, d]) pipelines.updateForRender(x); };
   frame();
-  // a spends two of the three saved modules; b needs two more and waits; c reuses a's program; d waits too.
-  expect(requested).toEqual(['a', 'c']);
-  expect(budget.takeDeferred()).toBe(2);
-  now += 10; frame(); // one more module's worth: b goes, d still waits
-  expect(requested).toEqual(['a', 'c', 'b']);
-  now += 5; frame();  // half a module: d waits
-  expect(requested).toEqual(['a', 'c', 'b']);
-  now += 200; frame(); // a slow frame saved up the maximum
-  expect(requested).toEqual(['a', 'c', 'b', 'd']);
+  // A full budget (40 ms) takes a (30 ms); b needs 45 and waits; c reuses a's modules; d's 4 ms fit in the 10 left.
+  expect(requested).toEqual(['a', 'c', 'd']);
+  expect(budget.takeDeferred()).toBe(1);
+  now += 40; frame(); // 6 + 20 = 26 ms saved: b's 45 ms still waits
+  expect(requested).toEqual(['a', 'c', 'd']);
+  now += 60; frame(); // a full budget lets one program through whatever its size; it then owes the rest
+  expect(requested).toEqual(['a', 'c', 'd', 'b']);
+  expect(budget.room(1000)).toBe(false);
   expect(budget.created).toBe(6);
 });
+
+test('the translation rate follows the fastest module timed alone on this device', async () => {
+  const { ShaderModuleBudget, START_MS_PER_CHAR } = await import('../../src/render/shaderModules');
+  let now = 0;
+  const budget = new ShaderModuleBudget(() => now);
+  const pending: (() => void)[] = [];
+  const device = { createShaderModule: (descriptor: { code?: string }) => ({ descriptor, getCompilationInfo: () => new Promise<void>(resolve => pending.push(resolve)) }) };
+  budget.wrap(device);
+  expect(budget.msPerChar).toBe(START_MS_PER_CHAR);
+  device.createShaderModule({ code: 'x'.repeat(10_000) });   // timed: nothing else in flight
+  device.createShaderModule({ code: 'y'.repeat(10_000) });   // not timed: it queues behind the first
+  now += 20; pending.shift()!(); await Promise.resolve();
+  now += 500; pending.shift()!(); await Promise.resolve();
+  expect(budget.msPerChar).toBeCloseTo(20 / 10_000);        // a fast GPU process: 2 ms per 1,000 characters
+});
+
