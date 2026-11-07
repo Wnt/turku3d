@@ -8,37 +8,61 @@ const CELL = 2.0;
 const PAD = 0.05;
 
 export class TriLocator {
-  private cells = new Map<number, number[]>();
+  /** Triangles of grid cell c are items[start[c] .. start[c + 1]): one typed-array pass to count, one to fill (a Map of
+   *  per-cell arrays allocated hundreds of thousands of objects per ground piece, built in the physics worker while
+   *  streaming: 1.5 s of one 2.3 s install piece on the Windows laptop, frame-mp win-drive-1). */
+  private start: Int32Array;
+  private items: Int32Array;
+  private gx0: number;
+  private gz0: number;
+  private nx: number;
+  private nz: number;
   private pos: Float32Array;
   private idx: Uint32Array;
   private origin: [number, number, number];
   constructor(pos: Float32Array, idx: Uint32Array, origin: [number, number, number]) {
     this.pos = pos; this.idx = idx; this.origin = origin;
     const n = idx.length / 3;
-    for (let t = 0; t < n; t++) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let k = 0; k < idx.length; k++) {
+      const v = idx[k], x = pos[3 * v], z = pos[3 * v + 2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    if (!n) { minX = maxX = minZ = maxZ = 0; }
+    this.gx0 = Math.floor((minX - PAD) / CELL); this.gz0 = Math.floor((minZ - PAD) / CELL);
+    this.nx = Math.floor((maxX + PAD) / CELL) - this.gx0 + 1; this.nz = Math.floor((maxZ + PAD) / CELL) - this.gz0 + 1;
+    const start = this.start = new Int32Array(this.nx * this.nz + 1);
+    const range = (t: number, out: Int32Array) => {
       let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
       for (let k = 0; k < 3; k++) {
-        const v = idx[3 * t + k];
-        x0 = Math.min(x0, pos[3 * v]); x1 = Math.max(x1, pos[3 * v]);
-        z0 = Math.min(z0, pos[3 * v + 2]); z1 = Math.max(z1, pos[3 * v + 2]);
+        const v = idx[3 * t + k], x = pos[3 * v], z = pos[3 * v + 2];
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z;
       }
-      for (let cz = Math.floor((z0 - PAD) / CELL); cz <= Math.floor((z1 + PAD) / CELL); cz++)
-        for (let cx = Math.floor((x0 - PAD) / CELL); cx <= Math.floor((x1 + PAD) / CELL); cx++) {
-          const key = this.key(cx, cz);
-          let a = this.cells.get(key); if (!a) this.cells.set(key, (a = [])); a.push(t);
-        }
+      out[0] = Math.floor((x0 - PAD) / CELL) - this.gx0; out[1] = Math.floor((x1 + PAD) / CELL) - this.gx0;
+      out[2] = Math.floor((z0 - PAD) / CELL) - this.gz0; out[3] = Math.floor((z1 + PAD) / CELL) - this.gz0;
+    };
+    const r = new Int32Array(4), nx = this.nx;
+    for (let t = 0; t < n; t++) {
+      range(t, r);
+      for (let cz = r[2]; cz <= r[3]; cz++) for (let cx = r[0]; cx <= r[1]; cx++) start[cz * nx + cx + 1]++;
+    }
+    for (let c = 1; c < start.length; c++) start[c] += start[c - 1];
+    const items = this.items = new Int32Array(start[start.length - 1]), fill = start.slice(0, start.length - 1);
+    for (let t = 0; t < n; t++) {
+      range(t, r);
+      for (let cz = r[2]; cz <= r[3]; cz++) for (let cx = r[0]; cx <= r[1]; cx++) items[fill[cz * nx + cx]++] = t;
     }
   }
-  private key(cx: number, cz: number) { return (cx + 32768) * 65536 + (cz + 32768); }
 
   /** Index (into the trimesh's triangles) of the triangle nearest to world point p, or -1. */
   locate(px: number, py: number, pz: number, tol = 0.01): number {
     const x = px - this.origin[0], y = py - this.origin[1], z = pz - this.origin[2];
-    const list = this.cells.get(this.key(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (!list) return -1;
+    const cx = Math.floor(x / CELL) - this.gx0, cz = Math.floor(z / CELL) - this.gz0;
+    if (cx < 0 || cz < 0 || cx >= this.nx || cz >= this.nz) return -1;
+    const c = cz * this.nx + cx, end = this.start[c + 1];
     let best = -1, bestD = tol;
-    for (const t of list) {
-      const d = this.distToTri(t, x, y, z);
+    for (let k = this.start[c]; k < end; k++) {
+      const t = this.items[k], d = this.distToTri(t, x, y, z);
       if (d < bestD) { bestD = d; best = t; }
     }
     return best;
