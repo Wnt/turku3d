@@ -1,4 +1,4 @@
-import { modelNormalMatrix, modelWorldMatrixInverse, velocity } from 'three/tsl';
+import { materialEnvIntensity, materialEnvRotation, modelNormalMatrix, modelWorldMatrixInverse, velocity } from 'three/tsl';
 
 /** r186 refreshes every node-material draw in full on every frame: NodeMaterialObserver.needsRefresh returns FULL for
  *  any material with a node property (`hasNode`) and for every draw of a pass with a velocity MRT (beauty under TRAA),
@@ -56,8 +56,10 @@ interface Nodes {
 const OBJECT = 'object';
 /** Object3DNode scopes that follow from matrixWorld alone (viewPosition reads the camera too). */
 const WORLD_SCOPES = new Set(['worldMatrix', 'position', 'scale', 'direction']);
-/** r186's per-object matrix uniforms derived from matrixWorld (onObjectUpdate callbacks of its own). */
-const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse]);
+/** r186's per-object uniforms the observer's `equals` sees the inputs of: the normal and inverse world matrices
+ *  (matrixWorld), and the environment's intensity and rotation (material.envMap*, scene.environmentIntensity and
+ *  environmentRotation; every lit material samples the IBL: 1,592 of 2,044 draws stayed full for these). */
+const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse, materialEnvIntensity, materialEnvRotation]);
 
 const valueKind = (value: unknown) => {
   const v = value as Record<string, unknown> | null | undefined;
@@ -109,6 +111,9 @@ export function materialTextures(state: State) {
 /** The uniform nodes the program's covered update nodes write. */
 export function ownedUniforms(state: State) {
   const owned = new Set<unknown>(MATRIX_UNIFORMS);
+  // The IBL's PMREM size and mip count follow its texture, which a draw binds (texturesChanged sees another one).
+  for (const node of state.updateBeforeNodes) if (node.constructor.type === 'PMREMNode')
+    for (const key of ['_width', '_height', '_maxMip']) { const u = (node as unknown as Record<string, unknown>)[key]; if (u) owned.add(u); }
   for (const node of state.updateNodes) {
     if (node.uniformNode) owned.add(node.uniformNode);
     if (node.isMaterialReferenceNode && node.node) owned.add(node.node);

@@ -51,6 +51,10 @@ test('r186 programs whose per-object inputs the observer sees are covered; callb
   const { draw: fogged, scene } = fixture();
   scene.fog = new THREE.Fog(0xb8cde0, 500, 3500);
   expect(covers(fogged(new THREE.MeshStandardNodeMaterial({ map: new THREE.Texture() })))).toBe(true);
+  // Image-based lighting: every lit material reads the environment's intensity and rotation and the PMREM's size.
+  const { draw: lit, scene: litScene } = fixture();
+  litScene.environment = new THREE.Texture(); litScene.environment.mapping = THREE.EquirectangularReflectionMapping;
+  expect(covers(lit(new THREE.MeshStandardMaterial({ map: new THREE.Texture() })))).toBe(true);
   // A per-object uniform no node owns: code sets its value at any time (groundField's night, before renderGroup).
   const free = new THREE.MeshStandardNodeMaterial(), night = uniform(0);
   free.emissiveNode = vec3(night);
