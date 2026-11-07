@@ -762,3 +762,45 @@ def test_passage_floors_stay_above_a_kink_inside_a_strip():
             for v in np.linspace(0, 1 - w, 6):
                 p = tri[0] * w + tri[1] * v + tri[2] * (1 - w - v)
                 assert p[1] + 0.04 >= ridge(p[0], p[2]) - 0.15
+
+
+def test_a_corridor_end_inside_an_underground_station_is_no_mouth():
+    """Rotterdam metro Beurs: concourse corridors (layer -1) end at escalators between levels -1 and -2, which are not
+    built (stairs.indoor); counted as street-level ends their mouths cut 2 m walled pits into Coolsingel."""
+    from turku3d.coarse.tunnels import buried_ends, underground_way
+
+    assert underground_way({"highway": "steps", "level": "-1;-2", "conveying": "yes"})
+    assert underground_way({"highway": "footway", "location": "underground"})
+    assert not underground_way({"highway": "steps", "level": "0;-1"})
+    assert not underground_way({"highway": "footway"})
+    corridor = shapely.LineString([(0, 0), (20, 0)])
+    tags = {"highway": "pedestrian", "tunnel": "yes", "layer": "-1", "level": "-1"}
+    escalator = shapely.STRtree([shapely.LineString([(20, 0), (28, 0)])])
+    entrance = shapely.STRtree([shapely.LineString([(-6, 0), (0, 0)])])
+    # The escalator end is buried; the end at a street entrance stays a mouth.
+    assert buried_ends(corridor, tags, entrance, escalator) == (False, True)
+    # An end where a surface way also meets is a mouth; no underground way, nothing buried.
+    both = shapely.STRtree([shapely.LineString([(20, 0), (20, 9)]), shapely.LineString([(-6, 0), (0, 0)])])
+    assert buried_ends(corridor, tags, both, escalator) is None
+    assert buried_ends(corridor, tags, entrance, None) is None
+    # Roads and ways at grade are never classified.
+    assert buried_ends(corridor, {"highway": "primary", "tunnel": "yes", "layer": "-1"}, None, escalator) is None
+    assert buried_ends(corridor, {"highway": "footway", "tunnel": "building_passage"}, None, escalator) is None
+
+
+def test_a_station_corridor_is_not_built():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250], [250, 2, 250]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(100, 100), (130, 100)])
+    # Under a carried street (road_top) the corridor was an underpass with open mouths; inside a station it is not built.
+    street = shapely.LineString([(115, 50), (115, 150)]).buffer(5)
+    tags = {"highway": "footway", "tunnel": "yes", "layer": "-1", "road_top": street}
+    result = produce(tile, [("c", line, tags)], pos, idx, [], extrude, lambda x, z: 2.0, deck_sample=lambda x, z: 2.0)
+    assert any(m.object_id.startswith("tunnel:c:") for m in result.meshes)
+    result = produce(tile, [("c", line, dict(tags, _buried_ends=(False, True)))], pos, idx, [], extrude,
+                     lambda x, z: 2.0, deck_sample=lambda x, z: 2.0)
+    assert not any(m.object_id.startswith("tunnel:c:") for m in result.meshes)
+    tpos, tidx, tkeep = result.terrain(pos, idx)
+    ground = shapely.union_all(shapely.polygons(tpos[tidx[tkeep]][:, :, [0, 2]]))
+    assert all(ground.contains(shapely.Point(x, 100)) for x in (100, 115, 130))

@@ -176,6 +176,38 @@ def rail_stretch(key, line, tags, rails, streets=None):
     return key, line, dict(tags, _rail_inner=1 if mouths[0] else 0)
 
 
+def underground_way(tags):
+    """A way OSM maps wholly below the ground floor by its level (every ``level`` <= -1, or
+    ``location=underground``) and not as a tunnel: escalators and stairs between the levels of an underground
+    station. It is not built (stairs.indoor) and is no street at the surface either."""
+    if tags.get("location") == "underground":
+        return True
+    if tags.get("bridge", "no") != "no":
+        return False
+    levels = [v for v in (_number(x) for x in str(tags.get("level", "")).split(";")) if v is not None]
+    return bool(levels) and max(levels) <= -1
+
+
+def buried_ends(line, tags, surface, below):
+    """For a path-type way below ground (depth <= -1): which ends meet only ways mapped underground (below: STRtree
+    of underground_way lines) and no way at the surface (surface: STRtree), i.e. lie inside an underground station
+    rather than at a mouth; such a corridor is not built. None when neither end does, or for other ways. Rotterdam's
+    metro Beurs: concourse corridors (layer -1) ending at the escalators between levels -1 and -2 were built as
+    underpasses of the street over them, and their mouths opened as 2 m walled pits in the Coolsingel and
+    Churchillplein carriageways."""
+    if tags.get("highway") not in portals.PATHS | {"corridor"} or below is None or line.geom_type != "LineString":
+        return None
+    level = depth(tags)
+    if level is None or level > -1:
+        return None
+    flags = []
+    for point in shapely.points([line.coords[0], line.coords[-1]]):
+        under = len(below.query(point, predicate="dwithin", distance=0.5)) > 0
+        open_ = surface is not None and len(surface.query(point, predicate="dwithin", distance=0.5)) > 0
+        flags.append(under and not open_)
+    return tuple(flags) if any(flags) else None
+
+
 def prepare(tile, path):
     """Keep full way extents for stable portals; clip only the emitted geometry to the tile."""
     from pathlib import Path
@@ -189,15 +221,18 @@ def prepare(tile, path):
     def area_tunnels():
         from .road_top import carried_roads
 
-        out, roads, rails = [], [], []
+        out, roads, rails, surface, below = [], [], [], [], []
         quay = passages(path)
         passage_ids = {key for key, _, _ in quay}
         for k, row in rows(path, columns=("osm_id", "tags", "geometry_local")):
             tags = json.loads(row["tags"]) if row["tags"] else {}
             line = shapely.force_2d(row["geometry_local"])
+            if tags.get("highway") and not selected(tags) and line.geom_type == "LineString":
+                (below if underground_way(tags) else surface).append(line)
             if (
                 tags.get("highway")
                 and not selected(tags)
+                and not underground_way(tags)
                 and tags.get("bridge", "no") == "no"
                 and tags.get("layer", "0") in ("0", "")
                 and line.geom_type == "LineString"
@@ -215,6 +250,13 @@ def prepare(tile, path):
             if roads else None
         )
         out = [kept for way in out if (kept := rail_stretch(*way, rail_tree, streets)) is not None]
+        surface_tree = shapely.STRtree(surface) if surface else None
+        below_tree = shapely.STRtree(below) if below else None
+        tagged = []
+        for key, line, tags in out:
+            ends = buried_ends(line, tags, surface_tree, below_tree)
+            tagged.append((key, line, dict(tags, _buried_ends=ends) if ends else tags))
+        out = tagged
         return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
 
     ways = cached(
@@ -714,6 +756,11 @@ def produce(
         buried_end = (1 if tags["_rail_inner"] else 0) if "_rail_inner" in tags else None
         width, clearance = dimensions(tags)
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
+        if "_buried_ends" in tags:
+            # A corridor of an underground station (buried_ends): the coarse world has no underground levels (see the
+            # unbuilt ways below). Under a carried street its open mouths were walled pits in the carriageway.
+            unbuilt.append(corridor)
+            continue
         if (
             passage
             and not corridor.intersects(window)
