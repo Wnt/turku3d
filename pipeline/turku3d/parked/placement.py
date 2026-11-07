@@ -58,8 +58,9 @@ def road_width(tags):
         return 6.0
 
 
-def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15, crossings=True):
-    """Everything but street corridors: buildings, water, entrances, crossings, paths, pavements."""
+def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15, crossings=True, bays=None):
+    """Everything but street corridors: buildings, water, entrances, crossings, paths, pavements. ``bays``: surveyed
+    parking bays (BGT parkeervlak) the pavement margins never reach into: the bay is drawn up to the kerb line."""
     masks = [Point(*spawn).buffer(12)]  # Includes driven-car spawn six metres to the right.
     for f in features:
         t, g = f.tags, f.geometry
@@ -80,7 +81,10 @@ def static_masks(features, spawn, city, *, path=1.5, entrance=4.0, driveway=0.15
     for f in city:
         code = f.tags.get("Katuosalaji_koodi")
         if code in ("2", "3", "4", "7", "8", "16"):
-            masks.append(f.geometry.buffer(driveway if code == "7" else 0.15))
+            mask = f.geometry.buffer(driveway if code == "7" else 0.15)
+            if bays is not None and mask.intersects(bays):
+                mask = mask.difference(bays)
+            masks.append(mask)
     return masks
 
 

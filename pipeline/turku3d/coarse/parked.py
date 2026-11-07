@@ -134,8 +134,10 @@ def signed_areas(city, posts, features):
             if kind in kinds:
                 tags["orientation"] = kind
                 break
-        key = str(f.tags.get("feature_key") or hashlib.sha1(g.wkb).hexdigest())[:16]
         surveyed = not hits  # a BGT bay: its outline is the bay, so cars stay inside it (fit_at)
+        key = str(f.tags.get("feature_key") or hashlib.sha1(g.wkb).hexdigest())
+        # BGT lokaal_ids share their first 16 characters across a whole street (G0599.170ade233d...): keep them whole.
+        key = key if surveyed else key[:16]
         out.append(Feature(f"{'bgt' if surveyed else 'city'}:{key}", g, dict(tags, source="bgt") if surveyed else tags))
     return out
 
@@ -249,13 +251,16 @@ def place(
             if f.tags.get("building") and f.geometry.geom_type in ("Polygon", "MultiPolygon")
         ]
     )
+    surveyed = [f.geometry for f in city if f.tags.get("bgt_functie") == "parkeervlak"]
+    # A surveyed bay and the BGT_BAY_MARGIN its cars may reach over stay clear of the pavement margins.
+    bays_drawn = shapely.union_all(surveyed).buffer(BGT_BAY_MARGIN) if surveyed else None
     lot_excluded = Masks(
-        static_masks(features, spawn, city) + [r for r, _ in roads] + ends + common + lot_trunks
+        static_masks(features, spawn, city, bays=bays_drawn) + [r for r, _ in roads] + ends + common + lot_trunks
     )
     # Kerb bays stand in the street itself: only paths' own width, doors and driveway mouths, and
     # the poles and trunks on the kerb itself (a car parks right beside a sign post).
     kerb_static = (
-        static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0, crossings=False)
+        static_masks(features, spawn, city, path=0.3, entrance=2.0, driveway=1.0, crossings=False, bays=bays_drawn)
         + common
         + trunks(0.45, 0.2)
     )

@@ -171,11 +171,13 @@ def test_a_dutch_bgt_parking_bay_needs_no_sign_and_keeps_its_cars_inside():
     features = [Feature("osm:way:1", street, {"highway": "residential", "name": "A"})]
     city = [
         Feature("city:1", carriage, {"Katuosalaji_koodi": "1", "bgt_functie": "rijbaan lokale weg"}),
-        Feature("city:2", bay, {"Katuosalaji_koodi": "12", "bgt_functie": "parkeervlak", "feature_key": "b1"}),
-        Feature("city:3", shapely.box(770, 110, 960, 112), {"Katuosalaji_koodi": "12", "bgt_functie": "voetpad"}),
+        Feature("city:2", bay, {"Katuosalaji_koodi": "12", "bgt_functie": "parkeervlak", "feature_key": "G0599.b1"}),
+        # The pavement meets the bay at the kerb line: its margin must not reach into the bay.
+        Feature("city:3", shapely.box(770, 104.4, 960, 107), {"Katuosalaji_koodi": "2", "bgt_functie": "voetpad"}),
+        Feature("city:4", shapely.box(770, 110, 960, 112), {"Katuosalaji_koodi": "12", "bgt_functie": "voetpad"}),
     ]
     areas = parked.signed_areas(city, [], features)
-    assert [f.id for f in areas] == ["bgt:b1"] and areas[0].tags["amenity"] == "parking"
+    assert [f.id for f in areas] == ["bgt:G0599.b1"] and areas[0].tags["amenity"] == "parking"
     cars = parked.place(TILE, (features, city), np.zeros((129, 129)))
     assert len(cars) > 5
     for car in cars:
