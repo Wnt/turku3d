@@ -57,8 +57,27 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
     return (loader.parseAsync as unknown as (json: object, path: string) => Promise<GLTF>)(decoded.json, path);
   } finally { loader.unregister(plugin); }
 }
+/** A GLB v2 container whose length field matches its bytes (decodeGlb's header check). */
+export function completeGlb(buffer: ArrayBuffer) {
+  if (buffer.byteLength < 12) return false;
+  const view = new DataView(buffer);
+  return view.getUint32(0, true) === 0x46546c67 && view.getUint32(8, true) === buffer.byteLength;
+}
+/** The GLB bytes at `url`. Tile GLBs are immutable for a year in the HTTP cache, and a response cut short without a
+ *  length (a brotli stream through the proxies) is cached as if complete: a Windows client had 385,991 of a shared
+ *  model's 1,042,328 bytes cached, so its tile failed every retry and city.lab never left the loading screen. A GLB
+ *  shorter than its header says is fetched once more past the HTTP cache, which also replaces the cached copy. */
+export async function fetchGlb(url: string, load: () => Promise<ArrayBuffer>, reload = (href: string) => fetch(href, { cache: 'reload' })) {
+  const first = await load();
+  if (completeGlb(first)) return first;
+  const res = await reload(url);
+  if (!res.ok) throw new Error(`GLB refetch ${res.status}: ${url}`);
+  const again = await res.arrayBuffer();
+  console.warn(`[glb] ${url}: ${first.byteLength} cached bytes of ${completeGlb(again) ? again.byteLength : '?'}; refetched past the HTTP cache`);
+  return again;
+}
 export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
-  const load = async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer;
+  const load = () => fetchGlb(url, async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer);
   const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
   const buffer = key ? await visualBuffers.get(key, load) : await load();
   // The worker owns and detaches its input; keep cached originals intact across revisits.
