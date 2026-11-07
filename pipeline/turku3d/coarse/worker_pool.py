@@ -42,8 +42,12 @@ class Workers:
                 return w["proc"]
         if w:
             self._end(w["proc"])
+        # A service runs at normal priority so its requests are answered whatever its builds cost; the builds run
+        # niced (tools/cities/run.sh sets TURKU3D_BUILD_NICE for `serve`).
+        nice = os.environ.get("TURKU3D_BUILD_NICE", "")
         proc = subprocess.Popen(
             [
+                *(["nice", "-n", nice] if nice.isdigit() else []),
                 sys.executable,
                 "-m",
                 "turku3d.coarse",

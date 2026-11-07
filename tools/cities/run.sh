@@ -23,4 +23,19 @@ export PROJ_DATA="$TOOLS/envs/pipeline/share/proj" GDAL_DATA="$TOOLS/envs/pipeli
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 GDAL_NUM_THREADS=1
 export RAYON_NUM_THREADS=${RAYON_NUM_THREADS:-2} NUMBA_NUM_THREADS=${RAYON_NUM_THREADS:-2}
 cd "$REPO"
-exec nice -n "${NICE:-10}" "$@"
+# Serving first on a shared host (osgallery-dev, 2026-11-07: load 45-60 on 16 cores from tile builds, and city.lab
+# tile requests waited seconds). A service (a `serve` command) runs at normal priority and nices only its own build
+# workers (TURKU3D_BUILD_NICE, pipeline/turku3d/coarse/worker_pool.py). Any other command (a build, a pass) runs
+# niced and, outside a systemd unit, in the user manager's tilebuilds.slice: each ssh session is its own cgroup that
+# weighs as much as all the user services together, whatever its nice; the slice weighs a fifth of a service.
+NICE=${NICE:-10}
+case " $* " in
+  *" serve "*)
+    export TURKU3D_BUILD_NICE=$NICE
+    exec "$@" ;;
+esac
+if [ -z "${INVOCATION_ID:-}" ] && command -v systemd-run >/dev/null \
+    && systemd-run --user --scope --quiet --collect --slice=tilebuilds.slice true 2>/dev/null; then
+  exec systemd-run --user --scope --quiet --collect --slice=tilebuilds.slice -- nice -n "$NICE" "$@"
+fi
+exec nice -n "$NICE" "$@"
