@@ -90,6 +90,49 @@ export function pocketEdges(graph: RoadGraph): Uint8Array {
   return pocket;
 }
 
+/** Driving (m) within which a car leaving along a one-way edge can come back to where it started; a longer way back
+ *  makes the edge a corridor (oneWayCorridors). */
+export const LOOP_BACK_M = 700;
+/** "Back where it started": within this distance (m) of the edge's start. */
+const LOOP_NEAR_M = 40;
+
+/**
+ * One-way car edges that commit a car to a long corridor: leaving along the edge, the shortest legal drive (one-way
+ * edges a to b only) back to within LOOP_NEAR_M of the edge's start is longer than LOOP_BACK_M, or leaves the loaded
+ * graph first. A start car there begins every route with that detour (Amsterdam, Damrak north of the Dam: 1.9 km to
+ * any waypoint of the drive loop, 0.3-0.8 km from the street beside it). Two-way edges never are: a car turns in the
+ * street.
+ */
+export function oneWayCorridors(graph: RoadGraph): Uint8Array {
+  const corridor = new Uint8Array(graph.edges.length), n = graph.nodes.length / 2;
+  const out: { to: number; length: number }[][] = Array.from({ length: n }, () => []);
+  graph.edges.forEach(e => {
+    if (!(e.flags & CAR) || e.eflags & EDGE.TUNNEL) return;
+    const length = edgeLength(e);
+    out[e.a].push({ to: e.b, length });
+    if (!(e.flags & ONEWAY)) out[e.b].push({ to: e.a, length });
+  });
+  graph.edges.forEach((e, index) => {
+    if (!(e.flags & CAR) || !(e.flags & ONEWAY)) return;
+    const sx = graph.nodes[2 * e.a], sz = graph.nodes[2 * e.a + 1];
+    // Dijkstra from the edge's end, bounded by LOOP_BACK_M (small graphs: a sorted frontier is enough).
+    const dist = new Map<number, number>([[e.b, edgeLength(e)]]), frontier = [e.b];
+    let back = false;
+    while (frontier.length && !back) {
+      frontier.sort((p, q) => dist.get(q)! - dist.get(p)!);
+      const v = frontier.pop()!, d = dist.get(v)!;
+      if (d > LOOP_BACK_M) break;
+      if (v !== e.b && Math.hypot(graph.nodes[2 * v] - sx, graph.nodes[2 * v + 1] - sz) <= LOOP_NEAR_M) { back = true; break; }
+      for (const arc of out[v]) {
+        const nd = d + arc.length;
+        if (nd < (dist.get(arc.to) ?? Infinity)) { if (!dist.has(arc.to)) frontier.push(arc.to); dist.set(arc.to, nd); }
+      }
+    }
+    if (!back) corridor[index] = 1;
+  });
+  return corridor;
+}
+
 /** One graph over the loaded tiles; a tile whose roads.json does not parse is left out rather than failing the start. */
 function mergedRoads(graphs: readonly RoadGraphJson[]): RoadGraph {
   try { return mergeRoadGraphs(graphs); } catch {
@@ -105,10 +148,11 @@ export type StreetCandidate = Point & { yaw: number; y?: number; pocket: boolean
  *  Tunnels and building passages (roads.json TUNNEL) are never starts: a start faces an open street. */
 export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): StreetCandidate[] {
   const candidates = new Map<string, StreetCandidate>();
-  const graph = mergedRoads(graphs), pockets = pocketEdges(graph);
+  const graph = mergedRoads(graphs), pockets = pocketEdges(graph), corridors = oneWayCorridors(graph);
   graph.edges.forEach((edge, index) => {
     if (!(edge.flags & CAR) || edge.eflags & EDGE.TUNNEL) return;
-    const { points, heights } = edge, pocket = pockets[index] === 1, oneway = (edge.flags & ONEWAY) !== 0;
+    // A one-way corridor ranks with the pockets: a start there drives a long detour before anything else.
+    const { points, heights } = edge, pocket = pockets[index] === 1 || corridors[index] === 1, oneway = (edge.flags & ONEWAY) !== 0;
     for (let i = 0; i + 3 < points.length; i += 2) {
       const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
       const length = Math.hypot(dx, dz);

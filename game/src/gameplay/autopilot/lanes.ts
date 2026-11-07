@@ -65,6 +65,9 @@ interface Move { connector: Connector; penalty?: number }
 interface Step { lane: Lane; via: 'start' | 'move' | 'seam' | 'change'; route: Move | null; from: Lane | null }
 /** A turn sharper than this (rad) is a U-turn: only at a dead end. */
 const U_TURN = 2.6;
+/** A car this close (m) to a lane is on its carriageway: route starts are these lanes (LaneRouter.route). */
+export const START_REACH_M = 8;
+
 /** A lane start this close to a lane end (m), heading within 60°, continues it even where the data has no link. */
 const NEAR_JOIN = 8, NEAR_PENALTY = 15;
 
@@ -252,11 +255,16 @@ export class LaneRouter {
     return best ? { lane: best.lane, s: best.s, distance: best.distance } : null;
   }
 
-  /** Shortest lane route from a pose to a point, or null when the held lanes do not connect them. Every lane near
-   *  the start is a candidate source (one pointing against the car's heading or farther away costs extra) and every
-   *  lane near the target a candidate goal, so a car in a yard or a target across the street still routes. */
+  /** Shortest lane route from a pose to a point, or null when the held lanes do not connect them. The sources are the
+   *  lanes of the car's own carriageway (within START_REACH_M; one pointing against the car's heading costs a turn
+   *  in the street, which only a two-way street offers), so a car on a one-way street follows it: a lane of another
+   *  street 30 m behind is no start (it made neighbouring start spots differ 2-3x in route length, the short ones by
+   *  driving the one-way backwards). Only a car off the lanes (a yard) starts from any lane within 40 m. Every lane
+   *  near the target is a candidate goal, so a target across the street still routes. */
   route(from: RoutePoint, to: RoutePoint): LaneRoute | null {
-    const starts = this.near({ x: from.x, z: from.z, y: from.y }, 40, 8).map(c => {
+    const around = this.near({ x: from.x, z: from.z, y: from.y }, 40, 8);
+    const own = around.filter(c => c.distance <= START_REACH_M);
+    const starts = (own.length ? own : around).map(c => {
       let penalty = 2 * c.distance;
       if (from.hx !== undefined && from.hz !== undefined) {
         const i = Math.min(c.lane.cum.length - 2, Math.max(0, c.lane.cum.findIndex(v => v >= c.s) - 1));

@@ -56,6 +56,25 @@ describe('lane router', () => {
   const router = new LaneRouter();
   router.setTile({ tile: 't0_0_0', json: junction(2), hash: 'fixture' });
 
+  test('a car on a one-way street starts on its own lane, never on a street 25 m behind it', () => {
+    // A block loop: two-way streets west (x 75) and across (z 100, z 200); the east side (x 100) is one-way north.
+    const ONE = CAR | FOOT | 4 | 2 << 3, TWO = CAR | FOOT | 2 << 3;
+    const block: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', revision: 2,
+      bbox: [0, 0, 250, 250], nodes: [100, 200, 100, 100, 75, 100, 75, 200, 75, 250],
+      nodeFlags: [NODE.JUNCTION, NODE.JUNCTION, NODE.JUNCTION, NODE.JUNCTION, NODE.SEAM],
+      edges: [[0, 1, ONE, 100], [1, 2, TWO, 25], [2, 3, TWO, 100], [3, 0, TWO, 25], [3, 4, TWO, 50]],
+      edgeIds: ['east', 'north', 'west', 'south', 'out'], bits: { highways: ['residential'] },
+      edgeAttrColumns: ['lanes_fwd', 'lanes_bwd', 'width', 'kmh', 'car_density', 'highway', 'setback0', 'setback1'],
+      edgeAttrs: [[1, 0, 4, 30, 2, 0, 4, 4], ...Array.from({ length: 4 }, () => [1, 1, 7, 30, 2, 0, 4, 4])] };
+    const one = new LaneRouter();
+    one.setTile({ tile: 't0_0_0', json: block, hash: 'block' });
+    const route = one.route({ x: 100, z: 150, hx: 0, hz: -1 }, { x: 75, z: 240 })!;
+    expect(route).not.toBeNull();
+    // North along its own one-way lane first (x ~100), round the block: not 25 m west and straight south.
+    expect(Math.abs(route.path.points[0] - 100)).toBeLessThan(6);
+    expect(route.path.length).toBeGreaterThan(180);
+  });
+
   test('routes over the junction movements from the right-hand lane and keeps to the lanes', () => {
     // From the west approach heading east (eastbound lanes are south of the centreline) to the north exit.
     const route = router.route({ x: 30, z: 128, hx: 1, hz: 0 }, { x: 122, z: 20 })!;

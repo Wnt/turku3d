@@ -339,6 +339,28 @@ export class SaveGameController {
   }
 
   /**
+   * Tool hook (the drive harness's reset after a failed leg; `__game.relocateVehicle`): the driven car (else the own
+   * start car) to (x, z) facing `yaw`, the world paused while the collision there streams in, onto drivable ground at
+   * `y` (the street's height when known) or the ground seen from the sky. Resolves false, the car untouched, where no
+   * ground a car may stand on is found (a roof, a wall, water).
+   */
+  relocateVehicle(x: number, z: number, yaw: number, y?: number): Promise<boolean> {
+    return this.relocating(async () => {
+      const { physics } = this.o, id = this.o.view().drivenId ?? OWN_VEHICLE_ID;
+      const kind = physics.latest?.vehicles.find(v => v.id === id)?.kind ?? 'car';
+      try {
+        await this.settle(x, z);
+        const top = y ?? (await physics.raycast({ x, y: 500, z }, down, 1000))?.point.y;
+        if (top === undefined) return false;
+        const ground = await vehicleGround(physics, { x, y: top + SPAWN_HEIGHT[kind], z, yaw }, { kind }, SPAWN_HEIGHT[kind], false);
+        if (ground === null) return false;
+        physics.resetVehicle({ x, y: ground + SPAWN_HEIGHT[kind], z }, yaw, id);
+        return true;
+      } finally { this.focus = null; }
+    });
+  }
+
+  /**
    * Respawn at the start (the pause menu, every build): the player goes back to where a new game starts, with the
    * ground snap and safe-reset restart of a loaded game; money, missions and a running order are untouched. Vehicles
    * stay where they are, except the driven one: the own car returns to its start parking, any other to the kerb

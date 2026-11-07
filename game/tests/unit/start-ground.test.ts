@@ -191,3 +191,20 @@ test('a start beside the car across the street beats open ground behind the bloc
   expect(result!.car.z).toBeCloseTo(0);
   expect(Math.hypot(result!.spawn.x - result!.car.x, result!.spawn.z - result!.car.z)).toBeLessThanOrEqual(5.3);
 });
+
+test('a one-way street that leads away with no way back nearby ranks after a two-way street', async () => {
+  const { oneWayCorridors } = await import('../../src/world/startGround');
+  const { parseRoadGraph } = await import('../../src/gameplay/roadGraph');
+  // A two-way street along z = 0; a one-way street at z = -8 leaving east for 550 m with no way back (Damrak north).
+  const ONE = 2 | 4 | (2 << 3);
+  const corridor: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [-100, -20, 500, 10],
+    nodes: [-100, 0, -50, 0, 100, 0, -50, -8, 500, -8], nodeFlags: [32, 0, 32, 0, 32],
+    edges: [[0, 1, STREET, 50], [1, 2, STREET, 150], [1, 3, STREET, 8], [3, 4, ONE, 550]] };
+  expect([...oneWayCorridors(parseRoadGraph(corridor))]).toEqual([0, 0, 0, 1]);
+  const first = streetCandidates({ x: 0, z: -5 }, [corridor])[0];
+  expect(first.z).toBeCloseTo(0);
+  // A one-way round a block (back within 700 m) is an ordinary street.
+  const loop: RoadGraphJson = { ...corridor, nodes: [-100, 0, -50, 0, 100, 0, -50, -8, 100, -8], nodeFlags: [32, 0, 32, 0, 0],
+    edges: [[0, 1, STREET, 50], [1, 2, STREET, 150], [1, 3, STREET, 8], [3, 4, ONE, 150], [4, 2, STREET, 8]] };
+  expect([...oneWayCorridors(parseRoadGraph(loop))]).toEqual([0, 0, 0, 0, 0]);
+});

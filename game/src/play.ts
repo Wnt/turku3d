@@ -537,6 +537,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     groundRay: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
   }, coarse);
   input.driver = (actions, dt) => autopilot.control(actions, dt);
+  // The drive harness (tool:drive-harness) resets a car after a failed leg through the placement path: streamed first.
+  Object.assign(window.__game!, { relocateVehicle: (x: number, z: number, yaw: number, y?: number) => saveGame.relocateVehicle(x, z, yaw, y) });
   const driveMeThere = new DriveMeThere(missions, autopilot);
   // ?autopilot=target drives to the active mission target, ?autopilot=x,z[,walk|drive][,kmh] to a point, once
   // the game runs and the ground under the player is resident.
