@@ -35,7 +35,10 @@ when `revision >= 2`; a file without `revision` is v1. A future breaking change 
 ```
 
 `flags`: FOOT 1, CAR 2, ONEWAY 4 (car travel only a→b), class in bits 3–4. Edge direction a→b is the
-OSM way direction (reversed for `oneway=-1`). Interior vertices may be denser than OSM (heights are
+OSM way direction (reversed for `oneway=-1`). A barrier node cars cannot pass (OSM `barrier=bollard`,
+`block`, `cycle_barrier`, `chain`, … unless the node allows `motor_vehicle`; a gate only when the node
+denies it) splits its car way: 1 m on each side keeps only FOOT (and the class), so both sides end there
+for cars while walkers pass. The coarse fences stage builds such a bollard in the lane. Interior vertices may be denser than OSM (heights are
 sampled at least every 8 m; the line is the same).
 
 ## 3. v2 fields

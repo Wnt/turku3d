@@ -116,6 +116,38 @@ def test_a_logical_edge_keeps_one_id_across_the_seam():
     assert node_flags(a)[(200.0, 100.0)] & NODE_FLAGS["JUNCTION"]
 
 
+def test_a_bollard_cuts_car_passage_but_not_the_footway():
+    # Rusland/Oudezijds Voorburgwal (Amsterdam): an OSM bollard node on a car street is built in the
+    # lane (coarse fences); routes and traffic must not drive through it.
+    ways = [
+        way([(20, 100), (80, 100), (120, 100), (170, 100), (230, 100)], "residential", 21),
+        way([(50, 40), (50, 100), (50, 160)], "residential", 22),
+        way([(200, 40), (200, 100), (200, 160)], "residential", 23),
+    ]
+    points = [
+        (120.0, 100.05, {"barrier": "bollard", "motor_vehicle": "permit"}),
+        (80.0, 100.0, {"barrier": "gate"}),  # an open gate: cars pass
+        (170.0, 100.0, {"barrier": "bollard", "motor_vehicle": "yes"}),
+        (60.0, 100.0, {"barrier": "lift_gate", "access": "private"}),
+    ]
+    graph = build_tile_graph(ways, points, [], TILE_A.bbox, "coarse-t0_0_0", TILE_A.size)
+    nodes = graph["nodes"]
+    spans = sorted(
+        (min(nodes[2 * row[0]], nodes[2 * row[1]]), max(nodes[2 * row[0]], nodes[2 * row[1]]), row[2])
+        for _, row, attrs, _ in rows(graph)
+        if attrs["way"] == 21
+    )
+    car = [(a, b) for a, b, flags in spans if flags & CAR]
+    walk = [(a, b) for a, b, flags in spans if not flags & CAR]
+    assert walk == [(59.0, 61.0), (119.0, 121.0)]
+    assert not any(a < 120 < b or a < 60 < b for a, b in car)
+    assert any(a < 80 < b for a, b in car) and any(a < 170 < b for a, b in car)
+    # Both sides of a cut are dead ends for cars; the walkers' graph stays one line.
+    assert all(flags & 1 for *_, flags in spans)
+    assert spans[0][0] == 20.0 and spans[-1][1] == 230.0
+    assert all(p[1] == q[0] for p, q in zip(spans, spans[1:], strict=False))
+
+
 def test_long_edges_are_cut_at_seams_deterministically():
     a, b = tile_graph(TILE_A), tile_graph(TILE_B)
     ((id_a, _, attrs_a, _),) = by_way(a, 14)

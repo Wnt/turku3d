@@ -15,7 +15,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from . import CAR, CLASS_SHIFT, CLASSES, FOOT, FORMAT, ONEWAY, PRECISION, VERSION, way_flags
+from . import CAR, CLASS_SHIFT, CLASSES, DENIED, FOOT, FORMAT, ONEWAY, PRECISION, VERSION, way_flags
 from . import validate as validate_v1
 from .attributes import EDGE_FLAGS, HIGHWAYS, attributes
 
@@ -242,6 +242,62 @@ def read_osm(path, bbox):
     return ways, points, crossings
 
 
+# OSM barrier nodes a car cannot pass (spec §2): kinds that always stand in the way, and gates that
+# do only when the node denies motor vehicles. An explicit motor-vehicle allowance on the node wins.
+CAR_STOPS = {"bollard", "block", "jersey_barrier", "cycle_barrier", "chain", "rope", "log",
+             "kissing_gate", "stile", "turnstile", "full-height_turnstile", "planter"}
+GATES = {"gate", "lift_gate", "swing_gate", "sliding_gate", "hampshire_gate"}
+ALLOWED = {"yes", "designated", "permissive"}
+BARRIER_ON_WAY = 0.15  # m: a barrier node this close to the way line stands in it (coarse fences)
+BARRIER_GAP = 1.0  # m of the way on each side of such a barrier that only walkers keep
+
+
+def stops_cars(tags: dict) -> bool:
+    kind = tags.get("barrier")
+    motor = tags.get("motor_vehicle", tags.get("motorcar", tags.get("vehicle", tags.get("access"))))
+    if kind in CAR_STOPS:
+        return motor not in ALLOWED
+    return kind in GATES and motor in DENIED
+
+
+def cut_at_barriers(ways, points) -> list[Way]:
+    """Car ways lose car passage across barrier nodes cars cannot pass (bollards, blocks, closed
+    gates): BARRIER_GAP on each side of the node keeps only the walkers' flags, so routes, traffic and
+    the autopilot treat both sides as dead ends while the foot graph stays connected."""
+    import shapely
+    from shapely.ops import substring
+
+    stops = [shapely.Point(x, z) for x, z, tags in points if stops_cars(tags)]
+    if not stops:
+        return list(ways)
+    tree = shapely.STRtree(stops)
+    out = []
+    for way in ways:
+        line = shapely.LineString(way.coords) if way.flags & CAR else None
+        hits = tree.query(line, predicate="dwithin", distance=BARRIER_ON_WAY) if line else []
+        if not len(hits):
+            out.append(way)
+            continue
+        spans = []
+        for s in sorted(line.project(stops[i]) for i in hits):
+            lo, hi = max(s - BARRIER_GAP, 0.0), min(s + BARRIER_GAP, line.length)
+            if spans and lo <= spans[-1][1]:
+                spans[-1][1] = hi
+            else:
+                spans.append([lo, hi])
+        walk = way.flags & ~(CAR | ONEWAY) if way.flags & FOOT else 0
+        pieces, at = [], 0.0
+        for lo, hi in spans:
+            pieces += [(at, lo, way.flags), (lo, hi, walk)]
+            at = hi
+        pieces.append((at, line.length, way.flags))
+        for lo, hi, flags in pieces:
+            if flags and hi - lo >= 0.1:
+                coords = [(x, z) for x, z, *_ in substring(line, lo, hi).coords]
+                out.append(Way(coords, flags, way.way, way.highway, way.tags))
+    return out
+
+
 def logical_edges(ways, box) -> list[Logical]:
     """Junction-to-junction edges of the ways clipped to ``box`` (the context box)."""
     parts = []
@@ -456,7 +512,7 @@ def attach_points(edges, points, crossing_lines, car_degree):
 def build_tile_graph(ways, points, crossing_lines, bbox, area: str, size: float) -> dict:
     """roads.json v2 (without heights) of the tile ``bbox`` from its OSM context."""
     context = bbox.buffered(CONTEXT).as_tuple()
-    edges = logical_edges(ways, context)
+    edges = logical_edges(cut_at_barriers(ways, points), context)
     car_degree, degree = defaultdict(int), defaultdict(int)
     car_ends = defaultdict(list)
     for index, edge in enumerate(edges):
