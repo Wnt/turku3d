@@ -138,7 +138,11 @@ def test_curved_road_and_cycleway_share_one_open_shell_with_low_curb():
     assert 11 < width < 14 and height == 4.5
     tile = C.VisualTile(0, 0, 0)
     p, ix = grid_mesh(tile, np.full((129, 129), 2.0))
-    result = tunnels.produce(tile, merged, p, ix, [], extrude, lambda x, z: 2)
+    # A layer -1 tunnel needs measured overburden: under level open ground it would be unbuilt (Tapiola rule).
+    def hill(x, z):
+        return 2 + max(0.0, 4 - abs(z - 38) / 2)
+
+    result = tunnels.produce(tile, merged, p, ix, [], extrude, hill)
     assert len(result.profiles) == 1
     assert sum(":portal:" in m.object_id for m in result.meshes) == 2
     divider = next(m for m in result.meshes if m.object_id.endswith(":divider"))

@@ -471,3 +471,57 @@ def test_an_approach_below_the_tunnel_floor_ramps_up_to_the_mouth():
     normals /= np.linalg.norm(normals, axis=1)[:, None]
     centre = np.abs(tris[outside, :, 2].mean(1) - 30) < 1.5
     assert outside.any() and np.abs(normals[centre, 1]).min() > 0.97  # the lane ramps at under ~14 deg
+
+
+def test_underground_way_without_measured_depth_under_open_ground_is_not_built():
+    """Tapiola: garage aisles and service tunnels (layer -1/-2) under a level square would stand on it as boxes."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (120, 40)])
+    for tags in ({"tunnel": "yes", "layer": "-1"}, {"tunnel": "yes", "layer": "-2", "service": "parking_aisle"},
+                 {"highway": "footway", "tunnel": "yes", "level": "2"}):
+        result = produce(tile, [("deep", line, {"highway": "service", **tags})], pos, idx, [], extrude, lambda x, z: 2)
+        assert not result.profiles and not result.meshes
+        assert len(result.unbuilt) == 1
+    # Measured overburden (a hill over the middle) keeps the tube; so does no layer at all on level ground.
+    hill = produce(tile, [("hill", line, {"highway": "service", "tunnel": "yes", "layer": "-1"})], pos, idx, [],
+                   extrude, lambda x, z: 2 + max(0.0, 6 - abs(x - 70) / 5))
+    assert len(hill.profiles) == 1 and not hill.unbuilt
+    plain = produce(tile, [("plain", line, {"highway": "service", "tunnel": "yes"})], pos, idx, [], extrude,
+                    lambda x, z: 2)
+    assert len(plain.profiles) == 1 and not plain.unbuilt
+    # A covered road at grade (Rotterdam Blaak under the station canopy) is a real street: unchanged.
+    for covered in ({"tunnel": "covered", "layer": "-1"}, {"covered": "yes", "layer": "-1"}):
+        kept = produce(tile, [("covered", line, {"highway": "secondary", **covered})], pos, idx, [], extrude,
+                       lambda x, z: 2)
+        assert len(kept.profiles) == 1 and not kept.unbuilt
+
+
+def test_underground_way_under_a_building_keeps_its_tube():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (120, 40)])
+    building = Building("hospital", shapely.box(10, 20, 130, 60), 2, 20, "facade_plaster")
+    result = produce(tile, [("under", line, {"highway": "service", "tunnel": "yes", "layer": "-1"})], pos, idx,
+                     [(building, extrude(building))], extrude, lambda x, z: 2)
+    assert len(result.profiles) == 1 and not result.unbuilt
+
+
+def test_unbuilt_tunnel_edges_leave_the_published_graph():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (120, 40)])
+    tags = {"highway": "service", "tunnel": "yes", "layer": "-2"}
+    result = produce(tile, [("deep", line, tags)], pos, idx, [], extrude, lambda x, z: 2)
+    # v2 rows: the tunnel aisle (TUNNEL flag) and a street crossing it at grade; a signal post on the street.
+    graph = {"format": "turku3d-roadgraph", "version": 1, "frame": "engine-xz", "bits": {"edge_flags": {"TUNNEL": 8}},
+             "nodes": [20, 40, 120, 40, 70, 0, 70, 80], "edges": [[0, 1, 3, 100], [2, 3, 3, 80]],
+             "edgeIds": ["aisle", "street"], "edgeAttrColumns": ["way", "flags"], "edgeAttrs": [[7, 8], [8, 1]],
+             "edgeEvents": [None, [[10, 17, -1]]], "edgeHeights": [[2, 2], [2, 2]], "signalPosts": [[1, 0, 1, 72, 10, 2]]}
+    after = json.loads(result.roads({"json": json.dumps(graph).encode()})["json"])
+    assert after["edgeIds"] == ["street"] and after["edges"] == [[2, 3, 3, 80]]
+    assert after["edgeAttrs"] == [[8, 1]] and after["edgeEvents"] == [[[10, 17, -1]]] and after["edgeHeights"] == [[2, 2]]
+    assert after["signalPosts"] == [[0, 0, 1, 72, 10, 2]]

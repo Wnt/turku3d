@@ -287,6 +287,7 @@ class Tunnels:
     count: int
     ceilings: list = field(default_factory=list)  # collision already belongs to the building shell
     openings: Openings = field(default_factory=Openings)
+    unbuilt: list = field(default_factory=list)  # corridors of underground ways with no measured depth
 
     def visuals(self, tile):
         from .bridge_materials import surface_material
@@ -358,9 +359,11 @@ class Tunnels:
         return np.concatenate(positions), np.concatenate(indices), np.concatenate(materials)
 
     def roads(self, roads):
-        if not roads or not self.profiles:
+        if not roads or not (self.profiles or self.unbuilt):
             return roads
         graph = json.loads(roads["json"])
+        if self.unbuilt:
+            graph = drop_unbuilt(graph, self.unbuilt)
         # Parallel optional field: one floor-height array per edge, in its vertex order.
         graph["edgeHeights"] = graph.get("edgeHeights", [None] * len(graph["edges"]))
         nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
@@ -392,6 +395,66 @@ class Tunnels:
         return {**roads, "json": (json.dumps(graph, separators=(",", ":")) + "\n").encode()}
 
 
+def _number(value):
+    try:
+        return float(str(value).split(";")[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def unmodelled(tags, xz, shells, bounds=None):
+    """A way without measured depth that the coarse world cannot show: an indoor way on an upper floor
+    (``level`` >= 1), or a way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings.
+    Ways at grade under a building (hospital roads) keep their tube and building opening, and covered ways
+    (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck) stay as they are. Only the
+    stations within 10 m of the tile (`bounds`) count, where the tile's shells cover every building."""
+    if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
+        return False
+    levels = [v for v in (_number(x) for x in str(tags.get("level", "")).split(";")) if v is not None]
+    if levels and max(levels) >= 1:
+        return True
+    layer = _number(tags.get("layer"))
+    if layer is None or layer > -1:
+        return False
+    if bounds is not None:
+        near = ((xz >= np.asarray(bounds[:2]) - 10) & (xz <= np.asarray(bounds[2:]) + 10)).all(axis=1)
+        xz = xz[near] if near.any() else xz
+    inside = np.zeros(len(xz), bool)
+    for building, _ in shells:
+        inside |= shapely.contains_xy(building.footprint, xz[:, 0], xz[:, 1])
+    return float(np.mean(~inside)) > 0.5
+
+
+def drop_unbuilt(graph, corridors):
+    """The graph without the TUNNEL edges inside `corridors` (unbuilt underground ways); per-edge arrays stay
+    parallel and signal posts follow their edges' new indices."""
+    tunnel = graph.get("bits", {}).get("edge_flags", {}).get("TUNNEL", 0)
+    columns = graph.get("edgeAttrColumns", [])
+    if not tunnel or "flags" not in columns:
+        return graph
+    flags = columns.index("flags")
+    area = shapely.union_all([c.buffer(0.5) for c in corridors])
+    shapely.prepare(area)
+    nodes = np.asarray(graph["nodes"]).reshape(-1, 2)
+    keep = []
+    for k, edge in enumerate(graph["edges"]):
+        if graph["edgeAttrs"][k][flags] & tunnel:
+            coords = np.vstack([nodes[edge[0]], np.asarray(edge[4:]).reshape(-1, 2), nodes[edge[1]]])
+            if area.covers(shapely.LineString(coords)):
+                continue
+        keep.append(k)
+    if len(keep) == len(graph["edges"]):
+        return graph
+    index = {old: new for new, old in enumerate(keep)}
+    out = dict(graph)
+    for name in ("edges", "edgeIds", "edgeAttrs", "edgeEvents", "edgeHeights"):
+        if name in graph and graph[name] is not None:
+            out[name] = [graph[name][k] for k in keep]
+    if "signalPosts" in graph:
+        out["signalPosts"] = [[index[row[0]], *row[1:]] for row in graph["signalPosts"] if row[0] in index]
+    return out
+
+
 def produce(
     tile,
     ways,
@@ -410,7 +473,7 @@ def produce(
 
     keep = np.ones(len(grid_idx), bool)
     original_bases = {b.key: b.base for b, _ in shells}
-    meshes, profiles, passages = [], [], []
+    meshes, profiles, passages, unbuilt = [], [], [], []
     openings = Openings()
     cuts = {}
     if not ways:
@@ -472,6 +535,21 @@ def produce(
             # Keep the measured floor unless a bank is too low for the stated clearance.
             cover = np.min([[deck_sample(*q) for q in side] for side in (left, xz, right)], axis=0)
             floor = np.minimum(floor, cover - clearance - 0.3)
+        if (
+            not passage
+            and not road_top
+            and not vaulted
+            and not repaired.any()
+            and float(np.max(terrain - floor)) < clearance / 2
+            and unmodelled(tags, xz, shells, bounds)
+        ):
+            # No measured depth under open ground: OSM maps the way below the surface (a garage aisle or service
+            # tunnel at layer -1/-2, a metro under level ground) or indoors on an upper floor, but the ground model
+            # has neither a dip at its ends nor overburden above its portal chord. A tube here would stand on the
+            # street as a clearance-high concrete box (Tapiola centre). The coarse world has no underground or
+            # indoor levels: the way is not built, and its edges leave the published graph (Tunnels.roads).
+            unbuilt.append(corridor)
+            continue
         if passage:
             side_floors = (
                 np.array([[surface_sample(x, z) for x, z in side] for side in (left, right)])
@@ -863,4 +941,4 @@ def produce(
         for i, (b, shell) in enumerate(shells)
         if b.base > original_bases[b.key] + 1e-6 and getattr(b, "visual_owner", tile.id) == tile.id
     ]
-    return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings, openings)
+    return Tunnels(keep, meshes, profiles, shells, len(profiles), ceilings, openings, unbuilt)
