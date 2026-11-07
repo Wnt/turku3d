@@ -4,7 +4,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, If, float, normalWorldGeometry, positionWorld, smoothstep, texture, uniform, vec3 } from 'three/tsl';
 import type { Lamp } from './lampField';
-import { footprintSight } from './pools';
+import { sightBlocked } from './pools';
 import type { Footprint } from './tileScan';
 
 const SIZE = 512, SPAN = 1024, CELL = SPAN / SIZE, RADIUS = 22;
@@ -91,14 +91,16 @@ export class GroundLampField {
       const z1 = Math.min(SIZE - 1, Math.ceil((head.z + RADIUS - oz) / CELL));
       if (x0 > x1 || z0 > z1) continue;
       this.count++;
+      // Sight samples stay within RADIUS of the head: grids without a covered cell there can never block (the sight
+      // march per texel was 4.3 s of a 6.7-min Windows drive, frame-mp win-drive-2; most lamps have few walls near).
       const local = footprints.filter(f => f.x1 > head.x - RADIUS && f.x0 < head.x + RADIUS
-        && f.z1 > head.z - RADIUS && f.z0 < head.z + RADIUS);
-      const blocked = footprintSight(() => local);
+        && f.z1 > head.z - RADIUS && f.z0 < head.z + RADIUS
+        && f.coversAny(head.x - RADIUS, head.z - RADIUS, head.x + RADIUS, head.z + RADIUS));
       for (let j = z0; j <= z1; j++) for (let i = x0; i <= x1; i++) {
         if ((++visited & 63) === 0) yield;
         const wx = ox + (i + .5) * CELL, wz = oz + (j + .5) * CELL;
         const r2 = (wx - head.x) ** 2 + (wz - head.z) ** 2;
-        if (r2 >= RADIUS * RADIUS || blocked(head.x, head.z, wx, wz)) continue;
+        if (r2 >= RADIUS * RADIUS || (local.length && sightBlocked(local, head.x, head.z, wx, wz))) continue;
         const falloff = (1 - (r2 / (RADIUS * RADIUS)) ** 2) ** 2;
         // A downward luminaire concentrates emission below its head. Cosine^4
         // suppresses the grazing spill that otherwise washes the whole roadway.
@@ -113,7 +115,8 @@ export class GroundLampField {
     }
     for (let i = 0; i < pixels.length; i++) {
       if ((i & 8191) === 0) yield;
-      pixels[i] = THREE.DataUtils.toHalfFloat(linear[i]);
+      const value = linear[i];
+      pixels[i] = value === 0 ? 0 : THREE.DataUtils.toHalfFloat(value);
     }
     groundLampField.origin.value.set(ox, oz);
     map.needsUpdate = true; groundLampField.ready.value = 1;
