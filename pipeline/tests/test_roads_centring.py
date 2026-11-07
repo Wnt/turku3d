@@ -57,3 +57,30 @@ def test_a_centred_edge_is_left_alone():
     g = graph([(0, 3.5), (20, 3.5), (40, 3.5)])
     centring.centre(g, shapely.box(-10, 1, 60, 6))
     assert g["edges"][0][4:] == [20, 3.5]
+
+
+def test_an_edge_off_every_street_part_stays_and_the_shift_tapers_out_towards_it():
+    """Rokin garage ramp: the parking aisle leaves the carriageway's verge and runs down a ramp that the street survey
+    does not cover, 3-4 m beside the carriageway; it was pulled onto the ramp wall."""
+    road = shapely.box(-10, 4.0, 90, 7.0)  # carriageway z 4..7
+    verge = shapely.box(-10, 3.0, 90, 4.0)
+    streets = shapely.union_all([road, verge, shapely.box(-10, -1.0, 30, 3.0)])  # pavement under x < 30 only
+    g = graph([(0, 1.5), (40, 1.5), (80, 1.5)])  # OSM line at z 1.5: on the pavement for x < 30, then the ramp
+    centring.centre(g, road, Counter(), streets)
+    pts = interior(g["edges"][0])
+    assert all(abs(z - 1.5) < 1e-6 for x, z in pts if x > 30 + centring.OFF_STREET)  # the ramp stays
+    on_pavement = [z for x, z in pts if centring.TAPER <= x <= 30 - centring.TAPER]
+    assert on_pavement and all(z > 4.0 for z in on_pavement)  # still centred where the pavement is surveyed
+    # Without the street survey the old behaviour holds: every vertex moves.
+    g = graph([(0, 1.5), (40, 1.5), (80, 1.5)])
+    centring.centre(g, road)
+    assert all(z > 3.0 for x, z in interior(g["edges"][0]) if centring.TAPER <= x <= 80 - centring.TAPER)
+
+
+def test_a_short_unsurveyed_gap_between_placed_vertices_follows_them():
+    road = shapely.box(-10, 1.0, 90, 5.0)
+    streets = shapely.difference(shapely.box(-10, -2.0, 90, 6.0), shapely.box(38, -2.0, 42, 0.6))  # a 4 m hole
+    g = graph([(0, 0), (80, 0)])
+    centring.centre(g, road, Counter(), streets)
+    middle = [z for x, z in interior(g["edges"][0]) if centring.TAPER <= x <= 80 - centring.TAPER]
+    assert middle and all(abs(z - 3.0) < 0.05 for z in middle)

@@ -6,7 +6,9 @@ autopilot, traffic and the markings all follow the graph, so cars rode kerbs and
 pavement (Amsterdam Damstraat). Each car edge's interior is resampled and every vertex moves across the edge to the
 middle of the carriageway piece under it (or the nearest piece within REACH); pieces wider than WIDE (squares, merged
 two-way roads with islands) and edges on bridges or in tunnels stay, and so do the end nodes (junctions, tile seams),
-with the shift tapered in over TAPER from each end.
+with the shift tapered in over TAPER from each end. A vertex off every surveyed street part (a garage ramp, a yard, a
+quay) is not placed: a short gap between placed vertices is bridged, a longer run stays where OSM has it and the shift
+tapers out towards it (the Rokin garage ramp's parking aisle had been pulled 3 m onto the ramp wall).
 """
 
 from __future__ import annotations
@@ -21,6 +23,8 @@ WIDE = 11.0  # m: a wider piece is a square or a divided road; its middle is no 
 MAX_SHIFT = 3.0  # m
 TAPER = 8.0  # m from an end node over which the shift grows from 0 to full
 MIN_SHIFT = 0.2  # m: smaller corrections are survey noise
+GAP = 2 * STEP  # m: unplaced vertices between placed ones this close follow them; a longer run stays put
+OFF_STREET = 0.5  # m: a vertex farther than this from every surveyed street part is not on the street
 STRUCTURE = ("BRIDGE", "TUNNEL")
 
 
@@ -39,11 +43,16 @@ def _cut(carriageway, x, z, nx, nz):
     return float(np.clip((middle.x - x) * nx + (middle.y - z) * nz, -MAX_SHIFT, MAX_SHIFT))
 
 
-def centre(graph: dict, carriageway, stats=None) -> dict:
-    """Move the interior vertices of every car edge (not bridge/tunnel) onto the carriageway's middle, in place."""
+def centre(graph: dict, carriageway, stats=None, streets=None) -> dict:
+    """Move the interior vertices of every car edge (not bridge/tunnel) onto the carriageway's middle, in place.
+    ``streets``: every surveyed street part (carriageway, pavements, verges, parking...); vertices off it stay."""
     if carriageway is None or carriageway.is_empty or graph.get("revision", 1) < 2:
         return graph
     shapely.prepare(carriageway)
+    if streets is not None and not streets.is_empty:
+        shapely.prepare(streets)
+    else:
+        streets = None
     car = graph["bits"]["car"]
     flags_col = graph["edgeAttrColumns"].index("flags")
     structure = sum(graph["bits"]["edge_flags"][name] for name in STRUCTURE)
@@ -70,16 +79,24 @@ def centre(graph: dict, carriageway, stats=None) -> dict:
         normal = np.c_[-tangent[:, 1], tangent[:, 0]]
         offsets = [_cut(carriageway, x, z, nx, nz) for (x, z), (nx, nz) in zip(xz, normal, strict=True)]
         known = np.array([o is not None for o in offsets])
+        if streets is not None:
+            known &= shapely.dwithin(streets, shapely.points(xz), OFF_STREET)
         if not known.any():
             continue
-        shift = np.array([o if o is not None else 0.0 for o in offsets], float)
-        # A vertex the survey cannot place follows its placed neighbours; a lone outlier is smoothed away.
-        if not known.all():
-            shift = np.interp(stations, stations[known], shift[known])
+        shift = np.where(known, [o if o is not None else 0.0 for o in offsets], 0.0)
+        # An unplaced vertex between placed ones within GAP follows them; a longer unplaced run stays and is an
+        # anchor like the end nodes. A lone outlier is smoothed away.
+        placed = np.flatnonzero(known)
+        for a, b in zip(placed[:-1], placed[1:], strict=True):
+            if b > a + 1 and stations[b] - stations[a] <= GAP:
+                inside = slice(a + 1, b)
+                shift[inside] = np.interp(stations[inside], stations[[a, b]], shift[[a, b]])
+                known[inside] = True
         if len(shift) >= 3:
             padded = np.r_[shift[0], shift, shift[-1]]
             shift = np.median(np.c_[padded[:-2], padded[1:-1], padded[2:]], axis=1)
-        taper = np.clip(np.minimum(stations, length - stations) / TAPER, 0, 1)
+        anchors = np.r_[0.0, length, stations[~known]]
+        taper = np.clip(np.abs(stations[:, None] - anchors[None, :]).min(axis=1) / TAPER, 0, 1)
         shift *= taper
         if np.abs(shift).max() < MIN_SHIFT:
             if stats is not None:
@@ -108,13 +125,21 @@ def carriageway_of(rows) -> shapely.Geometry:
     return shapely.union_all(polygons) if polygons else shapely.Polygon()
 
 
-def load(path, bbox) -> shapely.Geometry:
-    """The carriageway of a GIS:Katualueet parquet around ``bbox`` (whole polygons)."""
+def streets_of(rows) -> shapely.Geometry:
+    """Union of every surveyed street part of ``(geometry, Katuosalaji)`` rows."""
+    parts = [shapely.make_valid(shapely.force_2d(g)) for g, _ in rows if g is not None]
+    polygons = [p for g in parts for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")]
+    return shapely.union_all(polygons) if polygons else shapely.Polygon()
+
+
+def load(path, bbox) -> tuple[shapely.Geometry, shapely.Geometry]:
+    """(carriageway, all street parts) of a GIS:Katualueet parquet around ``bbox`` (whole polygons)."""
     from turku3d.spatial import frame
 
     if path is None:
-        return shapely.Polygon()
+        return shapely.Polygon(), shapely.Polygon()
     f = frame(path, bbox)
     if "Katuosalaji" not in f or "geometry_local" not in f:
-        return shapely.Polygon()
-    return carriageway_of(zip(f.geometry_local, f.Katuosalaji, strict=True))
+        return shapely.Polygon(), shapely.Polygon()
+    rows = list(zip(f.geometry_local, f.Katuosalaji, strict=True))
+    return carriageway_of(rows), streets_of(rows)

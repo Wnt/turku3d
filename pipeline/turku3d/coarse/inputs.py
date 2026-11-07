@@ -352,7 +352,8 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=(),
     graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size)
     centred = Counter()
     if street is not None:
-        centring.centre(graph, centring.load(street, tile.bbox.buffered(centring.HALF + 5)), centred)
+        carriageway, streets = centring.load(street, tile.bbox.buffered(centring.HALF + 5))
+        centring.centre(graph, carriageway, centred, streets)
     from .bridges import prepare as prepare_bridges
 
     return {
