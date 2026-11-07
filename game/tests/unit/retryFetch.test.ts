@@ -58,7 +58,8 @@ describe('retryingFetch', () => {
 
   it('retries a tile\'s versioned assets (GLB, shared KTX2) but not its manifests, honouring Retry-After', async () => {
     for (const path of ['/coarse/_v/4ce47d65/t0_-1_-1/vis.03c053cc.glb', '/coarse/_v/ddda450d/shared/9d4beee5.ktx2',
-      '/cities/espoo/coarse/_v/ab12/shared/x.glb']) expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(true);
+      '/cities/espoo/coarse/_v/ab12/shared/x.glb', '/cities/rotterdam/coarse/shared/5f1e0c2a.ktx2', '/coarse/shared/9d4beee5.ktx2'])
+      expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(true);
     for (const path of ['/coarse/t0_0_0/manifest.json', '/coarse/t0_0_0/collision.json', '/coarse/demand', '/cities/espoo/coarse/t0_0_0/manifest.json'])
       expect(retriedByDefault(new URL(`http://h${path}`), 'GET')).toBe(false);
     const sleeps: number[] = [];
