@@ -11,6 +11,7 @@ import { DriveFollower } from '../../src/gameplay/autopilot/follow';
 import { LaneRouter } from '../../src/gameplay/autopilot/lanes';
 import { Autopilot, vehicleGeometry, vehiclePose, type AutopilotWorld } from '../../src/gameplay/autopilot/autopilot';
 import { emptyActions } from '../../src/input/bindings';
+import { MAT } from '../../src/shared/col/materials';
 
 const DIR = path.resolve(__dirname, '../../public/dev-tiles');
 const manifest = JSON.parse(fs.readFileSync(path.join(DIR, 'manifest.json'), 'utf8'));
@@ -216,6 +217,68 @@ describe('turn in the street', () => {
     expect(Math.hypot(end.pos.x - 150, end.pos.z - 208)).toBeLessThan(4);
     // It turned in the street instead of driving into the wall and backing out of it as a stuck car.
     expect(trip.progress.recoveries).toBe(0);
+    pw.world.free();
+  }, 30_000);
+});
+
+describe('turn in the street on a carriageway', () => {
+  const pilotOn = (pw: PhysicsWorld, ray: AutopilotWorld['groundRay']) => new Autopilot({ mode: () => 'car', vehicle: () => pw.vehicleState(),
+    feet: () => ({ x: 0, y: 0, z: 0 }), cameraBasis: () => ({ fx: 0, fz: -1, rx: 1, rz: 0 }), lanes: new LaneRouter(),
+    footRoute: (a, b) => [a, b], groundRay: ray });
+
+  test('a U-turn keeps the car on a 7 m carriageway between pavements', async () => {
+    const pw = await devWorld();
+    // The dev ground is one surface: call it pavement more than 3.5 m either side of z = 100.
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && Math.abs(o.z - 100) > 3.5 ? { ...hit, material: MAT.sidewalk } : hit && { ...hit, material: MAT.road };
+    };
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 101.5 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 50, z: 98.5 }, { mode: 'drive', path: [{ x: 100, z: 101.5 }, { x: 50, z: 98.5 }], speed: 8 });
+    let maxOff = 0, fastest = 0, turning = true;
+    for (let k = 0; k < 60 * 60 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const v = pw.vehicleState()!;
+      // Turned once the chassis faces west (forward x = 1 - 2 (qy^2 + qz^2)).
+      if (turning && 1 - 2 * (v.rot.y ** 2 + v.rot.z ** 2) < -0.6) turning = false;
+      if (turning) { maxOff = Math.max(maxOff, Math.abs(v.pos.z - 100)); fastest = Math.max(fastest, v.speed); }
+      await new Promise(r => setTimeout(r, 0));
+    }
+    expect(trip.state).toBe('arrived');
+    expect(trip.progress.recoveries).toBe(0);
+    // The car's middle stayed on the carriageway during the turn, at walking pace.
+    expect(maxOff).toBeLessThan(3.5);
+    expect(fastest).toBeLessThan(2.5);
+    pw.world.free();
+  }, 60_000);
+
+  test('a turn with no room gives up as one stuck recovery without moving the car', async () => {
+    const pw = await devWorld();
+    // Pavement everywhere: no turn leg may drive.
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && { ...hit, material: MAT.sidewalk };
+    };
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 40, z: 100 }, { mode: 'drive', path: [{ x: 100, z: 100 }, { x: 40, z: 100 }], speed: 8 });
+    let k = 0;
+    for (; k < 60 * 10 && trip.state === 'driving' && trip.progress.recoveries === 0; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const v = pw.vehicleState()!;
+    expect(trip.progress.turns).toBe(1);
+    expect(trip.progress.recoveries).toBe(1);
+    expect(k).toBeLessThan(60 * 2);
+    expect(Math.hypot(v.pos.x - 100, v.pos.z - 100)).toBeLessThan(0.5);
     pw.world.free();
   }, 30_000);
 });
