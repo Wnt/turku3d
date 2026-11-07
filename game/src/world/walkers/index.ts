@@ -62,6 +62,27 @@ function sight(view: RingView, w: Walker, reach: number) {
 /** Moving walkers keep this clearance from other drawn walkers (m, centre to centre) and look this far for them. */
 const CROWD_PERSONAL = 0.6, CROWD_REACH = 2.5;
 
+
+/** The traffic crossings of one resident road graph, found once per graph object: syncGraphs runs at every change of
+ *  the resident set (each tile crossing while driving) and parsed every resident graph on the main thread again
+ *  (6.4 ms for nine Turku centre graphs in node on the M1 Max; 20-25 graphs resident, three times slower on the
+ *  M1 Air and the Windows laptop). */
+const crossingsByGraph = new WeakMap<RoadGraphJson, { x: number; z: number }[]>();
+function graphCrossings(json: RoadGraphJson): { x: number; z: number }[] {
+  let out = crossingsByGraph.get(json);
+  if (out) return out;
+  out = [];
+  for (const edge of parseRoadGraph(json).edges) for (const event of edge.events) {
+    if ((event.code & 15) !== EVENT.CROSSING) continue;
+    let i = 1;
+    while (i < edge.cumulative.length - 1 && edge.cumulative[i] < event.s) i++;
+    const f = Math.max(0, Math.min(1, (event.s - edge.cumulative[i - 1]) / Math.max(0.01, edge.cumulative[i] - edge.cumulative[i - 1])));
+    out.push({ x: edge.points[2 * i - 2] + (edge.points[2 * i] - edge.points[2 * i - 2]) * f,
+      z: edge.points[2 * i - 1] + (edge.points[2 * i + 1] - edge.points[2 * i - 1]) * f });
+  }
+  crossingsByGraph.set(json, out);
+  return out;
+}
 export class Walkers {
   readonly group = new THREE.Group();
   private meshes: WalkerMeshes | null = null;
@@ -135,15 +156,7 @@ export class Walkers {
     if (graphs.length === this.graphs.length && graphs.every(g => this.graphs.includes(g))) return;
     this.graphs = [...graphs];
     const crossings = new Map<string, { x: number; z: number }>();
-    for (const json of graphs) for (const edge of parseRoadGraph(json).edges) for (const event of edge.events) {
-      if ((event.code & 15) !== EVENT.CROSSING) continue;
-      let i = 1;
-      while (i < edge.cumulative.length - 1 && edge.cumulative[i] < event.s) i++;
-      const f = Math.max(0, Math.min(1, (event.s - edge.cumulative[i - 1]) / Math.max(0.01, edge.cumulative[i] - edge.cumulative[i - 1])));
-      const x = edge.points[2 * i - 2] + (edge.points[2 * i] - edge.points[2 * i - 2]) * f;
-      const z = edge.points[2 * i - 1] + (edge.points[2 * i + 1] - edge.points[2 * i - 1]) * f;
-      crossings.set(`${Math.round(x)},${Math.round(z)}`, { x, z });
-    }
+    for (const json of graphs) for (const c of graphCrossings(json)) crossings.set(`${Math.round(c.x)},${Math.round(c.z)}`, c);
     this.trafficCrossings = [...crossings.values()];
     const id = ++this.request;
     if (typeof Worker === 'undefined') { this.install(buildWalkNetwork(this.graphs), 0); return; }
