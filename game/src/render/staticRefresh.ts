@@ -172,8 +172,13 @@ export function freeBinding(draw: Draw, owned: Set<unknown>): string | null {
  *  another texture behind a node with one value for every draw. A material's own maps (MaterialReferenceNode
  *  textures, `perDraw`) take each draw's value only while that draw updates, and `equals` compares them per material. */
 export function texturesChanged(draw: Draw, perDraw: ReadonlySet<unknown> = EMPTY): boolean {
-  for (const group of draw.getBindings()) for (const binding of group.bindings) {
-    if (!binding.isSampledTexture) continue;
+  let sampled = textureBindings.get(draw);
+  if (!sampled) {
+    sampled = [];
+    for (const group of draw.getBindings()) for (const binding of group.bindings) if (binding.isSampledTexture) sampled.push(binding);
+    textureBindings.set(draw, sampled);
+  }
+  for (const binding of sampled) {
     const texture = binding.texture;
     if (texture && binding.version !== texture.version) return true;
     if (binding.textureNode && !perDraw.has(binding.textureNode) && binding.textureNode.value !== texture) return true;
@@ -181,6 +186,9 @@ export function texturesChanged(draw: Draw, perDraw: ReadonlySet<unknown> = EMPT
   return false;
 }
 const EMPTY = new Set<unknown>();
+/** Each draw's sampled-texture bindings: r186 creates a draw's bindings once (RenderObject.getBindings), so the
+ *  per-frame check walks only these (1 % of the Windows drive profile walked every binding, win-after5). */
+const textureBindings = new WeakMap<Draw, Binding[]>();
 
 export type Audit = { frames: number; skipped: number; missed: number; rows: [string, number][] };
 
