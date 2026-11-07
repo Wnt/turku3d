@@ -72,6 +72,8 @@ interface SaveGameOptions {
   /** Another spot for the start car when a car already stands on `car` (a room's shared car, another player's start
    *  car); null keeps it. */
   freeStart?: (car: Pose) => Promise<Pose | null>;
+  /** The own start car was just placed at `at` (multiplayer keeps it local until it moves: SharedVehicles). */
+  startCarPlaced?: (at: V3) => void;
   /** A fresh start's pair for this player (its room slot's own car and the spot beside it, facing open street), or
    *  null for the start itself (`spawn`, `car`). */
   startPair?: () => Promise<{ spawn: Pose; car: Pose } | null>;
@@ -274,6 +276,7 @@ export class SaveGameController {
     const car = saved && !bought ? saved : moved ?? this.o.car;
     const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : moved || prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
+    this.o.startCarPlaced?.({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z });
     // The start car's body: a loaded game's damage, a fresh body for a new game. A join or an arrival (`override`)
     // keeps the car as it is; multiplayer then restores the room's record of it.
     if (game) physics.setVehicleDamage(OWN_VEHICLE_ID, game.carDamage ?? null);

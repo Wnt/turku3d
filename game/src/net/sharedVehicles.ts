@@ -46,6 +46,8 @@ interface DrivenSeat {
 export class SharedVehicles {
   private managed = new Map<string, { local: string; epoch: number }>();
   private starterAt: V3 | null = null;
+  /** performance.now() until which the start car just placed is not registered (the snapshot may still be old). */
+  private starterHold = 0;
   private fresh = new Set<string>();
   private replicas = new Set<string>();
   private pending = new Set<string>();
@@ -86,6 +88,15 @@ export class SharedVehicles {
       this.blockedUntil.set(m.id, performance.now() + 100);
       physics.vehicleImpulse(this.localId(v), { x: m.E, y: 0, z: -m.N });
     });
+  }
+
+  /** The start car was placed at `at` (a new game, a join or an arrival: SaveGame.place): it stays local until it
+   *  moves from there. Without this a start pair away from the car's boot spot registered the car as a shared record
+   *  at once, before anyone drove it, and such a start car stood frozen under the throttle until a reset (verify-all,
+   *  Espoo mac 05:25 and Turku win 06:46). */
+  starterPlaced(at: V3) {
+    this.starterAt = { ...at };
+    this.starterHold = performance.now() + 1500;
   }
 
   /** Forgets every shared record and the bodies simulated for them (a timed round's wipe, a progress reset), to be
@@ -332,6 +343,7 @@ export class SharedVehicles {
     for (const state of this.physics.latest?.vehicles ?? []) {
       if (!state.id || state.id === this.driving?.local || shared.has(state.id) || this.pending.has(state.id) || now < (this.retryAt.get(state.id) ?? 0)) continue;
       if (state.id === 'player') {
+        if (now < this.starterHold) continue;
         this.starterAt ??= { ...state.pos };
         if (Math.hypot(state.pos.x - this.starterAt.x, state.pos.z - this.starterAt.z) < .3
           && Math.hypot(state.linvel.x, state.linvel.z) < .3) continue;

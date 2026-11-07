@@ -144,3 +144,23 @@ test('a multiplayer frame asks each shared record its local id once, not once pe
   // Before: record(id) per physics car spread the room and asked every record (150 x 40 = 6,000 calls per frame).
   expect(localId.mock.calls.length).toBeLessThan(150);
 });
+
+test('a start car placed away from its boot spot stays local until it moves from there', () => {
+  const client = new MultiplayerClient('ws://localhost:5403', null);
+  client.state.connected = true; client.state.you = { id: 'self', nick: 'AA', spawn: { E: 170, N: -250, yaw: 0 } };
+  const still = { ...state, linvel: { x: 0, y: 0, z: 0 }, speed: 0, forwardSpeed: 0 };
+  const physics = { latest: { vehicles: [still] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn() };
+  const shared = new SharedVehicles(client, physics as unknown as PhysicsClient, { vehicles: [] } as unknown as Manifest, { setShared: vi.fn() } as unknown as ParkedVehicles);
+  const register = vi.spyOn(client, 'vehicle').mockResolvedValue(undefined as never);
+  shared.update(0); // first sight at the boot spot
+  // The start search parks it 40 m away (a start pair): no registration, also while the snapshot still lags.
+  shared.starterPlaced({ x: 210, y: 4.6, z: 250 });
+  shared.update(performance.now());
+  physics.latest.vehicles = [{ ...still, pos: { x: 210, y: 4.6, z: 250 } }];
+  shared.update(performance.now() + 2000);
+  expect(register).not.toHaveBeenCalled();
+  // Driven away from there, it is shared.
+  physics.latest.vehicles = [{ ...still, pos: { x: 214, y: 4.6, z: 250 }, linvel: { x: 4, y: 0, z: 0 } }];
+  shared.update(performance.now() + 3000);
+  expect(register).toHaveBeenCalled();
+});

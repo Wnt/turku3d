@@ -435,6 +435,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
       { along: streetViews(at, coarse?.roadGraphs() ?? []), car: world.car }),
+    startCarPlaced: at => sharedVehicles?.starterPlaced(at),
     freeStart: async car => {
       const others = standingCars();
       if (!others.some(o => insideCar(car, o.x, o.z, 1))) return null;
