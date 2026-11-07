@@ -190,7 +190,12 @@ export class TyreEffects {
     this.particles[k] = this.point.x; this.particles[k + 1] = this.point.y + lift; this.particles[k + 2] = this.point.z;
     this.particles[k + 3] = this.elapsed; this.particles[k + 4] = strength; this.particles[k + 5] = kind;
     if (this.shade.array[i] !== KINDS[kind].shade) { this.shade.array[i] = KINDS[kind].shade; this.shadeDirty = true; }
+    this.smokeUntil = Math.max(this.smokeUntil, this.elapsed + KINDS[kind].life);
   }
+  /** Effect time after which every smoke particle has died, and whether the buffers already hold them all dead: then
+   *  end() skips its 384-particle pass and the instance upload (every frame of the game, with or without smoke). */
+  private smokeUntil = -Infinity;
+  private smokeCleared = false;
 
   dispose() {
     this.root.removeFromParent();
@@ -212,6 +217,9 @@ export class TyreEffects {
       this.positions.needsUpdate = this.born.needsUpdate = this.strength.needsUpdate = this.order.needsUpdate = true;
       this.marksDirty = false;
     }
+    const alive = this.elapsed < this.smokeUntil;
+    if (!alive && this.smokeCleared) { if (this.shadeDirty) { this.shade.needsUpdate = true; this.shadeDirty = false; } return; }
+    this.smokeCleared = !alive;
     for (let i = 0; i < PARTICLES; i++) {
       const k = i * 6, age = this.elapsed - this.particles[k + 3], strength = this.particles[k + 4], kind = KINDS[this.particles[k + 5]];
       if (strength <= 0 || age >= kind.life) {

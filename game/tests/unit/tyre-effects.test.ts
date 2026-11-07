@@ -179,3 +179,18 @@ test('sustained handbrake, power slide and cornering emit after settling with a 
     fx.dispose();
   }
 });
+
+test('with no smoke alive, the frame end leaves the particle buffers alone; new smoke resumes them', () => {
+  const fx = new TyreEffects(new THREE.Group(), 'low');
+  const smoke = meshes(fx)[1] as THREE.InstancedMesh;
+  for (let i = 0; i < 30; i++) advance(fx, i * 0.4, wheel());
+  fx.begin(4); fx.end(new THREE.PerspectiveCamera());
+  // The pass that wrote every particle dead uploaded once; after it, nothing changes and nothing is uploaded.
+  const version = smoke.instanceMatrix.version;
+  for (let i = 0; i < 20; i++) { fx.begin(1 / 30); fx.end(new THREE.PerspectiveCamera()); }
+  expect(smoke.instanceMatrix.version).toBe(version);
+  // Every particle is drawn at zero scale.
+  for (let i = 0; i < smoke.count; i++) expect([0, 5, 10].map(k => smoke.instanceMatrix.array[i * 16 + k])).toEqual([0, 0, 0]);
+  for (let i = 0; i < 30; i++) advance(fx, 20 + i * 0.4, wheel());
+  expect(smoke.instanceMatrix.version).toBeGreaterThan(version);
+});
