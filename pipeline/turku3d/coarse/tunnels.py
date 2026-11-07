@@ -159,12 +159,15 @@ def prepare(tile, path):
     def area_tunnels():
         from .road_top import carried_roads
 
-        out, roads, rails = [], [], []
+        out, roads, rails, garages = [], [], [], []
         quay = passages(path)
         passage_ids = {key for key, _, _ in quay}
         for k, row in rows(path, columns=("osm_id", "tags", "geometry_local")):
             tags = json.loads(row["tags"]) if row["tags"] else {}
             line = shapely.force_2d(row["geometry_local"])
+            if garage(tags) and line.geom_type in ("Polygon", "MultiPolygon"):
+                garages.append(line)
+                continue
             if (
                 tags.get("highway")
                 and not selected(tags)
@@ -181,7 +184,7 @@ def prepare(tile, path):
                 out.append((str(row.get("osm_id", k)), line, tags))
         rail_tree = shapely.STRtree(rails) if rails else None
         out = [kept for way in out if (kept := rail_stretch(*way, rail_tree)) is not None]
-        return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
+        return carried_roads(garage_ends(portals.approaches(merge_parallel([*out, *quay]), roads), garages), roads)
 
     ways = cached(
         path,
@@ -196,6 +199,38 @@ def prepare(tile, path):
         area_tunnels,
     )
     return [way for way in ways if way[1].intersects(window)]
+
+
+GARAGE_REACH = 1.0  # m; a tunnel end this close to an underground parking area (its outline or inside) ends in it
+
+
+def garage(tags):
+    """An underground parking area (``amenity=parking`` with ``parking=underground``, or mapped below ground). The
+    coarse world has no underground levels: the garage is not built, so a way that ends in it leads nowhere."""
+    if tags.get("amenity") != "parking":
+        return False
+    layer = depth(tags)
+    return tags.get("parking") == "underground" or (layer is not None and layer < 0)
+
+
+def garage_ends(ways, garages):
+    """Tag each tunnel way's ends that lie in an underground parking area (`garage`, within GARAGE_REACH):
+    ``_garage_ends`` = [first, last]. OSM joins a garage's access tunnels to a corner of its parking area (Turku's
+    Toriparkki: the 363 m access tunnel from the P-Louhi entrance at Puolalanmaki runs under Aurakatu to a corner of
+    the Louhi cavern under the Kauppatori, and the cavern's footway exits end on its outline too); such an end is
+    inside the rock, never a mouth at street level (`dead_ends`)."""
+    if not garages:
+        return ways
+    tree = shapely.STRtree(garages)
+    result = []
+    for key, line, tags in ways:
+        axis = tags.get("_road_axis", line)
+        ends = [
+            len(tree.query(shapely.Point(axis.coords[i]), predicate="dwithin", distance=GARAGE_REACH)) > 0
+            for i in (0, -1)
+        ]
+        result.append((key, line, dict(tags, _garage_ends=ends) if any(ends) else tags))
+    return result
 
 
 def merge_parallel(ways):
@@ -524,16 +559,17 @@ SPUR_REACH = 60.0  # m; a tunnel set whose surface mouths all lie this close tog
 
 def dead_ends(groups):
     """Indices of tunnel ways that lead only into unbuilt ones: an end with no surface road at it (no approach) that
-    touches only unbuilt tunnel ways (indoor, garage or deep, see `below_grade`) makes the way a spur into nothing,
-    such as a ramp down to an unbuilt garage or service tunnel (Tapionaukio's garage ramp, the service tunnel ramp
-    at Tapiolanympyrä); its tube would stand at grade with a closed end, so it and every chain behind it are
-    unbuilt too. Passages and covered ways are never spurs."""
+    touches only unbuilt tunnel ways (indoor, garage or deep, see `below_grade`) or ends in an underground parking
+    area (`garage_ends`) makes the way a spur into nothing, such as a ramp down to an unbuilt garage or service
+    tunnel (Tapionaukio's garage ramp, the service tunnel ramp at Tapiolanympyrä, Turku's Toriparkki access tunnel
+    and cavern exits); its tube would stand at grade with a closed end, so it and every chain behind it are unbuilt
+    too. A garage end that also meets a built tunnel way is no dead end. Passages and covered ways are never spurs."""
     def candidate(tags):
         return tags.get("tunnel") not in ("building_passage", "covered") and tags.get("covered") != "yes"
 
     unbuilt = {i for i, (_, _, tags) in enumerate(groups) if indoor(tags) or below_grade(tags)}
     seeds = set(unbuilt)
-    if not unbuilt:
+    if not unbuilt and not any(any(tags.get("_garage_ends", ())) for _, _, tags in groups):
         return set()
     lines = [line for _, line, _ in groups]
     tree = shapely.STRtree(lines)
@@ -541,19 +577,20 @@ def dead_ends(groups):
     for _, line, tags in groups:
         coords = shapely.get_coordinates(line)
         approaches = tags.get("_approaches") or [None, None]
-        ends.append([(shapely.Point(coords[0]), approaches[0] is not None),
-                     (shapely.Point(coords[-1]), approaches[-1] is not None)])
+        garages = tags.get("_garage_ends") or [False, False]
+        ends.append([(shapely.Point(coords[0]), approaches[0] is not None, garages[0]),
+                     (shapely.Point(coords[-1]), approaches[-1] is not None, garages[-1])])
     changed = True
     while changed:
         changed = False
         for i, (_, _, tags) in enumerate(groups):
             if i in unbuilt or not candidate(tags):
                 continue
-            for point, surface in ends[i]:
+            for point, surface, in_garage in ends[i]:
                 if surface:
                     continue
                 near = [int(j) for j in tree.query(point, predicate="dwithin", distance=1.0) if int(j) != i]
-                if near and all(j in unbuilt for j in near):
+                if (near or in_garage) and all(j in unbuilt for j in near):
                     unbuilt.add(i)
                     changed = True
                     break
@@ -571,14 +608,15 @@ def dead_ends(groups):
             if i in component:
                 continue
             component.add(i)
-            for point, _ in ends[i]:
+            for point, _, _ in ends[i]:
                 stack.extend(int(j) for j in tree.query(point, predicate="dwithin", distance=1.0)
                              if int(j) in remaining and int(j) not in component)
         seen |= component
         into_unbuilt = any(
-            not surface and any(int(j) in unbuilt for j in tree.query(point, predicate="dwithin", distance=1.0))
-            for i in component for point, surface in ends[i])
-        mouths = [point for i in component for point, surface in ends[i] if surface]
+            not surface and (in_garage or any(int(j) in unbuilt
+                                              for j in tree.query(point, predicate="dwithin", distance=1.0)))
+            for i in component for point, surface, in_garage in ends[i])
+        mouths = [point for i in component for point, surface, _ in ends[i] if surface]
         if into_unbuilt and max((a.distance(b) for a in mouths for b in mouths), default=0.0) <= SPUR_REACH:
             unbuilt |= component
     return unbuilt - seeds
