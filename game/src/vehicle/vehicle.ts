@@ -26,6 +26,13 @@ const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
 const BRAKE_STEP = 1 / 60;
 /** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
 export const IMPACT_MIN_DELTA_V = 0.5;
+/** A car nobody drives whose chassis stays within REST_MOVE m and REST_TURN (1 - |q dot q0|) of one pose for
+ *  REST_STEPS solver steps is put to sleep. Rapier's own sleep test reads the velocity, which the tyre model's
+ *  per-step suspension and tyre impulses hold at -0.06 m/s on a fleet car standing still: every world car woken once
+ *  (the character within 6 m, a touch, a shared record restored) then ran the whole vehicle step at 60 Hz for the rest
+ *  of the session (applyTyres, updateVehicle, strikeCurbs, trackSuspension: ~60 s of 330 s of the Windows laptop's
+ *  physics worker, frame-mp win-prof-1). */
+export const REST = { move: 0.002, turn: 2e-7, steps: 30 } as const;
 /** Body damage: a step whose contact velocity change reaches this (m/s) starts or continues a crash; a crash ends after
  *  two quieter steps or `CRASH_STEPS` steps, and is applied as one hit (vehicle/damage.ts: its severity is the square
  *  of the whole velocity change, so a crash split over several solver steps must not count as several light ones). */
@@ -58,6 +65,10 @@ export class Vehicle {
   private readonly drive: number[];
   /** Velocity once every wheel, drag and curb impulse of the tick is applied: what the world step then changes. */
   private beforeSolve: V3 | null = null;
+  /** This step's input came from a driver (step(dt, input)). */
+  private driven = false;
+  /** The pose a resting undriven car has kept, and for how many steps (REST). */
+  private rest: { p: V3; q: { x: number; y: number; z: number; w: number }; steps: number } | null = null;
   private bumps = new BumpDetector();
   private readonly longitudinal = new Float32Array(4);
   private readonly lateral = new Float32Array(4);
@@ -365,6 +376,7 @@ export class Vehicle {
       this.rear = { ...this.rear, mode: input.rearMode };
     }
     this.beforeSolve = null;
+    this.driven = input !== null;
     // A sleeping damageable car still measures a hit that wakes it during the coming solver step.
     this.damageBefore = this.damage && this.body.isSleeping() ? { v: { x: 0, y: 0, z: 0 }, w: { x: 0, y: 0, z: 0 } } : null;
     if (!input && this.body.isSleeping()) return;
@@ -662,6 +674,7 @@ export class Vehicle {
   afterStep(dt: number) {
     this.trackCrash(dt);
     this.trackScrape(dt);
+    this.settle();
     const before = this.beforeSolve;
     if (!before || this.body.isSleeping()) return;
     this.impactCooldown = Math.max(0, this.impactCooldown - dt);
@@ -671,6 +684,19 @@ export class Vehicle {
       this.impact = { id: ++this.impactId, impulse };
       this.impactCooldown = 0.15;
     }
+  }
+
+  /** Sleeps an undriven car that has kept one pose for REST.steps steps (REST). */
+  private settle() {
+    const b = this.body;
+    if (this.driven || b.isSleeping()) { this.rest = null; return; }
+    const p = b.translation(), q = b.rotation(), r = this.rest;
+    if (r && Math.abs(p.x - r.p.x) < REST.move && Math.abs(p.y - r.p.y) < REST.move && Math.abs(p.z - r.p.z) < REST.move
+      && 1 - Math.abs(q.x * r.q.x + q.y * r.q.y + q.z * r.q.z + q.w * r.q.w) < REST.turn) {
+      if (++r.steps >= REST.steps) { b.sleep(); this.rest = null; }
+      return;
+    }
+    this.rest = { p: { x: p.x, y: p.y, z: p.z }, q: { x: q.x, y: q.y, z: q.z, w: q.w }, steps: 0 };
   }
 
   state(): VehicleState {
