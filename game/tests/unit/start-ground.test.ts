@@ -150,3 +150,12 @@ test('a pole ahead is not a wall: the car keeps its way when a lane beside the p
   const result = await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), () => true, { view: { dx: 0, dz: -1 }, ray: pole });
   expect(Math.cos(result!.car.yaw)).toBeGreaterThan(0.9);
 });
+
+test('a through street whose collision is still loading is waited for, not traded for a courtyard', async () => {
+  // Only the courtyard's collision has streamed in (z < -5); the street at z = 0 is not covered yet.
+  const covers = (_x: number, z: number) => z < -5;
+  expect(await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), covers)).toBeNull();
+  // Once the start collision is complete, an uncovered street is out of reach and the courtyard is the start.
+  const result = await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), covers, { open: true });
+  expect(result!.car.z).toBeLessThan(-5);
+});

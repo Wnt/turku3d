@@ -344,10 +344,15 @@ async function parkOn(street: StreetCandidate, sample: GroundProbe, obstacles: r
 }
 
 async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sample: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view, ray }: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
+  covers: (x: number, z: number, radius: number) => boolean, { obstacles = [], view, ray, open = false }: StartOptions = {}): Promise<{ spawn: Spot; car: Spot } | null> {
   let fallback: { spawn: Spot; car: Spot } | null = null, weak: { spawn: Spot; car: Spot } | null = null;
+  // A street whose collision has not streamed in yet is not a rejected street: until the start collision is complete
+  // (`open`), a pocket or a second-best spot never wins over it (a slow host once parked in the Turku office yard
+  // because only the yard's collision cell had loaded).
+  let loading = false;
   for (const candidate of streetCandidates(desired, graphs)) {
-    if (!covers(candidate.x, candidate.z, 3)) continue;
+    if (candidate.pocket && loading && !open) return null;
+    if (!covers(candidate.x, candidate.z, 3)) { loading = true; continue; }
     const parked = await parkOn(candidate, sample, obstacles, ray);
     if (!parked) continue;
     const { car } = parked;
@@ -366,7 +371,7 @@ async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sam
       fallback ??= { spawn, car };
     }
   }
-  return fallback ?? weak;
+  return loading && !open ? null : fallback ?? weak;
 }
 
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
