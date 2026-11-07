@@ -401,6 +401,31 @@ def test_covered_road_also_lifts_building_and_keeps_crossing_tunnel_separate():
     assert len(raised) == 1 and raised[0].base >= 6.5
 
 
+def test_a_covered_way_outside_buildings_is_an_open_street_not_a_box():
+    """Rotterdam Pannekoekhof: the covered approaches (covered=yes, no tunnel tag) of a building passage run outside
+    the surveyed footprints; lined as tubes they stood on Pannekoekstraat as 5 m concrete boxes."""
+    from turku3d.coarse.tunnels import opening
+
+    assert opening({"highway": "residential", "covered": "yes"})
+    assert opening({"highway": "secondary", "tunnel": "covered", "layer": "-1"})
+    assert opening({"highway": "footway", "tunnel": "building_passage"})
+    assert not opening({"highway": "service", "tunnel": "yes", "covered": "yes"})
+    assert not opening({"highway": "service", "tunnel": "yes"})
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    line = shapely.LineString([(20, 40), (32, 40)])
+    for tags in ({"highway": "residential", "covered": "yes"}, {"highway": "footway", "covered": "yes"},
+                 {"highway": "service", "tunnel": "covered"}):
+        open_way = produce(tile, [("covered", line, tags)], pos, idx, [], extrude, lambda x, z: 2, lambda x, z: 2)
+        assert not open_way.meshes and not open_way.unbuilt and open_way.keep.all()
+        assert len(open_way.profiles) == 1  # the road keeps its floor heights in the graph
+    # A tunnel=yes way at grade keeps its lined tube.
+    tube = produce(tile, [("tube", line, {"highway": "service", "tunnel": "yes"})], pos, idx, [], extrude,
+                   lambda x, z: 2)
+    assert tube.meshes
+
+
 def test_quay_discovery_uses_walkways_without_place_or_way_ids():
     from turku3d.coarse.underpasses import quay_passages
 
@@ -550,7 +575,7 @@ def test_underground_way_without_measured_depth_under_open_ground_is_not_built()
     plain = produce(tile, [("plain", line, {"highway": "service", "tunnel": "yes"})], pos, idx, [], extrude,
                     lambda x, z: 2)
     assert len(plain.profiles) == 1 and not plain.unbuilt
-    # A covered road at grade (Rotterdam Blaak under the station canopy) is a real street: unchanged.
+    # A covered road at grade (Rotterdam Blaak under the station canopy) is a real street: an open opening.
     for covered in ({"tunnel": "covered", "layer": "-1"}, {"covered": "yes", "layer": "-1"}):
         kept = produce(tile, [("covered", line, {"highway": "secondary", **covered})], pos, idx, [], extrude,
                        lambda x, z: 2)

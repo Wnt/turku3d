@@ -52,6 +52,17 @@ def dimensions(tags):
 RAIL_AREAS = {"station", "platform", "platform_edge", "halt", "stop", "subway_entrance"}
 
 
+def opening(tags):
+    """A way the coarse world opens through buildings instead of lining with a tube: a building passage, or a way at
+    grade under a roof (``covered=yes`` or ``tunnel=covered``, never ``tunnel=yes``). Only buildings the way runs
+    through are lifted to a ceiling over it; where no modelled building covers it the way stays an open street. A
+    tube there stood on the pavement as a closed clearance-high concrete box (Rotterdam: the covered approaches of
+    the Pannekoekhof passage blocked Pannekoekstraat; covered footways along shopping arcades)."""
+    if tags.get("tunnel") in ("building_passage", "covered"):
+        return True
+    return tags.get("covered") == "yes" and tags.get("tunnel", "no") == "no"
+
+
 def deep(tags):
     """Mapped two or more levels below ground (layer or level <= -2)."""
     for key in ("layer", "level"):
@@ -227,8 +238,7 @@ def merge_parallel(ways):
                     ot.get("highway")
                     and ot["highway"] not in {"footway", "path", "cycleway", "pedestrian", "steps"}
                     and ot.get("layer", "0") == tags.get("layer", "0")
-                    and (ot.get("tunnel") == "building_passage")
-                    == (tags.get("tunnel") == "building_passage")
+                    and opening(ot) == opening(tags)
                     and abs(oa @ axis) > 0.98
                     and abs(dimensions(ot)[1] - clearance) < 0.5
                     and np.ptp(oc @ np.array([-oa[1], oa[0]])) < 2
@@ -483,7 +493,7 @@ def unmodelled(tags, xz, shells, bounds=None):
     """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings: with no measured depth
     the coarse world cannot show it. Ways at grade under a building (hospital roads, layer -1) keep their tube and
     building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
-    stay as they are. Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
+    are openings (`opening`). Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
     every building."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
         return False
@@ -652,7 +662,7 @@ def produce(
     groups = merge_parallel(ways)
     spurs = dead_ends(groups)
     for index, (key, line, tags) in enumerate(groups):
-        passage = tags.get("tunnel") == "building_passage"
+        passage = opening(tags)
         if index in spurs:
             unbuilt.append(line.buffer(dimensions(tags)[0] / 2, cap_style="flat", join_style="mitre"))
             continue

@@ -5,7 +5,7 @@ from functools import lru_cache
 import numpy as np
 import shapely
 
-from .tunnels import dimensions, indoor
+from .tunnels import dimensions, indoor, opening
 
 
 def carried_roads(ways, roads):
@@ -18,7 +18,7 @@ def carried_roads(ways, roads):
         carried = []
         if (
             tags.get("highway") in {"footway", "path", "cycleway", "pedestrian", "steps"}
-            and tags.get("tunnel") != "building_passage"
+            and not opening(tags)
             and tags.get("vault") != "barrel"
             and not indoor(tags)
         ):
