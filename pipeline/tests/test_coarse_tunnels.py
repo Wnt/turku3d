@@ -7,7 +7,7 @@ import shapely
 from turku3d import config as C
 from turku3d.coarse.build import extrude
 from turku3d.coarse.inputs import Building
-from turku3d.coarse.tunnels import buried_rail, dimensions, floor_profile, produce, selected
+from turku3d.coarse.tunnels import RAIL_MOUTH_REACH, dimensions, floor_profile, produce, rail_stretch, selected
 from turku3d.roads import build_graph, encode
 
 
@@ -31,19 +31,42 @@ def test_selection_and_clearance():
     assert dimensions({"highway": "residential", "width": "8 m"}) == (8, 4.5)
 
 
-def test_rail_tunnel_without_a_mouth_is_buried():
+def test_rail_tunnel_is_drawn_only_near_its_mouth():
     """Rotterdam: the rail tunnel and metro under Binnenrotte and Blaak are chains of tunnel ways (layer -1/-2);
-    only a way that meets the open track has a mouth. The inner ways stood as 5 m boxes at street level."""
+    only a way that meets the open track has a mouth. Their boxes stood as 5 m walls at street level."""
     open_track = shapely.LineString([(0, 0), (100, 0)])
     rails = shapely.STRtree([open_track])
-    mouth = shapely.LineString([(100, 0), (300, 0)])  # starts where the open track ends
-    inner = shapely.LineString([(300, 0), (600, 0)])  # tunnel to tunnel
     rail = {"railway": "rail", "tunnel": "yes", "layer": "-1"}
-    assert not buried_rail(mouth, rail, rails)
-    assert buried_rail(inner, rail, rails)
-    assert buried_rail(inner, {"railway": "subway", "tunnel": "yes"}, None)
+    # Tunnel to tunnel: buried, nothing drawn (also without any open track around).
+    assert rail_stretch("inner", shapely.LineString([(400, 0), (600, 0)]), rail, rails) is None
+    assert rail_stretch("inner", shapely.LineString([(400, 0), (600, 0)]), rail, None) is None
+    # One mouth: the stretch from the mouth into the hill, its inner end marked.
+    key, line, tags = rail_stretch("mouth", shapely.LineString([(100, 0), (900, 0)]), rail, rails)
+    assert line.length == RAIL_MOUTH_REACH and line.coords[0] == (100, 0) and tags["_rail_inner"] == 1
+    key, line, tags = rail_stretch("mouth", shapely.LineString([(900, 0), (100, 0)]), rail, rails)
+    assert line.length == RAIL_MOUTH_REACH and line.coords[-1] == (100, 0) and tags["_rail_inner"] == 0
     # Roads keep their boxes whatever their ends meet.
-    assert not buried_rail(inner, {"highway": "primary", "tunnel": "yes"}, rails)
+    road = {"highway": "primary", "tunnel": "yes"}
+    assert rail_stretch("road", shapely.LineString([(400, 0), (600, 0)]), road, rails)[2] is road
+
+
+def test_rail_tunnel_stretch_is_buried_at_its_inner_end():
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250], [250, 2, 250]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    line = shapely.LineString([(10, 100), (160, 100)])  # the mouth at x = 10, the hill beyond
+    tags = {"railway": "rail", "tunnel": "yes", "_rail_inner": 1}
+    result = produce(tile, [("rail", line, tags)], pos, idx, [], extrude, lambda x, z: 2.0)
+    floor = next(m for m in result.meshes if m.object_id.endswith(":floor"))
+    inner = floor.positions[floor.positions[:, 0] > 159]
+    _, clearance = dimensions(tags)
+    assert len(inner) and inner[:, 1].max() + clearance <= 2 - 0.4  # the box roof is under the ground at its end
+    assert floor.positions[:, 0].max() <= 160 + 1e-6  # no ramp back up to the street at the buried end
+    assert not result.profiles  # no street over the tube takes its floor
+    # The street over the buried end keeps its ground (no hole cut over the tube there).
+    tpos, tidx, tkeep = result.terrain(pos, idx)
+    ground = shapely.union_all(shapely.polygons(tpos[tidx[tkeep]][:, :, [0, 2]]))
+    assert all(ground.contains(shapely.Point(x, 100)) for x in (155, 158, 161))
 
 
 def test_outside_passages_skip_ground_but_keep_owned_building_openings():

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 import mapbox_earcut
 import numpy as np
 import shapely
+import shapely.ops
 
 from turku3d import config as C
 from turku3d.col.materials import mat_id
@@ -81,16 +82,38 @@ def selected(tags):
         return False
 
 
-def buried_rail(line, tags, rails, reach=0.5):  # rails: STRtree of at-grade railway lines, or None
-    """A railway-only tunnel way neither of whose ends meets an at-grade (or bridge) railway way: an inner piece
-    of a tunnel that runs under the city (the Willemsspoortunnel and the Calandlijn metro under Rotterdam's
-    Binnenrotte and Blaak, mapped layer -1 and -2). Its floor would follow the street above (no portal to
-    anchor it), so its clear box stood as 5 m walls across squares and streets. A rail tunnel with a mouth
-    keeps its box: the way at the mouth meets the open track. Roads always keep theirs."""
+# A rail tunnel's box is drawn only this far (m) into the hill from a mouth: at the 3.5 % a line may climb, the track
+# is then a full box height plus cover below the ground, and the tube beyond is out of sight.
+RAIL_MOUTH_REACH = 150.0
+RAIL_COVER = 1.0  # m of ground over the box where the drawn stretch ends inside the tunnel
+
+
+def rail_mouths(line, tags, rails, reach=0.5):  # rails: STRtree of at-grade railway lines, or None
+    """For a railway-only tunnel way: which of its ends is a mouth, i.e. meets an at-grade (or bridge) railway way.
+    None for roads and other ways (their boxes are drawn whole)."""
     if not tags.get("railway") or tags.get("highway") or line.geom_type != "LineString":
-        return False
+        return None
     ends = shapely.points([line.coords[0], line.coords[-1]])
-    return rails is None or not any(len(rails.query(p, predicate="dwithin", distance=reach)) for p in ends)
+    return [rails is not None and len(rails.query(p, predicate="dwithin", distance=reach)) > 0 for p in ends]
+
+
+def rail_stretch(key, line, tags, rails):
+    """The part of a tunnel way that is drawn, or None. Rotterdam maps the Willemsspoortunnel and the Calandlijn metro
+    under Binnenrotte and Blaak as chains of railway tunnel ways (layer -1 and -2): a box between two street-level ends
+    stood as 22 m wide, 5 m high walls across squares, streets and the harbour. A railway way without a mouth runs
+    under the city and draws nothing; with one mouth, only RAIL_MOUTH_REACH from it is drawn and its inner end lies
+    RAIL_COVER under the ground (tags _rail_inner: which end); with two mouths, the whole way. Roads always keep
+    theirs."""
+    mouths = rail_mouths(line, tags, rails)
+    if mouths is None or all(mouths):
+        return key, line, tags
+    if not any(mouths):
+        return None
+    length = line.length
+    if length > RAIL_MOUTH_REACH:
+        line = (shapely.ops.substring(line, 0, RAIL_MOUTH_REACH) if mouths[0]
+                else shapely.ops.substring(line, length - RAIL_MOUTH_REACH, length))
+    return key, line, dict(tags, _rail_inner=1 if mouths[0] else 0)
 
 
 def prepare(tile, path):
@@ -127,7 +150,7 @@ def prepare(tile, path):
             if line.geom_type == "LineString" and line.length > 0.5:
                 out.append((str(row.get("osm_id", k)), line, tags))
         rail_tree = shapely.STRtree(rails) if rails else None
-        out = [way for way in out if not buried_rail(way[1], way[2], rail_tree)]
+        out = [kept for way in out if (kept := rail_stretch(*way, rail_tree)) is not None]
         return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
 
     ways = cached(
@@ -567,6 +590,8 @@ def produce(
         if index in spurs:
             unbuilt.append(line.buffer(dimensions(tags)[0] / 2, cap_style="flat", join_style="mitre"))
             continue
+        # The buried inner end of a rail tunnel's drawn stretch (rail_stretch) is no mouth: no floor blend, apron or cut.
+        buried_end = (1 if tags["_rail_inner"] else 0) if "_rail_inner" in tags else None
         width, clearance = dimensions(tags)
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
         if (
@@ -593,6 +618,11 @@ def produce(
         elif not passage and not road_top and not vaulted:
             ends, repaired = portals.anchors(line, tags, sample, original_ends, surface_sample)
             terrain[[0, -1]] = ends
+            if buried_end is not None:
+                # The drawn stretch of a rail tunnel ends inside the hill: its floor descends from the mouth to a box
+                # height plus cover under the ground there, so the tube is buried beyond the mouth.
+                inner = -1 if buried_end else 0
+                terrain[inner] = min(terrain[inner], original_ends[inner] - clearance - RAIL_COVER)
         mouth_lengths = np.where(
             repaired & ~np.full(2, vaulted),
             np.clip(np.maximum(width, original_ends - terrain[[0, -1]]), 4, 12),
@@ -666,6 +696,8 @@ def produce(
             else np.zeros(2)
         )
         portal_offsets[repaired] = 0
+        if buried_end is not None:
+            portal_offsets[buried_end] = 0
 
         def floor_height(
             query,
@@ -794,6 +826,8 @@ def produce(
         aprons = []
         wing_lengths = mouth_lengths.copy()  # wing walls keep their length; only the ramp grows
         for portal_index, (end, outward) in enumerate(((0, -direction[0]), (-1, direction[-1]))):
+            if portal_index == buried_end:
+                continue
             inner = np.array([left[end], right[end]])
             if not (road_top or repaired[portal_index]) and surface_sample is not None:
                 # The approach can sit lower or higher than the floor at the mouth (a street
@@ -840,7 +874,13 @@ def produce(
         # At the mouth the frame replaces the bank, including high triangles
         # whose tips used to survive above the clearance test as rock slabs.
         mouths = portals.mouths(corridor, xz, left, right, direction, aprons, repaired)
-        profiles.append((line, distances, floor_height(xz), width))
+        if buried_end is not None:
+            end, inward = (-1, -direction[-1]) if buried_end else (0, direction[0])
+            a, b = left[end], right[end]
+            mouths = mouths.difference(
+                shapely.Polygon([a - inward, b - inward, b + inward * 3, a + inward * 3]).buffer(0.5))
+        if "_rail_inner" not in tags:  # a street over a buried rail tube never takes the tube's floor
+            profiles.append((line, distances, floor_height(xz), width))
         meshes.append(
             road.mesh(
                 f"tunnel:{key}:floor",
