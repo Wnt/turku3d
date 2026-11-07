@@ -12,9 +12,10 @@ import type { CasterVolumes } from '../world/vegetationLod';
 
 /** Layers a sun cascade's camera sees: everything on layer 0, the shadow-only layer (vegetation proxies), and of a
  *  tile's shadow batch the per-chunk casters in the nearest cascade (fine culling in a 16 m map), the whole-tile
- *  caster in every other one (one draw per tile instead of one per 62.5 m chunk). */
-export function cascadeLayerMask(cascade: number) {
-  const chunks = cascade === 0 || tileShadows.chunksEverywhere;
+ *  caster in every other one (one draw per tile instead of one per 62.5 m chunk). `chunked`: every cascade takes the
+ *  chunks, when the shadows end close (Environment.setShadowReach) and the outer cascades span a few chunks each. */
+export function cascadeLayerMask(cascade: number, chunked = false) {
+  const chunks = cascade === 0 || chunked || tileShadows.chunksEverywhere;
   return 1 | 1 << TILE_SHADOW_LAYER | 1 << (chunks ? TILE_SHADOW_CHUNK_LAYER : TILE_SHADOW_WHOLE_LAYER);
 }
 /** A/B (?tileShadows=chunks, owner perf3): every cascade draws the per-chunk casters, as before 2026-11-03. */
@@ -251,7 +252,7 @@ export class Environment {
     for (let i = 0; i < lights.length; i++) {
       const shadow = lights[i].shadow!;
       // CSM clones the sun's shadow camera into each cascade once it builds them.
-      const mask = cascadeLayerMask(i);
+      const mask = cascadeLayerMask(i, this.shortReach);
       if (shadow.camera.layers.mask !== mask) shadow.camera.layers.mask = mask;
       const skip = alternate && i > 0 && (this.shadowFrame + i) % 2 === 0
         && cascadeCovers(shadow.camera as THREE.OrthographicCamera, camera, this.csm.frustums[i].vertices);
@@ -302,14 +303,19 @@ export class Environment {
 
   /** Sun shadows end at `metres` instead of the tier's last split (the setting governor's last step; null restores
    *  it). The cascades keep their near splits; the farthest one shrinks, so its casters (the tile shadow batches of
-   *  every block out to 200 m: ~1M triangles a frame on the Radeon Pro 560X) are culled to the nearer band. */
+   *  every block out to 200 m: ~1M triangles a frame on the Radeon Pro 560X) are culled to the nearer band. With the
+   *  short reach every cascade draws the tile shadows per 62.5 m chunk: the whole-tile casters still drew 1.0-1.5M
+   *  shadow triangles at 100 m (win-after3), a 250 m tile for a cascade a few chunks wide. */
   setShadowReach(metres: number | null) {
+    this.shortReach = metres !== null;
     const far = metres ?? this.shadowFar;
     if (this.csm.maxFar === far) return;
     this.csm.maxFar = far;
     this.resize();
   }
   private shadowFar = 0;
+  /** setShadowReach shortened the cascades: they draw tile shadows per chunk. */
+  private shortReach = false;
 
   dispose() {
     liveEnvironments.delete(this);

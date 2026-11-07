@@ -130,7 +130,14 @@ test('the governor\'s last step ends sun shadows at 100 m and restores the tier\
   const env = new Environment(new THREE.Scene(), renderer, 'reduced');
   const csm = (env as unknown as { csm: { maxFar: number } }).csm;
   expect(csm.maxFar).toBe(QUALITY.reduced.splits.at(-1));
+  const { cascadeLayerMask } = await import('../../src/render/environment');
+  const { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_WHOLE_LAYER } = await import('../../src/world/shadowBatch');
   env.setShadowReach(100); expect(csm.maxFar).toBe(100);
+  // Short shadows: every cascade culls the tile casters per chunk.
+  expect(cascadeLayerMask(2, true) & 1 << TILE_SHADOW_CHUNK_LAYER).not.toBe(0);
+  expect(cascadeLayerMask(2, true) & 1 << TILE_SHADOW_WHOLE_LAYER).toBe(0);
+  expect((env as unknown as { shortReach: boolean }).shortReach).toBe(true);
   env.setShadowReach(null); expect(csm.maxFar).toBe(200);
+  expect((env as unknown as { shortReach: boolean }).shortReach).toBe(false);
   env.dispose();
 });
