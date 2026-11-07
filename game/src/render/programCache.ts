@@ -71,8 +71,28 @@ export function retainNodeStates(nodes: Nodes, limit = 512) {
   return { idle, flush };
 }
 
+interface Bindings {
+  deleteForRender(renderObject: { _bindings?: unknown }): void;
+  delete(object: object): unknown;
+}
+
+/** r186 releases a disposed draw's bind groups through `renderObject.getBindings()`, which BUILDS the draw's node
+ * program (20-80 ms of JS per pass) when it has none, only to destroy the bind groups it just made. A render object
+ * whose program was never built (a draw deferred by render/asyncNodeBuilds.ts and dropped, a hidden pool batch in a
+ * pass it never drew in) therefore cost a full synchronous build to dispose: the fleet's batch swap
+ * (actors/fleet/visuals.ts loadNow) froze city.lab for 1.35 s that way on the M1 Max (framecheck mac-base-1, 1.77 s
+ * frame). Without bindings there is nothing to destroy, so only its data entry goes. */
+export function releaseUnbuiltBindings(bindings: Bindings) {
+  const release = bindings.deleteForRender.bind(bindings);
+  bindings.deleteForRender = renderObject => {
+    if (renderObject._bindings == null) { bindings.delete(renderObject); return; }
+    release(renderObject);
+  };
+}
+
 export function retainRendererPrograms(renderer: THREE.WebGPURenderer) {
-  const internal = renderer as unknown as { _pipelines: Pipelines; _nodes: Nodes };
+  const internal = renderer as unknown as { _pipelines: Pipelines; _nodes: Nodes; _bindings: Bindings };
   retainPrograms(internal._pipelines);
+  releaseUnbuiltBindings(internal._bindings);
   return retainNodeStates(internal._nodes);
 }
