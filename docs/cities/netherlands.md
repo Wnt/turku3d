@@ -7,7 +7,7 @@ process builds one city (`TURKU3D_CITY` or the data root's `city.json`), as for 
 |---|---|---|
 | CRS | EPSG:28992 (Amersfoort / RD New) + NAP | same |
 | Origin O | E 121000, N 487500 (NW corner of the block holding Dam) | E 93000, N 437500 (block holding the Markthal) |
-| Centre spawn | Dam: E 121318 N 487362 (engine x 318, z 138, tile `t0_1_0`) | Binnenrotte at the Markthal arch: E 93075 N 437390, heading 180 (x 75, z 110, `t0_0_0`; the Markthal point itself is inside the building) |
+| Centre spawn | Dam: E 121318 N 487362 (engine x 318, z 138, tile `t0_1_0`); the client starts at the square's east side by the Rokin-Damrak carriageway, E 121345 N 487335 heading 345 (x 345, z 165), so the own car parks beside the player | Binnenrotte at the Markthal arch: E 93075 N 437390, heading 180 (x 75, z 110, `t0_0_0`; the Markthal point itself is inside the building) |
 | Sample (1 km²) | E 120500-121500, N 487000-488000 = `t0_-2_-2` .. `t0_1_1`: Dam, Singel, Herengracht, Keizersgracht, Prinsengracht, Westerkerk | E 92500-93500, N 436500-437500 = `t0_-2_0` .. `t0_1_3`: Markthal, Blaak, Oude Haven, Leuvehaven, Boompjes, north end of the Erasmusbrug |
 | Water level | NAP -0.40 m (Amsterdam canal level) | NAP 0.0 m (tidal Nieuwe Maas) |
 | Tile service | `http://192.168.1.114:7980/coarse/` (preview page :7981) | `:7990/coarse/` (preview :7991) |

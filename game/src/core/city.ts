@@ -54,7 +54,10 @@ export const CITIES: Record<CityName, CityProfile> = {
   amsterdam: {
     name: 'amsterdam', title: 'Amsterdam', crs: 'EPSG:28992', heightDatum: 'NAP', projection: { kind: 'rd' },
     origin: { E: 121000, N: 487500 }, trueNorthGridBearingDeg: 0.395,
-    spawn: { E: 121318, N: 487362, headingDeg: 0, label: 'Dam' },
+    // Dam, at the east side of the square by the Rokin-Damrak carriageway (the rest of the square is car free): the
+    // own car parks on that street beside the player, who looks north-north-west over the square to the Nieuwe
+    // Kerk with the palace on the left; the return arch stands 12 m ahead on the square, off the carriageway.
+    spawn: { E: 121345, N: 487335, headingDeg: 345, label: 'Dam' },
     latLon: { lat: 52.3731, lon: 4.8926 }, tiles: '/cities/amsterdam/coarse/', room: '/city/amsterdam',
   },
   rotterdam: {
