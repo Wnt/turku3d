@@ -186,3 +186,31 @@ def test_a_poll_writes_the_request_journal_outside_the_scheduler_lock(tmp_path, 
         request.join(2)
         builder.stop()
     assert "t0_0_0" in request_journal.RequestJournal(tmp_path).rows
+
+
+def test_a_stale_tiles_collision_pair_is_checked_before_the_scheduler_lock(tmp_path, monkeypatch):
+    """After a producer change every tile is stale, and each poll read its collision pair and raw input key under
+    the scheduler lock."""
+    from turku3d.coarse import service
+
+    entered, release = threading.Event(), threading.Event()
+
+    def collision(builder, tile):
+        entered.set()
+        assert release.wait(2)
+        return {"collision": {}}
+
+    monkeypatch.setattr(service, "collision_current", collision)
+    builder = Builder(tmp_path, code="test", workers=0)
+    builder.two_pass = True
+    request = threading.Thread(target=builder._request, args=("t0_0_0", 0))
+    request.start()
+    try:
+        assert entered.wait(1)
+        assert builder.lock.acquire(timeout=.5), "the collision pair check held the scheduler condition"
+        builder.lock.release()
+    finally:
+        release.set()
+        request.join(2)
+        builder.stop()
+    assert "t0_0_0" in builder.upgrade_queue

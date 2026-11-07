@@ -167,6 +167,7 @@ class Builder:
         self.rechecking: set[str] = set()  # tiles whose expired verdict is being checked again behind the answer
         self.fragment_memo: dict[str, tuple] = {}  # tile -> ((version, code), served fragment, read at): serving.py
         self.fragment_refreshing: set[str] = set()
+        self.pass_kinds: dict[str, tuple] = {}  # tile -> ((manifest mtime, size), pass_kind)
         self.building: dict[str, float] = {}
         self.failed: dict[str, tuple[str, float]] = {}
         self.failure_codes: dict[str, tuple] = {}
@@ -304,6 +305,23 @@ class Builder:
     def failure_key(self, tile):
         return failed_identity(self, tile)
 
+    def pass_kind(self, tile: str) -> str | None:
+        """The manifest's pass_kind, read again only when the manifest file changes."""
+        try:
+            st = self.manifest(tile).stat()
+        except OSError:
+            return None
+        key = (st.st_mtime_ns, st.st_size)
+        hit = self.pass_kinds.get(tile)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        try:
+            kind = json.loads(self.manifest(tile).read_text()).get("pass_kind")
+        except (OSError, ValueError, AttributeError):
+            return None
+        self.pass_kinds[tile] = (key, kind)
+        return kind
+
     def cached(self, tile: str) -> bool:
         return complete_tile(self.root, tile, FILE)
 
@@ -317,9 +335,17 @@ class Builder:
 
     def _request(self, tile: str, distance: float) -> dict:
         """Queue or re-prioritise a tile; returns its state."""
-        # The tile's first freshness check reads its manifest and raw input key: do it before taking the scheduler
-        # lock, so the checks below are cache hits and no other tile's request waits on this one's disk reads.
-        self.built(tile)
+        # Everything that reads the disk (the freshness check with its raw input key, the manifest's pass kind, the
+        # collision pair) happens before taking the scheduler lock, so the checks
+        # below are cache hits or precomputed and no other tile's request waits on this one's disk reads (a loaded
+        # host's disk stalled for seconds: city.lab Espoo, 2026-11-07).
+        built = self.built(tile)
+        first_pass = self.two_pass and built and tile not in self.upgrading and self.pass_kind(tile) == "first"
+        collision = (
+            collision_current(self, tile)
+            if self.two_pass and not built and tile not in self.building and tile not in self.priority
+            else None
+        )
         with self.lock:
             self.requested[tile] = time.time()
             if unavailable := unavailable_reply(self, tile):
@@ -345,21 +371,20 @@ class Builder:
                 )
             if self.built(tile):
                 self.requested[tile] = time.time()
-                if self.two_pass and tile not in self.upgrading and self.manifest(tile).exists():
-                    m = json.loads(self.manifest(tile).read_text())
-                    if (
-                        m.get("pass_kind") == "first"
-                        and time.time() - self.failed.get(tile, ("", 0))[1] >= RETRY_SECONDS
-                    ):
-                        self.upgrade_queue.add(tile)
-                        self.upgrade_requested[tile] = time.time()
-                        self.lock.notify_all()
+                if (
+                    first_pass
+                    and tile not in self.upgrading
+                    and time.time() - self.failed.get(tile, ("", 0))[1] >= RETRY_SECONDS
+                ):
+                    self.upgrade_queue.add(tile)
+                    self.upgrade_requested[tile] = time.time()
+                    self.lock.notify_all()
                 self.pending.pop(tile, None)
                 self.servable = self.servable | {tile}
                 return {"state": "built"}
             # A structural job releases its worker before any visual packaging.
             # Visual polling must enqueue enrichment, never repeat the first pass.
-            if self.two_pass and collision_current(self, tile) is not None:
+            if self.two_pass and collision is not None:
                 if tile in self.pending and (missing := self.enrichment_inputs(tile)):
                     self.pending[tile] = (missing, distance)
                     return {"state": "pending-data", "missing": missing}
@@ -383,9 +408,10 @@ class Builder:
         try:
             missing = self.inputs(tile)
         except NoCoverage as e:
+            code = self.failure_key(tile)
             with self.lock:
                 self.failed[tile] = (f"NoCoverage: {e}", time.time())
-                self.failure_codes[tile] = self.failure_key(tile)
+                self.failure_codes[tile] = code
             return {"state": "failed", "error": str(e)}
         with self.lock:
             self.requested[tile] = time.time()
