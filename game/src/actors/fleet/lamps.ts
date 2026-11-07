@@ -4,6 +4,8 @@ import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import { sharedNode } from '../parkedPaint';
 const states=new WeakMap<THREE.Object3D,THREE.InstancedBufferAttribute|THREE.InterleavedBufferAttribute>();
+/** The lamp-state attribute of a batch (fleetLamps), for program sharing (render/instancePrograms.ts roles). */
+export function lampStateOf(mesh:THREE.Object3D){const a=states.get(mesh);return a&&(a as THREE.InstancedBufferAttribute).isInstancedBufferAttribute?a as THREE.InstancedBufferAttribute:undefined;}
 /** A batch whose lamp states share an instanced buffer with other per-instance data (damageRig.ts damageBatch). */
 export function shareLampBuffer(mesh:THREE.InstancedMesh,attribute:THREE.InterleavedBufferAttribute){states.set(mesh,attribute);}
 /** Parked engines are off; ambient traffic and driven actors power their lamps. `indicators`: -1 left, 1 right, 2 both

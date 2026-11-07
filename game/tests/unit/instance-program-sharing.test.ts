@@ -5,7 +5,7 @@ import NodeManager from 'three/src/renderers/common/nodes/NodeManager.js';
 // @ts-expect-error r186 internal render object has no DefinitelyTyped declaration.
 import RenderObject from 'three/src/renderers/common/RenderObject.js';
 import { GameRenderer } from '../../src/render/shadowMaterials';
-import { instancePrograms, shareInstanceProgram, shareInstancePrograms, type InstanceDraw } from '../../src/render/instancePrograms';
+import { instancePrograms, previousColumns, shareInstanceProgram, shareInstancePrograms, type InstanceDraw } from '../../src/render/instancePrograms';
 
 let cleanup: (() => void) | null = null;
 afterEach(() => { cleanup?.(); cleanup = null; });
@@ -102,4 +102,51 @@ test('shared draws follow their own instance updates and survive the build owner
   expect((state as unknown as { usedTimes: number }).usedTimes).toBe(1);
   expect(nodes.getForRender(draw(mesh(9)))).toBe(state);
   (second as unknown as { dispose(): void }).dispose();
+});
+
+test('moving instances (fleet) share one velocity program; each mesh binds and keeps its own previous matrices and role attributes', () => {
+  const { nodes, draw } = fixture(), create = vi.spyOn(nodes, '_createNodeBuilder');
+  const paints = new WeakMap<THREE.Object3D, THREE.InstancedBufferAttribute>();
+  const material = new THREE.MeshStandardNodeMaterial();
+  // Like actors/parkedPaint.ts paintNode: the graph binds builder.object's own per-instance attribute.
+  material.colorNode = THREE.TSL.Fn((builder: { object: THREE.Object3D }) => THREE.TSL.instancedBufferAttribute(paints.get(builder.object)!, 'vec3'))() as unknown as THREE.Node<'vec3'>;
+  const geometry = new THREE.BoxGeometry();
+  const car = (count: number) => {
+    const mesh = new THREE.InstancedMesh(geometry, material, count);
+    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(i * 4, 0, count));
+    const paint = new THREE.InstancedBufferAttribute(new Float32Array(count * 3).fill(count / 10), 3);
+    paints.set(mesh, paint);
+    shareInstanceProgram(mesh, false, { moving: true, attributes: { paint } });
+    return { mesh, paint };
+  };
+  const velocity = { id: 2, mrt: new THREE.MRTNode({ output: THREE.TSL.output, velocity: THREE.TSL.velocity }) };
+  const cars = [car(4), car(16), car(64)];
+  const draws = cars.map(({ mesh }) => { const value = draw(mesh, velocity); (value as unknown as { material: THREE.Material }).material = material; return value; });
+  // r186 asks the renderer's MRT whether a build needs previous-frame data (beauty's velocity output).
+  const renderer = (nodes as unknown as { renderer: THREE.WebGPURenderer }).renderer;
+  renderer.setMRT(velocity.mrt);
+  const states = draws.map(value => nodes.getForRender(value));
+  renderer.setMRT(null);
+  expect(new Set(states).size).toBe(1); expect(create).toHaveBeenCalledOnce();
+  for (let i = 0; i < cars.length; i++) {
+    const { mesh, paint } = cars[i], own = arrays(draws[i]);
+    expect(own.filter(array => array === mesh.instanceMatrix.array)).toHaveLength(4);
+    expect(own.filter(array => array === previousColumns(mesh).array)).toHaveLength(4);
+    expect(draws[i].getAttributes()).toContain(paint);
+    for (const other of cars) if (other !== cars[i])
+      expect(own.some(array => array === other.mesh.instanceMatrix.array || array === other.paint.array || array === previousColumns(other.mesh).array)).toBe(false);
+  }
+  // r186's after-draw hook, run for a non-owner mesh: it keeps that mesh's own previous matrices (and does not throw).
+  const hook = (states[0] as unknown as { updateAfterNodes: { updateAfter(frame: object): void }[] }).updateAfterNodes;
+  const { mesh } = cars[1];
+  const before = previousColumns(mesh).array.slice();
+  mesh.setMatrixAt(3, new THREE.Matrix4().makeTranslation(100, 2, 3)); mesh.instanceMatrix.needsUpdate = true;
+  expect(Array.from(previousColumns(mesh).array)).toEqual(Array.from(before));
+  for (const node of hook) node.updateAfter({ object: mesh });
+  expect(Array.from(previousColumns(mesh).array)).toEqual(Array.from(mesh.instanceMatrix.array));
+  expect(previousColumns(mesh).buffer.version).toBe(mesh.instanceMatrix.version);
+  for (const node of hook) node.updateAfter({ object: cars[0].mesh });
+  // A shadow (no velocity) pass of the same meshes shares a separate program without previous data.
+  const shadow = cars.map(({ mesh: value }) => { const d = draw(value); (d as unknown as { material: THREE.Material }).material = material; return nodes.getForRender(d); });
+  expect(new Set(shadow).size).toBe(1); expect(shadow[0]).not.toBe(states[0]);
 });

@@ -30,15 +30,28 @@ export function instancePrograms(builder: NodeBuilder, object: THREE.Object3D) {
     (builder as NodeBuilder & { getUniformBufferLimit(): number }).getUniformBufferLimit = () => 0;
 }
 
-const SHARED = 'sharedInstanceProgram', STATIC = 'staticInstances';
+const SHARED = 'sharedInstanceProgram', STATIC = 'staticInstances', MOVING = 'movingInstances';
+/** Per-instance attributes a shared mesh's material binds by role while its graph is built (fleet paint and lamp
+ *  states): the shared program reads the build owner's, and each draw binds its own mesh's attribute of that role. */
+const roles = new WeakMap<THREE.Object3D, Readonly<Record<string, THREE.InstancedBufferAttribute>>>();
+export interface ShareOptions {
+  /** Instances move (traffic and parked cars): velocity passes share too, each mesh with its own previous-frame
+   *  instance matrices (`previousColumns`), updated after its own draw as r186 does for the build owner. */
+  moving?: boolean;
+  /** Per-instance attributes the material reads from builder.object, by role; every mesh sharing the program has
+   *  the same roles (they are part of the program key). */
+  attributes?: Readonly<Record<string, THREE.InstancedBufferAttribute>>;
+}
 /** Opt in for an InstancedMesh whose materials read no object-specific data while their graph is built
- * (no builder.object lookups). Its built program is then shared by every such mesh with the same
- * material, geometry layout, pass and instance layout, so streamed tiles add instances, not builds.
+ * (no builder.object lookups other than `options.attributes`). Its built program is then shared by every such mesh
+ * with the same material, geometry layout, pass and instance layout, so streamed tiles add instances, not builds.
  * `still`: instances never move (vegetation), so velocity passes may share too: their velocity is the camera's
  * alone, and a repacked pool never pairs a slot with another tree's previous matrix. */
-export function shareInstanceProgram(mesh: THREE.InstancedMesh, still = false) {
+export function shareInstanceProgram(mesh: THREE.InstancedMesh, still = false, options: ShareOptions = {}) {
   mesh.userData[SHARED] = true;
   if (still) mesh.userData[STATIC] = true;
+  if (options.moving && !still) mesh.userData[MOVING] = true;
+  if (options.attributes) roles.set(mesh, options.attributes);
 }
 
 /** r186 keys every InstancedMesh build by object.uuid because its instance nodes bind that mesh's own
@@ -51,8 +64,10 @@ export function sharesInstanceProgram(draw: InstanceDraw) {
   return mesh.isInstancedMesh === true && mesh.userData[SHARED] === true && !mesh.isSkinnedMesh && !mesh.morphTexture
     && (mesh.instanceMatrix as InstanceAttribute).isStorageInstancedBufferAttribute !== true
     && (mesh.instanceColor as InstanceAttribute | null)?.isStorageInstancedBufferAttribute !== true
-    && (draw.context.mrt?.has('velocity') !== true || mesh.userData[STATIC] === true);
+    && (draw.context.mrt?.has('velocity') !== true || mesh.userData[STATIC] === true || mesh.userData[MOVING] === true);
 }
+/** A shared draw that keeps r186's previous-frame instance data: moving instances in a velocity pass. */
+const movingVelocity = (draw: InstanceDraw) => draw.context.mrt?.has('velocity') === true && draw.object.userData[MOVING] === true;
 
 /** The r186 render-object key without the per-object instancing term, plus the instance layout. */
 export function sharedInstanceKey(draw: InstanceDraw) {
@@ -62,7 +77,9 @@ export function sharedInstanceKey(draw: InstanceDraw) {
   let key: string;
   try { key = `${draw.getMaterialCacheKey()},${draw.getDynamicCacheKey()}`; }
   finally { instance.isInstancedMesh = true; mesh.count = count; }
-  return THREE.NodeUtils.hashString(`instance-program:${key}:${mesh.instanceMatrix.usage}:${mesh.instanceColor?.usage ?? 'none'}`);
+  const own = roles.get(mesh), layout = own ? Object.keys(own).sort().map(name => `${name}/${own[name].itemSize}/${own[name].usage}`).join(';') : '';
+  return THREE.NodeUtils.hashString(`instance-program:${key}:${mesh.instanceMatrix.usage}:${mesh.instanceColor?.usage ?? 'none'}`
+    + `:${movingVelocity(draw) ? 'moving' : ''}:${layout}`);
 }
 
 interface Own { buffer: THREE.InstancedInterleavedBuffer; columns: THREE.InterleavedBufferAttribute[] }
@@ -96,18 +113,65 @@ function follow(target: { version: number; clearUpdateRanges(): void; addUpdateR
   target.version = source.version;
 }
 
+/** Each moving shared mesh's previous-frame instance matrices: r186 keeps them for the build owner only (a clone of
+ *  its matrices behind module-private state), so the other meshes of a shared velocity program bind these. Starts as
+ *  the current matrices (no motion on the first frame, as r186's clone). */
+interface Previous { array: Float32Array; buffer: THREE.InstancedInterleavedBuffer; columns: THREE.InterleavedBufferAttribute[] }
+const ownPrevious = new WeakMap<THREE.Object3D, Previous>();
+export function previousColumns(mesh: Mesh, usage: THREE.Usage = mesh.instanceMatrix.usage) {
+  let own = ownPrevious.get(mesh);
+  if (!own || own.array.length !== mesh.instanceMatrix.array.length) {
+    const array = new Float32Array(mesh.instanceMatrix.array as Float32Array), buffer = new THREE.InstancedInterleavedBuffer(array, 16, 1);
+    buffer.setUsage(usage); buffer.version = mesh.instanceMatrix.version;
+    own = { array, buffer, columns: [0, 4, 8, 12].map(offset => new THREE.InterleavedBufferAttribute(buffer, 4, offset)) };
+    ownPrevious.set(mesh, own);
+  }
+  return own;
+}
+/** After a moving shared mesh's velocity draw: this frame's matrices become its previous ones (r186's
+ *  OnAfterObjectUpdate in Instance.js, for every mesh of the program instead of its build owner alone). */
+export function keepPreviousInstances(mesh: Mesh) {
+  const own = ownPrevious.get(mesh);
+  if (!own) return;
+  own.array.set(mesh.instanceMatrix.array as Float32Array);
+  own.buffer.version = mesh.instanceMatrix.version;
+}
+
 /** Replace the build owner's instance vertex buffers by this draw's own buffers over the same arrays. */
 export function remapInstanceAttributes(attributes: Attribute[], owner: Mesh, mesh: Mesh) {
   const geometry = new Set(Object.values(mesh.geometry.attributes));
+  const ownerRoles = roles.get(owner), meshRoles = roles.get(mesh);
   return attributes.map(attribute => {
     if (geometry.has(attribute)) return attribute;
     const interleaved = attribute as THREE.InterleavedBufferAttribute;
     if (interleaved.isInterleavedBufferAttribute && interleaved.data.array === owner.instanceMatrix.array && interleaved.itemSize === 4)
       return matrixColumns(mesh.instanceMatrix).columns[interleaved.offset / 4];
+    // The owner's previous-frame matrices (velocity programs of moving instances): one 16-float instanced buffer
+    // that is neither its matrices nor a role attribute.
+    if (mesh.userData[MOVING] === true && interleaved.isInterleavedBufferAttribute && interleaved.itemSize === 4
+      && interleaved.data.stride === 16 && (interleaved.data as unknown as { isInstancedInterleavedBuffer?: boolean }).isInstancedInterleavedBuffer === true)
+      return previousColumns(mesh, interleaved.data.usage).columns[interleaved.offset / 4];
     if (owner.instanceColor && mesh.instanceColor && (attribute as THREE.BufferAttribute).array === owner.instanceColor.array)
       return colorAttribute(mesh.instanceColor);
+    if (ownerRoles && meshRoles) for (const name in ownerRoles) if (ownerRoles[name] === attribute && meshRoles[name]) return meshRoles[name];
     return attribute;
   });
+}
+
+/** r186's after-draw hook of a velocity program's instancing (Instance.js) looks up the previous matrices of the
+ *  drawn object, which exist for the build owner only: for every other mesh of a shared program it would throw. Wrap
+ *  it so the owner keeps r186's update and every mesh (owner included, whose draws bind `previousColumns` too) keeps
+ *  its own. Recognised by the property it reads; the rest of the program's hooks are untouched. */
+export function shareInstanceHooks(state: { updateAfterNodes?: { callback?: (frame: { object: THREE.Object3D | null }) => unknown }[] }, owner: Mesh) {
+  for (const node of state.updateAfterNodes ?? []) {
+    const original = node.callback;
+    if (typeof original !== 'function' || !String(original).includes('previousInstanceMatrix')) continue;
+    node.callback = frame => {
+      const object = frame.object as Mesh | null;
+      if (object === owner) original(frame);
+      if (object?.isInstancedMesh) keepPreviousInstances(object);
+    };
+  }
 }
 
 /** Install after renderer initialization, when its node and geometry managers exist. */
@@ -151,6 +215,7 @@ export function shareInstancePrograms(renderer: THREE.WebGPURenderer) {
     const state = createState.call(this, builder);
     const object = (builder as unknown as { object: Mesh | null }).object;
     if (object?.isInstancedMesh) owners.set(state, object);
+    if (object?.isInstancedMesh && object.userData[MOVING] === true) shareInstanceHooks(state as Parameters<typeof shareInstanceHooks>[0], object);
     return state;
   };
   geometries.updateForRender = function (draw) {
@@ -164,9 +229,10 @@ export function shareInstancePrograms(renderer: THREE.WebGPURenderer) {
     update.call(this, draw);
   };
   return {
-    /** Shared states hold no object hook: previous instance matrices stay with each mesh's velocity pass. */
+    /** Shared states hold no previous-frame instance data, except moving instances in velocity passes: there every
+     *  mesh binds its own previous matrices (remapInstanceAttributes) and keeps them after its draw (shareInstanceHooks). */
     builder(builder: NodeBuilder, draw: InstanceDraw) {
-      if (shared.has(draw)) (builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData = () => false;
+      if (shared.has(draw) && !movingVelocity(draw)) (builder as NodeBuilder & { needsPreviousData(): boolean }).needsPreviousData = () => false;
     },
     dispose() {
       nodes.getForRenderCacheKey = getKey; nodes._createNodeBuilderState = createState; geometries.updateForRender = update;

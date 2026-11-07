@@ -5,14 +5,15 @@ import type { Manifest, ParkedVehicle } from '../../world/manifest';
 import type { ParkedPose } from '../../world/parkedVehicles';
 import { CHASSIS_LIFT, CLAIM_PREFIX } from '../../traffic/constants';
 import { hazardOn, mechanicsOf, wrecked } from '../../vehicle/mechanics';
-import { paintActor, paintInstances } from '../parkedPaint';
+import { instancePaintOf, paintActor, paintInstances } from '../parkedPaint';
 import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fallbackModel, fleetModel, type FleetModel } from './catalog';
 import { loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
 import { AUTHORED_BY_ID } from './registry';
 import { addAuthoredFleetWheels, applyFleetWheels } from './wheels';
 import { vehicleLamps } from '../../vehicle/lamps';
-import { fleetLamps } from './lamps';
+import { fleetLamps, lampStateOf } from './lamps';
+import { shareInstanceProgram } from '../../render/instancePrograms';
 import { ackermann, wheelRotation } from '../../vehicle/wheelKinematics';
 import { fleetDamageMaterial, fleetGlassDamageMaterial, fleetGlassMaterial, fleetMaterial, fleetNight } from './material';
 import { DamageRig, damageBatch, modelLayout, rigOf, skinToCage, skinToCageAsync } from './damageRig';
@@ -26,6 +27,15 @@ export interface TrafficInstance { model: string; color: string; x: number; y: n
   /** A just-claimed car's body damage (traffic/client.ts draws it from its physics body until its record loads). */
   damage?: string }
 interface WheelDesign {key:string;pivot:{x:number;y:number;z:number};sharedSide:boolean}
+/** Plain fleet batches (parked and traffic bodies, their glazing and wheels) share one program per material, geometry
+ *  layout and pass instead of one per model, LOD and wheel design (r186 keys every InstancedMesh by its uuid: ~450 of
+ *  the ~740 programs a city.lab join built, 100 s of deferred builds on an M1 Air). Each draw binds its own instance
+ *  matrices, previous matrices, paints and lamp states (render/instancePrograms.ts). Damaged batches keep their own. */
+function shareBatchProgram(mesh:THREE.InstancedMesh){
+  const paint=instancePaintOf(mesh),lamps=lampStateOf(mesh);
+  if(!paint||!lamps||!(paint as THREE.InstancedBufferAttribute).isInstancedBufferAttribute)return;
+  shareInstanceProgram(mesh,false,{moving:true,attributes:{paint:paint as THREE.InstancedBufferAttribute,lamps}});
+}
 interface WheelBatch { mesh:THREE.InstancedMesh; count:number; dirty:boolean }
 interface Batch { mesh: THREE.InstancedMesh; glass?: THREE.InstancedMesh; model: FleetModel; lod: number; paints: string[]; lamps: number[]; indicators: number[]; brakes: number[]; count: number; dirty: boolean;
   /** A batch of damaged cars (damageRig.ts damageBatch): each instance's pool slot. */
@@ -181,7 +191,7 @@ export class ParkedCarVisuals {
         const mesh=new THREE.InstancedMesh(this.geometries.get(geometryKey)!,fleetMaterial(),capacity);
         // Empty batches hide (count 0); compileModel still prepares them (prepareHidden), shadow pass included.
         mesh.name=`wheels/${key}`;mesh.castShadow=plan.lod===0;mesh.receiveShadow=true;mesh.userData.prepareHidden=true;
-        mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);
+        mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);shareBatchProgram(mesh);
         wheelReplacements.push([key,{mesh,count:0,dirty:true}]);await this.prepare(mesh);
       }
       for(const model of models) for(let lod=0;lod<3;lod++) {
@@ -193,10 +203,10 @@ export class ParkedCarVisuals {
         }
         const mesh=new THREE.InstancedMesh(this.geometry(model,lod),fleetMaterial(),capacity);
         mesh.name=`parked/${key}`; mesh.castShadow=lod===0; mesh.receiveShadow=true; mesh.userData.prepareHidden=true;
-        mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]);
+        mesh.count=0; mesh.setMatrixAt(0,HIDDEN); paintInstances(mesh,[]); fleetLamps(mesh,[]); shareBatchProgram(mesh);
         const glassGeometry=this.geometries.get(`${key}/glass`);
         const glass=glassGeometry?new THREE.InstancedMesh(glassGeometry,fleetGlassMaterial(),capacity):undefined;
-        if(glass){glass.name=`parked-glass/${key}`;glass.instanceMatrix=mesh.instanceMatrix;glass.count=0;glass.receiveShadow=true;mesh.add(glass);}
+        if(glass){glass.name=`parked-glass/${key}`;glass.instanceMatrix=mesh.instanceMatrix;glass.count=0;glass.receiveShadow=true;mesh.add(glass);shareInstanceProgram(glass,false,{moving:true});}
         const batch={mesh,glass,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true}; replacements.push([key,batch]);
         await this.prepare(mesh);
       }
