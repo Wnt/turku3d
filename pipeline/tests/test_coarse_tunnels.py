@@ -717,6 +717,45 @@ def test_an_entry_and_exit_ramp_pair_into_an_unbuilt_tunnel_is_a_spur():
     assert len(kept.profiles) == 1 and len(kept.unbuilt) == 1
 
 
+def test_a_tunnel_ending_in_an_underground_garage_is_a_spur():
+    """Turku Toriparkki: the access tunnel from the P-Louhi entrance runs under Aurakatu to a corner of the Louhi
+    cavern (amenity=parking, parking=underground, layer -3). Its inner end was drawn as a portal at street level, and
+    the frame stood across both Aurakatu lanes. An end in a garage area is inside the rock: the way is not built."""
+    from turku3d.coarse.tunnels import garage, garage_ends
+
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    hill = lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5))  # noqa: E731  the ramp has measured depth
+    street = shapely.LineString([(0, 40), (20, 40)])
+    cavern = shapely.box(40, 0, 120, 80)
+    assert garage({"amenity": "parking", "parking": "underground"})
+    assert garage({"amenity": "parking", "layer": "-3", "level": "-2"})
+    assert not garage({"amenity": "parking", "parking": "surface"}) and not garage({"parking": "underground"})
+    ramp = ("ramp", shapely.LineString([(20, 40), (40, 40)]),
+            {"highway": "service", "service": "driveway", "tunnel": "yes", "layer": "-1",
+             "_approaches": [street, None]})
+    (tagged,) = garage_ends([ramp], [cavern])
+    assert tagged[2]["_garage_ends"] == [False, True]
+    assert "_garage_ends" not in garage_ends([ramp], [shapely.box(60, 0, 120, 80)])[0][2]
+    result = produce(tile, [tagged], pos, idx, [], extrude, hill)
+    assert not result.profiles and not result.meshes and len(result.unbuilt) == 1
+    # The same end continuing into a tunnel with a mouth of its own far away keeps both tubes; a ramp with no garage
+    # keeps its tube.
+    through = ("through", shapely.LineString([(40, 40), (40, 120)]),
+               {"highway": "service", "tunnel": "yes", "_approaches": [None, shapely.LineString([(40, 120), (40, 140)])]})
+    kept = produce(tile, [tagged, through], pos, idx, [], extrude,
+                   lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5, (115 - z) / 5)))
+    assert len(kept.profiles) == 2 and not kept.unbuilt
+    alone = produce(tile, [ramp], pos, idx, [], extrude, hill)
+    assert len(alone.profiles) == 1 and not alone.unbuilt
+    # The cavern's footway exits end on its outline too.
+    exit_ = ("exit", shapely.LineString([(36, 40), (40.5, 40)]), {"highway": "footway", "tunnel": "yes", "layer": "-1"})
+    (exit_,) = garage_ends([exit_], [cavern])
+    footway = produce(tile, [exit_], pos, idx, [], extrude, hill)
+    assert not footway.profiles and len(footway.unbuilt) == 1
+
+
 def test_passage_floors_stay_above_a_kink_inside_a_strip():
     """The ground grid kinks between a strip's probes; overlapping passages cut it there (Merituulentie at x 166)."""
     from turku3d.coarse.tunnels import passage_floors
