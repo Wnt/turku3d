@@ -56,10 +56,17 @@ const WORLD_SCOPES = new Set(['worldMatrix', 'position', 'scale', 'direction']);
 /** r186's per-object matrix uniforms derived from matrixWorld (onObjectUpdate callbacks of its own). */
 const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse]);
 
+const describe = (node: Node) => `${node.constructor.type ?? '?'}:${node.scope ?? node.property ?? node.name ?? ''}`;
+
 /** Whether the observer's `equals` covers every per-object node update of the program. */
 export function observable(state: State, refreshUniforms: readonly string[]): boolean {
-  for (const node of state.updateBeforeNodes) if (node.updateBeforeType === OBJECT) return false;
-  for (const node of state.updateAfterNodes) if (node.updateAfterType === OBJECT && node !== velocity) return false;
+  return uncovered(state, refreshUniforms) === null;
+}
+
+/** The first per-object node update the observer does not cover (its class and scope/property/name), else null. */
+export function uncovered(state: State, refreshUniforms: readonly string[]): string | null {
+  for (const node of state.updateBeforeNodes) if (node.updateBeforeType === OBJECT) return `before ${describe(node)}`;
+  for (const node of state.updateAfterNodes) if (node.updateAfterType === OBJECT && node !== velocity) return `after ${describe(node)}`;
   for (const node of state.updateNodes) {
     if (node.updateType !== OBJECT) continue;
     if (node === velocity || MATRIX_UNIFORMS.has(node) || node.isUniformGroup) continue;
@@ -69,9 +76,9 @@ export function observable(state: State, refreshUniforms: readonly string[]): bo
     if (type === 'TextureNode') continue;
     if ((type === 'Object3DNode' || type === 'ModelNode') && WORLD_SCOPES.has(node.scope ?? '')) continue;
     if (node.isMaterialReferenceNode && node.material === null && refreshUniforms.includes(node.property ?? '')) continue;
-    return false;
+    return `update ${describe(node)}`;
   }
-  return true;
+  return null;
 }
 
 /** The texture nodes the program's material references set per draw (the draw's own maps). */
@@ -96,14 +103,22 @@ export function ownedUniforms(state: State) {
 /** Whether every per-object buffer binding of the draw holds only uniforms the covered nodes own. Shared groups
  *  update in the program's SHARED refresh; storage buffers and plain uniform buffers are never covered. */
 export function coveredBindings(draw: Draw, owned: Set<unknown>): boolean {
+  return freeBinding(draw, owned) === null;
+}
+
+/** The first per-object binding value the covered nodes do not own, else null. */
+export function freeBinding(draw: Draw, owned: Set<unknown>): string | null {
   for (const group of draw.getBindings()) for (const binding of group.bindings) {
-    if (binding.isStorageBuffer) return false;
+    if (binding.isStorageBuffer) return `storage ${binding.name ?? ''}`;
     if (!binding.isUniformBuffer && !binding.isNodeUniformsGroup) continue;
     if (binding.groupNode?.shared === true) continue;
-    if (!binding.isNodeUniformsGroup) return false;
-    for (const uniform of binding.uniforms ?? []) if (!owned.has(uniform.nodeUniform?.node)) return false;
+    if (!binding.isNodeUniformsGroup) return `buffer ${binding.name ?? ''}`;
+    for (const uniform of binding.uniforms ?? []) {
+      const node = uniform.nodeUniform?.node;
+      if (!owned.has(node)) return `uniform ${node ? `${describe(node)}:${node.updateType ?? ''}` : '?'}`;
+    }
   }
-  return true;
+  return null;
 }
 
 /** Whether a bound texture changed since the draw's last full refresh: a new version of the texture it binds, or
@@ -186,6 +201,15 @@ export function staticRefresh(renderer: object) {
   };
   return {
     stats,
+    /** Why a draw keeps r186's full refresh ('covered' when it does not). Diagnostics. */
+    explain(draw: Draw) {
+      const state = draw.getNodeBuilderState(), monitor = draw.getMonitor(), object = draw.object;
+      const program = uncovered(state, monitor.refreshUniforms);
+      if (program) return `program ${program}`;
+      if (monitor.hasAnimation || object.isSkinnedMesh || object.isBatchedMesh || object.morphTargetInfluences) return 'animated';
+      if (monitor.hasDynamicInstancing(object)) return 'dynamic instancing';
+      return freeBinding(draw, ownedUniforms(state)) ?? 'covered';
+    },
     /** Run the full update behind every skipped draw for `frames` frames; resolves with what it would have missed. */
     audit(frames = 120) {
       return new Promise<Audit>(done => { audit = { until: info.frame + frames, start: info.frame, skipped: 0, missed: 0, rows: new Map(), done }; });
