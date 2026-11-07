@@ -243,6 +243,7 @@ def _nl(name, title, origin, spawn, latlon, label, osm, sample, water):
             "kanta:Vesikohde": "bgt-water",
             "GIS:Puut": "bgt-trees",
             "frn:CityFurniture_LOD2": "bgt-lamps",
+            "kanta:Rakenne": "bgt-walls",
         },
         wfs_absent={
             "GIS:Liikennemerkit": "BGT bord has no sign codes yet; OSM traffic_sign tags",
@@ -253,7 +254,6 @@ def _nl(name, title, origin, spawn, latlon, label, osm, sample, water):
             "GIS:Pysakointiautomaatit": "OSM vending=parking_tickets",
             "GIS:Follariasemat": "OSM bicycle_rental",
             "kanta:Korkeuspiste": "AHN ground points are the height source",
-            "kanta:Rakenne": "BGT scheiding/kunstwerkdeel not mapped yet",
             "GIS:Lupapysakointipaikat": "no permit-parking kerbs",
         },
         datasets=NL_DATASETS

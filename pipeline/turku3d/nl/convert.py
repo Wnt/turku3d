@@ -627,8 +627,61 @@ def bridge_decks(bbox, log=print):
     return out
 
 
+# BGT scheiding "muur" at ground level as the city structure layer's retaining-wall lines (kanta:Rakenne, Turku code
+# 66634). The retaining survey measures each line against the raw lidar and keeps only runs with a sustained step
+# (garage ramps, sunken yards, terrace edges), so a free-standing wall with level ground on both sides adds nothing.
+# Lines along a building face (the facade is the wall), on a quay edge (the bank stage owns it), at the water or
+# inside a carriageway are left out.
+WALL_TYPES = ("muur",)
+RETAINING_CODE = "66634"
+WALL_FACADE_CLEARANCE = 0.5  # m: a wall line this close to a BGT pand outline is that building's face
+WALL_QUAY_CLEARANCE = 1.0  # m: kademuur/walbescherming beside it
+WALL_WATER_CLEARANCE = 1.5  # m: a canal edge is a bank, not a retaining wall
+WALL_CARRIAGEWAY_INSET = 0.3  # m: a line may run on a carriageway's edge, never across it
+WALL_MIN_LENGTH = 1.5  # m: the retaining survey's shortest line
+
+
+def walls_bgt(bbox, log=print):
+    """kanta:Rakenne retaining-wall lines (66634) from BGT scheiding_lijn "muur" at relatieve_hoogteligging 0."""
+    import shapely
+
+    walls, quays, carriageways = [], [], []
+    for _, key, p, g in bgt_features(("scheiding_vlak", "scheiding_lijn"), bbox, log):
+        if int(p.get("relatieve_hoogteligging") or 0) != 0:
+            continue
+        kind_ = p.get("type")
+        if kind_ in QUAY_EDGES:
+            quays.append(g)
+        elif kind_ in WALL_TYPES and g.geom_type in ("LineString", "MultiLineString"):
+            walls.append((key, g))
+    if not walls:
+        return []
+    for _, _, p, g in bgt_features(STREET_COLLECTIONS, bbox, log):
+        if (p.get("functie") or "").startswith("rijbaan") and not underground(p) and g.geom_type in ("Polygon", "MultiPolygon"):
+            carriageways.append(g)
+    facades = [g.boundary for _, _, _, g in bgt_features(("pand",), bbox, log) if g.geom_type in ("Polygon", "MultiPolygon")]
+    water = [g for _, _, p, g in bgt_features(WATER_COLLECTIONS, bbox, log) if not underground(p)]
+    blocked = shapely.union_all([
+        *[f.buffer(WALL_FACADE_CLEARANCE) for f in facades],
+        *[q.buffer(WALL_QUAY_CLEARANCE) for q in quays],
+        *[w.buffer(WALL_WATER_CLEARANCE) for w in water],
+        *[c.buffer(-WALL_CARRIAGEWAY_INSET) for c in carriageways],
+    ])
+    rows = []
+    for key, g in walls:
+        kept = g.difference(blocked) if not blocked.is_empty else g
+        parts = [part for part in getattr(kept, "geoms", [kept])
+                 if part.geom_type == "LineString" and part.length >= WALL_MIN_LENGTH]
+        for i, part in enumerate(parts):
+            rows.append({"layer": "kanta:Rakenne", "feature_key": key, "gml_id": key, "geom_index": i, "geometry": part,
+                         "geom_type": "LineString", "geom_role": "scheiding_lijn", "surface_type": "", "part_id": "",
+                         "surface_id": "", "kplkoodi": RETAINING_CODE, "bgt_type": "muur"})
+    return rows
+
+
 ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt,
-            "bgt-trees": trees_bgt, "bgt-lamps": lamps_bgt}
+            "bgt-trees": trees_bgt, "bgt-lamps": lamps_bgt,
+            "bgt-walls": walls_bgt}
 
 
 def derive(layer, area, adapter: str, log=print) -> dict:
