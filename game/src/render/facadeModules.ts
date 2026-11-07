@@ -227,26 +227,32 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     cellGeometry.attributes={...geometry.attributes};cellGeometry.boundingBox=geometry.boundingBox;cellGeometry.boundingSphere=geometry.boundingSphere;
     const planes=new THREE.InstancedBufferAttribute(new Float32Array(rows.length*4),4);
     cellGeometry.setAttribute('_facade_plane',planes);
-    const mesh = new THREE.InstancedMesh(cellGeometry, material, rows.length);
+    // The instance buffer is filled once, with the re-centred matrices: the InstancedMesh constructor wrote an identity
+    // per instance and the cell then wrote every matrix twice (before and after re-centring), 7.3 s of setMatrixAt
+    // over a 6.7-minute Windows drive (frame-mp win-drive-2).
+    const mesh = new THREE.InstancedMesh(cellGeometry, material, 0);
+    mesh.instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(rows.length * 16), 16);
+    mesh.count = rows.length;
     mesh.name = 'facade-frame-sill'; mesh.userData.facadeModules = true;
     // Every cell of every tile draws one program per pass: r186 otherwise keys each InstancedMesh by its uuid, and
     // these cells were the largest program family (replay c9n7my: 532 prepared builds, plus their shadow builds).
     shareInstanceProgram(mesh, true);
-    // The bounds grow with the sliced instance loop: InstancedMesh.computeBoundingBox/-Sphere walked every instance of
+    // The bounds grow in a sliced pass of their own: InstancedMesh.computeBoundingBox/-Sphere walked every instance of
     // the cell twice in one step (1.4 s over a 6-minute drive on the Windows laptop, frame-mp win-drive-1). The sphere
     // encloses the box: conservative for culling, and its centre only re-centres the cell.
     const bounds=new THREE.Box3(),instanceBounds=new THREE.Box3();
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
-      mesh.setMatrixAt(i,rows[i].matrix);mesh.setColorAt(i,rows[i].colour);
       bounds.union(instanceBounds.copy(geometry.boundingBox!).applyMatrix4(rows[i].matrix));
     }
     mesh.boundingBox=bounds; mesh.boundingSphere=bounds.getBoundingSphere(new THREE.Sphere());
     const centre = mesh.boundingSphere!.center.clone();
     const shift = new THREE.Matrix4().makeTranslation(centre.clone().negate());
+    const matrices = mesh.instanceMatrix.array as Float32Array;
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
-      mesh.setMatrixAt(i,rows[i].matrix.premultiply(shift));
+      matrices.set(rows[i].matrix.premultiply(shift).elements, i * 16);
+      mesh.setColorAt(i,rows[i].colour);
       const p=rows[i].plane;
       planes.setXYZW(i,p.normal.x,p.normal.y,p.normal.z,-p.constant-p.normal.dot(centre));
     }
