@@ -91,6 +91,22 @@ def closed_to_cars(tags):
     return tags.get("access") == "no" or "no" in (tags.get("motor_vehicle"), tags.get("motorcar"))
 
 
+def underground(feature):
+    """An area mapped below the surface: an underground garage (parking=underground, location=underground, or a
+    polygon on a negative layer). It parks no car on the surface, and the surface above it is not a structure to
+    keep clear: Tapiola Park (layer -1, 330 places under Tapionaukio) blanked the three surface lots above it,
+    3 cars placed where the street panoramas show full rows."""
+    if feature.geometry.geom_type not in ("Polygon", "MultiPolygon"):
+        return False
+    tags = feature.tags
+    if tags.get("parking") == "underground" or tags.get("location") == "underground":
+        return True
+    try:
+        return float(str(tags.get("layer", "0")).split(";")[0]) < 0
+    except ValueError:
+        return False
+
+
 def unique(features):
     """A closed OSM way can come both as its ring and as its area: keep the first parking area."""
     seen, out = set(), []
@@ -220,6 +236,8 @@ def place(
         common.append(carried)
     for f in features:
         t, g = f.tags, f.geometry
+        if underground(f):
+            continue
         if (
             t.get("bridge", "no") != "no"
             or t.get("tunnel", "no") not in ("no", "building_passage")
@@ -273,7 +291,11 @@ def place(
 
     # (key, source, x, z, yaw, area, kind, street, priority) in a fixed order: areas, then kerbs.
     slots, capacity = [], {}
-    areas = [f for f in features if f.geometry.geom_type in ("Polygon", "MultiPolygon") and not closed_to_cars(f.tags)]
+    areas = [
+        f
+        for f in features
+        if f.geometry.geom_type in ("Polygon", "MultiPolygon") and not closed_to_cars(f.tags) and not underground(f)
+    ]
     aisles = [
         f
         for f in features

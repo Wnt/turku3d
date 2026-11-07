@@ -161,6 +161,20 @@ def test_bus_bays_closed_to_cars_stay_empty():
         assert not parked.place(TILE, (closed, []), np.zeros((129, 129)))
 
 
+def test_an_underground_garage_neither_parks_on_nor_blanks_the_surface():
+    """Tapionaukio: Tapiola Park (amenity=parking, parking=underground, layer -1) lies under three surface lots."""
+    zeros = np.zeros((129, 129))
+    surface = parked.place(TILE, (fixture(), []), zeros)
+    assert surface
+    for tags in ({"parking": "underground", "layer": "-1"}, {"layer": "-1"}, {"location": "underground"}):
+        garage = Feature("garage", shapely.box(760, 20, 980, 140), {"amenity": "parking", **tags})
+        assert parked.place(TILE, ([garage] + fixture(), []), zeros) == surface
+        assert not parked.place(TILE, ([garage], []), zeros)
+    # A deck above the ground still keeps its own clearance.
+    deck = Feature("deck", shapely.box(760, 20, 980, 140), {"man_made": "bridge", "layer": "1", "bridge": "yes"})
+    assert len(parked.place(TILE, ([deck] + fixture(), []), zeros)) < len(surface)
+
+
 def test_a_dutch_bgt_parking_bay_needs_no_sign_and_keeps_its_cars_inside():
     """Rotterdam: BGT parkeervlak polygons line Botersloot, but without a sign register no city 'other traffic
     area' became parking and the street stood empty. A BGT bay is a parking bay by definition; its cars stay inside
