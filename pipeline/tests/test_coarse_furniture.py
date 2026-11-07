@@ -338,6 +338,30 @@ def test_a_street_light_under_a_low_deck_is_dropped_but_not_under_a_high_one():
     assert unknown["stats"].get("lamp_through_deck") == 1  # no deck height: the deck builds its own lamps
 
 
+def test_a_bench_snapped_into_a_lane_moves_to_the_kerb_or_is_not_built(monkeypatch):
+    """Rotterdam Meent: the survey snap put a wooden bench on a blob mid-street, where the drive hit it."""
+    from turku3d.coarse import furniture
+    from turku3d.props import seating
+
+    roads = json.dumps({"nodes": [0, 50, 250, 50], "edges": [[0, 1, CAR | 2 << CLASS_SHIFT, 250.0]],
+                        "edgeAttrColumns": ["way", "width", "flags"], "edgeAttrs": [[1, 10.0, CAR | 2 << CLASS_SHIFT]]})
+    targets = {"bench-kerb": (120, 53.5), "bench-mid": (140, 50.0)}
+
+    def snap(benches, *args, **kwargs):
+        for bench in benches:
+            bench.x, bench.z = targets[bench.object_id]
+        return benches
+
+    monkeypatch.setattr(seating, "place", snap)
+    monkeypatch.setattr(seating, "survey_cloud", lambda *args: None)
+    benches = [Prop("bench-kerb", "bench", 120, 0, 58), Prop("bench-mid", "bench", 140, 0, 58)]
+    result = furniture.produce(TILE, benches, lambda x, z: 1.0, [], [], roads, shapely.Polygon())
+    assert result["stats"]["moved_out_of_lane:bench_snap"] == 1 and result["stats"]["dropped_in_lane:bench_snap"] == 1
+    kept = [p for p in result["poles"] if p.object_id == "bench-kerb"] or [
+        p for p in result.get("furniture", []) if getattr(p, "object_id", "") == "bench-kerb"]
+    assert kept and kept[0].z >= 54.7
+
+
 def test_a_post_in_a_traffic_lane_moves_to_the_kerb_or_is_not_built():
     from turku3d.coarse.furniture import produce
 
