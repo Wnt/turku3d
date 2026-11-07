@@ -1,12 +1,13 @@
 import * as THREE from 'three/webgpu';
-import { abs, atan, attribute, dot, float, floor, fract, length, max, mix, positionGeometry, select, sin, smoothstep, sRGBTransferEOTF, step, uniform, vec2, vec3 } from 'three/tsl';
+import { abs, atan, attribute, dot, float, floor, fract, length, max, mix, positionGeometry, select, sin, smoothstep, renderGroup, sRGBTransferEOTF, step, uniform, vec2, vec3 } from 'three/tsl';
 import type Node from 'three/src/nodes/core/Node.js';
 import { fleetLampNode } from './lamps';
 import { paintNode } from '../parkedPaint';
 import { deformByCage, surfaceMask, windowStage } from './damageRig';
 
 const decode = sRGBTransferEOTF as unknown as (srgb: Node<'vec3'>) => Node<'vec3'>;
-export const fleetNight = uniform(0);
+/** Night level, set per frame before the render, so one value for every draw: render group (static refresh skips unchanged draws). */
+export const fleetNight = uniform(0).setGroup(renderGroup);
 let shared: THREE.MeshStandardNodeMaterial | undefined, damageable: THREE.MeshStandardNodeMaterial | undefined;
 let sharedGlass: THREE.MeshPhysicalNodeMaterial | undefined, damageableGlass: THREE.MeshPhysicalNodeMaterial | undefined;
 /** Opaque fleet surfaces share one material (instanced batches and single actors); glazing uses a separate pass. */

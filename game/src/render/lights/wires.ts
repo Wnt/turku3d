@@ -6,7 +6,7 @@
 // shimmers at any distance and TRAA only refines it. The hung lamps are one instanced draw on the lamp posts'
 // material, and their lights join the street lights (coronas, light pools, ground lamp field).
 import * as THREE from 'three/webgpu';
-import { attribute, cameraPosition, clamp, cross, length, max, min, positionLocal, uniform, varying } from 'three/tsl';
+import { attribute, cameraPosition, clamp, cross, length, max, min, positionLocal, renderGroup, uniform, varying } from 'three/tsl';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Lamp } from './lampField';
 import { lampKey, owns, type Bounds } from './tileLights';
@@ -146,7 +146,7 @@ export class OverheadWires {
   readonly mesh: THREE.Mesh;
   readonly lamps: THREE.InstancedMesh;
   /** Metres per pixel at one metre from the camera: 2 tan(fov / 2) / drawing-buffer height. */
-  readonly pixelAngle = uniform(0.001);
+  readonly pixelAngle = uniform(0.001).setGroup(renderGroup); // set per frame before the render, so one value for every draw: render group (static refresh skips unchanged draws)
   private count = 0;
 
   /** `lampMaterial`: the lamp posts' material (vertex colours and the night glow of the diffuser). */

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { materialReference, modelViewPosition, uniform, vec3 } from 'three/tsl';
+import { materialReference, modelViewPosition, renderGroup, uniform, vec3 } from 'three/tsl';
 import fs from 'node:fs';
 // @ts-expect-error r186 internal cache has no DefinitelyTyped declaration.
 import NodeManager from 'three/src/renderers/common/nodes/NodeManager.js';
@@ -55,6 +55,10 @@ test('r186 programs whose per-object inputs the observer sees are covered; callb
   const { draw: lit, scene: litScene } = fixture();
   litScene.environment = new THREE.Texture(); litScene.environment.mapping = THREE.EquirectangularReflectionMapping;
   expect(covers(lit(new THREE.MeshStandardMaterial({ map: new THREE.Texture() })))).toBe(true);
+  // The same value as a per-frame global in the render group (the fleet's and lamp posts' night levels).
+  const global = new THREE.MeshStandardNodeMaterial();
+  global.emissiveNode = vec3(uniform(0).setGroup(renderGroup));
+  expect(covers(draw(global))).toBe(true);
   // A per-object uniform no node owns: code sets its value at any time (groundField's night, before renderGroup).
   const free = new THREE.MeshStandardNodeMaterial(), night = uniform(0);
   free.emissiveNode = vec3(night);
