@@ -107,3 +107,22 @@ test('spatial shadow chunks retain every triangle and bound all vertices, includ
   expect(frustum.intersectsObject(chunks[0])).toBe(true);
   expect(frustum.intersectsObject(root)).toBe(true);
 });
+
+test('shadow positions read from plain arrays equal the attribute path (interleaved), instanced and transformed', () => {
+  const build = (kind: 'plain' | 'interleaved') => {
+    const model = new THREE.Group(); model.position.set(-3, 2, 7); model.rotation.set(0.2, 1.1, 0);
+    const box = new THREE.BoxGeometry(2, 3, 4, 3, 2, 2), values = box.getAttribute('position').array as Float32Array;
+    const geometry = new THREE.BufferGeometry(); geometry.setIndex(box.index);
+    if (kind === 'plain') geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+    if (kind === 'interleaved') geometry.setAttribute('position', new THREE.InterleavedBufferAttribute(new THREE.InterleavedBuffer(values, 3), 3, 0));
+    const mesh = new THREE.InstancedMesh(geometry, new THREE.MeshStandardMaterial(), 2);
+    mesh.setMatrixAt(0, new THREE.Matrix4().makeTranslation(5, 0, 1));
+    mesh.setMatrixAt(1, new THREE.Matrix4().makeRotationY(0.4).setPosition(-9, 1, 3));
+    mesh.position.set(1, 0, -2); mesh.rotation.y = 0.3; model.add(mesh);
+    const root = batchTileShadows(model)!;
+    return { positions: [...root.geometry.getAttribute('position').array], index: [...root.geometry.index!.array] };
+  };
+  const plain = build('plain');
+  expect(plain).toEqual(build('interleaved'));
+  expect(plain.positions.length).toBe(2 * 3 * new THREE.BoxGeometry(2, 3, 4, 3, 2, 2).getAttribute('position').count);
+});
