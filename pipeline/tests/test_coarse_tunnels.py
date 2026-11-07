@@ -50,6 +50,34 @@ def test_rail_tunnel_is_drawn_only_near_its_mouth():
     assert rail_stretch("road", shapely.LineString([(400, 0), (600, 0)]), road, rails)[2] is road
 
 
+def test_a_street_over_a_rail_tunnel_ends_its_drawn_stretch():
+    """Rotterdam's Pompenburg crosses the Willemsspoortunnel 10-80 m inside its mouth at a shallow angle: the box,
+    roof 1.5 m above the street, replaced the carriageway and a test car fell into it. The street is the roof."""
+    rails = shapely.STRtree([shapely.LineString([(0, 0), (100, 0)])])
+    rail = {"railway": "rail", "tunnel": "yes", "layer": "-1"}
+
+    def streets(*ways):
+        return shapely.STRtree([w for w, _ in ways]), list(ways)
+
+    tunnel = shapely.LineString([(100, 0), (900, 0)])
+    # A street crossing 40 m in: the stretch ends 1 m before its edge (half of its 10 m width).
+    cross = (shapely.LineString([(140, -50), (140, 50)]), 10.0)
+    _, line, tags = rail_stretch("mouth", tunnel, rail, rails, streets(cross))
+    assert abs(line.length - 34) < 1e-6 and line.coords[0] == (100, 0) and tags["_rail_inner"] == 1
+    # The mouth at the far end: the same, measured from it.
+    _, line, tags = rail_stretch("mouth", shapely.LineString([(900, 0), (100, 0)]), rail, rails, streets(cross))
+    assert abs(line.length - 34) < 1e-6 and line.coords[-1] == (100, 0) and tags["_rail_inner"] == 0
+    # A street running along the tunnel at a shallow angle covers it where its carriageway first overlaps the box.
+    slanted = (shapely.LineString([(130, 30), (260, -20)]), 8.0)
+    _, line, _ = rail_stretch("mouth", tunnel, rail, rails, streets(slanted))
+    assert 80 < line.length < 95
+    # A street over the mouth itself: nothing drawn. A street beyond the reach or beside the box changes nothing.
+    assert rail_stretch("mouth", tunnel, rail, rails, streets((shapely.LineString([(101, -50), (101, 50)]), 6.0))) is None
+    far = (shapely.LineString([(400, -50), (400, 50)]), 10.0)
+    beside = (shapely.LineString([(100, 20), (300, 20)]), 6.0)
+    assert rail_stretch("mouth", tunnel, rail, rails, streets(far, beside))[1].length == RAIL_MOUTH_REACH
+
+
 def test_a_deep_metro_or_a_platform_is_no_mouth_for_the_tunnel_meeting_it():
     """Rotterdam's Calandlijn: layer -1 tunnel ways meet the layer -2 ways and platforms of Beurs/Blaak stations, which
     are not built as tubes (deep rule) but are no open track either; counted as track they made the -1 ways boxes

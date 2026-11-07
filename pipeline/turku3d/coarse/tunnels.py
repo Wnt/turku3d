@@ -97,6 +97,8 @@ def selected(tags):
 # is then a full box height plus cover below the ground, and the tube beyond is out of sight.
 RAIL_MOUTH_REACH = 150.0
 RAIL_COVER = 1.0  # m of ground over the box where the drawn stretch ends inside the tunnel
+STREET_MARGIN = 1.0  # m: a drawn rail stretch ends this far before the first street over it
+RAIL_MIN_STRETCH = 2.0  # m: a shorter stretch (a street right over the mouth) is not drawn
 
 
 # Running track a tunnel mouth opens onto; platforms, stations and disused lines are no mouth.
@@ -127,22 +129,50 @@ def rail_mouths(line, tags, rails, reach=0.5):  # rails: STRtree of at-grade rai
     return [rails is not None and len(rails.query(p, predicate="dwithin", distance=reach)) > 0 for p in ends]
 
 
-def rail_stretch(key, line, tags, rails):
+def street_cover(line, width, streets):
+    """Distance along `line` from its start to the first at-grade street over its corridor, or None.
+    streets: (STRtree of street lines, [(line, width), ...]) of the mapped ways at grade."""
+    if streets is None:
+        return None
+    tree, ways = streets
+    corridor = line.buffer(width / 2, cap_style="flat")
+    first = None
+    for index in tree.query(corridor):
+        street, street_width = ways[index]
+        overlap = corridor.intersection(street.buffer(street_width / 2, cap_style="flat"))
+        if overlap.is_empty:
+            continue
+        reach = float(np.min(shapely.line_locate_point(line, shapely.points(shapely.get_coordinates(overlap)))))
+        first = reach if first is None else min(first, reach)
+    return first
+
+
+def rail_stretch(key, line, tags, rails, streets=None):
     """The part of a tunnel way that is drawn, or None. Rotterdam maps the Willemsspoortunnel and the Calandlijn metro
     under Binnenrotte and Blaak as chains of railway tunnel ways (layer -1 and -2): a box between two street-level ends
     stood as 22 m wide, 5 m high walls across squares, streets and the harbour. A railway way without a mouth runs
     under the city and draws nothing; with one mouth, only RAIL_MOUTH_REACH from it is drawn and its inner end lies
     RAIL_COVER under the ground (tags _rail_inner: which end); with two mouths, the whole way. Roads always keep
-    theirs."""
+    theirs. A street at grade over the stretch (`streets`, see street_cover) is its roof: the drawn stretch ends
+    STREET_MARGIN before the first one, or nothing is drawn when that leaves less than RAIL_MIN_STRETCH. Rotterdam's
+    Pompenburg crosses the Willemsspoortunnel 10-80 m inside its mouth: the 4-track box, floor at the cutting's 2 m
+    below the street and roof 1.5 m above it, replaced the carriageway for 70 m and a test car fell into it."""
     mouths = rail_mouths(line, tags, rails)
     if mouths is None or all(mouths):
         return key, line, tags
     if not any(mouths):
         return None
     length = line.length
-    if length > RAIL_MOUTH_REACH:
-        line = (shapely.ops.substring(line, 0, RAIL_MOUTH_REACH) if mouths[0]
-                else shapely.ops.substring(line, length - RAIL_MOUTH_REACH, length))
+    from_mouth = line if mouths[0] else shapely.LineString(line.coords[::-1])
+    reach = min(length, RAIL_MOUTH_REACH)
+    covered = street_cover(from_mouth, dimensions(tags)[0], streets)
+    if covered is not None:
+        if covered - STREET_MARGIN < RAIL_MIN_STRETCH:
+            return None
+        reach = min(reach, covered - STREET_MARGIN)
+    if reach < length:
+        line = (shapely.ops.substring(line, 0, reach) if mouths[0]
+                else shapely.ops.substring(line, length - reach, length))
     return key, line, dict(tags, _rail_inner=1 if mouths[0] else 0)
 
 
@@ -180,7 +210,11 @@ def prepare(tile, path):
             if line.geom_type == "LineString" and line.length > 0.5:
                 out.append((str(row.get("osm_id", k)), line, tags))
         rail_tree = shapely.STRtree(rails) if rails else None
-        out = [kept for way in out if (kept := rail_stretch(*way, rail_tree)) is not None]
+        streets = (
+            (shapely.STRtree([line for line, _ in roads]), [(line, dimensions(t)[0]) for line, t in roads])
+            if roads else None
+        )
+        out = [kept for way in out if (kept := rail_stretch(*way, rail_tree, streets)) is not None]
         return carried_roads(portals.approaches(merge_parallel([*out, *quay]), roads), roads)
 
     ways = cached(
