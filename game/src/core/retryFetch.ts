@@ -7,10 +7,12 @@
  *  A tile's versioned assets (`/coarse/_v/<revision>/...`: its GLBs and their shared models, KTX2 textures and buffers,
  *  and the same under /cities/<name>/coarse) are static content loaded by GLTFLoader/KTX2Loader and retry: a deploy's
  *  ~1 s restart of city-web answered 502 to four shared KTX2 loads and left those surfaces untextured for the session
- *  (city.lab 2026-11-07 02:13 UTC). A gateway's Retry-After (seconds) lengthens a wait up to 10 s. */
+ *  (city.lab 2026-11-07 02:13 UTC). The tries span a minute: a tile service's restart answered 503 for longer than the
+ *  first ~10 s window and Rotterdam lost ~20 shared KTX2 textures for the session (verify-all r8, 08:45 UTC). A
+ *  gateway's Retry-After (seconds) lengthens a wait up to 10 s. */
 
-/** Waits before tries 2, 3 and 4: four tries over about 10 s. */
-export const RETRY_DELAYS_MS: readonly number[] = [1000, 3000, 6000];
+/** Waits before tries 2-7: seven tries over about a minute. */
+export const RETRY_DELAYS_MS: readonly number[] = [1000, 2000, 4000, 8000, 15_000, 30_000];
 const TRANSIENT = new Set([502, 503, 504]);
 const OWN_RETRIES = /^\/(?:coarse(?:\/(?!_v\/)|$)|cities\/(?![^/]+\/coarse\/_v\/)|__|live\.json$|scores\/|telemetry$)/;
 

@@ -13,13 +13,13 @@ describe('retryingFetch', () => {
     const res = await retryingFetch(base, { sleep: async ms => { sleeps.push(ms); } })('http://h/assets/cars/passat-b8/lod0.glb');
     expect(res.status).toBe(200);
     expect(base).toHaveBeenCalledTimes(4);
-    expect(sleeps).toEqual([1000, 3000, 6000]); // four tries over about 10 s
+    expect(sleeps).toEqual([1000, 2000, 4000]); // backing off towards a minute of tries
   });
 
-  it('returns the last gateway answer after four tries, and never retries a 404', async () => {
+  it('returns the last gateway answer after seven tries, and never retries a 404', async () => {
     const down = vi.fn<typeof fetch>().mockImplementation(async () => answer(502));
     expect((await retryingFetch(down, { sleep: noWait })('http://h/a.glb')).status).toBe(502);
-    expect(down).toHaveBeenCalledTimes(4);
+    expect(down).toHaveBeenCalledTimes(7);
     const missing = vi.fn<typeof fetch>().mockResolvedValue(answer(404));
     expect((await retryingFetch(missing, { sleep: noWait })('http://h/a.glb')).status).toBe(404);
     expect(missing).toHaveBeenCalledTimes(1);
@@ -28,7 +28,7 @@ describe('retryingFetch', () => {
   it('rethrows the last network error and stops at once when aborted', async () => {
     const failing = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('Failed to fetch'));
     await expect(retryingFetch(failing, { sleep: noWait })('http://h/a.bin')).rejects.toThrow('Failed to fetch');
-    expect(failing).toHaveBeenCalledTimes(4);
+    expect(failing).toHaveBeenCalledTimes(7);
     const controller = new AbortController(); controller.abort();
     const aborted = vi.fn<typeof fetch>().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     await expect(retryingFetch(aborted, { sleep: noWait })('http://h/a.bin', { signal: controller.signal })).rejects.toThrow('aborted');
