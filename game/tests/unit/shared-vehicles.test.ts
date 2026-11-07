@@ -47,9 +47,17 @@ test('a remote car proxy moves at its owner\'s speed: a pose catching up 1.1 m d
   let x = me().pos.x + 4.35;
   const resting = () => [{ id: 'van', pos: { x, y: me().pos.y, z: me().pos.z }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
   for (let k = 0; k < 60; k++) { pw.setRemotes(resting()); pw.fixedStep(idle, push); }
-  // Its pose catches up 1.1 m into us at once (verify-all r2: 1.6 -> 73.9 m/s in one step before the sweep limit).
+  // Its pose catches up 1.1 m into us at once (verify-all r2: 1.6 -> 73.9 m/s in one step before the sweep limit). Too far
+  // to sweep at its speed within a quarter second: placed there, and the overlap is pushed out gently.
   x -= 1.1; pw.setRemotes(resting());
+  expect((pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('van')!.body.translation().x).toBeCloseTo(x, 5);
   let fastest = 0;
+  for (let k = 0; k < 60; k++) { pw.fixedStep(idle, push); fastest = Math.max(fastest, me().speed); }
+  expect(fastest).toBeLessThan(4);
+  // A small catch-up (0.2 m) is swept at the resting car's 1 m/s slack, never as one substep's jump.
+  for (let k = 0; k < 60; k++) { pw.setRemotes(resting()); pw.fixedStep(idle, push); }
+  x -= 0.2; pw.setRemotes(resting());
+  fastest = 0;
   for (let k = 0; k < 60; k++) { pw.fixedStep(idle, push); fastest = Math.max(fastest, me().speed); }
   expect(fastest).toBeLessThan(2);
   // A remote car driving at 16.7 m/s, seen at 20 fps (three substeps per update): its proxy keeps up at that speed.

@@ -37,6 +37,10 @@ const REMOTE_JUMP_M = 3;
  *  66 m/s (verify-all r2 mac-turku: 1.6 -> 73.9 m/s in one step), and a remote car at 20 m/s seen at 20 fps pushed
  *  like a 60 m/s wall. */
 const REMOTE_SWEEP = { scale: 1.25, slack: 1 } as const;
+/** A gap the sweep would need longer than REMOTE_PLACE_S to close (at least REMOTE_PLACE_MIN_M) is placed instead, so a
+ *  resting car's late pose or a reset leaves no invisible proxy behind its drawn car; a placed proxy overlapping a
+ *  local car by up to 1.8 m pushes it out at under 3 m/s (Rapier's depenetration). */
+const REMOTE_PLACE_S = 0.25, REMOTE_PLACE_MIN_M = 0.5;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 /** One solver step of `world`. Rapier 0.21's World.step() also wraps, after every step, what the engine created on
@@ -627,13 +631,15 @@ export class PhysicsWorld {
       // A jump (teleport, respawn, a late snapshot) is placed, never swept: a kinematic sweep through a local car would
       // launch it. Ordinary motion sweeps, so a remote car pushes and blocks like a moving wall.
       const at = remote.body.translation();
-      if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > REMOTE_JUMP_M) {
+      const maxSpeed = p.vel ? Math.hypot(p.vel.x, p.vel.y, p.vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
+      const placeBeyond = Math.min(REMOTE_JUMP_M, Math.max(REMOTE_PLACE_MIN_M, maxSpeed * REMOTE_PLACE_S));
+      if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > placeBeyond) {
         remote.body.setTranslation({ x: p.pos.x, y, z: p.pos.z }, true); remote.body.setRotation(remote.rot, true);
         remote.target = null;
       } else {
         // Swept substep by substep in fixedStep (sweepRemotes). Without a reported velocity: the whole move at once.
         remote.target = { x: p.pos.x, y, z: p.pos.z };
-        remote.maxSpeed = p.vel ? Math.hypot(p.vel.x, p.vel.y, p.vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
+        remote.maxSpeed = maxSpeed;
         remote.body.setNextKinematicRotation(remote.rot);
       }
     }
