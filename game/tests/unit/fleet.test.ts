@@ -50,6 +50,20 @@ test('parked cars beyond 320 m or off screen beyond 30 m are culled before drawi
   visuals.dispose();
 });
 
+test('fleet batches are composed once: no per-frame matrix work, still placed under a moved parent',async()=>{
+  const sample=['golf7','passat-b8'].map(id=>FLEET_BY_ID.get(id)!);
+  const root=new THREE.Group();root.position.set(3,0,-2);root.updateMatrixWorld(true);root.matrixAutoUpdate=false;  // like play.ts's session root
+  const visuals=new ParkedCarVisuals(root),manifest=draftManifest('http://localhost/');
+  manifest.vehicles=sample.map((m,i)=>({object_id:`frozen-${i}`,model:m.id,color:'silver',x:i*3,y:0,z:0,yaw:0,width:m.width,height:m.height,length:m.length,clear_front_m:5,clear_rear_m:5}));
+  await visuals.load(manifest);
+  const batches:THREE.Object3D[]=[];root.traverse(o=>{if(o!==root)batches.push(o);});
+  expect(batches.length).toBeGreaterThan(4);
+  for(const b of batches){expect(b.matrixAutoUpdate).toBe(false);expect(b.matrixWorld.elements[12]).toBe(3);expect(b.matrixWorld.elements[14]).toBe(-2);}
+  const compose=vi.spyOn(THREE.Matrix4.prototype,'compose'),multiply=vi.spyOn(THREE.Matrix4.prototype,'multiplyMatrices');
+  try{root.updateMatrixWorld();expect(compose).not.toHaveBeenCalled();expect(multiply).not.toHaveBeenCalled();}finally{compose.mockRestore();multiply.mockRestore();}
+  visuals.dispose();
+});
+
 test('a parking slot no real model fits stays empty instead of stretching a car',()=>{
   const slot={length:3,clear_front_m:0,clear_rear_m:0};
   for(let i=0;i<50;i++)expect(fleetModel('hatchback-sports',`short-${i}`,slot)).toBeNull();
