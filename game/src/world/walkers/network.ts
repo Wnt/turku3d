@@ -73,7 +73,17 @@ interface WalkNode {
 /** The part of one network segment inside a birth cell: chain arc [s0, s0 + length]. `forward` is true when the
  *  chain runs from the piece's smaller quantised end to its larger one (births are placed from the smaller end). */
 interface Piece { chain: number; s0: number; length: number; forward: boolean; weight: number }
-export interface Cell { cx: number; cz: number; pieces: Piece[]; weighted: number }
+/** Numbers per piece in Cell.pieces: chain, s0, length, forward (1 or 0), weight. */
+export const PIECE_STRIDE = 5;
+/** `pieces`: the cell's pieces in canonical order, PIECE_STRIDE numbers each. One typed array per cell rather than an
+ *  object per piece: the worker's network crosses to the page at every tile change, and its cells were 11 of the 16 ms
+ *  of that structured clone (nine Turku centre tiles, node on the M1 Max), on the main thread at each tile crossing. */
+export interface Cell { cx: number; cz: number; pieces: Float64Array; weighted: number }
+/** Piece `k` of a cell. */
+export function cellPiece(cell: Cell, k: number): Piece {
+  const p = cell.pieces, o = k * PIECE_STRIDE;
+  return { chain: p[o], s0: p[o + 1], length: p[o + 2], forward: p[o + 3] === 1, weight: p[o + 4] };
+}
 
 export interface WalkNetwork {
   nodes: WalkNode[];
@@ -84,6 +94,7 @@ export interface WalkNetwork {
 }
 
 export const cellKey = (cx: number, cz: number) => hash32(cx, cz);
+const EMPTY_PIECES = new Float64Array(0);
 
 /** Walker density weight per metre of FOOT-only way, by its own class and the busiest street in the same cell. */
 function pieceWeight(footClass: number, carClass: number): number {
@@ -247,7 +258,7 @@ export function buildWalkNetwork(parts: readonly RoadGraphJson[]): WalkNetwork {
         if (t1 - t0 < 1e-9) return;
         const key = cellKey(cx, cz);
         let cell = cells.get(key);
-        if (!cell) { cell = { cx, cz, pieces: [], weighted: 0 }; cells.set(key, cell); sorted.set(key, []); }
+        if (!cell) { cell = { cx, cz, pieces: EMPTY_PIECES, weighted: 0 }; cells.set(key, cell); sorted.set(key, []); }
         const order = [sx + (ex - sx) * t0, sz + (ez - sz) * t0, sx + (ex - sx) * t1, sz + (ez - sz) * t1].map(v => Math.round(v * 100));
         sorted.get(key)!.push({ key: order, piece: { chain: c, s0: chain.cumulative[i] + arc * (swap ? 1 - t1 : t0),
           length: len * (t1 - t0), forward: !swap, weight: pieceWeight(cls, carClass.get(key) ?? 0) } });
@@ -256,8 +267,11 @@ export function buildWalkNetwork(parts: readonly RoadGraphJson[]): WalkNetwork {
   });
   for (const [key, cell] of cells) {
     const list = sorted.get(key)!.sort((u, v) => u.key[0] - v.key[0] || u.key[1] - v.key[1] || u.key[2] - v.key[2] || u.key[3] - v.key[3]);
-    cell.pieces = list.map(e => e.piece);
-    for (const piece of cell.pieces) cell.weighted += piece.length * piece.weight;
+    const pieces = cell.pieces = new Float64Array(list.length * PIECE_STRIDE);
+    list.forEach(({ piece }, k) => {
+      pieces.set([piece.chain, piece.s0, piece.length, piece.forward ? 1 : 0, piece.weight], k * PIECE_STRIDE);
+      cell.weighted += piece.length * piece.weight;
+    });
   }
   return { nodes, chains, cells, areas };
 }
