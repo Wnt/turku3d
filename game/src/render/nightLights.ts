@@ -89,13 +89,21 @@ export function wallFrame() {
 
 /** Non-kit facades (stored/generated facade atlases, texture-library walls): a 2.6 m x 3.2 m world grid gives the
  *  cells; glazing comes from the existing ORM (generated facades share the kit's glass roughness) or, without one,
- *  from dark albedo. Library walls without windows stay dark. */
+ *  from dark albedo. Library walls without windows stay dark.
+ *  One graph per variant for every material: it reads each draw's own material (materialRoughness, materialColor),
+ *  and node identity is part of r186's program key, so a graph per material gave every generated landmark wall its
+ *  own program (44 landmark materials, 39 programs; 208 of 339 program builds while driving on Windows, win-prof2). */
+const draftEmission = new Map<boolean, THREE.Node>();
 export function draftWindows(material: THREE.MeshStandardNodeMaterial) {
-  const frame = wallFrame();
-  const glass = material.roughnessMap ? glassMask(materialRoughness)
-    : float(1).sub(smoothstep(0.14, 0.22, luminance(materialColor.rgb)));
-  const storey = positionWorld.y.div(3.2);
-  material.emissiveNode = windowEmission(frame.plane, floor(frame.along.div(2.6)), floor(storey), fract(storey),
-    glass.mul(frame.wall));
+  const rough = !!material.roughnessMap;
+  let emission = draftEmission.get(rough);
+  if (!emission) {
+    const frame = wallFrame();
+    const glass = rough ? glassMask(materialRoughness) : float(1).sub(smoothstep(0.14, 0.22, luminance(materialColor.rgb)));
+    const storey = positionWorld.y.div(3.2);
+    emission = windowEmission(frame.plane, floor(frame.along.div(2.6)), floor(storey), fract(storey), glass.mul(frame.wall));
+    draftEmission.set(rough, emission);
+  }
+  material.emissiveNode = emission;
   return material;
 }

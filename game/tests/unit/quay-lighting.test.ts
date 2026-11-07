@@ -31,3 +31,13 @@ test('materials of one night key share one emissive graph (node identity is part
   const bar = nightSurface(new THREE.MeshStandardNodeMaterial(), 'night_quay_bar');
   expect(bar.emissiveNode).not.toBe(walls[0].emissiveNode);
 });
+
+test('draft walls share one night-window graph per variant (with or without an ORM)', async () => {
+  const { draftWindows } = await import('../../src/render/nightLights');
+  const withOrm = [0, 1].map(() => draftWindows(new THREE.MeshStandardNodeMaterial({ roughnessMap: new THREE.Texture() })));
+  const plain = [0, 1].map(() => draftWindows(new THREE.MeshStandardNodeMaterial()));
+  expect(withOrm[0].emissiveNode).toBe(withOrm[1].emissiveNode);
+  expect(plain[0].emissiveNode).toBe(plain[1].emissiveNode);
+  expect(withOrm[0].emissiveNode).not.toBe(plain[0].emissiveNode);
+  expect(withOrm[0].customProgramCacheKey()).toBe(withOrm[1].customProgramCacheKey());
+});
