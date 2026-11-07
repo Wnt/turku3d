@@ -99,6 +99,26 @@ def test_a_way_in_a_tunnel_below_ground_asks_no_headroom():
         assert passes_under(deck, lower)
 
 
+def test_abutments_read_no_lower_than_their_approach_and_paths_their_own_level():
+    """Merituulentie over the Tuuliniitynpolku underpass: the east end of the OSM bridge lies on the rim of the
+    cutting (6.7 m) while its approach is at 8.4-8.6 m; the path's headroom was read on the road fill beside it."""
+    import numpy as np
+    from turku3d.coarse.bridges import abutment_heights, under_point
+
+    axis = shapely.LineString([(0, 0), (12, 0)])
+
+    def ground(xz):  # the east end on the rim of a 5.6 m cutting, 8.5 m approach east of it, 9.0 m west
+        return np.interp(np.asarray(xz)[:, 0], [-1, 0, 3, 7, 12], [8.5, 6.7, 5.6, 5.6, 9.0])
+
+    assert ground(np.array([[0.0, 0.0]]))[0] == 6.7
+    east, west = abutment_heights(axis, ground)
+    assert east == 8.5 and west == 9.0  # the approach, not the cutting rim
+    # A raised end on a wall stays as measured.
+    assert abutment_heights(axis, lambda xz: np.where(np.asarray(xz)[:, 0] == 0, 10.0, 8.5))[0] == 10.0
+    path = shapely.LineString([(5, -8), (5, 8)])
+    assert under_point(path, (6.5, 0)).equals(shapely.Point(5, 0))
+
+
 def test_clipped_neighbour_decks_share_boundary_and_never_emit_full_duplicate():
     mesh = profile_wall("bridge", [[240, 10], [260, 10]], [4, 5], [4.4, 5.4], thickness=3)
     left = clip_mesh(mesh, C.VisualTile(0, 0, 0).bbox)

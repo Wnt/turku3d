@@ -586,6 +586,30 @@ def under_height(bridge, under, point, sample):
     return float(np.interp(station, [a[0] for a in anchors], [a[1] for a in anchors]))
 
 
+def under_point(line, p):
+    """The lower way's own point abreast of axis sample `p`. The axis samples across a lower way's corridor reach
+    onto the embankment beside it (Merituulentie over a cycleway underpass, Espoo: 7.9 m road fill 3 m off a
+    5.6 m path), and the path's headroom measured from there lifted the deck 3.4 m."""
+    return line.interpolate(line.project(shapely.Point(p)))
+
+
+ABUTMENT_REACH = (2.0, 4.0)  # m beyond each deck end where its approach's ground is read too
+
+
+def abutment_heights(axis, sample_ground):
+    """Ground at each end of the deck axis, never below the approach just beyond it: an OSM bridge often ends at the
+    rim of the dip it spans (Merituulentie's east end reads 6.7 m on the cycleway cutting, its approach 8.4-8.6 m),
+    and an abutment in the dip tilts the whole deck towards it."""
+    coords = np.asarray(axis.coords)
+    out = []
+    for end, inner in ((coords[0], coords[1]), (coords[-1], coords[-2])):
+        outward = (end - inner) / max(float(np.linalg.norm(end - inner)), 1e-9)
+        here = float(sample_ground(end[None, :])[0])
+        beyond = sample_ground(np.asarray([end + outward * d for d in ABUTMENT_REACH]))
+        out.append(max(here, float(np.min(beyond))))
+    return out
+
+
 GRADE = 0.4  # a deck this close to the measured ground under it rests on that ground
 DROP = 1.0  # an on-grade deck edge needs a railing only above a drop this deep
 
@@ -1052,7 +1076,7 @@ def produce(tile, grid_pos, inputs):
             [sample_ground(xz + normals * offset) for offset in (-width / 2, 0, width / 2)], axis=0
         )
         # Sample just beyond the actual abutments, not a remote hill or building.
-        ends = sample_ground(np.asarray([axis.coords[0], axis.coords[-1]])).tolist()
+        ends = abutment_heights(axis, sample_ground)
         landing = way.get("landing", False)
         obstacles = shapely.union_all(
             [
@@ -1082,7 +1106,7 @@ def produce(tile, grid_pos, inputs):
                 requirements.extend(
                     (
                         axis.project(shapely.Point(p)),
-                        under_height(way, under, shapely.Point(p), full_ground),
+                        under_height(way, under, under_point(under["line"], p), full_ground),
                         clearance(under["tags"]),
                     )
                     for p in cross
