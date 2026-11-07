@@ -54,3 +54,30 @@ test('external shared buffers are fetched once across separate glTF parsers', as
     }
   } finally { load.mockRestore(); }
 });
+
+test('a paced parse (accessors and meshes wait for the streaming window) still builds every mesh of a big tile', async () => {
+  const meshes = 3000, floats = new Float32Array(meshes * 9);
+  for (let i = 0; i < meshes; i++) floats.set([i, 0, 0, i + 1, 0, 0, i, 1, 0], i * 9);
+  const json = { asset: { version: '2.0' }, buffers: [{ byteLength: floats.byteLength }],
+    bufferViews: Array.from({ length: meshes }, (_, i) => ({ buffer: 0, byteOffset: i * 36, byteLength: 36 })),
+    accessors: Array.from({ length: meshes }, (_, i) => ({ bufferView: i, componentType: 5126, count: 3, type: 'VEC3', min: [i, 0, 0], max: [i + 1, 1, 0] })),
+    meshes: Array.from({ length: meshes }, (_, i) => ({ primitives: [{ attributes: { POSITION: i } }], extras: { building_id: `b${i}` } })),
+    nodes: Array.from({ length: meshes }, (_, i) => ({ mesh: i })), scenes: [{ nodes: Array.from({ length: meshes }, (_, i) => i) }], scene: 0 };
+  // Frames every 4 ms: the streaming window fills and the parse continues over several of them.
+  let frames = 0, late = 0;
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    const due = performance.now() + 4;
+    setTimeout(() => { frames++; late = Math.max(late, performance.now() - due); callback(performance.now()); }, 4);
+  });
+  let result;
+  try { result = await parseDecodedGlb(new GLTFLoader(), { json, binary: floats.buffer.slice(0) }, 'https://example.test/coarse/t0_0_0/'); }
+  finally { vi.unstubAllGlobals(); }
+  process.stderr.write(`paced parse: ${frames} frames, longest block ${late.toFixed(1)} ms\n`);
+  const built = result.scene.children as import('three').Mesh[];
+  expect(frames).toBeGreaterThan(2);
+  expect(built.length).toBe(meshes);
+  for (const [i, mesh] of built.entries()) {
+    expect(mesh.userData.building_id).toBe(`b${i}`);
+    expect(mesh.geometry.attributes.position.getX(1)).toBe(i + 1);
+  }
+});

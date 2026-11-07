@@ -37,6 +37,26 @@ function decode(buffer: ArrayBuffer): Promise<Decoded> {
   return new Promise((resolve, reject) => { pending.set(id, { objects: [{}], resolve, reject }); worker!.postMessage({ id, buffer }, [buffer]); });
 }
 
+/** Waits until the frame's streaming window has room (again after every wake: all waiters resume together). */
+async function pace() {
+  let pause = budget.checkpoint();
+  while (pause) { await pause; pause = budget.checkpoint(); }
+}
+
+/** A fresh task without timer clamping. */
+const taskChannel = new MessageChannel(), taskQueue: (() => void)[] = [];
+taskChannel.port1.onmessage = () => taskQueue.shift()?.();
+const nextTask = () => new Promise<void>(resolve => { taskQueue.push(resolve); taskChannel.port2.postMessage(0); });
+let admissions: Promise<void> = Promise.resolve();
+/** Admits one paced glTF continuation at a time, each in its own task: the previous one's synchronous work (the
+ *  geometry or mesh it completes) has run and counts against the streaming window before the next is let in.
+ *  Checking all waiters at once let them all pass before any of that work ran. */
+function admit(): Promise<void> {
+  const turn = admissions.then(nextTask).then(pace);
+  admissions = turn.catch(() => {});
+  return turn;
+}
+
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
 export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
@@ -49,6 +69,14 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
         return key ? sharedBuffers.get(key, () => original(index)) : original(index);
       };
       if (decoded.binary) (parser as unknown as { cache: { add(key: string, value: Promise<ArrayBuffer>): void } }).cache.add('buffer:0', Promise.resolve(decoded.binary));
+      // Paced continuations: when meshopt's worker answers, everything waiting on that buffer view (accessors,
+      // geometries, meshes, nodes, the scene) ran as microtasks of that one message: 180-283 ms frames per streamed tile
+      // on the Windows laptop, 127-139 ms on the M1 Max (verify-all r3, LoAF Worker.onmessage in the meshopt decoder).
+      // Each resolved accessor and mesh now waits for room in the frame's streaming window, re-checked after waking.
+      const paced = <T>(value: T) => admit().then(() => value);
+      const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
+      parser.loadAccessor = index => loadAccessor(index).then(paced);
+      parser.loadMesh = index => loadMesh(index).then(paced);
     },
   });
   loader.register(plugin);
@@ -82,8 +110,7 @@ export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
   const buffer = key ? await visualBuffers.get(key, load) : await load();
   // The worker owns and detaches its input; keep cached originals intact across revisits.
   const decoded = await decode(key ? buffer.slice(0) : buffer);
-  // The glTF parse (meshes, materials, texture setup) runs as one burst: start it inside the frame's streaming window.
-  let pause = budget.checkpoint();
-  while (pause) { await pause; pause = budget.checkpoint(); }
+  // Start the glTF parse inside the frame's streaming window; its continuations pace themselves (parseDecodedGlb).
+  await pace();
   return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url));
 }
