@@ -32,3 +32,23 @@ def test_grader_moves_the_car_passage_corridor_only():
     assert h[0] <= 6.5 and h[3] >= 2.0
     # Footway passages keep their steps (stairs are mapped on their own); no change, no grader.
     assert grader([("walk", line, {"highway": "footway", "tunnel": "building_passage"})], ground, 2.0) is None
+
+
+def test_a_carriageway_split_into_ways_is_graded_as_one_floor():
+    """Merituulentie under Ainoa is several short OSM ways; grading each alone left steps at the joints."""
+    a = shapely.LineString([(0, 0), (100, 0)])
+    b = shapely.LineString([(100, 0), (200, 0)])
+    tags = {"highway": "primary", "tunnel": "building_passage", "lanes": "2"}
+
+    def ground(x, z):  # the ground grid steps 4.5 m between two vertices 2 m apart
+        return float(np.interp(x, [99.0, 101.0], [6.5, 2.0]))
+
+    grade = grader([("a", a, tags), ("b", b, tags)], ground, 2.0)
+    xs = np.arange(1.5, 199.0, 2.0)  # ground grid vertices 2 m apart
+    q = np.column_stack([xs, np.zeros_like(xs)])
+    h = grade(q, [ground(x, z) for x, z in q])
+    assert np.max(np.abs(np.diff(h))) <= 2 * MAX_GRADE + 0.05  # one continuous 8 % ramp, no joint step
+    # Beside the corridor the correction fades out instead of leaving a cliff at its edge.
+    side = np.column_stack([np.full(12, 100.5), np.linspace(0, 11, 12)])
+    hs = grade(side, [ground(x, z) for x, z in side])
+    assert np.max(np.abs(np.diff(hs))) < 1.0

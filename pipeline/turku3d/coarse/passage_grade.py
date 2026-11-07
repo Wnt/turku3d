@@ -27,18 +27,40 @@ def limited(heights, distances, grade=MAX_GRADE):
     return (low + high) / 2
 
 
-def profiles(ways, sample, step):
-    """(line, distances, correction, footprint) per car passage whose floor needs grading."""
+FADE = 4.0  # m beyond a passage's half width over which its correction fades out into the open ground
+
+
+def chains(ways):
+    """Car passage centrelines joined end to end (one per run of OSM ways), each with its widest way's width: a
+    carriageway split into short ways gets one continuous floor, not a step at every joint."""
     from .tunnels import dimensions
 
-    out = []
+    lines, widths = [], []
     for _, line, tags in ways:
         if tags.get("tunnel") != "building_passage" or tags.get("highway") in PATHS or not tags.get("highway"):
             continue
-        if line.length < 4:
+        lines.append(line)
+        widths.append(dimensions(tags)[0])
+    if not lines:
+        return []
+    merged = shapely.line_merge(shapely.union_all(lines))
+    parts = list(getattr(merged, "geoms", [merged]))
+    tree = shapely.STRtree(lines)
+    out = []
+    for part in parts:
+        if part.geom_type != "LineString" or part.length < 4:
             continue
-        width, _ = dimensions(tags)
-        distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length / 2)) + 1))
+        near = tree.query(part, predicate="dwithin", distance=0.5)
+        out.append((part, max(widths[int(i)] for i in near) if len(near) else max(widths)))
+    return out
+
+
+def profiles(ways, sample, step):
+    """(line, distances, correction, half width) per car passage chain whose floor needs grading."""
+    out = []
+    for line, width in chains(ways):
+        # Stations every metre: half the ground grid's spacing, so the correction follows each grid kink.
+        distances = np.linspace(0, line.length, max(2, int(np.ceil(line.length)) + 1))
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
         heights = np.array([sample(x, z) for x, z in xz])
         if not np.isfinite(heights).all():
@@ -46,13 +68,14 @@ def profiles(ways, sample, step):
         correction = limited(heights, distances) - heights
         if np.max(np.abs(correction)) < MIN_CHANGE:
             continue
-        footprint = line.buffer(width / 2 + step, cap_style="flat", join_style="mitre")
-        out.append((line, distances, correction, footprint))
+        out.append((line, distances, correction, width / 2 + step))
     return out
 
 
 def grader(ways, sample, step):
-    """`grade(query xz (n, 2), heights (n,)) -> heights` for points in car passages, or None when none needs it."""
+    """`grade(query xz (n, 2), heights (n,)) -> heights` for points in car passages, or None when none needs it.
+    Each chain moves the ground fully within its half width and fades out over FADE beyond it; where corridors
+    overlap (the two carriageways of one passage) the corrections blend by those weights."""
     graded = profiles(ways, sample, step)
     if not graded:
         return None
@@ -60,17 +83,19 @@ def grader(ways, sample, step):
     def grade(query, heights):
         heights = np.array(heights, float, copy=True)
         points = shapely.points(query)
-        total, count = np.zeros(len(heights)), np.zeros(len(heights))
-        for line, distances, correction, footprint in graded:
-            use = shapely.covers(footprint, points)
-            if not use.any():
+        total, weight = np.zeros(len(heights)), np.zeros(len(heights))
+        for line, distances, correction, half in graded:
+            near = shapely.dwithin(line, points, half + FADE)
+            if not near.any():
                 continue
-            ds = shapely.line_locate_point(line, points[use])
-            total[use] += np.interp(ds, distances, correction)
-            count[use] += 1
-        # Overlapping corridors (both carriageways of one passage) share the mean correction.
-        moved = count > 0
-        heights[moved] += total[moved] / count[moved]
+            ds = shapely.line_locate_point(line, points[near])
+            # A point beyond either end of the chain projects onto that end: it is outside the passage.
+            inside = (ds > 1e-6) & (ds < line.length - 1e-6)
+            d = shapely.distance(line, points[near])
+            w = np.clip((half + FADE - d) / FADE, 0, 1) * inside
+            total[near] += w * np.interp(ds, distances, correction)
+            weight[near] += w
+        heights += total / np.maximum(1.0, weight)
         return heights
 
     return grade
