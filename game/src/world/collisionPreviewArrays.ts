@@ -4,6 +4,14 @@ import { BoxGeometry, CapsuleGeometry, Color, CylinderGeometry, Quaternion, type
 import { readCol } from '../shared/col/colFormat';
 
 type Decoder = NonNullable<Parameters<typeof readCol>[1]>['decoder'];
+/** three's MeshoptSimplifier (ready). */
+export interface Simplifier {
+  simplify(index: Uint32Array, positions: Float32Array, stride: number, targetIndexCount: number, targetError: number, flags?: string[]): [Uint32Array, number];
+}
+/** A preview's surfaces are simplified to this geometric error (m, absolute) with cell borders locked: the collision
+ *  cells are tessellated far finer than a flat-shaded, texture-free stand-in needs (a Turku tile: 160k -> 50k
+ *  triangles), and previews were the largest beauty item on the low-end machines (0.5-1M triangles per frame). */
+export const PREVIEW_ERROR_M = 0.05;
 
 const palette = [0xaaa292, 0x55575a, 0xa7a399, 0xb9b5aa, 0xb9b5aa, 0x666768, 0x777470,
   0x8c877d, 0xaaa599, 0x958974, 0x748357, 0x82745a, 0xc3b48d, 0x8c8d87, 0x557e88,
@@ -19,7 +27,7 @@ export interface PreviewArrays {
 }
 
 /** Every cell's surfaces in world-local metres (col origin applied) and its solid primitives, in cell order. */
-export function collisionPreviewArrays(buffers: readonly ArrayBuffer[], decoder: Decoder): PreviewArrays {
+export function collisionPreviewArrays(buffers: readonly ArrayBuffer[], decoder: Decoder, simplifier?: Simplifier): PreviewArrays {
   const parts: { position: Float32Array; color: Float32Array; index: ArrayLike<number>; offset: [number, number, number] }[] = [];
   for (const buffer of buffers) {
     const col = readCol(buffer, { decoder }), origin = col.header.origin;
@@ -35,7 +43,10 @@ export function collisionPreviewArrays(buffers: readonly ArrayBuffer[], decoder:
         (colors[material] ?? colors[0]).toArray(color, vertex * 3);
       }
     }
-    parts.push({ position: col.positions, color, index, offset: origin });
+    const kept3 = simplifier && index.length > 3
+      ? simplifier.simplify(index, col.positions instanceof Float32Array ? col.positions : new Float32Array(col.positions), 3, 0, PREVIEW_ERROR_M, ['ErrorAbsolute', 'LockBorder'])[0]
+      : index;
+    parts.push({ position: col.positions, color, index: kept3, offset: origin });
     for (const p of col.primitives) {
       if (hidden(p.material)) continue;
       const [h, r, z] = p.params;

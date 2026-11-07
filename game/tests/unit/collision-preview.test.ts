@@ -18,3 +18,21 @@ test('cached surfaces preserve tile origins and solid primitives without drawing
   expect((mesh.material as THREE.MeshStandardMaterial).map).toBeNull();
   mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose();
 });
+
+test('a preview drops coplanar tessellation within 5 cm (borders locked), never a visible shape', async () => {
+  // A 10 x 10 grid of flat quads (200 triangles) with a 2 m bump in the middle row.
+  const n = 11, positions: number[] = [], indices: number[] = [];
+  for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) positions.push(x * 5, x === 5 && z === 5 ? 4 : 2, z * 5);
+  for (let z = 0; z < n - 1; z++) for (let x = 0; x < n - 1; x++) {
+    const a = z * n + x, b = a + 1, c = a + n, d = c + 1; indices.push(a, c, b, b, c, d);
+  }
+  const bytes = writeCol({ i: 0, j: 0, positions: new Float32Array(positions), indices: new Uint32Array(indices),
+    materials: new Uint8Array(indices.length / 3).fill(1), flags: 0, meta: {}, prims: [] });
+  const model = await collisionPreview(new Map([['c_0_0', bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer]]));
+  const mesh = model.children[0] as THREE.Mesh, index = mesh.geometry.index!, position = mesh.geometry.attributes.position;
+  expect(index.count / 3).toBeLessThan(200);
+  // The bump's apex survives.
+  let apex = false;
+  for (let i = 0; i < index.count; i++) if (position.getY(index.getX(i)) > 3.9) apex = true;
+  expect(apex).toBe(true);
+});

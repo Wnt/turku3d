@@ -1,5 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+// @ts-expect-error three ships no declaration for its meshopt simplifier module (world/collisionPreviewArrays.ts Simplifier).
+import { MeshoptSimplifier } from 'three/addons/libs/meshopt_simplifier.module.js';
 import { collisionPreviewArrays, type PreviewArrays } from './collisionPreviewArrays';
 
 // A texture-free presentation of the exact cached collision surfaces. Full generated
@@ -10,7 +12,7 @@ const pending = new Map<number, { resolve: (arrays: PreviewArrays) => void; reje
 
 function build(buffers: ArrayBuffer[]): Promise<PreviewArrays> {
   // Node-side fixtures have no browser Worker.
-  if (typeof Worker === 'undefined') return MeshoptDecoder.ready.then(() => collisionPreviewArrays(buffers, MeshoptDecoder));
+  if (typeof Worker === 'undefined') return Promise.all([MeshoptDecoder.ready, MeshoptSimplifier.ready]).then(() => collisionPreviewArrays(buffers, MeshoptDecoder, MeshoptSimplifier));
   if (!worker) {
     worker = new Worker(new URL('./collisionPreview.worker.ts', import.meta.url), { type: 'module', name: 'collision-preview' });
     worker.onmessage = ({ data }) => {
