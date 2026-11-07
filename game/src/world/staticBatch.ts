@@ -6,6 +6,7 @@ import { stableMaterial } from '../render/lodFade';
 import { disposeDraw } from '../render/sharedMaterials';
 import { streamingBudget } from '../render/preparationBudget';
 import { attachStatic } from './frozenTransforms';
+import { boundsSteps } from '../render/geometryBounds';
 
 interface Batch { mesh: THREE.Mesh; sources: THREE.Mesh[]; parents: THREE.Object3D[]; placements: THREE.Object3D[] }
 const placementOwners = new WeakMap<THREE.Object3D, readonly THREE.Object3D[]>();
@@ -103,7 +104,8 @@ function* batchSteps(model: THREE.Object3D): Generator<void> {
       || !['ground', 'buildings', 'structures'].includes(mesh.userData.layer)) continue;
     // Explicitly dynamic structures (breakable poles etc.) must retain their object/range owners.
     if (mesh.userData.prop_type || mesh.userData.objects?.some((row: Record<string, unknown>) => row.prop_type)) continue;
-    mesh.geometry.computeBoundingBox();
+    // glTF geometry arrives with its accessor bounds (GLTFLoader); the centre only picks the bucket.
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
     mesh.geometry.boundingBox!.getCenter(center).applyMatrix4(mesh.matrixWorld);
     const placement = placementOf(mesh, model);
     if (placement) {
@@ -136,8 +138,11 @@ function* batchSteps(model: THREE.Object3D): Generator<void> {
     let offset = 0, programOffset = 0;
     for (const [sourceIndex, source] of sources.entries()) {
       yield;
-      const geometry = (program ? cloneBase(source.geometry) : source.geometry.clone())
-        .applyMatrix4(inverse.clone().multiply(source.matrixWorld));
+      const geometry = program ? cloneBase(source.geometry) : source.geometry.clone();
+      // Only the merged geometry needs bounds: applyMatrix4 would recompute a copied box and sphere (three vertex
+      // passes per source; 0.65 s of a 6.7-min Windows drive, frame-mp win-drive-2).
+      geometry.boundingBox = geometry.boundingSphere = null;
+      geometry.applyMatrix4(inverse.clone().multiply(source.matrixWorld));
       if (program && packed) {
         const array = program.buffers[sourceIndex].array;
         packed.set(array, programOffset); programOffset += array.length;
@@ -156,7 +161,8 @@ function* batchSteps(model: THREE.Object3D): Generator<void> {
       for (const { name, itemSize, offset } of program.fields)
         geometry.setAttribute(name, new THREE.InterleavedBufferAttribute(buffer, itemSize, offset));
     } else interleaveProgram(geometry);
-    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    yield;
+    yield* boundsSteps(geometry);
     const mesh = new THREE.Mesh(geometry, stableMaterial(sources[0].material as THREE.Material));
     mesh.name = sourcePlacements.length ? 'static-placement-batch' : 'static-tile-batch';
     mesh.userData = { layer: sources[0].userData.layer, objects: rows };

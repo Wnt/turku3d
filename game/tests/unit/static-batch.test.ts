@@ -1,7 +1,8 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { staticBatchSteps, releaseStaticBatches } from '../../src/world/staticBatch';
 import { NormalPrepass } from '../../src/render/normalPrepass';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const batch = (model: THREE.Object3D) => { for (const step of staticBatchSteps(model)) void step; };
 
@@ -110,4 +111,26 @@ test('the batch scan yields within a big tile, and a second run cannot start whi
   // Every mesh has its own material: nothing merges, so every yield is the scan's.
   expect(yields).toBe(Math.floor(200 / 64));
   expect(model.children.length).toBe(200);
+});
+
+test('a batch computes its bounds once, from the merged vertices (two passes), and the scan keeps loaded bounds', () => {
+  const model = new THREE.Group(), material = new THREE.MeshStandardMaterial();
+  for (const [x, angle] of [[2, 0.3], [9, 1.1], [4, 2]]) {
+    const geometry = new THREE.SphereGeometry(1.5, 12, 8); geometry.clearGroups(); geometry.computeBoundingBox();
+    const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, 1, -x); mesh.rotation.set(angle, angle / 2, 0);
+    mesh.userData.layer = 'buildings'; model.add(mesh);
+  }
+  // The merger builds its geometry from the addon's 'three' import, which tests may resolve to a second copy.
+  const merged = mergeGeometries([new THREE.BoxGeometry()])!;
+  const prototypes = new Set([THREE.BufferGeometry.prototype, Object.getPrototypeOf(merged)]);
+  const boxes = [...prototypes].map(p => vi.spyOn(p, 'computeBoundingBox'));
+  const spheres = [...prototypes].map(p => vi.spyOn(p, 'computeBoundingSphere'));
+  const calls = (spies: typeof boxes) => spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+  try { batch(model); expect(calls(boxes)).toBe(0); expect(calls(spheres)).toBe(0); }
+  finally { for (const spy of [...boxes, ...spheres]) spy.mockRestore(); }
+  const draw = model.children[0] as THREE.Mesh, fresh = draw.geometry.clone();
+  fresh.computeBoundingBox(); fresh.computeBoundingSphere();
+  expect(draw.geometry.boundingBox).toEqual(fresh.boundingBox);
+  expect(draw.geometry.boundingSphere!.center).toEqual(fresh.boundingSphere!.center);
+  expect(draw.geometry.boundingSphere!.radius).toBeCloseTo(fresh.boundingSphere!.radius, 12);
 });

@@ -3,6 +3,7 @@ import { attribute, float, int, mix, normalMap, positionWorld, select, texture, 
 import { QUALITY, type QualityTier } from './quality';
 import { wetSurface } from './weather/surfaces';
 import { keepTextureData } from '../world/sharedAssets';
+import { boundsSteps } from './geometryBounds';
 
 // Census at spawn (16:02): each tile drew ~25 meshes, one per distinct ground/surface material. The coarse
 // generator's wet library surfaces (asphalt, granite curb, cobblestone, concrete slabs, quay stone) share one
@@ -285,7 +286,7 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       }
       geometry.setAttribute(SURFACE_LAYER, new THREE.BufferAttribute(layers, 1));
       geometry.setIndex(new THREE.BufferAttribute(index, 1));
-      geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+      yield* boundsSteps(geometry);
       const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial(wet));
       mesh.name = wet ? 'surface-array' : 'surface-array-dry';
       mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
