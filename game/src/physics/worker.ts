@@ -64,13 +64,16 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   if (stepMs > STALL.stepMs) stall({ cause: 'step', ms: stepMs, substeps, traffic: +pw.lastTrafficMs.toFixed(1) });
   const poles = pw.poleStates(true);
   revision++;
-  const vehicleDelta = vehicles.sample(pw.vehicleStates(), revision, acknowledged);
+  // The own (driven) car travels once, as `vehicle`; the client adds it to its list (state `vehicleApart`).
+  const vehicleStates = pw.vehicleStates(), vehicleId = pw.ownVehicleId;
+  const own = vehicleStates.find(v => v.id === vehicleId) ?? null;
+  const vehicleDelta = vehicles.sample(vehicleStates, revision, acknowledged, own ? vehicleId : undefined);
   // The renderer may skip snapshots. Keep locally-caused break edges until its stable-ID dedup consumes them.
   for (const p of poles) { if (p.brokeNow) localBreaks.add(p.id); p.brokeNow = localBreaks.has(p.id); }
   const poleDelta = poleUpdates.sample(poles, revision, acknowledged), debrisDelta = debrisUpdates.sample(pw.debrisStates(), revision, acknowledged);
   const state: PhysicsState = { type: 'state', seq, revision, actorsDelta: true, removedVehicles: vehicleDelta.removed, removedPoles: poleDelta.removed, substeps, tick: pw.tick, remainder: pw.remainder,
     previousCharacter: pw.previousCharacter, previousVehicle: pw.previousVehicle, coverageBlock: pw.coverageBlock,
-    stepMs: performance.now() - t0, character: pw.characterState(), vehicle: pw.vehicleState(),
+    stepMs: performance.now() - t0, character: pw.characterState(), vehicle: own, vehicleApart: true,
     vehicles: vehicleDelta.updates, poles: poleDelta.updates, publishedAt: performance.timeOrigin + performance.now(),
     ...(debrisDelta.updates.length || debrisDelta.removed.length ? { debris: debrisDelta.updates, removedDebris: debrisDelta.removed } : {}),
     ...(pw.traffic ? { traffic: pw.traffic.publish(), trafficEvents: pw.traffic.pending(acknowledged, revision), trafficStats: pw.traffic.stats,

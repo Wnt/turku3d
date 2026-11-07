@@ -58,7 +58,8 @@ export class PhysicsClient {
       const { id: _id, revision: _revision, wall, ...fields } = s;
       streamTrace.event('phys.stall', undefined, { ...fields, ago: performance.timeOrigin + performance.now() - wall });
     }
-    this.state = { ...m, vehicles: this.vehicles.apply(m.vehicles, m.removedVehicles, m.actorsDelta ?? false),
+    const vehicles = m.vehicleApart && m.vehicle ? [...m.vehicles, m.vehicle] : m.vehicles;
+    this.state = { ...m, vehicles: this.vehicles.apply(vehicles, m.removedVehicles, m.actorsDelta ?? false),
       poles: this.poles.apply(m.poles, m.removedPoles, m.actorsDelta ?? false),
       debris: this.debris.apply(m.debris ?? [], m.removedDebris, m.actorsDelta ?? false) };
     const now = performance.now() / 1000;

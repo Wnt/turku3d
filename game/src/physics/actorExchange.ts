@@ -2,7 +2,8 @@
  * so skipping any number of shared snapshots cannot lose an update. Sources reuse unchanged pose objects. */
 export class ActorUpdates<T extends { id?: string }> {
   private entries = new Map<string, { value: T | null; revision: number }>();
-  sample(values: readonly T[], revision: number, acknowledged: number) {
+  /** `apart`: an actor the message carries on its own (the state's `vehicle`); its updates are left out here. */
+  sample(values: readonly T[], revision: number, acknowledged: number, apart?: string) {
     const present = new Set<string>();
     for (const value of values) {
       const id = value.id ?? 'player'; present.add(id);
@@ -14,7 +15,7 @@ export class ActorUpdates<T extends { id?: string }> {
     const updates: T[] = [], removed: string[] = [];
     for (const [id, entry] of this.entries) {
       if (entry.revision > acknowledged) {
-        if (entry.value) updates.push(entry.value); else removed.push(id);
+        if (entry.value) { if (id !== apart) updates.push(entry.value); } else removed.push(id);
       } else if (entry.value === null) this.entries.delete(id);
     }
     return { updates, removed };

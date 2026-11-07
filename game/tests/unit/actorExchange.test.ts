@@ -44,3 +44,23 @@ test('hundreds of unchanged parked poses do not reappear in per-step payloads', 
   expect(packet.updates).toEqual([moving]);
   expect(JSON.stringify(packet).length).toBeLessThan(150);
 });
+
+test('an actor sent apart (the own car as `vehicle`) is left out of the list and resent when it stops being apart', () => {
+  const sender = new ActorUpdates<{ id: string; x: number }>(), receiver = new ActorCache<{ id: string; x: number }>();
+  const own = (x: number) => ({ id: 'player', x }), parked = { id: 'p1', x: 5 };
+  // The receiver adds the apart actor to the list itself, as PhysicsClient.acceptState does with `vehicle`.
+  const deliver = (values: { id: string; x: number }[], revision: number, apart?: string) => {
+    const { updates, removed } = sender.sample(values, revision, revision - 1, apart);
+    expect(updates.some(v => v.id === apart)).toBe(false);
+    const alone = apart ? values.find(v => v.id === apart) : undefined;
+    return [...receiver.apply(alone ? [...updates, alone] : updates, removed)].sort((a, b) => a.id.localeCompare(b.id));
+  };
+  expect(deliver([own(1), parked], 1, 'player')).toEqual([parked, own(1)]);
+  expect(deliver([own(2), parked], 2, 'player')).toEqual([parked, own(2)]);
+  // The player gets out: a receiver that skipped the last apart message still gets the newest own car from the list,
+  // and later changes travel in the list.
+  const last = own(3);
+  sender.sample([last, parked], 3, 2, 'player');
+  expect(sender.sample([last, parked], 4, 2).updates).toEqual([last]);
+  expect(sender.sample([own(5), parked], 5, 4).updates).toEqual([own(5)]);
+});

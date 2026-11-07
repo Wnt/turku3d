@@ -550,8 +550,10 @@ export class PhysicsWorld {
     car.reset(pos, yaw);
     this.vehicleSnapshots.delete(id);
   }
+  /** The car `vehicleState` reports: the driven one, else the own start car. */
+  get ownVehicleId() { return this.drivenId ?? 'player'; }
   vehicleState(): VehicleState | null {
-    const id = this.drivenId ?? 'player', vehicle = this.vehicles.get(id);
+    const id = this.ownVehicleId, vehicle = this.vehicles.get(id);
     return vehicle ? { id, ...vehicle.state() } : null;
   }
   vehicleStates(): VehicleState[] {

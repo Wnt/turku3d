@@ -33,6 +33,12 @@ export const IMPACT_MIN_DELTA_V = 0.5;
  *  of the session (applyTyres, updateVehicle, strikeCurbs, trackSuspension: ~60 s of 330 s of the Windows laptop's
  *  physics worker, frame-mp win-prof-1). */
 export const REST = { move: 0.002, turn: 2e-7, steps: 30 } as const;
+/** The published state's numbers are rounded (positions 0.01 mm, rotations 1e-6, wheels 0.1 mm / 1e-4 rad): the
+ *  physics state crosses to the page as JSON every frame, and a driven fleet car's 17-digit doubles made it 2.1 KB
+ *  (1.4 KB rounded); the page parses one per frame. */
+const r4 = (x: number) => Math.round(x * 1e4) / 1e4, r5 = (x: number) => Math.round(x * 1e5) / 1e5, r6 = (x: number) => Math.round(x * 1e6) / 1e6;
+const v5 = (v: { x: number; y: number; z: number }) => ({ x: r5(v.x), y: r5(v.y), z: r5(v.z) });
+const v4 = (v: { x: number; y: number; z: number }) => ({ x: r4(v.x), y: r4(v.y), z: r4(v.z) });
 /** Body damage: a step whose contact velocity change reaches this (m/s) starts or continues a crash; a crash ends after
  *  two quieter steps or `CRASH_STEPS` steps, and is applied as one hit (vehicle/damage.ts: its severity is the square
  *  of the whole velocity change, so a crash split over several solver steps must not count as several light ones). */
@@ -704,8 +710,8 @@ export class Vehicle {
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     const t = this.tuning, rear = t.rearSteer ? { rearMode: this.rear.mode, rearLocked: this.rear.locked } : {};
     const damage = this.damageWire();
-    return { ...rear, ...(damage ? { damage } : {}), ...(this.scrape.speed ? { scrape: this.scrape.speed } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: { ...b.translation() }, rot: { ...b.rotation() }, linvel: { ...lv }, speed: Math.hypot(lv.x, lv.y, lv.z),
-      forwardSpeed: lv.x * forward.x + lv.y * forward.y + lv.z * forward.z,
+    return { ...rear, ...(damage ? { damage } : {}), ...(this.scrape.speed ? { scrape: this.scrape.speed } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: v5(b.translation()), rot: (q => ({ x: r6(q.x), y: r6(q.y), z: r6(q.z), w: r6(q.w) }))(b.rotation()), linvel: v4(lv), speed: r4(Math.hypot(lv.x, lv.y, lv.z)),
+      forwardSpeed: r4(lv.x * forward.x + lv.y * forward.y + lv.z * forward.z),
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.mounts.map((cp, i) => {
         // A long-travel wheel hangs from its limit strap: past full droop it is unloaded and drawn at the strap.
@@ -716,12 +722,12 @@ export class Vehicle {
         const normal = point ? v.wheelContactNormal(i) : null, collider = point ? v.wheelGroundObject(i) : null;
         const q = b.rotation(), inverse = { x: -q.x, y: -q.y, z: -q.z, w: q.w }, p = b.translation();
         const tyre = point && normal && collider ? {
-          point: rotate({ x: point.x - p.x, y: point.y - p.y, z: point.z - p.z }, inverse),
-          normal: rotate(normal, inverse), material: this.contactMaterial(collider, point),
-          lateral: this.lateral[i], longitudinal: this.longitudinal[i],
+          point: v4(rotate({ x: point.x - p.x, y: point.y - p.y, z: point.z - p.z }, inverse)),
+          normal: v4(rotate(normal, inverse)), material: this.contactMaterial(collider, point),
+          lateral: r4(this.lateral[i]), longitudinal: r4(this.longitudinal[i]),
         } : undefined;
-        return { pos: { x: cp.x, y: cp.y - suspension, z: cp.z }, steer: v.wheelSteering(i) ?? 0,
-          tyre, rotation: v.wheelRotation(i) ?? 0, contact, suspension };
+        return { pos: v4({ x: cp.x, y: cp.y - suspension, z: cp.z }), steer: v.wheelSteering(i) ?? 0,
+          tyre, rotation: r4(v.wheelRotation(i) ?? 0), contact, suspension: r4(suspension) };
       }) };
   }
 }
