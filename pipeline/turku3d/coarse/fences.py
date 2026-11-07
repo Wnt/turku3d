@@ -114,6 +114,7 @@ def prepare(tile, path):
             if geom.geom_type in ("Polygon", "MultiPolygon"):
                 geom = geom.boundary
             rows.append((geom, tags))
+    rows += surveyed_fences(tile, [g for g, _ in rows if g.geom_type != "Point"])
     road = shapely.union_all(roads)
     result = []
     blocked = shapely.union_all(obstacles).buffer(0.2)
@@ -136,6 +137,32 @@ def prepare(tile, path):
             on_road |= geom.intersection(road).length > 0.5
         result.append((geom, tags, on_road))
     return result
+
+
+SURVEY_DUPLICATE = 1.0  # m: a surveyed fence this close to a mapped OSM barrier is that barrier
+
+
+def surveyed_fences(tile, mapped):
+    """Dutch cities: BGT fences and railings (scheiding "hek") that OSM does not map, as steel bar fences. The Rokin
+    garage ramp's approach is fenced off from the tram lane in the survey and on Street View, not in OSM. Finnish
+    cities keep OSM barriers only."""
+    from turku3d import cities
+
+    if cities.require_applied().ground != "nl-ahn":
+        return []
+    from turku3d.nl import convert
+
+    window = tile.bbox.buffered(20)
+    near = shapely.union_all([g.buffer(SURVEY_DUPLICATE) for g in mapped]) if mapped else shapely.Polygon()
+    out = []
+    for g in convert.fences_bgt(window.to_en().as_tuple()):
+        local = shapely.transform(g, lambda en: np.column_stack([en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]]))
+        if not near.is_empty:
+            local = local.difference(near)
+        for part in lines(local):
+            if part.length >= 1.0:
+                out.append((part, {"barrier": "fence", "fence_type": "bars", "source": "bgt"}))
+    return out
 
 
 def lines(geom):

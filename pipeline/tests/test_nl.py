@@ -275,3 +275,25 @@ def test_thin_bgt_wall_polygons_are_surveyed_along_their_axes():
     assert axes and sum(a.length for a in axes) > 38
     assert all(u.contains(a) for a in axes)
     assert convert.wall_axes(shapely.box(0, 0, 10, 4)) == []  # a 4 m block is no wall
+
+
+def test_surveyed_fences_join_the_osm_barriers_only_in_dutch_cities(monkeypatch):
+    """Rokin: the garage ramp's approach is fenced off from the tram lane in BGT (scheiding "hek"), not in OSM."""
+    import shapely
+
+    from turku3d import config as C
+    from turku3d.coarse import fences
+
+    E0, N0 = C.ORIGIN_E, C.ORIGIN_N
+    rd = lambda *p: shapely.LineString([(E0 + x, N0 - z) for x, z in p])  # noqa: E731
+    monkeypatch.setattr(convert, "fences_bgt", lambda bbox, log=print: [rd((10, 10), (40, 10)), rd((10, 30), (40, 30))])
+    tile = C.VisualTile(0, 0, 0)
+    osm_fence = shapely.LineString([(10, 30.5), (40, 30.5)])  # OSM already maps the second one
+    dutch = type("City", (), {"ground": "nl-ahn"})()
+    monkeypatch.setattr("turku3d.cities.require_applied", lambda: dutch)
+    added = fences.surveyed_fences(tile, [osm_fence])
+    assert [round(g.length) for g, _ in added] == [30]
+    assert added[0][1]["barrier"] == "fence" and shapely.equals_exact(added[0][0], shapely.LineString([(10, 10), (40, 10)]), 1e-6)
+    finnish = type("City", (), {"ground": "turku-lidar"})()
+    monkeypatch.setattr("turku3d.cities.require_applied", lambda: finnish)
+    assert fences.surveyed_fences(tile, []) == []

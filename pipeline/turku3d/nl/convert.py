@@ -740,6 +740,30 @@ def split_corners(line):
     return pieces
 
 
+FENCE_TYPES = ("hek",)
+
+
+def fences_bgt(bbox, log=print):
+    """BGT scheiding_lijn "hek" (fences, railings) at ground level intersecting an RD bbox, as RD lines; lines along a
+    building face (within WALL_FACADE_CLEARANCE of a BGT pand) or over the water are left out."""
+    import shapely
+
+    lines = [g for _, _, p, g in bgt_features(("scheiding_lijn",), bbox, log)
+             if p.get("type") in FENCE_TYPES and int(p.get("relatieve_hoogteligging") or 0) == 0
+             and g.geom_type in ("LineString", "MultiLineString")]
+    if not lines:
+        return []
+    facades = [g.boundary.buffer(WALL_FACADE_CLEARANCE) for _, _, _, g in bgt_features(("pand",), bbox, log)
+               if g.geom_type in ("Polygon", "MultiPolygon")]
+    water = [g for _, _, p, g in bgt_features(WATER_COLLECTIONS, bbox, log) if not underground(p)]
+    blocked = shapely.union_all([*facades, *water])
+    out = []
+    for g in lines:
+        kept = g.difference(blocked) if not blocked.is_empty else g
+        out.extend(part for part in getattr(kept, "geoms", [kept]) if part.geom_type == "LineString" and part.length >= 1.0)
+    return out
+
+
 def paved_sides(line, street, reach=1.5, share=0.5) -> str:
     """Which sides of a wall line (in the engine frame, the retaining survey's left/right of the line's direction)
     are mostly street paving within ``reach``: "", "l", "r" or "lr". A parapet stands only on a paved upper side
