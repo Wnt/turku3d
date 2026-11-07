@@ -546,13 +546,16 @@ def dead_ends(groups):
 
 
 PASSAGE_STRIP = 2.0  # m across a passage per floor strip: the ground grid's own spacing
+PASSAGE_MARGIN = 0.25  # m the clearance volume keeps above the probed ground; structures above it are still cut
+BARYCENTRIC = np.array([(i / 4, j / 4, 1 - i / 4 - j / 4) for i in range(5) for j in range(5 - i)])
 
 
 def passage_floors(xz, offset, width, height_at):
     """Floor triangles of a passage's clearance volume, in strips about PASSAGE_STRIP wide across it, each lifted
-    so its plane never passes below the ground sampled at its centroid and edge midpoints. One triangle spanning a
-    wide passage (Merituulentie's merged carriageways under Ainoa, 26 m) cut through the crown of the road it
-    should only clear above: the carve keeps ground below floor + 4 cm."""
+    so its plane never passes below the ground probed on a barycentric lattice over it, plus PASSAGE_MARGIN. One
+    triangle spanning a wide passage (Merituulentie's merged carriageways under Ainoa, 26 m) cut through the crown
+    of the road it should only clear above, and overlapping passages' planes cut the ground between their probes:
+    the carve keeps ground below floor + 4 cm."""
     rows = [xz + offset * (width / 2) * a for a in np.linspace(1, -1, max(1, int(np.ceil(width / PASSAGE_STRIP))) + 1)]
     floors = []
     for i in range(len(xz) - 1):
@@ -560,11 +563,13 @@ def passage_floors(xz, offset, width, height_at):
             for side in ([lo[i], lo[i + 1], hi[i + 1]], [lo[i], hi[i + 1], hi[i]]):
                 q = np.asarray(side)
                 heights = np.array([height_at(x, z) for x, z in q])
-                probes = np.vstack([q.mean(axis=0), (q + np.roll(q, -1, axis=0)) / 2])
-                plane = np.r_[heights.mean(), (heights + np.roll(heights, -1)) / 2]
+                # The ground grid (about 2 m) can kink anywhere inside a strip: probe it on a barycentric
+                # lattice and lift the plane above every probe, plus PASSAGE_MARGIN for the triangles between.
+                probes = BARYCENTRIC @ q
+                plane = BARYCENTRIC @ heights
                 measured = np.array([height_at(x, z) for x, z in probes])
-                lift = float(np.max(measured - plane, initial=0.0))
-                floors.append(np.c_[q[:, 0], heights + max(lift, 0.0), q[:, 1]])
+                lift = max(float(np.max(measured - plane)), 0.0) + PASSAGE_MARGIN
+                floors.append(np.c_[q[:, 0], heights + lift, q[:, 1]])
     return floors
 
 

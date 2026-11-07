@@ -605,7 +605,7 @@ def test_a_wide_passage_never_carves_the_crown_of_its_road():
     for tri in floors[::7]:
         centre = tri.mean(axis=0)
         assert centre[1] >= crowned(centre[0], centre[2]) - 1e-9  # the plane is never below the ground
-        assert centre[1] - crowned(centre[0], centre[2]) < 0.05  # and stays on it
+        assert centre[1] - crowned(centre[0], centre[2]) < 0.35  # and stays near it
 
 
 def test_a_ramp_into_an_unbuilt_garage_is_a_spur_and_not_built():
@@ -653,3 +653,22 @@ def test_an_entry_and_exit_ramp_pair_into_an_unbuilt_tunnel_is_a_spur():
     kept = produce(tile, [through, branch], pos, idx, [], extrude,
                    lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5, (195 - x) / 5)))
     assert len(kept.profiles) == 1 and len(kept.unbuilt) == 1
+
+
+def test_passage_floors_stay_above_a_kink_inside_a_strip():
+    """The ground grid kinks between a strip's probes; overlapping passages cut it there (Merituulentie at x 166)."""
+    from turku3d.coarse.tunnels import passage_floors
+
+    line = shapely.LineString([(0, 0), (10, 0)])
+    xz = shapely.get_coordinates(shapely.line_interpolate_point(line, np.linspace(0, 10, 6)))
+    offset = np.tile([0.0, 1.0], (len(xz), 1))
+
+    def ridge(x, z):  # a 0.6 m sharp ridge at x = 4.7, between the 2 m stations
+        return 3.0 + max(0.0, 0.6 - abs(x - 4.7))
+
+    floors = np.asarray(passage_floors(xz, offset, 4.0, ridge))
+    for tri in floors:
+        for w in np.linspace(0, 1, 6):
+            for v in np.linspace(0, 1 - w, 6):
+                p = tri[0] * w + tri[1] * v + tri[2] * (1 - w - v)
+                assert p[1] + 0.04 >= ridge(p[0], p[2]) - 0.15
