@@ -1,7 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { weldVertexSteps } from '../../render/weldVertices';
+import { drain } from '../../world/shadowChunks';
+import { streamingBudget } from '../../render/preparationBudget';
 import {splitNamedFleetWheels,type AuthoredFleetParts} from './authoredWheelParts';
 import {fleetWheelLayout} from './wheelLayouts';
 import { AUTHORED_BY_ID } from './registry';
@@ -13,16 +16,24 @@ const unavailable = new Set<string>();
 
 /** Bake authored transforms and material roles into shared body or glazing geometry. */
 export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): THREE.BufferGeometry {
+  return drain(flattenFleetSteps(root, part, exclude));
+}
+/** flattenFleetAsset a mesh, the merge and a weld slice at a time: a big LOD0 (an ambulance, 59k triangles) took
+ *  ~90 ms in one piece on the M1 Max even after the welder, inside the meshopt decoder's message task (verify-all r4:
+ *  210-342 ms Worker.onmessage frames on Windows right after spawn, while the parked fleet loads). */
+export function* flattenFleetSteps(root: THREE.Object3D, part: 'all'|'body'|'glass' = 'all', exclude?:ReadonlySet<THREE.Object3D>): Generator<void, THREE.BufferGeometry> {
   const parts: THREE.BufferGeometry[] = [];
   root.updateMatrixWorld(true);
-  root.traverse(object => {
-    if (!(object as THREE.Mesh).isMesh) return;
-    for(let at:THREE.Object3D|null=object;at;at=at.parent)if(exclude?.has(at))return;
+  const meshes: THREE.Object3D[] = [];
+  root.traverse(object => { if ((object as THREE.Mesh).isMesh) meshes.push(object); });
+  for (const object of meshes) {
+    yield;
+    if (exclude && excluded(object, exclude)) continue;
     const mesh = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
     if (Array.isArray(mesh.material)) throw Error('Expected one GLTF material per primitive');
     const material = mesh.material, role = material.name;
     const glass = role === 'fleet_glass' && material.opacity < 1;
-    if (part === 'body' && glass || part === 'glass' && !glass) return;
+    if (part === 'body' && glass || part === 'glass' && !glass) continue;
     const names = `${mesh.name} ${role}`.toLowerCase();
     const front = /lamp[-_ ]front|fleet_headlamp/.test(names), tail = /lamp[-_ ]tail|fleet_taillamp/.test(names);
     if (!role.startsWith('fleet_') && !front && !tail) throw Error(`Unexpected fleet material: ${role}`);
@@ -36,28 +47,49 @@ export function flattenFleetAsset(root: THREE.Object3D, part: 'all'|'body'|'glas
     const color = front ? new THREE.Color(0xdde6e8) : tail ? new THREE.Color(0xb91108) : paint ? new THREE.Color(1, 1, 1) : material.color;
     const lamp = front ? 1 : tail ? 4 : role === 'fleet_indicator_left' ? 2 : role === 'fleet_indicator_right' ? 3 : 0;
     const positions = g.getAttribute('position'), normals = g.getAttribute('normal');
+    const tinted = !!baked && !paint && !front && !tail, kind = Number(paint), last = part === 'glass' ? material.opacity : lamp;
+    // Written in place: two array literals per vertex were most of a big car's bake (frame-mp).
     for (let i = 0; i < n; i++) {
       // Road splash on the lower panels and a thin top-facing dust layer, baked once into
       // vertices. No extra texture fetches or per-frame noise in the fleet shader.
       const grime = paint ? Math.max(0, Math.min(1, (.65-positions.getY(i))/.45)) : 0;
       const dust = paint ? Math.max(0, normals.getY(i))*.055 : 0;
       const shade = 1-grime*.22-dust*.35;
-      const r = baked && !paint && !front && !tail ? baked.getX(i) : 1, gr = baked && !paint && !front && !tail ? baked.getY(i) : 1,
-        bl = baked && !paint && !front && !tail ? baked.getZ(i) : 1;
-      colors.set([color.r*r*shade, color.g*gr*shade*(1-grime*.025), color.b*bl*shade*(1-grime*.06)], i * 3);
-      surfaces.set([Number(paint), Math.min(1,material.roughness+grime*.22+dust),
-        material.metalness*(1-grime*.55-dust), part === 'glass' ? material.opacity : lamp], i * 4);
+      const r = tinted ? baked.getX(i) : 1, gr = tinted ? baked.getY(i) : 1, bl = tinted ? baked.getZ(i) : 1;
+      const c = i * 3, f = i * 4;
+      colors[c] = color.r*r*shade; colors[c + 1] = color.g*gr*shade*(1-grime*.025); colors[c + 2] = color.b*bl*shade*(1-grime*.06);
+      surfaces[f] = kind; surfaces[f + 1] = Math.min(1,material.roughness+grime*.22+dust);
+      surfaces[f + 2] = material.metalness*(1-grime*.55-dust); surfaces[f + 3] = last;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     g.setAttribute('fleetSurface', new THREE.BufferAttribute(surfaces, 4));
     g.clearGroups(); parts.push(g);
-  });
+  }
   if (!parts.length) throw Error('Empty authored fleet asset');
+  yield;
   const joined = mergeGeometries(parts, false)!;
-  const geometry = mergeVertices(joined);
-  joined.dispose(); for (const part of parts) part.dispose();
+  for (const part of parts) part.dispose();
+  yield;
+  const geometry = yield* weldVertexSteps(joined);
+  joined.dispose();
+  yield;
   geometry.computeBoundingBox(); geometry.computeBoundingSphere();
   return geometry;
+}
+function excluded(object: THREE.Object3D, exclude: ReadonlySet<THREE.Object3D>) {
+  for (let at: THREE.Object3D | null = object; at; at = at.parent) if (exclude.has(at)) return true;
+  return false;
+}
+
+const budget = streamingBudget();
+const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+/** Runs `steps` to completion, each step within the frame's streaming window. */
+async function paced<T>(steps: Generator<void, T>): Promise<T> {
+  for (let next = steps.next(); ; next = steps.next()) {
+    if (next.done) return next.value;
+    let pause = budget.checkpoint();
+    while (pause) { await pause; pause = budget.checkpoint(); }
+  }
 }
 
 async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
@@ -68,13 +100,16 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   if (!request) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     const url = `${entry.assetBase}/lod${lod}.glb`;
-    request = loader.loadAsync(url).then(gltf => {
+    request = loader.loadAsync(url).then(async gltf => {
+      // The bake runs in slices inside the frame's streaming window, from a task of its own (not the meshopt
+      // decoder's message that resolved the load).
+      await nextTask();
+      const parts = await paced(splitNamedFleetWheels(gltf.scene, (root, exclude) => flattenFleetSteps(root, 'body', exclude)));
       // Named hubs already bake every opaque triangle. Repeating the whole-car bake here
       // expands and welds all of them a second time, even when callers only need split parts.
       gltf.scene.updateMatrixWorld(true);
       const transform = gltf.scene.matrixWorld.clone();
       let body: THREE.BufferGeometry | undefined;
-      const parts=splitNamedFleetWheels(gltf.scene,(root,exclude)=>flattenFleetAsset(root,'body',exclude));
       if(!parts)throw Error(`Authored fleet lacks named wheel hubs: ${model}`);
       const layout=fleetWheelLayout(model)!;
       for(const wheel of parts.wheels){wheel.radius=layout.radius;wheel.width=layout.width;}
@@ -84,7 +119,7 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
         const m = object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
         if (m.isMesh && !Array.isArray(m.material) && m.material.name === 'fleet_glass' && m.material.opacity < 1) hasGlass = true;
       });
-      const glass = hasGlass ? flattenFleetAsset(gltf.scene, 'glass') : null;
+      const glass = hasGlass ? await paced(flattenFleetSteps(gltf.scene, 'glass')) : null;
       gltf.scene.traverse(object => {
         const mesh = object as THREE.Mesh;
         if (mesh.isMesh) { mesh.geometry.dispose(); for (const material of [mesh.material].flat()) material.dispose(); }
