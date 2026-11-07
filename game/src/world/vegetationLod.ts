@@ -88,6 +88,15 @@ interface Bucket {
   tallest?: number;
 }
 interface Selection { bucket: Bucket; offset: number; count: number }
+/** A moving camera re-selects every run of trees each frame; fresh records lived just long enough to survive a
+ *  scavenge (framecheck mac-heap-1: ~0.45 MB/s of survivors from this update). One pool per draw serves them instead. */
+function select(draw: Draw, selections: Selection[], bucket: Bucket, offset: number, count: number) {
+  let selection = draw.pool[draw.used];
+  if (selection) { selection.bucket = bucket; selection.offset = offset; selection.count = count; }
+  else draw.pool.push(selection = { bucket, offset, count });
+  draw.used++;
+  selections.push(selection);
+}
 interface Draw {
   barrier: boolean;
   /** Library asset name and a stable identity, for the city-wide pools. */
@@ -104,6 +113,9 @@ interface Draw {
   /** The asset's height before the placement scale. */
   height: number;
   selections: Selection[][];
+  /** Selection records reused across updates (`select`); `used` of them are handed out this update. */
+  pool: Selection[];
+  used: number;
   previous: number[][];
 }
 interface Model {
@@ -472,7 +484,7 @@ export class VegetationLod {
     if (shadows && asset.lods.length > 1) levels.push(group(asset.lods[1].parts, 0, true));
     source.parent!.add(root);
     return { barrier: !shadows, asset: asset.name, id: this.nextDraw++, root, levels, lods, shadow: levels.length > lods ? lods : -1, height: asset.height,
-      selections: levels.map(() => []), previous: levels.map(() => []) };
+      selections: levels.map(() => []), pool: [], used: 0, previous: levels.map(() => []) };
   }
 
   /** A still camera (within 5 cm and 0.1 degrees) with the same lens and screenshot range selects the same trees. */
@@ -520,6 +532,7 @@ export class VegetationLod {
       const active = this.activeTiles.get(model) === true;
       for (const draw of data.draws) {
         for (const selection of draw.selections) selection.length = 0;
+        draw.used = 0;
         for (const level of draw.levels) for (const part of level) part.visible = false;
       }
       if (!active) continue;
@@ -548,7 +561,7 @@ export class VegetationLod {
         // Keep their modules out of the tree budgets, including distant fences with colliders.
         const count = Math.min(bucket.count, barriers);
         barriers -= count;
-        if (count) bucket.draw.selections[Math.min(level, bucket.draw.lods - 1)].push({ bucket, offset: 0, count });
+        if (count) select(bucket.draw, bucket.draw.selections[Math.min(level, bucket.draw.lods - 1)], bucket, 0, count);
         continue;
       }
       // Cells are only culling units. The tree's own position selects its LODs, in either pass: one level, or two
@@ -566,7 +579,7 @@ export class VegetationLod {
           if (!(mask & (1 << k))) continue;
           const selections=bucket.draw.selections[k], last=selections[selections.length-1];
           if (last?.bucket===bucket && last.offset+last.count===offset) last.count++;
-          else selections.push({bucket,offset,count:1});
+          else select(bucket.draw, selections, bucket, offset, 1);
         }
       }
     }
@@ -662,7 +675,7 @@ export class VegetationLod {
         budget--;
         const last = selections[selections.length - 1];
         if (last?.bucket === bucket && last.offset + last.count === offset) last.count++;
-        else selections.push({ bucket, offset, count: 1 });
+        else select(bucket.draw, selections, bucket, offset, 1);
       }
     }
   }
