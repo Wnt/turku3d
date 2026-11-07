@@ -34,6 +34,10 @@ test('bounded worker records preserve nested arrays, nulls and literal prototype
   for (let i = 0; i < records.length; i += 3) applyJsonRecords(objects, records.slice(i, i + 3));
   expect(objects[0]).toEqual(json);
   expect(Object.getPrototypeOf(objects[0])).toBe(Object.prototype);
+  const extras = (objects[0] as { meshes: { extras: Record<string, unknown> }[] }).meshes[0].extras;
+  expect(Object.getOwnPropertyNames(extras)).toEqual(['__proto__', 'values']);
+  expect(Object.getPrototypeOf(extras)).toBe(Object.prototype);
+  expect(({} as Record<string, unknown>).safe).toBeUndefined();
 });
 
 
