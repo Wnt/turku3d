@@ -86,3 +86,20 @@ test('network restore preserves pitch/roll instead of yaw-resetting an empty veh
   expect(pw.vehicleStates()[0].linvel).toEqual(state.linvel);
   pw.world.free();
 });
+
+test('a multiplayer frame asks each shared record its local id once, not once per physics car', () => {
+  const client = new MultiplayerClient('ws://localhost:5403', null);
+  client.state.connected = true; client.state.you = { id: 'self', nick: 'AA', spawn: { E: 170, N: -250, yaw: 0 } };
+  // City play: ~150 parked and traffic bodies near the player, ~40 room records, a few thousand world cars.
+  const cars = Array.from({ length: 150 }, (_, i) => ({ ...state, id: `car${i}`, pos: { x: i, y: 4.6, z: 250 } }));
+  const world = Array.from({ length: 3000 }, (_, i) => ({ object_id: `car${i}`, model: 'sedan', x: i, y: 4.6, z: 250, yaw: 0 }));
+  const physics = { latest: { vehicles: cars }, spawnVehicle: vi.fn(), removeVehicle: vi.fn(), vehicleImpulse: vi.fn(), setVehicleDamage: vi.fn(), ownVehicleDamage: vi.fn() };
+  const shared = new SharedVehicles(client, physics as unknown as PhysicsClient, { vehicles: world } as unknown as Manifest, { setShared: vi.fn() } as unknown as ParkedVehicles);
+  for (let i = 0; i < 40; i++) client.state.vehicles.set(`other:${i}`, { id: `other:${i}`, source: `car${1000 + i}`, creator: 'other', localId: `car${1000 + i}`,
+    owner: 'other', occupant: null, epoch: 1, revision: 1, half: { x: 2, y: .4, z: .9 },
+    pose: { t: 1, E: 1000 + i, N: -250, H: 4, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'sedan', carrying: false } } as never);
+  const localId = vi.spyOn(shared, 'localId');
+  shared.update(0);
+  // Before: record(id) per physics car spread the room and asked every record (150 x 40 = 6,000 calls per frame).
+  expect(localId.mock.calls.length).toBeLessThan(150);
+});

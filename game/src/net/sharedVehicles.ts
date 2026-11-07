@@ -105,7 +105,7 @@ export class SharedVehicles {
     if (managed) return managed.local;
     // A borrowed car's source tile may be absent after reload. In that case the
     // shared renderer, rather than a nonexistent native visual, owns its actor.
-    if (v.source && !this.manifest.vehicles?.some(source => source.object_id === v.source)) return v.id;
+    if (v.source && !this.sourceVehicle(v.source)) return v.id;
     return v.creator === this.client.state.you?.id ? v.localId : v.id;
   }
   /** A fresh page has no DrivenSeat. Restore authority before the first live
@@ -130,8 +130,19 @@ export class SharedVehicles {
     return local;
   }
   record(localId: string | null): SharedVehicle | undefined {
-    return [...this.client.state.vehicles.values()].find(v => this.localId(v) === localId);
+    for (const v of this.client.state.vehicles.values()) if (this.localId(v) === localId) return v;
+    return undefined;
   }
+  /** The manifest's parked car `id` (world cars; the array is replaced, never edited, when tiles stream). Per-frame
+   *  callers asked `manifest.vehicles` by scanning it: with every physics car checked against every shared record
+   *  that cost the M1 Max 34 ms/s of multiplayer play (framecheck mac-fix1-1). */
+  private sourceVehicle(id: string) {
+    const list = this.manifest.vehicles;
+    let sources = this.sources;
+    if (!sources || sources.list !== list) sources = this.sources = { list, byId: new Map((list ?? []).map(v => [v.object_id, v])) };
+    return sources.byId.get(id);
+  }
+  private sources: { list: Manifest['vehicles']; byId: Map<string, NonNullable<Manifest['vehicles']>[number]> } | null = null;
   hasSeat(localId: string): boolean {
     const self = this.client.state.you?.id;
     return !!self && this.record(localId)?.occupant === self;
@@ -161,7 +172,7 @@ export class SharedVehicles {
 
   private command(state: VehicleState, action: VehicleCommand['action']): VehicleCommand {
     const localId = state.id!;
-    const source = this.manifest.vehicles?.find(v => v.object_id === localId);
+    const source = this.sourceVehicle(localId);
     const kind = state.kind ?? 'car';
     const model = vehicleIdentity(kind, localId, this.manifest.vehicles ?? [])!;
     return { action, id: source ? `park:${source.object_id}` : `${this.client.state.you!.id}:${localId}`,
@@ -315,15 +326,18 @@ export class SharedVehicles {
     this.releaseStraySeats(now);
     this.sync();
     if (!this.client.state.connected || !this.client.state.you) return;
+    // The local ids of the room's records, once per update instead of once per physics car (record()).
+    const shared = new Set<string>();
+    for (const v of this.client.state.vehicles.values()) shared.add(this.localId(v));
     for (const state of this.physics.latest?.vehicles ?? []) {
-      if (!state.id || state.id === this.driving?.local || this.record(state.id) || this.pending.has(state.id) || now < (this.retryAt.get(state.id) ?? 0)) continue;
+      if (!state.id || state.id === this.driving?.local || shared.has(state.id) || this.pending.has(state.id) || now < (this.retryAt.get(state.id) ?? 0)) continue;
       if (state.id === 'player') {
         this.starterAt ??= { ...state.pos };
         if (Math.hypot(state.pos.x - this.starterAt.x, state.pos.z - this.starterAt.z) < .3
           && Math.hypot(state.linvel.x, state.linvel.z) < .3) continue;
       }
       // A world car is shared once this client moved or damaged it: the room keeps its pose and its damage.
-      const source = this.manifest.vehicles?.find(v => v.object_id === state.id);
+      const source = this.sourceVehicle(state.id);
       if (source && (this.client.state.vehicleSources.has(source.object_id)
         || (Math.hypot(state.pos.x - source.x, state.pos.z - source.z) < 0.3 && !state.damage))) continue;
       if (!source && !['player', 'scooter', 'truck'].includes(state.id)) continue;
