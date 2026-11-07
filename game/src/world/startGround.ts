@@ -104,7 +104,15 @@ const LOOP_NEAR_M = 40;
  * street.
  */
 export function oneWayCorridors(graph: RoadGraph): Uint8Array {
-  const corridor = new Uint8Array(graph.edges.length), n = graph.nodes.length / 2;
+  const corridor = new Uint8Array(graph.edges.length), test = corridorTest(graph);
+  graph.edges.forEach((_, index) => { corridor[index] = test(index) ? 1 : 0; });
+  return corridor;
+}
+
+/** Whether edge `index` is a one-way corridor (oneWayCorridors), computed on demand: the start search asks only for
+ *  the edges near the start. */
+function corridorTest(graph: RoadGraph): (index: number) => boolean {
+  const n = graph.nodes.length / 2;
   const out: { to: number; length: number }[][] = Array.from({ length: n }, () => []);
   graph.edges.forEach(e => {
     if (!(e.flags & CAR) || e.eflags & EDGE.TUNNEL) return;
@@ -112,25 +120,30 @@ export function oneWayCorridors(graph: RoadGraph): Uint8Array {
     out[e.a].push({ to: e.b, length });
     if (!(e.flags & ONEWAY)) out[e.b].push({ to: e.a, length });
   });
-  graph.edges.forEach((e, index) => {
-    if (!(e.flags & CAR) || !(e.flags & ONEWAY)) return;
+  const memo = new Map<number, boolean>();
+  return index => {
+    const e = graph.edges[index];
+    if (!(e.flags & CAR) || !(e.flags & ONEWAY)) return false;
+    const known = memo.get(index);
+    if (known !== undefined) return known;
     const sx = graph.nodes[2 * e.a], sz = graph.nodes[2 * e.a + 1];
-    // Dijkstra from the edge's end, bounded by LOOP_BACK_M (small graphs: a sorted frontier is enough).
-    const dist = new Map<number, number>([[e.b, edgeLength(e)]]), frontier = [e.b];
+    // Dijkstra from the edge's end, bounded by LOOP_BACK_M (the frontier stays small: a linear minimum is enough).
+    const dist = new Map<number, number>([[e.b, edgeLength(e)]]), frontier = new Set([e.b]);
     let back = false;
-    while (frontier.length && !back) {
-      frontier.sort((p, q) => dist.get(q)! - dist.get(p)!);
-      const v = frontier.pop()!, d = dist.get(v)!;
+    while (frontier.size && !back) {
+      let v = -1, d = Infinity;
+      for (const f of frontier) { const fd = dist.get(f)!; if (fd < d) { d = fd; v = f; } }
+      frontier.delete(v);
       if (d > LOOP_BACK_M) break;
-      if (v !== e.b && Math.hypot(graph.nodes[2 * v] - sx, graph.nodes[2 * v + 1] - sz) <= LOOP_NEAR_M) { back = true; break; }
-      for (const arc of out[v]) {
+      if (v !== e.b && Math.hypot(graph.nodes[2 * v] - sx, graph.nodes[2 * v + 1] - sz) <= LOOP_NEAR_M) back = true;
+      else for (const arc of out[v]) {
         const nd = d + arc.length;
-        if (nd < (dist.get(arc.to) ?? Infinity)) { if (!dist.has(arc.to)) frontier.push(arc.to); dist.set(arc.to, nd); }
+        if (nd < (dist.get(arc.to) ?? Infinity)) { dist.set(arc.to, nd); frontier.add(arc.to); }
       }
     }
-    if (!back) corridor[index] = 1;
-  });
-  return corridor;
+    memo.set(index, !back);
+    return !back;
+  };
 }
 
 /** One graph over the loaded tiles; a tile whose roads.json does not parse is left out rather than failing the start. */
@@ -140,6 +153,24 @@ function mergedRoads(graphs: readonly RoadGraphJson[]): RoadGraph {
   }
 }
 
+/** The merged graph and its analyses for the last set of tile graphs: the placement loop asks every 100 ms with
+ *  the same tiles, and a start pair at play start must not merge and analyse the city again in one frame. */
+let analysed: { graphs: readonly RoadGraphJson[]; graph: RoadGraph; pockets: Uint8Array; corridor: (index: number) => boolean } | null = null;
+function roadAnalysis(graphs: readonly RoadGraphJson[]) {
+  if (analysed && analysed.graphs.length === graphs.length && analysed.graphs.every((g, i) => g === graphs[i])) return analysed;
+  const graph = mergedRoads(graphs);
+  return analysed = { graphs: [...graphs], graph, pockets: pocketEdges(graph), corridor: corridorTest(graph) };
+}
+
+const edgeBounds = (points: Float64Array): [number, number, number, number] => {
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < points.length; i += 2) {
+    if (points[i] < x0) x0 = points[i]; if (points[i] > x1) x1 = points[i];
+    if (points[i + 1] < z0) z0 = points[i + 1]; if (points[i + 1] > z1) z1 = points[i + 1];
+  }
+  return [x0, z0, x1, z1];
+};
+
 export type StreetCandidate = Point & { yaw: number; y?: number; pocket: boolean; oneway: boolean };
 
 /** Points on CAR edges within `radius` of `at`, with the street's surface height `y` where the graph has heights:
@@ -148,11 +179,13 @@ export type StreetCandidate = Point & { yaw: number; y?: number; pocket: boolean
  *  Tunnels and building passages (roads.json TUNNEL) are never starts: a start faces an open street. */
 export function streetCandidates(at: Point, graphs: readonly RoadGraphJson[], radius = 80): StreetCandidate[] {
   const candidates = new Map<string, StreetCandidate>();
-  const graph = mergedRoads(graphs), pockets = pocketEdges(graph), corridors = oneWayCorridors(graph);
+  const { graph, pockets, corridor } = roadAnalysis(graphs);
   graph.edges.forEach((edge, index) => {
     if (!(edge.flags & CAR) || edge.eflags & EDGE.TUNNEL) return;
+    const b = edgeBounds(edge.points);
+    if (at.x < b[0] - radius || at.x > b[2] + radius || at.z < b[1] - radius || at.z > b[3] + radius) return;
     // A one-way corridor ranks with the pockets: a start there drives a long detour before anything else.
-    const { points, heights } = edge, pocket = pockets[index] === 1 || corridors[index] === 1, oneway = (edge.flags & ONEWAY) !== 0;
+    const { points, heights } = edge, pocket = pockets[index] === 1 || corridor(index), oneway = (edge.flags & ONEWAY) !== 0;
     for (let i = 0; i + 3 < points.length; i += 2) {
       const ax = points[i], az = points[i + 1], dx = points[i + 2] - ax, dz = points[i + 3] - az;
       const length = Math.hypot(dx, dz);

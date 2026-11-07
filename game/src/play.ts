@@ -406,7 +406,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   /** Start pairs around `first` (world/startGround.ts startPairs), clear of `others`, props and parked slots. */
   const pairsAround = async (first: { spawn: V3 & { yaw: number }; car: V3 & { yaw: number } }, count: number, others: { x: number; z: number }[]) => {
     if (!coarse) return [];
-    const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
+    // Props of the tiles around the start only (each tile's footprints are computed once, world/propLod.ts).
+    const ti = Math.floor(first.car.x / 250), tj = Math.floor(first.car.z / 250);
+    const models = [...coarse.entries].flatMap(([id, e]) => {
+      const m = /^t0_(-?\d+)_(-?\d+)$/.exec(id);
+      return e.model && m && Math.abs(+m[1] - ti) <= 1 && Math.abs(+m[2] - tj) <= 1 ? [e.model] : [];
+    });
     return startPairs(first, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
       (x, z, radius) => streamer.supports(x, z, radius), count, { ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
         view: { dx: -Math.sin(world.spawn.yaw), dz: -Math.cos(world.spawn.yaw) },
