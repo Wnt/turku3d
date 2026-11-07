@@ -33,6 +33,15 @@ export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 const REMOTE_JUMP_M = 3;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
+/** One solver step of `world`. Rapier 0.21's World.step() also wraps, after every step, what the engine created on
+ *  its own (soft-body tear pieces): a JS-WASM call per collider and rigid body of the whole world. The game creates
+ *  no soft bodies, and that walk was 30 % of the physics worker's step on the Windows laptop (44 s of 145 s in 5.5
+ *  minutes of city.lab, frame-mp win-prof-1), six times the solver itself (stepWithEvents 7 s). */
+export function stepPipeline(world: RAPIER_NS.World, events?: RAPIER_NS.EventQueue, hooks?: RAPIER_NS.PhysicsHooks) {
+  world.physicsPipeline.step(world.gravity, world.integrationParameters, world.islands, world.broadPhase, world.narrowPhase,
+    world.bodies, world.colliders, world.softBodies, world.impulseJoints, world.multibodyJoints, world.ccdSolver, events, hooks);
+}
+
 interface ColliderInfo { tile: string; triMat: Uint8Array | null; mat: number; locator: TriLocator | null }
 interface LoadedTile { stats: TileStats; colliders: RAPIER_NS.Collider[]; cell: [number, number] }
 
@@ -828,7 +837,7 @@ export class PhysicsWorld {
       const v = car.body.linvel();
       carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
     }
-    this.world.step(this.poleEvents, this.traffic?.hooks);
+    stepPipeline(this.world, this.poleEvents, this.traffic?.hooks);
     for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
     const poleColliders = new Map<number, string>();
     for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);
