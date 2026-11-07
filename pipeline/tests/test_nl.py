@@ -111,6 +111,28 @@ def test_bgt_points_become_register_trees_and_lamps(monkeypatch):
     assert [l["feature_key"] for l in lamps] == ["p1"] and lamps[0]["Tasonimi"].startswith("rr:js")
 
 
+def test_underground_street_parts_are_no_ground_surface(monkeypatch):
+    """BGT parts below ground level (relatieve_hoogteligging < 0: the rail tunnel under Rotterdam's Binnenrotte,
+    metro concourses) are not drawn on the street; level 0 and decks above it are."""
+    import shapely
+
+    square = shapely.box(0, 0, 10, 10)
+    feats = [("wegdeel", "square", {"functie": "voetpad", "fysiek_voorkomen": "open verharding",
+                                    "relatieve_hoogteligging": 0}, square),
+             ("wegdeel", "tunnel", {"functie": "spoorbaan", "fysiek_voorkomen": "half verhard",
+                                    "relatieve_hoogteligging": -3}, square),
+             ("wegdeel", "concourse", {"functie": "voetpad", "fysiek_voorkomen": "gesloten verharding",
+                                       "relatieve_hoogteligging": "-1"}, square),
+             ("wegdeel", "deck", {"functie": "rijbaan lokale weg", "fysiek_voorkomen": "gesloten verharding",
+                                  "relatieve_hoogteligging": 1}, square),
+             ("onbegroeidterreindeel", "pit", {"fysiek_voorkomen": "open verharding",
+                                               "relatieve_hoogteligging": -2}, square)]
+    monkeypatch.setattr(convert, "bgt_features", lambda cols, bbox, log: [f for f in feats if f[0] in cols])
+    monkeypatch.setattr(convert, "OsmSurfaces", lambda bbox: type("NoOsm", (), {"at": lambda self, g: None})())
+    rows = convert.streets_bgt((0, 0, 10, 10))
+    assert sorted(r["feature_key"] for r in rows) == ["deck", "square"]
+
+
 def test_ahn_unclassified_splits_into_vegetation_and_the_rest():
     """AHN class 1: facades, boats, vehicles, solid monuments and wires stay 1; the crown becomes vegetation."""
     from turku3d.nl import lidar

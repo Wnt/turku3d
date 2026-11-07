@@ -466,12 +466,23 @@ def appearance(functie, fysiek, plus, osm=None) -> tuple[str, str]:
     return found
 
 
+def underground(props) -> bool:
+    """BGT relatieve_hoogteligging below 0: the object lies under the ground level (tunnels, sunken rail, metro and
+    station concourses). Level 0 is the ground; positive levels are decks over it (bridges, viaducts)."""
+    try:
+        return int(props.get("relatieve_hoogteligging") or 0) < 0
+    except (TypeError, ValueError):
+        return False
+
+
 def streets_bgt(bbox, log=print):
     osm = OsmSurfaces(bbox)
     rows = []
     for collection, key, p, g in bgt_features(STREET_COLLECTIONS + ("onbegroeidterreindeel",), bbox, log):
         if g.geom_type not in ("Polygon", "MultiPolygon"):
             continue
+        if underground(p):
+            continue  # a tunnel or underground concourse (the rail tunnel under Binnenrotte) is no ground surface
         functie, fysiek = p.get("functie"), p.get("fysiek_voorkomen")
         plus = p.get("plus_fysiek_voorkomen")
         if collection == "ondersteunendwegdeel" and any(t in (fysiek or "") for t in GREEN):
@@ -593,7 +604,7 @@ def derive(layer, area, adapter: str, log=print) -> dict:
         return _derive(layer, area, adapter, bbox, log)
 
 
-ADAPTER_VERSION = 5  # 5: BGT > OSM surface > Dutch paving convention, paved terrain
+ADAPTER_VERSION = 6  # 5: BGT > OSM surface > Dutch paving convention, paved terrain; 6: no underground street parts
 
 
 def _derive(layer, area, adapter, bbox, log):
