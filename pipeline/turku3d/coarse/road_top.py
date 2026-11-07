@@ -150,6 +150,14 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
         tile, grid_pos[:, 1].reshape(CELLS + 1, CELLS + 1), root, sources,
         inputs.points if inputs.finished_ground else None,
     )
+    from . import passage_grade
+
+    # Car passages under buildings get a drivable floor before anything samples the ground there.
+    grade = passage_grade.grader(inputs.tunnels, surface_sample, tile.size / CELLS)
+    if grade is not None:
+        grid_pos = grid_pos.copy()
+        grid_pos[:, 1] = grade(grid_pos[:, [0, 2]], grid_pos[:, 1])
+        surface_sample = passage_grade.wrap(surface_sample, grade)
     original_surface = surface_sample
     carried_mask = exclusion(inputs.tunnels)
     if not carried_mask.is_empty:
@@ -162,6 +170,7 @@ def stage(cache, tile, inputs, grid_pos, grid_idx, shells, sources, root):
             Path(C.__file__),
             base / "col/materials_v1.json",
             Path(__file__).with_name("tunnels.py"),
+            Path(__file__).with_name("passage_grade.py"),
             Path(__file__).with_name("tunnel_ground.py"),
             Path(__file__).with_name("openings.py"),
             Path(__file__).with_name("portals.py"),
