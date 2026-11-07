@@ -598,7 +598,8 @@ QUAY_LINE_WIDTH = 0.6  # m: a scheiding line (wall axis) as a wall-top strip
 
 
 def quay_edges(bbox, log=print):
-    """Surveyed hard water edges (BGT scheiding kademuur/walbescherming) intersecting an RD bbox, as RD polygons."""
+    """Surveyed hard water edges (BGT scheiding kademuur/walbescherming) intersecting an RD bbox, as RD polygons, and
+    the rims of ornamental basins (basin_rims)."""
     out = []
     for _, _, p, g in bgt_features(("scheiding_vlak", "scheiding_lijn"), bbox, log):
         if p.get("type") not in QUAY_EDGES or (p.get("relatieve_hoogteligging") or 0) < 0:
@@ -607,6 +608,46 @@ def quay_edges(bbox, log=print):
             g = g.buffer(QUAY_LINE_WIDTH / 2, cap_style="flat")
         if g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty:
             out.append(g)
+    return out + basin_rims(bbox, log)
+
+
+BASIN_AREA = 150.0  # m2: a smaller BGT water part on its own is a basin, not a pond or a canal end
+BASIN_GAP = 2.0  # m: water closer than this to it makes it part of a waterway
+BASIN_REACH = 1.5  # m: the ring round it whose paving share decides
+BASIN_PAVED = 0.6  # share of that ring under paving (street parts, paved terrain) or a surveyed wall
+
+
+def basin_rims(bbox, log=print):
+    """Ornamental basins as hard water edges (RD polygons): a BGT water part under BASIN_AREA, no other water within
+    BASIN_GAP, its surroundings mostly paving or its own surveyed rim wall (scheiding_vlak). A fountain basin in a
+    square (Rotterdam Nieuwemarkt, 33 m2, inside a BGT muur rim) was graded into a soil bank with grass down to the
+    water like a pond; as a quay edge the paving runs to its stone rim."""
+    import shapely
+
+    x0, y0, x1, y1 = bbox
+    wide = (x0 - BASIN_GAP - 1, y0 - BASIN_GAP - 1, x1 + BASIN_GAP + 1, y1 + BASIN_GAP + 1)
+    waters = [part for _, _, p, g in bgt_features(WATER_COLLECTIONS, wide, log) if not underground(p)
+              for part in getattr(g, "geoms", [g]) if part.geom_type == "Polygon"]
+    small = [w for w in waters if w.area < BASIN_AREA and w.intersects(shapely.box(*bbox))]
+    if not small:
+        return []
+    tree = shapely.STRtree(waters)
+    paved = []
+    for collection, _, p, g in bgt_features(STREET_COLLECTIONS + ("onbegroeidterreindeel", "scheiding_vlak"), wide, log):
+        fysiek = p.get("fysiek_voorkomen") or ""
+        if underground(p) or g.geom_type not in ("Polygon", "MultiPolygon") or any(t in fysiek for t in GREEN):
+            continue
+        if collection == "onbegroeidterreindeel" and fysiek not in PAVED_TERRAIN:
+            continue
+        paved.append(g)  # a surveyed wall polygon (scheiding_vlak) is the basin's own stone rim
+    paved = shapely.union_all(paved) if paved else shapely.Polygon()
+    out = []
+    for w in small:
+        if any(not other.equals(w) for other in (waters[i] for i in tree.query(w.buffer(BASIN_GAP), predicate="intersects"))):
+            continue
+        ring = w.buffer(BASIN_REACH).difference(w)
+        if ring.area and ring.intersection(paved).area >= BASIN_PAVED * ring.area:
+            out.append(w.exterior.buffer(QUAY_LINE_WIDTH / 2, cap_style="flat"))
     return out
 
 
