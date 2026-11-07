@@ -67,9 +67,12 @@ const STUCK_AFTER = 2.2;
 const REVERSE_TIME = 1.8, REVERSE_M = 4;
 /** A car farther than this from its path has left it: the caller re-plans. */
 const OFF_PATH_M = 9;
-/** A turn in the street starts when the path's aim point lies this far behind the car (cosine to the heading) at a
- *  standstill, and ends once the car faces within TURN_DONE_COS of it. */
-const TURN_START_COS = -0.2, TURN_DONE_COS = 0.6;
+/** A turn in the street starts when the path's aim point lies this far off the car's heading (cosine) at a
+ *  standstill: behind it, or so far to the side that full lock from rest swings wide (off an Amsterdam quay into the
+ *  canal at a leg start). It ends once the car faces within TURN_DONE_COS of the aim. */
+const TURN_START_COS = 0.3, TURN_DONE_COS = 0.6;
+/** Pursuit with the aim this far off the heading (cosine) drives no faster than SIDE_AIM_SPEED (m/s). */
+const SIDE_AIM_COS = 0.5, SIDE_AIM_SPEED = 3;
 /** Forward legs of a turn before it gives up (a stuck recovery), and turns per follower. */
 const TURN_ROUNDS = 4, TURN_TRIES = 2;
 /** A failed turn's spot: no new turn before the car is this far (m) from it. */
@@ -233,7 +236,8 @@ export class DriveFollower {
       return { command, target: TURN_SPEED * t.dir, ...recovering };
     }
 
-    const target = this.plannedSpeed(this.s, speed);
+    const planned = this.plannedSpeed(this.s, speed);
+    const target = cosAim < SIDE_AIM_COS ? Math.min(planned, SIDE_AIM_SPEED) : planned;
     let throttle = 0, brake = 0;
     const error = target - v;
     if (error > 0) throttle = clamp(0.12 + error * 0.35 + (target > 1 ? 0.08 : 0), 0, 1);
