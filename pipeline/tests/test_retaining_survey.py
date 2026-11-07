@@ -238,3 +238,24 @@ def test_a_slope_beside_a_bgt_wall_line_is_no_wall_face():
     assert retaining_survey.vertical(steep, wall)
     seat = retaining_survey.measure(line, bank)
     assert seat and not any(retaining_survey.vertical(p, bank) for _, p in seat)
+
+
+def test_a_strip_cut_that_geos_cannot_node_is_redone_on_a_micrometre_grid():
+    """Rotterdam t0_-1_-2: two cut edges crossing within micrometres made GEOS raise "found non-noded intersection"
+    and the whole tile build failed; the cut is retried on retaining.SNAP."""
+    real = shapely.box(0, 0, 10, 10)
+    mask = shapely.box(5, -1, 11, 11)
+
+    class Fragile:
+        calls = []
+
+        def difference(self, other, grid_size=None):
+            self.calls.append(grid_size)
+            if grid_size is None:
+                raise shapely.errors.GEOSException("TopologyException: found non-noded intersection")
+            return real.difference(other, grid_size=grid_size)
+
+    cut = retaining._minus(Fragile(), mask)
+    assert Fragile.calls == [None, retaining.SNAP]
+    assert abs(cut.area - 50.0) < 1e-6
+    assert retaining._minus(real, mask).area == 50.0  # the plain path is unchanged

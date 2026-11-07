@@ -104,6 +104,29 @@ def reach_flights(profile, levels, flights):
     return (centres, left, right), levels
 
 
+SNAP = 1e-6  # m: overlay precision to retry a strip cut with when GEOS meets non-noded slivers
+
+
+def _minus(a, b):
+    """``a`` minus ``b``, robust to near-coincident segments: GEOS can fail on two strips' or a stair mask's edges
+    crossing within micrometres ("found non-noded intersection", Rotterdam t0_-1_-2); the cut is then redone on a
+    micrometre grid, and failing that on cleaned operands."""
+    try:
+        return a.difference(b)
+    except shapely.errors.GEOSException:
+        try:
+            return a.difference(b, grid_size=SNAP)
+        except shapely.errors.GEOSException:
+            return shapely.make_valid(a).buffer(0).difference(shapely.make_valid(b).buffer(0), grid_size=SNAP)
+
+
+def _union(a, b):
+    try:
+        return shapely.union_all([a, b])
+    except shapely.errors.GEOSException:
+        return shapely.union_all([a, b], grid_size=SNAP)
+
+
 def _areas(geometry):
     """The polygonal part of an overlay result. A degenerate cut leaves line and point slivers in a
     GeometryCollection; a mask of mixed dimension makes the next GEOS overlay fail ("Unable to
@@ -140,7 +163,7 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
         # exclusion masks must not erase a measured wall/landing.
         stair_mask = shapely.union_all([*stairs, *([] if measured else paving)])
         faces, ground, cuts = Faces(), Faces(), []
-        for line in shapely.get_parts(geom if measured else geom.difference(shore)):
+        for line in shapely.get_parts(geom if measured else _minus(geom, shore)):
             if line.geom_type != "LineString" or line.is_empty:
                 continue
             profile = ((measured["centres"], measured["left"], measured["right"])
@@ -169,7 +192,7 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
                 if abs(np.mean(local[1] - local[0])) < (0.3 if measured else 0.6):
                     continue
                 top, bottom = np.maximum(*local), np.minimum(*local)
-                remaining = segment.difference(stair_mask)
+                remaining = _minus(segment, stair_mask)
                 if remaining.is_empty:
                     continue
                 for part in shapely.get_parts(remaining):
@@ -217,11 +240,11 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
                         polygon = shapely.Polygon(tri)
                         if polygon.area < 1e-8:
                             continue
-                        polygon = _areas(polygon.difference(stair_mask))
+                        polygon = _areas(_minus(polygon, stair_mask))
                         if measured and not wet.is_empty:
-                            polygon = _areas(polygon.difference(wet))
+                            polygon = _areas(_minus(polygon, wet))
                         if not polygon.is_empty:
-                            polygon = _areas(polygon.difference(claimed))
+                            polygon = _areas(_minus(polygon, claimed))
                         if polygon.is_empty:
                             continue
                         coeff = np.linalg.solve(np.c_[tri, np.ones(3)], heights[ids])
@@ -229,7 +252,7 @@ def produce(tile, records, sample, stairs=(), water=(), paving=(), surface=None)
                             ground, polygon, lambda v, c=coeff: np.c_[v, np.ones(len(v))] @ c
                         )
                         cuts.append(polygon)
-                        claimed = shapely.union_all([claimed, polygon])
+                        claimed = _union(claimed, polygon)
         if faces.indices:
             mesh = clip_mesh(
                 appearance(
