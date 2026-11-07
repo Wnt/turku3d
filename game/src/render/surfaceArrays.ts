@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { attribute, float, int, mix, normalMap, positionWorld, select, texture, uniformArray, vec2, vec3, vec4 } from 'three/tsl';
+import { attribute, float, int, mix, normalMap, positionWorld, renderGroup, select, texture, uniformArray, vec2, vec3, vec4 } from 'three/tsl';
 import { QUALITY, type QualityTier } from './quality';
 import { wetSurface } from './weather/surfaces';
 import { keepTextureData } from '../world/sharedAssets';
@@ -183,7 +183,9 @@ export class SurfaceArrays {
     // swap reaches both. Per-material nodes left the first family on the released set: black sidewalks and kerbs.
     if (!this.arrays.length) this.first();
     const [albedo, normal, orm] = [0, 1, 2].map(channel => this.nodes[channel] ??= arrayNode(this.arrays[channel]));
-    const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4'));
+    // Factors change only as layers are added, the same for every draw: the render group uploads them once per render
+    // (in each draw's object group the static refresh could not see an in-place write).
+    const [colours, pbr, scales] = this.factors.map(values => uniformArray(values, 'vec4').setGroup(renderGroup));
     const element = (values: ReturnType<typeof uniformArray>) => values.element(layer) as unknown as THREE.Node<'vec4'>;
     const colour = vec4(element(colours)), surface = vec4(element(pbr)), scale = vec4(element(scales));
     const sampled = orm.depth(layer);

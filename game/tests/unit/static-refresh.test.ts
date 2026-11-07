@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { materialReference, modelViewPosition, renderGroup, uniform, vec3 } from 'three/tsl';
+import { int, materialReference, modelViewPosition, renderGroup, uniform, uniformArray, vec3 } from 'three/tsl';
 import fs from 'node:fs';
 // @ts-expect-error r186 internal cache has no DefinitelyTyped declaration.
 import NodeManager from 'three/src/renderers/common/nodes/NodeManager.js';
@@ -59,6 +59,15 @@ test('r186 programs whose per-object inputs the observer sees are covered; callb
   const global = new THREE.MeshStandardNodeMaterial();
   global.emissiveNode = vec3(uniform(0).setGroup(renderGroup));
   expect(covers(draw(global))).toBe(true);
+  // A uniform array (the ground's surface-array factors): a plain buffer in the object group, shared in the render group.
+  const factors = (group: boolean) => {
+    const array = uniformArray([new THREE.Vector4(1), new THREE.Vector4(2)], 'vec4');
+    const material = new THREE.MeshStandardNodeMaterial();
+    material.colorNode = vec3((group ? array.setGroup(renderGroup) : array).element(int(1)) as unknown as THREE.Node<'vec4'>);
+    return material;
+  };
+  expect(covers(draw(factors(false)))).toBe(false);
+  expect(covers(draw(factors(true)))).toBe(true);
   // A per-object uniform no node owns: code sets its value at any time (groundField's night, before renderGroup).
   const free = new THREE.MeshStandardNodeMaterial(), night = uniform(0);
   free.emissiveNode = vec3(night);
