@@ -9,7 +9,7 @@ import { parseParams } from '../../src/core/params';
 import { GameRenderer } from '../../src/render/shadowMaterials';
 import { NormalPrepass } from '../../src/render/normalPrepass';
 import { REGIONS, parseWalkerAsset, type WalkerAsset } from '../../src/world/walkers/asset';
-import { buildWalkNetwork, hash32 } from '../../src/world/walkers/network';
+import { buildWalkNetwork, cellPiece, hash32, PIECE_STRIDE } from '../../src/world/walkers/network';
 import { MAX_TRAVEL, Population, WALKER, type Walker } from '../../src/world/walkers/population';
 import { RING, Ring, type RingView } from '../../src/world/walkers/ring';
 import { WALKER_CAPS, liveWalkerCount, walkerCap, walkersNear } from '../../src/world/walkers';
@@ -195,7 +195,7 @@ describe('deterministic population', () => {
     const network = buildWalkNetwork(parts(...ALL));
     const perMetre = (cz: number) => {
       let w = 0, m = 0;
-      for (const cell of network.cells.values()) if (cell.cz === cz) for (const p of cell.pieces) { w += p.length * p.weight; m += p.length; }
+      for (const cell of network.cells.values()) if (cell.cz === cz) for (let k = 0; k < cell.pieces.length / PIECE_STRIDE; k++) { const p = cellPiece(cell, k); w += p.length * p.weight; m += p.length; }
       return w / m;
     };
     expect(perMetre(5)).toBeGreaterThan(perMetre(16)); // z 125..150 holds the major street; z 400..425 does not

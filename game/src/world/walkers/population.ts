@@ -4,7 +4,7 @@
 // resident tiles see the same walkers without any network traffic. Rendering (ring, caps, fades) is local.
 import { HUMAN_MODELS } from './appearance';
 import { CYCLE_EPOCH, cycleHour } from '../../core/dayCycle';
-import { CELL_M, cellKey, hash32, pointAt, unit, type Cell, type Gate, type WalkNetwork } from './network';
+import { CELL_M, cellKey, cellPiece, hash32, PIECE_STRIDE, pointAt, unit, type Cell, type Gate, type WalkNetwork } from './network';
 import { TRAFFIC } from '../../traffic/constants';
 import { hash01, mod } from '../../traffic/hash';
 
@@ -287,8 +287,14 @@ export class Population {
     const offset = WALKER.keepRight[0] + (WALKER.keepRight[1] - WALKER.keepRight[0]) * unit(hash32(id, 7));
     const legs: Leg[] = [];
     // Birth point: canonical piece order, offset from the piece's smaller quantised end.
-    let u = unit(hash32(id, 4)) * cell.weighted, piece = cell.pieces[cell.pieces.length - 1];
-    for (const p of cell.pieces) { const w = p.length * p.weight; if (u < w) { piece = p; break; } u -= w; }
+    const count = cell.pieces.length / PIECE_STRIDE;
+    let u = unit(hash32(id, 4)) * cell.weighted, k = count - 1;
+    for (let j = 0; j < count; j++) {
+      const w = cell.pieces[j * PIECE_STRIDE + 2] * cell.pieces[j * PIECE_STRIDE + 4];
+      if (u < w) { k = j; break; }
+      u -= w;
+    }
+    const piece = cellPiece(cell, k);
     const along = Math.min(piece.length, u / piece.weight), forward = piece.forward;
     let s = forward ? piece.s0 + along : piece.s0 + piece.length - along;
     const towardsLarger = (hash32(id, 5) & 1) === 1;
