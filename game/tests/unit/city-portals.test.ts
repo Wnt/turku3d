@@ -115,6 +115,12 @@ describe('portal trigger', () => {
       const back = returnPortal(CITIES[name])!;
       expect(back.to).toBe('turku');
       expect(portalsIn(CITIES[name])).toEqual([back]);
+      const arch = CITIES[name].arch;
+      if (arch) {
+        // Placed by the profile (off the street the spawn faces), in the city's own engine metres.
+        expect([back.x, back.z, back.headingDeg]).toEqual([arch.E - CITIES[name].origin.E, CITIES[name].origin.N - arch.N, arch.headingDeg]);
+        continue;
+      }
       const s = { x: CITIES[name].spawn.E - CITIES[name].origin.E, z: CITIES[name].origin.N - CITIES[name].spawn.N };
       expect(Math.hypot(back.x - s.x, back.z - s.z)).toBeCloseTo(12, 6);
       // Ahead of the spawn heading: the arriving player faces it.

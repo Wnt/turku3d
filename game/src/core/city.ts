@@ -25,6 +25,9 @@ export interface CityProfile {
   trueNorthGridBearingDeg: number;
   /** Centre spawn: where a new game and an arrival through a portal start. */
   spawn: { E: number; N: number; headingDeg: number; label: string };
+  /** Where the walk-in return arch stands (gameplay/portals.ts), when not RETURN_AHEAD_M ahead of the spawn: a spawn
+   *  that faces an open street would put the arch on the carriageway, and the first drive would leave the city. */
+  arch?: { E: number; N: number; headingDeg: number };
   /** WGS84 latitude/longitude of the spawn (the sun's position; pyproj from the spawn E/N). */
   latLon: { lat: number; lon: number };
   /** Same-origin path of the city's coarse tile service; manifests inside it name `/coarse/...` paths. */
@@ -68,10 +71,12 @@ export const CITIES: Record<CityName, CityProfile> = {
   rotterdam: {
     name: 'rotterdam', title: 'Rotterdam', crs: 'EPSG:28992', heightDatum: 'NAP', projection: { kind: 'rd' },
     origin: { E: 93000, N: 437500 }, trueNorthGridBearingDeg: 0.711,
-    // Binnenrotte, on the open square north of the Markthal (the hall itself is a building), facing south to the
-    // return arch 12 m ahead.
-    spawn: { E: 93075, N: 437390, headingDeg: 180, label: 'Binnenrotte' },
-    latLon: { lat: 51.92154, lon: 4.48701 }, tiles: '/cities/rotterdam/coarse/', room: '/city/rotterdam',
+    // Botersloot at the east edge of the Binnenrotte market square, facing north-west up the one-way brick street (the
+    // square itself is car-free: a start there parked the car 60 m away, nose to a wall at a dead-end stub). The return
+    // arch stands on the square at the end of the Botersloot stub, off the carriageway.
+    spawn: { E: 93157, N: 437412, headingDeg: 333, label: 'Binnenrotte' },
+    arch: { E: 93110, N: 437400, headingDeg: 243 },
+    latLon: { lat: 51.92175, lon: 4.4882 }, tiles: '/cities/rotterdam/coarse/', room: '/city/rotterdam',
   },
 };
 

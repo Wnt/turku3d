@@ -56,15 +56,15 @@ export const TURKU_PORTALS: readonly PortalDef[] = [
 /** The walk-in return arch of a city other than Turku: this far ahead of the centre spawn, facing the arriving player. */
 const RETURN_AHEAD_M = 12;
 
-/** The return arch at `city`'s centre (none in Turku). */
+/** The return arch at `city`'s centre (none in Turku): the profile's `arch`, else RETURN_AHEAD_M ahead of the spawn. */
 export function returnPortal(city: CityProfile): PortalDef | null {
   if (city.name === HOME_CITY) return null;
+  const place = { id: `${city.name}-return`, to: HOME_CITY, place: `${city.spawn.label}, ${city.title}`, width: 7, depth: 3, rayTop: null };
   // Engine metres of `city` itself, whichever city this page plays.
+  if (city.arch) return { ...place, x: city.arch.E - city.origin.E, z: -(city.arch.N - city.origin.N), headingDeg: city.arch.headingDeg };
   const s = { x: city.spawn.E - city.origin.E, z: -(city.spawn.N - city.origin.N) };
   const h = city.spawn.headingDeg * Math.PI / 180;
-  return { id: `${city.name}-return`, to: HOME_CITY, place: `${city.spawn.label}, ${city.title}`,
-    x: s.x + RETURN_AHEAD_M * Math.sin(h), z: s.z - RETURN_AHEAD_M * Math.cos(h), headingDeg: city.spawn.headingDeg,
-    width: 7, depth: 3, rayTop: null };
+  return { ...place, x: s.x + RETURN_AHEAD_M * Math.sin(h), z: s.z - RETURN_AHEAD_M * Math.cos(h), headingDeg: city.spawn.headingDeg };
 }
 
 /** The portals standing in `city`. */
