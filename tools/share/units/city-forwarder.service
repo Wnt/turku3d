@@ -5,6 +5,9 @@ After=city-web.service
 Wants=city-web.service
 
 [Service]
+# The share answers players first: tile builds on this host run at CPUWeight 20 (tools/cities/run.sh), the
+# other user services at the default 100.
+CPUWeight=1000
 Type=simple
 EnvironmentFile=%h/.config/turku3d/forwarder.env
 ExecStart=%h/turku3d-mp/bin/forwarder-agent-linux-amd64 --server tunnel.lab.madekivi.fi --tunnel city:http:city.lab.madekivi.fi:7780
