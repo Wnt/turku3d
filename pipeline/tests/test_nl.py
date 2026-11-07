@@ -297,3 +297,26 @@ def test_surveyed_fences_join_the_osm_barriers_only_in_dutch_cities(monkeypatch)
     finnish = type("City", (), {"ground": "turku-lidar"})()
     monkeypatch.setattr("turku3d.cities.require_applied", lambda: finnish)
     assert fences.surveyed_fences(tile, []) == []
+
+
+def test_a_small_water_part_on_its_own_in_paving_is_a_basin_with_a_hard_rim(monkeypatch):
+    """Rotterdam Nieuwemarkt: a 33 m2 fountain basin in a paved square was graded into a grassy soil bank like a pond.
+    A small water part apart from other water with paving round it gets a quay rim; a canal end, a pond in a lawn and a
+    big pond do not."""
+    import shapely
+
+    square = ("onbegroeidterreindeel", "square", {"fysiek_voorkomen": "gesloten verharding"}, shapely.box(0, 0, 60, 60))
+    feats = [square,
+             ("waterdeel", "fountain", {}, shapely.box(10, 10, 16, 15.5)),  # 33 m2 in the square
+             ("waterdeel", "canal", {}, shapely.box(30, 0, 60, 8)),
+             ("waterdeel", "canal-end", {}, shapely.box(30, 9, 36, 14)),  # small, 1 m from the canal
+             ("waterdeel", "lawn-pond", {}, shapely.box(80, 10, 86, 15)),
+             ("begroeidterreindeel", "lawn", {}, shapely.box(70, 0, 100, 60)),
+             ("waterdeel", "pond", {}, shapely.box(10, 30, 30, 50)),  # 400 m2 in the square
+             ("waterdeel", "walled", {}, shapely.box(80, 40, 85, 45)),  # in a lawn, but inside its own rim wall
+             ("scheiding_vlak", "rim", {"type": "muur"}, shapely.box(79, 39, 86, 46).difference(shapely.box(80, 40, 85, 45)))]
+    monkeypatch.setattr(convert, "bgt_features", lambda cols, bbox, log: [f for f in feats if f[0] in cols])
+    rims = sorted(convert.basin_rims((0, 0, 100, 60)), key=lambda r: r.centroid.x)
+    assert len(rims) == 2 and rims[0].contains(shapely.Point(10, 12)) and not rims[0].contains(shapely.Point(13, 12))
+    assert rims[1].contains(shapely.Point(80, 42))
+    assert any(r.equals(rims[0]) for r in convert.quay_edges((0, 0, 100, 60)))  # the banks stage reads it as a quay
