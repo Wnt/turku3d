@@ -334,12 +334,25 @@ def prepare_wfs(
 # -- roads ----------------------------------------------------------------------------------------
 
 
-def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=()) -> dict:
+def centred_carriageways() -> bool:
+    """The city's street areas come from the BGT survey, whose carriageways the OSM car edges are centred on
+    (turku3d.roads.centring); the Finnish registers keep the OSM lines as they are."""
+    from turku3d import cities
+
+    return cities.current().wfs_derived.get("GIS:Katualueet") == "bgt-streets"
+
+
+def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=(), street: Path | None = None) -> dict:
     """``roads.json`` bytes of the tile's street graph with its node and edge counts."""
-    from turku3d.roads import encode
+    from collections import Counter
+
+    from turku3d.roads import centring, encode
     from turku3d.roads.tile_graph import prepare as tile_graph
 
     graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size)
+    centred = Counter()
+    if street is not None:
+        centring.centre(graph, centring.load(street, tile.bbox.buffered(centring.HALF + 5)), centred)
     from .bridges import prepare as prepare_bridges
 
     return {
@@ -347,6 +360,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=())
         "nodes": len(graph["nodes"]) // 2,
         "edges": len(graph["edges"]),
         "bridge_ways": prepare_bridges(tile, osm, survey_paths, spot_paths),
+        "centring": dict(centred),
     }
 
 
@@ -477,6 +491,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
             osm,
             *bridge_survey.source_paths(tile),
             *bridge_survey.spot_sources(tile, sources),
+            # Surveyed BGT carriageways re-centre the OSM car edges (turku3d.roads.centring).
+            *([wfs[1][1]] if centred_carriageways() and wfs[1][1] else []),
         ]
         if osm
         else None,
@@ -683,11 +699,13 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
     if dataset == "ortho":
         return read_ortho(paths[0], tile)
     if dataset == "roads":
+        street = [p for p in paths[1:] if p.name == "GIS_Katualueet.parquet"]
         return prepare_roads(
             tile,
             paths[0],
             [p for p in paths[1:] if p.suffix == ".laz"],
-            [p for p in paths[1:] if p.suffix == ".parquet"],
+            [p for p in paths[1:] if p.suffix == ".parquet" and p not in street],
+            street[0] if street else None,
         )
     if dataset == "barriers":
         from .fences import prepare as prepare_barriers
