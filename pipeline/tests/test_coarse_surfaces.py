@@ -229,6 +229,31 @@ def test_paint_is_draped_on_road_plane_and_excludes_grass_and_water():
     assert paint_visual(tile, p, ix, np.array([mat_id("road")]), np.array([False]), paint) is None
 
 
+def test_tram_rails_are_two_gauge_strips_laid_in_setts_but_not_in_grass(tmp_path):
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from turku3d.coarse.surfaces import RAIL_HEAD, TRAM_GAUGE, paint_visual, tram_rails
+
+    tile = C.VisualTile(0, 0, 0)
+    line = shapely.LineString([(5, 1), (5, 9)]).wkb
+    tags = [{"railway": "tram"}, {"railway": "tram", "tunnel": "yes"}, {"railway": "rail"}]
+    path = tmp_path / "osm.parquet"
+    pq.write_table(pa.Table.from_pylist([dict(tags=json.dumps(t), geometry_local=line) for t in tags]), path)
+    items = tram_rails(tile, path)
+    assert len(items) == 2 and all(kind == "tram_rail" and deck is None for _, _, deck, kind in items)
+    xs = sorted(p.centroid.x for p, *_ in items)
+    assert abs((xs[1] - xs[0]) - (TRAM_GAUGE + RAIL_HEAD)) < 1e-6
+    p = np.array([[0.0, 1, 0], [0, 1, 10], [10, 1, 0], [10, 1, 10]])
+    ix = np.array([[0, 1, 2], [2, 1, 3]], np.uint32)
+    keep = np.array([True, True])
+    assert paint_visual(tile, p, ix, np.array([mat_id("cobblestone")] * 2), keep, items) is not None
+    assert paint_visual(tile, p, ix, np.array([mat_id("grass")] * 2), keep, items) is None
+    # Road paint still never lands on setts.
+    assert paint_visual(tile, p, ix, np.array([mat_id("cobblestone")] * 2), keep, [shapely.box(1, 1, 2, 2)]) is None
+
+
 def test_boundary_cut_preserves_area_and_height_but_respects_exact_road_edge():
     from turku3d.coarse.surfaces import split_boundaries
 

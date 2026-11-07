@@ -50,7 +50,7 @@ DATASETS = (
     "attachments", "retaining", "vegetation_canopy", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
-    "trunk_ground", "finished_ground",
+    "trunk_ground", "finished_ground", "tram_rails",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -100,6 +100,7 @@ class Inputs:
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
+    tram_rails: list = ()  # at-grade OSM tram track rail heads, paint items (surfaces.tram_rails)
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     street_finishes: list = ()  # city visual finishes; never collision material ids
     street_profiles: list = ()  # lidar-fitted connected road/kerb/sidewalk geometry
@@ -499,6 +500,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         else None,
         "surfaces": [osm] if osm else None,
         "markings": [osm] if osm else None,
+        "tram_rails": [osm] if osm else None,
         "kerbs": [osm] if osm else None,
         # Profiles change physical terrain, so both passes share the same fit.
         "street_profiles": [wfs[1][1], *street_survey.source_paths(tile)] if wfs[1][1] else [],
@@ -651,6 +653,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .street_survey import prepare as prepare_profiles
 
         return prepare_profiles(tile, paths[0], paths[1:]) if paths else []
+    if dataset == "tram_rails":
+        from .surfaces import tram_rails
+
+        return tram_rails(tile, paths[0])
     if dataset == "markings":
         from .surfaces import mapped_paint
 
@@ -794,6 +800,7 @@ def gather(
             "poles",
             "surfaces",
             "markings",
+            "tram_rails",
             "kerbs",
             "appearance",
             "register",
@@ -912,6 +919,7 @@ def gather(
         kerbs=values["kerbs"],
         kerb_parking=values.get("kerb_parking") or {},
         markings=values["markings"] or (),
+        tram_rails=values.get("tram_rails") or (),
         surfaces=values["surfaces"] or (),
         street_finishes=wfs["street_finishes"],
         street_profiles=outside_finished_ground(values["street_profiles"] or (), values.get("finished_ground")),

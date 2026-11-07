@@ -663,6 +663,47 @@ def mapped_paint(tile, path):
     return result
 
 
+# Tram track in the street (Amsterdam, Rotterdam): two grooved rails per track, drawn as worn steel strips in the
+# paving. The rails' running edges are the gauge apart; the head and groove read as one dark strip.
+TRAM_GAUGE = 1.435  # m, standard gauge (OSM gauge=* in mm wins)
+RAIL_HEAD = 0.09  # m, visible rail head + groove
+RAIL_RGB = (0.45, 0.45, 0.47)  # multiplies the shared paint colour: dark worn steel
+# Ground a tram rail is laid in: carriageways of any paving, the square it crosses, bridge decks.
+RAIL_GROUND = ("road", "crossing", "cycleway", "bridge_deck", "cobblestone", "paving_slab", "sidewalk", "gravel")
+
+
+def tram_rails(tile, path):
+    """Paint items ``(polygon, rgb, None, "tram_rail")`` for the at-grade OSM tram tracks over the tile."""
+    from turku3d.spatial import rows
+
+    window = shapely.box(*tile.bbox.as_tuple())
+    out = []
+    for _, row in rows(path, tile.bbox.buffered(5)):
+        tags = json.loads(row["tags"]) if row["tags"] else {}
+        if tags.get("railway") != "tram" or tags.get("bridge", "no") != "no" or tags.get("tunnel", "no") != "no":
+            continue
+        if tags.get("layer", "0") not in ("0", "") or tags.get("covered") == "yes":
+            continue
+        line = shapely.force_2d(row["geometry_local"])
+        if line.geom_type != "LineString" or not line.intersects(window) or line.length < 0.5:
+            continue
+        try:
+            gauge = float(tags.get("gauge", TRAM_GAUGE * 1000)) / 1000
+        except ValueError:
+            gauge = TRAM_GAUGE
+        if not 0.6 <= gauge <= 1.7:
+            gauge = TRAM_GAUGE
+        for side in (-1, 1):
+            rail = line.offset_curve(side * (gauge + RAIL_HEAD) / 2)
+            for part in getattr(rail, "geoms", [rail]):
+                if part.is_empty or part.length < 0.2:
+                    continue
+                strip = part.buffer(RAIL_HEAD / 2, cap_style="flat", join_style="round").intersection(window)
+                if not strip.is_empty and strip.area > 0:
+                    out.append((strip, RAIL_RGB, None, "tram_rail"))
+    return out
+
+
 DECK_PAINT_LIFT = 0.012  # m above a built bridge deck's top surface
 GROUND_PAINT_LIFT = 0.008  # m above the road triangle's plane
 
@@ -689,13 +730,17 @@ def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
 
     if not polygons:
         return None
-    selected = keep & np.isin(
-        materials, [mat_id(k) for k in ("road", "crossing", "cycleway", "bridge_deck")]
-    )
-    triangles = positions[indices[selected]]
-    on_deck = materials[selected] == mat_id("bridge_deck")
-    footprints = shapely.polygons(triangles[:, :, [0, 2]]) if len(triangles) else []
-    tree = shapely.STRtree(footprints) if len(triangles) else None
+
+    def ground(kinds):
+        selected = keep & np.isin(materials, [mat_id(k) for k in kinds])
+        triangles = positions[indices[selected]]
+        on_deck = materials[selected] == mat_id("bridge_deck")
+        footprints = shapely.polygons(triangles[:, :, [0, 2]]) if len(triangles) else []
+        return triangles, on_deck, footprints, shapely.STRtree(footprints) if len(triangles) else None
+
+    # Road paint lands on carriageway surfaces; tram rails also run through paved squares and setts.
+    road_ground = ground(("road", "crossing", "cycleway", "bridge_deck"))
+    rail_ground = None
     window = shapely.box(*tile.bbox.as_tuple())
     deck_shapes = []
     for deck in decks:
@@ -730,6 +775,11 @@ def paint_visual(tile, positions, indices, materials, keep, polygons, decks=()):
         polygon, rgb, deck = (
             (item[0], item[1], item[2]) if isinstance(item, tuple) else (item, None, None)
         )
+        if isinstance(item, tuple) and len(item) > 3 and item[3] == "tram_rail":
+            rail_ground = rail_ground or ground(RAIL_GROUND)
+            triangles, on_deck, footprints, tree = rail_ground
+        else:
+            triangles, on_deck, footprints, tree = road_ground
         if deck:
             for shape, built in deck_shapes:
                 if shape.intersects(polygon):

@@ -765,8 +765,9 @@ def build(
 
     def draped_paint():
         rule = road_paint.markings(json.loads(road_graph) if road_graph else None, inputs.markings)
-        paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule], osm_decks)
-        return paint, road_paint.summary(rule)
+        rails = list(inputs.tram_rails)
+        paint = surfaces.paint_visual(*paint_args[:-1], [*inputs.markings, *rule, *rails], osm_decks)
+        return paint, road_paint.summary([*rule, *rails])
 
     paint, paint_counts = cache.run(
         "markings",
@@ -781,6 +782,7 @@ def build(
             *paint_args,
             road_graph,
             [(d.way["id"], d.line.wkb, d.stations, d.heights) for d in osm_decks],
+            inputs.tram_rails,
         ],
         draped_paint,
     )
