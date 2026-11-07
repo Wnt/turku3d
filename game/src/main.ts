@@ -398,6 +398,9 @@ const governor = QUALITY[params.quality].governor && new URLSearchParams(locatio
   { name: 'trees to impostors sooner', apply: () => Object.assign(governedVegetation, { near: Math.min(vegetationAsConfigured.near, 35), mid: Math.min(vegetationAsConfigured.mid, 70) }),
     undo: () => Object.assign(governedVegetation, vegetationAsConfigured) },
   { name: 'small casters drop sun shadows', apply: () => { altitudeShadows.forced = true; }, undo: () => { altitudeShadows.forced = false; } },
+  // The last step: still slow at the resolution floor with the three above (the Radeon Pro 560X laptop sat there with
+  // ~1M shadow-pass triangles a frame), the sun's farthest cascade ends at 100 m instead of the tier's 200 m.
+  { name: 'sun shadows end at 100 m', apply: () => env.setShadowReach(100), undo: () => env.setShadowReach(null) },
 ]) : null;
 /** Set by the bench probe (runQa): true once its scene has settled. */
 let benchSettled = () => false;

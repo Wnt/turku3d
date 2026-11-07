@@ -122,3 +122,15 @@ test('small casters can be forced out of the sun shadows at street level', async
   shadows.update(150); expect(shadows.high).toBe(true);
   shadows.update(95); expect(shadows.high).toBe(true); // hysteresis kept
 });
+
+test('the governor\'s last step ends sun shadows at 100 m and restores the tier\'s reach', async () => {
+  const THREE = await import('three/webgpu');
+  const { Environment } = await import('../../src/render/environment');
+  const renderer = new THREE.WebGPURenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
+  const env = new Environment(new THREE.Scene(), renderer, 'reduced');
+  const csm = (env as unknown as { csm: { maxFar: number } }).csm;
+  expect(csm.maxFar).toBe(QUALITY.reduced.splits.at(-1));
+  env.setShadowReach(100); expect(csm.maxFar).toBe(100);
+  env.setShadowReach(null); expect(csm.maxFar).toBe(200);
+  env.dispose();
+});

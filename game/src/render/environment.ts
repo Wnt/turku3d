@@ -110,7 +110,7 @@ export class Environment {
     this.sun.shadow.camera.layers.enable(TILE_SHADOW_CHUNK_LAYER);
     this.sun.shadow.bias = -0.00015;
     this.sun.shadow.normalBias = 0.025;
-    const far = q.splits[q.splits.length - 1];
+    const far = this.shadowFar = q.splits[q.splits.length - 1];
     this.csm = new CSMShadowNode(this.sun, { cascades: q.splits.length, maxFar: far,
       mode: 'custom', lightMargin: 100,
       customSplitsCallback: (_count, _near, cameraFar, breaks) => {
@@ -299,6 +299,17 @@ export class Environment {
   }
 
   resize() { if (this.csm.camera) this.csm.updateFrustums(); this.fullShadowFrames = 2; }
+
+  /** Sun shadows end at `metres` instead of the tier's last split (the setting governor's last step; null restores
+   *  it). The cascades keep their near splits; the farthest one shrinks, so its casters (the tile shadow batches of
+   *  every block out to 200 m: ~1M triangles a frame on the Radeon Pro 560X) are culled to the nearer band. */
+  setShadowReach(metres: number | null) {
+    const far = metres ?? this.shadowFar;
+    if (this.csm.maxFar === far) return;
+    this.csm.maxFar = far;
+    this.resize();
+  }
+  private shadowFar = 0;
 
   dispose() {
     liveEnvironments.delete(this);
