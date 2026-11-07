@@ -1,4 +1,5 @@
 import { headingYaw } from '../../vehicle/math';
+import { attachStatic } from '../../world/frozenTransforms';
 import * as THREE from 'three/webgpu';
 import type { VehicleState, Quat, WheelState } from '../../physics/protocol';
 import type { Manifest, ParkedVehicle } from '../../world/manifest';
@@ -214,11 +215,11 @@ export class ParkedCarVisuals {
     // Keep every old draw until ALL replacement materials and passes are ready.
     for(const [key,batch] of replacements) {
       const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}
-      this.groups.set(key,batch); this.scene.add(batch.mesh);
+      this.groups.set(key,batch); this.addBatch(batch.mesh);
     }
     for(const [key,batch] of wheelReplacements){
       const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
-      this.wheelGroups.set(key,batch);this.scene.add(batch.mesh);
+      this.wheelGroups.set(key,batch);this.addBatch(batch.mesh);
     }
     // A slot no real model fits stays empty: no definition, so no draw and no body either (world/parkedVehicles.ts),
     // although ParkedVehicles.restingPose still gives a solo record its slot pose.
@@ -270,8 +271,15 @@ export class ParkedCarVisuals {
       await this.prepare(mesh);
       if(this.disposed){glass?.dispose();mesh.dispose();return;}
       const old=this.damaged.get(key);if(old){old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}
-      this.damaged.set(key,{mesh,glass,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true,slots});this.scene.add(mesh);
+      this.damaged.set(key,{mesh,glass,model,lod,paints:[],lamps:[],indicators:[],brakes:[],count:0,dirty:true,slots});this.addBatch(mesh);
     } finally { this.growing.delete(key); }
+  }
+  /** A batch draws every car from its instance matrices and never moves itself: its transform is composed once, not
+   *  by every frame's scene.updateMatrixWorld (hundreds of hidden and drawn batches, one per model, LOD and wheel
+   *  design). */
+  private addBatch(mesh:THREE.InstancedMesh) {
+    mesh.traverse(node=>{node.matrixAutoUpdate=false;});
+    attachStatic(this.scene,mesh);
   }
   private disposed=false;
   /** The cage pose and stand-ins of damaged car `id` (created on its first damaged frame). */

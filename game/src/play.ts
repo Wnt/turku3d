@@ -130,6 +130,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const root = new THREE.Group();
   root.name = 'play-session';
   scene.add(root);
+  // The session root never moves: it does not recompose itself and force every actor, batch and effect below it to
+  // multiply its world matrix again each frame (moving children still update their own subtrees).
+  root.updateMatrix(); root.matrixAutoUpdate = false;
   const vehicleSignals = new VehicleSignals();
   const rearControl = new RearSteerControl();
   const rearTag = new RearSteerTag(document.body, VEHICLES.truck.rearSteer?.maxAngle ?? 1);
