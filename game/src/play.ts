@@ -1,7 +1,7 @@
 import { captureAllowed, captureControl } from './telemetry/capture';
 import { optional } from './core/retryFetch';
 import { RoundUI } from './net/rounds';
-import { multiplayerStart } from './gameplay/startPoints';
+import { ROOM_START_CARS, multiplayerStart, roomSlot } from './gameplay/startPoints';
 import { bindRoundReset } from './net/roundReset';
 import { VehicleSignals } from './vehicle/signals';
 import { VehicleBeams } from './vehicle/beams';
@@ -80,7 +80,7 @@ import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
-import { findInitialGround, insideCar, openView, streetViews } from './world/startGround';
+import { insideCar, openView, startCars, streetViews } from './world/startGround';
 import { parkedFootprints, propFootprints } from './world/propLod';
 import { browserStorage, sessionStore } from './core/storage';
 import { StreamHint } from './ui/streamHint';
@@ -411,18 +411,19 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
       { along: streetViews(at, coarse?.roadGraphs() ?? []), car: world.car }),
     freeStart: async car => {
-      // Every player in a room computes the same start, so another player's start car (a shared record) or any car
-      // already standing there would interpenetrate the own one: the own car then parks again, clear of them.
+      // Every player in a room computes the same start, and a start car is only local until it moves: each player
+      // parks on the start spot of its own room slot (startCars), clear of any shared record or car already there.
       const self = multiplayer?.state.you?.id, own = new Set<string | undefined>([OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID]);
       const others = [...[...multiplayer?.state.vehicles.values() ?? []].filter(v => v.creator !== self).map(v => ({ x: v.pose.E, z: -v.pose.N })),
         ...(physics.latest?.vehicles ?? []).filter(v => !own.has(v.id)).map(v => ({ x: v.pos.x, z: v.pos.z }))];
-      if (!coarse || !others.some(o => insideCar(car, o.x, o.z, 1))) return null;
+      const slot = multiplayerPlaying ? roomSlot(multiplayer?.state.you?.spawn) % ROOM_START_CARS : 0;
+      if (!coarse || (!slot && !others.some(o => insideCar(car, o.x, o.z, 1)))) return null;
       const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
-      const placed = await findInitialGround(car, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius), { open: true, ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
+      const spots = await startCars(car, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+        (x, z, radius) => streamer.supports(x, z, radius), slot + 1, { ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
           obstacles: [...others.map(o => ({ minX: o.x - 2.8, maxX: o.x + 2.8, minZ: o.z - 2.8, maxZ: o.z + 2.8 })),
             ...propFootprints(models, car, 90), ...parkedFootprints(manifest.vehicles, car, 90)] });
-      return placed?.car ?? null;
+      return spots[Math.min(slot, spots.length - 1)] ?? null;
     },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },

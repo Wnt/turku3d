@@ -374,6 +374,28 @@ async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sam
   return loading && !open ? null : fallback ?? weak;
 }
 
+/** Distance (m) between the start cars of different players: two parked cars never touch. */
+export const START_CAR_GAP_M = 6.5;
+
+/**
+ * Up to `count` start-car spots near `near`, apart from each other (START_CAR_GAP_M), in the order the start search
+ * ranks them (through streets first, nearest first, open road ahead). Every player of a room computes the same start,
+ * and a start car is local until it moves, so each player takes the spot of its own room slot: the cars never
+ * interpenetrate when one of them is shared later.
+ */
+export async function startCars(near: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
+  covers: (x: number, z: number, radius: number) => boolean, count: number, { obstacles = [], ray }: StartOptions = {}): Promise<Spot[]> {
+  const spots: Spot[] = [], weak: Spot[] = [];
+  const apart = (p: Point) => [...spots, ...weak].every(s => Math.hypot(s.x - p.x, s.z - p.z) >= START_CAR_GAP_M);
+  for (const candidate of streetCandidates(near, graphs)) {
+    if (spots.length >= count) break;
+    if (!covers(candidate.x, candidate.z, 3) || !apart(candidate)) continue;
+    const parked = await parkOn(candidate, probe, obstacles, ray);
+    if (parked) (parked.weak ? weak : spots).push(parked.car);
+  }
+  return [...spots, ...weak].slice(0, count);
+}
+
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */
 const OPEN_STEP = 2, OPEN_RADIUS = 80;
 /** Points evaluated together: nearest first, each batch in parallel. */

@@ -6,6 +6,15 @@ import room from '../../../server/spawns.json';
 export const ROOM_SLOT_M = 1.2;
 /** The Turku room's spawn slots (server/spawns.json: E = engine x, N = -engine z) as boxes the own car never parks
  *  on (world/startGround.ts obstacles): a player joining the room stands on one, never in or on the car. */
+/** Distinct start-car spots the players of a room cycle through (by room slot): the search for more would reach too far
+ *  from the start; with more players at once than this, two may share one again. */
+export const ROOM_START_CARS = 8;
+/** The index of the room's spawn slot `spawn` (server/spawns.json order; the room hands them out in turn to joining
+ *  players, in every city), or 0. */
+export function roomSlot(spawn?: { E: number; N: number } | null) {
+  const i = spawn ? room.points.findIndex(p => Math.abs(p.E - spawn.E) < 0.01 && Math.abs(p.N - spawn.N) < 0.01) : -1;
+  return Math.max(0, i);
+}
 export function roomSlotFootprints() {
   return room.points.map(p => ({ minX: p.E - ROOM_SLOT_M, maxX: p.E + ROOM_SLOT_M, minZ: -p.N - ROOM_SLOT_M, maxZ: -p.N + ROOM_SLOT_M }));
 }

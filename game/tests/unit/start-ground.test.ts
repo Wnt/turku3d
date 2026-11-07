@@ -159,3 +159,13 @@ test('a through street whose collision is still loading is waited for, not trade
   const result = await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), covers, { open: true });
   expect(result!.car.z).toBeLessThan(-5);
 });
+
+test('players of one room get start cars apart from each other, in the start search order', async () => {
+  const { startCars, START_CAR_GAP_M } = await import('../../src/world/startGround');
+  const spots = await startCars({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), () => true, 4);
+  expect(spots.length).toBe(4);
+  for (const [i, a] of spots.entries()) for (const b of spots.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(START_CAR_GAP_M);
+  // The first is the street start the search picks for the player; the courtyard comes only after the street.
+  expect(spots[0].z).toBeCloseTo(0);
+  expect(spots.slice(0, 3).every(s => Math.abs(s.z) < 0.01)).toBe(true);
+});

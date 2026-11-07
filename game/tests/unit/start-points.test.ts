@@ -40,3 +40,11 @@ test("another city's fresh join starts at the city's own start, not at Turku's r
   expect(multiplayerStart(you, { pose: null }, undefined, start)).toEqual(start);
   expect(multiplayerStart(you, { pose: { E: 160, N: -370, H: 12, yaw: 2 } }, undefined, start)).toEqual({ x: 160, y: 12, z: 370, yaw: 2 });
 });
+
+test('a room spawn slot maps to its index in server/spawns.json (0 when unknown)', async () => {
+  const { roomSlot } = await import('../../src/gameplay/startPoints');
+  const room = (await import('../../../server/spawns.json')).default;
+  expect(roomSlot(room.points[3])).toBe(3);
+  expect(roomSlot({ E: 1, N: 2 })).toBe(0);
+  expect(roomSlot(undefined)).toBe(0);
+});
