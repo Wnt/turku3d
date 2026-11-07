@@ -278,6 +278,7 @@ export function createSharedTileProxy(configFile) {
             const r = http.get(target, { timeout: 60000 }, reply => {
               const chunks = []; reply.on('data', c => chunks.push(c));
               reply.on('end', () => resolve({ status: reply.statusCode, type: reply.headers['content-type'] ?? 'application/json', body: Buffer.concat(chunks) }));
+              reply.on('close', () => { if (!reply.complete) resolve(null); });
             });
             r.on('timeout', () => r.destroy(new Error('timeout')));
             r.on('error', () => resolve(null));
@@ -304,12 +305,29 @@ export function createSharedTileProxy(configFile) {
     }
     const forward = (attempt = 0) => {
       const retry = () => req.method === 'GET' && attempt < 3 && !res.headersSent && !res.destroyed;
+      let failed = false;
+      const fail = error => {
+        if (failed) return;
+        failed = true;
+        if (retry()) {
+          setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
+          return;
+        }
+        const body = Buffer.from(JSON.stringify({ error: error.message }));
+        if (done) { done({ status: 502, headers: { 'content-type': 'application/json' }, body, finished: false }); return; }
+        if (res.headersSent) { res.destroy(); return; }
+        res.writeHead(502, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(body);
+      };
       const upstream = http.request(target, { method: req.method, headers: { ...req.headers, host: target.host } }, reply => {
         if ([502, 503, 504].includes(reply.statusCode) && retry()) {
           reply.resume();
           setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
           return;
         }
+        // A body the farm cut short (a restart, a stalled write) is a failed answer: collected ones are retried or
+        // answered 502, a streamed one resets the connection. It never ends as a shorter complete answer.
+        reply.on('close', () => { if (!reply.complete) fail(new Error('upstream body cut short')); });
         // Freeze all payload references to the manifest's revision, even if its alias advances.
         const manifest = !scenery && /\/(?:manifest|collision)\.json$/.test(url.pathname) && reply.statusCode === 200;
         if (manifest) {
@@ -330,18 +348,16 @@ export function createSharedTileProxy(configFile) {
             const { date, connection, 'keep-alive': _, 'content-length': __, ...headers } = reply.headers;
             done({ status: reply.statusCode, headers, body: Buffer.concat(chunks), finished: false });
           });
-        } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
-      });
-      upstream.on('error', error => {
-        if (retry()) {
-          setTimeout(() => forward(attempt + 1), 100 * (attempt + 1));
-          return;
+        } else {
+          // A payload keeps the farm's length. One with no framing at all (no length, not chunked) ends when its
+          // connection closes, so a cut one looks complete: it is never cached as immutable.
+          const headers = { ...reply.headers };
+          if (headers['content-length'] === undefined && !/\bchunked\b/i.test(headers['transfer-encoding'] ?? '')) headers['cache-control'] = 'no-cache';
+          res.writeHead(reply.statusCode, headers);
+          reply.pipe(res);
         }
-        const body = Buffer.from(JSON.stringify({ error: error.message }));
-        if (done) { done({ status: 502, headers: { 'content-type': 'application/json' }, body, finished: false }); return; }
-        if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
-        res.end(body);
       });
+      upstream.on('error', fail);
       if (req.method === 'GET') upstream.end();
       else req.pipe(upstream);
     };

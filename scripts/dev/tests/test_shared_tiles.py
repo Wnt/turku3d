@@ -82,6 +82,36 @@ class FarmTests(unittest.TestCase):
                 client.close()
             server.server_close()
 
+    def test_a_payload_failing_after_its_headers_is_cut_not_padded_with_an_error_answer(self):
+        """A 500 written after a payload's headers would arrive as body bytes inside its Content-Length."""
+        import socket
+
+        class Failing(farm_module.Handler):
+            def route(self):
+                self.send_response(200)
+                self.send_header('Content-Length', '1000')
+                self.send_header('Cache-Control', 'public,max-age=31536000,immutable')
+                self.end_headers()
+                self.wfile.write(b'x' * 10)
+                raise RuntimeError('payload read failed')
+
+        server = farm_module.TileHTTPServer(('127.0.0.1', 0), Failing)
+        server.farm = type('Farm', (), {'event': lambda *_a, **_k: None})()
+        thread = threading.Thread(target=server.handle_request, daemon=True)
+        thread.start()
+        try:
+            with socket.create_connection(server.server_address, timeout=5) as client:
+                client.sendall(b'GET /v/x/coarse/shared/a.glb HTTP/1.1\r\nHost: x\r\n\r\n')
+                received = b''
+                while chunk := client.recv(65536):
+                    received += chunk
+            head, _, body = received.partition(b'\r\n\r\n')
+            self.assertIn(b'Content-Length: 1000', head)
+            self.assertEqual(body, b'x' * 10)
+        finally:
+            thread.join(5)
+            server.server_close()
+
     def test_same_tile_version_single_flight_and_renderer_revision_reuse(self):
         entered, release = threading.Event(), threading.Event()
         calls = []

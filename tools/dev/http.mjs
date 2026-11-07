@@ -1,12 +1,13 @@
 // HTTP handlers shared by the static dist server (serve-dist.mjs) and the localhost game's Vite dev server
 // (localhost/vitePlugin.mjs):
-//  - static files with COOP/COEP + CORP + CORS, brotli (precompressed <file>.br, else on the fly with an in-memory cache)
-//    and gzip fallback, byte ranges (206) on the identity representation, ETag / If-None-Match, game MIME types
+//  - static files with COOP/COEP + CORP + CORS, brotli (precompressed <file>.br, else compressed whole with an in-memory
+//    cache) and gzip fallback, every body with its exact Content-Length, byte ranges (206) on the identity
+//    representation, ETag / If-None-Match, game MIME types
 //  - POST /telemetry: play telemetry JSON lines (game/src/telemetry/README.md) appended to
 //    <dir>/session-<YYYYMMDD>.jsonl (local date); 1 MB per request, 204
 //  - /coarse/* proxied to the localhost coarse tile service; when it is not running /coarse/status answers 200
 //    {"state":"offline"} and other paths 503
-//  - publicProxy: a public share's compressed GET/HEAD proxy (serve-dist.mjs --public)
+//  - publicProxy: a public share's compressed GET/HEAD proxy (serve-dist.mjs --public), exact lengths, cut bodies stay cut
 // No dependencies (Node >= 20).
 import http from 'node:http';
 import fs from 'node:fs';
@@ -29,7 +30,7 @@ const MIME = {
 };
 // Compressible types (ktx2 ETC1S/png/jpg are already compressed; glb/col/bin/wasm/json/js benefit from brotli)
 const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.wasm', '.glb', '.gltf', '.bin', '.col', '.svg', '.txt', '.md', '.map']);
-const brCache = new Map(); // key path|mtime -> Buffer
+const brCache = new Map(); // key encoding|path|mtime -> Buffer
 const BR_CACHE_MAX = 512 * 1024 * 1024;
 let brCacheBytes = 0;
 
@@ -53,12 +54,15 @@ function baseHeaders(ext, stat, cacheControl) {
   };
 }
 
-async function brotli(file, stat) {
-  const key = `${file}|${stat.mtimeMs}`;
+/** `file` compressed whole (`br` or `gzip`), kept in memory per encoding and mtime: it goes out with its exact length. */
+async function encodedFile(file, stat, encoding) {
+  const key = `${encoding}|${file}|${stat.mtimeMs}`;
   const hit = brCache.get(key);
   if (hit) return hit;
   const raw = await fsp.readFile(file);
-  const out = zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } });
+  const out = encoding === 'br'
+    ? zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } })
+    : zlib.gzipSync(raw, { level: 6 });
   if (brCacheBytes + out.length < BR_CACHE_MAX) { brCache.set(key, out); brCacheBytes += out.length; }
   return out;
 }
@@ -88,14 +92,14 @@ export async function serveFile(req, res, file, { compress = true, cacheControl 
   }
   if (compress && COMPRESSIBLE.has(ext) && /\bbr\b/.test(ae)) {
     let body;
-    try { body = await fsp.readFile(file + '.br'); } catch { body = await brotli(file, stat); }
+    try { body = await fsp.readFile(file + '.br'); } catch { body = await encodedFile(file, stat, 'br'); }
     res.writeHead(200, { ...h, 'Content-Encoding': 'br', 'Content-Length': body.length });
     return res.end(req.method === 'HEAD' ? undefined : body);
   }
   if (compress && COMPRESSIBLE.has(ext) && /\bgzip\b/.test(ae)) {
-    res.writeHead(200, { ...h, 'Content-Encoding': 'gzip' });
-    if (req.method === 'HEAD') return res.end();
-    return fs.createReadStream(file).pipe(zlib.createGzip({ level: 6 })).pipe(res);
+    const body = await encodedFile(file, stat, 'gzip');
+    res.writeHead(200, { ...h, 'Content-Encoding': 'gzip', 'Content-Length': body.length });
+    return res.end(req.method === 'HEAD' ? undefined : body);
   }
   res.writeHead(200, { ...h, 'Content-Length': stat.size });
   if (req.method === 'HEAD') return res.end();
@@ -139,11 +143,25 @@ export function telemetryHandler(dir) {
 }
 
 const ENCODABLE = /^(?:model\/gltf-binary|application\/(?:json|octet-stream)|text\/)/;
+// Answers up to this size are read whole before the first byte goes out; a larger one declares its own length and passes through.
+const WHOLE_MAX = 128 * 1024 * 1024;
+const brotliAsync = (body) => new Promise((resolve, reject) => zlib.brotliCompress(body, {
+  params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: body.length },
+}, (error, out) => (error ? reject(error) : resolve(out))));
+const gzipAsync = (body) => new Promise((resolve, reject) => zlib.gzip(body, { level: 6 }, (error, out) => (error ? reject(error) : resolve(out))));
 
 /** A public share's same-origin GET/HEAD access to `target` (a URL): the upstream answer with the isolation headers,
  *  compressed for the browser (tile payloads shrink about 3x, which is what the tunnel carries). `reduce(json)` rewrites
  *  a JSON answer, e.g. a service status to the fields a game reads. `cacheBytes` keeps that many bytes of encoded
- *  immutable answers in memory, per encoding and URL. */
+ *  immutable answers in memory, per encoding and URL.
+ *
+ *  Every answer leaves with an exact Content-Length of the bytes sent (encoded ones too): the upstream body is read
+ *  whole and checked against its own framing first, then compressed in one piece. A body the upstream cut short is a
+ *  502 (no-store) when nothing has been sent yet, else a reset connection, never a shorter "complete" answer: the
+ *  tunnel and its proxies end a length-less (chunked) body cleanly when this process dies mid-stream, and Chrome then
+ *  keeps the prefix under the payload's one-year immutable Cache-Control (city.lab 2026-11-07: a 385,991-byte prefix
+ *  of a 1,042,328-byte GLB held a Windows player on the loading screen). An upstream body with no framing (neither a
+ *  length nor chunked: it ends when the connection closes) cannot be told from a cut one, so it is served no-cache. */
 export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'origin', 'if-none-match'], cacheBytes = 0 } = {}) {
   const cache = encodedCache(cacheBytes);
   return (req, res) => {
@@ -156,39 +174,60 @@ export function publicProxy(target, { reduce, headers: forwarded = ['accept', 'o
       return res.end(req.method === 'HEAD' ? undefined : hit.body);
     }
     const headers = Object.fromEntries(forwarded.filter((h) => req.headers[h] !== undefined).map((h) => [h, req.headers[h]]));
+    const failed = () => {
+      if (res.headersSent) return res.destroy();
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Retry-After': '1', ...ISOLATION });
+      res.end('{"error":"upstream answer incomplete"}\n');
+    };
     const upstream = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers }, (up) => {
       const out = { ...up.headers, ...ISOLATION };
       for (const h of ['access-control-allow-origin', 'connection', 'keep-alive', 'transfer-encoding']) delete out[h]; // hop-by-hop or same-origin
-      if (reduce && /json/.test(up.headers['content-type'] ?? '')) {
-        const chunks = [];
-        up.on('data', (c) => chunks.push(c));
-        up.on('end', () => {
-          let body;
-          try { body = Buffer.from(JSON.stringify(reduce(JSON.parse(Buffer.concat(chunks).toString('utf8') || 'null'))) + '\n'); }
-          catch { body = Buffer.from('{}\n'); }
-          res.writeHead(up.statusCode ?? 502, { ...out, 'content-length': body.length });
-          res.end(req.method === 'HEAD' ? undefined : body);
-        });
-        return;
+      const declared = up.headers['content-length'] === undefined ? null : Number(up.headers['content-length']);
+      if (req.method === 'HEAD' || declared > WHOLE_MAX) {
+        // The upstream's own length goes out with it; a cut body resets the connection, so no hop can end it cleanly.
+        res.writeHead(up.statusCode ?? 502, out);
+        up.on('close', () => { if (!up.complete) res.destroy(); });
+        return up.pipe(res);
       }
-      const encoding = req.method === 'GET' && up.statusCode === 200 && !up.headers['content-encoding'] && !req.headers.range
-        && ENCODABLE.test(up.headers['content-type'] ?? '') ? wanted : null;
-      if (!encoding) { res.writeHead(up.statusCode ?? 502, out); return up.pipe(res); }
-      delete out['content-length'];
-      delete out.date;
-      const sent = { ...out, 'content-encoding': encoding, vary: 'Accept-Encoding' };
-      res.writeHead(up.statusCode, sent);
-      const encoder = up.pipe(encoding === 'br' ? zlib.createBrotliCompress({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 4 } })
-        : zlib.createGzip({ level: 6 }));
-      // An immutable payload (revision-named) is the same for every player: keep its encoded bytes, so a repeat
-      // costs neither the farm's read nor another compression on the shared host.
-      if (key && cache.max && /\bimmutable\b/.test(up.headers['cache-control'] ?? '')) {
-        const chunks = [];
-        let bytes = 0;
-        encoder.on('data', (c) => { bytes += c.length; if (bytes <= cache.max / 8) chunks.push(c); });
-        encoder.on('end', () => { if (up.complete && bytes <= cache.max / 8) cache.set(key, { headers: sent, body: Buffer.concat(chunks) }); });
-      }
-      encoder.pipe(res);
+      const chunks = [];
+      let bytes = 0, settled = false;
+      up.on('data', (c) => { chunks.push(c); bytes += c.length; });
+      up.on('error', () => {});
+      up.on('close', () => { if (!settled && !up.complete) { settled = true; failed(); } });
+      up.on('end', () => {
+        if (settled) return;
+        settled = true;
+        if (!up.complete || (declared !== null && bytes !== declared)) return failed();
+        const body = Buffer.concat(chunks, bytes);
+        const framed = declared !== null || /\bchunked\b/i.test(up.headers['transfer-encoding'] ?? '');
+        if (!framed) out['cache-control'] = 'no-cache';
+        if (reduce && /json/.test(up.headers['content-type'] ?? '')) {
+          let reduced;
+          try { reduced = Buffer.from(JSON.stringify(reduce(JSON.parse(body.toString('utf8') || 'null'))) + '\n'); }
+          catch { reduced = Buffer.from('{}\n'); }
+          res.writeHead(up.statusCode ?? 502, { ...out, 'content-length': reduced.length });
+          return res.end(reduced);
+        }
+        const encodable = up.statusCode === 200 && !up.headers['content-encoding'] && !req.headers.range
+          && ENCODABLE.test(up.headers['content-type'] ?? '');
+        if (!encodable || !wanted) {
+          res.writeHead(up.statusCode ?? 502, { ...out, ...(encodable ? { vary: 'Accept-Encoding' } : {}), 'content-length': body.length });
+          return res.end(body);
+        }
+        (wanted === 'br' ? brotliAsync(body) : gzipAsync(body)).then((encoded) => {
+          delete out['content-length'];
+          delete out.date;
+          const sent = { ...out, 'content-encoding': wanted, vary: 'Accept-Encoding' };
+          // An immutable payload (revision-named) is the same for every player: keep its encoded bytes, so a repeat
+          // costs neither the farm's read nor another compression on the shared host.
+          if (key && cache.max && framed && /\bimmutable\b/.test(up.headers['cache-control'] ?? '') && encoded.length <= cache.max / 8) {
+            cache.set(key, { headers: sent, body: encoded });
+          }
+          if (res.destroyed) return;
+          res.writeHead(200, { ...sent, 'content-length': encoded.length });
+          res.end(encoded);
+        }, failed);
+      });
     });
     upstream.on('error', () => {
       if (res.headersSent) return res.destroy();
@@ -227,6 +266,7 @@ export function coarseProxy(target) {
   return (req, res) => {
     const upstream = http.request({ host: target.hostname, port: target.port, path: req.url, method: req.method, headers: { accept: req.headers.accept ?? '*/*' } }, (up) => {
       res.writeHead(up.statusCode ?? 502, { ...up.headers, ...ISOLATION });
+      up.on('close', () => { if (!up.complete) res.destroy(); }); // a cut body stays cut, never a shorter complete answer
       up.pipe(res);
     });
     upstream.on('error', () => {

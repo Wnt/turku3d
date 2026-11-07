@@ -1614,6 +1614,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
+    def end_headers(self):
+        self.answered = True
+        super().end_headers()
+
+    def fail(self, status, value):
+        """An error answer, unless this request's headers are already out: then the connection closes, so the peer
+        sees a body shorter than its Content-Length instead of reading an error response as payload bytes."""
+        if getattr(self, 'answered', False):
+            self.close_connection = True
+            return
+        self.json(status, value)
+
     def json(self, status, value):
         self.raw(status, json.dumps(value).encode())
 
@@ -1678,15 +1690,16 @@ class Handler(BaseHTTPRequestHandler):
         self.do_GET()
 
     def do_GET(self):
+        self.answered = False
         try:
             self.route()
         except (ValueError, KeyError) as error:
-            self.json(404, dict(error=str(error)))
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+            self.fail(404, dict(error=str(error)))
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            self.close_connection = True  # a stalled or gone reader: the body is cut, never padded with an error answer
         except Exception as error:
             self.server.farm.event('http-error', error=str(error), path=self.path)
-            self.json(500, dict(error=str(error)))
+            self.fail(500, dict(error=str(error)))
 
     def route(self):
         farm = self.server.farm

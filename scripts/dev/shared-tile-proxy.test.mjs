@@ -306,3 +306,51 @@ test('demand is answered at once and forwarded one at a time per client; scenery
     await close(proxy); await close(upstream); fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('a farm body cut short is never passed on as a shorter complete answer', async () => {
+  // city.lab 2026-11-07: a restart cut a 1,042,328-byte immutable GLB at 385,991 bytes and Chrome kept the prefix.
+  const glb = Buffer.alloc(300000, 5);
+  let manifestCuts = 1;
+  const upstream = http.createServer((req, res) => {
+    const pathname = req.url.split('?')[0];
+    const cut = (body, length) => {
+      res.writeHead(200, { 'content-type': pathname.endsWith('.json') ? 'application/json' : 'model/gltf-binary', 'content-length': length,
+        'cache-control': 'public,max-age=31536000,immutable' });
+      res.write(body, () => res.socket.destroy());
+    };
+    if (pathname.endsWith('/manifest.json')) {
+      const text = Buffer.from(JSON.stringify({ coarse: true, stale: false, url: `/v/${'c'.repeat(40)}/coarse/t0_0_0/a.glb` }));
+      if (manifestCuts-- > 0) return cut(text.subarray(0, 20), text.length);
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': text.length }); return res.end(text);
+    }
+    cut(glb.subarray(0, 100000), glb.length);
+  });
+  await listen(upstream);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tile-proxy-cut-'));
+  const config = path.join(root, 'config.json');
+  fs.writeFileSync(config, JSON.stringify({ service: `http://127.0.0.1:${upstream.address().port}`, version: 'fixture' }));
+  const proxy = createSharedTileProxy(config);
+  await listen(proxy);
+  const get = p => new Promise(resolve => http.get({ host: '127.0.0.1', port: proxy.address().port, path: p }, reply => {
+    let bytes = 0;
+    reply.on('data', c => { bytes += c.length; });
+    reply.on('end', () => resolve({ status: reply.statusCode, complete: reply.complete, bytes, body: null }));
+    reply.on('error', () => {});
+    reply.on('close', () => { if (!reply.complete) resolve({ status: reply.statusCode, complete: false, bytes, length: Number(reply.headers['content-length']) }); });
+  }));
+  try {
+    // A streamed payload keeps the farm's length and is reset where the farm stopped.
+    const payload = await get(`/coarse/_v/${'c'.repeat(40)}/shared/a.glb`);
+    assert.equal(payload.complete, false);
+    assert.equal(payload.length, glb.length);
+    assert.ok(payload.bytes < glb.length);
+    // A collected fragment cut short is asked again instead of hanging every later request for the tile.
+    const manifest = await fetch(`http://127.0.0.1:${proxy.address().port}/coarse/t0_0_0/manifest.json?d=5`);
+    assert.equal(manifest.status, 200);
+    assert.equal((await manifest.json()).url, `/coarse/_v/${'c'.repeat(40)}/t0_0_0/a.glb`);
+  } finally {
+    proxy.closeAllConnections(); upstream.closeAllConnections();
+    await Promise.all([close(proxy), close(upstream)]);
+    fs.rmSync(root, { recursive: true });
+  }
+});

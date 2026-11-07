@@ -35,7 +35,12 @@ test('COOP/COEP + html', async () => {
   assert.equal(r.headers.get('cross-origin-embedder-policy'), 'require-corp');
   assert.match(await r.text(), /<title>x/);
 });
-test('brotli on request', async () => {
+test('brotli on request; gzip whole with its length', async () => {
+  const gz = await new Promise((res) => import('node:http').then(({ default: http }) => http.get(url('/tiles/collision/c_0_0.col'),
+    { headers: { 'accept-encoding': 'gzip' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res({ x, body: Buffer.concat(c) })); })));
+  assert.equal(gz.x.headers['content-encoding'], 'gzip');
+  assert.equal(Number(gz.x.headers['content-length']), gz.body.length);
+  assert.ok(zlib.gunzipSync(gz.body).equals(big));
   const r = await fetch(url('/tiles/collision/c_0_0.col'), { headers: { 'accept-encoding': 'br' }, decompress: false });
   assert.equal(r.headers.get('content-encoding'), 'br');
   const raw = Buffer.from(await r.arrayBuffer());
@@ -185,6 +190,14 @@ test('--public serves only the game and its services: no uploads, internals or d
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       return res.end(JSON.stringify({ state: 'ready', version: 7, building: ['t0_0_0'], failures: [{ error: '/home/x' }] }));
     }
+    if (req.url.endsWith('/cut.glb')) { // a restart mid-body: the length is declared, the bytes stop
+      res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length, 'Cache-Control': 'public,max-age=31536000,immutable' });
+      return res.write(glb.subarray(0, 50000), () => res.socket.destroy());
+    }
+    if (req.url.endsWith('/unframed.glb')) { // no length, not chunked: the body ends when the connection does
+      res.socket.write('HTTP/1.1 200 OK\r\nContent-Type: model/gltf-binary\r\nCache-Control: public,max-age=31536000,immutable\r\nConnection: close\r\n\r\n');
+      return res.socket.end(glb);
+    }
     res.writeHead(200, { 'Content-Type': 'model/gltf-binary', 'Content-Length': glb.length,
       ...(req.url.includes('/_v/') ? { 'Cache-Control': 'public,max-age=31536000,immutable' } : {}) });
     res.end(glb);
@@ -237,6 +250,7 @@ test('--public serves only the game and its services: no uploads, internals or d
       headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res({ x, body: Buffer.concat(c) })); }));
     assert.equal(tile.x.headers['content-encoding'], 'br');
     assert.equal(tile.x.headers['cross-origin-resource-policy'], 'cross-origin');
+    assert.equal(Number(tile.x.headers['content-length']), tile.body.length, 'an encoded payload carries its exact length');
     assert.ok(tile.body.length < glb.length / 10);
     assert.ok(zlib.brotliDecompressSync(tile.body).equals(glb));
     // A revision-named (immutable) payload is encoded once and then served from memory for every player.
@@ -250,8 +264,28 @@ test('--public serves only the game and its services: no uploads, internals or d
     assert.equal(again.x.headers['content-encoding'], 'br');
     assert.equal(again.x.headers['cache-control'], 'public,max-age=31536000,immutable');
     assert.ok(again.body.equals(first.body));
+    assert.equal(Number(first.x.headers['content-length']), first.body.length);
+    assert.equal(Number(again.x.headers['content-length']), again.body.length);
     await fetchRaw('/coarse/t0_0_0/a.glb');
     assert.equal(seen.length, asked + 1, 'a mutable payload is not kept');
+    // An immutable payload the upstream cut short is a retryable 502, never a shorter complete answer, and not kept.
+    const cutGlb = `/coarse/_v/${'a'.repeat(64)}/t0_0_0/cut.glb`;
+    const cut = await fetchRaw(cutGlb);
+    assert.equal(cut.x.statusCode, 502);
+    assert.equal(cut.x.headers['cache-control'], 'no-store');
+    const cutAsked = seen.length;
+    await fetchRaw(cutGlb);
+    assert.equal(seen.length, cutAsked + 1, 'a cut payload is asked again');
+    // A body that only ends with its connection cannot be told from a cut one: served whole, never cached.
+    const unframedGlb = `/coarse/_v/${'a'.repeat(64)}/t0_0_0/unframed.glb`;
+    const unframed = await fetchRaw(unframedGlb);
+    assert.equal(unframed.x.statusCode, 200);
+    assert.equal(unframed.x.headers['cache-control'], 'no-cache');
+    assert.equal(Number(unframed.x.headers['content-length']), unframed.body.length);
+    assert.ok(zlib.brotliDecompressSync(unframed.body).equals(glb));
+    const unframedAsked = seen.length;
+    await fetchRaw(unframedGlb);
+    assert.equal(seen.length, unframedAsked + 1, 'an unframed payload is not kept');
     // Scores and the socket reach the share's own multiplayer server.
     assert.deepEqual(await (await get('/live.json', { headers: { origin: 'https://city.example' } })).json(), { path: '/live.json', origin: 'https://city.example' });
     assert.equal((await (await get('/scores/index.json')).json()).path, '/scores/index.json');
