@@ -59,8 +59,14 @@ const WORLD_SCOPES = new Set(['worldMatrix', 'position', 'scale', 'direction']);
 /** r186's per-object matrix uniforms derived from matrixWorld (onObjectUpdate callbacks of its own). */
 const MATRIX_UNIFORMS = new Set<unknown>([modelNormalMatrix, modelWorldMatrixInverse]);
 
+const valueKind = (value: unknown) => {
+  const v = value as Record<string, unknown> | null | undefined;
+  if (v === null || v === undefined || typeof v !== 'object') return typeof v;
+  for (const kind of ['isMatrix3', 'isMatrix4', 'isVector2', 'isVector3', 'isVector4', 'isColor', 'isTexture']) if (v[kind]) return kind.slice(2);
+  return 'object';
+};
 const describe = (node: Node) => `${node.constructor.type ?? '?'}:${node.scope ?? node.property ?? node.name ?? ''}`
-  + `:${(node.value as { constructor?: { name?: string } } | null | undefined)?.constructor?.name ?? typeof node.value}:${node.groupNode?.name ?? ''}`;
+  + `:${valueKind(node.value)}:${node.groupNode?.name ?? ''}:#${(node as { id?: number }).id ?? '?'}`;
 /** r186's after-draw copy of an instanced mesh's matrices into its previous ones (Instance.js, or instancePrograms'
  *  wrapper of it): with unchanged matrices (the observer compares instanceMatrix.version) it copies equal values. */
 const previousInstances = (node: Node) => node.previousInstances === true
@@ -213,6 +219,9 @@ export function staticRefresh(renderer: object) {
   };
   return {
     stats,
+    /** Node ids of the matrix uniforms and velocity node it accepts, to compare with explain()'s '#id'. */
+    known: () => ({ normalMatrix: (modelNormalMatrix as unknown as { id: number }).id,
+      worldInverse: (modelWorldMatrixInverse as unknown as { id: number }).id, velocity: (velocity as unknown as { id: number }).id }),
     /** Why a draw keeps r186's full refresh ('covered' when it does not). Diagnostics. */
     explain(draw: Draw) {
       const state = draw.getNodeBuilderState(), monitor = draw.getMonitor(), object = draw.object;
