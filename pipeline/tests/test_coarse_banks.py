@@ -119,6 +119,24 @@ def test_surveyed_quay_keeps_the_paving_level_and_finish_to_the_water():
     assert np.any(natural.material[shapely.distance(shapely.points(centres[:, [0, 2]]), water) < 2.5] == mat_id("soil"))
 
 
+def test_surveyed_quay_lifts_the_blended_grid_edge_to_the_paving_level():
+    # The ground grid blends the 4 m paving into the water-level points over the last 2 m before the edge.
+    tile = C.VisualTile(0, 0, 0)
+    xs = np.linspace(0, 250, CELLS + 1)
+    edge = 100.0
+    row = np.where(xs < edge - 2, 4.0, np.interp(xs, [edge - 2, edge], [4.0, -0.4]))
+    p, ix = grid_mesh(tile, np.tile(row, (CELLS + 1, 1)))
+    water = shapely.box(edge, -10, 300, 260)
+    ground = np.array([[x, 4.0 if x < edge else -0.4, z] for x in np.arange(80, 120, 1.5) for z in np.arange(0, 250, 1.5)])
+    paved = np.full(len(ix), mat_id("cobblestone"), np.uint8)
+    wall = shapely.LineString([(edge, -10), (edge, 260)]).buffer(0.3)
+    dry, _, bank, _ = produce(p, ix, paved, np.ones(len(ix), bool), [water], -0.4, ground=ground, quays=[wall])
+    near = shapely.distance(shapely.points(dry.positions[:, [0, 2]]), water) < 3
+    assert near.any()
+    np.testing.assert_allclose(dry.positions[near, 1], 4, atol=1e-6)
+    np.testing.assert_allclose(bank.positions[::4, 1], 4, atol=1e-6)
+
+
 def test_retaining_wall_selects_stone_and_dry_tile_is_unchanged():
     line = shapely.LineString([(90.3, -20), (130.3, 270)])
     *_, (_, _, bank, _) = river_mesh(barriers=[(line, {"barrier": "retaining_wall"})])

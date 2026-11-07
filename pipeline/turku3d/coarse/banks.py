@@ -50,6 +50,42 @@ def surveyed_crest(points, ground, water, masonry):
     return result
 
 
+KADE_REACH = 3.0  # m from the water a surveyed quay's paving keeps its level
+KADE_SUPPORT = (1.0, 5.0)  # m from the water of the dry ground points that give that level
+
+
+def kade_crest(points, ground, water, kades):
+    """Paving behind a surveyed quay wall (``surveyed_quays``) runs level to the wall.
+
+    The ground grid blends the paving with the water-level key points over its last 2 m, so without a
+    natural bank's grading the edge was a short paved slope into the canal (35-50 degrees, cars slid in).
+    A surveyed wall says the edge is vertical: every point within KADE_REACH of the water inside ``kades``
+    is lifted to the median of the dry ground points 1-5 m inland round it (never lowered).
+    """
+    from scipy.spatial import cKDTree
+
+    if not len(points) or not len(ground) or kades.is_empty:
+        return points
+    xy = shapely.points(points[:, [0, 2]])
+    near = np.flatnonzero(shapely.distance(xy, kades) < 1e-7)
+    if not len(near):
+        return points
+    near = near[shapely.distance(xy[near], water) < KADE_REACH]
+    support = ground[~shapely.intersects_xy(water, ground[:, 0], ground[:, 2])]
+    if not len(near) or len(support) < 4:
+        return points
+    shore = shapely.distance(shapely.points(support[:, [0, 2]]), water)
+    support = support[(shore >= KADE_SUPPORT[0]) & (shore <= KADE_SUPPORT[1])]
+    if len(support) < 4:
+        return points
+    d, ix = cKDTree(support[:, [0, 2]]).query(points[near][:, [0, 2]], k=4)
+    valid = d[:, -1] <= KADE_SUPPORT[1]
+    result = points.copy()
+    ids = near[valid]
+    result[ids, 1] = np.maximum(result[ids, 1], np.median(support[ix[valid], 1], axis=1))
+    return result
+
+
 def quay_crest(points, walks, water, masonry):
     """Extend surveyed paving across a narrow retaining cap, not a wet TIN cell.
 
@@ -295,6 +331,8 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     dry.positions = walkable.grade(dry.positions, walks, inner_only=True)
     dry.positions = surveyed_crest(dry.positions, ground, body, quay)
     dry.positions = quay_crest(dry.positions, walks, body, quay)
+    kades = shapely.union_all(list(quays)).buffer(KADE_REACH) if len(quays) else shapely.Polygon()
+    dry.positions = kade_crest(dry.positions, ground, body, kades)
     # Cancel internal wet edges by coordinates: boundary cutting duplicates vertices.
     edges = np.concatenate([wet_mesh.indices[:, pair] for pair in ([0, 1], [1, 2], [2, 0])])
     xz = np.round(wet_mesh.positions[:, [0, 2]], 9)
@@ -320,6 +358,7 @@ def produce(positions, indices, materials, keep, water, level, regions=(), barri
     top = walkable.grade(top, walks, inner_only=True)
     top = surveyed_crest(top, ground, body, quay)
     top = quay_crest(top, walks, body, quay)
+    top = kade_crest(top, ground, body, kades)
     top = top.reshape(-1, 2, 3)
     bottom = top.copy()
     stone = shapely.distance(shapely.points(ends.mean(axis=1)[:, [0, 2]]), quay) < 1e-7
