@@ -14,11 +14,11 @@
 import { VEHICLES, type VehicleKind } from '../../physics/constants';
 import type { VehicleState } from '../../physics/protocol';
 import type { Actions } from '../../input/bindings';
-import { DriveFollower, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
+import { DriveFollower, TURN_LEG_M, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
 import { makePath, project, type Path, type PathPoint } from './path';
-import { reverseClear, type GroundRay } from './reverseCheck';
+import { arcRoom, reverseClear, type GroundRay } from './reverseCheck';
 
 export type AutopilotMode = 'drive' | 'walk';
 export type AutopilotState = 'planning' | 'driving' | 'arrived' | 'failed' | 'cancelled';
@@ -107,6 +107,8 @@ export function vehiclePose(v: VehicleState): VehiclePose {
 }
 
 const HUMAN = 0.35;
+/** Travel (m) a turn leg's ground check covers: the longest leg and a margin. */
+const TURN_LEG_CHECK_M = TURN_LEG_M + 0.5;
 const DRIVE_AXES = ['throttle', 'brake', 'steer'] as const;
 const WALK_AXES = ['moveX', 'moveY'] as const;
 
@@ -261,6 +263,7 @@ export class Autopilot {
     if (step.status === 'arrived') { trip.finish('arrived'); return; }
     if (trip.drive.recoveries > (trip.options.recoveries ?? 4)) { trip.finish('failed', 'stuck'); return; }
     if (trip.drive.pendingReverse !== null && !trip.probing) this.checkReverse(trip, trip.drive, pose);
+    if (trip.drive.pendingTurnLeg && !trip.probing) this.checkTurnLeg(trip, trip.drive, pose);
     const replan = step.status === 'off-path' || (step.status === 'stuck' && trip.drive.recoveries >= 2);
     if (replan && !trip.planning && !trip.options.path) {
       trip.replans++;
@@ -274,20 +277,29 @@ export class Autopilot {
   /** Backs a stuck car out only over drivable ground: the way it wants (opposite lock), else the other lock, else
    *  straight back; when none is clear (a quay edge, a drop, water behind) the trip ends stuck instead. */
   private checkReverse(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
-    const ray = this.world.groundRay, want = follower.pendingReverse!, turn = follower.pendingTurn;
+    const ray = this.world.groundRay, want = follower.pendingReverse!;
     if (!ray) { follower.reverse(want); return; }
     trip.probing = true;
     void (async () => {
-      // A turn in the street backs only with the lock that swings the nose round; a stuck recovery tries both, then straight.
-      for (const steer of turn ? [want] : [want, -want, 0]) if (await reverseClear(pose, steer, follower.geometry, ray)) return steer;
+      for (const steer of [want, -want, 0]) if (await reverseClear(pose, steer, follower.geometry, ray)) return steer;
       return null;
     })().then(steer => {
       trip.probing = false;
       if (trip.drive !== follower || trip.state !== 'driving') return;
-      if (steer !== null) follower.reverse(steer);
-      else if (turn) follower.skipTurnBack();
-      else trip.finish('failed', 'stuck: no safe way back');
+      if (steer === null) trip.finish('failed', 'stuck: no safe way back');
+      else follower.reverse(steer);
     }, () => { trip.probing = false; if (trip.drive === follower) follower.reverse(want); });
+  }
+
+  /** How far a turn in the street's next leg may drive: on the carriageway, over ground the car can cross. */
+  private checkTurnLeg(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
+    const ray = this.world.groundRay, leg = follower.pendingTurnLeg!;
+    if (!ray) { follower.turnLegChecked(TURN_LEG_CHECK_M); return; }
+    trip.probing = true;
+    arcRoom(pose, leg.steer, follower.geometry, ray, leg.dir, TURN_LEG_CHECK_M).then(room => {
+      trip.probing = false;
+      if (trip.drive === follower && trip.state === 'driving') follower.turnLegChecked(room);
+    }, () => { trip.probing = false; if (trip.drive === follower) follower.turnLegChecked(0); });
   }
 
   private walkStep(trip: Trip, actions: Actions, dt: number) {
