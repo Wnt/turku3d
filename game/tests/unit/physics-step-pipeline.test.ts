@@ -27,3 +27,21 @@ test('a physics step does not walk every collider of the world (Rapier World.ste
   expect(box.translation().y).toBeLessThan(0.7);
   expect(pw.world.getCollider(box.collider(0).handle)).toBeDefined();
 });
+
+test('removing a rigid body does not ask the engine about every collider of the world', () => {
+  const pw = new PhysicsWorld(RAPIER);
+  for (let i = 0; i < 3000; i++) pw.world.createCollider(RAPIER.ColliderDesc.cuboid(0.1, 0.5, 0.1).setTranslation(i * 0.5, 0.5, 0));
+  const bodies = Array.from({ length: 20 }, (_, i) => {
+    const body = pw.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(i * 3, 5, 10));
+    pw.world.createCollider(RAPIER.ColliderDesc.cuboid(1, 0.5, 2), body);
+    return body;
+  });
+  const contains = vi.spyOn(pw.world.colliders.raw, 'contains');
+  const handles = bodies.map(b => b.collider(0).handle);
+  for (const body of bodies) pw.world.removeRigidBody(body);
+  expect(contains.mock.calls.length).toBeLessThan(20);
+  for (const h of handles) expect(pw.world.getCollider(h)).toBeFalsy();
+  expect(pw.world.colliders.len()).toBe(3000);
+  stepPipeline(pw.world);
+});
+

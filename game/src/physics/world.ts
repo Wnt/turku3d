@@ -98,6 +98,11 @@ export class PhysicsWorld {
   constructor(private readonly R: R) {
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
+    // Removing a rigid body unmaps its own colliders, then (Rapier 0.21 RigidBodySet.remove) asks the engine about every
+    // collider of the world, for ones a soft-body cluster took with it: one JS-WASM call per collider per removal
+    // (269 ms for one remote proxy on the Windows laptop, frame-mp win-prof-3; traffic bodies come and go at 70 m all
+    // the time). The game has no soft bodies (stepPipeline), so no collider ever leaves without its own unmap.
+    this.world.colliders.unmapRemovedColliders = () => {};
     this.poleEvents = new R.EventQueue(true);
     this.curbQueries = new CurbQueries(R, this.world);
     this.edges = new EdgeWalls(R, this.world);
