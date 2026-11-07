@@ -83,6 +83,22 @@ test('a covered static draw refreshes once per program and pass, and in full for
   expect(nodes.needsRefresh).toBe(own);
 });
 
+test('draws of one program with different maps skip too: a shared map node holds the last draw\'s texture', () => {
+  const { renderer, nodes, draw } = fixture();
+  const refresh = staticRefresh({ _nodes: nodes, backend: renderer.backend, info: { frame: 0 } });
+  const frame = nodes.getNodeFrame();
+  const materials = [new THREE.Texture(), new THREE.Texture()].map(map => new THREE.MeshStandardNodeMaterial({ map }));
+  const draws = materials.map(material => draw(material));
+  const full = (value: any) => { nodes.updateForRender(value); for (const g of value.getBindings()) for (const b of g.bindings) if (b.isSampledTexture || b.isNodeUniformsGroup) b.update?.(); };
+  const pass = () => { frame.renderId++; return draws.map(value => { const type = nodes.needsRefresh(value); if (type === Refresh.FULL) full(value); return type; }); };
+  // r186 binds the second draw's own map on one update and takes its version on the next: one more full refresh.
+  pass(); pass(); pass();
+  expect(pass()).toEqual([Refresh.SHARED, Refresh.NONE]);
+  materials[1].map!.needsUpdate = true; // an upload of the second draw's own map
+  expect(pass()).toEqual([Refresh.SHARED, Refresh.FULL]);
+  refresh.release();
+});
+
 test('a texture swap or upload behind a covered draw is seen per draw', () => {
   const { draw } = fixture();
   const map = new THREE.Texture(), value = draw(new THREE.MeshStandardNodeMaterial({ map }));

@@ -74,6 +74,13 @@ export function observable(state: State, refreshUniforms: readonly string[]): bo
   return true;
 }
 
+/** The texture nodes the program's material references set per draw (the draw's own maps). */
+export function materialTextures(state: State) {
+  const nodes = new Set<unknown>();
+  for (const node of state.updateNodes) if (node.isMaterialReferenceNode && node.node) nodes.add(node.node);
+  return nodes;
+}
+
 /** The uniform nodes the program's covered update nodes write. */
 export function ownedUniforms(state: State) {
   const owned = new Set<unknown>(MATRIX_UNIFORMS);
@@ -99,16 +106,19 @@ export function coveredBindings(draw: Draw, owned: Set<unknown>): boolean {
   return true;
 }
 
-/** Whether a bound texture changed since the draw's last full refresh: another texture behind its node, or a new version. */
-export function texturesChanged(draw: Draw): boolean {
+/** Whether a bound texture changed since the draw's last full refresh: a new version of the texture it binds, or
+ *  another texture behind a node with one value for every draw. A material's own maps (MaterialReferenceNode
+ *  textures, `perDraw`) take each draw's value only while that draw updates, and `equals` compares them per material. */
+export function texturesChanged(draw: Draw, perDraw: ReadonlySet<unknown> = EMPTY): boolean {
   for (const group of draw.getBindings()) for (const binding of group.bindings) {
     if (!binding.isSampledTexture) continue;
     const texture = binding.texture;
-    if (binding.textureNode && binding.textureNode.value !== texture) return true;
     if (texture && binding.version !== texture.version) return true;
+    if (binding.textureNode && !perDraw.has(binding.textureNode) && binding.textureNode.value !== texture) return true;
   }
   return false;
 }
+const EMPTY = new Set<unknown>();
 
 export type Audit = { frames: number; skipped: number; missed: number; rows: [string, number][] };
 
@@ -119,8 +129,9 @@ export function staticRefresh(renderer: object) {
   const backend = (renderer as { backend: { updateBinding(binding: Binding): void } }).backend;
   const info = (renderer as { info: { frame: number } }).info;
   const needsRefresh = nodes.needsRefresh;
-  /** Per program: the uniforms its covered nodes own, or null when the observer does not cover it. */
-  const programs = new WeakMap<object, Set<unknown> | null>();
+  /** Per program: the uniforms its covered nodes own and its per-draw material textures, or null when the observer
+   *  does not cover it. */
+  const programs = new WeakMap<object, { owned: Set<unknown>; maps: Set<unknown> } | null>();
   /** Per draw: whether its bindings are covered (a draw's bindings are created with it and never replaced). */
   const draws = new WeakMap<Draw, boolean>();
   /** Draws that refresh in full once more after a change (motion vectors keep last frame's matrix for one frame). */
@@ -150,16 +161,16 @@ export function staticRefresh(renderer: object) {
       done({ frames: info.frame - start, skipped, missed, rows: [...rows].sort((a, b) => b[1] - a[1]) });
     }
     const state = draw.getNodeBuilderState(), monitor = draw.getMonitor();
-    let owned = programs.get(state);
-    if (owned === undefined) {
-      owned = observable(state, monitor.refreshUniforms) ? ownedUniforms(state) : null;
-      programs.set(state, owned);
+    let program = programs.get(state);
+    if (program === undefined) {
+      program = observable(state, monitor.refreshUniforms) ? { owned: ownedUniforms(state), maps: materialTextures(state) } : null;
+      programs.set(state, program);
     }
     const object = draw.object;
-    if (owned === null || monitor.hasAnimation || object.isSkinnedMesh || object.isBatchedMesh || object.morphTargetInfluences
+    if (program === null || monitor.hasAnimation || object.isSkinnedMesh || object.isBatchedMesh || object.morphTargetInfluences
       || monitor.hasDynamicInstancing(object)) { stats.full++; return needsRefresh.call(this, draw); }
     let covered = draws.get(draw);
-    if (covered === undefined) { covered = coveredBindings(draw, owned); draws.set(draw, covered); }
+    if (covered === undefined) { covered = coveredBindings(draw, program.owned); draws.set(draw, covered); }
     if (!covered) { stats.full++; return needsRefresh.call(this, draw); }
     if (monitor.firstInitialization(draw)) { settling.add(draw); stats.full++; return Refresh.FULL; }
     const { renderId } = this.getNodeFrameForRender(draw);
@@ -167,7 +178,7 @@ export function staticRefresh(renderer: object) {
     if (monitor.renderId !== renderId) { monitor.renderId = renderId; refresh = Refresh.SHARED; }
     // equals() runs every time: it keeps the observer's snapshot of this draw current.
     const same = monitor.equals(draw, monitor.getLights(draw.lightsNode, renderId), renderId);
-    if (!same || texturesChanged(draw)) { settling.add(draw); stats.full++; return Refresh.FULL; }
+    if (!same || texturesChanged(draw, program.maps)) { settling.add(draw); stats.full++; return Refresh.FULL; }
     if (settling.has(draw)) { settling.delete(draw); stats.full++; return Refresh.FULL; }
     if (refresh === Refresh.SHARED) stats.shared++; else stats.none++;
     if (audit) { audit.skipped++; check(this, draw); }
