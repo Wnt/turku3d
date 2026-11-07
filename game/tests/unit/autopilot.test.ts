@@ -256,6 +256,35 @@ describe('turn in the street on a carriageway', () => {
     pw.world.free();
   }, 60_000);
 
+  test('a path leaving at right angles from rest turns the car short of a quay edge ahead', async () => {
+    const pw = await devWorld();
+    // Facing east, the path leaves south; the ground ends 4 m ahead of the car's middle (a quay edge at x = 104).
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      if (o.x > 104) return null;
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && { ...hit, material: MAT.road };
+    };
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 100, z: 150 }, { mode: 'drive', path: [{ x: 100, z: 100 }, { x: 100, z: 150 }], speed: 8 });
+    let maxX = 0;
+    const g = vehicleGeometry('car');
+    for (let k = 0; k < 60 * 60 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const p = vehiclePose(pw.vehicleState()!);
+      for (const side of [-1, 1]) maxX = Math.max(maxX, p.x + p.hx * (g.back ?? 2.2) - p.hz * (g.halfWidth ?? 0.9) * side);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    // The front bumper's corners stayed on the ground (a ray every half metre, so within that of the edge).
+    expect(maxX).toBeLessThan(104.5);
+    expect(trip.state).toBe('arrived');
+    expect(trip.progress.turns).toBe(1);
+    pw.world.free();
+  }, 60_000);
+
   test('a turn with no room gives up as one stuck recovery without moving the car', async () => {
     const pw = await devWorld();
     // Pavement everywhere: no turn leg may drive.
