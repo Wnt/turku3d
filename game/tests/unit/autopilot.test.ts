@@ -171,6 +171,55 @@ describe('drive follower on the real vehicle', () => {
   }, 30_000);
 });
 
+describe('turn in the street', () => {
+  test('a path that leaves behind the car turns it round and arrives, without a stuck recovery', async () => {
+    const pw = await devWorld();
+    // Facing east, the route goes west: a U-turn.
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const follower = new DriveFollower(makePath([{ x: 100, z: 100 }, { x: 40, z: 100 }]), vehicleGeometry('car'), { speed: 8 });
+    let status = 'driving', maxDz = 0;
+    for (let k = 0; k < 60 * 40 && status !== 'arrived'; k++) {
+      const v = pw.vehicleState()!;
+      const step = follower.step(vehiclePose(v), 1 / 60);
+      status = step.status;
+      maxDz = Math.max(maxDz, Math.abs(v.pos.z - 100));
+      pw.fixedStep(null, step.command);
+    }
+    const end = pw.vehicleState()!;
+    expect(status).toBe('arrived');
+    expect(follower.turns).toBeGreaterThan(0);
+    expect(follower.recoveries).toBe(0);
+    expect(Math.hypot(end.pos.x - 40, end.pos.z - 100)).toBeLessThan(3);
+    // A tight turn: it swung out less than a car length and a half from the street's line.
+    expect(maxDz).toBeLessThan(7);
+    pw.world.free();
+  }, 30_000);
+
+  test('nosed up to a wall with the route behind, the autopilot turns back and forth until it faces the route', async () => {
+    const pw = await devWorld();
+    // Facing the dev building block (x 192–212, z 200–216) 3–4 m from its wall; the route runs back west.
+    pw.spawnVehicle({ x: 186, y: G + 0.8, z: 208 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = new Autopilot({ mode: () => 'car', vehicle: () => pw.vehicleState(), feet: () => ({ x: 0, y: 0, z: 0 }),
+      cameraBasis: () => ({ fx: 0, fz: -1, rx: 1, rz: 0 }), lanes: new LaneRouter(), footRoute: (a, b) => [a, b],
+      groundRay: async (o, d, max) => pw.raycast(o, d, max, 'solid') });
+    const trip = pilot.goTo({ x: 150, z: 208 }, { mode: 'drive', path: [{ x: 186, z: 208 }, { x: 150, z: 208 }], speed: 8 });
+    for (let k = 0; k < 60 * 30 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      await new Promise(r => setTimeout(r, 0));
+    }
+    const end = pw.vehicleState()!;
+    expect(trip.state).toBe('arrived');
+    expect(Math.hypot(end.pos.x - 150, end.pos.z - 208)).toBeLessThan(4);
+    // It turned in the street instead of driving into the wall and backing out of it as a stuck car.
+    expect(trip.progress.recoveries).toBe(0);
+    pw.world.free();
+  }, 30_000);
+});
+
 describe('reverse-out ground check', () => {
   test('the checked arc is the one the car backs along, and a drop behind it blocks the reverse', async () => {
     const { reversePoints, reverseClear } = await import('../../src/gameplay/autopilot/reverseCheck');

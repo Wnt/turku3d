@@ -53,6 +53,8 @@ export interface AutopilotProgress {
   /** Metres right of the path. */
   lateral: number;
   recoveries: number; replans: number;
+  /** Turns in the street (back and forth until the car faces a path that leaves behind it): not stuck recoveries. */
+  turns: number;
   elapsed: number;
 }
 
@@ -129,7 +131,7 @@ class Trip implements AutopilotHandle {
   get progress(): AutopilotProgress {
     const f = this.drive ?? this.walk, length = this.path?.length ?? 0, s = f?.s ?? 0;
     return { s, length, fraction: length ? Math.min(1, s / length) : 0, speed: this.speed, target: this.target, lateral: this.lateral,
-      recoveries: f?.recoveries ?? 0, replans: this.replans, elapsed: this.elapsed };
+      recoveries: f?.recoveries ?? 0, replans: this.replans, turns: this.drive?.turns ?? 0, elapsed: this.elapsed };
   }
   finish(state: 'arrived' | 'failed' | 'cancelled', reason?: string) {
     if (this.state === 'arrived' || this.state === 'failed' || this.state === 'cancelled') return;
@@ -272,17 +274,19 @@ export class Autopilot {
   /** Backs a stuck car out only over drivable ground: the way it wants (opposite lock), else the other lock, else
    *  straight back; when none is clear (a quay edge, a drop, water behind) the trip ends stuck instead. */
   private checkReverse(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
-    const ray = this.world.groundRay, want = follower.pendingReverse!;
+    const ray = this.world.groundRay, want = follower.pendingReverse!, turn = follower.pendingTurn;
     if (!ray) { follower.reverse(want); return; }
     trip.probing = true;
     void (async () => {
-      for (const steer of [want, -want, 0]) if (await reverseClear(pose, steer, follower.geometry, ray)) return steer;
+      // A turn in the street backs only with the lock that swings the nose round; a stuck recovery tries both, then straight.
+      for (const steer of turn ? [want] : [want, -want, 0]) if (await reverseClear(pose, steer, follower.geometry, ray)) return steer;
       return null;
     })().then(steer => {
       trip.probing = false;
       if (trip.drive !== follower || trip.state !== 'driving') return;
-      if (steer === null) trip.finish('failed', 'stuck: no safe way back');
-      else follower.reverse(steer);
+      if (steer !== null) follower.reverse(steer);
+      else if (turn) follower.skipTurnBack();
+      else trip.finish('failed', 'stuck: no safe way back');
     }, () => { trip.probing = false; if (trip.drive === follower) follower.reverse(want); });
   }
 
