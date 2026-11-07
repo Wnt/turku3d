@@ -194,14 +194,17 @@ async function openLength(from: V3, dir: { dx: number; dz: number }, ray: RayPro
   return Math.min(max, ...hits.map(hit => hit && hit.normal.y < 0.7 ? hit.toi : max));
 }
 
-/** The car's heading along its street (car axes) with the most open road ahead of its front, at bumper and bonnet
- *  height: either way on a two-way street, the legal one on a one-way. Null when no way has CLEAR_AHEAD_M. */
+/** The car's heading along its street (car axes) with the most open road ahead of its front: either way on a
+ *  two-way street, the legal one on a one-way. Rays at bumper height from the front's centre and both corners: the
+ *  way is as open as its most open lane, so a pole or a bollard ahead does not count, a wall, a fence or a building
+ *  across the road does. Null when no way has CLEAR_AHEAD_M. */
 async function carHeading(car: Spot, street: StreetCandidate, ray: RayProbe): Promise<number | null> {
   let best: number | null = null, open = -1;
   for (const yaw of street.oneway ? [street.yaw] : [street.yaw, street.yaw > 0 ? street.yaw - Math.PI : street.yaw + Math.PI]) {
-    const dx = Math.cos(yaw), dz = -Math.sin(yaw);
-    const front = { x: car.x + dx * (CAR_HALF.length + 0.1), y: car.y, z: car.z + dz * (CAR_HALF.length + 0.1) };
-    const length = await openLength(front, { dx, dz }, ray, [0.5, 1.2]);
+    const dx = Math.cos(yaw), dz = -Math.sin(yaw), sx = Math.sin(yaw), sz = Math.cos(yaw);
+    const lengths = await Promise.all([-0.9, 0, 0.9].map(side => openLength({ x: car.x + dx * (CAR_HALF.length + 0.1) + sx * side,
+      y: car.y, z: car.z + dz * (CAR_HALF.length + 0.1) + sz * side }, { dx, dz }, ray, [0.6])));
+    const length = Math.max(...lengths);
     if (length > open) { open = length; best = yaw; }
   }
   return open >= CLEAR_AHEAD_M ? best : null;

@@ -68,6 +68,9 @@ interface SaveGameOptions {
   /** The view for a placement at a given pose (a room's spawn slot, an arrival): its yaw, or the open street when that
    *  faces a wall (world/startGround.ts openView). */
   face?: (at: V3, yaw: number) => Promise<number>;
+  /** Another spot for the start car when a car already stands on `car` (a room's shared car, another player's start
+   *  car); null keeps it. */
+  freeStart?: (car: Pose) => Promise<Pose | null>;
   setPaused: (paused: boolean) => void;
   /** Opening story shown after a new solo game is placed. */
   showIntro: () => Promise<void>;
@@ -259,8 +262,9 @@ export class SaveGameController {
     const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
-    const car = saved && !bought ? saved : this.o.car;
-    const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : prepared ? car.y : (await this.settle(car.x, car.z), car.y);
+    const moved = saved && !bought ? null : await this.o.freeStart?.(this.o.car) ?? null;
+    const car = saved && !bought ? saved : moved ?? this.o.car;
+    const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : moved || prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
     // The start car's body: a loaded game's damage, a fresh body for a new game. A join or an arrival (`override`)
     // keeps the car as it is; multiplayer then restores the room's record of it.

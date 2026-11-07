@@ -140,3 +140,13 @@ test('the start car faces open road along its street and the player faces open s
   expect(plain!.car.z).toBeCloseTo(0);
   expect(plain!.spawn.yaw).toBeCloseTo(0);
 });
+
+test('a pole ahead is not a wall: the car keeps its way when a lane beside the pole is open', async () => {
+  const pole = async (o: { x: number; y: number; z: number }, d: { x: number; y: number; z: number }, max: number): Promise<RayHit | null> => {
+    if (d.x <= 1e-6 || o.x >= 12) return null;
+    const t = (12 - o.x) / d.x, z = o.z + d.z * t;
+    return t <= max && Math.abs(z) < 0.15 ? { ...ground(12, z, MAT.pole), toi: t, normal: { x: -1, y: 0, z: 0 } } : null;
+  };
+  const result = await findInitialGround({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), () => true, { view: { dx: 0, dz: -1 }, ray: pole });
+  expect(Math.cos(result!.car.yaw)).toBeGreaterThan(0.9);
+});
