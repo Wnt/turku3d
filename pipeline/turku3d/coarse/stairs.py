@@ -62,11 +62,13 @@ def prepare(tile, path, survey_paths=()):
 
 
 def indoor(tags):
-    """Steps mapped inside a building (``indoor=*``) or wholly above its ground floor (every ``level`` >= 1): no flight
-    stands on the ground. Tapiola: the centre's deck stairs (level 4;6) stood as a stair slope and side walls across
-    both Merituulentie carriageways, and the mall's indoor flights on the ground beside them. A bridge's flight
-    keeps its level: it is drawn on its deck, not on the ground."""
-    if tags.get("indoor") not in (None, "", "no"):
+    """Steps mapped inside a building (``indoor=*``), wholly above its ground floor (every ``level`` >= 1) or wholly
+    below it (every ``level`` <= -1, ``location=underground``): no flight stands on the ground. Tapiola: the centre's
+    deck stairs (level 4;6) stood as a stair slope and side walls across both Merituulentie carriageways, and the
+    mall's indoor flights on the ground beside them. Rotterdam: the escalators between the two underground levels of
+    metro station Beurs (level -1;-2) cut 2 m stair pits into the Coolsingel carriageway. A flight from the street down
+    (level 0;-1) keeps its opening. A bridge's flight keeps its level: it is drawn on its deck, not on the ground."""
+    if tags.get("indoor") not in (None, "", "no") or tags.get("location") == "underground":
         return True
     if tags.get("bridge", "no") != "no":
         return False
@@ -76,7 +78,7 @@ def indoor(tags):
             levels.append(float(value))
         except ValueError:
             continue
-    return bool(levels) and min(levels) >= 1
+    return bool(levels) and (min(levels) >= 1 or max(levels) <= -1)
 
 
 def number(value, default):

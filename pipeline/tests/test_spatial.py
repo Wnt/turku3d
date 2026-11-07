@@ -57,7 +57,8 @@ def test_stair_input_reads_only_nearby_complete_ways(tmp_path):
 
 
 def test_indoor_and_upper_level_steps_are_not_built_on_the_ground(tmp_path):
-    """Tapiola: deck stairs at level 4;6 crossed Merituulentie as a stair slope; indoor mall flights too."""
+    """Tapiola: deck stairs at level 4;6 crossed Merituulentie as a stair slope; indoor mall flights too; Rotterdam:
+    underground station escalators cut pits into the street."""
     import json
 
     import pyarrow as pa
@@ -72,6 +73,10 @@ def test_indoor_and_upper_level_steps_are_not_built_on_the_ground(tmp_path):
         {"highway": "steps", "indoor": "yes", "level": "0;1"},
         {"highway": "steps", "level": "1;2"},
         {"highway": "steps", "level": "1", "layer": "1", "bridge": "yes"},  # drawn on its deck
+        # Rotterdam metro Beurs: escalators between the two underground levels cut stair pits into Coolsingel.
+        {"highway": "steps", "conveying": "yes", "level": "-1;-2"},
+        {"highway": "steps", "location": "underground"},
+        {"highway": "steps", "level": "0;-1"},  # from the street down into the station: keeps its opening
     ]
     pq.write_table(
         pa.Table.from_pylist(
@@ -83,4 +88,4 @@ def test_indoor_and_upper_level_steps_are_not_built_on_the_ground(tmp_path):
         path,
     )
     lines, _ = prepare(C.VisualTile(0, 0, 0), path)
-    assert sorted(key for key, _, _ in lines) == ["0", "1", "5"]
+    assert sorted(key for key, _, _ in lines) == ["0", "1", "5", "8"]
