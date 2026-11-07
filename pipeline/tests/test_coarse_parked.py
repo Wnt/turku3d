@@ -170,6 +170,12 @@ def test_an_underground_garage_neither_parks_on_nor_blanks_the_surface():
         garage = Feature("garage", shapely.box(760, 20, 980, 140), {"amenity": "parking", **tags})
         assert parked.place(TILE, ([garage] + fixture(), []), zeros) == surface
         assert not parked.place(TILE, ([garage], []), zeros)
+    # Nor do the garage's aisle tunnels under the lot; a road tunnel at grade keeps its clearance.
+    aisle = {"highway": "service", "service": "parking_aisle", "tunnel": "yes", "layer": "-1"}
+    under = Feature("aisle", shapely.LineString([(760, 80), (980, 80)]), aisle)
+    assert parked.place(TILE, ([under] + fixture(), []), zeros) == surface
+    road = Feature("road", shapely.LineString([(760, 80), (980, 80)]), {"highway": "primary", "tunnel": "yes", "layer": "-1"})
+    assert len(parked.place(TILE, ([road] + fixture(), []), zeros)) < len(surface)
     # A deck above the ground still keeps its own clearance.
     deck = Feature("deck", shapely.box(760, 20, 980, 140), {"man_made": "bridge", "layer": "1", "bridge": "yes"})
     assert len(parked.place(TILE, ([deck] + fixture(), []), zeros)) < len(surface)

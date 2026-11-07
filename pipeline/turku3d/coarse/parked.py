@@ -92,13 +92,18 @@ def closed_to_cars(tags):
 
 
 def underground(feature):
-    """An area mapped below the surface: an underground garage (parking=underground, location=underground, or a
-    polygon on a negative layer). It parks no car on the surface, and the surface above it is not a structure to
-    keep clear: Tapiola Park (layer -1, 330 places under Tapionaukio) blanked the three surface lots above it,
-    3 cars placed where the street panoramas show full rows."""
-    if feature.geometry.geom_type not in ("Polygon", "MultiPolygon"):
+    """Mapped below the surface and never built, so it neither parks cars nor keeps the surface above it clear: an
+    underground garage (an area with parking=underground, location=underground or a negative layer), and the tunnel
+    ways the tunnel builder leaves out (its aisles and indoor corridors: tunnels.below_grade, tunnels.indoor).
+    Tapiola Park (layer -1, 330 places) and its five parking-aisle tunnels under Tapionaukio blanked the three surface
+    lots above them: 427 rejected slots and 3 cars where the street panoramas show full rows."""
+    from .tunnels import below_grade, indoor
+
+    tags, kind = feature.tags, feature.geometry.geom_type
+    if kind in ("LineString", "MultiLineString"):
+        return tags.get("tunnel", "no") not in ("no", "building_passage") and (below_grade(tags) or indoor(tags))
+    if kind not in ("Polygon", "MultiPolygon"):
         return False
-    tags = feature.tags
     if tags.get("parking") == "underground" or tags.get("location") == "underground":
         return True
     try:
@@ -220,7 +225,7 @@ def place(
     owned slot that fits no car, for audits."""
 
     features, city = prepared
-    features = unique(features)
+    features = [f for f in unique(features) if not underground(f)]
     kerb = kerb or {}
     posts, stops, permits = kerb.get("posts", []), kerb.get("stops", []), kerb.get("permits", [])
     stats = {} if stats is None else stats
@@ -236,8 +241,6 @@ def place(
         common.append(carried)
     for f in features:
         t, g = f.tags, f.geometry
-        if underground(f):
-            continue
         if (
             t.get("bridge", "no") != "no"
             or t.get("tunnel", "no") not in ("no", "building_passage")
@@ -294,7 +297,7 @@ def place(
     areas = [
         f
         for f in features
-        if f.geometry.geom_type in ("Polygon", "MultiPolygon") and not closed_to_cars(f.tags) and not underground(f)
+        if f.geometry.geom_type in ("Polygon", "MultiPolygon") and not closed_to_cars(f.tags)
     ]
     aisles = [
         f
