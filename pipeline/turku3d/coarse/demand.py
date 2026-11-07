@@ -13,6 +13,10 @@ class Demand:
     def __init__(self):
         self.clients = {}
         self.managed = set()
+        # A shared local tile service (the city services behind city.lab) also builds tiles its agents poll without a
+        # demand lease (prebuilds, previews): with keep_polled, a tile somebody polled in the last 12 s is never
+        # dropped for a player's demand; only tiles nobody lists or polls go.
+        self.keep_polled = False
 
     def expire(self):
         now = time.time()
@@ -68,8 +72,9 @@ class Demand:
             rank = self.rank(tile)
             if getattr(builder, 'idle', None) is not None and tile in builder.idle.tiles and builder.idle.allowed():
                 continue
-            stale = (rank is None and (tile in self.managed or
-                     now - builder.requested.get(tile, 0) > 12 or foreground))
+            polled = now - builder.requested.get(tile, 0) <= 12
+            stale = (rank is None and not polled) if self.keep_polled else (
+                rank is None and (tile in self.managed or not polled or foreground))
             if not stale:
                 continue
             # A full pass is a completion commitment. Movement, a missing

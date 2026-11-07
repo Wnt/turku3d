@@ -243,3 +243,40 @@ def test_retirement_preserves_expired_running_jobs_and_the_handover_journal(tmp_
     assert tile in b.journal.rows
     assert next_job(b) is None
     b.stop()
+
+
+def test_a_local_service_takes_the_games_demand_and_keeps_polled_prebuilds(tmp_path):
+    """city.lab clients send /coarse/demand (not /coarse/want); the city services answered 404 and never learnt which
+    tiles a moving player approaches. A shared local service must not drop agents' polled prebuilds for it."""
+    import json
+    import threading
+    import time
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    from turku3d.coarse.service import Builder, Server, handler
+
+    b = Builder(tmp_path, code="test", workers=0)
+    b.demand.keep_polled = True
+    server = Server(("127.0.0.1", 0), handler(b))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}/coarse"
+    try:
+        with b.lock:
+            b.priority.update({"t0_5_5": 400.0, "t0_6_6": 500.0})
+            b.requested["t0_5_5"] = time.time()          # an agent's prebuild poll, just now
+            b.requested["t0_6_6"] = time.time() - 60     # nobody polls this one any more
+        reply = json.loads(urlopen(f"{base}/demand?client=driver-one&tiles=t0_1_0,t0_0_0&urgent=t0_1_0&visible=t0_0_0").read())
+        assert reply["state"] == "ready" and "version" in reply
+        assert b.demand.rank("t0_1_0") == (0, 0) and b.demand.rank("t0_0_0") == (1, 1)
+        assert "t0_5_5" in b.priority, "a polled prebuild stays queued beside a player's demand"
+        assert "t0_6_6" not in b.priority, "a tile nobody lists or polls is dropped"
+        for bad in ("client=x&tiles=t0_1_0", "client=driver-one&tiles=t0_1_0&urgent=t0_2_0", "client=driver-one&tiles=../etc"):
+            try:
+                urlopen(f"{base}/demand?{bad}")
+                raise AssertionError(bad)
+            except HTTPError as error:
+                assert error.code == 400, bad
+    finally:
+        server.shutdown()
+        b.stop()

@@ -27,7 +27,7 @@ from turku3d import config as C
 from .build_health import BuildHealth, error_kind
 from .collision import current as collision_current
 from .collision_key import current_code as current_collision_code
-from .demand import Demand, write_snapshot
+from .demand import MAX_TILES as MAX_DEMAND_TILES, Demand, write_snapshot
 from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
@@ -777,6 +777,30 @@ def handler(builder: Builder, prefetcher: Prefetcher | None = None):
                 if prefetcher:
                     status["prefetch"] = prefetcher.status()
                 return self._json(200, status)
+            if url.path == "/coarse/demand":
+                # The game's ordered tile leases (game/src/world/coarseTiles.ts sendDemand): a remote client (city.lab)
+                # sends these instead of /coarse/want, so this is how the service learns which tiles a moving
+                # player approaches (urgent crossings first). Leases only rank work; manifests stay ungated.
+                q = parse_qs(url.query, keep_blank_values=True)
+                client = q.get("client", [""])[0]
+
+                def ids(name):
+                    value = q.get(name, [""])[0]
+                    return value.split(",") if value else []
+
+                tiles, urgent, visible = ids("tiles"), ids("urgent"), ids("visible")
+                if (len(self.path) > 16384 or not re.fullmatch(r"[a-zA-Z0-9-]{8,64}", client)
+                        or len(tiles) > MAX_DEMAND_TILES or len(set(tiles)) != len(tiles)
+                        or not set(urgent + visible) <= set(tiles) or not all(TILE.match(t) for t in tiles)):
+                    return self._json(400, {"error": "invalid demand"})
+                with builder.lock:
+                    if not builder.demand.update(client, tiles, urgent, visible):
+                        return self._json(429, {"state": "queue-full"})
+                    builder.demand.prune(builder)
+                    builder.lock.notify_all()
+                    reply = {"state": "ready", "version": builder.version, "queued": len(builder.priority),
+                             "building": sorted(builder.building)}
+                return self._json(200, reply)
             if url.path == "/coarse/want":
                 q = parse_qs(url.query)
                 try:
@@ -872,6 +896,7 @@ def serve(
             ],
         )
         prefetcher.on_landed = lambda unit: builder.landed()
+        builder.demand.keep_polled = True  # a shared local service: agents' polled prebuilds stay queued
     server = Server((host, port), handler(builder, prefetcher))
     return server, builder, prefetcher
 
