@@ -38,7 +38,11 @@ export function* flattenFleetSteps(root: THREE.Object3D, part: 'all'|'body'|'gla
     const front = /lamp[-_ ]front|fleet_headlamp/.test(names), tail = /lamp[-_ ]tail|fleet_taillamp/.test(names);
     if (!role.startsWith('fleet_') && !front && !tail) throw Error(`Unexpected fleet material: ${role}`);
     const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+    // A big body mesh alone was the longest step (~25 ms for a 59k-triangle LOD0 on the M1 Max): expand, transform and
+    // bake it as separate steps.
+    yield;
     g.applyMatrix4(mesh.matrixWorld);
+    yield;
     // Converted source cars carry their sampled base-colour textures as COLOR_0; authored ones have none.
     const baked = g.getAttribute('color');
     for (const key of Object.keys(g.attributes)) if (!['position', 'normal'].includes(key)) g.deleteAttribute(key);
@@ -50,6 +54,7 @@ export function* flattenFleetSteps(root: THREE.Object3D, part: 'all'|'body'|'gla
     const tinted = !!baked && !paint && !front && !tail, kind = Number(paint), last = part === 'glass' ? material.opacity : lamp;
     // Written in place: two array literals per vertex were most of a big car's bake (frame-mp).
     for (let i = 0; i < n; i++) {
+      if (i % 16384 === 16383) yield;
       // Road splash on the lower panels and a thin top-facing dust layer, baked once into
       // vertices. No extra texture fetches or per-frame noise in the fleet shader.
       const grime = paint ? Math.max(0, Math.min(1, (.65-positions.getY(i))/.45)) : 0;
