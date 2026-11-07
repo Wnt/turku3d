@@ -232,11 +232,16 @@ function* moduleSteps(model: THREE.Object3D): Generator<void> {
     // Every cell of every tile draws one program per pass: r186 otherwise keys each InstancedMesh by its uuid, and
     // these cells were the largest program family (replay c9n7my: 532 prepared builds, plus their shadow builds).
     shareInstanceProgram(mesh, true);
+    // The bounds grow with the sliced instance loop: InstancedMesh.computeBoundingBox/-Sphere walked every instance of
+    // the cell twice in one step (1.4 s over a 6-minute drive on the Windows laptop, frame-mp win-drive-1). The sphere
+    // encloses the box: conservative for culling, and its centre only re-centres the cell.
+    const bounds=new THREE.Box3(),instanceBounds=new THREE.Box3();
     for(let i=0;i<rows.length;i++){
       if(i%128===0)yield;
       mesh.setMatrixAt(i,rows[i].matrix);mesh.setColorAt(i,rows[i].colour);
+      bounds.union(instanceBounds.copy(geometry.boundingBox!).applyMatrix4(rows[i].matrix));
     }
-    mesh.computeBoundingBox(); mesh.computeBoundingSphere();
+    mesh.boundingBox=bounds; mesh.boundingSphere=bounds.getBoundingSphere(new THREE.Sphere());
     const centre = mesh.boundingSphere!.center.clone();
     const shift = new THREE.Matrix4().makeTranslation(centre.clone().negate());
     for(let i=0;i<rows.length;i++){
