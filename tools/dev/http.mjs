@@ -58,12 +58,19 @@ function baseHeaders(ext, stat, cacheControl) {
 async function encodedFile(file, stat, encoding) {
   const key = `${encoding}|${file}|${stat.mtimeMs}`;
   const hit = brCache.get(key);
-  if (hit) return hit;
+  if (hit) { brCache.delete(key); brCache.set(key, hit); return hit; }
   const raw = await fsp.readFile(file);
   const out = encoding === 'br'
     ? zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } })
     : zlib.gzipSync(raw, { level: 6 });
-  if (brCacheBytes + out.length < BR_CACHE_MAX) { brCache.set(key, out); brCacheBytes += out.length; }
+  // Least recently compressed first out: a long-running share server sees each deploy's files under new mtimes.
+  if (out.length < BR_CACHE_MAX / 8) {
+    brCache.set(key, out); brCacheBytes += out.length;
+    for (const [old, body] of brCache) {
+      if (brCacheBytes <= BR_CACHE_MAX) break;
+      brCache.delete(old); brCacheBytes -= body.length;
+    }
+  }
   return out;
 }
 

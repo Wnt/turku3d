@@ -57,6 +57,8 @@ KEEP=3
 SHA=$(git -C "$REPO" rev-parse --verify "$REV^{commit}")
 SHORT=${SHA:0:8}
 SERVER_TREE=$(git -C "$REPO" rev-parse "$SHA:server")
+# The code city-web and city-tiles run: a deploy that leaves it unchanged does not restart them (see below).
+WEB_TREE=$(git -C "$REPO" rev-parse "$SHA:tools/dev")-$(git -C "$REPO" rev-parse "$SHA:scripts/dev/shared-tile-proxy.mjs")
 say() { printf 'deploy %s: %s\n' "$SHORT" "$*"; }
 
 VERSION=$(python3 - "$PIN" <<'PY'
@@ -114,9 +116,9 @@ fi
 
 # 2. On osgallery-dev, under the deploy lock: build (unless --local-build), install the release, switch, restart, prune.
 say "publishing from osgallery-dev$([ "$LOCAL_BUILD" = 1 ] || echo ' (remote build)')"
-ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $SERVER_TREE $STAGE $LOCAL_BUILD $PUBLIC_HOST $KEEP" <<'REMOTE'
+ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $SERVER_TREE $STAGE $LOCAL_BUILD $PUBLIC_HOST $KEEP $WEB_TREE" <<'REMOTE'
 set -euo pipefail
-SHA=$1 SERVER_TREE=$2 STAGE=$HOME/$3 LOCAL_BUILD=$4 PUBLIC_HOST=$5 KEEP=$6 ASSET_HOURS=12
+SHA=$1 SERVER_TREE=$2 STAGE=$HOME/$3 LOCAL_BUILD=$4 PUBLIC_HOST=$5 KEEP=$6 WEB_TREE=$7 ASSET_HOURS=12
 C=$HOME/turku3d-local/city U=$HOME/.config/systemd/user R=$C/releases/$SHA
 trap 'rm -rf "$STAGE"' EXIT
 if [ "$LOCAL_BUILD" = 0 ]; then
@@ -155,7 +157,7 @@ done
 # Server sources (only what the units run); keep an installed server/node_modules across a redeploy of this release.
 rsync -a --delete --exclude /server/node_modules --exclude /game --exclude /pipeline --exclude /dist --exclude /work --exclude /.git \
   --exclude /version.json --exclude /tiles.json "$STAGE/" "$R/src/"
-cd "$R/src"; echo "$SERVER_TREE" > server.tree
+cd "$R/src"; echo "$SERVER_TREE" > server.tree; echo "$WEB_TREE" > web.tree
 prev=$C/$(readlink "$C/mp" 2>/dev/null || true)
 if [ -d server/node_modules ] && [ "$(cat server/node_modules/.lock.sha 2>/dev/null)" = "$(sha256sum < server/package-lock.json)" ]; then
   :  # a redeploy of this release
@@ -168,7 +170,7 @@ fi
 sha256sum < server/package-lock.json > server/node_modules/.lock.sha
 # Tile pin (hot-read by city-tiles).
 mv "$STAGE/tiles.json" "$C/tiles.json.tmp" && mv "$C/tiles.json.tmp" "$C/tiles.json"
-# Switch, install units, restart what changed, prune old releases (never the ones `current` or `mp` use).
+# Switch, install units, restart what changed, prune old releases (never the ones `current`, `mp` or `web` use).
 ln -sfn "releases/$SHA" "$C/current.new" && mv -T "$C/current.new" "$C/current"
 changed=''
 for f in "$C"/current/src/tools/share/units/*.service "$C"/current/src/tools/share/units/*.socket; do
@@ -177,6 +179,16 @@ for f in "$C"/current/src/tools/share/units/*.service "$C"/current/src/tools/sha
 done
 systemctl --user daemon-reload
 systemctl --user enable -q city-web city-tiles city-mp city-forwarder city-web.socket city-tiles.socket
+# city-web serves the game from current/dist (re-read per request) and city-tiles hot-reads tiles.json, so a deploy
+# restarts them only when their code (`web`: the release whose tools/dev and tile proxy they run) or units change.
+# A restart cuts the slow requests it cannot drain (a city service prebuilding answers manifests in ~20 s).
+restart_web=0
+[ "$(cat "$C/web/src/web.tree" 2>/dev/null || true)" = "$WEB_TREE" ] || restart_web=1
+for u in city-web city-tiles city-web.socket city-tiles.socket; do
+  [[ " $changed " == *" $u "* ]] && restart_web=1
+  systemctl --user is-active -q "$u" || restart_web=1
+done
+if [ "$restart_web" = 1 ]; then ln -sfn "releases/$SHA" "$C/web.new" && mv -T "$C/web.new" "$C/web"; fi
 # city-web and city-tiles accept on sockets systemd holds across their restarts (requests wait instead of failing).
 # A new or changed socket takes over the port its service bound itself (or the old socket): stop the service first.
 for s in city-tiles city-web; do
@@ -189,9 +201,13 @@ if [ "$mp_tree" != "$SERVER_TREE" ] || [[ " $changed " == *' city-mp '* ]] || ! 
   ln -sfn "releases/$SHA" "$C/mp.new" && mv -T "$C/mp.new" "$C/mp"
   systemctl --user restart city-mp; echo 'city-mp restarted'
 fi
-systemctl --user restart city-tiles city-web
+if [ "$restart_web" = 1 ]; then
+  systemctl --user restart city-tiles city-web; echo 'city-tiles and city-web restarted'
+else
+  echo 'city-tiles and city-web keep running (same code; the new game is served from current/dist)'
+fi
 if [[ " $changed " == *' city-forwarder '* ]]; then systemctl --user restart city-forwarder; else systemctl --user start city-forwarder; fi
-keep="$(readlink "$C/current") $(readlink "$C/mp")"
+keep="$(readlink "$C/current") $(readlink "$C/mp") $(readlink "$C/web")"
 ls -1dt "$C"/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
   case " $keep " in *" releases/$(basename "$old") "*) ;; *) rm -rf "$old";; esac
 done

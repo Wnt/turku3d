@@ -8,7 +8,8 @@ Requires=city-tiles.socket
 
 [Service]
 Type=simple
-WorkingDirectory=%h/turku3d-local/city/current/src
+# The release whose code it runs (deploy.sh moves `web` only when that code changes).
+WorkingDirectory=%h/turku3d-local/city/web/src
 ExecStart=/usr/bin/node scripts/dev/shared-tile-proxy.mjs 7781 %h/turku3d-local/city/tiles.json
 Restart=always
 RestartSec=3
