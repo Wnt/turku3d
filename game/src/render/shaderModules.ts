@@ -5,13 +5,14 @@
  *  compiles asynchronously, so a burst of first-use pipelines froze the page: at the switch to play every city stood
  *  still 1.7-2.9 s on Windows with almost no script running (verify-all r3, win-after3, win-trace1), right when
  *  110 modules were created in one second.
- *  Live first-use draws (render/asyncPipelines.ts) and streaming preparation (render/compileModel.ts) take new modules
- *  from a budget that refills with wall time, MS_PER_MODULE per module and at most MAX_SAVED saved up: the GPU process
+ *  Live first-use draws (render/asyncPipelines.ts) take new modules from a budget that refills with wall time, MS_PER_MODULE per module and at most MAX_SAVED saved up: the GPU process
  *  translates them while the page's main thread works, so a slow frame (a burst of program builds at play start,
  *  150-250 ms on the 560X) may take several and a fast one about one. 16 ms a module keeps the 560X's GPU process
  *  main thread about three quarters busy with them at most (12 ms each on average), so frames still present. A draw over the budget waits for a later frame,
  *  as it already waits for its pipeline. A fixed three per frame starved at those slow frames: d2ce6df2 took ~15 s at
- *  4-8 FPS to create the ~180 modules after the play switch (win-trace2). */
+ *  4-8 FPS to create the ~180 modules after the play switch (win-trace2). Streaming preparation (compileModel) is paced
+ *  by main-thread time already and does not wait: starving it moved those programs into in-frame builds. Its modules
+ *  still spend the budget. */
 export const MS_PER_MODULE = 16, MAX_SAVED = 6;
 
 interface Programs { vertex: Map<string, unknown>; fragment: Map<string, unknown> }
