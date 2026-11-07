@@ -9,6 +9,7 @@ import {
   pow, select, sin, smoothstep, sqrt, texture, textureLoad, varying, vec3,
 } from 'three/tsl';
 import { GOLDEN_FRACTION, fibonacciDirection, type WalkerAsset, type WalkerVariant } from './asset';
+import { shareInstanceProgram } from '../../render/instancePrograms';
 
 /** Per-vertex: (VAT column, body region). Per instance: clip rows and phases, and packed sRGB tints. */
 const WALKER_ATTRIBUTES = { vertex: 'walkerVertex', anim: 'walkerAnim', look: 'walkerLook', trim: 'walkerTrim', shape: 'walkerShape' } as const;
@@ -183,6 +184,9 @@ export class WalkerMeshes {
       mesh.castShadow = false; // low and medium never cast; high has no VAT shadow program yet
       mesh.receiveShadow = true;
       mesh.count = 0; mesh.visible = false; mesh.userData.prepareHidden = true; // compiled while hidden (compileModel)
+      // One program per pass for every variant and LOD (r186 keys each InstancedMesh by its uuid: 13 walker programs
+      // were built while driving on the Windows laptop); the per-instance fields live in the geometry.
+      shareInstanceProgram(mesh, false, { moving: true });
       this.group.add(mesh);
       return mesh;
     }));

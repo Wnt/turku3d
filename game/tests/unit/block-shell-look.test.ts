@@ -46,8 +46,9 @@ test('roofed shells of different blocks share one material (one program); each m
   const { SharedMaterials } = await import('../../src/render/sharedMaterials');
   const shared = new SharedMaterials(), owner = new THREE.Group();
   const mapA = new THREE.Texture(), mapB = new THREE.Texture();
-  const roofA = { map: mapA, u: [1, 0, 0] as const, v: [0, 1, 0] as const }, roofB = { map: mapB, u: [0.5, 0, 2] as const, v: [0, 0.5, 3] as const };
-  const shell = (roof: typeof roofA) => {
+  type Roof = { map: THREE.Texture; u: readonly [number, number, number]; v: readonly [number, number, number] };
+  const roofA: Roof = { map: mapA, u: [1, 0, 0], v: [0, 1, 0] }, roofB: Roof = { map: mapB, u: [0.5, 0, 2], v: [0, 0.5, 3] };
+  const shell = (roof: Roof) => {
     const root = new THREE.Group(), mesh = new THREE.Mesh(new THREE.BoxGeometry());
     root.add(mesh); styleBlockLod(root, owner, shared, roof); return mesh;
   };
