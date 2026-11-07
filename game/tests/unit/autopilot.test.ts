@@ -250,3 +250,15 @@ describe('autopilot controller', () => {
     expect((await trip.done).reason).toBe('not in a vehicle');
   });
 });
+
+describe('route join', () => {
+  test('the route starts from where the car is along it, not from which way the car faces', async () => {
+    const { pathAfter } = await import('../../src/gameplay/autopilot/autopilot');
+    // Espoo, Itätuulenkuja: the street runs west first, then bends north-west; the car stopped facing north (a park).
+    const route = makePath([{ x: 438, z: 499.5 }, { x: 434, z: 500 }, { x: 428, z: 498 }, { x: 418.6, z: 490.8 }, { x: 397, z: 458 }]);
+    const after = pathAfter(route, { x: 438.1, z: 499.4 });
+    expect(after[0]).toMatchObject({ x: 434, z: 500 });
+    // A car already past the first points joins after them.
+    expect(pathAfter(route, { x: 427, z: 497 })[0]).toMatchObject({ x: 418.6, z: 490.8 });
+  });
+});

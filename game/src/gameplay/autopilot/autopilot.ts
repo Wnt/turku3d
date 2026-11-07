@@ -17,7 +17,7 @@ import type { Actions } from '../../input/bindings';
 import { DriveFollower, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
-import { makePath, type Path, type PathPoint } from './path';
+import { makePath, project, type Path, type PathPoint } from './path';
 import { reverseClear, type GroundRay } from './reverseCheck';
 
 export type AutopilotMode = 'drive' | 'walk';
@@ -306,14 +306,15 @@ export class Autopilot {
   }
 }
 
-/** The route from the car onward: drop the part behind it, so a re-plan never steers back to the snapped start. */
-function pathAfter(path: Path, pose: { x: number; z: number; hx: number; hz: number }): PathPoint[] {
+/** The route from the car onward: the part after the car's nearest point on the route's first stretch (40 m), so a
+ *  re-plan never steers back to the snapped start. Which way the car happens to face does not decide it: a car
+ *  stopped facing a park beside a street that bends away first used to drop the bend and cut straight across. */
+export function pathAfter(path: Path, pose: { x: number; z: number }): PathPoint[] {
+  const at = project(path, pose.x, pose.z, 0, 40);
   const out: PathPoint[] = [];
   for (let i = 0; i < path.cum.length; i++) {
-    const x = path.points[2 * i], z = path.points[2 * i + 1];
-    const ahead = (x - pose.x) * pose.hx + (z - pose.z) * pose.hz;
-    if (!out.length && ahead < 4 && i < path.cum.length - 1) continue;
-    out.push({ x, z, ...(path.ys ? { y: path.ys[i] } : {}) });
+    if (path.cum[i] <= at.s + 1 && i < path.cum.length - 1) continue;
+    out.push({ x: path.points[2 * i], z: path.points[2 * i + 1], ...(path.ys ? { y: path.ys[i] } : {}) });
   }
   return out.length ? out : [{ x: path.points[path.points.length - 2], z: path.points[path.points.length - 1] }];
 }
