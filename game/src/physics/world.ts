@@ -31,6 +31,12 @@ export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 /** Rapier interaction groups: high 16 bits membership, low 16 bits filter. */
 /** A remote proxy moving farther than this in one update is placed, not swept (m). */
 const REMOTE_JUMP_M = 3;
+/** A proxy is swept towards its newest pose at most at the owner's reported speed times REMOTE_SWEEP.scale plus
+ *  REMOTE_SWEEP.slack (m/s), one fixed substep at a time. Setting the whole move as one substep's kinematic target made
+ *  its velocity move / (1/60 s): a resting shared car whose pose caught up 1.1 m launched the local car it touched at
+ *  66 m/s (verify-all r2 mac-turku: 1.6 -> 73.9 m/s in one step), and a remote car at 20 m/s seen at 20 fps pushed
+ *  like a 60 m/s wall. */
+const REMOTE_SWEEP = { scale: 1.25, slack: 1 } as const;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 /** One solver step of `world`. Rapier 0.21's World.step() also wraps, after every step, what the engine created on
@@ -78,7 +84,9 @@ export class PhysicsWorld {
   private poleSnapshots = new Map<string, { state: PoleState; resting: boolean }>();
   private drivenId: string | null = 'player';
   private nearbyVehicles = new Set<string>();
-  private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode']; pos: V3; rot: Quat; vx: number; vz: number; at: number }>();
+  private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode']; pos: V3; rot: Quat; vx: number; vz: number; at: number;
+    /** Where the proxy is being swept to, and how fast it may get there (m/s; REMOTE_SWEEP). */
+    target: V3 | null; maxSpeed: number }>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
   private brokenPoles = new Set<string>();
   private poleEvents: RAPIER_NS.EventQueue;
@@ -600,7 +608,7 @@ export class PhysicsWorld {
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
         desc.setCollisionGroups(half ? groups(REMOTE_VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE) : groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
-        remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now() };
+        remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now(), target: null, maxSpeed: 0 };
         this.remotes.set(p.id, remote);
       }
       // Velocity from consecutive updates: ambient drivers predict where a remote player is going.
@@ -619,10 +627,26 @@ export class PhysicsWorld {
       const at = remote.body.translation();
       if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > REMOTE_JUMP_M) {
         remote.body.setTranslation({ x: p.pos.x, y, z: p.pos.z }, true); remote.body.setRotation(remote.rot, true);
+        remote.target = null;
       } else {
-        remote.body.setNextKinematicTranslation({ x: p.pos.x, y, z: p.pos.z });
+        // Swept substep by substep in fixedStep (sweepRemotes). Without a reported velocity: the whole move at once.
+        remote.target = { x: p.pos.x, y, z: p.pos.z };
+        remote.maxSpeed = p.vel ? Math.hypot(p.vel.x, p.vel.y, p.vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
         remote.body.setNextKinematicRotation(remote.rot);
       }
+    }
+  }
+
+  /** This substep's kinematic target of each remote proxy still on its way (REMOTE_SWEEP). */
+  private sweepRemotes() {
+    for (const remote of this.remotes.values()) {
+      const target = remote.target;
+      if (!target) continue;
+      const at = remote.body.translation(), dx = target.x - at.x, dy = target.y - at.y, dz = target.z - at.z;
+      const d = Math.hypot(dx, dy, dz), max = remote.maxSpeed * DT;
+      if (d <= max) { remote.body.setNextKinematicTranslation(target); remote.target = null; continue; }
+      const k = max / d;
+      remote.body.setNextKinematicTranslation({ x: at.x + dx * k, y: at.y + dy * k, z: at.z + dz * k });
     }
   }
 
@@ -842,6 +866,7 @@ export class PhysicsWorld {
       const v = car.body.linvel();
       carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
     }
+    this.sweepRemotes();
     stepPipeline(this.world, this.poleEvents, this.traffic?.hooks);
     for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
     const poleColliders = new Map<number, string>();

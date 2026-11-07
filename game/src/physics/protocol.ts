@@ -48,7 +48,8 @@ export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: Vehic
   /** A damageable car: the fleet-frame box its damage cage spans (actors/fleet/catalog.ts fleetDamageBox). Saved or
    *  shared damage arrives with `vehicleDamage`. */
   damage?: { box: import('../vehicle/damage').DamageBox } }
-export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind }
+/** `vel`: the owner's reported velocity (net pose vE/vH/-vN); the proxy is swept towards `pos` no faster (world.ts). */
+export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind; vel?: V3 }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
 /** A car part that came off (actors/fleet/debris.ts): a box body of `half` extents and `mass` (kg) at its drawn pose. */

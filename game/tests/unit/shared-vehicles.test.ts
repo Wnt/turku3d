@@ -35,6 +35,39 @@ test('remote kinematic sweep cannot launch a local car, but bounded server impul
   pw.world.free();
 });
 
+test('a remote car proxy moves at its owner\'s speed: a pose catching up 1.1 m does not launch a car it touches', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(0xffff0000 | 0xffff));
+  pw.spawnVehicle({ x: 0, y: 1, z: 0 }, 0, { id: 'me', kind: 'car' });
+  pw.driveVehicle('me');
+  const idle = { vx: 0, vz: 0, jump: false }, push = { throttle: 0.3, steer: 0, brake: 0, handbrake: false };
+  for (let k = 0; k < 60; k++) pw.fixedStep(idle, { ...push, throttle: 0 });
+  const me = () => pw.vehicleState()!;
+  // A resting shared car nose to nose with ours (chassis half lengths 2.1 + 2.1): its owner reports no velocity.
+  let x = me().pos.x + 4.35;
+  const resting = () => [{ id: 'van', pos: { x, y: me().pos.y, z: me().pos.z }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
+  for (let k = 0; k < 60; k++) { pw.setRemotes(resting()); pw.fixedStep(idle, push); }
+  // Its pose catches up 1.1 m into us at once (verify-all r2: 1.6 -> 73.9 m/s in one step before the sweep limit).
+  x -= 1.1; pw.setRemotes(resting());
+  let fastest = 0;
+  for (let k = 0; k < 60; k++) { pw.fixedStep(idle, push); fastest = Math.max(fastest, me().speed); }
+  expect(fastest).toBeLessThan(2);
+  // A remote car driving at 16.7 m/s, seen at 20 fps (three substeps per update): its proxy keeps up at that speed.
+  pw.setRemotes([]);
+  let rx = -40;
+  const steps: number[] = [];
+  let last = rx;
+  for (let k = 0; k < 90; k++) {
+    if (k % 3 === 0) { rx += 16.7 * 3 / 60; pw.setRemotes([{ id: 'driver', pos: { x: rx, y: 1, z: 30 }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car', vel: { x: 16.7, y: 0, z: 0 } }]); }
+    pw.fixedStep(idle, null);
+    const at = (pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('driver')!.body.translation().x;
+    steps.push((at - last) * 60); last = at;
+  }
+  expect(Math.max(...steps.slice(3))).toBeLessThan(16.7 * 1.25 + 1 + 0.01);
+  expect(rx - last).toBeLessThan(0.6);
+  pw.world.free();
+});
+
 test('a local car cannot drive through a remote car: the proxy blocks the chassis, wheel rays ignore it', async () => {
   const fs = await import('node:fs'), path = await import('node:path');
   const dir = path.resolve(__dirname, '../../public/dev-tiles');

@@ -274,7 +274,8 @@ export class RemotePlayers {
         }
       }
       remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
-      if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode });
+      if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
+        vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 } });
       if (!p.locallySimulated) {
         const half = pose.mode === 'foot' ? null : VEHICLES[pose.mode].halfExt;
         const heading = pose.rot ? chassisForward(pose.rot) : { hx: Math.cos(pose.yaw + Math.PI / 2), hz: -Math.sin(pose.yaw + Math.PI / 2) };
