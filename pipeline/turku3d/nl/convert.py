@@ -587,6 +587,23 @@ def quay_edges(bbox, log=print):
     return out
 
 
+def bridge_decks(bbox, log=print):
+    """Surveyed bridge decks (BGT overbruggingsdeel above ground) intersecting an RD bbox: ``(level, polygon)``,
+    touching parts of one level merged. OSM bridge ways often stop short of the abutments; the deck spans these."""
+    import shapely
+
+    parts = {}
+    for _, _, p, g in bgt_features(("overbruggingsdeel",), bbox, log):
+        level = p.get("relatieve_hoogteligging") or 0
+        if level >= 1 and g.geom_type in ("Polygon", "MultiPolygon") and not g.is_empty:
+            parts.setdefault(level, []).append(shapely.make_valid(g))
+    out = []
+    for level, polygons in sorted(parts.items()):
+        merged = shapely.union_all(polygons).buffer(0.05).buffer(-0.05)
+        out.extend((level, poly) for poly in shapely.get_parts(merged) if poly.area >= 4.0)
+    return out
+
+
 ADAPTERS = {"3dbag": buildings_3dbag, "bgt-streets": streets_bgt, "bgt-water": water_bgt,
             "bgt-trees": trees_bgt, "bgt-lamps": lamps_bgt}
 

@@ -246,6 +246,30 @@ def passes_under(bridge, way):
     return False
 
 
+def surveyed_outlines(tile):
+    """Bridge deck outlines from the city's own survey, tile-local ``(key, polygon, tags)``; empty for a city
+    without one. Dutch cities (BGT overbruggingsdeel): the mapped OSM bridge way often ends metres short of the
+    abutment, so the deck built along it left a strip of open water between the street and the deck (the
+    Grimburgwal bridge in Amsterdam: way 426-438 m, deck and water 420-440 m), and cars fell in."""
+    from turku3d import cities
+    from turku3d import config as C
+
+    if cities.require_applied().ground != "nl-ahn":
+        return []
+    from turku3d.nl import convert
+
+    out = []
+    for level, poly in convert.bridge_decks(tile.bbox.buffered(500).to_en().as_tuple()):
+        local = shapely.make_valid(
+            shapely.transform(poly, lambda en: np.column_stack([en[:, 0] - C.ORIGIN_E, C.ORIGIN_N - en[:, 1]]))
+        )
+        for part in shapely.get_parts(local):
+            if part.geom_type == "Polygon" and part.area >= 4.0:
+                c = part.representative_point()
+                out.append((f"bgt-deck:{c.x:.0f}:{c.y:.0f}", part, {"layer": str(level), "man_made": "bridge"}))
+    return out
+
+
 def prepare(tile, osm, survey_paths=(), spot_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
     from turku3d.spatial import rows
@@ -291,6 +315,12 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
                 width=way_width(tags),
             )
         )
+    # A surveyed deck outline counts where no mapped OSM bridge outline already covers it.
+    for key, poly, tags in surveyed_outlines(tile):
+        if poly.intersects(window) and not any(
+            o.intersection(poly).area > 0.5 * min(o.area, poly.area) for _, o, _ in outlines.values()
+        ):
+            outlines[key] = (key, poly, tags)
     from .area import passages as area_passages
     from .bridge_survey import height_anchors, spot_heights
 
