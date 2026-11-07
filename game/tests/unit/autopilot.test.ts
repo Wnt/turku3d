@@ -289,7 +289,7 @@ describe('turn in the street on a carriageway', () => {
     pw.world.free();
   }, 60_000);
 
-  test('a turn with no room gives up as one stuck recovery without moving the car', async () => {
+  test('a turn with no room ends the trip stuck without moving the car', async () => {
     const pw = await devWorld();
     // Pavement everywhere: no turn leg may drive.
     const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
@@ -301,19 +301,54 @@ describe('turn in the street on a carriageway', () => {
     const pilot = pilotOn(pw, ray);
     const trip = pilot.goTo({ x: 40, z: 100 }, { mode: 'drive', path: [{ x: 100, z: 100 }, { x: 40, z: 100 }], speed: 8 });
     let k = 0;
-    for (; k < 60 * 10 && trip.state === 'driving' && trip.progress.recoveries === 0; k++) {
+    for (; k < 60 * 10 && trip.state === 'driving'; k++) {
       const a = emptyActions();
       pilot.control(a, 1 / 60);
       pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
       await new Promise(r => setTimeout(r, 0));
     }
     const v = pw.vehicleState()!;
+    expect(trip.state).toBe('failed');
+    expect(trip.reason).toBe('stuck: no room to turn');
     expect(trip.progress.turns).toBe(1);
-    expect(trip.progress.recoveries).toBe(1);
     expect(k).toBeLessThan(60 * 2);
     expect(Math.hypot(v.pos.x - 100, v.pos.z - 100)).toBeLessThan(0.5);
     pw.world.free();
   }, 30_000);
+
+  test('a lane U-turn at a dead end: the car stops before the hairpin and turns on the carriageway', async () => {
+    const pw = await devWorld();
+    // East on the lane z = 100, a 1.65 m radius U-turn onto the lane z = 103.3 (a lane graph's dead-end turn between
+    // two lanes), back west. The carriageway is z 97.6..105.7; beyond it there is no ground (a quay edge).
+    const pts = [];
+    for (let x = 40; x <= 110; x += 5) pts.push({ x, z: 100 });
+    for (let a = 15; a < 180; a += 15) pts.push({ x: 110 + 1.65 * Math.sin(a * Math.PI / 180), z: 101.65 - 1.65 * Math.cos(a * Math.PI / 180) });
+    for (let x = 110; x >= 40; x -= 5) pts.push({ x, z: 103.3 });
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      if (o.z < 97.6 || o.z > 105.7) return null;
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && { ...hit, material: MAT.road };
+    };
+    pw.spawnVehicle({ x: 40, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 40, z: 103.3 }, { mode: 'drive', path: pts, speed: 10 });
+    let minZ = Infinity, maxZ = -Infinity;
+    for (let k = 0; k < 60 * 60 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const v = pw.vehicleState()!;
+      minZ = Math.min(minZ, v.pos.z); maxZ = Math.max(maxZ, v.pos.z);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    // The car's middle stayed on the carriageway (pursuit at speed swung it far past the edge).
+    expect(minZ).toBeGreaterThan(97.6);
+    expect(maxZ).toBeLessThan(105.7);
+    expect(trip.state).toBe('arrived');
+    expect(trip.progress.turns).toBeGreaterThan(0);
+    pw.world.free();
+  }, 60_000);
 });
 
 describe('reverse-out ground check', () => {

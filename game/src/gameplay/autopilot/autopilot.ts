@@ -261,6 +261,7 @@ export class Autopilot {
     actions.throttle = c.throttle; actions.brake = c.brake; actions.steer = c.steer; actions.handbrake = c.handbrake ? 1 : 0;
     this.command = c;
     if (step.status === 'arrived') { trip.finish('arrived'); return; }
+    if (trip.drive.gaveUp) { trip.finish('failed', trip.drive.gaveUp); return; }
     if (trip.drive.recoveries > (trip.options.recoveries ?? 4)) { trip.finish('failed', 'stuck'); return; }
     if (trip.drive.pendingReverse !== null && !trip.probing) this.checkReverse(trip, trip.drive, pose);
     if (trip.drive.pendingTurnLeg && !trip.probing) this.checkTurnLeg(trip, trip.drive, pose);
