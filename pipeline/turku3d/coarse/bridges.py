@@ -270,6 +270,21 @@ def surveyed_outlines(tile):
     return out
 
 
+def add_surveyed(outlines, surveyed, window):
+    """A surveyed deck spans abutment to abutment; a mapped OSM outline it overlaps (often traced over the arch
+    only: Sleutelbrug 426-438 m of a 420-441 m deck) grows to cover it and keeps its own key and tags."""
+    for key, poly, tags in surveyed:
+        if not poly.intersects(window):
+            continue
+        overlapping = [k for k, (_, o, _) in outlines.items() if o.intersection(poly).area > 0.3 * min(o.area, poly.area)]
+        for k in overlapping:
+            okey, o, otags = outlines[k]
+            outlines[k] = (okey, shapely.make_valid(o.union(poly)), otags)
+        if not overlapping:
+            outlines[key] = (key, poly, tags)
+    return outlines
+
+
 def prepare(tile, osm, survey_paths=(), spot_paths=()):
     """Resolve physical crossings with full source ways before selecting this tile."""
     from turku3d.spatial import rows
@@ -315,12 +330,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
                 width=way_width(tags),
             )
         )
-    # A surveyed deck outline counts where no mapped OSM bridge outline already covers it.
-    for key, poly, tags in surveyed_outlines(tile):
-        if poly.intersects(window) and not any(
-            o.intersection(poly).area > 0.5 * min(o.area, poly.area) for _, o, _ in outlines.values()
-        ):
-            outlines[key] = (key, poly, tags)
+    add_surveyed(outlines, surveyed_outlines(tile), window)
     from .area import passages as area_passages
     from .bridge_survey import height_anchors, spot_heights
 

@@ -35,18 +35,24 @@ def test_outline_unifies_carriageway_and_sidewalk_without_merging_nearby_crossin
     assert merged["width"] == 12
 
 
-def test_surveyed_deck_outline_spans_past_a_short_osm_bridge_way(monkeypatch):
-    # Grimburgwal, Amsterdam: the OSM bridge way covers 426-438 m of a 420-440 m BGT deck over 420-440 m of water.
-    from turku3d.coarse import bridges
+def test_surveyed_deck_outline_spans_past_a_short_osm_bridge_way():
+    # Sleutelbrug, Amsterdam: OSM way and man_made=bridge outline 426-438 m; BGT deck and water 420-441 m.
+    from turku3d.coarse.bridges import add_surveyed
 
     road = way("road", [(426, 559), (438, 559)], width=6)
-    deck = shapely.box(420, 552, 440, 562)
-    monkeypatch.setattr(bridges, "surveyed_outlines", lambda tile: [("bgt-deck:430:557", deck, {"layer": "1"})])
-    outlines = {key: (key, poly, tags) for key, poly, tags in bridges.surveyed_outlines(None)}
+    osm = shapely.box(426, 552, 438, 562)
+    deck = shapely.box(420, 552, 441, 562)
+    window = shapely.box(0, 0, 1000, 1000)
+    outlines = add_surveyed({"74079560": ("74079560", osm, {"man_made": "bridge", "name": "Sleutelbrug"})},
+                            [("bgt-deck:430:557", deck, {"layer": "1"})], window)
+    assert list(outlines) == ["74079560"] and outlines["74079560"][1].equals(deck)
     merged = merge_crossings([road], list(outlines.values()))
     assert len(merged) == 1 and merged[0]["members"] == ["road"]
-    assert merged[0]["line"].length >= 19.9  # the whole surveyed span, abutment to abutment
-    assert merged[0]["outline"].equals(deck)
+    assert merged[0]["line"].length >= 20.9  # the whole surveyed span, abutment to abutment
+    assert merged[0]["tags"]["name"] == "Sleutelbrug"
+    # A surveyed deck with no OSM outline is added as its own.
+    alone = add_surveyed({}, [("bgt-deck:9:9", shapely.box(0, 0, 20, 8), {"layer": "1"})], window)
+    assert list(alone) == ["bgt-deck:9:9"]
 
 
 def test_parallel_fallback_keeps_transverse_and_separate_level_bridges():
