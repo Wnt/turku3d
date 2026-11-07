@@ -19,8 +19,7 @@ export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set
   }
   const textures = new Set<THREE.Texture>();
   const visited = new Set<THREE.Material>();
-  const nodes = new Set<Node>();
-  const pending: Node[] = [];
+  const roots = new Set<Node>();
   const visit = (object: THREE.Object3D) => {
     const mesh = object as THREE.Mesh;
     if (!mesh.isMesh || (camera && (!mesh.layers.test(camera.layers)
@@ -30,22 +29,36 @@ export function modelTextures(scene: THREE.Object3D, camera?: THREE.Camera): Set
       visited.add(material);
       for (const value of Object.values(material)) {
         if (value?.isTexture) textures.add(value);
-        else if (value?.isNode) pending.push(value as Node);
+        else if (value?.isNode) roots.add(value as Node);
       }
     }
   };
   if (camera) scene.traverseVisible(visit); else scene.traverse(visit);
+  for (const root of roots) for (const holder of textureHolders(root)) if (holder.value?.isTexture) textures.add(holder.value);
+  return textures;
+}
+
+type Holder = Node & { value?: THREE.Texture; isTextureNode?: boolean };
+/** Texture nodes under each material node already walked. Tile materials are shared across tiles
+ *  (render/materials.ts), and re-walking their graphs for every prepared tile was 2.8 s of a 6.7-min Windows
+ *  drive (2.4 s in Node.getChildren; win-drive-2). Each node's texture is read when asked: a swapped `value` counts. */
+const holdersByRoot = new WeakMap<Node, Holder[]>();
+function textureHolders(root: Node): Holder[] {
+  let holders = holdersByRoot.get(root);
+  if (holders) return holders;
+  holders = [];
   // TSL is a shared graph, not a tree. Node.traverse revisits every path through
   // common expressions (exponential for ground shaders), even across material slots.
+  const nodes = new Set<Node>(), pending = [root];
   while (pending.length) {
-    const node = pending.pop()!;
+    const node = pending.pop()! as Holder;
     if (nodes.has(node)) continue;
     nodes.add(node);
-    const map = (node as Node & { value?: THREE.Texture }).value;
-    if (map?.isTexture) textures.add(map);
+    if (node.isTextureNode || node.value?.isTexture) holders.push(node);
     for (const child of node.getChildren()) if (!nodes.has(child)) pending.push(child);
   }
-  return textures;
+  holdersByRoot.set(root, holders);
+  return holders;
 }
 
 const queues = new WeakMap<THREE.WebGPURenderer, TextureUploads>();

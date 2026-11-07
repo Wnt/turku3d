@@ -26,6 +26,26 @@ test('texture discovery visits shared shader expressions once across meshes and 
   } finally { for (const visit of visits) visit.mockRestore(); }
 });
 
+test('texture discovery walks a shared material graph once across models and reads swapped textures', () => {
+  const first = new THREE.Texture(), second = new THREE.Texture();
+  const sampled = texture(first);
+  const expression = sampled.mul(2).add(sampled.r);
+  const material = new THREE.MeshStandardNodeMaterial();
+  material.colorNode = expression;
+  const model = () => { const scene = new THREE.Scene(); scene.add(new THREE.Mesh(new THREE.BoxGeometry(), material)); return scene; };
+  expect(modelTextures(model())).toEqual(new Set([first]));
+  const walks = vi.spyOn(THREE.Node.prototype, 'getChildren');
+  try {
+    sampled.value = second;
+    expect(modelTextures(model())).toEqual(new Set([second]));
+    expect(walks).not.toHaveBeenCalled();
+    // A reassigned slot is a new graph: walked again.
+    material.colorNode = texture(first).add(expression);
+    expect(modelTextures(model())).toEqual(new Set([first, second]));
+    expect(walks).toHaveBeenCalled();
+  } finally { walks.mockRestore(); }
+});
+
 function frames(controller: AdaptiveResolution, time: number, count: number, interval: number) {
   for (let i = 0; i < count; i++) controller.update(time += interval);
   return time;
