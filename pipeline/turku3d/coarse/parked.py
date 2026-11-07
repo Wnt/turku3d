@@ -37,6 +37,7 @@ from turku3d.parked.placement import (
 )
 
 SEED = 16
+BGT_BAY_MARGIN = 0.12  # m a car may reach over a surveyed (BGT) bay outline
 TRUCK_SIZE = (2.5, 2.5, 5.6)  # Includes trophy tyres, bumpers and roof lights.
 # Turku market square: slots within CENTRE_RADIUS of it belong to the centre.
 CENTRE_EN = (23459652.0, 6704624.0)
@@ -374,8 +375,9 @@ def place(
             if not bounds.covers(shape):
                 return "bounds"
             # Strip bays stand at the kerb and may overhang the outline on the street side; a surveyed
-            # BGT bay is the bay itself (an Amsterdam canal street is a 3 m carriageway beside it).
-            margin = -0.2 if kind == "lot" else 0.0 if source.startswith("bgt:") else 0.5 if street is not None else 0.15
+            # BGT bay is the bay itself (an Amsterdam canal street is a 3 m carriageway beside it): its
+            # 1.8-2.05 m strips take a car with its mirrors at most BGT_BAY_MARGIN over the line.
+            margin = -0.2 if kind == "lot" else BGT_BAY_MARGIN if source.startswith("bgt:") else 0.5 if street is not None else 0.15
             if area is not None and not area.buffer(margin).covers(shape):
                 return "bay"
             if excluded.intersects(shape) or blocked_by_street(shape, kind, street, area):

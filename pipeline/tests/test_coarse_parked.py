@@ -167,7 +167,7 @@ def test_a_dutch_bgt_parking_bay_needs_no_sign_and_keeps_its_cars_inside():
     its outline (Amsterdam canal streets are a 3 m carriageway beside the bay row)."""
     street = shapely.LineString([(760, 100), (990, 100)])
     carriage = street.buffer(2.5, cap_style="flat")
-    bay = shapely.box(770, 102.5, 960, 104.6)  # a 2.1 m strip along the south kerb
+    bay = shapely.box(770, 102.6, 960, 104.4)  # a 1.8 m strip along the south kerb (Rotterdam's are 1.8-2.05 m)
     features = [Feature("osm:way:1", street, {"highway": "residential", "name": "A"})]
     city = [
         Feature("city:1", carriage, {"Katuosalaji_koodi": "1", "bgt_functie": "rijbaan lokale weg"}),
@@ -179,4 +179,4 @@ def test_a_dutch_bgt_parking_bay_needs_no_sign_and_keeps_its_cars_inside():
     cars = parked.place(TILE, (features, city), np.zeros((129, 129)))
     assert len(cars) > 5
     for car in cars:
-        assert bay.covers(footprint(car["x"], car["z"], car["yaw"], car["width"], car["length"]))
+        assert bay.buffer(parked.BGT_BAY_MARGIN + 1e-6).covers(footprint(car["x"], car["z"], car["yaw"], car["width"], car["length"]))
