@@ -442,6 +442,44 @@ def unmodelled(tags, xz, shells, bounds=None):
     return float(np.mean(~inside)) > 0.5
 
 
+def dead_ends(groups):
+    """Indices of tunnel ways that lead only into unbuilt ones: an end with no surface road at it (no approach) that
+    touches only unbuilt tunnel ways (indoor, garage or deep, see `below_grade`) makes the way a spur into nothing,
+    such as a ramp down to an unbuilt garage or service tunnel (Tapionaukio's garage ramp, the service tunnel ramp
+    at Tapiolanympyrä); its tube would stand at grade with a closed end, so it and every chain behind it are
+    unbuilt too. Passages and covered ways are never spurs."""
+    def candidate(tags):
+        return tags.get("tunnel") not in ("building_passage", "covered") and tags.get("covered") != "yes"
+
+    unbuilt = {i for i, (_, _, tags) in enumerate(groups) if indoor(tags) or below_grade(tags)}
+    seeds = set(unbuilt)
+    if not unbuilt:
+        return set()
+    lines = [line for _, line, _ in groups]
+    tree = shapely.STRtree(lines)
+    ends = []
+    for _, line, tags in groups:
+        coords = shapely.get_coordinates(line)
+        approaches = tags.get("_approaches") or [None, None]
+        ends.append([(shapely.Point(coords[0]), approaches[0] is not None),
+                     (shapely.Point(coords[-1]), approaches[-1] is not None)])
+    changed = True
+    while changed:
+        changed = False
+        for i, (_, _, tags) in enumerate(groups):
+            if i in unbuilt or not candidate(tags):
+                continue
+            for point, surface in ends[i]:
+                if surface:
+                    continue
+                near = [int(j) for j in tree.query(point, predicate="dwithin", distance=1.0) if int(j) != i]
+                if near and all(j in unbuilt for j in near):
+                    unbuilt.add(i)
+                    changed = True
+                    break
+    return unbuilt - seeds
+
+
 PASSAGE_STRIP = 2.0  # m across a passage per floor strip: the ground grid's own spacing
 
 
@@ -522,8 +560,13 @@ def produce(
     bounds = tile.bbox.as_tuple()
     clip_low, clip_high = np.array(bounds[:2]), np.array(bounds[2:])
     tree = None
-    for key, line, tags in merge_parallel(ways):
+    groups = merge_parallel(ways)
+    spurs = dead_ends(groups)
+    for index, (key, line, tags) in enumerate(groups):
         passage = tags.get("tunnel") == "building_passage"
+        if index in spurs:
+            unbuilt.append(line.buffer(dimensions(tags)[0] / 2, cap_style="flat", join_style="mitre"))
+            continue
         width, clearance = dimensions(tags)
         corridor = line.buffer(width / 2, cap_style="flat", join_style="mitre")
         if (

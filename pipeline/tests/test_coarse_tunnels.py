@@ -566,3 +566,25 @@ def test_a_wide_passage_never_carves_the_crown_of_its_road():
         centre = tri.mean(axis=0)
         assert centre[1] >= crowned(centre[0], centre[2]) - 1e-9  # the plane is never below the ground
         assert centre[1] - crowned(centre[0], centre[2]) < 0.05  # and stays on it
+
+
+def test_a_ramp_into_an_unbuilt_garage_is_a_spur_and_not_built():
+    """Tapionaukio: the garage ramp off the street led into unbuilt layer -1 parking aisles; its tube closed the
+    street corner with a 5 m wall."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [250, 2, 0], [0, 2, 250]], float)
+    idx = np.array([[0, 2, 1]], np.uint32)
+    street = shapely.LineString([(0, 40), (20, 40)])
+    hill = lambda x, z: 2 + 5 * max(0.0, min(1.0, (x - 25) / 5))  # noqa: E731  overburden: the ramp has depth
+    ramp = ("ramp", shapely.LineString([(20, 40), (40, 40)]),
+            {"highway": "service", "tunnel": "yes", "layer": "-1", "_approaches": [street, None]})
+    alone = produce(tile, [ramp], pos, idx, [], extrude, hill)
+    assert len(alone.profiles) == 1 and not alone.unbuilt  # a measured tunnel on its own is built
+    aisle = ("aisle", shapely.LineString([(40, 40), (40, 120)]),
+             {"highway": "service", "tunnel": "yes", "layer": "-1", "service": "parking_aisle"})
+    result = produce(tile, [ramp, aisle], pos, idx, [], extrude, hill)
+    assert not result.profiles and len(result.unbuilt) == 2
+    # The same ramp into a tunnel that is built keeps its tube.
+    through = ("through", shapely.LineString([(40, 40), (40, 120)]), {"highway": "service", "tunnel": "yes"})
+    kept = produce(tile, [ramp, through], pos, idx, [], extrude, hill)
+    assert len(kept.profiles) == 2 and not kept.unbuilt
