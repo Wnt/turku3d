@@ -73,10 +73,14 @@ const OFF_PATH_M = 9;
 const TURN_START_COS = 0.3, TURN_DONE_COS = 0.6;
 /** Pursuit with the aim this far off the heading (cosine) drives no faster than SIDE_AIM_SPEED (m/s). */
 const SIDE_AIM_COS = 0.5, SIDE_AIM_SPEED = 3;
-/** Forward legs of a turn before it gives up (a stuck recovery), and turns per follower. */
-const TURN_ROUNDS = 4, TURN_TRIES = 2;
-/** A failed turn's spot: no new turn before the car is this far (m) from it. */
-const TURN_RETRY_M = 5;
+/** Forward legs of a turn before it gives up (the trip ends stuck), and turns per path. */
+const TURN_ROUNDS = 4, TURN_TRIES = 6;
+/** A hairpin in the path: its heading turns by more than HAIRPIN_COS (cosine) within HAIRPIN_M metres, tighter than
+ *  any car turns (a lane graph's U-turn at a dead end, 1.7 m radius between two lanes). The car stops before it and
+ *  turns in the street. */
+const HAIRPIN_M = 8, HAIRPIN_COS = -0.5;
+/** A hairpin turn aims far along the way out, so it ends only once the car faces that well (cosine). */
+const HAIRPIN_DONE_COS = 0.85;
 /** Speed (m/s) in a turn's legs, and a leg's longest travel (m) and time (s). */
 const TURN_SPEED = 1.2, TURN_LEG_S = 6;
 export const TURN_LEG_M = 4.5;
@@ -101,8 +105,11 @@ export class DriveFollower {
    *  path, back with the other, at walking pace, each leg only as far as the carriageway allows, until the car faces
    *  the path. Not a stuck recovery unless it gives up. */
   private turn: { side: number; dir: 1 | -1; rounds: number; room: number; from: { x: number; z: number };
-    time: number; still: number; blocked: number } | null = null;
-  private turnFailedAt: { x: number; z: number } | null = null;
+    time: number; still: number; blocked: number; aimS: number | null } | null = null;
+  /** Why the follower gave the trip up (a turn in the street with no room), else null: the caller ends the trip. */
+  gaveUp: string | null = null;
+  private hairpins: number[] | null = null;
+  private hairpinsDone = new Set<number>();
   /** Turns in the street started so far (tests, the drive harness). */
   turns = 0;
   recoveries = 0;
@@ -111,7 +118,26 @@ export class DriveFollower {
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
 
   /** Swap in a re-planned path; progress restarts from the nearest point. */
-  setPath(path: Path) { this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; this.pendingTurnLeg = null; }
+  setPath(path: Path) {
+    this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; this.pendingTurnLeg = null;
+    this.hairpins = null; this.hairpinsDone.clear();
+  }
+
+  /** Arc lengths where the path starts a hairpin (HAIRPIN_M, HAIRPIN_COS), sampled every metre. */
+  private hairpinsOf(): number[] {
+    if (this.hairpins) return this.hairpins;
+    const path = this.path, out: number[] = [], a: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 }, b = { ...a };
+    for (let s = 0; s + 1 < path.length; s += 1) {
+      sampleAt(path, s, a); sampleAt(path, Math.min(path.length, s + HAIRPIN_M), b);
+      if (a.hx * b.hx + a.hz * b.hz < HAIRPIN_COS) { out.push(s); s += HAIRPIN_M + 2; }
+    }
+    return this.hairpins = out;
+  }
+
+  /** The next hairpin not yet turned at, at or ahead of `s` (a little behind counts: the car may stop past it). */
+  private nextHairpin(s: number) {
+    return this.hairpinsOf().find(h => h >= s - 3 && !this.hairpinsDone.has(h)) ?? null;
+  }
 
   private locate(pose: VehiclePose | null) {
     if (!pose) return { s: 0, distance: 0, x: 0, z: 0, lateral: 0 };
@@ -134,6 +160,9 @@ export class DriveFollower {
       const remain = Math.max(0, path.length - s - 1.5);
       target = Math.min(target, Math.sqrt(2 * style.brake * 0.8 * remain));
     }
+    // Stop before a hairpin: the turn in the street takes it at a standstill.
+    const hairpin = this.nextHairpin(s);
+    if (hairpin !== null) target = Math.min(target, Math.sqrt(2 * style.brake * 0.8 * Math.max(0, hairpin - s - 0.5)));
     return Math.max(0, target);
   }
 
@@ -152,10 +181,18 @@ export class DriveFollower {
     else t.room = TURN_LEG_M;
   }
 
-  private failTurn(pose: VehiclePose) {
+  /** A turn in the street that got nowhere ends the trip: pursuit at full lock from there is what took cars over
+   *  quay edges. */
+  private startTurn(side: number, aimS: number | null, pose: VehiclePose) {
+    this.turn = { side, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0, aimS };
+    this.turns++;
+    this.turnLeg(1, pose);
+  }
+
+  private failTurn() {
     this.turn = null; this.pendingTurnLeg = null;
-    this.turnFailedAt = { x: pose.x, z: pose.z };
     this.recoveries++;
+    this.gaveUp = 'stuck: no room to turn';
   }
 
   reverse(steer: number) {
@@ -209,23 +246,38 @@ export class DriveFollower {
 
     // Turn in the street: the aim point behind the car at a standstill.
     const cosAim = (ax * pose.hx + az * pose.hz) / ld;
-    if (this.turn && cosAim > TURN_DONE_COS) { this.turn = null; this.pendingTurnLeg = null; }
-    if (this.turnFailedAt && Math.hypot(pose.x - this.turnFailedAt.x, pose.z - this.turnFailedAt.z) > TURN_RETRY_M) this.turnFailedAt = null;
-    if (!this.turn && !this.turnFailedAt && this.turns < TURN_TRIES && cosAim < TURN_START_COS && speed < 1.5) {
-      this.turn = { side: Math.sign(sinAlpha) || 1, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0 };
-      this.turns++;
-      this.turnLeg(1, pose);
+    // A hairpin turn aims past the hairpin, on the way out of it (pursuit's aim may still lie before it).
+    const aimAt = (aimS: number) => {
+      const p = sampleAt(path, Math.min(path.length, aimS));
+      const dx = p.x - rx, dz = p.z - rz, l = Math.hypot(dx, dz) || 1;
+      return { cos: (dx * pose.hx + dz * pose.hz) / l, sin: (dx * -pose.hz + dz * pose.hx) / l };
+    };
+    if (this.turn) {
+      const hairpinTurn = this.turn.aimS !== null;
+      if (hairpinTurn ? aimAt(this.turn.aimS!).cos > HAIRPIN_DONE_COS : cosAim > TURN_DONE_COS) {
+        if (this.turn.aimS !== null) this.s = Math.max(this.s, this.turn.aimS - HAIRPIN_M - 4);
+        this.turn = null; this.pendingTurnLeg = null;
+      }
     }
+    // At a hairpin the car has stopped for: turn unless it already faces the way out.
+    const hairpin = this.nextHairpin(this.s);
+    if (hairpin !== null && hairpin - this.s < 2.5 && speed < 1.5) {
+      this.hairpinsDone.add(hairpin);
+      // Well along the way out: from where the car stops, a point just past the hairpin can still lie ahead.
+      const aimS = hairpin + 2 * HAIRPIN_M + 4, out = aimAt(aimS);
+      if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && out.cos < HAIRPIN_DONE_COS) this.startTurn(Math.sign(out.sin) || 1, aimS, pose);
+    }
+    if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && speed < 1.5 && cosAim < TURN_START_COS) this.startTurn(Math.sign(sinAlpha) || 1, null, pose);
     if (this.turn) {
       const t = this.turn, recovering = { s: this.s, lateral: at.lateral, status: 'recovering' as const };
-      if (at.distance > TURN_AWAY_M) { this.failTurn(pose); return { command: hold, target: 0, ...recovering }; }
+      if (at.distance > TURN_AWAY_M) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
       if (this.pendingTurnLeg) return { command: hold, target: 0, ...recovering };
       t.time += dt; t.still = speed < 0.2 ? t.still + dt : 0;
       const moved = Math.hypot(pose.x - t.from.x, pose.z - t.from.z);
       if (moved >= t.room || t.time > TURN_LEG_S || (t.time > 1 && t.still > TURN_STALL_S)) {
         t.blocked = moved < 0.3 ? t.blocked + 1 : 0;
         if (t.dir > 0) t.rounds++;
-        if (t.blocked >= 2 || t.rounds >= TURN_ROUNDS) { this.failTurn(pose); return { command: hold, target: 0, ...recovering }; }
+        if (t.blocked >= 2 || t.rounds >= TURN_ROUNDS) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
         this.turnLeg(t.dir > 0 ? -1 : 1, pose);
         return { command: hold, target: 0, ...recovering };
       }
