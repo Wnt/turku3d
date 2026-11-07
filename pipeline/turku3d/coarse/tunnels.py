@@ -402,17 +402,24 @@ def _number(value):
         return None
 
 
+def indoor(tags):
+    """OSM indoor mapping (``indoor=*``, or a ``level`` above the ground floor): a corridor inside a building, not a
+    way through the ground. Its floor is no ground height, so a tube or passage cut for it would open the building
+    and the street beside it (Tapiola: mall corridors along Merituulentie cut holes in its carriageway)."""
+    if tags.get("indoor") not in (None, "", "no"):
+        return True
+    levels = [v for v in (_number(x) for x in str(tags.get("level", "")).split(";")) if v is not None]
+    return bool(levels) and max(levels) >= 1
+
+
 def unmodelled(tags, xz, shells, bounds=None):
-    """A way without measured depth that the coarse world cannot show: an indoor way on an upper floor
-    (``level`` >= 1), or a way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings.
-    Ways at grade under a building (hospital roads) keep their tube and building opening, and covered ways
-    (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck) stay as they are. Only the
-    stations within 10 m of the tile (`bounds`) count, where the tile's shells cover every building."""
+    """A way OSM puts below ground (``layer`` <= -1) whose line runs mostly outside buildings: with no measured
+    depth the coarse world cannot show it. Ways at grade under a building (hospital roads) keep their tube and
+    building opening, and covered ways (``tunnel=covered``, ``covered=yes``: a road at grade under a canopy or deck)
+    stay as they are. Only the stations within 10 m of the tile (`bounds`) count, where the tile's shells cover
+    every building."""
     if tags.get("tunnel") == "covered" or tags.get("covered") == "yes":
         return False
-    levels = [v for v in (_number(x) for x in str(tags.get("level", "")).split(";")) if v is not None]
-    if levels and max(levels) >= 1:
-        return True
     layer = _number(tags.get("layer"))
     if layer is None or layer > -1:
         return False
@@ -535,19 +542,22 @@ def produce(
             # Keep the measured floor unless a bank is too low for the stated clearance.
             cover = np.min([[deck_sample(*q) for q in side] for side in (left, xz, right)], axis=0)
             floor = np.minimum(floor, cover - clearance - 0.3)
-        if (
-            not passage
-            and not road_top
-            and not vaulted
-            and not repaired.any()
-            and float(np.max(terrain - floor)) < clearance / 2
-            and unmodelled(tags, xz, shells, bounds)
+        if not road_top and not vaulted and (
+            indoor(tags)
+            or (
+                not passage
+                and not repaired.any()
+                and float(np.max(terrain - floor)) < clearance / 2
+                and unmodelled(tags, xz, shells, bounds)
+            )
         ):
-            # No measured depth under open ground: OSM maps the way below the surface (a garage aisle or service
-            # tunnel at layer -1/-2, a metro under level ground) or indoors on an upper floor, but the ground model
-            # has neither a dip at its ends nor overburden above its portal chord. A tube here would stand on the
-            # street as a clearance-high concrete box (Tapiola centre). The coarse world has no underground or
-            # indoor levels: the way is not built, and its edges leave the published graph (Tunnels.roads).
+            # Indoor corridors, and underground ways with no measured depth under open ground: OSM maps the way
+            # inside a building or below the surface (a garage aisle or service tunnel at layer -1/-2, a metro under
+            # level ground), but the ground model has neither a dip at its ends nor overburden above its portal
+            # chord. A tube here would stand on the street as a clearance-high concrete box, and an indoor corridor's
+            # tube or passage would cut holes through the building and the carriageway beside it (Tapiola centre).
+            # The coarse world has no underground or indoor levels: the way is not built, and its edges leave the
+            # published graph (Tunnels.roads).
             unbuilt.append(corridor)
             continue
         if passage:

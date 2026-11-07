@@ -488,6 +488,12 @@ def test_underground_way_without_measured_depth_under_open_ground_is_not_built()
     hill = produce(tile, [("hill", line, {"highway": "service", "tunnel": "yes", "layer": "-1"})], pos, idx, [],
                    extrude, lambda x, z: 2 + max(0.0, 6 - abs(x - 70) / 5))
     assert len(hill.profiles) == 1 and not hill.unbuilt
+    # Indoor corridors are never built, whatever the ground model shows under them, passages included.
+    for tags in ({"highway": "footway", "tunnel": "yes", "indoor": "yes", "layer": "-1", "level": "0"},
+                 {"highway": "footway", "tunnel": "yes", "level": "1"},
+                 {"highway": "footway", "tunnel": "building_passage", "indoor": "yes"}):
+        inside = produce(tile, [("mall", line, tags)], pos, idx, [], extrude, lambda x, z: 2 + max(0.0, 6 - abs(x - 70) / 5))
+        assert not inside.profiles and not inside.meshes and len(inside.unbuilt) == 1
     plain = produce(tile, [("plain", line, {"highway": "service", "tunnel": "yes"})], pos, idx, [], extrude,
                     lambda x, z: 2)
     assert len(plain.profiles) == 1 and not plain.unbuilt
