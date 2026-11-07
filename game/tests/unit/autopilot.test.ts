@@ -74,6 +74,10 @@ describe('lane router', () => {
     // North along its own one-way lane first (x ~100), round the block: not 25 m west and straight south.
     expect(Math.abs(route.path.points[0] - 100)).toBeLessThan(6);
     expect(route.path.length).toBeGreaterThan(180);
+    // A target beside the west street, 22 m from the car's own lane: round the block to it, not a stop 22 m short.
+    const near = one.route({ x: 100, z: 150, hx: 0, hz: -1 }, { x: 78, z: 140 })!;
+    expect(Math.hypot(near.path.points.at(-2)! - 78, near.path.points.at(-1)! - 140)).toBeLessThan(6);
+    expect(near.path.length).toBeGreaterThan(90);
   });
 
   test('routes over the junction movements from the right-hand lane and keeps to the lanes', () => {
