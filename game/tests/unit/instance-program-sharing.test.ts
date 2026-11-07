@@ -150,3 +150,27 @@ test('moving instances (fleet) share one velocity program; each mesh binds and k
   const shadow = cars.map(({ mesh: value }) => { const d = draw(value); (d as unknown as { material: THREE.Material }).material = material; return nodes.getForRender(d); });
   expect(new Set(shadow).size).toBe(1); expect(shadow[0]).not.toBe(states[0]);
 });
+
+test('a packed per-instance buffer role (damaged batches) binds each mesh\'s own pack at the owner\'s fields', () => {
+  const { nodes, draw } = fixture(), create = vi.spyOn(nodes, '_createNodeBuilder');
+  const packs = new WeakMap<THREE.Object3D, THREE.InstancedInterleavedBuffer>();
+  const material = new THREE.MeshStandardNodeMaterial();
+  material.colorNode = THREE.TSL.Fn((builder: { object: THREE.Object3D }) => THREE.TSL.instancedBufferAttribute(packs.get(builder.object)!, 'vec3', 8, 0))() as unknown as THREE.Node<'vec3'>;
+  material.roughnessNode = THREE.TSL.Fn((builder: { object: THREE.Object3D }) => THREE.TSL.instancedBufferAttribute(packs.get(builder.object)!, 'float', 8, 3))() as unknown as THREE.Node<'float'>;
+  const geometry = new THREE.BoxGeometry();
+  const wreck = (count: number) => {
+    const mesh = new THREE.InstancedMesh(geometry, material, count), pack = new THREE.InstancedInterleavedBuffer(new Float32Array(count * 8), 8);
+    packs.set(mesh, pack); shareInstanceProgram(mesh, false, { moving: true, attributes: { pack } });
+    return { mesh, pack };
+  };
+  const wrecks = [wreck(8), wreck(32)];
+  const draws = wrecks.map(({ mesh }) => { const d = draw(mesh); (d as unknown as { material: THREE.Material }).material = material; return d; });
+  const states = draws.map(d => nodes.getForRender(d));
+  expect(new Set(states).size).toBe(1); expect(create).toHaveBeenCalledOnce();
+  for (let i = 0; i < wrecks.length; i++) {
+    const views = draws[i].getAttributes().filter(a => (a as THREE.InterleavedBufferAttribute).isInterleavedBufferAttribute
+      && (a as THREE.InterleavedBufferAttribute).data.stride === 8) as THREE.InterleavedBufferAttribute[];
+    expect(views.map(v => [v.offset, v.itemSize]).sort()).toEqual([[0, 3], [3, 1]]);
+    expect(views.every(v => v.data === wrecks[i].pack)).toBe(true);
+  }
+});

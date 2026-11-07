@@ -1,3 +1,4 @@
+import { shareInstanceProgram } from '../../render/instancePrograms';
 import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -176,6 +177,10 @@ export function damageBatch(mesh: THREE.InstancedMesh, layout: DamageLayout, gla
   shareLampBuffer(mesh, new THREE.InterleavedBufferAttribute(pack, 4, 4));
   batches.set(mesh, { slots, layout });
   if (glass) batches.set(glass, { slots, layout });
+  // One program per material, layout and pass for every model's damaged batch: each draw binds its own pack
+  // (render/instancePrograms.ts roles; paint, slot and lamps are fields of it).
+  shareInstanceProgram(mesh, false, { moving: true, attributes: { pack } });
+  if (glass) shareInstanceProgram(glass, false, { moving: true, attributes: { pack } });
   return slots;
 }
 const layoutOf = (object: THREE.Object3D | null | undefined) => object ? rigs.get(object)?.layout ?? batches.get(object)?.layout : undefined;

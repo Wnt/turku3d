@@ -33,14 +33,16 @@ export function instancePrograms(builder: NodeBuilder, object: THREE.Object3D) {
 const SHARED = 'sharedInstanceProgram', STATIC = 'staticInstances', MOVING = 'movingInstances';
 /** Per-instance attributes a shared mesh's material binds by role while its graph is built (fleet paint and lamp
  *  states): the shared program reads the build owner's, and each draw binds its own mesh's attribute of that role. */
-const roles = new WeakMap<THREE.Object3D, Readonly<Record<string, THREE.InstancedBufferAttribute>>>();
+type Role = THREE.InstancedBufferAttribute | THREE.InterleavedBuffer;
+const roles = new WeakMap<THREE.Object3D, Readonly<Record<string, Role>>>();
 export interface ShareOptions {
   /** Instances move (traffic and parked cars): velocity passes share too, each mesh with its own previous-frame
    *  instance matrices (`previousColumns`), updated after its own draw as r186 does for the build owner. */
   moving?: boolean;
-  /** Per-instance attributes the material reads from builder.object, by role; every mesh sharing the program has
-   *  the same roles (they are part of the program key). */
-  attributes?: Readonly<Record<string, THREE.InstancedBufferAttribute>>;
+  /** Per-instance attributes the material reads from builder.object, by role: an attribute, or an instanced
+   *  interleaved buffer whose fields the material reads (damaged batches pack paint, slot and lamps into one); every
+   *  mesh sharing the program has the same roles (they are part of the program key). */
+  attributes?: Readonly<Record<string, Role>>;
 }
 /** Opt in for an InstancedMesh whose materials read no object-specific data while their graph is built
  * (no builder.object lookups other than `options.attributes`). Its built program is then shared by every such mesh
@@ -77,7 +79,10 @@ export function sharedInstanceKey(draw: InstanceDraw) {
   let key: string;
   try { key = `${draw.getMaterialCacheKey()},${draw.getDynamicCacheKey()}`; }
   finally { instance.isInstancedMesh = true; mesh.count = count; }
-  const own = roles.get(mesh), layout = own ? Object.keys(own).sort().map(name => `${name}/${own[name].itemSize}/${own[name].usage}`).join(';') : '';
+  const own = roles.get(mesh), layout = own ? Object.keys(own).sort().map(name => {
+    const role = own[name];
+    return `${name}/${(role as THREE.InterleavedBuffer).isInterleavedBuffer ? `i${(role as THREE.InterleavedBuffer).stride}` : (role as THREE.BufferAttribute).itemSize}/${role.usage}`;
+  }).join(';') : '';
   return THREE.NodeUtils.hashString(`instance-program:${key}:${mesh.instanceMatrix.usage}:${mesh.instanceColor?.usage ?? 'none'}`
     + `:${movingVelocity(draw) ? 'moving' : ''}:${layout}`);
 }
@@ -137,6 +142,22 @@ export function keepPreviousInstances(mesh: Mesh) {
   own.buffer.version = mesh.instanceMatrix.version;
 }
 
+/** This mesh's view of a packed role buffer at the owner's field (offset and size): one per buffer and field. */
+const fields = new WeakMap<THREE.InterleavedBuffer, Map<string, THREE.InterleavedBufferAttribute>>();
+function field(buffer: THREE.InterleavedBuffer, like: THREE.InterleavedBufferAttribute) {
+  let views = fields.get(buffer);
+  if (!views) { views = new Map(); fields.set(buffer, views); }
+  const key = `${like.offset}/${like.itemSize}/${like.normalized}`;
+  let view = views.get(key);
+  if (!view) {
+    view = new THREE.InterleavedBufferAttribute(buffer, like.itemSize, like.offset, like.normalized);
+    // r186's BufferAttributeNode marks the views it creates as instanced (the instance step of the vertex layout).
+    (view as unknown as { isInstancedBufferAttribute?: boolean }).isInstancedBufferAttribute = (like as unknown as { isInstancedBufferAttribute?: boolean }).isInstancedBufferAttribute;
+    views.set(key, view);
+  }
+  return view;
+}
+
 /** Replace the build owner's instance vertex buffers by this draw's own buffers over the same arrays. */
 export function remapInstanceAttributes(attributes: Attribute[], owner: Mesh, mesh: Mesh) {
   const geometry = new Set(Object.values(mesh.geometry.attributes));
@@ -153,7 +174,12 @@ export function remapInstanceAttributes(attributes: Attribute[], owner: Mesh, me
       return previousColumns(mesh, interleaved.data.usage).columns[interleaved.offset / 4];
     if (owner.instanceColor && mesh.instanceColor && (attribute as THREE.BufferAttribute).array === owner.instanceColor.array)
       return colorAttribute(mesh.instanceColor);
-    if (ownerRoles && meshRoles) for (const name in ownerRoles) if (ownerRoles[name] === attribute && meshRoles[name]) return meshRoles[name];
+    if (ownerRoles && meshRoles) for (const name in ownerRoles) {
+      const role = ownerRoles[name], own = meshRoles[name];
+      if (!own) continue;
+      if (role === attribute) return own as THREE.InstancedBufferAttribute;
+      if (interleaved.isInterleavedBufferAttribute && interleaved.data === role) return field(own as THREE.InterleavedBuffer, interleaved);
+    }
     return attribute;
   });
 }
