@@ -254,6 +254,21 @@ def merge_parallel(ways):
     return out
 
 
+def passage_mouths(line, width):
+    """The clear corridor of a building passage carried on past both ends of its way by half its width. A way ends at
+    the node where the mapper put the facade; a surveyed outline (3DBAG) whose facade is oblique to the passage or a
+    metre further out kept a wall across half of each mouth (Rotterdam's Pannekoekstraat: the right-hand lane of the
+    passage ran into the building at both ends). Only buildings the passage itself runs through are cut by it."""
+    coords = np.asarray(shapely.get_coordinates(line))
+    ends = []
+    for end, inner in ((coords[0], coords[1]), (coords[-1], coords[-2])):
+        step = end - inner
+        length = np.linalg.norm(step)
+        ends.append(end + step / length * width / 2 if length > 1e-9 else end)
+    extended = shapely.LineString([ends[0], *coords[1:-1], ends[1]])
+    return extended.buffer(width / 2, cap_style="flat", join_style="mitre")
+
+
 def floor_profile(heights, distance):
     """Follow a lidar dip; interpolate buried portions between measured portal heights.
 
@@ -673,7 +688,7 @@ def produce(
                 if surface_sample is not None
                 else np.array([floor, floor])
             )
-            passages.append((corridor, float(np.max(side_floors) + clearance + 0.35)))
+            passages.append((corridor, float(np.max(side_floors) + clearance + 0.35), passage_mouths(line, width)))
             # Exposed ground under a building keeps its original relief. Replacing
             # it with a one-dimensional slab opens gaps across sloping entrances.
             if corridor.intersects(window):
@@ -1021,15 +1036,17 @@ def produce(
         _polygon_faces(remainder, poly, lambda q, coeff=coeff: np.c_[q, np.ones(len(q))] @ coeff)
     if remainder.indices:
         meshes.append(remainder.mesh("tunnel:ground-edge", "paving_slab"))
-    for corridor, ceiling in passages:
+    for corridor, ceiling, *mouths in passages:
         updated = []
         for b, shell in shells:
             if not b.footprint.intersects(corridor):
                 updated.append((b, shell))
                 continue
+            # A building the passage runs through opens across its whole mouth (passage_mouths).
+            cut = mouths[0] if mouths else corridor
             for footprint, base in (
-                (b.footprint.difference(corridor), b.base),
-                (b.footprint.intersection(corridor), max(b.base, ceiling)),
+                (b.footprint.difference(cut), b.base),
+                (b.footprint.intersection(cut), max(b.base, ceiling)),
             ):
                 for poly in shapely.get_parts(footprint):
                     if poly.geom_type == "Polygon" and poly.area > 0.01 and base < b.top:

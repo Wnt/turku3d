@@ -195,6 +195,23 @@ def test_building_passage_keeps_upper_shell_and_road_floor_metadata():
     assert len(encoded["edges"][0]) // 2 == len(encoded["edgeHeights"][0])
 
 
+def test_building_passage_opens_its_whole_mouth_at_an_oblique_facade():
+    """Rotterdam's Pannekoekstraat: the way ends at the mapped facade node, the surveyed outline's facade is oblique
+    and a little further out, and a flat-capped cut left a wall across half of the mouth."""
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [40, 2, 0], [0, 2, 40], [40, 2, 40]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    building = Building("b", shapely.Polygon([(5, 5), (15, 5), (17, 15), (5, 15)]), 2, 14, "facade_plaster")
+    line = shapely.LineString([(0, 10), (16, 10)])  # ends where the facade crosses the axis
+    tags = {"highway": "service", "width": "4", "tunnel": "building_passage"}
+    result = produce(tile, [("p", line, tags)], pos, idx, [(building, extrude(building))], extrude, lambda x, z: 2.0)
+    for point in ((16.2, 11.5), (15.6, 8.6), (10, 10)):  # both halves of the mouth and the middle
+        part = next(b for b, _ in result.shells if b.footprint.buffer(1e-6).contains(shapely.Point(point)))
+        assert part.base >= 6.5, point
+    # The rest of the building keeps its ground floor.
+    assert any(b.base == 2 and b.footprint.contains(shapely.Point(10, 6)) for b, _ in result.shells)
+
+
 def test_passage_parts_keep_collision_when_their_centroid_moves_outside_visual_tile(monkeypatch):
     from turku3d.coarse import build
 
