@@ -38,7 +38,8 @@ export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 
   return { x: car.pos.x + axis.x, y: car.pos.y + 0.2, z: car.pos.z + axis.z };
 }
 
-type Pose = V3 & { yaw: number };
+/** `fresh`: a fresh start (a join without a pose to restore): the player takes its start pair (startPair). */
+type Pose = V3 & { yaw: number; fresh?: boolean };
 
 /** The kerb 5.5 m behind a parked car (`yaw` turns the chassis +X axis): where a second vehicle waits beside it. */
 export function kerbBehind(car: Pose): Pose {
@@ -71,6 +72,9 @@ interface SaveGameOptions {
   /** Another spot for the start car when a car already stands on `car` (a room's shared car, another player's start
    *  car); null keeps it. */
   freeStart?: (car: Pose) => Promise<Pose | null>;
+  /** A fresh start's pair for this player (its room slot's own car and the spot beside it, facing open street), or
+   *  null for the start itself (`spawn`, `car`). */
+  startPair?: () => Promise<{ spawn: Pose; car: Pose } | null>;
   setPaused: (paused: boolean) => void;
   /** Opening story shown after a new solo game is placed. */
   showIntro: () => Promise<void>;
@@ -262,7 +266,11 @@ export class SaveGameController {
     const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
-    const moved = saved && !bought ? null : await this.o.freeStart?.(this.o.car) ?? null;
+    // A new game or a fresh join starts on this player's start pair; another placement keeps its pose and only moves
+    // the start car off a car standing on it.
+    const fresh = !game?.player && (!override || override.fresh === true);
+    const pair = fresh && this.o.startPair ? await this.o.startPair() : null;
+    const moved = pair?.car ?? (saved && !bought ? null : await this.o.freeStart?.(this.o.car) ?? null);
     const car = saved && !bought ? saved : moved ?? this.o.car;
     const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : moved || prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
@@ -276,9 +284,9 @@ export class SaveGameController {
       const y = prepared?.boughtY ?? await this.snap(at);
       physics.spawnVehicle({ x: at.x, y: y + SPAWN_HEIGHT[bought], z: at.z }, at.yaw, { id: ownedVehicleId(bought)!, kind: bought });
     }
-    const at = override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
-    const y = prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
-    const yaw = override && this.o.face ? await this.o.face({ x: at.x, y, z: at.z }, at.yaw) : at.yaw;
+    const at = pair?.spawn ?? override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
+    const y = pair ? at.y : prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
+    const yaw = !pair && override && this.o.face ? await this.o.face({ x: at.x, y, z: at.z }, at.yaw) : at.yaw;
     await this.putCharacter({ x: at.x, y, z: at.z }, yaw);
     this.restoreLastVehicle(game?.lastVehicle);
     if (game?.lastVehicle) {

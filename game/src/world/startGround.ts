@@ -358,10 +358,7 @@ async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sam
     const { car } = parked;
     // Nearest first, but a spot whose chase camera would sit in the car only if no other one is free. With rays the
     // view is chosen after the spot (withView), so only the requested one without them decides here.
-    const walking = [-1, 1].flatMap(side => [3.2, 4.2, 5.2].map(distance => ({
-      x: car.x + side * distance * Math.sin(car.yaw), z: car.z + side * distance * Math.cos(car.yaw), yaw: car.yaw,
-    }))).sort((a, b) => Number(!ray && cameraInCar(a, car, view)) - Number(!ray && cameraInCar(b, car, view))
-      || Math.hypot(a.x - desired.x, a.z - desired.z) - Math.hypot(b.x - desired.x, b.z - desired.z));
+    const walking = besideCar(car, desired).sort((a, b) => Number(!ray && cameraInCar(a, car, view)) - Number(!ray && cameraInCar(b, car, view)));
     for (const point of walking) {
       if (!covers(point.x, point.z, 0.5) || !spotClear(obstacles, point, false)) continue;
       const spawn = await supportedSpot(point, sample, false);
@@ -377,23 +374,41 @@ async function streetStart(desired: Point, graphs: readonly RoadGraphJson[], sam
 /** Distance (m) between the start cars of different players: two parked cars never touch. */
 export const START_CAR_GAP_M = 6.5;
 
+/** Spots for the player beside `car` (3.2-5.2 m out from either side), nearest to `near` first. */
+const besideCar = (car: Spot, near: Point) => [-1, 1].flatMap(side => [3.2, 4.2, 5.2].map(distance => ({
+  x: car.x + side * distance * Math.sin(car.yaw), z: car.z + side * distance * Math.cos(car.yaw), yaw: car.yaw,
+}))).sort((a, b) => Math.hypot(a.x - near.x, a.z - near.z) - Math.hypot(b.x - near.x, b.z - near.z));
+
 /**
- * Up to `count` start-car spots near `near`, apart from each other (START_CAR_GAP_M), in the order the start search
- * ranks them (through streets first, nearest first, open road ahead). Every player of a room computes the same start,
- * and a start car is local until it moves, so each player takes the spot of its own room slot: the cars never
- * interpenetrate when one of them is shared later.
+ * Up to `count` start pairs (the own car and the player beside it) around the start `first`, in the order the start
+ * search ranks car spots (through streets first, nearest to the first car first, open road ahead), the cars
+ * START_CAR_GAP_M apart and no player in or at another pair's car; each player faces open street (withView). Every
+ * player of a room computes the same start, and a start car stays local until it moves, so each player takes the
+ * pair of its own room slot: the cars never interpenetrate when one of them is shared later, and each player starts
+ * beside its own car.
  */
-export async function startCars(near: Point, graphs: readonly RoadGraphJson[], probe: GroundProbe,
-  covers: (x: number, z: number, radius: number) => boolean, count: number, { obstacles = [], ray }: StartOptions = {}): Promise<Spot[]> {
-  const spots: Spot[] = [], weak: Spot[] = [];
-  const apart = (p: Point) => [...spots, ...weak].every(s => Math.hypot(s.x - p.x, s.z - p.z) >= START_CAR_GAP_M);
-  for (const candidate of streetCandidates(near, graphs)) {
-    if (spots.length >= count) break;
+export async function startPairs(first: { spawn: Spot; car: Spot }, graphs: readonly RoadGraphJson[], probe: GroundProbe,
+  covers: (x: number, z: number, radius: number) => boolean, count: number, options: StartOptions = {}): Promise<{ spawn: Spot; car: Spot }[]> {
+  const { obstacles = [], ray } = options;
+  const cars: { car: Spot; weak: boolean }[] = [];
+  const apart = (p: Point) => cars.every(c => Math.hypot(c.car.x - p.x, c.car.z - p.z) >= START_CAR_GAP_M);
+  for (const candidate of streetCandidates(first.car, graphs)) {
+    if (cars.filter(c => !c.weak).length >= count) break;
     if (!covers(candidate.x, candidate.z, 3) || !apart(candidate)) continue;
     const parked = await parkOn(candidate, probe, obstacles, ray);
-    if (parked) (parked.weak ? weak : spots).push(parked.car);
+    if (parked) cars.push(parked);
   }
-  return [...spots, ...weak].slice(0, count);
+  const ranked = [...cars.filter(c => !c.weak), ...cars.filter(c => c.weak)].map(c => c.car);
+  const pairs: { spawn: Spot; car: Spot }[] = [];
+  for (const car of ranked) {
+    if (pairs.length >= count) break;
+    for (const point of besideCar(car, first.spawn)) {
+      if (!covers(point.x, point.z, 0.5) || !spotClear(obstacles, point, false) || ranked.some(c => insideCar(c, point.x, point.z, 0.6))) continue;
+      const spawn = await supportedSpot(point, probe, false);
+      if (spawn) { pairs.push(await withView({ spawn, car }, options)); break; }
+    }
+  }
+  return pairs;
 }
 
 /** Spacing (m) and reach (m) of the open-ground search; the reach matches the startup collision radius. */

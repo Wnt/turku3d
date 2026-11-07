@@ -15,7 +15,7 @@ test('new, migrated, and every selectable save preload their player and owned ve
 
 test('multiplayer uses retained local pose before assigned spawn, with no EPSG offset applied twice', () => {
   const you = { spawn: { E: 175, N: -253, yaw: 1 } };
-  expect(multiplayerStart(you)).toEqual({ x: 175, y: 0, z: 253, yaw: 1 });
+  expect(multiplayerStart(you)).toEqual({ x: 175, y: 0, z: 253, yaw: 1, fresh: true });
   const at = multiplayerStart(you, { pose: { E: 600, N: -700, H: 6, yaw: 2 } });
   expect(at).toEqual({ x: 600, y: 6, z: 700, yaw: 2 });
   expect(startPoints(spawn, car, [], at)).toEqual([spawn, car, at]);
@@ -34,10 +34,10 @@ test('coincident starts share one region and the unowned start car retains its s
   expect(startPoints(spawn, car, [saved, saved], spawn)).toEqual([spawn, car, { x: 1500, y: 4, z: 1500 }]);
 });
 
-test("another city's fresh join starts at the city's own start, not at Turku's room slot; a retained pose still wins", () => {
+test("a fresh join starts at the city's own start (marked fresh for its start pair), not at the room slot; a retained pose still wins", () => {
   const you = { spawn: { E: 175, N: -253, yaw: 1 } }, start = { x: 150, y: 11.5, z: 360, yaw: 0 };
-  expect(multiplayerStart(you, undefined, undefined, start)).toEqual(start);
-  expect(multiplayerStart(you, { pose: null }, undefined, start)).toEqual(start);
+  expect(multiplayerStart(you, undefined, undefined, start)).toEqual({ ...start, fresh: true });
+  expect(multiplayerStart(you, { pose: null }, undefined, start)).toEqual({ ...start, fresh: true });
   expect(multiplayerStart(you, { pose: { E: 160, N: -370, H: 12, yaw: 2 } }, undefined, start)).toEqual({ x: 160, y: 12, z: 370, yaw: 2 });
 });
 

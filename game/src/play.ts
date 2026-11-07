@@ -80,7 +80,7 @@ import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
-import { insideCar, openView, startCars, streetViews } from './world/startGround';
+import { insideCar, openView, startPairs, streetViews } from './world/startGround';
 import { parkedFootprints, propFootprints } from './world/propLod';
 import { browserStorage, sessionStore } from './core/storage';
 import { StreamHint } from './ui/streamHint';
@@ -393,6 +393,23 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     setTimeout(() => { if (world.travel && !storyCity) void world.travel(HOME_CITY); else location.assign(cityPageUrl(HOME_CITY, location)); }, 700);
     return false;
   };
+  /** Cars standing near a start that the own start car must not interpenetrate: the room's shared records (other
+   *  players' start cars once shared, moved world cars) and every physics car that is not this player's own. */
+  const standingCars = () => {
+    const self = multiplayer?.state.you?.id, own = new Set<string | undefined>([OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID]);
+    return [...[...multiplayer?.state.vehicles.values() ?? []].filter(v => v.creator !== self).map(v => ({ x: v.pose.E, z: -v.pose.N })),
+      ...(physics.latest?.vehicles ?? []).filter(v => !own.has(v.id)).map(v => ({ x: v.pos.x, z: v.pos.z }))];
+  };
+  /** Start pairs around `first` (world/startGround.ts startPairs), clear of `others`, props and parked slots. */
+  const pairsAround = async (first: { spawn: V3 & { yaw: number }; car: V3 & { yaw: number } }, count: number, others: { x: number; z: number }[]) => {
+    if (!coarse) return [];
+    const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
+    return startPairs(first, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+      (x, z, radius) => streamer.supports(x, z, radius), count, { ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
+        view: { dx: -Math.sin(world.spawn.yaw), dz: -Math.cos(world.spawn.yaw) },
+        obstacles: [...others.map(o => ({ minX: o.x - 2.8, maxX: o.x + 2.8, minZ: o.z - 2.8, maxZ: o.z + 2.8 })),
+          ...propFootprints(models, first.car, 90), ...parkedFootprints(manifest.vehicles, first.car, 90)] });
+  };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
@@ -411,19 +428,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
       { along: streetViews(at, coarse?.roadGraphs() ?? []), car: world.car }),
     freeStart: async car => {
-      // Every player in a room computes the same start, and a start car is only local until it moves: each player
-      // parks on the start spot of its own room slot (startCars), clear of any shared record or car already there.
-      const self = multiplayer?.state.you?.id, own = new Set<string | undefined>([OWN_VEHICLE_ID, SCOOTER_ID, TRUCK_ID]);
-      const others = [...[...multiplayer?.state.vehicles.values() ?? []].filter(v => v.creator !== self).map(v => ({ x: v.pose.E, z: -v.pose.N })),
-        ...(physics.latest?.vehicles ?? []).filter(v => !own.has(v.id)).map(v => ({ x: v.pos.x, z: v.pos.z }))];
-      const slot = multiplayerPlaying ? roomSlot(multiplayer?.state.you?.spawn) % ROOM_START_CARS : 0;
-      if (!coarse || (!slot && !others.some(o => insideCar(car, o.x, o.z, 1)))) return null;
-      const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
-      const spots = await startCars(car, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius), slot + 1, { ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
-          obstacles: [...others.map(o => ({ minX: o.x - 2.8, maxX: o.x + 2.8, minZ: o.z - 2.8, maxZ: o.z + 2.8 })),
-            ...propFootprints(models, car, 90), ...parkedFootprints(manifest.vehicles, car, 90)] });
-      return spots[Math.min(slot, spots.length - 1)] ?? null;
+      const others = standingCars();
+      if (!others.some(o => insideCar(car, o.x, o.z, 1))) return null;
+      return (await pairsAround({ spawn: world.spawn, car }, 1, others))[0]?.car ?? null;
+    },
+    startPair: async () => {
+      // Every player of a room computes the same start, and a start car stays local until it moves: each player takes
+      // the start pair of its own room slot (its car apart from the others', itself beside it), clear of any shared
+      // record or car already standing there.
+      const slot = multiplayerPlaying ? roomSlot(multiplayer?.state.you?.spawn) % ROOM_START_CARS : 0, others = standingCars();
+      if (!slot && !others.some(o => insideCar(world.car, o.x, o.z, 1))) return null;
+      const pairs = await pairsAround({ spawn: world.spawn, car: world.car }, slot + 1, others);
+      return pairs[Math.min(slot, pairs.length - 1)] ?? null;
     },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
@@ -452,7 +468,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     } });
   // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
   // also carries a portal exit) starts at this page's own ground-checked start.
-  const roomStart = isHome() && !params.spawnGiven ? undefined : world.spawn;
+  // Every city's fresh join starts at its ground-checked start and takes its room slot's start pair there (in Turku too:
+  // the room's slot positions only number the players).
+  const roomStart = world.spawn;
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
   const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;

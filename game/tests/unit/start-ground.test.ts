@@ -160,12 +160,20 @@ test('a through street whose collision is still loading is waited for, not trade
   expect(result!.car.z).toBeLessThan(-5);
 });
 
-test('players of one room get start cars apart from each other, in the start search order', async () => {
-  const { startCars, START_CAR_GAP_M } = await import('../../src/world/startGround');
-  const spots = await startCars({ x: 5, z: -12 }, [town], async (x, z) => ground(x, z), () => true, 4);
-  expect(spots.length).toBe(4);
-  for (const [i, a] of spots.entries()) for (const b of spots.slice(i + 1)) expect(Math.hypot(a.x - b.x, a.z - b.z)).toBeGreaterThanOrEqual(START_CAR_GAP_M);
-  // The first is the street start the search picks for the player; the courtyard comes only after the street.
-  expect(spots[0].z).toBeCloseTo(0);
-  expect(spots.slice(0, 3).every(s => Math.abs(s.z) < 0.01)).toBe(true);
+test('players of one room get start pairs: their cars apart, each player beside its own car and in no other', async () => {
+  const { startPairs, START_CAR_GAP_M, insideCar } = await import('../../src/world/startGround');
+  const probe = async (x: number, z: number) => ground(x, z);
+  const first = (await findInitialGround({ x: 5, z: -12 }, [town], probe, () => true))!;
+  const pairs = await startPairs(first, [town], probe, () => true, 4);
+  expect(pairs.length).toBe(4);
+  // Pair 0 is the start itself; the courtyard comes only after the street.
+  expect(pairs[0].car).toMatchObject({ x: first.car.x, z: first.car.z });
+  expect(pairs.slice(0, 3).every(p => Math.abs(p.car.z) < 0.01)).toBe(true);
+  for (const [i, a] of pairs.entries()) {
+    expect(Math.hypot(a.spawn.x - a.car.x, a.spawn.z - a.car.z)).toBeLessThanOrEqual(5.3);
+    for (const [j, b] of pairs.entries()) if (i !== j) {
+      expect(Math.hypot(a.car.x - b.car.x, a.car.z - b.car.z)).toBeGreaterThanOrEqual(START_CAR_GAP_M);
+      expect(insideCar(b.car, a.spawn.x, a.spawn.z, 0.5)).toBe(false);
+    }
+  }
 });
