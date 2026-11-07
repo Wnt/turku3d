@@ -23,7 +23,7 @@ function fixture() {
     nodes.getForRender(value);
     return value as Draw & { object: THREE.Mesh; getBindings(): any[] };
   };
-  return { renderer, nodes, draw };
+  return { renderer, nodes, draw, scene };
 }
 const covers = (value: Draw) => {
   const state = value.getNodeBuilderState();
@@ -47,6 +47,10 @@ test('r186 programs whose per-object inputs the observer sees are covered; callb
   const view = new THREE.MeshStandardNodeMaterial();
   view.colorNode = vec3(modelViewPosition.z.mul(.001));
   expect(covers(draw(view))).toBe(false);
+  // The scene's fog: r186 references its colour, near and far per draw, into the shared render group.
+  const { draw: fogged, scene } = fixture();
+  scene.fog = new THREE.Fog(0xb8cde0, 500, 3500);
+  expect(covers(fogged(new THREE.MeshStandardNodeMaterial({ map: new THREE.Texture() })))).toBe(true);
   // A per-object uniform no node owns: code sets its value at any time (groundField's night, before renderGroup).
   const free = new THREE.MeshStandardNodeMaterial(), night = uniform(0);
   free.emissiveNode = vec3(night);

@@ -12,8 +12,9 @@ import { modelNormalMatrix, modelWorldMatrixInverse, velocity } from 'three/tsl'
  *  and skipped after that (NONE) while `equals` finds its world matrix, material uniforms, geometry, instancing,
  *  lights and environment unchanged. The observer sees all of it when every per-object node of the program reads only
  *  those: the object's world matrix (Object3DNode/ModelNode scopes of matrixWorld, the normal and inverse matrices),
- *  the draw's own material through the observer's `refreshUniforms`, motion vectors (VelocityNode) and its textures'
- *  uv transform and flip (TextureNode; no texture transform is animated after load). A program with
+ *  the draw's own material through the observer's `refreshUniforms`, motion vectors (VelocityNode), its textures'
+ *  uv transform and flip (TextureNode; no texture transform is animated after load), and references into a shared
+ *  group (the scene's fog), which the program's SHARED refresh updates. A program with
  *  any other per-object update (onObjectUpdate callbacks, texture transforms, camera-relative uniforms), or a draw with
  *  a per-object uniform no such node owns (a value code may set at any time), keeps r186's full refresh. Bound
  *  textures are checked per draw (identity and version, as Bindings._update does), so a swap or an upload still binds.
@@ -25,7 +26,7 @@ interface Node {
   updateType?: string; updateBeforeType?: string; updateAfterType?: string; isUniformNode?: boolean; name?: string;
   isMaterialReferenceNode?: boolean; material?: unknown; property?: string; scope?: string; node?: Node | null;
   uniformNode?: Node; previousModelWorldMatrix?: Node; isUniformGroup?: boolean; _matrixUniform?: Node | null;
-  _flipYUniform?: Node | null; constructor: { type?: string };
+  _flipYUniform?: Node | null; group?: { shared?: boolean } | null; constructor: { type?: string };
 }
 export interface Binding {
   isSampledTexture?: boolean; isNodeUniformsGroup?: boolean; isUniformBuffer?: boolean; isStorageBuffer?: boolean;
@@ -76,6 +77,9 @@ export function uncovered(state: State, refreshUniforms: readonly string[]): str
     if (type === 'TextureNode') continue;
     if ((type === 'Object3DNode' || type === 'ModelNode') && WORLD_SCOPES.has(node.scope ?? '')) continue;
     if (node.isMaterialReferenceNode && node.material === null && refreshUniforms.includes(node.property ?? '')) continue;
+    // A reference into a shared group (r186's scene fog: colour, near, far in the render group) holds one value for
+    // every draw; the program's SHARED refresh updates it once per pass.
+    if (node.group?.shared === true) continue;
     return `update ${describe(node)}`;
   }
   return null;
