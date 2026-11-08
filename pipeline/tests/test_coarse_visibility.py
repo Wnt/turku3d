@@ -162,3 +162,37 @@ def test_stage_caches_only_the_bake_and_matches_bake(tmp_path):
     assert baked[1].baked_visibility is None and baked[0].positions is meshes[0].positions
     empty = V.stage(cache, TILE, meshes[1:2], city, FLAT)
     assert empty[0].baked_visibility is None and "visibility" in cache.metrics
+
+
+def crowns(x0, z0, x1, z1, top, step=0.5):
+    """Class-5 returns of a closed crown layer over a tile-local box, in engine coordinates."""
+    x, z = np.meshgrid(np.arange(x0, x1, step), np.arange(z0, z1, step))
+    return np.column_stack([x.ravel() + TILE.origin[0], np.full(x.size, top), z.ravel() + TILE.origin[2]])
+
+
+def test_crowns_shade_the_sky_term_only_and_reach_across_the_tile_border():
+    forest = crowns(-30, 60, 80, 200, 18.0)
+    field = V.height_field(TILE, [], FLAT, forest)
+    points = [[20, 0, 130], [-0.5, 0, 130], [0.5, 0, 130], [140, 0, 130], [20, 0, 130]]
+    rgb = V.sample(field, np.asarray(points, float), np.asarray([UP, UP, UP, UP, EAST], float))
+    under, west, east, open_ground, wall = rgb
+    # Under a closed canopy the sky term drops to about 1 - CANOPY_OPACITY; the crease term is untouched.
+    assert 0.25 <= under[1] <= 0.4 and under[0] == 1
+    # Both sides of the tile border see the same crowns (the canopy is read FAR beyond the tile).
+    assert abs(west[1] - east[1]) < 0.02
+    assert open_ground[1] > 0.9 and wall[1] < under[1] + 0.05
+    # Low returns (undergrowth) do not count, and no crowns leave the field as before.
+    shrubs = V.height_field(TILE, [], FLAT, crowns(-30, 60, 80, 200, 1.5))
+    assert shrubs.canopy is None
+    assert V.height_field(TILE, [], FLAT).canopy is None
+
+
+def test_canopy_crop_reaches_the_bake_horizon(monkeypatch):
+    from turku3d.coarse import canopy_trees
+    from turku3d.vegetation import trees
+
+    bbox = TILE.bbox
+    points = np.array([[bbox.xmin - 41, 10, bbox.zmin + 5], [bbox.xmin - 43, 10, bbox.zmin + 5], [bbox.xmax + 20, 10, bbox.zmax - 1]])
+    monkeypatch.setattr(trees, "reduced_points", lambda path: (None, points))
+    kept = canopy_trees.canopy_points(TILE, ["a.laz"])
+    assert len(kept) == 2 and kept[:, 0].min() == bbox.xmin - 41

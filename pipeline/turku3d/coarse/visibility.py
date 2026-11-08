@@ -17,7 +17,11 @@ distinct (position, normal) one slope maximum per azimuth, and the fixed elevati
 integrated in O(1) per azimuth from prefix sums over each distinct normal's bin range. The
 building context of ``inputs.wall_context`` reaches 100 m beyond the tile, beyond ``FAR``,
 so vertices on both sides of a tile border see the same occluders. Terrain beyond the
-tile grid repeats its edge heights; bridges, trees and tunnels are not occluders yet.
+tile grid repeats its edge heights; bridges and tunnels are not occluders yet.
+
+Tree crowns are porous occluders of the sky term only: the lidar's class-5 returns (read
+``FAR`` beyond the tile like the buildings) raise a second height field, and G loses
+``CANOPY_OPACITY`` of the sky those crowns hide. R, the contact/crease term, ignores them.
 """
 
 from __future__ import annotations
@@ -44,6 +48,11 @@ CHUNK = 4096  # rows per batch: (CHUNK, STEPS * AZIMUTHS) float64 temporaries st
 # Layers whose surfaces are not lit by the open sky (tunnel interiors keep their authored light).
 SKIP_LAYERS = frozenset({"tunnels"})
 SKIP_MATERIALS = frozenset({"tunnel_concrete", "water"})
+# Share of the sky a crown layer hides from the ground under and beside it. Summer canopies pass 20-35 % of the
+# diffuse sky (closed broadleaf and spruce stands about 10-25 %, open pine and birch 30-45 %); crowns also leave the
+# gaps between them open here, so the layer itself is denser than the stand.
+CANOPY_OPACITY = 0.7
+CANOPY_MIN = 2.5  # metres above the ground: lower returns are shrubs and undergrowth, not a roof of leaves
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,7 @@ class HeightField:
     z0: float
     heights: np.ndarray  # (rows, cols) float32
     terrain: np.ndarray  # (rows, cols) float32, ground only
+    canopy: np.ndarray | None = None  # (rows, cols) float32, heights raised to the crown tops; None without crowns
 
     def sample(self, grid, x, z):
         col = np.clip(((x - self.x0) / CELL).astype(np.int32), 0, grid.shape[1] - 1)
@@ -61,11 +71,12 @@ class HeightField:
         return grid[row, col]
 
 
-def height_field(tile, buildings, terrain_heights) -> HeightField:
+def height_field(tile, buildings, terrain_heights, canopy=()) -> HeightField:
     """Rasterise terrain and every roof part around ``tile`` (tile-local frame).
 
     ``buildings`` are inputs.Building objects in engine x/z with ``roof_parts`` of
-    (polygon, plane); ``terrain_heights`` is the tile's (CELLS+1)² grid, row = z.
+    (polygon, plane); ``terrain_heights`` is the tile's (CELLS+1)² grid, row = z;
+    ``canopy`` the class-5 lidar returns (engine x, height, z).
     """
     from .roofs import plane_height
 
@@ -107,7 +118,24 @@ def height_field(tile, buildings, terrain_heights) -> HeightField:
             top = np.clip(top, building.base, max(building.top, building.base))
             block = heights[r0:r1, c0:c1]
             block[inside] = np.maximum(block[inside], top.astype(np.float32))
-    return HeightField(x0, z0, heights, terrain)
+    return HeightField(x0, z0, heights, terrain, _crowns(heights, terrain, x0 + ox, z0 + oz, count, canopy))
+
+
+def _crowns(heights, terrain, x0, z0, count, canopy):
+    """``heights`` raised to the highest crown return of each cell (engine-frame origin x0/z0), or None."""
+    points = np.asarray(canopy, np.float64).reshape(-1, 3)
+    if not len(points):
+        return None
+    col = np.floor((points[:, 0] - x0) / CELL).astype(np.intp)
+    row = np.floor((points[:, 2] - z0) / CELL).astype(np.intp)
+    keep = (col >= 0) & (col < count) & (row >= 0) & (row < count)
+    col, row, top = col[keep], row[keep], points[keep, 1].astype(np.float32)
+    leaves = top >= terrain[row, col] + CANOPY_MIN
+    if not leaves.any():
+        return None
+    covered = heights.copy()
+    np.maximum.at(covered, (row[leaves], col[leaves]), top[leaves])
+    return covered
 
 
 _ANGLES = np.linspace(-np.pi / 2, np.pi / 2, ELEVATIONS + 1)
@@ -164,11 +192,11 @@ def _padded(grid):
     return np.pad(grid, _MARGIN, mode="edge").ravel()
 
 
-def _march(field, padded, start):
-    """(m, STEPS * AZIMUTHS) float32 occluder heights around (m, 2) start points.
+def _march(field, start):
+    """(m, STEPS * AZIMUTHS) indices into ``_padded`` grids of the cells around (m, 2) start points.
 
-    Same cells as ``HeightField.sample``; ``padded`` (``_padded(field.heights)``) makes its
-    clamp a plain lookup, and coordinates beyond the margin are clamped into it first.
+    Same cells as ``HeightField.sample``; the padded grid makes its clamp a plain lookup, and
+    coordinates beyond the margin are clamped into it first.
     """
     rows, cols = field.heights.shape
     width = cols + 2 * _MARGIN
@@ -192,7 +220,7 @@ def _march(field, padded, start):
     np.trunc(col, out=col)
     row += col
     row += _MARGIN
-    return padded.take(row.astype(np.intp))
+    return row.astype(np.intp)
 
 
 def _band(hemisphere, first):
@@ -264,13 +292,23 @@ def sample(field: HeightField, positions, normals):
     height = np.maximum(p[:, 1] + 0.1 * np.maximum(n[kind, 1], 0), ground + GROUND_CLEARANCE)
     origin, ids, order = _unique(start)  # rows sharing a start point are contiguous in order
     padded = _padded(field.heights)
+    crowns = None if field.canopy is None else _padded(field.canopy)
     values = np.empty((len(first), 2), np.float32)
     for begin in range(0, len(order), CHUNK):
         rows = order[begin:begin + CHUNK]
         chunk = ids[rows]
-        march = _march(field, padded, start[origin[chunk[0]:chunk[-1] + 1]])[chunk - chunk[0]]
+        cells = _march(field, start[origin[chunk[0]:chunk[-1] + 1]])[chunk - chunk[0]]
+        march = padded.take(cells)
         k = kind[rows]
         values[rows] = _visibility(height[rows], march, tuple(a[k] for a in hemisphere), whole[k], open_sky[k])
+        if crowns is None:
+            continue
+        leafy = crowns.take(cells)
+        under = (leafy > march).any(axis=1)  # rows whose march meets a crown above the solid occluders
+        if under.any():
+            u, k = rows[under], k[under]
+            sky = _visibility(height[u], leafy[under], tuple(a[k] for a in hemisphere), whole[k], open_sky[k])[:, 1]
+            values[u, 1] -= CANOPY_OPACITY * np.maximum(values[u, 1] - sky, 0)
     result[:, :2] = values[inverse]
     np.clip(result, 0, 1, out=result)
     return result
@@ -328,7 +366,7 @@ def bake(meshes, field: HeightField):
     return _attach(meshes, lit, _ambient_sky(field, _surfaces(meshes, lit)))
 
 
-def stage(cache, tile, meshes, buildings, terrain_heights):
+def stage(cache, tile, meshes, buildings, terrain_heights, canopy=()):
     """Cached bake of the assembled static tile surfaces (``wall_layers``).
 
     The key holds only what the bake reads and the cached value only the R/G arrays, so
@@ -345,12 +383,12 @@ def stage(cache, tile, meshes, buildings, terrain_heights):
     surfaces = _surfaces(meshes, lit)
 
     def run():
-        return _ambient_sky(height_field(tile, buildings, terrain_heights), surfaces)
+        return _ambient_sky(height_field(tile, buildings, terrain_heights, canopy), surfaces)
 
     values = run() if cache is None else cache.run(
         "visibility",
         source_key(Path(__file__), roofs.plane_height, vertex_normals),
-        [tile, surfaces, buildings, np.asarray(terrain_heights)],
+        [tile, surfaces, buildings, np.asarray(terrain_heights), np.asarray(canopy, np.float32)],
         run,
     )
     return _attach(meshes, lit, values)

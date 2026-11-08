@@ -39,12 +39,16 @@ def connected_crown(points, x, z):
 def canopy_points(tile, paths):
     """Read classified crowns once per source hash, then crop per tile.
 
-    This input belongs to vegetation even when terrain no longer uses aerial imagery.
+    This input belongs to vegetation even when terrain no longer uses aerial imagery. The crop reaches the sky bake's
+    horizon beyond the tile (visibility.FAR), so ground on both sides of a tile border sees the same crowns; tree
+    placement uses only the tile's own returns.
     """
     from turku3d.vegetation.trees import reduced_points
 
+    from .visibility import FAR
+
     parts = []
-    bounds = tile.bbox.buffered(2)
+    bounds = tile.bbox.buffered(FAR + 2)
     for path in paths:
         _, canopy = reduced_points(path)
         keep = ((canopy[:, 0] >= bounds.xmin) & (canopy[:, 0] < bounds.xmax)
