@@ -178,3 +178,31 @@ def test_both_aprons_join_beyond_repaired_grid_without_step():
             # At the outer edge the apron and the retained terrain coincide.
             ys, _ = probe.hits(col, x, end + sign * 7)
             np.testing.assert_allclose(ys, sample(x, end + sign * 7), atol=1e-8)
+
+
+def test_a_road_crossing_obliquely_at_a_portal_is_lifted_past_the_tunnel_end_but_not_its_approach():
+    # Etelatuulentie over the Lansibaana cycleway (Espoo): the road crosses 2 m inside the west portal, so part of
+    # its lanes lies beyond the tunnel line's flat end, over the approach cutting.
+    tile = C.VisualTile(0, 0, 0)
+    tunnel = shapely.LineString([(130, 100), (100, 100)])
+    road = shapely.LineString([(97, 70), (107, 130)])
+    ways = road_top.carried_roads(
+        [("under", tunnel, {"highway": "cycleway", "tunnel": "yes", "layer": "-1"})],
+        [(road, {"highway": "primary", "lanes": "2"})],
+    )
+    assert "road_top" in ways[0][2]
+
+    def ground(a, b):  # the cutting along the axis, smeared 4 m into the deck by the coarse ground model
+        return 24 - (4 * np.clip(1 - (abs(b - 100) - 1.5) / 6, 0, 1) if a < 104 else 0)
+
+    axis = np.arange(129) * tile.size / 128
+    heights = np.array([[ground(a, b) for a in axis] for b in axis])
+    pos, _ = grid_mesh(tile, heights)
+    fixed, _ = road_top.repair(tile, pos, ways, ground)
+    deck = ways[0][2]["road_top"]  # the carried carriageway, 8 m wide
+    beyond = (pos[:, 0] < 100) & shapely.contains_xy(deck, pos[:, 0], pos[:, 2]) & (pos[:, 1] < 23.9)
+    assert beyond.sum() >= 4
+    np.testing.assert_allclose(fixed[beyond, 1], 24, atol=0.05)  # the lanes past the portal sit on the deck
+    approach = (pos[:, 0] > 85) & (pos[:, 0] < 97) & (np.abs(pos[:, 2] - 100) < 1.2)
+    assert approach.sum() >= 4
+    np.testing.assert_array_equal(fixed[approach, 1], pos[approach, 1])  # the cycleway's cutting stays open

@@ -234,6 +234,7 @@ class Segment:
 
 def place(tile, records, streets, sample, water=(), tunnels=()):
     window = shapely.box(*tile.bbox.as_tuple()).difference(shapely.union_all(water).buffer(0.35))
+    from .road_top import DECK_MARGIN
     from .tunnels import dimensions
 
     # Tunnel mouths own their frames; OSM barriers must never add panels or
@@ -248,7 +249,13 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
             outward = point - coords[neighbour]
             outward /= np.linalg.norm(outward)
             approach = shapely.LineString([point - outward * 2, point + outward * 4])
-            mouths.append(approach.buffer(dimensions(tags)[0] / 2 + 1.9, cap_style="flat"))
+            mouth = approach.buffer(dimensions(tags)[0] / 2 + 1.9, cap_style="flat")
+            if "road_top" in tags:
+                # A road carried over the underpass passes above its mouth: the rail or parapet along that deck's
+                # edge stands on the portal, not in the opening (Etelatuulentie's guard rail over the Lansibaana
+                # portal, where a test car tipped off the unguarded edge).
+                mouth = mouth.difference(tags["road_top"].buffer(DECK_MARGIN))
+            mouths.append(mouth)
     window = window.difference(shapely.union_all(mouths))
     roads = shapely.union_all([g for g, _ in streets])
     openings = shapely.union_all(

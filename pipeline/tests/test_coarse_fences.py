@@ -239,3 +239,19 @@ def test_a_guard_rail_on_the_carriageway_edge_stays_and_is_cut_only_well_inside_
     cut = place(tile, [(across, {"barrier": "guard_rail"}, False)], [(road, 0)], lambda x, z: 0)
     assert np.isclose(sum(s.length for s in cut), 21)
     assert not any(40.5 < s.x < 59.5 for s in cut)
+
+
+def test_a_rail_along_a_road_carried_over_a_portal_stays_while_the_opening_is_cleared():
+    # Etelatuulentie's guard rail runs along the deck edge right over the Lansibaana cycleway portal.
+    tile = C.VisualTile(0, 0, 0)
+    deck = shapely.LineString([(104, 70), (104, 130)]).buffer(4.0, cap_style="flat")
+    tunnel = ("under", shapely.LineString([(130, 100), (100, 100)]),
+              {"highway": "cycleway", "tunnel": "yes", "layer": "-1", "road_top": deck})
+    rail = shapely.LineString([(99.7, 80), (99.7, 120)])  # 0.3 m outside the deck edge, across the mouth
+    trench = shapely.LineString([(97, 97.5), (97, 102.5)])  # a fence across the opening, 3 m out in the cutting
+    records = [(rail, {"barrier": "guard_rail"}, False), (trench, {"barrier": "fence"}, False)]
+    batch = place(tile, records, [], lambda x, z: 0, tunnels=[tunnel])
+    rails = [s for s in batch if s.kind == "rail"]
+    assert np.isclose(sum(s.length for s in rails), 40)
+    assert any(abs(s.z - 100) < 1.3 for s in rails)
+    assert not [s for s in batch if s.kind != "rail"]

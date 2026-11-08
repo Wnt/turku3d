@@ -50,6 +50,25 @@ def exclusion(ways):
     )
 
 
+DECK_MARGIN = 1.5  # m beyond a carried carriageway that still belongs to its deck (edge, guard rail, verge)
+
+
+def deck_beyond_ends(line, deck, width, radius):
+    """The carried carriageway within ``radius`` of an underpass but past the flat ends of its line, outside the
+    tunnel's own approach: a road crossing obliquely right at a portal has part of its lanes beyond the line's end.
+    Etelatuulentie (Espoo) crosses the Lansibaana cycleway tunnel at its west portal; the flat cap left the west
+    lane on the approach cutting's slope, 9.8-12.7 m across it beside a 13.2 m crown, and a test car tipped there."""
+    coords = np.asarray(line.coords)[:, :2]
+    corridor = []
+    for end, neighbour in ((0, 1), (-1, -2)):
+        outward = coords[end] - coords[neighbour]
+        outward = outward / np.linalg.norm(outward)
+        corridor.append(shapely.LineString([coords[end], coords[end] + outward * (radius + DECK_MARGIN)]))
+    approaches = shapely.union_all(corridor).buffer(width / 2 + 0.4, cap_style="flat")
+    beyond = line.buffer(radius).difference(line.buffer(radius, cap_style="flat"))
+    return deck.buffer(DECK_MARGIN).intersection(beyond).difference(approaches)
+
+
 def repair(tile, grid_pos, ways, bank_sample):
     """Bridge lower passage lidar with the two banks, changing only a narrow terrain strip.
 
@@ -79,6 +98,7 @@ def repair(tile, grid_pos, ways, bank_sample):
         footprint = line.buffer(radius, cap_style="flat").union(
             line.buffer(width / 2 + 0.4, cap_style="flat").buffer(step * np.sqrt(2))
         )
+        footprint = footprint.union(deck_beyond_ends(line, tags["road_top"], width, radius))
         profiles.append((line, distances, xz, normal, banks, radius, footprint))
 
     def lifted(query, heights):
