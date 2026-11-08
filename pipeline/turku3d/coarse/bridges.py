@@ -946,24 +946,39 @@ BRANCH_OUTSIDE = 10.0  # m of a deck member outside the main carriageway that ma
 MAIN_SHARE = 0.5  # of the axis length: a carriageway carried inside the deck this far is a main one
 
 
+def link_members(way):
+    """Carriageway members of a merged deck that leave its main axis (links), each with a descent of its own.
+
+    A link diverges slowly, so most of its length can run along the axis: what makes it a branch is a
+    stretch outside the main carriageway (BRANCH_OUTSIDE). Only carriageways: a cycleway or footway
+    leaving the deck keeps the deck whole (Kalevan's north cycleway split the main deck and sloped its
+    triangles across the main lanes). A carriageway carried inside the deck along at least MAIN_SHARE of
+    its axis and for most of its own length is one of its main carriageways even where an end curves out
+    (the Erasmusbrug's southbound lanes leave the band only on their approach curve, and as a link they
+    rode the whole 600 m span flat at one end's height). One that runs on mostly outside a short deck stays
+    a link: its deck runs on to its far end (a Turku harbour service ramp, 26 m on a 26 m axis and 56 m
+    beyond it)."""
+    merged, axis = way["line"].buffer(way["width"] / 2), way["line"]
+    out = []
+    for m in way.get("member_ways", []):
+        if not is_carriageway(m["tags"]):
+            continue
+        outside = m["line"].difference(merged).length
+        inside = m["line"].intersection(merged).length
+        if outside >= BRANCH_OUTSIDE and not (inside >= MAIN_SHARE * axis.length and inside > outside):
+            out.append(m)
+    return out
+
+
 def branch_profiles(way, main_height, sample_ground):
     """(line, stations, heights, half width) of each deck member that leaves the main axis (a link):
     the deck's height where it leaves, then a vertical curve to the ground at its far end."""
     from .bridge_join import vertical_curve
 
-    axis, out = way["line"], []
-    merged = axis.buffer(way["width"] / 2)
+    out = []
+    merged = way["line"].buffer(way["width"] / 2)
     members = way.get("member_ways", [])
-    # A link diverges slowly, so most of its length can run along the axis: what makes it a
-    # branch is a stretch outside the main carriageway.
-    # Only carriageways: a cycleway or footway leaving the deck keeps the deck whole (Kalevan's
-    # north cycleway split the main deck and sloped its triangles across the main lanes).
-    # A carriageway carried inside the deck along at least MAIN_SHARE of its axis is one of its main
-    # carriageways even where an end curves out (the Erasmusbrug's southbound lanes leave the band only
-    # on their approach curve, and as a link they rode the whole 600 m span flat at one end's height).
-    branches = [m for m in members if is_carriageway(m["tags"])
-                and m["line"].difference(merged).length >= BRANCH_OUTSIDE
-                and m["line"].intersection(merged).length < MAIN_SHARE * axis.length]
+    branches = link_members(way)
     # Where a link leaves the deck is where it leaves the other members' own carriageways, not the
     # merged deck's width (which also spans the link while it descends alongside).
     core = shapely.union_all([m["line"].buffer(m["width"] / 2) for m in members if m not in branches]) \

@@ -240,6 +240,15 @@ def test_a_main_carriageway_that_curves_out_at_one_end_is_not_a_descending_link(
     profiles, _ = branch_profiles(deck, lambda xz: np.full(len(xz), 10.0), lambda xz: np.zeros(len(xz)))
     assert len(profiles) == 1 and profiles[0][0].equals(link["line"])
 
+    # A Turku harbour ramp: its outline curves with the way, so the straight axis is a short stretch the
+    # way runs along and then leaves on both ends. Mostly outside, it stays a link: its deck runs on.
+    ramp = road("ramp", [(-25, 25), (0, 0), (26, 0), (51, 25)])
+    short = merge_crossings([ramp], [("short", ramp["line"].buffer(3.75), {"layer": "1"})])[0]
+    inside = ramp["line"].intersection(short["line"].buffer(short["width"] / 2)).length
+    assert short["line"].length < 40 and short["line"].length / 2 < inside < ramp["line"].length / 2
+    profiles, _ = branch_profiles(short, lambda xz: np.full(len(xz), 10.0), lambda xz: np.zeros(len(xz)))
+    assert len(profiles) == 1 and profiles[0][0].length > 90
+
 
 def test_passage_cut_removes_collinear_submillimetre_sliver():
     from turku3d.coarse.build import extrude
