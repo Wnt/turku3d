@@ -175,9 +175,9 @@ it('grows bilberry, fern and herb plants on forest floors, by floor type, and no
   const drawn: Record<string, number> = Object.fromEntries((field.root.children as THREE.InstancedMesh[]).map(m => [m.userData.nature as string, m.count]));
   expect(drawn.grass_lawn).toBe(0);
   expect(drawn.groundcover_shrub).toBeGreaterThan(50);
-  // About 0.55 x 2.5 plants per m2 on the 900 m2 floor, a third of them bare.
+  // About 0.9 x 2.5 candidates per m2 on the 900 m2 floor, a third of them bare.
   const total = Object.values(drawn).reduce((a, b) => a + b, 0);
-  expect(total).toBeGreaterThan(400); expect(total).toBeLessThan(1300);
+  expect(total).toBeGreaterThan(700); expect(total).toBeLessThan(2100);
   for (const mesh of field.root.children as THREE.InstancedMesh[]) {
     if (mesh.userData.nature === 'groundcover_deadwood') {
       const box = mesh.geometry.boundingBox!;

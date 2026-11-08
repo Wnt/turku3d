@@ -51,7 +51,7 @@ const FOREST = /forest_floor_(conifer|broadleaf|moss)/;
 type Floor = 'conifer' | 'broadleaf' | 'moss';
 /** Forest-floor plants per square metre, as a share of the tier's grass density: the floor texture carries the
  *  litter, needles and moss between them. */
-const FOREST_DENSITY = 0.55;
+const FOREST_DENSITY = 0.9;
 
 /** A forest-floor candidate's plant, or -1 for bare floor. Needle duff carries bilberry and lingonberry mats in broad
  *  patches, a little wavy hair-grass and few ferns; broadleaf litter wood anemone and sorrel carpets in patches, ferns
@@ -65,8 +65,8 @@ export function forestKind(floor: Floor, patch: number, pick: number) {
     return pick < 0.25 ? SHRUB : pick < 0.33 ? TUFT : pick < 0.36 ? FERN : -1;
   }
   if (floor === 'broadleaf') {
-    if (patch > 0.4) return pick < 0.7 ? HERB : pick < 0.82 ? FERN : pick < 0.92 ? TUFT : -1;
-    return pick < 0.18 ? HERB : pick < 0.26 ? TUFT : pick < 0.31 ? FERN : -1;
+    if (patch > 0.4) return pick < 0.75 ? HERB : pick < 0.85 ? FERN : pick < 0.92 ? TUFT : -1;
+    return pick < 0.3 ? HERB : pick < 0.38 ? TUFT : pick < 0.43 ? FERN : -1;
   }
   return pick < 0.35 ? FERN : pick < 0.6 ? TUFT : pick < 0.72 ? SHRUB : pick < 0.8 ? HERB : -1;
 }
