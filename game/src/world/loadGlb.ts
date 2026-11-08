@@ -47,21 +47,35 @@ async function pace() {
 const taskChannel = new MessageChannel(), taskQueue: (() => void)[] = [];
 taskChannel.port1.onmessage = () => taskQueue.shift()?.();
 const nextTask = () => new Promise<void>(resolve => { taskQueue.push(resolve); taskChannel.port2.postMessage(0); });
-let admissions: Promise<void> = Promise.resolve();
+/** Waiting admissions: small glTFs' bursts (one each, UNPACED_STEPS) before big glTFs' continuations. In one queue a
+ *  building model's single admission waited behind the hundreds of each big tile GLB parsing at the same time. */
+const lanes: [(() => void)[], (() => void)[]] = [[], []];
+let admitting = false;
 /** Admits one paced glTF continuation at a time, each in its own task: the previous one's synchronous work (the
  *  geometry or mesh it completes) has run and counts against the streaming window before the next is let in.
  *  Checking all waiters at once let them all pass before any of that work ran. */
-function admit(): Promise<void> {
-  const turn = admissions.then(nextTask).then(pace);
-  admissions = turn.catch(() => {});
+function admit(small = false): Promise<void> {
+  const turn = new Promise<void>(resolve => { lanes[small ? 0 : 1].push(resolve); });
+  if (!admitting) void runAdmissions();
   return turn;
 }
+async function runAdmissions() {
+  admitting = true;
+  try {
+    while (lanes[0].length || lanes[1].length) {
+      await nextTask();
+      await pace();
+      (lanes[0].shift() ?? lanes[1].shift())?.();
+    }
+  } finally { admitting = false; }
+}
 
-/** A glTF with at most this many accessors and meshes parses in one go once its read is admitted (loadGlb's pace).
- *  Its whole parse is about half a millisecond of main-thread work, yet paced one continuation per task it waited in
- *  the shared admission queue: building models (23 steps each) took 168 ms p50, 1.1 s p90 to parse on the Air at
- *  23 m/s, at ~300 admissions a second, about five per frame (fastdrive glb.load trace, 2026-11-08). Their reads hold
- *  the six model read slots, so a tile's buildings waited seconds. Big tile GLBs (hundreds of steps) stay paced. */
+/** A glTF with at most this many accessors and meshes is admitted per burst, ahead of big glTFs' continuations: the
+ *  continuations one worker answer resolves wait for one admission together (about half a millisecond of work for a
+ *  building model). Paced one continuation per task in one queue with the big tile GLBs, building models (23 steps
+ *  each) took 168 ms p50, 1.1 s p90 to parse on the Air at 23 m/s, at ~300 admissions a second, about five per frame
+ *  (fastdrive glb.load trace, 2026-11-08); one admission each in that queue still waited 117 ms p50 behind the tiles'
+ *  hundreds. Model reads hold the six read slots, so a tile's buildings waited seconds. */
 export const UNPACED_STEPS = 32;
 
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
@@ -82,9 +96,24 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
       // Each resolved accessor and mesh of a big glTF now waits for room in the frame's streaming window, re-checked
       // after waking; a small one (UNPACED_STEPS) runs in one go.
       const json = parser.json as { accessors?: unknown[]; meshes?: unknown[] };
-      if ((json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS) return;
-      const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit().then(() => value); };
       const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
+      if ((json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS) {
+        // A small glTF: the continuations one worker answer resolves wait for one admission together, so the burst
+        // still runs inside a frame's streaming window; the gate closes after that task for the next answer.
+        let gate: Promise<void> | null = null;
+        const together = <T>(value: T) => {
+          if (!gate) {
+            if (admissions) admissions.count++;
+            const opened = gate = admit(true);
+            void opened.then(nextTask).then(() => { if (gate === opened) gate = null; });
+          }
+          return gate.then(() => value);
+        };
+        parser.loadAccessor = index => loadAccessor(index).then(together);
+        parser.loadMesh = index => loadMesh(index).then(together);
+        return;
+      }
+      const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit().then(() => value); };
       parser.loadAccessor = index => loadAccessor(index).then(paced);
       parser.loadMesh = index => loadMesh(index).then(paced);
     },

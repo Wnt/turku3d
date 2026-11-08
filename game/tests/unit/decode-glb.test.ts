@@ -86,7 +86,7 @@ test('a paced parse (accessors and meshes wait for the streaming window) still b
   }
 });
 
-test('a small glTF (a building model) parses in one go, without waiting for frames; a big one still paces', async () => {
+test('a small glTF (a building model) parses in one admission, ahead of a big one parsing at the same time', async () => {
   const gltf = (meshes: number) => {
     const floats = new Float32Array(meshes * 9);
     for (let i = 0; i < meshes; i++) floats.set([i, 0, 0, i + 1, 0, 0, i, 1, 0], i * 9);
@@ -97,14 +97,17 @@ test('a small glTF (a building model) parses in one go, without waiting for fram
       nodes: Array.from({ length: meshes }, (_, i) => ({ mesh: i })), scenes: [{ nodes: Array.from({ length: meshes }, (_, i) => i) }], scene: 0 },
       binary: floats.buffer };
   };
-  // No frame ever comes: only a parse that never waits for the streaming window can finish.
-  vi.stubGlobal('requestAnimationFrame', () => 0);
-  try {
-    const small = await parseDecodedGlb(new GLTFLoader(), gltf(UNPACED_STEPS / 2), 'https://example.test/coarse/shared/');
-    expect(small.scene.children).toHaveLength(UNPACED_STEPS / 2);
-    let done = false;
-    void parseDecodedGlb(new GLTFLoader(), gltf(400), 'https://example.test/coarse/t0_0_0/').then(() => { done = true; });
-    await new Promise(resolve => setTimeout(resolve, 50));
-    expect(done).toBe(false);
-  } finally { vi.unstubAllGlobals(); }
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { setTimeout(() => callback(performance.now()), 4); });
+  const started = performance.now();
+  let smallAt = 0, bigAt = 0;
+  const big = parseDecodedGlb(new GLTFLoader(), gltf(3000), 'https://example.test/coarse/t0_0_0/').then(r => { bigAt = performance.now() - started; return r; });
+  await new Promise(resolve => setTimeout(resolve, 5)); // the big parse's continuations are queued
+  const smallStart = performance.now();
+  const small = await parseDecodedGlb(new GLTFLoader(), gltf(UNPACED_STEPS / 2), 'https://example.test/coarse/shared/');
+  smallAt = performance.now() - smallStart;
+  expect(small.scene.children).toHaveLength(UNPACED_STEPS / 2);
+  expect((await big).scene.children).toHaveLength(3000);
+  // One queue: the model's admission waited behind the tile's hundreds (about half of the tile's parse).
+  vi.unstubAllGlobals();
+  expect(smallAt).toBeLessThan(bigAt / 5);
 });
