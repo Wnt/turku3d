@@ -1,8 +1,8 @@
 // Aerial perspective and height fog: replaces the scene's linear THREE.Fog with an exponential, height-dependent haze
 // whose extinction is stronger in blue than in red, plus a low mist layer by time of day and weather.
 import * as THREE from 'three/webgpu';
-import { abs, cameraPosition, dot, exp, float, Fn, max, mix, normalize, output, positionWorld, pow, select, smoothstep,
-  uniform, vec3, vec4 } from 'three/tsl';
+import { abs, cameraPosition, dot, exp, float, Fn, max, mix, normalize, output, positionWorld, pow, renderGroup, select,
+  smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import type { TimecycleSample } from './timecycle';
 import type { WeatherSample } from './weather/schedule';
 
@@ -32,16 +32,18 @@ export function mistAmount(weather: Readonly<WeatherSample>, elevation: number, 
 export type SceneFog = THREE.Scene & { fogNode?: THREE.Node | null };
 
 export class AerialFog {
+  // Per-frame values in the render group: shared by every fogged draw, not copied into each draw's object uniforms
+  // (which kept every fogged draw out of the static refresh, render/staticRefresh.ts).
   /** In-scatter colour: the timecycle/weather fog colour, which the sky's horizon also joins (atmosphere.ts). */
-  readonly color = uniform(new THREE.Vector3(...new THREE.Color(0xb8cde0).toArray()));
-  readonly sunColor = uniform(new THREE.Vector3(1, 1, 1));
-  readonly sunDirection = uniform(new THREE.Vector3(0, 1, 0));
+  readonly color = uniform(new THREE.Vector3(...new THREE.Color(0xb8cde0).toArray())).setGroup(renderGroup);
+  readonly sunColor = uniform(new THREE.Vector3(1, 1, 1)).setGroup(renderGroup);
+  readonly sunDirection = uniform(new THREE.Vector3(0, 1, 0)).setGroup(renderGroup);
   /** Green-channel haze extinction per metre at sea level. */
-  readonly haze = uniform(HAZE_DEPTH / 12000);
+  readonly haze = uniform(HAZE_DEPTH / 12000).setGroup(renderGroup);
   /** Mist extinction per metre at sea level. */
-  readonly mist = uniform(0);
+  readonly mist = uniform(0).setGroup(renderGroup);
   /** The view is fully fogged from fogFar on (weather fog walls, the world edge). */
-  readonly far = uniform(12000);
+  readonly far = uniform(12000).setGroup(renderGroup);
   readonly node: THREE.Node<'vec4'>;
 
   constructor() {
