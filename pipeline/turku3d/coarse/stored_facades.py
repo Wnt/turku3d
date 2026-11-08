@@ -66,7 +66,30 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
     return facade, uv
 
 
-def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
+FRONT = 0.001  # m: probe distance in front of a wall. Coincident party walls (float noise ~0.1 mm)
+# are inside the neighbour; a sliver part thinner than this is left to the same-facing rule.
+
+
+def shell_solids(shells, emit, groups):
+    """Every shell's roof triangles with the shell's base, group and emission, for exposed_wall_quads.
+    A shell is one solid: its footprint from ``base`` up to its roof (coarse/extrusion._extrude)."""
+    tris, base, group, emitted = [], [], [], []
+    for (b, shell), e, g in zip(shells, emit, groups, strict=True):
+        if shell[0] is None or shell[1] is None:  # walls without a roof (test fixtures) fill nothing
+            continue
+        roof, index = np.asarray(shell[0], float), np.asarray(shell[1], int).reshape(-1, 3)
+        if not len(index):
+            continue
+        tris.append(roof[index])
+        base += [b.base] * len(index)
+        group += [g] * len(index)
+        emitted += [e] * len(index)
+    if not tris:
+        return np.empty((0, 3, 3)), np.empty(0), np.empty(0, int), np.empty(0, bool)
+    return np.concatenate(tris), np.asarray(base, float), np.asarray(group), np.asarray(emitted, bool)
+
+
+def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None, solids=None):
     """Paint one surface per outward wall, including near-coincident LOD2 slivers, and no wall
     inside a neighbouring solid.
 
@@ -82,10 +105,14 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
     nested layers under a stepped roof, ~40 % of a city-centre tile's wall triangles
     (t0_0_-1, Jonni 2026-11-08). So in two steps:
 
-    1. A wall loses what an opposite-facing wall within the band covers: that solid stands
-       in front of it. Parts of one building (``groups``) always trim each other, so both
-       tiles of a seam see the same building; different buildings only when both are
-       emitted here (a context tile may load later or come from another generation).
+    1. A wall loses what a solid fills right in front of it (``solids``: the roof triangles of
+       every shell with its base, group and emission; see ``shell_solids``). Parts of one
+       building (``groups``) always trim each other, so both tiles of a seam see the same
+       building; different buildings only when both are emitted here (a context tile may load
+       later or come from another generation). Solids, not opposite-facing walls: footprint
+       rings that run along one edge both ways put an inward-facing wall on a street facade
+       with nothing in front of it (train16 t0_0_-1: the end wall of Building_567784, the
+       market pavilion, the roof steps of Uusi Börs).
     2. Same-facing walls then share what step 1 left of them, highest first. Owning by the
        untrimmed walls painted nothing where a millimetre sliver part stood in front of a
        taller facade: step 1 removed the facade there and step 2 gave the area to the
@@ -114,31 +141,26 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
     def surface(i):
         return shapely.Polygon(np.c_[[0, lengths[i], lengths[i], 0], quads[i, :, 1]])
 
-    def neighbours(i, same):
-        """Walls facing the same (or the opposite) way within 6 mm of wall i, with the shared
+    def neighbours(i):
+        """Higher-ranked walls facing the same way within 6 mm of wall i, with the shared
         frontage interval of each in i's along-wall metres."""
         direction = directions[i]
         others = tree.query(bounds[i])
         others = others[others != i]
-        facing = directions[others] @ direction
         others = others[
-            ((facing > 0.99998) if same else (facing < -0.99998))
+            (rank[others] < rank[i])
+            & (directions[others] @ direction > 0.99998)
             & (high[others, 1] > low[i, 1])
             & (low[others, 1] < high[i, 1])
         ]
-        if same:
-            others = others[rank[others] < rank[i]]
-        else:
-            others = others[(group[others] == group[i]) | (emitted[others] & emitted[i])]
         if not len(others):
-            return others, None, None
-        normal = np.array([-direction[1], direction[0]])  # inward: _extrude walls face to the right
+            return others, None
+        normal = np.array([-direction[1], direction[0]])
         delta = quads[others][:, :, [0, 2]] - starts[i]
         along = delta @ direction
         # Compare planes only over their shared frontage. A long surveyed edge
         # may diverge beyond a short sliver without changing that overlap.
         across = delta[:, :2] @ normal
-        # An opposite-facing wall runs the other way along this one: keep the run's sign.
         run = along[:, 1] - along[:, 0]
         slope = (across[:, 1] - across[:, 0]) / np.where(np.abs(run) < 1e-9, 1e-9, run)
         shared_left = np.maximum(0, along[:, :2].min(axis=1))
@@ -146,22 +168,18 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
         # Resolve every shared interval within 6 mm, including diverging edges
         # that cross the 5 mm validation band. The extra millimetre covers export
         # rounding; the angular margin likewise covers narrow float32 triangles.
-        # Same-facing walls compete within 6 mm either side. An opposite-facing wall hides this
-        # one only from in front (``normal`` points inward, so in front is negative) or in
-        # contact: behind it, the two are the back-to-back faces of one thin solid.
-        lo, hi = (-0.006, 0.006) if same else (-0.006, 1e-6)
         intercept = across[:, 0] - along[:, 0] * slope
         parallel = abs(slope) < 1e-12
         safe_slope = np.where(parallel, 1, slope)
-        ends_a, ends_b = (lo - intercept) / safe_slope, (hi - intercept) / safe_slope
+        ends_a, ends_b = (-0.006 - intercept) / safe_slope, (0.006 - intercept) / safe_slope
         near_left = np.where(parallel, -np.inf, np.minimum(ends_a, ends_b))
         near_right = np.where(parallel, np.inf, np.maximum(ends_a, ends_b))
-        near_right = np.where(parallel & ((intercept < lo) | (intercept > hi)), -np.inf, near_right)
+        near_right = np.where(parallel & (abs(intercept) > 0.006), -np.inf, near_right)
         shared_left = np.maximum(shared_left, near_left)
         shared_right = np.minimum(shared_right, near_right)
         keep = shared_right > shared_left
         return others[keep], [shapely.box(a, -10000, b, 10000) for a, b in
-                              zip(shared_left[keep], shared_right[keep], strict=True)], along[keep]
+                              zip(shared_left[keep], shared_right[keep], strict=True)]
 
     def polygonal(geometry):
         """Only the areas: a band or region that merely touches another yields lines and points,
@@ -171,7 +189,9 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
         return shapely.MultiPolygon(parts) if parts else shapely.Polygon()
 
     def minus(region, cover):
-        cover = polygonal(shapely.union_all([polygonal(c) for c in cover]))
+        # Roof triangles cut a solid's cover into many collinear trapezoids: weld them (10 µm)
+        # so the remainder splits into few slabs.
+        cover = polygonal(shapely.union_all([polygonal(c) for c in cover]).simplify(1e-5))
         if cover.is_empty:
             return region
         try:
@@ -182,15 +202,65 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
 
     exposed = {}
 
+    if solids is not None:
+        roof_tris, roof_base, roof_group, roof_emit = solids
+        roof_tree = shapely.STRtree(shapely.polygons(roof_tris[:, :, [0, 2]]))
+
+    def filled(i):
+        """Where solids stand within FRONT of wall i, as trapezoids in i's along metres: each roof
+        triangle the probe line crosses fills from its base up to its roof."""
+        outward = np.array([directions[i][1], -directions[i][0]])  # footprints run counter-clockwise
+        p0 = starts[i] + FRONT * outward
+        delta = directions[i] * lengths[i]
+        found = roof_tree.query(shapely.LineString([p0, p0 + delta]))
+        found = found[(roof_group[found] == group[i]) | (roof_emit[found] & emitted[i])]
+        def cross(u, v):
+            return u[0] * v[1] - u[1] * v[0]
+
+        pieces = []
+        for t in found:
+            corners, heights = roof_tris[t][:, [0, 2]], roof_tris[t][:, 1]
+            if cross(corners[1] - corners[0], corners[2] - corners[0]) < 0:
+                corners, heights = corners[[0, 2, 1]], heights[[0, 2, 1]]
+            low, high = 0.0, 1.0
+            for k in range(3):  # clip p0 + s * delta to the inside of each edge
+                edge = corners[(k + 1) % 3] - corners[k]
+                start = cross(edge, p0 - corners[k])
+                rate = cross(edge, delta)
+                if abs(rate) < 1e-15:
+                    if start < 0:
+                        low, high = 1.0, 0.0
+                    continue
+                cut = -start / rate
+                if rate > 0:
+                    low = max(low, cut)
+                else:
+                    high = min(high, cut)
+            if high - low < 1e-9:
+                continue
+            ends = []
+            for at in (low, high):
+                point = p0 + at * delta
+                (u, v), *_ = np.linalg.lstsq(
+                    np.c_[corners[1] - corners[0], corners[2] - corners[0]], point - corners[0], rcond=None)
+                ends.append(heights[0] + u * (heights[1] - heights[0]) + v * (heights[2] - heights[0]))
+            (h0, h1), base = ends, roof_base[t]
+            if max(h0, h1) <= base:
+                continue
+            a, b = low * lengths[i], high * lengths[i]
+            if h0 < base:  # the roof dips under the floor part-way: keep the part above it
+                a, h0 = a + (b - a) * (base - h0) / (h1 - h0), base
+            elif h1 < base:
+                b, h1 = a + (b - a) * (h0 - base) / (h0 - h1), base
+            pieces.append(shapely.Polygon([(a, base), (b, base), (b, h1), (a, h0)]))
+        return pieces
+
     def outside(i):
-        """Step 1: wall i less the opposite-facing solids in front of it (i's along metres)."""
+        """Step 1: wall i less the solids standing right in front of it (i's along metres)."""
         if i not in exposed:
             region = surface(i)
-            others, bands, along = neighbours(i, same=False)
-            if len(others):
-                cover = [shapely.Polygon(np.c_[along[j], quads[o, :, 1]]).intersection(bands[j])
-                         for j, o in enumerate(others)]
-                region = minus(region, cover)
+            if solids is not None:
+                region = minus(region, filled(i))
             exposed[i] = region
         return exposed[i]
 
@@ -201,7 +271,7 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
         if not emitted[i]:
             continue
         region = outside(i)
-        others, bands, _ = neighbours(i, same=True)
+        others, bands = neighbours(i)
         if len(others):
             cover = []
             for j, o in enumerate(others):
@@ -242,11 +312,14 @@ def assemble_walls(shells, context=()):
     if not sum(counts):
         return [np.empty((0, 3)) for _ in range(requested)]
     keys = {key: n for n, key in enumerate(sorted({b.key for b, _ in shells}))}
+    shell_emit = np.array(order) < requested
+    shell_group = [keys[b.key] for b, _ in shells]
     walls, owners = exposed_wall_quads(
         np.concatenate([shell[4] for _, shell in shells]),
         with_owners=True,
-        emit=np.repeat(np.array(order) < requested, counts),
-        groups=np.repeat([keys[b.key] for b, _ in shells], counts),
+        emit=np.repeat(shell_emit, counts),
+        groups=np.repeat(shell_group, counts),
+        solids=shell_solids(shells, shell_emit, shell_group),
     )
     source = np.repeat(np.arange(len(shells)), counts)
     owner = source[owners]

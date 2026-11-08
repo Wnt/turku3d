@@ -37,49 +37,6 @@ def test_partial_overlap_preserves_sloping_exposed_union():
             assert part.intersection(other).area < 1e-8
 
 
-def test_preserves_separated_walls_and_opposite_walls_of_unemitted_context():
-    first = wall(0, 10, 0, 5)
-    opposite = first[[1, 0, 3, 2]]
-    separate = wall(0, 10, 0, 5, .02)
-    np.testing.assert_array_equal(exposed_wall_quads(np.concatenate([first, separate])),
-                                  np.concatenate([first, separate]))
-    # A neighbour tile's solid (context) never hides an emitted wall: it may load later.
-    result = exposed_wall_quads(np.concatenate([first, opposite]), emit=np.array([True, False]),
-                                groups=np.array([0, 1]))
-    np.testing.assert_array_equal(result, first)
-
-
-def test_back_to_back_part_walls_keep_only_what_rises_above_the_other_part():
-    """t0_0_-1: every roof-part boundary carried two walls from the ground to the roof inside the
-    building; a stepped roof showed five nested layers."""
-    tall = wall(0, 10, 0, 9)
-    low = wall(0, 10, 0, 4)[[1, 0, 3, 2]]  # the neighbouring part's wall, facing back into the tall part
-    result = exposed_wall_quads(np.concatenate([tall, low])).reshape(-1, 4, 3)
-    assert area(result) == pytest.approx(10 * (9 - 4))
-    assert result[:, :, 1].min() == pytest.approx(4)
-    # Equal heights: both walls are inside the building and nothing is painted.
-    assert not len(exposed_wall_quads(np.concatenate([wall(0, 10, 0, 6), wall(0, 10, 0, 6)[[1, 0, 3, 2]]])))
-
-
-def test_crossing_roof_edges_leave_each_wall_its_exposed_triangle():
-    # Two roof planes meet along the boundary, crossing at its middle: each wall shows above the other.
-    first = wall(0, 10, 0, 8)
-    first[2, 1] = 4  # 8 m at x=0, 4 m at x=10
-    second = wall(0, 10, 0, 4)
-    second[2, 1] = 8  # 4 m at x=0, 8 m at x=10
-    second = second[[1, 0, 3, 2]]
-    result = exposed_wall_quads(np.concatenate([first, second])).reshape(-1, 4, 3)
-    assert area(result) == pytest.approx(2 * (5 * 4 / 2))  # two triangles: 5 m along, 4 m high at the ends
-    assert result[:, :, 1].min() == pytest.approx(4, abs=1e-6)
-
-
-def test_a_wall_beside_a_raised_part_keeps_its_passage_below():
-    ground = wall(0, 10, 0, 12)
-    bridge = wall(2, 6, 3, 9)[[1, 0, 3, 2]]  # a part over a passage, 3 m above the ground
-    result = exposed_wall_quads(np.concatenate([ground, bridge])).reshape(-1, 4, 3)
-    assert area(result[:3]) + area(result[3:]) == pytest.approx(10 * 12 - 4 * 6)
-
-
 def test_equal_walls_have_stable_single_owner():
     source = np.concatenate([wall(0, 10, 0, 5)] * 3)
     np.testing.assert_array_equal(exposed_wall_quads(source), source[:4])
@@ -94,47 +51,131 @@ def test_short_overlap_uses_shared_frontage_for_plane_distance():
     np.testing.assert_array_equal(result, long)
 
 
+def test_preserves_walls_two_centimetres_apart():
+    first, separate = wall(0, 10, 0, 5), wall(0, 10, 0, 5, .02)
+    np.testing.assert_array_equal(exposed_wall_quads(np.concatenate([first, separate])),
+                                  np.concatenate([first, separate]))
+
+
+def block(x0, x1, z0, z1, base, top, top_at_x1=None):
+    """A box part as coarse/extrusion._extrude makes it: a counter-clockwise (x, z) footprint, so its
+    walls face out, from ``base`` up to a roof that may slope along x."""
+    def height(x):
+        return top if top_at_x1 is None else top + (top_at_x1 - top) * (x - x0) / (x1 - x0)
+    ring = [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]
+    walls = [[[p[0], base, p[1]], [q[0], base, q[1]], [q[0], height(q[0]), q[1]], [p[0], height(p[0]), p[1]]]
+             for p, q in zip(ring, ring[1:] + ring[:1], strict=True)]
+    roof = np.array([[x, height(x), z] for x, z in ring])
+    return np.array(walls, float), roof[[[0, 1, 2], [0, 2, 3]]], base
+
+
+def trim(*blocks, emit=None, groups=None, extra=None):
+    walls = np.concatenate([b[0] for b in blocks] + ([extra[0]] if extra else []))
+    owner = np.repeat(np.arange(len(blocks)), 4)
+    if extra:
+        owner = np.r_[owner, [extra[1]] * len(extra[0])]
+    emit = np.ones(len(blocks), bool) if emit is None else np.asarray(emit, bool)
+    groups = np.zeros(len(blocks), int) if groups is None else np.asarray(groups)
+    solids = (np.concatenate([b[1] for b in blocks]), np.repeat([b[2] for b in blocks], 2).astype(float),
+              np.repeat(groups, 2), np.repeat(emit, 2))
+    return exposed_wall_quads(walls.reshape(-1, 3), emit=emit[owner], groups=groups[owner],
+                              solids=solids).reshape(-1, 4, 3)
+
+
+def facing(quads, direction):
+    """Painted area of the walls facing ``direction`` (an (x, z) unit vector), in wall metres."""
+    total = 0.0
+    for q in quads:
+        run = q[1, [0, 2]] - q[0, [0, 2]]
+        length = np.linalg.norm(run)
+        if length < 1e-12 or np.dot([run[1], -run[0]], direction) / length < .999:
+            continue
+        along = (q[:, [0, 2]] - q[0, [0, 2]]) @ (run / length)
+        total += shapely.Polygon(np.c_[along, q[:, 1]]).area
+    return total
+
+
+SOUTH, NORTH = (0, -1), (0, 1)  # -z, +z
+
+
+def test_back_to_back_part_walls_keep_only_what_rises_above_the_other_part():
+    """t0_0_-1: every roof-part boundary carried two walls from the ground to the roof inside the
+    building; a stepped roof showed five nested layers."""
+    tall, low = block(0, 10, 0, 10, 0, 9), block(0, 10, -5, 0, 0, 4)
+    result = trim(tall, low)
+    boundary = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
+    assert facing(boundary, SOUTH) == pytest.approx(10 * (9 - 4))  # the tall part above the low roof
+    assert facing(boundary, NORTH) == pytest.approx(0)  # the low part's wall is inside the tall one
+    equal = trim(block(0, 10, 0, 10, 0, 6), block(0, 10, -5, 0, 0, 6))
+    assert not len(equal[np.all(np.abs(equal[:, :, 2]) < 1e-9, axis=1)])
+
+
+def test_crossing_roof_edges_leave_each_wall_its_exposed_triangle():
+    # Two roof planes meet along the boundary, crossing at its middle: each wall shows above the other.
+    result = trim(block(0, 10, 0, 10, 0, 8, 4), block(0, 10, -5, 0, 0, 4, 8))
+    boundary = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
+    assert facing(boundary, SOUTH) == pytest.approx(5 * 4 / 2)
+    assert facing(boundary, NORTH) == pytest.approx(5 * 4 / 2)
+
+
+def test_a_wall_beside_a_raised_part_keeps_its_passage_below():
+    result = trim(block(0, 10, 0, 10, 0, 12), block(2, 6, -5, 0, 3, 9))  # a part over a 3 m passage
+    boundary = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
+    assert facing(boundary, SOUTH) == pytest.approx(10 * 12 - 4 * 6)
+
+
 def test_a_sliver_part_in_front_of_a_taller_facade_leaves_no_hole():
     """train12 t0_0_-1 (Uusi Börs, market pavilion): a millimetre roof-part sliver stood in front of
-    a taller facade. The sliver's solid trimmed the facade, and the facade's untrimmed extent took the
-    sliver's own outer wall: a full-height slot painted by neither."""
-    facade = wall(0, 10, 0, 10)                       # the tall part's outer wall
-    sliver_inner = wall(0, 10, 0, 6)[[1, 0, 3, 2]]    # the sliver's wall against it, facing back
-    sliver_outer = wall(0, 10, 0, 6, -.003)           # the sliver's street face, 3 mm out (walls face right: -z)
-    result = exposed_wall_quads(np.concatenate([facade, sliver_inner, sliver_outer])).reshape(-1, 4, 3)
-    assert area(result) == pytest.approx(10 * 10)  # the whole street face, painted once
-    lower = [q for q in result if q[:, 1].max() <= 6 + 1e-9]
-    assert lower and all(abs(q[0, 2] + .003) < 1e-9 for q in lower)  # by the sliver's outer wall
+    a taller facade. Neither painted the street face where the sliver stood: a full-height slot."""
+    result = trim(block(0, 10, 0, 10, 0, 10), block(0, 10, -.003, 0, 0, 6))
+    street = result[np.all(result[:, :, 2] < 1e-9, axis=1)]
+    assert facing(street, SOUTH) == pytest.approx(10 * 10)  # painted once
+    lower = [q for q in street if q[:, 1].max() <= 6 + 1e-9 and facing([q], SOUTH) > 0]
+    assert lower and all(np.allclose(q[:, 2], -.003) for q in lower)  # by the sliver's outer wall
 
 
 def test_other_buildings_only_trim_when_both_are_emitted_but_own_parts_always_do():
-    tall = wall(0, 10, 0, 9)
-    low = wall(0, 10, 0, 4)[[1, 0, 3, 2]]
-    source = np.concatenate([tall, low])
-    same_building = exposed_wall_quads(source, emit=np.array([True, False]), groups=np.array([0, 0]))
-    assert area(same_building) == pytest.approx(10 * 5)
-    other_building = exposed_wall_quads(source, emit=np.array([True, False]), groups=np.array([0, 1]))
-    np.testing.assert_array_equal(other_building, tall)
+    tall, low = block(0, 10, 0, 10, 0, 9), block(0, 10, -5, 0, 0, 4)
+    same_building = trim(tall, low, emit=[True, False], groups=[0, 0])
+    assert facing(same_building[np.all(np.abs(same_building[:, :, 2]) < 1e-9, axis=1)], SOUTH) == pytest.approx(50)
+    other_building = trim(tall, low, emit=[True, False], groups=[0, 1])
+    assert facing(other_building[np.all(np.abs(other_building[:, :, 2]) < 1e-9, axis=1)], SOUTH) == pytest.approx(90)
 
 
 def test_back_to_back_faces_of_one_thin_part_keep_each_other():
-    outer = wall(0, 10, 0, 6, -.002)
-    inner = wall(0, 10, 0, 6)[[1, 0, 3, 2]]  # 2 mm behind the outer face, facing the other way
-    result = exposed_wall_quads(np.concatenate([outer, inner]))
-    assert area(result) == pytest.approx(2 * 60)
+    result = trim(block(0, 10, -.002, 0, 0, 6))
+    assert facing(result, SOUTH) == pytest.approx(60)
+    assert facing(result, NORTH) == pytest.approx(60)
 
 
-def test_walls_facing_each_other_across_a_millimetre_gap_are_both_hidden():
-    a = wall(0, 10, 0, 6)
-    b = wall(0, 10, 0, 6, -.004)[[1, 0, 3, 2]]  # 4 mm in front of a, facing back at it
-    assert not len(exposed_wall_quads(np.concatenate([a, b])))
+def test_walls_facing_each_other_across_a_sub_millimetre_gap_are_both_hidden():
+    result = trim(block(0, 10, 0, 5, 0, 6), block(0, 10, -5, -.0005, 0, 6))
+    between = result[np.all(np.abs(result[:, :, 2]) < .001, axis=1)]
+    assert facing(between, SOUTH) == pytest.approx(0) and facing(between, NORTH) == pytest.approx(0)
 
 
-def test_walls_that_only_touch_a_neighbour_band_at_an_edge_do_not_break_the_overlay():
-    """train15 t0_0_-1 failed in GEOS when a band only touched a wall: lines and points in the cover."""
-    tall = wall(0, 10, 0, 9)
-    touching = wall(10, 20, 0, 9, -.002)       # same facing, meets the tall wall only at x = 10
-    sliver = wall(0, 10, 0, 4, -.003)          # in front of the tall wall's lower part
-    back = wall(0, 10, 0, 4, -.001)[[1, 0, 3, 2]]
-    result = exposed_wall_quads(np.concatenate([tall, touching, sliver, back])).reshape(-1, 4, 3)
-    assert area(result) == pytest.approx(10 * 9 + 10 * 9)
+def test_a_ring_running_along_its_own_edge_both_ways_keeps_the_street_face():
+    """train16 t0_0_-1 (Building_567784's end wall, the market pavilion): the footprint ring ran along
+    a facade both ways, adding an inward-facing wall on the street face with nothing in front of it.
+    Trimming by opposite-facing walls took the whole end wall away."""
+    part = block(0, 10, 0, 10, 0, 9)
+    inward = part[0][:1][:, [1, 0, 3, 2]]  # the same street edge, run the other way
+    result = trim(part, extra=(inward, 0))
+    street = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
+    assert facing(street, SOUTH) == pytest.approx(90)
+    assert facing(street, NORTH) == pytest.approx(0)  # its solid is behind: inside the part
+
+
+def test_a_roof_step_inside_one_footprint_keeps_the_wall_above_the_lower_roof():
+    """train16 t0_0_-1 (Uusi Börs between its towers): one footprint, two roof heights; the wall on
+    the step rises above the lower roof in front of it."""
+    high, low = block(0, 10, 0, 10, 0, 9), block(0, 10, -5, 0, 0, 5)
+    result = trim(high, low, groups=[0, 0])
+    boundary = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
+    assert facing(boundary, SOUTH) == pytest.approx(10 * 4)
+
+
+def test_a_part_that_only_touches_a_wall_at_its_end_does_not_break_the_overlay():
+    """train15 t0_0_-1 failed in GEOS when a cover only touched a wall: lines and points."""
+    result = trim(block(0, 10, 0, 10, 0, 9), block(10, 20, -.002, 10, 0, 9), block(0, 10, -.004, -.0005, 0, 4))
+    assert facing(result[np.all(result[:, :, 2] < 1e-9, axis=1)], SOUTH) == pytest.approx(10 * 9 + 10 * 9)
