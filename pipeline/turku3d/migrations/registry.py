@@ -3,7 +3,7 @@
 Each entry runs at the end of every generator build and over existing farm products."""
 
 from . import (bridge_ends, chain_record, finished_ground, floodlights, furniture, landmark_windows,
-               monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, stand_roofs,
+               monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps, stand_roofs,
                structure_materials, trees_lidar, wires, facade_reality)
 
 CHAIN = (
@@ -36,4 +36,6 @@ CHAIN = (
     structure_materials.MIGRATION,
     # Rebuild of every tile with buildings: source-driven facade material, opening and colour rules.
     facade_reality.MIGRATION,
+    # Lamps where a lighting span wire the survey saw without one crosses a lit street.
+    span_lamps.MIGRATION,
 )
