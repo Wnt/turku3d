@@ -183,3 +183,64 @@ test('safe reset never returns the player to a sample whose collision left the m
   expect(info.mock.calls.at(-1)![0]).toMatch(/^\[recovery\] reset \(collision\) from /);
   info.mockRestore(); warn.mockRestore();
 });
+
+test('a fast driven car is eased to a stop before collision that has not arrived, never frozen at its edge, and drives on once it lands', async () => {
+  const pw = new PhysicsWorld(R); worlds.push(pw);
+  for (let i = 0; i <= 5; i++) await pw.loadTile(`c_${i}_2`, col(`c_${i}_2`));
+  pw.world.step();
+  pw.spawnCharacter({ x: 10, y: 2.05, z: 156 });
+  pw.setCharacterEnabled(false);
+  pw.spawnVehicle({ x: 20, y: 2.8, z: 156 }, 0);
+  pw.vehicle!.body.setLinvel({ x: 30, y: 0, z: 0 }, true);
+  pw.edges.setKnown(['c_6_2'], []);
+  pw.setTileLoading('c_6_2', true);
+  const drive = { throttle: 1, steer: 0, brake: 0, handbrake: false };
+  const speeds: number[] = [];
+  let eased = false;
+  for (let k = 0; k < Math.round(20 / DT); k++) {
+    pw.step(DT, idle, drive);
+    expect(pw.vehicle!.body.bodyType()).toBe(R.RigidBodyType.Dynamic);
+    const v = pw.vehicle!.body.linvel();
+    speeds.push(Math.hypot(v.x, v.z));
+    eased ||= pw.vehicleStates().find(s => s.id === 'player')!.eased !== undefined;
+  }
+  expect(eased).toBe(true);
+  expect(pw.coverageBlock).toBeNull();
+  expect(Math.max(...speeds)).toBeGreaterThan(24);
+  expect(speeds.at(-1)!).toBeLessThan(0.5);
+  // Smooth: above walking pace no step loses more than an emergency stop (15 m/s²), and no step at all loses 0.5 m/s;
+  // the hold took the whole speed away in one step.
+  for (let k = 1; k < speeds.length; k++) {
+    expect(speeds[k - 1] - speeds[k]).toBeLessThan(0.5);
+    if (speeds[k] > 3) expect(speeds[k - 1] - speeds[k]).toBeLessThan(15 * DT);
+  }
+  const x = pw.vehicle!.body.translation().x;
+  expect(x).toBeGreaterThan(340);
+  expect(x).toBeLessThan(375);
+  await pw.loadTile('c_6_2', col('c_6_2'));
+  pw.setTileLoading('c_6_2', false);
+  for (let k = 0; k < Math.round(3 / DT); k++) pw.step(DT, idle, drive);
+  expect(pw.vehicle!.body.translation().x).toBeGreaterThan(380);
+});
+
+test('cells ahead of a moving driven car install before nearer cells behind it', async () => {
+  const pw = new PhysicsWorld(R); worlds.push(pw);
+  await pw.loadTile('c_3_2', col('c_3_2'));
+  pw.world.step();
+  pw.spawnCharacter({ x: 190, y: 2.05, z: 156 });
+  pw.setCharacterEnabled(false);
+  pw.spawnVehicle({ x: 200, y: 2.8, z: 156 }, 0);
+  const order: string[] = [];
+  const request = (id: string) => pw.requestTile(id, col(id), r => { if (!(r instanceof Error)) order.push(id); });
+  // Behind: c_1_2 is 75 m away; ahead: c_5_2 is 112.5 m away.
+  request('c_1_2'); request('c_5_2');
+  pw.vehicle!.body.setLinvel({ x: 20, y: 0, z: 0 }, true);
+  for (let k = 0; k < 40 && order.length < 2; k++) pw.pumpInstalls(0);
+  expect(order).toEqual(['c_5_2', 'c_1_2']);
+  // Standing still, nearest first.
+  pw.unloadTile('c_1_2'); pw.unloadTile('c_5_2'); order.length = 0;
+  pw.vehicle!.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+  request('c_1_2'); request('c_5_2');
+  for (let k = 0; k < 40 && order.length < 2; k++) pw.pumpInstalls(0);
+  expect(order).toEqual(['c_1_2', 'c_5_2']);
+});

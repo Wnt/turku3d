@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { collisionCovers } from '../../src/physics/collisionCoverage';
+import { collisionCovers, coverageReach, easedSpeed, easeInput } from '../../src/physics/collisionCoverage';
 
 test('stationary actors require actual resident collision, including outside the manifest', () => {
   const loaded = new Set(['c_0_0']);
@@ -39,4 +39,23 @@ test('coverage includes the next step before an actor crosses a loaded edge', ()
   const loaded = new Set(['c_0_0']);
   expect(collisionCovers(loaded, 59, 30, 59, 30, 3)).toBe(true);
   expect(collisionCovers(loaded, 59, 30, 60, 30, 3)).toBe(false);
+});
+
+test('coverage reach finds the gap ahead to half a metre, and the eased input brakes only above the eased speed', () => {
+  const loaded = new Set(['c_0_0', 'c_1_0', 'c_2_0']);
+  // A 3 m footprint going east from x 10 touches c_3_0 once its centre passes 184.5 m.
+  const reach = coverageReach(loaded, 10, 30, 1, 0, 3, 400);
+  expect(reach).toBeGreaterThan(184 - 10 - 0.5); expect(reach).toBeLessThanOrEqual(184.5 - 10);
+  expect(coverageReach(loaded, 10, 30, -1, 0, 3, 400)).toBe(7);
+  expect(coverageReach(loaded, 10, 30, 1, 0, 3, 100)).toBe(Infinity);
+  const allowed = easedSpeed(42); // 5 m/s² over 40 m: 20 m/s
+  expect(allowed).toBeCloseTo(20);
+  const input = { throttle: 1, steer: 0.3, brake: 0, handbrake: false };
+  expect(easeInput(input, 10, 10, allowed)).toBe(input);
+  expect(easeInput(input, 19, 19, allowed)).toEqual({ ...input, throttle: 0, brake: 0 });
+  const braking = easeInput(input, 24, 24, allowed);
+  expect(braking.throttle).toBe(0); expect(braking.brake).toBeGreaterThan(0.9); expect(braking.steer).toBe(0.3);
+  // Rolling backwards towards the gap: forward drive is the brake (vehicle/handling.ts).
+  const back = easeInput({ ...input, throttle: 0, brake: 1 }, -24, 24, allowed);
+  expect(back.brake).toBe(0); expect(back.throttle).toBeGreaterThan(0.9);
 });

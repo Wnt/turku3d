@@ -2,7 +2,7 @@
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { COLLISION_TILE, collisionTileAt, collisionTileId, distToCollisionTile, parseCollisionId, type V3 } from '../core/origin';
-import { collisionCovers, PlayerCoverageHold } from './collisionCoverage';
+import { collisionCovers, coverageReach, easedSpeed, easeInput, easeReachLimit, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
@@ -25,6 +25,12 @@ const CHECK_PRIORITY = 150;
 /** Triangle visits per planning piece (~1 ms). */
 const PLAN_WORK_PER_PIECE = 60_000;
 const parseCellId = (id: string) => parseCollisionId(id);
+/** Below this speed (m/s) a driven car's easing follows the drive it is asked for, not its velocity. */
+const EASE_REST_SPEED = 0.3;
+/** Below this speed (m/s) an eased car creeping at the gap is held by its handbrake instead of braked. */
+const EASE_ROLL_SPEED = 1.5;
+/** Missing collision this close in time (s) ahead of the driven car makes cell installs urgent. */
+const COVERAGE_URGENT_S = 4;
 
 export { COVERAGE_HOLD_SECONDS } from './collisionCoverage';
 
@@ -64,6 +70,12 @@ export class PhysicsWorld {
   private loadingCells = new Set<string>();
   private coverageHold = new PlayerCoverageHold();
   get coverageBlock() { return this.coverageHold.state; }
+  /** Speed (m/s) the driven car is eased to before collision that has not arrived (null while not eased). */
+  private easing: number | null = null;
+  /** Seconds until the driven car would reach collision that is not installed (Infinity when none within the search). */
+  private coverageLead = Infinity;
+  /** The driven car reaches missing collision within COVERAGE_URGENT_S, or is held: cell installs get the larger budget. */
+  get coverageUrgent() { return this.coverageLead < COVERAGE_URGENT_S || this.coverageHold.state !== null; }
 
   private vehicleRadii = new Map<string, number>();
   private colliderInfo = new Map<number, ColliderInfo>();
@@ -269,11 +281,17 @@ export class PhysicsWorld {
   /** Queued cell installs and checks, and the longest piece of the latest pump. */
   get installState() { return { queued: this.installs.size, slowest: this.installs.slowest }; }
 
-  /** Cells under or nearest the player's actor (and any held vehicle) install first. */
+  /** Cells under or nearest the player's actor (and any held vehicle) install first; ahead of a moving car a cell counts
+   *  nearer by half its distance along the heading (world/collisionStreaming.ts requests cells in the same order). */
   private installPriority(ij: { i: number; j: number } | null): number {
     if (!ij) return CHECK_PRIORITY;
-    const at = this.charCollider && this.charEnabled ? this.charCollider.translation() : this.vehicles.get(this.drivenId ?? '')?.body.translation();
+    const car = this.charCollider && this.charEnabled ? undefined : this.vehicles.get(this.drivenId ?? '');
+    const at = this.charCollider && this.charEnabled ? this.charCollider.translation() : car?.body.translation();
     let d = at ? distToCollisionTile(at.x, at.z, ij.i, ij.j) : CHECK_PRIORITY;
+    if (car && at) {
+      const v = car.body.linvel(), speed = Math.hypot(v.x, v.z);
+      if (speed > 3) d -= 0.5 * Math.max(0, (((ij.i + 0.5) * COLLISION_TILE - at.x) * v.x + ((ij.j + 0.5) * COLLISION_TILE - at.z) * v.z) / speed);
+    }
     for (const id of this.heldVehicles.keys()) {
       const p = this.vehicles.get(id)?.body.translation();
       if (p) d = Math.min(d, distToCollisionTile(p.x, p.z, ij.i, ij.j));
@@ -566,7 +584,8 @@ export class PhysicsWorld {
       if (old && sleeping && old.sleeping && old.state.lights === vehicle.lights && old.state.horn === vehicle.horn
         && old.state.damage === vehicle.damageWire()) return old.state;
       // Asleep or held for missing collision (Fixed): flagged, since an asleep car's state is the one it fell asleep with.
-      const state: VehicleState = { id, ...vehicle.state(), ...(sleeping ? { asleep: true } : {}), ...(this.heldVehicles.has(id) ? { held: true } : {}) };
+      const state: VehicleState = { id, ...vehicle.state(), ...(sleeping ? { asleep: true } : {}), ...(this.heldVehicles.has(id) ? { held: true } : {}),
+        ...(id === this.drivenId && this.easing !== null ? { eased: +this.easing.toFixed(1) } : {}) };
       this.vehicleSnapshots.set(id, { state, sleeping });
       return state;
     });
@@ -838,7 +857,7 @@ export class PhysicsWorld {
       const tt = performance.now();
       this.traffic?.beforeStep(this.trafficTime - (substeps - 1 - n) * DT);
       trafficMs += performance.now() - tt;
-      this.fixedStep(safeCharacter, vehicle);
+      this.fixedStep(safeCharacter, this.easeForCoverage(vehicle));
       const ta = performance.now();
       if (this.traffic) this.traffic.afterStep(this.poleEvents);
       trafficMs += performance.now() - ta;
@@ -851,6 +870,39 @@ export class PhysicsWorld {
   }
   /** Ambient traffic's share of the latest step() (ms). */
   lastTrafficMs = 0;
+
+  /** The driven car's input eased before collision that is not installed yet: a fast car slows smoothly and stops short
+   *  of the gap (easedSpeed), keeping its steering, instead of reaching the gap's edge and being frozen there with its
+   *  speed (the hold in step() still guards the edge). Also measures the time to that gap (coverageLead). */
+  private easeForCoverage(vehicle: VehicleInput | null): VehicleInput | null {
+    this.easing = null; this.coverageLead = Infinity;
+    const id = this.drivenId, car = id && !this.charEnabled ? this.vehicles.get(id) : undefined;
+    if (!vehicle || !car || this.heldVehicles.has(id!)) return vehicle;
+    const v = car.body.linvel(), speed = Math.hypot(v.x, v.z), p = car.body.translation();
+    const { hx, hz } = chassisForward(car.body.rotation()), forwardSpeed = v.x * hx + v.z * hz;
+    // Moving: along the velocity. At rest: along the drive asked for (the brake pedal reverses at rest).
+    const intent = vehicle.throttle > 0 ? 1 : vehicle.throttle < 0 || vehicle.brake > 0 ? -1 : 0;
+    if (speed < EASE_REST_SPEED && !intent) return vehicle;
+    const [dx, dz] = speed >= EASE_REST_SPEED ? [v.x / speed, v.z / speed] : [hx * intent, hz * intent];
+    const reach = coverageReach(this.supported(p.x, p.z), p.x, p.z, dx, dz, this.vehicleRadii.get(id!)!,
+      Math.max(easeReachLimit(speed), COVERAGE_URGENT_S * speed));
+    if (reach === Infinity) return vehicle;
+    this.coverageLead = reach / Math.max(speed, 1);
+    const allowed = easedSpeed(reach);
+    if (speed >= EASE_ROLL_SPEED) {
+      const eased = easeInput(vehicle, forwardSpeed, speed, allowed);
+      if (eased !== vehicle) this.easing = allowed;
+      return eased;
+    }
+    if (allowed > EASE_ROLL_SPEED) return vehicle;
+    // Creeping at the gap: no drive towards it, the handbrake holds the car unless the driver drives away.
+    this.easing = allowed;
+    if (dx * hx + dz * hz >= 0) {
+      const away = vehicle.brake > 0 || vehicle.throttle < 0;
+      return { ...vehicle, throttle: Math.min(0, vehicle.throttle), handbrake: vehicle.handbrake || !away };
+    }
+    return { ...vehicle, brake: 0, throttle: Math.max(0, vehicle.throttle), handbrake: vehicle.handbrake || vehicle.throttle <= 0 };
+  }
 
   /** Low-level solver step, also used by standalone synthetic collider fixtures. Runtime uses step(). */
   fixedStep(character: CharacterInput | null, vehicle: VehicleInput | null) {

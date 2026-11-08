@@ -93,7 +93,7 @@ function schedule() {
       nextWake = now + DT * 1000;
       const running = !!input?.running && performance.timeOrigin + now - input.at < 500;
       if (pw) {
-        const budget = pw.coverageBlock ? INSTALL_BUDGET.blocked : running ? INSTALL_BUDGET.running : INSTALL_BUDGET.idle;
+        const budget = pw.coverageUrgent ? INSTALL_BUDGET.blocked : running ? INSTALL_BUDGET.running : INSTALL_BUDGET.idle;
         const used = pw.pumpInstalls(budget);
         busy('install', used);
         const { slowest, queued } = pw.installState;

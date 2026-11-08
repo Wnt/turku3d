@@ -38,6 +38,8 @@ export interface VehicleState { lights?: import('../vehicle/signals').LightState
   rearMode?: import('../vehicle/rearSteer').RearSteerMode; rearLocked?: boolean;
   /** The body sleeps (its state is the one it fell asleep with) / is held Fixed until its collision arrives. */
   asleep?: boolean; held?: boolean;
+  /** The driven car is eased down to this speed (m/s) before collision that has not arrived (physics/collisionCoverage.ts). */
+  eased?: number;
   /** Drive command after handling (0..1 forward or reverse, 0 while braking), for engine load. */
   throttleApplied?: number;
   /** Body damage of a damageable car (vehicle/damage.ts encodeDamage), absent while it is undamaged. */
