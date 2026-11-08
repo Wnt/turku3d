@@ -223,6 +223,24 @@ def test_deck_axis_follows_the_carriageway_carrying_most_of_the_deck_not_a_short
     assert abs(coords[-1, 0] - coords[0, 0]) < 0.01 and deck["width"] == 38
 
 
+def test_a_main_carriageway_that_curves_out_at_one_end_is_not_a_descending_link():
+    # Erasmusbrug: the southbound lanes leave the deck band only on their approach curve; as a link
+    # they rode the whole span flat at one end's height, 9 m below the northbound lanes.
+    from turku3d.coarse.bridges import branch_profiles
+
+    def road(key, coords, width=7.5):
+        return {**way(key, coords, width=width), "tags": {"highway": "secondary"}}
+
+    north = road("north", [(300, -5), (0, -5)])
+    south = road("south", [(-40, -40), (0, 5), (300, 5)])
+    link = road("link", [(150, 5), (200, 60)], width=4)
+    outline = shapely.union_all([shapely.box(-1, -10, 301, 10), south["line"].buffer(4), link["line"].buffer(3)])
+    deck = merge_crossings([north, south, link], [("deck", outline, {"layer": "1"})])[0]
+    assert set(deck["members"]) == {"north", "south", "link"}
+    profiles, _ = branch_profiles(deck, lambda xz: np.full(len(xz), 10.0), lambda xz: np.zeros(len(xz)))
+    assert len(profiles) == 1 and profiles[0][0].equals(link["line"])
+
+
 def test_passage_cut_removes_collinear_submillimetre_sliver():
     from turku3d.coarse.build import extrude
     from turku3d.coarse.inputs import Building

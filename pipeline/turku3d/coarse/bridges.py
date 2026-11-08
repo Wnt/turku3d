@@ -943,6 +943,7 @@ def approach_branches(way):
 
 
 BRANCH_OUTSIDE = 10.0  # m of a deck member outside the main carriageway that make it a branch
+MAIN_SHARE = 0.5  # of the axis length: a carriageway carried inside the deck this far is a main one
 
 
 def branch_profiles(way, main_height, sample_ground):
@@ -957,8 +958,12 @@ def branch_profiles(way, main_height, sample_ground):
     # branch is a stretch outside the main carriageway.
     # Only carriageways: a cycleway or footway leaving the deck keeps the deck whole (Kalevan's
     # north cycleway split the main deck and sloped its triangles across the main lanes).
+    # A carriageway carried inside the deck along at least MAIN_SHARE of its axis is one of its main
+    # carriageways even where an end curves out (the Erasmusbrug's southbound lanes leave the band only
+    # on their approach curve, and as a link they rode the whole 600 m span flat at one end's height).
     branches = [m for m in members if is_carriageway(m["tags"])
-                and m["line"].difference(merged).length >= BRANCH_OUTSIDE]
+                and m["line"].difference(merged).length >= BRANCH_OUTSIDE
+                and m["line"].intersection(merged).length < MAIN_SHARE * axis.length]
     # Where a link leaves the deck is where it leaves the other members' own carriageways, not the
     # merged deck's width (which also spans the link while it descends alongside).
     core = shapely.union_all([m["line"].buffer(m["width"] / 2) for m in members if m not in branches]) \
