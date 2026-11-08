@@ -7,7 +7,7 @@
     "family": "sedan",
     "length": 4.96,
     "width": 1.9951,
-    "height": 1.4223,
+    "height": 1.4192,
     "wheelbase": 2.8914,
     "hood": 0.25,
     "rear": -0.4,
@@ -49,19 +49,19 @@
   "collision": {
     "center": [
       0,
-      0.7111,
+      0.7096,
       0
     ],
     "half": [
       0.9975,
-      0.7111,
+      0.7096,
       2.48
     ]
   },
   "triangles": [
-    31449,
-    7897,
-    2911
+    31450,
+    7879,
+    2910
   ],
   "source": {
     "title": "Volvo S90 Recharge (Free)",
@@ -86,7 +86,7 @@
     "character": "comfort",
     "lengthM": 4.96,
     "widthM": 1.9951,
-    "heightM": 1.4223,
+    "heightM": 1.4192,
     "wheelbaseM": 2.8914,
     "trackM": 1.6161,
     "wheelRadiusM": 0.361,

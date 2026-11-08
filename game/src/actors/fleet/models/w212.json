@@ -7,7 +7,7 @@
     "family": "sedan",
     "length": 4.87,
     "width": 2.1456,
-    "height": 1.4485,
+    "height": 1.4421,
     "wheelbase": 2.852,
     "hood": 0.25,
     "rear": -0.4,
@@ -49,18 +49,18 @@
   "collision": {
     "center": [
       0,
-      0.7243,
+      0.721,
       0
     ],
     "half": [
       1.0728,
-      0.7243,
+      0.721,
       2.435
     ]
   },
   "triangles": [
     31568,
-    7850,
+    7878,
     2951
   ],
   "source": {
@@ -86,7 +86,7 @@
     "character": "comfort",
     "lengthM": 4.87,
     "widthM": 2.1456,
-    "heightM": 1.4485,
+    "heightM": 1.4421,
     "wheelbaseM": 2.852,
     "trackM": 1.6033,
     "wheelRadiusM": 0.3355,

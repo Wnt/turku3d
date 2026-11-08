@@ -429,7 +429,7 @@ for (const name of ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR']) if (parts[n
 // coin as it rolls, and a tyre whose centre is off its hub orbits it. Turn each wheel part about its tyre's centre until
 // the tyre axle (the least-spread direction of the tyre surface) lies on X, then move that centre onto the hub (the
 // symmetric layout above moved hubs by the left/right differences). The measured width then becomes the true tyre width
-// instead of the posed wheel's footprint.
+// instead of the steered wheel's footprint.
 function axleOf(list, [hx, hy, hz]) {
   const cov = [0, 0, 0, 0, 0, 0, 0, 0, 0], sum = [0, 0, 0];
   let area = 0;
@@ -470,7 +470,8 @@ for (const name of ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR']) {
     const p = turn(t.p[i] - centre[0], t.p[i + 1] - centre[1], t.p[i + 2] - centre[2]), n = turn(t.n[i], t.n[i + 1], t.n[i + 2]);
     t.p.splice(i, 3, ...p.map((v, j) => v + centre[j] + shift[j])); t.n.splice(i, 3, ...n);
   }
-  if (turned) { h.width = box(tyres).size[0]; unposed = true; }
+  // A steered pose widened the measured footprint; a small camber correction leaves the outboard measure as it was.
+  if (angle > 5 * Math.PI / 180) { h.width = box(tyres).size[0]; unposed = true; }
   console.log(JSON.stringify({ wheel: name, turnedDegrees: +(angle * 180 / Math.PI).toFixed(2), centredCm: +(Math.hypot(shift[1], shift[2]) * 100).toFixed(2) }));
 }
 if (unposed) width = Object.values(hubs).reduce((s, h) => s + h.width, 0) / 4;

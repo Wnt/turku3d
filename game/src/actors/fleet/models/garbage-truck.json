@@ -7,7 +7,7 @@
     "family": "truck",
     "length": 9.5,
     "width": 3.1961,
-    "height": 3.7018,
+    "height": 3.7087,
     "wheelbase": 5.227,
     "hood": 0.25,
     "rear": -0.4,
@@ -48,19 +48,19 @@
   "collision": {
     "center": [
       0,
-      1.8509,
+      1.8544,
       0
     ],
     "half": [
       1.598,
-      1.8509,
+      1.8544,
       4.75
     ]
   },
   "triangles": [
-    58945,
+    58944,
     11799,
-    3934
+    3932
   ],
   "source": {
     "title": "GARBAGE TRUCK",
@@ -85,7 +85,7 @@
     "character": "utility",
     "lengthM": 9.5,
     "widthM": 3.1961,
-    "heightM": 3.7018,
+    "heightM": 3.7087,
     "wheelbaseM": 5.227,
     "trackM": 2.2885,
     "wheelRadiusM": 0.4884,
