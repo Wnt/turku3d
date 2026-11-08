@@ -24,3 +24,27 @@ test('uniform update ranges queue once per upload without a per-upload Set', () 
   expect(group._addedIndices.size).toBe(0);
   expect(group.updateRanges[0]).toBe(group._updateRangeCache.get(0));
 });
+
+test("a program's draws share their range cache: a new draw still queues every uniform it changes", () => {
+  stampUniformRanges(UniformsGroup.prototype);
+  const template = new UniformsGroup('object');
+  const matrix = { index: 0, offset: 0, itemSize: 16 }, paint = { index: 1, offset: 16, itemSize: 4 };
+  const ranges = (group: { updateRanges: { start: number; count: number }[] }) => group.updateRanges.map(r => [r.start, r.count]);
+  // r186 Binding.clone: Object.assign over a new group, so the clones share the template's range cache and list.
+  const prepared = template.clone(), driven = template.clone();
+  expect(driven._updateRangeCache).toBe(prepared._updateRangeCache);
+  // A prepared (never drawn again) draw uploads its first values.
+  prepared.addUniformUpdateRange(matrix); prepared.addUniformUpdateRange(paint);
+  expect(ranges(prepared)).toEqual([[0, 16], [16, 4]]);
+  prepared.clearUpdateRanges();
+  // The driven car's draw of the same program: its first upload carries its paint too, not only its matrix.
+  driven.addUniformUpdateRange(matrix); driven.addUniformUpdateRange(paint);
+  expect(ranges(driven)).toEqual([[0, 16], [16, 4]]);
+  driven.clearUpdateRanges();
+  // Later uploads queue what changed, once each.
+  driven.addUniformUpdateRange(matrix); driven.addUniformUpdateRange(matrix);
+  expect(ranges(driven)).toEqual([[0, 16]]);
+  driven.clearUpdateRanges();
+  prepared.addUniformUpdateRange(paint);
+  expect(ranges(prepared)).toEqual([[16, 4]]);
+});
