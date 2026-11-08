@@ -486,6 +486,28 @@ def passage_footprint(polygon):
     return polygon.simplify(0.0005, preserve_topology=True)
 
 
+OPEN_SLIVER = 0.5  # m2: a passage cut left over beside an open ground floor smaller than this is no cut
+OPEN_SEAM = 0.25  # m: half the width of a leftover strip between a passage cut and an open ground floor
+
+
+def open_ground_areas(shells):
+    """Building key -> union of the ground floor areas its shell already leaves open (open_ground.supported_pieces:
+    OSM raised parts over open ground whose LoD2 walls reach the soffit)."""
+    from turku3d.open_ground import supported_pieces
+
+    areas = {}
+    for b, shell in shells:
+        found = [piece for piece, _ in supported_pieces(b, shell[4])]
+        if found:
+            areas[b.key] = shapely.union_all(found)
+    return areas
+
+
+def without_slivers(polygon):
+    """`polygon` without strips narrower than 2 * OPEN_SEAM (left where a corridor edge runs along an open area)."""
+    return shapely.make_valid(polygon.buffer(-OPEN_SEAM, join_style="mitre").buffer(OPEN_SEAM, join_style="mitre"))
+
+
 def _polygon_faces(faces, polygon, height):
     for poly in shapely.get_parts(polygon):
         if poly.geom_type != "Polygon" or poly.area < 1e-10:
@@ -1274,6 +1296,7 @@ def produce(
         _polygon_faces(remainder, poly, lambda q, coeff=coeff: np.c_[q, np.ones(len(q))] @ coeff)
     if remainder.indices:
         meshes.append(remainder.mesh("tunnel:ground-edge", "paving_slab"))
+    opened = open_ground_areas(shells)
     for corridor, ceiling, *mouths in passages:
         updated = []
         for b, shell in shells:
@@ -1282,6 +1305,15 @@ def produce(
                 continue
             # A building the passage runs through opens across its whole mouth (passage_mouths).
             cut = mouths[0] if mouths else corridor
+            if mouths and b.key in opened:
+                # Where the building's ground floor is open already (an OSM raised part over open ground: pilotis,
+                # soffit and collision from turku3d.open_ground), its own soffit is the clear height, not the passage
+                # default. The covered sidewalk under the Köysirata (Turku) cut a 2.85 m strip from its pilotis
+                # shell, and the split shell no longer qualified for its open ground floor.
+                cut = without_slivers(cut.difference(opened[b.key]))
+                if cut.intersection(b.footprint).area < OPEN_SLIVER:
+                    updated.append((b, shell))
+                    continue
             for footprint, base in (
                 (b.footprint.difference(cut), b.base),
                 (b.footprint.intersection(cut), max(b.base, ceiling)),

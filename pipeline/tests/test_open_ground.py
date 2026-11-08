@@ -99,3 +99,54 @@ def test_shallow_overhang_strip_is_a_covered_recess_not_an_open_ground_floor():
     b.open_ground = [(shapely.box(4, 10, 14, 13), 3.0)]
     assert interior_quads(b, walls) == []
     assert not any(edge_plans(q, b) for q in walls.reshape(-1, 4, 3))
+
+
+def pilotis_scene(ways, open_piece=None):
+    """A Köysirata-like ropewalk: 60 x 6 m, ground 2 m, top 11 m, raised one storey (building:min_level=1) over the
+    open ground along `open_piece` (default: the whole footprint)."""
+    from turku3d import config as C
+    from turku3d.coarse.build import extrude
+    from turku3d.coarse.tunnels import produce
+
+    footprint = shapely.geometry.polygon.orient(shapely.box(10, 20, 70, 26), 1.0)
+    b = Building("ropewalk", footprint, 2.0, 11.0, "facade_plaster")
+    b.open_ground = [(open_piece if open_piece is not None else footprint, 3.0, 2.0)]
+    tile = C.VisualTile(0, 0, 0)
+    pos = np.array([[0, 2, 0], [100, 2, 0], [0, 2, 100], [100, 2, 100]], float)
+    idx = np.array([[0, 2, 1], [1, 2, 3]], np.uint32)
+    return produce(tile, ways, pos, idx, [(b, extrude(b))], extrude, lambda x, z: 2.0)
+
+
+def open_walls(result):
+    """Arcade cuts the shells' walls get, and the open pieces of every shell."""
+    from turku3d.open_ground import pieces
+
+    arcades = [p for b, shell in result.shells for q in np.asarray(shell[4]).reshape(-1, 4, 3) for p in edge_plans(q, b)]
+    return arcades, [piece for b, _ in result.shells for piece in pieces(b)]
+
+
+def test_a_covered_sidewalk_under_pilotis_keeps_the_open_ground_floor():
+    """Turku's Köysirata: OSM maps the sidewalk under the raised ropewalk as covered=yes along its street facade. The
+    passage cut a 2.85 m strip out of the shell, and the split shell lost its open ground floor: a solid block."""
+    sidewalk = ("sidewalk", shapely.LineString([(8, 20), (72, 20)]),
+                {"highway": "footway", "footway": "sidewalk", "covered": "yes"})
+    result = pilotis_scene([sidewalk])
+    assert len(result.shells) == 1 and result.shells[0][0].base == 2.0
+    arcades, open_pieces = open_walls(result)
+    assert len(open_pieces) == 1 and open_pieces[0][1] == pytest.approx(5.0)  # the soffit, not the 2.85 m passage
+    assert sum(p["metric"][2] - p["metric"][0] for p in arcades) == pytest.approx(132, abs=1.5)  # all four faces
+    assert all(p["metric"][3] == pytest.approx(5.0) for p in arcades)
+    assert not result.ceilings
+
+
+def test_a_covered_sidewalk_past_the_pilotis_still_lifts_the_closed_end():
+    """The same sidewalk runs on under the building's closed end: there it keeps its covered passage, and the cut
+    stops at the open ground floor instead of splitting it."""
+    sidewalk = ("sidewalk", shapely.LineString([(8, 20), (72, 20)]),
+                {"highway": "footway", "footway": "sidewalk", "covered": "yes"})
+    result = pilotis_scene([sidewalk], open_piece=shapely.box(10, 20, 55, 26))
+    raised = [b for b, _ in result.shells if b.base > 2.0]
+    assert len(raised) == 1 and raised[0].footprint.bounds == pytest.approx((55, 20, 70, 21.5), abs=0.3)
+    arcades, open_pieces = open_walls(result)
+    assert [round(p.area) for p, _ in open_pieces] == [270]
+    assert sum(p["metric"][2] - p["metric"][0] for p in arcades) == pytest.approx(96, abs=1.5)  # long faces, west end
