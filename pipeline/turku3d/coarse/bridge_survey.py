@@ -116,6 +116,28 @@ def source_paths(tile):
     return result
 
 
+MAX_GRADE = 0.25  # between lidar deck stations: steeper is not one deck surface
+END_TRIM = 6.0  # m at each end of the axis where a step in the returns is the ground beside the abutment
+
+
+def trim_ends(s, h):
+    """An end station can read the street or quay beside the abutment instead of the deck (the
+    Erasmusbrug's north end station: 3.2 m beside a 10 m deck end), which rejected a whole measured
+    profile. A step within END_TRIM of either end holds the deck level from the first station past
+    it; a step anywhere else, or on a deck too short to tell its ends from its span, still rejects."""
+    if s[-1] <= 4 * END_TRIM:
+        return h
+    h = h.copy()
+    steep = np.flatnonzero(np.abs(np.diff(h) / np.diff(s)) > MAX_GRADE)
+    start = steep[s[steep + 1] <= END_TRIM]
+    if len(start):
+        h[: start.max() + 1] = h[start.max() + 1]
+    end = steep[s[steep] >= s[-1] - END_TRIM]
+    if len(end):
+        h[end.min() + 1:] = h[end.min()]
+    return h
+
+
 def measure(way, points, classes):
     """Robust deck stations with held-out residuals; abstain on sparse/noisy returns.
 
@@ -144,8 +166,8 @@ def measure(way, points, classes):
     report = {"profile_source": "ground-key-point fallback", "coverage": float(known.mean())}
     if known.mean() < 0.8 or not known[0] or not known[-1]:
         return report
-    h = np.interp(s, s[known], h[known])
-    if np.max(np.abs(np.diff(h) / np.diff(s))) > 0.25:
+    h = trim_ends(s, np.interp(s, s[known], h[known]))
+    if np.max(np.abs(np.diff(h) / np.diff(s))) > MAX_GRADE:
         return report
     residual = np.abs(points[near & held, 1] - np.interp(projected[near & held], s, h))
     validation = points[near & held]

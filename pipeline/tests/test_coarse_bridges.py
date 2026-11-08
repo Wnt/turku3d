@@ -286,6 +286,16 @@ def test_lidar_profile_preserves_crown_and_rejects_sparse_or_steep_support():
     assert report["median_error_m"] < 0.03
     assert report["heldout_count"] > 100
     assert "heights" not in measure(deck, points[:5], np.full(5, 12))
+    # Erasmusbrug: the first station reads the street beside the abutment; the measured profile
+    # stays, held level at that end.
+    beside = points.copy()
+    beside[beside[:, 0] < 2.0, 1] = 1.0
+    report = measure(deck, beside, np.full(len(beside), 12))
+    assert report["coverage"] == 1 and abs(report["heights"][0] - 5.1) < 0.05 and max(report["heights"]) > 5.55
+    # A step inside the span still rejects it.
+    step = points.copy()
+    step[step[:, 0] > 30, 1] += 3.0
+    assert "heights" not in measure(deck, step, np.full(len(step), 12))
     points[:, 1] = points[:, 0]
     assert "heights" not in measure(deck, points, np.full(len(points), 12))
 
