@@ -127,6 +127,8 @@ const START_VIEW_M = 300;
 const START_VIEW_HALF = 0.75;
 /** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
 const ABANDON_AFTER_MS = 2000;
+/** Speed (m/s) from which streaming keeps frames smooth (StreamingAllowance.MOVING_TARGET): a fast car. */
+const MOVING_SPEED = 8;
 /** Speed (m/s) below which a tile's preparation ranks by distance as if the player moved at this speed. */
 const PREPARE_RANK_SPEED = 5;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
@@ -567,6 +569,7 @@ export class CoarseTiles {
     for (const id of nextWindow) if (!this.leadSince.has(id)) this.leadSince.set(id, now);
     // Streaming may spend more of the frame's headroom while the current window still waits for full detail.
     streamingAllowance.urgent = wanted.some(id => { const e = this.entries.get(id); return !!e?.preview || (!!e?.refreshing && !!e.model); });
+    streamingAllowance.moving = Math.hypot(this.velocity.x, this.velocity.z) >= MOVING_SPEED;
     // An install for a tile that stayed off the window, the path and the view stops at its next stage.
     for (const [id, e] of this.entries) {
       if (!e.refreshing || !e.preview || wanted.includes(id) || nextWindow.includes(id)) { this.offPath.delete(id); continue; }

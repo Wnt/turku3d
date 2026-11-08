@@ -70,6 +70,18 @@ test('the window steers the frame interval to 24 ms; prefetch only spends what f
   now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window
 });
 
+test('while the player moves fast the window keeps frames smooth: 17.5 ms instead of 24 ms, floors kept', () => {
+  const account = new StreamingAllowance(() => 0);
+  const frames = (n: number, interval: number) => { for (let i = 0; i < n; i++) { account.opened(); account.frame(8, interval); } };
+  account.urgent = true; frames(60, 20); // 50 fps: under the window's 24 ms target, the window grows
+  expect(account.limit).toBe(6);
+  account.moving = true; frames(80, 20); // the same frames at speed are over 17.5 ms: back to the window's floor
+  expect(account.target).toBe(StreamingAllowance.MOVING_TARGET);
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+  account.moving = false; frames(80, 20); // stopped: the window waits at 24 ms again
+  expect(account.limit).toBe(6);
+});
+
 test('every streaming budget keeps its own window, so one stage cannot starve another', async () => {
   let now = 0, frames = 0;
   const account = new StreamingAllowance(() => now);

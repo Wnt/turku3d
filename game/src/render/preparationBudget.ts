@@ -43,7 +43,13 @@ export class MainThreadIdle {
 export class StreamingAllowance {
   static readonly WINDOW_TARGET = 24;
   static readonly PREFETCH_TARGET = 20.5;
-  get target() { return this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET; }
+  /** While the player moves fast (`moving`, coarseTiles) frames come first: at 23 m/s the window has stand-ins nearly
+   *  all the time, so the urgent 24 ms target held the Air at ~50 fps once the graphics queue kept up (fastdrive
+   *  fly 2026-11-08: 17.5 ms gave the same stand-ins at 53.5 fps). The per-budget floors still move installs along. */
+  static readonly MOVING_TARGET = 17.5;
+  get target() {
+    return this.moving ? StreamingAllowance.MOVING_TARGET : this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET;
+  }
   static readonly MIN_MS = 0.5;
   static readonly BASE_MS = 2;
   /** Idle the main thread keeps per frame: streaming grows into idle above IDLE_MARGIN_MS and gives back below it;
@@ -61,6 +67,8 @@ export class StreamingAllowance {
   private lastWindows = 1;
   /** The current 3x3 window still waits for full installs (coarseTiles). */
   urgent = false;
+  /** The player moves at MOVING_SPEED or faster (coarseTiles). */
+  moving = false;
   constructor(private now = () => performance.now()) {}
   /** `idleMs`: the main thread's idle time since the previous frame (MainThreadIdle); `gpuMs`: the latest GPU frame
    *  time (0 without timestamp queries: CPU-bound control only). */
@@ -88,7 +96,7 @@ export class StreamingAllowance {
   /** Diagnostics (window.__perf.allowance): the controller's state and what budgets and the yield pacer get now. */
   stats() {
     const r = (x: number) => Math.round(x * 10) / 10;
-    return { urgent: this.urgent, total: r(this.total), limit: r(this.limit), share: r(this.share), windows: this.lastWindows,
+    return { urgent: this.urgent, moving: this.moving, total: r(this.total), limit: r(this.limit), share: r(this.share), windows: this.lastWindows,
       interval: r(this.interval), idle: r(this.idle), gpu: r(this.gpu) };
   }
   /** Milliseconds one streaming budget may work in this frame. */
