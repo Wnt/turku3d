@@ -72,6 +72,7 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
     water = list(inputs.water)
     roads = inputs.roads["json"] if inputs.roads else None
     barriers = list(inputs.barriers or ())
+    islands = list(getattr(inputs, "islands", ()) or ())
     laz = laz_paths(tile.bbox.buffered(WINDOW))
     overhead = deck_cover(inputs.roads)
     spans = deck_spans(inputs.roads)
@@ -79,7 +80,7 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
         "furniture",
         source_key(*sources(), grid_height, *common),
         [tile, list(inputs.poles), grid_pos, footprints, water, roads, carried, barriers,
-         identities({str(p): p for p in laz}), overhead, spans],
+         identities({str(p): p for p in laz}), overhead, spans, islands],
         lambda: produce(
             tile,
             inputs.poles,
@@ -92,6 +93,7 @@ def stage(cache, tile, inputs, grid_pos, carried, common):
             laz,
             overhead,
             spans,
+            islands,
         ),
     )
 
@@ -167,9 +169,11 @@ LANE_SHOULDER = 0.3  # m of a carriageway's mapped width beside its outer lanes
 POST_SHIFT = 3.0  # m a standing item may move to clear the traffic lanes
 
 
-def lane_area(graph_json):
+def lane_area(graph_json, islands=()):
     """Plan area of the street graph's car lanes: each car edge buffered by its width less its
-    shoulders, or None. A post inside it stands in the lane a car drives."""
+    shoulders, less the city's medians and traffic islands (``islands``), or None. A post inside it
+    stands in the lane a car drives; a post on an island (a keep-right sign, the crossing sign of a
+    refuge) stays there instead of moving into the lane beside it."""
     import json as _json
 
     if not graph_json:
@@ -189,7 +193,11 @@ def lane_area(graph_json):
             continue
         coords = [nodes[edge[0]], *np.asarray(edge[4:], dtype=float).reshape(-1, 2), nodes[edge[1]]]
         parts.append(shapely.LineString(coords).buffer(max(1.5, float(a[width]) / 2 - LANE_SHOULDER), cap_style="flat"))
-    return shapely.union_all(parts) if parts else None
+    if not parts:
+        return None
+    lanes = shapely.union_all(parts)
+    islands = [g for g in islands if g is not None and not g.is_empty]
+    return lanes.difference(shapely.union_all(islands)) if islands else lanes
 
 
 EMPTY = {"glb": None, "props": [], "poles": [], "lights": None, "collision": {}, "stats": {}}
@@ -220,14 +228,14 @@ def _out_of_lanes(p, lanes, stats, why=""):
 
 
 def produce(tile, poles, height_at, footprints, water, roads, carried, barriers=(), laz=(), overhead=None,
-            spans=None):
+            spans=None, islands=()):
     from turku3d.props import seating, visual_bytes
     from turku3d.props.lights import Light, encode, post_light, street_edges, wall_lights
     from turku3d.night_lighting import lamp_kind, lamp_height
 
     stats = Counter()
     decks = deck_heights(roads) if spans is not None else []
-    lanes = lane_area(roads)
+    lanes = lane_area(roads, islands)
     buildings = STRtree(footprints) if footprints else None
     wet = STRtree(water) if water else None
     blocked_deck = carried if carried is not None and not carried.is_empty else None

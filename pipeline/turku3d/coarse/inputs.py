@@ -105,6 +105,7 @@ class Inputs:
     tram_rails: list = ()  # at-grade OSM tram track rail heads, paint items (surfaces.tram_rails)
     surfaces: list = ()  # mapped OSM land cover, paving and ground-level corridors
     street_finishes: list = ()  # city visual finishes; never collision material ids
+    islands: list = ()  # city median and traffic-island polygons (Katuosalaji Välikaista)
     street_profiles: list = ()  # lidar-fitted connected road/kerb/sidewalk geometry
     register: dict = field(default_factory=dict)
     kerb_parking: dict = field(default_factory=dict)  # sign posts, stops, permit lines for kerb bays
@@ -311,6 +312,7 @@ def prepare_wfs(
 ) -> dict:
     """An empty LOD2 layer (open water, fields at the city edge) is a tile without buildings."""
     from turku3d.ground.materials import surface_material
+    from turku3d.roads.signal_posts import ISLAND
     from .street_materials import street_finish
 
     shells = buildings(bldg, tile, context=True) if bldg else []
@@ -329,6 +331,8 @@ def prepare_wfs(
             for g, r in street_rows
             if (finish := street_finish(r.Pintamateriaali)) is not None
         ],
+        # Medians and traffic islands: posts on them stay (furniture.lane_area).
+        "islands": [shapely.make_valid(g) for g, r in street_rows if r.Katuosalaji == ISLAND],
         "water": [shapely.make_valid(g) for g, _ in _frame(water, tile.bbox)],
     }
 
@@ -962,6 +966,7 @@ def gather(
         tram_rails=values.get("tram_rails") or (),
         surfaces=values["surfaces"] or (),
         street_finishes=wfs["street_finishes"],
+        islands=wfs.get("islands", ()),
         street_profiles=outside_finished_ground(values["street_profiles"] or (), values.get("finished_ground")),
         register=values["register"],
         barriers=values["barriers"] or (),

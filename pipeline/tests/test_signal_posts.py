@@ -80,3 +80,12 @@ def test_the_migration_writes_posts_into_the_graph(tmp_path, monkeypatch):
     assert [r[:3] for r in out["signalPosts"]] == [[0, 0, 1], [0, 0, -1]]
     assert product.manifest["furniture"]["signals"] == {"signal_kerb": 2}
     assert {k: v for k, v in out.items() if k != "signalPosts"} == graph
+
+
+def test_a_median_the_register_overlaps_with_the_carriageway_is_not_carriageway():
+    """Kaskenkatu: register refuge islands (Välikaista) lie inside the Ajorata polygon; posts on them stay."""
+    island = shapely.box(4, 4, 6, 6)
+    rows = [(shapely.box(0, 0, 10, 10), "Ajorata"), (island, "Välikaista")]
+    road = sp.carriageway(rows)
+    assert math.isclose(road.area, 96)
+    assert sp.kerb_post(5, 5, road) == (5, 5, "off_carriageway")

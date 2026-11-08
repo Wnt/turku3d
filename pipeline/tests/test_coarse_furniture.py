@@ -373,3 +373,23 @@ def test_a_post_in_a_traffic_lane_moves_to_the_kerb_or_is_not_built():
     assert result["stats"]["moved_out_of_lane:lamp"] == 1 and result["stats"]["dropped_in_lane:lamp"] == 1
     moved = next(p for p in result["poles"] if p.object_id == "lamp-kerb")
     assert moved.z >= 54.7
+
+
+def test_a_sign_on_a_median_island_stays_on_it_while_one_in_the_lane_beside_it_moves():
+    """Kaskenkatu (t0_1_2/t0_2_2): the register's keep-right and crossing signs stand on 4-8 m2 refuge
+    islands (Katualueet Välikaista) at the street's centre line; the lane rule moved them 2-3 m into the lanes."""
+    from turku3d.coarse.furniture import produce
+
+    roads = json.dumps({"nodes": [0, 50, 250, 50], "edges": [[0, 1, CAR | 2 << CLASS_SHIFT, 250.0]],
+                        "edgeAttrColumns": ["way", "width", "flags"], "edgeAttrs": [[1, 6.0, CAR | 2 << CLASS_SHIFT]]})
+    island = shapely.box(118.5, 49.0, 121.5, 51.0)
+    on_island = Prop("sign-island", "sign", 120.0, 0, 50.0)
+    beside = Prop("sign-lane", "sign", 123.0, 0, 50.5)  # in the lane 1.5 m past the island's end
+    result = produce(TILE, [on_island, beside], lambda x, z: 1.0, [], [], roads, shapely.Polygon(), islands=[island])
+    placed = {p.object_id: p for p in result["poles"]}
+    assert (placed["sign-island"].x, placed["sign-island"].z) == (120.0, 50.0)
+    assert result["stats"]["moved_out_of_lane:sign"] == 1
+    assert island.distance(shapely.Point(placed["sign-lane"].x, placed["sign-lane"].z)) < 0.31  # onto the island
+    without = produce(TILE, [Prop("sign-island", "sign", 120.0, 0, 50.0)], lambda x, z: 1.0, [], [], roads,
+                      shapely.Polygon())
+    assert without["poles"][0].z != 50.0  # the old rule: pushed off the island into the lane

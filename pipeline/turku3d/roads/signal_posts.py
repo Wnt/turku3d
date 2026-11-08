@@ -31,6 +31,9 @@ import shapely
 import shapely.ops
 
 CARRIAGEWAY = ("Ajorata", "Pyöräkaista")  # Katuosalaji parts no post stands on
+# Medians and traffic islands: the register often draws the carriageway across them, but their posts
+# (keep-right signs, crossing signs, signal posts) stand on them, never in the lanes beside them.
+ISLAND = "Välikaista"
 SIDE = 0.35  # m beyond the half width: the client's nominal head offset (signals.ts)
 KERB_CLEARANCE = 0.35  # m past the carriageway edge (props.KERB_CLEARANCE)
 REACH = 8.0  # m: a head deeper inside the carriageway has no kerb of its own near
@@ -38,12 +41,21 @@ SIGNAL = 1  # roads.json event kind
 FORWARD, BACKWARD = 16, 32  # roads.json event bits
 
 
+def _polygons(geometries) -> list:
+    parts = [shapely.make_valid(shapely.force_2d(g)) for g in geometries if g is not None and not g.is_empty]
+    return [p for g in parts for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")]
+
+
 def carriageway(rows) -> shapely.Geometry:
-    """Union of the CARRIAGEWAY parts of ``(geometry, Katuosalaji)`` rows (repaired first)."""
-    parts = [shapely.make_valid(shapely.force_2d(g)) for g, kind in rows
-             if kind in CARRIAGEWAY and g is not None and not g.is_empty]
-    polygons = [p for g in parts for p in getattr(g, "geoms", [g]) if p.geom_type in ("Polygon", "MultiPolygon")]
-    return shapely.union_all(polygons) if polygons else shapely.Polygon()
+    """Union of the CARRIAGEWAY parts of ``(geometry, Katuosalaji)`` rows (repaired first), less the medians and
+    islands (``ISLAND``) the register overlaps with them."""
+    rows = list(rows)
+    polygons = _polygons(g for g, kind in rows if kind in CARRIAGEWAY)
+    if not polygons:
+        return shapely.Polygon()
+    road = shapely.union_all(polygons)
+    islands = _polygons(g for g, kind in rows if kind == ISLAND)
+    return road.difference(shapely.union_all(islands)) if islands else road
 
 
 def load_carriageway(path, bbox) -> shapely.Geometry:
