@@ -59,3 +59,15 @@ def test_a_closed_ground_floor_or_silent_lidar_keeps_the_osm_height():
     # A soffit leaving less than a storey above it is no open ground floor's: the prior stays.
     apply(b, [("ropewalk", footprint, dict(soffit=10.0, ground=2.0, facade=900, under=200))])
     assert b.open_ground[0][1] == 3.0
+
+
+def test_a_measured_edge_a_storey_away_from_the_tags_keeps_the_osm_height():
+    """The lidar refines the storey OSM names: an edge 3 m above it is another facade's (a taller neighbour behind a
+    bridge part), not this soffit."""
+    footprint = shapely.geometry.polygon.orient(shapely.box(0, 0, 30, 6), 1.0)
+    b = Building("bridge", footprint, 2.0, 14.0, "facade_plaster")
+    b.open_ground = [(footprint, 3.0, 2.0)]
+    apply(b, [("bridge", footprint, dict(soffit=8.1, ground=2.0, facade=900, under=200))])
+    assert b.open_ground[0][1] == 3.0
+    apply(b, [("bridge", footprint, dict(soffit=6.2, ground=2.0, facade=900, under=200))])
+    assert b.open_ground[0][1] == pytest.approx(4.2)
