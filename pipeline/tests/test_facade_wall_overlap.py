@@ -37,12 +37,46 @@ def test_partial_overlap_preserves_sloping_exposed_union():
             assert part.intersection(other).area < 1e-8
 
 
-def test_preserves_opposite_facing_and_separated_walls():
+def test_preserves_separated_walls_and_opposite_walls_of_unemitted_context():
     first = wall(0, 10, 0, 5)
     opposite = first[[1, 0, 3, 2]]
     separate = wall(0, 10, 0, 5, .02)
-    source = np.concatenate([first, opposite, separate])
-    np.testing.assert_array_equal(exposed_wall_quads(source), source)
+    np.testing.assert_array_equal(exposed_wall_quads(np.concatenate([first, separate])),
+                                  np.concatenate([first, separate]))
+    # A neighbour tile's solid (context) never hides an emitted wall: it may load later.
+    result = exposed_wall_quads(np.concatenate([first, opposite]), emit=np.array([True, False]))
+    np.testing.assert_array_equal(result, first)
+
+
+def test_back_to_back_part_walls_keep_only_what_rises_above_the_other_part():
+    """t0_0_-1: every roof-part boundary carried two walls from the ground to the roof inside the
+    building; a stepped roof showed five nested layers."""
+    tall = wall(0, 10, 0, 9)
+    low = wall(0, 10, 0, 4)[[1, 0, 3, 2]]  # the neighbouring part's wall, facing back into the tall part
+    result = exposed_wall_quads(np.concatenate([tall, low])).reshape(-1, 4, 3)
+    assert area(result) == pytest.approx(10 * (9 - 4))
+    assert result[:, :, 1].min() == pytest.approx(4)
+    # Equal heights: both walls are inside the building and nothing is painted.
+    assert not len(exposed_wall_quads(np.concatenate([wall(0, 10, 0, 6), wall(0, 10, 0, 6)[[1, 0, 3, 2]]])))
+
+
+def test_crossing_roof_edges_leave_each_wall_its_exposed_triangle():
+    # Two roof planes meet along the boundary, crossing at its middle: each wall shows above the other.
+    first = wall(0, 10, 0, 8)
+    first[2, 1] = 4  # 8 m at x=0, 4 m at x=10
+    second = wall(0, 10, 0, 4)
+    second[2, 1] = 8  # 4 m at x=0, 8 m at x=10
+    second = second[[1, 0, 3, 2]]
+    result = exposed_wall_quads(np.concatenate([first, second])).reshape(-1, 4, 3)
+    assert area(result) == pytest.approx(2 * (5 * 4 / 2))  # two triangles: 5 m along, 4 m high at the ends
+    assert result[:, :, 1].min() == pytest.approx(4, abs=1e-6)
+
+
+def test_a_wall_beside_a_raised_part_keeps_its_passage_below():
+    ground = wall(0, 10, 0, 12)
+    bridge = wall(2, 6, 3, 9)[[1, 0, 3, 2]]  # a part over a passage, 3 m above the ground
+    result = exposed_wall_quads(np.concatenate([ground, bridge])).reshape(-1, 4, 3)
+    assert area(result[:3]) + area(result[3:]) == pytest.approx(10 * 12 - 4 * 6)
 
 
 def test_equal_walls_have_stable_single_owner():
