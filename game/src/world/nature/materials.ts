@@ -20,16 +20,18 @@ export function impostorAlphaScale(level: number) {
   return 1 + IMPOSTOR_BOOST.gain * t * t * (3 - 2 * t);
 }
 
-/** Sun gaps in a tree crown's shadow (sunflecks). `open` is the share of one crown's sun shadow the sun passes through:
- *  the leaf cards' alpha cut alone left groves without a single fleck, while the sunlit Puolanpuisto panorama has 27.5 % of
- *  the lawn under its closed grove in the sun (shade 0.018, flecks 0.14, open lawn 0.21 linear luminance). Each crown
- *  draws its own pattern, so where crowns overlap along the sun the gaps multiply (a park grove's one or two crowns stay
- *  dappled, a forest's three or four close up). `size` (m) is the larger fleck scale on the ground. */
-export const CROWN_GAPS = { open: 0.35, size: 0.9 } as const;
+/** Sun gaps in the canopy's shadow (sunflecks). `open` is the share of a closed canopy's sun shadow the sun passes
+ *  through: the leaf cards' alpha cut alone left 0.4-6 % of the ground under groves and forests sunlit, against 27.5 % of
+ *  the lawn under the closed Puolanpuisto grove (panorama: shade 0.018, flecks 0.14, open lawn 0.21 linear luminance)
+ *  and 13-37 % (mean 25 %) of the forest floor in the k4 frames. A gap is the stand's, not one crown's: every crown along
+ *  a sun ray shares it. Independent per-crown gaps multiplied where the widened crowns overlap along the sun (city.lab
+ *  1dce0af7 at 35 % per crown: Ruissalo floor +23 %, the denser Puolala grove +5 %). The leaf cut adds its own few
+ *  percent. `size` (m) is the larger fleck scale on the ground. */
+export const CROWN_GAPS = { open: 0.25, size: 0.9 } as const;
 
-/** CPU mirror of the shader's crown-gap noise at ground point (x, z) for a tree seed in [0, 1): two octaves of value
- *  noise in [0, 1]; the shadow keeps the fragments at or above `crownGapCut()`. */
-export function crownGapNoise(x: number, z: number, seed = 0) {
+/** CPU mirror of the shader's crown-gap noise at the ground point (x, z) a sun ray meets: two octaves of value noise in
+ *  [0, 1]; the shadow keeps the fragments at or above `crownGapCut()`. */
+export function crownGapNoise(x: number, z: number) {
   const lattice = (cx: number, cz: number) => { const v = Math.sin((cx % 289) * 127.1 + (cz % 289) * 311.7) * 43758.5453; return v - Math.floor(v); };
   const value = (px: number, pz: number) => {
     const ix = Math.floor(px), iz = Math.floor(pz), fx = px - ix, fz = pz - iz;
@@ -37,15 +39,14 @@ export function crownGapNoise(x: number, z: number, seed = 0) {
     const a = lattice(ix, iz), b = lattice(ix + 1, iz), c = lattice(ix, iz + 1), d = lattice(ix + 1, iz + 1);
     return (a + (b - a) * ux) * (1 - uz) + (c + (d - c) * ux) * uz;
   };
-  const qx = x + seed * 173.13, qz = z + seed * 311.97;
-  return value(qx / CROWN_GAPS.size, qz / CROWN_GAPS.size) * 0.65 + value(qx / (CROWN_GAPS.size * 0.45) + 17.3, qz / (CROWN_GAPS.size * 0.45) + 5.1) * 0.35;
+  return value(x / CROWN_GAPS.size, z / CROWN_GAPS.size) * 0.65 + value(x / (CROWN_GAPS.size * 0.45) + 17.3, z / (CROWN_GAPS.size * 0.45) + 5.1) * 0.35;
 }
 let gapCut: number | null = null;
 /** The noise value below which a crown's shadow opens: the `CROWN_GAPS.open` quantile of the noise over a fixed grid. */
 export function crownGapCut() {
   if (gapCut !== null) return gapCut;
   const values: number[] = [];
-  for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) values.push(crownGapNoise(i * 0.37 + 0.11, j * 0.41 + 0.07, ((i * 7 + j * 13) % 97) / 97));
+  for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) values.push(crownGapNoise(i * 0.37 + 0.11, j * 0.41 + 0.07));
   values.sort((a, b) => a - b);
   return gapCut = values[Math.floor(CROWN_GAPS.open * values.length)];
 }
@@ -200,8 +201,8 @@ export class NatureMaterials {
       this.grass.emissiveNode = transmitted;
       this.grassBlade.emissiveNode = transmitted;
     }
-    // Each fragment's sun ray meets the ground at q: every leaf card of a crown along that ray shares q, so a gap goes
-    // through the whole crown; the tree's tint seed shifts its pattern against its neighbours'.
+    // Each fragment's sun ray meets the ground at q: every leaf card along that ray, in every crown, shares q, so a
+    // gap goes through the whole stand (CROWN_GAPS).
     this.crownShadow = cloneNodeMaterial(this.leaves);
     this.crownShadow.name = 'nature-leaves@shadow';
     if (lighting) {
@@ -211,9 +212,7 @@ export class NatureMaterials {
         const i = floor(p), f = fract(p), u = f.mul(f).mul(f.mul(-2).add(3));
         return mix(mix(lattice(i), lattice(i.add(vec2(1, 0))), u.x), mix(lattice(i.add(vec2(0, 1))), lattice(i.add(vec2(1, 1))), u.x), u.y);
       };
-      const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
-      const ground = positionWorld.xz.sub(toSun.xz.mul(positionWorld.y.div(max(toSun.y, 0.05))));
-      const q = ground.add(vec2(seed.mul(173.13), seed.mul(311.97)));
+      const q = positionWorld.xz.sub(toSun.xz.mul(positionWorld.y.div(max(toSun.y, 0.05))));
       const size = CROWN_GAPS.size, fine = size * 0.45;
       const noise = value(q.div(size)).mul(0.65).add(value(q.div(fine).add(vec2(17.3, 5.1))).mul(0.35));
       this.crownShadow.maskShadowNode = noise.greaterThanEqual(crownGapCut());

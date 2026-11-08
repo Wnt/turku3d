@@ -159,20 +159,23 @@ describe('settled frames keep no dither', () => {
 
 describe('crown sun gaps', () => {
   // The shadow proxies' leaves (NatureMaterials.crownShadow) keep a fragment where the noise at its sun ray's ground
-  // point is at least crownGapCut(): one crown lets CROWN_GAPS.open of the sun through, two overlapping ones its square.
-  const open = (seeds: number[]) => {
+  // point is at least crownGapCut(): a closed canopy lets CROWN_GAPS.open of the sun through, however many crowns
+  // overlap along the ray (the gap is the stand's).
+  const open = (crowns: number) => {
     let lit = 0, n = 0;
     for (let i = 0; i < 120; i++) for (let j = 0; j < 120; j++, n++) {
       const x = 1000 + i * 0.53, z = -2000 + j * 0.47;
-      if (seeds.every(seed => crownGapNoise(x, z, seed) < crownGapCut())) lit++;
+      let through = true;
+      for (let k = 0; k < crowns; k++) if (crownGapNoise(x, z) >= crownGapCut()) through = false;
+      if (through) lit++;
     }
     return lit / n;
   };
-  it('opens the calibrated share of one crown away from the calibration grid', () => {
-    expect(Math.abs(open([0.31]) - CROWN_GAPS.open)).toBeLessThan(0.04);
+  it('opens the calibrated share of a closed canopy away from the calibration grid', () => {
+    expect(Math.abs(open(1) - CROWN_GAPS.open)).toBeLessThan(0.04);
   });
-  it('gives each tree its own pattern, so overlapping crowns close up', () => {
-    expect(Math.abs(open([0.31, 0.77]) - CROWN_GAPS.open ** 2)).toBeLessThan(0.04);
+  it('keeps that share where crowns overlap along the sun', () => {
+    expect(open(3)).toBe(open(1));
   });
   it('makes flecks of about the sun-fleck scale, not single-texel speckle', () => {
     // Along a 50 m line the open/closed state changes about once per fleck, not per 10 cm sample.
