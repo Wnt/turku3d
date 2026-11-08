@@ -167,7 +167,7 @@ def test_branch_outline_axis_follows_carriageway_not_long_ramp():
     assert set(deck["members"]) == {"road", "ramp"}
 
 
-def test_a_deck_is_built_by_every_tile_its_outline_reaches_not_only_its_axis():
+def test_a_deck_is_built_by_every_tile_its_member_ways_reach_not_only_its_axis():
     # Willemsbrug, Rotterdam: the merged deck's curved north approach ran 60 m past its straight
     # axis into a tile that did not build the deck, so the approach fell to the ground at the seam.
     from turku3d.coarse.bridges import building_region, selects
@@ -189,6 +189,30 @@ def test_a_deck_is_built_by_every_tile_its_outline_reaches_not_only_its_axis():
     lone = way("lone", [(300, 243), (480, 243)], width=10)
     assert selects(lone, box(1, 1)) and not selects(lone, box(1, 2))
     assert building_region(lone).equals(shapely.union_all([shapely.box(*box(1, 0)), shapely.box(*box(1, 1))]))
+    # De Luchtsingel: an outline spanning a winding bridge, whose other ways are decks of their own on
+    # other layers, does not make every tile it crosses build the one member it carries.
+    walk = way("walk", [(300, 180), (300, 220)], width=3)
+    winding = shapely.box(298, 175, 302, 225).union(shapely.box(302, 220, 420, 400))
+    short = merge_crossings([walk], [("winding", winding, {"layer": "1"})])[0]
+    assert selects(short, box(1, 0)) and not selects(short, box(1, 1))
+
+
+def test_deck_axis_follows_the_carriageway_carrying_most_of_the_deck_not_a_short_wide_end():
+    # Erasmusbrug, Rotterdam: the widest member, a 124 m way where the carriageways meet at the north
+    # abutment, set a 194 m axis on the 650 m span; the rest of the deck lay past the axis end.
+    def road(key, coords, width):
+        return {**way(key, coords, width=width), "tags": {"highway": "secondary"}}
+
+    north = road("north", [(300, 0), (0, 0)], 7.5)
+    south = road("south", [(0, 8), (300, 8)], 7.5)
+    stub = road("stub", [(0, 4), (-30, -40)], 14)
+    walk = way("walk", [(0, 12), (300, 12)], width=10)  # a wider path never steers a road deck's axis
+    outline = shapely.box(-1, -5, 301, 13).union(stub["line"].buffer(7, cap_style="flat"))
+    deck = merge_crossings([north, south, stub, walk], [("outline", outline, {"layer": "1"})])[0]
+    coords = np.asarray(deck["line"].coords)
+    assert abs(coords[-1, 1] - coords[0, 1]) < 0.01 and deck["line"].length > 300
+    assert deck["width"] == 18 and deck["tags"]["highway"] == "secondary"
+    assert set(deck["members"]) == {"north", "south", "stub", "walk"}
 
 
 def test_passage_cut_removes_collinear_submillimetre_sliver():

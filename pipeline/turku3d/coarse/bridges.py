@@ -44,12 +44,11 @@ SELECT_MARGIN = 5.0  # m around a deck: the tiles that build it (and its end ram
 
 
 def deck_reach(bridge):
-    """Ground the deck covers past the band along its straight axis: its mapped outline and its
-    member ways. A merged deck's outline and links can run far past the axis (the Willemsbrug's
-    curved north approach ends 60 m beyond it); None for a single way without an outline."""
+    """Ground the deck's member ways cover past the band along its straight axis: a merged deck's
+    links can run far past the axis (the Willemsbrug's curved north approach ends 60 m beyond it).
+    Not the whole outline: a mapped outline can span a winding bridge whose other ways are decks of
+    their own on other layers. None for a single way."""
     parts = [m["line"].buffer(m["width"] / 2) for m in bridge.get("member_ways", ())]
-    if bridge.get("outline") is not None:
-        parts.append(bridge["outline"])
     return shapely.union_all(parts) if parts else None
 
 
@@ -165,13 +164,20 @@ def merge_crossings(ways, outlines):
         if not members:
             continue
         representative = max(members, key=lambda w: w["width"])
-        coords = np.asarray(representative["line"].coords)
+        # The axis follows the member of the same kind that carries the most deck: the widest can
+        # be a short piece where the carriageways meet at one end (the Erasmusbrug's 124 m north
+        # abutment way beside its 650 m span carriageways), and an axis along it left most of the
+        # deck past its ends, flat at the end station's height.
+        guide = max((w for w in members if is_carriageway(w["tags"]) == is_carriageway(representative["tags"])
+                     and (w["tags"].get("railway") in RAILS) == (representative["tags"].get("railway") in RAILS)),
+                    key=lambda w: (w["width"] * w["line"].length, w["width"]))
+        coords = np.asarray(guide["line"].coords)
         direction = coords[-1] - coords[0]
         direction /= np.linalg.norm(direction)
         normal = np.array([-direction[1], direction[0]])
         sections = []
         for fraction in (0.25, 0.5, 0.75):
-            point = representative["line"].interpolate(fraction, normalized=True)
+            point = guide["line"].interpolate(fraction, normalized=True)
             c = np.asarray(point.coords[0])
             across = poly.intersection(shapely.LineString([c - normal * 1000, c + normal * 1000]))
             sections.extend(
