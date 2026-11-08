@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { FileLoader } from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { decodeGlb } from '../../src/world/decodeGlb';
-import { parseDecodedGlb, UNPACED_STEPS } from '../../src/world/loadGlb';
+import { admissionCounters, parseDecodedGlb, UNPACED_STEPS } from '../../src/world/loadGlb';
 
 test('worker container decoding retains binary accessors, metadata and relative resource base', async () => {
   const json = { asset: { version: '2.0' }, buffers: [{ byteLength: 36 }], bufferViews: [{ buffer: 0, byteLength: 36 }],
@@ -110,4 +110,24 @@ test('a small glTF (a building model) parses in one admission, ahead of a big on
   // One queue: the model's admission waited behind the tile's hundreds (about half of the tile's parse).
   vi.unstubAllGlobals();
   expect(smallAt).toBeLessThan(bigAt / 5);
+});
+
+test('a big parse lets its waiting continuations in together, as many as the window fits, not one per task', async () => {
+  const meshes = 3000, floats = new Float32Array(meshes * 9);
+  for (let i = 0; i < meshes; i++) floats.set([i, 0, 0, i + 1, 0, 0, i, 1, 0], i * 9);
+  const json = { asset: { version: '2.0' }, buffers: [{ byteLength: floats.byteLength }],
+    bufferViews: Array.from({ length: meshes }, (_, i) => ({ buffer: 0, byteOffset: i * 36, byteLength: 36 })),
+    accessors: Array.from({ length: meshes }, (_, i) => ({ bufferView: i, componentType: 5126, count: 3, type: 'VEC3', min: [i, 0, 0], max: [i + 1, 1, 0] })),
+    meshes: Array.from({ length: meshes }, (_, i) => ({ primitives: [{ attributes: { POSITION: i } }] })),
+    nodes: Array.from({ length: meshes }, (_, i) => ({ mesh: i })), scenes: [{ nodes: Array.from({ length: meshes }, (_, i) => i) }], scene: 0 };
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { setTimeout(() => callback(performance.now()), 4); });
+  const turns = admissionCounters.turns;
+  const admissions = { count: 0, hops: 0 };
+  let result;
+  try { result = await parseDecodedGlb(new GLTFLoader(), { json, binary: floats.buffer.slice(0) }, 'https://example.test/coarse/t0_0_0/', admissions); }
+  finally { vi.unstubAllGlobals(); }
+  expect(result.scene.children).toHaveLength(meshes);
+  expect(admissionCounters.turns - turns).toBeGreaterThanOrEqual(admissions.count); // every continuation was let in
+  // 6,000 continuations of microseconds each: batches of dozens, not 6,000 hops (~54 a second in Jonni's drive).
+  expect(admissions.hops).toBeLessThan(admissions.count / 10);
 });

@@ -59,7 +59,7 @@ const nextWindow = () => new Promise<void>(resolve => { afterRender(resolve); se
 export type ParseRank = () => number;
 /** One glTF parse with admissions waiting: small glTFs' bursts (one admission each, UNPACED_STEPS) and big glTFs'
  *  continuations (one each). */
-interface Parse { small: boolean; rank: ParseRank; seq: number; turns: (() => void)[] }
+interface Parse { small: boolean; rank: ParseRank; seq: number; turns: (() => void)[]; stats?: { hops: number } }
 const waiting = new Set<Parse>();
 let parseSeq = 0, admitting = false;
 const noRank: ParseRank = () => Infinity;
@@ -92,10 +92,16 @@ function room() {
   if (frame !== windowFrame || now - windowAt > STALE_WINDOW_MS) { windowFrame = frame; windowAt = now; spent = 0; streamingAllowance.opened(); }
   return spent < streamingAllowance.limit;
 }
-/** Admits one paced glTF continuation at a time, each in its own task: the previous one's synchronous work (the
- *  geometry or mesh it completes) has run before the next is let in. Each admission's own time (to the next hop)
- *  counts against the frame's streaming limit. Counting wall time from the window's start charged the admissions with
- *  every other budget's work queued in between, so a frame let one continuation in (43 a second over the drive). */
+/** One continuation's work as the admissions measure it (its hop included, shared by the turns let in together). */
+let turnMs = 0.5;
+/** Hops and the continuations they let in (diagnostics and tests). */
+export const admissionCounters = { hops: 0, turns: 0 };
+/** Admits the best parse's waiting continuations in one task, as many as the window's room fits at the measured cost
+ *  of one: their synchronous work (the geometries and meshes they complete) runs before the hop returns, and the hop's
+ *  time counts against the frame's streaming limit. One continuation per hop let ~54 a second through on the M1 Max:
+ *  a hop that waits behind a rendered frame charged that frame to one continuation, so a 270-continuation tile GLB
+ *  parsed in 5-22 s (Jonni's drive 20261108-174404-q0e3zr: 7 of 120 tiles full in 80 s). Counting wall time from
+ *  the window's start charged them with every other budget's work too (43 a second, 20261108-155752-17lruw). */
 async function runAdmissions() {
   admitting = true;
   try {
@@ -103,12 +109,18 @@ async function runAdmissions() {
       while (!room()) await nextWindow();
       const parse = nextParse();
       if (!parse) break;
-      const turn = parse.turns.shift()!;
+      const count = Math.max(1, Math.min(parse.turns.length, Math.floor((streamingAllowance.limit - spent) / turnMs)));
+      const turns = parse.turns.splice(0, count);
       if (!parse.turns.length) waiting.delete(parse);
+      admissionCounters.hops++; admissionCounters.turns += count;
+      if (parse.stats) parse.stats.hops++;
       const started = performance.now();
-      turn();
+      for (const turn of turns) turn();
       await admissionTask();
-      spent += performance.now() - started;
+      const elapsed = performance.now() - started;
+      spent += elapsed;
+      // A hop that waited behind a frame says little about the work: one such sample moves the estimate only so far.
+      turnMs += (Math.min(elapsed / count, 4) - turnMs) * 0.25;
     }
   } finally { admitting = false; }
 }
@@ -122,7 +134,7 @@ async function runAdmissions() {
 export const UNPACED_STEPS = 32;
 
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
-export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number }, rank: ParseRank = noRank): Promise<GLTF> {
+export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number; hops: number }, rank: ParseRank = noRank): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
     name: 'TURKU_decoded_glb', beforeRoot: async () => {
       // External meshopt buffers share the same immutable bytes across separate glTF parsers.
@@ -141,7 +153,7 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
       const json = parser.json as { accessors?: unknown[]; meshes?: unknown[] };
       const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
       const small = (json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS;
-      const parse: Parse = { small, rank, seq: parseSeq++, turns: [] };
+      const parse: Parse = { small, rank, seq: parseSeq++, turns: [], stats: admissions };
       if (small) {
         // A small glTF: the continuations one worker answer resolves wait for one admission together, so the burst
         // still runs inside a frame's streaming window; the gate closes after that task for the next answer.
@@ -201,9 +213,9 @@ export async function loadGlb(loader: GLTFLoader, url: string, rank?: ParseRank)
   await pace();
   if (!started) return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), undefined, rank);
   // Install traces split a GLB read into fetch, worker decode, the wait for a window and the paced parse.
-  const parsing = performance.now(), admissions = { count: 0 };
+  const parsing = performance.now(), admissions = { count: 0, hops: 0 };
   const gltf = await parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), admissions, rank);
   streamTrace.event('glb.load', undefined, { ms: performance.now() - started, fetchMs: fetched - started, decodeMs: decodedAt - fetched,
-    paceMs: parsing - decodedAt, parseMs: performance.now() - parsing, admits: admissions.count, bytes, tile: !!key });
+    paceMs: parsing - decodedAt, parseMs: performance.now() - parsing, admits: admissions.count, hops: admissions.hops, bytes, tile: !!key });
   return gltf;
 }
