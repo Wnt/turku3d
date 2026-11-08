@@ -829,6 +829,30 @@ def test_a_corridor_end_inside_an_underground_station_is_no_mouth():
     # Nor does a node of that street half a metre from the end (Westblaak, 0.49 m): only a shared node joins.
     near = shapely.STRtree([shapely.LineString([(20.3, -15), (20.3, 0.4), (19.9, 15)]), shapely.LineString([(-6, 0), (0, 0)])])
     assert buried_ends(corridor, tags, near, escalator) == (False, True)
+    # A corridor whose end joins only corridors with a buried end (none built) leads into nothing there, so it is not
+    # built either (Beurs: a level -2 corridor under Coolsingel ending at such a corridor opened a pit at the kerb);
+    # where it also joins a corridor that is built, or a street, the end stays. A subway between two streets is kept.
+    from turku3d.coarse.tunnels import buried_chains
+
+    deep = {"highway": "footway", "tunnel": "yes", "layer": "-2", "level": "-2"}
+    ways = [
+        ("station", corridor, dict(tags, _buried_ends=(False, True))),
+        ("under", shapely.LineString([(0, 0), (0, -30)]), deep),
+        ("onward", shapely.LineString([(0, -30), (10, -40)]), deep),
+        ("link", shapely.LineString([(0, -30), (-10, -40)]), deep),
+        ("subway", shapely.LineString([(50, -10), (80, -10)]), tags),
+    ]
+    streets = shapely.STRtree([
+        shapely.LineString([(50, -20), (50, -10), (50, 0)]),
+        shapely.LineString([(80, -20), (80, -10), (80, 0)]),
+    ])
+    chained = {key: tags.get("_buried_ends") for key, _, tags in buried_chains(ways, streets)}
+    assert chained == {
+        "station": (True, True), "under": (True, False), "onward": None, "link": None, "subway": None
+    }
+    # Alone behind the corridor, the onward way is buried along the chain.
+    chained = {key: tags.get("_buried_ends") for key, _, tags in buried_chains(ways[:3], streets)}
+    assert chained == {"station": (True, True), "under": (True, True), "onward": (True, False)}
     # Roads and ways at grade are never classified.
     assert buried_ends(corridor, {"highway": "primary", "tunnel": "yes", "layer": "-1"}, None, escalator) is None
     assert buried_ends(corridor, {"highway": "footway", "tunnel": "building_passage"}, None, escalator) is None

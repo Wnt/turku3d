@@ -206,6 +206,38 @@ def buried_ends(line, tags, surface, below):
     return tuple(flags) if any(flags) else None
 
 
+def buried_chains(ways, surface):
+    """Carry `buried_ends` along chains of corridors: a path-type way below ground whose end joins, at a shared node,
+    only ways with a buried end (none of them built) and no way at the surface leads into nothing, so that end is
+    buried too. Rotterdam's metro Beurs: a level -2 corridor under Coolsingel (built as an underpass of the street
+    over it) ended at a corridor that is not built, and its mouth opened a pit at the carriageway's edge."""
+    lines = [line for _, line, _ in ways]
+    if not lines:
+        return ways
+    tree = shapely.STRtree(lines)
+    ways = list(ways)
+    changed = True
+    while changed:
+        changed = False
+        for i, (key, line, tags) in enumerate(ways):
+            level = depth(tags)
+            if tags.get("highway") not in portals.PATHS | {"corridor"} or level is None or level > -1:
+                continue
+            ends = list(tags.get("_buried_ends") or (False, False))
+            for e, point in enumerate(shapely.points([line.coords[0], line.coords[-1]])):
+                if ends[e] or joins(surface, point):
+                    continue
+                near = [
+                    int(j) for j in tree.query(point, predicate="dwithin", distance=NODE_REACH)
+                    if int(j) != i and joins(shapely.STRtree([lines[int(j)]]), point)
+                ]
+                if near and all(ways[j][2].get("_buried_ends") for j in near):
+                    ends[e] = changed = True
+            if any(ends) and tuple(ends) != tuple(tags.get("_buried_ends") or (False, False)):
+                ways[i] = (key, line, dict(tags, _buried_ends=tuple(ends)))
+    return ways
+
+
 NODE_REACH = 0.05  # m: ways that share an OSM node have identical coordinates here
 
 
@@ -274,7 +306,7 @@ def prepare(tile, path):
         for key, line, tags in out:
             ends = buried_ends(line, tags, surface_tree, below_tree)
             tagged.append((key, line, dict(tags, _buried_ends=ends) if ends else tags))
-        out = tagged
+        out = buried_chains(tagged, surface_tree)
         return carried_roads(garage_ends(portals.approaches(merge_parallel([*out, *quay]), roads), garages), roads)
 
     ways = cached(
