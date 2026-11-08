@@ -8,7 +8,9 @@ facade returns along its 255 m start 3.2 m over it. Where the lidar is silent (n
 edge contradicts an open ground floor, the OSM height stays (min_height, else the storey prior). The lidar refines the
 storey OSM names, never moves the soffit to another one: an edge more than STOREY_BAND from the OSM height is another
 facade's (a taller neighbour behind a bridge part, a canopy edge), as 7 of the first 20 raised parts measured in Turku
-showed (-8.9 to +15 m off the tags, against 13 within 1.4 m).
+showed (-8.9 to +15 m off the tags, against 13 within 1.4 m). Panorama checks of the wider band: edges within 0.3 m
+of the prior were right (Köysirata, an apartment corner on pilotis); a 1.3 m low edge under a pilotis block (E 23459846
+N 6704419) was wrong (3 m in the panorama), so the band is a quarter of a storey.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ MIN_UNDER = 10  # returns at ground level under the open piece needed to call it
 EDGE_SHARE = 0.25  # the soffit's bin holds at least this share of the median facade bin above it
 GROUND_BAND = 1.0  # m over the local ground: an under-footprint return at ground level
 NOT_FACADE = (2, 3, 4, 5, 7, 9, 18)  # ground, vegetation, noise and water returns
-STOREY_BAND = 1.5  # m: half a storey; a measured soffit further than this from the OSM height keeps the OSM height
+STOREY_BAND = 0.75  # m: a measured soffit further than this from the OSM height keeps the OSM height
 
 
 def open_edges(piece, footprint):

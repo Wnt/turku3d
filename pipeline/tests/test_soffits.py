@@ -70,4 +70,6 @@ def test_a_measured_edge_a_storey_away_from_the_tags_keeps_the_osm_height():
     apply(b, [("bridge", footprint, dict(soffit=8.1, ground=2.0, facade=900, under=200))])
     assert b.open_ground[0][1] == 3.0
     apply(b, [("bridge", footprint, dict(soffit=6.2, ground=2.0, facade=900, under=200))])
-    assert b.open_ground[0][1] == pytest.approx(4.2)
+    assert b.open_ground[0][1] == 3.0  # 1.2 m off: a pilotis block's 3 m soffit measured 1.7 m
+    apply(b, [("bridge", footprint, dict(soffit=5.6, ground=2.0, facade=900, under=200))])
+    assert b.open_ground[0][1] == pytest.approx(3.6)
