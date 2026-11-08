@@ -40,6 +40,12 @@ def test_open_thickets_become_bushes_spaced_by_their_size():
     assert gaps.min() >= T.SHRUB_SPACING - 1e-6
 
 
+def test_shrub_high_class5_tops_are_shrubs_too():
+    # A 2 m thicket the survey classed as high vegetation, with no taller crown over it.
+    result = bushes(np.empty((0, 3)), canopy=patch(40, 40, 46, 43, 2.0))
+    assert len(result) >= 3 and all(abs(b.height - 2.0) < .01 for b in result)
+
+
 def test_no_bush_from_grass_trees_lone_returns_roads_or_standing_trunks():
     assert bushes(patch(20, 20, 26, 23, 0.4)) == []  # tall grass
     assert bushes(patch(20, 20, 26, 23, 4.5)) == []  # a tree's crown layer

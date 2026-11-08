@@ -78,22 +78,28 @@ def shrub_points(tile, paths):
 
 
 def shrubs(tile, points, canopy, height_at, blocked, occupied=()):
-    """Bushes where the lidar measured shrubs in the open: half-metre cells whose class-4 top stands SHRUB_LOW to
-    SHRUB_HIGH m above the ground and no class-5 crown over them or next to them (lower crown layers of a tree are
-    class 4 too). Connected thickets of SHRUB_MIN_CELLS or more get a bush every SHRUB_SPACING m, highest first, as
+    """Bushes where the lidar measured shrubs in the open: half-metre cells whose class-4 or class-5 top stands
+    SHRUB_LOW to SHRUB_HIGH m above the ground and no taller crown over them or next to them (lower crown layers of
+    a tree are class 4 too). Connected thickets of SHRUB_MIN_CELLS or more get a bush every SHRUB_SPACING m, highest first, as
     tall as the returns around it and as wide as the thicket allows. Forest-edge mantles, park shrubberies, scrub
     and saplings all come from the same measurement; nothing is placed where the lidar saw none."""
-    points = np.asarray(points, float).reshape(-1, 3)
     origin = np.array([tile.bbox.xmin, tile.bbox.zmin])
     size = int(np.ceil(tile.size / CELL))
-    inside = ((points[:, 0] >= tile.bbox.xmin) & (points[:, 0] < tile.bbox.xmax)
-              & (points[:, 2] >= tile.bbox.zmin) & (points[:, 2] < tile.bbox.zmax))
-    points = points[inside]
-    if not len(points):
-        return []
     many = getattr(height_at, "many", None)
-    base = many(points[:, 0], points[:, 2]) if many else np.array([height_at(x, z) for x, _, z in points])
-    heights = points[:, 1] - base
+
+    def in_tile(cloud):
+        cloud = np.asarray(cloud, float).reshape(-1, 3)
+        cloud = cloud[(cloud[:, 0] >= tile.bbox.xmin) & (cloud[:, 0] < tile.bbox.xmax)
+                      & (cloud[:, 2] >= tile.bbox.zmin) & (cloud[:, 2] < tile.bbox.zmax)]
+        base = many(cloud[:, 0], cloud[:, 2]) if many else np.array([height_at(x, z) for x, _, z in cloud])
+        return cloud, cloud[:, 1] - base.reshape(-1) if len(cloud) else np.empty(0)
+
+    points, heights = in_tile(points)
+    high, high_heights = in_tile(canopy)
+    # Class 5 holds shrub-high tops too (in Ruissalo a fifth of its returns 1.5-3 m up): a highest-per-cell top below
+    # SHRUB_HIGH is a shrub with nothing above it; taller tops are tree crowns.
+    low = (high_heights > SHRUB_LOW) & (high_heights < SHRUB_HIGH)
+    points, heights = np.concatenate([points, high[low]]), np.concatenate([heights, high_heights[low]])
     keep = (heights > SHRUB_LOW) & (heights < SHRUB_HIGH)
     points, heights = points[keep], heights[keep]
     if not len(points):
@@ -102,11 +108,10 @@ def shrubs(tile, points, canopy, height_at, blocked, occupied=()):
     chm = np.zeros((size, size))
     np.maximum.at(chm, (ij[:, 0], ij[:, 1]), heights)
     crowns = np.zeros((size, size), bool)
-    high = np.asarray(canopy, float).reshape(-1, 3)
-    if len(high):
-        cij = np.floor((high[:, [0, 2]] - origin) / CELL).astype(int)
-        ok = (cij >= 0).all(axis=1) & (cij < size).all(axis=1)
-        crowns[cij[ok, 0], cij[ok, 1]] = True
+    tall = high[high_heights >= SHRUB_HIGH]
+    if len(tall):
+        cij = np.floor((tall[:, [0, 2]] - origin) / CELL).astype(int)
+        crowns[cij[:, 0], cij[:, 1]] = True
         crowns = maximum_filter(crowns, size=5)  # 1 m around a crown cell
     open_shrub = (chm > 0) & ~crowns
     components, count = label(open_shrub, np.ones((3, 3)))
