@@ -139,6 +139,17 @@ def test_a_covered_sidewalk_under_pilotis_keeps_the_open_ground_floor():
     assert not result.ceilings
 
 
+def test_a_covered_sidewalk_along_a_slightly_inset_open_part_leaves_no_sliver_cut():
+    """OSM's raised part runs 0.1 m inside the LoD2 outline along the Köysirata's street facade: the sidewalk corridor
+    minus the open ground floor left a 0.1 m strip inside the footprint, which split an 11 m stretch of the shell into
+    a lower part and a raised sliver above a 9.1 m passage ceiling."""
+    sidewalk = ("sidewalk", shapely.LineString([(8, 20), (72, 20)]),
+                {"highway": "footway", "footway": "sidewalk", "covered": "yes"})
+    result = pilotis_scene([sidewalk], shapely.box(10, 20.1, 70, 26))
+    assert len(result.shells) == 1 and result.shells[0][0].base == 2.0
+    assert not result.ceilings
+
+
 def test_a_covered_sidewalk_past_the_pilotis_still_lifts_the_closed_end():
     """The same sidewalk runs on under the building's closed end: there it keeps its covered passage, and the cut
     stops at the open ground floor instead of splitting it."""

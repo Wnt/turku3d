@@ -1310,8 +1310,10 @@ def produce(
                 # soffit and collision from turku3d.open_ground), its own soffit is the clear height, not the passage
                 # default. The covered sidewalk under the Köysirata (Turku) cut a 2.85 m strip from its pilotis
                 # shell, and the split shell no longer qualified for its open ground floor.
-                cut = without_slivers(cut.difference(opened[b.key]))
-                if cut.intersection(b.footprint).area < OPEN_SLIVER:
+                # Only the cut inside the footprint splits the shell; a strip left between the corridor's edge and
+                # an open part mapped just inside the outline (0.1 m along the Köysirata) is no passage.
+                cut = without_slivers(cut.difference(opened[b.key]).intersection(b.footprint))
+                if cut.area < OPEN_SLIVER:
                     updated.append((b, shell))
                     continue
             for footprint, base in (
