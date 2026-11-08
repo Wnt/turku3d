@@ -118,7 +118,9 @@ export class DriveFollower {
    *  path, back with the other, at walking pace, each leg only as far as the carriageway allows, until the car faces
    *  the path. Not a stuck recovery unless it gives up. */
   private turn: { side: number; dir: 1 | -1; rounds: number; room: number; from: { x: number; z: number };
-    time: number; still: number; blocked: number; aimS: number | null; backup: 'no' | 'driving' | 'done' } | null = null;
+    time: number; still: number; blocked: number; aimS: number | null; backup: 'no' | 'driving' | 'done';
+    /** Started by the edge watch: it ends only after a leg has turned the car (pursuit's arc led over an edge). */
+    edge: boolean; legs: number } | null = null;
   /** Where the running turn's aim lies (cosine and sine off the heading, + right) when it started or restarted. */
   private aimCos = 1;
   private aimSin = 0;
@@ -221,10 +223,10 @@ export class DriveFollower {
 
   /** A turn in the street that got nowhere ends the trip: pursuit at full lock from there is what took cars over
    *  quay edges. */
-  private startTurn(side: number, aimS: number | null, pose: VehiclePose, aim: { cos: number; sin: number }) {
+  private startTurn(side: number, aimS: number | null, pose: VehiclePose, aim: { cos: number; sin: number }, edge = false) {
     this.aimCos = aim.cos; this.aimSin = aim.sin;
     this.turn = { side, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0, aimS,
-      backup: 'no' };
+      backup: 'no', edge, legs: 0 };
     this.turns++;
     this.turnLeg(1, pose);
   }
@@ -305,7 +307,7 @@ export class DriveFollower {
       const hairpinTurn = this.turn.aimS !== null;
       const along = hairpinTurn ? sampleAt(path, this.turn.aimS!) : aim;
       if ((hairpinTurn ? aimAt(this.turn.aimS!).cos > HAIRPIN_DONE_COS : cosAim > TURN_DONE_COS)
-        && along.hx * pose.hx + along.hz * pose.hz > TURN_DONE_ALONG) {
+        && along.hx * pose.hx + along.hz * pose.hz > TURN_DONE_ALONG && (!this.turn.edge || this.turn.legs > 0)) {
         if (this.turn.aimS !== null) this.s = Math.max(this.s, this.turn.aimS - HAIRPIN_M - 4);
         this.turn = null; this.pendingTurnLeg = null;
       }
@@ -327,6 +329,7 @@ export class DriveFollower {
       t.time += dt; t.still = speed < 0.2 ? t.still + dt : 0;
       const moved = Math.hypot(pose.x - t.from.x, pose.z - t.from.z);
       if (moved >= t.room || t.time > (backingUp ? 2 * TURN_LEG_S : TURN_LEG_S) || (t.time > 1 && t.still > TURN_STALL_S)) {
+        if (moved >= 0.3) t.legs++;
         if (backingUp) {
           // Backed up: start the turn again from here, picking its side afresh.
           t.backup = 'done'; t.rounds = 0; t.blocked = 0;
@@ -356,6 +359,11 @@ export class DriveFollower {
 
     const planned = this.plannedSpeed(this.s, speed);
     let target = cosAim < SIDE_AIM_COS ? Math.min(planned, SIDE_AIM_SPEED) : planned;
+    // No faster than the lateral limit of the arc actually steered: the path's own curvature misses a car that sets
+    // off across it (Amsterdam Grimburgwal: from rest facing the canal, the car reached 5.8 m/s at full lock and ran
+    // wide onto the quay edge).
+    const steered = Math.abs(Math.tan(steer * lock)) / wheelbase;
+    if (steered > 0.02) target = Math.min(target, Math.max(SIDE_AIM_SPEED, Math.sqrt(STYLE[this.options.style ?? 'normal'].lateral / steered)));
     // Edge watch: a slow tight arc toward an edge stops short of it and turns in the street (guarded legs) instead.
     if (this.options.checkReverse) {
       const style = STYLE[this.options.style ?? 'normal'], e = this.edgeAhead;
@@ -363,12 +371,12 @@ export class DriveFollower {
       const watching = speed < EDGE_WATCH_SPEED && Math.abs(steer) > EDGE_WATCH_STEER;
       if (watching && !this.pendingEdgeCheck && (!e || e.age > EDGE_WATCH_S))
         this.pendingEdgeCheck = { steer, length: 2 + EDGE_WATCH_SPEED ** 2 / (2 * style.brake) };
-      if (watching && e && e.age < 0.6 && Math.abs(e.steer - steer) < 0.4 && e.room < speed * speed / (2 * style.brake) + 1) {
+      if (watching && e && e.age < 0.6 && Math.abs(e.steer - steer) < 0.4 && e.room < speed * speed / (2 * style.brake) + 0.5) {
         target = 0;
         if (speed < 0.4) {
           this.edgeAhead = null;
           if (++this.edgeStops >= EDGE_STOPS || this.turns >= TURN_TRIES) { this.gaveUp = 'stuck: edge ahead'; return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 }; }
-          this.startTurn(Math.sign(sinAlpha) || 1, null, pose, { cos: cosAim, sin: sinAlpha });
+          this.startTurn(Math.sign(sinAlpha) || 1, null, pose, { cos: cosAim, sin: sinAlpha }, true);
           return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 };
         }
       }

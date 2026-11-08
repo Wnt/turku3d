@@ -27,7 +27,8 @@ export function arcPoints(pose: VehiclePose, steer: number, g: VehicleGeometry, 
  *  run), and guard points GUARD_M ahead of the bumper's corners and centre. */
 interface ArcRow { bumper: { x: number; z: number }[]; axle: { x: number; z: number }; guard: { x: number; z: number }[] }
 
-function arcRows(pose: VehiclePose, steer: number, g: VehicleGeometry, dir: 1 | -1, length: number, every: number): ArcRow[] {
+function arcRows(pose: VehiclePose, steer: number, g: VehicleGeometry, dir: 1 | -1, length: number, every: number,
+  guard = GUARD_M): ArcRow[] {
   const half = g.back ?? g.rearOffset + 1;
   const bumper = dir < 0 ? half - g.rearOffset : half + g.rearOffset, side = (g.halfWidth ?? 0.9) - 0.05;
   const axle = dir < 0 ? 0 : g.wheelbase;
@@ -42,7 +43,7 @@ function arcRows(pose: VehiclePose, steer: number, g: VehicleGeometry, dir: 1 | 
     hx += rx * curvature * step * dir; hz += rz * curvature * step * dir;
     const l = Math.hypot(hx, hz) || 1; hx /= l; hz /= l;
     if (Math.abs(d / every - Math.round(d / every)) > 1e-6) continue;
-    const bx = x + hx * bumper * dir, bz = z + hz * bumper * dir, gx = bx + hx * GUARD_M * dir, gz = bz + hz * GUARD_M * dir;
+    const bx = x + hx * bumper * dir, bz = z + hz * bumper * dir, gx = bx + hx * guard * dir, gz = bz + hz * guard * dir;
     rows.push({
       bumper: [-1, 0, 1].map(k => ({ x: bx - hz * side * k, z: bz + hx * side * k })),
       axle: { x: x + hx * axle * dir, z: z + hz * axle * dir },
@@ -89,7 +90,7 @@ const LEG_ROW_M = 0.5;
 /** Clearance (m) a turn leg keeps beyond its bumper from an edge: a drop deeper than a kerb (a quay into a canal, a
  *  retaining wall), water or no ground at all. A wall or a building there is no edge: the bumper rows stop at it.
  *  Canal railings are thin enough to fall between the rows; the drop behind them is not (Amsterdam Oudezijds
- *  Voorburgwal: a back leg wedged the car on one at 1.5 m/s with a 0.6 m guard's predecessor, none). */
+ *  Voorburgwal: a back leg checked without a guard wedged the car on one at 1.5 m/s). */
 const GUARD_M = 1.0;
 
 /** A turn leg keeps its wheels on the carriageway while that leaves it at least this much travel (m); a shorter leg
@@ -129,6 +130,10 @@ export async function arcRoom(pose: VehiclePose, steer: number, g: VehicleGeomet
   return room(rows.length);
 }
 
+/** Ground ahead of the bumper (m) the edge watch keeps: less than a turn leg's GUARD_M, since pursuit turns at canal
+ *  corners all the time and the watch only has to stop a swing that would go over. */
+const EDGE_GUARD_M = 0.4;
+
 /** Metres (0..length) pursuit may drive along `steer` before the front bumper or the ground just ahead of it meets an
  *  edge: no ground, or a drop deeper than a kerb (follow.ts edge watch: a slow full-lock swing over a quay into a
  *  canal). Surfaces do not count here; the lanes chose them. */
@@ -136,7 +141,7 @@ export async function edgeRoom(pose: VehiclePose, steer: number, g: VehicleGeome
   const down = { x: 0, y: -1, z: 0 };
   const under = await ray({ x: pose.x, y: pose.y + RAY_UP, z: pose.z }, down, RAY_DOWN + 2);
   if (!under) return length;
-  const rows = arcRows(pose, steer, g, 1, length, LEG_ROW_M);
+  const rows = arcRows(pose, steer, g, 1, length, LEG_ROW_M, EDGE_GUARD_M);
   const cast = (p: { x: number; z: number }) => ray({ x: p.x, y: under.point.y + RAY_UP, z: p.z }, down, RAY_UP + RAY_DOWN);
   const hits = await Promise.all(rows.map(row => Promise.all([...row.bumper, ...row.guard].map(cast))));
   const last = [under.point.y, under.point.y, under.point.y];
