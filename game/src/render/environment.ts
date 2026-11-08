@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { AnalyticSky } from './analyticSky';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
 import { Atmosphere } from './atmosphere';
+import { AerialFog, type SceneFog } from './aerialFog';
 import { sunPosition, sunVector } from '../core/sun';
 import { localHour } from '../core/dayCycle';
 import { QUALITY, type QualityTier } from './quality';
@@ -75,6 +76,8 @@ export class Environment {
   private iblElevation = Number.NaN;
   private state = '';
   atmosphere: Atmosphere;
+  /** The scene's fog: exponential height haze with blue-weighted extinction and a low mist layer (aerialFog.ts). */
+  readonly aerial = new AerialFog();
 
   /** Reused sky PMREM; mobile water samples it without rendering the city a second time. */
   get environmentMap() { return this.environmentTarget?.texture ?? null; }
@@ -126,7 +129,10 @@ export class Environment {
       light.layers.enable(REFLECTION_LAYER);
       scene.add(light);
     }
+    // scene.fog keeps the timecycle's fog colour and range for the passes that read it (rain, glow, id pass); the
+    // materials draw the aerial perspective node instead (r186 NodeManager.getFogNode prefers scene.fogNode).
     scene.fog = new THREE.Fog(0xb8cde0, 500, 3500);
+    (scene as SceneFog).fogNode = this.aerial.node;
     scene.environmentIntensity = 0.35;
   }
 
@@ -168,6 +174,7 @@ export class Environment {
     // The sun direction follows every frame (shadows, sky); lighting values only when they moved visibly.
     if (!this.lit || sampleMoved(this.lit, this.baseSample)) { this.lit = this.baseSample; this.applyLighting(); }
     this.atmosphere.setSun(elevation, azimuth, this.sample);
+    this.aerial.update(this.sample, this.weather, this.sunDir, elevation, hour);
     nightUniforms.night.value = this.sample.night;
     nightUniforms.hour.value = hour;
     nightUniforms.litFraction.value = litFraction(hour);
@@ -203,6 +210,7 @@ export class Environment {
   }
 
   private applyFog() {
+    this.aerial.update(this.sample, this.weather, this.sunDir, this.sunElevation, this.hour);
     if (!(this.scene.fog instanceof THREE.Fog)) return;
     this.scene.fog.near = this.sample.fogNear;
     this.scene.fog.far = this.sample.fogFar;

@@ -3,6 +3,7 @@
 // Ids come from glTF node extras ({kind, id, tile, material}, docs/specs/tiles.md §3.1); meshes without extras
 // get kind 'other' and their node name.
 import * as THREE from 'three/webgpu';
+import type { SceneFog } from './aerialFog';
 
 interface IdEntry { kind: string; id: string; tile: string | null; material?: string; facade?: string; building?: string; layer?: string }
 
@@ -19,6 +20,7 @@ export class IdPass {
     renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     renderer.shadowMap.enabled = false;
     scene.fog = null;
+    (scene as SceneFog).fogNode = null;
     scene.background = new THREE.Color(0, 0, 0);
     for (const o of hide) o.visible = false;
   }

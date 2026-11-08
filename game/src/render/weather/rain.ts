@@ -5,6 +5,7 @@ import { isPrecompiling } from '../compileModel';
 import { puddleMask, weatherUniforms } from './surfaces';
 import { RainExposure } from './exposure';
 import type { WeatherSample } from './schedule';
+import type { SceneFog } from '../aerialFog';
 
 export class Rain {
   readonly scene: THREE.Scene;
@@ -22,6 +23,7 @@ export class Rain {
   private readonly right = uniform(new THREE.Vector3(1, 0, 0));
   constructor(world: THREE.Scene, count = 6000, exposure = new RainExposure(), scene = new THREE.Scene(), depth = new THREE.DepthTexture(1, 1)) {
     this.exposure = exposure; this.scene = scene; this.scene.fog = world.fog;
+    (this.scene as SceneFog).fogNode = (world as SceneFog).fogNode ?? null;
     this.sceneDepth.value = depth;
     const base = new THREE.PlaneGeometry(1, 1), geometry = new THREE.InstancedBufferGeometry();
     geometry.index = base.index;

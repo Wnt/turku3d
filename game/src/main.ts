@@ -500,7 +500,7 @@ addEventListener('resize', () => {
 // slower instead of failing it (tests/e2e/waits.ts).
 if (import.meta.env.DEV) void import('./dev/buildNotice').then(m => m.startBuildNotice());
 window.__game = { dayClock, backend, params, errors, tiles, clock, resolution, governor, three: THREE.REVISION, loadProgress: () => worldLoad.snapshot(),
-  lights, vegetation };
+  lights, vegetation, env };
 
 // Rebuild vegetation in the loaded world when its renderer changes; keep the camera,
 // streamed tiles and physics worker alive throughout a visual iteration.
