@@ -274,3 +274,13 @@ def test_a_guard_rail_over_a_drop_beside_its_carriageway_stands_at_the_road_heig
         assert np.isclose(s.y, 13.0) and np.isclose(s.height, 0.8)
     # The fence 3 m out in the cutting guards no carriageway and keeps its own ground.
     assert min(s.y for s in batch if s.kind != "rail") == 8.0
+
+
+def test_a_guard_rail_above_a_shoulder_slope_reaches_the_road_and_keeps_its_posts_on_the_ground():
+    # On Etelatuulentie's embankment the coarse ground under the rail is 0.5-0.9 m below the lane: the rail stood
+    # with its top at the road surface. It now reaches 0.8 m above the road and its posts still stand on the slope.
+    tile = C.VisualTile(0, 0, 0)
+    road = shapely.box(100, 70, 108, 130)
+    records = [(shapely.LineString([(99.7, 80), (99.7, 120)]), {"barrier": "guard_rail"}, False)]
+    batch = place(tile, records, [(road, 0)], lambda x, z: 13.0 if x >= 100 else 12.1)
+    assert batch and all(np.isclose(s.y, 12.1) and np.isclose(s.y + s.height, 13.8) for s in batch)

@@ -187,6 +187,7 @@ ROAD_CLEARANCE = 0.35  # m: a barrier's solid box stays this far out of a carria
 GUARD_RAIL_INSET = 0.5  # m: a guard rail is cut only where it runs this far inside a carriageway
 GUARD_RAIL_REACH = 1.5  # m: a guard rail this near a carriageway guards that carriageway's edge
 GUARD_RAIL_DROP = 0.5  # m: ground this far below the guarded carriageway falls away under the rail
+GUARD_RAIL_POSTS = 1.5  # m: over a drop up to this deep the rail's posts still reach down to the ground
 
 
 def guarded_heights(edges, carriageways, points, sample):
@@ -345,7 +346,9 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                 guarded = guarded_heights(edges, roads, [p, q, mid], sample)
                 guarded = guarded[np.isfinite(guarded)]
                 if guarded.size and guarded.min() > bottom + GUARD_RAIL_DROP:
-                    bottom, top = float(guarded.min()), float(guarded.max()) + h
+                    if guarded.min() > bottom + GUARD_RAIL_POSTS:
+                        bottom = float(guarded.min())  # over the portal: on the deck, not a wall down the cutting
+                    top = float(guarded.max()) + h
             if kind == "hedge" and "height" not in tags and "_hedge_top" in tags:
                 top = tags["_hedge_top"]
                 if top <= bottom + .1:
