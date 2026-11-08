@@ -14,6 +14,8 @@ export const PLANT_COLOURS = {
   stem: [[0.05, 0.06, 0.025], [0.07, 0.075, 0.03]],
   fern: [[0.04, 0.085, 0.018], [0.08, 0.15, 0.03], [0.11, 0.18, 0.04]],
   herb: [[0.045, 0.085, 0.02], [0.075, 0.13, 0.03], [0.1, 0.15, 0.04]],
+  /** Fallen wood: weathered grey, darker wet bark, a green moss film. */
+  wood: [[0.11, 0.095, 0.075], [0.075, 0.06, 0.045], [0.06, 0.07, 0.035]],
 } as const;
 
 function rng(seed: number) {
@@ -59,6 +61,26 @@ class PlantBuilder {
     const i = this.vertex(a.clone().sub(side), facing, rgb, swayA, phase), j = this.vertex(a.clone().add(side), facing, rgb, swayA, phase);
     const k = this.vertex(b.clone().sub(side), facing, rgb, swayB, phase), l = this.vertex(b.clone().add(side), facing, rgb, swayB, phase);
     this.index.push(i, j, k, j, l, k);
+  }
+
+  /** A still round stick from `a` to `b`: `sides` faces, outward normals, no wind. */
+  tube(a: THREE.Vector3, b: THREE.Vector3, radiusA: number, radiusB: number, sides: number, rgb: readonly number[]) {
+    const dir = new THREE.Vector3().subVectors(b, a).normalize();
+    const u = new THREE.Vector3().crossVectors(dir, this.up);
+    if (u.lengthSq() < 1e-6) u.set(1, 0, 0);
+    u.normalize();
+    const v = new THREE.Vector3().crossVectors(u, dir).normalize();
+    const out = new THREE.Vector3(), start = this.position.length / 3;
+    for (let k = 0; k <= sides; k++) {
+      const angle = (k / sides) * Math.PI * 2;
+      out.copy(u).multiplyScalar(Math.cos(angle)).addScaledVector(v, Math.sin(angle));
+      this.vertex(a.clone().addScaledVector(out, radiusA), out, rgb, 0, 0);
+      this.vertex(b.clone().addScaledVector(out, radiusB), out, rgb, 0, 0);
+    }
+    for (let k = 0; k < sides; k++) {
+      const i = start + k * 2;
+      this.index.push(i, i + 2, i + 1, i + 1, i + 2, i + 3);
+    }
   }
 
   geometry() {
@@ -149,6 +171,22 @@ export function herbGeometry(seed = 9029) {
       const length = 0.05 + r() * 0.03;
       b.leaf(c, dir, side, length, length * 0.8, colour, 1, phase);
     }
+  }
+  return b.geometry();
+}
+
+/** A fallen branch, 0.9-1.6 m long and 3-5 cm thick, lying on the floor with two side twigs: the dead wood of the
+ *  forest floor (reference video frames t035-t041; Finnish managed forests leave thinning branches). */
+export function deadwoodGeometry(seed = 4421) {
+  const r = rng(seed), b = new PlantBuilder();
+  const length = 0.9 + r() * 0.7, radius = 0.018 + r() * 0.01, colour = pick(r, PLANT_COLOURS.wood);
+  const points = [new THREE.Vector3(-length / 2, radius * 0.7, 0)];
+  for (let k = 1; k <= 3; k++) points.push(new THREE.Vector3(-length / 2 + (length * k) / 3, radius * 0.7, (r() - 0.5) * 0.12));
+  for (let k = 0; k < 3; k++) b.tube(points[k], points[k + 1], radius * (1 - k * 0.22), radius * (1 - (k + 1) * 0.22), 5, colour);
+  for (const k of [1, 2]) {
+    const from = points[k], side = r() < 0.5 ? -1 : 1, twig = 0.25 + r() * 0.25;
+    const to = from.clone().add(new THREE.Vector3(twig * 0.6, 0.02 + r() * 0.05, side * twig * 0.8));
+    b.tube(from, to, radius * 0.45, radius * 0.2, 4, colour);
   }
   return b.geometry();
 }

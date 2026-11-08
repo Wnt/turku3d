@@ -163,6 +163,8 @@ it('grows bilberry, fern and herb plants on forest floors, by floor type, and no
   expect(broadleaf(6)).toBeGreaterThan(0.3);
   expect(moss(5)).toBeGreaterThan(0.25);
   for (const s of [conifer, broadleaf]) expect(s(-1)).toBeGreaterThan(0.15);
+  // Fallen branches (7) on every floor type, rare.
+  for (const s of [conifer, broadleaf, moss]) { expect(s(7)).toBeGreaterThan(0.01); expect(s(7)).toBeLessThan(0.04); }
 
   const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
@@ -177,6 +179,12 @@ it('grows bilberry, fern and herb plants on forest floors, by floor type, and no
   const total = Object.values(drawn).reduce((a, b) => a + b, 0);
   expect(total).toBeGreaterThan(400); expect(total).toBeLessThan(1300);
   for (const mesh of field.root.children as THREE.InstancedMesh[]) {
+    if (mesh.userData.nature === 'groundcover_deadwood') {
+      const box = mesh.geometry.boundingBox!;
+      expect(box.max.y).toBeLessThan(0.15); expect(box.max.x - box.min.x).toBeGreaterThan(0.8);
+      expect(mesh.material).toBe(library.materials.grassBlade);
+      continue;
+    }
     if (!/shrub|fern|herb/.test(mesh.userData.nature)) continue;
     expect(mesh.material).toBe(library.materials.grassBlade);
     const box = mesh.geometry.boundingBox!;

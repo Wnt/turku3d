@@ -10,7 +10,7 @@ import { QUALITY } from '../../render/quality';
 import { materialKey, surfaceStyle } from '../../render/materials';
 import type { NatureLibrary } from './library';
 import { tuftGeometry } from './grassBlades';
-import { dwarfShrubGeometry, fernGeometry, herbGeometry } from './groundcover';
+import { deadwoodGeometry, dwarfShrubGeometry, fernGeometry, herbGeometry } from './groundcover';
 import { hashId } from './species';
 
 const CELL = 16;
@@ -19,10 +19,11 @@ const STRIDE = 6;
 /** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes; and
  *  the forest floors' plants: dwarf shrubs, ferns and low herbs. The tufts and the forest plants are opaque geometry
  *  built here (grassBlades.ts, groundcover.ts), the others the library's alpha-tested cards. */
-const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette', 'groundcover_shrub', 'groundcover_fern', 'groundcover_herb'] as const;
-const TUFT = 1, SHRUB = 4, FERN = 5, HERB = 6;
+const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette', 'groundcover_shrub', 'groundcover_fern', 'groundcover_herb',
+  'groundcover_deadwood'] as const;
+const TUFT = 1, SHRUB = 4, FERN = 5, HERB = 6, DEADWOOD = 7;
 /** Opaque kinds built on the client (blade tufts, forest-floor plants), drawn with the blade material. */
-const BUILT = new Set([TUFT, SHRUB, FERN, HERB]);
+const BUILT = new Set([TUFT, SHRUB, FERN, HERB, DEADWOOD]);
 
 interface TileGrass { key: string; cells: Map<string, { points: number[]; kinds: number[] }> }
 
@@ -57,6 +58,8 @@ const FOREST_DENSITY = 0.55;
  *  and grass tufts; wet moss ferns, sedge-like tufts and dwarf shrubs (Finnish forest site types: VT/MT heath, OMT
  *  herb-rich grove, spruce mire edges). */
 export function forestKind(floor: Floor, patch: number, pick: number) {
+  // A fallen branch on 2.5 % of the floor's candidates, about one per 30 m2 on the medium tier.
+  if (pick >= 0.975) return DEADWOOD;
   if (floor === 'conifer') {
     if (patch > 0.3) return pick < 0.8 ? SHRUB : pick < 0.88 ? FERN : pick < 0.96 ? TUFT : -1;
     return pick < 0.25 ? SHRUB : pick < 0.33 ? TUFT : pick < 0.36 ? FERN : -1;
@@ -89,7 +92,8 @@ export class GrassField {
   private draws: THREE.InstancedMesh[][] = [];
   private instances: THREE.InstancedBufferAttribute[] = [];
   private tuft = tuftGeometry();
-  private plants = new Map<number, THREE.BufferGeometry>([[SHRUB, dwarfShrubGeometry()], [FERN, fernGeometry()], [HERB, herbGeometry()]]);
+  private plants = new Map<number, THREE.BufferGeometry>([[SHRUB, dwarfShrubGeometry()], [FERN, fernGeometry()], [HERB, herbGeometry()],
+    [DEADWOOD, deadwoodGeometry()]]);
   private selection = '';
   private readonly settings: { density: number; range: number; instances: number };
   private matrix = new THREE.Matrix4();
