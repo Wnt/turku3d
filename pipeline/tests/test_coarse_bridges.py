@@ -684,3 +684,42 @@ def test_bridge_slab_of_an_empty_level_draws_nothing():
     minimum of no coordinates (ValueError), failing the whole tile."""
     line = shapely.LineString([(0, 0), (20, 0)])
     assert slab("empty", [(shapely.Polygon(), None)], line, np.array([0, 10, 20]), np.array([2, 2, 2]), "road") == []
+
+
+def test_a_deck_is_not_cut_around_its_own_support_or_a_building_under_it():
+    # Rotterdam Willemsbrug: the north approach viaduct passes over a 1981 building with no measured shell and the
+    # pylon outline (building=service, bridge:support=pylon) spans the carriageway.
+    from turku3d.coarse.bridges import deck_obstacle, through_deck
+    from turku3d.coarse.inputs import Building
+
+    assert deck_obstacle({"building": "yes"})
+    assert not deck_obstacle({"building": "service", "bridge:support": "pylon"})
+    assert not deck_obstacle({"building": "no"})
+    assert not deck_obstacle({"highway": "primary"})
+
+    line = shapely.LineString([(0, 0), (60, 0)])
+    deck = line.buffer(4, cap_style="flat")
+    stations, heights = np.array([0.0, 60.0]), np.array([10.0, 11.0])
+    under = Building("under", shapely.box(10, -12, 22, 12), 0.5, 10.9, "facade_plaster")
+    through = Building("through", shapely.box(35, -12, 42, 12), 0.5, 30.0, "facade_plaster")
+    beside = Building("beside", shapely.box(48, 8, 55, 14), 0.5, 10.2, "facade_plaster")
+    # The OSM outline of the building under the deck is a little larger than its measured footprint.
+    obstacles = shapely.union_all([shapely.box(9.6, -12.4, 22.4, 12.4), *(b.footprint for b in (through, beside))])
+    kept = through_deck(obstacles, [under, through, beside], deck, line, stations, heights)
+    cut = deck.difference(kept.buffer(0.15))
+    assert cut.covers(shapely.box(9, -4, 23, 4))  # no hole over the low building
+    assert not cut.intersects(shapely.box(35.5, -3, 41.5, 3))  # a building rising through the deck stays a hole
+    assert kept.covers(beside.footprint)  # not under the deck: unchanged
+    assert through_deck(obstacles, [beside], deck, line, stations, heights) is obstacles
+
+    # A mapped outline with no measured building on it (its building is not built) inside the tile is no hole;
+    # one reaching past the tile edge is kept (its measured building may belong to the neighbour tile).
+    unbuilt = shapely.box(24, -10, 31, 10)
+    past_edge = shapely.box(55, -10, 65, 10)
+    tile_box = shapely.box(0, -50, 60, 50)
+    obstacles = shapely.union_all([unbuilt, past_edge, through.footprint])
+    kept = through_deck(obstacles, [through], deck, line, stations, heights, tile_box)
+    cut = deck.difference(kept.buffer(0.15))
+    assert cut.covers(shapely.box(24, -4, 31, 4))
+    assert not cut.intersects(shapely.box(35.5, -3, 41.5, 3))
+    assert not cut.intersects(shapely.box(55.5, -3, 59.5, 3))

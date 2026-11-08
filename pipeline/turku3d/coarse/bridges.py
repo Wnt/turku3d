@@ -316,7 +316,7 @@ def prepare(tile, osm, survey_paths=(), spot_paths=()):
         if tags.get("highway") == "street_lamp" and line.geom_type == "Point":
             lamps.append((list(line.coords[0]), tags))
         poly = footprint(line)
-        if tags.get("building") not in (None, "no") and not poly.is_empty:
+        if deck_obstacle(tags) and not poly.is_empty:
             obstacles.append(poly)
         if tags.get("man_made") == "pier":
             piers.append(poly if not poly.is_empty else line)
@@ -732,6 +732,47 @@ def approach_lengths(way, ends, sample, obstacles):
                 break
         result.append(length)
     return tuple(result)
+
+
+def deck_obstacle(tags):
+    """A mapped building a deck is cut around. A bridge's own support mapped as a building (``bridge:support``
+    pylon or pier) is none: the Willemsbrug's pylon outline spans the carriageway that passes between its legs."""
+    return tags.get("building") not in (None, "no") and not tags.get("bridge:support")
+
+
+UNDER_DECK = 1.5  # m: a measured building top at most this far above the deck lies under it (lidar sees the deck)
+
+
+def through_deck(obstacles, buildings, deck, line, stations, heights, tile_box=None):
+    """The obstacles a deck is cut around, without what stands under it or is not built at all.
+
+    A measured building whose top is below the deck surface + UNDER_DECK where they overlap stands under the deck (a
+    lidar roof under a viaduct reads the deck itself). An obstacle part inside the tile (``tile_box``) that no
+    measured building stands on is a mapped outline whose building is not built (no shell): nothing stands there for
+    the deck to pass round. Rotterdam's Willemsbrug north approach viaduct passes over a 1981 building that has no
+    shell; its outline cut a 30 m hole in the deck and cars fell to the street. Parts reaching past the tile are kept:
+    a measured building on them may belong to the neighbour tile."""
+    under = []
+    for building in buildings:
+        overlap = building.footprint.intersection(deck)
+        if overlap.is_empty or overlap.area < 0.5:
+            continue
+        along = shapely.line_locate_point(line, shapely.points(shapely.get_coordinates(overlap)))
+        if building.top <= float(np.min(np.interp(along, stations, heights))) + UNDER_DECK:
+            under.append(building.footprint)
+    unbuilt = []
+    if tile_box is not None:
+        measured = shapely.union_all([b.footprint for b in buildings])
+        unbuilt = [
+            part
+            for part in shapely.get_parts(obstacles)
+            if part.intersects(deck) and tile_box.contains(part) and part.intersection(measured).area < 0.5
+        ]
+    if not under and not unbuilt:
+        return obstacles
+    # The OSM outline of a measured building is among the obstacles too and a little larger or offset.
+    removed = shapely.union_all([*(u.buffer(1.0) for u in under), *(u.buffer(0.01) for u in unbuilt)])
+    return obstacles.difference(removed)
 
 
 def slab(key, polygon, line, stations, heights, material, height_at=None, thickness=THICKNESS,
@@ -1204,6 +1245,9 @@ def produce(tile, grid_pos, inputs):
             footprint_poly = footprint_poly.union(
                 corridor.difference(axis.buffer(width / 2, cap_style="flat", join_style="mitre"))
             ).union(continuations.intersection(corridor))
+        obstacles = through_deck(
+            obstacles, inputs.buildings, footprint_poly, line, ss, hh, shapely.box(*tile.bbox.as_tuple())
+        )
         footprint_poly = footprint_poly.difference(obstacles.buffer(0.15))
 
         ramps = approach_branches(way)
