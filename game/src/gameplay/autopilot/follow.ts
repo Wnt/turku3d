@@ -86,8 +86,10 @@ const HAIRPIN_DONE_COS = 0.85;
 /** Speed (m/s) in a turn's legs, and a leg's longest travel (m) and time (s). */
 const TURN_SPEED = 1.2, TURN_LEG_S = 6;
 export const TURN_LEG_M = 4.5;
-/** A leg ends after this long (s) without moving, once it has run a second. */
-const TURN_STALL_S = 0.8;
+/** A leg ends after this long (s) without moving, once it has run a second. After TURN_PUSH_S still it presses
+ *  harder (TURN_PUSH): a wheel against a kerb or a tree pit's edge does not climb at walking-pace pedal (Amsterdam
+ *  Warmoesstraat: a reverse leg stood still on the tree strip and the turn counted it blocked). */
+const TURN_STALL_S = 1.2, TURN_PUSH_S = 0.3, TURN_PEDAL = 0.4, TURN_PUSH = 0.8;
 /** A turn leg that takes the car this far (m) from its path, or half a metre beyond where the leg started if that was
  *  further, ends there and the next leg comes back; a turn beyond OFF_PATH_M - 1 gives up. (Amsterdam Warmoesstraat,
  *  Rotterdam Botersloot: a leg rolled past 6 m, or a back-up left the car 7 m off, and the turn gave up at once.) */
@@ -359,10 +361,10 @@ export class DriveFollower {
         return { command: hold, target: 0, ...recovering };
       }
       // Walking pace both ways. LT brakes a car rolling forward and reverses once stopped; RT brakes one rolling back.
-      const turnSteer = backingUp ? 0 : t.side;
+      const turnSteer = backingUp ? 0 : t.side, pedal = t.still > TURN_PUSH_S ? TURN_PUSH : TURN_PEDAL;
       const command = t.dir > 0
-        ? { throttle: v < TURN_SPEED ? 0.4 : 0, brake: v > TURN_SPEED + 0.5 ? 0.3 : 0, steer: turnSteer, handbrake: false }
-        : { throttle: v < -TURN_SPEED - 0.5 ? 0.3 : 0, brake: v > -TURN_SPEED ? 0.4 : 0, steer: -turnSteer, handbrake: false };
+        ? { throttle: v < TURN_SPEED ? pedal : 0, brake: v > TURN_SPEED + 0.5 ? 0.3 : 0, steer: turnSteer, handbrake: false }
+        : { throttle: v < -TURN_SPEED - 0.5 ? 0.3 : 0, brake: v > -TURN_SPEED ? pedal : 0, steer: -turnSteer, handbrake: false };
       return { command, target: TURN_SPEED * t.dir, ...recovering };
     }
 
