@@ -7,7 +7,7 @@
     "family": "hatchback-sports",
     "length": 4.1928,
     "width": 1.8162,
-    "height": 1.4738,
+    "height": 1.4745,
     "wheelbase": 2.736,
     "hood": 0.25,
     "rear": -0.4,
@@ -49,12 +49,12 @@
   "collision": {
     "center": [
       0,
-      0.7369,
+      0.7372,
       0
     ],
     "half": [
       0.9081,
-      0.7369,
+      0.7372,
       2.0964
     ]
   },
@@ -86,7 +86,7 @@
     "character": "balanced",
     "lengthM": 4.1928,
     "widthM": 1.8162,
-    "heightM": 1.4738,
+    "heightM": 1.4745,
     "wheelbaseM": 2.736,
     "trackM": 1.4757,
     "wheelRadiusM": 0.3373,

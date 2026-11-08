@@ -4,13 +4,24 @@ import * as THREE from 'three/webgpu';
 import { AUTHORED_MODELS } from '../../src/actors/fleet/registry';
 import { loadAuthoredFleetParts } from '../../src/actors/fleet/authored';
 
-/** The tyre axle of a hub-centred wheel part: the least-spread direction of its area-weighted surface. */
+/** Rubber triangles (fleet_rubber: roughness 0.85, metalness 0 in fleetSurface): the tyre without rim, caliper or
+ *  stray parts, whose asymmetry skews the measured axle by a few degrees. */
+function tyreTriangles(g: THREE.BufferGeometry) {
+  const surface = g.getAttribute('fleetSurface'), index = g.index!, rubber: number[] = [], all: number[] = [];
+  for (let i = 0; i < index.count; i += 3) {
+    const v = index.getX(i), tri = [v, index.getX(i + 1), index.getX(i + 2)];
+    all.push(...tri);
+    if (Math.abs(surface.getY(v) - .85) < .03 && surface.getZ(v) < .03) rubber.push(...tri);
+  }
+  return rubber.length >= 120 ? rubber : all;
+}
+/** The tyre axle of a hub-centred wheel part: the least-spread direction of its area-weighted tyre surface. */
 function axleOf(g: THREE.BufferGeometry) {
-  const p = g.getAttribute('position'), index = g.index!, a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  const p = g.getAttribute('position'), index = tyreTriangles(g), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
   const m = new THREE.Vector3(), e = new THREE.Vector3(), sum = new THREE.Vector3(), cov = new Array(9).fill(0);
   let area = 0;
-  for (let i = 0; i < index.count; i += 3) {
-    a.fromBufferAttribute(p, index.getX(i)); b.fromBufferAttribute(p, index.getX(i + 1)); c.fromBufferAttribute(p, index.getX(i + 2));
+  for (let i = 0; i < index.length; i += 3) {
+    a.fromBufferAttribute(p, index[i]); b.fromBufferAttribute(p, index[i + 1]); c.fromBufferAttribute(p, index[i + 2]);
     const w = e.subVectors(b, a).cross(m.subVectors(c, a)).length() / 2;
     m.copy(a).add(b).add(c).divideScalar(3); area += w; sum.addScaledVector(m, w);
     const v = m.toArray(); for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) cov[r * 3 + k] += w * v[r] * v[k];
@@ -64,23 +75,18 @@ function runout(g: THREE.BufferGeometry) {
 
 /** Known wheel faults that a later converter pass removes; each entry must still fail (a fixed model leaves the list). */
 const PENDING: Record<string, string> = {
-  'carla-carlamotors-european-hgv': 'rear part spans both tandem axles; mudguards skinned to the front wheel bones',
-  'carla-carlamotors-firetruck': 'mudguards skinned to the wheel bones spin with the tyres',
+  'carla-carlamotors-european-hgv': 'the rear part holds both tandem axles (Wheel_Middle_* bones went to the nearest hub)',
+  'carla-carlamotors-firetruck': 'hub 6 cm below the tyre centre; mudguards skinned to the wheel bones spin',
   'carla-ford-ambulance': 'arch parts skinned to the wheel bones spin with the tyres',
-  'carla-mitsubishi-fusorosa': 'arch parts skinned to the wheel bones spin with the tyres',
-  'carla-carlamotors-carlacola': 'front parts outside the tyre spin with it',
-  'transit-bus': 'cambered source wheels, off-centre tyres',
-  'garbage-truck': 'cambered source wheels, off-centre tyres',
-  'octavia-rs-2020': 'cambered source wheels, sagging tyre bottoms',
-  'octavia-rs-2020-police': 'cambered source wheels, sagging tyre bottoms',
-  'yaris-2001': 'cambered front wheels, flattened tyre bottoms',
-  's90': 'a part behind each rear tyre spins with it',
-  'w212': 'off-centre rear tyres',
-  'carla-bmw-grandtourer': 'cambered rear wheel',
-  'carla-seat-leon': 'cambered wheels',
-  'carla-audi-tt': 'cambered rear wheels',
-  'carla-micro-microlino': 'cambered wheels',
-  'v60': 'cambered wheels',
+  'carla-mitsubishi-fusorosa': 'registry radius 0.47 m is the rim face, the tyre is ~0.62 m',
+  'carla-carlamotors-carlacola': 'tyre outline not round in the source',
+  'carla-audi-tt': 'stray rubber parts skinned to the rear wheel bones',
+  'transit-bus': 'tyre outline not round in the source (flattened bottoms)',
+  'garbage-truck': 'tyre outline not round in the source (tread blocks, flattened bottoms)',
+  'octavia-rs-2020': 'coarse tyre outline in the source',
+  'octavia-rs-2020-police': 'coarse tyre outline in the source',
+  'yaris-2001': 'oval front tyres in the source',
+  'carla-bmw-grandtourer': 'tyre outline not round in the source',
 };
 
 test('every fleet wheel rolls about its own axle and stays round at every steer angle', async () => {

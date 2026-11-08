@@ -7,7 +7,7 @@
     "family": "microcar",
     "length": 2.2073,
     "width": 1.4809,
-    "height": 1.376,
+    "height": 1.3768,
     "wheelbase": 1.5247,
     "hood": 0.25,
     "rear": -0.4,
@@ -49,12 +49,12 @@
   "collision": {
     "center": [
       0,
-      0.688,
+      0.6884,
       0
     ],
     "half": [
       0.7405,
-      0.688,
+      0.6884,
       1.1036
     ]
   },
@@ -86,7 +86,7 @@
     "character": "comfort",
     "lengthM": 2.2073,
     "widthM": 1.4809,
-    "heightM": 1.376,
+    "heightM": 1.3768,
     "wheelbaseM": 1.5247,
     "trackM": 1.1916,
     "wheelRadiusM": 0.2543,
