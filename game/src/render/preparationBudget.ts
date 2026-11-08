@@ -85,6 +85,12 @@ export class StreamingAllowance {
   get share() { return this.now() - this.frameAt > 100 ? StreamingAllowance.BASE_MS : this.total; }
   /** A budget starts a window this frame. */
   opened() { this.windows++; }
+  /** Diagnostics (window.__perf.allowance): the controller's state and what budgets and the yield pacer get now. */
+  stats() {
+    const r = (x: number) => Math.round(x * 10) / 10;
+    return { urgent: this.urgent, total: r(this.total), limit: r(this.limit), share: r(this.share), windows: this.lastWindows,
+      interval: r(this.interval), idle: r(this.idle), gpu: r(this.gpu) };
+  }
   /** Milliseconds one streaming budget may work in this frame. */
   get limit() {
     // No frame reports (a page without the monitor, or a stalled loop): the old fixed window.

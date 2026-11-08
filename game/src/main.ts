@@ -94,7 +94,7 @@ declare global {
     __qaMove?: (pose: { E: number; N: number; H: number; yaw: number; pitch: number; fov: number }) => void;
     __game?: Record<string, unknown>;
     __perf?: PerfSnapshot & { stream: ReturnType<CoarseTiles['streamSnapshot']> | null;
-      builds: ReturnType<NonNullable<GameRenderer['asyncBuilds']>['stats']> | null };
+      builds: ReturnType<NonNullable<GameRenderer['asyncBuilds']>['stats']> | null; allowance: ReturnType<typeof streamingAllowance.stats> };
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
       setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
@@ -243,7 +243,8 @@ if (pointCloud && pointCloudWanted.show) { pointCloud.setColorMode(pointCloudWan
 let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(renderer, scene, camera, params.quality, params.aa, weatherOverlay, pointCloud);
 // `stream` first: the CDP logger keeps the first 4000 characters of the snapshot.
 Object.defineProperty(window, '__perf', { get: () => ({ stream: censusSources.coarse?.streamSnapshot() ?? null,
-  builds: renderer instanceof GameRenderer ? renderer.asyncBuilds?.stats() ?? null : null, ...perf.snapshot() }) });
+  builds: renderer instanceof GameRenderer ? renderer.asyncBuilds?.stats() ?? null : null, allowance: streamingAllowance.stats(),
+  ...perf.snapshot() }) });
 window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
   census: () => {
     let previous: (() => void) | undefined;
