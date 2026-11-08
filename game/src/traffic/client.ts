@@ -13,7 +13,8 @@ import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { DAY_MS } from '../core/dayCycle';
-import { CHASSIS_LIFT, CLAIM_PREFIX, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
+import { CHASSIS_LIFT, CLAIM_PREFIX, MODEL_SIZE, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
+import { ENTER_REACH, footprintDistance } from '../vehicle/reach';
 import { enabledTiles, roadHash } from './gate';
 import { hash32 } from './hash';
 import { TrafficSignals } from './signals';
@@ -109,12 +110,13 @@ export class TrafficClient {
     this.signals?.update(this.time);
   }
 
-  /** The nearest drawn moving car within `radius` of a walking player (for entering it). */
-  nearest(at: V3, radius = 4): { handle: number; distance: number } | null {
+  /** The drawn moving car whose footprint is nearest a walking player, within `radius` of it (for entering it). */
+  nearest(at: V3, radius = ENTER_REACH): { handle: number; distance: number } | null {
     let best: { handle: number; distance: number } | null = null;
     for (const car of this.drawn) {
       if (Math.abs(car.y - CHASSIS_LIFT - at.y) > 3) continue;
-      const distance = Math.hypot(car.x - at.x, car.z - at.z);
+      const [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[car.model]];
+      const distance = footprintDistance(at, car, car.q, { x: length / 2, z: width / 2 });
       if (distance < radius && (!best || distance < best.distance)) best = { handle: car.handle, distance };
     }
     return best;

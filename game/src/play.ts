@@ -39,6 +39,7 @@ import { onDamage } from './actors/fleet/damageRig';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
 import { FLEET_BY_ID, PLAYER_MODEL } from './actors/fleet/catalog';
+import { ENTER_REACH, footprintDistance } from './vehicle/reach';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { DevLayers } from './ui/devLayers';
@@ -748,7 +749,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     if (!paused && input.consume('interact')) {
       const nearestLocal = mode === 'foot' ? physics.latest?.vehicles
         .filter(v => !multiplayerPlaying || !sharedVehicles?.record(v.id ?? null)?.occupant)
-        .map(v => ({ id: v.id ?? 'player', distance: Math.hypot(v.pos.x - feet.x, v.pos.z - feet.z), y: v.pos.y }))
+        .map(v => ({ id: v.id ?? 'player', distance: footprintDistance(feet, v.pos, v.rot, physics.vehicleHalfExt(v.id ?? 'player', v.kind)), y: v.pos.y }))
         .filter(v => Math.abs(v.y - feet.y) < 3).sort((a, b) => a.distance - b.distance)[0] : null;
       const nearestShared = multiplayerPlaying && mode === 'foot' ? sharedVehicles?.nearest(feet) : null;
       const nearest = nearestShared && (!nearestLocal || nearestShared.distance < nearestLocal.distance) ? nearestShared : nearestLocal;
@@ -766,7 +767,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       };
       if (mode === 'foot' && moving && (!nearest || moving.distance < nearest.distance) && missions.mayDrive('traffic')) {
         void traffic.enter(moving.handle).then(id => { if (id && mode === 'foot') take(id); });
-      } else if (mode === 'foot' && nearest && nearest.distance < 4 && missions.mayDrive(nearest.id)) {
+      } else if (mode === 'foot' && nearest && nearest.distance < ENTER_REACH && missions.mayDrive(nearest.id)) {
         take(nearest.id);
       } else if (mode === 'car' && vs) {
         leaveCar(driverSide(vs));

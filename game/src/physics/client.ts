@@ -9,6 +9,7 @@ import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpol
 import type { V3 } from '../core/origin';
 import type { DamageHit } from '../vehicle/damage';
 import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, TrafficConfig, TrafficTile, TrafficView, VehicleInput, VehicleSpec } from './protocol';
+import { VEHICLES, type VehicleKind } from './constants';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
 const STARTUP_TIMEOUT_MS = 15_000;
@@ -173,8 +174,16 @@ export class PhysicsClient {
     if (enabled && pos) this.placed('character', pos);
     this.send({ type: 'setCharacterEnabled', enabled, pos });
   }
-  spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) { this.send({ type: 'spawnVehicle', spec: { id: spec.id ?? 'player', pos, yaw, ...spec } }); }
-  removeVehicle(id: string) { this.send({ type: 'removeVehicle', id }); }
+  spawnVehicle(pos: V3, yaw: number, spec: Partial<VehicleSpec> = {}) {
+    const id = spec.id ?? 'player';
+    this.halves.set(id, spec.halfExt ?? spec.tuning?.halfExt ?? VEHICLES[spec.kind ?? 'car'].halfExt);
+    this.send({ type: 'spawnVehicle', spec: { id, pos, yaw, ...spec } });
+  }
+  removeVehicle(id: string) { this.halves.delete(id); this.send({ type: 'removeVehicle', id }); }
+  /** A body's chassis half extents (x forward, z across) as the worker sizes it (world.ts addVehicle); bodies the
+   *  worker made itself (claimed traffic) by their kind. */
+  vehicleHalfExt(id: string, kind: VehicleKind = 'car'): V3 { return this.halves.get(id) ?? VEHICLES[kind].halfExt; }
+  private readonly halves = new Map<string, V3>();
   driveVehicle(id: string | null) { this.send({ type: 'driveVehicle', id }); }
   resetVehicle(pos: V3, yaw: number, id = 'player') { this.placed(id, pos); this.send({ type: 'resetVehicle', id, pos, yaw }); }
   vehicleImpulse(id: string, impulse: V3) { this.send({ type: 'vehicleImpulse', id, impulse }); }

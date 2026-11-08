@@ -13,6 +13,7 @@ import type { Drv } from './drv';
 import type { SharedVehicle, VehicleCommand, VehicleUpdate } from './vehicleTypes';
 import { modelDamageBox, modelTuning } from '../vehicle/modelTuning';
 import { PLAYER_MODEL } from '../actors/fleet/catalog';
+import { footprintDistance, yawRotation } from '../vehicle/reach';
 
 export function vehiclePose(state: VehicleState, model: string, now: number, drv?: Drv): NetPose {
   const yaw = yawOf(state.rot) - Math.PI / 2;
@@ -273,11 +274,13 @@ export class SharedVehicles {
       kind: v.pose.mode as 'car' | 'scooter' | 'truck' });
   }
 
+  /** The free shared vehicle whose footprint is nearest `at` (vehicle/reach.ts), at its local body or its pose. */
   nearest(at: V3): { id: string; distance: number } | null {
     const candidates = [...this.client.state.vehicles.values()].filter(v => !v.occupant).flatMap(v => {
       const local = v.owner === this.client.state.you?.id ? this.physics.latest?.vehicles.find(s => s.id === this.localId(v)) : null;
       const point = local?.pos ?? { x: v.pose.E, y: v.pose.H, z: -v.pose.N };
-      return Math.abs(point.y - at.y) < 3 ? [{ id: this.localId(v), distance: Math.hypot(point.x - at.x, point.z - at.z) }] : [];
+      const rot = local?.rot ?? v.pose.rot ?? yawRotation(v.pose.yaw + Math.PI / 2);
+      return Math.abs(point.y - at.y) < 3 ? [{ id: this.localId(v), distance: footprintDistance(at, point, rot, v.half) }] : [];
     });
     return candidates.sort((a, b) => a.distance - b.distance)[0] ?? null;
   }
