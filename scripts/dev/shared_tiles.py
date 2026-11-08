@@ -209,6 +209,7 @@ class Farm:
         # Live player positions: client -> {tile the player stands on (d=0): last time}.
         self.players, self.durations = {}, {}
         self.registrations, self.registrations_scanned = {}, float('-inf')
+        self.revision_cache, self.revision_mtime = {}, {}
         # The game's version: the generation its proxy requests by distance from a pin client.
         self.pin = read_json(self.root / 'pin.json', {})
         self.stop = stop or self.stop_worker
@@ -237,10 +238,36 @@ class Farm:
     def revision(self, revision):
         if not REV.fullmatch(revision):
             raise ValueError('invalid revision')
-        meta = read_json(self.root / 'revisions' / revision / 'revision.json')
-        if not meta or not REV.fullmatch(meta.get('generation', '')):
+        meta = self.revision_meta(revision)
+        if meta is None:
             raise KeyError('revision is not registered')
+        return dict(meta)
+
+    def revision_meta(self, name):
+        """A registered revision's revision.json, read once. A revision directory is content-addressed and its
+        revision.json is written once (register() drops the entry when it writes one), so the farm lock never
+        waits on rereading it. Most snapshots are symlinks to the bulk HDD (moved-from-root/farm-revisions):
+        2026-11-08 rereading all 434 every 10 s under the lock took minutes while the HDD was busy, and every tile
+        request waited. Only the entry itself is checked again (an lstat on the root disk)."""
+        entry = self.root / 'revisions' / name
+        meta = self.revision_cache.get(name)
+        if meta is not None:
+            if os.path.lexists(entry):
+                return meta
+            self.revision_cache.pop(name, None)
+            self.revision_mtime.pop(name, None)
+            return None
+        meta = read_json(entry / 'revision.json')
+        if not meta or not REV.fullmatch(meta.get('generation', '')):
+            return None
+        self.revision_cache[name] = meta
         return meta
+
+    def revision_names(self):
+        try:
+            return [item.name for item in os.scandir(self.root / 'revisions') if REV.fullmatch(item.name)]
+        except OSError:
+            return []
 
     def register(self, revision, alias=None, source_version=None):
         meta = self.revision(revision)
@@ -272,6 +299,8 @@ class Farm:
             destination = self.root / 'revisions' / revision
             with self.lock:
                 if not destination.exists():
+                    self.revision_cache.pop(revision, None)
+                    self.revision_mtime.pop(revision, None)
                     destination.mkdir()
                     (destination / 'repo').symlink_to(self.root / 'revisions' / source_revision / 'repo',
                                                     target_is_directory=True)
@@ -279,6 +308,7 @@ class Farm:
                                 'commit': meta.get('commit', source_revision), 'source_revision': source_revision,
                                 'generation': generation, 'source_version': source_version, 'data_root': str(data)})
             meta = self.revision(revision)
+        self.scan_revisions([revision])
         with self.lock:
             if alias:
                 self.aliases[alias] = revision
@@ -557,17 +587,53 @@ class Farm:
             atomic_json(self.root / 'pending.json', list(self.queue_info.values()))
             self.last_saved = time.monotonic()
 
+    def scan_revisions(self, names=None):
+        """Read each revision's revision.json and registration time once (revision_meta). Runs off the farm lock
+        in the revision scanner thread; register() runs it for the revision it just wrote."""
+        for name in self.revision_names() if names is None else names:
+            meta = self.revision_meta(name)
+            if meta is None or name in self.revision_mtime:
+                continue
+            try:
+                self.revision_mtime[name] = (self.root / 'revisions' / name / 'revision.json').stat().st_mtime
+            except OSError:
+                continue
+
+    def revision_scanner(self, interval=10):
+        while not getattr(self, 'closing', False):
+            try:
+                self.scan_revisions()
+            except Exception as error:  # the scanner must outlive one bad snapshot
+                self.event('revision-scan-error', error=str(error)[-300:])
+            time.sleep(interval)
+
+    def start_revision_scanner(self):
+        # Revisions still on this disk first and at once (every revision an alias, the pin or a build uses; the
+        # cold ones were moved to the HDD), the rest in the thread.
+        self.scan_revisions([name for name in self.revision_names()
+                             if not (self.root / 'revisions' / name).is_symlink()])
+        self.revision_scanner_thread = threading.Thread(target=self.revision_scanner, name='revisions', daemon=True)
+        self.revision_scanner_thread.start()
+
     def registered(self, generation):
-        """Latest registration of any revision that produces this generation."""
+        """Latest registration of any revision that produces this generation.
+
+        Callers hold the farm lock, so with the revision scanner running this reads only the revisions/ listing
+        (root disk) and the scanner's cache; a revision the scanner has not read yet does not count until it has.
+        """
         if time.monotonic() - self.registrations_scanned > 10:
+            if getattr(self, 'revision_scanner_thread', None) is None:
+                self.scan_revisions()
             times, derived = {}, {}
-            for path in (self.root / 'revisions').glob('*/revision.json'):
-                meta = read_json(path, {})
-                produced = meta.get('generation')
-                if produced and meta.get('kind') == 'migrated':
+            for name in self.revision_names():
+                meta, registered = self.revision_cache.get(name), self.revision_mtime.get(name)
+                if meta is None:
+                    continue
+                produced = meta['generation']
+                if meta.get('kind') == 'migrated':
                     derived[produced] = meta.get('base_generation')
-                elif produced:
-                    times[produced] = max(times.get(produced, 0), path.stat().st_mtime)
+                elif registered is not None:
+                    times[produced] = max(times.get(produced, 0), registered)
             # Edits of existing tiles are as old as their base: switching the game to them
             # supersedes nothing the base would not, and the base keeps building under them.
             for produced, base in derived.items():
@@ -1196,9 +1262,10 @@ class Farm:
         with self.adoption_lock:
             with self.lock:
                 generations = {}
-                for snapshot in (self.root / 'revisions').glob('*/revision.json'):
-                    meta = read_json(snapshot, {})
-                    generations.setdefault(meta.get('generation'), snapshot.parent / 'repo')
+                for name in self.revision_names():
+                    meta = self.revision_meta(name)
+                    if meta is not None:
+                        generations.setdefault(meta['generation'], self.root / 'revisions' / name / 'repo')
                 self.adopting = set(generations) - {None}
             try:
                 return self._seed_intermediates(generations)
@@ -1854,6 +1921,7 @@ def main():
     faulthandler.register(signal.SIGUSR1, file=stacks.open('a'), all_threads=True)
     with file_lock(args.root / 'service.lock'):
         farm = Farm(args.root, args.runner, workers=args.workers)
+        farm.start_revision_scanner()
         farm.start_housekeeping()
         server = TileHTTPServer((args.host, args.port), Handler)
         server.farm = farm

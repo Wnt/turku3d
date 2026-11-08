@@ -951,6 +951,23 @@ class FarmTests(unittest.TestCase):
             self.assertTrue(farm.lock.acquire(timeout=1))  # make_room does not hold the farm lock while it waits
             farm.lock.release()
 
+    def test_registration_times_under_the_lock_read_no_revision_files(self):
+        # 2026-11-08: 419 of 434 snapshots were symlinks to a busy HDD; rereading every revision.json every 10 s under
+        # the farm lock took minutes and every tile request waited. The scanner reads each once, off the lock.
+        from unittest.mock import patch
+        farm = self.farm(execute=None)
+        farm.start_revision_scanner()
+        farm.registrations_scanned = float('-inf')
+        self.assertIsNotNone(farm.registered(GEN))
+        farm.registrations_scanned = float('-inf')
+        with patch.object(farm_module, 'read_json', side_effect=AssertionError('read under the lock')):
+            self.assertIsNotNone(farm.registered(GEN2))
+            self.assertEqual(farm.revision(REV)['generation'], GEN)
+        rev3, gen3 = 'e' * 40, 'f' * 64
+        farm_module.atomic_json(self.root / 'revisions' / rev3 / 'revision.json', dict(revision=rev3, generation=gen3))
+        farm.register(rev3, 'newer')  # the revision register() writes or names counts at once
+        self.assertIsNotNone(farm.registered(gen3))
+
     def test_a_registered_alias_shows_in_health_at_once(self):
         farm = self.farm(execute=None)
         farm.status_cached(max_age=60)
