@@ -10,15 +10,18 @@ export { nightFactor };
 export const CYCLE_EPOCH = Date.UTC(2027, 8, 8, 4, 0);
 export const DAY_MS = 30 * 60_000;
 
-/** Real minutes per segment (20/4/4/2) and the clock hours each covers; hours run continuously past 24. */
+/** Real minutes per segment (23/3.5/2/1.5) and the clock hours each covers; hours run continuously past 24. The
+ *  scene reads dark (night factor >= 0.5) for about five of the 30 minutes: night is short, the day takes the time. */
 export const SEGMENTS = [
-  { name: 'day', minutes: 20, from: 7, to: 19 },
-  { name: 'dusk', minutes: 4, from: 19, to: 21.5 },
-  { name: 'night', minutes: 4, from: 21.5, to: 28.5 },
-  { name: 'dawn', minutes: 2, from: 28.5, to: 31 },
+  { name: 'day', minutes: 23, from: 7, to: 19 },
+  { name: 'dusk', minutes: 3.5, from: 19, to: 21.5 },
+  { name: 'night', minutes: 2, from: 21.5, to: 28.5 },
+  { name: 'dawn', minutes: 1.5, from: 28.5, to: 31 },
 ] as const;
 export type Segment = (typeof SEGMENTS)[number]['name'];
 const NOMINAL_MINUTES = SEGMENTS.reduce((sum, s) => sum + s.minutes, 0);
+/** Clock hours per real hour of the shared cycle's day segment: the developer clock's ×N is N times this pace. */
+export const DAY_RATE = (SEGMENTS[0].to - SEGMENTS[0].from) / (SEGMENTS[0].minutes / 60);
 
 /** Synthetic sun: fixed declination and solar noon; the night bottoms out near -23.5 degrees. */
 const DECLINATION = 6, SOLAR_NOON = 13.25;
@@ -51,19 +54,38 @@ export function cycleAt(hour: number): CycleState {
   return { time: new Date(LOCAL_MIDNIGHT + h * 3_600_000), hour: h, sun, night: nightFactor(sun.elevation) };
 }
 
-/** The shared clock's hour (0 <= hour < 24), segment and phase at a UTC instant: plain arithmetic, cheap enough to
- *  evaluate per traffic slot. */
-export function cycleHour(utcMs: number, periodMs = DAY_MS): { hour: number; segment: Segment; phase: number } {
-  const phase = ((utcMs - CYCLE_EPOCH) % periodMs + periodMs) % periodMs / periodMs;
-  let minutes = phase * NOMINAL_MINUTES;
+/** The clock hour (0 <= hour < 24) and segment at a cycle phase (0 at the start of the day segment; wraps). */
+export function hourOfPhase(phase: number): { hour: number; segment: Segment } {
+  let minutes = (phase - Math.floor(phase)) * NOMINAL_MINUTES;
   for (const segment of SEGMENTS) {
     if (minutes < segment.minutes || segment === SEGMENTS[SEGMENTS.length - 1]) {
       const t = Math.min(1, minutes / segment.minutes);
-      return { hour: (segment.from + (segment.to - segment.from) * t) % 24, segment: segment.name, phase };
+      return { hour: (segment.from + (segment.to - segment.from) * t) % 24, segment: segment.name };
     }
     minutes -= segment.minutes;
   }
   throw new Error('unreachable');
+}
+
+/** The cycle phase (0 <= phase < 1) of a clock hour: the inverse of hourOfPhase. */
+export function phaseOfHour(hour: number): number {
+  const first = SEGMENTS[0].from;
+  const h = ((hour - first) % 24 + 24) % 24 + first;
+  let minutes = 0;
+  for (const segment of SEGMENTS) {
+    if (h < segment.to || segment === SEGMENTS[SEGMENTS.length - 1]) {
+      return Math.min(1, (minutes + (h - segment.from) / (segment.to - segment.from) * segment.minutes) / NOMINAL_MINUTES) % 1;
+    }
+    minutes += segment.minutes;
+  }
+  throw new Error('unreachable');
+}
+
+/** The shared clock's hour (0 <= hour < 24), segment and phase at a UTC instant: plain arithmetic, cheap enough to
+ *  evaluate per traffic slot. */
+export function cycleHour(utcMs: number, periodMs = DAY_MS): { hour: number; segment: Segment; phase: number } {
+  const phase = ((utcMs - CYCLE_EPOCH) % periodMs + periodMs) % periodMs / periodMs;
+  return { ...hourOfPhase(phase), phase };
 }
 
 /** The shared clock at a UTC instant; `periodMs` scales the whole cycle (?cycle=) for local viewing. */

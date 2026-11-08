@@ -1,9 +1,10 @@
 # Rendering
 
 The renderer uses three.js **0.186.1**, `three/webgpu`, on both WebGPU and the `forceWebGL` WebGL2 backend.
-Play runs a **30-minute cycle: 20 min day (07:00–19:00), 4 min dusk, 4 min night, 2 min dawn**, Europe/Helsinki.
+Play runs a **30-minute cycle: 23 min day (07:00–19:00), 3.5 min dusk, 2 min night, 1.5 min dawn**, Europe/Helsinki.
 `core/dayCycle.ts` derives the clock from UTC (the server's welcome time aligns it), so every client agrees. The sun
-follows a fixed synthetic path decoupled from the calendar and stays below −12° for about four real minutes per cycle.
+follows a fixed synthetic path decoupled from the calendar. The scene reads dark (night factor ≥ 0.5) for about five
+real minutes per cycle (17 %; it was 7.6 min, 25 %, with the old 20/4/4/2 split) and the sun stays below −12° for two.
 The clock has no slider. `?time=HH:MM` freezes a local view of the cycle at that hour; `?cycle=MIN` shortens the cycle locally.
 QA defaults to the unchanged **2026-10-15 14:00 Europe/Helsinki**. `?time=ISO` pins an astronomical instant and disables the cycle
 (encode a literal `+` as `%2B`). `__game.dayClock.snapshot()` exposes measured clock/IBL costs. F3 toggles the debug HUD.

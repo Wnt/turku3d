@@ -24,10 +24,16 @@ export function blendWeather(a: Readonly<WeatherSample>, b: Readonly<WeatherSamp
 }
 export function smoothWeather(t: number) { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
 function hash(n: number) { n = Math.imul(n ^ (n >>> 16), 0x45d9f3b); n = Math.imul(n ^ (n >>> 16), 0x45d9f3b); return (n ^ (n >>> 16)) >>> 0; }
+/**
+ * Percent of fronts per weather. Partly cloudy is the usual sky; the grey ones (overcast, rain, fog) look dreary
+ * and come together only about one front in five. Rain still comes in distinct fronts, not random frames.
+ */
+export const FRONT_SHARES: Readonly<Record<WeatherName, number>> = {
+  'partly cloudy': 53, clear: 27, overcast: 5, 'light rain': 8, 'heavy rain': 3, fog: 4,
+};
+const FRONT_TABLE = Object.entries(FRONT_SHARES).flatMap(([name, share]) => Array<WeatherName>(share).fill(name as WeatherName));
 export function frontName(index: number, seed = WEATHER_SEED): WeatherName {
-  // Temperate summer distribution; rain comes in distinct fronts rather than flickering random frames.
-  const r = hash(index ^ seed) % 100;
-  return r < 24 ? 'clear' : r < 51 ? 'partly cloudy' : r < 72 ? 'overcast' : r < 88 ? 'light rain' : r < 96 ? 'heavy rain' : 'fog';
+  return FRONT_TABLE[hash(index ^ seed) % FRONT_TABLE.length];
 }
 export function weatherAt(sharedUtcMs: number, seed = WEATHER_SEED): WeatherSample {
   const index = Math.floor(sharedUtcMs / FRONT_MS), elapsed = sharedUtcMs - index * FRONT_MS;
