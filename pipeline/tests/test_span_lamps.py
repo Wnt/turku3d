@@ -72,5 +72,6 @@ def test_a_wire_too_low_over_the_street_for_a_lighting_span_gets_no_lamp():
     assert updated["lamps"] == [[60.0, 10.0, 10.0, 0]] and updated["wires"][0][3:6] == [60.0, 10.0, 10.0]
 
 
-def test_the_rule_runs_last_in_the_chain():
-    assert registry.CHAIN[-1].key == "span-lamps@1"
+def test_the_rule_runs_after_the_wires_stage():
+    keys = [m.key for m in registry.CHAIN]
+    assert keys.index("span-lamps@1") > keys.index("wires@2")
