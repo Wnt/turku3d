@@ -73,6 +73,15 @@ const percentile = (values: number[], p: number) => {
   return Math.round(sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1))]);
 };
 
+/** A copy of an override material as a draw dressed it (its nodes are shared, not rebuilt), flags included. */
+export function dressedCopy(material: THREE.Material): THREE.Material {
+  const copy = material.clone();
+  copy.alphaTest = material.alphaTest; // an accessor NodeMaterial.copy skips (render/lodFade.ts cloneNodeMaterial)
+  const flags = material as unknown as Record<string, unknown>, own = copy as unknown as Record<string, unknown>;
+  for (const flag of ['isShadowPassMaterial']) if (flag in flags) own[flag] = flags[flag];
+  return copy;
+}
+
 export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () => boolean, now = () => performance.now()) {
   const internal = renderer as unknown as Internals;
   // The render object `ready` finds for its check is the one r186's _renderObjectDirect looks up again at once with the
@@ -141,6 +150,12 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
       deferred++;
       // The build reads renderer pass state again after each yield: pin this draw's pass, as compileModel does.
       const pass = { target: internal._renderTarget, mrt: internal._mrt, context: internal.contextNode, renderContext: internal._currentRenderContext };
+      // r186 dresses a scene's override material (the shadow passes' shared one) with each caster's colour, position
+      // and depth nodes, side and alpha test for that draw only, and undresses it after the draw. Built after the
+      // frame, the program read the bare override: every alpha-tested caster built an opaque shadow (tree crowns cast
+      // solid leaf cards: park groves and forests in full shade) and swaying casters an unswayed one. The build gets a
+      // copy of the override as this draw dressed it.
+      const dressed = (scene as THREE.Scene).overrideMaterial === material ? dressedCopy(material) : null;
       const build = async () => {
         const removeHook = addNodeBuilderHook(renderer, (builder, draw) => {
           if ((draw as RenderObject) === renderObject) {
@@ -155,8 +170,11 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
         });
         const started = now();
         let promise: Promise<unknown>;
+        // r186 hands the render object's material to the node builder synchronously, before its first stage.
+        const own = renderObject.material;
+        if (dressed) renderObject.material = dressed;
         try { promise = nodes.getForRenderAsync(renderObject); }
-        finally { removeHook(); }
+        finally { removeHook(); renderObject.material = own; }
         await promise;
         const end = now();
         built++;

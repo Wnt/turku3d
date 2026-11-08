@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type * as THREE from 'three/webgpu';
-import { Object3D, PerspectiveCamera, Scene } from 'three/webgpu';
+import { NodeMaterial, Object3D, PerspectiveCamera, Scene } from 'three/webgpu';
 import { asyncFirstUseBuilds } from '../../src/render/asyncNodeBuilds';
 
 test('a live-frame draw without a built program is skipped and built after the frame; built, cached and quad draws go ahead', async () => {
@@ -142,4 +142,39 @@ test('a draw that goes ahead hands its render object to r186\'s next lookup with
   expect(ready(object, material, scene, camera, null, null, null, 'p')).toBe(true);
   internal._objects.get(object, material, scene, camera, null, 'ctx', null, 'other pass');         // different arguments: a real lookup
   expect(lookups).toBe(4);
+});
+
+test('a deferred shadow build gets the override material as its draw dressed it, not the bare shared override', async () => {
+  // r186 dresses the shadow pass's shared override with each caster's nodes and alpha test for the draw only. Built
+  // after the frame from the bare override, alpha-tested crowns cast solid leaf cards (Ruissalo, Puolanpuisto).
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => setTimeout(callback, 0));
+  const states = new Map<object, { nodeBuilderState?: unknown }>();
+  const seen: { colorNode: unknown; alphaTest: number; shadow: unknown; copy: boolean }[] = [];
+  const override = new NodeMaterial() as NodeMaterial & { isShadowPassMaterial?: boolean };
+  override.isShadowPassMaterial = true;
+  const nodes = {
+    nodeBuilderCache: new Map<number, unknown>(),
+    get(object: object) { let d = states.get(object); if (!d) states.set(object, d = {}); return d; },
+    getForRenderCacheKey: () => 7,
+    getForRenderAsync(draw: { material: NodeMaterial & { isShadowPassMaterial?: boolean } }) {
+      const m = draw.material;
+      seen.push({ colorNode: m.colorNode, alphaTest: m.alphaTest, shadow: m.isShadowPassMaterial, copy: m !== override });
+      return Promise.resolve();
+    },
+  };
+  const drawn = new Map<object, { isRenderObject: true; material: THREE.Material }>();
+  const objects = { get: (object: object, material: THREE.Material) => {
+    let d = drawn.get(object); if (!d) drawn.set(object, d = { isRenderObject: true, material }); return d; } };
+  const renderer = { _nodes: nodes, _objects: objects, debug: { onNodeBuilderCreated: null } } as unknown as THREE.WebGPURenderer;
+  const builds = asyncFirstUseBuilds(renderer, () => true);
+  const scene = new Scene(), camera = new PerspectiveCamera(), crown = new Object3D();
+  scene.overrideMaterial = override; scene.add(crown);
+  const leafAlpha = { isNode: true, leaf: true } as unknown as NodeMaterial['colorNode'];
+  override.colorNode = leafAlpha; override.alphaTest = 0.5;   // dressed for the crown's draw
+  expect(builds.ready(crown, override, scene, camera, null, null, null)).toBe(false);
+  override.colorNode = null; override.alphaTest = 0;           // undressed after it, before the build runs
+  await builds.settled();
+  expect(seen).toEqual([{ colorNode: leafAlpha, alphaTest: 0.5, shadow: true, copy: true }]);
+  expect(drawn.get(crown)!.material).toBe(override);           // the render object keeps the shared override
+  vi.unstubAllGlobals();
 });
