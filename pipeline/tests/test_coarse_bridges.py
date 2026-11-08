@@ -385,6 +385,12 @@ def test_railing_is_open_geometry_with_blocking_balusters_and_batched_materials(
     triangles = metal.positions[metal.indices]
     assert np.max(np.ptp(triangles[:, :, 0], axis=1) * np.ptp(triangles[:, :, 1], axis=1)) < 0.2
 
+    # A railing along an outline digitised every 3 cm is as heavy as one along its two end vertices.
+    dense = shapely.MultiLineString([[(x, -3 + 0.01 * np.sin(x)) for x in np.arange(0, 20.001, 0.03)], [(0, 3), (20, 3)]])
+    heavy = furniture(deck, dense, lambda p: np.full(len(p), 5.0), lambda p: np.zeros(len(p)), [],
+                      shapely.box(0, -3, 20, 3))
+    assert sum(len(m.indices) for m in heavy) <= 1.05 * sum(len(m.indices) for m in meshes)
+
 
 def test_bridge_slab_separates_surface_from_structural_thickness():
     mesh = slab(

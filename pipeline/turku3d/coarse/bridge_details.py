@@ -285,6 +285,9 @@ def railing_lines(ways):
     return result
 
 
+RAIL_TOLERANCE = 0.05  # m a railing may leave its source line to drop dense vertices
+
+
 def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, obstacles=None):
     from .bridges import samples
 
@@ -298,6 +301,9 @@ def furniture(way, rail_lines, height_at, sample_ground, blocked, polygon, *, ob
     for part in shapely.get_parts(shapely.line_merge(rail_lines)):
         if part.geom_type not in ("LineString", "LinearRing") or part.length < 1.8:
             continue
+        # Bays, bands and balusters are laid at every vertex too: a surveyed outline digitised every 3 cm (the
+        # Erasmusbrug's, 4672 vertices) put 150k railing triangles in one 62.5 m collision chunk.
+        part = part.simplify(RAIL_TOLERANCE)
         _, side = samples(part, 1.8)
         base = height_at(side)
         if spec["foot"] and spec["railing"] not in ("stone", "concrete", "wall", "parapet"):
