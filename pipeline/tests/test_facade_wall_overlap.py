@@ -128,3 +128,13 @@ def test_walls_facing_each_other_across_a_millimetre_gap_are_both_hidden():
     a = wall(0, 10, 0, 6)
     b = wall(0, 10, 0, 6, -.004)[[1, 0, 3, 2]]  # 4 mm in front of a, facing back at it
     assert not len(exposed_wall_quads(np.concatenate([a, b])))
+
+
+def test_walls_that_only_touch_a_neighbour_band_at_an_edge_do_not_break_the_overlay():
+    """train15 t0_0_-1 failed in GEOS when a band only touched a wall: lines and points in the cover."""
+    tall = wall(0, 10, 0, 9)
+    touching = wall(10, 20, 0, 9, -.002)       # same facing, meets the tall wall only at x = 10
+    sliver = wall(0, 10, 0, 4, -.003)          # in front of the tall wall's lower part
+    back = wall(0, 10, 0, 4, -.001)[[1, 0, 3, 2]]
+    result = exposed_wall_quads(np.concatenate([tall, touching, sliver, back])).reshape(-1, 4, 3)
+    assert area(result) == pytest.approx(10 * 9 + 10 * 9)

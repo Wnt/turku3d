@@ -163,6 +163,23 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
         return others[keep], [shapely.box(a, -10000, b, 10000) for a, b in
                               zip(shared_left[keep], shared_right[keep], strict=True)], along[keep]
 
+    def polygonal(geometry):
+        """Only the areas: a band or region that merely touches another yields lines and points,
+        and GEOS cannot overlay such mixed collections (t0_0_-1: "Unable to determine overlay
+        result geometry dimension")."""
+        parts = [g for g in shapely.get_parts(geometry) if g.geom_type == "Polygon" and g.area > 1e-9]
+        return shapely.MultiPolygon(parts) if parts else shapely.Polygon()
+
+    def minus(region, cover):
+        cover = polygonal(shapely.union_all([polygonal(c) for c in cover]))
+        if cover.is_empty:
+            return region
+        try:
+            return polygonal(region.difference(cover))
+        except shapely.errors.GEOSException:
+            # Nearly coincident float edges: snap both to a micrometre grid and retry.
+            return polygonal(shapely.set_precision(region, 1e-6).difference(shapely.set_precision(cover, 1e-6)))
+
     exposed = {}
 
     def outside(i):
@@ -173,7 +190,7 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
             if len(others):
                 cover = [shapely.Polygon(np.c_[along[j], quads[o, :, 1]]).intersection(bands[j])
                          for j, o in enumerate(others)]
-                region = region.difference(shapely.union_all(cover))
+                region = minus(region, cover)
             exposed[i] = region
         return exposed[i]
 
@@ -192,11 +209,11 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
                 scale = float(directions[o] @ directions[i])
                 offset = float((starts[o] - starts[i]) @ directions[i])
                 mine = affinity.affine_transform(outside(o), [scale, 0, 0, 1, offset, 0])
-                cover.append(mine.intersection(bands[j]))
-            region = region.difference(shapely.union_all(cover))
+                cover.append(polygonal(mine).intersection(bands[j]))
+            region = minus(region, cover)
         if region.is_empty:
             continue
-        if region.equals(surface(i)):
+        if abs(region.area - surface(i).area) < 1e-9 and region.equals(surface(i)):
             result.append(vertices)
             owners.append(i)
             continue
