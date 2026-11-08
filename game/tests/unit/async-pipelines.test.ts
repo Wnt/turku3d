@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { asyncFirstUsePipelines } from '../../src/render/asyncPipelines';
+import { asyncFirstUsePipelines, trustResolvedPipelines } from '../../src/render/asyncPipelines';
 
 test('live-frame draws request first-use pipelines asynchronously; quads and other renders stay synchronous', async () => {
   const calls: (unknown[] | null | undefined)[] = [];
@@ -74,3 +74,39 @@ test('live first-use draws take new shader modules from a budget of estimated tr
   expect(budget.created).toBe(6);
 });
 
+
+test('an async pipeline that compiled keeps drawing when its error scope caught another call\'s error', async () => {
+  // r186 pops the validation scope after awaiting createRenderPipelineAsync: an unrelated error lands on it.
+  const data = new Map<unknown, { pipeline?: unknown; error?: boolean }>();
+  const get = (o: unknown) => { let d = data.get(o); if (!d) data.set(o, d = {}); return d; };
+  const outcomes: ('compiled' | 'rejected')[] = [];
+  const backend = {
+    get,
+    createRenderPipeline(renderObject: { pipeline?: unknown }, promises: Promise<void>[] | null = null) {
+      const d = get(renderObject.pipeline), outcome = outcomes.shift();
+      const settle = () => { if (outcome === 'compiled') d.pipeline = {}; d.error = true; }; // the scope popped an error either way
+      if (promises) promises.push(Promise.resolve().then(settle)); else { d.pipeline = {}; }
+    },
+  };
+  const original = backend.createRenderPipeline;
+  const { release } = trustResolvedPipelines(backend);
+  const good = { pipeline: {} }, failed = { pipeline: {} }, sync = { pipeline: {} };
+  outcomes.push('compiled', 'rejected');
+  const promises: Promise<void>[] = [];
+  backend.createRenderPipeline(good, promises); backend.createRenderPipeline(failed, promises);
+  backend.createRenderPipeline(sync, null);
+  await Promise.all(promises);
+  expect(get(good.pipeline)).toEqual({ pipeline: {}, error: false }); // compiled: valid, drawn
+  expect(get(failed.pipeline).error).toBe(true);                    // rejected: stays skipped
+  expect(get(sync.pipeline).error).toBeUndefined();                  // synchronous path untouched
+  release();
+  expect(backend.createRenderPipeline).toBe(original);
+});
+
+test('r186 flags an async pipeline from a validation scope popped after its awaits (the race the guard covers)', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync(new URL('../../node_modules/three/src/renderers/webgpu/utils/WebGPUPipelineUtils.js', import.meta.url), 'utf8');
+  expect(source).toMatch(/pipelineData\.pipeline = await pipelinePromise;[\s\S]{0,300}const errorScope = await device\.popErrorScope\(\);[\s\S]{0,120}if \( errorScope !== null \|\| asyncError !== null \)[\s\S]{0,40}pipelineData\.error = true;/);
+  const backend = fs.readFileSync(new URL('../../node_modules/three/src/renderers/webgpu/WebGPUBackend.js', import.meta.url), 'utf8');
+  expect(backend).toMatch(/if \( pipelineData\.error === true \) return;/);
+});

@@ -34,3 +34,34 @@ export function asyncFirstUsePipelines(pipelines: Pipelines, active: () => boole
     settled: async () => { while (pending.size) await Promise.all([...pending]); },
   };
 }
+
+interface PipelineBackend {
+  createRenderPipeline(renderObject: { pipeline?: unknown }, promises?: Promise<void>[] | null): void;
+  get(object: unknown): { pipeline?: unknown; error?: boolean };
+}
+
+/** r186's async render pipeline (WebGPUPipelineUtils.createRenderPipeline with promises) pushes a validation error
+ *  scope, awaits createRenderPipelineAsync and only then pops it. Scopes nest per device, so while it waits any other
+ *  GPU call's validation error, or another pending pipeline's scope, lands on it: the pipeline is flagged `error` and
+ *  WebGPUBackend.draw skips every draw of it for as long as it stays cached. Every material sharing that pipeline then
+ *  vanishes: Jonni's captures 20261108-163711-r7k3p1 and 20261108-172319-aprmmj lost a tile's ground (surface-array)
+ *  and walls (facade-kit) this way, and only a pipeline rebuild brought them back. createRenderPipelineAsync rejects
+ *  on its own failures, so a pipeline it resolved is valid: keep it drawing. r186 has already logged the scope's
+ *  error (an unrelated GPU call's) under this pipeline's label. */
+export function trustResolvedPipelines(backend: PipelineBackend) {
+  const create = backend.createRenderPipeline;
+  backend.createRenderPipeline = function (this: PipelineBackend, renderObject, promises = null) {
+    const before = promises?.length ?? 0;
+    create.call(this, renderObject, promises);
+    if (!promises || promises.length === before) return;
+    const data = this.get(renderObject.pipeline);
+    const last = promises.length - 1;
+    promises[last] = promises[last].then(() => {
+      if (!data.error || !data.pipeline) return;
+      data.error = false;
+      console.warn(`[pipelines] ${(data.pipeline as { label?: string }).label ?? 'render pipeline'} compiled and keeps drawing: `
+        + 'the error logged for it above came from another GPU call during its compile');
+    });
+  };
+  return { release: () => { backend.createRenderPipeline = create; } };
+}

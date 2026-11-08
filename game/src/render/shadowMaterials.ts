@@ -3,7 +3,7 @@ import { NormalPrepass } from './normalPrepass';
 import { placementVisibility } from '../world/placementVisibility';
 import { ownNodeAttributes } from './nodeAttributes';
 import { instancePrograms, shareInstancePrograms, type InstanceDraw } from './instancePrograms';
-import { asyncFirstUsePipelines } from './asyncPipelines';
+import { asyncFirstUsePipelines, trustResolvedPipelines } from './asyncPipelines';
 import { asyncFirstUseBuilds, type DirectDraw } from './asyncNodeBuilds';
 import { BuildLog } from './census';
 import type { WaterReflection } from './reflections';
@@ -99,6 +99,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
   private releaseAttributes?: () => void;
   private instanceSharing?: ReturnType<typeof shareInstancePrograms>;
   private asyncPipelines?: ReturnType<typeof asyncFirstUsePipelines>;
+  private resolvedPipelines?: ReturnType<typeof trustResolvedPipelines>;
   /** Every first-use pipeline requested asynchronously so far is compiled. */
   pipelinesSettled() { return Promise.all([this.asyncPipelines?.settled(), this.asyncBuilds?.settled()]).then(() => {}); }
   /** First-use node programs of the live frame build after it instead of inside it (render/asyncNodeBuilds.ts). */
@@ -135,6 +136,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
     if (this.staticDraws && !this.staticRefresh) this.staticRefresh = staticRefresh(this);
     this.releaseAttributes ??= ownNodeAttributes(this);
     this.instanceSharing ??= shareInstancePrograms(this);
+    if (webgpu) this.resolvedPipelines ??= trustResolvedPipelines(this.backend as unknown as Parameters<typeof trustResolvedPipelines>[0]);
     this.asyncPipelines ??= asyncFirstUsePipelines((this as unknown as { _pipelines: Parameters<typeof asyncFirstUsePipelines>[0] })._pipelines,
       () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling, this.shaderModules);
     this.asyncBuilds ??= asyncFirstUseBuilds(this, () => this.liveFrame && !(this as unknown as { _isPreCompiling?: boolean })._isPreCompiling);
@@ -167,7 +169,7 @@ export class GameRenderer extends THREE.WebGPURenderer {
     try { return base._renderScene.call(this, scene, camera, useFrameBufferTarget); }
     finally { scope?.end(); self._currentRenderBundle = outer; }
   }
-  override dispose() { this.releaseModules?.(); this.staticRefresh?.release(); this.geometryPool?.release(); this.uniformPool?.release(); this.asyncPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
+  override dispose() { this.releaseModules?.(); this.staticRefresh?.release(); this.geometryPool?.release(); this.uniformPool?.release(); this.asyncPipelines?.release(); this.resolvedPipelines?.release(); this.instanceSharing?.dispose(); this.releaseAttributes?.(); this.normalPrepass.dispose(); return super.dispose(); }
   /** r186 gives a textured or colour-graph caster's shadow its alpha through a node bound to that material
    *  (reference('map', 'texture', material).a, or its colorNode's alpha). Node ids are part of the program key, so each
    *  such material built its own shadow program, carrying its colour graph and a map sample per shadow fragment:
