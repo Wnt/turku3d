@@ -7,6 +7,7 @@ import { arrivalToL0 } from '../../src/world/coarseRegion';
 import { isLocalHost } from '../../src/core/localOnly';
 import { draftsUrl } from '../../src/net/config';
 import type { Manifest } from '../../src/world/manifest';
+import type { CoarseFragment } from '../../src/world/coarseContracts';
 
 const published = ['t0_0_0', 't0_1_0', 't0_0_1', 't0_1_1', 't1_0_0', 't1_1_0', 't1_0_-1'];
 
@@ -1147,4 +1148,47 @@ test('leaving the city releases every tile model and its collision, and the stre
   const before = requests.length;
   for (let t = 6500; t <= 9000; t += 500) { coarse.update(125, 125, t, undefined, false); await settle(); }
   expect(requests.length).toBe(before);
+});
+
+test('a collision preview publishes its cells before its stand-in is built and its trees prepared, and takes them back when it fails', async () => {
+  const fragment = (id: string) => ({ coarse: true, tile: id, pass_kind: 'full', generation: 'G', stale: false,
+    vegetation: { trees: [] } as unknown as CoarseFragment['vegetation'],
+    visual: { [id]: { url: `vis.${id}.glb`, sha256: id, bytes: 3 } },
+    collision: Object.fromEntries(cellsOf(id).map(cid => [cid, { url: `${cid}.col`, sha256: cid, bytes: 4 }])) });
+  const trees = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
+  const unloaded: string[] = [], retained: string[] = [];
+  const manifest = { collision: {} } as unknown as Manifest;
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: cid => { unloaded.push(cid); }, refreshCollision: () => {},
+    checkCollision: async () => {}, retainCollision: cid => { retained.push(cid); }, loadModel: async () => new THREE.Group(),
+    previewCollision: async () => new THREE.Group(),
+    prepareVegetation: model => new Promise<void>((resolve, reject) => { trees.set(model.uuid, { resolve, reject }); }),
+    fetch: (async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === '/coarse/want') return Response.json({ version: 1, generation: 'G' });
+      if (path.endsWith('.col')) return new Response(new Uint8Array(4));
+      const m = /^\/coarse\/(t0_-?\d+_-?\d+)\/(?:collision|manifest)\.json$/.exec(path);
+      return m ? Response.json(fragment(m[1])) : new Response(null, { status: 404 });
+    }) as typeof fetch });
+  const settle = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
+  coarse.update(125, 125, 0, { x: 0, z: 0 }); await settle();
+  // Every stand-in waits on its trees, yet the tile's 16 cells are already the physics worker's to load.
+  const tile = coarse.entries.get('t0_0_0')!;
+  expect(tile.model).toBeUndefined();
+  expect(cellsOf('t0_0_0').filter(cid => !manifest.collision[cid])).toEqual([]);
+  expect(retained).toEqual(expect.arrayContaining(cellsOf('t0_0_0')));
+  const pending = [...trees.values()];
+  expect(pending.length).toBeGreaterThan(1);
+  // One stand-in's trees fail: its cells leave again; the others attach with their collision kept.
+  pending[0].reject(new Error('trees failed'));
+  for (const p of pending.slice(1)) p.resolve();
+  await settle();
+  const failed = [...coarse.entries].filter(([, e]) => !e.model).map(([id]) => id);
+  expect(failed).toHaveLength(1);
+  expect(cellsOf(failed[0]).filter(cid => manifest.collision[cid])).toEqual([]);
+  expect(unloaded).toEqual(expect.arrayContaining(cellsOf(failed[0])));
+  const attached = [...coarse.entries].filter(([, e]) => e.model && e.preview).map(([id]) => id);
+  expect(attached.length).toBe(pending.length - 1);
+  for (const id of attached) expect(cellsOf(id).filter(cid => !manifest.collision[cid])).toEqual([]);
+  expect(unloaded.filter(cid => attached.some(id => cellsOf(id).includes(cid)))).toEqual([]);
 });

@@ -1129,11 +1129,15 @@ export class CoarseTiles {
     if (!e.model && !this.startup && this.host.previewCollision) {
       await validate();
       if (this.entries.get(id) !== e || e.state !== state) return;
-      const model = await this.host.previewCollision(buffers);
-      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation); }
-      catch (error) { this.dispose(model); throw error; }
-      if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); return; }
+      // Collision first: the stand-in's mesh build and its vegetation preparation (queued on the graphics lane behind
+      // full-tile jobs, tens of seconds while streaming fast) must not keep a fast car's cells ahead from the physics
+      // worker. A stand-in that fails or goes stale before it is attached takes its collision back.
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
+      const takeBack = () => { if (this.entries.get(id) === e && !e.model) this.release(e); };
+      const model = await this.host.previewCollision(buffers).catch(error => { takeBack(); throw error; });
+      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation); }
+      catch (error) { this.dispose(model); takeBack(); throw error; }
+      if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); takeBack(); return; }
       this.finishLeaving(id);
       e.model = model; e.preview = fragment; e.pass = fragment.pass_kind; e.state = 'draft';
       model.userData.traceId = id;
@@ -1469,6 +1473,17 @@ export class CoarseTiles {
     if (swapped.length) this.host.refreshCollision(swapped);
   }
 
+  /** Withdraw the tile's published collision (its cells leave the worker). */
+  private release(e: Entry) {
+    for (const [cid, entry] of e.collision) {
+      // An asynchronous replacement may already own the cell.
+      if (this.host.manifest.collision[cid] !== entry) continue;
+      delete this.host.manifest.collision[cid];
+      this.host.unloadCollision(cid);
+    }
+    e.collision.clear();
+  }
+
   private takeVehicles(e: Entry, fragment: CoarseFragment, base: URL) {
     const old = new Set(e.vehicles ?? []);
     e.vehicles = fragment.vehicles ?? [];
@@ -1496,13 +1511,7 @@ export class CoarseTiles {
       e.model = undefined;
     }
     e.distant = undefined;
-    for (const [cid, entry] of e.collision) {
-      // An asynchronous replacement may already own the cell.
-      if (this.host.manifest.collision[cid] !== entry) continue;
-      delete this.host.manifest.collision[cid];
-      this.host.unloadCollision(cid);
-    }
-    e.collision.clear();
+    this.release(e);
     e.lights = undefined;
     if (e.roads) { e.roads = undefined; this.onMapChange?.(); }
     e.roadsKey = undefined; e.manifestHash = undefined;
