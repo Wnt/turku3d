@@ -114,8 +114,19 @@ def test_crossing_roof_edges_leave_each_wall_its_exposed_triangle():
     # Two roof planes meet along the boundary, crossing at its middle: each wall shows above the other.
     result = trim(block(0, 10, 0, 10, 0, 8, 4), block(0, 10, -5, 0, 0, 4, 8))
     boundary = result[np.all(np.abs(result[:, :, 2]) < 1e-9, axis=1)]
-    assert facing(boundary, SOUTH) == pytest.approx(5 * 4 / 2)
-    assert facing(boundary, NORTH) == pytest.approx(5 * 4 / 2)
+    for side in (SOUTH, NORTH):  # all of each exposed triangle, in level slabs reaching into the other part
+        assert 5 * 4 / 2 - 1e-6 <= facing(boundary, side) <= 5 * 4 + 1e-6
+    assert all(abs(q[0, 1] - q[1, 1]) < 1e-9 for q in boundary)
+
+
+def test_a_wall_above_a_sloping_roof_in_front_is_painted_in_level_slabs():
+    """train18 t0_0_-1, between the Uusi Börs towers: the part in front had a sloping roof, the
+    tower wall's remainder a sloping bottom, and the facade program painted only its top band."""
+    result = trim(block(0, 10, 0, 10, 0, 12), block(0, 10, -5, 0, 0, 4, 8))
+    tower = [q for q in result if np.allclose(q[:, 2], 0) and facing([q], SOUTH) > 0]
+    assert tower and all(abs(q[0, 1] - q[1, 1]) < 1e-9 for q in tower)  # level bottoms
+    assert facing(tower, SOUTH) >= 10 * 12 - 10 * 8 - 1e-6  # all of what rises above the roof, at least
+    assert min(q[:, 1].min() for q in tower) >= 4 - 1e-9  # extended only into the part in front
 
 
 def test_a_wall_beside_a_raised_part_keeps_its_passage_below():

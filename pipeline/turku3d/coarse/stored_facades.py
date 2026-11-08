@@ -121,6 +121,8 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None, soli
     import shapely
     from shapely import affinity
 
+    from turku3d.wall_surfaces import trapezoids
+
     quads = np.asarray(walls).reshape(-1, 4, 3)
     if not len(quads):
         return (walls, []) if with_owners else walls
@@ -255,16 +257,30 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None, soli
             pieces.append(shapely.Polygon([(a, base), (b, base), (b, h1), (a, h0)]))
         return pieces
 
+    def level(region, whole):
+        """Give every slab a level bottom. Facade programs draw storeys from a slab's bottom up and
+        paint only the band above its highest corner: a bottom along a sloping roof in front left
+        the triangle below open (train18 t0_0_-1, between the Uusi Börs towers). A wall's own
+        bottom is level, so a sloping one runs along a solid in front: extending the slab down to
+        its lowest corner paints only inside that solid."""
+        slabs = []
+        for xy in trapezoids(region):
+            if abs(xy[0, 1] - xy[1, 1]) > 1e-9:
+                xy = xy.copy()
+                xy[0, 1] = xy[1, 1] = min(xy[0, 1], xy[1, 1])
+            slabs.append(shapely.Polygon(xy))
+        return polygonal(shapely.union_all([region, *slabs]).intersection(whole))
+
     def outside(i):
         """Step 1: wall i less the solids standing right in front of it (i's along metres)."""
         if i not in exposed:
-            region = surface(i)
+            region = whole = surface(i)
             if solids is not None:
                 region = minus(region, filled(i))
+                if not region.is_empty and not region.equals(whole):
+                    region = level(region, whole)
             exposed[i] = region
         return exposed[i]
-
-    from turku3d.wall_surfaces import trapezoids
 
     result, owners = [], []
     for i, vertices in enumerate(quads):
