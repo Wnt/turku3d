@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from collections import OrderedDict
 import contextlib
 from contextlib import contextmanager
@@ -64,6 +64,9 @@ GIB = 2**30
 KEEP_FREE_GIB = 45
 DECODED_KEEP_SECONDS = 3600  # a decoded LiDAR array used (touched) within this long is not evicted
 RAW_ORDER = ('lidar-source', 'lidar-crop', 'roof', 'vegetation', 'crown-canopy')  # eviction order
+RETAINED_SECONDS = 60  # a tile's stand-in lookup (the tile's copy in every product) is reused this long
+RETAINED_WAIT = 0.25   # a request waits this long for that lookup; a slower one finishes behind its answer
+RETAINED_MAX = 8192    # remembered lookups (tiles)
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
 BUILD_SECONDS = 7200  # one tile build's wall limit: centre spot rebuilds (landmarks, decks) take 25-50 min, over 60 with 8 builds
                       # under load; at 1800 s they timed out and restarted from scratch. /limits build_seconds.
@@ -198,6 +201,9 @@ class Farm:
         self.fragments, self.fragment_bytes, self.fragments_lock = OrderedDict(), 0, threading.Lock()
         self.adoption_lock = threading.Lock()
         self.adopting = set()
+        # Stand-in lookups (retained()): tile -> (monotonic time, answer or None), and the lookups in flight.
+        self.retained_memo, self.retained_scans, self.retained_lock = OrderedDict(), {}, threading.Lock()
+        self.retained_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='retained')
         self.bundles = OrderedDict()
         self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS + MIGRATION_WORKERS, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
@@ -334,9 +340,47 @@ class Farm:
                 for p in read_json(self.root / 'fallbacks.json', [])}
 
     def retained(self, tile):
-        """A complete old pair stays playable while the requested immutable version builds."""
-        with self.lock:
-            return self._retained(tile)
+        """A complete old pair stays playable while the requested immutable version builds.
+
+        Looked up off the farm lock and remembered per tile for RETAINED_SECONDS. The lookup stats the tile in every
+        product (190 on 2026-11-08, some on the bulk HDD); under load one far, unbuilt tile's lookup took 12 s, and
+        under the farm lock every request of every player waited for it (Jonni's 16:58 UTC fly burst, again in its
+        17:14 replay). A request waits at most RETAINED_WAIT for a lookup; a slower one finishes behind the answer
+        (the 202 without a stand-in), and the client's next poll, Retry-After 2 s later, finds it remembered."""
+        with self.retained_lock:
+            hit = self.retained_memo.get(tile)
+            if hit and time.monotonic() - hit[0] < RETAINED_SECONDS:
+                scan, found = None, hit[1]
+            else:
+                scan = self.retained_scans.get(tile)
+                if scan is None:
+                    scan = self.retained_scans[tile] = self.retained_pool.submit(self._remember_retained, tile)
+        if scan is not None:
+            try:
+                found = scan.result(timeout=RETAINED_WAIT)
+            except FutureTimeout:
+                return None
+        if found is not None and found[2]['source_kind'] == 'retained':
+            try:
+                os.utime(found[3], None)  # Lease starts when advertised, before the first payload GET.
+            except FileNotFoundError:  # evicted since the lookup
+                with self.retained_lock:
+                    self.retained_memo.pop(tile, None)
+                return None
+        return found
+
+    def _remember_retained(self, tile):
+        try:
+            found = self._retained(tile)
+            with self.retained_lock:
+                self.retained_memo.pop(tile, None)
+                self.retained_memo[tile] = (time.monotonic(), found)
+                while len(self.retained_memo) > RETAINED_MAX:
+                    self.retained_memo.popitem(last=False)
+            return found
+        finally:
+            with self.retained_lock:
+                self.retained_scans.pop(tile, None)
 
     def _retained(self, tile):
         candidates = []
@@ -348,7 +392,6 @@ class Farm:
         if candidates:
             _, _, manifest, ready = max(candidates, key=lambda r: r[:2])
             root = self.output(ready['generation'])
-            os.utime(root, None)  # Lease starts when advertised, before the first payload GET.
             return manifest, f"/v/{ready['revision']}/coarse/{tile}/", dict(
                 revision=ready['revision'], generation=ready['generation'], source_kind='retained'), root
         for token, root in self.fallback_roots().items():
@@ -438,25 +481,25 @@ class Farm:
 
     @contextmanager
     def payload(self, root, rel):
-        """Pin an opened inode and renew its lease before allowing concurrent eviction."""
-        with self.lock:
-            path = (root / Path(*rel)).resolve()
-            if not path.is_relative_to(root.resolve()) or any(p.startswith('.') for p in rel):
-                raise ValueError('payload not found')
-            if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
-                raise ValueError('payload not public')
-            try:
-                source = path.open('rb')
-            except (FileNotFoundError, IsADirectoryError):
-                raise ValueError('payload not found') from None
-            try:
-                if root == self.root / 'delivery':
-                    os.utime(source.fileno(), None)
-                elif root.is_relative_to(self.root / 'products'):
-                    os.utime(root, None)
-            except BaseException:
-                source.close()
-                raise
+        """Pin an opened inode and renew its lease; an eviction after the open cannot cut the stream. Off the farm
+        lock (eviction never held it): an open in a product moved to the bulk HDD can take seconds under load."""
+        path = (root / Path(*rel)).resolve()
+        if not path.is_relative_to(root.resolve()) or any(p.startswith('.') for p in rel):
+            raise ValueError('payload not found')
+        if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
+            raise ValueError('payload not public')
+        try:
+            source = path.open('rb')
+        except (FileNotFoundError, IsADirectoryError):
+            raise ValueError('payload not found') from None
+        try:
+            if root == self.root / 'delivery':
+                os.utime(source.fileno(), None)
+            elif root.is_relative_to(self.root / 'products'):
+                os.utime(root, None)
+        except BaseException:
+            source.close()
+            raise
         try:
             yield path, source
         finally:
@@ -854,6 +897,7 @@ class Farm:
             self.closing = True
             self.save_queue(force=True)
         self.pool.shutdown(wait=True)
+        self.retained_pool.shutdown(wait=True)
 
     def build(self, revision, tile, generation):
         if self.queue_info.get((generation, tile), {}).get('migrated'):

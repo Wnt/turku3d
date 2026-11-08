@@ -456,6 +456,42 @@ class FarmTests(unittest.TestCase):
         self.assertTrue((root / 't0_0_0/mesh.glb').exists())
         self.assertLess(time.time() - root.stat().st_mtime, 2)
 
+    def test_a_slow_stand_in_lookup_never_holds_other_requests(self):
+        # 2026-11-08 16:58 UTC: a far, unbuilt tile's stand-in lookup (the tile in every product, some on the busy bulk
+        # HDD) took 12 s under the farm lock, and every request of every player waited for it.
+        from unittest.mock import patch
+        farm = self.farm(execute=None)
+        root = farm.output(GEN)
+        fake_build(REV, 't0_0_0', root)
+        farm_module.atomic_json(root / 't0_0_0/ready.json', dict(revision=REV, generation=GEN))
+        entered, release = threading.Event(), threading.Event()
+        original = farm._retained
+        def slow(tile):
+            entered.set()
+            self.assertTrue(release.wait(5))
+            return original(tile)
+        with patch.object(farm, '_retained', side_effect=slow) as lookup:
+            started = time.monotonic()
+            self.assertIsNone(farm.retained('t0_0_0'))  # the 202 goes out without a stand-in
+            self.assertLess(time.monotonic() - started, farm_module.RETAINED_WAIT + .5)
+            self.assertTrue(entered.wait(1))
+            self.assertTrue(farm.lock.acquire(timeout=.5))  # the lookup runs on behind it, off the farm lock
+            farm.lock.release()
+            self.assertEqual(farm.request(REV, 't0_0_0', distance=0)[0], 200)
+            with farm.payload(root, ['t0_0_0', 'mesh.glb']) as (_, source):
+                self.assertEqual(source.read(), b'mesh')
+            self.assertIsNone(farm.retained('t0_0_0'))  # the next poll joins the lookup in flight
+            release.set()
+            deadline = time.monotonic() + 5
+            while 't0_0_0' not in farm.retained_memo and time.monotonic() < deadline:
+                time.sleep(.01)
+        self.assertEqual(lookup.call_count, 1)
+        with patch.object(farm, '_retained', side_effect=AssertionError('looked up again')):
+            os.utime(root, (time.time() - 1800,) * 2)
+            manifest, prefix, provenance, stand_in = farm.retained('t0_0_0')  # remembered for the next polls
+        self.assertEqual((provenance['revision'], stand_in), (REV, root))
+        self.assertLess(time.time() - root.stat().st_mtime, 2)  # each advertisement renews the lease
+
     def test_bundle_lookup_and_payload_open_are_safe_during_eviction(self):
         from unittest.mock import patch
         import os
