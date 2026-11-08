@@ -41,8 +41,9 @@ describe('mapped lamp ground irradiance', () => {
   test('pools of lamps 30 m apart overlap along the street; nothing beyond the radius', () => {
     const field = new GroundLampField(() => []);
     field.setLamps([lamp(0), lamp(30)]); settle(field);
-    expect(value(15, 1)).toBeGreaterThan(value(1, 1) * .35);
-    expect(value(15, 1)).toBeLessThan(value(1, 1) * .7);
+    // Between two 8 m lamps the street keeps a third to a half of the light under one: pools, no black gap.
+    expect(value(15, 1)).toBeGreaterThan(value(1, 1) * .3);
+    expect(value(15, 1)).toBeLessThan(value(1, 1) * .55);
     field.setLamps([lamp(0)]); settle(field);
     expect(value(9, 1)).toBeGreaterThan(value(1, 1) * .4);
     expect(value(LAMP_FIELD.radius + 1, 1)).toBe(0);

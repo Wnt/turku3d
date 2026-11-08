@@ -27,15 +27,15 @@ export const LAMP_FIELD = {
   /** No lamp lights anything farther than this horizontally, metres; its tail fades as (1 - (r/radius)^4)^2. */
   radius: 34,
   /** Ground irradiance straight below a street lamp at full night: an 8 m lamp; lower path lamps a little less. */
-  nadir: 0.4,
+  nadir: 0.7,
   /** Batwing: intensity grows as 1 + batwing * sin^2 of the angle from nadir, then cuts off between these cosines. */
-  batwing: 1.6, cutoff: [0.17, 0.42] as const,
+  batwing: 1.0, cutoff: [0.17, 0.42] as const,
   /** Bridge-deck lamps: low LED heads 4 m over the deck, brighter for their height. */
   bridge: { height: 4, gain: 1.6 },
   /** A lamp hung on a span wire over the street hangs this far above it (the survey's Kaskenkatu lamps: 8.7-9.9 m). */
   hang: 9,
   /** Wall term: reference height above the ground (a ground-floor facade) and its strength relative to the ground's. */
-  wallHeight: 2.5, wall: 0.7,
+  wallHeight: 2.5, wall: 1.0,
 } as const;
 
 const pixels = new Uint16Array(WIDTH * SIZE * 4);
