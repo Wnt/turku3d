@@ -90,6 +90,8 @@ export const TURN_LEG_M = 4.5;
  *  harder (TURN_PUSH): a wheel against a kerb or a tree pit's edge does not climb at walking-pace pedal (Amsterdam
  *  Warmoesstraat: a reverse leg stood still on the tree strip and the turn counted it blocked). */
 const TURN_STALL_S = 1.2, TURN_PUSH_S = 0.3, TURN_PEDAL = 0.4, TURN_PUSH = 0.8;
+/** A turn's legs swap their lock when the way out lies this far (sine) to the other side. */
+const TURN_FLIP_SIN = 0.25;
 /** A turn leg that takes the car this far (m) from its path, or half a metre beyond where the leg started if that was
  *  further, ends there and the next leg comes back; a turn beyond OFF_PATH_M - 1 gives up. (Amsterdam Warmoesstraat,
  *  Rotterdam Botersloot: a leg rolled past 6 m, or a back-up left the car 7 m off, and the turn gave up at once.) */
@@ -357,6 +359,10 @@ export class DriveFollower {
           this.turnLeg(-1, pose, 0, TURN_BACKUP_M);
           return { command: hold, target: 0, ...recovering };
         }
+        // Rotated past the way out (short legs by a quay: Amsterdam Grimburgwal corner, Windows): rotate back toward
+        // it rather than on round the circle.
+        const now = t.aimS !== null ? aimAt(t.aimS) : { cos: cosAim, sin: sinAlpha };
+        if (Math.abs(now.sin) > TURN_FLIP_SIN && Math.sign(now.sin) !== t.side) t.side = Math.sign(now.sin);
         this.turnLeg(t.dir > 0 ? -1 : 1, pose);
         return { command: hold, target: 0, ...recovering };
       }
