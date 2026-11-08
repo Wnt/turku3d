@@ -2,22 +2,28 @@
 
 A sweep reads every tile's manifests and lists every payload: 16-147 s on a loaded host (city.lab Amsterdam,
 2026-11-07). In the service's own process that work held the GIL from the request handlers for most of each minute,
-so it runs in a child process at the lowest CPU priority, every RETENTION_SECONDS. retention.prune takes the same
-file locks as publication, so a separate process is as safe as a thread.
+so it runs in a child process at the lowest CPU and IO priority, RETENTION_SECONDS after the previous sweep ended.
+retention.prune takes the same file locks as publication, so a separate process is as safe as a thread.
+
+The city services' tile stores live on the bulk HDD. With a 300 s gap the three services' sweeps (each minutes of
+metadata reads there) overlapped almost all the time and, with the city builds, kept the disk saturated; tile reads
+then took 1-20 s (2026-11-08). Retention only bounds the bulk store's growth, so every 30 min is plenty.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 import time
 
-RETENTION_SECONDS = 300
+RETENTION_SECONDS = 1800
+IDLE_IO = ["ionice", "-c3"] if shutil.which("ionice") else []  # Linux; not on macOS
 
 
 def sweep(root):
     """One prune of `root` in a niced child process; its JSON result."""
     proc = subprocess.run(
-        ["nice", "-n", "19", sys.executable, "-m", "turku3d.coarse.retention", "--root", str(root)],
+        [*IDLE_IO, "nice", "-n", "19", sys.executable, "-m", "turku3d.coarse.retention", "--root", str(root)],
         capture_output=True, text=True, timeout=3600,
     )
     if proc.returncode != 0:
