@@ -46,25 +46,40 @@ def complete(root, tile, value):
 FRAGMENT_FRESH_S = 5.0  # a tile's served fragment is reused this long before it is read from disk again
 
 
+def fragment_key(builder, tile, code=None):
+    """The producer code and the signatures of the tile's candidate files its served fragment was read from."""
+    return code or builder.code(), tuple(_signature(builder.root / tile / name) for name in CANDIDATES)
+
+
+def fragment_current(builder, tile, code=None):
+    """Whether the tile's kept fragment was read from its current files under the current code."""
+    hit = getattr(builder, "fragment_memo", {}).get(tile)
+    return hit is not None and hit[0][1:] == fragment_key(builder, tile, code)
+
+
 def retained_fragment(builder, tile):
     """The tile's served fragment (see _retained_fragment), kept in memory per tile: every manifest and collision
     poll asks for it, and reading it parses its manifests and stats every payload and shared model, which took up to
-    2-3 s on a loaded host (city.lab Espoo 2026-11-07, load 45-60). A kept fragment is reused while no build has
-    finished (builder.version), the producer code and the tile's candidate files are unchanged; after
-    FRAGMENT_FRESH_S it still answers while one re-read runs behind it."""
+    2-3 s on a loaded host (city.lab Espoo 2026-11-07, load 45-60). A kept fragment answers at once while the producer
+    code and the tile's candidate files are unchanged. After FRAGMENT_FRESH_S, or once any build has finished
+    (builder.version: a shared model it needs may have landed), one re-read runs behind the answer. A finished build
+    used to make every tile's next poll re-read it in the foreground: 4-16 s per tile behind each finished build on a
+    loaded host (city.lab Amsterdam, 2026-11-08)."""
     memo = getattr(builder, "fragment_memo", None)
     if memo is None:
         return _retained_fragment(builder, tile)
-    key = (builder.version, builder.code(), tuple(_signature(builder.root / tile / name) for name in CANDIDATES))
+    key = (builder.version, *fragment_key(builder, tile))
     hit = memo.get(tile)
-    if hit is not None and hit[0] == key:
-        if time.monotonic() - hit[2] >= FRAGMENT_FRESH_S and tile not in builder.fragment_refreshing:
+    if hit is not None and hit[0][1:] == key[1:]:
+        stale = hit[0][0] != key[0] or time.monotonic() - hit[2] >= FRAGMENT_FRESH_S
+        if stale and tile not in builder.fragment_refreshing:
             builder.fragment_refreshing.add(tile)
+            kept = hit[0]
 
             def refresh():
                 try:
                     value = _retained_fragment(builder, tile)
-                    if memo.get(tile, (None,))[0] == key:  # no build finished while this read
+                    if memo.get(tile, (None,))[0] == kept:  # nothing replaced the entry while this read
                         memo[tile] = (key, value, time.monotonic())
                 except Exception:  # noqa: BLE001 - the next poll reads again
                     memo.pop(tile, None)

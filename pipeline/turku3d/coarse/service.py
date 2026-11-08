@@ -32,6 +32,7 @@ from .packaging import current_code
 from .prefetch import Prefetcher
 from .request_journal import RequestJournal, complete_tile, request_tile
 from .service_retention import maintain_retention
+from .service_warm import maintain_warm
 from .service_state import failed_identity, tile_current, unavailable_reply
 from .service_state import snapshot as state_snapshot
 from .serving import retained_fragment as collision_fragment
@@ -192,40 +193,10 @@ class Builder:
             self.threads.extend([
                 threading.Thread(target=self._maintain, name="coarse-demand", daemon=True),
                 threading.Thread(target=maintain_retention, args=(self,), name="coarse-retention", daemon=True),
-                threading.Thread(target=self._warm, name="coarse-warm", daemon=True),
+                threading.Thread(target=maintain_warm, args=(self,), name="coarse-warm", daemon=True),
             ])
         for thread in self.threads:
             thread.start()
-
-    def _warm(self):
-        """Freshness verdicts and served fragments of the tiles on disk, behind the first requests: the most
-        recently requested first, then outward from t0_0_0. After a restart each tile's first poll otherwise waited on
-        its cold check (3.7-14.7 s per tile on city.lab Espoo, 2026-11-07), and a tile nobody had polled yet answered
-        its unhashed payloads (roads.json) 404 "not built"."""
-        from .serving import retained_fragment
-
-        recent = sorted(self.journal.rows, key=lambda t: -self.journal.rows[t]["at"])
-
-        def outward(tile):
-            parsed = C.VisualTile.parse(tile)
-            return abs(parsed.i) + abs(parsed.j), tile
-
-        on_disk = []
-        for path in self.root.glob("t0_*/manifest.json"):
-            try:
-                on_disk.append(outward(path.parent.name))
-            except (ValueError, AttributeError):
-                continue
-        for tile in [*recent, *(t for _, t in sorted(on_disk) if t not in recent)]:
-            if self.stopped:
-                return
-            try:
-                self.built(tile)
-                if retained_fragment(self, tile) is not None:
-                    with self.lock:
-                        self.servable = self.servable | {tile}
-            except Exception as error:  # noqa: BLE001 - a request checks the tile itself
-                print(f"coarse warm {tile}: {error}", file=sys.stderr, flush=True)
 
     def _maintain(self):
         while True:

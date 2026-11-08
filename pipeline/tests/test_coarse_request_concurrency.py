@@ -115,8 +115,18 @@ def test_a_first_freshness_check_runs_before_the_scheduler_lock(tmp_path, monkey
         builder.stop()
 
 
-def test_a_served_fragment_is_kept_until_a_build_finishes_or_its_files_change(tmp_path, monkeypatch):
-    """Each poll re-read the tile's manifests and stat'ed every payload: 2-3 s on a loaded host."""
+def wait_for(condition, timeout=5.0):
+    import time
+
+    end = time.monotonic() + timeout
+    while not condition() and time.monotonic() < end:
+        time.sleep(0.01)
+    return condition()
+
+
+def test_a_served_fragment_answers_at_once_after_a_build_and_rereads_when_its_files_change(tmp_path, monkeypatch):
+    """Each poll re-read the tile's manifests and stat'ed every payload: 2-3 s on a loaded host. Re-reading every
+    tile in the foreground behind each finished build cost 4-16 s per tile (city.lab Amsterdam 2026-11-08)."""
     from turku3d.coarse import serving
 
     reads = []
@@ -129,21 +139,25 @@ def test_a_served_fragment_is_kept_until_a_build_finishes_or_its_files_change(tm
         first = serving.retained_fragment(builder, "t0_0_0")
         first["failure"] = {"state": "failed"}  # callers may decorate their copy
         assert serving.retained_fragment(builder, "t0_0_0") == {"tile": "t0_0_0"} and reads == ["t0_0_0"]
-        builder.version += 1  # a build finished
+        builder.version += 1  # a build finished elsewhere
+        assert serving.retained_fragment(builder, "t0_0_0") == {"tile": "t0_0_0"}, "the kept fragment answers"
+        assert wait_for(lambda: len(reads) == 2 and not builder.fragment_refreshing), "one re-read runs behind it"
         serving.retained_fragment(builder, "t0_0_0")
-        assert reads == ["t0_0_0", "t0_0_0"]
-        manifest.write_text('{"changed": true}')  # a file written outside a build
+        assert len(reads) == 2, "the re-read is kept for the new build count"
+        manifest.write_text('{"changed": true}')  # the tile's own files changed
         serving.retained_fragment(builder, "t0_0_0")
         assert len(reads) == 3
     finally:
         builder.stop()
 
 
-def test_a_restart_warms_tile_verdicts_and_fragments_most_recent_then_outward(tmp_path, monkeypatch):
-    """After a restart each tile's first poll waited on its cold check (3.7-14.7 s), and an unpolled tile answered
-    roads.json 404: the warm pass checks the tiles on disk behind the first requests and marks served ones."""
-    from turku3d.coarse import service, serving
+def test_warming_goes_nearest_the_active_demand_first_and_picks_up_installed_tiles(tmp_path, monkeypatch):
+    """After a restart, an install of a prebuilt tile or a finished build, a tile's first poll paid its cold
+    freshness check and fragment read (4-16 s per tile on a loaded host, 2026-11-08); the warm thread pays them
+    behind the requests, nearest the players first, and finds manifests that change under it."""
+    from turku3d.coarse import service, service_warm, serving
 
+    monkeypatch.setattr(service_warm, "WARM_PAUSE_S", 0)
     checked = []
     monkeypatch.setattr(service, "tile_current", lambda builder, tile, code=None: checked.append(tile) or True)
     monkeypatch.setattr(serving, "_retained_fragment", lambda builder, tile: {"tile": tile})
@@ -152,11 +166,22 @@ def test_a_restart_warms_tile_verdicts_and_fragments_most_recent_then_outward(tm
         (tmp_path / tile / "manifest.json").write_text("{}")
     builder = Builder(tmp_path, code="test", workers=0)
     try:
-        builder.journal.record("t0_5_5", 0)
-        builder._warm()
-        assert checked == ["t0_5_5", "t0_0_0", "t0_-1_1", "t0_3_0"]
+        builder.requested["t0_4_4"] = __import__("time").time()  # a player is polling around t0_4_4
+        assert service_warm.warm_pass(builder) == ["t0_5_5", "t0_3_0", "t0_0_0", "t0_-1_1"]
+        assert checked == ["t0_5_5", "t0_3_0", "t0_0_0", "t0_-1_1"]
         assert {"t0_5_5", "t0_0_0", "t0_-1_1", "t0_3_0"} <= builder.servable
         assert builder.built("t0_0_0") and len(checked) == 4, "the request finds the warmed verdict"
+        assert service_warm.warm_pass(builder) == [], "nothing is cold until a manifest changes"
+        (tmp_path / "t0_2_2").mkdir()
+        (tmp_path / "t0_2_2" / "manifest.json").write_text("{}")  # a prebuilt tile installed into the store
+        (tmp_path / "t0_0_0" / "manifest.json").write_text('{"rebuilt": true}')
+        assert service_warm.warm_pass(builder) == ["t0_2_2", "t0_0_0"]
+        assert "t0_2_2" in builder.servable and checked[-2:] == ["t0_2_2", "t0_0_0"]
+        builder.requested.clear()
+        builder.journal.record("t0_-1_1", 0)
+        assert service_warm.demand_anchors(builder) == [(-1, 1)], "without recent polls the request journal"
+        builder.journal.discard("t0_-1_1")
+        assert service_warm.demand_anchors(builder) == [(0, 0)], "and without either, the spawn tile"
     finally:
         builder.stop()
 
