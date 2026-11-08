@@ -1,6 +1,6 @@
 import type * as THREE from 'three/webgpu';
 import { addNodeBuilderHook } from './nodeBuilderHooks';
-import { PreparationBudget } from './preparationBudget';
+import { streamingBudget, type PreparationBudget } from './preparationBudget';
 import { streamTrace } from '../telemetry/streamTrace';
 
 type RenderContexts = { get(target: THREE.RenderTarget | null, mrt: ReturnType<THREE.WebGPURenderer['getMRT']>, depth?: number): unknown };
@@ -13,6 +13,11 @@ export const nextRenderDepth = (renderer: THREE.WebGPURenderer) =>
 export const isPrecompiling = (renderer: THREE.WebGPURenderer) =>
   (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling === true;
 
+/** One streaming budget per renderer: the frame's adaptive allowance (2-6 ms while the window waits for full tiles),
+ *  and a window that a draw's own r186 yieldToMain carried past a frame starts again after one task hop. The fixed 2 ms
+ *  wall window it had counted those paced yields as work: nearly every draw then waited for the next frame, so a
+ *  48-mesh part's ~200 draws took 200 frames (fastdrive Air diag 2026-11-08: one part 8.3 s, 6.2 s of it waiting
+ *  here, 15 node builds). Each draw's yield stays paced by main.ts paceYields. */
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
 /** Streaming shader/pipeline compiles so far and their wall time (ms), for the capture trace; `calls` compileModel draws
  *  handed to r186, `waitMs` the time compileModel spent waiting for its next budget window (graphics queue diagnostics). */
@@ -62,7 +67,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   const contexts = (renderer as unknown as { _renderContexts: RenderContexts | null })._renderContexts;
   if (!contexts) throw new Error('Streaming shader preparation requires an initialized renderer');
   let budget = budgets.get(renderer);
-  if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
+  if (!budget) { budget = streamingBudget(); budgets.set(renderer, budget); }
   const pending = budget.checkpoint();
   if (pending) await waitFor(pending);
   model.updateWorldMatrix(true, true);
