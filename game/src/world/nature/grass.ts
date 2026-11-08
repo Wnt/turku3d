@@ -10,15 +10,19 @@ import { QUALITY } from '../../render/quality';
 import { materialKey, surfaceStyle } from '../../render/materials';
 import type { NatureLibrary } from './library';
 import { tuftGeometry } from './grassBlades';
+import { dwarfShrubGeometry, fernGeometry, herbGeometry } from './groundcover';
 import { hashId } from './species';
 
 const CELL = 16;
 /** Values per candidate: x, y, z, rotation, scale, ambient. */
 const STRIDE = 6;
-/** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes. The
- *  tufts are opaque blades built here (grassBlades.ts), the others the library's alpha-tested cards. */
-const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette'] as const;
-const TUFT = 1;
+/** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes; and
+ *  the forest floors' plants: dwarf shrubs, ferns and low herbs. The tufts and the forest plants are opaque geometry
+ *  built here (grassBlades.ts, groundcover.ts), the others the library's alpha-tested cards. */
+const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette', 'groundcover_shrub', 'groundcover_fern', 'groundcover_herb'] as const;
+const TUFT = 1, SHRUB = 4, FERN = 5, HERB = 6;
+/** Opaque kinds built on the client (blade tufts, forest-floor plants), drawn with the blade material. */
+const BUILT = new Set([TUFT, SHRUB, FERN, HERB]);
 
 interface TileGrass { key: string; cells: Map<string, { points: number[]; kinds: number[] }> }
 
@@ -39,6 +43,29 @@ function meadowKind(patch: number, pick: number) {
   if (pick < 0.15 + patch * 0.25) return 2;
   if (pick < 0.85) return 1;
   return pick < 0.96 ? 0 : 3;
+}
+
+/** Forest floors (the generator's forest_floor.py finishes) and their plants. */
+const FOREST = /forest_floor_(conifer|broadleaf|moss)/;
+type Floor = 'conifer' | 'broadleaf' | 'moss';
+/** Forest-floor plants per square metre, as a share of the tier's grass density: the floor texture carries the
+ *  litter, needles and moss between them. */
+const FOREST_DENSITY = 0.55;
+
+/** A forest-floor candidate's plant, or -1 for bare floor. Needle duff carries bilberry and lingonberry mats in broad
+ *  patches, a little wavy hair-grass and few ferns; broadleaf litter wood anemone and sorrel carpets in patches, ferns
+ *  and grass tufts; wet moss ferns, sedge-like tufts and dwarf shrubs (Finnish forest site types: VT/MT heath, OMT
+ *  herb-rich grove, spruce mire edges). */
+export function forestKind(floor: Floor, patch: number, pick: number) {
+  if (floor === 'conifer') {
+    if (patch > 0.3) return pick < 0.8 ? SHRUB : pick < 0.88 ? FERN : pick < 0.96 ? TUFT : -1;
+    return pick < 0.25 ? SHRUB : pick < 0.33 ? TUFT : pick < 0.36 ? FERN : -1;
+  }
+  if (floor === 'broadleaf') {
+    if (patch > 0.4) return pick < 0.7 ? HERB : pick < 0.82 ? FERN : pick < 0.92 ? TUFT : -1;
+    return pick < 0.18 ? HERB : pick < 0.26 ? TUFT : pick < 0.31 ? FERN : -1;
+  }
+  return pick < 0.35 ? FERN : pick < 0.6 ? TUFT : pick < 0.72 ? SHRUB : pick < 0.8 ? HERB : -1;
 }
 
 /** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassInstance` the grass materials
@@ -62,6 +89,7 @@ export class GrassField {
   private draws: THREE.InstancedMesh[][] = [];
   private instances: THREE.InstancedBufferAttribute[] = [];
   private tuft = tuftGeometry();
+  private plants = new Map<number, THREE.BufferGeometry>([[SHRUB, dwarfShrubGeometry()], [FERN, fernGeometry()], [HERB, herbGeometry()]]);
   private selection = '';
   private readonly settings: { density: number; range: number; instances: number };
   private matrix = new THREE.Matrix4();
@@ -80,7 +108,7 @@ export class GrassField {
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
       const instance = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
       this.instances.push(instance);
-      const parts = k === TUFT ? [{ geometry: this.tuft, material: library.materials.grassBlade }]
+      const parts = BUILT.has(k) ? [{ geometry: k === TUFT ? this.tuft : this.plants.get(k)!, material: library.materials.grassBlade }]
         : library.asset(name).lods[0].parts.map(part => ({ geometry: part.geometry, material: library.materials.grass }));
       this.draws.push(parts.map(part => {
         const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, instance), part.material, cap);
@@ -100,19 +128,21 @@ export class GrassField {
     const tile: TileGrass = { key: '', cells: new Map() };
     this.tiles.set(model, tile);
     model.updateWorldMatrix(true, true);
-    const meshes: { mesh: THREE.Mesh; meadow: boolean }[] = [];
+    const meshes: { mesh: THREE.Mesh; meadow: boolean; floor: Floor | null }[] = [];
     model.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
       const key = materialKey(mesh, mesh.material);
-      if (key && surfaceStyle(key) === 'grass') meshes.push({ mesh, meadow: MEADOW.test(key) });
+      const floor = key?.match(FOREST)?.[1] as Floor | undefined;
+      if (floor) meshes.push({ mesh, meadow: false, floor });
+      else if (key && surfaceStyle(key) === 'grass') meshes.push({ mesh, meadow: MEADOW.test(key), floor: null });
     });
     const origin = new THREE.Vector3().setFromMatrixPosition(model.matrixWorld);
     tile.key = `${origin.x},${origin.y},${origin.z}:${model.name}`;
     let seed = hashId(`${origin.x.toFixed(1)},${origin.z.toFixed(1)}`) || 1;
     const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
-    for (const { mesh, meadow } of meshes) {
+    for (const { mesh, meadow, floor } of meshes) {
       const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
       const baked = mesh.geometry.getAttribute('color_1') as THREE.BufferAttribute | undefined;
       // bakedAmbientContext's factor: the darker of local and sky visibility, weighted by coverage.
@@ -130,18 +160,22 @@ export class GrassField {
         if (area <= 0 || Math.abs(ab.y) / (2 * area) < 0.7) continue;
         // Every candidate is kept (a continuous lawn); a world-space patch noise turns some into taller tufts and
         // meadow flowers, so lawns are not an even polka-dot spread.
-        const n = Math.floor(area * this.settings.density + random());
+        const n = Math.floor(area * this.settings.density * (floor ? FOREST_DENSITY : 1) + random());
         for (let k = 0; k < n; k++) {
           if (k % 256 === 0) yield;
           let u = random(), v = random();
           if (u + v > 1) { u = 1 - u; v = 1 - v; }
           const x = a.x + (b.x - a.x) * u + (c.x - a.x) * v, y = a.y + (b.y - a.y) * u + (c.y - a.y) * v, z = a.z + (b.z - a.z) * u + (c.z - a.z) * v;
-          const patch = patchNoise(x / 7, z / 7), pick = random();
-          const kind = meadow ? meadowKind(patch, pick) : patch > 0.55 && pick < 0.5 ? (pick < 0.12 ? 2 : 1) : pick > 0.95 ? 3 : 0;
+          // Forest plants grow in larger patches (bilberry mats, anemone carpets) than lawn tufts.
+          const patch = patchNoise(x / (floor ? 11 : 7), z / (floor ? 11 : 7)), pick = random();
+          const kind = floor ? forestKind(floor, patch, pick)
+            : meadow ? meadowKind(patch, pick) : patch > 0.55 && pick < 0.5 ? (pick < 0.12 ? 2 : 1) : pick > 0.95 ? 3 : 0;
+          if (kind < 0) continue;
           const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
           let cell = tile.cells.get(key);
           if (!cell) tile.cells.set(key, cell = { points: [], kinds: [] });
-          const scale = meadow ? 0.85 + patch * 0.35 + random() * 0.3 : kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45;
+          const scale = floor ? (kind === TUFT ? 0.6 : 0.75) + patch * 0.3 + random() * 0.35
+            : meadow ? 0.85 + patch * 0.35 + random() * 0.3 : kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45;
           cell.points.push(x, y, z, random() * Math.PI * 2, scale, oa + (ob - oa) * u + (oc - oa) * v);
           cell.kinds.push(kind);
         }
@@ -193,7 +227,7 @@ export class GrassField {
         this.matrix.toArray(parts[0].instanceMatrix.array, n * 16);
         const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
         // Blade tufts also vary in hue, from fresh blue-green to yellower, drier clumps.
-        const dry = kind === TUFT ? ((cell.points[o + 3] * 3.71) % 1) * 2 - 1 : 0;
+        const dry = kind === TUFT ? ((cell.points[o + 3] * 3.71) % 1) * 2 - 1 : BUILT.has(kind) ? ((cell.points[o + 3] * 3.71) % 1) - 0.5 : 0;
         (this.instances[kind].array as Float32Array).set([shade, dry, cell.points[o + 5], s], n * 4);
         counts[kind] = n + 1; remaining--;
       }
@@ -212,6 +246,7 @@ export class GrassField {
   dispose() {
     for (const parts of this.draws) for (const part of parts) { part.geometry.dispose(); part.dispose(); }
     this.tuft.dispose();
+    for (const geometry of this.plants.values()) geometry.dispose();
     this.root.removeFromParent();
   }
 }

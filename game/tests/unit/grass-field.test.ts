@@ -148,3 +148,40 @@ it('keeps every grass draw within WebGPU\'s 8 vertex buffers: one per-instance v
   }
   field.dispose();
 });
+
+it('grows bilberry, fern and herb plants on forest floors, by floor type, and no lawn cards there', async () => {
+  const { forestKind } = await import('../../src/world/nature/grass');
+  const share = (floor: 'conifer' | 'broadleaf' | 'moss') => {
+    const counts = new Map<number, number>();
+    for (let i = 0; i < 4000; i++) { const k = forestKind(floor, (i % 40) / 39, ((i * 0.6180339887) % 1)); counts.set(k, (counts.get(k) ?? 0) + 1); }
+    return (k: number) => (counts.get(k) ?? 0) / 4000;
+  };
+  const conifer = share('conifer'), broadleaf = share('broadleaf'), moss = share('moss');
+  // Kinds: 1 blade tuft, 4 dwarf shrub, 5 fern, 6 herb; -1 bare floor. No lawn (0), meadow (2) or rosette cards (3).
+  for (const s of [conifer, broadleaf, moss]) for (const card of [0, 2, 3]) expect(s(card)).toBe(0);
+  expect(conifer(4)).toBeGreaterThan(0.4);
+  expect(broadleaf(6)).toBeGreaterThan(0.3);
+  expect(moss(5)).toBeGreaterThan(0.25);
+  for (const s of [conifer, broadleaf]) expect(s(-1)).toBeGreaterThan(0.15);
+
+  const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+  floor.userData = { layer: 'ground', material_key: 'draft_forest_floor_conifer' }; model.add(floor); scene.add(model);
+  const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+  while (!steps.next().done) { /* fixture */ }
+  field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+  const drawn: Record<string, number> = Object.fromEntries((field.root.children as THREE.InstancedMesh[]).map(m => [m.userData.nature as string, m.count]));
+  expect(drawn.grass_lawn).toBe(0);
+  expect(drawn.groundcover_shrub).toBeGreaterThan(50);
+  // About 0.55 x 2.5 plants per m2 on the 900 m2 floor, a third of them bare.
+  const total = Object.values(drawn).reduce((a, b) => a + b, 0);
+  expect(total).toBeGreaterThan(400); expect(total).toBeLessThan(1300);
+  for (const mesh of field.root.children as THREE.InstancedMesh[]) {
+    if (!/shrub|fern|herb/.test(mesh.userData.nature)) continue;
+    expect(mesh.material).toBe(library.materials.grassBlade);
+    const box = mesh.geometry.boundingBox!;
+    expect(box.max.y).toBeGreaterThan(0.08); expect(box.max.y).toBeLessThan(0.65);
+    expect(mesh.geometry.index!.count / 3).toBeLessThan(260);
+  }
+  field.dispose();
+});
