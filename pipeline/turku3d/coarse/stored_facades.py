@@ -67,13 +67,23 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
 
 
 def exposed_wall_quads(walls, *, with_owners=False, emit=None):
-    """Paint one surface per outward wall, including near-coincident LOD2 slivers.
+    """Paint one surface per outward wall, including near-coincident LOD2 slivers, and no wall
+    inside a neighbouring solid.
 
     Roof-part solids remain closed for collision. Their independently simplified
     rings can put two outward faces within millimetres of each other, especially
     where a narrow fallback roof strip borders a surveyed roof. Subtract covered
     areas in wall metres before assigning facade programs, keeping the taller
-    face and any exposed remainder. Opposite-facing solid boundaries are retained.
+    face and any exposed remainder.
+
+    Every roof plane is its own solid from the base up, so each boundary between two
+    roof parts (and each party wall between two emitted buildings) carried two
+    back-to-back walls from the ground to the roof, inside the building: up to five
+    nested layers under a stepped roof, ~40 % of a city-centre tile's wall triangles
+    and ~80 % of its wall area (t0_0_-1, Jonni 2026-11-08). A wall facing an emitted
+    solid keeps only what rises above that solid's own wall there (its roof edge) or
+    lies below its base. Context solids (other tiles) still only resolve same-facing
+    ownership: their tile may load later or come from another generation.
     """
     import shapely
 
@@ -97,9 +107,10 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
             continue
         direction = directions[i]
         others = tree.query(bounds[i])
+        facing = directions[others] @ direction
         others = others[
-            (rank[others] < rank[i])
-            & (directions[others] @ direction > 0.99998)
+            (((rank[others] < rank[i]) & (facing > 0.99998))
+             | ((facing < -0.99998) & (True if emit is None else emit[others])))
             & (high[others, 1] > low[i, 1])
             & (low[others, 1] < high[i, 1])
         ]
@@ -113,7 +124,9 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
         # Compare planes only over their shared frontage. A long surveyed edge
         # may diverge beyond a short sliver without changing that overlap.
         across = delta[:, :2] @ normal
-        slope = (across[:, 1] - across[:, 0]) / np.maximum(along[:, 1] - along[:, 0], 1e-9)
+        # An opposite-facing wall runs the other way along this one: keep the run's sign.
+        run = along[:, 1] - along[:, 0]
+        slope = (across[:, 1] - across[:, 0]) / np.where(np.abs(run) < 1e-9, 1e-9, run)
         shared_left = np.maximum(0, along[:, :2].min(axis=1))
         shared_right = np.minimum(lengths[i], along[:, :2].max(axis=1))
         # Resolve every shared interval within 6 mm, including diverging edges
