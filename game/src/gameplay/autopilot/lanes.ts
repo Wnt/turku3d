@@ -60,8 +60,9 @@ export function tilesBetween(a: { x: number; z: number }, b: { x: number; z: num
 }
 
 /** A junction movement onto a lane: its connector curve from the stop line. */
-/** `penalty`: extra cost (m) of a near-start join that the lane data does not link (lanes.ts nearStarts). */
-interface Move { connector: Connector; penalty?: number }
+/** `penalty`: extra cost (m) of the move: a near-start join that the lane data does not link (lanes.ts nearStarts),
+ *  or a U-turn at a dead end (`uTurn`, TURN_IN_STREET_M). */
+interface Move { connector: Connector; penalty?: number; uTurn?: boolean }
 interface Step { lane: Lane; via: 'start' | 'move' | 'seam' | 'change'; route: Move | null; from: Lane | null }
 /** A turn sharper than this (rad) is a U-turn: only at a dead end. */
 const U_TURN = 2.6;
@@ -75,6 +76,16 @@ const goalPenalty = (d: number) => 2 * d + Math.max(0, d - GOAL_NEAR_M) * GOAL_F
 
 /** A lane start this close to a lane end (m), heading within 60°, continues it even where the data has no link. */
 const NEAR_JOIN = 8, NEAR_PENALTY = 15;
+/** What a turn in the street costs a route (m of driving): a U-turn at a dead end, or a start on a lane pointing
+ *  against the car. A car turns at walking pace in a few legs, and a 5-6 m Dutch klinker street has no room for it
+ *  (Rotterdam Botersloot, Amsterdam Grimburgwal), so a route drives on round the block when that is up to this much
+ *  longer. */
+export const TURN_IN_STREET_M = 150;
+export interface RouteOptions {
+  /** Only routes that drive on the way the car faces: no start against its heading, no U-turn at a dead end (after
+   *  a turn in the street found no room). */
+  forward?: boolean;
+}
 
 export class LaneRouter {
   readonly network = new TrafficNetwork();
@@ -142,7 +153,10 @@ export class LaneRouter {
     if (lane.end.kind === 'junction') {
       const curves = (this.startsAt!.get(this.nodeKey(lane.tile, lane.end.node)) ?? []).map(next => ({ next, curve: connector(lane, next) }));
       const deadEnd = curves.every(c => Math.abs(c.curve.turn) > U_TURN);
-      for (const { next, curve } of curves) if (deadEnd || Math.abs(curve.turn) <= U_TURN) out.push({ lane: next, route: { connector: curve } });
+      for (const { next, curve } of curves) {
+        if (deadEnd) out.push({ lane: next, route: { connector: curve, penalty: TURN_IN_STREET_M, uTurn: true } });
+        else if (Math.abs(curve.turn) <= U_TURN) out.push({ lane: next, route: { connector: curve } });
+      }
     } else {
       const next = this.network.successor(lane) ?? this.seamJoin(lane);
       if (next) out.push({ lane: next, route: next === this.network.successor(lane) ? null : { connector: connector(lane, next) } });
@@ -266,18 +280,19 @@ export class LaneRouter {
    *  street 30 m behind is no start (it made neighbouring start spots differ 2-3x in route length, the short ones by
    *  driving the one-way backwards). Only a car off the lanes (a yard) starts from any lane within 40 m. Every lane
    *  near the target is a candidate goal, so a target across the street still routes. */
-  route(from: RoutePoint, to: RoutePoint): LaneRoute | null {
+  route(from: RoutePoint, to: RoutePoint, options: RouteOptions = {}): LaneRoute | null {
     const around = this.near({ x: from.x, z: from.z, y: from.y }, 40, 8);
     const own = around.filter(c => c.distance <= START_REACH_M);
-    const starts = (own.length ? own : around).map(c => {
+    const starts = (own.length ? own : around).flatMap(c => {
       let penalty = 2 * c.distance;
       if (from.hx !== undefined && from.hz !== undefined) {
         const i = Math.min(c.lane.cum.length - 2, Math.max(0, c.lane.cum.findIndex(v => v >= c.s) - 1));
         const dx = c.lane.points[2 * i + 2] - c.lane.points[2 * i], dz = c.lane.points[2 * i + 3] - c.lane.points[2 * i + 1];
         const cos = (dx * from.hx + dz * from.hz) / (Math.hypot(dx, dz) || 1);
-        penalty += (1 - cos) * 15 + (cos < 0.2 ? 30 : 0);
+        if (options.forward && cos < 0.2) return [];
+        penalty += (1 - cos) * 15 + (cos < 0.2 ? TURN_IN_STREET_M : 0);
       }
-      return { ...c, penalty };
+      return [{ ...c, penalty }];
     });
     const goals = new Map(this.near({ x: to.x, z: to.z, y: to.y }, 60, 12).map(g => [g.lane, { s: g.s, penalty: goalPenalty(g.distance) }]));
     if (!starts.length || !goals.size) return null;
@@ -309,6 +324,7 @@ export class LaneRouter {
       done.add(lane);
       const at = g.get(lane)!;
       for (const { lane: next, route } of this.exits(lane, flow)) {
+        if (options.forward && route?.uTurn) continue;
         reach(next, at + lane.length + (route?.connector?.length ?? 0) + (route?.penalty ?? 0), { lane: next, via: route ? 'move' : 'seam', route, from: lane });
       }
       for (const sib of this.siblings!.get(`${lane.tile}|${lane.carriageway}`) ?? []) {

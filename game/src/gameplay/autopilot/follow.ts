@@ -71,6 +71,8 @@ const OFF_PATH_M = 9;
  *  standstill: behind it, or so far to the side that full lock from rest swings wide (off an Amsterdam quay into the
  *  canal at a leg start). It ends once the car faces within TURN_DONE_COS of the aim. */
 const TURN_START_COS = 0.3, TURN_DONE_COS = 0.6;
+/** ...and once its heading is within this (cosine) of the path's own heading at the aim. */
+const TURN_DONE_ALONG = 0.6;
 /** Pursuit with the aim this far off the heading (cosine) drives no faster than SIDE_AIM_SPEED (m/s). */
 const SIDE_AIM_COS = 0.5, SIDE_AIM_SPEED = 3;
 /** Forward legs of a turn before it gives up (the trip ends stuck), and turns per path. */
@@ -88,6 +90,17 @@ export const TURN_LEG_M = 4.5;
 const TURN_STALL_S = 0.8;
 /** A turn that takes the car this far (m) from its path gives up. */
 const TURN_AWAY_M = 6;
+/** A turn whose legs got nowhere first backs straight up this far (m, as far as the ground allows) and starts again
+ *  there, once: a car nosed into a 5-6 m street a few metres past a junction turns in the junction. */
+export const TURN_BACKUP_M = 8;
+/** Below this speed (m/s), with the wheel turned beyond EDGE_WATCH_STEER, pursuit has the caller check the ground
+ *  along its arc ahead (reverseCheck.ts edgeRoom) every EDGE_WATCH_S: a slow full-lock swing is how cars went over
+ *  quay edges into canals. An edge within the stopping distance stops the car, and it turns in the street instead;
+ *  the third such stop gives the trip up. */
+const EDGE_WATCH_SPEED = 4, EDGE_WATCH_STEER = 0.6, EDGE_WATCH_S = 0.2, EDGE_STOPS = 3;
+/** A turn's candidate first legs: rotation toward the aim's side (1) or the long way round (-1), and direction. The
+ *  steer of a leg is its side forward and the opposite lock back. */
+export const TURN_FIRST_LEGS: [rotation: 1 | -1, dir: 1 | -1][] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 export class DriveFollower {
   s = 0;
@@ -100,12 +113,19 @@ export class DriveFollower {
   pendingReverse: number | null = null;
   /** A turn leg waiting for the caller's ground check (options.checkReverse: turnLegChecked with the metres it may
    *  drive), else null. */
-  pendingTurnLeg: { steer: number; dir: 1 | -1 } | null = null;
+  pendingTurnLeg: { steer: number; dir: 1 | -1; length: number; pick: boolean; aimSide: number } | null = null;
   /** A turn in the street (the path leaves behind the car: a U-turn, a dead end): forward with the lock toward the
    *  path, back with the other, at walking pace, each leg only as far as the carriageway allows, until the car faces
    *  the path. Not a stuck recovery unless it gives up. */
   private turn: { side: number; dir: 1 | -1; rounds: number; room: number; from: { x: number; z: number };
-    time: number; still: number; blocked: number; aimS: number | null } | null = null;
+    time: number; still: number; blocked: number; aimS: number | null; backup: 'no' | 'driving' | 'done' } | null = null;
+  /** Where the running turn's aim lies (cosine and sine off the heading, + right) when it started or restarted. */
+  private aimCos = 1;
+  private aimSin = 0;
+  /** The edge watch's ground check of the arc ahead (options.checkReverse: edgeChecked), else null. */
+  pendingEdgeCheck: { steer: number; length: number } | null = null;
+  private edgeAhead: { room: number; steer: number; age: number } | null = null;
+  private edgeStops = 0;
   /** Why the follower gave the trip up (a turn in the street with no room), else null: the caller ends the trip. */
   gaveUp: string | null = null;
   private hairpins: number[] | null = null;
@@ -120,6 +140,7 @@ export class DriveFollower {
   /** Swap in a re-planned path; progress restarts from the nearest point. */
   setPath(path: Path) {
     this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; this.pendingTurnLeg = null;
+    this.pendingEdgeCheck = null; this.edgeAhead = null;
     this.hairpins = null; this.hairpinsDone.clear();
   }
 
@@ -166,25 +187,44 @@ export class DriveFollower {
     return Math.max(0, target);
   }
 
-  /** Starts the reverse-out with `steer` (after the caller's ground check). */
-  /** The ground check of a pending turn leg: the metres the leg may drive (0: none). */
-  turnLegChecked(room: number) {
-    if (!this.turn || !this.pendingTurnLeg) return;
+  /** The ground check of a pending turn leg: the metres the leg may drive (0: none). A turn's first leg (`pick`) gets
+   *  the room of all four first legs instead (`rooms`, TURN_FIRST_LEGS order) and takes the one that gets the car
+   *  round soonest: forward with the lock toward the aim, or back with the other lock (both rotate the car the same
+   *  way), or either of those the long way round. */
+  turnLegChecked(room: number, rooms?: number[]) {
+    const t = this.turn, leg = this.pendingTurnLeg;
+    if (!t || !leg) return;
     this.pendingTurnLeg = null;
-    this.turn.room = room - 0.3;
+    if (leg.pick && rooms) {
+      // Rotation (rad) to the aim turning toward its side, and the long way round.
+      const toward = Math.acos(clamp(this.aimCos, -1, 1)), aimSide = Math.sign(this.aimSin) || t.side;
+      let best = -1;
+      TURN_FIRST_LEGS.forEach(([rotation, dir], i) => {
+        const side = rotation * aimSide, need = rotation > 0 ? toward : 2 * Math.PI - toward;
+        // A first leg back counts a little less: forward is how a driver starts.
+        const score = rooms[i] / Math.max(0.3, need) * (dir > 0 ? 1 : 0.9);
+        if (score > best) { best = score; t.side = side; t.dir = dir; room = rooms[i]; }
+      });
+    }
+    t.room = room - 0.3;
   }
 
-  private turnLeg(dir: 1 | -1, pose: VehiclePose) {
+  private turnLeg(dir: 1 | -1, pose: VehiclePose, steer?: number, length = TURN_LEG_M) {
     const t = this.turn!;
     t.dir = dir; t.time = 0; t.still = 0; t.from = { x: pose.x, z: pose.z };
-    if (this.options.checkReverse) { t.room = 0; this.pendingTurnLeg = { steer: dir > 0 ? t.side : -t.side, dir }; }
-    else t.room = TURN_LEG_M;
+    const pick = dir > 0 && steer === undefined && t.rounds === 0;
+    if (this.options.checkReverse) {
+      t.room = 0;
+      this.pendingTurnLeg = { steer: steer ?? (dir > 0 ? t.side : -t.side), dir, length, pick, aimSide: Math.sign(this.aimSin) || t.side };
+    } else t.room = length;
   }
 
   /** A turn in the street that got nowhere ends the trip: pursuit at full lock from there is what took cars over
    *  quay edges. */
-  private startTurn(side: number, aimS: number | null, pose: VehiclePose) {
-    this.turn = { side, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0, aimS };
+  private startTurn(side: number, aimS: number | null, pose: VehiclePose, aim: { cos: number; sin: number }) {
+    this.aimCos = aim.cos; this.aimSin = aim.sin;
+    this.turn = { side, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0, aimS,
+      backup: 'no' };
     this.turns++;
     this.turnLeg(1, pose);
   }
@@ -195,6 +235,13 @@ export class DriveFollower {
     this.gaveUp = 'stuck: no room to turn';
   }
 
+  /** The edge watch's result: metres of the arc with `steer` ahead before an edge. */
+  edgeChecked(room: number, steer: number) {
+    this.pendingEdgeCheck = null;
+    this.edgeAhead = { room, steer, age: 0 };
+  }
+
+  /** Starts the reverse-out with `steer` (after the caller's ground check). */
   reverse(steer: number) {
     this.pendingReverse = null; this.stuckFor = 0;
     this.reverseFor = REVERSE_TIME; this.reverseSteer = steer;
@@ -253,8 +300,12 @@ export class DriveFollower {
       return { cos: (dx * pose.hx + dz * pose.hz) / l, sin: (dx * -pose.hz + dz * pose.hx) / l };
     };
     if (this.turn) {
+      // Done once the car faces the aim and lies along the path there: facing a point of a path that crosses in front
+      // (Amsterdam Grimburgwal: 5 m off a hairpin's way out, side-on) left pursuit a full-lock swing over the quay.
       const hairpinTurn = this.turn.aimS !== null;
-      if (hairpinTurn ? aimAt(this.turn.aimS!).cos > HAIRPIN_DONE_COS : cosAim > TURN_DONE_COS) {
+      const along = hairpinTurn ? sampleAt(path, this.turn.aimS!) : aim;
+      if ((hairpinTurn ? aimAt(this.turn.aimS!).cos > HAIRPIN_DONE_COS : cosAim > TURN_DONE_COS)
+        && along.hx * pose.hx + along.hz * pose.hz > TURN_DONE_ALONG) {
         if (this.turn.aimS !== null) this.s = Math.max(this.s, this.turn.aimS - HAIRPIN_M - 4);
         this.turn = null; this.pendingTurnLeg = null;
       }
@@ -265,31 +316,63 @@ export class DriveFollower {
       this.hairpinsDone.add(hairpin);
       // Well along the way out: from where the car stops, a point just past the hairpin can still lie ahead.
       const aimS = hairpin + 2 * HAIRPIN_M + 4, out = aimAt(aimS);
-      if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && out.cos < HAIRPIN_DONE_COS) this.startTurn(Math.sign(out.sin) || 1, aimS, pose);
+      if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && out.cos < HAIRPIN_DONE_COS) this.startTurn(Math.sign(out.sin) || 1, aimS, pose, out);
     }
-    if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && speed < 1.5 && cosAim < TURN_START_COS) this.startTurn(Math.sign(sinAlpha) || 1, null, pose);
+    if (!this.turn && !this.gaveUp && this.turns < TURN_TRIES && speed < 1.5 && cosAim < TURN_START_COS) this.startTurn(Math.sign(sinAlpha) || 1, null, pose, { cos: cosAim, sin: sinAlpha });
     if (this.turn) {
       const t = this.turn, recovering = { s: this.s, lateral: at.lateral, status: 'recovering' as const };
-      if (at.distance > TURN_AWAY_M) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
+      const backingUp = t.backup === 'driving';
+      if (at.distance > (backingUp ? OFF_PATH_M - 1 : TURN_AWAY_M)) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
       if (this.pendingTurnLeg) return { command: hold, target: 0, ...recovering };
       t.time += dt; t.still = speed < 0.2 ? t.still + dt : 0;
       const moved = Math.hypot(pose.x - t.from.x, pose.z - t.from.z);
-      if (moved >= t.room || t.time > TURN_LEG_S || (t.time > 1 && t.still > TURN_STALL_S)) {
+      if (moved >= t.room || t.time > (backingUp ? 2 * TURN_LEG_S : TURN_LEG_S) || (t.time > 1 && t.still > TURN_STALL_S)) {
+        if (backingUp) {
+          // Backed up: start the turn again from here, picking its side afresh.
+          t.backup = 'done'; t.rounds = 0; t.blocked = 0;
+          const out = t.aimS !== null ? aimAt(t.aimS) : { cos: cosAim, sin: sinAlpha };
+          this.aimCos = out.cos; this.aimSin = out.sin; t.side = Math.sign(out.sin) || t.side;
+          this.turnLeg(1, pose);
+          return { command: hold, target: 0, ...recovering };
+        }
         t.blocked = moved < 0.3 ? t.blocked + 1 : 0;
         if (t.dir > 0) t.rounds++;
-        if (t.blocked >= 2 || t.rounds >= TURN_ROUNDS) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
+        if (t.blocked >= 2 || t.rounds >= TURN_ROUNDS) {
+          if (t.backup === 'done') { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
+          t.backup = 'driving';
+          this.turnLeg(-1, pose, 0, TURN_BACKUP_M);
+          return { command: hold, target: 0, ...recovering };
+        }
         this.turnLeg(t.dir > 0 ? -1 : 1, pose);
         return { command: hold, target: 0, ...recovering };
       }
       // Walking pace both ways. LT brakes a car rolling forward and reverses once stopped; RT brakes one rolling back.
+      const turnSteer = backingUp ? 0 : t.side;
       const command = t.dir > 0
-        ? { throttle: v < TURN_SPEED ? 0.4 : 0, brake: v > TURN_SPEED + 0.5 ? 0.3 : 0, steer: t.side, handbrake: false }
-        : { throttle: v < -TURN_SPEED - 0.5 ? 0.3 : 0, brake: v > -TURN_SPEED ? 0.4 : 0, steer: -t.side, handbrake: false };
+        ? { throttle: v < TURN_SPEED ? 0.4 : 0, brake: v > TURN_SPEED + 0.5 ? 0.3 : 0, steer: turnSteer, handbrake: false }
+        : { throttle: v < -TURN_SPEED - 0.5 ? 0.3 : 0, brake: v > -TURN_SPEED ? 0.4 : 0, steer: -turnSteer, handbrake: false };
       return { command, target: TURN_SPEED * t.dir, ...recovering };
     }
 
     const planned = this.plannedSpeed(this.s, speed);
-    const target = cosAim < SIDE_AIM_COS ? Math.min(planned, SIDE_AIM_SPEED) : planned;
+    let target = cosAim < SIDE_AIM_COS ? Math.min(planned, SIDE_AIM_SPEED) : planned;
+    // Edge watch: a slow tight arc toward an edge stops short of it and turns in the street (guarded legs) instead.
+    if (this.options.checkReverse) {
+      const style = STYLE[this.options.style ?? 'normal'], e = this.edgeAhead;
+      if (e) e.age += dt;
+      const watching = speed < EDGE_WATCH_SPEED && Math.abs(steer) > EDGE_WATCH_STEER;
+      if (watching && !this.pendingEdgeCheck && (!e || e.age > EDGE_WATCH_S))
+        this.pendingEdgeCheck = { steer, length: 2 + EDGE_WATCH_SPEED ** 2 / (2 * style.brake) };
+      if (watching && e && e.age < 0.6 && Math.abs(e.steer - steer) < 0.4 && e.room < speed * speed / (2 * style.brake) + 1) {
+        target = 0;
+        if (speed < 0.4) {
+          this.edgeAhead = null;
+          if (++this.edgeStops >= EDGE_STOPS || this.turns >= TURN_TRIES) { this.gaveUp = 'stuck: edge ahead'; return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 }; }
+          this.startTurn(Math.sign(sinAlpha) || 1, null, pose, { cos: cosAim, sin: sinAlpha });
+          return { command: hold, status: 'recovering', s: this.s, lateral: at.lateral, target: 0 };
+        }
+      }
+    }
     let throttle = 0, brake = 0;
     const error = target - v;
     if (error > 0) throttle = clamp(0.12 + error * 0.35 + (target > 1 ? 0.08 : 0), 0, 1);

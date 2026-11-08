@@ -14,11 +14,11 @@
 import { VEHICLES, type VehicleKind } from '../../physics/constants';
 import type { VehicleState } from '../../physics/protocol';
 import type { Actions } from '../../input/bindings';
-import { DriveFollower, TURN_LEG_M, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
+import { DriveFollower, TURN_FIRST_LEGS, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
 import { makePath, project, type Path, type PathPoint } from './path';
-import { arcRoom, reverseClear, type GroundRay } from './reverseCheck';
+import { arcRoom, edgeRoom, reverseClear, type GroundRay } from './reverseCheck';
 
 export type AutopilotMode = 'drive' | 'walk';
 export type AutopilotState = 'planning' | 'driving' | 'arrived' | 'failed' | 'cancelled';
@@ -107,10 +107,10 @@ export function vehiclePose(v: VehicleState): VehiclePose {
 }
 
 const HUMAN = 0.35;
-/** Travel (m) a turn leg's ground check covers: the longest leg and a margin. */
-const TURN_LEG_CHECK_M = TURN_LEG_M + 0.5;
 const DRIVE_AXES = ['throttle', 'brake', 'steer'] as const;
 const WALK_AXES = ['moveX', 'moveY'] as const;
+
+const NO_ROOM = 'stuck: no room to turn';
 
 class Trip implements AutopilotHandle {
   state: AutopilotState = 'planning';
@@ -123,6 +123,8 @@ class Trip implements AutopilotHandle {
   elapsed = 0; replans = 0; speed = 0; target = 0; lateral = 0;
   /** A reverse-out's ground check is running. */
   probing = false;
+  /** A turn in the street found no room: the trip re-planned to drive on the way the car faces (lanes.ts forward). */
+  forwardOnly = false;
   planning: Promise<void> | null = null;
   readonly done: Promise<AutopilotResult>;
   private resolve!: (r: AutopilotResult) => void;
@@ -206,7 +208,9 @@ export class Autopilot {
       const goal: PathPoint = options.lane ? (() => { const p = trip.path!; return { x: p.points[p.points.length - 2], z: p.points[p.points.length - 1] }; })() : trip.goal;
       await this.world.lanes.ensure(tilesBetween(pose, goal, 1));
       if (trip.state !== 'planning' && trip.state !== 'driving') return;
-      route = this.world.lanes.route({ x: pose.x, z: pose.z, y: pose.y, hx: pose.hx, hz: pose.hz }, { x: goal.x, z: goal.z, y: goal.y });
+      route = this.world.lanes.route({ x: pose.x, z: pose.z, y: pose.y, hx: pose.hx, hz: pose.hz }, { x: goal.x, z: goal.z, y: goal.y },
+        { forward: trip.forwardOnly });
+      if (!route && trip.forwardOnly) throw new Error(NO_ROOM);
       if (!route) {
         const street = this.world.carRoute?.({ x: pose.x, z: pose.z }, goal);
         if (!street) throw new Error('no lane route');
@@ -254,6 +258,8 @@ export class Autopilot {
     const hold = () => { actions.throttle = 0; actions.brake = 0; actions.steer = 0; actions.handbrake = 1; };
     if (this.world.mode() !== 'car' || !v) { trip.finish('failed', 'left the vehicle'); return; }
     if (trip.state === 'planning' || !trip.drive) { hold(); return; }
+    // The forward re-plan after a turn with no room: hold, or the old path starts the same turn again.
+    if (trip.forwardOnly && trip.planning) { hold(); return; }
     const pose = vehiclePose(v);
     const step = trip.drive.step(pose, dt);
     trip.speed = Math.abs(pose.forwardSpeed); trip.target = step.target; trip.lateral = step.lateral;
@@ -261,10 +267,20 @@ export class Autopilot {
     actions.throttle = c.throttle; actions.brake = c.brake; actions.steer = c.steer; actions.handbrake = c.handbrake ? 1 : 0;
     this.command = c;
     if (step.status === 'arrived') { trip.finish('arrived'); return; }
-    if (trip.drive.gaveUp) { trip.finish('failed', trip.drive.gaveUp); return; }
+    if (trip.drive.gaveUp) {
+      // No room to turn here: drive on the way the car faces when a route goes round from there, once.
+      if (trip.forwardOnly || trip.options.path || trip.options.lane || trip.planning) { trip.finish('failed', trip.drive.gaveUp); return; }
+      const why = trip.drive.gaveUp;
+      trip.forwardOnly = true; trip.drive.gaveUp = null; trip.replans++; hold();
+      trip.planning = this.plan(trip, true)
+        .catch(error => trip.finish('failed', (error as Error).message === NO_ROOM ? why : `re-plan: ${(error as Error).message}`))
+        .finally(() => { trip.planning = null; });
+      return;
+    }
     if (trip.drive.recoveries > (trip.options.recoveries ?? 4)) { trip.finish('failed', 'stuck'); return; }
     if (trip.drive.pendingReverse !== null && !trip.probing) this.checkReverse(trip, trip.drive, pose);
     if (trip.drive.pendingTurnLeg && !trip.probing) this.checkTurnLeg(trip, trip.drive, pose);
+    if (trip.drive.pendingEdgeCheck && !trip.probing) this.checkEdge(trip, trip.drive, pose);
     const replan = step.status === 'off-path' || (step.status === 'stuck' && trip.drive.recoveries >= 2);
     if (replan && !trip.planning && !trip.options.path) {
       trip.replans++;
@@ -295,12 +311,26 @@ export class Autopilot {
   /** How far a turn in the street's next leg may drive: on the carriageway, over ground the car can cross. */
   private checkTurnLeg(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
     const ray = this.world.groundRay, leg = follower.pendingTurnLeg!;
-    if (!ray) { follower.turnLegChecked(TURN_LEG_CHECK_M); return; }
+    if (!ray) { follower.turnLegChecked(leg.length + 0.5); return; }
     trip.probing = true;
-    arcRoom(pose, leg.steer, follower.geometry, ray, leg.dir, TURN_LEG_CHECK_M).then(room => {
+    const room = (steer: number, dir: 1 | -1) => arcRoom(pose, steer, follower.geometry, ray, dir, leg.length + 0.5);
+    // A first leg: all four candidates (TURN_FIRST_LEGS), steer = side forward and the opposite lock back.
+    const rooms = leg.pick ? Promise.all(TURN_FIRST_LEGS.map(([rotation, dir]) => room(rotation * leg.aimSide * dir, dir))) : Promise.resolve(undefined);
+    Promise.all([leg.pick ? Promise.resolve(0) : room(leg.steer, leg.dir), rooms]).then(([room, rooms]) => {
       trip.probing = false;
-      if (trip.drive === follower && trip.state === 'driving') follower.turnLegChecked(room);
+      if (trip.drive === follower && trip.state === 'driving') follower.turnLegChecked(room, rooms);
     }, () => { trip.probing = false; if (trip.drive === follower) follower.turnLegChecked(0); });
+  }
+
+  /** The edge watch's check of the arc ahead (follow.ts). */
+  private checkEdge(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
+    const ray = this.world.groundRay, check = follower.pendingEdgeCheck!;
+    if (!ray) { follower.edgeChecked(check.length, check.steer); return; }
+    trip.probing = true;
+    edgeRoom(pose, check.steer, follower.geometry, ray, check.length).then(room => {
+      trip.probing = false;
+      if (trip.drive === follower && trip.state === 'driving') follower.edgeChecked(room, check.steer);
+    }, () => { trip.probing = false; if (trip.drive === follower) follower.edgeChecked(check.length, check.steer); });
   }
 
   private walkStep(trip: Trip, actions: Actions, dt: number) {

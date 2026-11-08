@@ -80,6 +80,40 @@ describe('lane router', () => {
     expect(near.path.length).toBeGreaterThan(90);
   });
 
+  test('a turn in the street costs a route TURN_IN_STREET_M: round the block when that is shorter, forward-only on request', () => {
+    // A two-way block (x 75..100, z 100..200) with a dead-end spur west from its south-west corner to x 40.
+    const TWO = CAR | FOOT | 2 << 3;
+    const block: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', revision: 2,
+      bbox: [0, 0, 250, 250], nodes: [100, 200, 100, 100, 75, 100, 75, 200, 40, 200],
+      nodeFlags: [NODE.JUNCTION, NODE.JUNCTION, NODE.JUNCTION, NODE.JUNCTION, NODE.JUNCTION],
+      edges: [[0, 1, TWO, 100], [1, 2, TWO, 25], [2, 3, TWO, 100], [3, 0, TWO, 25], [3, 4, TWO, 35]],
+      edgeIds: ['east', 'north', 'west', 'south', 'spur'], bits: { highways: ['residential'] },
+      edgeAttrColumns: ['lanes_fwd', 'lanes_bwd', 'width', 'kmh', 'car_density', 'highway', 'setback0', 'setback1'],
+      edgeAttrs: Array.from({ length: 5 }, () => [1, 1, 7, 30, 2, 0, 4, 4]) };
+    const r = new LaneRouter();
+    r.setTile({ tile: 't0_0_0', json: block, hash: 'block' });
+    const heading = (route: NonNullable<ReturnType<LaneRouter['route']>>, at: number) => {
+      const s = sampleAt(route.path, at);
+      return [Math.round(s.hx), Math.round(s.hz)];
+    };
+    // Heading north on the east street, the target 80 m behind: round the block (170 m) beats turning (80 m + 150).
+    const round = r.route({ x: 102, z: 110, hx: 0, hz: -1 }, { x: 102, z: 190 })!;
+    expect(heading(round, 3)).toEqual([0, -1]);
+    expect(round.path.length).toBeGreaterThan(150);
+    // The target 20 m behind: turning (20 m + 150) beats the block (230 m)...
+    const turn = r.route({ x: 102, z: 150, hx: 0, hz: -1 }, { x: 102, z: 170 })!;
+    expect(turn.path.length).toBeLessThan(60);
+    // ...unless the turn found no room: then forward only, round the block.
+    const forward = r.route({ x: 102, z: 150, hx: 0, hz: -1 }, { x: 102, z: 170 }, { forward: true })!;
+    expect(heading(forward, 3)).toEqual([0, -1]);
+    expect(forward.path.length).toBeGreaterThan(200);
+    // Facing into the dead-end spur: turn where the car stands, not 40 m on at the dead end (both turn once).
+    const spur = r.route({ x: 60, z: 202, hx: -1, hz: 0 }, { x: 102, z: 150 })!;
+    expect(spur.path.length).toBeLessThan(110);
+    // Forward only from there: no route (the spur's dead end is a U-turn).
+    expect(r.route({ x: 60, z: 202, hx: -1, hz: 0 }, { x: 102, z: 150 }, { forward: true })).toBeNull();
+  });
+
   test('routes over the junction movements from the right-hand lane and keeps to the lanes', () => {
     // From the west approach heading east (eastbound lanes are south of the centreline) to the north exit.
     const route = router.route({ x: 30, z: 128, hx: 1, hz: 0 }, { x: 122, z: 20 })!;
@@ -289,12 +323,13 @@ describe('turn in the street on a carriageway', () => {
     pw.world.free();
   }, 60_000);
 
-  test('a turn with no room ends the trip stuck without moving the car', async () => {
+  test('a turn with no room backs up once, then ends the trip stuck', async () => {
     const pw = await devWorld();
-    // Pavement everywhere: no turn leg may drive.
+    // Ground only on a 7 x 4 m island round the car: every leg reaches the edge at once, backing up too.
     const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      if (Math.abs(o.x - 100) > 3.5 || Math.abs(o.z - 100) > 2) return null;
       const hit = await pw.raycast(o, d, max, 'solid');
-      return hit && { ...hit, material: MAT.sidewalk };
+      return hit && { ...hit, material: MAT.road };
     };
     pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
     for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
@@ -315,6 +350,65 @@ describe('turn in the street on a carriageway', () => {
     expect(Math.hypot(v.pos.x - 100, v.pos.z - 100)).toBeLessThan(0.5);
     pw.world.free();
   }, 30_000);
+
+  test('a U-turn in a 5.5 m street runs the wheels up onto the pavement, short of the walls beyond', async () => {
+    const pw = await devWorld();
+    // Carriageway z 97.25..102.75, pavement 2 m each side, then no ground (building walls in the real streets).
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      const off = Math.abs(o.z - 100);
+      if (off > 4.75) return null;
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && { ...hit, material: off > 2.75 ? MAT.sidewalk : MAT.paving_slab };
+    };
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 101 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 50, z: 99 }, { mode: 'drive', path: [{ x: 100, z: 101 }, { x: 50, z: 99 }], speed: 8 });
+    let maxOff = 0;
+    const g = vehicleGeometry('car');
+    for (let k = 0; k < 60 * 60 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const p = vehiclePose(pw.vehicleState()!);
+      for (const end of [g.back ?? 2.2, -(g.back ?? 2.2)]) for (const side of [-1, 1])
+        maxOff = Math.max(maxOff, Math.abs(p.z + p.hz * end + p.hx * (g.halfWidth ?? 0.9) * side - 100));
+      await new Promise(r => setTimeout(r, 0));
+    }
+    expect(trip.state).toBe('arrived');
+    expect(trip.progress.turns).toBe(1);
+    // No corner of the car went past the pavement (half a metre: the rows' spacing).
+    expect(maxOff).toBeLessThan(5.25);
+    pw.world.free();
+  }, 60_000);
+
+  test('the edge watch: a slow full-lock swing toward a quay edge stops short of it', async () => {
+    const pw = await devWorld();
+    // Facing east, the path bends 60 degrees right at once (pursuit, not a turn in the street); the ground ends at
+    // x = 104.5 (a quay edge): a full-lock swing from rest carries the front corner past it.
+    const ray: AutopilotWorld['groundRay'] = async (o, d, max) => {
+      if (o.x > 104.5) return null;
+      const hit = await pw.raycast(o, d, max, 'solid');
+      return hit && { ...hit, material: MAT.road };
+    };
+    pw.spawnVehicle({ x: 100, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const pilot = pilotOn(pw, ray);
+    const trip = pilot.goTo({ x: 103, z: 150 }, { mode: 'drive', path: [{ x: 100, z: 100 }, { x: 102.5, z: 104.3 }, { x: 103, z: 150 }], speed: 8 });
+    let maxX = 0;
+    const g = vehicleGeometry('car');
+    for (let k = 0; k < 60 * 40 && trip.state === 'driving'; k++) {
+      const a = emptyActions();
+      pilot.control(a, 1 / 60);
+      pw.fixedStep(null, { throttle: a.throttle, brake: a.brake, steer: a.steer, handbrake: a.handbrake > 0 });
+      const p = vehiclePose(pw.vehicleState()!);
+      for (const side of [-1, 1]) maxX = Math.max(maxX, p.x + p.hx * (g.back ?? 2.2) - p.hz * (g.halfWidth ?? 0.9) * side);
+      await new Promise(r => setTimeout(r, 0));
+    }
+    expect(maxX).toBeLessThan(105);
+    expect(trip.state).toBe('arrived');
+    pw.world.free();
+  }, 60_000);
 
   test('a lane U-turn at a dead end: the car stops before the hairpin and turns on the carriageway', async () => {
     const pw = await devWorld();
