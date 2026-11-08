@@ -459,25 +459,31 @@ export class VegetationLod {
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(count * 3), 3);
       const objectIds: unknown[] = [];
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
-      return parts.map(part => {
+      return parts.flatMap(part => {
         // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material.
         // Tree crowns also clear the view between the camera and the player (NatureMaterials.clearsView).
         const materials = this.library?.materials;
         const material = shadowProxy || !materials ? part.material
           : materials.lodVariant(part.material, level, materials.clearsView(asset.kind, part.material, impostor));
+        // Leaf cards first lay their depth (NatureMaterials.depthPrepass), then shade only what stays visible.
+        const prepass = !shadowProxy && materials?.takesPrepass(asset.kind, part.material, impostor)
+          ? [materials.depthPrepass(material as THREE.MeshStandardNodeMaterial)] : [];
+        return [material, ...prepass].map((material, pass) => {
         const mesh = new THREE.InstancedMesh(part.geometry, material, count);
+        if (pass) mesh.renderOrder = -1;
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         // Only the owner's identity travels: a generated draw must not look like a tile surface to material styling.
         mesh.userData = { layer: owner.userData.layer, variant: owner.userData.variant, vegetationLod: true, nature: asset.name, level, shadowProxy, instance_object_ids: objectIds,
-          ...(this.poolRoot ? { pooledVegetation: true } : {}) };
+          ...(pass ? { depthPrepass: true } : {}), ...(this.poolRoot ? { pooledVegetation: true } : {}) };
         // Library materials are object-agnostic: every tile's draws of this part reuse one built program per pass.
         // (After userData: replacing it dropped this opt-in, so trees never shared programs.)
         shareInstanceProgram(mesh, true);
-        mesh.receiveShadow = !impostor && !shadowProxy; mesh.castShadow = shadowProxy;
+        mesh.receiveShadow = !impostor && !shadowProxy && !pass; mesh.castShadow = shadowProxy;
         if (shadowProxy) mesh.layers.set(TILE_SHADOW_LAYER);
         mesh.visible = false; mesh.count = 0;
         root.add(mesh);
         return mesh;
+        });
       });
     };
     const levels = asset.lods.map((lod, level) => group(lod.parts, level, false));
@@ -774,7 +780,7 @@ export class VegetationLod {
       shareInstanceProgram(mesh, true); // the tile draws' prepared programs, also after the pool grows
       mesh.name = `vegetation-pool:${part.userData.nature}:${part.userData.level}`;
       mesh.receiveShadow = part.receiveShadow;
-      mesh.castShadow = part.castShadow; mesh.layers.mask = part.layers.mask;
+      mesh.castShadow = part.castShadow; mesh.layers.mask = part.layers.mask; mesh.renderOrder = part.renderOrder;
       mesh.count = 0; mesh.visible = false;
       this.poolRoot!.add(mesh);
       return mesh;

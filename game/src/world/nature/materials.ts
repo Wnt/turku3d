@@ -55,6 +55,7 @@ export class NatureMaterials {
   readonly lodSharpness = uniform(0).setGroup(renderGroup);
   private variants = new Map<THREE.Material, THREE.MeshStandardNodeMaterial[]>();
   private bases = new WeakMap<THREE.Material, THREE.MeshStandardNodeMaterial>();
+  private prepasses = new Map<THREE.Material, THREE.MeshBasicNodeMaterial>();
   /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
   readonly grassRange = uniform(new THREE.Vector2(20, 35)).setGroup(renderGroup);
   /** Crown light from the baked crown-depth AO in the leaf vertex colour (0.18 in the core .. 1 on the shell,
@@ -70,6 +71,8 @@ export class NatureMaterials {
   readonly leafTone = uniform(new THREE.Vector4(1.09, 1, 0.82, 1.25)).setGroup(renderGroup);
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
+  /** The leaf cards' coverage (atlas alpha thinned in the crown core), shared by the depth prepass. */
+  private readonly leafAlpha: THREE.Node<'float'>;
   readonly grass: THREE.MeshStandardNodeMaterial;
   readonly impostor: THREE.MeshStandardNodeMaterial;
   readonly wood: THREE.MeshStandardNodeMaterial;
@@ -122,7 +125,8 @@ export class NatureMaterials {
     const crownAo = vertexColor().r;
     const shell = smoothstep(0.3, 0.85, crownAo);
     const tone = (rgb: THREE.Node<'vec3'>) => { const warm = rgb.mul(this.leafTone.xyz); return mix(vec3(luminance(warm)), warm, this.leafTone.w); };
-    this.leaves.colorNode = vec4(tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leaf.a.mul(mix(this.crownLight.z, float(1), shell)));
+    this.leafAlpha = leaf.a.mul(mix(this.crownLight.z, float(1), shell));
+    this.leaves.colorNode = vec4(tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), this.leafAlpha);
     this.leaves.aoNode = pow(crownAo, this.crownLight.y);
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;
@@ -226,6 +230,32 @@ export class NatureMaterials {
     return variant;
   }
 
+  /** Whether a drawn part takes the foliage depth prepass (depthPrepass): the leaf cards of tree meshes, whose
+   *  alpha-tested overdraw is the forests' main fragment cost; impostors and solid parts do not. */
+  takesPrepass(kind: NatureKind, material: THREE.Material, impostor: boolean) {
+    return kind === 'tree' && !impostor && this.baseOf(material) === this.leaves;
+  }
+
+  /** Depth-only twin of a leaf draw (a lodVariant of `leaves`): the same wind, alpha cut and screen-door mask, no
+   *  lighting and no colour writes. Drawn first (renderOrder -1), it lays the crowns' nearest depth, so the lit pass
+   *  (`variant`, now without depth writes) shades each visible leaf pixel about once instead of every card behind it:
+   *  with depth writes off, its alpha cut no longer stops early depth rejection (IMR) or hidden-surface removal (TBDR).
+   *  The plan's EqualDepth colour pass without the cut needs invariant clip positions, which r186's WGSL does not
+   *  declare; instead the twin's depth sits a few depth steps back (polygon offset) and the lit pass keeps its cut and
+   *  tests less-or-equal, so its own fragments always pass and no transparent texel turns opaque. */
+  depthPrepass(variant: THREE.MeshStandardNodeMaterial): THREE.MeshBasicNodeMaterial {
+    const cached = this.prepasses.get(variant);
+    if (cached) return cached;
+    const depth = new THREE.MeshBasicNodeMaterial({ name: `${variant.name}+depth`, side: variant.side, alphaTest: variant.alphaTest,
+      colorWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });
+    depth.colorNode = vec4(0, 0, 0, this.leafAlpha);
+    depth.positionNode = variant.positionNode;
+    depth.maskNode = variant.maskNode;
+    variant.depthWrite = false;
+    this.prepasses.set(variant, depth); this.bases.set(depth, this.baseOf(variant) as THREE.MeshStandardNodeMaterial);
+    return depth;
+  }
+
   /** Whether a part clears the view: the leaf cards of a tree's mesh levels. Trunks and branches (bark), fences
    *  (wood, metal, chain), hedges, shrubs and impostors stay solid (Jonni, 2026-11-05: fences and trunks must not hide). */
   clearsView(kind: NatureKind, material: THREE.Material, impostor: boolean) {
@@ -246,6 +276,8 @@ export class NatureMaterials {
   dispose() {
     for (const list of this.variants.values()) for (const m of list) m?.dispose();
     this.variants.clear();
+    for (const m of this.prepasses.values()) m.dispose();
+    this.prepasses.clear();
     for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
   }
 }

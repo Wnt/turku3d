@@ -23,9 +23,12 @@ function tile(count = 60, variant = 'tree_detailed_fall', at = (i: number) => ne
   model.add(mesh);
   return { model, mesh };
 }
-const generated = (model: THREE.Object3D, source: THREE.Object3D) => {
+/** The generated draws under `model`; the leaves' depth-prepass twins only with `twins`. */
+const generated = (model: THREE.Object3D, source: THREE.Object3D, twins = false) => {
   const batches: THREE.InstancedMesh[] = [];
-  model.traverse(o => { if ((o as THREE.InstancedMesh).isInstancedMesh && o !== source) batches.push(o as THREE.InstancedMesh); });
+  model.traverse(o => {
+    if ((o as THREE.InstancedMesh).isInstancedMesh && o !== source && (twins || !o.userData.depthPrepass)) batches.push(o as THREE.InstancedMesh);
+  });
   return batches;
 };
 /** The library material a draw uses, through its LOD cross-fade variant (nature/materials.ts lodVariant). */
@@ -140,6 +143,21 @@ describe('vegetation LOD', () => {
       const sibling = batches.find(o => o !== b && o.userData.nature === b.userData.nature && o.userData.level === b.userData.level
         && o.userData.shadowProxy === b.userData.shadowProxy && o.parent === b.parent);
       if (sibling) { expect(sibling.instanceMatrix).toBe(b.instanceMatrix); expect(sibling.instanceColor).toBe(b.instanceColor); }
+    }
+    // The leaf cards of the drawn mesh levels (not impostors, not shadow proxies) lay their depth first: a colour-less
+    // twin on the same instance buffers, drawn before them, with the same wind, cut and fade mask; the lit leaves then
+    // test against it without writing depth, so each visible leaf pixel is shaded about once.
+    const twins = generated(model, mesh, true).filter(b => b.userData.depthPrepass);
+    expect(twins).toHaveLength(species.size * 2);
+    for (const twin of twins) {
+      const lit = batches.find(b => b.instanceMatrix === twin.instanceMatrix && b.geometry === twin.geometry)!;
+      expect(base(lit)).toBe(library.materials.leaves); expect(lit.userData.level).toBe(twin.userData.level);
+      const depth = twin.material as THREE.MeshBasicNodeMaterial, leaves = lit.material as THREE.MeshStandardNodeMaterial;
+      expect([depth.colorWrite, depth.depthWrite, depth.polygonOffset, depth.alphaTest, depth.side, depth.positionNode, depth.maskNode])
+        .toEqual([false, true, true, leaves.alphaTest, leaves.side, leaves.positionNode, leaves.maskNode]);
+      expect(leaves.depthWrite).toBe(false);
+      expect(twin.renderOrder).toBeLessThan(lit.renderOrder); expect(twin.castShadow || twin.receiveShadow).toBe(false);
+      expect([twin.count, twin.visible]).toEqual([lit.count, lit.visible]);
     }
     const versions = batches.map(m => m.instanceMatrix.version);
     lod.update(camera);
@@ -462,7 +480,7 @@ describe('city-wide vegetation pools', () => {
     scene.add(a.model, b.model);
     const camera = new THREE.PerspectiveCamera(65, 1, .1, 2000); camera.position.set(0, 2, 40); camera.updateMatrixWorld();
     const lod = new VegetationLod('medium', library, scene); lod.add(a.model); lod.add(b.model); lod.update(camera);
-    const parts = [...generated(a.model, a.mesh), ...generated(b.model, b.mesh)];
+    const parts = [...generated(a.model, a.mesh, true), ...generated(b.model, b.mesh, true)];
     const pools = scene.getObjectByName('vegetation-pools')!.children as THREE.InstancedMesh[];
     expect(parts.every(p => p.userData.pooledVegetation === true)).toBe(true);
     // Tile draws and pools opt into shared instanced programs as still instances (render/instancePrograms.ts).

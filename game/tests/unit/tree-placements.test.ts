@@ -25,7 +25,7 @@ test('first placements and full instancing produce identical species, transforms
   const signature=(model:THREE.Object3D)=>{
     const rows:unknown[]=[];
     model.traverse(object=>{const mesh=object as THREE.InstancedMesh;
-      if(!mesh.isInstancedMesh||!mesh.visible||!mesh.userData.vegetationLod||mesh.userData.shadowProxy||library.materials.baseOf(mesh.material as THREE.Material)===library.materials.bark)return;
+      if(!mesh.isInstancedMesh||!mesh.visible||!mesh.userData.vegetationLod||mesh.userData.shadowProxy||mesh.userData.depthPrepass||library.materials.baseOf(mesh.material as THREE.Material)===library.materials.bark)return;
       rows.push({asset:mesh.userData.nature,level:mesh.userData.level,ids:mesh.userData.instance_object_ids,
         matrices:Array.from(mesh.instanceMatrix.array).slice(0,mesh.count*16),world:mesh.matrixWorld.toArray()});});
     return rows;
