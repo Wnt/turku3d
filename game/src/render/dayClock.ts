@@ -1,21 +1,27 @@
-import { DAY_MS, cycleAt, cycleHour, dayCycle, formatClock, localHour, type Segment } from '../core/dayCycle';
+import { DAY_MS, DAY_RATE, cycleAt, cycleHour, dayCycle, formatClock, hourOfPhase, localHour, phaseOfHour, type Segment } from '../core/dayCycle';
 import type { Environment } from './environment';
 
 /** `cycle`: the shared UTC clock (every client agrees; ?cycle= rescales it locally). `hour`: a frozen cycle hour
  *  (?time=HH:MM, the developer clock paused). `run`: the developer clock running from `hour` at local `since` (ms)
- *  at `rate` clock hours per real hour (1 = real time). `date`: a frozen calendar instant with the astronomical sun
- *  (QA poses, ?time=ISO). Every mode but the 30-minute cycle is a local view of this browser only. */
+ *  at `rate` clock hours per real hour by day (1 = real time); dusk, night and dawn pass faster in the shared cycle's
+ *  proportions, so night is as short at ×60 as it is live. `date`: a frozen calendar instant with the astronomical
+ *  sun (QA poses, ?time=ISO). Every mode but the 30-minute cycle is a local view of this browser only. */
 export type ClockMode = { kind: 'cycle'; periodMs: number } | { kind: 'hour'; hour: number }
   | { kind: 'run'; hour: number; since: number; rate: number } | { kind: 'date'; date: Date };
 
-/** Clock hours per real hour of the shared cycle's 12-hour day segment (20 real minutes). */
-const LIVE_RATE = 36;
+/** Clock hours per real hour of the shared cycle's day segment (about ×31). */
+const LIVE_RATE = DAY_RATE;
 /** The fastest IBL refresh of a fast clock or a scrub (ms); the sun and timecycle still follow every frame. */
 const MIN_IBL_MS = 250, SCRUB_IBL_MS = 150;
 /** How long `hourAt` remembers earlier modes: longer than a walker's life (world/walkers/population.ts). */
 const HISTORY_MS = 5 * 60_000;
-/** The developer clock's speeds: clock time per real time (×60 is a clock minute per second). */
+/** The developer clock's speeds: clock time per real time by day (×60 is a clock minute per second). */
 export const CLOCK_SPEEDS = [1, 10, 60, 600] as const;
+
+/** The running developer clock's cycle phase at local instant `local`: the shared cycle's pace times rate/LIVE_RATE. */
+function runPhase(mode: { hour: number; since: number; rate: number }, local: number) {
+  return phaseOfHour(mode.hour) + (local - mode.since) * mode.rate / LIVE_RATE / DAY_MS;
+}
 
 /** Sun direction and the timecycle follow the clock every frame. Sky IBL is reused for 30 s by day, regenerated
  *  each degree of sun movement around sunset/sunrise, and only every two minutes in deep night; a clock that runs
@@ -83,14 +89,14 @@ export class DayClock {
   sharedNow() { return this.now() + this.serverOffset; }
 
   /** The clock ambient traffic follows in single player: the cycle as shown, or the view's hour. A running developer
-   *  clock is sent in steps of one real second's clock time (at least a minute), so a fast clock does not re-send
-   *  every frame. */
+   *  clock is sent in steps of one real second's clock time (at least a clock minute by day), so a fast clock does
+   *  not re-send every frame. */
   trafficClock(): { kind: 'cycle'; periodMs: number } | { kind: 'hour'; hour: number } {
     const mode = this.mode;
     if (mode.kind === 'cycle') return { kind: 'cycle', periodMs: mode.periodMs };
     if (mode.kind !== 'run') return { kind: 'hour', hour: this.hour };
-    const step = Math.max(1 / 60, mode.rate / 3600);
-    return { kind: 'hour', hour: Math.floor(this.hour / step + 1e-9) * step };
+    const step = Math.max(1 / 60, mode.rate / 3600) / LIVE_RATE / (DAY_MS / 3_600_000);
+    return { kind: 'hour', hour: hourOfPhase(Math.floor(runPhase(mode, this.now()) / step + 1e-9) * step).hour };
   }
 
   /** The view's clock hour at a shared-clock instant, also shortly in the past: each instant keeps the mode that was
@@ -106,7 +112,7 @@ export class DayClock {
     switch (mode.kind) {
       case 'cycle': return cycleHour(local + this.serverOffset, mode.periodMs).hour;
       case 'hour': return ((mode.hour % 24) + 24) % 24;
-      case 'run': { const h = mode.hour + (local - mode.since) * mode.rate / 3_600_000; return ((h % 24) + 24) % 24; }
+      case 'run': return hourOfPhase(runPhase(mode, local)).hour;
       case 'date': {
         let hour = this.dateHours.get(mode.date);
         if (hour === undefined) this.dateHours.set(mode.date, hour = localHour(mode.date));

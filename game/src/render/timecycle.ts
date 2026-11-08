@@ -34,7 +34,7 @@ const SCALARS: readonly ScalarRow[] = ['sunIntensity', 'environmentIntensity', '
 const COLORS: readonly ColorRow[] = ['sunColor', 'hemisphereSky', 'hemisphereGround', 'fogColor', 'skyZenith', 'skyHorizon'];
 
 /** Whether `next` differs visibly from `applied`: any value by more than `tolerance` of its size (0.2 %: half an
- *  8-bit display step). The 36x day moves the timecycle by thousandths of a percent per frame; applying each step
+ *  8-bit display step). The 31x day moves the timecycle by thousandths of a percent per frame; applying each step
  *  rewrote every lit draw's object uniforms (materialEnvIntensity) and every program's light colours each frame
  *  (uniform census of the drive replay, 20261103: about 400 of 1,243 buffer writes per frame). */
 export function sampleMoved(applied: TimecycleSample, next: TimecycleSample, tolerance = 0.002) {

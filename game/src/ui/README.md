@@ -130,8 +130,9 @@ overlay; its state is remembered per browser. It drives `render/dayClock.ts` `Da
   the sky IBL refreshes at most every 150 ms of a scrub and once it settles. A drag never turns the camera, and a
   pointer drag or click hands the keyboard back to the game (WASD walks on).
 - **Readout**: clock time, sun elevation, night factor and how the clock runs (`live`, `paused`, `×600`).
-- **Pause / resume** (0) and **×1 ×10 ×60 ×600** (1–4): clock time per real time, so ×60 is a clock minute per
-  second and ×600 ten (the live cycle runs about ×36 by day). A resume uses the last speed (×60 at first).
+- **Pause / resume** (0) and **×1 ×10 ×60 ×600** (1–4): clock time per real time by day, so ×60 is a clock minute
+  per second and ×600 ten (the live cycle runs about ×31 by day). Dusk, night and dawn pass faster in the live
+  cycle's proportions, so the night is as short at ×60 as it is live. A resume uses the last speed (×60 at first).
 - **−1 h / +1 h** (the two keys right of P: `[` `]`, Å ¨ on a Finnish keyboard) and **−10 min / +10 min** (`,` `.`):
   steps that wrap at midnight; a running clock keeps running from the new time.
 - **Quick times**: Dawn 06:30, 09:00, 13:00, Golden hour 19:30 (sun +3°), Blue hour 20:30 (−4°), 22:00, 04:00.

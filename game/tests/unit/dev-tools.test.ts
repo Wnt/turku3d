@@ -7,7 +7,7 @@ import { SPEED } from '../../src/actors/player';
 import { MissionSystem, missionSummary } from '../../src/gameplay/missions/missions';
 import { START_MONEY } from '../../src/gameplay/economy';
 import { SaveStore, formatDetails, type KeyValueStore, type SaveGame } from '../../src/core/save';
-import { CYCLE_EPOCH, DAY_MS, cycleAt, cycleHour, formatClock } from '../../src/core/dayCycle';
+import { CYCLE_EPOCH, DAY_MS, SEGMENTS, cycleAt, cycleHour, formatClock } from '../../src/core/dayCycle';
 import { DayClock, type ClockMode } from '../../src/render/dayClock';
 import type { Environment } from '../../src/render/environment';
 import { nightFactor } from '../../src/render/timecycle';
@@ -121,7 +121,7 @@ function fakeEnv() {
   };
   return env;
 }
-function devClock(mode?: ClockMode, start = CYCLE_EPOCH + 10 * 60_000) {
+function devClock(mode?: ClockMode, start = CYCLE_EPOCH + 11.5 * 60_000) { // 13:00 live
   const env = fakeEnv();
   const time = { now: start };
   const clock = new DayClock(env as unknown as Environment, mode, false, () => time.now);
@@ -158,7 +158,10 @@ describe('time of day', () => {
     expect(clock.hour).toBeCloseTo(live + 1, 4);
     clock.seek(22);
     advance(3_000);
-    expect(clock.hour).toBeCloseTo(22.5, 4);
+    // Night hours pass faster than day hours in the shared cycle's proportion.
+    const pace = (name: string) => { const s = SEGMENTS.find(x => x.name === name)!; return (s.to - s.from) / s.minutes; };
+    expect(clock.hour).toBeCloseTo((22 + 0.5 * pace('night') / pace('day')) % 24, 4);
+    clock.seek(22.5);
     clock.step(2);
     expect(clock.hour).toBeCloseTo(0.5, 4); // wraps past midnight and keeps running
     expect(clock.rate).toBe(600);
@@ -207,10 +210,11 @@ describe('time of day', () => {
     advance(30_000);
     expect(clock.hourAt(shared(before))).toBeCloseTo(cycleHour(before).hour, 9);
     expect(clock.hourAt(shared(edit + 5_000))).toBe(4);
+    clock.seek(14);
     clock.resume(60);
     const run = time.now;
     advance(60_000);
-    expect(clock.hourAt(shared(run + 30_000))).toBeCloseTo(4.5, 4);
+    expect(clock.hourAt(shared(run + 30_000))).toBeCloseTo(14.5, 4);
     expect(clock.hourAt(shared(edit + 5_000))).toBe(4);
     expect(clock.hourAt(shared(before))).toBeCloseTo(cycleHour(before).hour, 9);
     // Ten minutes later the oldest modes are gone; the last five minutes are still answered.

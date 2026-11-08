@@ -7,8 +7,8 @@ test('rewinding replay restores the recorded clock and refreshes future IBL imme
   let now = 1000;
   const env = { setSun: vi.fn(), setTime: vi.fn(), updateIBL: vi.fn(), sunElevation: 25, skyDrift: () => 0 };
   const clock = new DayClock(env as unknown as Environment, { kind: 'hour', hour: 14 }, false, () => now);
-  clock.resume(3600); now = 31000; clock.update();
-  expect(clock.hour).toBeCloseTo(20);
+  clock.resume(480); now = 31000; clock.update();
+  expect(clock.hour).toBeCloseTo(18);
   env.updateIBL.mockClear();
   now = 1000; clock.resetTimeline({ kind: 'hour', hour: 14 });
   expect(clock.hour).toBe(14);

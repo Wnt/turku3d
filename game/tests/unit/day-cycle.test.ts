@@ -1,26 +1,27 @@
 import { expect, test } from 'vitest';
-import { CYCLE_EPOCH, DAY_MS, SEGMENTS, cycleAt, dayCycle, formatClock, localHour, parseClockHour, sunPath } from '../../src/core/dayCycle';
+import { CYCLE_EPOCH, DAY_MS, SEGMENTS, cycleAt, dayCycle, formatClock, hourOfPhase, localHour, parseClockHour, phaseOfHour, sunPath } from '../../src/core/dayCycle';
 
 const local = (date: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Helsinki',
   day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
 const MINUTE = 60_000;
 
-test('the cycle is 20 min day, 4 min dusk, 4 min night and 2 min dawn, with a continuous clock', () => {
-  expect(SEGMENTS.map(s => s.minutes)).toEqual([20, 4, 4, 2]);
+test('the cycle is 23 min day, 3.5 min dusk, 2 min night and 1.5 min dawn, with a continuous clock', () => {
+  expect(SEGMENTS.map(s => s.minutes)).toEqual([23, 3.5, 2, 1.5]);
   expect(SEGMENTS.reduce((sum, s) => sum + s.minutes, 0) * MINUTE).toBe(DAY_MS);
   for (let i = 1; i < SEGMENTS.length; i++) expect(SEGMENTS[i].from).toBe(SEGMENTS[i - 1].to);
   expect(SEGMENTS[SEGMENTS.length - 1].to - 24).toBe(SEGMENTS[0].from);
   const at = (minutes: number) => dayCycle(CYCLE_EPOCH + minutes * MINUTE);
   expect(at(0).segment).toBe('day'); expect(local(at(0).time)).toBe('08/09/2027, 07:00');
-  expect(at(20).segment).toBe('dusk'); expect(local(at(20).time)).toBe('08/09/2027, 19:00');
-  expect(at(24).segment).toBe('night'); expect(local(at(24).time)).toBe('08/09/2027, 21:30');
-  expect(at(28).segment).toBe('dawn'); expect(local(at(28).time)).toBe('08/09/2027, 04:30');
+  expect(at(23).segment).toBe('dusk'); expect(local(at(23).time)).toBe('08/09/2027, 19:00');
+  expect(at(26.5).segment).toBe('night'); expect(local(at(26.5).time)).toBe('08/09/2027, 21:30');
+  expect(at(28.5).segment).toBe('dawn'); expect(local(at(28.5).time)).toBe('08/09/2027, 04:30');
   // The clock never jumps: one real second never moves it more than the fastest segment's rate.
+  const fastest = Math.max(...SEGMENTS.map(s => (s.to - s.from) / (s.minutes * 60)));
   let previous = at(0).hour;
   for (let s = 1; s <= 30 * 60; s++) {
     const hour = at(s / 60).hour;
     const step = ((hour - previous) % 24 + 24) % 24;
-    expect(step).toBeGreaterThan(0); expect(step).toBeLessThan(7 / 240 + 1e-9);
+    expect(step).toBeGreaterThan(0); expect(step).toBeLessThan(fastest + 1e-9);
     previous = hour;
   }
 });
@@ -37,20 +38,37 @@ test('the clock is a pure function of UTC: every client and every cycle agrees, 
   }
   // A scaled local cycle keeps the proportions: 1/15 of a two-minute cycle is still midday.
   expect(dayCycle(CYCLE_EPOCH + 2 * MINUTE / 3, 2 * MINUTE).segment).toBe('day');
-  expect(dayCycle(CYCLE_EPOCH + 1.7 * MINUTE, 2 * MINUTE).segment).toBe('night');
+  expect(dayCycle(CYCLE_EPOCH + 1.8 * MINUTE, 2 * MINUTE).segment).toBe('night');
 });
 
-test('the sun stays below -12 degrees for at least three real minutes of every cycle', () => {
+test('night is short: the scene reads dark for under a fifth of the cycle and daylight takes three quarters', () => {
+  let dark = 0, daylight = 0;
+  for (let s = 0; s < 30 * 60; s++) {
+    const { night } = dayCycle(CYCLE_EPOCH + s * 1000);
+    if (night >= 0.5) dark++;
+    if (night === 0) daylight++;
+  }
+  expect(dark / 1800).toBeGreaterThan(0.12); expect(dark / 1800).toBeLessThan(0.2);
+  expect(daylight / 1800).toBeGreaterThan(0.72);
+});
+
+test('phaseOfHour inverts the cycle\'s hour of each phase', () => {
+  for (let p = 0; p < 1; p += 1 / 997) expect(phaseOfHour(hourOfPhase(p).hour)).toBeCloseTo(p, 9);
+  for (let h = 0; h < 24; h += 0.37) expect(hourOfPhase(phaseOfHour(h)).hour).toBeCloseTo(h, 9);
+  expect(phaseOfHour(7)).toBe(0); expect(phaseOfHour(19)).toBeCloseTo(23 / 30, 12);
+});
+
+test('the sun stays below -12 degrees for about two real minutes of every cycle', () => {
   let below = 0, lowest = 90;
   for (let s = 0; s < 30 * 60; s++) {
     const { sun } = dayCycle(CYCLE_EPOCH + s * 1000);
     if (sun.elevation < -12) below++;
     lowest = Math.min(lowest, sun.elevation);
   }
-  expect(below).toBeGreaterThanOrEqual(3 * 60);
+  expect(below).toBeGreaterThanOrEqual(2 * 60);
   expect(lowest).toBeLessThan(-20);
   // Full night factor throughout deep night; none at midday.
-  expect(dayCycle(CYCLE_EPOCH + 26 * MINUTE).night).toBe(1);
+  expect(dayCycle(CYCLE_EPOCH + 27.5 * MINUTE).night).toBe(1);
   expect(dayCycle(CYCLE_EPOCH + 8 * MINUTE).night).toBe(0);
 });
 
