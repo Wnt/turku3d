@@ -23,11 +23,14 @@ MEADOW = 138
 # Sand (beaches, sandpits: OSM natural=beach, surface=sand): its own look instead of the gravel the physical sand
 # class shares; collision keeps the sand class.
 SAND = 139
+# Fields (OSM landuse=farmland): a mown hay or stubble field in the summer's straw tones, not lawn; collision keeps the
+# grass class. Their edges keep an unmown verge (meadows.FIELD_MARGIN, the meadow finish).
+FIELD = 140
 FINISH_KEYS = {FIELDSTONE: "fieldstone", RED_ASPHALT: "asphalt_red", BRICK: "brick_paving",
                TRACK: "track_rubber", PITCH_LIGHT: "pitch_grass_light", PITCH_DARK: "pitch_grass_dark",
                CONCRETE_PAVERS: "concrete_pavers", FOREST_BROADLEAF: "forest_floor_broadleaf",
                FOREST_CONIFER: "forest_floor_conifer", FOREST_MOSS: "forest_floor_moss", MEADOW: "grass_meadow",
-               SAND: "sand"}
+               SAND: "sand", FIELD: "field_hay"}
 # OSM surface=* values that name a unit paving finish (used where the register says nothing).
 OSM_FINISHES = {"brick": BRICK, "bricks": BRICK, "paving_stones": CONCRETE_PAVERS, "sand": SAND}
 

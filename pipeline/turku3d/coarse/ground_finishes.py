@@ -6,7 +6,7 @@ from .street_materials import FINISH_KEYS
 
 # Metres covered by one texture repeat; the library records uv_scale = 1 / period.
 PERIODS = {"fieldstone": 4, "granite_rock": 4, "forest_floor_broadleaf": 4, "forest_floor_conifer": 4,
-           "forest_floor_moss": 4, "grass_meadow": 4, "sand": 4}
+           "forest_floor_moss": 4, "grass_meadow": 4, "sand": 4, "field_hay": 4}
 PROCEDURAL = (*FINISH_KEYS.values(), "granite_rock")
 FOREST_FLOORS = ("forest_floor_broadleaf", "forest_floor_conifer", "forest_floor_moss")
 
@@ -184,11 +184,42 @@ def _meadow(rng, size, period, grain, macro, gaussian_filter):
     return albedo, height, ao, roughness
 
 
+def _field(rng, size, period, grain, macro, gaussian_filter):
+    """A mown hay field in July (Kurala panoramas: hue 45-52, saturation 0.2-0.35, lightness 0.35-0.45): pale straw
+    stubble over green regrowth in mower lanes, lying hay wisps, greener damp patches and a few weeds. sRGB albedo,
+    height (m), AO and roughness."""
+    def noise(sigma):
+        n = gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap")
+        return n / max(n.std(), 1e-6)
+
+    damp = np.clip((noise(size / 14) + .5 * noise(size / 40)) * .5, -1, 1)
+    # Mower lanes: four 1 m lanes per repeat, their stubble laid one way, then the other.
+    lanes = np.sin(np.arange(size) / size * 2 * np.pi * 4)[:, None] * np.ones((1, size))
+    albedo = (np.array([120, 110, 64]) + grain[..., None] * 6 + lanes[..., None] * [7, 6, 3]
+              - damp[..., None] * [10, 4, 6])
+    height = np.zeros((size, size))
+    straw = ([[150, 136, 84], [134, 122, 74], [164, 150, 98], [118, 108, 62]], [.3, .3, .2, .2])
+    regrowth = ([[96, 104, 50], [84, 94, 44], [108, 112, 58]], [.4, .35, .25])
+    # Green regrowth between the stubble, then cut stalks (3-8 cm, upright, seen end-on as short strokes).
+    _scatter(rng, size, period, 30000, (.03, .08), (.08, .15), *regrowth, (albedo, height), .006,
+             where=np.clip(.45 + .5 * damp, .1, 1))
+    _scatter(rng, size, period, 90000, (.02, .06), (.12, .22), *straw, (albedo, height), .01)
+    # Hay wisps the rake left (15-40 cm, lying), and a few weeds: clover, plantain, thistle rosettes.
+    _scatter(rng, size, period, 9000, (.15, .4), (.01, .02), [[176, 160, 108], [158, 144, 94]], [.6, .4],
+             (albedo, height), .014)
+    _scatter(rng, size, period, 900, (.04, .1), (.6, 1), [[70, 92, 40], [84, 104, 46], [214, 206, 190]],
+             [.45, .4, .15], (albedo, height), .012, where=np.clip(.3 + .7 * damp, 0, 1))
+    relief = (height - height.min()) / max(np.ptp(height), 1e-6)
+    ao = .75 + .25 * relief
+    roughness = np.full((size, size), .96)
+    return albedo, height, ao, roughness
+
+
 def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
     from scipy.ndimage import gaussian_filter, distance_transform_edt
 
-    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", "grass_meadow", "sand",
+    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", "grass_meadow", "sand", "field_hay",
                                                                    *FOREST_FLOORS) else 512)
     period = PERIODS.get(key, 2)
     rng = np.random.default_rng(4817)
@@ -334,6 +365,8 @@ def maps(key, size=None):
         albedo, height, ao, roughness = _meadow(rng, size, period, grain, macro, gaussian_filter)
     elif key == "sand":
         albedo, height, ao, roughness = _sand(rng, size, period, grain, macro, gaussian_filter)
+    elif key == "field_hay":
+        albedo, height, ao, roughness = _field(rng, size, period, grain, macro, gaussian_filter)
     else:
         raise ValueError(f"Unknown ground finish: {key}")
 
