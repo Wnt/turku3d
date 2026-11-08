@@ -2,7 +2,7 @@
 // Everything is in engine world-local coordinates; each .col tile's float64 origin becomes its collider translation.
 import type * as RAPIER_NS from '@dimforge/rapier3d';
 import { COLLISION_TILE, collisionTileAt, collisionTileId, distToCollisionTile, parseCollisionId, type V3 } from '../core/origin';
-import { collisionCovers, coverageReach, easedSpeed, easeInput, easeReachLimit, PlayerCoverageHold } from './collisionCoverage';
+import { BODY_MARGIN, bodyReach, collisionCovers, coverageReach, easedSpeed, easeInput, easeReachLimit, PlayerCoverageHold } from './collisionCoverage';
 import { GROUP, materialClass, MATERIALS, MAT } from '../shared/col/materials';
 import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from './colTile';
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
@@ -892,11 +892,15 @@ export class PhysicsWorld {
     const intent = vehicle.throttle > 0 ? 1 : vehicle.throttle < 0 || vehicle.brake > 0 ? -1 : 0;
     if (speed < EASE_REST_SPEED && !intent) return vehicle;
     const [dx, dz] = speed >= EASE_REST_SPEED ? [v.x / speed, v.z / speed] : [hx * intent, hz * intent];
-    // Cells of a tile still coming count as missing although their edge wall stands (a wall at speed is a dead stop).
-    const supported = this.supported(p.x, p.z), ahead = this.coming.size
-      ? { has: (cell: string) => supported.has(cell) && (this.residentCells.has(cell) || !this.coming.has(cell)) } : supported;
-    const reach = coverageReach(ahead, p.x, p.z, dx, dz, this.vehicleRadii.get(id!)!,
-      Math.max(easeReachLimit(speed), COVERAGE_URGENT_S * speed));
+    // Collision known but not installed: the swept circle the hold guards. A tile still coming keeps its edge wall,
+    // but a wall at speed is a dead stop: the chassis box must stop short of it (driving along it is fine).
+    const limit = Math.max(easeReachLimit(speed), COVERAGE_URGENT_S * speed);
+    let reach = coverageReach(this.supported(p.x, p.z), p.x, p.z, dx, dz, this.vehicleRadii.get(id!)!, limit);
+    if (this.coming.size) {
+      const walled = { has: (cell: string) => this.coming.has(cell) && !this.residentCells.has(cell) };
+      const box = { ux: hx, uz: hz, a: car.halfExt.x + BODY_MARGIN, b: car.halfExt.z + BODY_MARGIN };
+      reach = Math.min(reach, bodyReach(walled, p.x, p.z, dx, dz, box, limit));
+    }
     if (reach === Infinity) return vehicle;
     this.coverageLead = reach / Math.max(speed, 1);
     const allowed = easedSpeed(reach);

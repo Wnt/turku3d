@@ -27,12 +27,43 @@ const COVERAGE_REACH_STEP = 4, COVERAGE_REACH_FINE = 0.5;
  *  `loaded`, searched up to `limit` m (Infinity when all of it is covered), to within COVERAGE_REACH_FINE m below. */
 export function coverageReach(loaded: { has(id: string): boolean }, x: number, z: number, dx: number, dz: number,
   radius: number, limit: number): number {
-  const covered = (s: number) => collisionCovers(loaded, x + dx * s, z + dz * s, x + dx * s, z + dz * s, radius);
+  return reachAlong(s => collisionCovers(loaded, x + dx * s, z + dz * s, x + dx * s, z + dz * s, radius), limit);
+}
+
+/** Margin (m) around a chassis box where only the body meets what is ahead (an edge wall): tyres and some slack. */
+export const BODY_MARGIN = 0.5;
+
+/** A car's chassis footprint: half length `a` along its heading (ux, uz), half width `b` across it (m). */
+export interface BodyBox { ux: number; uz: number; a: number; b: number }
+
+/** Distance (m) the box centred at (x, z) can travel along the unit direction (dx, dz) before it overlaps a cell in
+ *  `blocked`, searched like coverageReach. A car driving along such a cell (a wall beside the road) is not stopped. */
+export function bodyReach(blocked: { has(id: string): boolean }, x: number, z: number, dx: number, dz: number,
+  box: BodyBox, limit: number): number {
+  return reachAlong(s => !boxTouches(blocked, x + dx * s, z + dz * s, box), limit);
+}
+
+/** Does the box centred at (x, z) overlap a cell in `cells`? Separating axes: the cell range comes from the box's
+ *  bounds, then the box's own two axes are tested. */
+export function boxTouches(cells: { has(id: string): boolean }, x: number, z: number, box: BodyBox): boolean {
+  const { ux, uz, a, b } = box, ax = Math.abs(ux), az = Math.abs(uz);
+  const ex = a * ax + b * az, ez = a * az + b * ax, cell = COLLISION_TILE / 2 * (ax + az);
+  for (let i = Math.floor((x - ex) / COLLISION_TILE); i <= Math.floor((x + ex) / COLLISION_TILE); i++)
+    for (let j = Math.floor((z - ez) / COLLISION_TILE); j <= Math.floor((z + ez) / COLLISION_TILE); j++) {
+      if (!cells.has(collisionTileId(i, j))) continue;
+      const mx = (i + 0.5) * COLLISION_TILE - x, mz = (j + 0.5) * COLLISION_TILE - z;
+      if (Math.abs(mx * ux + mz * uz) <= a + cell && Math.abs(mz * ux - mx * uz) <= b + cell) return true;
+    }
+  return false;
+}
+
+/** March `clear(s)` out to `limit` m in COVERAGE_REACH_STEP steps, then refine the first failing step. */
+function reachAlong(clear: (s: number) => boolean, limit: number): number {
   for (let s = 0; s <= limit; s += COVERAGE_REACH_STEP) {
-    if (covered(s)) continue;
+    if (clear(s)) continue;
     // Refine within the last step: a coarse answer makes the eased speed fall in steps (a jolt of full braking).
     let lo = Math.max(0, s - COVERAGE_REACH_STEP);
-    while (lo + COVERAGE_REACH_FINE < s && covered(lo + COVERAGE_REACH_FINE)) lo += COVERAGE_REACH_FINE;
+    while (lo + COVERAGE_REACH_FINE < s && clear(lo + COVERAGE_REACH_FINE)) lo += COVERAGE_REACH_FINE;
     return lo;
   }
   return Infinity;

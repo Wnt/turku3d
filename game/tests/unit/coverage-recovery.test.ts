@@ -272,3 +272,25 @@ test('a tile still coming keeps its edge wall, but the driven car is eased to a 
   expect(eased.x).toBeLessThan(372); expect(eased.x).toBeGreaterThan(340);
   expect(eased.block).toBeNull();
 });
+
+test('a driven car alongside a tile still coming keeps its speed: only its chassis box heading into the wall is eased', async () => {
+  const pw = new PhysicsWorld(R); worlds.push(pw);
+  for (let i = 0; i <= 5; i++) await pw.loadTile(`c_${i}_2`, col(`c_${i}_2`));
+  pw.world.step();
+  pw.spawnCharacter({ x: 10, y: 2.05, z: 140 });
+  pw.setCharacterEnabled(false);
+  // 2.5 m from the row c_0..5_1 below z = 125, being built: its edge wall stands beside the road.
+  pw.spawnVehicle({ x: 20, y: 2.8, z: 127.5 }, 0);
+  pw.vehicle!.body.setLinvel({ x: 20, y: 0, z: 0 }, true);
+  pw.setComing(['c_0_1', 'c_1_1', 'c_2_1', 'c_3_1', 'c_4_1', 'c_5_1'], []);
+  const drive = { throttle: 1, steer: 0, brake: 0, handbrake: false };
+  let eased = 0, minSpeed = Infinity;
+  for (let k = 0; k < Math.round(6 / DT); k++) {
+    pw.step(DT, idle, drive);
+    if (pw.vehicleStates().find(s => s.id === 'player')!.eased !== undefined) eased++;
+    const v = pw.vehicle!.body.linvel(); minSpeed = Math.min(minSpeed, Math.hypot(v.x, v.z));
+  }
+  expect(eased).toBe(0);
+  expect(minSpeed).toBeGreaterThan(19);
+  expect(Math.abs(pw.vehicle!.body.translation().z - 127.5)).toBeLessThan(0.5);
+});

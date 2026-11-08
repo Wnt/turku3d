@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { collisionCovers, coverageReach, easedSpeed, easeInput } from '../../src/physics/collisionCoverage';
+import { bodyReach, boxTouches, collisionCovers, coverageReach, easedSpeed, easeInput } from '../../src/physics/collisionCoverage';
 
 test('stationary actors require actual resident collision, including outside the manifest', () => {
   const loaded = new Set(['c_0_0']);
@@ -58,4 +58,21 @@ test('coverage reach finds the gap ahead to half a metre, and the eased input br
   // Rolling backwards towards the gap: forward drive is the brake (vehicle/handling.ts).
   const back = easeInput({ ...input, throttle: 0, brake: 1 }, -24, 24, allowed);
   expect(back.brake).toBe(0); expect(back.throttle).toBeGreaterThan(0.9);
+});
+
+test('a chassis box meets a walled cell only where its body would: alongside it, never; heading in, short of it', () => {
+  const walled = new Set(['c_3_0', 'c_0_-1', 'c_1_-1', 'c_2_-1', 'c_3_-1']);
+  // Driving east 2.5 m from the walled row below z = 0: a 2.8 m circle touches it at once, a 2.6 x 1.4 m box never does.
+  const east = { ux: 1, uz: 0, a: 2.6, b: 1.4 };
+  expect(collisionCovers({ has: (c: string) => !walled.has(c) }, 10, 2.5, 10, 2.5, 2.8)).toBe(false);
+  expect(boxTouches(walled, 10, 2.5, east)).toBe(false);
+  expect(boxTouches(walled, 10, 1.3, east)).toBe(true);
+  // Heading east into c_3_0 (x from 187.5): the box's nose gets there once its centre passes 184.9 m.
+  const reach = bodyReach(walled, 10, 30, 1, 0, east, 400);
+  expect(reach).toBeGreaterThan(184.9 - 10 - 0.5); expect(reach).toBeLessThanOrEqual(184.9 - 10);
+  expect(bodyReach(walled, 10, 2.5, 1, 0, east, 150)).toBe(Infinity);
+  // Turned 45 degrees at the same spot: its corner reaches 2.8 m down and into the walled row.
+  const diagonal = { ux: Math.SQRT1_2, uz: Math.SQRT1_2, a: 2.6, b: 1.4 };
+  expect(boxTouches(walled, 10, 2.5, diagonal)).toBe(true);
+  expect(boxTouches(walled, 10, 3, diagonal)).toBe(false);
 });
