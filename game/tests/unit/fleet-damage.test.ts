@@ -25,7 +25,7 @@ const STAYS_ON_BODY: Record<string, string> = {
   'carla-jeep-wrangler-rubicon': 'bonnet mirrorLeft mirrorRight',
   'carla-mercedes-sprinter': 'bonnet bootLid',
   'carla-mini-cooper-s-2021': 'bonnet',
-  'carla-mitsubishi-fusorosa': 'bootLid mirrorLeft mirrorRight',
+  'carla-mitsubishi-fusorosa': 'mirrorLeft mirrorRight',
   'carla-tesla-cybertruck': 'bonnet bootLid mirrorLeft mirrorRight',
   'carla-volkswagen-t2-2021': 'bonnet',
   'crownvic-police': 'bonnet bootLid rearBumper',

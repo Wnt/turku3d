@@ -250,9 +250,26 @@ let major = wide.filter(a => mass(a) >= heaviest * .3 && round_(a));
 if (major.length < 2) major = wide.filter(a => mass(a) >= heaviest * .3);
 if (major.length < 2) throw Error(`Expected two axles, found ${JSON.stringify(axles)}`);
 const front = major[major.length - 1], rear = major[0];
+// Skinned sources: each Wheel_* bone is one wheel, so its axle comes from its own triangles, not from Z density
+// (chassis parts weighted to a tandem's two bone pairs filled the gap, and the HGV's rear hub fell between its axles).
+// A bone's axle is the Z of its contact patch; the front-most and rear-most bone pairs become the four hubs, and
+// middle axles (Wheel_Middle_*) stay in the body like those of unskinned sources.
+const boneAxles = (() => {
+  if (!boned.length) return null;
+  const groups = new Map();
+  for (const t of boned) { if (!groups.has(t.wheel)) groups.set(t.wheel, []); groups.get(t.wheel).push(t); }
+  const contactZ = list => { const low = list.reduce((m, t) => Math.min(m, t.p[1], t.p[4], t.p[7]), Infinity);
+    const patch = list.filter(t => Math.min(t.p[1], t.p[4], t.p[7]) < low + .05); return patch.reduce((s, t) => s + ctr(t)[2], 0) / patch.length; };
+  const sorted = [...groups].map(([bone, list]) => ({ bone, list, z: contactZ(list) })).sort((a, c) => a.z - c.z);
+  const axles = [];
+  for (const g of sorted) { const last = axles[axles.length - 1]; if (last && g.z - last.z < .3) last.groups.push(g); else axles.push({ z: g.z, groups: [g] }); }
+  if (axles.length < 2) return null;
+  const set = axle => ({ bones: new Set(axle.groups.map(g => g.bone)), tris: axle.groups.flatMap(g => g.list) });
+  return { front: set(axles[axles.length - 1]), rear: set(axles[0]) };
+})();
 const hubs = {};
-for (const [axle, names] of [[front, ['wheel_FL', 'wheel_FR']], [rear, ['wheel_RL', 'wheel_RR']]]) {
-  const onAxle = wheelTris.filter(t => { const z = ctr(t)[2]; return z >= axle[0] - .03 && z <= axle[1] + .03; });
+for (const [axle, names, bones] of [[front, ['wheel_FL', 'wheel_FR'], boneAxles?.front], [rear, ['wheel_RL', 'wheel_RR'], boneAxles?.rear]]) {
+  const onAxle = bones ? bones.tris : wheelTris.filter(t => { const z = ctr(t)[2]; return z >= axle[0] - .03 && z <= axle[1] + .03; });
   const xs = onAxle.map(t => ctr(t)[0]), mid = (xs.reduce((a, c) => Math.min(a, c)) + xs.reduce((a, c) => Math.max(a, c))) / 2;
   for (const [name, side] of [[names[0], -1], [names[1], 1]]) {
     // Outboard triangles only: axle beams, differentials and suspension parts sit near the centreline.
@@ -262,7 +279,7 @@ for (const [axle, names] of [[front, ['wheel_FL', 'wheel_FR']], [rear, ['wheel_R
     const tyres = members.filter(t => t.role === 'tyre');
     const bb = box(tyres.length > 40 ? tyres : members);
     hubs[name] = { hub: [(bb.lo[0] + bb.hi[0]) / 2, (bb.lo[1] + bb.hi[1]) / 2, (bb.lo[2] + bb.hi[2]) / 2],
-      radius: Math.min(bb.size[1], bb.size[2]) / 2, width: bb.size[0], side };
+      radius: Math.min(bb.size[1], bb.size[2]) / 2, width: bb.size[0], side, bones: bones?.bones };
   }
 }
 // Centre the track on X=0 (mirrors and accessories may make the body box asymmetric).
@@ -404,10 +421,22 @@ if (cfg.generatedLivery) {
   for (let i = tris.length - 1; i >= 0; i--) if (tris[i].role === 'drop') tris.splice(i, 1);
 }
 
+// A skinned tyre's outer radius: hub height above its bone group's lowest point (the contact patch lies straight below
+// the hub; mudguards and arches lie above it), with 3 % and 1 cm for the tread.
+if (boneAxles) for (const h of Object.values(hubs)) {
+  const own = boned.filter(t => h.bones.has(t.wheel) && Math.sign(ctr(t)[0]) === Math.sign(h.hub[0]));
+  const low = own.reduce((m, t) => Math.min(m, t.p[1], t.p[4], t.p[7]), Infinity);
+  h.tyre = (h.hub[1] - low) * 1.03 + .01;
+}
 const partOf = t => {
-  // Bone-weighted wheel triangles go to the nearest hub, whatever their radius.
-  if (t.wheel) { const c = ctr(t); return Object.entries(hubs).reduce((best, [name, h]) =>
-    Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2]) < best[1] ? [name, Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2])] : best, ['body', Infinity])[0]; }
+  // Bone-weighted wheel triangles go to the nearest hub of their own axle, but only inside its tyre: mudguards and
+  // arch parts weighted to a wheel bone would spin round the tyre, and middle-axle bones stay in the body.
+  if (t.wheel) { const c = ctr(t);
+    const [name, , h] = Object.entries(hubs).filter(([, h]) => !h.bones || h.bones.has(t.wheel)).reduce((best, [name, h]) =>
+      Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2]) < best[1] ? [name, Math.hypot(c[0]-h.hub[0], c[1]-h.hub[1], c[2]-h.hub[2]), h] : best, ['body', Infinity, null]);
+    if (!h) return 'body';
+    const reach = h.tyre ?? Infinity;
+    return [0, 3, 6].every(i => Math.hypot(t.p[i+1] - h.hub[1], t.p[i+2] - h.hub[2]) <= reach) ? name : 'body'; }
   if (t.role !== 'tyre' && t.role !== 'rim' && !(cfg.captureCylinder && t.role !== 'paint' && t.role !== 'glass')) return 'body';
   for (const [name, h] of Object.entries(hubs)) {
     const inside = [0, 3, 6].every(i => Math.abs(t.p[i] - h.hub[0]) <= width / 2 + .06

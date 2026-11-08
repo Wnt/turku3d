@@ -5,14 +5,14 @@
     "name": "Valo Linja 7",
     "body": "van",
     "family": "bus",
-    "length": 9.9662,
+    "length": 9.9658,
     "width": 3.2871,
     "height": 4.2528,
     "wheelbase": 5.6301,
     "hood": 0.25,
     "rear": -0.4,
     "taper": 0.82,
-    "wheel": 0.4686,
+    "wheel": 0.6336,
     "belt": 1,
     "face": 0,
     "accessory": "none",
@@ -21,27 +21,27 @@
   },
   "id": "carla-mitsubishi-fusorosa",
   "wheels": {
-    "radius": 0.4686,
+    "radius": 0.6336,
     "width": 0.5587,
     "pivots": {
       "wheel_FL": [
         -1.3083,
-        0.4686,
+        0.6336,
         3.5032
       ],
       "wheel_FR": [
         1.3083,
-        0.4686,
+        0.6336,
         3.5032
       ],
       "wheel_RL": [
         -1.1346,
-        0.4686,
+        0.6336,
         -2.1269
       ],
       "wheel_RR": [
         1.1346,
-        0.4686,
+        0.6336,
         -2.1269
       ]
     }
@@ -50,16 +50,16 @@
     "center": [
       0,
       2.1264,
-      0.0002
+      0
     ],
     "half": [
       1.6435,
       2.1264,
-      4.9831
+      4.9829
     ]
   },
   "triangles": [
-    53525,
+    53571,
     11821,
     3934
   ],
@@ -84,12 +84,12 @@
     "gears": 6,
     "rideHeightM": 0.25,
     "character": "utility",
-    "lengthM": 9.9662,
+    "lengthM": 9.9658,
     "widthM": 3.2871,
     "heightM": 4.2528,
     "wheelbaseM": 5.6301,
     "trackM": 2.6167,
-    "wheelRadiusM": 0.4686,
+    "wheelRadiusM": 0.6336,
     "wheelWidthM": 0.5587
   },
   "accepted": false

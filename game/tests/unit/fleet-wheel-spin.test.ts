@@ -75,11 +75,7 @@ function runout(g: THREE.BufferGeometry) {
 
 /** Known wheel faults that a later converter pass removes; each entry must still fail (a fixed model leaves the list). */
 const PENDING: Record<string, string> = {
-  'carla-carlamotors-european-hgv': 'the rear part holds both tandem axles (Wheel_Middle_* bones went to the nearest hub)',
-  'carla-carlamotors-firetruck': 'hub 6 cm below the tyre centre; mudguards skinned to the wheel bones spin',
-  'carla-ford-ambulance': 'arch parts skinned to the wheel bones spin with the tyres',
-  'carla-mitsubishi-fusorosa': 'registry radius 0.47 m is the rim face, the tyre is ~0.62 m',
-  'carla-carlamotors-carlacola': 'tyre outline not round in the source',
+  'carla-carlamotors-carlacola': 'front tyre outline not round in the source',
   'carla-audi-tt': 'stray rubber parts skinned to the rear wheel bones',
   'transit-bus': 'tyre outline not round in the source (flattened bottoms)',
   'garbage-truck': 'tyre outline not round in the source (tread blocks, flattened bottoms)',
