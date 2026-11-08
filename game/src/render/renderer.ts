@@ -56,9 +56,9 @@ export async function createRenderer(want: 'webgpu' | 'webgl', canvasParent: HTM
   const search = new URLSearchParams(location.search);
   renderer.poolUniforms = search.get('uniformPool') !== '0';
   renderer.poolGeometry = search.get('geomPool') !== '0';
-  // Unchanged static draws skip r186's per-frame full refresh (render/staticRefresh.ts). ?staticRefresh=0 keeps it: A/B,
-  // owner frame-lowend, decided by Windows/Mac route runs and the audit; the losing path goes within ten merges.
-  renderer.staticDraws = search.get('staticRefresh') !== '0';
+  // Unchanged static draws skip r186's per-frame full refresh (render/staticRefresh.ts). The ?staticRefresh=0 A/B is
+  // decided: Windows day drive 41.8 fps / p95 39.5 ms with it, 38.8 fps / p95 40.8 ms without (win-ab9, same build).
+  renderer.staticDraws = true;
   // QA stills wait for a settled world, not for pipelines: their first-use draws take every new shader module at once.
   renderer.paceShaderModules = !opts.qa;
   // The reduced tiers' GPU processes (Radeon 560X laptop, base M1) translate at the 560X's rate; medium and up faster.
