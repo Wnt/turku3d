@@ -66,3 +66,24 @@ it('lights each clump with the ambient its ground was baked with (COLOR_1, canop
   expect(open.every(a => a === 1)).toBe(true);
   field.dispose();
 });
+
+it('grows tall tufts and meadow flowers on meadows and a lawn carpet on lawns', () => {
+  const library = natureFixture(), scene = new THREE.Scene();
+  const counts = (key: string) => {
+    const model = new THREE.Group();
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+    ground.userData = { layer: 'ground', material_key: key }; model.add(ground); scene.add(model);
+    const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+    while (!steps.next().done) { /* fixture */ }
+    field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+    // One draw per kind: lawn, clump, meadow, rosette.
+    const result = (field.root.children as THREE.InstancedMesh[]).map(m => m.count);
+    field.dispose(); scene.remove(model); return result;
+  };
+  const [lawn, clump, meadow] = counts('draft_grass'), total = lawn + clump + meadow;
+  expect(lawn / total).toBeGreaterThan(0.6);
+  const [mLawn, mClump, mMeadow] = counts('draft_grass_meadow'), mTotal = mLawn + mClump + mMeadow;
+  expect(mLawn / mTotal).toBeLessThan(0.15);
+  expect(mClump / mTotal).toBeGreaterThan(0.4);
+  expect(mMeadow / mTotal).toBeGreaterThan(0.15);
+});

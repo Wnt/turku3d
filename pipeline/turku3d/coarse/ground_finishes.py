@@ -6,7 +6,7 @@ from .street_materials import FINISH_KEYS
 
 # Metres covered by one texture repeat; the library records uv_scale = 1 / period.
 PERIODS = {"fieldstone": 4, "granite_rock": 4, "forest_floor_broadleaf": 4, "forest_floor_conifer": 4,
-           "forest_floor_moss": 4}
+           "forest_floor_moss": 4, "grass_meadow": 4}
 PROCEDURAL = (*FINISH_KEYS.values(), "granite_rock")
 FOREST_FLOORS = ("forest_floor_broadleaf", "forest_floor_conifer", "forest_floor_moss")
 
@@ -114,11 +114,44 @@ def _forest_floor(key, rng, size, period, grain, macro, gaussian_filter):
     return albedo, height, ao, roughness
 
 
+def _meadow(rng, size, period, grain, macro, gaussian_filter):
+    """Unmown summer grass seen from above (Turku's meadows and open areas, July): long blades in green and straw
+    tones lying in every direction over a darker thatch, drier patches, and flowers (white, yellow, violet) in
+    drifts. sRGB albedo, height (m), AO and roughness."""
+    def noise(sigma):
+        n = gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap")
+        return n / max(n.std(), 1e-6)
+
+    dry = np.clip((noise(size / 18) + .5 * noise(size / 50)) * .6, -1, 1)
+    albedo = np.array([58, 66, 34]) + grain[..., None] * 5 + dry[..., None] * [8, 5, 2]
+    height = np.zeros((size, size))
+    green = ([[84, 112, 46], [72, 98, 40], [98, 122, 54], [64, 86, 36], [110, 128, 62]], [.25, .25, .2, .2, .1])
+    straw = ([[138, 128, 74], [120, 112, 66], [152, 140, 86], [104, 98, 58]], [.3, .3, .2, .2])
+    # Thatch, then two layers of blades (10-30 cm long, 3-6 mm wide), straw-coloured where the patch is dry.
+    _scatter(rng, size, period, 30000, (.08, .2), (.015, .03), *straw, (albedo, height), .004)
+    wet = np.clip(.55 - .6 * dry, .1, 1)
+    _scatter(rng, size, period, 70000, (.1, .3), (.012, .025), *green, (albedo, height), .01, where=wet)
+    _scatter(rng, size, period, 45000, (.1, .3), (.012, .025), *straw, (albedo, height), .012, where=1 - wet)
+    _scatter(rng, size, period, 15000, (.1, .25), (.012, .025), *green, (albedo, height), .016)
+    # Seed heads of timothy, fescue and bent (1-3 cm, pale tan), thicker where the grass has gone to seed.
+    _scatter(rng, size, period, 3000, (.015, .035), (.2, .3), [[150, 138, 92], [134, 126, 84], [164, 150, 104]],
+             [.4, .35, .25], (albedo, height), .014, where=np.clip(.3 + .7 * dry, 0, 1))
+    # Flowers in drifts: ox-eye daisy, buttercup, meadow cranesbill and clover heads of 1-3 cm.
+    drifts = np.clip((noise(size / 24) + .5 * noise(size / 70) - .7) * 1.5, 0, 1)
+    _scatter(rng, size, period, 2600, (.012, .03), (.8, 1), [[236, 232, 214], [226, 198, 60], [150, 120, 190],
+             [204, 140, 170]], [.35, .3, .2, .15], (albedo, height), .03, where=drifts)
+    relief = (height - height.min()) / max(np.ptp(height), 1e-6)
+    ao = .7 + .3 * relief
+    roughness = np.full((size, size), .95)
+    return albedo, height, ao, roughness
+
+
 def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
     from scipy.ndimage import gaussian_filter, distance_transform_edt
 
-    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", *FOREST_FLOORS) else 512)
+    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", "grass_meadow", *FOREST_FLOORS)
+                    else 512)
     period = PERIODS.get(key, 2)
     rng = np.random.default_rng(4817)
     grain = rng.normal(0, 1, (size, size))
@@ -259,6 +292,8 @@ def maps(key, size=None):
         roughness = np.clip(.72 + .12 * lichen + .15 * moss + crystals * .02, .6, 1)
     elif key in FOREST_FLOORS:
         albedo, height, ao, roughness = _forest_floor(key, rng, size, period, grain, macro, gaussian_filter)
+    elif key == "grass_meadow":
+        albedo, height, ao, roughness = _meadow(rng, size, period, grain, macro, gaussian_filter)
     else:
         raise ValueError(f"Unknown ground finish: {key}")
 

@@ -58,7 +58,9 @@ WFS_LAYERS = (
 )
 PERMIT_PARKING = "GIS:Lupapysakointipaikat"
 FURNITURE_WFS_LAYERS = WFS_LAYERS[6:]
-OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", "kanta:Rakenne", PERMIT_PARKING)
+# The green-area register (meadows.py) enriches the ground; like the height anchors it never blocks a build.
+GREEN_AREAS = "GIS:Viheralueet"
+OPTIONAL_WFS_LAYERS = ("kanta:Korkeuspiste", "kanta:Rakenne", PERMIT_PARKING, GREEN_AREAS)
 BLOCK = C.LAZ_TILE_SIZE
 AREA_PREFIX = "coarse-"
 

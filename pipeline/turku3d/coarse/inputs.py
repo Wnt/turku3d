@@ -36,7 +36,7 @@ from turku3d.spatial import frame as spatial_frame
 
 from . import roofs
 from .register import district as register_district
-from .sources import ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
+from .sources import GREEN_AREAS, ORTHO_PX, POINT_MARGIN, WFS_LAYERS, MissingInputs, NoCoverage, Sources, covers
 from .sources import permit_sources
 from turku3d.playgrounds import source_paths as playground_sources
 
@@ -50,7 +50,7 @@ DATASETS = (
     "attachments", "retaining", "vegetation_canopy", "vegetation_leaves", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
-    "trunk_ground", "finished_ground", "tram_rails",
+    "trunk_ground", "finished_ground", "tram_rails", "green_areas",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -99,6 +99,7 @@ class Inputs:
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_leaves: np.ndarray = field(default_factory=lambda: np.empty((0, 6)))  # canopy_trees.leaf_points
+    green_areas: list = ()  # meadows.prepare: unmown grass polygons
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
     tram_rails: list = ()  # at-grade OSM tram track rail heads, paint items (surfaces.tram_rails)
@@ -484,6 +485,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "ground": None if missing else laz,
         "vegetation_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "vegetation_leaves": [] if first_pass else roofs.lidar_paths(tile),
+        "green_areas": [sources.wfs_source(GREEN_AREAS, tile)[1], osm],
         "water": [wfs[2][1], osm] if wfs[2][0] else None,
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
         if osm and not missing
@@ -649,6 +651,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .canopy_trees import leaf_points
 
         return leaf_points(tile, paths)
+    if dataset == "green_areas":
+        from .meadows import prepare as prepare_meadows
+
+        return prepare_meadows(tile, *paths) if paths else []
     if dataset == "quay_lighting":
         from .quay_lighting import prepare as prepare_quay_lighting
 
@@ -827,6 +833,7 @@ def gather(
             "trees",
             "vegetation_canopy",
             "vegetation_leaves",
+            "green_areas",
             "forests",
             "vegetation_paths",
             "trunk_ground",
@@ -966,6 +973,7 @@ def gather(
         canopy=ground.get("canopy", np.empty((0, 3))),
         vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
         vegetation_leaves=values["vegetation_leaves"] if not first_pass else np.empty((0, 6)),
+        green_areas=values["green_areas"] or (),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),
         stairs=values["stairs"] or ((), ()),

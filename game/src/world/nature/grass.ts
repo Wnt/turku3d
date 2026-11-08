@@ -28,6 +28,16 @@ function patchNoise(x: number, z: number) {
   return Math.min(1, Math.max(0, (v - 0.35) / 0.35));
 }
 
+/** Unmown grass surfaces (the generator's meadows.py finish, `draft_grass_meadow`). */
+const MEADOW = /meadow/;
+
+/** A meadow candidate's clump kind: tall tufts everywhere, meadow flowers in the patches, few lawn cards. */
+function meadowKind(patch: number, pick: number) {
+  if (pick < 0.15 + patch * 0.25) return 2;
+  if (pick < 0.85) return 1;
+  return pick < 0.96 ? 0 : 3;
+}
+
 /** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassAmbient` the grass material
  *  reads (its aoNode); dispose the view, not the source. */
 export function grassGeometry(source: THREE.BufferGeometry, ambient: THREE.InstancedBufferAttribute) {
@@ -82,19 +92,19 @@ export class GrassField {
     const tile: TileGrass = { key: '', cells: new Map() };
     this.tiles.set(model, tile);
     model.updateWorldMatrix(true, true);
-    const meshes: THREE.Mesh[] = [];
+    const meshes: { mesh: THREE.Mesh; meadow: boolean }[] = [];
     model.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
       const key = materialKey(mesh, mesh.material);
-      if (key && surfaceStyle(key) === 'grass') meshes.push(mesh);
+      if (key && surfaceStyle(key) === 'grass') meshes.push({ mesh, meadow: MEADOW.test(key) });
     });
     const origin = new THREE.Vector3().setFromMatrixPosition(model.matrixWorld);
     tile.key = `${origin.x},${origin.y},${origin.z}:${model.name}`;
     let seed = hashId(`${origin.x.toFixed(1)},${origin.z.toFixed(1)}`) || 1;
     const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
-    for (const mesh of meshes) {
+    for (const { mesh, meadow } of meshes) {
       const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
       const baked = mesh.geometry.getAttribute('color_1') as THREE.BufferAttribute | undefined;
       // bakedAmbientContext's factor: the darker of local and sky visibility, weighted by coverage.
@@ -119,11 +129,12 @@ export class GrassField {
           if (u + v > 1) { u = 1 - u; v = 1 - v; }
           const x = a.x + (b.x - a.x) * u + (c.x - a.x) * v, y = a.y + (b.y - a.y) * u + (c.y - a.y) * v, z = a.z + (b.z - a.z) * u + (c.z - a.z) * v;
           const patch = patchNoise(x / 7, z / 7), pick = random();
-          const kind = patch > 0.55 && pick < 0.5 ? (pick < 0.12 ? 2 : 1) : pick > 0.95 ? 3 : 0;
+          const kind = meadow ? meadowKind(patch, pick) : patch > 0.55 && pick < 0.5 ? (pick < 0.12 ? 2 : 1) : pick > 0.95 ? 3 : 0;
           const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
           let cell = tile.cells.get(key);
           if (!cell) tile.cells.set(key, cell = { points: [], kinds: [] });
-          cell.points.push(x, y, z, random() * Math.PI * 2, kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45, oa + (ob - oa) * u + (oc - oa) * v);
+          const scale = meadow ? 0.85 + patch * 0.35 + random() * 0.3 : kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45;
+          cell.points.push(x, y, z, random() * Math.PI * 2, scale, oa + (ob - oa) * u + (oc - oa) * v);
           cell.kinds.push(kind);
         }
       }

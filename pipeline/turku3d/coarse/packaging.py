@@ -80,6 +80,7 @@ PRODUCERS = (
     "road_top",
     "forests",
     "forest_floor",
+    "meadows",
     "forest_paths",
     "visibility",
     "canopy_trees",
