@@ -210,7 +210,7 @@ test('a scenery job behind a tile lane that never empties still runs once it has
     void queue.enqueue(new THREE3.Group(), () => { ranScenery = true; events.push('scenery'); }, undefined, false, 'scenery');
     // Streaming keeps one tile job waiting at all times: each tile job queues the next one.
     let tiles = 0;
-    const tile = (): Promise<void> => queue.enqueue(new THREE3.Group(), () => { events.push(`tile-${tiles}`); now += 500;
+    const tile = (): Promise<void> => queue.enqueue(new THREE3.Group(), () => { events.push(`tile-${tiles}`); now += 200;
       if (++tiles < 30) void tile(); });
     void tile();
     for (let i = 0; i < 200 && !ranScenery; i++) await new Promise(r => setTimeout(r, 0));

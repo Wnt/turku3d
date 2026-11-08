@@ -17,8 +17,10 @@ export interface PreparationOrder { rank?: () => number; live?: () => boolean }
 export type PreparationPriority = 'actor' | 'tile' | 'scenery';
 /** A job that has gone behind higher lanes for this long (ms) runs at its next turn: on a slow GPU (the Air) the
  *  tile lane never empties while streaming, and scenery cells waited behind it forever (city.lab: 0 of ~180 distant
- *  cells after minutes). One aged job per turn keeps the near tiles first in all other cases. */
-const MAX_DEFER_MS = 4000;
+ *  cells after minutes). One aged job per turn keeps the near tiles first in all other cases. 4 s was too long once
+ *  tile GLBs parsed in time and the tile lane stayed full on the M1 Max too: scenery cells (~90 ms of work) waited
+ *  4.1 s p50, four held the poll slots, and squares 750-1000 m out drew nothing (drive replay 20261108-161745). */
+const MAX_DEFER_MS = 1000;
 const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
 const RECENT = 64;
 /** A finished job (diagnostics): wall ms, lane, model, compileModel draws handed to r186 (`calls`), node builds among
