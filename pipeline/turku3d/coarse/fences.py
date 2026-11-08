@@ -185,6 +185,26 @@ def lines(geom):
 
 ROAD_CLEARANCE = 0.35  # m: a barrier's solid box stays this far out of a carriageway
 GUARD_RAIL_INSET = 0.5  # m: a guard rail is cut only where it runs this far inside a carriageway
+GUARD_RAIL_REACH = 1.5  # m: a guard rail this near a carriageway guards that carriageway's edge
+GUARD_RAIL_DROP = 0.5  # m: ground this far below the guarded carriageway falls away under the rail
+
+
+def guarded_heights(edges, carriageways, points, sample):
+    """Height of the carriageway each guard-rail point guards: the higher surface 0.5 m and 2 m in from its nearest
+    edge (within GUARD_RAIL_REACH outside it or GUARD_RAIL_INSET inside it), NaN where no carriageway is that near."""
+    heights = np.full(len(points), np.nan)
+    if edges.is_empty:
+        return heights
+    query = shapely.points(np.asarray(points))
+    for i, (line, inside) in enumerate(zip(shapely.shortest_line(query, edges),
+                                           shapely.covers(carriageways, query), strict=True)):
+        a, b = np.asarray(line.coords)
+        depth = float(np.linalg.norm(b - a))
+        if not 1e-3 < depth <= GUARD_RAIL_REACH:
+            continue
+        inward = (a - b if inside else b - a) / depth
+        heights[i] = max(sample(*(b + inward * 0.5)), sample(*(b + inward * 2)))
+    return heights
 
 
 def segments(line, roads, openings, window, *, on_road=False, clearance=ROAD_CLEARANCE):
@@ -258,6 +278,7 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
             mouths.append(mouth)
     window = window.difference(shapely.union_all(mouths))
     roads = shapely.union_all([g for g, _ in streets])
+    edges = shapely.union_all(shapely.boundary(shapely.get_parts(roads)))
     openings = shapely.union_all(
         [
             g.buffer(1.5 if g.geom_type == "Point" else 0.15)
@@ -317,6 +338,14 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
                 if tags.get("_lidar_low"):
                     # A cheek wall follows its sloping lower side down to the ground.
                     bottom = min(bottom, sample(*p), sample(*q), sample(*mid))
+            if tags["barrier"] == "guard_rail":
+                # A guard rail stands on the edge of the carriageway it guards. Where the ground under it falls away
+                # (a portal under the road, an embankment shoulder cut by a coarser grid) it stays at the road's
+                # height: Etelatuulentie's rail over the Lansibaana portal stood 5 m down in the approach cutting.
+                guarded = guarded_heights(edges, roads, [p, q, mid], sample)
+                guarded = guarded[np.isfinite(guarded)]
+                if guarded.size and guarded.min() > bottom + GUARD_RAIL_DROP:
+                    bottom, top = float(guarded.min()), float(guarded.max()) + h
             if kind == "hedge" and "height" not in tags and "_hedge_top" in tags:
                 top = tags["_hedge_top"]
                 if top <= bottom + .1:

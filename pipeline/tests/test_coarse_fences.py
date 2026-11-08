@@ -255,3 +255,22 @@ def test_a_rail_along_a_road_carried_over_a_portal_stays_while_the_opening_is_cl
     assert np.isclose(sum(s.length for s in rails), 40)
     assert any(abs(s.z - 100) < 1.3 for s in rails)
     assert not [s for s in batch if s.kind != "rail"]
+
+
+def test_a_guard_rail_over_a_drop_beside_its_carriageway_stands_at_the_road_height():
+    # Over the Lansibaana portal the ground under Etelatuulentie's rail is the approach cutting, 5 m below the deck.
+    tile = C.VisualTile(0, 0, 0)
+    road = shapely.box(100, 70, 108, 130)
+
+    def ground(x, z):
+        return 13.0 if x >= 100 or not 95 <= z <= 105 else 8.0  # the cutting reaches the edge for z 95..105
+
+    records = [(shapely.LineString([(99.7, 80), (99.7, 120)]), {"barrier": "guard_rail"}, False),
+               (shapely.LineString([(97, 90), (97, 110)]), {"barrier": "fence"}, False)]
+    batch = place(tile, records, [(road, 0)], ground)
+    rails = [s for s in batch if s.kind == "rail"]
+    assert np.isclose(sum(s.length for s in rails), 40)
+    for s in rails:  # on the road's edge everywhere, a 0.8 m rail and not a 5.8 m wall down into the cutting
+        assert np.isclose(s.y, 13.0) and np.isclose(s.height, 0.8)
+    # The fence 3 m out in the cutting guards no carriageway and keeps its own ground.
+    assert min(s.y for s in batch if s.kind != "rail") == 8.0
