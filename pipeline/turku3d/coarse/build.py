@@ -511,6 +511,7 @@ def build(
             barrier_stage,
             Path(fences.__file__),
             Path(__file__).with_name("tunnels.py"),
+            Path(road_top.__file__),
             Path(bridge_join.__file__),
             street_profiles.sampler,
             attachments.sampler,
