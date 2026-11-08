@@ -59,7 +59,8 @@ def test_map_identity_uses_input_bytes_and_only_relevant_producers(tmp_path, mon
     assert maps.key(3, source_b) != before
     assert maps.key(finish, source_b) == procedural
     getsource = maps.inspect.getsource
-    monkeypatch.setattr(maps.inspect, 'getsource', lambda f: getsource(f) + ('\n# new finish' if f is maps.ground_finishes.maps else ''))
+    # Any change in the procedural module (a helper such as a forest floor's palette too) replaces its maps.
+    monkeypatch.setattr(maps.inspect, 'getsource', lambda f: getsource(f) + ('\n# new finish' if f is maps.ground_finishes else ''))
     assert maps.key(3, source_a) == before
     assert maps.key(finish, source_a) != procedural
 

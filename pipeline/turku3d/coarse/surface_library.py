@@ -75,7 +75,8 @@ def key(channel, source):
     procedural = KEYS[channel] in ground_finishes.PROCEDURAL
     code = [inspect.getsource(produce)]
     if procedural:
-        code.append(inspect.getsource(ground_finishes.maps))
+        # The whole module: maps() dispatches to helpers (forest floors, meadow, scattered leaves) and PERIODS.
+        code.append(inspect.getsource(ground_finishes))
     elif source is None:
         code.append(inspect.getsource(fallback))
     if channel in (0, 1):

@@ -67,17 +67,18 @@ def _forest_floor(key, rng, size, period, grain, macro, gaussian_filter):
 
     height = np.zeros((size, size))
     if key == "forest_floor_broadleaf":
-        albedo = np.array([60, 47, 36]) + grain[..., None] * 5
-        # Last autumn's litter, closed over the soil: oak (lobed), lime and maple leaves of 5-10 cm, fresh tan to
-        # decayed dark brown.
+        albedo = np.array([56, 49, 43]) + grain[..., None] * 5
+        # Last autumn's litter, closed over the soil: oak (lobed), lime and maple leaves of 5-10 cm, weathered over
+        # the winter to grey-brown (Ruissalo summer panoramas: floor saturation 0.02-0.06, lightness 0.25-0.33 in the
+        # shade; the fresh tan of autumn read orange, 0.17 against 0.05, in the game's sun).
         _scatter(rng, size, period, 9000, (.05, .1), (.5, .75),
-                 [[112, 84, 56], [126, 96, 62], [96, 74, 52], [140, 110, 72], [82, 64, 48], [104, 86, 60]],
+                 [[104, 90, 74], [116, 100, 80], [90, 80, 68], [126, 110, 88], [76, 68, 60], [98, 88, 72]],
                  [.22, .18, .2, .1, .16, .14], (albedo, height), .004, rib=.12, lobed=.4)
-        _scatter(rng, size, period, 90, (.12, .4), (.02, .05), [[74, 60, 46], [96, 80, 62]], [.6, .4],
+        _scatter(rng, size, period, 90, (.12, .4), (.02, .05), [[70, 62, 54], [92, 82, 70]], [.6, .4],
                  (albedo, height), .008)
-        # Summer herbs (anemone, sorrel, seedlings) in broad patches over about a third of the floor.
-        herbs = np.clip((noise(size / 14) + .55 * noise(size / 40) - .45) * 1.2, 0, 1)
-        _scatter(rng, size, period, 9000, (.02, .05), (.55, .9),
+        # Summer herbs (anemone, sorrel, seedlings) in broad patches over about two fifths of the floor.
+        herbs = np.clip((noise(size / 14) + .55 * noise(size / 40) - .3) * 1.2, 0, 1)
+        _scatter(rng, size, period, 12000, (.02, .05), (.55, .9),
                  [[70, 94, 46], [82, 104, 52], [60, 82, 40], [96, 112, 60]], [.3, .3, .25, .15],
                  (albedo, height), .012, where=herbs, rib=.08)
         roughness = np.full((size, size), .9)
