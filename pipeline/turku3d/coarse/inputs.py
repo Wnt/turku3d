@@ -336,7 +336,8 @@ def prepare_wfs(
 
 def centred_carriageways() -> bool:
     """The city's street areas come from the BGT survey, whose carriageways the OSM car edges are centred on
-    (turku3d.roads.centring); the Finnish registers keep the OSM lines as they are."""
+    (turku3d.roads.centring); a Finnish register carriageway includes its kerbside bays, so there only the lanes
+    beside bays that OSM maps move (centring.kerbside_bays)."""
     from turku3d import cities
 
     return cities.current().wfs_derived.get("GIS:Katualueet") == "bgt-streets"
@@ -352,8 +353,13 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=(),
     graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size)
     centred = Counter()
     if street is not None:
-        carriageway, streets = centring.load(street, tile.bbox.buffered(centring.HALF + 5))
-        centring.centre(graph, carriageway, centred, streets)
+        around = tile.bbox.buffered(centring.HALF + 5)
+        carriageway, streets = centring.load(street, around)
+        bays = None
+        if not centred_carriageways():
+            # A Finnish register carriageway includes its kerbside bays: only the lanes beside bays OSM maps move.
+            bays = centring.kerbside_bays(carriageway, centring.parking_areas(osm, around))
+        centring.centre(graph, carriageway, centred, streets, bays)
     from .bridges import prepare as prepare_bridges
 
     return {
@@ -492,8 +498,9 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
             osm,
             *bridge_survey.source_paths(tile),
             *bridge_survey.spot_sources(tile, sources),
-            # Surveyed BGT carriageways re-centre the OSM car edges (turku3d.roads.centring).
-            *([wfs[1][1]] if centred_carriageways() and wfs[1][1] else []),
+            # Surveyed carriageways re-centre the OSM car edges (turku3d.roads.centring): BGT ones everywhere, Finnish
+            # register ones beside kerbside bays.
+            *([wfs[1][1]] if wfs[1][1] else []),
         ]
         if osm
         else None,
