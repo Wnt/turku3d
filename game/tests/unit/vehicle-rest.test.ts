@@ -94,3 +94,22 @@ test('every fleet model parked as the world spawns it stands on its wheels and d
     expect(vehicles.get(kind)!.halfExt).toEqual(VEHICLES[kind].halfExt);
   }
 });
+
+test('stability control stays out at a standstill: a bus whose resting slip angles drifted on a slope still moves off', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+  pw.spawnCharacter({ x: 50, y: 2, z: 50 });
+  pw.spawnVehicle({ x: 0, y: 0.75, z: 0 }, 0, { id: 'bus', kind: 'car', tuning: modelTuning('transit-bus')! });
+  pw.driveVehicle('bus');
+  for (let k = 0; k < 60; k++) pw.fixedStep(null, coast);
+  type Esc = { cut: number; brake: number };
+  const bus = (pw as unknown as { vehicles: Map<string, { body: R.RigidBody; tyreState: { lag: number[] }; stability(): Esc }> }).vehicles.get('bus')!;
+  // As measured on the car show's 1 % lot (real collision, 2026-11-09): millimetre-per-second creep had relaxed the
+  // slip angles to 65-81°, the rear's above the front's, and the control cut the drive and braked a front wheel.
+  [-66, -65, -77, -81].forEach((deg, i) => { bus.tyreState.lag[i] = deg * Math.PI / 180; });
+  bus.body.wakeUp();
+  expect(bus.stability().cut).toBe(0);
+  // Moving, the same slip angles are a slide the control catches.
+  bus.body.setLinvel({ x: 10, y: 0, z: 0 }, true);
+  expect(bus.stability().cut).toBeGreaterThan(0);
+});

@@ -26,6 +26,8 @@ const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
  *  box from the model's height (0.28 of it): a bus, a lorry or a high-roof van would otherwise rest its box on the
  *  ground with the wheels lifted off it and could not drive (at 0.15 m none of them drags). */
 const BODY_CLEARANCE = 0.15;
+/** Forward speed (m/s) below which stability control stays out (`stability`). */
+const ESC_SPEED = 3;
 /** Rapier's brake is an impulse per 1/60 s step: the slip-curve tyre takes it as that force (N). */
 const BRAKE_STEP = 1 / 60;
 /** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
@@ -563,15 +565,19 @@ export class Vehicle {
   private stability(): { cut: number; brake: number; wheel: number } {
     const s = this.tuning.stability, t = this.tuning, lag = this.tyreState.lag, v = this.controller;
     if (!s) return { cut: 0, brake: 0, wheel: -1 };
+    // Below a walking-to-jogging pace a slip angle says nothing: a car standing on a slight slope creeps sideways at
+    // millimetres per second, its relaxed slip angles drift to 60-80°, and the control cut the drive and braked a
+    // front wheel, so a bus or a truck parked on a 1 % slope could not move off (the car show, 2026-11-09).
+    const b = this.body, q = b.rotation(), lv = b.linvel(), f = rotate({ x: 1, y: 0, z: 0 }, q), l = rotate({ x: 0, y: 0, z: -1 }, q);
+    const along = lv.x * f.x + lv.y * f.y + lv.z * f.z, across = lv.x * l.x + lv.y * l.y + lv.z * l.z, yaw = b.angvel().y;
+    if (Math.abs(along) < ESC_SPEED) return { cut: 0, brake: 0, wheel: -1 };
     const mean = (wheels: number[]) => { const on = wheels.filter(i => v.wheelIsInContact(i));
       return on.length ? on.reduce((a, i) => a + Math.abs(lag[i]), 0) / on.length : 0; };
     const rear = t.wheels.map((_, i) => i).filter(i => !t.front.includes(i));
     const excess = (mean(rear) - mean([...t.front])) * 180 / Math.PI;
     // The whole car sliding tail-out (all four tyres past their peak, as on a loose surface under power): the body's
     // sideslip against its yaw, from `sideslip` to twice it.
-    const b = this.body, q = b.rotation(), lv = b.linvel(), f = rotate({ x: 1, y: 0, z: 0 }, q), l = rotate({ x: 0, y: 0, z: -1 }, q);
-    const along = lv.x * f.x + lv.y * f.y + lv.z * f.z, across = lv.x * l.x + lv.y * l.y + lv.z * l.z, yaw = b.angvel().y;
-    const beta = Math.abs(along) > 3 && across * yaw < 0 ? Math.abs(Math.atan2(across, Math.abs(along))) * 180 / Math.PI : 0;
+    const beta = across * yaw < 0 ? Math.abs(Math.atan2(across, Math.abs(along))) * 180 / Math.PI : 0;
     const u = s.max * Math.min(1, Math.max(0, (excess - s.onset) / (s.full - s.onset), (beta - s.sideslip) / s.sideslip));
     if (u <= 0) return { cut: 0, brake: 0, wheel: -1 };
     // Yawing left (+y), the outside is the right (+z) front wheel.
