@@ -53,11 +53,11 @@ it('lights each clump with the ambient its ground was baked with (COLOR_1, canop
   while (!steps.next().done) { /* fixture */ }
   field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
   const lawnDraw = (field.root.children as THREE.InstancedMesh[])[0];
-  const ambient = lawnDraw.geometry.getAttribute('grassAmbient') as THREE.InstancedBufferAttribute;
+  const instance = lawnDraw.geometry.getAttribute('grassInstance') as THREE.InstancedBufferAttribute;
   const shaded: number[] = [], open: number[] = [];
   for (let i = 0; i < lawnDraw.count; i++) {
     const x = lawnDraw.instanceMatrix.array[i * 16 + 12];
-    if (x < -24) shaded.push(ambient.getX(i)); else if (x > 0) open.push(ambient.getX(i));
+    if (x < -24) shaded.push(instance.getZ(i)); else if (x > 0) open.push(instance.getZ(i));
   }
   expect(shaded.length).toBeGreaterThan(50);
   // The western edge has sky 0.3: 1 - 0.7 * 0.7 = 0.51 at its vertices, interpolated to 1 at x = 0 (about 0.62 at -24 m, by triangle);
@@ -119,11 +119,32 @@ it('draws tufts as opaque blades whose mean colour sits on the meadow ground, si
   expect(tufts.material).toBe(library.materials.grassBlade);
   expect(library.materials.grassBlade.alphaTest).toBe(0);
   expect(library.materials.grassBlade.transparent).toBe(false);
-  const scale = tufts.geometry.getAttribute('grassScale') as THREE.InstancedBufferAttribute;
+  const instance = tufts.geometry.getAttribute('grassInstance') as THREE.InstancedBufferAttribute;
   const matrix = new THREE.Matrix4(), s = new THREE.Vector3();
   for (const i of [0, Math.floor(tufts.count / 2), tufts.count - 1]) {
     tufts.getMatrixAt(i, matrix); s.setFromMatrixScale(matrix);
-    expect(scale.getX(i)).toBeCloseTo(s.y, 5);
+    expect(instance.getW(i)).toBeCloseTo(s.y, 5);
+  }
+  field.dispose();
+});
+
+it('keeps every grass draw within WebGPU\'s 8 vertex buffers: one per-instance vec4, no instanceColor', () => {
+  // The card clumps in nature.glb carry position, normal, uv, colour and _wind. With the instance matrix,
+  // instanceColor and grassAmbient the Air's Chrome counted 9 buffers (the renderer adds one of its own) and failed
+  // both grass pipelines: no grass was drawn at all. Packed into one vec4 the cards need 8.
+  const CARD = ['position', 'normal', 'uv', 'color', '_wind'];
+  const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+  ground.userData = { layer: 'ground', material_key: 'draft_grass_meadow' }; model.add(ground); scene.add(model);
+  const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+  while (!steps.next().done) { /* fixture */ }
+  field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+  for (const mesh of field.root.children as THREE.InstancedMesh[]) {
+    expect(mesh.instanceColor).toBeNull();
+    const instanced = Object.entries(mesh.geometry.attributes).filter(([, a]) => (a as THREE.InstancedBufferAttribute).isInstancedBufferAttribute);
+    expect(instanced.map(([name]) => name)).toEqual(['grassInstance']);
+    const own = mesh.userData.nature === 'grass_clump' ? Object.keys(mesh.geometry.attributes).filter(n => n !== 'grassInstance').length : CARD.length;
+    expect(own + instanced.length + 1 /* instance matrix */ + 1 /* renderer */).toBeLessThanOrEqual(8);
   }
   field.dispose();
 });

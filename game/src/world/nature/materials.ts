@@ -142,19 +142,23 @@ export class NatureMaterials {
     // Grass cards are seen edge-on: averaged (and boosted) alpha of dense blade bands would turn whole cards opaque.
     // Sample sharper mips and keep the alpha unboosted, so blades stay separate; TRAA resolves the shimmer.
     const blade = texture(leafMap, uv()).bias(float(-1.5));
-    this.grass.colorNode = vec4(blade.rgb, blade.a.mul(fade));
-    // The ground's baked ambient occlusion at each clump (GrassField: COLOR_1, canopy shade included).
-    this.grass.aoNode = attribute('grassAmbient', 'float');
+    // GrassField's per-instance vec4 (grass.ts grassGeometry): shade, dryness, the ground's baked ambient occlusion
+    // (COLOR_1, canopy shade included) and scale; the tint is the shade, yellower or bluer by the dryness.
+    const clump = attribute('grassInstance', 'vec4');
+    const tint = vec3(clump.y.mul(0.16).add(1), clump.y.mul(0.05).add(1), clump.y.mul(-0.1).add(0.96)).mul(clump.x);
+    this.grass.colorNode = vec4(blade.rgb.mul(tint), blade.a.mul(fade));
+    this.grass.aoNode = clump.z;
     this.grass.normalNode = normalViewGeometry;
     this.grass.positionNode = wind(0.06);
     this.grassBlade = new THREE.MeshStandardNodeMaterial({ name: 'nature-grass-blade', side: THREE.DoubleSide, roughness: 0.9, metalness: 0, vertexColors: true });
-    this.grassBlade.aoNode = attribute('grassAmbient', 'float');
+    this.grassBlade.colorNode = vec4(tint, 1);
+    this.grassBlade.aoNode = clump.z;
     this.grassBlade.normalNode = normalViewGeometry;
     this.grassBlade.positionNode = wind(0.06, () => {
       const world = modelWorldMatrix.mul(vec4(positionLocal, 1)).xyz;
       const shown = smoothstep(this.grassRange.y, this.grassRange.x, world.sub(cameraPosition).length());
       // The vertex's height above the tuft root in metres: its model height times the instance's scale.
-      const lift = max(attribute('position', 'vec3').y, 0).mul(attribute('grassScale', 'float'));
+      const lift = max(attribute('position', 'vec3').y, 0).mul(attribute('grassInstance', 'vec4').w);
       return vec3(0, lift.mul(shown.oneMinus()).negate(), 0);
     });
     if (lighting) {

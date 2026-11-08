@@ -70,13 +70,15 @@ function meadow(radius: number, perSquareMetre = 3) {
     for (const part of asset.lods[0].parts) {
       // The game's grass material (sharp, unboosted alpha), never fading inside the viewer's meadow.
       library.materials.grassRange.value.set(1e4, 2e4);
-      const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1)), library.materials.grass, n);
+      // grassGeometry's per-instance shade, dryness, ambient and scale (no instanceColor).
+      const instance = new THREE.InstancedBufferAttribute(new Float32Array(n * 4), 4);
+      const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, instance), library.materials.grass, n);
       const r2 = mulberry(11 + k);
       for (let i = 0; i < n; i++) {
         const a = r2() * Math.PI * 2, d = Math.sqrt(r2()) * radius, s = k ? 0.6 + r2() * 0.5 : 0.8 + r2() * 0.45;
         matrix.compose(new THREE.Vector3(Math.cos(a) * d, 0, Math.sin(a) * d), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), r2() * 6.28), new THREE.Vector3(s, s, s));
         mesh.setMatrixAt(i, matrix);
-        const b = 0.8 + r2() * 0.35; mesh.setColorAt(i, new THREE.Color(b, b, b * (0.9 + rng() * 0.15)));
+        instance.setXYZW(i, 0.8 + r2() * 0.35, rng() * 0.6 - 0.3, 1, s);
       }
       mesh.receiveShadow = true; mesh.castShadow = false;
       scene.add(mesh); placed.push(mesh);

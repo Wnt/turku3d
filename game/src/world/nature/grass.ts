@@ -41,14 +41,16 @@ function meadowKind(patch: number, pick: number) {
   return pick < 0.96 ? 0 : 3;
 }
 
-/** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassAmbient` the grass materials
- *  read (their aoNode) and, for blade tufts, the `grassScale` they sink by; dispose the view, not the source. */
-export function grassGeometry(source: THREE.BufferGeometry, ambient: THREE.InstancedBufferAttribute, scale?: THREE.InstancedBufferAttribute) {
+/** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassInstance` the grass materials
+ *  read: x shade, y dryness (-1 fresh blue-green .. 1 yellow; 0 neutral), z the ground's baked ambient (their aoNode),
+ *  w the instance scale (blade tufts sink by it). One vec4 instead of instanceColor plus two floats: WebGPU allows 8
+ *  vertex buffers per pipeline, and the card clumps' position, normal, uv, colour, wind, instance matrix and the
+ *  renderer's own buffer leave room for one. Dispose the view, not the source. */
+export function grassGeometry(source: THREE.BufferGeometry, instance: THREE.InstancedBufferAttribute) {
   const geometry = new THREE.BufferGeometry();
   for (const [name, attribute] of Object.entries(source.attributes)) geometry.setAttribute(name, attribute);
   geometry.setIndex(source.index);
-  geometry.setAttribute('grassAmbient', ambient);
-  if (scale) geometry.setAttribute('grassScale', scale);
+  geometry.setAttribute('grassInstance', instance);
   geometry.boundingSphere = source.boundingSphere; geometry.boundingBox = source.boundingBox;
   return geometry;
 }
@@ -58,8 +60,7 @@ export class GrassField {
   readonly root = new THREE.Group();
   private tiles = new Map<THREE.Object3D, TileGrass>();
   private draws: THREE.InstancedMesh[][] = [];
-  private ambient: THREE.InstancedBufferAttribute[] = [];
-  private scales: THREE.InstancedBufferAttribute[] = [];
+  private instances: THREE.InstancedBufferAttribute[] = [];
   private tuft = tuftGeometry();
   private selection = '';
   private readonly settings: { density: number; range: number; instances: number };
@@ -77,15 +78,13 @@ export class GrassField {
     for (const [k, name] of KINDS.entries()) {
       const cap = this.settings.instances;
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
-      const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
-      const ambient = new THREE.InstancedBufferAttribute(new Float32Array(cap).fill(1), 1);
-      const scale = new THREE.InstancedBufferAttribute(new Float32Array(cap).fill(1), 1);
-      this.ambient.push(ambient); this.scales.push(scale);
+      const instance = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
+      this.instances.push(instance);
       const parts = k === TUFT ? [{ geometry: this.tuft, material: library.materials.grassBlade }]
         : library.asset(name).lods[0].parts.map(part => ({ geometry: part.geometry, material: library.materials.grass }));
       this.draws.push(parts.map(part => {
-        const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, ambient, k === TUFT ? scale : undefined), part.material, cap);
-        mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
+        const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, instance), part.material, cap);
+        mesh.instanceMatrix = matrices;
         mesh.count = 0; mesh.visible = false; mesh.frustumCulled = false;
         mesh.castShadow = false; mesh.receiveShadow = true;
         mesh.userData = { vegetationLod: true, nature: name };
@@ -195,15 +194,13 @@ export class GrassField {
         const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
         // Blade tufts also vary in hue, from fresh blue-green to yellower, drier clumps.
         const dry = kind === TUFT ? ((cell.points[o + 3] * 3.71) % 1) * 2 - 1 : 0;
-        (parts[0].instanceColor!.array as Float32Array).set([shade * (1 + 0.16 * dry), shade * (1 + 0.05 * dry), shade * (0.96 - 0.1 * dry)], n * 3);
-        (this.ambient[kind].array as Float32Array)[n] = cell.points[o + 5];
-        (this.scales[kind].array as Float32Array)[n] = s;
+        (this.instances[kind].array as Float32Array).set([shade, dry, cell.points[o + 5], s], n * 4);
         counts[kind] = n + 1; remaining--;
       }
     }
     for (const [k, parts] of this.draws.entries()) {
       if (counts[k]) {
-        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3], [this.ambient[k], 1], [this.scales[k], 1]] as const) {
+        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [this.instances[k], 4]] as const) {
           attribute.clearUpdateRanges(); attribute.addUpdateRange(0, counts[k] * width);
           attribute.needsUpdate = true;
         }

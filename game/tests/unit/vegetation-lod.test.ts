@@ -458,7 +458,9 @@ it('does not upload stationary trees or grass again through the actual WebGPU at
   const manager = new Attributes({ createAttribute() {}, updateAttribute } as never, { createAttribute() {} } as never);
   const upload = () => {
     const batches = [...generated(model, mesh), ...grass.root.children as THREE.InstancedMesh[]];
-    const attributes = new Set(batches.filter(m => m.visible).flatMap(m => [m.instanceMatrix, m.instanceColor!]));
+    // Every per-instance buffer: the matrix, instance colours (trees) and the grass's packed vec4 (grassInstance).
+    const attributes = new Set(batches.filter(m => m.visible).flatMap(m => [m.instanceMatrix, ...(m.instanceColor ? [m.instanceColor] : []),
+      ...Object.values(m.geometry.attributes).filter(a => (a as THREE.InstancedBufferAttribute).isInstancedBufferAttribute)]));
     for (const attribute of attributes) manager.update(attribute, AttributeType.VERTEX);
   };
   upload(); lod.update(camera); grass.update(camera); upload(); upload();
