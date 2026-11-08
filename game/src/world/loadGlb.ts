@@ -57,6 +57,13 @@ function admit(): Promise<void> {
   return turn;
 }
 
+/** A glTF with at most this many accessors and meshes parses in one go once its read is admitted (loadGlb's pace).
+ *  Its whole parse is about half a millisecond of main-thread work, yet paced one continuation per task it waited in
+ *  the shared admission queue: building models (23 steps each) took 168 ms p50, 1.1 s p90 to parse on the Air at
+ *  23 m/s, at ~300 admissions a second, about five per frame (fastdrive glb.load trace, 2026-11-08). Their reads hold
+ *  the six model read slots, so a tile's buildings waited seconds. Big tile GLBs (hundreds of steps) stay paced. */
+export const UNPACED_STEPS = 32;
+
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
 export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number }): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
@@ -72,7 +79,10 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
       // Paced continuations: when meshopt's worker answers, everything waiting on that buffer view (accessors,
       // geometries, meshes, nodes, the scene) ran as microtasks of that one message: 180-283 ms frames per streamed tile
       // on the Windows laptop, 127-139 ms on the M1 Max (verify-all r3, LoAF Worker.onmessage in the meshopt decoder).
-      // Each resolved accessor and mesh now waits for room in the frame's streaming window, re-checked after waking.
+      // Each resolved accessor and mesh of a big glTF now waits for room in the frame's streaming window, re-checked
+      // after waking; a small one (UNPACED_STEPS) runs in one go.
+      const json = parser.json as { accessors?: unknown[]; meshes?: unknown[] };
+      if ((json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS) return;
       const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit().then(() => value); };
       const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
       parser.loadAccessor = index => loadAccessor(index).then(paced);

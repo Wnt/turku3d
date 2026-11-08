@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { FileLoader } from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { decodeGlb } from '../../src/world/decodeGlb';
-import { parseDecodedGlb } from '../../src/world/loadGlb';
+import { parseDecodedGlb, UNPACED_STEPS } from '../../src/world/loadGlb';
 
 test('worker container decoding retains binary accessors, metadata and relative resource base', async () => {
   const json = { asset: { version: '2.0' }, buffers: [{ byteLength: 36 }], bufferViews: [{ buffer: 0, byteLength: 36 }],
@@ -84,4 +84,27 @@ test('a paced parse (accessors and meshes wait for the streaming window) still b
     expect(mesh.userData.building_id).toBe(`b${i}`);
     expect(mesh.geometry.attributes.position.getX(1)).toBe(i + 1);
   }
+});
+
+test('a small glTF (a building model) parses in one go, without waiting for frames; a big one still paces', async () => {
+  const gltf = (meshes: number) => {
+    const floats = new Float32Array(meshes * 9);
+    for (let i = 0; i < meshes; i++) floats.set([i, 0, 0, i + 1, 0, 0, i, 1, 0], i * 9);
+    return { json: { asset: { version: '2.0' }, buffers: [{ byteLength: floats.byteLength }],
+      bufferViews: Array.from({ length: meshes }, (_, i) => ({ buffer: 0, byteOffset: i * 36, byteLength: 36 })),
+      accessors: Array.from({ length: meshes }, (_, i) => ({ bufferView: i, componentType: 5126, count: 3, type: 'VEC3', min: [i, 0, 0], max: [i + 1, 1, 0] })),
+      meshes: Array.from({ length: meshes }, (_, i) => ({ primitives: [{ attributes: { POSITION: i } }] })),
+      nodes: Array.from({ length: meshes }, (_, i) => ({ mesh: i })), scenes: [{ nodes: Array.from({ length: meshes }, (_, i) => i) }], scene: 0 },
+      binary: floats.buffer };
+  };
+  // No frame ever comes: only a parse that never waits for the streaming window can finish.
+  vi.stubGlobal('requestAnimationFrame', () => 0);
+  try {
+    const small = await parseDecodedGlb(new GLTFLoader(), gltf(UNPACED_STEPS / 2), 'https://example.test/coarse/shared/');
+    expect(small.scene.children).toHaveLength(UNPACED_STEPS / 2);
+    let done = false;
+    void parseDecodedGlb(new GLTFLoader(), gltf(400), 'https://example.test/coarse/t0_0_0/').then(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(done).toBe(false);
+  } finally { vi.unstubAllGlobals(); }
 });
