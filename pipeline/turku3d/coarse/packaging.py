@@ -97,7 +97,63 @@ PRODUCERS = (
     "stored_facades",
     "slope_buildings",
     "funicular",
+    "floodlights",
+    "footings",
+    "metal_roofs",
+    "passage_grade",
+    "proximity",
+    "roof_returns",
+    "stair_rails",
+    "surface_audit",
+    "surface_closure",
+    "tunnel_ground",
+    "venues",
+    "vessels",
+    "walkable_audit",
+    "wires",
 )
+# Producers outside coarse/, relative to pipeline/turku3d.
+SOURCES = (
+    "__init__.py",
+    "buildings/inputs.py",
+    "buildings/reconstruct.py",
+    "cities/__init__.py",
+    "ground/curbs.py",
+    "ground/finished.py",
+    "ground/inputs.py",
+    "ground/mesh.py",
+    "ground/points.py",
+    "lidar/__init__.py",
+    "lidar/cache.py",
+    "lidar/profiles.py",
+    "lidar/surface.py",
+    "nl/convert.py",
+    "nl/lidar.py",
+    "package/facades.py",
+    "package/manifest.py",
+    "props/facing.py",
+    "props/racks.py",
+    "props/seating.py",
+    "props/signposts.py",
+    "region/cache.py",
+    "source_code.py",
+    "tile_layer.py",
+    "wire_points.py",
+)
+# What a build reaches that must not change the producer identity, relative to pipeline/turku3d
+# (a trailing "/" covers a package). tests/test_producer_identity.py fails for any module or
+# resource the build reaches that is neither a producer nor listed here.
+NOT_PRODUCERS = {
+    "coarse/audit.py": "verification queued after publication",
+    "coarse/material_audit.py": "a manifest report only",
+    "coarse/retention.py": "build directory retention",
+    "profiling.py": "stage timing",
+    "fetch/": "network fetch and the raw registry; raw inputs enter by content through input keys",
+    "nl/fetch.py": "network fetch; raw inputs enter by content through input keys",
+    "migrations/": "the farm's migration chain applies and records them; a new migration must not rebuild tiles",
+    "../../textures/library/facade-programs.json": "per building through facade_programs.program_hash",
+    "../../textures/library/facade-appearance.json": "per building through facade_programs.program_hash",
+}
 
 
 def package_sources():
@@ -115,6 +171,7 @@ def producer_paths():
             Path(__file__).parents[1] / "wall_surfaces.py",
             Path(__file__).parents[1] / "wall_assembly.py",
             *[Path(__file__).with_name(name + ".py") for name in PRODUCERS],
+            *[Path(__file__).parents[1] / name for name in SOURCES],
             Path(__file__).with_name("vessel_observations.json"),
             Path(__file__).with_name("quay_lighting_observations.json"),
             Path(__file__).parents[1] / "stage_cache.py",
