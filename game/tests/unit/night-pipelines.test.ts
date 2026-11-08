@@ -260,10 +260,11 @@ test.each([false, true])('the developer clock scrubbing 13:00 → 22:00 → 04:0
   for (let m = 13 * 60; m <= (24 + 4) * 60; m += 5) { clock.seek(m / 60); frames(1, same); }
   expect(env.sun.intensity).toBe(0); expect(env.nightFactor).toBe(1); expect(env.shadowsFrozen).toBe(true);
   expect(env.lamps.point.some(l => l.intensity > 0)).toBe(true);
-  // ×600 from 04:00 for 36 s: six clock hours through dawn into the morning.
+  // ×600 from 04:00 for 36 s: the rest of the night and dawn pass faster (the live cycle's proportions), then about
+  // five hours of day.
   clock.resume(600);
   frames(36 * 60, same);
-  expect(clock.hour).toBeCloseTo(10, 1);
+  expect(clock.hour).toBeCloseTo(12.14, 1);
   expect(env.sun.intensity).toBeGreaterThan(3); expect(env.nightFactor).toBe(0); expect(env.shadowsFrozen).toBe(false);
   expect(env.lamps.point.every(l => l.intensity === 0)).toBe(true);
   expect(keys()).toEqual(day);
