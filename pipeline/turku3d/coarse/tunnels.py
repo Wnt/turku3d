@@ -206,10 +206,14 @@ def buried_ends(line, tags, surface, below):
     return tuple(flags) if any(flags) else None
 
 
-def joins(tree, point, reach=0.5):
+NODE_REACH = 0.05  # m: ways that share an OSM node have identical coordinates here
+
+
+def joins(tree, point, reach=NODE_REACH):
     """Whether a way in ``tree`` (STRtree of lines) has a node at ``point``: ways join at a shared node, and a street
     that crosses over a corridor's end at another level has none there (Rotterdam's Coolsingel centreline runs right
-    over both ends of the Beurs escalators between levels -1 and -2)."""
+    over both ends of the Beurs escalators between levels -1 and -2, and Westblaak has a node of its own 0.49 m from
+    the end of a station corridor at its escalators)."""
     if tree is None:
         return False
     for index in tree.query(point, predicate="dwithin", distance=reach):
