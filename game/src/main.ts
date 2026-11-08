@@ -62,6 +62,7 @@ import { readCol, readColSync } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
 import { IdPass } from './render/idPass';
 import { Telemetry, httpTransport, telemetryEnabled } from './telemetry';
+import { streamTrace } from './telemetry/streamTrace';
 import { BuildBadge, type BuildStatus } from './ui/buildBadge';
 import { startPlay, type PlayWorld } from './play';
 import { worldLoad } from './world/loadProgress';
@@ -278,6 +279,8 @@ const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), r
 const actorGraphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
 const flushGraphics = (onError: (error: unknown) => void) => { graphics.flush(onError); actorGraphics.flush(onError); };
 (window.__render as unknown as Record<string, unknown>).graphics = () => ({ ...graphics.stats(), actors: actorGraphics.stats() });
+// The streaming trace for tools without a capture (fastdrive fly: per-stage install times); off until a tool sets `on`.
+(window.__render as unknown as Record<string, unknown>).streamTrace = streamTrace;
 const tiles = new VisualTiles(!!idPass, release => graphics.retire(release));
 // Static render bundles (render/staticBundles.ts) are an A/B alternative, off by default: per-tile bundles measured a
 // net loss (bench=static: CPU p50 +0.9 ms, +120 draws). Opt in with ?bundles=1 (lab, drive replays and play).
