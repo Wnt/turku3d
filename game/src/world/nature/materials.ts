@@ -134,6 +134,8 @@ export class NatureMaterials {
     // Sample sharper mips and keep the alpha unboosted, so blades stay separate; TRAA resolves the shimmer.
     const blade = texture(leafMap, uv()).bias(float(-1.5));
     this.grass.colorNode = vec4(blade.rgb, blade.a.mul(fade));
+    // The ground's baked ambient occlusion at each clump (GrassField: COLOR_1, canopy shade included).
+    this.grass.aoNode = attribute('grassAmbient', 'float');
     this.grass.normalNode = normalViewGeometry;
     this.grass.positionNode = wind(0.06);
     if (lighting) {

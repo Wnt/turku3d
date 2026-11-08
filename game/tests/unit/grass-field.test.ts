@@ -37,3 +37,32 @@ it('selects the same grass at a final pose regardless of the path into its camer
   };
   expect(sample(.1)).toEqual(sample(15.9));
 });
+
+it('lights each clump with the ambient its ground was baked with (COLOR_1, canopy shade included)', () => {
+  const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
+  const geometry = new THREE.PlaneGeometry(64, 64, 2, 2).rotateX(-Math.PI / 2);
+  // R local ambient, G sky, B coverage per vertex: the west column under a canopy (sky 0.3), the rest open.
+  const visibility = new Float32Array(geometry.attributes.position.count * 3);
+  for (let i = 0; i < geometry.attributes.position.count; i++) {
+    visibility.set([1, geometry.attributes.position.getX(i) < 0 ? 0.3 : 1, 1], i * 3);
+  }
+  geometry.setAttribute('color_1', new THREE.BufferAttribute(visibility, 3));
+  const lawn = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+  lawn.userData = { layer: 'ground', material_key: 'draft_grass' }; model.add(lawn); scene.add(model);
+  const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+  while (!steps.next().done) { /* fixture */ }
+  field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+  const lawnDraw = (field.root.children as THREE.InstancedMesh[])[0];
+  const ambient = lawnDraw.geometry.getAttribute('grassAmbient') as THREE.InstancedBufferAttribute;
+  const shaded: number[] = [], open: number[] = [];
+  for (let i = 0; i < lawnDraw.count; i++) {
+    const x = lawnDraw.instanceMatrix.array[i * 16 + 12];
+    if (x < -24) shaded.push(ambient.getX(i)); else if (x > 0) open.push(ambient.getX(i));
+  }
+  expect(shaded.length).toBeGreaterThan(50);
+  // The western edge has sky 0.3: 1 - 0.7 * 0.7 = 0.51 at its vertices, interpolated to 1 at x = 0 (about 0.62 at -24 m, by triangle);
+  // the open half keeps full ambient.
+  expect(Math.min(...shaded)).toBeGreaterThan(0.5); expect(Math.max(...shaded)).toBeLessThan(0.66);
+  expect(open.every(a => a === 1)).toBe(true);
+  field.dispose();
+});

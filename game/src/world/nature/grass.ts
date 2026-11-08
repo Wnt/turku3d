@@ -1,7 +1,10 @@
 // Instanced grass on the tiles' grass surfaces, near the camera only (GTA-style: dense clumps that thin out with
 // distance). Candidates are sampled once per tile on its grass triangles into 16 m world cells; each frame the cells
 // around the camera fill one draw per clump kind, and the material dissolves clumps towards the edge of the range.
+// Each clump takes the ambient occlusion its ground carries (the generator's COLOR_1 sky bake, so the canopy shade
+// under trees too) as a per-instance factor on its indirect light, the way the ground under it is lit.
 import * as THREE from 'three/webgpu';
+import { BAKED_AMBIENT_STRENGTH } from '../../render/bakedVisibility';
 import type { QualityTier } from '../../render/quality';
 import { QUALITY } from '../../render/quality';
 import { materialKey, surfaceStyle } from '../../render/materials';
@@ -9,6 +12,8 @@ import type { NatureLibrary } from './library';
 import { hashId } from './species';
 
 const CELL = 16;
+/** Values per candidate: x, y, z, rotation, scale, ambient. */
+const STRIDE = 6;
 /** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes. */
 const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette'] as const;
 
@@ -23,11 +28,23 @@ function patchNoise(x: number, z: number) {
   return Math.min(1, Math.max(0, (v - 0.35) / 0.35));
 }
 
+/** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassAmbient` the grass material
+ *  reads (its aoNode); dispose the view, not the source. */
+export function grassGeometry(source: THREE.BufferGeometry, ambient: THREE.InstancedBufferAttribute) {
+  const geometry = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(source.attributes)) geometry.setAttribute(name, attribute);
+  geometry.setIndex(source.index);
+  geometry.setAttribute('grassAmbient', ambient);
+  geometry.boundingSphere = source.boundingSphere; geometry.boundingBox = source.boundingBox;
+  return geometry;
+}
+
 export class GrassField {
   /** World-space draws: add to the scene once. */
   readonly root = new THREE.Group();
   private tiles = new Map<THREE.Object3D, TileGrass>();
   private draws: THREE.InstancedMesh[][] = [];
+  private ambient: THREE.InstancedBufferAttribute[] = [];
   private selection = '';
   private readonly settings: { density: number; range: number; instances: number };
   private matrix = new THREE.Matrix4();
@@ -45,8 +62,10 @@ export class GrassField {
       const asset = library.asset(name), cap = this.settings.instances;
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+      const ambient = new THREE.InstancedBufferAttribute(new Float32Array(cap).fill(1), 1);
+      this.ambient.push(ambient);
       this.draws.push(asset.lods[0].parts.map(part => {
-        const mesh = new THREE.InstancedMesh(part.geometry, library.materials.grass, cap);
+        const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, ambient), library.materials.grass, cap);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         mesh.count = 0; mesh.visible = false; mesh.frustumCulled = false;
         mesh.castShadow = false; mesh.receiveShadow = true;
@@ -77,12 +96,17 @@ export class GrassField {
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
     for (const mesh of meshes) {
       const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
+      const baked = mesh.geometry.getAttribute('color_1') as THREE.BufferAttribute | undefined;
+      // bakedAmbientContext's factor: the darker of local and sky visibility, weighted by coverage.
+      const occlusion = (i: number) => baked ? 1 + (Math.min(baked.getX(i), baked.getY(i)) - 1) * baked.getZ(i) * BAKED_AMBIENT_STRENGTH : 1;
       const count = (index?.count ?? position.count) / 3;
       for (let t = 0; t < count; t++) {
         if (t % 2000 === 0) yield;
-        a.fromBufferAttribute(position, index?.getX(t * 3) ?? t * 3).applyMatrix4(mesh.matrixWorld);
-        b.fromBufferAttribute(position, index?.getX(t * 3 + 1) ?? t * 3 + 1).applyMatrix4(mesh.matrixWorld);
-        c.fromBufferAttribute(position, index?.getX(t * 3 + 2) ?? t * 3 + 2).applyMatrix4(mesh.matrixWorld);
+        const ia = index?.getX(t * 3) ?? t * 3, ib = index?.getX(t * 3 + 1) ?? t * 3 + 1, ic = index?.getX(t * 3 + 2) ?? t * 3 + 2;
+        a.fromBufferAttribute(position, ia).applyMatrix4(mesh.matrixWorld);
+        b.fromBufferAttribute(position, ib).applyMatrix4(mesh.matrixWorld);
+        c.fromBufferAttribute(position, ic).applyMatrix4(mesh.matrixWorld);
+        const oa = occlusion(ia), ob = occlusion(ib), oc = occlusion(ic);
         const area = ab.subVectors(b, a).cross(ac.subVectors(c, a)).length() / 2;
         // Steep banks keep no grass clumps (their normal is far from up).
         if (area <= 0 || Math.abs(ab.y) / (2 * area) < 0.7) continue;
@@ -99,7 +123,7 @@ export class GrassField {
           const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
           let cell = tile.cells.get(key);
           if (!cell) tile.cells.set(key, cell = { points: [], kinds: [] });
-          cell.points.push(x, y, z, random() * Math.PI * 2, kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45);
+          cell.points.push(x, y, z, random() * Math.PI * 2, kind ? 0.55 + patch * 0.5 : 0.8 + random() * 0.45, oa + (ob - oa) * u + (oc - oa) * v);
           cell.kinds.push(kind);
         }
       }
@@ -144,18 +168,19 @@ export class GrassField {
       if (!remaining) break;
       for (let i = 0; i < cell.kinds.length && remaining; i++) {
         const kind = cell.kinds[i], parts = this.draws[kind], n = counts[kind];
-        const o = i * 5, s = cell.points[o + 4];
+        const o = i * STRIDE, s = cell.points[o + 4];
         this.matrix.compose(this.at.set(cell.points[o], cell.points[o + 1], cell.points[o + 2]),
           this.quaternion.setFromAxisAngle(this.up, cell.points[o + 3]), this.scale.set(s, s, s));
         this.matrix.toArray(parts[0].instanceMatrix.array, n * 16);
         const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
         (parts[0].instanceColor!.array as Float32Array).set([shade, shade, shade * 0.96], n * 3);
+        (this.ambient[kind].array as Float32Array)[n] = cell.points[o + 5];
         counts[kind] = n + 1; remaining--;
       }
     }
     for (const [k, parts] of this.draws.entries()) {
       if (counts[k]) {
-        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3]] as const) {
+        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3], [this.ambient[k], 1]] as const) {
           attribute.clearUpdateRanges(); attribute.addUpdateRange(0, counts[k] * width);
           attribute.needsUpdate = true;
         }
@@ -165,7 +190,7 @@ export class GrassField {
   }
 
   dispose() {
-    for (const parts of this.draws) for (const part of parts) part.dispose();
+    for (const parts of this.draws) for (const part of parts) { part.geometry.dispose(); part.dispose(); }
     this.root.removeFromParent();
   }
 }

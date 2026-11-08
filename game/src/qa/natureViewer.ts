@@ -13,6 +13,7 @@ import { PostProcessing } from '../render/post';
 import { QUALITY, parseQuality } from '../render/quality';
 import { loadNatureLibrary, type NatureAsset, type NatureLibrary } from '../world/nature/library';
 import { VegetationLod } from '../world/vegetationLod';
+import { grassGeometry } from '../world/nature/grass';
 import { fenceTint, hashId } from '../world/nature/species';
 
 const query = new URLSearchParams(location.search);
@@ -69,7 +70,7 @@ function meadow(radius: number, perSquareMetre = 3) {
     for (const part of asset.lods[0].parts) {
       // The game's grass material (sharp, unboosted alpha), never fading inside the viewer's meadow.
       library.materials.grassRange.value.set(1e4, 2e4);
-      const mesh = new THREE.InstancedMesh(part.geometry, library.materials.grass, n);
+      const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, new THREE.InstancedBufferAttribute(new Float32Array(n).fill(1), 1)), library.materials.grass, n);
       const r2 = mulberry(11 + k);
       for (let i = 0; i < n; i++) {
         const a = r2() * Math.PI * 2, d = Math.sqrt(r2()) * radius, s = k ? 0.6 + r2() * 0.5 : 0.8 + r2() * 0.45;
