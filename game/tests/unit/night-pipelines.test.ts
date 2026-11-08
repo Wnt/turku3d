@@ -311,7 +311,8 @@ test.each([false, true])('13:00, 23:30 and lit slots generate the same programs 
 });
 
 test.each([false, true])('batched lighting keeps the scene IBL of the default lighting path (WebGL=%s)', webgl => {
-  // Sampled textures per fragment stage: albedo/normal/ORM, shadow maps and the scene environment map.
+  // Sampled textures per fragment stage: albedo/normal/ORM, shadow maps and the scene environment map; the batched
+  // set adds exactly one, the street-lamp field (lights/groundField.ts), to every lit program (not water and sky).
   const textures = (lighting?: THREE.Lighting) => {
     const w = world(webgl, 'medium', lighting); w.at(13);
     return Object.fromEntries(Object.entries(w.shaders()).map(([name, program]) =>
@@ -319,7 +320,9 @@ test.each([false, true])('batched lighting keeps the scene IBL of the default li
   };
   const batched = textures(), reference = textures(new THREE.Lighting());
   expect(batched['kit-v3']).toBeGreaterThan(3);
-  expect(batched).toEqual(reference);
+  expect(Object.keys(batched)).toEqual(Object.keys(reference));
+  const unlit = new Set(['water', 'sky']);
+  for (const name of Object.keys(reference)) expect(batched[name] - reference[name], name).toBe(unlit.has(name) ? 0 : 1);
 });
 
 test('idle light slots cost no shader loop iterations; active ones are packed first', () => {

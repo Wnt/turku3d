@@ -82,6 +82,13 @@ Night raises bloom (not allocated on mobile), shadow cascades are not re-rendere
   scan) takes no slot, and the light hangs a third of the head height below the head, clear of the lamp's own arm.
   The choice is purely local to this camera; the lamps and the night level are already identical on every client.
   Facade and tunnel lights stay coronas only.
+- **Street-lamp field** ([lights/groundField.ts](lights/groundField.ts)): every resident street and bridge lamp
+  (posts, lamps hung on span wires 9 m over the street) lights a 1 km square around the camera through one RGBA16F
+  texture, a data node of the fixed light set (`lighting.ts`), so every lit material receives it: the ground under
+  and between lamps (a batwing luminaire, pools overlapping along the street) and the walls beside them (a light
+  vector at a ground-floor facade, half-Lambert). Building footprints stop the light; the square rebuilds on the
+  main thread in 1.5 ms slices when the camera crosses a 128 m cell or a lamp inside it changes, and the previous
+  complete map stays on the GPU until then. `__game.lights.ground.tuning` with `rebuild()` tunes it live.
 
 `?aa=off|taa|fxaa` is a diagnostic selector (default `taa`, or `fxaa` for mobile quality) on both backends. `off` bypasses colour AA; `fxaa`
 uses spatial AA. Both disable TRAA jitter/history and the AO temporal sampling pattern, while preserving lighting,

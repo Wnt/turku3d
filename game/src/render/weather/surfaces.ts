@@ -3,12 +3,10 @@ import * as THREE from 'three/webgpu';
 import { Fn, If, float, materialColor, materialRoughness, mix, normalWorldGeometry, positionWorld, smoothstep, texture, vec2, vec4 } from 'three/tsl';
 
 import { weatherHeightField, weatherUniforms } from './surfaceState';
-import { mappedGroundLight } from '../lights/groundField';
-import { materialLightMap } from 'three/tsl';
 export { weatherUniforms } from './surfaceState';
 let detail: THREE.DataTexture | undefined;
 const allMineral = float(1);
-type WetGraph = Pick<THREE.MeshStandardNodeMaterial, 'colorNode' | 'roughnessNode' | 'setupLightMap'>;
+type WetGraph = Pick<THREE.MeshStandardNodeMaterial, 'colorNode' | 'roughnessNode'>;
 type WetRecipes = { textures: Map<string, Map<string, WetRecipes>>; graph?: WetGraph };
 const wetRecipes: WetRecipes = { textures: new Map() };
 /** What a material texture changes in the generated program. The graph reads every map through r186's shared
@@ -86,12 +84,6 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   const recipe = !facade && mineral === allMineral && !Object.values(material).some(value => value?.isNode)
     ? wetRecipe(material) : null;
   if (recipe?.graph) { Object.assign(material, recipe.graph); return material; }
-  if (!facade) {
-    // Streaming precompiles and beauty/reflection builders must see the same graph.
-    const irradiance = new THREE.IrradianceNode(material.lightMap
-      ? materialLightMap.add(mappedGroundLight()) : mappedGroundLight());
-    material.setupLightMap = () => irradiance;
-  }
   const baseColor = (material.colorNode ?? materialColor.rgb) as THREE.Node<'vec3'>;
   const baseRoughness = (material.roughnessNode ?? materialRoughness) as THREE.Node<'float'>;
   const surface = Fn(() => {
@@ -113,6 +105,6 @@ export function wetSurface(material: THREE.MeshStandardNodeMaterial, facade = fa
   })();
   material.colorNode = surface.rgb;
   material.roughnessNode = surface.a;
-  if (recipe) recipe.graph = { colorNode: material.colorNode, roughnessNode: material.roughnessNode, setupLightMap: material.setupLightMap };
+  if (recipe) recipe.graph = { colorNode: material.colorNode, roughnessNode: material.roughnessNode };
   return material;
 }

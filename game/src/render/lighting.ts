@@ -2,6 +2,7 @@
 // recompiles every lit material, so lights are created once at startup and only their uniforms change.
 import { VehicleLightData } from './vehicleLightData';
 import { FloodAreaData } from './lights/floodArea';
+import { LampFieldData } from './lights/groundField';
 import type * as THREE from 'three/webgpu';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import DynamicLightsNode from 'three/addons/tsl/lighting/DynamicLightsNode.js';
@@ -69,7 +70,8 @@ class GameLightsNode extends DynamicLightsNode {
  * loop's code is compiled in), so mobile and low have none.
  * Budget: every batched light type adds uniform buffers to each lit fragment stage (point 3, spot 4) and WebGPU
  * guarantees only 12 per stage. Vehicle spotlights use one packed buffer (vehicleLightData.ts); the floodlit venues'
- * area light adds none (render-group uniforms, lights/floodArea.ts).
+ * area light adds none (render-group uniforms, lights/floodArea.ts); the street-lamp field adds one texture and its
+ * sampler (lights/groundField.ts).
  */
 export class GameLighting extends DynamicLighting {
   constructor(readonly slots: LightSlots) {
@@ -82,6 +84,8 @@ export class GameLighting extends DynamicLighting {
     data.set('SpotLight', new VehicleLightData());
     // Floodlit venues (lights/floodArea.ts): render-group uniforms only, on every tier.
     data.set('FloodAreaLight', new FloodAreaData());
+    // Every resident street lamp on the ground and the walls beside it (lights/groundField.ts): one texture, every tier.
+    data.set('StreetLampField', new LampFieldData());
     if (this.slots.point > 0) data.set('PointLight', new ActivePointLights(this.slots.point));
     return node.setLights(lights);
   }
