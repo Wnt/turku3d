@@ -402,6 +402,15 @@ def produce(tile, inputs, height_at, mapped, carried=None):
                 )
                 if clears_path(bush, paths):
                     bushes.append(bush)
+    measured_shrubs = getattr(inputs, "vegetation_shrubs", ())
+    if len(measured_shrubs):
+        # The lidar measured the tile's shrubs (class 4): bushes stand where it saw them, in parks, yards, scrub and
+        # along forest edges, instead of the guessed edge bushes.
+        from .canopy_trees import shrubs
+
+        shrub_blocked = shapely.union_all([blocked, measured_blocked])
+        bushes = [b for b in shrubs(tile, measured_shrubs, measured_canopy, height_at, shrub_blocked,
+                                    [(t.x, t.z) for t in trees]) if clears_path(b, paths)]
     if carried is not None and not carried.is_empty:
         # A trunk outside the road is insufficient: its complete crown must clear the deck.
         trees = [t for t in trees if carried.distance(shapely.Point(t.x, t.z)) > t.crown_radius]

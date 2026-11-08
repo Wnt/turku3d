@@ -47,7 +47,8 @@ CELLS = 128  # grid cells per 250 m tile; 32 per collision tile
 # closure of each producer (input_keys.closure_code), not from hand-kept file lists.
 DATASETS = (
     "ground", "water", "walkable", "wfs", "roads", "parking", "kerb_parking", "trees",
-    "attachments", "retaining", "vegetation_canopy", "vegetation_leaves", "barriers", "forests", "vegetation_paths",
+    "attachments", "retaining", "vegetation_canopy", "vegetation_leaves", "vegetation_shrubs", "barriers", "forests",
+    "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
     "trunk_ground", "finished_ground", "tram_rails", "green_areas", "soffits",
@@ -99,6 +100,7 @@ class Inputs:
     canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_canopy: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
     vegetation_leaves: np.ndarray = field(default_factory=lambda: np.empty((0, 6)))  # canopy_trees.leaf_points
+    vegetation_shrubs: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))  # canopy_trees.shrub_points
     green_areas: list = ()  # meadows.prepare: unmown grass polygons
     kerbs: object = None
     markings: list = ()  # explicit OSM crosswalk/lane/stop line polygons
@@ -489,6 +491,7 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         "ground": None if missing else laz,
         "vegetation_canopy": [] if first_pass else roofs.lidar_paths(tile),
         "vegetation_leaves": [] if first_pass else roofs.lidar_paths(tile),
+        "vegetation_shrubs": [] if first_pass else roofs.lidar_paths(tile),
         "green_areas": [sources.wfs_source(GREEN_AREAS, tile)[1], osm],
         "water": [wfs[2][1], osm] if wfs[2][0] else None,
         "walkable": [osm, wfs[2][1], *laz, *bridge_survey.source_paths(tile)]
@@ -661,6 +664,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .canopy_trees import leaf_points
 
         return leaf_points(tile, paths)
+    if dataset == "vegetation_shrubs":
+        from .canopy_trees import shrub_points
+
+        return shrub_points(tile, paths)
     if dataset == "green_areas":
         from .meadows import prepare as prepare_meadows
 
@@ -843,6 +850,7 @@ def gather(
             "trees",
             "vegetation_canopy",
             "vegetation_leaves",
+            "vegetation_shrubs",
             "green_areas",
             "forests",
             "vegetation_paths",
@@ -986,6 +994,7 @@ def gather(
         canopy=ground.get("canopy", np.empty((0, 3))),
         vegetation_canopy=values["vegetation_canopy"] if not first_pass else np.empty((0, 3)),
         vegetation_leaves=values["vegetation_leaves"] if not first_pass else np.empty((0, 6)),
+        vegetation_shrubs=values["vegetation_shrubs"] if not first_pass else np.empty((0, 3)),
         green_areas=values["green_areas"] or (),
         trees=values["trees"] or (),
         tunnels=values["tunnels"] or (),

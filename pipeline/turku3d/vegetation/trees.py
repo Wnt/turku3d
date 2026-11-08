@@ -213,6 +213,33 @@ def leaf_cells(path):
         return a["cells"]
 
 
+def shrub_cells(path):
+    """One LAZ file's medium vegetation (class 4: shrubs, saplings, the low mantle of a forest edge), the highest
+    return per CELL m cell, cached by the file's content (canopy_trees.shrubs)."""
+    from turku3d.lidar.decoded import chunks as decoded_chunks
+    from turku3d.tile_layer import identities
+
+    identity = identities({"laz": path})["laz"]
+    key = hashlib.sha256(repr((identity, C.ORIGIN, CELL, "shrub-v1")).encode()).hexdigest()
+    dest = C.cache_dir("vegetation") / (key + ".npz")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest.with_suffix(".lock"), "a") as lock:
+        profiling.flock(lock, fcntl.LOCK_EX, "vegetation")
+        if not dest.exists():
+            parts = []
+            for p in decoded_chunks(path):
+                keep = np.asarray(p.classification) == 4
+                if keep.any():
+                    x, y, z = C.en_to_local(np.asarray(p.x)[keep], np.asarray(p.y)[keep], np.asarray(p.z)[keep])
+                    parts.append(highest_per_cell(np.column_stack((x, y, z))))
+            points = highest_per_cell(np.concatenate(parts)) if parts else np.empty((0, 3))
+            temporary = dest.with_suffix(".tmp.npz")
+            np.savez_compressed(temporary, points=points)
+            temporary.replace(dest)
+    with np.load(dest) as a:
+        return a["points"]
+
+
 def _cells(points):
     return np.floor(points[:, [0, 2]] / CELL).astype(np.int64)
 

@@ -57,6 +57,109 @@ def canopy_points(tile, paths):
     return np.concatenate(parts) if parts else np.empty((0, 3))
 
 
+SHRUB_LOW, SHRUB_HIGH = 0.6, 3.5  # m above ground: class-4 tops of a shrub (lower is tall grass, higher a tree)
+SHRUB_MIN_CELLS = 6  # 1.5 m2: a lone return or a fence post's spray is no shrub
+SHRUB_SPACING = 1.8  # m between the bushes of one thicket
+SHRUB_CAP = 600
+
+
+def shrub_points(tile, paths):
+    """Class-4 medium vegetation (``trees.shrub_cells``) of the tile and 2 m around it."""
+    from turku3d.vegetation.trees import shrub_cells
+
+    bounds = tile.bbox.buffered(2)
+    parts = []
+    for path in paths:
+        points = shrub_cells(path)
+        keep = ((points[:, 0] >= bounds.xmin) & (points[:, 0] < bounds.xmax)
+                & (points[:, 2] >= bounds.zmin) & (points[:, 2] < bounds.zmax))
+        parts.append(points[keep])
+    return np.concatenate(parts) if parts else np.empty((0, 3))
+
+
+def shrubs(tile, points, canopy, height_at, blocked, occupied=()):
+    """Bushes where the lidar measured shrubs in the open: half-metre cells whose class-4 top stands SHRUB_LOW to
+    SHRUB_HIGH m above the ground and no class-5 crown over them or next to them (lower crown layers of a tree are
+    class 4 too). Connected thickets of SHRUB_MIN_CELLS or more get a bush every SHRUB_SPACING m, highest first, as
+    tall as the returns around it and as wide as the thicket allows. Forest-edge mantles, park shrubberies, scrub
+    and saplings all come from the same measurement; nothing is placed where the lidar saw none."""
+    points = np.asarray(points, float).reshape(-1, 3)
+    origin = np.array([tile.bbox.xmin, tile.bbox.zmin])
+    size = int(np.ceil(tile.size / CELL))
+    inside = ((points[:, 0] >= tile.bbox.xmin) & (points[:, 0] < tile.bbox.xmax)
+              & (points[:, 2] >= tile.bbox.zmin) & (points[:, 2] < tile.bbox.zmax))
+    points = points[inside]
+    if not len(points):
+        return []
+    many = getattr(height_at, "many", None)
+    base = many(points[:, 0], points[:, 2]) if many else np.array([height_at(x, z) for x, _, z in points])
+    heights = points[:, 1] - base
+    keep = (heights > SHRUB_LOW) & (heights < SHRUB_HIGH)
+    points, heights = points[keep], heights[keep]
+    if not len(points):
+        return []
+    ij = np.floor((points[:, [0, 2]] - origin) / CELL).astype(int)
+    chm = np.zeros((size, size))
+    np.maximum.at(chm, (ij[:, 0], ij[:, 1]), heights)
+    crowns = np.zeros((size, size), bool)
+    high = np.asarray(canopy, float).reshape(-1, 3)
+    if len(high):
+        cij = np.floor((high[:, [0, 2]] - origin) / CELL).astype(int)
+        ok = (cij >= 0).all(axis=1) & (cij < size).all(axis=1)
+        crowns[cij[ok, 0], cij[ok, 1]] = True
+        crowns = maximum_filter(crowns, size=5)  # 1 m around a crown cell
+    open_shrub = (chm > 0) & ~crowns
+    components, count = label(open_shrub, np.ones((3, 3)))
+    if not count:
+        return []
+    cells = np.bincount(components.ravel(), minlength=count + 1)
+    cells[0] = 0
+    candidate = open_shrub & (cells[components] >= SHRUB_MIN_CELLS)
+    # Claimed cells: within SHRUB_SPACING of a placed bush, or 1.5 m of a tree or bush already standing.
+    claimed = np.zeros((size, size), bool)
+    reach = int(np.ceil(SHRUB_SPACING / CELL))
+    di, dj = np.mgrid[-reach:reach + 1, -reach:reach + 1]
+    disk = di * di + dj * dj <= (SHRUB_SPACING / CELL) ** 2
+
+    def claim(i, j, mask=disk, r=reach):
+        a, b = max(i - r, 0), min(i + r + 1, size)
+        c, d = max(j - r, 0), min(j + r + 1, size)
+        claimed[a:b, c:d] |= mask[a - i + r:b - i + r, c - j + r:d - j + r]
+
+    clear = 1.5 + CELL * 0.75  # m: 1.5 m from the trunk to any point of a bush's cell
+    trunk = int(np.ceil(clear / CELL))
+    tdi, tdj = np.mgrid[-trunk:trunk + 1, -trunk:trunk + 1]
+    trunk_disk = tdi * tdi + tdj * tdj <= (clear / CELL) ** 2
+    for px, pz in occupied:
+        ti, tj = np.floor((np.array([px, pz]) - origin) / CELL).astype(int)
+        if -trunk <= ti < size + trunk and -trunk <= tj < size + trunk:
+            claim(int(ti), int(tj), trunk_disk, trunk)
+    result = []
+    flat = np.flatnonzero(candidate)
+    for f in flat[np.argsort(-chm.ravel()[flat], kind="stable")]:
+        i, j = divmod(int(f), size)
+        if claimed[i, j]:
+            continue
+        x, z = origin + (np.array([i, j]) + 0.5) * CELL
+        if blocked is not None and blocked.covers(shapely.Point(x, z)):
+            continue
+        # Width: the thicket's cells within 1.5 m; height: their 90th percentile.
+        lo, hi = max(i - 3, 0), min(i + 4, size)
+        lj, hj = max(j - 3, 0), min(j + 4, size)
+        near = chm[lo:hi, lj:hj][components[lo:hi, lj:hj] == components[i, j]]
+        radius = float(np.clip(np.sqrt(len(near) * CELL * CELL / np.pi), 0.5, 1.5))
+        height = float(np.clip(np.quantile(near, 0.9), SHRUB_LOW, SHRUB_HIGH))
+        bush = Tree(f"bush:lidar:{x:.2f}:{z:.2f}", float(x), float(z), "bush", y=height_at(x, z), height=height,
+                    crown_radius=radius, trunk_radius=0, variant="tree_default_fall")
+        bush.measured = True
+        bush.support = int(len(near))
+        result.append(bush)
+        claim(i, j)
+        if len(result) >= SHRUB_CAP:
+            break
+    return result
+
+
 LEAF_RADIUS = 2.5  # m around a trunk whose returns tell needles from leaves and a spruce from a pine
 # A spruce's crown reaches the ground, a pine's stands high: within LEAF_RADIUS the median of the cells' lowest tenth
 # of class 3-5 returns lies below this share of the crown's height for a spruce (652 register conifers in six tiles,
