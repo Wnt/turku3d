@@ -59,3 +59,32 @@ test('cheap continuations, even ones that start later in the same gap, all run i
   await late;
   pacer.release();
 });
+
+test('a yield early in a gap after frames the pacer did not wait for continues at once', async () => {
+  let clock = 0, frames: (() => void)[] = [];
+  vi.stubGlobal('scheduler', { yield: () => Promise.resolve() });
+  vi.stubGlobal('document', { visibilityState: 'visible' });
+  vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { frames.push(callback); return 0; });
+  vi.spyOn(performance, 'now').mockImplementation(() => clock);
+  const pacer = paceYields(() => true, () => 3)!;
+  const scheduler = (globalThis as unknown as { scheduler: { yield(): Promise<void> } }).scheduler;
+  const frame = async () => { clock += 16; const pending = frames; frames = []; for (const callback of pending) callback(); await new Promise(resolve => setTimeout(resolve, 25)); };
+  let ran = 0;
+  const first = (async () => { await scheduler.yield(); ran++; })();
+  await frame(); await first;
+  expect(ran).toBe(1);
+  // Frames pass while nothing yields (a compile waited for a budget window); the next yield comes 1 ms after one.
+  await frame(); await frame();
+  clock += 1;
+  const second = (async () => { await scheduler.yield(); ran++; })();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  expect(ran).toBe(2);
+  // Late in a gap (past the share) a yield still waits for the next frame.
+  clock += 5;
+  const third = (async () => { await scheduler.yield(); ran++; })();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  expect(ran).toBe(2);
+  await frame(); await Promise.all([second, third]);
+  expect(ran).toBe(3);
+  pacer.release();
+});

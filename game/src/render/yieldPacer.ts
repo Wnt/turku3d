@@ -16,10 +16,21 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   const queue: (() => void)[] = [];
   let gapStart = -Infinity, waiting = false, chained = false, released = 0;
   const live = () => playing() && document.visibilityState === 'visible';
+  // The end of every frame during play, not only of the frames the pacer waited for: a preparation that resumed after
+  // a frame on its own (compileModel's budget waits for frames too) found the pacer's last gap long over and waited a
+  // second frame, so streaming compiles lost every other frame.
+  let frameEnd = -Infinity, tracking = false;
+  const track = () => {
+    if (tracking) return;
+    tracking = true;
+    const tick = () => afterRender(() => { frameEnd = performance.now(); if (live()) tick(); else tracking = false; });
+    tick();
+  };
+  const used = () => performance.now() - Math.max(gapStart, frameEnd);
   const step = () => {
     if (!queue.length) return;
     if (!live()) { while (queue.length) queue.shift()!(); return; }
-    if (performance.now() - gapStart >= budgetMs()) { nextGap(); return; }
+    if (used() >= budgetMs()) { nextGap(); return; }
     released++;
     queue.shift()!();
     // The continuation runs in this task's microtasks; the next step measures after it.
@@ -37,13 +48,14 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   };
   scheduler.yield = () => {
     if (!live()) return native();
+    track();
     return new Promise<void>(resolve => {
       queue.push(resolve);
       if (chained) return;
       // Still inside this gap's share (the next frame is further away than any share): continue now. Waiting a frame
       // for every yield made each compileAsync of a tile's preparation cost a frame, cached programs included, so one
       // tile's prepare took 10-17 s and held the serial preparation queue (parked cars 39-79 s late).
-      if (!waiting && performance.now() - gapStart < budgetMs()) chain();
+      if (!waiting && used() < budgetMs()) chain();
       else nextGap();
     });
   };
