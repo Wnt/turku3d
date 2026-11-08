@@ -114,13 +114,15 @@ async function runAdmissions() {
       if (!parse.turns.length) waiting.delete(parse);
       admissionCounters.hops++; admissionCounters.turns += count;
       if (parse.stats) parse.stats.hops++;
-      const started = performance.now();
+      const started = performance.now(), frame = streamingAllowance.frameStamp;
       for (const turn of turns) turn();
       await admissionTask();
       const elapsed = performance.now() - started;
       spent += elapsed;
-      // A hop that waited behind a frame says little about the work: one such sample moves the estimate only so far.
-      turnMs += (Math.min(elapsed / count, 4) - turnMs) * 0.25;
+      // Only a hop inside one frame measures the turns' work. A hop that waited behind a rendered frame (most hops
+      // while rendering holds the main thread) charged the frame to its turns: the estimate climbed to its cap and
+      // batches fell back to one turn per frame (city.lab drive 2026-11-08: tiles ready in 17-40 s at 42 fps).
+      if (streamingAllowance.frameStamp === frame) turnMs += (Math.min(elapsed / count, 4) - turnMs) * 0.25;
     }
   } finally { admitting = false; }
 }

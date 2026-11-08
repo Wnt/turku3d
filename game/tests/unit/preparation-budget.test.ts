@@ -63,21 +63,21 @@ test('the window steers the frame interval to 24 ms; prefetch only spends what f
   frames(1, 22, 4);
   expect(account.limit).toBe(3); // four budgets worked last frame: they share the 12 ms total
   frames(80, 30); // over the window target too
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // the window's floor
+  expect(account.limit).toBeCloseTo(6, 3); // the window keeps its 20 % share of the frame: 6 of 30 ms
   frames(60, 16.7, 4); const before = account.limit;
   frames(1, 60, 4); // one overlong frame halves the total at once
   expect(account.limit).toBeLessThan(before);
   now = 500; expect(account.limit).toBe(2); // no frame reports: the old fixed window
 });
 
-test('while the player moves fast the window keeps frames smooth: 17.5 ms instead of 24 ms, floors kept', () => {
+test('while the player moves fast the window keeps frames smooth: 17.5 ms instead of 24 ms, its share kept', () => {
   const account = new StreamingAllowance(() => 0);
   const frames = (n: number, interval: number) => { for (let i = 0; i < n; i++) { account.opened(); account.frame(8, interval); } };
   account.urgent = true; frames(60, 20); // 50 fps: under the window's 24 ms target, the window grows
   expect(account.limit).toBe(6);
-  account.moving = true; frames(80, 20); // the same frames at speed are over 17.5 ms: back to the window's floor
+  account.moving = true; frames(80, 20); // the same frames at speed are over 17.5 ms: back to the window's share
   expect(account.target).toBe(StreamingAllowance.MOVING_TARGET);
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+  expect(account.limit).toBeCloseTo(4, 3); // 20 % of 20 ms
   account.moving = false; frames(80, 20); // stopped: the window waits at 24 ms again
   expect(account.limit).toBe(6);
 });
@@ -100,9 +100,11 @@ test('CPU-bound frames (busy main thread, no idle) steer the interval as before,
   account.urgent = true;
   // M1 Max-like: 25 ms frames, callback 20 ms, GPU 24 ms, the main thread never idles.
   for (let i = 0; i < 80; i++) { account.opened(); account.frame(20, 25, 0, 24); }
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // over the 24 ms target: the window's floor
+  // Over the 24 ms target: the window keeps its 20 % share (5 of 25 ms), not the 2 ms floor that left tiles under the
+  // car 17-40 s behind on the M1 Max (city.lab drive 2026-11-08).
+  expect(account.limit).toBeCloseTo(5, 3);
   for (let i = 0; i < 5; i++) { account.opened(); account.frame(20, 45, 0, 24); }
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS); // CPU-caused long frames halve (already at the floor)
+  expect(account.limit).toBeCloseTo(6, 3); // CPU-caused long frames halve the total; the share counts 30 ms at most
 });
 
 test('GPU-bound frames spend the main thread idle time without halving on GPU-caused long frames', () => {
@@ -117,12 +119,13 @@ test('GPU-bound frames spend the main thread idle time without halving on GPU-ca
   for (let i = 0; i < 30; i++) { account.opened(); account.frame(27, 37, 3.5, 33); }
   expect(account.limit).toBeGreaterThan(4);
   // Streaming used the idle up: the frame is CPU-bound again and the interval controller takes it back.
+  expect(account.stats().total).toBeGreaterThan(10);
   for (let i = 0; i < 80; i++) { account.opened(); account.frame(30, 37, 1, 33); }
-  expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+  expect(account.stats().total).toBe(6); // down to the window's share (20 % of 30 ms at most)
   // Idle from a missed vsync (a fast GPU) is not free: CPU-bound control.
   const vsync = new StreamingAllowance(() => 0); vsync.urgent = true;
   for (let i = 0; i < 80; i++) { vsync.opened(); vsync.frame(14, 33, 15, 8); }
-  expect(vsync.limit).toBe(StreamingAllowance.BASE_MS);
+  expect(vsync.stats().total).toBe(6); // the share, not the GPU-bound growth to 12
 });
 
 test('the idle meter counts each idle period once and caps it by the frame', () => {

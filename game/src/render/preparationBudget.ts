@@ -51,6 +51,13 @@ export class StreamingAllowance {
     return this.moving ? StreamingAllowance.MOVING_TARGET : this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET;
   }
   static readonly MIN_MS = 0.5;
+  /** While the 3x3 window waits for full installs, streaming keeps at least this share of the frame interval,
+   *  whatever the frame costs: a frame that costs more than the target on its own (the M1 Max at 20 ms of rendering
+   *  in the city centre, a busy desktop) otherwise left streaming its per-budget floors, about one GLB continuation
+   *  and one graphics step a frame, and tiles under the car took 17-40 s (city.lab drive 2026-11-08). A share s
+   *  costs at most s of the frame rate: 24 ms frames become 30 ms (42 to 33 fps) until the window is full; frames
+   *  over 30 ms (a slow machine) keep 6 ms. */
+  static readonly URGENT_SHARE = 0.2;
   static readonly BASE_MS = 2;
   /** Idle the main thread keeps per frame: streaming grows into idle above IDLE_MARGIN_MS and gives back below it;
    *  under GPU_BOUND_IDLE_MS of idle the frame counts as CPU-bound (the gap keeps the two modes from cycling). */
@@ -86,7 +93,8 @@ export class StreamingAllowance {
     // Grow only while streaming has work: no wind-up during quiet periods.
     else if (gpuBound) { if (worked || this.idle < StreamingAllowance.IDLE_MARGIN_MS) this.total += 0.1 * (this.idle - StreamingAllowance.IDLE_MARGIN_MS); }
     else if (worked || this.interval > this.target) this.total += 0.1 * (this.target - this.interval);
-    this.total = Math.min(this.urgent ? 12 : 6, Math.max(StreamingAllowance.MIN_MS, this.total));
+    const floor = this.urgent ? StreamingAllowance.URGENT_SHARE * Math.min(this.interval, 30) : StreamingAllowance.MIN_MS;
+    this.total = Math.min(this.urgent ? 12 : 6, Math.max(floor, this.total));
   }
   /** Streaming milliseconds per frame across all budgets: also the paced shader-build share while the window waits
    *  (main.ts paceYields), which the controller then counts in the frame interval it steers. */
