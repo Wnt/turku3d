@@ -8,11 +8,11 @@
     "length": 6.3656,
     "width": 2.6167,
     "height": 2.4314,
-    "wheelbase": 3.7675,
+    "wheelbase": 3.7696,
     "hood": 0.25,
     "rear": -0.4,
     "taper": 0.82,
-    "wheel": 0.3273,
+    "wheel": 0.3546,
     "belt": 1,
     "face": 0,
     "accessory": "none",
@@ -21,28 +21,28 @@
   },
   "id": "carla-ford-ambulance",
   "wheels": {
-    "radius": 0.3273,
+    "radius": 0.3546,
     "width": 0.4072,
     "pivots": {
       "wheel_FL": [
         -0.7916,
-        0.3273,
+        0.3546,
         2.3973
       ],
       "wheel_FR": [
         0.7916,
-        0.3273,
+        0.3546,
         2.3973
       ],
       "wheel_RL": [
         -0.8194,
-        0.3273,
-        -1.3702
+        0.3546,
+        -1.3724
       ],
       "wheel_RR": [
         0.8194,
-        0.3273,
-        -1.3702
+        0.3546,
+        -1.3724
       ]
     }
   },
@@ -59,9 +59,9 @@
     ]
   },
   "triangles": [
-    59098,
-    11816,
-    3884
+    59099,
+    11817,
+    3894
   ],
   "source": {
     "title": "Ford ambulance (vehicle.ford.ambulance)",
@@ -87,9 +87,9 @@
     "lengthM": 6.3656,
     "widthM": 2.6167,
     "heightM": 2.4314,
-    "wheelbaseM": 3.7675,
+    "wheelbaseM": 3.7696,
     "trackM": 1.5833,
-    "wheelRadiusM": 0.3273,
+    "wheelRadiusM": 0.3546,
     "wheelWidthM": 0.4072
   },
   "accepted": false

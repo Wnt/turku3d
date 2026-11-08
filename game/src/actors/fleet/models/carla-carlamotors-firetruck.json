@@ -8,11 +8,11 @@
     "length": 8.468,
     "width": 3.3813,
     "height": 3.8274,
-    "wheelbase": 4.9961,
+    "wheelbase": 4.9951,
     "hood": 0.25,
     "rear": -0.4,
     "taper": 0.82,
-    "wheel": 0.5062,
+    "wheel": 0.574,
     "belt": 1,
     "face": 0,
     "accessory": "none",
@@ -21,27 +21,27 @@
   },
   "id": "carla-carlamotors-firetruck",
   "wheels": {
-    "radius": 0.5062,
+    "radius": 0.574,
     "width": 0.5497,
     "pivots": {
       "wheel_FL": [
         -1.225,
-        0.5062,
-        2.5715
+        0.574,
+        2.5705
       ],
       "wheel_FR": [
         1.225,
-        0.5062,
-        2.5715
+        0.574,
+        2.5705
       ],
       "wheel_RL": [
         -1.0403,
-        0.5062,
+        0.574,
         -2.4246
       ],
       "wheel_RR": [
         1.0403,
-        0.5062,
+        0.574,
         -2.4246
       ]
     }
@@ -87,9 +87,9 @@
     "lengthM": 8.468,
     "widthM": 3.3813,
     "heightM": 3.8274,
-    "wheelbaseM": 4.9961,
+    "wheelbaseM": 4.9951,
     "trackM": 2.45,
-    "wheelRadiusM": 0.5062,
+    "wheelRadiusM": 0.574,
     "wheelWidthM": 0.5497
   },
   "accepted": false
