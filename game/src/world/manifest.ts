@@ -8,7 +8,11 @@ export interface ManifestEntry { url: string; sha256: string; bytes: number; tri
  * compares with the class's occupancy at the shared clock; `priority` 0 marks an inferred kerb. Older
  * drafts omit these fields: their cars stand level and always show. */
 export interface ParkedVehicle { object_id: string; model: string; color: string; x: number; y: number; z: number; yaw: number; width: number; height: number; length: number; clear_front_m: number; clear_rear_m: number;
-  pitch?: number; roll?: number; zone?: string; occ?: number; priority?: number }
+  pitch?: number; roll?: number; zone?: string; occ?: number; priority?: number;
+  /** The parking area or kerb the generator drew the slot from (`osm:way:<id>`, `kerb:osm`, ...). */
+  source?: string;
+  /** A car show exhibit (world/carShow.ts): the show's lot. It stands there at every hour. */
+  show?: string }
 export interface Manifest {
   format: string; version: number; built: string; code: string;
   origin_en: [number, number, number]; crs: string;

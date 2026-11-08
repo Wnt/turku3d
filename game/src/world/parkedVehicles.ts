@@ -96,7 +96,7 @@ export class ParkedVehicles {
   setNight(level: number, sharedUtcMs?: number) { this.night = level; this.sharedUtcMs = sharedUtcMs; }
 
   private shown(car: ParkedVehicle) {
-    return slotShown(car, this.night) && (car.model !== 'truck' || this.sharedUtcMs === undefined
+    return slotShown(car, this.night) && (car.model !== 'truck' || car.show !== undefined || this.sharedUtcMs === undefined
       || prerunnerPresent(car.object_id, this.sharedUtcMs));
   }
 

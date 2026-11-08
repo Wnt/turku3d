@@ -135,7 +135,7 @@ the score remains. A new valid pose restores presence. A join starts the idle ti
 A `SharedVehicle` is `{id,source,creator,localId,owner,occupant,epoch,revision,half,pose}`.
 `pose` uses the chassis convention above, including model/paint in `vehicle`, kind
 in `mode`, quaternion, velocity and wheels. `half:{x,y,z}` is the physical chassis
-half extent (0.1–4 m per axis); masses are fixed per kind: car 1200 kg, scooter
+half extent (0.1–6.5 m per axis: the fleet's buses are up to 11.5 m long); masses are fixed per kind: car 1200 kg, scooter
 190 kg, truck 2400 kg. `occupant` is one player UUID or null; `owner` is the sole
 simulation's UUID. `epoch` changes on ownership transfer; `revision` changes on state.
 

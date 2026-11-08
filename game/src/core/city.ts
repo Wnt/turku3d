@@ -34,6 +34,19 @@ export interface CityProfile {
   tiles: string;
   /** Multiplayer socket path: each city has its own room (server/http.js). */
   room: string;
+  /** Parking lots that show every vehicle of the game instead of their generated parked cars (world/carShow.ts). */
+  carShows?: readonly CarShow[];
+}
+
+/** A car show: one of every vehicle the game can spawn, laid out in rows on a paved display area. */
+export interface CarShow {
+  /** The parking area whose generated parked cars the show replaces: their record `source` (`osm:way:<id>`). */
+  lot: string;
+  /** Display area corners (E, N), a rectangle on paved ground clear of trees, posts and walls: rows run along the
+   *  0 -> 1 edge and stack from it toward corner 3, each facing an aisle. Circulation space stays outside it. */
+  area: readonly (readonly [number, number])[];
+  /** Free width (m) of the aisle in front of each row. */
+  aisle: number;
 }
 
 export const HOME_CITY: CityName = 'turku';
@@ -47,6 +60,11 @@ export const CITIES: Record<CityName, CityProfile> = {
     // Office, Läntinen Rantakatu 15 (ARCHITECTURE.md D3).
     spawn: { E: 23459668, N: 6704254, headingDeg: 0, label: 'Läntinen Rantakatu 15' },
     latLon: { lat: 60.448, lon: 22.267 }, tiles: '/coarse/', room: '/',
+    // The surface lot in front of the long office building west of the start (OSM way 651093182, Jonni 2026-11-08):
+    // the whole paved yard inside its fence, 1.5 m from the fence posts, trunks and the facade, along the lot's own
+    // aisle direction; the SE strip toward the gate stays free as the cross aisle (measured from the served collision).
+    carShows: [{ lot: 'osm:way:651093182', aisle: 6,
+      area: [[23459316.0, 6704148.7], [23459298.1, 6704174.6], [23459342.5, 6704205.3], [23459360.4, 6704179.4]] }],
   },
   espoo: {
     name: 'espoo', title: 'Espoo', crs: 'EPSG:3879', heightDatum: 'N2000', projection: { kind: 'gk', meridian: 25 },

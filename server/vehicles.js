@@ -14,6 +14,8 @@ export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, r
   // A starter car (pose.vehicle "player") whose owner left this long ago is gone unless someone sits in it: every
   // client that ever joined brings one, and departed players' cars piled up around the spawn.
   starterOfflineMs: 600_000 };
+/** Largest chassis half extent per axis (m): the fleet's longest model, the transit bus, with room to spare. */
+export const HALF_MAX = 6.5;
 const idOK = id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(id);
 const distance = (a, b) => Math.hypot(a.E - b.E, a.N - b.N);
 const publicVehicle = v => ({ id: v.id, source: v.source, creator: v.creator, localId: v.localId,
@@ -49,7 +51,8 @@ export class VehicleRegistry {
         || distance(m.pose, p.pose ?? p.spawn) > 150
         || this.entries.size >= VEHICLE_LIMITS.total) { this.room.reject(); reply(false); return; }
       const half = m.half ?? Object.fromEntries(['x', 'y', 'z'].map((k, i) => [k, TUNING[m.pose.mode].half[i]]));
-      if (!['x', 'y', 'z'].every(k => Number.isFinite(half[k]) && half[k] >= 0.1 && half[k] <= 4)) {
+      // A parked fleet model brings its own box: the 11.5 m transit bus of a car show is 5.74 m long per half.
+      if (!['x', 'y', 'z'].every(k => Number.isFinite(half[k]) && half[k] >= 0.1 && half[k] <= HALF_MAX)) {
         this.room.reject(); reply(false); return;
       }
       const own = [...this.entries.values()].filter(v => v.creator === p.id);

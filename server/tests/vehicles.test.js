@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture, pose } from './helpers.js';
-import { VEHICLE_LIMITS } from '../vehicles.js';
+import { HALF_MAX, VEHICLE_LIMITS } from '../vehicles.js';
 import { contactImpulse, TUNING } from '../vehicle-contact.js';
 import { LIMITS } from '../room.js';
 
@@ -27,6 +27,18 @@ test('starter, parked car, scooter and truck remain after release and join in th
   assert.equal(b.welcome.vehicles.upsert.length, 4);
   assert.ok(b.welcome.vehicles.upsert.every(v => !v.occupant && v.pose.E === 177));
   assert.deepEqual(b.welcome.vehicles.sources, ['tile:bay']);
+});
+
+test('a car show bus enters with its own 11.5 m box; a box beyond HALF_MAX is refused', () => {
+  const f = fixture(), a = f.connect(); a.send(pose);
+  const show = 'show:osm:way:651093182:transit-bus';
+  a.send(car(a, { id: `park:${show}`, source: show, action: 'acquire', half: { x: 5.735, y: 0.88, z: 1.465 },
+    pose: { ...pose, mode: 'car', vehicle: 'transit-bus/red', vE: 0 } }));
+  assert.equal(result(a).ok, true);
+  assert.equal(f.room.vehicles.entries.get(`park:${show}`).half.x, 5.735);
+  const b = f.connect(); b.send(pose);
+  b.send(car(b, { id: 'park:too-long', source: 'too-long', action: 'acquire', half: { x: HALF_MAX + 0.1, y: 0.9, z: 1.4 } }));
+  assert.equal(result(b).ok, false);
 });
 
 test('parked seat race is atomic, ownership transfers and old epoch updates cannot overwrite', () => {

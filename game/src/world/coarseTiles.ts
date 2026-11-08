@@ -11,6 +11,7 @@ import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
 import { TILE_DETAIL, sceneryDistance } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
+import { withCarShows } from './carShow';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploaded, textureUploads } from '../render/textureUploads';
 import { releaseModelTextureData } from './sharedAssets';
@@ -1522,7 +1523,8 @@ export class CoarseTiles {
 
   private takeVehicles(e: Entry, fragment: CoarseFragment, base: URL) {
     const old = new Set(e.vehicles ?? []);
-    e.vehicles = fragment.vehicles ?? [];
+    // A car show (core/city.ts carShows) replaces its lot's generated cars with every vehicle of the game.
+    e.vehicles = withCarShows(fragment.tile, fragment.vehicles ?? []);
     const incoming = new Set(e.vehicles.map(v => v.object_id));
     this.host.manifest.vehicles = [...(this.host.manifest.vehicles ?? []).filter(v => !old.has(v) && !incoming.has(v.object_id)), ...e.vehicles];
     this.host.manifest.vehicle_models ??= {};
