@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   abs, attribute, bool, cameraPosition, diffuseColor, dot, float, Fn, fract, fwidth, instanceColor, log2, max, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
-  renderGroup, texture, uniform, uv, vec2, vec3, vec4,
+  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { viewClearance } from '../../render/viewClearance';
@@ -57,6 +57,17 @@ export class NatureMaterials {
   private bases = new WeakMap<THREE.Material, THREE.MeshStandardNodeMaterial>();
   /** Grass clumps fade out between these camera distances (m); GrassField sets them from the quality tier. */
   readonly grassRange = uniform(new THREE.Vector2(20, 35)).setGroup(renderGroup);
+  /** Crown light from the baked crown-depth AO in the leaf vertex colour (0.18 in the core .. 1 on the shell,
+   *  scripts/nature/trees.mjs): x albedo exponent, y ambient (indirect light) exponent, z alpha gain of the core cards
+   *  (closes the sky gaps inside a crown while the rim keeps the 0.5 cut), w translucency exponent (only the outer
+   *  leaves let the sun through). Calibrated against 18 summer Turku panoramas (green value p10 0.17, 6 % darker than
+   *  0.15): before, forest and aerial views had p10 0.22-0.27 and no darks at all; now 0.13-0.22 and 3-13 %. */
+  readonly crownLight = uniform(new THREE.Vector4(1.7, 1.55, 1.5, 2.1)).setGroup(renderGroup);
+  /** Bark albedo multiplier for mid and dark barks; the white birch stays white (luminance above ~0.6). */
+  readonly barkTint = uniform(new THREE.Vector3(0.78, 0.71, 0.64)).setGroup(renderGroup);
+  /** Leaf and impostor tone: an rgb multiplier and w the saturation around the luminance. The panoramas' greens sit at
+   *  hue 81 deg and saturation 0.41; our crowns were cool and grey (hue 90-99, 0.27-0.31 from the air). */
+  readonly leafTone = uniform(new THREE.Vector4(1.09, 1, 0.82, 1.25)).setGroup(renderGroup);
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
   readonly grass: THREE.MeshStandardNodeMaterial;
@@ -96,15 +107,23 @@ export class NatureMaterials {
     const bark = sources.nature_bark;
     this.bark = new THREE.MeshStandardNodeMaterial({ name: 'nature-bark', map: bark.map, normalMap: bark.normalMap, normalScale: bark.normalScale.clone(),
       roughness: 0.92, metalness: 0, vertexColors: true });
+    // The calibrated scans read pale and blue-grey under the sky light: warm and darken them, sparing the birch white.
+    const barkTex = texture(bark.map!, uv());
+    this.bark.colorNode = vec4(barkTex.rgb.mul(mix(this.barkTint, vec3(1), smoothstep(0.45, 0.68, luminance(barkTex.rgb)))), 1);
     this.bark.positionNode = wind(0);
 
     const leafMap = sources.nature_leaves.map!;
     const leaf = texture(leafMap, uv());
     // Double-sided, alpha test 0.5, shadow-receiving on every tier: Jonni's pick (2026-11-05, treelook2, live A/B after
     // the TRAA fix) over single-sided cards and alpha test 0.65. None differed beyond noise on the M1 Max (medium).
+    // The vertex colour is the crown-depth AO; crownLight shapes it (the material applies it, not vertexColors).
     this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: THREE.DoubleSide,
-      alphaTest: 0.5, roughness: 0.92, metalness: 0, vertexColors: true });
-    this.leaves.colorNode = vec4(leaf.rgb, leaf.a);
+      alphaTest: 0.5, roughness: 0.92, metalness: 0 });
+    const crownAo = vertexColor().r;
+    const shell = smoothstep(0.3, 0.85, crownAo);
+    const tone = (rgb: THREE.Node<'vec3'>) => { const warm = rgb.mul(this.leafTone.xyz); return mix(vec3(luminance(warm)), warm, this.leafTone.w); };
+    this.leaves.colorNode = vec4(tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leaf.a.mul(mix(this.crownLight.z, float(1), shell)));
+    this.leaves.aoNode = pow(crownAo, this.crownLight.y);
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;
     this.leaves.positionNode = wind(0.045);
@@ -123,8 +142,9 @@ export class NatureMaterials {
       const sunDir = uniform(lighting.sunDir).setGroup(renderGroup), sunColor = uniform(lighting.sun.color).setGroup(renderGroup);
       const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity).setGroup(renderGroup);
       const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
-      this.leaves.emissiveNode = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
-      this.grass.emissiveNode = this.leaves.emissiveNode;
+      const transmitted = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
+      this.leaves.emissiveNode = transmitted.mul(pow(crownAo, this.crownLight.w));
+      this.grass.emissiveNode = transmitted;
     }
 
     const imp = sources.nature_impostor;
@@ -142,7 +162,7 @@ export class NatureMaterials {
     // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
     const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
     const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, level).mul(IMPOSTOR_BOOST.gain).add(1);
-    this.impostor.colorNode = vec4(impTex.rgb, impTex.a.mul(boost).mul(visible));
+    this.impostor.colorNode = vec4(tone(impTex.rgb), impTex.a.mul(boost).mul(visible));
     this.impostor.positionNode = wind(0);
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {
