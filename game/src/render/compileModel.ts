@@ -14,8 +14,10 @@ export const isPrecompiling = (renderer: THREE.WebGPURenderer) =>
   (renderer as unknown as { _isPreCompiling: boolean })._isPreCompiling === true;
 
 const budgets = new WeakMap<THREE.WebGPURenderer, PreparationBudget>();
-/** Streaming shader/pipeline compiles so far and their wall time (ms), for the capture trace. */
-export const compileStats = { count: 0, ms: 0 };
+/** Streaming shader/pipeline compiles so far and their wall time (ms), for the capture trace; `calls` compileModel draws
+ *  handed to r186, `waitMs` the time compileModel spent waiting for its next budget window (graphics queue diagnostics). */
+export const compileStats = { count: 0, ms: 0, calls: 0, waitMs: 0, builds: 0, buildMs: 0, hitMs: 0 };
+const waitFor = async (pending: Promise<void>) => { const t = performance.now(); await pending; compileStats.waitMs += performance.now() - t; };
 
 /** r186 compileAsync(object, camera, scene) walks the whole world with traverseVisible for its lights on every call,
  * and streaming preparation calls it once per mesh, material and pass. The light set is fixed at startup
@@ -62,7 +64,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
   let budget = budgets.get(renderer);
   if (!budget) { budget = new PreparationBudget(); budgets.set(renderer, budget); }
   const pending = budget.checkpoint();
-  if (pending) await pending;
+  if (pending) await waitFor(pending);
   model.updateWorldMatrix(true, true);
   const meshes: THREE.Mesh[] = [];
   model.traverse(object => {
@@ -82,6 +84,7 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
       const onBuilder = (builder: { renderer: unknown }, value: unknown) => {
         const draw = value as { object: THREE.Object3D; material: THREE.Material; camera: THREE.Camera; context: unknown };
         if (draw.object === mesh && (draw.material === material || override !== null) && draw.camera === camera) {
+          built = true;
           // NodeBuilder.buildAsync reads renderer state again after scheduler.yield(). A renderer view
           // keeps those reads in this pass while the live renderer continues the game's animation.
           builder.renderer = new Proxy(renderer, { get(source, key, receiver) {
@@ -93,20 +96,22 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
           } });
         }
       };
+      let built = false;
       const removeHook = addNodeBuilderHook(renderer, onBuilder as (builder: unknown, value: unknown) => void);
       // r186 compileAsync selects depth zero. Nested post/reflection draws use other contexts,
       // whose IDs are part of shader keys; use the depth observed by the actual pass.
       const getContext = contexts.get;
       // compileAsync reads the target scene's lights synchronously; serve this frame's walk instead of a new one.
       const lights = visibleLights(renderer, scene), walk = Object.getOwnPropertyDescriptor(scene, 'traverseVisible');
-      let compiled: Promise<void>;
+      let compiled: Promise<void>, started = 0;
       try {
         scene.traverseVisible = callback => { for (const light of lights) callback(light); };
         contexts.get = function (target, mrt, depth = passDepth) { return getContext.call(this, target, mrt, depth); };
         renderer.setRenderTarget(target); renderer.setMRT(mrt); renderer.contextNode = context;
         scene.overrideMaterial = override;
         mesh.material = material; mesh.children = []; mesh.visible = true; mesh.frustumCulled = false;
-        const started = performance.now();
+        started = performance.now();
+        compileStats.calls++;
         compiled = renderer.compileAsync(mesh, camera, scene);
         streamTrace.slice('compile', performance.now() - started);
         void compiled.then(() => { compileStats.count++; compileStats.ms += performance.now() - started; }, () => {});
@@ -122,9 +127,13 @@ export async function compileModel(renderer: THREE.WebGPURenderer, model: THREE.
         mesh.material = oldMaterial; mesh.children = children; mesh.visible = visible; mesh.frustumCulled = culled;
       }
       try { await compiled; }
-      finally { removeHook(); }
+      finally {
+        removeHook();
+        const ms = performance.now() - started;
+        if (built) { compileStats.builds++; compileStats.buildMs += ms; } else compileStats.hitMs += ms;
+      }
       const nextFrame = budget.checkpoint();
-      if (nextFrame) await nextFrame;
+      if (nextFrame) await waitFor(nextFrame);
     }
   }
 }

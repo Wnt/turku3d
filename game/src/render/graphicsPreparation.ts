@@ -14,6 +14,10 @@ export type PreparationPriority = 'actor' | 'tile' | 'scenery';
  *  cells after minutes). One aged job per turn keeps the near tiles first in all other cases. */
 const MAX_DEFER_MS = 4000;
 const LANE: Record<PreparationPriority, number> = { actor: 0, tile: 1, scenery: 2 };
+const RECENT = 64;
+/** A finished job (diagnostics): wall ms, lane, model, compileModel draws handed to r186 (`calls`), node builds among
+ *  them and their wall ms, the wall ms of the cached draws, ms spent waiting for a budget window, ms queued. */
+interface JobStats { ms: number; lane: number; model: string; calls: number; builds: number; buildMs: number; hitMs: number; waitMs: number; wait: number }
 
 /** Resolves at `signal`'s abort; `off()` takes the listener away again. The signal is the city's and outlives every
  *  job: a listener left on it (`once` only removes it when the abort fires) kept the job's closures and so every model
@@ -51,11 +55,13 @@ export class GraphicsPreparation {
   private activeSince: number | null = null;
   private activeModel: THREE.Object3D | null = null;
   /** The slowest jobs so far (ms, lane, model): which preparation holds the queue. */
-  private slowest: { ms: number; lane: number; model: string }[] = [];
+  private slowest: JobStats[] = [];
+  /** The last RECENT jobs that ran (diagnostics). */
+  private recent: JobStats[] = [];
   stats() {
     const m = this.activeModel;
     return { waiting: [...this.waiting], finished: this.finished, activeMs: this.activeSince === null ? null : performance.now() - this.activeSince,
-      active: m ? describe(m) : null, slowest: this.slowest.slice() };
+      active: m ? describe(m) : null, slowest: this.slowest.slice(), recent: this.recent.slice() };
   }
   constructor(private scene: THREE.Scene, private prepareView: (model: THREE.Object3D) => void | Promise<void>,
     private retireFrame: (release: () => void) => void,
@@ -89,6 +95,7 @@ export class GraphicsPreparation {
       // Preparations can visit cross-model resources (notably registered river targets).
       // Recheck because another retirement may join while its preceding fence resolves.
       let barrier: Promise<void>;
+      let calls = compileStats.calls, waitMs = compileStats.waitMs, builds = compileStats.builds, buildMs = compileStats.buildMs, hitMs = compileStats.hitMs;
       do { barrier = this.retiring; await barrier; } while (barrier !== this.retiring);
       if (!current()) { this.finished++; return; }
       this.active = prepared;
@@ -102,6 +109,7 @@ export class GraphicsPreparation {
         await until(this.nextTask());
         if (!current()) return;
         const started = performance.now(), compiles = compileStats.count, compileMs = compileStats.ms;
+        calls = compileStats.calls; waitMs = compileStats.waitMs; builds = compileStats.builds; buildMs = compileStats.buildMs; hitMs = compileStats.hitMs;
         await until(Promise.resolve(prepare()));
         if (current()) await until(Promise.resolve(this.prepareView(model)));
         streamTrace.event('gfx.prepare', model.userData.traceId as string | undefined, { wait: started - queuedAt, ms: performance.now() - started,
@@ -110,7 +118,10 @@ export class GraphicsPreparation {
         aborted?.off();
         if (this.activeSince !== null) {
           const ms = performance.now() - this.activeSince;
-          if (ms > 1000) { this.slowest.push({ ms: Math.round(ms), lane, model: describe(model) }); this.slowest.sort((a, b) => b.ms - a.ms); this.slowest.length = Math.min(this.slowest.length, 8); }
+          const row: JobStats = { ms: Math.round(ms), lane, model: describe(model), calls: compileStats.calls - calls, builds: compileStats.builds - builds,
+            buildMs: Math.round(compileStats.buildMs - buildMs), hitMs: Math.round(compileStats.hitMs - hitMs), waitMs: Math.round(compileStats.waitMs - waitMs), wait: Math.round(this.activeSince - queuedAt) };
+          this.recent.push(row); if (this.recent.length > RECENT) this.recent.shift();
+          if (ms > 1000) { this.slowest.push(row); this.slowest.sort((a, b) => b.ms - a.ms); this.slowest.length = Math.min(this.slowest.length, 8); }
         }
         this.active = null; this.activeSince = null; this.activeModel = null; this.finished++;
       }
