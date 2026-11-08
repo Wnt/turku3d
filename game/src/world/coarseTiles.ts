@@ -23,7 +23,7 @@ import { prepareFacadeModules } from '../render/facadeModules';
 import { SharedMaterials } from '../render/sharedMaterials';
 import { disposeModelResources } from './disposeModel';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { loadGlb } from './loadGlb';
+import { loadGlb, type ParseRank } from './loadGlb';
 import { sharedKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
@@ -164,7 +164,7 @@ export class CoarseTiles {
   readonly stats = new StreamStats();
   private nextCheck = 0;
   private fetch: typeof fetch;
-  private load: (url: string) => Promise<THREE.Object3D>;
+  private load: (url: string, rank?: ParseRank) => Promise<THREE.Object3D>;
   status = '';
   private clock = 0;
   private badge: HTMLDivElement | null = null;
@@ -264,7 +264,7 @@ export class CoarseTiles {
     this.fetch = host.fetch ?? fetch.bind(globalThis);
     this.load = host.loadModel ?? this.gltfLoader();
     if (!host.keepArrays && (host.renderer as unknown as { backend?: unknown })?.backend) this.arrays = new TileArrays(rendererUploaded(host.renderer));
-    this.buildingModels = new BuildingModelCache(url => this.load(url), root => disposeModelResources(root, this.materials),
+    this.buildingModels = new BuildingModelCache((url, rank) => this.load(url, rank), root => disposeModelResources(root, this.materials),
       undefined, undefined, (root, owner, block) => {
         // The HD roofs are cloned into `owner` before its block shells: fit their roof photos once per tile.
         let roofs = this.shellRoofs.get(owner);
@@ -296,7 +296,7 @@ export class CoarseTiles {
     MeshoptDecoder.useWorkers(2);
     const ktx2 = sharedKtx(this.host.renderer);
     const loader = new GLTFLoader().register(() => textureUploads(this.host.renderer).plugin()).setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
-    return async (url: string) => (await loadGlb(loader, url)).scene;
+    return async (url: string, rank?: ParseRank) => (await loadGlb(loader, url, rank)).scene;
   }
 
   retainedStarts: readonly { x: number; z: number }[] = [];
@@ -1088,7 +1088,7 @@ export class CoarseTiles {
     const prefetched = fragment.buildingPlacements ? this.buildingModels.prefetch(fragment.buildingPlacements, base, priority) : null;
     const glb = streamTrace.begin('tile.glb', id, { bytes: fragment.visual[id].bytes, tris: fragment.visual[id].tris });
     let root: THREE.Object3D;
-    try { root = await this.load(new URL(fragment.visual[id].url, base).href); }
+    try { root = await this.load(new URL(fragment.visual[id].url, base).href, priority); }
     catch (error) { prefetched?.(); throw error; }
     glb();
     root.userData.traceId = id;

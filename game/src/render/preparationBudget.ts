@@ -93,6 +93,8 @@ export class StreamingAllowance {
   get share() { return this.now() - this.frameAt > 100 ? StreamingAllowance.BASE_MS : this.total; }
   /** A budget starts a window this frame. */
   opened() { this.windows++; }
+  /** Changes with every reported frame: budgets that keep their own window open a new one when it changes. */
+  get frameStamp() { return this.frameAt; }
   /** Diagnostics (window.__perf.allowance): the controller's state and what budgets and the yield pacer get now. */
   stats() {
     const r = (x: number) => Math.round(x * 10) / 10;

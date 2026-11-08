@@ -1,6 +1,7 @@
 import { FileLoader, LoaderUtils } from 'three/webgpu';
 import type { GLTFLoader, GLTF, GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
-import { streamingBudget } from '../render/preparationBudget';
+import { streamingAllowance, streamingBudget } from '../render/preparationBudget';
+import { afterRender } from '../render/afterRender';
 import { applyJsonRecords } from './glbRecords';
 import type { decodeGlb } from './decodeGlb';
 import { AssetCache, sharedAssetKey, sharedBuffers } from './sharedAssets';
@@ -47,25 +48,67 @@ async function pace() {
 const taskChannel = new MessageChannel(), taskQueue: (() => void)[] = [];
 taskChannel.port1.onmessage = () => taskQueue.shift()?.();
 const nextTask = () => new Promise<void>(resolve => { taskQueue.push(resolve); taskChannel.port2.postMessage(0); });
-/** Waiting admissions: small glTFs' bursts (one each, UNPACED_STEPS) before big glTFs' continuations. In one queue a
- *  building model's single admission waited behind the hundreds of each big tile GLB parsing at the same time. */
-const lanes: [(() => void)[], (() => void)[]] = [[], []];
-let admitting = false;
-/** Admits one paced glTF continuation at a time, each in its own task: the previous one's synchronous work (the
- *  geometry or mesh it completes) has run and counts against the streaming window before the next is let in.
- *  Checking all waiters at once let them all pass before any of that work ran. */
-function admit(small = false): Promise<void> {
-  const turn = new Promise<void>(resolve => { lanes[small ? 0 : 1].push(resolve); });
+type PostTask = (callback: () => void, options: { priority: 'user-blocking' }) => Promise<void>;
+const postTask = (globalThis as { scheduler?: { postTask?: PostTask } }).scheduler?.postTask?.bind((globalThis as { scheduler?: object }).scheduler);
+/** The admission loop's hop: ahead of ordinary tasks where the Prioritized Task Scheduling API exists, so the time
+ *  between an admission and the next is that admission's own work, not other streaming work queued meanwhile. */
+const admissionTask = postTask ? () => postTask(() => {}, { priority: 'user-blocking' }) : nextTask;
+const nextWindow = () => new Promise<void>(resolve => { afterRender(resolve); setTimeout(resolve, 100); });
+
+/** Lower first: seconds until the player reaches the tile that wants the glTF (coarseTiles arrivalRank). */
+export type ParseRank = () => number;
+/** One glTF parse with admissions waiting: small glTFs' bursts (one admission each, UNPACED_STEPS) and big glTFs'
+ *  continuations (one each). */
+interface Parse { small: boolean; rank: ParseRank; seq: number; turns: (() => void)[] }
+const waiting = new Set<Parse>();
+let parseSeq = 0, admitting = false;
+const noRank: ParseRank = () => Infinity;
+/** The parse to admit next: a small glTF's burst before a big glTF's continuation (a building model frees its read
+ *  slot in a burst or two), then the tile the player reaches first, then the older. One FIFO across all big parses
+ *  gave each of a dozen tile GLBs parsing at once the same share: at ~one admission per frame a 270-continuation tile
+ *  GLB took 25-29 s, the tile under the car as long as the far ones (M1 Max drive 20261108-155752-17lruw: 8 of 79
+ *  tiles reached a full model in 62 s). */
+function nextParse() {
+  let pick: Parse | undefined, best = Infinity;
+  for (const parse of waiting) {
+    const rank = parse.rank();
+    const better = !pick || (parse.small !== pick.small ? parse.small : rank < best || (rank === best && parse.seq < pick.seq));
+    if (better) { pick = parse; best = rank; }
+  }
+  return pick;
+}
+function admit(parse: Parse): Promise<void> {
+  const turn = new Promise<void>(resolve => { parse.turns.push(resolve); });
+  waiting.add(parse);
   if (!admitting) void runAdmissions();
   return turn;
 }
+/** The admissions' own work this frame against the streaming allowance's per-budget limit; a window without frame
+ *  reports (a stalled loop) closes after STALE_WINDOW_MS. */
+const STALE_WINDOW_MS = 16;
+let spent = 0, windowFrame = NaN, windowAt = -Infinity;
+function room() {
+  const now = performance.now(), frame = streamingAllowance.frameStamp;
+  if (frame !== windowFrame || now - windowAt > STALE_WINDOW_MS) { windowFrame = frame; windowAt = now; spent = 0; streamingAllowance.opened(); }
+  return spent < streamingAllowance.limit;
+}
+/** Admits one paced glTF continuation at a time, each in its own task: the previous one's synchronous work (the
+ *  geometry or mesh it completes) has run before the next is let in. Each admission's own time (to the next hop)
+ *  counts against the frame's streaming limit. Counting wall time from the window's start charged the admissions with
+ *  every other budget's work queued in between, so a frame let one continuation in (43 a second over the drive). */
 async function runAdmissions() {
   admitting = true;
   try {
-    while (lanes[0].length || lanes[1].length) {
-      await nextTask();
-      await pace();
-      (lanes[0].shift() ?? lanes[1].shift())?.();
+    while (waiting.size) {
+      while (!room()) await nextWindow();
+      const parse = nextParse();
+      if (!parse) break;
+      const turn = parse.turns.shift()!;
+      if (!parse.turns.length) waiting.delete(parse);
+      const started = performance.now();
+      turn();
+      await admissionTask();
+      spent += performance.now() - started;
     }
   } finally { admitting = false; }
 }
@@ -79,7 +122,7 @@ async function runAdmissions() {
 export const UNPACED_STEPS = 32;
 
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
-export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number }): Promise<GLTF> {
+export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number }, rank: ParseRank = noRank): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
     name: 'TURKU_decoded_glb', beforeRoot: async () => {
       // External meshopt buffers share the same immutable bytes across separate glTF parsers.
@@ -97,14 +140,16 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
       // after waking; a small one (UNPACED_STEPS) runs in one go.
       const json = parser.json as { accessors?: unknown[]; meshes?: unknown[] };
       const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
-      if ((json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS) {
+      const small = (json.accessors?.length ?? 0) + (json.meshes?.length ?? 0) <= UNPACED_STEPS;
+      const parse: Parse = { small, rank, seq: parseSeq++, turns: [] };
+      if (small) {
         // A small glTF: the continuations one worker answer resolves wait for one admission together, so the burst
         // still runs inside a frame's streaming window; the gate closes after that task for the next answer.
         let gate: Promise<void> | null = null;
         const together = <T>(value: T) => {
           if (!gate) {
             if (admissions) admissions.count++;
-            const opened = gate = admit(true);
+            const opened = gate = admit(parse);
             void opened.then(nextTask).then(() => { if (gate === opened) gate = null; });
           }
           return gate.then(() => value);
@@ -113,7 +158,7 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
         parser.loadMesh = index => loadMesh(index).then(together);
         return;
       }
-      const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit().then(() => value); };
+      const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit(parse).then(() => value); };
       parser.loadAccessor = index => loadAccessor(index).then(paced);
       parser.loadMesh = index => loadMesh(index).then(paced);
     },
@@ -143,7 +188,7 @@ export async function fetchGlb(url: string, load: () => Promise<ArrayBuffer>, re
   console.warn(`[glb] ${url}: ${first.byteLength} cached bytes of ${completeGlb(again) ? again.byteLength : '?'}; refetched past the HTTP cache`);
   return again;
 }
-export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
+export async function loadGlb(loader: GLTFLoader, url: string, rank?: ParseRank): Promise<GLTF> {
   const started = streamTrace.on ? performance.now() : 0;
   const load = () => fetchGlb(url, async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer);
   const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
@@ -154,10 +199,10 @@ export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
   const decodedAt = started ? performance.now() : 0;
   // Start the glTF parse inside the frame's streaming window; its continuations pace themselves (parseDecodedGlb).
   await pace();
-  if (!started) return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url));
+  if (!started) return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), undefined, rank);
   // Install traces split a GLB read into fetch, worker decode, the wait for a window and the paced parse.
   const parsing = performance.now(), admissions = { count: 0 };
-  const gltf = await parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), admissions);
+  const gltf = await parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), admissions, rank);
   streamTrace.event('glb.load', undefined, { ms: performance.now() - started, fetchMs: fetched - started, decodeMs: decodedAt - fetched,
     paceMs: parsing - decodedAt, parseMs: performance.now() - parsing, admits: admissions.count, bytes, tile: !!key });
   return gltf;

@@ -84,7 +84,7 @@ export class BuildingModelCache {
   private seq = 0;
   /** Concurrent model reads: fetch, GLB decode and meshopt workers overlap. */
   readonly reads = 6;
-  constructor(private load: (url: string) => Promise<THREE.Object3D>,
+  constructor(private load: (url: string, rank?: () => number) => Promise<THREE.Object3D>,
     private dispose: (root: THREE.Object3D) => void, private budget: PreparationBudget = streamingBudget(),
     private visibility: PlacementVisibility = placementVisibility,
     private styleLod: (root: THREE.Object3D, owner: THREE.Object3D, block: string) => void = () => {}) {}
@@ -111,7 +111,7 @@ export class BuildingModelCache {
       while (pause) { await pause; pause = this.budget.checkpoint(); }
       const loading = trace ? performance.now() : 0;
       if (trace) trace.queueMs = loading - queued;
-      const root = await this.load(url);
+      const root = await this.load(url, typeof priority === 'function' ? priority : () => priority);
       if (trace) {
         trace.loadMs = performance.now() - loading;
         const upload = root.userData.textureUpload as { ms: number; textures: number } | undefined;
