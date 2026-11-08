@@ -73,24 +73,24 @@ class PlantBuilder {
   }
 }
 
-/** A dwarf-shrub clump, about 0.3 m across and 0.2-0.3 m tall: stems branching from the root with small oval leaves
- *  (bilberry), a third of the clumps the low, darker lingonberry. */
+/** A dwarf-shrub clump, about 0.5 m across and 0.2-0.3 m tall: stems branching from the root with small oval leaves
+ *  (bilberry), a third of the stems the low, darker lingonberry. Clumps overlap into the mats of the needle duff. */
 export function dwarfShrubGeometry(seed = 7321) {
   const r = rng(seed), b = new PlantBuilder();
   const a = new THREE.Vector3(), c = new THREE.Vector3(), dir = new THREE.Vector3(), side = new THREE.Vector3();
-  for (let s = 0; s < 6; s++) {
-    const lingon = s >= 4, at = r() * Math.PI * 2, from = Math.sqrt(r()) * 0.1, phase = r();
+  for (let s = 0; s < 9; s++) {
+    const lingon = s >= 6, at = r() * Math.PI * 2, from = Math.sqrt(r()) * 0.22, phase = r();
     const height = lingon ? 0.08 + r() * 0.06 : 0.17 + r() * 0.12, lean = 0.25 + r() * 0.35;
     a.set(Math.cos(at) * from, -0.01, Math.sin(at) * from);
     c.set(a.x + Math.cos(at) * lean * height, height, a.z + Math.sin(at) * lean * height);
     b.stem(a, c, 0.006, pick(r, PLANT_COLOURS.stem), 0, 1, phase);
-    const leaves = lingon ? 7 : 9;
+    const leaves = lingon ? 6 : 8;
     for (let k = 0; k < leaves; k++) {
       const t = 0.3 + 0.7 * (k / (leaves - 1)), turn = r() * Math.PI * 2, rise = 0.1 + r() * 0.35;
       const base = a.clone().lerp(c, t);
       dir.set(Math.cos(turn) * Math.cos(rise), Math.sin(rise), Math.sin(turn) * Math.cos(rise)).normalize();
       side.set(-Math.sin(turn), 0, Math.cos(turn));
-      const length = lingon ? 0.022 + r() * 0.01 : 0.026 + r() * 0.014;
+      const length = lingon ? 0.024 + r() * 0.01 : 0.03 + r() * 0.016;
       b.leaf(base, dir, side, length, length * (lingon ? 0.55 : 0.62), pick(r, lingon ? PLANT_COLOURS.lingonberry : PLANT_COLOURS.bilberry), t, phase);
     }
   }
@@ -130,13 +130,13 @@ export function fernGeometry(seed = 5113) {
   return b.geometry();
 }
 
-/** A low herb patch, about 0.25 m across and 0.08-0.15 m tall: leaves on short stalks, three-lobed (wood anemone,
- *  wood sorrel) as fans of three small leaves. */
+/** A low herb patch, about 0.5 m across and 0.1-0.22 m tall: leaves on stalks, three-lobed (wood anemone, wood
+ *  sorrel) as fans of three leaves 5-8 cm long. */
 export function herbGeometry(seed = 9029) {
   const r = rng(seed), b = new PlantBuilder();
   const a = new THREE.Vector3(), c = new THREE.Vector3(), dir = new THREE.Vector3(), side = new THREE.Vector3();
-  for (let s = 0; s < 9; s++) {
-    const at = r() * Math.PI * 2, from = Math.sqrt(r()) * 0.12, height = 0.07 + r() * 0.08, phase = r();
+  for (let s = 0; s < 11; s++) {
+    const at = r() * Math.PI * 2, from = Math.sqrt(r()) * 0.24, height = 0.1 + r() * 0.12, phase = r();
     const colour = pick(r, PLANT_COLOURS.herb);
     a.set(Math.cos(at) * from, -0.01, Math.sin(at) * from);
     c.set(a.x + (r() - 0.5) * 0.03, height, a.z + (r() - 0.5) * 0.03);
@@ -146,8 +146,8 @@ export function herbGeometry(seed = 9029) {
       const turn = turn0 + (k * Math.PI * 2) / 3, droop = -0.05 - r() * 0.2;
       dir.set(Math.cos(turn) * Math.cos(droop), Math.sin(droop), Math.sin(turn) * Math.cos(droop)).normalize();
       side.set(-Math.sin(turn), 0, Math.cos(turn));
-      const length = 0.028 + r() * 0.016;
-      b.leaf(c, dir, side, length, length * 0.9, colour, 1, phase);
+      const length = 0.05 + r() * 0.03;
+      b.leaf(c, dir, side, length, length * 0.8, colour, 1, phase);
     }
   }
   return b.geometry();
