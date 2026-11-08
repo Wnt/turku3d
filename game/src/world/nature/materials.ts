@@ -74,6 +74,9 @@ export class NatureMaterials {
   /** The leaf cards' coverage (atlas alpha thinned in the crown core), shared by the depth prepass. */
   private readonly leafAlpha: THREE.Node<'float'>;
   readonly grass: THREE.MeshStandardNodeMaterial;
+  /** Opaque blade tufts (grassBlades.ts): their root-to-tip albedo in the vertex colour, the cards' wind and baked
+   *  ambient. No alpha test: between grassRange.x and .y the blades sink into their ground instead of dissolving. */
+  readonly grassBlade: THREE.MeshStandardNodeMaterial;
   readonly impostor: THREE.MeshStandardNodeMaterial;
   readonly wood: THREE.MeshStandardNodeMaterial;
   readonly metal: THREE.MeshStandardNodeMaterial;
@@ -99,10 +102,12 @@ export class NatureMaterials {
     // and share programs without previous instance data (render/rigidVelocity.ts), so the wind writes it: the same
     // instance position swayed at the previous frame's time. Without it every swaying vertex reported its whole
     // wind offset (up to 0.3 m) as motion and TRAA fetched the crowns' history from the wrong place.
-    const wind = (flutterScale: number) => Fn(builder => {
+    // `settle` moves the swayed vertex further (the blade tufts sink into their ground at the edge of the grass range).
+    const wind = (flutterScale: number, settle?: () => THREE.Node<'vec3'>) => Fn(builder => {
       const mrt = (builder as unknown as { renderer: { getMRT(): { has(name: string): boolean } | null } }).renderer.getMRT();
-      if (mrt?.has('velocity')) positionPrevious.assign(positionLocal.add(offset(positionLocal, this.windTimePrevious)(flutterScale)));
-      return positionLocal.add(offset(positionLocal, this.windTime)(flutterScale));
+      const extra = settle ? settle().toVar() : vec3(0);
+      if (mrt?.has('velocity')) positionPrevious.assign(positionLocal.add(offset(positionLocal, this.windTimePrevious)(flutterScale)).add(extra));
+      return positionLocal.add(offset(positionLocal, this.windTime)(flutterScale)).add(extra);
     })();
     // Chain-link mips still need runtime coverage compensation; foliage is calibrated offline per atlas cell.
     const mipAlpha = (alpha: THREE.Node<'float'>, size: number) => alpha.mul(log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(size), 1)).mul(0.3).add(1));
@@ -142,6 +147,16 @@ export class NatureMaterials {
     this.grass.aoNode = attribute('grassAmbient', 'float');
     this.grass.normalNode = normalViewGeometry;
     this.grass.positionNode = wind(0.06);
+    this.grassBlade = new THREE.MeshStandardNodeMaterial({ name: 'nature-grass-blade', side: THREE.DoubleSide, roughness: 0.9, metalness: 0, vertexColors: true });
+    this.grassBlade.aoNode = attribute('grassAmbient', 'float');
+    this.grassBlade.normalNode = normalViewGeometry;
+    this.grassBlade.positionNode = wind(0.06, () => {
+      const world = modelWorldMatrix.mul(vec4(positionLocal, 1)).xyz;
+      const shown = smoothstep(this.grassRange.y, this.grassRange.x, world.sub(cameraPosition).length());
+      // The vertex's height above the tuft root in metres: its model height times the instance's scale.
+      const lift = max(attribute('position', 'vec3').y, 0).mul(attribute('grassScale', 'float'));
+      return vec3(0, lift.mul(shown.oneMinus()).negate(), 0);
+    });
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
       // Scene-wide values in the shared render group: the per-object default rewrote each tree pool's buffer per pass.
@@ -151,6 +166,7 @@ export class NatureMaterials {
       const transmitted = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.leaves.emissiveNode = transmitted.mul(pow(crownAo, this.crownLight.w));
       this.grass.emissiveNode = transmitted;
+      this.grassBlade.emissiveNode = transmitted;
     }
 
     const imp = sources.nature_impostor;
@@ -278,6 +294,6 @@ export class NatureMaterials {
     this.variants.clear();
     for (const m of this.prepasses.values()) m.dispose();
     this.prepasses.clear();
-    for (const m of [this.bark, this.leaves, this.grass, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
+    for (const m of [this.bark, this.leaves, this.grass, this.grassBlade, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
   }
 }

@@ -87,3 +87,43 @@ it('grows tall tufts and meadow flowers on meadows and a lawn carpet on lawns', 
   expect(mClump / mTotal).toBeGreaterThan(0.4);
   expect(mMeadow / mTotal).toBeGreaterThan(0.15);
 });
+
+it('draws tufts as opaque blades whose mean colour sits on the meadow ground, sinking with their scale', async () => {
+  const { tuftGeometry } = await import('../../src/world/nature/grassBlades');
+  const tuft = tuftGeometry(), position = tuft.getAttribute('position'), color = tuft.getAttribute('color');
+  tuft.computeBoundingBox();
+  expect(tuft.index!.count / 3).toBe(14 * 5);
+  expect(tuft.boundingBox!.min.y).toBeCloseTo(-0.02, 3);
+  expect(tuft.boundingBox!.max.y).toBeGreaterThan(0.35); expect(tuft.boundingBox!.max.y).toBeLessThan(0.5);
+  // Area-weighted albedo over the blade triangles against the meadow finish's mean (0.103, 0.13, 0.033).
+  const mean = [0, 0, 0]; let total = 0;
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < tuft.index!.count; t += 3) {
+    const [i, j, k] = [0, 1, 2].map(o => tuft.index!.getX(t + o));
+    a.fromBufferAttribute(position, i); b.fromBufferAttribute(position, j); c.fromBufferAttribute(position, k);
+    const area = b.clone().sub(a).cross(c.clone().sub(a)).length() / 2;
+    for (let ch = 0; ch < 3; ch++) mean[ch] += area * (color.getComponent(i, ch) + color.getComponent(j, ch) + color.getComponent(k, ch)) / 3;
+    total += area;
+  }
+  const albedo = mean.map(v => v / total);
+  expect(albedo[1]).toBeGreaterThan(albedo[0]); expect(albedo[0]).toBeGreaterThan(albedo[2]);
+  for (const [ours, ground] of albedo.map((v, i) => [v, [0.103, 0.13, 0.033][i]])) expect(Math.abs(ours - ground)).toBeLessThan(0.035);
+
+  const library = natureFixture(), scene = new THREE.Scene(), model = new THREE.Group();
+  const meadow = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial());
+  meadow.userData = { layer: 'ground', material_key: 'draft_grass_meadow' }; model.add(meadow); scene.add(model);
+  const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+  while (!steps.next().done) { /* fixture */ }
+  field.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+  const tufts = (field.root.children as THREE.InstancedMesh[]).find(m => m.userData.nature === 'grass_clump')!;
+  expect(tufts.material).toBe(library.materials.grassBlade);
+  expect(library.materials.grassBlade.alphaTest).toBe(0);
+  expect(library.materials.grassBlade.transparent).toBe(false);
+  const scale = tufts.geometry.getAttribute('grassScale') as THREE.InstancedBufferAttribute;
+  const matrix = new THREE.Matrix4(), s = new THREE.Vector3();
+  for (const i of [0, Math.floor(tufts.count / 2), tufts.count - 1]) {
+    tufts.getMatrixAt(i, matrix); s.setFromMatrixScale(matrix);
+    expect(scale.getX(i)).toBeCloseTo(s.y, 5);
+  }
+  field.dispose();
+});

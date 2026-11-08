@@ -9,13 +9,16 @@ import type { QualityTier } from '../../render/quality';
 import { QUALITY } from '../../render/quality';
 import { materialKey, surfaceStyle } from '../../render/materials';
 import type { NatureLibrary } from './library';
+import { tuftGeometry } from './grassBlades';
 import { hashId } from './species';
 
 const CELL = 16;
 /** Values per candidate: x, y, z, rotation, scale, ambient. */
 const STRIDE = 6;
-/** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes. */
+/** Clump kinds: a continuous carpet of lawn cards; taller tufts and meadow flowers only in patches; rosettes. The
+ *  tufts are opaque blades built here (grassBlades.ts), the others the library's alpha-tested cards. */
 const KINDS = ['grass_lawn', 'grass_clump', 'grass_meadow', 'groundcover_rosette'] as const;
+const TUFT = 1;
 
 interface TileGrass { key: string; cells: Map<string, { points: number[]; kinds: number[] }> }
 
@@ -38,13 +41,14 @@ function meadowKind(patch: number, pick: number) {
   return pick < 0.96 ? 0 : 3;
 }
 
-/** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassAmbient` the grass material
- *  reads (its aoNode); dispose the view, not the source. */
-export function grassGeometry(source: THREE.BufferGeometry, ambient: THREE.InstancedBufferAttribute) {
+/** A view of a clump geometry (its vertex buffers shared) with the per-instance `grassAmbient` the grass materials
+ *  read (their aoNode) and, for blade tufts, the `grassScale` they sink by; dispose the view, not the source. */
+export function grassGeometry(source: THREE.BufferGeometry, ambient: THREE.InstancedBufferAttribute, scale?: THREE.InstancedBufferAttribute) {
   const geometry = new THREE.BufferGeometry();
   for (const [name, attribute] of Object.entries(source.attributes)) geometry.setAttribute(name, attribute);
   geometry.setIndex(source.index);
   geometry.setAttribute('grassAmbient', ambient);
+  if (scale) geometry.setAttribute('grassScale', scale);
   geometry.boundingSphere = source.boundingSphere; geometry.boundingBox = source.boundingBox;
   return geometry;
 }
@@ -55,6 +59,8 @@ export class GrassField {
   private tiles = new Map<THREE.Object3D, TileGrass>();
   private draws: THREE.InstancedMesh[][] = [];
   private ambient: THREE.InstancedBufferAttribute[] = [];
+  private scales: THREE.InstancedBufferAttribute[] = [];
+  private tuft = tuftGeometry();
   private selection = '';
   private readonly settings: { density: number; range: number; instances: number };
   private matrix = new THREE.Matrix4();
@@ -68,14 +74,17 @@ export class GrassField {
     this.settings = QUALITY[tier].grass;
     this.root.name = 'nature-grass';
     library.materials.grassRange.value.set(this.settings.range * 0.6, this.settings.range);
-    for (const name of KINDS) {
-      const asset = library.asset(name), cap = this.settings.instances;
+    for (const [k, name] of KINDS.entries()) {
+      const cap = this.settings.instances;
       const matrices = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16);
       const colors = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
       const ambient = new THREE.InstancedBufferAttribute(new Float32Array(cap).fill(1), 1);
-      this.ambient.push(ambient);
-      this.draws.push(asset.lods[0].parts.map(part => {
-        const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, ambient), library.materials.grass, cap);
+      const scale = new THREE.InstancedBufferAttribute(new Float32Array(cap).fill(1), 1);
+      this.ambient.push(ambient); this.scales.push(scale);
+      const parts = k === TUFT ? [{ geometry: this.tuft, material: library.materials.grassBlade }]
+        : library.asset(name).lods[0].parts.map(part => ({ geometry: part.geometry, material: library.materials.grass }));
+      this.draws.push(parts.map(part => {
+        const mesh = new THREE.InstancedMesh(grassGeometry(part.geometry, ambient, k === TUFT ? scale : undefined), part.material, cap);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;
         mesh.count = 0; mesh.visible = false; mesh.frustumCulled = false;
         mesh.castShadow = false; mesh.receiveShadow = true;
@@ -184,14 +193,17 @@ export class GrassField {
           this.quaternion.setFromAxisAngle(this.up, cell.points[o + 3]), this.scale.set(s, s, s));
         this.matrix.toArray(parts[0].instanceMatrix.array, n * 16);
         const shade = 0.82 + 0.3 * ((cell.points[o + 3] * 7.13) % 1);
-        (parts[0].instanceColor!.array as Float32Array).set([shade, shade, shade * 0.96], n * 3);
+        // Blade tufts also vary in hue, from fresh blue-green to yellower, drier clumps.
+        const dry = kind === TUFT ? ((cell.points[o + 3] * 3.71) % 1) * 2 - 1 : 0;
+        (parts[0].instanceColor!.array as Float32Array).set([shade * (1 + 0.16 * dry), shade * (1 + 0.05 * dry), shade * (0.96 - 0.1 * dry)], n * 3);
         (this.ambient[kind].array as Float32Array)[n] = cell.points[o + 5];
+        (this.scales[kind].array as Float32Array)[n] = s;
         counts[kind] = n + 1; remaining--;
       }
     }
     for (const [k, parts] of this.draws.entries()) {
       if (counts[k]) {
-        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3], [this.ambient[k], 1]] as const) {
+        for (const [attribute, width] of [[parts[0].instanceMatrix, 16], [parts[0].instanceColor!, 3], [this.ambient[k], 1], [this.scales[k], 1]] as const) {
           attribute.clearUpdateRanges(); attribute.addUpdateRange(0, counts[k] * width);
           attribute.needsUpdate = true;
         }
@@ -202,6 +214,7 @@ export class GrassField {
 
   dispose() {
     for (const parts of this.draws) for (const part of parts) { part.geometry.dispose(); part.dispose(); }
+    this.tuft.dispose();
     this.root.removeFromParent();
   }
 }
