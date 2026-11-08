@@ -727,11 +727,14 @@ def build(
     from . import forest_floor, meadows
 
     mapped = [g for g, m in inputs.surfaces if m != mat_id("grass")]
-    kept = shapely.union_all([natural_area, *mapped])
+    # Sand beaches reach the waterline over the lawn or ortho green the outline leaves between them.
+    shore = garden_finishes.shore_regions(osm_finishes, inputs.water, shapely.union_all(mapped))
+    beaches = [g for g, f in [*osm_finishes, *shore] if f == street_materials.SAND]
+    kept = shapely.union_all([natural_area, *mapped, *beaches])
     unmown = meadows.regions(tile, inputs.green_areas, kept)
     floors = forest_floor.regions(tile, inputs.forests, inputs.vegetation_canopy, GridHeight(tile, grid_pos), trees,
                                   inputs.water, kept)
-    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *unmown, *floors, *forest_paths, *osm_finishes]
+    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *shore, *unmown, *floors, *forest_paths, *osm_finishes]
     surface_args = (
         dry.positions,
         dry.indices,

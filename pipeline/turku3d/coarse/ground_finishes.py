@@ -6,7 +6,7 @@ from .street_materials import FINISH_KEYS
 
 # Metres covered by one texture repeat; the library records uv_scale = 1 / period.
 PERIODS = {"fieldstone": 4, "granite_rock": 4, "forest_floor_broadleaf": 4, "forest_floor_conifer": 4,
-           "forest_floor_moss": 4, "grass_meadow": 4}
+           "forest_floor_moss": 4, "grass_meadow": 4, "sand": 4}
 PROCEDURAL = (*FINISH_KEYS.values(), "granite_rock")
 FOREST_FLOORS = ("forest_floor_broadleaf", "forest_floor_conifer", "forest_floor_moss")
 
@@ -115,6 +115,43 @@ def _forest_floor(key, rng, size, period, grain, macro, gaussian_filter):
     return albedo, height, ao, roughness
 
 
+def _sand(rng, size, period, grain, macro, gaussian_filter):
+    """Beach and sandpit sand: fine beige-grey grains, trampled into footprint dimples, compacted darker patches, a
+    few pebbles and dry stalks. Kansanpuisto beach in summer panoramas: hue 31-34 deg, saturation 0.09-0.12, sunlit
+    lightness 0.44-0.5 (the albedo sits a little under it)."""
+    def noise(sigma):
+        n = gaussian_filter(rng.normal(0, 1, (size, size)), sigma, mode="wrap")
+        return n / max(n.std(), 1e-6)
+
+    # Compacted, damp-ish patches and loose drifts at metre scale.
+    patches = np.clip(noise(size / 10) * .6 + noise(size / 30) * .4, -2, 2)
+    albedo = (np.array([140, 128, 112]) + patches[..., None] * [6, 6, 5] + grain[..., None] * [7, 7, 6]
+              + gaussian_filter(grain, 1.2, mode="wrap")[..., None] * [9, 8, 7])
+    height = gaussian_filter(grain, .8, mode="wrap") * .0004 + noise(size / 40) * .004
+    # Footprints: soft oval dimples, 10-14 cm, in their thousands on a used beach; their walls catch the light.
+    count = 1600
+    y, x = rng.random(count) * size, rng.random(count) * size
+    r = rng.uniform(.05, .07, count) * size / period
+    dip = np.zeros((size, size))
+    yy, xx = np.indices((int(2 * r.max()) + 3,) * 2) - (int(r.max()) + 1)
+    for cy, cx, rr, angle in zip(y.astype(int), x.astype(int), r, rng.uniform(0, np.pi, count), strict=True):
+        u = (xx * np.cos(angle) + yy * np.sin(angle)) / (rr * 1.5)
+        v = (-xx * np.sin(angle) + yy * np.cos(angle)) / rr
+        np.add.at(dip, ((cy + yy) % size, (cx + xx) % size), np.exp(-2.5 * (u * u + v * v)))
+    dip = np.minimum(dip, 1.4)
+    height -= dip * .012
+    albedo -= dip[..., None] * [7, 7, 6]
+    # Pebbles and shell grit, and a few dry stalks blown onto the sand.
+    _scatter(rng, size, period, 2600, (.006, .018), (.6, .9),
+             [[120, 116, 110], [150, 144, 134], [96, 92, 88], [170, 160, 146]], [.35, .3, .2, .15],
+             (albedo, height), .003)
+    _scatter(rng, size, period, 160, (.04, .12), (.05, .1), [[150, 132, 96], [122, 108, 80]], [.6, .4],
+             (albedo, height), .002)
+    ao = .9 + .1 * np.clip(1 - dip, 0, 1)
+    roughness = np.clip(.94 + grain * .02, .85, 1)
+    return albedo, height, ao, roughness
+
+
 def _meadow(rng, size, period, grain, macro, gaussian_filter):
     """Unmown summer grass seen from above (Turku's meadows and open areas, July): long blades in green and straw
     tones lying in every direction over a darker thatch, drier patches, and flowers (white, yellow, violet) in
@@ -151,8 +188,8 @@ def maps(key, size=None):
     """Albedo, tangent normal and ORM. Fine grain is mipmapped by the packager."""
     from scipy.ndimage import gaussian_filter, distance_transform_edt
 
-    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", "grass_meadow", *FOREST_FLOORS)
-                    else 512)
+    size = size or (2048 if key == "fieldstone" else 1024 if key in ("granite_rock", "grass_meadow", "sand",
+                                                                   *FOREST_FLOORS) else 512)
     period = PERIODS.get(key, 2)
     rng = np.random.default_rng(4817)
     grain = rng.normal(0, 1, (size, size))
@@ -295,6 +332,8 @@ def maps(key, size=None):
         albedo, height, ao, roughness = _forest_floor(key, rng, size, period, grain, macro, gaussian_filter)
     elif key == "grass_meadow":
         albedo, height, ao, roughness = _meadow(rng, size, period, grain, macro, gaussian_filter)
+    elif key == "sand":
+        albedo, height, ao, roughness = _sand(rng, size, period, grain, macro, gaussian_filter)
     else:
         raise ValueError(f"Unknown ground finish: {key}")
 

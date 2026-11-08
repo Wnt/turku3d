@@ -32,7 +32,9 @@ DENSITY = {
 
 
 def open_surface(tags):
-    """OSM sports/open grounds where area vegetation must not invent trees."""
+    """OSM sports/open grounds and beaches where area vegetation must not invent trees."""
+    if tags.get("natural") == "beach" or tags.get("leisure") == "beach_resort":
+        return True
     return (
         tags.get("indoor") != "yes"
         and tags.get("building", "no") == "no"
@@ -58,6 +60,9 @@ def open_kind(tags):
     """"open" for a playing surface, "grounds" for the sports centre or recreation ground around it (often wooded:
     Impivaara, Kupittaa, the disc-golf parks, ski hills)."""
     sports = set(tags.get("sport", "").split(";"))
+    # A beach invents no trees; the lidar's crowns on it (the shade trees at its back) are real and stay.
+    if tags.get("natural") == "beach" or tags.get("leisure") == "beach_resort":
+        return "grounds"
     surface = tags.get("leisure") in SURFACES or tags.get("highway") == "raceway" or "bmx" in sports
     return "open" if surface else "grounds"
 

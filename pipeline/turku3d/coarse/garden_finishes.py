@@ -7,7 +7,37 @@ import numpy as np
 import shapely
 
 from turku3d.col.materials import mat_id
-from .street_materials import BRICK, OSM_FINISHES
+from .street_materials import BRICK, OSM_FINISHES, SAND
+
+
+def beach(tags):
+    """An OSM beach of sand: ``natural=beach`` (or a ``leisure=beach_resort``) whose surface is sand or untagged; a
+    shingle or pebble beach keeps its own surface."""
+    return (tags.get("natural") == "beach" or tags.get("leisure") == "beach_resort") and tags.get("surface") in (None, "sand")
+
+
+# Metres from a sand beach to the water that stay sand: a mapped beach outline seldom reaches the waterline, and the
+# strip between took the ortho's or a lawn's green (Kansanpuisto, Ruissalo: a green band between sand and sea).
+SHORE = 12.0
+
+
+def shore_regions(regions, water, mapped):
+    """[(strip, SAND)]: land within ``SHORE`` m of both a sand finish in ``regions`` and ``water``, outside the
+    water, the sand itself and ``mapped`` (paths and paving keep their surfaces)."""
+    sand = shapely.union_all([g for g, f in regions if f == SAND])
+    water = shapely.union_all(list(water))
+    if sand.is_empty or water.is_empty:
+        return []
+    strip = sand.buffer(SHORE).intersection(water.buffer(SHORE)).difference(water).difference(sand)
+    if mapped is not None and not mapped.is_empty:
+        strip = strip.difference(mapped)
+    strip = polygon_parts(strip)
+    return [] if strip.is_empty else [(strip, SAND)]
+
+
+def polygon_parts(geom):
+    parts = [g for g in shapely.get_parts(shapely.make_valid(geom)) if g.geom_type in ("Polygon", "MultiPolygon")]
+    return shapely.union_all(parts) if parts else shapely.Polygon()
 
 
 def osm_regions(tile, osm):
@@ -21,7 +51,7 @@ def osm_regions(tile, osm):
     result = []
     for _, row in rows(osm, tile.bbox):
         tags = json.loads(row['tags'] or '{}')
-        finish = OSM_FINISHES.get(tags.get('surface'))
+        finish = SAND if beach(tags) else OSM_FINISHES.get(tags.get('surface'))
         if finish is None or tags.get('bridge', 'no') != 'no' or tags.get('tunnel', 'no') != 'no':
             continue
         if tags.get('layer', '0') not in ('0', '') or tags.get('building'):
