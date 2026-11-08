@@ -460,10 +460,12 @@ export class VegetationLod {
       const objectIds: unknown[] = [];
       const impostor = asset.kind === 'tree' && level === asset.lods.length - 1;
       return parts.map(part => {
-        // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material.
-        // Tree crowns also clear the view between the camera and the player (NatureMaterials.clearsView).
+        // Drawn levels cross-fade (their level's screen-door variant); shadow proxies cast with the plain material,
+        // tree crowns with its sun gaps (NatureMaterials.crownShadow). Tree crowns also clear the view between the
+        // camera and the player (NatureMaterials.clearsView).
         const materials = this.library?.materials;
-        const material = shadowProxy || !materials ? part.material
+        const material = !materials ? part.material
+          : shadowProxy ? (asset.kind === 'tree' && part.material === materials.leaves ? materials.crownShadow : part.material)
           : materials.lodVariant(part.material, level, materials.clearsView(asset.kind, part.material, impostor));
         const mesh = new THREE.InstancedMesh(part.geometry, material, count);
         mesh.instanceMatrix = matrices; mesh.instanceColor = colors;

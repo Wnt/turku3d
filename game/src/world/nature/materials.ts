@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import {
-  abs, attribute, bool, cameraPosition, diffuseColor, dot, float, Fn, fract, fwidth, instanceColor, log2, max, modelWorldMatrix,
+  abs, attribute, bool, cameraPosition, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
 } from 'three/tsl';
@@ -18,6 +18,36 @@ export const IMPOSTOR_BOOST = { from: 4, to: 5, gain: 0.3 } as const;
 export function impostorAlphaScale(level: number) {
   const t = Math.min(1, Math.max(0, (level - IMPOSTOR_BOOST.from) / (IMPOSTOR_BOOST.to - IMPOSTOR_BOOST.from)));
   return 1 + IMPOSTOR_BOOST.gain * t * t * (3 - 2 * t);
+}
+
+/** Sun gaps in a tree crown's shadow (sunflecks). `open` is the share of one crown's sun shadow the sun passes through:
+ *  the leaf cards' alpha cut alone left groves without a single fleck, while the sunlit Puolanpuisto panorama has 27.5 % of
+ *  the lawn under its closed grove in the sun (shade 0.018, flecks 0.14, open lawn 0.21 linear luminance). Each crown
+ *  draws its own pattern, so where crowns overlap along the sun the gaps multiply (a park grove's one or two crowns stay
+ *  dappled, a forest's three or four close up). `size` (m) is the larger fleck scale on the ground. */
+export const CROWN_GAPS = { open: 0.35, size: 0.9 } as const;
+
+/** CPU mirror of the shader's crown-gap noise at ground point (x, z) for a tree seed in [0, 1): two octaves of value
+ *  noise in [0, 1]; the shadow keeps the fragments at or above `crownGapCut()`. */
+export function crownGapNoise(x: number, z: number, seed = 0) {
+  const lattice = (cx: number, cz: number) => { const v = Math.sin((cx % 289) * 127.1 + (cz % 289) * 311.7) * 43758.5453; return v - Math.floor(v); };
+  const value = (px: number, pz: number) => {
+    const ix = Math.floor(px), iz = Math.floor(pz), fx = px - ix, fz = pz - iz;
+    const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+    const a = lattice(ix, iz), b = lattice(ix + 1, iz), c = lattice(ix, iz + 1), d = lattice(ix + 1, iz + 1);
+    return (a + (b - a) * ux) * (1 - uz) + (c + (d - c) * ux) * uz;
+  };
+  const qx = x + seed * 173.13, qz = z + seed * 311.97;
+  return value(qx / CROWN_GAPS.size, qz / CROWN_GAPS.size) * 0.65 + value(qx / (CROWN_GAPS.size * 0.45) + 17.3, qz / (CROWN_GAPS.size * 0.45) + 5.1) * 0.35;
+}
+let gapCut: number | null = null;
+/** The noise value below which a crown's shadow opens: the `CROWN_GAPS.open` quantile of the noise over a fixed grid. */
+export function crownGapCut() {
+  if (gapCut !== null) return gapCut;
+  const values: number[] = [];
+  for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) values.push(crownGapNoise(i * 0.37 + 0.11, j * 0.41 + 0.07, ((i * 7 + j * 13) % 97) / 97));
+  values.sort((a, b) => a - b);
+  return gapCut = values[Math.floor(CROWN_GAPS.open * values.length)];
 }
 
 /** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
@@ -70,6 +100,8 @@ export class NatureMaterials {
   readonly leafTone = uniform(new THREE.Vector4(1.09, 1, 0.82, 1.25)).setGroup(renderGroup);
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
+  /** The leaves of the trees' shadow proxies: `leaves` whose sun shadow opens at the crown gaps (CROWN_GAPS). */
+  readonly crownShadow: THREE.MeshStandardNodeMaterial;
   readonly grass: THREE.MeshStandardNodeMaterial;
   /** Opaque blade tufts (grassBlades.ts): their root-to-tip albedo in the vertex colour, the cards' wind and baked
    *  ambient. No alpha test: between grassRange.x and .y the blades sink into their ground instead of dissolving. */
@@ -168,6 +200,25 @@ export class NatureMaterials {
       this.grass.emissiveNode = transmitted;
       this.grassBlade.emissiveNode = transmitted;
     }
+    // Each fragment's sun ray meets the ground at q: every leaf card of a crown along that ray shares q, so a gap goes
+    // through the whole crown; the tree's tint seed shifts its pattern against its neighbours'.
+    this.crownShadow = cloneNodeMaterial(this.leaves);
+    this.crownShadow.name = 'nature-leaves@shadow';
+    if (lighting) {
+      const toSun = uniform(lighting.sunDir).setGroup(renderGroup);
+      const lattice = (c: THREE.Node<'vec2'>) => fract(sin(dot(mod(c, 289), vec2(127.1, 311.7))).mul(43758.5453));
+      const value = (p: THREE.Node<'vec2'>) => {
+        const i = floor(p), f = fract(p), u = f.mul(f).mul(f.mul(-2).add(3));
+        return mix(mix(lattice(i), lattice(i.add(vec2(1, 0))), u.x), mix(lattice(i.add(vec2(0, 1))), lattice(i.add(vec2(1, 1))), u.x), u.y);
+      };
+      const seed = fract(sin(dot(instanceColor, vec3(12.9898, 78.233, 37.719))).mul(43758.5453));
+      const ground = positionWorld.xz.sub(toSun.xz.mul(positionWorld.y.div(max(toSun.y, 0.05))));
+      const q = ground.add(vec2(seed.mul(173.13), seed.mul(311.97)));
+      const size = CROWN_GAPS.size, fine = size * 0.45;
+      const noise = value(q.div(size)).mul(0.65).add(value(q.div(fine).add(vec2(17.3, 5.1))).mul(0.35));
+      this.crownShadow.maskShadowNode = noise.greaterThanEqual(crownGapCut());
+    }
+    this.bases.set(this.crownShadow, this.leaves);
 
     const imp = sources.nature_impostor;
     const impMap = imp.map!, impTex = texture(impMap, uv());
@@ -266,6 +317,6 @@ export class NatureMaterials {
   dispose() {
     for (const list of this.variants.values()) for (const m of list) m?.dispose();
     this.variants.clear();
-    for (const m of [this.bark, this.leaves, this.grass, this.grassBlade, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
+    for (const m of [this.bark, this.leaves, this.crownShadow, this.grass, this.grassBlade, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
   }
 }

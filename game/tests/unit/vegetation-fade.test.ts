@@ -6,7 +6,7 @@ import { LodFades, dissolveTwin, drawnCoverage, isDissolveTwin, precompileDissol
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { VEGETATION_FADE, impostorAlphaScale } from '../../src/world/nature/materials';
+import { CROWN_GAPS, VEGETATION_FADE, crownGapCut, crownGapNoise, impostorAlphaScale } from '../../src/world/nature/materials';
 import { vegetationLevels } from '../../src/world/vegetationLod';
 import { natureTint } from '../../src/world/nature/species';
 
@@ -154,5 +154,31 @@ describe('settled frames keep no dither', () => {
     expect(stableMaterial(copy.material as THREE.Material)).toBe(base);
     fades.update(600);
     expect([mesh.material, drawnCoverage(mesh)]).toEqual([base, 1]);
+  });
+});
+
+describe('crown sun gaps', () => {
+  // The shadow proxies' leaves (NatureMaterials.crownShadow) keep a fragment where the noise at its sun ray's ground
+  // point is at least crownGapCut(): one crown lets CROWN_GAPS.open of the sun through, two overlapping ones its square.
+  const open = (seeds: number[]) => {
+    let lit = 0, n = 0;
+    for (let i = 0; i < 120; i++) for (let j = 0; j < 120; j++, n++) {
+      const x = 1000 + i * 0.53, z = -2000 + j * 0.47;
+      if (seeds.every(seed => crownGapNoise(x, z, seed) < crownGapCut())) lit++;
+    }
+    return lit / n;
+  };
+  it('opens the calibrated share of one crown away from the calibration grid', () => {
+    expect(Math.abs(open([0.31]) - CROWN_GAPS.open)).toBeLessThan(0.04);
+  });
+  it('gives each tree its own pattern, so overlapping crowns close up', () => {
+    expect(Math.abs(open([0.31, 0.77]) - CROWN_GAPS.open ** 2)).toBeLessThan(0.04);
+  });
+  it('makes flecks of about the sun-fleck scale, not single-texel speckle', () => {
+    // Along a 50 m line the open/closed state changes about once per fleck, not per 10 cm sample.
+    let changes = 0, last = crownGapNoise(0, 0) < crownGapCut();
+    for (let k = 1; k <= 500; k++) { const now = crownGapNoise(k * 0.1, 3.3) < crownGapCut(); if (now !== last) changes++; last = now; }
+    expect(changes).toBeGreaterThan(20);
+    expect(changes).toBeLessThan(120);
   });
 });
