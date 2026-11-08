@@ -87,8 +87,10 @@ const BESIDE = new Set<number>([...CARRIAGEWAY, MAT.curb, MAT.sidewalk, MAT.cycl
 /** Spacing (m) of the rows a turn leg checks. */
 const LEG_ROW_M = 0.5;
 /** Clearance (m) a turn leg keeps beyond its bumper from an edge: a drop deeper than a kerb (a quay into a canal, a
- *  retaining wall), water or no ground at all. A wall or a building there is no edge: the bumper rows stop at it. */
-const GUARD_M = 0.6;
+ *  retaining wall), water or no ground at all. A wall or a building there is no edge: the bumper rows stop at it.
+ *  Canal railings are thin enough to fall between the rows; the drop behind them is not (Amsterdam Oudezijds
+ *  Voorburgwal: a back leg wedged the car on one at 1.5 m/s with a 0.6 m guard's predecessor, none). */
+const GUARD_M = 1.0;
 
 /** A turn leg keeps its wheels on the carriageway while that leaves it at least this much travel (m); a shorter leg
  *  may run them up a kerb onto the pavement beside (a 5-6 m street has no room otherwise). */
