@@ -805,14 +805,20 @@ def test_a_deck_is_not_cut_around_its_own_support_or_a_building_under_it():
     assert kept.covers(beside.footprint)  # not under the deck: unchanged
     assert through_deck(obstacles, [beside], deck, line, stations, heights) is obstacles
 
-    # A mapped outline with no measured building on it (its building is not built) inside the tile is no hole;
-    # one reaching past the tile edge is kept (its measured building may belong to the neighbour tile).
+    # A mapped outline with no measured building on it (its building is not built) is no hole, inside the tile or
+    # reaching past its edge (Erasmusbrug north approach); one a neighbour tile's measured building stands on is
+    # kept, and so is one reaching past CONTEXT_REACH, where a measured building may not be loaded.
     unbuilt = shapely.box(24, -10, 31, 10)
     past_edge = shapely.box(55, -10, 65, 10)
     tile_box = shapely.box(0, -50, 60, 50)
     obstacles = shapely.union_all([unbuilt, past_edge, through.footprint])
     kept = through_deck(obstacles, [through], deck, line, stations, heights, tile_box)
     cut = deck.difference(kept.buffer(0.15))
-    assert cut.covers(shapely.box(24, -4, 31, 4))
+    assert cut.covers(shapely.box(24, -4, 31, 4)) and cut.covers(shapely.box(55, -4, 60, 4))
     assert not cut.intersects(shapely.box(35.5, -3, 41.5, 3))
-    assert not cut.intersects(shapely.box(55.5, -3, 59.5, 3))
+    neighbour = Building("neighbour", shapely.box(56, -9, 64, 9), 0.5, 30.0, "facade_plaster")
+    kept = through_deck(obstacles, [through], deck, line, stations, heights, tile_box, [neighbour])
+    assert not deck.difference(kept.buffer(0.15)).intersects(shapely.box(55.5, -3, 59.5, 3))
+    far = shapely.box(50, -10, 400, 10)
+    kept = through_deck(shapely.union_all([far, through.footprint]), [through], deck, line, stations, heights, tile_box)
+    assert not deck.difference(kept.buffer(0.15)).intersects(shapely.box(50.5, -3, 59.5, 3))
