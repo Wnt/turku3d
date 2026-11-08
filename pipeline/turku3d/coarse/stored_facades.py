@@ -66,7 +66,7 @@ def match_prepared(points, prepared, *, min_coverage=0.8):
     return facade, uv
 
 
-def exposed_wall_quads(walls, *, with_owners=False, emit=None):
+def exposed_wall_quads(walls, *, with_owners=False, emit=None, groups=None):
     """Paint one surface per outward wall, including near-coincident LOD2 slivers, and no wall
     inside a neighbouring solid.
 
@@ -80,16 +80,25 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
     roof parts (and each party wall between two emitted buildings) carried two
     back-to-back walls from the ground to the roof, inside the building: up to five
     nested layers under a stepped roof, ~40 % of a city-centre tile's wall triangles
-    and ~80 % of its wall area (t0_0_-1, Jonni 2026-11-08). A wall facing an emitted
-    solid keeps only what rises above that solid's own wall there (its roof edge) or
-    lies below its base. Context solids (other tiles) still only resolve same-facing
-    ownership: their tile may load later or come from another generation.
+    (t0_0_-1, Jonni 2026-11-08). So in two steps:
+
+    1. A wall loses what an opposite-facing wall within the band covers: that solid stands
+       in front of it. Parts of one building (``groups``) always trim each other, so both
+       tiles of a seam see the same building; different buildings only when both are
+       emitted here (a context tile may load later or come from another generation).
+    2. Same-facing walls then share what step 1 left of them, highest first. Owning by the
+       untrimmed walls painted nothing where a millimetre sliver part stood in front of a
+       taller facade: step 1 removed the facade there and step 2 gave the area to the
+       facade (train12 t0_0_-1: full-height slots in Uusi Börs and the market pavilion).
     """
     import shapely
+    from shapely import affinity
 
     quads = np.asarray(walls).reshape(-1, 4, 3)
     if not len(quads):
         return (walls, []) if with_owners else walls
+    emitted = np.ones(len(quads), bool) if emit is None else np.asarray(emit, bool)
+    group = np.zeros(len(quads), int) if groups is None else np.asarray(groups)
     starts = quads[:, 0][:, [0, 2]]
     directions = quads[:, 1][:, [0, 2]] - starts
     lengths = np.linalg.norm(directions, axis=1)
@@ -101,24 +110,29 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
         low[:, 0] - 0.006, low[:, 2] - 0.006, high[:, 0] + 0.006, high[:, 2] + 0.006
     )
     tree = shapely.STRtree(bounds)
-    result, owners = [], []
-    for i, vertices in enumerate(quads):
-        if emit is not None and not emit[i]:
-            continue
+
+    def surface(i):
+        return shapely.Polygon(np.c_[[0, lengths[i], lengths[i], 0], quads[i, :, 1]])
+
+    def neighbours(i, same):
+        """Walls facing the same (or the opposite) way within 6 mm of wall i, with the shared
+        frontage interval of each in i's along-wall metres."""
         direction = directions[i]
         others = tree.query(bounds[i])
+        others = others[others != i]
         facing = directions[others] @ direction
         others = others[
-            (((rank[others] < rank[i]) & (facing > 0.99998))
-             | ((facing < -0.99998) & (True if emit is None else emit[others])))
+            ((facing > 0.99998) if same else (facing < -0.99998))
             & (high[others, 1] > low[i, 1])
             & (low[others, 1] < high[i, 1])
         ]
+        if same:
+            others = others[rank[others] < rank[i]]
+        else:
+            others = others[(group[others] == group[i]) | (emitted[others] & emitted[i])]
         if not len(others):
-            result.append(vertices)
-            owners.append(i)
-            continue
-        normal = np.array([-direction[1], direction[0]])
+            return others, None, None
+        normal = np.array([-direction[1], direction[0]])  # inward: _extrude walls face to the right
         delta = quads[others][:, :, [0, 2]] - starts[i]
         along = delta @ direction
         # Compare planes only over their shared frontage. A long surveyed edge
@@ -132,37 +146,63 @@ def exposed_wall_quads(walls, *, with_owners=False, emit=None):
         # Resolve every shared interval within 6 mm, including diverging edges
         # that cross the 5 mm validation band. The extra millimetre covers export
         # rounding; the angular margin likewise covers narrow float32 triangles.
+        # Same-facing walls compete within 6 mm either side. An opposite-facing wall hides this
+        # one only from in front (``normal`` points inward, so in front is negative) or in
+        # contact: behind it, the two are the back-to-back faces of one thin solid.
+        lo, hi = (-0.006, 0.006) if same else (-0.006, 1e-6)
         intercept = across[:, 0] - along[:, 0] * slope
         parallel = abs(slope) < 1e-12
         safe_slope = np.where(parallel, 1, slope)
-        ends_a, ends_b = (-0.006 - intercept) / safe_slope, (0.006 - intercept) / safe_slope
+        ends_a, ends_b = (lo - intercept) / safe_slope, (hi - intercept) / safe_slope
         near_left = np.where(parallel, -np.inf, np.minimum(ends_a, ends_b))
         near_right = np.where(parallel, np.inf, np.maximum(ends_a, ends_b))
-        near_right = np.where(parallel & (abs(intercept) > 0.006), -np.inf, near_right)
+        near_right = np.where(parallel & ((intercept < lo) | (intercept > hi)), -np.inf, near_right)
         shared_left = np.maximum(shared_left, near_left)
         shared_right = np.minimum(shared_right, near_right)
-        candidates = np.flatnonzero(shared_right > shared_left)
-        if not len(candidates):
-            result.append(vertices)
-            owners.append(i)
-            continue
-        surface = shapely.Polygon(np.c_[[0, lengths[i], lengths[i], 0], vertices[:, 1]])
-        occluders = [
-            shapely.Polygon(np.c_[along[j], quads[others[j], :, 1]]).intersection(
-                shapely.box(shared_left[j], -10000, shared_right[j], 10000)
-            )
-            for j in candidates
-        ]
-        remainder = surface.difference(shapely.union_all(occluders))
-        if remainder.equals(surface):
-            result.append(vertices)
-            owners.append(i)
-            continue
-        from turku3d.wall_surfaces import trapezoids
+        keep = shared_right > shared_left
+        return others[keep], [shapely.box(a, -10000, b, 10000) for a, b in
+                              zip(shared_left[keep], shared_right[keep], strict=True)], along[keep]
 
-        for xy in trapezoids(remainder):
+    exposed = {}
+
+    def outside(i):
+        """Step 1: wall i less the opposite-facing solids in front of it (i's along metres)."""
+        if i not in exposed:
+            region = surface(i)
+            others, bands, along = neighbours(i, same=False)
+            if len(others):
+                cover = [shapely.Polygon(np.c_[along[j], quads[o, :, 1]]).intersection(bands[j])
+                         for j, o in enumerate(others)]
+                region = region.difference(shapely.union_all(cover))
+            exposed[i] = region
+        return exposed[i]
+
+    from turku3d.wall_surfaces import trapezoids
+
+    result, owners = [], []
+    for i, vertices in enumerate(quads):
+        if not emitted[i]:
+            continue
+        region = outside(i)
+        others, bands, _ = neighbours(i, same=True)
+        if len(others):
+            cover = []
+            for j, o in enumerate(others):
+                # Step 2: a higher-ranked same-facing wall owns what step 1 left of it.
+                scale = float(directions[o] @ directions[i])
+                offset = float((starts[o] - starts[i]) @ directions[i])
+                mine = affinity.affine_transform(outside(o), [scale, 0, 0, 1, offset, 0])
+                cover.append(mine.intersection(bands[j]))
+            region = region.difference(shapely.union_all(cover))
+        if region.is_empty:
+            continue
+        if region.equals(surface(i)):
+            result.append(vertices)
+            owners.append(i)
+            continue
+        for xy in trapezoids(region):
             points = np.array([vertices[0]] * 4)
-            points[:, [0, 2]] = starts[i] + xy[:, :1] * direction
+            points[:, [0, 2]] = starts[i] + xy[:, :1] * directions[i]
             points[:, 1] = xy[:, 1]
             result.append(points)
             owners.append(i)
@@ -184,10 +224,12 @@ def assemble_walls(shells, context=()):
     counts = [len(shell[4]) // 4 for _, shell in shells]
     if not sum(counts):
         return [np.empty((0, 3)) for _ in range(requested)]
+    keys = {key: n for n, key in enumerate(sorted({b.key for b, _ in shells}))}
     walls, owners = exposed_wall_quads(
         np.concatenate([shell[4] for _, shell in shells]),
         with_owners=True,
         emit=np.repeat(np.array(order) < requested, counts),
+        groups=np.repeat([keys[b.key] for b, _ in shells], counts),
     )
     source = np.repeat(np.arange(len(shells)), counts)
     owner = source[owners]

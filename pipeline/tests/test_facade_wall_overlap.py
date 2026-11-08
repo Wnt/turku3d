@@ -44,7 +44,8 @@ def test_preserves_separated_walls_and_opposite_walls_of_unemitted_context():
     np.testing.assert_array_equal(exposed_wall_quads(np.concatenate([first, separate])),
                                   np.concatenate([first, separate]))
     # A neighbour tile's solid (context) never hides an emitted wall: it may load later.
-    result = exposed_wall_quads(np.concatenate([first, opposite]), emit=np.array([True, False]))
+    result = exposed_wall_quads(np.concatenate([first, opposite]), emit=np.array([True, False]),
+                                groups=np.array([0, 1]))
     np.testing.assert_array_equal(result, first)
 
 
@@ -91,3 +92,39 @@ def test_short_overlap_uses_shared_frontage_for_plane_distance():
     result = exposed_wall_quads(np.concatenate([short, long]))
     assert len(result) == 4
     np.testing.assert_array_equal(result, long)
+
+
+def test_a_sliver_part_in_front_of_a_taller_facade_leaves_no_hole():
+    """train12 t0_0_-1 (Uusi Börs, market pavilion): a millimetre roof-part sliver stood in front of
+    a taller facade. The sliver's solid trimmed the facade, and the facade's untrimmed extent took the
+    sliver's own outer wall: a full-height slot painted by neither."""
+    facade = wall(0, 10, 0, 10)                       # the tall part's outer wall
+    sliver_inner = wall(0, 10, 0, 6)[[1, 0, 3, 2]]    # the sliver's wall against it, facing back
+    sliver_outer = wall(0, 10, 0, 6, -.003)           # the sliver's street face, 3 mm out (walls face right: -z)
+    result = exposed_wall_quads(np.concatenate([facade, sliver_inner, sliver_outer])).reshape(-1, 4, 3)
+    assert area(result) == pytest.approx(10 * 10)  # the whole street face, painted once
+    lower = [q for q in result if q[:, 1].max() <= 6 + 1e-9]
+    assert lower and all(abs(q[0, 2] + .003) < 1e-9 for q in lower)  # by the sliver's outer wall
+
+
+def test_other_buildings_only_trim_when_both_are_emitted_but_own_parts_always_do():
+    tall = wall(0, 10, 0, 9)
+    low = wall(0, 10, 0, 4)[[1, 0, 3, 2]]
+    source = np.concatenate([tall, low])
+    same_building = exposed_wall_quads(source, emit=np.array([True, False]), groups=np.array([0, 0]))
+    assert area(same_building) == pytest.approx(10 * 5)
+    other_building = exposed_wall_quads(source, emit=np.array([True, False]), groups=np.array([0, 1]))
+    np.testing.assert_array_equal(other_building, tall)
+
+
+def test_back_to_back_faces_of_one_thin_part_keep_each_other():
+    outer = wall(0, 10, 0, 6, -.002)
+    inner = wall(0, 10, 0, 6)[[1, 0, 3, 2]]  # 2 mm behind the outer face, facing the other way
+    result = exposed_wall_quads(np.concatenate([outer, inner]))
+    assert area(result) == pytest.approx(2 * 60)
+
+
+def test_walls_facing_each_other_across_a_millimetre_gap_are_both_hidden():
+    a = wall(0, 10, 0, 6)
+    b = wall(0, 10, 0, 6, -.004)[[1, 0, 3, 2]]  # 4 mm in front of a, facing back at it
+    assert not len(exposed_wall_quads(np.concatenate([a, b])))
