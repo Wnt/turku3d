@@ -248,7 +248,7 @@ def build(tile, paths, appearance=None):
     ground, height_at = terrain(tile, points, water, streets, woods)
     blocked = shapely.union_all([water.buffer(5), streets.buffer(5),
                                 *[b.footprint.buffer(5) for b in buildings],
-                                *[g for _, g, kind, _ in areas if kind == "open"]])
+                                *[g for _, g, kind, _ in areas if kind in forests.OPEN_KINDS]])
     meshes = [m for m in (ground, shells(buildings, np.asarray(tile.origin), appearance, paths.get("ortho")),
                            canopy(tile, areas, blocked, height_at)) if m is not None]
     return meshes, dict(triangles=sum(len(m.indices) for m in meshes), buildings=len(buildings), draws=len(meshes))

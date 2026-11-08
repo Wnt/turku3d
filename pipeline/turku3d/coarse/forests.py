@@ -14,10 +14,11 @@ from turku3d.vegetation.trees import VARIANTS, Tree, deduplicate, variant
 from .forest_paths import path_corridors, path_lines
 from .tree_inputs import REGISTER_TREE
 
-# Measured with runtime LOD at Kupittaa; retain the 5 m placement clearance.
-TREE_CAP = 768
+# Every measured crown of a closed forest (Nunnavuori: 1367 per 250 m tile); the client's per-tier instance budgets
+# (render/quality.ts) bound the drawing cost, not this cap.
+TREE_CAP = 2048
 BUSH_CAP = 24
-SPACING = 5.0
+SPACING = 5.0  # the placement clearance of generated trees
 OPEN_MARGIN = 3.0
 # Trees / square metre. Parks keep open lawns; scrub/heath stay low and sparse.
 DENSITY = {
@@ -47,11 +48,31 @@ def open_surface(tags):
     )
 
 
-def open_outline(geom):
-    """Fill closed way outlines; buffer open track lines and area edges by three metres."""
+SURFACES = {"track", "pitch", "stadium", "playground"}
+# Area kinds that keep invented trees out: playing surfaces ("open") and the sports/recreation grounds around them
+# ("grounds"). Measured lidar crowns are real trees; only a playing surface rules them out.
+OPEN_KINDS = ("open", "grounds")
+
+
+def open_kind(tags):
+    """"open" for a playing surface, "grounds" for the sports centre or recreation ground around it (often wooded:
+    Impivaara, Kupittaa, the disc-golf parks, ski hills)."""
+    sports = set(tags.get("sport", "").split(";"))
+    surface = tags.get("leisure") in SURFACES or tags.get("highway") == "raceway" or "bmx" in sports
+    return "open" if surface else "grounds"
+
+
+def trail(tags):
+    """A closed way that is a path, not an area: a fitness or ski loop (``leisure=track`` + ``highway=footway``,
+    ``area=no``; Nunnavuoren kuntorata rings a 20 ha pine forest). Only its line excludes trees."""
+    return tags.get("area") == "no" or (bool(tags.get("highway")) and tags.get("highway") != "raceway")
+
+
+def open_outline(geom, line=False):
+    """Fill closed way outlines (a trail's stays a line); buffer open track lines and area edges by three metres."""
     parts = []
     for part in shapely.get_parts(geom):
-        if part.geom_type == "LineString" and part.is_ring:
+        if part.geom_type == "LineString" and part.is_ring and not line:
             part = shapely.make_valid(shapely.Polygon(part))
         if part.geom_type in ("Polygon", "MultiPolygon", "LineString", "MultiLineString"):
             parts.append(part.buffer(OPEN_MARGIN))
@@ -78,9 +99,9 @@ def read_areas(tile, path):
             continue
         geom = shapely.force_2d(shapely.make_valid(row["geometry_local"]))
         if excluded:
-            geom = open_outline(geom)
+            geom = open_outline(geom, trail(tags))
             if not geom.is_empty and geom.intersects(window):
-                result.append((f"open:{i}", geom.intersection(window), "open", ""))
+                result.append((f"open:{i}", geom.intersection(window), open_kind(tags), ""))
             continue
         if not geom.intersects(window):
             continue
@@ -94,8 +115,9 @@ def read_areas(tile, path):
     return result
 
 
-def scatter(geometry, density, blocked, seed, spacing=SPACING, limit=TREE_CAP, occupied=()):
-    """Seeded rejection Poisson-disc samples with bounded work and a strict clearance radius."""
+def scatter(geometry, density, blocked, seed, spacing=SPACING, limit=TREE_CAP, occupied=(), keep=None):
+    """Seeded rejection Poisson-disc samples with bounded work and a strict clearance radius. ``keep``: a vectorised
+    (x, z) -> bool mask (``canopy_trees.cover``); samples only where it holds, the target scaled by its share."""
     rng = np.random.default_rng(seed)
     target = min(limit, int(geometry.area * density))
     if target <= 0 or geometry.is_empty:
@@ -118,8 +140,14 @@ def scatter(geometry, density, blocked, seed, spacing=SPACING, limit=TREE_CAP, o
         cells.setdefault(cell, []).append((x, z))
     x0, z0, x1, z1 = geometry.bounds
     result = []
-    for x, z in rng.uniform([x0, z0], [x1, z1], size=(max(64, target * 30), 2)):
-        if allowed.contains(shapely.Point(x, z)) and insert(x, z):
+    candidates = rng.uniform([x0, z0], [x1, z1], size=(max(64, target * 30), 2))
+    if keep is not None:
+        inside = shapely.contains_xy(allowed, candidates[:, 0], candidates[:, 1])
+        kept = inside & keep(candidates[:, 0], candidates[:, 1])
+        target = int(target * kept.sum() / max(1, inside.sum()))
+        candidates = candidates[kept]
+    for x, z in candidates:
+        if (keep is not None or allowed.contains(shapely.Point(x, z))) and insert(x, z):
             result.append((float(x), float(z)))
             if len(result) >= target:
                 break
@@ -245,7 +273,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     # it against the drawn paving, as it documents.
     walked = shapely.union_all([*path_lines(inputs.roads), *inputs.vegetation_roads, *unsurveyed])
     generated_blocked = shapely.union_all(
-        [blocked, *(g for _, g, kind, _ in inputs.forests if kind == "open")]
+        [blocked, *(g for _, g, kind, _ in inputs.forests if kind in OPEN_KINDS)]
     )
     # Register trees are surveyed street and park trees: they stand in verges, tree grates and
     # squares, so only buildings, water and transport corridors block them,
@@ -261,18 +289,21 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     ][:TREE_CAP]
     # Ground key points usually contain no canopy. Use the full classified source,
     # reduced once per source hash and cached independently of the terrain material.
-    from .canopy_trees import inventory
+    from .canopy_trees import cover, inventory
 
     measured_canopy = getattr(inputs, "vegetation_canopy", ())
     measured_blocked = shapely.union_all([
         surveyed, walked, *(b.footprint.buffer(1) for b in inputs.buildings),
+        # Only a playing surface: crowns measured over a sports centre's or ski hill's woods are its trees.
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
     trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked)[:TREE_CAP]
+    # With measured canopy in the tile, fills stand only under it: lidar clearings stay open.
+    under_canopy = cover(tile, measured_canopy, height_at) if len(measured_canopy) else None
     bushes = []
     canopy = getattr(inputs, "canopy", ())
     for identity, geom, kind, leaf in inputs.forests:
-        if kind == "open":
+        if kind in OPEN_KINDS:
             continue
         placement_blocked = blocked if kind == "tree_row" else generated_blocked
         seed = int(hashlib.sha256(f"{tile.id}:{identity}".encode()).hexdigest()[:8], 16)
@@ -299,6 +330,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
                     placement_blocked,
                     seed,
                     occupied=[(t.x, t.z) for t in trees],
+                    keep=under_canopy,
                 )
                 candidates = [
                     (

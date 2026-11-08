@@ -654,7 +654,7 @@ def test_forest_open_surfaces_exclude_scatter_and_canopy_keep_mapped(tmp_path, m
     from dataclasses import replace
 
     import producer_world as world
-    from turku3d.coarse.forests import OPEN_MARGIN, produce, read_areas
+    from turku3d.coarse.forests import OPEN_KINDS, OPEN_MARGIN, produce, read_areas
     from turku3d.coarse.inputs import Inputs
     from turku3d.vegetation.trees import Tree
 
@@ -672,7 +672,7 @@ def test_forest_open_surfaces_exclude_scatter_and_canopy_keep_mapped(tmp_path, m
         ]
     )
     areas = read_areas(tile, path)
-    excluded = shapely.union_all([g for _, g, kind, _ in areas if kind == "open"])
+    excluded = shapely.union_all([g for _, g, kind, _ in areas if kind in OPEN_KINDS])
     assert excluded.covers(shapely.Point(70, 70))
     assert excluded.covers(shapely.Point(30 - OPEN_MARGIN / 2, 70))
     assert excluded.covers(shapely.Point(0, 150))
@@ -704,6 +704,62 @@ def test_forest_open_outline_preserves_holes_and_buffers_open_tracks():
     assert not open_surface({"leisure": "park"})
     assert not open_surface({"leisure": "sports_centre", "indoor": "yes"})
     assert not open_surface({"leisure": "sports_centre", "building": "yes"})
+
+
+def crown(x, z, height=12.0, radius=2.5):
+    """Class-5 returns of one dome-shaped crown on the 0.5 m lidar cells (canopy_trees.inventory evidence)."""
+    cells = np.arange(-radius, radius + 0.01, 0.5)
+    return np.array([[x + dx, height - 0.4 * (dx * dx + dz * dz), z + dz]
+                     for dx in cells for dz in cells if dx * dx + dz * dz <= radius * radius])
+
+
+def test_trail_ring_is_a_line_and_only_playing_surfaces_block_measured_crowns(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    import producer_world as world
+    from turku3d.coarse.forests import OPEN_KINDS, produce, read_areas
+    from turku3d.coarse.inputs import Inputs
+
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    tile = C.VisualTile(0, 0, 0)
+    # A fitness/ski loop around a wooded hill (Nunnavuoren kuntorata) and a wooded sports centre with a pitch.
+    loop = shapely.LineString(shapely.box(30, 30, 120, 220).exterior.coords)
+    path = world.write_osm([
+        ({"landuse": "forest"}, shapely.box(0, 0, 250, 250)),
+        ({"leisure": "track", "highway": "footway", "area": "no", "piste:type": "nordic"}, loop),
+        ({"leisure": "sports_centre"}, shapely.box(140, 20, 240, 140)),
+        ({"leisure": "pitch"}, shapely.box(160, 40, 200, 80)),
+    ])
+    areas = read_areas(tile, path)
+    assert {kind for _, _, kind, _ in areas} == {"forest", "open", "grounds"}
+    blocked = shapely.union_all([g for _, g, kind, _ in areas if kind in OPEN_KINDS])
+    assert blocked.covers(shapely.Point(30, 100)) and not blocked.covers(shapely.Point(75, 100))
+    empty = Inputs(np.empty((0, 3)), np.empty((0, 0)), np.empty((0, 0, 3)), [], [], [], None, {}, {})
+    canopy = np.concatenate([crown(75, 100), crown(170, 120), crown(180, 60)])
+    trees, _ = produce(tile, replace(empty, forests=areas, vegetation_canopy=canopy), lambda x, z: 0.0, [])
+    measured = [(round(t.x), round(t.z)) for t in trees if t.measured]
+    assert (75, 100) in measured  # inside the trail loop
+    assert (170, 120) in measured  # a sports centre's woods
+    assert all(not shapely.box(160, 40, 200, 80).covers(shapely.Point(t.x, t.z)) for t in trees)
+    # Generated trees stay out of the sports centre and stand only where the lidar measured canopy.
+    generated = [t for t in trees if not t.measured]
+    assert all(not shapely.box(140, 20, 240, 140).covers(shapely.Point(t.x, t.z)) for t in generated)
+    assert all(np.hypot(t.x - 75, t.z - 100) < 6 for t in generated)
+
+
+def test_fill_stays_under_measured_canopy():
+    from turku3d.coarse.canopy_trees import cover
+    from turku3d.coarse.forests import scatter
+
+    tile = C.VisualTile(0, 0, 0)
+    x, z = np.meshgrid(np.arange(0, 100, 0.5), np.arange(0, 250, 0.5))
+    canopy = np.column_stack([x.ravel(), np.full(x.size, 15.0), z.ravel()])
+    keep = cover(tile, canopy, lambda x, z: 0.0)
+    assert keep(np.array([50.0, 101.0, 150.0]), np.array([50.0, 50.0, 50.0])).tolist() == [True, True, False]
+    assert cover(tile, canopy[:, [0, 1, 2]] * [1, 0, 1], lambda x, z: 0.0)(np.array([50.0]), np.array([50.0])).tolist() == [False]
+    points = scatter(shapely.box(0, 0, 250, 250), 0.018, shapely.GeometryCollection(), 42, keep=keep)
+    assert points and all(x < 104 for x, _ in points)
+    assert 0.3 < len(points) / 1125 < 0.5  # the target scales with the covered share (~0.42)
 
 
 def test_multipart_building_has_one_tile_owner_and_shared_wall_context(tmp_path):

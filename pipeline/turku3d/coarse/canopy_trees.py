@@ -53,6 +53,42 @@ def canopy_points(tile, paths):
     return np.concatenate(parts) if parts else np.empty((0, 3))
 
 
+def cover(tile, canopy, height_at, cell=2.0, min_height=3.0):
+    """Where the lidar measured canopy: class-5 returns above ``min_height`` per ``cell`` metres over the tile, grown by
+    one cell. A vectorised ``keep(x, z) -> bool array`` for fills that must stay under measured trees (clearings, rock
+    and lawns between crowns stay open); None without measured canopy in the tile."""
+    from scipy.ndimage import binary_dilation
+
+    points = np.asarray(canopy)
+    if not len(points):
+        return None
+    inside = ((points[:, 0] >= tile.bbox.xmin) & (points[:, 0] < tile.bbox.xmax)
+              & (points[:, 2] >= tile.bbox.zmin) & (points[:, 2] < tile.bbox.zmax))
+    points = points[inside]
+    if not len(points):
+        return None
+    many = getattr(height_at, "many", None)
+    base = many(points[:, 0], points[:, 2]) if many else np.array([height_at(x, z) for x, _, z in points])
+    heights = points[:, 1] - base
+    points = points[(heights > min_height) & (heights < 38)]
+    size = int(np.ceil(tile.size / cell))
+    grid = np.zeros((size, size), dtype=bool)
+    ij = np.clip(np.floor((points[:, [0, 2]] - [tile.bbox.xmin, tile.bbox.zmin]) / cell).astype(int), 0, size - 1)
+    grid[ij[:, 0], ij[:, 1]] = True
+    grid = binary_dilation(grid)
+    x0, z0 = tile.bbox.xmin, tile.bbox.zmin
+
+    def keep(x, z):
+        i = np.floor((np.asarray(x) - x0) / cell).astype(int)
+        j = np.floor((np.asarray(z) - z0) / cell).astype(int)
+        ok = (i >= 0) & (i < size) & (j >= 0) & (j < size)
+        result = np.zeros(len(i), dtype=bool)
+        result[ok] = grid[i[ok], j[ok]]
+        return result
+
+    return keep
+
+
 def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
     """Mapped trees plus separated crown maxima. ``walked``: what a real trunk (a register tree or a lidar
     crown) clears instead of ``paths``: carriageways and the walked lines of mapped paths (``forests.produce``);
