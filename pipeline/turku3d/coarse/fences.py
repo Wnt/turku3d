@@ -183,12 +183,17 @@ def lines(geom):
             yield from lines(part)
 
 
-def segments(line, roads, openings, window, *, on_road=False):
-    """Clip at roads and gates, then split at corners, cell edges and at most 2.5 m apart."""
+ROAD_CLEARANCE = 0.35  # m: a barrier's solid box stays this far out of a carriageway
+GUARD_RAIL_INSET = 0.5  # m: a guard rail is cut only where it runs this far inside a carriageway
+
+
+def segments(line, roads, openings, window, *, on_road=False, clearance=ROAD_CLEARANCE):
+    """Clip at roads and gates, then split at corners, cell edges and at most 2.5 m apart. A negative
+    ``clearance`` cuts only the part of the line that runs that far inside a carriageway."""
     clipped = line.intersection(window).difference(openings)
     if not on_road:
         # The half-width clearance keeps the solid box out of the street too.
-        clipped = clipped.difference(roads.buffer(0.35))
+        clipped = clipped.difference(roads.buffer(clearance))
     for part in lines(clipped):
         coords = np.asarray(part.coords)[:, :2]
         for p, q in zip(coords[:-1], coords[1:], strict=True):
@@ -285,8 +290,12 @@ def place(tile, records, streets, sample, water=(), tunnels=()):
             continue
         hedge_openings = tags.get("_hedge_openings") if kind == "hedge" else None
         cuts = openings if hedge_openings is None else openings.union(hedge_openings)
+        # A guard rail stands on the carriageway's own edge: surveyed carriageways (GIS:Katualueet) reach to within
+        # 0.2-0.7 m of it, so the fence clearance removed 23 % of Tapiola's guard rails, the Etelatuulentie
+        # embankment edge and the Lansivayla ramps among them, where cars then tipped over the edge.
+        clearance = -GUARD_RAIL_INSET if tags["barrier"] == "guard_rail" else ROAD_CLEARANCE
         for p, q in segments(geom, roads, cuts, window,
-                             on_road=on_road or hedge_openings is not None):
+                             on_road=on_road or hedge_openings is not None, clearance=clearance):
             mid = (p + q) / 2
             if tags["barrier"] in ("wall", "city_wall") and "height" not in tags:
                 direction = (q - p) / np.linalg.norm(q - p)
