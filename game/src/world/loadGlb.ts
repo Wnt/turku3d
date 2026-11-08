@@ -58,7 +58,7 @@ function admit(): Promise<void> {
 }
 
 /** Feed decoded JSON and its immutable binary chunk to the same GLTF plugins without base64 or a second fetch. */
-export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string): Promise<GLTF> {
+export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: string, admissions?: { count: number }): Promise<GLTF> {
   const plugin = (parser: Parameters<Parameters<GLTFLoader['register']>[0]>[0]): GLTFLoaderPlugin => ({
     name: 'TURKU_decoded_glb', beforeRoot: async () => {
       // External meshopt buffers share the same immutable bytes across separate glTF parsers.
@@ -73,7 +73,7 @@ export function parseDecodedGlb(loader: GLTFLoader, decoded: Decoded, path: stri
       // geometries, meshes, nodes, the scene) ran as microtasks of that one message: 180-283 ms frames per streamed tile
       // on the Windows laptop, 127-139 ms on the M1 Max (verify-all r3, LoAF Worker.onmessage in the meshopt decoder).
       // Each resolved accessor and mesh now waits for room in the frame's streaming window, re-checked after waking.
-      const paced = <T>(value: T) => admit().then(() => value);
+      const paced = <T>(value: T) => { if (admissions) admissions.count++; return admit().then(() => value); };
       const loadAccessor = parser.loadAccessor.bind(parser), loadMesh = parser.loadMesh.bind(parser);
       parser.loadAccessor = index => loadAccessor(index).then(paced);
       parser.loadMesh = index => loadMesh(index).then(paced);
@@ -105,12 +105,21 @@ export async function fetchGlb(url: string, load: () => Promise<ArrayBuffer>, re
   return again;
 }
 export async function loadGlb(loader: GLTFLoader, url: string): Promise<GLTF> {
+  const started = streamTrace.on ? performance.now() : 0;
   const load = () => fetchGlb(url, async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer);
   const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
   const buffer = key ? await visualBuffers.get(key, load) : await load();
+  const fetched = started ? performance.now() : 0, bytes = buffer.byteLength;
   // The worker owns and detaches its input; keep cached originals intact across revisits.
   const decoded = await decode(key ? buffer.slice(0) : buffer);
+  const decodedAt = started ? performance.now() : 0;
   // Start the glTF parse inside the frame's streaming window; its continuations pace themselves (parseDecodedGlb).
   await pace();
-  return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url));
+  if (!started) return parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url));
+  // Install traces split a GLB read into fetch, worker decode, the wait for a window and the paced parse.
+  const parsing = performance.now(), admissions = { count: 0 };
+  const gltf = await parseDecodedGlb(loader, decoded, LoaderUtils.extractUrlBase(url), admissions);
+  streamTrace.event('glb.load', undefined, { ms: performance.now() - started, fetchMs: fetched - started, decodeMs: decodedAt - fetched,
+    paceMs: parsing - decodedAt, parseMs: performance.now() - parsing, admits: admissions.count, bytes, tile: !!key });
+  return gltf;
 }
