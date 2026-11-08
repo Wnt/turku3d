@@ -23,9 +23,14 @@ export function heaveFollow(state: { y: number; v: number }, y: number, dt: numb
   return state.y;
 }
 
-export function chaseSettings(speed: number, kind: VehicleKind = 'car') {
+/** Fleet vehicles longer or taller than these (m) are framed farther back and higher up, by part of the excess: the
+ *  base distance would put the camera inside a bus or a lorry. Cars, SUVs and the long sedans keep the base framing. */
+const LONG = 5.6, TALL = 2.1;
+
+export function chaseSettings(speed: number, kind: VehicleKind = 'car', size?: { length: number; height: number }) {
   const s = Math.min(30, Math.max(0, speed));
-  return { distance: CHASE[kind].distance + s * 0.12, height: CHASE[kind].height, fov: 60 + s * 0.45 };
+  const longer = size ? Math.max(0, size.length - LONG) * 0.8 : 0, taller = size ? Math.max(0, size.height - TALL) * 0.7 : 0;
+  return { distance: CHASE[kind].distance + longer + s * 0.12, height: CHASE[kind].height + taller, fov: 60 + s * 0.45 };
 }
 
 /** Right-stick orbit, delayed recentering and a sphere sweep protecting the camera near plane. */
@@ -42,7 +47,8 @@ export class ChaseCamera {
 
   leave() { this.active = false; this.epoch++; this.allowed = Infinity; this.camera.fov = 60; this.camera.updateProjectionMatrix(); }
 
-  update(dt: number, state: VehicleState, lookX: number, lookY: number, reset: boolean) {
+  /** `size`: the driven fleet model's length and height (m), when it is one. */
+  update(dt: number, state: VehicleState, lookX: number, lookY: number, reset: boolean, size?: { length: number; height: number }) {
     const forward = rotate({ x: 1, y: 0, z: 0 }, state.rot);
     const heading = Math.atan2(-forward.x, -forward.z);
     if (!this.active || reset) { this.yaw = heading; this.pitch = -0.2; this.idle = 0; this.allowed = Infinity; this.heave = { y: state.pos.y, v: 0 }; }
@@ -57,7 +63,7 @@ export class ChaseCamera {
       this.yaw += delta * (1 - Math.exp(-dt * 2.5));
       this.pitch += (-0.2 - this.pitch) * (1 - Math.exp(-dt));
     }
-    const { distance, height, fov } = chaseSettings(state.speed, state.kind);
+    const { distance, height, fov } = chaseSettings(state.speed, state.kind, size);
     this.camera.fov += (fov - this.camera.fov) * (1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
     const chase = CHASE[state.kind ?? 'car'];

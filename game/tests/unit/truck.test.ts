@@ -158,3 +158,13 @@ test('truck chase camera: higher and farther back than the car at every speed', 
     expect(truck.fov).toBe(car.fov);
   }
 });
+
+test('a bus or a lorry is framed from behind and above its own body; cars, SUVs and long sedans keep the car framing', () => {
+  const car = chaseSettings(0, 'car');
+  for (const size of [{ length: 4.3, height: 1.45 }, { length: 5.39, height: 1.66 }, { length: 5.57, height: 2.05 }])
+    expect(chaseSettings(0, 'car', size).distance).toBeCloseTo(car.distance, 1);
+  const bus = chaseSettings(0, 'car', { length: 11.47, height: 3.14 });
+  // At least 4.5 m behind the rear bumper, looking from above the roofline's midpoint.
+  expect(bus.distance - 11.47 / 2).toBeGreaterThan(4.5);
+  expect(bus.height).toBeGreaterThan(car.height + 0.6);
+});

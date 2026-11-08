@@ -38,7 +38,7 @@ import { GlassShards } from './actors/fleet/glassShards';
 import { onDamage } from './actors/fleet/damageRig';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
-import { PLAYER_MODEL } from './actors/fleet/catalog';
+import { FLEET_BY_ID, PLAYER_MODEL } from './actors/fleet/catalog';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { DevLayers } from './ui/devLayers';
@@ -980,7 +980,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const chaseVehicle = renderVehicle && (renderVehicle.id ?? 'player') === (drivenId ?? 'player') ? renderVehicle
       : st?.vehicles.find(v => v.id === drivenId) ?? null;
     if (mode === 'car' && chaseVehicle && !paused) {
-      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase);
+      const drivenModel = drivenId ? FLEET_BY_ID.get(parkedVisuals.driven(drivenId)?.model ?? '') : undefined;
+      chase.update(dt, chaseVehicle, input.lookX, input.lookY, resetCamera || snapChase, drivenModel);
       snapChase = false;
     }
     else if (mode === 'foot') orbit.update(dt, focus);
