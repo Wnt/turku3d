@@ -8,6 +8,9 @@ City-wide rules, all from data:
 - otherwise needle duff where most trees within RADIUS are conifers, leaf litter where most are broadleaf (the
   trees' leaf type is the register's species or the lidar's measured foliage, ``canopy_trees.leaf_type_at``); with
   no tree within RADIUS the woodland's ``leaf_type`` tag decides.
+- parks and gardens (``forests.py`` kinds ``park`` and ``garden``) under dense tree groups: PARK_COVER of the ground
+  within PARK_RADIUS m under canopy. The mower stops at the group's edge and the shade thins the lawn to litter and
+  bare soil up to the trunks (Puolanpuisto, Samppalinna panoramas); lawn under single park crowns stays.
 Open woodland (glades, sparse pine on rock, lawns under single park crowns) keeps its grass; mapped paths, paving,
 rock and the terrain stage's natural ground keep their own surfaces. Collision keeps the physical ground class:
 the floors are visual finishes (``street_materials``).
@@ -19,6 +22,9 @@ from .forest_paths import polygonal
 from .street_materials import FOREST_BROADLEAF, FOREST_CONIFER, FOREST_MOSS
 
 KINDS = ("forest", "wood")
+PARKS = ("park", "garden")
+PARK_RADIUS = 6.0  # m
+PARK_COVER = 0.8
 CELL = 2.0  # m
 RADIUS = 10.0  # m
 COVER = 0.5
@@ -49,14 +55,16 @@ def regions(tile, forests, canopy, height_at, trees, water, excluded=None):
 
     window = shapely.box(*tile.bbox.as_tuple())
     woods = [(geom, leaf) for _, geom, kind, leaf in forests if kind in KINDS and geom.intersects(window)]
+    parks = [geom for _, geom, kind, _ in forests if kind in PARKS and geom.intersects(window)]
     points = np.asarray(canopy if canopy is not None else (), float).reshape(-1, 3)
-    if not woods or not len(points):
+    if not (woods or parks) or not len(points):
         return []
-    woodland = shapely.union_all([g for g, _ in woods]).intersection(window)
+    woodland = shapely.union_all([g for g, _ in woods]).intersection(window) if woods else shapely.Polygon()
+    parkland = shapely.union_all(parks).intersection(window).difference(woodland) if parks else shapely.Polygon()
     if excluded is not None and not excluded.is_empty:
-        woodland = woodland.difference(excluded)
-    woodland = polygonal(woodland)
-    if woodland.is_empty:
+        woodland, parkland = woodland.difference(excluded), parkland.difference(excluded)
+    woodland, parkland = polygonal(woodland), polygonal(parkland)
+    if woodland.is_empty and parkland.is_empty:
         return []
     # Grid over the tile plus the canopy radius, cell centres at x0 + (i + 0.5) * CELL.
     pad = int(np.ceil(RADIUS / CELL))
@@ -82,6 +90,7 @@ def regions(tile, forests, canopy, height_at, trees, water, excluded=None):
     canopy_cells = raster(points[:, 0], points[:, 2], (above > CANOPY_MIN) & (above < 40)) > 0
     disk = _disk(RADIUS)
     closed = _share(canopy_cells, disk) >= COVER
+    grove = _share(canopy_cells, _disk(PARK_RADIUS)) >= PARK_COVER
     if not closed.any():
         return []
     # Species: the trees placed around the cell, else the woodland's OSM leaf_type.
@@ -98,18 +107,22 @@ def regions(tile, forests, canopy, height_at, trees, water, excluded=None):
     shores = [w for w in water if not w.is_empty]
     if shores:
         wet |= shapely.contains_xy(shapely.union_all(shores).buffer(SHORE), gx, gz)
-    classes = np.where(closed, np.where(wet, FOREST_MOSS, np.where(needles, FOREST_CONIFER, FOREST_BROADLEAF)), 0)
+    floor = np.where(wet, FOREST_MOSS, np.where(needles, FOREST_CONIFER, FOREST_BROADLEAF))
+    classes = np.where(closed, floor, 0)
+    groves = np.where(grove, floor, 0)[pad:n - pad, pad:n - pad].astype(np.uint8)
     classes = classes[pad:n - pad, pad:n - pad].astype(np.uint8)
     transform = Affine(CELL, 0, tile.bbox.xmin, 0, CELL, tile.bbox.zmin)
     result = []
     for finish in (FOREST_BROADLEAF, FOREST_CONIFER, FOREST_MOSS):
-        mask = classes == finish
-        if not mask.any():
-            continue
-        parts = [shapely.geometry.shape(geo).simplify(CELL / 2)
-                 for geo, v in shapes(mask.astype(np.uint8), mask=mask, transform=transform) if v]
-        area = polygonal(shapely.union_all(parts).intersection(woodland))
-        area = shapely.union_all([p for p in shapely.get_parts(area) if p.area >= MIN_AREA])
+        pieces = []
+        for grid, land in ((classes, woodland), (groves, parkland)):
+            mask = grid == finish
+            if land.is_empty or not mask.any():
+                continue
+            parts = [shapely.geometry.shape(geo).simplify(CELL / 2)
+                     for geo, v in shapes(mask.astype(np.uint8), mask=mask, transform=transform) if v]
+            pieces.append(polygonal(shapely.union_all(parts).intersection(land)))
+        area = shapely.union_all([p for piece in pieces for p in shapely.get_parts(piece) if p.area >= MIN_AREA])
         if not area.is_empty:
             result.append((area, finish))
     return result

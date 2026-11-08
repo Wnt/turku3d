@@ -38,8 +38,16 @@ def test_closed_canopy_in_woodland_is_litter_and_open_woodland_keeps_its_lawn():
     assert litter.contains(shapely.Point(125, 60)) and not litter.contains(shapely.Point(183, 203))
     # The edge follows the canopy share within RADIUS, not the crowns' outline.
     assert 125 - F.RADIUS - 2 <= litter.bounds[3] <= 125 + F.RADIUS / 2
-    # Not woodland (a park): no floor even under closed canopy.
-    assert floors([("area:1", wood, "park", "")], points) == {}
+    # A park: litter only under its dense tree groups (PARK_COVER within PARK_RADIUS), lawn under single crowns and
+    # between the crowns of an open group.
+    park = floors([("area:1", wood, "park", "")], points)
+    assert set(park) == {FOREST_BROADLEAF}
+    grove = park[FOREST_BROADLEAF]
+    assert grove.contains(shapely.Point(125, 60)) and not grove.contains(shapely.Point(183, 203))
+    assert grove.bounds[3] <= 125 + F.PARK_RADIUS / 2 and grove.area < litter.area
+    # An open group, half the ground under 8 m crowns 3 m apart, keeps its lawn in a park.
+    scattered = np.concatenate([canopy(x, z, x + 8, z + 8) for x in range(10, 240, 11) for z in range(10, 120, 11)])
+    assert floors([("area:1", wood, "park", "")], scattered) == {}
     # Canopy lower than CANOPY_MIN (scrub) is not a closed forest roof.
     assert floors([("area:0", wood, "wood", "")], canopy(0, 0, 250, 125, top=3.0)) == {}
 
