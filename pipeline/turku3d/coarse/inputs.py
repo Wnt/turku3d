@@ -50,7 +50,7 @@ DATASETS = (
     "attachments", "retaining", "vegetation_canopy", "vegetation_leaves", "barriers", "forests", "vegetation_paths",
     "vegetation_roads", "quay_lighting", "tunnels", "stairs", "surfaces", "gardens", "boats",
     "markings", "kerbs", "street_profiles", "appearance", "register", "poles", "playgrounds",
-    "trunk_ground", "finished_ground", "tram_rails", "green_areas",
+    "trunk_ground", "finished_ground", "tram_rails", "green_areas", "soffits",
 )
 # Data files a producer opens by a computed path the static closure cannot see.
 RESOURCES = {
@@ -495,6 +495,8 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
         if osm and not missing
         else [],
         "attachments": [wfs[0][1], *roofs.lidar_paths(tile)],
+        # Lidar soffits of open ground floors under raised OSM parts (coarse.soffits).
+        "soffits": [] if first_pass or not osm or not wfs[0][1] else [osm, wfs[0][1], *roofs.lidar_paths(tile)],
         "retaining": [sources.wfs_source("kanta:Rakenne", tile)[1], *bridge_survey.source_paths(tile)],
         "gardens": [osm, wfs[2][1], *laz] if osm and not missing else [],
         "boats": [osm, wfs[0][1], wfs[2][1], *dict.fromkeys([*piers.source_paths(tile), *harbour_sources(tile)])] if osm and all(f for f, _ in wfs[:3]) else [],
@@ -635,6 +637,10 @@ def _prepare_one(tile: C.VisualTile, dataset: str, paths: list):
         from .walkable import prepare as prepare_walkable
 
         return prepare_walkable(tile, paths[0], paths[1], paths[2:]) if paths else []
+    if dataset == "soffits":
+        from .soffits import prepare as prepare_soffits
+
+        return prepare_soffits(tile, paths[0], paths[1], paths[2:]) if paths else []
     if dataset == "attachments":
         from .attachments import prepare as prepare_attachments
 
@@ -917,12 +923,14 @@ def gather(
         else values["water"]
     )
     from .register import enrich, open_ground_levels, period_evidence, settle_base
+    from . import soffits
 
     for building in [*wfs["buildings"], *wfs.get("wall_context", [])]:
         settle_base(building, ground["points"])
     for building in wfs["buildings"]:
         enrich(building, values["register"], values["appearance"] or {})
         open_ground_levels(building, ground["points"])
+        soffits.apply(building, values.get("soffits") or ())
         period_evidence(
             building,
             (values["appearance"] or {}).get("dated_footprints", [])

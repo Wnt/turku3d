@@ -73,6 +73,7 @@ PRODUCERS = (
     "retaining",
     "retaining_survey",
     "attachments",
+    "soffits",
     "tunnels",
     "underpasses",
     "openings",

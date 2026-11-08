@@ -15,6 +15,7 @@ HELPERS = {
     "street_profiles": ("_frame",),
     "boats": ("Building", "_frame", "buildings"),
     "attachments": ("Building", "_frame", "buildings"),
+    "soffits": ("Building", "_frame", "buildings"),
     "trees": ("prepare_trees",),
 }
 
