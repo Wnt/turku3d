@@ -446,6 +446,37 @@ describe('turn in the street on a carriageway', () => {
 });
 
 describe('reverse-out ground check', () => {
+  test('a turn leg stops short of a tree trunk that stands between its ground rays', async () => {
+    const { arcRoom } = await import('../../src/gameplay/autopilot/reverseCheck');
+    const g = vehicleGeometry('car');
+    const pose = { x: 100, y: 1, z: 100, hx: 1, hz: 0 };
+    const front = pose.x + (g.back ?? g.rearOffset + 1);
+    // Flat road at y 0; a 0.3 m trunk 3 m ahead of the bumper, halfway between its centre and right corner rays.
+    const trunk = { x: front + 3, z: pose.z + ((g.halfWidth ?? 0.9) - 0.05) / 2, r: 0.15, top: 4 };
+    const world = (withTrunk: boolean): AutopilotWorld['groundRay'] => async (o, d, max) => {
+      if (withTrunk) {
+        // The trunk as a vertical cylinder: where the ray (a down ray or a level one) meets it first.
+        const fx = o.x - trunk.x, fz = o.z - trunk.z, a = d.x * d.x + d.z * d.z;
+        if (a < 1e-9 ? Math.hypot(fx, fz) <= trunk.r && o.y > trunk.top : false) {
+          return { toi: o.y - trunk.top, point: { x: o.x, y: trunk.top, z: o.z }, normal: { x: 0, y: 1, z: 0 }, material: MAT.tree_trunk, tile: null };
+        }
+        if (a >= 1e-9) {
+          const b = fx * d.x + fz * d.z, c = fx * fx + fz * fz - trunk.r * trunk.r, disc = b * b - a * c;
+          const t = disc < 0 ? -1 : (-b - Math.sqrt(disc)) / a;
+          if (disc >= 0 && t >= 0 && t <= max && o.y < trunk.top) {
+            return { toi: t, point: { x: o.x + d.x * t, y: o.y, z: o.z + d.z * t }, normal: { x: -d.x, y: 0, z: -d.z }, material: MAT.tree_trunk, tile: null };
+          }
+        }
+      }
+      if (d.y > -0.5) return null;
+      return { toi: o.y, point: { x: o.x, y: 0, z: o.z }, normal: { x: 0, y: 1, z: 0 }, material: MAT.road, tile: null };
+    };
+    expect(await arcRoom(pose, 0, g, world(false), 1, 6)).toBeCloseTo(6, 5);
+    const room = await arcRoom(pose, 0, g, world(true), 1, 6);
+    expect(room).toBeGreaterThan(2);
+    expect(room).toBeLessThan(3 - trunk.r);
+  });
+
   test('the checked arc is the one the car backs along, and a drop behind it blocks the reverse', async () => {
     const { reversePoints, reverseClear } = await import('../../src/gameplay/autopilot/reverseCheck');
     const pw = await devWorld();

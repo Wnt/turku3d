@@ -87,6 +87,11 @@ const BESIDE = new Set<number>([...CARRIAGEWAY, MAT.curb, MAT.sidewalk, MAT.cycl
   MAT.metal_grate]);
 /** Spacing (m) of the rows a turn leg checks. */
 const LEG_ROW_M = 0.5;
+/** Obstacle lines across a leg's leading bumper: every OBSTACLE_ROW_M of travel, OBSTACLE_H above the ground there,
+ *  OBSTACLE_SIDE_M past the corners. The ground rays look down at three points a row; a tree trunk or a post
+ *  between them is not ground and slips through (Rotterdam Botersloot: a forward leg stalled against a birch on the
+ *  plaza and the turn gave up). A leg stops OBSTACLE_GAP_M short of the first line that meets something. */
+const OBSTACLE_ROW_M = 0.25, OBSTACLE_H = 0.45, OBSTACLE_SIDE_M = 0.1, OBSTACLE_GAP_M = 0.5;
 /** Clearance (m) a turn leg keeps beyond its bumper from an edge: a drop deeper than a kerb (a quay into a canal, a
  *  retaining wall), water or no ground at all. A wall or a building there is no edge: the bumper rows stop at it.
  *  Canal railings are thin enough to fall between the rows; the drop behind them is not (Amsterdam Oudezijds
@@ -114,20 +119,35 @@ export async function arcRoom(pose: VehiclePose, steer: number, g: VehicleGeomet
   const last = [under.point.y, under.point.y, under.point.y, under.point.y];
   let onRoad: number | null = null;
   const room = (r: number) => onRoad !== null && onRoad >= ON_ROAD_LEG_M ? onRoad : r * LEG_ROW_M;
-  for (let r = 0; r < hits.length; r++) {
-    for (let k = 0; k < 4; k++) {
-      const hit = hits[r][k];
-      // A kerb's chamfer faces sideways; it is still only a kerb.
-      if (!hit || (hit.normal.y < 0.7 && hit.material !== MAT.curb && hit.material !== MAT.curb_dropped)
-        || Math.abs(hit.point.y - last[k]) > REVERSE_STEP_M || !BESIDE.has(hit.material)) return room(r);
-      if (k === 3 && onRoad === null && !CARRIAGEWAY.has(hit.material)) onRoad = r * LEG_ROW_M;
-      last[k] = hit.point.y;
+  // Ground under the bumper at each row passed (the obstacle lines run above it).
+  const ground: number[] = [];
+  const groundRoom = (() => {
+    for (let r = 0; r < hits.length; r++) {
+      for (let k = 0; k < 4; k++) {
+        const hit = hits[r][k];
+        // A kerb's chamfer faces sideways; it is still only a kerb.
+        if (!hit || (hit.normal.y < 0.7 && hit.material !== MAT.curb && hit.material !== MAT.curb_dropped)
+          || Math.abs(hit.point.y - last[k]) > REVERSE_STEP_M || !BESIDE.has(hit.material)) return room(r);
+        if (k === 3 && onRoad === null && !CARRIAGEWAY.has(hit.material)) onRoad = r * LEG_ROW_M;
+        last[k] = hit.point.y;
+      }
+      ground.push(Math.max(last[0], last[1], last[2]));
+      // An edge near the bumper: ground more than a kerb below the bumper's, water, a quay, or nothing within reach.
+      const floor = Math.min(last[0], last[1], last[2]) - REVERSE_STEP_M;
+      if (guards[r].some(hit => !hit || hit.point.y < floor || hit.material === MAT.water || hit.material === MAT.quay)) return room(r);
     }
-    // An edge near the bumper: ground more than a kerb below the bumper's, water, a quay, or nothing within reach.
-    const floor = Math.min(last[0], last[1], last[2]) - REVERSE_STEP_M;
-    if (guards[r].some(hit => !hit || hit.point.y < floor || hit.material === MAT.water || hit.material === MAT.quay)) return room(r);
-  }
-  return room(rows.length);
+    return room(rows.length);
+  })();
+  if (groundRoom <= 0) return 0;
+  const lines = arcRows(pose, steer, g, dir, Math.min(length, groundRoom + OBSTACLE_GAP_M), OBSTACLE_ROW_M);
+  const blocked = await Promise.all(lines.map((line, i) => {
+    const [a, , b] = line.bumper, w = Math.hypot(b.x - a.x, b.z - a.z) || 1, ux = (b.x - a.x) / w, uz = (b.z - a.z) / w;
+    const row = Math.min(ground.length - 1, Math.max(0, Math.ceil((i + 1) * OBSTACLE_ROW_M / LEG_ROW_M) - 1));
+    const y = (ground[row] ?? under.point.y) + OBSTACLE_H;
+    return ray({ x: a.x - ux * OBSTACLE_SIDE_M, y, z: a.z - uz * OBSTACLE_SIDE_M }, { x: ux, y: 0, z: uz }, w + 2 * OBSTACLE_SIDE_M);
+  }));
+  const first = blocked.findIndex(hit => hit !== null);
+  return first < 0 ? groundRoom : Math.min(groundRoom, Math.max(0, (first + 1) * OBSTACLE_ROW_M - OBSTACLE_GAP_M));
 }
 
 /** Ground ahead of the bumper (m) the edge watch keeps: less than a turn leg's GUARD_M, since pursuit turns at canal
