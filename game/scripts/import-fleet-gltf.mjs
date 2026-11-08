@@ -274,7 +274,8 @@ const ground = Math.min(...Object.values(hubs).map(h => h.hub[1] - h.radius));
 transform((x, y, z, w) => w ? [x, y - ground, z] : [x, y, z]);
 for (const h of Object.values(hubs)) h.hub[1] -= ground;
 // Symmetric layout: one radius/width, mirrored track per axle (the runtime shares one tyre design per car).
-const radius = Object.values(hubs).reduce((s, h) => s + h.radius, 0) / 4, width = Object.values(hubs).reduce((s, h) => s + h.width, 0) / 4;
+const radius = Object.values(hubs).reduce((s, h) => s + h.radius, 0) / 4;
+let width = Object.values(hubs).reduce((s, h) => s + h.width, 0) / 4;
 for (const pair of [['wheel_FL', 'wheel_FR'], ['wheel_RL', 'wheel_RR']]) {
   const [l, r] = pair.map(n => hubs[n]), track = (r.hub[0] - l.hub[0]) / 2, z = (l.hub[2] + r.hub[2]) / 2;
   l.hub = [-track, radius, z]; r.hub = [track, radius, z];
@@ -421,6 +422,58 @@ for (const t of tris) {
   parts[part].push(t);
 }
 for (const name of ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR']) if (parts[name].length < 20) throw Error(`${name} has ${parts[name].length} triangles`);
+
+// ---- Posed wheels ------------------------------------------------------------------------------------------------
+// Sources often pose the front wheels steered (e30, punto-1995 and generic-sedan stood at 17-26° toe). The runtime spins
+// every hub about the model X axis and steers it about Y, so a wheel whose own axle is off X precesses like a tossed
+// coin as it rolls, and a tyre whose centre is off its hub orbits it. Turn each wheel part about its tyre's centre until
+// the tyre axle (the least-spread direction of the tyre surface) lies on X, then move that centre onto the hub (the
+// symmetric layout above moved hubs by the left/right differences). The measured width then becomes the true tyre width
+// instead of the posed wheel's footprint.
+function axleOf(list, [hx, hy, hz]) {
+  const cov = [0, 0, 0, 0, 0, 0, 0, 0, 0], sum = [0, 0, 0];
+  let area = 0;
+  for (const t of list) {
+    const e1 = [0, 1, 2].map(k => t.p[3 + k] - t.p[k]), e2 = [0, 1, 2].map(k => t.p[6 + k] - t.p[k]);
+    const w = Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]) / 2;
+    const c = ctr(t), v = [c[0] - hx, c[1] - hy, c[2] - hz];
+    area += w; for (let r = 0; r < 3; r++) { sum[r] += w * v[r]; for (let k = 0; k < 3; k++) cov[r * 3 + k] += w * v[r] * v[k]; }
+  }
+  const m = sum.map(a => a / area);
+  const a = [0, 1, 2].map(r => [0, 1, 2].map(k => cov[r * 3 + k] / area - m[r] * m[k])), v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  // Jacobi sweeps on the symmetric 3x3 covariance; the axle is the eigenvector of the smallest eigenvalue.
+  for (let sweep = 0; sweep < 50; sweep++) for (let p = 0; p < 2; p++) for (let q = p + 1; q < 3; q++) {
+    if (Math.abs(a[p][q]) < 1e-15) continue;
+    const th = (a[q][q] - a[p][p]) / (2 * a[p][q]), tt = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+    const cs = 1 / Math.sqrt(tt * tt + 1), sn = tt * cs;
+    for (let k = 0; k < 3; k++) { const x = a[k][p], y = a[k][q]; a[k][p] = cs * x - sn * y; a[k][q] = sn * x + cs * y; }
+    for (let k = 0; k < 3; k++) { const x = a[p][k], y = a[q][k]; a[p][k] = cs * x - sn * y; a[q][k] = sn * x + cs * y; }
+    for (let k = 0; k < 3; k++) { const x = v[k][p], y = v[k][q]; v[k][p] = cs * x - sn * y; v[k][q] = sn * x + cs * y; }
+  }
+  const i = [0, 1, 2].sort((x, y) => a[x][x] - a[y][y])[0], axle = [v[0][i], v[1][i], v[2][i]], s = Math.sign(axle[0]) || 1;
+  return axle.map(c => c * s / Math.hypot(...axle));
+}
+let unposed = false;
+for (const name of ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR']) {
+  const h = hubs[name], tyres = parts[name].filter(t => t.role === 'tyre');
+  // Skinned wheels can carry parts outside the tyre (mudguards); only a real tyre set defines the centre.
+  if (tyres.length <= 40) continue;
+  const tb = box(tyres), centre = tb.lo.map((lo, k) => (lo + tb.hi[k]) / 2), axle = axleOf(tyres, centre);
+  const angle = Math.acos(Math.min(1, axle[0])), turned = angle >= .5 * Math.PI / 180;
+  const shift = [0, h.hub[1] - centre[1], h.hub[2] - centre[2]];
+  if (!turned && Math.hypot(shift[1], shift[2]) < .002) continue;
+  // Rodrigues rotation about axle × X takes the axle onto X; positions turn about the tyre centre, normals about the origin.
+  const kn = Math.hypot(axle[2], axle[1]) || 1, k = [0, axle[2] / kn, -axle[1] / kn], c = turned ? Math.cos(angle) : 1, s = turned ? Math.sin(angle) : 0;
+  const turn = (x, y, z) => { const d = k[0] * x + k[1] * y + k[2] * z;
+    return [x * c + (k[1] * z - k[2] * y) * s + k[0] * d * (1 - c), y * c + (k[2] * x - k[0] * z) * s + k[1] * d * (1 - c), z * c + (k[0] * y - k[1] * x) * s + k[2] * d * (1 - c)]; };
+  for (const t of parts[name]) for (let i = 0; i < 9; i += 3) {
+    const p = turn(t.p[i] - centre[0], t.p[i + 1] - centre[1], t.p[i + 2] - centre[2]), n = turn(t.n[i], t.n[i + 1], t.n[i + 2]);
+    t.p.splice(i, 3, ...p.map((v, j) => v + centre[j] + shift[j])); t.n.splice(i, 3, ...n);
+  }
+  if (turned) { h.width = box(tyres).size[0]; unposed = true; }
+  console.log(JSON.stringify({ wheel: name, turnedDegrees: +(angle * 180 / Math.PI).toFixed(2), centredCm: +(Math.hypot(shift[1], shift[2]) * 100).toFixed(2) }));
+}
+if (unposed) width = Object.values(hubs).reduce((s, h) => s + h.width, 0) / 4;
 
 // ---- Simplification ----------------------------------------------------------------------------------------------
 function indexed(list, origin = [0, 0, 0]) {

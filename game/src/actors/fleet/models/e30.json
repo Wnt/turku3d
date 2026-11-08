@@ -6,8 +6,8 @@
     "body": "classic",
     "family": "sedan",
     "length": 4.3464,
-    "width": 1.8644,
-    "height": 1.3478,
+    "width": 1.7393,
+    "height": 1.3479,
     "wheelbase": 2.584,
     "hood": 0.25,
     "rear": -0.4,
@@ -22,7 +22,7 @@
   "id": "e30",
   "wheels": {
     "radius": 0.3107,
-    "width": 0.3419,
+    "width": 0.2638,
     "pivots": {
       "wheel_FL": [
         -0.7171,
@@ -53,15 +53,15 @@
       -0.0018
     ],
     "half": [
-      0.9322,
+      0.8696,
       0.6739,
       2.1732
     ]
   },
   "triangles": [
     31519,
-    7828,
-    2917
+    7826,
+    2915
   ],
   "source": {
     "title": "[FREE] BMW M3 E30",
@@ -85,12 +85,12 @@
     "rideHeightM": 0.12,
     "character": "sport",
     "lengthM": 4.3464,
-    "widthM": 1.8644,
-    "heightM": 1.3478,
+    "widthM": 1.7393,
+    "heightM": 1.3479,
     "wheelbaseM": 2.584,
     "trackM": 1.4341,
     "wheelRadiusM": 0.3107,
-    "wheelWidthM": 0.3419
+    "wheelWidthM": 0.2638
   },
   "accepted": false
 }

@@ -22,7 +22,7 @@
   "id": "punto-1995",
   "wheels": {
     "radius": 0.2798,
-    "width": 0.2704,
+    "width": 0.1873,
     "pivots": {
       "wheel_FL": [
         -0.7012,
@@ -60,7 +60,7 @@
   },
   "triangles": [
     31501,
-    7948,
+    7942,
     2950
   ],
   "source": {
@@ -90,7 +90,7 @@
     "wheelbaseM": 2.4285,
     "trackM": 1.4024,
     "wheelRadiusM": 0.2798,
-    "wheelWidthM": 0.2704
+    "wheelWidthM": 0.1873
   },
   "accepted": false
 }

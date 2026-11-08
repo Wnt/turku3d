@@ -22,7 +22,7 @@
   "id": "generic-sedan",
   "wheels": {
     "radius": 0.3279,
-    "width": 0.3702,
+    "width": 0.2547,
     "pivots": {
       "wheel_FL": [
         -0.7828,
@@ -61,7 +61,7 @@
   "triangles": [
     31483,
     7877,
-    2935
+    2936
   ],
   "source": {
     "title": "Generic Sedan Car",
@@ -90,7 +90,7 @@
     "wheelbaseM": 2.7823,
     "trackM": 1.5655,
     "wheelRadiusM": 0.3279,
-    "wheelWidthM": 0.3702
+    "wheelWidthM": 0.2547
   },
   "accepted": false
 }
