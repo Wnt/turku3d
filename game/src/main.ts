@@ -43,7 +43,7 @@ import { guardFrame } from './render/frameGuard';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { modelTextures, textureUploads } from './render/textureUploads';
-import { GraphicsPreparation, type PreparationPriority } from './render/graphicsPreparation';
+import { GraphicsPreparation, type PreparationOrder, type PreparationPriority } from './render/graphicsPreparation';
 import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
@@ -318,14 +318,14 @@ tiles.events.addEventListener('dispose-model', ({ scene: model }: { scene: THREE
   graphics.retire(() => { vegetation?.remove(model); materials?.release(model); });
 });
 const queueGraphics = (model: THREE.Object3D, prepare: () => void | Promise<unknown>, signal?: AbortSignal,
-  priority: PreparationPriority = 'tile') => {
+  priority: PreparationPriority = 'tile', order?: PreparationOrder) => {
   // The menu warms its initial view only. Backfill other resident programs after it becomes ready.
   const queue = priority === 'actor' ? actorGraphics : graphics;
   if (!params.qa && worldLoad.snapshot().phase !== 'ready') {
     queue.defer(model, prepare, signal);
     return Promise.resolve();
   }
-  return queue.enqueue(model, prepare, signal, false, priority);
+  return queue.enqueue(model, prepare, signal, false, priority, order);
 };
 // Each model's preparation also compiles the dissolve twins it can fade with (render/lodFade.ts), so no dissolve ever
 // builds a shader or pipeline inside a frame: a full tile's whole model (it dissolves in where no cell of its own
@@ -369,10 +369,10 @@ async function prepareObjects(model: THREE.Object3D, objects: readonly THREE.Obj
   // The queue compiles its job model's main view; a part's other children here.
   for (const object of objects.slice(1)) await post?.prepare(object);
 }
-const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile') => {
+const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile', order?: PreparationOrder) => {
   const parts = preparationParts(model);
-  if (parts.length === 1) return queueGraphics(model, () => prepareObjects(model, [model], signal), signal, priority);
-  return Promise.all(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority))).then(() => {});
+  if (parts.length === 1) return queueGraphics(model, () => prepareObjects(model, [model], signal), signal, priority, order);
+  return Promise.all(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority, order))).then(() => {});
 };
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
@@ -619,8 +619,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
     vegetationDistance: QUALITY[params.quality].vegetation.mid,
-    prepareVegetation: async (m,data) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal); },
-    previewCollision: collisionPreview, preparePreview: m => prepareGraphics(m, signal),
+    prepareVegetation: async (m, data, order) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal, 'tile', order); },
+    previewCollision: collisionPreview, preparePreview: (m, order) => prepareGraphics(m, signal, 'tile', order),
     // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
     keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
     // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
@@ -632,7 +632,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
     retire: release => graphics.retire(release),
     prepareGraphics: m => prepareSceneryGraphics(m, signal),
     style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
-    styled: async m => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m, signal); } });
+    styled: async (m, order) => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m, signal, 'tile', order); } });
   if (!coarse) throw new Error('World generation service is unavailable');
   adoptCoarse(coarse);
   if (!idPass) {

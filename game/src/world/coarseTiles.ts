@@ -15,6 +15,7 @@ import { statusBadges } from '../ui/statusBadges';
 import { textureUploaded, textureUploads } from '../render/textureUploads';
 import { releaseModelTextureData } from './sharedAssets';
 import { routeAheadTiles, draftDemand, arrivalToL0, aheadTiles, cellsOf, distToL0, inViewWedge, preparationTiles, retainDraftTile, retainPreparedTile, startupDraftTiles, viewWedgeTiles, wantedTiles } from './coarseRegion';
+import type { PreparationOrder } from '../render/graphicsPreparation';
 export { aheadTiles, cellsOf, wantedTiles } from './coarseRegion';
 import * as THREE from 'three/webgpu';
 import { tintDraft } from '../render/facadeKit';
@@ -126,6 +127,8 @@ const START_VIEW_M = 300;
 const START_VIEW_HALF = 0.75;
 /** An install whose tile has been off the window, the path and the view this long (ms) is abandoned. */
 const ABANDON_AFTER_MS = 2000;
+/** Speed (m/s) below which a tile's preparation ranks by distance as if the player moved at this speed. */
+const PREPARE_RANK_SPEED = 5;
 /** Retry transient failures promptly; the service owns its build-failure backoff. */
 const RETRY_MS = 5000;
 /** Allow the fastest real movement plus sampling jitter before treating a jump as a teleport. */
@@ -320,9 +323,23 @@ export class CoarseTiles {
     }
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }
+  /** Seconds until the player reaches tile `id` (0 inside it): along the heading where the ray enters it, else its
+   *  distance at the current speed (at least PREPARE_RANK_SPEED, so a standing player ranks by distance). */
+  private arrivalRank(id: string) {
+    const { x, z } = this.at, { x: vx, z: vz } = this.velocity;
+    const distance = distToL0(id, x, z);
+    if (distance === 0) return 0;
+    return Math.min(arrivalToL0(id, x, z, vx, vz), distance / Math.max(Math.hypot(vx, vz), PREPARE_RANK_SPEED));
+  }
+  /** The graphics queue order of a tile's preparation: the tile reached first goes first, and a job whose install is
+   *  over (`live` false: the tile unloaded, replaced, or its install given up) is dropped without running. */
+  private order(id: string, live: () => boolean): PreparationOrder {
+    return { rank: () => this.arrivalRank(id), live };
+  }
   private async prepareModel(id: string, entry: Entry, model: THREE.Object3D, vegetation?: CoarseFragment['vegetation']) {
     const state = entry.state;
     let ready = false;
+    const order = this.order(id, () => this.entries.get(id) === entry && entry.state === state && !entry.abandoned);
     try {
       let stage = streamTrace.begin('tile.style', id);
       await this.host.style?.(model); stage();
@@ -332,12 +349,12 @@ export class CoarseTiles {
       if (this.entries.get(id) !== entry || entry.state !== state || entry.abandoned) return false;
       streamTrace.time('install', () => tintDraft(model, this.host.renderer, this.materials));
       stage = streamTrace.begin('tile.vegetation', id);
-      if (vegetation) await this.host.prepareVegetation?.(model, vegetation);
+      if (vegetation) await this.host.prepareVegetation?.(model, vegetation, order);
       stage();
       if (entry.abandoned) return false;
       // Static batches, shadow batches, vegetation draws and shader/pipeline preparation of the whole model.
       stage = streamTrace.begin('tile.prepare', id);
-      await this.host.styled?.(model); stage();
+      await this.host.styled?.(model, order); stage();
       ready = this.entries.get(id) === entry && entry.state === state && !entry.abandoned;
       return ready;
     } finally {
@@ -1135,7 +1152,7 @@ export class CoarseTiles {
       this.take(e, changed.map(([cid, entry]) => [cid, { ...entry, url: new URL(entry.url, base).href }]), buffers);
       const takeBack = () => { if (this.entries.get(id) === e && !e.model) this.release(e); };
       const model = await this.host.previewCollision(buffers).catch(error => { takeBack(); throw error; });
-      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation); }
+      try { if (fragment.vegetation) await this.host.prepareVegetation?.(model, fragment.vegetation, this.order(id, () => this.entries.get(id) === e && e.state === state)); }
       catch (error) { this.dispose(model); takeBack(); throw error; }
       if (this.entries.get(id) !== e || e.state !== state) { this.dispose(model); takeBack(); return; }
       this.finishLeaving(id);
@@ -1153,7 +1170,8 @@ export class CoarseTiles {
         this.stats.readyAt(e.requested, performance.now());
       };
       if (!this.host.preparePreview) { show(); return; }
-      await this.host.preparePreview(model).then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
+      await this.host.preparePreview(model, this.order(id, () => e.model === model && this.entries.get(id) === e))
+        .then(show, error => { this.warn(`[coarse] ${id} preview: ${error}`); show(); });
       return;
     }
     // Fetch/decode geometry while the physics worker validates collision. Visibility still commits atomically.

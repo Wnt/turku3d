@@ -6,6 +6,7 @@ import type { RoadGraphJson } from '../gameplay/roadGraph';
 import type { TileLightsField } from '../render/lights/tileLights';
 import type { BuildingPlacements } from './buildingPlacements';
 import type { TreePlacements } from './treePlacements';
+import type { PreparationOrder } from '../render/graphicsPreparation';
 
 export interface CoarseFragment { generation?: string; stale?: boolean; pass_kind?: 'first' | 'full'; vegetation?: TreePlacements; coarse: true; tile: string; visual: Record<string, ManifestEntry>; collision: Record<string, ManifestEntry>;
   /** The tile's OSM street graph (absent without an OSM extract). */
@@ -75,13 +76,14 @@ export interface CoarseHost {
   /** Apple (unified memory) reduced tier: JS heap + GPU bytes budget in bytes; the `?memBudget=GiB` override. */
   memoryBudget?: number;
   /** Compile and upload a collision preview outside the frame before it draws. */
-  preparePreview?: (model: THREE.Object3D) => Promise<void>;
-  /** After material styling and draft tint: register derived runtime geometry here. */
-  styled?: (model: THREE.Object3D) => void | Promise<void>;
+  preparePreview?: (model: THREE.Object3D, order?: PreparationOrder) => Promise<void>;
+  /** After material styling and draft tint: register derived runtime geometry here. `order` places the model's
+   *  preparation among the queued ones (its tile's arrival) and drops it once the tile is unloaded or given up. */
+  styled?: (model: THREE.Object3D, order?: PreparationOrder) => void | Promise<void>;
   /** Prepare final streaming draw programs/uploads before attaching visible geometry. */
   prepareGraphics?: (model: THREE.Object3D) => Promise<void>;
   vegetationDistance?: number;
-  prepareVegetation?: (model: THREE.Object3D, data: TreePlacements) => Promise<void>;
+  prepareVegetation?: (model: THREE.Object3D, data: TreePlacements, order?: PreparationOrder) => Promise<void>;
   trackModel?: (model: THREE.Object3D, id: string) => void;
   untrackModel?: (model: THREE.Object3D, id: string) => void;
   style?: (model: THREE.Object3D) => void | Promise<void>;

@@ -220,3 +220,50 @@ test('a scenery job behind a tile lane that never empties still runs once it has
     expect(at).toBeLessThan(15);
   } finally { vi.restoreAllMocks(); }
 });
+
+test('within a lane the job of the tile reached first goes next, read when the queue picks, ties in arrival order', async () => {
+  const scene = new THREE.Scene(), first = pending(), events: string[] = [];
+  const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {});
+  const ranks: Record<string, number> = { far: 30, near: 2, ahead: 9 };
+  const job = (name: string) => queue.enqueue(new THREE.Group(), () => { events.push(name); }, undefined, false, 'tile',
+    { rank: () => ranks[name] });
+  const head = queue.enqueue(new THREE.Group(), async () => { events.push('head'); await first.promise; });
+  await vi.waitFor(() => expect(events).toEqual(['head']));
+  const jobs = [job('far'), job('near'), job('ahead'), job('near')];
+  // The player turned while the head ran: the far tile is now the one ahead.
+  ranks.far = 1;
+  first.resolve();
+  await Promise.all([head, ...jobs]);
+  expect(events).toEqual(['head', 'far', 'near', 'near', 'ahead']);
+});
+
+test('a queued job whose tile was unloaded or given up is dropped unrun and answers its waiter', async () => {
+  const scene = new THREE.Scene(), first = pending(), ran: string[] = [];
+  const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {});
+  let alive = true;
+  const head = queue.enqueue(new THREE.Group(), async () => { await first.promise; });
+  const gone = queue.enqueue(new THREE.Group(), () => { ran.push('gone'); }, undefined, false, 'tile', { live: () => alive });
+  const kept = queue.enqueue(new THREE.Group(), () => { ran.push('kept'); }, undefined, false, 'tile', { live: () => true });
+  alive = false;
+  first.resolve();
+  await Promise.all([head, gone, kept]);
+  expect(ran).toEqual(['kept']);
+  expect(queue.stats()).toMatchObject({ waiting: [0, 0, 0], finished: 3, dropped: 1 });
+});
+
+test('aged lower-lane jobs take every other turn, never all of them before the tiles', async () => {
+  let now = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => now);
+  try {
+    const scene = new THREE.Scene(), first = pending(), events: string[] = [];
+    const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {});
+    const head = queue.enqueue(new THREE.Group(), async () => { events.push('head'); await first.promise; });
+    await vi.waitFor(() => expect(events).toEqual(['head']));
+    const jobs = [0, 1, 2].map(i => queue.enqueue(new THREE.Group(), () => { events.push(`scenery-${i}`); }, undefined, false, 'scenery'));
+    jobs.push(...[0, 1, 2].map(i => queue.enqueue(new THREE.Group(), () => { events.push(`tile-${i}`); })));
+    now = 5000;
+    first.resolve();
+    await Promise.all([head, ...jobs]);
+    expect(events).toEqual(['head', 'scenery-0', 'tile-0', 'scenery-1', 'tile-1', 'scenery-2', 'tile-2']);
+  } finally { vi.restoreAllMocks(); }
+});
