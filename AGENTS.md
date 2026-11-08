@@ -12,16 +12,33 @@ Use English for code, comments, documentation, commits, progress updates and fin
   go in `--async-test CMD --async-reason TEXT`, which starts after the merge and never blocks or rolls back.
   Example selections: `--test 'cd game && npx vitest run tests/unit/<file>.test.ts'`,
   `--test 'python3 scripts/dev/tests/run.py <file>.py'`, `--test 'pytest -q <file>'`.
-- The published game and its tiles are frozen. Never merge into `main`, never push, never run
-  `codex-task finish` or `land`, never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is merged
-  into `local/loop-integration` (by you or the integrator).
+- **Jonni's flow for every slice: merge, deploy, smoke, one async run.**
+  1. Merge each slice as soon as its selected tests pass (step above). Stills, drives, tile builds and judge runs are
+     never pre-merge gates. No finished work waits unmerged, and while you have something working you merge at
+     least every 45 minutes.
+  2. Deploy to city.lab right after every merge: package and upload only. No tests, queue, rollback or waiting for
+     others:
+     `python3 ~/turku3d/loops/night-coord/coord.py run --by NAME deploy -- ~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh`.
+  3. Smoke the deployment in at most 5 seconds, with curl only, and read the health it reports, not just HTTP 200:
+     `python3 ~/turku3d/wt/loop-integration/repo/tools/share/smoke.py SHA`.
+     A red smoke is fixed forward.
+  4. Then run one selective test of your own on the deployed system, with a hard 10-minute limit that includes
+     lease waits. Read the board first for what others ran after recent merges.
+     - Exercise what your change affects. A generator change builds and installs its real tiles and checks
+       outcomes, timings and counts against the source. A client change exercises the feature on the Air or
+       Windows.
+     - Forward only: make at most one fix, then report to the coordinator.
+  5. No rollbacks.
+- The published Pages game and its OCI tiles stay frozen. Never merge into `main`, never push, never run
+  `codex-task finish` or `land`, and never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is
+  merged into `local/loop-integration` (by you or the integrator).
 - Move fast, break things, move forward only (no rollbacks). Think outside the box: fix or improve at the layer that
   makes most sense (client, generator, tile format, data, assets, tooling). No backward compatibility is needed; the
   Gen 2 target design is `~/turku3d/plans/gen2-architecture.md`.
 - Ambition: visual fidelity rises significantly. Street level, where players spend their time, comes first.
-- Choose your own evidence: tests, same-pose renders, the visual judge (`~/turku3d/tools/visual-judge/judge.py`),
-  tile builds, the bench probe. Apart from the 30 s merge budget above, no fixed time budgets, smoke runs,
-  post-deploy runs, agent register, heads-up or acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`.
+- Choose your evidence within that flow: tests, same-pose renders, the visual judge
+  (`~/turku3d/tools/visual-judge/judge.py`), tile builds, the bench probe. There is no agent register, heads-up or
+  acknowledgement ceremony. Shared notes go to `~/turku3d/loops/board.md`, one line per merge and deploy.
 - Iterate in a long-lived browser session instead of reloading the game: keep one session per agent alive (close it
   after at most ~2 h idle), connect over the Chrome DevTools Protocol, and switch options and patch code at runtime
   (a shared dev API on `window.__game`/`window.__dev`, Vite HMR, monkey-patching). Prefer runtime toggles over new URL
