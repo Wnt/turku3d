@@ -822,6 +822,10 @@ def test_a_corridor_end_inside_an_underground_station_is_no_mouth():
     both = shapely.STRtree([shapely.LineString([(20, 0), (20, 9)]), shapely.LineString([(-6, 0), (0, 0)])])
     assert buried_ends(corridor, tags, both, escalator) is None
     assert buried_ends(corridor, tags, entrance, None) is None
+    # A street crossing right over the escalator end at grade shares no node with it: still buried (Coolsingel's
+    # centreline runs over both ends of the Beurs escalators).
+    over = shapely.STRtree([shapely.LineString([(20.2, -15), (19.8, 15)]), shapely.LineString([(-6, 0), (0, 0)])])
+    assert buried_ends(corridor, tags, over, escalator) == (False, True)
     # Roads and ways at grade are never classified.
     assert buried_ends(corridor, {"highway": "primary", "tunnel": "yes", "layer": "-1"}, None, escalator) is None
     assert buried_ends(corridor, {"highway": "footway", "tunnel": "building_passage"}, None, escalator) is None

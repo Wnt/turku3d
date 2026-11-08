@@ -189,8 +189,8 @@ def underground_way(tags):
 
 
 def buried_ends(line, tags, surface, below):
-    """For a path-type way below ground (depth <= -1): which ends meet only ways mapped underground (below: STRtree
-    of underground_way lines) and no way at the surface (surface: STRtree), i.e. lie inside an underground station
+    """For a path-type way below ground (depth <= -1): which ends join only ways mapped underground (below: STRtree
+    of underground_way lines) and no way at the surface (surface: STRtree; `joins`), i.e. lie inside an underground station
     rather than at a mouth; such a corridor is not built. None when neither end does, or for other ways. Rotterdam's
     metro Beurs: concourse corridors (layer -1) ending at the escalators between levels -1 and -2 were built as
     underpasses of the street over them, and their mouths opened as 2 m walled pits in the Coolsingel and
@@ -202,10 +202,21 @@ def buried_ends(line, tags, surface, below):
         return None
     flags = []
     for point in shapely.points([line.coords[0], line.coords[-1]]):
-        under = len(below.query(point, predicate="dwithin", distance=0.5)) > 0
-        open_ = surface is not None and len(surface.query(point, predicate="dwithin", distance=0.5)) > 0
-        flags.append(under and not open_)
+        flags.append(joins(below, point) and not joins(surface, point))
     return tuple(flags) if any(flags) else None
+
+
+def joins(tree, point, reach=0.5):
+    """Whether a way in ``tree`` (STRtree of lines) has a node at ``point``: ways join at a shared node, and a street
+    that crosses over a corridor's end at another level has none there (Rotterdam's Coolsingel centreline runs right
+    over both ends of the Beurs escalators between levels -1 and -2)."""
+    if tree is None:
+        return False
+    for index in tree.query(point, predicate="dwithin", distance=reach):
+        nodes = shapely.points(shapely.get_coordinates(tree.geometries[index]))
+        if float(np.min(shapely.distance(point, nodes))) <= reach:
+            return True
+    return False
 
 
 def prepare(tile, path):
