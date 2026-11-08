@@ -213,6 +213,14 @@ def test_deck_axis_follows_the_carriageway_carrying_most_of_the_deck_not_a_short
     assert abs(coords[-1, 1] - coords[0, 1]) < 0.01 and deck["line"].length > 300
     assert deck["width"] == 18 and deck["tags"]["highway"] == "secondary"
     assert set(deck["members"]) == {"north", "south", "stub", "walk"}
+    # Kolkswaterkering, Amsterdam: on a short crossing a longer diagonal way does not turn the axis.
+    bus, side = road("bus", [(0, 0), (0, 6)], 7.5), road("side", [(10, 0), (10, 6)], 7.5)
+    diagonal = road("diagonal", [(20, 0), (28, 6.5)], 7.5)
+    path = way("path", [(31, 0), (31, 6)])
+    sluice = shapely.box(-4, 0, 34, 6.4)
+    deck = merge_crossings([bus, side, diagonal, path], [("sluice", sluice, {"layer": "1"})])[0]
+    coords = np.asarray(deck["line"].coords)
+    assert abs(coords[-1, 0] - coords[0, 0]) < 0.01 and deck["width"] == 38
 
 
 def test_passage_cut_removes_collinear_submillimetre_sliver():

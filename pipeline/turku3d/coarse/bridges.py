@@ -150,6 +150,32 @@ def parallel(a, b):
     return b["line"].intersection(corridor).length > 0.7 * b["line"].length
 
 
+def way_direction(way):
+    c = np.asarray(way["line"].coords)
+    v = c[-1] - c[0]
+    n = float(np.linalg.norm(v))
+    return v / n if n > 0 else np.array([1.0, 0.0])
+
+
+def axis_guide(members, representative):
+    """The member a merged deck's axis follows: the widest, unless it runs across the deck's traffic
+    (the Erasmusbrug's widest way is a 124 m piece where the carriageways meet at the north abutment,
+    at 70 degrees to its 650 m span, and an axis along it left most of the deck past its ends, flat at
+    the end station's height). Then the widest member of the same kind (road, rail or path) along the
+    direction the members' deck (width x length) runs most."""
+    dirs = np.asarray([way_direction(w) for w in members])
+    weight = np.asarray([w["width"] * w["line"].length for w in members])
+    along = dirs[int(np.argmax(np.abs(dirs @ dirs.T) @ weight))]
+
+    def kind(w):
+        return is_carriageway(w["tags"]), w["tags"].get("railway") in RAILS
+
+    if abs(way_direction(representative) @ along) >= SKEW_LIMIT:
+        return representative
+    aligned = [w for w in members if kind(w) == kind(representative) and abs(way_direction(w) @ along) >= SKEW_LIMIT]
+    return max(aligned, key=lambda w: w["width"]) if aligned else representative
+
+
 def merge_crossings(ways, outlines):
     """One physical crossing: authoritative outline first, parallel ways otherwise."""
     remaining = {w["id"]: w for w in ways}
@@ -164,13 +190,7 @@ def merge_crossings(ways, outlines):
         if not members:
             continue
         representative = max(members, key=lambda w: w["width"])
-        # The axis follows the member of the same kind that carries the most deck: the widest can
-        # be a short piece where the carriageways meet at one end (the Erasmusbrug's 124 m north
-        # abutment way beside its 650 m span carriageways), and an axis along it left most of the
-        # deck past its ends, flat at the end station's height.
-        guide = max((w for w in members if is_carriageway(w["tags"]) == is_carriageway(representative["tags"])
-                     and (w["tags"].get("railway") in RAILS) == (representative["tags"].get("railway") in RAILS)),
-                    key=lambda w: (w["width"] * w["line"].length, w["width"]))
+        guide = axis_guide(members, representative)
         coords = np.asarray(guide["line"].coords)
         direction = coords[-1] - coords[0]
         direction /= np.linalg.norm(direction)
