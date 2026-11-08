@@ -18,10 +18,14 @@ import { dot, tyreRollImpulse } from './weightTransfer.ts';
 import { applyHit, applyScrape, cageOffset, DamageState, damageLayout, decodeDamage, encodeDamage, stampSurface, type DamageHit, type DamageScrape, type SurfaceFace } from './damage.ts';
 import { INTACT, mechanics, type Mechanics } from './mechanics.ts';
 import { resetTyres, solveTyres, tyreState, type TyrePatch, type TyreResult, type TyreState } from './tyres.ts';
-import { antiRoll, rideSetup, type RideSetup } from './ride.ts';
+import { antiRoll, cornerLoads, rideSetup, type RideSetup } from './ride.ts';
 
 import type { WheelQueries } from './curbQueries.ts';
 const group = (GROUP.VEHICLE << 16) | GROUP.STATIC_SOLID | GROUP.DYNAMIC;
+/** Least height (m) of the chassis box above flat ground at static ride. Parked, claimed and shared fleet cars size the
+ *  box from the model's height (0.28 of it): a bus, a lorry or a high-roof van would otherwise rest its box on the
+ *  ground with the wheels lifted off it and could not drive (at 0.15 m none of them drags). */
+const BODY_CLEARANCE = 0.15;
 /** Rapier's brake is an impulse per 1/60 s step: the slip-curve tyre takes it as that force (N). */
 const BRAKE_STEP = 1 / 60;
 /** Contact impulse, as a speed change of the whole vehicle (m/s), that counts as a collision. */
@@ -133,7 +137,16 @@ export class Vehicle {
     this.body = world.createRigidBody(R.RigidBodyDesc.dynamic().setTranslation(pos.x, pos.y, pos.z)
       .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
       .setCanSleep(true).setCcdEnabled(true).setAngularDamping(t.angularDamping ?? 1.2));
-    const h = this.halfExt = spec.halfExt ?? t.halfExt, mass = spec.mass ?? t.mass;
+    const mass = spec.mass ?? t.mass;
+    // A ride tuning sets each wheel's spring and dampers from its axle's frequency and damping ratios (ride.ts).
+    const ride = this.ride = rideSetup(t, mass);
+    const spring = (i: number) => ride?.wheels[i] ?? { stiffness: t.suspensionStiffness, compression: t.suspensionCompression,
+      relaxation: t.suspensionRelaxation, rest: t.rest, travel: t.suspensionTravel };
+    // The chassis origin's height above flat ground at static ride: the base springs' sag under each corner's load
+    // (ride.ts keeps that ride height when it retunes the springs).
+    const loads = cornerLoads(t, mass), given = spec.halfExt ?? t.halfExt;
+    const ride0 = Math.min(...t.wheels.map((w, i) => -w.y + t.rest - loads[i] / (t.suspensionStiffness * mass) + t.wheelRadius));
+    const h = this.halfExt = { ...given, y: Math.min(given.y, ride0 - BODY_CLEARANCE) };
     const chassis = R.ColliderDesc.cuboid(h.x, h.y, h.z).setFriction(0.5);
     // A lowered centre of mass keeps the narrow outrigger layout upright; inertia stays the box's own.
     if (t.comDrop) {
@@ -147,11 +160,7 @@ export class Vehicle {
     v.indexUpAxis = 1;
     // Rapier exposes this setter under the name setIndexForwardAxis.
     v.setIndexForwardAxis = 0;
-    // A ride tuning sets each wheel's spring and dampers from its axle's frequency and damping ratios (ride.ts).
-    const ride = this.ride = rideSetup(t, mass);
     this.bars = new Float64Array(t.wheels.length);
-    const spring = (i: number) => ride?.wheels[i] ?? { stiffness: t.suspensionStiffness, compression: t.suspensionCompression,
-      relaxation: t.suspensionRelaxation, rest: t.rest, travel: t.suspensionTravel };
     t.wheels.forEach((w, i) => v.addWheel(w, { x: 0, y: -1, z: 0 }, { x: 0, y: 0, z: 1 }, spring(i).rest, t.wheelRadius));
     for (let i = 0; i < t.wheels.length; i++) {
       const k = spring(i);

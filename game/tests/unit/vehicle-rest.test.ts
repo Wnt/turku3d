@@ -3,7 +3,8 @@ import * as R from '@dimforge/rapier3d';
 import { PhysicsWorld } from '../../src/physics/world';
 import { GROUP } from '../../src/shared/col/materials';
 import { groups } from '../../src/shared/col/rapierBuild';
-import { PLAYER_MODEL } from '../../src/actors/fleet/catalog';
+import { FLEET, PLAYER_MODEL } from '../../src/actors/fleet/catalog';
+import { VEHICLES } from '../../src/physics/constants';
 import { modelTuning } from '../../src/vehicle/modelTuning';
 
 const idle = { vx: 0, vz: 0, jump: false };
@@ -66,3 +67,30 @@ test('a seated car is never put to rest, even while its driver sends no input; l
   expect(body.isSleeping()).toBe(false);
 });
 
+
+test('every fleet model parked as the world spawns it stands on its wheels and drives off, the bus and the lorries too', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 2000).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+  pw.spawnCharacter({ x: -150, y: 2, z: -150 });
+  // Parked, claimed and shared fleet cars size the chassis box from the model (world/parkedVehicles.ts body).
+  FLEET.forEach((m, i) => pw.spawnVehicle({ x: 0, y: 0.75, z: i * 25 }, 0, { id: m.id, kind: 'car', parked: true,
+    halfExt: { x: m.length / 2, y: m.height * .28, z: m.width / 2 }, tuning: modelTuning(m.id)! }));
+  for (let k = 0; k < 60; k++) pw.fixedStep(idle, coast);
+  const vehicles = (pw as unknown as { vehicles: Map<string, { halfExt: { y: number } }> }).vehicles;
+  const stuck: string[] = [];
+  for (const m of FLEET) {
+    const start = pw.vehicleStates().find(v => v.id === m.id)!.pos;
+    pw.driveVehicle(m.id);
+    for (let k = 0; k < 120; k++) pw.fixedStep(null, { ...coast, throttle: 1 });
+    const end = pw.vehicleStates().find(v => v.id === m.id)!;
+    if (Math.hypot(end.pos.x - start.x, end.pos.z - start.z) < 2 || end.wheels.filter(w => w.contact).length < 3) stuck.push(m.id);
+    pw.driveVehicle(null);
+  }
+  expect(stuck).toEqual([]);
+  expect(vehicles.get('transit-bus')!.halfExt.y).toBeLessThan(.6);
+  // The built-in kinds keep their own boxes.
+  for (const kind of ['car', 'truck', 'scooter'] as const) {
+    pw.spawnVehicle({ x: 50, y: 2, z: 0 }, 0, { id: kind, kind });
+    expect(vehicles.get(kind)!.halfExt).toEqual(VEHICLES[kind].halfExt);
+  }
+});
