@@ -24,11 +24,13 @@ export function arcPoints(pose: VehiclePose, steer: number, g: VehicleGeometry, 
 }
 
 /** One row of a leg's arc: the leading bumper's corners and centre, the leading axle's centre (where the wheels
- *  run), and guard points GUARD_M ahead of the bumper's corners and centre. */
-interface ArcRow { bumper: { x: number; z: number }[]; axle: { x: number; z: number }; guard: { x: number; z: number }[] }
+ *  run), guard points GUARD_M ahead of the bumper's corners and centre, and the car's outline (front left, front
+ *  right, rear right, rear left; OBSTACLE_SIDE_M out from the body). */
+interface ArcRow { bumper: { x: number; z: number }[]; axle: { x: number; z: number }; guard: { x: number; z: number }[];
+  outline: { x: number; z: number }[] }
 
 function arcRows(pose: VehiclePose, steer: number, g: VehicleGeometry, dir: 1 | -1, length: number, every: number,
-  guard = GUARD_M): ArcRow[] {
+  guard = GUARD_M, withStart = false): ArcRow[] {
   const half = g.back ?? g.rearOffset + 1;
   const bumper = dir < 0 ? half - g.rearOffset : half + g.rearOffset, side = (g.halfWidth ?? 0.9) - 0.05;
   const axle = dir < 0 ? 0 : g.wheelbase;
@@ -36,18 +38,23 @@ function arcRows(pose: VehiclePose, steer: number, g: VehicleGeometry, dir: 1 | 
   let hx = pose.hx, hz = pose.hz, x = pose.x - hx * g.rearOffset, z = pose.z - hz * g.rearOffset;
   const rows: ArcRow[] = [];
   const step = 0.25;
-  for (let d = step; d <= length + 1e-6; d += step) {
-    // Along the circle by ds = dir * step: the heading turns toward its right side by curvature * ds.
-    x += hx * step * dir; z += hz * step * dir;
-    const rx = -hz, rz = hx;
-    hx += rx * curvature * step * dir; hz += rz * curvature * step * dir;
-    const l = Math.hypot(hx, hz) || 1; hx /= l; hz /= l;
+  const front = g.rearOffset + half + OBSTACLE_SIDE_M, rear = half - g.rearOffset + OBSTACLE_SIDE_M, out = side + 0.05 + OBSTACLE_SIDE_M;
+  for (let d = withStart ? 0 : step; d <= length + 1e-6; d += step) {
+    if (d > 0) {
+      // Along the circle by ds = dir * step: the heading turns toward its right side by curvature * ds.
+      x += hx * step * dir; z += hz * step * dir;
+      const rx = -hz, rz = hx;
+      hx += rx * curvature * step * dir; hz += rz * curvature * step * dir;
+      const l = Math.hypot(hx, hz) || 1; hx /= l; hz /= l;
+    }
     if (Math.abs(d / every - Math.round(d / every)) > 1e-6) continue;
     const bx = x + hx * bumper * dir, bz = z + hz * bumper * dir, gx = bx + hx * guard * dir, gz = bz + hz * guard * dir;
+    const corner = (along: number, k: number) => ({ x: x + hx * along - hz * out * k, z: z + hz * along + hx * out * k });
     rows.push({
       bumper: [-1, 0, 1].map(k => ({ x: bx - hz * side * k, z: bz + hx * side * k })),
       axle: { x: x + hx * axle * dir, z: z + hz * axle * dir },
       guard: [-1, 0, 1].map(k => ({ x: gx - hz * side * k, z: gz + hx * side * k })),
+      outline: [corner(front, -1), corner(front, 1), corner(-rear, 1), corner(-rear, -1)],
     });
   }
   return rows;
@@ -87,10 +94,13 @@ const BESIDE = new Set<number>([...CARRIAGEWAY, MAT.curb, MAT.sidewalk, MAT.cycl
   MAT.metal_grate]);
 /** Spacing (m) of the rows a turn leg checks. */
 const LEG_ROW_M = 0.5;
-/** Obstacle lines across a leg's leading bumper: every OBSTACLE_ROW_M of travel, OBSTACLE_H above the ground there,
- *  OBSTACLE_SIDE_M past the corners. The ground rays look down at three points a row; a tree trunk or a post
- *  between them is not ground and slips through (Rotterdam Botersloot: a forward leg stalled against a birch on the
- *  plaza and the turn gave up). A leg stops OBSTACLE_GAP_M short of the first line that meets something. */
+/** Obstacle lines round the car's outline (OBSTACLE_SIDE_M out from the body) every OBSTACLE_ROW_M of a leg's
+ *  travel, OBSTACLE_H above the ground there. The ground rays look down at three points a row of the leading bumper;
+ *  a tree trunk or a post between them is not ground and slips through, and a car turning at full lock sweeps its
+ *  sides over ground no bumper row crosses (Rotterdam Botersloot: a forward leg on the plaza swept its side into a
+ *  birch and stalled; the turn gave up). A leg stops OBSTACLE_GAP_M short of the first outline that meets
+ *  something; an edge of the outline that already meets something where the car stands is left out (the leg may
+ *  take the car away from it). */
 const OBSTACLE_ROW_M = 0.25, OBSTACLE_H = 0.45, OBSTACLE_SIDE_M = 0.1, OBSTACLE_GAP_M = 0.5;
 /** Clearance (m) a turn leg keeps beyond its bumper from an edge: a drop deeper than a kerb (a quay into a canal, a
  *  retaining wall), water or no ground at all. A wall or a building there is no edge: the bumper rows stop at it.
@@ -139,15 +149,18 @@ export async function arcRoom(pose: VehiclePose, steer: number, g: VehicleGeomet
     return room(rows.length);
   })();
   if (groundRoom <= 0) return 0;
-  const lines = arcRows(pose, steer, g, dir, Math.min(length, groundRoom + OBSTACLE_GAP_M), OBSTACLE_ROW_M);
-  const blocked = await Promise.all(lines.map((line, i) => {
-    const [a, , b] = line.bumper, w = Math.hypot(b.x - a.x, b.z - a.z) || 1, ux = (b.x - a.x) / w, uz = (b.z - a.z) / w;
-    const row = Math.min(ground.length - 1, Math.max(0, Math.ceil((i + 1) * OBSTACLE_ROW_M / LEG_ROW_M) - 1));
+  const lines = arcRows(pose, steer, g, dir, Math.min(length, groundRoom + OBSTACLE_GAP_M), OBSTACLE_ROW_M, GUARD_M, true);
+  const edges = await Promise.all(lines.map((line, i) => {
+    const row = Math.min(ground.length - 1, Math.max(0, Math.ceil(i * OBSTACLE_ROW_M / LEG_ROW_M) - 1));
     const y = (ground[row] ?? under.point.y) + OBSTACLE_H;
-    return ray({ x: a.x - ux * OBSTACLE_SIDE_M, y, z: a.z - uz * OBSTACLE_SIDE_M }, { x: ux, y: 0, z: uz }, w + 2 * OBSTACLE_SIDE_M);
+    return Promise.all(line.outline.map((a, k) => {
+      const b = line.outline[(k + 1) % 4], w = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+      return ray({ x: a.x, y, z: a.z }, { x: (b.x - a.x) / w, y: 0, z: (b.z - a.z) / w }, w);
+    }));
   }));
-  const first = blocked.findIndex(hit => hit !== null);
-  return first < 0 ? groundRoom : Math.min(groundRoom, Math.max(0, (first + 1) * OBSTACLE_ROW_M - OBSTACLE_GAP_M));
+  const start = edges[0] ?? [];
+  const first = edges.findIndex((hits, i) => i > 0 && hits.some((hit, k) => hit !== null && start[k] === null));
+  return first < 0 ? groundRoom : Math.min(groundRoom, Math.max(0, first * OBSTACLE_ROW_M - OBSTACLE_GAP_M));
 }
 
 /** Ground ahead of the bumper (m) the edge watch keeps: less than a turn leg's GUARD_M, since pursuit turns at canal

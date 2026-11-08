@@ -449,11 +449,11 @@ describe('reverse-out ground check', () => {
   test('a turn leg stops short of a tree trunk that stands between its ground rays', async () => {
     const { arcRoom } = await import('../../src/gameplay/autopilot/reverseCheck');
     const g = vehicleGeometry('car');
-    const pose = { x: 100, y: 1, z: 100, hx: 1, hz: 0 };
+    const pose = { x: 100, y: 1, z: 100, hx: 1, hz: 0, forwardSpeed: 0 };
     const front = pose.x + (g.back ?? g.rearOffset + 1);
     // Flat road at y 0; a 0.3 m trunk 3 m ahead of the bumper, halfway between its centre and right corner rays.
     const trunk = { x: front + 3, z: pose.z + ((g.halfWidth ?? 0.9) - 0.05) / 2, r: 0.15, top: 4 };
-    const world = (withTrunk: boolean): AutopilotWorld['groundRay'] => async (o, d, max) => {
+    const world = (withTrunk: boolean): NonNullable<AutopilotWorld['groundRay']> => async (o, d, max) => {
       if (withTrunk) {
         // The trunk as a vertical cylinder: where the ray (a down ray or a level one) meets it first.
         const fx = o.x - trunk.x, fz = o.z - trunk.z, a = d.x * d.x + d.z * d.z;
@@ -475,6 +475,13 @@ describe('reverse-out ground check', () => {
     const room = await arcRoom(pose, 0, g, world(true), 1, 6);
     expect(room).toBeGreaterThan(2);
     expect(room).toBeLessThan(3 - trunk.r);
+    // At full lock toward a trunk just clear of the car's side by its middle: no bumper row reaches it, the side
+    // sweeps into it within a metre.
+    Object.assign(trunk, { x: pose.x, z: pose.z + (g.halfWidth ?? 0.9) + 0.25, r: 0.1 });
+    expect(await arcRoom(pose, 1, g, world(false), 1, 5)).toBeCloseTo(5, 5);
+    expect(await arcRoom(pose, 1, g, world(true), 1, 5)).toBeLessThan(1);
+    // Turning away from it, the leg keeps its room.
+    expect(await arcRoom(pose, -1, g, world(true), 1, 5)).toBeCloseTo(5, 5);
   });
 
   test('the checked arc is the one the car backs along, and a drop behind it blocks the reverse', async () => {

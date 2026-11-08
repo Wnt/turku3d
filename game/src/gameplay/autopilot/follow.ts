@@ -88,7 +88,9 @@ const TURN_SPEED = 1.2, TURN_LEG_S = 6;
 export const TURN_LEG_M = 4.5;
 /** A leg ends after this long (s) without moving, once it has run a second. */
 const TURN_STALL_S = 0.8;
-/** A turn that takes the car this far (m) from its path gives up. */
+/** A turn leg that takes the car this far (m) from its path, or half a metre beyond where the leg started if that was
+ *  further, ends there and the next leg comes back; a turn beyond OFF_PATH_M - 1 gives up. (Amsterdam Warmoesstraat,
+ *  Rotterdam Botersloot: a leg rolled past 6 m, or a back-up left the car 7 m off, and the turn gave up at once.) */
 const TURN_AWAY_M = 6;
 /** A turn whose legs got nowhere first backs straight up this far (m, as far as the ground allows) and starts again
  *  there, once: a car nosed into a 5-6 m street a few metres past a junction turns in the junction. */
@@ -120,7 +122,11 @@ export class DriveFollower {
   private turn: { side: number; dir: 1 | -1; rounds: number; room: number; from: { x: number; z: number };
     time: number; still: number; blocked: number; aimS: number | null; backup: 'no' | 'driving' | 'done';
     /** Started by the edge watch: it ends only after a leg has turned the car (pursuit's arc led over an edge). */
-    edge: boolean; legs: number } | null = null;
+    edge: boolean; legs: number;
+    /** The first leg's direction and side are picked by room (turnLegChecked); later legs alternate. */
+    picked: boolean;
+    /** How far from the path (m) this leg may take the car (TURN_AWAY_M). */
+    away: number } | null = null;
   /** Where the running turn's aim lies (cosine and sine off the heading, + right) when it started or restarted. */
   private aimCos = 1;
   private aimSin = 0;
@@ -214,7 +220,8 @@ export class DriveFollower {
   private turnLeg(dir: 1 | -1, pose: VehiclePose, steer?: number, length = TURN_LEG_M) {
     const t = this.turn!;
     t.dir = dir; t.time = 0; t.still = 0; t.from = { x: pose.x, z: pose.z };
-    const pick = dir > 0 && steer === undefined && t.rounds === 0;
+    const pick = dir > 0 && steer === undefined && !t.picked;
+    if (pick) t.picked = true;
     if (this.options.checkReverse) {
       t.room = 0;
       this.pendingTurnLeg = { steer: steer ?? (dir > 0 ? t.side : -t.side), dir, length, pick, aimSide: Math.sign(this.aimSin) || t.side };
@@ -226,7 +233,7 @@ export class DriveFollower {
   private startTurn(side: number, aimS: number | null, pose: VehiclePose, aim: { cos: number; sin: number }, edge = false) {
     this.aimCos = aim.cos; this.aimSin = aim.sin;
     this.turn = { side, dir: 1, rounds: 0, room: 0, from: { x: pose.x, z: pose.z }, time: 0, still: 0, blocked: 0, aimS,
-      backup: 'no', edge, legs: 0 };
+      backup: 'no', edge, legs: 0, picked: false, away: TURN_AWAY_M };
     this.turns++;
     this.turnLeg(1, pose);
   }
@@ -324,15 +331,17 @@ export class DriveFollower {
     if (this.turn) {
       const t = this.turn, recovering = { s: this.s, lateral: at.lateral, status: 'recovering' as const };
       const backingUp = t.backup === 'driving';
-      if (at.distance > (backingUp ? OFF_PATH_M - 1 : TURN_AWAY_M)) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
+      if (at.distance > OFF_PATH_M - 1) { this.failTurn(); return { command: hold, target: 0, ...recovering }; }
       if (this.pendingTurnLeg) return { command: hold, target: 0, ...recovering };
+      if (t.time === 0) t.away = Math.max(TURN_AWAY_M, at.distance + 0.5);
       t.time += dt; t.still = speed < 0.2 ? t.still + dt : 0;
       const moved = Math.hypot(pose.x - t.from.x, pose.z - t.from.z);
-      if (moved >= t.room || t.time > (backingUp ? 2 * TURN_LEG_S : TURN_LEG_S) || (t.time > 1 && t.still > TURN_STALL_S)) {
+      if (moved >= t.room || (!backingUp && at.distance > t.away) || t.time > (backingUp ? 2 * TURN_LEG_S : TURN_LEG_S)
+        || (t.time > 1 && t.still > TURN_STALL_S)) {
         if (moved >= 0.3) t.legs++;
         if (backingUp) {
           // Backed up: start the turn again from here, picking its side afresh.
-          t.backup = 'done'; t.rounds = 0; t.blocked = 0;
+          t.backup = 'done'; t.rounds = 0; t.blocked = 0; t.picked = false;
           const out = t.aimS !== null ? aimAt(t.aimS) : { cos: cosAim, sin: sinAlpha };
           this.aimCos = out.cos; this.aimSin = out.sin; t.side = Math.sign(out.sin) || t.side;
           this.turnLeg(1, pose);
