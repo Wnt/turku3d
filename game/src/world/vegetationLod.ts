@@ -190,6 +190,8 @@ export class VegetationLod {
   /** Near and far boundaries with the instance budgets folded in: a budget that runs out moves its boundary closer
    *  (a few metres per update) instead of dropping trees, so the cross-fade carries the change. */
   private bands: [number, number, number] = [NaN, NaN, NaN];
+  /** Trees drawn per level by the last update (QA and perf series read it). */
+  readonly drawn = { near: 0, mid: 0, far: 0 };
   /** When the camera stopped moving (ms), and the band sharpness it ramps (NatureMaterials.lodSharpness). */
   private stillSince: number | null = null;
   private sharpness = 0;
@@ -549,12 +551,11 @@ export class VegetationLod {
     }
     this.visible.sort((a, b) => a.distance - b.distance);
     const bands = this.bands;
-    if (!Number.isFinite(bands[0])) { bands[0] = q.near; bands[2] = q.far; }
-    bands[1] = q.mid;
+    if (!Number.isFinite(bands[0])) { bands[0] = q.near; bands[1] = q.mid; bands[2] = q.far; }
     const reach = Math.max(bands[2], this.screenshotDistance);
     // Soft budgets: counted, then folded into the boundaries below. A near tree is never left out (it has no other
     // draw inside the near band); impostors far past their budget (1.5x, the farthest buckets) are.
-    let nearDrawn = 0, farDrawn = 0;
+    let nearDrawn = 0, midDrawn = 0, farDrawn = 0;
     const farCap = this.screenshotDistance ? Infinity : q.farInstances * 1.5;
     let barriers = q.barrierInstances;
     for (const bucket of this.visible) {
@@ -577,6 +578,7 @@ export class VegetationLod {
         if (distance>reach) continue;
         let mask = this.screenshotDistance && distance > bands[2] ? (levels > 2 ? 4 : 0) : vegetationLevels(distance, bands, levels);
         if (mask & 1) nearDrawn++;
+        if (mask & 2) midDrawn++;
         if (mask & 4 && ++farDrawn > farCap) mask &= ~4;
         for (let k = 0; k < levels; k++) {
           if (!(mask & (1 << k))) continue;
@@ -590,6 +592,12 @@ export class VegetationLod {
     // Budgets move the boundaries, smoothly: the near one at most to a quarter, the far one no closer than mid + 50 m.
     if (nearDrawn > q.nearInstances) bands[0] = Math.max(q.near * 0.25, bands[0] - 1);
     else if (nearDrawn < q.nearInstances * 0.85) bands[0] = Math.min(q.near, bands[0] + 0.5);
+    // The reduced meshes' alpha-tested leaves are the costliest pool (Radeon 560X, medium, riverside: the mid trees
+    // 4.2 ms of the 7.9 ms vegetation pools): a dense forest hands over to impostors earlier instead of drawing more of
+    // them, never closer than half the mid band.
+    if (midDrawn > q.midInstances) bands[1] = Math.max(q.mid * 0.5, bands[0] + 10, bands[1] - 2);
+    else if (midDrawn < q.midInstances * 0.85) bands[1] = Math.min(q.mid, bands[1] + 1);
+    this.drawn.near = nearDrawn; this.drawn.mid = midDrawn; this.drawn.far = farDrawn;
     if (!this.screenshotDistance && farDrawn > q.farInstances) bands[2] = Math.max(q.mid + 50, bands[2] - 10);
     else if (farDrawn < q.farInstances * 0.85) bands[2] = Math.min(q.far, bands[2] + 5);
     this.library?.materials.lodBands.value.set(bands[0], bands[1], Math.max(bands[2], this.screenshotDistance));

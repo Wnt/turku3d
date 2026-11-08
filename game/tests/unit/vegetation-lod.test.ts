@@ -620,6 +620,29 @@ it('pools never keep a dissolve twin or a coverage: pooled draws sit out tile di
   lod.dispose();
 });
 
+it('a dense forest hands its reduced meshes over to impostors earlier, within the mid budget', () => {
+  const budget = QUALITY.medium.vegetation.midInstances, q = QUALITY.medium.vegetation;
+  // 3x the budget between 55 and 175 m straight ahead, inside the view.
+  const count = budget * 3, at = (i: number) => {
+    const d = 55 + ((i * 7919) % count) / count * 120, side = (((i * 104729) % 1000) / 1000 - 0.5) * 0.5 * d;
+    return new THREE.Vector3(side, 0, -d);
+  };
+  const forest = tile(count, 'tree_detailed_fall', at), scene = new THREE.Scene(); scene.add(forest.model);
+  const lod = new VegetationLod('medium', library), camera = new THREE.PerspectiveCamera(65, 16 / 9, 0.1, 2000);
+  lod.add(forest.model);
+  settle(lod, camera, 300);
+  const mid = library.materials.lodBands.value.y as number;
+  expect(mid).toBeLessThan(q.mid); expect(mid).toBeGreaterThanOrEqual(q.mid * 0.5);
+  expect(lod.drawn.mid).toBeLessThanOrEqual(budget * 1.1);
+  lod.dispose();
+  // A light one keeps the full band.
+  const park = tile(40, 'tree_detailed_fall', i => new THREE.Vector3(i * 4 - 80, 0, -100)), open = new THREE.Scene(); open.add(park.model);
+  const light = new VegetationLod('medium', library);
+  light.add(park.model); settle(light, camera, 40);
+  expect(library.materials.lodBands.value.y).toBe(q.mid);
+  light.dispose();
+});
+
 it('a still camera settles the tree bands to a step (no dither), and they widen again when it moves', () => {
   let time = 1000;
   const now = vi.spyOn(performance, 'now').mockImplementation(() => time);

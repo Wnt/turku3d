@@ -22,14 +22,18 @@ export type RiverReflection = 'planar' | 'ssr' | 'sky';
 // close or closer to the Aura references in every pair, for 3-11 ms less GPU p95 on the Air; `?water=planar` is the A/B.
 // High and low keep the planar pass; without TRAA history (`aa=fxaa|off`) the march has nothing to read and the river
 // shows the sky (render/water.ts riverReflection).
-const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
+// midInstances: trees drawn with the reduced (LOD 1) meshes before the mid band shrinks towards impostors (world/
+// vegetationLod.ts). Those alpha-tested leaves are the costliest vegetation pool on the Radeon 560X; the budgets sit
+// above every pose measured before forests were populated from lidar crowns (at most 635 at medium), so parks and
+// streets keep their bands and only dense forests hand over earlier.
+const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, midInstances: 700, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
   bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, riverReflection: 'ssr', detail: 0.055, saturation: 0.97,
   lights: { point: 4 }, maxPixels: 2560 * 1440, governor: false } as const;
 export const QUALITY = {
-  mobile: { parkedBodies: 24, vegetation: { near: 18, mid: 90, far: 350, nearInstances: 64, farInstances: 3000, barrierInstances: 400 }, grass: { density: 0, range: 0, instances: 0 }, shadowSize: 1024, splits: [90], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
+  mobile: { parkedBodies: 24, vegetation: { near: 18, mid: 90, far: 350, nearInstances: 64, midInstances: 200, farInstances: 3000, barrierInstances: 400 }, grass: { density: 0, range: 0, instances: 0 }, shadowSize: 1024, splits: [90], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
     bloomScale: 0.25, bloomStrength: 0, temporalSubpixel: false, reflectionScale: 0, reflectionSlowFps: 8, riverReflection: 'planar', detail: 0.025, saturation: 0.98,
     lights: { point: 0 }, maxPixels: 1280 * 720, governor: false },
-  low: { parkedBodies: 40, vegetation: { near: 30, mid: 130, far: 450, nearInstances: 128, farInstances: 5000, barrierInstances: 1000 }, grass: { density: 1.5, range: 24, instances: 6000 }, shadowSize: 1024, splits: [50, 180], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
+  low: { parkedBodies: 40, vegetation: { near: 30, mid: 130, far: 450, nearInstances: 128, midInstances: 400, farInstances: 5000, barrierInstances: 1000 }, grass: { density: 1.5, range: 24, instances: 6000 }, shadowSize: 1024, splits: [50, 180], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
     bloomScale: 0.25, bloomStrength: 0.035, temporalSubpixel: false, reflectionScale: 0.25, reflectionSlowFps: 8, riverReflection: 'planar', detail: 0.035, saturation: 0.98,
     lights: { point: 0 }, maxPixels: 2560 * 1440, governor: true },
   // Medium's look for lower-end GPUs (deviceQuality). On a Radeon Pro 560X (gcn-4) at 2880x1800 the beauty pass costs
@@ -42,7 +46,7 @@ export const QUALITY = {
   reduced: { ...MEDIUM, vegetation: { ...MEDIUM.vegetation, mid: 100 }, grass: { ...MEDIUM.grass }, splits: [...MEDIUM.splits], lights: { ...MEDIUM.lights },
     reflectionScale: 0.25, reflectionSlowFps: 8, maxPixels: 1920 * 1080, governor: true },
   medium: MEDIUM,
-  high: { parkedBodies: 80, vegetation: { near: 70, mid: 260, far: 850, nearInstances: 600, farInstances: 16000, barrierInstances: 5000 }, grass: { density: 3.5, range: 48, instances: 24000 }, shadowSize: 2048, splits: [12, 32, 80, 240], aoScale: 0.75, aoSamples: 16, aoStrength: 0.3,
+  high: { parkedBodies: 80, vegetation: { near: 70, mid: 260, far: 850, nearInstances: 600, midInstances: 1400, farInstances: 16000, barrierInstances: 5000 }, grass: { density: 3.5, range: 48, instances: 24000 }, shadowSize: 2048, splits: [12, 32, 80, 240], aoScale: 0.75, aoSamples: 16, aoStrength: 0.3,
     bloomScale: 0.5, bloomStrength: 0.05, temporalSubpixel: true, reflectionScale: 0.75, reflectionSlowFps: 20, riverReflection: 'planar', detail: 0.07, saturation: 0.97,
     lights: { point: 8 }, maxPixels: 2560 * 1440, governor: false },
 } as const;
