@@ -43,9 +43,25 @@ def way_width(tags):
 SELECT_MARGIN = 5.0  # m around a deck: the tiles that build it (and its end ramps)
 
 
+def deck_reach(bridge):
+    """Ground the deck covers past the band along its straight axis: its mapped outline and its
+    member ways. A merged deck's outline and links can run far past the axis (the Willemsbrug's
+    curved north approach ends 60 m beyond it); None for a single way without an outline."""
+    parts = [m["line"].buffer(m["width"] / 2) for m in bridge.get("member_ways", ())]
+    if bridge.get("outline") is not None:
+        parts.append(bridge["outline"])
+    return shapely.union_all(parts) if parts else None
+
+
 def selects(bridge, bbox):
-    """Whether the tile with this bbox builds the bridge, its aprons and its approach ramps."""
-    return bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN).intersects(shapely.box(*bbox))
+    """Whether the tile with this bbox builds the bridge, its aprons and its approach ramps: every
+    tile the deck reaches, or a tile past the axis band clips the deck at its seam and leaves the
+    rest of the approach on the ground."""
+    box = shapely.box(*bbox)
+    if bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN).intersects(box):
+        return True
+    reach = deck_reach(bridge)
+    return reach is not None and reach.distance(box) <= SELECT_MARGIN
 
 
 def building_region(bridge):
@@ -54,7 +70,9 @@ def building_region(bridge):
     from turku3d import config as C
 
     size = C.VISUAL_TILE_SIZE
-    x0, z0, x1, z1 = bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN).bounds
+    reach = deck_reach(bridge)
+    band = bridge["line"].buffer(bridge["width"] / 2 + SELECT_MARGIN)
+    x0, z0, x1, z1 = (band if reach is None else band.union(reach.buffer(SELECT_MARGIN))).bounds
     boxes = [(i * size, j * size, (i + 1) * size, (j + 1) * size)
              for i in range(int(np.floor(x0 / size)), int(np.floor(x1 / size)) + 1)
              for j in range(int(np.floor(z0 / size)), int(np.floor(z1 / size)) + 1)]

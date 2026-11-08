@@ -167,6 +167,30 @@ def test_branch_outline_axis_follows_carriageway_not_long_ramp():
     assert set(deck["members"]) == {"road", "ramp"}
 
 
+def test_a_deck_is_built_by_every_tile_its_outline_reaches_not_only_its_axis():
+    # Willemsbrug, Rotterdam: the merged deck's curved north approach ran 60 m past its straight
+    # axis into a tile that did not build the deck, so the approach fell to the ground at the seam.
+    from turku3d.coarse.bridges import building_region, selects
+
+    size = C.VISUAL_TILE_SIZE
+
+    def box(i, j):
+        return (i * size, j * size, (i + 1) * size, (j + 1) * size)
+
+    road = way("road", [(300, 100), (480, 100)], width=10)
+    ramp = way("ramp", [(320, 100), (330, 280)], width=4)
+    outline = shapely.box(299, 94, 481, 106).union(ramp["line"].buffer(3, cap_style="flat"))
+    deck = merge_crossings([road, ramp], [("outline", outline, {"layer": "1"})])[0]
+    assert deck["line"].distance(shapely.box(*box(1, 1))) > deck["width"] / 2 + 5  # the axis alone misses it
+    assert selects(deck, box(1, 0)) and selects(deck, box(1, 1))
+    assert not selects(deck, box(0, 1)) and not selects(deck, box(2, 1)) and not selects(deck, box(1, 2))
+    assert building_region(deck).equals(shapely.union_all([shapely.box(*box(1, 0)), shapely.box(*box(1, 1))]))
+    # A single way without an outline keeps its band.
+    lone = way("lone", [(300, 243), (480, 243)], width=10)
+    assert selects(lone, box(1, 1)) and not selects(lone, box(1, 2))
+    assert building_region(lone).equals(shapely.union_all([shapely.box(*box(1, 0)), shapely.box(*box(1, 1))]))
+
+
 def test_passage_cut_removes_collinear_submillimetre_sliver():
     from turku3d.coarse.build import extrude
     from turku3d.coarse.inputs import Building
