@@ -165,6 +165,9 @@ export class PhysicsClient {
   unloadTile(id: string) { this.send({ type: 'unloadTile', id }); this.loaded.delete(id); }
   /** Collision tiles that exist but may not be loaded: edge walls stand only where none does (physics/edgeWalls.ts). */
   setKnown(add: string[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'knownTiles', add, remove }); }
+  /** Unpublished cells of tiles the world service is still building or sending: walled until they arrive, but a driven
+   *  car is eased to a stop before them (physics/world.ts easeForCoverage) instead of meeting the wall at speed. */
+  setComing(add: string[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'comingTiles', add, remove }); }
   spawnCharacter(pos: V3) { this.send({ type: 'spawnCharacter', pos }); }
   setCharacterEnabled(enabled: boolean, pos?: V3) {
     if (enabled && pos) this.placed('character', pos);

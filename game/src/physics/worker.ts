@@ -161,6 +161,7 @@ function handle(msg: ToWorker) {
       break;
     case 'loadingTile': pw.setTileLoading(msg.id, msg.loading); break;
     case 'knownTiles': pw.edges.setKnown(msg.add, msg.remove); break;
+    case 'comingTiles': pw.setComing(msg.add, msg.remove); break;
     case 'spawnCharacter': pw.spawnCharacter(msg.pos); break;
     case 'setCharacterEnabled': pw.setCharacterEnabled(msg.enabled, msg.pos); break;
     case 'removeVehicle': pw.removeVehicle(msg.id); break;

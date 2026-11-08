@@ -25,7 +25,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { loadGlb } from './loadGlb';
 import { sharedKtx } from './loadingKtx';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { VISUAL_L0 } from '../core/origin';
+import { COLLISION_TILE, VISUAL_L0 } from '../core/origin';
 import { FLY } from '../gameplay/flyMode';
 import { isLocalHost } from '../core/localOnly';
 import { draftsUrl } from '../net/config';
@@ -1471,6 +1471,15 @@ export class CoarseTiles {
       if (buffer) this.host.retainCollision?.(cid, entry, buffer);
     }
     if (swapped.length) this.host.refreshCollision(swapped);
+  }
+
+  /** Whether collision cell `cid` belongs to a tile this client is still waiting for (polled, building on the service,
+   *  acknowledged, or being installed) and has not published yet: no entry or a failed one means none is coming. */
+  collisionComing(cid: string): boolean {
+    const m = /^c_(-?\d+)_(-?\d+)$/.exec(cid);
+    if (!m) return false;
+    const per = VISUAL_L0 / COLLISION_TILE, e = this.entries.get(`t0_${Math.floor(+m[1] / per)}_${Math.floor(+m[2] / per)}`);
+    return !!e && e.state !== 'failed' && !e.collision.has(cid);
   }
 
   /** Withdraw the tile's published collision (its cells leave the worker). */

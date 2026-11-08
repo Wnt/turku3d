@@ -23,7 +23,7 @@ const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const sameContent = (a: ManifestEntry | undefined, b: ManifestEntry) => !!a && a.bytes === b.bytes
   && a.sha256 === b.sha256 && (!!a.sha256 || a.url === b.url);
 
-type Physics = Pick<PhysicsClient, 'loaded' | 'loadTile' | 'unloadTile' | 'setKnown' | 'setTileLoading' | 'onError'>;
+type Physics = Pick<PhysicsClient, 'loaded' | 'loadTile' | 'unloadTile' | 'setKnown' | 'setTileLoading' | 'onError'> & Partial<Pick<PhysicsClient, 'setComing'>>;
 
 export class CollisionStreamer {
   private loading = new Set<string>();
@@ -31,6 +31,10 @@ export class CollisionStreamer {
   private retries = new Map<string, { attempts: number; at: number }>();
   /** Tiles the worker was told exist (edgeWalls.ts `known`). */
   private known = new Set<string>();
+  /** Unpublished neighbours the worker was told are coming (PhysicsClient.setComing). */
+  private coming = new Set<string>();
+  /** Whether an unpublished cell's tile is being built or sent by the world service (world/coarseTiles.ts collisionComing). */
+  expected: (id: string) => boolean = () => false;
   private lastCheck = -Infinity;
   private prepared = new Map<string, { entry: ManifestEntry; buffer: ArrayBuffer }>();
   private installed = new Map<string, string>();
@@ -103,7 +107,8 @@ export class CollisionStreamer {
     while (this.flights.size) await Promise.allSettled([...this.flights]);
     for (const id of [...this.physics.loaded.keys()]) this.physics.unloadTile(id);
     this.physics.setKnown([], [...this.known]);
-    this.known.clear(); this.prepared.clear(); this.installed.clear(); this.retries.clear(); this.failed.clear();
+    this.physics.setComing?.([], [...this.coming]);
+    this.known.clear(); this.coming.clear(); this.prepared.clear(); this.installed.clear(); this.retries.clear(); this.failed.clear();
     this.aheadSeen.clear(); this.retainedStarts = [];
   }
 
@@ -158,18 +163,22 @@ export class CollisionStreamer {
 
   /** The worker learns which neighbours of the loaded and loading tiles exist: a wall faces only the others. */
   private syncKnown() {
-    const next = new Set<string>();
+    const next = new Set<string>(), coming = new Set<string>();
     for (const id of [...this.physics.loaded.keys(), ...this.loading]) {
       const ij = parseCollisionId(id);
       if (!ij) continue;
       for (const [di, dj] of [[0, 0], ...SIDES]) {
         const n = collisionTileId(ij.i + di, ij.j + dj);
-        if (this.manifest.collision[n] && !this.failed.has(n)) next.add(n);
+        if (this.manifest.collision[n]) { if (!this.failed.has(n)) next.add(n); }
+        else if (this.expected(n)) coming.add(n);
       }
     }
     const add = [...next].filter(id => !this.known.has(id)), remove = [...this.known].filter(id => !next.has(id));
     this.known = next;
     this.physics.setKnown(add, remove);
+    const arrive = [...coming].filter(id => !this.coming.has(id)), gone = [...this.coming].filter(id => !coming.has(id));
+    this.coming = coming;
+    this.physics.setComing?.(arrive, gone);
   }
 
   private async fetchAndLoad(id: string) {

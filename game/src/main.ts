@@ -572,6 +572,7 @@ async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
     retainCollision: (id, entry, buffer) => holder.streamer.retain(id, entry, buffer),
   }, life.signal);
   censusSources.coarse = coarse; censusSources.collision = holder.streamer;
+  holder.streamer.expected = cid => coarse.collisionComing(cid);
   window.__tiles = { loaded: () => coarse.loadedTiles() };
   return { name: CITY.name, manifest, streamer: holder.streamer, coarse, life };
 }

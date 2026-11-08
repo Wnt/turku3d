@@ -68,6 +68,7 @@ export class PhysicsWorld {
   private residentCells = new Set<string>();
   private heldVehicles = new Map<string, { velocity: V3; angular: V3 }>();
   private loadingCells = new Set<string>();
+  private coming = new Set<string>();
   private coverageHold = new PlayerCoverageHold();
   get coverageBlock() { return this.coverageHold.state; }
   /** Speed (m/s) the driven car is eased to before collision that has not arrived (null while not eased). */
@@ -200,6 +201,13 @@ export class PhysicsWorld {
 
   setTileLoading(id: string, loading: boolean) {
     if (loading) this.loadingCells.add(id); else this.loadingCells.delete(id);
+  }
+
+  /** Unpublished cells of tiles still being built or sent (world/collisionStreaming.ts): their edge wall stands, but the
+   *  driven car is eased to a stop before them rather than meeting the wall at speed. */
+  setComing(add: string[], remove: string[]) {
+    for (const id of remove) this.coming.delete(id);
+    for (const id of add) this.coming.add(id);
   }
 
   // ------------------------------------------------------------------ tiles
@@ -884,7 +892,10 @@ export class PhysicsWorld {
     const intent = vehicle.throttle > 0 ? 1 : vehicle.throttle < 0 || vehicle.brake > 0 ? -1 : 0;
     if (speed < EASE_REST_SPEED && !intent) return vehicle;
     const [dx, dz] = speed >= EASE_REST_SPEED ? [v.x / speed, v.z / speed] : [hx * intent, hz * intent];
-    const reach = coverageReach(this.supported(p.x, p.z), p.x, p.z, dx, dz, this.vehicleRadii.get(id!)!,
+    // Cells of a tile still coming count as missing although their edge wall stands (a wall at speed is a dead stop).
+    const supported = this.supported(p.x, p.z), ahead = this.coming.size
+      ? { has: (cell: string) => supported.has(cell) && (this.residentCells.has(cell) || !this.coming.has(cell)) } : supported;
+    const reach = coverageReach(ahead, p.x, p.z, dx, dz, this.vehicleRadii.get(id!)!,
       Math.max(easeReachLimit(speed), COVERAGE_URGENT_S * speed));
     if (reach === Infinity) return vehicle;
     this.coverageLead = reach / Math.max(speed, 1);

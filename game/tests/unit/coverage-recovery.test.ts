@@ -244,3 +244,31 @@ test('cells ahead of a moving driven car install before nearer cells behind it',
   for (let k = 0; k < 40 && order.length < 2; k++) pw.pumpInstalls(0);
   expect(order).toEqual(['c_1_2', 'c_5_2']);
 });
+
+test('a tile still coming keeps its edge wall, but the driven car is eased to a stop before it instead of hitting it at speed', async () => {
+  const drive = { throttle: 1, steer: 0, brake: 0, handbrake: false };
+  const run = async (coming: boolean) => {
+    const pw = new PhysicsWorld(R); worlds.push(pw);
+    for (let i = 0; i <= 5; i++) await pw.loadTile(`c_${i}_2`, col(`c_${i}_2`));
+    pw.world.step();
+    pw.spawnCharacter({ x: 10, y: 2.05, z: 156 });
+    pw.setCharacterEnabled(false);
+    pw.spawnVehicle({ x: 20, y: 2.8, z: 156 }, 0);
+    pw.vehicle!.body.setLinvel({ x: 24, y: 0, z: 0 }, true);
+    // c_6_2 is unpublished (no wall opening: not known); its tile is being built when `coming`.
+    if (coming) pw.setComing(['c_6_2'], []);
+    let worstDrop = 0, prev = 24;
+    for (let k = 0; k < Math.round(20 / DT); k++) {
+      pw.step(DT, idle, drive);
+      const v = pw.vehicle!.body.linvel(), speed = Math.hypot(v.x, v.z);
+      worstDrop = Math.max(worstDrop, prev - speed); prev = speed;
+    }
+    return { worstDrop, x: pw.vehicle!.body.translation().x, block: pw.coverageBlock };
+  };
+  const wall = await run(false), eased = await run(true);
+  // Against the wall the car loses several m/s in one step; eased, it never does and stops short of the wall.
+  expect(wall.worstDrop).toBeGreaterThan(3);
+  expect(eased.worstDrop).toBeLessThan(0.5);
+  expect(eased.x).toBeLessThan(372); expect(eased.x).toBeGreaterThan(340);
+  expect(eased.block).toBeNull();
+});

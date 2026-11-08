@@ -390,3 +390,21 @@ test('leaving the city waits for loads in flight, then unloads every cell and fo
   expect(physics.loaded.size).toBe(0);
   expect(physics.known.size).toBe(0);
 });
+
+test('unpublished neighbours whose tile is still coming are named to the worker as coming, and leave once published or failed', async () => {
+  const { manifest, physics } = fakes(4, 4);
+  const coming = new Set<string>();
+  const sent = Object.assign(physics, { setComing: vi.fn((add: string[], remove: string[]) => { for (const id of add) coming.add(id); for (const id of remove) coming.delete(id); }) });
+  const s = new CollisionStreamer(manifest, sent as never, 100, 50);
+  const building = new Set(['c_4_1', 'c_4_2']);
+  s.expected = id => building.has(id);
+  for (let k = 0; k < 20; k++) { s.update(230, 100, true); await new Promise(r => setTimeout(r, 0)); }
+  // c_3_1 / c_3_2 are loaded; east of them c_4_1, c_4_2 are coming; c_4_0 / c_4_3 are not (no tile is coming there).
+  expect([...coming].sort()).toEqual(['c_4_1', 'c_4_2']);
+  expect([...physics.known].some(id => id.startsWith('c_4_'))).toBe(false);
+  building.delete('c_4_2'); // its tile failed
+  (manifest as { collision: Record<string, unknown> }).collision['c_4_1'] = { url: 'c_4_1.col', bytes: 4 }; // published
+  s.update(230, 100, true);
+  expect([...coming]).toEqual([]);
+  expect(physics.known.has('c_4_1')).toBe(true);
+});

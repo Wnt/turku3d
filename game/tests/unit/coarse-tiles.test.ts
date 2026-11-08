@@ -1192,3 +1192,20 @@ test('a collision preview publishes its cells before its stand-in is built and i
   for (const id of attached) expect(cellsOf(id).filter(cid => !manifest.collision[cid])).toEqual([]);
   expect(unloaded.filter(cid => attached.some(id => cellsOf(id).includes(cid)))).toEqual([]);
 });
+
+test('collision is coming for the unpublished cells of a tile being polled, built or installed, not for failed or unknown tiles', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(), fetch: (async () => new Response(null, { status: 404 })) as typeof fetch });
+  const entry = (state: string, cells: string[] = []) => ({ state, collision: new Map(cells.map(c => [c, {}])), nextPoll: 0, since: 0 }) as never;
+  coarse.entries.set('t0_1_0', entry('pending'));
+  coarse.entries.set('t0_-1_-1', entry('built'));
+  coarse.entries.set('t0_2_0', entry('failed'));
+  coarse.entries.set('t0_3_0', entry('draft', cellsOf('t0_3_0')));
+  expect(coarse.collisionComing('c_4_1')).toBe(true);
+  expect(coarse.collisionComing('c_7_3')).toBe(true);
+  expect(coarse.collisionComing('c_-1_-4')).toBe(true);
+  expect(coarse.collisionComing('c_8_0')).toBe(false); // failed
+  expect(coarse.collisionComing('c_12_0')).toBe(false); // published
+  expect(coarse.collisionComing('c_0_0')).toBe(false); // no tile
+});
