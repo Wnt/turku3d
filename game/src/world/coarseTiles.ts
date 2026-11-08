@@ -1083,8 +1083,8 @@ export class CoarseTiles {
 
   private async loadFragment(id: string, fragment: Pick<CoarseFragment, 'visual' | 'buildingPlacements'>, abandoned = () => false) {
     const base = new URL(`${this.root}${id}/`, this.page);
-    // Building models read while the tile GLB loads, nearest tile first.
-    const priority = Number.isFinite(this.at.x) ? distToL0(id, this.at.x, this.at.z) : Infinity;
+    // Building models read while the tile GLB loads, the tile the player reaches first first.
+    const priority = () => Number.isFinite(this.at.x) ? this.arrivalRank(id) : Infinity;
     const prefetched = fragment.buildingPlacements ? this.buildingModels.prefetch(fragment.buildingPlacements, base, priority) : null;
     const glb = streamTrace.begin('tile.glb', id, { bytes: fragment.visual[id].bytes, tris: fragment.visual[id].tris });
     let root: THREE.Object3D;

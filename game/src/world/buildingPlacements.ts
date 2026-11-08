@@ -69,13 +69,19 @@ interface Resident { users: number; promise: Promise<THREE.Object3D>; trace?: Re
 /** One model read for install traces: slot wait, then fetch/decode/parse, of which the texture upload wait. */
 interface ReadTrace { queueMs: number; loadMs: number; textureMs: number; textures: number }
 interface Lease { root: THREE.Object3D; release: () => void; trace?: ReadTrace }
+/** A read's place in the queue: a number, or a function read when a slot frees (seconds until the player reaches the
+ *  tile, world/coarseTiles.ts). */
+export type ReadPriority = number | (() => number);
 
 /** Decode each content model once while resident. Tile cancellation releases every successful lease. */
 export class BuildingModelCache {
   private entries = new Map<string, Resident>();
   private active = 0;
-  /** Waiting reads, the nearest tile's first (`priority`: its distance in metres). */
-  private queue: { priority: number; start: () => void }[] = [];
+  /** Waiting reads; a free slot starts the one whose tile the player reaches first (`priority`: lower first, read when
+   *  a slot frees, ties in arrival order). A number fixed at the request went stale at speed: at 23 m/s the window's
+   *  own tiles waited behind reads of tiles requested later from nearer (fastdrive fly, 2026-11-08). */
+  private queue: { priority: ReadPriority; seq: number; start: () => void }[] = [];
+  private seq = 0;
   /** Concurrent model reads: fetch, GLB decode and meshopt workers overlap. */
   readonly reads = 6;
   constructor(private load: (url: string) => Promise<THREE.Object3D>,
@@ -83,12 +89,19 @@ export class BuildingModelCache {
     private visibility: PlacementVisibility = placementVisibility,
     private styleLod: (root: THREE.Object3D, owner: THREE.Object3D, block: string) => void = () => {}) {}
 
-  private async read(url: string, priority: number, trace: ReadTrace | undefined, wanted: () => boolean) {
+  /** The waiting read to start next: the lowest priority now, ties in arrival order. */
+  private next() {
+    let pick = -1, best = Infinity;
+    for (let i = 0; i < this.queue.length; i++) {
+      const p = this.queue[i].priority, value = typeof p === 'function' ? p() : p;
+      if (pick < 0 || value < best || (value === best && this.queue[i].seq < this.queue[pick].seq)) { pick = i; best = value; }
+    }
+    return pick < 0 ? undefined : this.queue.splice(pick, 1)[0];
+  }
+
+  private async read(url: string, priority: ReadPriority, trace: ReadTrace | undefined, wanted: () => boolean) {
     const queued = trace ? performance.now() : 0, waits = this.active >= this.reads;
-    if (waits) await new Promise<void>(start => {
-      const at = this.queue.findIndex(waiting => waiting.priority > priority);
-      this.queue.splice(at < 0 ? this.queue.length : at, 0, { priority, start });
-    });
+    if (waits) await new Promise<void>(start => { this.queue.push({ priority, seq: this.seq++, start }); });
     else this.active++;
     try {
       // Every lease was released while the read queued (a cancelled install): skip the fetch and decode.
@@ -109,12 +122,12 @@ export class BuildingModelCache {
       for (const geometry of geometries) retainGeometry(geometry);
       return root;
     } finally {
-      const next = this.queue.shift();
+      const next = this.next();
       if (next) next.start(); else this.active--;
     }
   }
 
-  private async acquire(model: BuildingModel, base: URL, priority = Infinity, owner: object = {}): Promise<Lease> {
+  private async acquire(model: BuildingModel, base: URL, priority: ReadPriority = Infinity, owner: object = {}): Promise<Lease> {
     // Hashes are reusable across generation URL prefixes, but never across content hosts.
     const url = new URL(model.uri, base), key = `${url.origin}/${model.id}`;
     let entry = this.entries.get(key);
@@ -163,7 +176,7 @@ export class BuildingModelCache {
   }
 
   /** Start reading a tile's models before its own GLB has loaded; release once `attach` holds them. */
-  prefetch(data: BuildingPlacements, base: URL, priority = Infinity): () => void {
+  prefetch(data: BuildingPlacements, base: URL, priority: ReadPriority = Infinity): () => void {
     validateBuildingPlacements(data);
     const descriptors = new Map(data.models.map(model => [model.id, model]));
     const leases = this.needed(data).map(id => this.acquire(descriptors.get(id)!, base, priority).catch(() => null));
@@ -174,7 +187,7 @@ export class BuildingModelCache {
     return [...new Set([...data.placements.map(p => p.model), ...(data.blocks ?? []).flatMap(b => b.lod ? [b.lod] : [])])];
   }
 
-  async attach(owner: THREE.Object3D, data: BuildingPlacements, base: URL, priority = Infinity): Promise<() => void> {
+  async attach(owner: THREE.Object3D, data: BuildingPlacements, base: URL, priority: ReadPriority = Infinity): Promise<() => void> {
     validateBuildingPlacements(data);
     const descriptors = new Map(data.models.map(model => [model.id, model]));
     const needed = this.needed(data);

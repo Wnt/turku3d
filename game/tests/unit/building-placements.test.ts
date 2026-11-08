@@ -396,6 +396,30 @@ test('model reads start before the tile GLB, nearest tile first, and a prefetch 
   expect(disposed).toHaveBeenCalledTimes(10);
 });
 
+test('a free read slot starts the waiting read whose tile is reached first now, not when it was requested', async () => {
+  const models = (prefix: string, count: number): BuildingPlacements => {
+    const ids = Array.from({ length: count }, (_, k) => `${prefix}${k}`.padEnd(64, '0'));
+    return { version: 1, models: ids.map(model => ({ id: model, uri: `../shared/${model}.glb`, bounds: { min: [-1, 0, -1], max: [1, 1, 1] } })),
+      placements: ids.map((model, k) => ({ id: `p${k}`, model, position: [10 * k, 0, 0], viewDistance: 300 })) };
+  };
+  const started: string[] = [], finish: (() => void)[] = [], shared = new SharedMaterials();
+  const budget = new PreparationBudget(() => 0, () => new Promise(() => {}));
+  const cache = new BuildingModelCache(url => { started.push(url.slice(url.lastIndexOf('/') + 1, url.lastIndexOf('/') + 2));
+    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => disposeModelResources(root, shared), budget);
+  const arrival: Record<string, number> = { a: 1, b: 9, c: 5 };
+  const busy = cache.prefetch(models('a', cache.reads), base, () => arrival.a);
+  const later = cache.prefetch(models('b', 1), base, () => arrival.b), sooner = cache.prefetch(models('c', 1), base, () => arrival.c);
+  expect(started).toHaveLength(cache.reads);
+  // The player turned: the tile asked for first (b) is now the one ahead.
+  arrival.b = 2;
+  finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(started.at(-1)).toBe('b');
+  finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0));
+  expect(started.at(-1)).toBe('c');
+  while (finish.length) { finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+  busy(); later(); sooner();
+});
+
 test('compiled twins stay compiled until their base material goes: keepers are kept, one per layout, then disposed', async () => {
   const base = new THREE.MeshStandardNodeMaterial({ name: 'kept' });
   const root = new THREE.Group();
