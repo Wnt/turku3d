@@ -222,3 +222,20 @@ def test_a_fence_outlining_a_shrub_or_flower_bed_is_low_unless_tagged():
         assert height({"barrier": "fence", **bed}) == BED_FENCE
     assert height({"barrier": "fence", "natural": "scrub", "height": "2"}) == 2.0
     assert height({"barrier": "wall", "natural": "scrub"}) == DEFAULTS["wall"]
+
+
+def test_a_guard_rail_on_the_carriageway_edge_stays_and_is_cut_only_well_inside_it():
+    # Etelatuulentie (Espoo): the surveyed carriageway reaches to within 0.2-0.7 m of the OSM guard rail along its
+    # embankment edge; the fence clearance removed the rail there and cars tipped over the edge.
+    tile = C.VisualTile(0, 0, 0)
+    road = shapely.box(40, 0, 60, 100)
+    edge = shapely.LineString([(39.8, 10), (39.8, 90)])  # 0.2 m outside the carriageway
+    rails = place(tile, [(edge, {"barrier": "guard_rail"}, False)], [(road, 0)], lambda x, z: 0)
+    assert np.isclose(sum(s.length for s in rails), 80)
+    assert all(s.kind == "rail" for s in rails)
+    fence = place(tile, [(edge, {"barrier": "fence"}, False)], [(road, 0)], lambda x, z: 0)
+    assert not fence  # other barriers keep their clearance
+    across = shapely.LineString([(30, 50), (70, 50)])  # a rail drawn across the carriageway is cut inside it
+    cut = place(tile, [(across, {"barrier": "guard_rail"}, False)], [(road, 0)], lambda x, z: 0)
+    assert np.isclose(sum(s.length for s in cut), 21)
+    assert not any(40.5 < s.x < 59.5 for s in cut)
