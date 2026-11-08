@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { GrassField } from '../../src/world/nature/grass';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { natureFixture } from './natureFixture';
 
 it('shares one grass budget across species and keeps nearest selection independent of tile arrival', () => {
@@ -190,6 +191,29 @@ it('grows bilberry, fern and herb plants on forest floors, by floor type, and no
     const box = mesh.geometry.boundingBox!;
     expect(box.max.y).toBeGreaterThan(0.08); expect(box.max.y).toBeLessThan(0.65);
     expect(mesh.geometry.index!.count / 3).toBeLessThan(260);
+  }
+  field.dispose();
+});
+
+it('grows grass on the grass range of a merged ground draw, not on its paving', async () => {
+  // render/surfaceArrays.ts merges a tile's library surfaces into one mesh; userData.surfaceKeys keeps each source's
+  // material key and index range. Live tiles (all library surfaces) had no grass at all before.
+  const library = natureFixture(), model = new THREE.Group();
+  const paving = new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), lawn = new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2).translate(40, 0, 0);
+  const merged = mergeGeometries([paving, lawn])!;
+  const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial());
+  mesh.userData = { layer: 'ground', surfaceLayers: 2, surfaceKeys: [{ key: 'draft_asphalt_worn', start: 0, count: 6 }, { key: 'draft_grass', start: 6, count: 6 }] };
+  model.add(mesh); new THREE.Scene().add(model);
+  const field = new GrassField(library, 'medium'), steps = field.addSteps(model);
+  while (!steps.next().done) { /* fixture */ }
+  const camera = new THREE.PerspectiveCamera(65, 1, .1, 1000); camera.position.set(40, 2, 0); camera.updateMatrixWorld();
+  field.update(camera);
+  const meshes = field.root.children as THREE.InstancedMesh[];
+  const total = meshes.reduce((a, m) => a + m.count, 0);
+  expect(total).toBeGreaterThan(1000);
+  for (const m of meshes) for (let i = 0; i < m.count; i++) {
+    const x = new THREE.Matrix4().fromArray(m.instanceMatrix.array, i * 16).elements[12];
+    expect(x).toBeGreaterThan(24);
   }
   field.dispose();
 });

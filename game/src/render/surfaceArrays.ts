@@ -15,6 +15,8 @@ import { boundsSteps } from './geometryBounds';
 const GRAIN: Record<string, number> = { asphalt: 4, granite: 2.5, cobblestone: 2 };
 const WET_STANDARD = /(?:concrete|stone|brick|road_paint|fieldstone)/;
 export const SURFACE_LAYER = '_surface_layer';
+/** A merged ground draw's source: its material key and index range (`userData.surfaceKeys`). */
+export interface SurfaceRange { key: string; start: number; count: number }
 const MAX_LAYERS = 64;
 /** Room for the coarse library's surfaces without growth rebuilds (a layer is ~1.8 MB: 1024² albedo, 512² normal, 256² ORM). */
 const MIN_CAPACITY = 16;
@@ -224,7 +226,7 @@ const SCAN_SLICE = 64;
 export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, kindOf: (mesh: THREE.Mesh) => { kind: string; key: string } | null) {
   const merged: { mesh: THREE.Mesh; sources: THREE.Mesh[]; parent: THREE.Object3D }[] = [];
   function* steps(): Generator<void> {
-    const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number }[] }>();
+    const groups = new Map<string, { parent: THREE.Object3D; wet: boolean; sources: { mesh: THREE.Mesh; layer: number; key: string }[] }>();
     model.updateWorldMatrix(true, true);
     // The scan yields too (every SCAN_SLICE meshes): a whole tile's ground in one step took ~16 ms per tile on the
     // Windows laptop while driving (frame-mp win-drive-1, 105 long frames).
@@ -251,7 +253,7 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       const group = `${mesh.parent.uuid}:${slice.wet}`;
       let entry = groups.get(group);
       if (!entry) groups.set(group, entry = { parent: mesh.parent, wet: slice.wet, sources: [] });
-      entry.sources.push({ mesh, layer });
+      entry.sources.push({ mesh, layer, key: style.key });
     }
     for (const { parent, wet, sources } of groups.values()) {
       if (sources.length < 2) continue;
@@ -267,8 +269,11 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       const layers = new Float32Array(vertices);
       const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
       const rows: Record<string, unknown>[] = [];
+      // Each source's material key and index range: the grass field grows lawns and forest-floor plants on the
+      // merged draw's grass and floor ranges (world/nature/grass.ts).
+      const keys: SurfaceRange[] = [];
       let vertex = 0, offset = 0;
-      for (const { mesh, layer } of sources) {
+      for (const { mesh, layer, key } of sources) {
         const g = mesh.geometry, count = g.attributes.position.count, identity = mesh.matrix.equals(new THREE.Matrix4());
         normalMatrix.getNormalMatrix(mesh.matrix);
         for (const name of ATTRIBUTES) {
@@ -283,6 +288,7 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
         for (let i = 0; i < source.count; i++) index[offset + i] = source.getX(i) + vertex;
         for (const row of (mesh.userData.objects as Record<string, number>[] | undefined) ?? [{ ...mesh.userData, start: 0, count: source.count }])
           rows.push({ ...row, start: (row.start as number) + offset });
+        keys.push({ key, start: offset, count: source.count });
         vertex += count; offset += source.count;
         yield;
       }
@@ -291,7 +297,7 @@ export function mergeSurfaceSteps(model: THREE.Object3D, arrays: SurfaceArrays, 
       yield* boundsSteps(geometry);
       const mesh = new THREE.Mesh(geometry, arrays.surfaceMaterial(wet));
       mesh.name = wet ? 'surface-array' : 'surface-array-dry';
-      mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length };
+      mesh.userData = { layer: 'ground', objects: rows, surfaceLayers: sources.length, surfaceKeys: keys };
       mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = true;
       mesh.layers.mask = sources[0].mesh.layers.mask; mesh.renderOrder = sources[0].mesh.renderOrder;
       for (const { mesh: source } of sources) source.removeFromParent();

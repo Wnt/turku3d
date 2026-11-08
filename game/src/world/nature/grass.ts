@@ -8,6 +8,7 @@ import { BAKED_AMBIENT_STRENGTH } from '../../render/bakedVisibility';
 import type { QualityTier } from '../../render/quality';
 import { QUALITY } from '../../render/quality';
 import { materialKey, surfaceStyle } from '../../render/materials';
+import type { SurfaceRange } from '../../render/surfaceArrays';
 import type { NatureLibrary } from './library';
 import { tuftGeometry } from './grassBlades';
 import { deadwoodGeometry, dwarfShrubGeometry, fernGeometry, herbGeometry } from './groundcover';
@@ -132,28 +133,36 @@ export class GrassField {
     const tile: TileGrass = { key: '', cells: new Map() };
     this.tiles.set(model, tile);
     model.updateWorldMatrix(true, true);
-    const meshes: { mesh: THREE.Mesh; meadow: boolean; floor: Floor | null }[] = [];
+    const meshes: { mesh: THREE.Mesh; meadow: boolean; floor: Floor | null; start: number; count: number }[] = [];
+    const take = (mesh: THREE.Mesh, key: string | null, start: number, count: number) => {
+      const floor = key?.match(FOREST)?.[1] as Floor | undefined;
+      if (floor) meshes.push({ mesh, meadow: false, floor, start, count });
+      else if (key && surfaceStyle(key) === 'grass') meshes.push({ mesh, meadow: MEADOW.test(key), floor: null, start, count });
+    };
     model.traverse(o => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)) return;
-      const key = materialKey(mesh, mesh.material);
-      const floor = key?.match(FOREST)?.[1] as Floor | undefined;
-      if (floor) meshes.push({ mesh, meadow: false, floor });
-      else if (key && surfaceStyle(key) === 'grass') meshes.push({ mesh, meadow: MEADOW.test(key), floor: null });
+      // A merged ground draw (render/surfaceArrays.ts) holds several surfaces: grow on its grass and floor ranges.
+      const ranges = mesh.userData.surfaceKeys as SurfaceRange[] | undefined;
+      if (ranges) { for (const { key, start, count } of ranges) take(mesh, key, start, count); return; }
+      const geometry = mesh.geometry;
+      take(mesh, materialKey(mesh, mesh.material), 0, geometry.index?.count ?? geometry.getAttribute('position')?.count ?? 0);
     });
     const origin = new THREE.Vector3().setFromMatrixPosition(model.matrixWorld);
     tile.key = `${origin.x},${origin.y},${origin.z}:${model.name}`;
     let seed = hashId(`${origin.x.toFixed(1)},${origin.z.toFixed(1)}`) || 1;
     const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
     const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), ab = new THREE.Vector3(), ac = new THREE.Vector3();
-    for (const { mesh, meadow, floor } of meshes) {
+    for (const { mesh, meadow, floor, start, count: vertices } of meshes) {
       const position = mesh.geometry.getAttribute('position'), index = mesh.geometry.index;
-      const baked = mesh.geometry.getAttribute('color_1') as THREE.BufferAttribute | undefined;
+      const color = mesh.geometry.getAttribute('color_1') as THREE.BufferAttribute | undefined;
+      // A committed tile's render-only arrays may already be released (world/releaseArrays.ts): no bake then.
+      const baked = color && color.array.length >= color.count * color.itemSize ? color : undefined;
       // bakedAmbientContext's factor: the darker of local and sky visibility, weighted by coverage.
       const occlusion = (i: number) => baked ? 1 + (Math.min(baked.getX(i), baked.getY(i)) - 1) * baked.getZ(i) * BAKED_AMBIENT_STRENGTH : 1;
-      const count = (index?.count ?? position.count) / 3;
-      for (let t = 0; t < count; t++) {
-        if (t % 2000 === 0) yield;
+      const first = Math.floor(start / 3), end = first + Math.floor(vertices / 3);
+      for (let t = first; t < end; t++) {
+        if ((t - first) % 2000 === 0) yield;
         const ia = index?.getX(t * 3) ?? t * 3, ib = index?.getX(t * 3 + 1) ?? t * 3 + 1, ic = index?.getX(t * 3 + 2) ?? t * 3 + 2;
         a.fromBufferAttribute(position, ia).applyMatrix4(mesh.matrixWorld);
         b.fromBufferAttribute(position, ib).applyMatrix4(mesh.matrixWorld);
