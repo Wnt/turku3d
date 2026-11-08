@@ -724,8 +724,6 @@ it('stretches a tree footprint to its lidar ellipse, preserving the area, before
 });
 
 describe('tree shadow casters', () => {
-  // A row of trees beside the road, from 40 m behind the camera to 40 m ahead; the camera looks down -z.
-  const row = () => tile(81, 'tree_detailed_fall', i => new THREE.Vector3(8, 0, 40 - i));
   const casting = (model: THREE.Object3D, mesh: THREE.Object3D) => generated(model, mesh)
     .filter(b => b.visible && b.userData.shadowProxy && base(b) === library.materials.leaves).reduce((n, b) => n + b.count, 0);
   const cascade = (center: THREE.Vector3, half: number) => {
