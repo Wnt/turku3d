@@ -9,7 +9,7 @@ import { ownedGeometryBytes } from './modelGeometry';
 import { recordFreshness } from './coarseFreshness';
 import { acceptsVisualPass, VisualPassComparison } from './visualPass';
 import { ScreenshotScenery } from './screenshotScenery';
-import { TILE_DETAIL } from './sceneryView';
+import { TILE_DETAIL, sceneryDistance } from './sceneryView';
 import { splitCollisionBundle } from './collisionBundle';
 import { statusBadges } from '../ui/statusBadges';
 import { textureUploaded, textureUploads } from '../render/textureUploads';
@@ -281,7 +281,7 @@ export class CoarseTiles {
       model => tintDraft(model, this.host.renderer, this.materials), model => this.dispose(model, 'comparison'), this.root, this.page, (id, fragment) => this.loadFragment(id, fragment));
     // Optional distant derivatives must not put collision/nearby streaming into outage backoff.
     this.screenshotScenery = new ScreenshotScenery(host, this.entries,
-      url => this.fetch(new URL(url, this.page).href, { signal: AbortSignal.timeout(30_000) }), url => this.load(url),
+      url => this.fetch(new URL(url, this.page).href, { signal: AbortSignal.timeout(30_000) }), (url, id) => this.load(url, () => this.sceneryRank(id)),
       model => tintDraft(model, this.host.renderer, this.materials), (model, id) => this.dispose(model, id), this.root, this.page, this.materials);
     const parent = host.badgeParent ?? (typeof document === 'undefined' ? null : document.body);
     if (parent) this.badge = statusBadges(parent).appendChild(Object.assign(document.createElement('div'), { className: 'draft-tile-badge' }));
@@ -332,6 +332,12 @@ export class CoarseTiles {
     const distance = distToL0(id, x, z);
     if (distance === 0) return 0;
     return Math.min(arrivalToL0(id, x, z, vx, vz), distance / Math.max(Math.hypot(vx, vz), PREPARE_RANK_SPEED));
+  }
+  /** A scenery cell's parse rank (loadGlb): seconds to reach it at the current speed, like a tile's arrival rank. With
+   *  no rank its GLB waited behind every tile parse, and cells 500-1000 m out drew nothing for seconds. */
+  private sceneryRank(id: string) {
+    if (!Number.isFinite(this.at.x)) return Infinity;
+    return sceneryDistance(id, this.at.x, this.at.z) / Math.max(Math.hypot(this.velocity.x, this.velocity.z), PREPARE_RANK_SPEED);
   }
   /** The graphics queue order of a tile's preparation: the tile reached first goes first, and a job whose install is
    *  over (`live` false: the tile unloaded, replaced, or its install given up) is dropped without running. */

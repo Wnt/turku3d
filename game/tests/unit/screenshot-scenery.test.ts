@@ -156,7 +156,7 @@ test('large views use derivative sources without requesting source regeneration'
   expect(scenery.demand()).toEqual([]);
   expect(scenery.progress.loaded).toBe(1);
   expect(request.mock.calls.every(([url]) => url.includes('/scenery'))).toBe(true);
-  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/lod.test.glb');
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/lod.test.glb', expect.any(String));
   expect(host.checkCollision).not.toHaveBeenCalled();
   scenery.update(5000, 1000, 40000); await settle();
   expect(load).toHaveBeenCalledTimes(1);
@@ -239,7 +239,7 @@ test('a ready skyline retry completes before hundreds of untouched scenery tiles
   expect(attempts.size).toBe(8); // Other scenery advances while the skyline retry is cooling down.
   scenery.update(3751.26, 430.05, 2000); await settle();
   expect(attempts.get(chimney)).toBe(2);
-  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/chimney.glb');
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/chimney.glb', expect.any(String));
   expect(scenery.progress.loaded).toBe(1);
 });
 
@@ -264,7 +264,7 @@ test('coarse city survives turns and is released after leaving its area', async 
   scenery.setView({ ...view, dx: 1 }, 1200);
   await settle(); scenery.update(view.x, view.z, 1216); await settle();
   expect(scenery.heading).toBe(90); expect(scenery.progress.loaded).toBe(2);
-  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/t2_7_0.glb');
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/t2_7_0.glb', expect.any(String));
   expect(scene.children).toContain(original);
   const catalogues = request.mock.calls.filter(([url]) => url.includes('/scenery?')).length;
   scenery.setView(view, 1500); scenery.update(view.x, view.z, 1500); await settle();
@@ -308,7 +308,7 @@ test('a turn during catalogue loading cannot restore the old sector', async () =
   scenery.update(view.x, view.z, 1016); await settle();
   expect(scenery.heading).toBe(90);
   expect(load).toHaveBeenCalledTimes(1);
-  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/east.glb');
+  expect(load).toHaveBeenCalledWith('http://localhost/coarse/scenery/east.glb', expect.any(String));
 });
 
 // A mobile collision preview does not cover the simplified building/terrain silhouette.

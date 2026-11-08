@@ -229,7 +229,7 @@ export class ScreenshotScenery {
   private generation?: string;
   get heading() { return this.view ? (Math.atan2(this.view.dx, -this.view.dz) * 180 / Math.PI + 360) % 360 : null; }
   constructor(private host: CoarseHost, private nearby: Map<string, Entry>,
-    private request: (url: string) => Promise<Response>, private load: (url: string) => Promise<THREE.Object3D>,
+    private request: (url: string) => Promise<Response>, private load: (url: string, id: string) => Promise<THREE.Object3D>,
     private style: (model: THREE.Object3D) => void, private dispose: (model: THREE.Object3D, id: string) => void,
     private root: string, private page: string, private shared?: SharedMaterials) {
     this.batches = new SceneryBatches(host.scene, host.retire, host.prepareGraphics);
@@ -526,7 +526,7 @@ export class ScreenshotScenery {
         return;
       }
       const glb = streamTrace.begin('cell.glb', id, { bytes: visual.bytes, tris: visual.tris });
-      model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href);
+      model = await this.load(new URL(visual.url, new URL(`${this.root}${id}/`, this.page)).href, id);
       glb();
       if (source) {
         model.userData.scenery = true;

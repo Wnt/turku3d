@@ -40,7 +40,7 @@ test('generation refresh replaces a completed source and preserves the old model
   f.state.generation = 'two'; f.state.key = 'new';
   f.scenery.update(0, 0, 60002); await settle(); expect(old.parent).toBe(f.scene);
   f.scenery.update(0, 0, 60018); await settle();
-  expect(f.load).toHaveBeenCalledWith('http://test/coarse/scenery/new.glb');
+  expect(f.load).toHaveBeenCalledWith('http://test/coarse/scenery/new.glb', expect.any(String));
   expect(old.parent).toBeNull(); expect(f.scenery.progress.loaded).toBe(1);
 });
 test('late old-generation geometry cannot overwrite the refreshed source', async () => {
@@ -53,7 +53,7 @@ test('late old-generation geometry cannot overwrite the refreshed source', async
   const stale = new THREE.Group(); release(stale); await settle();
   expect(stale.parent).toBeNull(); expect(f.dispose).toHaveBeenCalledWith(stale, f.state.tile);
   f.scenery.update(0, 0, 60018); await settle();
-  expect(f.load).toHaveBeenLastCalledWith('http://test/coarse/scenery/new.glb');
+  expect(f.load).toHaveBeenLastCalledWith('http://test/coarse/scenery/new.glb', expect.any(String));
   expect(f.scenery.progress.loaded).toBe(1);
 });
 
