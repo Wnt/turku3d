@@ -79,6 +79,7 @@ PRODUCERS = (
     "portals",
     "road_top",
     "forests",
+    "forest_floor",
     "forest_paths",
     "visibility",
     "canopy_trees",

@@ -36,6 +36,21 @@
       0.424,
       0.382
     ],
+    "forest_floor_broadleaf": [
+      0.102,
+      0.069,
+      0.03
+    ],
+    "forest_floor_conifer": [
+      0.1,
+      0.072,
+      0.029
+    ],
+    "forest_floor_moss": [
+      0.06,
+      0.095,
+      0.019
+    ],
     "grass": [
       0.107,
       0.17,

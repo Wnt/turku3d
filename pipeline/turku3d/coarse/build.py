@@ -718,7 +718,13 @@ def build(
     cover = surfaces.cover_regions(tile, inputs.ortho, natural_area) if inputs.ortho is not None else []
     # Precedence, last wins: ortho cover, yard lawns, OSM areas and ways, the OSM surface tag's
     # unit paving, then the street register's surveyed parts and their finishes.
-    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *forest_paths, *osm_finishes]
+    # Litter, needle duff and moss replace the woodland's lawn under closed canopy; paths and finishes still win.
+    from . import forest_floor
+
+    mapped = [g for g, m in inputs.surfaces if m != mat_id("grass")]
+    floors = forest_floor.regions(tile, inputs.forests, inputs.vegetation_canopy, GridHeight(tile, grid_pos), trees,
+                                  inputs.water, shapely.union_all([natural_area, *mapped]))
+    visual_regions = [*cover, *lawn_regions, *inputs.surfaces, *floors, *forest_paths, *osm_finishes]
     surface_args = (
         dry.positions,
         dry.indices,

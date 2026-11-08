@@ -12,9 +12,15 @@ TRACK = 131
 PITCH_LIGHT = 132
 PITCH_DARK = 133
 CONCRETE_PAVERS = 134
+# Forest floors under closed canopy (turku3d.coarse.forest_floor): leaf litter, needle duff and moss. Collision keeps
+# the physical ground class.
+FOREST_BROADLEAF = 135
+FOREST_CONIFER = 136
+FOREST_MOSS = 137
 FINISH_KEYS = {FIELDSTONE: "fieldstone", RED_ASPHALT: "asphalt_red", BRICK: "brick_paving",
                TRACK: "track_rubber", PITCH_LIGHT: "pitch_grass_light", PITCH_DARK: "pitch_grass_dark",
-               CONCRETE_PAVERS: "concrete_pavers"}
+               CONCRETE_PAVERS: "concrete_pavers", FOREST_BROADLEAF: "forest_floor_broadleaf",
+               FOREST_CONIFER: "forest_floor_conifer", FOREST_MOSS: "forest_floor_moss"}
 # OSM surface=* values that name a unit paving finish (used where the register says nothing).
 OSM_FINISHES = {"brick": BRICK, "bricks": BRICK, "paving_stones": CONCRETE_PAVERS}
 
