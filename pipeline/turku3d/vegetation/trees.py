@@ -134,6 +134,85 @@ def reduced_points(path):
         return a["ground"], a["canopy"]
 
 
+LEAF_CELL = 2.0  # m
+
+
+LEAF_BIN = 0.5  # m of height per profile bin
+
+
+def _summed(keys, values):
+    """Unique rows of ``keys`` with the matching rows of ``values`` summed."""
+    unique, inverse = np.unique(keys, axis=0, return_inverse=True)
+    inverse = inverse.ravel()
+    return unique, np.column_stack([np.bincount(inverse, v, len(unique)) for v in values.T])
+
+
+def leaf_cells(path):
+    """One LAZ file's high vegetation per LEAF_CELL m cell, cached by the file's content: rows of cell centre x, z,
+    first-return pulses of class 5, their mean intensity, and the 10th and 98th percentile height (engine y, to
+    LEAF_BIN) of all class 3-5 returns (nan under three returns). Needles and leaves return the pulse differently,
+    and a spruce's crown reaches the ground where a pine's stands high (canopy_trees.leaf_type_at)."""
+    from turku3d.lidar.decoded import chunks as decoded_chunks
+    from turku3d.tile_layer import identities
+
+    identity = identities({"laz": path})["laz"]
+    key = hashlib.sha256(repr((identity, C.ORIGIN, LEAF_CELL, LEAF_BIN, "leaf-v2")).encode()).hexdigest()
+    dest = C.cache_dir("vegetation") / (key + ".npz")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest.with_suffix(".lock"), "a") as lock:
+        profiling.flock(lock, fcntl.LOCK_EX, "vegetation")
+        if not dest.exists():
+            # Reduced per chunk: (cell, height bin) return counts and per-cell first-return sums, never the points.
+            bins, leaves = [], []
+            for p in decoded_chunks(path):
+                cls = np.asarray(p.classification)
+                keep = (cls >= 3) & (cls <= 5)
+                if not keep.any():
+                    continue
+                x, y, z = C.en_to_local(np.asarray(p.x)[keep], np.asarray(p.y)[keep], np.asarray(p.z)[keep])
+                cell = np.floor(np.column_stack((x / LEAF_CELL, z / LEAF_CELL))).astype(np.int64)
+                level = np.floor(y / LEAF_BIN).astype(np.int64)[:, None]
+                bins.append(_summed(np.hstack((cell, level)), np.ones((len(x), 1))))
+                leaf = (cls[keep] == 5) & (np.asarray(p.return_number)[keep] == 1)
+                if leaf.any():
+                    intensity = np.asarray(p.intensity)[keep][leaf].astype(float)
+                    leaves.append(_summed(cell[leaf], np.column_stack((np.ones(len(intensity)), intensity))))
+            rows = np.empty((0, 6))
+            if bins:
+                keys, counts = _summed(np.concatenate([k for k, _ in bins]), np.concatenate([c for _, c in bins]))
+                # np.unique sorts by cell then height bin: cumulative counts give each cell's percentiles.
+                start = np.r_[0, np.flatnonzero(np.any(keys[1:, :2] != keys[:-1, :2], axis=1)) + 1]
+                cell = np.repeat(np.arange(len(start)), np.diff(np.r_[start, len(keys)]))
+                counts = counts[:, 0]
+                total = np.bincount(cell, counts, len(start))
+                before = np.cumsum(counts) - counts - (np.cumsum(total) - total)[cell]  # returns below each bin
+
+                def percentile(q):
+                    reached = before + counts >= q * total[cell]  # bins holding or above the q-th return
+                    index = np.full(len(start), len(keys) - 1)
+                    np.minimum.at(index, cell[reached], np.flatnonzero(reached))
+                    return (keys[index, 2] + .5) * LEAF_BIN
+
+                profile = total >= 3
+                low = np.where(profile, percentile(.1), np.nan)
+                top = np.where(profile, percentile(.98), np.nan)
+                pulses = np.zeros(len(start))
+                intensity = np.zeros(len(start))
+                if leaves:
+                    leaf_keys, sums = _summed(np.concatenate([k for k, _ in leaves]),
+                                              np.concatenate([c for _, c in leaves]))
+                    # Every leaf cell holds class-5 returns, so it is one of the profile cells (both sorted).
+                    at = np.searchsorted(keys[start, 0] * 2**32 + keys[start, 1], leaf_keys[:, 0] * 2**32 + leaf_keys[:, 1])
+                    pulses[at] = sums[:, 0]
+                    intensity[at] = sums[:, 1] / sums[:, 0]
+                rows = np.column_stack(((keys[start, :2] + .5) * LEAF_CELL, pulses, intensity, low, top))
+            temporary = dest.with_suffix(".tmp.npz")
+            np.savez_compressed(temporary, cells=rows)
+            temporary.replace(dest)
+    with np.load(dest) as a:
+        return a["cells"]
+
+
 def _cells(points):
     return np.floor(points[:, [0, 2]] / CELL).astype(np.int64)
 

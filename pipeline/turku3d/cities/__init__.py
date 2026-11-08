@@ -55,6 +55,10 @@ class City:
     wfs_absent: dict[str, str] = field(default_factory=dict)  # internal -> why it is empty
     wfs_derived: dict[str, str] = field(default_factory=dict)  # internal -> adapter name
     pointcloud: str | None = None  # classified cloud adapter when the city has no pistepilvi ("mml-0.5p")
+    # Mean intensity of first returns from high vegetation (class 5) above which a lidar crown is a conifer: in a
+    # leaf-on scan needles return far more of the pulse than broadleaf foliage. Calibrated per survey on the city's
+    # tree register; None: lidar crowns take no leaf type (canopy_trees.leaf_type_at).
+    conifer_intensity: float | None = None
     water_level: float = 0.0  # m in the city's height datum: open sea/river surface (N2000 0 m in Finland)
     datasets: tuple[dict, ...] = ()  # sources manifest rows (licence, date) of a non-default city
     # Appended for the Dutch cities (turku3d.nl); defaults keep the Finnish profiles unchanged.
@@ -85,6 +89,10 @@ TURKU = City(
     ortho_slug="ortho2022to",
     ground="city-laz",
     laz_url="https://turku.asiointi.fi/3d/{dataset}/{name}.laz",
+    # Calibrated on 874 register trees in t0_2_4, t0_7_8 and t0_-10_-8 (first-return class-5 intensity within
+    # 2.5 m: broadleaf median about 25 000, conifer about 41 000) and checked on 524 more in t0_4_2, t0_19_1 and
+    # t0_-7_-12: 90.8 % of all 1398 right (89.1 % of the held-out ones), precision 96 %, recall 84 %.
+    conifer_intensity=31000.0,
     laz_index="laz-tiles.csv",
 )
 

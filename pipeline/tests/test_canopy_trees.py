@@ -1,9 +1,9 @@
 """Measured courtyard crowns, inventory priority and geometry clearances."""
 import numpy as np
+import pytest
 import shapely
-
-from turku3d.config import VisualTile
 from turku3d.coarse.canopy_trees import inventory
+from turku3d.config import VisualTile
 from turku3d.vegetation.trees import Tree
 
 
@@ -94,6 +94,7 @@ def test_measured_register_crown_rechecks_visible_trunk_clearance():
 
 def test_canopy_algorithm_changes_invalidate_visual_and_collision_generations(monkeypatch):
     from pathlib import Path
+
     from turku3d.coarse import canopy_trees, collision_key, packaging
 
     path = Path(canopy_trees.__file__)
@@ -127,3 +128,36 @@ def test_a_tall_thin_column_is_not_a_lidar_tree():
     crown = crowns((60, 60, 12, 3))
     assert inventory(VisualTile(0, 0, 0), crown, [], lambda x, z: 0,
                      shapely.GeometryCollection(), shapely.GeometryCollection())
+
+
+def test_leaf_cells_reduce_each_cell_to_pulses_intensity_and_its_height_profile(tmp_path, monkeypatch):
+    """The per-LAZ leaf reduction (chunk by chunk, never all points at once) against a direct computation."""
+    import types
+
+    from turku3d import config as C
+    from turku3d.vegetation import trees
+
+    monkeypatch.setenv("TURKU3D_SHARED_CACHE", str(tmp_path))
+    rng = np.random.default_rng(1)
+    n = 60000
+    e, north, h = C.ORIGIN_E + rng.uniform(0, 30, n), C.ORIGIN_N - rng.uniform(0, 30, n), C.ORIGIN_H + rng.uniform(0, 25, n)
+    cls, rn, it = rng.choice([2, 3, 4, 5, 6], n), rng.choice([1, 2, 3], n), rng.integers(1000, 60000, n)
+
+    def part(s):
+        return types.SimpleNamespace(x=e[s], y=north[s], z=h[s], classification=cls[s], return_number=rn[s], intensity=it[s])
+
+    monkeypatch.setattr("turku3d.lidar.decoded.chunks", lambda path: [part(slice(0, n // 3)), part(slice(n // 3, n))])
+    monkeypatch.setattr("turku3d.tile_layer.identities", lambda paths: {"laz": "synthetic"})
+    rows = trees.leaf_cells("synthetic.laz")
+    x, y, z = C.en_to_local(e, north, h)
+    veg = (cls >= 3) & (cls <= 5)
+    cell = np.floor(np.column_stack((x, z)) / trees.LEAF_CELL)
+    assert len(rows) == len({tuple(c) for c in cell[veg]})
+    for row in rows[::23]:
+        inside = veg & np.all(cell == np.floor(row[:2] / trees.LEAF_CELL), axis=1)
+        leaf = inside & (cls == 5) & (rn == 1)
+        heights = np.sort(y[inside])
+        low, top = (heights[int(np.ceil(q * len(heights))) - 1] for q in (.1, .98))
+        assert row[2] == leaf.sum() and row[3] == pytest.approx(it[leaf].mean())
+        bins = (np.floor(np.array([low, top]) / trees.LEAF_BIN) + .5) * trees.LEAF_BIN
+        assert row[4:6] == pytest.approx(bins)

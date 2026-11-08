@@ -5,8 +5,9 @@ City-wide rules, all from data:
 - closed canopy: at least COVER of the ground within RADIUS m lies under lidar canopy over CANOPY_MIN m (class-5
   returns, the same crop the sky bake reads, so both sides of a tile border decide alike);
 - moss where the ground is wet: within SHORE m of water, or a terrain hollow HOLLOW m below its surroundings;
-- otherwise needle duff where the woodland is tagged ``leaf_type=needleleaved`` or most trees within RADIUS are
-  conifers, leaf litter where it is tagged ``broadleaved`` or most trees are broadleaf.
+- otherwise needle duff where most trees within RADIUS are conifers, leaf litter where most are broadleaf (the
+  trees' leaf type is the register's species or the lidar's measured foliage, ``canopy_trees.leaf_type_at``); with
+  no tree within RADIUS the woodland's ``leaf_type`` tag decides.
 Open woodland (glades, sparse pine on rock, lawns under single park crowns) keeps its grass; mapped paths, paving,
 rock and the terrain stage's natural ground keep their own surfaces. Collision keeps the physical ground class:
 the floors are visual finishes (``street_materials``).
@@ -83,7 +84,7 @@ def regions(tile, forests, canopy, height_at, trees, water, excluded=None):
     closed = _share(canopy_cells, disk) >= COVER
     if not closed.any():
         return []
-    # Species: OSM leaf_type where tagged, else the trees placed around the cell.
+    # Species: the trees placed around the cell, else the woodland's OSM leaf_type.
     xy = np.array([(t.x, t.z) for t in trees]).reshape(-1, 2)
     conifer_tree = np.array([t.variant in CONIFERS for t in trees], bool)
     total = _share(raster(xy[:, 0], xy[:, 1]), disk)
@@ -91,7 +92,7 @@ def regions(tile, forests, canopy, height_at, trees, water, excluded=None):
     needles = conifer >= .5
     for geom, leaf in woods:
         if leaf in ("needleleaved", "broadleaved"):
-            inside = shapely.contains_xy(geom, gx, gz)
+            inside = shapely.contains_xy(geom, gx, gz) & (total <= 0)
             needles[inside] = leaf == "needleleaved"
     wet = ground - gaussian_filter(ground, 7.5 / CELL, mode="nearest") < -HOLLOW
     shores = [w for w in water if not w.is_empty]

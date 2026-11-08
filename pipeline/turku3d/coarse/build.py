@@ -440,6 +440,8 @@ def build(
             inputs.markings,
         ),
     )
+    from turku3d.cities import current as current_city
+
     from .forest_paths import path_surfaces
     from .forests import BUSH_CAP, TREE_CAP, produce, trunks
 
@@ -473,6 +475,8 @@ def build(
                 inputs.roads,
                 inputs.canopy,
                 inputs.vegetation_canopy,
+                inputs.vegetation_leaves,
+                current_city().conifer_intensity,
                 inputs.forests,
                 inputs.vegetation_paths,
                 inputs.vegetation_roads,

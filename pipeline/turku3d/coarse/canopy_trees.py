@@ -57,6 +57,64 @@ def canopy_points(tile, paths):
     return np.concatenate(parts) if parts else np.empty((0, 3))
 
 
+LEAF_RADIUS = 2.5  # m around a trunk whose returns tell needles from leaves and a spruce from a pine
+# A spruce's crown reaches the ground, a pine's stands high: within LEAF_RADIUS the median of the cells' lowest tenth
+# of class 3-5 returns lies below this share of the crown's height for a spruce (652 register conifers in six tiles,
+# 82.5 % right against 63 % for calling every one a pine; 72 % on the three tiles not used to pick it).
+SPRUCE_LOW = 0.3
+# The species names (register vocabulary) a measured conifer gets: trees.variant and the client map them to pine or
+# spruce prototypes.
+CONIFERS = {"pine": "mänty", "spruce": "kuusi"}
+
+
+def leaf_points(tile, paths):
+    """The leaf cells (``trees.leaf_cells``: x, z, pulses, mean intensity, low and top height) of the tile and
+    LEAF_RADIUS around it."""
+    from turku3d.vegetation.trees import leaf_cells
+
+    bounds = tile.bbox.buffered(LEAF_RADIUS + 2)
+    parts = []
+    for path in paths:
+        cells = leaf_cells(path)
+        keep = ((cells[:, 0] >= bounds.xmin) & (cells[:, 0] < bounds.xmax)
+                & (cells[:, 1] >= bounds.zmin) & (cells[:, 1] < bounds.zmax))
+        parts.append(cells[keep])
+    return np.concatenate(parts) if parts else np.empty((0, 6))
+
+
+def leaf_type_at(leaves, height_at, threshold=None):
+    """``f(x, z)``: "broadleaf", "pine", "spruce", or None without measured foliage within LEAF_RADIUS. A leaf-on scan
+    returns far more of the pulse from needles than from broadleaf foliage: over the survey's ``conifer_intensity``
+    (city profile) the mean first-return intensity of high vegetation (class 5) around the trunk is a conifer's.
+    Without a calibrated survey nothing is classified. A conifer whose crown reaches the ground is a spruce
+    (SPRUCE_LOW), measured from the ground ``height_at`` the trunk."""
+    if threshold is None:
+        from turku3d.cities import current
+
+        threshold = current().conifer_intensity
+    leaves = np.asarray(leaves, float).reshape(-1, 6)
+    leaves = leaves[leaves[:, 2] > 0]
+    if threshold is None or not len(leaves):
+        return lambda x, z: None
+    index = cKDTree(leaves[:, :2])
+
+    def classify(x, z):
+        near = index.query_ball_point([x, z], LEAF_RADIUS)
+        if not near:
+            return None
+        cells = leaves[near]
+        if (cells[:, 3] * cells[:, 2]).sum() / cells[:, 2].sum() <= threshold:
+            return "broadleaf"
+        profile = cells[np.isfinite(cells[:, 4])]
+        ground = height_at(x, z)
+        height = profile[:, 5].max() - ground if len(profile) else 0.0
+        if len(profile) < 2 or height < 4:
+            return "pine"
+        return "spruce" if (np.median(profile[:, 4]) - ground) / height < SPRUCE_LOW else "pine"
+
+    return classify
+
+
 def cover(tile, canopy, height_at, cell=2.0, min_height=3.0):
     """Where the lidar measured canopy: class-5 returns above ``min_height`` per ``cell`` metres over the tile, grown by
     one cell. A vectorised ``keep(x, z) -> bool array`` for fills that must stay under measured trees (clearings, rock
@@ -93,10 +151,11 @@ def cover(tile, canopy, height_at, cell=2.0, min_height=3.0):
     return keep
 
 
-def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
+def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None, leaf_type=None):
     """Mapped trees plus separated crown maxima. ``walked``: what a real trunk (a register tree or a lidar
     crown) clears instead of ``paths``: carriageways and the walked lines of mapped paths (``forests.produce``);
-    the final trunk clearance (``vegetation.clearance``) places it against the drawn paving."""
+    the final trunk clearance (``vegetation.clearance``) places it against the drawn paving. ``leaf_type``
+    (``leaf_type_at``) gives lidar crowns their measured conifer species."""
     from .forests import clears_path
     from .tree_inputs import REGISTER_TREE
 
@@ -160,6 +219,8 @@ def inventory(tile, canopy, mapped, height_at, blocked, paths, walked=None):
             tree.support = len(crown)
             tree.measured = True
             tree.trunk_radius = float(np.clip(tree.height * 0.018, 0.09, 0.55))
+            if tree.source == "lidar" and leaf_type is not None:
+                tree.species = CONIFERS.get(leaf_type(tree.x, tree.z), tree.species)
             tree.variant = variant(tree.species, tree.height)
             if tree.source == "lidar" and tree.crown_radius < MIN_SPREAD * tree.height:
                 continue  # a mast, lamp column or monument: thin pulses split on it like on twigs

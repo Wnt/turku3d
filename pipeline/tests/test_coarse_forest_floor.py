@@ -54,8 +54,11 @@ def test_needles_follow_leaf_type_or_the_trees_and_wet_ground_is_moss():
     assert result[FOREST_CONIFER].contains(shapely.Point(200, 100))
     assert result[FOREST_BROADLEAF].contains(shapely.Point(60, 100))
     assert result[FOREST_MOSS].contains(shapely.Point(5, 230)) and not result[FOREST_MOSS].contains(shapely.Point(60, 100))
+    # The tag decides only where no tree stands within RADIUS: the trees' leaf type is measured.
     tagged = floors([("area:0", wood, "forest", "needleleaved")], points, oaks)
-    assert set(tagged) == {FOREST_CONIFER}
+    assert tagged[FOREST_BROADLEAF].contains(shapely.Point(60, 100))
+    assert tagged[FOREST_CONIFER].contains(shapely.Point(200, 100))
+    assert set(floors([("area:0", wood, "forest", "needleleaved")], points)) == {FOREST_CONIFER}
     # A hollow 1.5 m below its surroundings collects water: moss.
     bowl = SimpleNamespace(many=lambda x, z: -1.5 * np.exp(-((np.asarray(x) - 125) ** 2 + (np.asarray(z) - 125) ** 2) / 200))
     wet = dict((m, g) for g, m in F.regions(TILE, [("area:0", wood, "forest", "")], points, bowl, oaks, []))

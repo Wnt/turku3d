@@ -804,3 +804,52 @@ def test_recreation_park_keeps_mapped_forest_and_canopy_outside_pitches(tmp_path
         if len(canopy):
             assert any(t.measured and t.x == 50 and t.z == 50 for t in trees)
 
+
+
+def test_lidar_crowns_and_the_fill_around_them_take_the_measured_leaf_type(tmp_path, monkeypatch):
+    """Leaf-on lidar: needles return more of the pulse than broadleaf foliage (cities.City.conifer_intensity), and a
+    spruce's crown reaches the ground where a pine's stands high (canopy_trees.SPRUCE_LOW)."""
+    from dataclasses import replace
+
+    import producer_world as world
+    from turku3d.cities import current
+    from turku3d.coarse.canopy_trees import LEAF_RADIUS, leaf_type_at
+    from turku3d.coarse.forests import produce, read_areas
+    from turku3d.coarse.inputs import Inputs
+    from turku3d.vegetation.trees import VARIANTS
+
+    threshold = current().conifer_intensity
+    assert threshold is not None
+
+    def leaves(x0, x1, intensity, low, top=15.0):
+        x, z = np.meshgrid(np.arange(x0 + 1, x1, 2.0), np.arange(1, 250, 2.0))
+        n = x.size
+        return np.column_stack([x.ravel(), z.ravel(), np.full(n, 9.0), np.full(n, intensity), np.full(n, low), np.full(n, top)])
+
+    # Pines (crowns high on the stem) in the west, spruces (crowns to the ground) in the middle, broadleaf in the east.
+    cells = np.concatenate([leaves(0, 70, threshold * 1.3, 9.0), leaves(70, 120, threshold * 1.3, 1.5),
+                            leaves(130, 250, threshold * 0.8, 6.0)])
+    at = leaf_type_at(cells, lambda x, z: 0.0)
+    assert (at(40, 100), at(95, 100), at(200, 100)) == ("pine", "spruce", "broadleaf")
+    assert at(125 + LEAF_RADIUS + 2, -50) is None  # no measured foliage
+    monkeypatch.setenv("TURKU3D_DATA", str(tmp_path))
+    tile = C.VisualTile(0, 0, 0)
+    areas = read_areas(tile, world.write_osm([({"natural": "wood", "leaf_type": "broadleaved"}, shapely.box(0, 0, 250, 250))]))
+    empty = Inputs(np.empty((0, 3)), np.empty((0, 0)), np.empty((0, 0, 3)), [], [], [], None, {}, {})
+    canopy = np.concatenate([crown(40, 100), crown(95, 100), crown(200, 100), crown(40, 180, height=15),
+                             crown(200, 180, height=15)])
+    data = replace(empty, forests=areas, vegetation_canopy=canopy, vegetation_leaves=cells)
+    trees, _ = produce(tile, data, lambda x, z: 0.0, [])
+    measured = {(round(t.x), round(t.z)): t for t in trees if t.measured}
+    assert [measured[k].species for k in ((40, 100), (95, 100), (40, 180))] == ["mänty", "kuusi", "mänty"]
+    assert all(measured[k].variant == VARIANTS[3] for k in ((40, 100), (95, 100), (40, 180)))
+    assert VARIANTS[3] not in (measured[(200, 100)].variant, measured[(200, 180)].variant)
+    # The fill takes the measured type over the mapped one (the wood is tagged broadleaved).
+    fill = [t for t in trees if not t.measured]
+    assert fill and all((t.variant == VARIANTS[3]) == (t.x < 125) for t in fill)
+    assert {t.species for t in fill if t.x < 65} == {"mänty"} and {t.species for t in fill if 75 < t.x < 115} == {"kuusi"}
+    # Without leaf cells the mapped type decides, as before.
+    plain, _ = produce(tile, replace(data, vegetation_leaves=np.empty((0, 6))), lambda x, z: 0.0, [])
+    assert all(t.variant != VARIANTS[3] for t in plain)
+
+

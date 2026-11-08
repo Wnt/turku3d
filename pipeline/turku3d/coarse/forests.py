@@ -289,7 +289,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
     ][:TREE_CAP]
     # Ground key points usually contain no canopy. Use the full classified source,
     # reduced once per source hash and cached independently of the terrain material.
-    from .canopy_trees import cover, inventory
+    from .canopy_trees import CONIFERS, cover, inventory, leaf_type_at
 
     measured_canopy = getattr(inputs, "vegetation_canopy", ())
     measured_blocked = shapely.union_all([
@@ -297,7 +297,9 @@ def produce(tile, inputs, height_at, mapped, carried=None):
         # Only a playing surface: crowns measured over a sports centre's or ski hill's woods are its trees.
         *(g for _, g, kind, _ in inputs.forests if kind == "open"),
     ])
-    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked)[:TREE_CAP]
+    # Leaf type from the lidar: measured crowns, and the fill around them (canopy_trees.leaf_type_at).
+    leaf_type = leaf_type_at(getattr(inputs, "vegetation_leaves", ()), height_at)
+    trees = inventory(tile, measured_canopy, trees, height_at, measured_blocked, paths, walked, leaf_type)[:TREE_CAP]
     # With measured canopy in the tile, fills stand only under it: lidar clearings stay open.
     under_canopy = cover(tile, measured_canopy, height_at) if len(measured_canopy) else None
     bushes = []
@@ -352,7 +354,10 @@ def produce(tile, inputs, height_at, mapped, carried=None):
                 np.hypot(t.x - x, t.z - z) < SPACING for t in trees
             ):
                 continue
-            conifer = leaf == "needleleaved" or (leaf != "broadleaved" and rng.random() < 0.4)
+            # The measured foliage where there is any, else the mapped leaf type, else a 40 % pine mix.
+            measured_leaf = leaf_type(x, z)
+            conifer = measured_leaf in CONIFERS if measured_leaf is not None else (
+                leaf == "needleleaved" or (leaf != "broadleaved" and rng.random() < 0.4))
             t = Tree(
                 f"{identity}:{x:.2f}:{z:.2f}",
                 x,
@@ -364,6 +369,7 @@ def produce(tile, inputs, height_at, mapped, carried=None):
             )
             t.crown_radius = float(np.clip(height * 0.28, 1.2, 6))
             t.trunk_radius = float(np.clip(height * 0.018, 0.09, 0.55))
+            t.species = CONIFERS.get(measured_leaf, "")
             t.variant = VARIANTS[3] if conifer else variant("", height)
             if clears_path(t, paths):
                 trees.append(t)
