@@ -149,10 +149,17 @@ export async function arcRoom(pose: VehiclePose, steer: number, g: VehicleGeomet
     return room(rows.length);
   })();
   if (groundRoom <= 0) return 0;
-  const lines = arcRows(pose, steer, g, dir, Math.min(length, groundRoom + OBSTACLE_GAP_M), OBSTACLE_ROW_M, GUARD_M, true);
+  return Math.min(groundRoom, await obstacleRoom(pose, steer, g, ray, dir, groundRoom, ground, under.point.y));
+}
+
+/** Metres (0..length) before the car's outline along the arc meets something OBSTACLE_H above the ground
+ *  (`ground`: the bumper's ground every LEG_ROW_M, else `floor`), less OBSTACLE_GAP_M; see OBSTACLE_ROW_M. */
+async function obstacleRoom(pose: VehiclePose, steer: number, g: VehicleGeometry, ray: GroundRay, dir: 1 | -1,
+  length: number, ground: number[], floor: number): Promise<number> {
+  const lines = arcRows(pose, steer, g, dir, length + OBSTACLE_GAP_M, OBSTACLE_ROW_M, GUARD_M, true);
   const edges = await Promise.all(lines.map((line, i) => {
     const row = Math.min(ground.length - 1, Math.max(0, Math.ceil(i * OBSTACLE_ROW_M / LEG_ROW_M) - 1));
-    const y = (ground[row] ?? under.point.y) + OBSTACLE_H;
+    const y = (ground[row] ?? floor) + OBSTACLE_H;
     return Promise.all(line.outline.map((a, k) => {
       const b = line.outline[(k + 1) % 4], w = Math.hypot(b.x - a.x, b.z - a.z) || 1;
       return ray({ x: a.x, y, z: a.z }, { x: (b.x - a.x) / w, y: 0, z: (b.z - a.z) / w }, w);
@@ -160,7 +167,7 @@ export async function arcRoom(pose: VehiclePose, steer: number, g: VehicleGeomet
   }));
   const start = edges[0] ?? [];
   const first = edges.findIndex((hits, i) => i > 0 && hits.some((hit, k) => hit !== null && start[k] === null));
-  return first < 0 ? groundRoom : Math.min(groundRoom, Math.max(0, first * OBSTACLE_ROW_M - OBSTACLE_GAP_M));
+  return first < 0 ? length : Math.max(0, first * OBSTACLE_ROW_M - OBSTACLE_GAP_M);
 }
 
 /** Ground ahead of the bumper (m) the edge watch keeps: less than a turn leg's GUARD_M, since pursuit turns at canal
@@ -169,7 +176,9 @@ const EDGE_GUARD_M = 0.4;
 
 /** Metres (0..length) pursuit may drive along `steer` before the front bumper or the ground just ahead of it meets an
  *  edge: no ground, or a drop deeper than a kerb (follow.ts edge watch: a slow full-lock swing over a quay into a
- *  canal). Surfaces do not count here; the lanes chose them. */
+ *  canal), or the car's outline meets a wall, a railing or a post (obstacleRoom: Amsterdam Oudezijds Achterburgwal,
+ *  setting off from rest the swing toward the path ran a corner into a quay wall's post at 4 m/s and wedged it).
+ *  Surfaces do not count here; the lanes chose them. */
 export async function edgeRoom(pose: VehiclePose, steer: number, g: VehicleGeometry, ray: GroundRay, length: number): Promise<number> {
   const down = { x: 0, y: -1, z: 0 };
   const under = await ray({ x: pose.x, y: pose.y + RAY_UP, z: pose.z }, down, RAY_DOWN + 2);
@@ -178,15 +187,21 @@ export async function edgeRoom(pose: VehiclePose, steer: number, g: VehicleGeome
   const cast = (p: { x: number; z: number }) => ray({ x: p.x, y: under.point.y + RAY_UP, z: p.z }, down, RAY_UP + RAY_DOWN);
   const hits = await Promise.all(rows.map(row => Promise.all([...row.bumper, ...row.guard].map(cast))));
   const last = [under.point.y, under.point.y, under.point.y];
-  for (let r = 0; r < hits.length; r++) {
-    for (let k = 0; k < 3; k++) {
-      const hit = hits[r][k];
-      if (!hit || hit.point.y < last[k] - REVERSE_STEP_M) return r * LEG_ROW_M;
-      // The top of a post or a wall is no new ground level: only the ground the car rolls on is followed.
-      if (hit.point.y <= last[k] + REVERSE_STEP_M) last[k] = hit.point.y;
+  const ground: number[] = [];
+  const groundRoom = (() => {
+    for (let r = 0; r < hits.length; r++) {
+      for (let k = 0; k < 3; k++) {
+        const hit = hits[r][k];
+        if (!hit || hit.point.y < last[k] - REVERSE_STEP_M) return r * LEG_ROW_M;
+        // The top of a post or a wall is no new ground level: only the ground the car rolls on is followed.
+        if (hit.point.y <= last[k] + REVERSE_STEP_M) last[k] = hit.point.y;
+      }
+      ground.push(Math.max(last[0], last[1], last[2]));
+      const floor = Math.min(last[0], last[1], last[2]) - REVERSE_STEP_M;
+      if (hits[r].slice(3).some(hit => !hit || hit.point.y < floor)) return r * LEG_ROW_M;
     }
-    const floor = Math.min(last[0], last[1], last[2]) - REVERSE_STEP_M;
-    if (hits[r].slice(3).some(hit => !hit || hit.point.y < floor)) return r * LEG_ROW_M;
-  }
-  return rows.length * LEG_ROW_M;
+    return rows.length * LEG_ROW_M;
+  })();
+  if (groundRoom <= 0) return 0;
+  return Math.min(groundRoom, await obstacleRoom(pose, steer, g, ray, 1, groundRoom, ground, under.point.y));
 }

@@ -446,8 +446,8 @@ describe('turn in the street on a carriageway', () => {
 });
 
 describe('reverse-out ground check', () => {
-  test('a turn leg stops short of a tree trunk that stands between its ground rays', async () => {
-    const { arcRoom } = await import('../../src/gameplay/autopilot/reverseCheck');
+  test('a turn leg, and the swing pursuit steers, stop short of a tree trunk that stands between the ground rays', async () => {
+    const { arcRoom, edgeRoom } = await import('../../src/gameplay/autopilot/reverseCheck');
     const g = vehicleGeometry('car');
     const pose = { x: 100, y: 1, z: 100, hx: 1, hz: 0, forwardSpeed: 0 };
     const front = pose.x + (g.back ?? g.rearOffset + 1);
@@ -482,6 +482,9 @@ describe('reverse-out ground check', () => {
     expect(await arcRoom(pose, 1, g, world(true), 1, 5)).toBeLessThan(1);
     // Turning away from it, the leg keeps its room.
     expect(await arcRoom(pose, -1, g, world(true), 1, 5)).toBeCloseTo(5, 5);
+    // The edge watch's check of pursuit's swing sees it too.
+    expect(await edgeRoom(pose, 1, g, world(false), 5)).toBeCloseTo(5, 5);
+    expect(await edgeRoom(pose, 1, g, world(true), 5)).toBeLessThan(1);
   });
 
   test('the checked arc is the one the car backs along, and a drop behind it blocks the reverse', async () => {
