@@ -128,3 +128,27 @@ test('a saturated cap re-ranks every 250 ms; an unsaturated one once per second'
   open.stream.update(0, 0, null, 1000); await settle();
   expect(open.physical()).toEqual(new Set(['a', 'b', 'c']));
 });
+
+test.each(tiers.filter(([, k]) => k >= 60))('%s: every car-show exhibit within 80 m has a body ahead of nearer street cars', async (_tier, k) => {
+  const show = cluster('x', 40, 0, 55).map(c => ({ ...c, object_id: `show:lot:${c.object_id}`, show: 'lot' }));
+  const street = cluster('s', 0, 0, 100), cars = [...street, ...show];
+  expect(show.every(c => Math.hypot(c.x, c.z) < 80)).toBe(true);
+  // Approach from the far side: street cars fill the cap first, then the lot comes into range.
+  const { physical, at } = world(cars, k);
+  await at(-90, 0);
+  expect(physical()).toEqual(nearest(cars, -90, 0, k));
+  await at(0, 0);
+  const bodies = physical(), kept = street.filter(c => bodies.has(c.object_id));
+  expect(show.every(c => bodies.has(c.object_id))).toBe(true);
+  // The remaining slots hold the nearest street cars (ties on the grid may resolve either way).
+  const reach = Math.max(...[...nearest(street, 0, 0, k - show.length)].map(id => street.find(c => c.object_id === id)!)
+    .map(c => Math.hypot(c.x, c.z)));
+  expect(kept.length).toBe(k - show.length);
+  expect(kept.every(c => Math.hypot(c.x, c.z) <= reach + 1e-9)).toBe(true);
+  // Jitter on the lot does not churn the exhibits.
+  await at(1.5, 0.5); await at(0, 0);
+  expect(physical()).toEqual(bodies);
+  // Beyond 80 m exhibits rank by distance like any car.
+  await at(-60, 0);
+  expect([...physical()].filter(id => id.startsWith('show:')).length).toBeLessThan(show.length);
+});

@@ -22,6 +22,9 @@ const SPAWN_RADIUS = 120, DESPAWN_RADIUS = 170;
 const SWAP_RATIO = 0.85, SWAP_MARGIN = 4;
 /** A rolling car keeps its body until it rests; it never freezes mid-motion. */
 const RESTING_SPEED = 0.3;
+/** Car-show exhibits (world/carShow.ts) within this range rank ahead of every ordinary car under the cap: from
+ * anywhere on the show lot (its diagonal is ~62 m) every exhibit has a body and drives off at the first F. */
+const SHOW_PRIORITY_RADIUS = 80;
 /** Re-rank faster while the cap leaves nearby cars visual, so the player cannot reach one first. */
 const SYNC_MS = 1000, SATURATED_SYNC_MS = 250;
 
@@ -38,7 +41,7 @@ export function slotRotation(car: Pick<ParkedVehicle, 'yaw' | 'pitch' | 'roll'>)
 }
 
 /** Drafts supply identities; only the nearest `cap` collision-backed cars within 120 m become
- * physics actors (trucks are rare and exempt; their visual exists only with a body). The rest
+ * physics actors, car-show exhibits within 80 m first (trucks are rare and exempt; their visual exists only with a body). The rest
  * stay visual at their last physical pose, or at their draft slot. Borrowed cars retain their
  * appearance and identity when their source tile leaves. A slot whose occupancy draw is above the
  * hour's occupancy (world/parkedOccupancy.ts) is empty: no visual, and no body once it rests. */
@@ -161,28 +164,33 @@ export class ParkedVehicles {
     }
     for (const id of this.rest.keys()) if (!cars.has(id)) this.rest.delete(id);
 
-    const candidates: { id: string; car: ParkedVehicle; d: number }[] = [];
+    const exhibit = (car: ParkedVehicle, d: number) => car.show !== undefined && d <= SHOW_PRIORITY_RADIUS;
+    const candidates: { id: string; car: ParkedVehicle; d: number; first: boolean }[] = [];
     for (const [id, car] of cars) {
       if (this.shared.has(id) || this.spawned.has(id) || states.has(id) || this.borrowed.has(id)) continue;
       if (!this.shown(car) || !this.drawn(id, car)) continue;
       const d = distance(id, car);
-      if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d });
+      if (d <= SPAWN_RADIUS && this.supported(id, car)) candidates.push({ id, car, d, first: exhibit(car, d) });
     }
-    candidates.sort((a, b) => a.d - b.d);
+    // Nearby exhibits first, then by distance.
+    candidates.sort((a, b) => Number(b.first) - Number(a.first) || a.d - b.d);
     for (const { id, car } of candidates) if (car.model === 'truck') this.spawn(id, car);
 
-    // Bodies under the cap, farthest first; rolling cars are not offered for eviction.
+    // Bodies under the cap, ordinary cars before nearby exhibits, farthest first; rolling cars are not offered.
     const capped = [...this.spawned].filter(([id, car]) => !this.owned.has(id) && !this.borrowed.has(id) && car.model !== 'truck');
     let count = capped.length;
     const evictable = capped.filter(([id]) => (states.get(id)?.speed ?? 0) < RESTING_SPEED)
-      .map(([id, car]) => ({ id, d: distance(id, car) })).sort((a, b) => b.d - a.d);
+      .map(([id, car]) => { const d = distance(id, car); return { id, d, first: exhibit(car, d) }; })
+      .sort((a, b) => Number(a.first) - Number(b.first) || b.d - a.d);
     for (; count > this.cap && evictable.length; count--) this.despawn(evictable.shift()!.id, states);
     this.saturated = false;
-    for (const { id, car, d } of candidates) {
+    for (const { id, car, d, first } of candidates) {
       if (car.model === 'truck') continue;
       if (count < this.cap) { this.spawn(id, car); count++; continue; }
+      // A nearby exhibit displaces any ordinary car; otherwise only a clearly nearer car of the same rank swaps in.
       const far = evictable[0];
-      if (!far || d >= Math.min(far.d * SWAP_RATIO, far.d - SWAP_MARGIN)) { this.saturated = true; break; }
+      const swaps = far && (first && !far.first || first === far.first && d < Math.min(far.d * SWAP_RATIO, far.d - SWAP_MARGIN));
+      if (!swaps) { this.saturated = true; break; }
       evictable.shift();
       this.despawn(far.id, states);
       this.spawn(id, car);
