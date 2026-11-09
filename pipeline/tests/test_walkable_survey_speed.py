@@ -64,3 +64,43 @@ def test_path_distance_cells_keep_exact_cutoff_and_return_order():
     np.testing.assert_array_equal(expected_cutoff, [True, False, False])
     np.testing.assert_array_equal(near_line(horizontal, np.r_[xz, cutoff], reach)[-3:],
                                   expected_cutoff)
+
+
+def test_survey_corridor_keeps_every_possible_voxel_winner():
+    from turku3d.coarse.walkable import survey_region
+
+    line = shapely.LineString([(-55, -31), (-9, 37), (15, 6), (60, 21)])
+    width = 3.0
+    region = survey_region([('curve', line, width)])
+    rng = np.random.default_rng(33)
+    points = rng.uniform([-70, -50], [80, 60], (12000, 2))
+    measured = points[shapely.distance(shapely.points(points), line) < width / 2 + 7]
+    cells = np.floor(measured / .25) * .25
+    corners = np.concatenate([cells + [x, z] for x in (0, .25) for z in (0, .25)])
+    assert shapely.intersects_xy(region, corners[:, 0], corners[:, 1]).all()
+    # Dense arc samples catch an inscribed buffer clipping the endpoint halo.
+    angles = np.arange(4096) * (2 * np.pi / 4096)
+    radius = width / 2 + 7 + np.sqrt(2) * .25
+    arc = [-55, -31] + radius * np.c_[np.cos(angles), np.sin(angles)]
+    assert shapely.intersects_xy(region, arc[:, 0], arc[:, 1]).all()
+    assert not region.intersects(shapely.Point(500, 500))
+
+
+def test_survey_corridor_preserves_first_voxel_winner_at_oblique_bend():
+    from turku3d.coarse.walkable import near_line, survey_region
+
+    line = shapely.LineString([
+        (44.93135665467664, -92.06232041501544),
+        (-6.010337029407535, -6.010337029407535),
+        (-90.2320604010362, -59.92416932050755),
+    ])
+    # The first equal-height return lies outside reach; the second is usable
+    # but must still lose their shared voxel. A polyline round join lost the first.
+    points = np.array([[.2499999, .2499999], [.0000001, .0000001]])
+    assert np.array_equal(np.floor(points[0] / .25), np.floor(points[1] / .25))
+    np.testing.assert_array_equal(near_line(line, points, 8.5), [False, True])
+    region = survey_region([('bend', line, 3)])
+    selected = points[shapely.intersects_xy(region, points[:, 0], points[:, 1])]
+    np.testing.assert_array_equal(selected, points)
+    _, first = np.unique(np.floor(selected / .25), axis=0, return_index=True)
+    assert not near_line(line, selected[first], 8.5).any()

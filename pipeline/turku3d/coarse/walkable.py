@@ -201,6 +201,22 @@ def area_strips(identity, geom):
     return strips
 
 
+def survey_region(ways):
+    """A conservative corridor including every possible horizontal voxel winner."""
+    # Returns in the same 0.25 m voxel can be sqrt(2) * 0.25 m apart.
+    # Buffer straight segments separately: arbitrary-angle joins can have wider
+    # chords than endpoint caps. Inflate each capsule's radius so its inscribed
+    # cap chords cover the requested corridor and voxel halo too.
+    radius_scale = 1 / np.cos(np.pi / 64)
+    capsules = []
+    for _, line, width in ways:
+        xy = shapely.get_coordinates(line)
+        segments = shapely.linestrings(np.stack([xy[:-1], xy[1:]], axis=1))
+        radius = (width / 2 + 7 + np.sqrt(2) * 0.25 + 1e-6) * radius_scale
+        capsules.extend(shapely.buffer(segments, radius, quad_segs=16))
+    return shapely.union_all(capsules)
+
+
 def prepare(tile, osm, water_path, paths):
     from turku3d.ground.inputs import read_returns
     from turku3d.spatial import frame, rows
@@ -269,21 +285,12 @@ def prepare(tile, osm, water_path, paths):
         return []
     bounds = tile.bbox.buffered(60)
     survey = {p.stem: p for p in paths if p.parent.name != "maanpinta"}
+    corridor = survey_region(ways)
 
     def relevant(points):
-        # Only points used by a path's measurement can affect its fitted section.
-        # Keep a whole horizontal voxel around each measurement box so the original
-        # first return in that voxel still wins the deduplication below.
-        mask = np.zeros(len(points), dtype=bool)
-        for _, line, width in ways:
-            x0, z0, x1, z1 = line.buffer(width / 2 + 7).bounds
-            mask |= (
-                (points[:, 0] >= x0 - 0.25)
-                & (points[:, 0] <= x1 + 0.25)
-                & (points[:, 2] >= z0 - 0.25)
-                & (points[:, 2] <= z1 + 0.25)
-            )
-        return mask
+        # ground_points still uses every class-2 return for nearest-ground
+        # evidence; this limits queries and returned points, never that tree.
+        return intersects_parts(corridor, points[:, 0], points[:, 2])
 
     if all(b.name in survey for b in C.laz_tiles_for_bbox(bounds)):
         from turku3d.lidar import TileStore
