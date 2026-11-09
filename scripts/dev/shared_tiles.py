@@ -65,6 +65,7 @@ KEEP_FREE_GIB = 45
 DECODED_KEEP_SECONDS = 3600  # a decoded LiDAR array used (touched) within this long is not evicted
 RAW_ORDER = ('lidar-source', 'lidar-crop', 'roof', 'vegetation', 'crown-canopy')  # eviction order
 RETAINED_SECONDS = 60  # a tile's stand-in lookup (the tile's copy in every product) is reused this long
+FALLBACK_SECONDS = 10
 RETAINED_WAIT = 0.25   # a request waits this long for that lookup; a slower one finishes behind its answer
 RETAINED_MAX = 8192    # remembered lookups (tiles)
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
@@ -196,6 +197,7 @@ class Farm:
         # Navigation builds by source revision: 'building', or the last failure row.
         self.navigations = {}
         self.lock = threading.RLock()
+        self.fallback_memo = None  # (fallbacks.json mtime, monotonic time, token -> root): fallback_roots
         # Serialised fragments of built tiles: (revision, tile, manifest stamp) -> (bytes, bundle path or None).
         # A built tile's fragment depends only on its immutable products, so it is rendered once, outside the lock.
         self.fragments, self.fragment_bytes, self.fragments_lock = OrderedDict(), 0, threading.Lock()
@@ -336,8 +338,24 @@ class Farm:
         return self.root / 'products' / generation
 
     def fallback_roots(self):
-        return {hashlib.sha256(str(Path(p).resolve()).encode()).hexdigest(): Path(p).resolve()
-                for p in read_json(self.root / 'fallbacks.json', [])}
+        """Token -> root of each accepted fallback (fallbacks.json), resolved again when the file changes and at least
+        every FALLBACK_SECONDS (a retargeted symlink). Every payload request asks: resolving them each time (pure-Python
+        realpath under the GIL, 2 ms for 7 entries) was a third of the handlers' time in a 128-request burst and held
+        the farm to ~30 MB/s, a browser's boot burst at p90 TTFB 3-4 s (loadspeed 2026-11-09)."""
+        path = self.root / 'fallbacks.json'
+        try:
+            stamp = path.stat().st_mtime_ns
+        except FileNotFoundError:
+            stamp = None
+        memo = self.fallback_memo
+        if memo and memo[0] == stamp and time.monotonic() - memo[1] < FALLBACK_SECONDS:
+            return memo[2]
+        roots = {}
+        for p in read_json(path, []):
+            root = Path(p).resolve()
+            roots[hashlib.sha256(str(root).encode()).hexdigest()] = root
+        self.fallback_memo = (stamp, time.monotonic(), roots)
+        return roots
 
     def retained(self, tile):
         """A complete old pair stays playable while the requested immutable version builds.

@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from urllib.request import urlopen
 
 SPEC = importlib.util.spec_from_file_location('shared_tiles', Path(__file__).parents[1] / 'shared_tiles.py')
@@ -1168,6 +1169,30 @@ class FarmTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_fallback_roots_are_resolved_once_until_the_list_changes(self):
+        a, b = self.root / 'a', self.root / 'b'
+        a.mkdir(); b.mkdir()
+        farm_module.atomic_json(self.root / 'fallbacks.json', [str(a)])
+        farm = self.farm()
+        resolved = []
+        real = farm_module.Path.resolve
+        def counting(path, *args, **kw):
+            resolved.append(str(path)); return real(path, *args, **kw)
+        with mock.patch.object(farm_module.Path, 'resolve', counting):
+            first = farm.fallback_roots()
+            self.assertEqual(list(first.values()), [a.resolve()])
+            n = len(resolved)
+            for _ in range(20):
+                self.assertEqual(farm.fallback_roots(), first)
+            self.assertEqual(len(resolved), n)  # per-request calls resolve nothing
+            later = time.time() + 5
+            farm_module.atomic_json(self.root / 'fallbacks.json', [str(a), str(b)])
+            os.utime(self.root / 'fallbacks.json', (later, later))
+            self.assertEqual(list(farm.fallback_roots().values()), [a.resolve(), b.resolve()])
+            with mock.patch.object(farm_module.time, 'monotonic', return_value=time.monotonic() + farm_module.FALLBACK_SECONDS + 1):
+                farm.fallback_roots()
+            self.assertGreater(len(resolved), n + 2)  # the list changed, and the memo expired
 
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()
