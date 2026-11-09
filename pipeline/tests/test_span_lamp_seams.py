@@ -43,10 +43,23 @@ def test_exact_edge_uses_half_open_bounds_and_surveyed_lamps_are_preserved(monke
     assert S.infer(east, None, [])["lamps"] == [[*point, -1]]
     record = wire((260, 10, -115), (260, 10, -85))
     record["lamps"] = [[250.1, 10, -100, -1]]
-    assert S.infer(east, record, []) is None
+    result = S.infer(east, record, [])
+    assert result["lamps"] == [[*point, -1]]
 
 
 def test_negative_grid_and_nearest_edge_have_a_stable_tie_break():
     assert S.seam(-250, -250) == ("x", -1, -1)
     assert S.seam(-251.1, 251.2) == ("x", -1, 1)
     assert S.seam(125, 125) is None
+
+
+def test_source_cache_recipe_is_a_content_hash():
+    assert len(bytes.fromhex(S.recipe())) == 32
+
+
+def test_incomplete_shared_inputs_leave_existing_lamps_unchanged(monkeypatch):
+    monkeypatch.setattr(S, "candidates", lambda k: None)
+    record = wire((250, 10, 10), (250, 10, 20))
+    record["lamps"] = [[250, 10, 15, 0]]
+    assert S.infer(C.VisualTile(0, 1, 0), record, []) is None
+    assert record["lamps"] == [[250, 10, 15, 0]]
