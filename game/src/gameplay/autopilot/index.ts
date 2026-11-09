@@ -11,6 +11,8 @@ import { LaneRouter, type TileRoads } from './lanes';
 
 export { Autopilot } from './autopilot';
 export type { AutopilotHandle, GoToOptions, AutopilotResult } from './autopilot';
+export { vehiclePose } from './autopilot';
+export type { Obstacle } from './follow';
 export { LaneRouter } from './lanes';
 
 /** One tile's road graph: the resident entry's (what traffic holds), else its manifest's roads.json. */

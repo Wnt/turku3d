@@ -16,6 +16,7 @@ import { DAY_MS } from '../core/dayCycle';
 import { CHASSIS_LIFT, CLAIM_PREFIX, MODEL_SIZE, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
 import type { TrafficSnapshot } from './flow';
 import { ENTER_REACH, footprintDistance } from '../vehicle/reach';
+import type { Obstacle } from '../gameplay/autopilot/follow';
 import { enabledTiles, roadHash } from './gate';
 import { hash32 } from './hash';
 import { TrafficSignals } from './signals';
@@ -145,6 +146,19 @@ export class TrafficClient {
       if (distance < radius && (!best || distance < best.distance)) best = { handle: car.handle, distance };
     }
     return best;
+  }
+
+  /** Drawn moving cars within `radius` of (x, z) as autopilot obstacles (gameplay/autopilot/follow.ts Obstacle). */
+  obstacles(x: number, z: number, radius: number, out: Obstacle[] = []): Obstacle[] {
+    for (const car of this.drawn) {
+      if (Math.abs(car.x - x) > radius || Math.abs(car.z - z) > radius) continue;
+      const [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[car.model]];
+      // Chassis forward is +X rotated by the quaternion (the pose's first column).
+      const { x: qx, y: qy, z: qz, w: qw } = car.q;
+      const fx = 1 - 2 * (qy * qy + qz * qz), fz = 2 * (qx * qz - qw * qy), d = Math.hypot(fx, fz) || 1;
+      out.push({ x: car.x, z: car.z, hx: fx / d, hz: fz / d, halfLength: length / 2, halfWidth: width / 2, vx: car.vx, vz: car.vz, traffic: true });
+    }
+    return out;
   }
 
   /** The audio mix's view of traffic: the nearest moving cars within 120 m (at most `voices`) and the count and

@@ -14,7 +14,7 @@
 import { VEHICLES, type VehicleKind } from '../../physics/constants';
 import type { VehicleState } from '../../physics/protocol';
 import type { Actions } from '../../input/bindings';
-import { DriveFollower, TURN_FIRST_LEGS, WalkFollower, type DriveStyle, type VehicleGeometry, type VehiclePose } from './follow';
+import { DriveFollower, TURN_FIRST_LEGS, WalkFollower, type DriveStyle, type Obstacle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
 import { makePath, project, type Path, type PathPoint } from './path';
@@ -31,6 +31,9 @@ export interface GoToOptions {
   path?: readonly PathPoint[];
   /** Cruise speed (m/s). Driving defaults to each lane's posted limit; walking to running pace. */
   speed?: number;
+  /** Driving: the lanes' posted limits times this (default 1), still at most `speed` (the multiplayer test bots
+   *  drive 1.6: 50 km/h streets at 80). */
+  limitFactor?: number;
   style?: DriveStyle;
   /** Walking pace. */
   pace?: 'walk' | 'run' | 'sprint';
@@ -56,6 +59,8 @@ export interface AutopilotProgress {
   /** Turns in the street (back and forth until the car faces a path that leaves behind it): not stuck recoveries. */
   turns: number;
   elapsed: number;
+  /** Gap (m) to the obstacle that limits the speed now, else null; metres right of the path to pass a still one. */
+  obstacle: number | null; nudge: number;
 }
 
 export interface AutopilotResult { state: 'arrived' | 'failed' | 'cancelled'; reason?: string; progress: AutopilotProgress }
@@ -87,6 +92,8 @@ export interface AutopilotWorld {
   carRoute?(from: PathPoint, to: PathPoint): PathPoint[] | null;
   /** Downward rays against static collision: a stuck car backs out only over ground it can drive (reverseCheck.ts). */
   groundRay?: GroundRay;
+  /** Cars and other bodies near the driven car (not it): followed, stopped for and passed (follow.ts Obstacle). */
+  obstacles?(): readonly Obstacle[];
 }
 
 export function vehicleGeometry(kind: VehicleKind = 'car'): VehicleGeometry {
@@ -135,7 +142,8 @@ class Trip implements AutopilotHandle {
   get progress(): AutopilotProgress {
     const f = this.drive ?? this.walk, length = this.path?.length ?? 0, s = f?.s ?? 0;
     return { s, length, fraction: length ? Math.min(1, s / length) : 0, speed: this.speed, target: this.target, lateral: this.lateral,
-      recoveries: f?.recoveries ?? 0, replans: this.replans, turns: this.drive?.turns ?? 0, elapsed: this.elapsed };
+      recoveries: f?.recoveries ?? 0, replans: this.replans, turns: this.drive?.turns ?? 0, elapsed: this.elapsed,
+      obstacle: this.drive?.obstacleGap ?? null, nudge: this.drive ? Math.round(this.drive.nudge * 10) / 10 : 0 };
   }
   finish(state: 'arrived' | 'failed' | 'cancelled', reason?: string) {
     if (this.state === 'arrived' || this.state === 'failed' || this.state === 'cancelled') return;
@@ -229,7 +237,7 @@ export class Autopilot {
     if (trip.mode === 'drive') {
       const kind = this.world.vehicle()?.kind ?? 'car';
       const speed = o.speed ?? 30;
-      const cap = limit ? (s: number) => Math.min(limit(s), speed) : undefined;
+      const factor = o.limitFactor ?? 1, cap = limit ? (s: number) => Math.min(limit(s) * factor, speed) : undefined;
       if (trip.drive) { trip.drive.setPath(path); trip.drive.options = { ...trip.drive.options, limit: cap }; }
       else trip.drive = new DriveFollower(path, vehicleGeometry(kind), { speed: limit ? Math.min(speed, 40) : (o.speed ?? 12), style: o.style, stop: o.stop, arrive: o.arrive, limit: cap,
         checkReverse: !!this.world.groundRay });
@@ -257,11 +265,16 @@ export class Autopilot {
     const v = this.world.vehicle();
     const hold = () => { actions.throttle = 0; actions.brake = 0; actions.steer = 0; actions.handbrake = 1; };
     if (this.world.mode() !== 'car' || !v) { trip.finish('failed', 'left the vehicle'); return; }
-    if (trip.state === 'planning' || !trip.drive) { hold(); return; }
+    // Planning: a moving car (a chained trip, a re-plan at speed) coasts with a light brake; the handbrake at speed
+    // jolted every leg change.
+    if (trip.state === 'planning' || !trip.drive) {
+      if (Math.abs(v.forwardSpeed) > 2) { actions.throttle = 0; actions.brake = 0.15; actions.steer = 0; actions.handbrake = 0; } else hold();
+      return;
+    }
     // The forward re-plan after a turn with no room: hold, or the old path starts the same turn again.
     if (trip.forwardOnly && trip.planning) { hold(); return; }
     const pose = vehiclePose(v);
-    const step = trip.drive.step(pose, dt);
+    const step = trip.drive.step(pose, dt, this.world.obstacles?.());
     trip.speed = Math.abs(pose.forwardSpeed); trip.target = step.target; trip.lateral = step.lateral;
     const c = step.command;
     actions.throttle = c.throttle; actions.brake = c.brake; actions.steer = c.steer; actions.handbrake = c.handbrake ? 1 : 0;

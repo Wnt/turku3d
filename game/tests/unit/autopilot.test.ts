@@ -7,7 +7,7 @@ import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from '../../src/physics/world';
 import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { curvatureAt, makePath, project, sampleAt } from '../../src/gameplay/autopilot/path';
-import { DriveFollower } from '../../src/gameplay/autopilot/follow';
+import { DriveFollower, type Obstacle } from '../../src/gameplay/autopilot/follow';
 import { LaneRouter } from '../../src/gameplay/autopilot/lanes';
 import { Autopilot, vehicleGeometry, vehiclePose, type AutopilotWorld } from '../../src/gameplay/autopilot/autopilot';
 import { emptyActions } from '../../src/input/bindings';
@@ -206,6 +206,96 @@ describe('drive follower on the real vehicle', () => {
     expect(follower.recoveries).toBeGreaterThan(0);
     // It reversed away from the wall at least a metre.
     expect(maxX - minX).toBeGreaterThan(1);
+    pw.world.free();
+  }, 30_000);
+});
+
+describe('obstacles', () => {
+  // East along z = 100 on open ground; obstacles are footprints handed to the follower (follow.ts Obstacle).
+  // (The dev world has a wall across z = 100 near x = 248.)
+  const route = makePath([{ x: 30, z: 100 }, { x: 240, z: 100 }]);
+  const car = vehicleGeometry('car'), half = car.back!, width = car.halfWidth!;
+  const box = (x: number, z: number, vx = 0, traffic = true): Obstacle => ({ x, z, hx: 1, hz: 0, halfLength: 2.3, halfWidth: 0.95, vx, vz: 0, traffic });
+  /** Bumper gap along x and side gap along z between the car and an obstacle (negative both: they overlap). */
+  const gaps = (v: { pos: { x: number; z: number } }, o: Obstacle) =>
+    [Math.abs(o.x - v.pos.x) - half - o.halfLength, Math.abs(o.z - v.pos.z) - width - o.halfWidth];
+
+  test('follows a slower car at a gap, then passes a still car standing half in its lane', async () => {
+    const pw = await devWorld();
+    pw.spawnVehicle({ x: 30, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const follower = new DriveFollower(route, vehicleGeometry('car'), { speed: 14 });
+    // A car 40 m ahead at 6 m/s that turns off at x 150; a parked car at x 200, 1.1 m into the lane (right of travel).
+    const lead = box(70, 100, 6), parked = box(200, 101.1, 0, false);
+    let followGap = Infinity, followSpeed = 0, parkedClear = Infinity, maxNudge = 0, passedAt = 0;
+    for (let k = 0; k < 60 * 50; k++) {
+      const v = pw.vehicleState()!, t = k / 60;
+      lead.x = 70 + 6 * t;
+      const obstacles = lead.x < 150 ? [lead, parked] : [parked];
+      const step = follower.step(vehiclePose(v), 1 / 60, obstacles);
+      if (lead.x < 150 && t > 4) { followGap = Math.min(followGap, gaps(v, lead)[0]); if (t > 11) followSpeed = v.speed; }
+      const [along, side] = gaps(v, parked);
+      if (along < 0) parkedClear = Math.min(parkedClear, side);
+      maxNudge = Math.min(maxNudge, follower.nudge);
+      if (!passedAt && v.pos.x > parked.x + 10) passedAt = v.speed;
+      pw.fixedStep(null, step.command);
+      if (step.status === 'arrived') break;
+    }
+    // A gap behind the lead (standstill 3.5 m + 1.1 s at 6 m/s ≈ 10 m), at its speed.
+    expect(followGap).toBeGreaterThan(5);
+    expect(followSpeed).toBeGreaterThan(5);
+    expect(followSpeed).toBeLessThan(7.5);
+    // Passed the parked car on its left, with room, and drove on at speed.
+    expect(maxNudge).toBeLessThan(-0.5);
+    expect(parkedClear).toBeGreaterThan(0.1);
+    expect(passedAt).toBeGreaterThan(6);
+    pw.world.free();
+  }, 30_000);
+
+  test('stops behind a car queued in its lane and never passes lane traffic', async () => {
+    const pw = await devWorld();
+    pw.spawnVehicle({ x: 30, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const follower = new DriveFollower(route, vehicleGeometry('car'), { speed: 14 });
+    const queued = box(120, 100.4);
+    let minGap = Infinity;
+    for (let k = 0; k < 60 * 25; k++) {
+      const v = pw.vehicleState()!;
+      const step = follower.step(vehiclePose(v), 1 / 60, [queued]);
+      minGap = Math.min(minGap, gaps(v, queued)[0]);
+      pw.fixedStep(null, step.command);
+    }
+    const end = pw.vehicleState()!;
+    expect(end.speed).toBeLessThan(0.3);
+    expect(minGap).toBeGreaterThan(1.5);
+    expect(gaps(end, queued)[0]).toBeLessThan(6);
+    expect(follower.nudge).toBe(0);
+    expect(follower.recoveries).toBe(0);
+    pw.world.free();
+  }, 30_000);
+
+  test('brakes for a car crossing the path ahead', async () => {
+    const pw = await devWorld();
+    pw.spawnVehicle({ x: 30, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const follower = new DriveFollower(route, vehicleGeometry('car'), { speed: 14 });
+    // Southbound across the route at x 150, timed to meet the car there.
+    const crossing: Obstacle = { x: 150, z: 60, hx: 0, hz: 1, halfLength: 2.3, halfWidth: 0.95, vx: 0, vz: 7, traffic: true };
+    let overlap = false, slowest = Infinity, k = 0, launched = false;
+    for (; k < 60 * 30; k++) {
+      const v = pw.vehicleState()!;
+      // It sets off 40 m from the route when the car is 73 m short of the crossing: both get there in about 5 s.
+      if (!launched && v.pos.x > 150 - 73) launched = true;
+      if (launched) crossing.z += 7 / 60;
+      const step = follower.step(vehiclePose(v), 1 / 60, crossing.z < 140 ? [crossing] : []);
+      const dx = Math.abs(v.pos.x - crossing.x) - half - crossing.halfWidth, dz = Math.abs(v.pos.z - crossing.z) - width - crossing.halfLength;
+      if (dx < 0 && dz < 0) overlap = true;
+      if (launched && crossing.z < 110) slowest = Math.min(slowest, v.speed);
+      pw.fixedStep(null, step.command);
+    }
+    expect(launched).toBe(true);
+    expect(overlap).toBe(false);
+    expect(slowest).toBeLessThan(10);
     pw.world.free();
   }, 30_000);
 });

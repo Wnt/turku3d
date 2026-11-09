@@ -65,7 +65,7 @@ import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
 import { vehicleGround } from './gameplay/vehicleSave';
 import { createGameplay, compassDeg, loadGameplayData } from './gameplay';
-import { autopilotParam, createAutopilot, type GoToOptions } from './gameplay/autopilot';
+import { autopilotParam, createAutopilot, vehiclePose, type GoToOptions, type Obstacle } from './gameplay/autopilot';
 import { DriveMeThere } from './gameplay/missions/driveMeThere';
 import { recoveryVehicle } from './gameplay/flippedCar';
 import { SafeReset } from './gameplay/safeReset';
@@ -556,6 +556,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     footRoute: (a, b) => router.route(a, b, 'foot'),
     carRoute: (a, b) => router.route(a, b, 'car'),
     groundRay: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
+    // Ambient traffic and every other vehicle (parked, shared, other players') within 100 m of the driven car.
+    obstacles: () => {
+      const me = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
+      if (!me) return [];
+      const out: Obstacle[] = traffic.obstacles(me.pos.x, me.pos.z, 100);
+      for (const v of physics.latest?.vehicles ?? []) {
+        if (v === me || v.id === drivenId || Math.abs(v.pos.x - me.pos.x) > 100 || Math.abs(v.pos.z - me.pos.z) > 100) continue;
+        const pose = vehiclePose(v), half = VEHICLES[v.kind ?? 'car'].halfExt;
+        out.push({ x: v.pos.x, z: v.pos.z, hx: pose.hx, hz: pose.hz, halfLength: half.x, halfWidth: half.z, vx: v.linvel.x, vz: v.linvel.z, traffic: false });
+      }
+      return out;
+    },
   }, coarse);
   input.driver = (actions, dt) => autopilot.control(actions, dt);
   // The drive harness (tool:drive-harness) resets a car after a failed leg through the placement path: streamed first.

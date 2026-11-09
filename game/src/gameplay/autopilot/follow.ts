@@ -4,7 +4,8 @@
 //
 // Driving: pure pursuit from the rear axle (lookahead grows with speed) plus a small cross-track term, a speed
 // plan from path curvature (lateral acceleration limit) and the stop at the end (braking limit), and a stuck
-// recovery that reverses and asks for a re-plan.
+// recovery that reverses and asks for a re-plan. With obstacles (other cars) it keeps a gap behind what it follows,
+// stops for what stands or crosses in its way, and passes a still car that leaves room beside it (avoidObstacles).
 import { curvatureAt, project, sampleAt, type Path, type PathSample } from './path';
 import { effectiveWheelbase, type RearSteerTuning } from '../../vehicle/rearSteer';
 
@@ -39,6 +40,26 @@ const STYLE: Record<DriveStyle, { lateral: number; brake: number; accel: number 
 };
 
 export interface DriveCommand { throttle: number; brake: number; steer: number; handbrake: boolean }
+
+/** A car or other body near the path (engine x, z; unit heading; half extents in metres; velocity in m/s). */
+export interface Obstacle {
+  x: number; z: number; hx: number; hz: number; halfLength: number; halfWidth: number; vx: number; vz: number;
+  /** Ambient lane traffic: followed and queued behind, never passed (a still one waits at a light or in a queue). */
+  traffic: boolean;
+}
+
+/** Room kept beside the car (m), and the gap behind what it follows: standstill (m) plus a time gap (s). */
+const SIDE_CLEAR = 0.35, GAP_STILL = 3.5, GAP_TIME = 1.1;
+/** Moving obstacles are also checked where they will be after these times (s): a car crossing the path ahead. A
+ *  predicted place counts only when the car reaches it within PREDICT_MATCH s of that time. */
+const PREDICT = [0, 0.7, 1.4, 2.1, 2.8, 3.5], PREDICT_MATCH = 1.2;
+/** Obstacles count along the path up to the braking distance plus this (m), at most LOOK_MAX. */
+const LOOK_MARGIN = 20, LOOK_MAX = 90;
+/** A still obstacle (not lane traffic) within NUDGE_AHEAD metres is passed with the car shifted at most NUDGE_MAX
+ *  metres off its path, toward the side that needs the smaller shift, at NUDGE_RATE m/s (more when faster). */
+const NUDGE_AHEAD = 30, NUDGE_MAX = 2.3, NUDGE_RATE = 0.9;
+/** Speeds (m/s) below which an obstacle counts as still. */
+const STILL = 0.7;
 
 export interface DriveOptions {
   /** Cruise speed (m/s); the path's own limit applies on top when given. */
@@ -146,6 +167,11 @@ export class DriveFollower {
   turns = 0;
   recoveries = 0;
   private readonly sample: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 };
+  /** Metres right of the path the car drives now to pass a still obstacle (avoidObstacles), and the shift wanted. */
+  nudge = 0;
+  private nudgeWant = 0;
+  /** Gap (m) to the obstacle that limits the speed this step, else null (traces, the bots). */
+  obstacleGap: number | null = null;
 
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
 
@@ -154,6 +180,69 @@ export class DriveFollower {
     this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; this.pendingTurnLeg = null;
     this.pendingEdgeCheck = null; this.edgeAhead = null;
     this.hairpins = null; this.hairpinsDone.clear();
+    this.nudge = 0; this.nudgeWant = 0;
+  }
+
+  /** The speed (m/s) the obstacles near the path ahead allow, and the shift off the path that passes the still ones.
+   *  Each obstacle (and a moving one where it will be shortly) is located along the path: its footprint across the
+   *  path against the car's corridor (half width plus SIDE_CLEAR, around the shift), its gap ahead bumper to bumper. */
+  avoidObstacles(pose: VehiclePose, speed: number, dt: number, obstacles: readonly Obstacle[]): number {
+    const g = this.geometry, path = this.path, style = STYLE[this.options.style ?? 'normal'];
+    const half = g.back ?? 2.3, w = (g.halfWidth ?? 0.95) + SIDE_CLEAR;
+    const reach = Math.min(LOOK_MAX, speed * speed / (2 * style.brake) + LOOK_MARGIN + speed);
+    const found: { gap: number; lo: number; hi: number; along: number; still: boolean; predicted: boolean }[] = [];
+    const at = this.sample;
+    for (const o of obstacles) {
+      const dx = o.x - pose.x, dz = o.z - pose.z;
+      if (Math.hypot(dx, dz) > reach + 12 || dx * pose.hx + dz * pose.hz < -half - 4) continue;
+      const v = Math.hypot(o.vx, o.vz), still = v < STILL;
+      for (const t of still ? [0] : PREDICT) {
+        const px = o.x + o.vx * t, pz = o.z + o.vz * t;
+        const p = project(path, px, pz, Math.max(0, this.s - half - 2), Math.min(path.length + 30, this.s + reach));
+        if (p.distance > NUDGE_MAX + w + 4) continue;
+        sampleAt(path, p.s, at);
+        const cos = Math.abs(o.hx * at.hx + o.hz * at.hz), sin = Math.abs(o.hx * at.hz - o.hz * at.hx);
+        const across = o.halfWidth * cos + o.halfLength * sin, along = o.halfLength * cos + o.halfWidth * sin;
+        // Past the path's end the projection clamps: the distance beyond it counts along the final heading.
+        const beyond = p.s >= path.length - 0.01 ? Math.max(0, (px - at.x) * at.hx + (pz - at.z) * at.hz) : 0;
+        const gap = p.s + beyond - this.s - half - along;
+        // Kept until the car's rear has passed its front: one beside the car is still passed, never braked for.
+        if (gap < -2 * (half + along)) continue;
+        if (t > 0 && Math.abs(gap / Math.max(speed, 2) - t) > PREDICT_MATCH) continue;
+        found.push({ gap, lo: p.lateral - across, hi: p.lateral + across, along: t > 0 ? 0 : o.vx * at.hx + o.vz * at.hz,
+          still: still && !o.traffic, predicted: t > 0 });
+      }
+    }
+    // The smallest shift (staying near the current one) that clears every still obstacle close ahead.
+    const passing = found.filter(f => f.still && f.gap < NUDGE_AHEAD);
+    const clear = (n: number) => passing.every(f => n + w <= f.lo || n - w >= f.hi);
+    let want = 0;
+    if (!clear(0)) {
+      want = NaN;
+      for (let k = 1; k <= NUDGE_MAX * 10 && Number.isNaN(want); k++) {
+        const a = -k / 10 * (Math.sign(this.nudgeWant) || -1), b = -a;
+        if (clear(a)) want = a; else if (clear(b)) want = b;
+      }
+      if (Number.isNaN(want)) want = 0;
+    }
+    this.nudgeWant = want;
+    const rate = Math.max(NUDGE_RATE, 0.12 * speed) * dt;
+    this.nudge += clamp(want - this.nudge, -rate, rate);
+    // Then the speed: what overlaps the corridor (at the shift the car will have by then) is followed or stopped for.
+    let target = Infinity;
+    this.obstacleGap = null;
+    for (const f of found) {
+      const reachIn = f.gap / Math.max(speed, 1), shifted = Math.abs(want - this.nudge) <= Math.max(NUDGE_RATE, 0.12 * speed) * reachIn;
+      const n = shifted ? want : this.nudge;
+      if (n + w <= f.lo || n - w >= f.hi || f.gap < -0.5) continue;
+      // Oncoming: the gap closes from both ends. Crossing (a predicted place): stop short of it.
+      const follow = Math.max(0, f.along), gap = f.gap + Math.min(0, f.along) * 1.5;
+      const free = gap - GAP_STILL;
+      const allowed = Math.max(0, Math.min(follow + Math.max(0, free - GAP_TIME * follow) * 0.4,
+        Math.sqrt(Math.max(0, follow * follow + 2 * style.brake * 0.9 * Math.max(0, free)))));
+      if (allowed < target) { target = allowed; this.obstacleGap = Math.round(f.gap * 10) / 10; }
+    }
+    return target;
   }
 
   /** Arc lengths where the path starts a hairpin (HAIRPIN_M, HAIRPIN_COS), sampled every metre. */
@@ -261,7 +350,7 @@ export class DriveFollower {
     this.reverseFrom = this.lastPose ? { x: this.lastPose.x, z: this.lastPose.z } : null;
   }
 
-  step(pose: VehiclePose, dt: number): DriveStep {
+  step(pose: VehiclePose, dt: number, obstacles?: readonly Obstacle[]): DriveStep {
     const g = this.geometry, path = this.path;
     this.lastPose = pose;
     const at = this.locate(pose);
@@ -272,6 +361,10 @@ export class DriveFollower {
     const hold = { throttle: 0, brake: 0, steer: 0, handbrake: true };
     if (this.options.stop !== false && remain < (this.options.arrive ?? 2.5) && speed < 0.8) {
       return { command: hold, status: 'arrived', s: this.s, lateral: at.lateral, target: 0 };
+    }
+    // A trip that does not stop arrives on passing within its radius of the end; the next goTo carries on from there.
+    if (this.options.stop === false && remain < (this.options.arrive ?? 2.5)) {
+      return { command: { throttle: 0, brake: 0, steer: 0, handbrake: false }, status: 'arrived', s: this.s, lateral: at.lateral, target: speed };
     }
     if (at.distance > OFF_PATH_M) return { command: hold, status: 'off-path', s: this.s, lateral: at.lateral, target: 0 };
 
@@ -287,20 +380,24 @@ export class DriveFollower {
         s: this.s, lateral: at.lateral, target: -1 };
     }
 
-    // Pure pursuit from the rear axle toward a point `lookahead` metres along the path.
+    // Obstacles (not during a turn in the street): the speed they allow and the shift that passes a still one.
+    const obstacleTarget = obstacles?.length && !this.turn ? this.avoidObstacles(pose, speed, dt, obstacles) : Infinity;
+    if (!obstacles?.length || this.turn) { this.nudge = 0; this.nudgeWant = 0; this.obstacleGap = null; }
+    // Pure pursuit from the rear axle toward a point `lookahead` metres along the path (shifted `nudge` to its right).
     const rx = pose.x - pose.hx * g.rearOffset, rz = pose.z - pose.hz * g.rearOffset;
     const lookahead = clamp(3.5 + 0.55 * speed, 4, 18);
     const aim = sampleAt(path, Math.min(path.length + 30, this.s + lookahead + g.rearOffset), this.sample);
     // Past the end, aim along the final heading so the car does not swerve onto the end point.
     const over = this.s + lookahead + g.rearOffset - path.length;
-    const ax = (over > 0 ? aim.x + aim.hx * over : aim.x) - rx, az = (over > 0 ? aim.z + aim.hz * over : aim.z) - rz;
+    const ax = (over > 0 ? aim.x + aim.hx * over : aim.x) - aim.hz * this.nudge - rx,
+      az = (over > 0 ? aim.z + aim.hz * over : aim.z) + aim.hx * this.nudge - rz;
     const ld = Math.hypot(ax, az) || 1;
     // Right of the chassis heading (x east, z south): (-hz, hx).
     const sinAlpha = (ax * -pose.hz + az * pose.hx) / ld;
     const wheelbase = g.rearSteer ? effectiveWheelbase(g.rearSteer, g.wheelbase, g.maxSteer, speed) : g.wheelbase;
     let wheel = Math.atan(2 * wheelbase * sinAlpha / ld);
     // Cross-track damping (Stanley-like): pulls the car onto the lane line at low speed and on long curves.
-    wheel += Math.atan(0.35 * -at.lateral / (speed + 2)) * 0.5;
+    wheel += Math.atan(0.35 * -(at.lateral - this.nudge) / (speed + 2)) * 0.5;
     const lock = g.maxSteer / (1 + (speed / g.steerHalfSpeed) ** 2);
     const steer = clamp(wheel / lock, -1, 1);
 
@@ -374,7 +471,7 @@ export class DriveFollower {
       return { command, target: TURN_SPEED * t.dir, ...recovering };
     }
 
-    const planned = this.plannedSpeed(this.s, speed);
+    const planned = Math.min(this.plannedSpeed(this.s, speed), obstacleTarget);
     let target = cosAim < SIDE_AIM_COS ? Math.min(planned, SIDE_AIM_SPEED) : planned;
     // No faster than the lateral limit of the arc actually steered: the path's own curvature misses a car that sets
     // off across it (Amsterdam Grimburgwal: from rest facing the canal, the car reached 5.8 m/s at full lock and ran
