@@ -3,9 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { LodFades, dissolveTwin, drawnCoverage, isDissolveTwin, precompileDissolve, stableMaterial } from '../../src/render/lodFade';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { natureTextureMips } from './natureTextures';
 import { CROWN_GAPS, VEGETATION_FADE, crownFill, crownGapCurve, crownGapCut, crownGapNoise, crownSunShare, impostorAlphaScale } from '../../src/world/nature/materials';
 import { vegetationLevels } from '../../src/world/vegetationLod';
 import { OPEN_STEP, UNMEASURED_OPENNESS, decodeOpenness, encodeOpenness, natureTint } from '../../src/world/nature/species';
@@ -53,36 +51,13 @@ describe('tree LOD cross-fade', () => {
   });
 });
 
-/** The impostor atlas embedded in nature.glb, transcoded per mip to RGBA8 with three's basis transcoder. */
+/** The impostor atlas's alpha per mip. */
 async function impostorMips() {
-  const glb = readFileSync(new URL('../../public/assets/nature/nature.glb', import.meta.url));
-  const jsonLength = glb.readUInt32LE(12), json = JSON.parse(glb.subarray(20, 20 + jsonLength).toString('utf8'));
-  const bin = glb.subarray(20 + jsonLength + 8);
-  const material = json.materials.find((m: { name: string }) => m.name === 'nature_impostor');
-  const texture = json.textures[material.pbrMetallicRoughness.baseColorTexture.index];
-  const image = json.images[texture.extensions.KHR_texture_basisu.source], view = json.bufferViews[image.bufferView];
-  const ktx = new Uint8Array(bin.buffer, bin.byteOffset + (view.byteOffset ?? 0), view.byteLength);
-  const script = new URL('../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.js', import.meta.url);
-  const source = readFileSync(script, 'utf8'), filename = fileURLToPath(script);
-  // three ships it as CommonJS inside an ESM package: evaluate it with the CommonJS bindings its Node path uses.
-  const module = { exports: {} as unknown };
-  new Function('module', 'exports', 'require', '__filename', '__dirname', source)(module, module.exports, createRequire(script),
-    filename, filename.slice(0, filename.lastIndexOf('/')));
-  type File = { isValid(): boolean; startTranscoding(): boolean; getLevels(): number; getImageTranscodedSizeInBytes(l: number, a: number, f: number, t: number): number;
-    transcodeImage(dst: Uint8Array, l: number, a: number, f: number, t: number, g: number, c: number, s: number): boolean; close(): void; delete(): void };
-  const basis = await (module.exports as (o: object) => Promise<{ initializeBasis(): void; KTX2File: new (d: Uint8Array) => File }>)(
-    { wasmBinary: readFileSync(new URL('../../node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm', import.meta.url)) });
-  basis.initializeBasis();
-  const file = new basis.KTX2File(ktx);
-  expect(!!file.isValid() && !!file.startTranscoding()).toBe(true);
-  const mips: Float32Array[] = [];
-  for (let level = 0; level < Math.min(8, file.getLevels()); level++) {
-    const rgba = new Uint8Array(file.getImageTranscodedSizeInBytes(level, 0, 0, 13)); file.transcodeImage(rgba, level, 0, 0, 13, 0, -1, -1);
-    const alpha = new Float32Array(rgba.length / 4); for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3] / 255;
-    mips.push(alpha);
-  }
-  file.close(); file.delete();
-  return mips;
+  return (await natureTextureMips('nature_impostor', 'baseColor')).map(({ rgba }) => {
+    const alpha = new Float32Array(rgba.length / 4);
+    for (let i = 0; i < alpha.length; i++) alpha[i] = rgba[i * 4 + 3] / 255;
+    return alpha;
+  });
 }
 
 describe('impostor alpha coverage', () => {
@@ -90,16 +65,14 @@ describe('impostor alpha coverage', () => {
     const mips = await impostorMips();
     const coverage = (alpha: Float32Array, scale: number) => { let n = 0; for (const a of alpha) if (a * scale >= 0.5) n++; return n / alpha.length; };
     const base = coverage(mips[0], 1);
-    // Impostors draw from 140 m to the far boundary (650 m medium, 850 m high): mips 1-4, with mip 5 for small crowns.
-    // Through those the scaled coverage stays within 12 % of mip 0, so a crown keeps its density and silhouette.
+    // Impostors draw from the mid boundary (100-130 m) to the far one (650 m medium, 850 m high). A view is 128 texels
+    // over the tree's height: a 20 m crown at 650 m is about 30 pixels at 1080p, mip 2; small crowns reach mip 3.
+    // Through mip 5 the scaled coverage stays within 12 % of mip 0, so a crown keeps its density and silhouette.
+    // (Mip 6 holds 2 x 2 texels per view: a crown under 2 pixels, kilometres past the far boundary.)
     for (let level = 0; level <= 5; level++) {
       const ratio = coverage(mips[level], impostorAlphaScale(level)) / base;
       expect(ratio).toBeGreaterThan(0.88); expect(ratio).toBeLessThan(1.12);
     }
-    // Mip 6 (sub-pixel crowns, screenshot range only): alpha clusters just below the cut, so it is sensitive; it must not
-    // thin, and stays far below the previous boost.
-    expect(coverage(mips[6], impostorAlphaScale(6)) / base).toBeGreaterThan(0.88);
-    expect(coverage(mips[6], impostorAlphaScale(6))).toBeLessThan(coverage(mips[6], 1 + 0.3 * 6));
     // The previous boost (1 + 0.3 per mip, from the chain-link fence) made crowns visibly denser from mip 2 on.
     expect(coverage(mips[2], 1 + 0.3 * 2) / base).toBeGreaterThan(1.15);
   }, 30000);

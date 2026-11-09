@@ -55,9 +55,9 @@ it('reshapes every LOD once, keeps the trunk under the crown and reports the new
   // The trunk (radius 0.4 m = 0.08 of the radius) keeps its thickness below the crown base.
   const trunk = asset.lods[0].parts[0].geometry.getAttribute('position').array as Float32Array;
   for (let i = 0; i < trunk.length; i += 3) if (trunk[i + 1] < 4) expect(trunk[i]).toBeCloseTo(bark[i], 6);
-  // The impostor widens by the mean factor; the shared reduced-level attribute was not reshaped twice.
-  const mean = widening.reduce((a, b) => a + b, 0) / 5;
-  expect((asset.lods[2].parts[0].geometry.getAttribute('position').array as Float32Array)[3]).toBeCloseTo(5 * mean, 5);
+  // The impostor keeps its quad (its views show the fitted crown); the shared reduced-level attribute was not reshaped
+  // twice.
+  expect((asset.lods[2].parts[0].geometry.getAttribute('position').array as Float32Array)[3]).toBe(5);
   expect(extent).toBeGreaterThan(5); expect(extent).toBeLessThan(5 * CROWN_LIMITS.max);
   // The fitted foliage reaches the lidar's 90th-percentile radius per fifth.
   const fitted = crownShape(asset)!;

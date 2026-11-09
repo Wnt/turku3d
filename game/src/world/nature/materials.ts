@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import {
-  abs, attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
-  normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
+  attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
+  normalize, normalViewGeometry, positionLocal, positionPrevious, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
@@ -9,6 +9,7 @@ import { FoliageMaterial } from '../../render/foliageMaterial';
 import { viewClearance } from '../../render/viewClearance';
 import type { NatureKind } from './library';
 import { OPEN_STEP, UNMEASURED_OPENNESS } from './species';
+import { impostorNodes } from './impostor';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -276,24 +277,18 @@ export class NatureMaterials {
     }
     this.bases.set(this.crownShadow, this.leaves);
 
+    // Hemi-octahedral impostors (nature/impostor.ts): one camera-facing quad per tree blending the three baked views
+    // nearest the view direction, each reprojected with its depth.
     const imp = sources.nature_impostor;
-    const impMap = imp.map!, impTex = texture(impMap, uv());
-    this.impostor = new FoliageMaterial({ name: 'nature-impostor', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0,
-      normalMap: imp.normalMap, normalScale: imp.normalScale.clone() });
-    // Crossed planes fade out edge-on through a screen door that changes every frame, so temporal AA resolves it
-    // into a blend (a screen-fixed pattern crawled over the crowns as the camera moved: the speckle flicker).
-    // It narrows to a step as the camera settles (lodSharpness), so a settled frame keeps no dither here either.
-    const facing = abs(dot(normalViewGeometry, normalize(positionView.negate())));
-    const edge = max(float(1).sub(this.lodSharpness), float(1e-4)).mul(0.175);
-    const visible = select(smoothstep(float(0.375).sub(edge), float(0.375).add(edge), facing).greaterThan(ditherThreshold()), float(1), float(0));
-    // The impostor atlas keeps its alpha-test coverage through mip 4 (work/trees/coverage.mjs: 0.95-1.03 of mip 0);
-    // the chain-link boost (1 + 0.3 per mip) made distant crowns 8-61 % denser than the meshes they replace. Only
-    // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
-    const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
-    const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, level).mul(IMPOSTOR_BOOST.gain).add(1);
+    const views = impostorNodes(imp.map!, imp.normalMap!);
+    this.impostor = new FoliageMaterial({ name: 'nature-impostor', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0 });
+    // The atlas keeps its alpha-test coverage through mip 4; only mips 5 and finer-than-pixel need the 1.3x that
+    // restores mip-0 coverage (IMPOSTOR_BOOST).
+    const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, views.level).mul(IMPOSTOR_BOOST.gain).add(1);
     // A dense crown's impostor fills as its leaf cards do (CROWN_GAPS fill), so it does not thin at the far band.
-    this.impostor.colorNode = vec4(tone(impTex.rgb).mul(IMPOSTOR_LIGHT), impTex.a.mul(boost).mul(fill).mul(visible));
-    this.impostor.positionNode = wind(0);
+    this.impostor.colorNode = vec4(tone(views.color.rgb).mul(IMPOSTOR_LIGHT), views.color.a.mul(boost).mul(fill));
+    this.impostor.normalNode = views.normal;
+    this.impostor.positionNode = views.position;
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {
       const m = new THREE.MeshStandardNodeMaterial({ name, map: source.map, normalMap: source.normalMap, roughness: source.roughness, metalness: source.metalness });

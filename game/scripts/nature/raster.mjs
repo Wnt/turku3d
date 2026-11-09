@@ -1,5 +1,5 @@
 // CPU orthographic rasterizer for impostor baking: alpha-tested, textured, z-buffered, supersampled.
-// Writes albedo (texture x vertex colour), coverage alpha and a view-space normal per texel.
+// Writes albedo (texture x vertex colour), coverage alpha, a view-space normal and the depth towards the viewer per texel.
 import { Img } from './image.mjs';
 
 /** Bilinear sample with wrap in both axes (bark V repeats; leaf cards stay inside their cell). */
@@ -17,7 +17,8 @@ function tex(img, u, v, out) {
 
 /**
  * view: { right, up, toward (unit, from the object towards the camera), centre [x,y,z] of the image, width, height (m) }.
- * parts: [{ mesh: MeshBuilder, texture: Img, cutout: bool }]. Returns { albedo: Img (rgb + coverage), normal: Img }.
+ * parts: [{ mesh: MeshBuilder, texture: Img, cutout: bool }]. Returns { albedo: Img (rgb + coverage), normal: Img,
+ * depth: Float32Array (W x H, the covered samples' mean distance in front of `centre` along `toward`, m; NaN where none) }.
  */
 export function bake(parts, view, W, H, ss = 3) {
   const SW = W * ss, SH = H * ss, depth = new Float32Array(SW * SH).fill(-Infinity);
@@ -65,14 +66,15 @@ export function bake(parts, view, W, H, ss = 3) {
       }
     }
   }
-  const albedo = new Img(W, H), normal = new Img(W, H);
+  const albedo = new Img(W, H), normal = new Img(W, H), towards = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    let r = 0, g = 0, b = 0, nx = 0, ny = 0, nz = 0, n = 0;
+    let r = 0, g = 0, b = 0, nx = 0, ny = 0, nz = 0, z = 0, n = 0;
     for (let j = 0; j < ss; j++) for (let i = 0; i < ss; i++) {
       const k = (y * ss + j) * SW + x * ss + i;
       if (!cov[k]) continue;
-      r += col[k * 3]; g += col[k * 3 + 1]; b += col[k * 3 + 2]; nx += nrm[k * 3]; ny += nrm[k * 3 + 1]; nz += nrm[k * 3 + 2]; n++;
+      r += col[k * 3]; g += col[k * 3 + 1]; b += col[k * 3 + 2]; nx += nrm[k * 3]; ny += nrm[k * 3 + 1]; nz += nrm[k * 3 + 2]; z += depth[k]; n++;
     }
+    towards[y * W + x] = n ? z / n : NaN;
     const o = (y * W + x) * 4;
     if (n) {
       albedo.data[o] = r / n; albedo.data[o + 1] = g / n; albedo.data[o + 2] = b / n;
@@ -81,5 +83,5 @@ export function bake(parts, view, W, H, ss = 3) {
     } else { normal.data[o] = 0.5; normal.data[o + 1] = 0.5; normal.data[o + 2] = 1; }
     albedo.data[o + 3] = n / (ss * ss); normal.data[o + 3] = 1;
   }
-  return { albedo, normal };
+  return { albedo, normal, depth: towards };
 }

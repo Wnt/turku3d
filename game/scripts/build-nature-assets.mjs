@@ -15,11 +15,11 @@ import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
 import { quantize, reorder } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
-import { encodeToKTX2 } from 'ktx2-encoder';
-import { Img, toRGBA8, savePng, blit, dilate, half } from './nature/image.mjs';
+import { Img, savePng, half } from './nature/image.mjs';
 import { foliageAtlas, barkAtlas, propTiles } from './nature/textures.mjs';
 import { SPECIES, TREES, SHRUBS, skeleton, meshTree, hedge, clump, MeshBuilder } from './nature/trees.mjs';
-import { bake } from './nature/raster.mjs';
+import { atlasSize, bakeTree, fitTree, impostorQuad, shippedNormal } from './nature/octahedral.mjs';
+import { ktx2 as encodeKtx2 } from './nature/ktx2.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -38,10 +38,7 @@ const bark = await barkAtlas(src);
 const props = await propTiles(src);
 
 // ------------------------------------------------------------------ vegetation geometry + impostors
-// 16 tree models (8 species x 2 variants) x (3 side views + top view): 128 x 256 cells, a 2048 x 1024 atlas.
-const IMP_W = 128, IMP_H = 256, IMP_COLS = 16, IMP_ROWS = 4;
-const impostorAlbedo = new Img(IMP_W * IMP_COLS, IMP_H * IMP_ROWS), impostorNormal = new Img(IMP_W * IMP_COLS, IMP_H * IMP_ROWS);
-for (let i = 0; i < impostorNormal.w * impostorNormal.h; i++) impostorNormal.data.set([0.5, 0.5, 1, 1], i * 4);
+// 16 tree models (8 species x 2 variants), each as 8 x 8 hemi-octahedral views (scripts/nature/octahedral.mjs).
 const assets = [];
 
 function radialExtent(meshes) {
@@ -52,50 +49,24 @@ function radialExtent(meshes) {
   return { R, top };
 }
 
-function impostorLod(index, R, top, yc) {
-  const mesh = new MeshBuilder(), W = IMP_COLS * IMP_W, Hh = IMP_ROWS * IMP_H;
-  const u0 = index * IMP_W / W + 0.5 / W, u1 = (index + 1) * IMP_W / W - 0.5 / W;
-  // No tangents: the runtime derives the normal-map frame from UV derivatives, which follows any instance rotation.
-  const quad = (corners, n) => {
-    const ids = corners.map(([p, u, v]) => mesh.vertex(p, n, [u, v], [1, 1, 1], [Math.min(1, 0.4 * (p[1] / top) ** 2), 0, (0.37 * index) % 1, 0]));
-    mesh.tri(ids[0], ids[1], ids[2]); mesh.tri(ids[1], ids[3], ids[2]);
-  };
-  for (let k = 0; k < 3; k++) {
-    const a = k * Math.PI / 3, right = [Math.cos(a), 0, -Math.sin(a)], toward = [Math.sin(a), 0, Math.cos(a)];
-    const w = R * 1.04, y0 = -0.01 * top, y1 = 1.01 * top, v0 = k * IMP_H / Hh + 0.5 / Hh, v1 = (k + 1) * IMP_H / Hh - 0.5 / Hh;
-    quad([[[-right[0] * w, y0, -right[2] * w], u0, v1], [[right[0] * w, y0, right[2] * w], u1, v1],
-      [[-right[0] * w, y1, -right[2] * w], u0, v0], [[right[0] * w, y1, right[2] * w], u1, v0]], toward);
-  }
-  const w = R * 1.04, v0 = 3 * IMP_H / Hh + 0.5 / Hh, v1 = (3 * IMP_H + IMP_W) / Hh - 0.5 / Hh;
-  quad([[[-w, yc, w], u0, v1], [[w, yc, w], u1, v1], [[-w, yc, -w], u0, v0], [[w, yc, -w], u1, v0]], [0, 1, 0]);
-  return mesh;
-}
-
-function bakeImpostor(index, parts, R, top) {
-  for (let k = 0; k < 3; k++) {
-    const a = k * Math.PI / 3;
-    const view = { right: [Math.cos(a), 0, -Math.sin(a)], up: [0, 1, 0], toward: [Math.sin(a), 0, Math.cos(a)], centre: [0, top / 2, 0], width: 2 * R * 1.04, height: top * 1.02 };
-    const { albedo, normal } = bake(parts, view, IMP_W, IMP_H);
-    dilate(albedo, 16);
-    blit(impostorAlbedo, albedo, index * IMP_W, k * IMP_H); blit(impostorNormal, normal, index * IMP_W, k * IMP_H);
-  }
-  const view = { right: [1, 0, 0], up: [0, 0, -1], toward: [0, 1, 0], centre: [0, top / 2, 0], width: 2 * R * 1.04, height: 2 * R * 1.04 };
-  const { albedo, normal } = bake(parts, view, IMP_W, IMP_W);
-  dilate(albedo, 16);
-  blit(impostorAlbedo, albedo, index * IMP_W, 3 * IMP_H); blit(impostorNormal, normal, index * IMP_W, 3 * IMP_H);
-}
-
 const SEED = { birch: 11, linden: 23, maple: 31, oak: 47, rowan: 53, willow: 61, pine: 71, spruce: 83, lilac: 97, rose: 101, juniper: 107 };
 /** Two seeded variants per species (`tree_birch`, `tree_birch_v2`): neighbouring trees of one species differ. */
 const VARIANTS = 2, variantName = (base, v) => v ? `${base}_v${v + 1}` : base;
+const impostorAtlas = atlasSize(TREES.length * VARIANTS);
+const impostorAlbedo = new Img(impostorAtlas.width, impostorAtlas.height), impostorNormal = new Img(impostorAtlas.width, impostorAtlas.height);
+const copyMesh = mesh => Object.assign(new MeshBuilder(), mesh, { positions: [...mesh.positions] });
 for (const [i, name] of TREES.entries()) for (let v = 0; v < VARIANTS; v++) {
   // Mature spruce exposes its drooping scaffold; smaller cards avoid solid triangular shelves.
   const sp = name === 'spruce' ? { ...SPECIES[name], crownBase: v ? .20 : .15, card: .85, flatCards: .10 } : SPECIES[name];
   const seed = SEED[name] + 1000 * v, sk = skeleton(name, seed, sp), index = i * VARIANTS + v;
   const lod0 = meshTree(sk, sp, 0, seed), lod1 = meshTree(sk, sp, 1, seed);
   const { R, top } = radialExtent([lod0.bark, lod0.leaves]);
-  bakeImpostor(index, [{ mesh: lod0.bark, texture: bark.albedo, cutout: false }, { mesh: lod0.leaves, texture: foliage.atlas, cutout: true }], R, top);
-  const lod2 = impostorLod(index, R, top, sk.crown.yc);
+  // The impostor's views show the crown the runtime draws: the full LOD after its lidar crown fit (nature/crowns.ts),
+  // with the manifest's rounded height and radius as the runtime reads them.
+  const fitted = [{ mesh: copyMesh(lod0.bark), texture: bark.albedo, cutout: false }, { mesh: copyMesh(lod0.leaves), texture: foliage.atlas, cutout: true }];
+  const extent = await fitTree(fitted, name, +top.toFixed(2), +R.toFixed(2));
+  bakeTree(impostorAlbedo, impostorNormal, index, fitted, extent, top);
+  const lod2 = impostorQuad(MeshBuilder, index, extent, top);
   assets.push({ name: variantName(`tree_${name}`, v), kind: 'tree', species: name, height: top, radius: R, crownBase: sk.crown.y0,
     lods: [{ bark: lod0.bark, leaves: lod0.leaves }, { bark: lod1.bark, leaves: lod1.leaves }, { impostor: lod2 }] });
   log(`tree ${variantName(name, v)}: lod0 ${lod0.bark.triangles + lod0.leaves.triangles} tris, lod1 ${lod1.bark.triangles + lod1.leaves.triangles}, H ${top.toFixed(1)} R ${R.toFixed(1)}`);
@@ -156,27 +127,13 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 // ------------------------------------------------------------------ previews (local only, not shipped)
 await savePng(foliage.atlas, path.join(previews, 'foliage.png'));
 await savePng(impostorAlbedo, path.join(previews, 'impostor-albedo.png'));
-await savePng(impostorNormal, path.join(previews, 'impostor-normal.png'), { alpha: false });
+await savePng(impostorNormal, path.join(previews, 'impostor-normal-depth.png'));
 await savePng(bark.albedo, path.join(previews, 'bark.png'), { alpha: false });
 await savePng(bark.normal, path.join(previews, 'bark-normal.png'), { alpha: false });
 for (const [name, img] of Object.entries(props)) await savePng(img, path.join(previews, `${name}.png`), { alpha: name === 'chain' });
 
 // ------------------------------------------------------------------ KTX2
-async function ktx2(img, { srgb, normal = false, quality = 200 }) {
-  const raw = toRGBA8(img);
-  const key = createHash('sha256').update(raw).update(JSON.stringify({ srgb, normal, quality, w: img.w, h: img.h, v: 2 })).digest('hex');
-  const file = path.join(cacheDir, `${key}.ktx2`);
-  if (fs.existsSync(file)) return fs.readFileSync(file);
-  const started = performance.now();
-  const data = await encodeToKTX2(new Uint8Array(1), {
-    isUASTC: normal, generateMipmap: true, isPerceptual: srgb, isSetKTX2SRGBTransferFunc: srgb, isNormalMap: normal,
-    needSupercompression: normal, uastcLDRQualityLevel: 2, enableRDO: normal, rdoQualityLevel: 2, qualityLevel: quality, compressionLevel: 2,
-    imageDecoder: async () => ({ width: img.w, height: img.h, data: new Uint8Array(raw.buffer, raw.byteOffset, raw.length) }),
-  });
-  fs.writeFileSync(file, data);
-  log(`encoded ${img.w}x${img.h} ${normal ? 'UASTC' : 'ETC1S'} ${(data.length / 1024).toFixed(0)} KiB in ${((performance.now() - started) / 1000).toFixed(1)} s`);
-  return Buffer.from(data);
-}
+const ktx2 = (img, opts) => encodeKtx2(img, opts, cacheDir, log);
 
 // ------------------------------------------------------------------ glTF
 log('writing glTF');
@@ -194,7 +151,7 @@ const tex = {
   bark: await addTexture('nature_bark', bark.albedo, { srgb: true, quality: 200 }),
   barkNormal: await addTexture('nature_bark_normal', half(bark.normal),{ srgb: false, normal: true }),
   impostor: await addTexture('nature_impostor', impostorAlbedo, { srgb: true, quality: 230 }),
-  impostorNormal: await addTexture('nature_impostor_normal', half(impostorNormal),{ srgb: false, normal: true }),
+  impostorNormal: await addTexture('nature_impostor_normal', shippedNormal(impostorNormal), { srgb: false, normal: true }),
   wood: await addTexture('nature_wood', props.wood, { srgb: true }),
   woodNormal: await addTexture('nature_wood_normal', props.woodNormal, { srgb: false, normal: true }),
   granite: await addTexture('nature_granite', props.granite, { srgb: true }),
@@ -219,10 +176,15 @@ function primitive(mesh, material) {
     .setAttribute('POSITION', accessor(new Float32Array(mesh.positions), 'VEC3'))
     .setAttribute('NORMAL', accessor(new Float32Array(mesh.normals), 'VEC3'))
     .setAttribute('TEXCOORD_0', accessor(new Float32Array(mesh.uvs), 'VEC2'));
-  const colors = [];
-  for (let i = 0; i < mesh.colors.length; i += 3) colors.push(mesh.colors[i], mesh.colors[i + 1], mesh.colors[i + 2], 1);
-  prim.setAttribute('COLOR_0', accessor(u8(colors), 'VEC4', true));
-  prim.setAttribute('_WIND', accessor(u8(mesh.wind), 'VEC4', true));
+  if (mesh.impostor) {
+    // The impostor quad: its tree's bounding cylinder and atlas slot; the views carry the shading, and it does not sway.
+    prim.setAttribute('_IMPOSTOR', accessor(new Float32Array(mesh.impostor), 'VEC4'));
+  } else {
+    const colors = [];
+    for (let i = 0; i < mesh.colors.length; i += 3) colors.push(mesh.colors[i], mesh.colors[i + 1], mesh.colors[i + 2], 1);
+    prim.setAttribute('COLOR_0', accessor(u8(colors), 'VEC4', true));
+    prim.setAttribute('_WIND', accessor(u8(mesh.wind), 'VEC4', true));
+  }
   prim.setIndices(accessor(mesh.vertexCount > 65535 ? new Uint32Array(mesh.indices) : new Uint16Array(mesh.indices), 'SCALAR'));
   return prim;
 }

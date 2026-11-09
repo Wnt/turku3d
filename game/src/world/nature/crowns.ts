@@ -107,8 +107,8 @@ export function crownFactor(u: number, rho: number, shape: CrownShape, widening:
 
 /**
  * Reshape every LOD of a tree asset with the full LOD's crown fit, so the levels keep the relation lodblend calibrated
- * (alpha coverage, cross-fades) and the shadow proxies match. Impostor planes (one quad per side, no rows) widen by
- * the mean factor. Returns the asset's new
+ * (alpha coverage, cross-fades) and the shadow proxies match. The impostor stays: its views were baked from the
+ * fitted full LOD (scripts/nature/octahedral.mjs fitTree) and its quad only bounds them. Returns the asset's new
  * horizontal extent (m at scale 1), or null when it is not a fitted tree. Attributes shared between parts are
  * reshaped once.
  */
@@ -118,17 +118,16 @@ export function fitCrown(asset: NatureAsset, done = new WeakSet<object>()): numb
   if (!shape) return null;
   const widening = crownWidening(asset, shape);
   asset.crownBase = shape.base;
-  const mean = widening.reduce((a, b) => a + b, 0) / widening.length;
   let extent = 0;
   asset.lods.forEach((lod, level) => {
     const impostor = level === asset.lods.length - 1 && level > 0;
     for (const part of lod.parts) {
       const position = part.geometry.getAttribute('position') as THREE.BufferAttribute;
-      if (!done.has(position)) {
+      if (!impostor && !done.has(position)) {
         done.add(position);
         for (let i = 0; i < position.count; i++) {
           const x = position.getX(i), y = position.getY(i), z = position.getZ(i);
-          const k = impostor ? mean : crownFactor(y / asset.height, Math.hypot(x, z) / asset.radius, shape, widening);
+          const k = crownFactor(y / asset.height, Math.hypot(x, z) / asset.radius, shape, widening);
           position.setXYZ(i, x * k, y, z * k);
         }
         position.needsUpdate = true;

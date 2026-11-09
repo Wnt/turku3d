@@ -26,8 +26,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -57,8 +57,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -88,8 +88,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -119,8 +119,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -150,8 +150,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -181,8 +181,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -212,8 +212,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -243,8 +243,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -274,8 +274,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -305,8 +305,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -336,8 +336,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -367,8 +367,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -398,8 +398,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -429,8 +429,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -460,8 +460,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -491,8 +491,8 @@
      ]
     },
     {
-     "triangles": 8,
-     "vertices": 16,
+     "triangles": 2,
+     "vertices": 4,
      "draws": [
       "nature_impostor"
      ]
@@ -874,15 +874,15 @@
    "format": "UASTC+zstd"
   },
   "nature_impostor": {
-   "width": 2048,
-   "height": 1024,
-   "bytes": 539908,
+   "width": 4096,
+   "height": 4096,
+   "bytes": 3509680,
    "format": "ETC1S"
   },
   "nature_impostor_normal": {
-   "width": 1024,
-   "height": 512,
-   "bytes": 345370,
+   "width": 2048,
+   "height": 2048,
+   "bytes": 3227461,
    "format": "UASTC+zstd"
   },
   "nature_wood": {
@@ -917,7 +917,7 @@
   }
  },
  "glb": {
-  "bytes": 7813340,
-  "sha256": "6adbb070ca3ae55bd8aff4b2ba920967328ad0361e262378094d3cc951df797e"
+  "bytes": 13669816,
+  "sha256": "1ac92237fcb5c586d9a0012cd7e2d3d7e5d111a087f7d57b9811fdfa3f565982"
  }
 }
