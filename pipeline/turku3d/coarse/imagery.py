@@ -58,8 +58,8 @@ def blank(tile, path):
 class ImagerySources(Sources):
     """Existing full tiles keep their original source selection and input identity."""
 
-    def __init__(self, root=None):
-        super().__init__()
+    def __init__(self, root=None, **listing):
+        super().__init__(**listing)
         self.root = Path(root) if root is not None else C.work_root() / "coarse"
 
     def ortho_source(self, tile):

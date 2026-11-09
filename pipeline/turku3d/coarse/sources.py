@@ -240,8 +240,8 @@ class _Files:
 
     MAX_AGE = 1.0
 
-    def __init__(self, root: Path, pattern: str, parse=json.loads):
-        self.root, self.pattern, self.parse = root, pattern, parse
+    def __init__(self, root: Path, pattern: str, parse=json.loads, max_age: float = MAX_AGE):
+        self.root, self.pattern, self.parse, self.max_age = root, pattern, parse, max_age
         self.cache: dict[Path, tuple[tuple[int, int], dict]] = {}
         self.listing: list[tuple[Path, dict]] = []
         self.by_name: dict[str, list[tuple[Path, dict]]] = {}
@@ -255,7 +255,7 @@ class _Files:
 
     def items(self) -> list[tuple[Path, dict]]:
         with self.lock:
-            if time.monotonic() - self.listed_at < self.MAX_AGE:
+            if time.monotonic() - self.listed_at < self.max_age:
                 return self.listing
             out = []
             seen = set()
@@ -325,12 +325,16 @@ class _Files:
 
 
 class Sources:
-    """Disk-only lookups of a tile's inputs under one raw root."""
+    """Disk-only lookups of a tile's inputs under one raw root.
 
-    def __init__(self):
-        self.wfs = _Files(C.raw_dir("wfs"), "*/*.summary.json")
-        self.ortho = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.chunks.json")
-        self.mosaics = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.vrt", vrt_bounds)
+    A service lists the source summaries again at most every ``max_age`` seconds, so fetched units
+    appear. One build reads one listing (``max_age`` infinite, ``invalidate`` per build): a city's
+    35,000 WFS summaries take 6 s to stat again, about ten times per build otherwise."""
+
+    def __init__(self, max_age: float = _Files.MAX_AGE):
+        self.wfs = _Files(C.raw_dir("wfs"), "*/*.summary.json", max_age=max_age)
+        self.ortho = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.chunks.json", max_age=max_age)
+        self.mosaics = _Files(C.raw_dir("ortho") / ORTHO_SLUG, "*.vrt", vrt_bounds, max_age=max_age)
         self._listed: set[str] | None = None
         self._laz = None
 

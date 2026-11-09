@@ -9,6 +9,7 @@ are missing; --fetch fetches them first (hand-run builds)."""
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -58,10 +59,10 @@ def worker() -> int:
     results = os.fdopen(os.dup(1), "w")
     os.dup2(2, 1)
     sys.stdout = sys.stderr
-    sources = ImagerySources()
+    sources = ImagerySources(max_age=math.inf)
     for line in sys.stdin:
         job = json.loads(line)
-        sources.invalidate()
+        sources.invalidate()  # one source listing per build
         try:
             m = build(
                 job["tile"],
@@ -126,7 +127,7 @@ def main(argv=None) -> int:
     for attempt in range(4 if a.fetch else 1):
         try:
             manifest = build(a.tile, a.out or coarse_root() / a.tile, first_pass=a.first_pass,
-                             sources=ImagerySources())
+                             sources=ImagerySources(max_age=math.inf))
             break
         except MissingInputs as missing:
             # Inputs found only while building (neighbour ground at a seam): fetch them and retry.
