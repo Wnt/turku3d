@@ -152,6 +152,8 @@ NOT_PRODUCERS = {
     "fetch/": "network fetch and the raw registry; raw inputs enter by content through input keys",
     "nl/fetch.py": "network fetch; raw inputs enter by content through input keys",
     "migrations/": "the farm's migration chain applies and records them; a new migration must not rebuild tiles",
+    "coarse/span_lamps.py": "reached only through the span-lamps@N migration, whose version keys its output",
+    "coarse/square_lights.py": "reached only through the square-lights@N migration, whose version keys its output",
     "../../textures/library/facade-programs.json": "per building through facade_programs.program_hash",
     "../../textures/library/facade-appearance.json": "per building through facade_programs.program_hash",
 }
