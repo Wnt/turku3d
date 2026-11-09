@@ -248,7 +248,8 @@ export class DamageState {
   /** Worn by scrapes alone (no hit yet): still a damaged car to draw and send. */
   scraped = false;
   energy = 0; hits = 0; revision = 0; steerSide = 0;
-  constructor(readonly layout: DamageLayout) {}
+  readonly layout: DamageLayout;
+  constructor(layout: DamageLayout) { this.layout = layout; }
   get damaged() { return this.hits > 0 || this.scraped; }
   clear() {
     this.offsets.fill(0); this.bins.fill(0); this.wear.fill(0); this.partLoad.fill(0); this.parts.fill(0); this.partSide.fill(0);
