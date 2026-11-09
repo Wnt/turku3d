@@ -2,6 +2,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,9 +50,8 @@ test('brotli on request; gzip whole with its length', async () => {
   assert.ok(body.equals(big));
 });
 test('compressing a big file holds no other request, and concurrent requests share one compression', async () => {
-  // ~32 MB that brotli works on for a while (random words, not one repeated byte).
-  const words = Array.from({ length: 4096 }, (_, i) => `w${(i * 2654435761 % 1e9).toString(36)} `);
-  let text = ''; for (let i = 0; text.length < 32e6; i++) text += words[(i * 7919) % words.length] + (i % 13 ? '' : '\n');
+  // 16 MB of random hex: brotli works on it for ~0.5 s (repetitive text compresses at ~1 GB/s and proves nothing).
+  const text = crypto.randomBytes(8e6).toString('hex');
   fs.writeFileSync(path.join(dir, 'big.bin'), text);
   const t0 = performance.now();
   const big = [1, 2].map(() => fetch(url('/big.bin'), { headers: { 'accept-encoding': 'br' } }).then(async (r) => ({ at: performance.now() - t0, n: (await r.arrayBuffer()).byteLength })));
