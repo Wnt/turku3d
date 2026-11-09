@@ -154,21 +154,13 @@ async function assembleVisual(request) {
       }
       const material = prim.getMaterial()?.clone() ?? doc.createMaterial();
       prim.setMaterial(material);
-      if (request.firstPass) {
-        // First-pass geometry opens the boundary without waiting for texture codecs.
-        const key = e.material_key ?? '';
-        const color = key.includes('grass') ? [0.23, 0.32, 0.13, 1]
-          : key.includes('road') || key.includes('asphalt') ? [0.20, 0.21, 0.22, 1]
-            : e.layer === 'buildings' ? [0.65, 0.60, 0.53, 1] : [0.45, 0.44, 0.40, 1];
-        material.setBaseColorTexture(null).setNormalTexture(null).setOcclusionTexture(null)
-          .setMetallicRoughnessTexture(null).setBaseColorFactor(color).setMetallicFactor(0).setRoughnessFactor(0.9);
-      } else bindMaterial(material, prim, e);
+      bindMaterial(material, prim, e);
     }
     if (!mesh.listPrimitives().length) node.setMesh(null);
   }
   stage('binding');
   fs.mkdirSync(request.textureCache, { recursive:true });
-  if (request.level === 0 && !request.firstPass) {
+  if (request.level === 0) {
     // Drafts reuse the authored GPU-ready maps directly across tiles. Rebuilding
     // a per-tile atlas would decode and recompress the same source on arrival.
     request.facadeAtlas = request.draftTextures ? { pages:0, reused_sources:true }

@@ -917,9 +917,7 @@ def build(
         cache.metrics["archetype_package:" + building] = metrics["package"]["package"]
     t_package = time.perf_counter()
     with cache.measure("package"):
-        vis, stats = package_visual(
-            tile, layer_files, stage, out.parent, surface_library, first_pass=False
-        )
+        vis, stats = package_visual(tile, layer_files, stage, out.parent, surface_library)
     seconds["package"] = time.perf_counter() - t_package
     t_audit = time.perf_counter()
     from . import material_audit
