@@ -65,7 +65,7 @@ function atlasFixture(change = 0) {
 }
 
 test('linear UASTC maps encode with RDO lambda 1 before zstd; colour and ORM pages stay ETC1S', async () => {
-  assert.deepEqual(uastcLinear(18), ['--uastc_quality', '2', '--uastc_rdo_l', '1', '--zcmp', '18']);
+  assert.deepEqual(uastcLinear(18), ['--uastc_quality', '2', '--uastc_rdo_l', '1', '--uastc_rdo_d', '1024', '--zcmp', '18']);
   assert.deepEqual(uastcLinear(6).slice(-2), ['--zcmp', '6']);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-args-'));
   const encodes = [];
