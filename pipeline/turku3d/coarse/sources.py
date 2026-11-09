@@ -26,6 +26,7 @@ from contextvars import ContextVar
 from turku3d import cities
 import dataclasses
 import hashlib
+from itertools import batched, chain
 import json
 import math
 import re
@@ -265,8 +266,10 @@ class _Files:
             paths = sorted(self.root.glob(self.pattern))
             # Stat and parse on READERS threads: a cold index of a whole city (Espoo: ~5000 WFS summaries) read one
             # file at a time on a loaded pool kept every tile request waiting on this lock for 15 minutes.
-            rows = (_reader().map(self._read, paths, chunksize=32) if len(paths) > READERS
-                    else map(self._read, paths))
+            # ThreadPoolExecutor ignores chunksize: submit batches explicitly instead of
+            # allocating a Future and taking queue locks for each of 35,000 summaries.
+            rows = (chain.from_iterable(_reader().map(self._read_batch, batched(paths, 32)))
+                    if len(paths) > READERS else map(self._read, paths))
             for path, present, cached in rows:
                 if present:
                     seen.add(path)
@@ -284,6 +287,9 @@ class _Files:
                 self.queries.clear()
             self.listed_at = time.monotonic()
             return self.listing
+
+    def _read_batch(self, paths):
+        return [self._read(path) for path in paths]
 
     def _read(self, path):
         """(path, present, (signature, parsed) or None): the cached parse while size and mtime stay."""
