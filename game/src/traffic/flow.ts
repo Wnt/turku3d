@@ -164,6 +164,9 @@ export type MirrorCar = [string, string, string, number, number, number, number,
 /** An owner's cars on its tiles at flow tick `tick` (TrafficFlow.snapshot), per tile; a receiver replaces its cars
  *  there with them (TrafficFlow.mirror). The room relays each receiver only the tiles it holds. */
 export interface TrafficSnapshot { tick: number; tiles: Record<string, MirrorCar[]> }
+/** TrafficFlow.probe. */
+export interface TrafficProbe { tick: number; live: boolean; remote: string[]; tiles: Record<string, [string, string, number, number][]>;
+  stats: Record<string, number> }
 /** The state of a newly admitted car (spawn), left out of a MirrorCar's `rest`. */
 const FRESH = { reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0,
   rerouted: 0, rock: -1, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0, changeCooldown: 0,
@@ -307,7 +310,8 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0,
+    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -397,6 +401,15 @@ export class TrafficFlow {
   setRemote(tiles: Iterable<string>) { this.remote = new Set(tiles); }
   private remote = new Set<string>();
 
+  /** Developer probe: the flow tick, the tiles running remote (mirrored) and every car per tile of its lane as
+   *  [key, lane id, s, speed] (multiplayer traffic checks compare clients with it; game/scripts or bots read it through
+   *  window.__game.physics.trafficProbe()). */
+  probe(): TrafficProbe {
+    const tiles: Record<string, [string, string, number, number][]> = {};
+    for (const c of this.cars.values()) (tiles[c.lane.tile] ??= []).push([c.key, c.lane.id, round(c.s, 100), round(c.speed, 100)]);
+    return { tick: this.tick, live: this.live, remote: [...this.remote].sort(cmp), tiles, stats: { ...this.stats } };
+  }
+
   /** The cars on `tiles` as their owner sends them to the other clients holding those tiles (claimed ones left out). */
   snapshot(tiles: Iterable<string>): TrafficSnapshot {
     const out: Record<string, MirrorCar[]> = {};
@@ -427,7 +440,7 @@ export class TrafficFlow {
       if (!tiles.has(car.lane.tile) || (car.tileTick > snapshot.tick && !incoming.has(car.key))) continue;
       this.unoccupy(car); this.cars.delete(car.key); replaced.set(car.key, car);
     }
-    let taken = 0;
+    let taken = 0, kept = 0;
     for (const saved of incoming.values()) {
       if (this.suppressed.has(saved.key) || this.cars.has(saved.key)) continue;
       const car = this.loadCar(saved);
@@ -436,6 +449,12 @@ export class TrafficFlow {
       if (!car.uturn && car.s < end) car.s = Math.min(end - 0.05, car.s + car.speed * ticks * FLOW_STEP);
       // The pose between now and the next step blends from where this client last drew the car.
       const before = replaced.get(car.key);
+      // How far the owner's car is from this client's (the correction a viewer sees), by size: < 0.25, 1, 3 m, more.
+      if (before) {
+        kept++;
+        if (before.lane !== car.lane) this.stats.mirrorLane++;
+        else { const d = Math.abs(before.s - car.s); this.stats[d < 0.25 ? 'mirrorShift0' : d < 1 ? 'mirrorShift1' : d < 3 ? 'mirrorShift2' : 'mirrorShift3']++; }
+      } else this.stats.mirrorAdded++;
       car.previous = before && before.route === car.route ? { ...before.previous }
         : { ...car.previous, s: Math.max(0, car.s - car.speed * FLOW_STEP) };
       sampleFlowPose(car, 0, () => 0, car.pose);
@@ -443,6 +462,7 @@ export class TrafficFlow {
       taken++;
     }
     this.stats.mirrored += taken;
+    this.stats.mirrorRemoved += replaced.size - kept;
     return taken;
   }
 
@@ -551,7 +571,8 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0,
+    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0 };
   }
 
   reset(t: number) {

@@ -162,7 +162,9 @@ export type ToWorker =
   | { type: 'step'; seq: number; dt: number; character: CharacterInput; vehicle: VehicleInput | null }
   | { type: 'cameraCast'; id: number; origin: V3; dir: V3; distance: number }
   | { type: 'raycast'; id: number; rays: { origin: V3; dir: V3; maxToi: number; filter: RayFilter }[] }
-  | { type: 'stats'; id: number };
+  | { type: 'stats'; id: number }
+  /** Developer probe of the ambient traffic flow (TrafficFlow.probe), answered by `trafficProbeResult`. */
+  | { type: 'trafficProbe'; id: number };
 
 export type FromWorker =
   | { type: 'ready'; rapier: string; colReader: string; wasmBytes?: number }
@@ -188,5 +190,6 @@ export type FromWorker =
   | { type: 'cameraCastResult'; id: number; distance: number }
   | { type: 'raycastResult'; id: number; hits: (RayHit | null)[] }
   | { type: 'statsResult'; id: number; tiles: TileStats[]; tris: number; colBytes: number; estWasmBytes: number }
+  | { type: 'trafficProbeResult'; id: number; probe: import('../traffic/flow').TrafficProbe | null }
   | { type: 'stepError'; seq: number; error: string }
   | { type: 'error'; error: string };

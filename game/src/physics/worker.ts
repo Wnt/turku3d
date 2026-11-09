@@ -206,5 +206,8 @@ function handle(msg: ToWorker) {
     case 'stats':
       post({ type: 'statsResult', id: msg.id, tiles: pw.tileStats(), ...pw.totals() });
       break;
+    case 'trafficProbe':
+      post({ type: 'trafficProbeResult', id: msg.id, probe: pw.traffic ? pw.traffic.flow.probe() : null });
+      break;
   }
 }

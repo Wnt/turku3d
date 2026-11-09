@@ -3,7 +3,7 @@ import { ActorCache } from './actorExchange';
 import type { DebrisSpec, DebrisState, PoleState, VehicleState } from './protocol';
 import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
-import type { TrafficSnapshot } from '../traffic/flow';
+import type { TrafficProbe, TrafficSnapshot } from '../traffic/flow';
 import { loading, loadBytes } from '../core/loading';
 import { streamTrace } from '../telemetry/streamTrace';
 import { CharacterInterpolation, RemoteCarInterpolation, VehicleInterpolation } from '../actors/interpolation';
@@ -116,7 +116,7 @@ export class PhysicsClient {
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
         case 'trafficSnapshot': this.onTrafficSnapshot?.(m.snapshot); break;
-        case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
+        case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': case 'trafficProbeResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'stepError':
           this.onError(`step ${m.seq}: ${m.error}`);
           break;
@@ -257,6 +257,15 @@ export class PhysicsClient {
       });
     });
   }
+  /** The ambient traffic flow's cars per tile (developer probe; multiplayer traffic checks compare clients with it). */
+  trafficProbe(): Promise<TrafficProbe | null> {
+    const id = this.nextId++;
+    return new Promise((resolve) => {
+      this.pending.set(id, (m) => resolve((m as Extract<FromWorker, { type: 'trafficProbeResult' }>).probe));
+      this.send({ type: 'trafficProbe', id });
+    });
+  }
+
   stats(): Promise<Extract<FromWorker, { type: 'statsResult' }>> {
     const id = this.nextId++;
     return new Promise((resolve) => {
