@@ -322,7 +322,11 @@ export class CoarseTiles {
       const ground = startupDraftTiles(this.startup.points, this.startup.radius), view = this.startup.view;
       if (!view) return ground;
       const length = Math.hypot(view.dx, view.dz) || 1;
-      return [...new Set([...ground, ...viewWedgeTiles(view.x, view.z, view.dx / length, view.dz / length, START_VIEW_M, START_VIEW_HALF)])];
+      // The play window around the start the view looks from loads with it: play there wants its whole window at
+      // once, and a start a few metres from a tile edge entered with three of its window tiles as previews, full
+      // after ~21 s on the M1 Air (loadspeed 2026-11-09, city.lab default spawn).
+      return [...new Set([...ground, ...wantedTiles(view.x, view.z, this.host.detailRadius),
+        ...viewWedgeTiles(view.x, view.z, view.dx / length, view.dz / length, START_VIEW_M, START_VIEW_HALF)])];
     }
     return [...new Set([{ x, z }, ...this.retainedStarts].flatMap(p => wantedTiles(p.x, p.z, this.host.detailRadius)))];
   }

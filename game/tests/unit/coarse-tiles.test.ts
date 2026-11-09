@@ -1053,8 +1053,20 @@ test('startup loads the start view wedge within 300 m with its ground', () => {
   const viewed = (coarse as unknown as { wantedStarts(x: number, z: number): string[] }).wantedStarts(125, 125);
   expect(viewed).toContain('t0_1_0'); // ahead, 125 m east
   expect(viewed).not.toContain('t0_2_0'); // 375 m: beyond 300 m
-  expect(viewed).not.toContain('t0_-1_0'); // behind
+  expect(viewed).not.toContain('t0_-2_0'); // behind, beyond the play window
   expect(coarse.progressAt(125, 125).total).toBeGreaterThan(ground);
+});
+
+test('startup loads the play window around the start its view looks from, so play never enters on previews', () => {
+  const coarse = new CoarseTiles({ scene: new THREE.Scene(), manifest: { collision: {} } as unknown as Manifest,
+    renderer: {} as THREE.WebGPURenderer, pageUrl: 'http://localhost/', unloadCollision: () => {}, refreshCollision: () => {},
+    checkCollision: async () => {}, loadModel: async () => new THREE.Group(),
+    fetch: (async () => new Response(null, { status: 202 })) as unknown as typeof fetch });
+  // 4 m inside the tile north of an edge, facing away from the row behind it (the city.lab default spawn).
+  coarse.preload([{ x: 172, z: 254 }], 80, false, { x: 172, z: 254, dx: 0, dz: -1 });
+  const wanted = (coarse as unknown as { wantedStarts(x: number, z: number): string[] }).wantedStarts(172, 254);
+  for (const id of ['t0_-1_0', 't0_0_0', 't0_1_0', 't0_-1_1', 't0_0_1', 't0_1_1', 't0_-1_2', 't0_0_2', 't0_1_2']) expect(wanted).toContain(id);
+  expect(wanted).not.toContain('t0_0_3');
 });
 
 test('the tile status shows counts in the steady state and names what waits or fails', async () => {
