@@ -204,6 +204,16 @@ def apply_step(root: Path, meta: dict, tile: str, step, displaced: Path) -> dict
         try:
             core.materialize(product, staging / tile)
             checked = Farm.validate(staging, tile, product.manifest)
+            # Publish new immutable shared dependencies before exposing the tile
+            # manifest. Renaming only staging/tile leaves staging/shared behind.
+            for relative in core.references(product):
+                if relative.startswith('../shared/'):
+                    target = output / tile / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        os.link(staging / tile / relative, target)
+                    except FileExistsError:
+                        pass
             displaced.mkdir(parents=True, exist_ok=True)
             # Displaced tile manifests still resolve ../shared themselves;
             # preserve those immutable payloads as well as the tile directory.
