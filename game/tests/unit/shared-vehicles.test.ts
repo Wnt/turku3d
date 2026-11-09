@@ -20,7 +20,7 @@ test('shared snapshots preserve flips, chassis height and velocity; time/noise d
   expect(vehicleFingerprint({ ...p, E: p.E + .1 })).not.toBe(vehicleFingerprint(p));
 });
 
-test('remote kinematic sweep cannot launch a local car, but bounded server impulse changes its momentum', () => {
+test('a remote car proxy placed past a local car cannot launch it; a bounded server impulse moves it after its hold', () => {
   const pw = new PhysicsWorld(R);
   pw.spawnVehicle({ x: 0, y: 2, z: 0 }, 0);
   pw.setRemotes([{ id: 'remote', pos: { x: -10, y: 2, z: 0 }, yaw: -Math.PI / 2, mode: 'truck' }]);
@@ -29,7 +29,11 @@ test('remote kinematic sweep cannot launch a local car, but bounded server impul
   pw.world.step();
   expect(pw.vehicleState()!.linvel.x).toBeCloseTo(0, 5);
   pw.vehicleImpulse('player', { x: 1e8, y: 1e8, z: 0 });
-  expect(pw.vehicleState()!.linvel.x).toBeCloseTo(8);
+  // Held IMPULSE_HOLD_S (9 substeps) in case this client's own solver has the same contact, then applied once.
+  pw.fixedStep(null, null);
+  expect(pw.vehicleState()!.linvel.x).toBeCloseTo(0, 5);
+  for (let k = 0; k < 9; k++) pw.fixedStep(null, null);
+  expect(pw.vehicleState()!.linvel.x).toBeCloseTo(8, 0);
   expect(pw.vehicleState()!.linvel.y).toBeLessThan(0);
   expect(pw.vehicleState()!.impact?.impulse).toBeCloseTo(9600);
   pw.world.free();
@@ -37,7 +41,7 @@ test('remote kinematic sweep cannot launch a local car, but bounded server impul
 
 test('a remote car proxy moves at its owner\'s speed: a pose catching up 1.1 m does not launch a car it touches', () => {
   const pw = new PhysicsWorld(R);
-  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(0xffff0000 | 0xffff));
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(((GROUP.STATIC_SOLID & 0xffff) << 16) | 0xffff));
   pw.spawnVehicle({ x: 0, y: 1, z: 0 }, 0, { id: 'me', kind: 'car' });
   pw.driveVehicle('me');
   const idle = { vx: 0, vz: 0, jump: false }, push = { throttle: 0.3, steer: 0, brake: 0, handbrake: false };
@@ -47,10 +51,9 @@ test('a remote car proxy moves at its owner\'s speed: a pose catching up 1.1 m d
   let x = me().pos.x + 4.35;
   const resting = () => [{ id: 'van', pos: { x, y: me().pos.y, z: me().pos.z }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
   for (let k = 0; k < 60; k++) { pw.setRemotes(resting()); pw.fixedStep(idle, push); }
-  // Its pose catches up 1.1 m into us at once (verify-all r2: 1.6 -> 73.9 m/s in one step before the sweep limit). Too far
-  // to sweep at its speed within a quarter second: placed there, and the overlap is pushed out gently.
+  // Its pose catches up 1.1 m into us at once (verify-all r2: 1.6 -> 73.9 m/s in one step before the sweep limit). The
+  // proxy follows at most at its owner's speed plus slack (or is placed, and the overlap pushed out gently).
   x -= 1.1; pw.setRemotes(resting());
-  expect((pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('van')!.body.translation().x).toBeCloseTo(x, 5);
   let fastest = 0;
   for (let k = 0; k < 60; k++) { pw.fixedStep(idle, push); fastest = Math.max(fastest, me().speed); }
   expect(fastest).toBeLessThan(4);
@@ -76,7 +79,7 @@ test('a remote car proxy moves at its owner\'s speed: a pose catching up 1.1 m d
   pw.world.free();
 });
 
-test('a local car cannot drive through a remote car: the proxy blocks the chassis, wheel rays ignore it', async () => {
+test('a local car cannot drive through a remote car: the proxy stops the chassis by its mass, wheel rays ignore it', async () => {
   const fs = await import('node:fs'), path = await import('node:path');
   const dir = path.resolve(__dirname, '../../public/dev-tiles');
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
@@ -91,12 +94,71 @@ test('a local car cannot drive through a remote car: the proxy blocks the chassi
   for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
   // A remote car's proxy sits at its chassis centre (net/remotes.ts adds VEHICLE_POSE_HEIGHT to the network H).
   const remote = [{ id: 'remote', pos: { x: 42, y: pw.vehicleState()!.pos.y, z: 100 }, yaw: -Math.PI / 2, mode: 'car' as const }];
-  for (let k = 0; k < 180; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false }); }
+  const proxy = () => (pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('remote')!.body.translation();
+  let closest = Infinity;
+  for (let k = 0; k < 180; k++) {
+    pw.setRemotes(remote); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false });
+    closest = Math.min(closest, proxy().x - pw.vehicleState()!.pos.x);
+  }
   const car = pw.vehicleState()!;
-  // Stopped short of it (chassis half lengths 2.1 + 2.1), not through it, and still on its wheels on the ground.
-  expect(car.pos.x).toBeLessThan(42 - 3.5);
+  // Never through it (chassis half lengths 2.1 + 2.1, less Rapier's contact skin), still on its wheels on the ground.
+  expect(closest).toBeGreaterThan(4.2 - 0.15);
   expect(car.pos.y).toBeLessThan(3.2);
   expect(car.wheels.filter(w => w.contact).length).toBe(4);
+  // Backed off, the proxy returns to its owner's pose once the contact's soft hold is over (REMOTE_SERVO.softS).
+  for (let k = 0; k < 40; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: -1, steer: 0, brake: 0, handbrake: false }); }
+  for (let k = 0; k < 90; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 1, handbrake: true }); }
+  expect(Math.abs(proxy().x - 42)).toBeLessThan(0.3);
+  pw.world.free();
+});
+
+/** Flat ground (static membership: remote proxies never touch it) and a local car 'me' at x 0 facing +x. */
+function flatWorld() {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(300, 1, 300).setTranslation(0, -1, 0).setCollisionGroups(((GROUP.STATIC_SOLID & 0xffff) << 16) | 0xffff));
+  pw.spawnVehicle({ x: 0, y: 1, z: 0 }, 0, { id: 'me', kind: 'car' });
+  pw.driveVehicle('me');
+  for (let k = 0; k < 60; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+  return pw;
+}
+
+test('a remote car has its mass: a local car hitting a resting one of the same class keeps about half its speed', () => {
+  // Jonni on city.lab 2026-11-09: "the bots feel rock solid" (a kinematic proxy stopped the car like a wall).
+  const pw = flatWorld(), me = () => pw.vehicleState()!;
+  const remote = [{ id: 'bot', pos: { x: 40, y: me().pos.y, z: 0 }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
+  const proxy = () => (pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('bot')!.body.translation();
+  let before = 0, hit = -1;
+  for (let k = 0; k < 600 && hit < 0; k++) {
+    pw.setRemotes(remote); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false });
+    if (proxy().x - me().pos.x < 4.25) hit = k; else before = me().linvel.x;
+  }
+  expect(hit).toBeGreaterThan(0);
+  expect(before).toBeGreaterThan(6);
+  for (let k = 0; k < 6; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: false }); }
+  // Momentum split by the two masses (restitution 0.05): neither a wall's dead stop nor a pass-through.
+  expect(me().linvel.x).toBeGreaterThan(before * 0.25);
+  expect(me().linvel.x).toBeLessThan(before * 0.75);
+  expect(proxy().x).toBeGreaterThan(40.3);
+  pw.world.free();
+});
+
+test('a server impulse for a contact this client solved is dropped; one for a contact it never saw moves the car', () => {
+  const pw = flatWorld(), me = () => pw.vehicleState()!;
+  // A resting remote car just ahead (chassis half lengths 2.1 + 2.1); ours rolls into it.
+  const remote = [{ id: 'bot', pos: { x: me().pos.x + 4.4, y: me().pos.y, z: 0 }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
+  const touched = () => (pw as unknown as { remoteTouch: Map<string, number> }).remoteTouch.has('me');
+  for (let k = 0; k < 120 && !touched(); k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 0.4, steer: 0, brake: 0, handbrake: false }); }
+  expect(touched()).toBe(true);
+  // The server's impulse for this contact arrives now and must not push the car a second time.
+  pw.vehicleImpulse('me', { x: -12000, y: 0, z: 0 });
+  for (let k = 0; k < 20; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true }); }
+  expect(me().linvel.x).toBeGreaterThan(-1);
+  // Far from every remote car for over IMPULSE_DEDUP_S: the server's impulse is this client's only news of a hit.
+  pw.setRemotes([]);
+  for (let k = 0; k < 60; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+  pw.vehicleImpulse('me', { x: -6000, y: 0, z: 0 });
+  for (let k = 0; k < 10; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: false });
+  expect(me().linvel.x).toBeLessThan(-2);
   pw.world.free();
 });
 

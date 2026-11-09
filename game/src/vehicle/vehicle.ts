@@ -240,8 +240,8 @@ export class Vehicle {
   /** Sums each solver step's contact velocity change (beyond gravity, chassis frame) into one crash and applies it
    *  when the contact ends. Rapier reports no contact impulses against trimesh walls (afterStep), so the chassis
    *  momentum is the measure here too; its angular change locates the contact on the box. In multiplayer a remote
-   *  car's kinematic proxy is such a contact as well, so the server's contact impulse (world.ts vehicleImpulse) adds
-   *  no second hit: each owner measures its own car. */
+   *  car's proxy is such a contact as well, so the server's contact impulse (world.ts vehicleImpulse) adds no second
+   *  hit: each owner measures its own car. */
   private trackCrash(dt: number) {
     const before = this.damageBefore;
     this.damageBefore = null;

@@ -47,6 +47,17 @@ const REMOTE_SWEEP = { scale: 1.25, slack: 1 } as const;
  *  resting car's late pose or a reset leaves no invisible proxy behind its drawn car; a placed proxy overlapping a
  *  local car by up to 1.8 m pushes it out at under 3 m/s (Rapier's depenetration). */
 const REMOTE_PLACE_S = 0.25, REMOTE_PLACE_MIN_M = 0.5;
+/** A remote car's proxy is a dynamic body of its class mass, without gravity, servoed every substep to the owner's
+ *  newest pose (advanced along the owner's velocity): its velocity moves `follow` of the way per substep to the pose
+ *  velocity plus the remaining offset over `tau` seconds. A kinematic proxy was a wall of infinite mass: the local car
+ *  bounced off a remote car as off a building (Jonni, city.lab 2026-11-09, "the bots feel rock solid"). After a contact
+ *  with a local car or the character the servo goes `soft` for `softS` seconds (a weak pull over `softTau`), so the hit
+ *  exchanges momentum by the two masses; the owner's pose then shows how its own simulation took the hit. */
+const REMOTE_SERVO = { follow: 0.5, tau: 0.08, soft: 0.04, softTau: 0.5, softS: 0.6, extrapolateS: 0.2 } as const;
+/** The server's contact impulse (PROTOCOL.md vehicle_impulse) waits IMPULSE_HOLD_S and is dropped when the car touched
+ *  a remote proxy from IMPULSE_DEDUP_S before its arrival until then: this client already exchanged that momentum in
+ *  its own solver. It still moves a car the remote proxy never reached here (latency: a car hit from behind). */
+const IMPULSE_HOLD_S = 0.15, IMPULSE_DEDUP_S = 0.5;
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 /** One solver step of `world`. Rapier 0.21's World.step() also wraps, after every step, what the engine created on
@@ -102,8 +113,14 @@ export class PhysicsWorld {
   private drivenId: string | null = 'player';
   private nearbyVehicles = new Set<string>();
   private remotes = new Map<string, { body: RAPIER_NS.RigidBody; mode: RemoteBody['mode']; pos: V3; rot: Quat; vx: number; vz: number; at: number;
-    /** Where the proxy is being swept to, and how fast it may get there (m/s; REMOTE_SWEEP). */
-    target: V3 | null; maxSpeed: number }>();
+    /** Walkers: where the proxy is being swept to, and how fast it may get there (m/s; REMOTE_SWEEP). Cars: the
+     *  servo's target pose (REMOTE_SERVO), set at `targetTick` and moving at `vel`. */
+    target: V3 | null; maxSpeed: number; vel: V3; targetTick: number;
+    /** Cars: the servo stays soft until this tick (a contact with a local car or the character). */
+    softUntil: number }>();
+  /** Server contact impulses waiting for IMPULSE_HOLD_S, and the tick each local car last touched a remote car proxy. */
+  private pendingImpulses: { id: string; impulse: V3; arrived: number }[] = [];
+  private remoteTouch = new Map<string, number>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
   private brokenPoles = new Set<string>();
   private poleEvents: RAPIER_NS.EventQueue;
@@ -600,8 +617,25 @@ export class PhysicsWorld {
   }
 
   vehicleImpulse(id: string, impulse: V3) {
+    if (!this.vehicles.has(id) || ![impulse.x, impulse.y, impulse.z].every(Number.isFinite)) return;
+    this.pendingImpulses.push({ id, impulse, arrived: this.tick });
+  }
+
+  /** Applies the held server impulses whose hold is over, unless this client's solver already had that contact. */
+  private applyImpulses() {
+    if (!this.pendingImpulses.length) return;
+    const hold = Math.round(IMPULSE_HOLD_S / DT), window = Math.round(IMPULSE_DEDUP_S / DT);
+    this.pendingImpulses = this.pendingImpulses.filter(p => {
+      if (this.tick - p.arrived < hold) return true;
+      const touched = this.remoteTouch.get(p.id);
+      if (touched === undefined || touched < p.arrived - window) this.applyVehicleImpulse(p.id, p.impulse);
+      return false;
+    });
+  }
+
+  private applyVehicleImpulse(id: string, impulse: V3) {
     const vehicle = this.vehicles.get(id);
-    if (!vehicle || ![impulse.x, impulse.y, impulse.z].every(Number.isFinite)) return;
+    if (!vehicle) return;
     const size = Math.hypot(impulse.x, impulse.z);
     const scale = size ? Math.min(1, 12000 / size, vehicle.body.mass() * 8 / size) : 0;
     vehicle.body.applyImpulse({ x: impulse.x * scale, y: 0, z: impulse.z * scale }, true);
@@ -621,9 +655,10 @@ export class PhysicsWorld {
   /** This client owns vehicle `id` (a shared record it holds): other players' cars damage it here too. */
   ownVehicleDamage(id: string) { this.vehicles.get(id)?.ownDamage(); }
 
-  /** Remote proxies: a remote walker blocks walking; a remote car (its own membership, REMOTE_VEHICLE) also blocks
-   *  the local chassis like a moving wall, so cars never pass through each other between the server's contact impulses
-   *  (which push the other owner's car). Wheel rays and ground queries do not see remote cars. */
+  /** Remote proxies: a remote walker blocks walking (kinematic); a remote car (its own membership, REMOTE_VEHICLE) is a
+   *  dynamic body of its class mass that the local chassis and character collide with (REMOTE_SERVO), so cars never
+   *  pass through each other and a hit moves both by their masses. Wheel rays and ground queries do not see remote
+   *  cars, and remote cars do not touch the ground, each other, traffic or debris. */
   setRemotes(bodies: RemoteBody[]) {
     const incoming = new Set(bodies.map(b => b.id));
     for (const [id, remote] of this.remotes) if (!incoming.has(id)) {
@@ -635,14 +670,16 @@ export class PhysicsWorld {
       if (remote?.mode !== p.mode) {
         if (remote) this.world.removeRigidBody(remote.body);
         const height = remoteColliderHeight(p.mode);
-        const body = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased()
-          .setTranslation(p.pos.x, p.pos.y + height, p.pos.z));
-        const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt;
-        const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z)
+        const half = p.mode === 'foot' ? null : VEHICLES[p.mode].halfExt, mass = p.mode === 'foot' ? 0 : VEHICLES[p.mode].mass;
+        const body = this.world.createRigidBody((half ? this.R.RigidBodyDesc.dynamic().setGravityScale(0).setCanSleep(false).setCcdEnabled(true)
+          : this.R.RigidBodyDesc.kinematicPositionBased()).setTranslation(p.pos.x, p.pos.y + height, p.pos.z));
+        if (half && p.rot) body.setRotation(p.rot, false);
+        const desc = half ? this.R.ColliderDesc.cuboid(half.x, half.y, half.z).setMass(mass).setRestitution(0.05)
           : this.R.ColliderDesc.capsule(CHARACTER.halfHeight, CHARACTER.radius);
         desc.setCollisionGroups(half ? groups(REMOTE_VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE) : groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
-        remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now(), target: null, maxSpeed: 0 };
+        remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now(), target: null,
+          maxSpeed: 0, vel: { x: 0, y: 0, z: 0 }, targetTick: this.tick, softUntil: 0 };
         this.remotes.set(p.id, remote);
       }
       // Velocity from consecutive updates: ambient drivers predict where a remote player is going.
@@ -659,6 +696,26 @@ export class PhysicsWorld {
       // A jump (teleport, respawn, a late snapshot) is placed, never swept: a kinematic sweep through a local car would
       // launch it. Ordinary motion sweeps, so a remote car pushes and blocks like a moving wall.
       const at = remote.body.translation();
+      if (remote.mode !== 'foot') {
+        // A car is servoed in fixedStep (driveRemotes); only a jump (teleport, respawn, a late snapshot) is placed.
+        // Without a reported velocity (tools, legacy peers): the pose's own motion per simulation tick, at any speed.
+        const reported = !!p.vel && [p.vel.x, p.vel.y, p.vel.z].every(Number.isFinite);
+        const prev = remote.target, ticks = this.tick - remote.targetTick;
+        const vel = reported ? p.vel! : prev && ticks > 0 ? { x: (p.pos.x - prev.x) / (ticks * DT), y: (y - prev.y) / (ticks * DT),
+          z: (p.pos.z - prev.z) / (ticks * DT) } : remote.vel;
+        if (!reported && prev && ticks === 0) continue; // a second pose within one tick: no new information for the servo
+        remote.target = { x: p.pos.x, y, z: p.pos.z }; remote.vel = { ...vel }; remote.targetTick = this.tick;
+        // As fast as a walker's sweep (REMOTE_SWEEP), so a late pose never flings the proxy into a car; a gap it could not
+        // close within REMOTE_PLACE_S is placed, except while a contact holds it softly (then only a real jump).
+        remote.maxSpeed = reported ? Math.hypot(vel.x, vel.y, vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
+        const placeBeyond = this.tick < remote.softUntil ? 2 * REMOTE_JUMP_M
+          : Math.min(REMOTE_JUMP_M, Math.max(REMOTE_PLACE_MIN_M, remote.maxSpeed * REMOTE_PLACE_S));
+        if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > placeBeyond) {
+          remote.body.setTranslation(remote.target, true); remote.body.setRotation(remote.rot, true);
+          remote.body.setLinvel(vel, true); remote.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        }
+        continue;
+      }
       const maxSpeed = p.vel ? Math.hypot(p.vel.x, p.vel.y, p.vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
       const placeBeyond = Math.min(REMOTE_JUMP_M, Math.max(REMOTE_PLACE_MIN_M, maxSpeed * REMOTE_PLACE_S));
       if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > placeBeyond) {
@@ -673,16 +730,55 @@ export class PhysicsWorld {
     }
   }
 
-  /** This substep's kinematic target of each remote proxy still on its way (REMOTE_SWEEP). */
+  /** This substep's kinematic target of each remote walker still on its way (REMOTE_SWEEP), and each remote car's
+   *  servo velocity towards its owner's pose (REMOTE_SERVO). */
   private sweepRemotes() {
     for (const remote of this.remotes.values()) {
       const target = remote.target;
       if (!target) continue;
+      if (remote.mode !== 'foot') { this.servoRemote(remote); continue; }
       const at = remote.body.translation(), dx = target.x - at.x, dy = target.y - at.y, dz = target.z - at.z;
       const d = Math.hypot(dx, dy, dz), max = remote.maxSpeed * DT;
       if (d <= max) { remote.body.setNextKinematicTranslation(target); remote.target = null; continue; }
       const k = max / d;
       remote.body.setNextKinematicTranslation({ x: at.x + dx * k, y: at.y + dy * k, z: at.z + dz * k });
+    }
+  }
+
+  private servoRemote(remote: { body: RAPIER_NS.RigidBody; rot: Quat; target: V3 | null; vel: V3; targetTick: number; softUntil: number; maxSpeed: number }) {
+    const b = remote.body, t = remote.target!, v = remote.vel, at = b.translation();
+    const soft = this.tick < remote.softUntil, k = soft ? REMOTE_SERVO.soft : REMOTE_SERVO.follow;
+    const tau = soft ? REMOTE_SERVO.softTau : REMOTE_SERVO.tau;
+    const age = Math.min(REMOTE_SERVO.extrapolateS, (this.tick - remote.targetTick) * DT);
+    const want = { x: v.x + (t.x + v.x * age - at.x) / tau, y: v.y + (t.y + v.y * age - at.y) / tau, z: v.z + (t.z + v.z * age - at.z) / tau };
+    const fast = Math.hypot(want.x, want.y, want.z), cap = fast > remote.maxSpeed ? remote.maxSpeed / fast : 1;
+    const lv = b.linvel();
+    b.setLinvel({ x: lv.x + (want.x * cap - lv.x) * k, y: lv.y + (want.y * cap - lv.y) * k, z: lv.z + (want.z * cap - lv.z) * k }, true);
+    // Rotation error q_target * conj(q) as an axis-angle rate over tau, the shorter way round.
+    const q = b.rotation(), r = remote.rot;
+    let ex = r.w * -q.x + r.x * q.w + r.y * -q.z - r.z * -q.y, ey = r.w * -q.y - r.x * -q.z + r.y * q.w + r.z * -q.x;
+    let ez = r.w * -q.z + r.x * -q.y - r.y * -q.x + r.z * q.w, ew = r.w * q.w - r.x * -q.x - r.y * -q.y - r.z * -q.z;
+    if (ew < 0) { ex = -ex; ey = -ey; ez = -ez; ew = -ew; }
+    const sin = Math.hypot(ex, ey, ez), angle = 2 * Math.atan2(sin, ew), rate = sin > 1e-6 ? angle / sin / tau : 0;
+    const w = b.angvel();
+    b.setAngvel({ x: w.x + (ex * rate - w.x) * k, y: w.y + (ey * rate - w.y) * k, z: w.z + (ez * rate - w.z) * k }, true);
+  }
+
+  /** After the solve: each remote car proxy in contact with a local car or the character goes soft (REMOTE_SERVO), and
+   *  the local car remembers the tick (applyImpulses drops the server's impulse for a contact this solver had). */
+  private noteRemoteContacts(carIds: Map<number, string>) {
+    for (const remote of this.remotes.values()) {
+      if (remote.mode === 'foot') continue;
+      const own = remote.body.collider(0);
+      this.world.contactPairsWith(own, other => {
+        let touching = false;
+        this.world.contactPair(own, other, m => { if (m.numContacts() > 0) touching = true; });
+        if (!touching) return;
+        const id = other.parent() ? carIds.get(other.parent()!.handle) : undefined;
+        if (id === undefined && other !== this.charCollider) return;
+        remote.softUntil = this.tick + Math.round(REMOTE_SERVO.softS / DT);
+        if (id !== undefined) this.remoteTouch.set(id, this.tick);
+      });
     }
   }
 
@@ -936,14 +1032,17 @@ export class PhysicsWorld {
         } else if (distance > 8) this.nearbyVehicles.delete(id);
       }
     }
-    const carSpeeds = new Map<number, { speed: number; local: boolean }>();
+    const carSpeeds = new Map<number, { speed: number; local: boolean }>(), carIds = new Map<number, string>();
+    this.applyImpulses();
     for (const [id, car] of this.vehicles) {
       if (!this.heldVehicles.has(id)) car.step(DT, id === this.drivenId ? vehicle : null);
       const v = car.body.linvel();
       carSpeeds.set(car.body.handle, { speed: Math.hypot(v.x, v.z), local: id === this.drivenId });
+      carIds.set(car.body.handle, id);
     }
     this.sweepRemotes();
     stepPipeline(this.world, this.poleEvents, this.traffic?.hooks);
+    if (this.remotes.size) this.noteRemoteContacts(carIds);
     for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
     const poleColliders = new Map<number, string>();
     for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);
