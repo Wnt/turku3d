@@ -63,7 +63,7 @@ import { DEALER_VEHICLE_SPOT, HEIST_DROP, HEIST_TRUCK_SPOT, PIZZERIA_VEHICLE_SPO
 import { lineText } from './gameplay/content/dialogue';
 import { bringSpots, kerbSpots } from './gameplay/kerbSpots';
 import { vehicleGround } from './gameplay/vehicleSave';
-import { createGameplay, compassDeg } from './gameplay';
+import { createGameplay, compassDeg, loadGameplayData } from './gameplay';
 import { autopilotParam, createAutopilot, type GoToOptions } from './gameplay/autopilot';
 import { DriveMeThere } from './gameplay/missions/driveMeThere';
 import { recoveryVehicle } from './gameplay/flippedCar';
@@ -81,6 +81,7 @@ import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
 import { preloadStarts } from './world/preloadStarts';
+import { streamWhileLoading } from './world/preload';
 import { insideCar, openView, startPairs, streetViews } from './world/startGround';
 import { parkedFootprints, propFootprints } from './world/propLod';
 import { browserStorage, sessionStore } from './core/storage';
@@ -217,6 +218,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const chase = new ChaseCamera(camera, physics);
   const yaw0 = spawn.yaw;
   orbit.yaw = yaw0;
+  // The start keeps streaming while the session loads its models and street graph (preloadStarts takes over below);
+  // the street graph loads alongside the models, which it does not need. A hot swap's world is already streaming.
+  const stopStreaming = hot ? () => {} : streamWhileLoading(world, spawn);
+  const gameplayData = loadGameplayData(manifest);
+  gameplayData.catch(() => {}); // awaited by createGameplay below, where its failure surfaces
   // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
   await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
     optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
@@ -228,7 +234,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   let remoteEngines = new Set<string>();
   const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects, drivers);
   const scoreboard = new Scoreboard(document.body);
-  const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body);
+  const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body, gameplayData);
   streets.connectDrafts(coarse);
   let multiplayerRunId = crypto.randomUUID();
   const missions = new MissionSystem({ router, addresses, onPaid: drop => {
@@ -555,6 +561,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const at = autopilotParam();
     return at ? () => { autopilot.goTo({ x: at.x, z: at.z }, { ...(at.mode ? { mode: at.mode } : {}), ...(at.speed ? { speed: at.speed } : {}) }); } : null;
   })();
+  stopStreaming();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
   Object.assign(window.__game!, { damage: damageConsole, vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });

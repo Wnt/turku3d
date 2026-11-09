@@ -160,3 +160,18 @@ test('a fast static scene (84 fps, GPU about the interval, little idle) is not G
   for (let i = 0; i < 80; i++) { overcounted.opened(); overcounted.frame(11.2, 11.9, 11.9, 13); }
   expect((overcounted as unknown as { idle: number }).idle).toBeGreaterThan(StreamingAllowance.GPU_BOUND_IDLE_MS);
 });
+
+test('while the world loads behind the loading screen every budget gets the long loading window', async () => {
+  let now = 0, frames = 0, loading = true;
+  const account = new StreamingAllowance(() => now);
+  account.loading = () => loading;
+  // No frame reports during boot: the play-time fallback would be BASE_MS.
+  expect(account.limit).toBe(StreamingAllowance.LOADING_MS);
+  const budget = new PreparationBudget(() => now, () => { frames++; return Promise.resolve(); }, null, account);
+  await budget.checkpoint();
+  now = StreamingAllowance.LOADING_MS - 1; expect(budget.checkpoint()).toBeUndefined();
+  now = StreamingAllowance.LOADING_MS; await budget.checkpoint(); expect(frames).toBe(1);
+  // The menu is ready: play-time windows again.
+  loading = false;
+  expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+});

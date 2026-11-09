@@ -32,6 +32,33 @@ function warmFrame(renderFrame: () => void) {
   try { renderFrame(); } catch (error) { console.error('[preload] a warmup frame threw; continuing', error); }
 }
 
+/** Keeps the world streaming around `focus` while the session loads its own assets (models, street graph) before
+ *  preloadWorld takes over: nothing else updates the streamers in that time, so a cold city.lab boot held 1 of its 7
+ *  start tiles for the 28 s the parked fleet took to load. Returns the stop function. */
+export function streamWhileLoading(world: PlayWorld, focus: { x: number; z: number }) {
+  const { streamer, coarse } = world;
+  let running = true;
+  const tick = () => {
+    if (!running) return;
+    try {
+      coarse?.update(focus.x, focus.z, undefined, undefined, false);
+      streamer.update(focus.x, focus.z);
+      world.loadingScreen.update(false, coarse?.status);
+      const collision = streamer.progressAt(focus.x, focus.z);
+      const drafts = coarse?.progressAt(focus.x, focus.z) ?? { loaded: 0, total: 0 };
+      worldLoad.update({ visual: { loaded: drafts.loaded, total: drafts.total }, collision: { loaded: collision.loaded, total: collision.total } });
+    } catch (error) {
+      // preloadWorld makes the same calls and reports a failure through the boot.
+      console.error('[preload] streaming during the session load stopped', error);
+      running = false;
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return () => { running = false; };
+}
+
 /** The session has loaded actors/parked cars but has not enabled input or installed its animation loop yet. */
 export async function preloadWorld(world: PlayWorld, focus: { x: number; z: number }, prepare?: () => Promise<void>, actors: readonly THREE.Object3D[] = []) {
   const { streamer, coarse, materials, renderer, scene, camera, env, renderFrame } = world;

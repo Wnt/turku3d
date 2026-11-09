@@ -47,6 +47,17 @@ interface Draw { id: string; model: FleetModel; color: string; pos: {x:number;y:
 /** A damaged car drawn in a batch: its cage pose, and stand-ins for its body and glazing (never drawn) that carry its
  *  pose, paint and geometry for the rig's swing, debris and glass shards (damageRig.ts onDamage). */
 interface Wreck { rig: DamageRig; body: THREE.Mesh; model: string }
+/** Fleet assets (model and LOD) loading at once: their fetches and meshopt decodes overlap the other assets' paced
+ *  bakes, which share one streaming budget (authored.ts). */
+const FLEET_FETCHES = 6;
+/** Runs `tasks` with at most `limit` in flight; rejects with the first failure after the running ones settle. */
+async function inPool(tasks:readonly (()=>Promise<unknown>)[],limit:number) {
+  let next=0;
+  const lane=async()=>{while(next<tasks.length)await tasks[next++]();};
+  const lanes=Array.from({length:Math.min(limit,tasks.length)},lane);
+  const results=await Promise.allSettled(lanes);
+  for(const r of results)if(r.status==='rejected')throw r.reason;
+}
 /** Damaged batches start with room for this many cars of a model and grow by doubling. */
 const WRECK_CAPACITY = 8;
 const AXIS = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.PI/2);
@@ -169,7 +180,9 @@ export class ParkedCarVisuals {
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
-    for(const model of models)for(let lod=0;lod<3;lod++)await this.authored(model,lod);
+    // Fetched and decoded FLEET_FETCHES at a time: one after another, each asset's request, decode and paced bake
+    // left the network and the decoder idle between assets (~45 models x 3 LODs held a cold city.lab boot 28 s).
+    await inPool(models.flatMap(model=>[0,1,2].map(lod=>()=>this.authored(model,lod))),FLEET_FETCHES);
     // The fallbacks and the starter car must load; any other model whose asset failed is drawn as a fallback.
     const required=[...alwaysLoaded].filter(id=>this.failed.has(id));
     if(required.length)throw Error(`Fleet model ${required.join(', ')} failed to load`);

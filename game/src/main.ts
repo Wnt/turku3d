@@ -418,6 +418,9 @@ const LOADING_SHARE_MS = 50;
 const deferredShare = () => renderer instanceof GameRenderer ? renderer.asyncBuilds?.share ?? 0 : 0;
 paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
   : Math.max(streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3, deferredShare()));
+// Streaming budgets take long windows while the world loads behind the loading screen (render/preparationBudget.ts
+// LOADING_MS); QA, bench and lab runs keep the play-time windows they measure.
+streamingAllowance.loading = () => !params.qa && !params.lab && worldLoad.phase !== 'ready';
 let distantCity: CoarseTiles['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {

@@ -51,6 +51,13 @@ export class StreamingAllowance {
     return this.moving ? StreamingAllowance.MOVING_TARGET : this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET;
   }
   static readonly MIN_MS = 0.5;
+  /** Each budget's window while the world loads behind the loading screen (boot and city switches, `loading`): no
+   *  frame is drawn then (main.ts renderFrame), and the 2 ms fallback window paced boot work at ~12 % of the main
+   *  thread. The parked fleet's bake alone held a cold city.lab load 28 s on the M1 Air with the main thread 79 % idle
+   *  (loadspeed 2026-11-09). 12 ms keeps the loading screen's progress drawing every frame. */
+  static readonly LOADING_MS = 12;
+  /** True while the world loads behind the loading screen (main.ts: play, until the menu is ready). */
+  loading: () => boolean = () => false;
   /** While the 3x3 window waits for full installs, streaming keeps at least this share of the frame interval,
    *  whatever the frame costs: a frame that costs more than the target on its own (the M1 Max at 20 ms of rendering
    *  in the city centre, a busy desktop) otherwise left streaming its per-budget floors, about one GLB continuation
@@ -111,6 +118,7 @@ export class StreamingAllowance {
   }
   /** Milliseconds one streaming budget may work in this frame. */
   get limit() {
+    if (this.loading()) return StreamingAllowance.LOADING_MS;
     // No frame reports (a page without the monitor, or a stalled loop): the old fixed window.
     if (this.now() - this.frameAt > 100) return StreamingAllowance.BASE_MS;
     const floor = this.urgent ? StreamingAllowance.BASE_MS : StreamingAllowance.MIN_MS;

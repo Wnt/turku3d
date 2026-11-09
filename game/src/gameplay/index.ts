@@ -69,11 +69,10 @@ class StreetMap {
   }
 }
 
-/** Loads `manifest.roads` and `manifest.addresses`; an empty graph (no streets, every route null) and an empty pool
- *  (the scripted deliveries repeat) when the build has none. A pool without landmarks gets the curated landmarks'
- *  fallback entries, so long jobs never depend on resident tiles. The playable area is the union of the manifest's
- *  collision tiles. */
-export async function createGameplay(manifest: GameplayManifest, parent: HTMLElement) {
+/** The street graph and address pool createGameplay builds on (navigation.json, its parse and the road-graph merge in
+ *  workers): play starts it alongside the session's models, which it does not need (a cold city.lab boot ran it ~3 s
+ *  after them). */
+export async function loadGameplayData(manifest: GameplayManifest) {
   const endpoint = draftsUrl();
   const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
     if (res.status === 404 && sameOriginServices(location.hostname)) {
@@ -88,6 +87,15 @@ export async function createGameplay(manifest: GameplayManifest, parent: HTMLEle
     ? [navigation.roads, parseAddressPool(navigation.addresses, () => true)]
     : await Promise.all([loadRoadGraphJson(manifest), loadAddressPool(manifest)]);
   const graph = await mergeRoadGraphsAsync(published ? [published] : []);
+  return { navigation, published, pool, graph };
+}
+
+/** Loads `manifest.roads` and `manifest.addresses`; an empty graph (no streets, every route null) and an empty pool
+ *  (the scripted deliveries repeat) when the build has none. A pool without landmarks gets the curated landmarks'
+ *  fallback entries, so long jobs never depend on resident tiles. The playable area is the union of the manifest's
+ *  collision tiles. */
+export async function createGameplay(manifest: GameplayManifest, parent: HTMLElement, data = loadGameplayData(manifest)) {
+  const { navigation, published, pool, graph } = await data;
   const router = new StreetRouter(graph);
   const area = new PlayableArea(manifest.collision);
   const minimap = new Minimap(parent, graph, router);

@@ -25,6 +25,9 @@ class WorldLoad {
     }).observe({ type: 'resource', buffered: true });
   }
 
+  /** The current phase without a snapshot (read per streaming checkpoint). */
+  get phase() { return this.state.phase; }
+
   update(value: Partial<Omit<LoadProgress, 'elapsedMs' | 'bytesLoaded'>>) {
     Object.assign(this.state, value);
     if (value.phase === 'ready' || value.phase === 'error') this.finished = performance.now();
