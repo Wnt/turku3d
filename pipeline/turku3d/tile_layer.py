@@ -90,9 +90,12 @@ def fingerprints(paths: dict[str, Path]) -> dict[str, dict]:
                 if not matches(value, state):
                     with path.open("rb") as stream:
                         digest = hashlib.file_digest(stream, "sha256").hexdigest()
-                    if identity() != state:
+                    after = identity()
+                    # ctime also moves when another build hard-links the same inode (the shared
+                    # surface library, train18 t0_1_-4): only size, mtime and inode tell content.
+                    if any(after[k] != state[k] for k in ("size", "mtime_ns", "inode")):
                         raise RuntimeError(f"source changed while hashing: {path}")
-                    value = {**state, "sha256": digest}
+                    value = {**after, "sha256": digest}
                     temporary = cache.with_name(f"{name}.{os.getpid()}.tmp")
                     temporary.write_text(json.dumps(value) + "\n")
                     temporary.replace(cache)
