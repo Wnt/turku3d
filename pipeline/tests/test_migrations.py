@@ -59,6 +59,37 @@ def base_product(generation_root: Path) -> dict:
     return manifest
 
 
+def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tmp_path, monkeypatch):
+    output = tmp_path / 'products' / BASE_GEN
+    original = base_product(output)
+    original['migrations'] = [{'name': 'older-stage', 'version': 7}]
+    (output / TILE / 'manifest.json').write_bytes(core.manifest_bytes(original))
+    (output / TILE / 'ready.json').write_text(json.dumps({'generation': BASE_GEN, 'base_manifest_sha256': 'kept'}))
+    step = core.Migration('correct-lamps', 1, lambda p: p.manifest['lights'].update(count=2))
+    monkeypatch.setattr(core.Migration, 'code_hash', lambda self: 'f' * 64)
+    result = tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')
+    assert result['state'] == 'migrated'
+    old = Path(result['displaced'])
+    assert json.loads((old / 'manifest.json').read_text()) == original
+    current = json.loads((output / TILE / 'manifest.json').read_text())
+    assert current['lights']['count'] == 2
+    assert current['migrations'] == [*original['migrations'], {'name': 'correct-lamps', 'version': 1}]
+    assert json.loads((output / TILE / 'ready.json').read_text())['base_manifest_sha256'] == 'kept'
+    assert tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')['state'] == 'kept'
+
+
+def test_selective_step_rejects_bad_payload_before_displacing_served_product(tmp_path, monkeypatch):
+    output = tmp_path / 'products' / BASE_GEN
+    original = base_product(output)
+    (output / TILE / 'ready.json').write_text(json.dumps({'generation': BASE_GEN}))
+    step = core.Migration('bad-payload', 1, lambda p: p.manifest['roads'].update(bytes=999))
+    monkeypatch.setattr(core.Migration, 'code_hash', lambda self: 'f' * 64)
+    with pytest.raises(RuntimeError, match='invalid payload size'):
+        tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')
+    assert not (tmp_path / 'displaced').exists()
+    assert json.loads((output / TILE / 'manifest.json').read_text()) == original
+
+
 def tint_visual(product):
     """A payload edit: rewrite the visual GLB and re-home its texture in the shared store."""
     entry = product.manifest["visual"][product.tile]
