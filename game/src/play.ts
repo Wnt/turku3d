@@ -80,7 +80,7 @@ import { RearSteerTag } from './ui/rearSteerTag';
 import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
 import { EdgeMarker } from './world/edgeMarker';
-import { preloadStarts } from './world/preloadStarts';
+import { preloadStarts, retainStarts } from './world/preloadStarts';
 import { streamWhileLoading } from './world/preload';
 import { insideCar, openView, startPairs, streetViews } from './world/startGround';
 import { parkedFootprints, propFootprints } from './world/propLod';
@@ -221,6 +221,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   orbit.yaw = yaw0;
   // The start keeps streaming while the session loads its models and street graph (preloadStarts takes over below);
   // the street graph loads alongside the models, which it does not need. A hot swap's world is already streaming.
+  if (!hot) retainStarts(world, SLOT_IDS.map(id => saves.get(id)), null); // preloadStarts adds the multiplayer start
   const stopStreaming = hot ? () => {} : streamWhileLoading(world, spawn);
   const gameplayData = loadGameplayData(manifest);
   gameplayData.catch(() => {}); // awaited by createGameplay below, where its failure surfaces
