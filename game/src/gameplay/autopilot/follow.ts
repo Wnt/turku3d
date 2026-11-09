@@ -64,12 +64,20 @@ const STILL = 0.7;
  *  WALL_STEP m chords, at the corridor's centre and both edges, as far as the braking distance plus WALL_MARGIN.
  *  A hit with a near-vertical face (|normal y| < WALL_NORMAL_Y) counts; the car stops WALL_GAP m short of it. A
  *  result older than WALL_FRESH s is dropped. Held by one for WALL_PATIENCE s (a lane drawn through a wall), the car
- *  starts the stuck recovery: it backs out and re-plans, and gives up like any stuck trip. */
+ *  starts the stuck recovery: it backs out and re-plans, and gives up like any stuck trip.
+ *  Drops and ledges count as walls too: down rays every DROP_STEP m along the same three lines, from DOWN_ABOVE m
+ *  above the road, from under the car. Between neighbouring samples on a line, a step (up or down) of STEP_ABS m, or over STEP_LEDGE m
+ *  that differs from the line's previous step by over STEP_KINK m, is a ledge (a ramp's side, a quay edge, a planter)
+ *  and stops the car before the earlier sample; a steep but even ramp (the dev world's 25 % one) is not. A sample with
+ *  no ground (collision not loaded) carries no information. */
 export const WALL_PERIOD = 0.1;
 const WALL_HEIGHT = 0.75, WALL_STEP = 4, WALL_MARGIN = 12, WALL_MAX = 60, WALL_NORMAL_Y = 0.6, WALL_GAP = 1.2, WALL_FRESH = 0.6,
   WALL_PATIENCE = 3;
+const DROP_STEP = 2, STEP_ABS = 0.9, STEP_LEDGE = 0.45, STEP_KINK = 0.4, DOWN_ABOVE = 2.5, DOWN_LENGTH = 6;
 
-export interface WallRay { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; length: number; s: number }
+export interface WallRay { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; length: number; s: number;
+  /** A down ray's line (0 left edge, 1 centre, 2 right edge); undefined for a wall ray. */
+  line?: number }
 
 /** The rays that look for walls along the path ahead of a car at arc length `s` driving `nudge` m right of it. */
 export function wallRays(path: Path, s: number, nudge: number, geometry: VehicleGeometry, pose: VehiclePose, brake = STYLE.normal.brake): WallRay[] {
@@ -87,15 +95,34 @@ export function wallRays(path: Path, s: number, nudge: number, geometry: Vehicle
       if (length > 0.1) rays.push({ origin: o, dir: { x: dx / length, y: dy / length, z: dz / length }, length, s: u });
     }
   }
+  // From under the car: its own ground sets each line's first step (its grade), so a ledge just ahead is a kink too.
+  for (let u = s; u <= to; u += DROP_STEP) {
+    sampleAt(path, u, a);
+    const base = a.y ?? pose.y - 0.7;
+    [-w, 0, w].forEach((off, line) => {
+      const l = nudge + off;
+      rays.push({ origin: { x: a.x - a.hz * l, y: base + DOWN_ABOVE, z: a.z + a.hx * l }, dir: { x: 0, y: -1, z: 0 }, length: DOWN_LENGTH, s: u, line });
+    });
+  }
   return rays;
 }
 
-/** The nearest wall along the path from the rays' hits (null: none), for DriveFollower.wallAhead. */
+/** The nearest wall, drop or ledge along the path from the rays' hits (null: none), for DriveFollower.wallAhead. */
 export function wallHit(rays: readonly WallRay[], hits: readonly ({ toi: number; normal: { y: number } } | null)[]): number | null {
   let best: number | null = null;
+  const lines: ({ s: number; y: number; step: number | null } | undefined)[] = [];
   rays.forEach((r, i) => {
     const h = hits[i];
-    if (h && Math.abs(h.normal.y) < WALL_NORMAL_Y && (best === null || r.s + h.toi < best)) best = r.s + h.toi;
+    if (r.line === undefined) {
+      if (h && Math.abs(h.normal.y) < WALL_NORMAL_Y && (best === null || r.s + h.toi < best)) best = r.s + h.toi;
+      return;
+    }
+    if (!h) return;
+    const y = r.origin.y - h.toi, prev = lines[r.line], step = prev ? y - prev.y : null;
+    const ledge = step !== null && (Math.abs(step) >= STEP_ABS
+      || (Math.abs(step) > STEP_LEDGE && prev!.step !== null && Math.abs(step - prev!.step) > STEP_KINK));
+    if (ledge && (best === null || prev!.s < best)) best = prev!.s;
+    lines[r.line] = { s: r.s, y, step };
   });
   return best;
 }
