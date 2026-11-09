@@ -2,6 +2,12 @@ const finite = (n, max) => typeof n === 'number' && Number.isFinite(n) && Math.a
 /** `drv` of a driven 4WS truck: [throttle % 0..100, rpm/10 0..800, gear -1..3, rear mode 0..3], integers only. */
 const DRV = [[0, 100], [0, 800], [-1, 3], [0, 3]];
 export const validDrv = d => Array.isArray(d) && d.length === 4 && d.every((n, i) => Number.isInteger(n) && n >= DRV[i][0] && n <= DRV[i][1]);
+/** `ctl` of a car: [throttle % -100..100, brake % 0..100, steer per mille -1000..1000, flags 0..7 (1 handbrake, 2 key
+ *  steering, 4 driven)], integers only (game/src/net/motion.ts). `w`: angular velocity about E, N, H (rad/s). `st`: the
+ *  room-clock time (ms) of the car state. Receivers simulate the car forward from them. */
+const CTL = [[-100, 100], [0, 100], [-1000, 1000], [0, 7]];
+export const validCtl = c => Array.isArray(c) && c.length === 4 && c.every((n, i) => Number.isInteger(n) && n >= CTL[i][0] && n <= CTL[i][1]);
+export const validSpin = w => Array.isArray(w) && w.length === 3 && w.every(n => finite(n, 100));
 /** `damage` of a damaged car: the owner's compact body, mechanical, part, glass and surface state
  *  (game/src/vehicle/damage.ts encodeDamage, 516 bytes as 688 base64 characters; its decoder checks the version). The
  *  server only relays it, so it checks the form and a bound, not the layout; its shallow pose patches send it when it
@@ -19,6 +25,9 @@ export function validPose(m) {
       || (m.lights !== undefined && ![0, 1, 2].includes(m.lights))
       || (m.horn !== undefined && typeof m.horn !== 'boolean')
       || (m.drv !== undefined && !validDrv(m.drv))
+      || (m.ctl !== undefined && !validCtl(m.ctl))
+      || (m.w !== undefined && !validSpin(m.w))
+      || (m.st !== undefined && (!finite(m.st, Number.MAX_SAFE_INTEGER) || m.st < 0))
       || (m.damage !== undefined && !validDamage(m.damage))
       || !['vE', 'vN', 'vH'].every(k => finite(m[k], 200))
       || !['foot', 'car', 'scooter', 'truck'].includes(m.mode) || typeof m.carrying !== 'boolean'
@@ -36,6 +45,9 @@ export function cleanPose(m) {
     vE: rounded(vE), vN: rounded(vN), vH: rounded(vH), mode, vehicle, carrying, lights: m.lights ?? 0, horn: m.horn === true,
     ...(rot ? { rot: { ...vector(rot), w: rounded(rot.w) } } : {}),
     ...(validDrv(m.drv) ? { drv: [...m.drv] } : {}),
+    ...(validCtl(m.ctl) ? { ctl: [...m.ctl] } : {}),
+    ...(validSpin(m.w) ? { w: m.w.map(rounded) } : {}),
+    ...(typeof m.st === 'number' && Number.isFinite(m.st) && m.st >= 0 ? { st: Math.round(m.st) } : {}),
     ...(validDamage(m.damage) ? { damage: m.damage } : {}),
     ...(wheels ? { wheels: wheels.map(({ pos, steer, rotation, contact, suspension, tyre }) => ({
       pos: vector(pos), steer: rounded(steer), rotation: rounded(rotation), contact, suspension: rounded(suspension),

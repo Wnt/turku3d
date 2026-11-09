@@ -15,6 +15,8 @@ export interface NetPose {
   drv?: import('./drv').Drv;
   /** A damaged car's body damage (vehicle/damage.ts encodeDamage), decided by its owner; absent while undamaged. */
   damage?: string;
+  /** A car's spin and driver controls (net/motion.ts), and the room-clock time (ms, server time) its state is from. */
+  w?: import('./motion').Spin; ctl?: import('./motion').Ctl; st?: number;
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
@@ -61,7 +63,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   if (!previous) return true;
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
-  const articulated = JSON.stringify([pose.rot, pose.wheels, pose.drv]) !== JSON.stringify([previous.rot, previous.wheels, previous.drv]);
+  const articulated = JSON.stringify([pose.rot, pose.wheels, pose.drv, pose.ctl]) !== JSON.stringify([previous.rot, previous.wheels, previous.drv, previous.ctl]);
   const changed = pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
@@ -225,7 +227,9 @@ export class MultiplayerClient extends EventTarget {
     const now = performance.now();
     if (this.state.rounds.active?.phase === 'countdown' || !this.state.connected || this.pendingMessages.length || now - this.lastSent < RATE_MS
       || (!vehicles.length && !shouldSendPose(now, this.lastPose, this.lastSent, pose))) return false;
-    this.send({ type: 'pose', ...pose, ...(vehicles.length ? { vehicles } : {}) });
+    // A car's state carries the room clock it is from, so another client can simulate it forward to its own present.
+    const stamp = (p: NetPose): NetPose => p.mode === 'foot' ? p : { ...p, st: Math.round(p.t + this.serverOffset) };
+    this.send({ type: 'pose', ...stamp(pose), ...(vehicles.length ? { vehicles: vehicles.map(v => ({ ...v, pose: stamp(v.pose) })) } : {}) });
     this.lastPose = pose;
     this.lastSent = now;
     return true;

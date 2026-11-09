@@ -5,6 +5,7 @@ import { ROOM_START_CARS, multiplayerStart, roomSlot } from './gameplay/startPoi
 import { bindRoundReset } from './net/roundReset';
 import { VehicleSignals } from './vehicle/signals';
 import { VehicleBeams } from './vehicle/beams';
+import { motionOf } from './net/motion';
 import { TyreEffects } from './vehicle/tyreEffects';
 import { mechanicsOf, wrecked } from './vehicle/mechanics';
 import type { PlayWorld } from './playWorld';
@@ -945,6 +946,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         ...(poseMode !== 'foot' && shared && sharedVehicles?.hasSeat(drivenId!) ? { vehicleId: shared.id } : {}),
         lights: mode === 'car' ? vs?.lights ?? 1 : 0, horn: mode === 'car' && vehicleSignals.horn,
         ...(mode === 'car' && drivenDrv(drivenId) ? { drv: drivenDrv(drivenId) } : {}),
+        ...(poseMode !== 'foot' && vs ? motionOf(vs) : {}),
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }

@@ -45,7 +45,11 @@ export interface VehicleState { lights?: import('../vehicle/signals').LightState
   /** Body damage of a damageable car (vehicle/damage.ts encodeDamage), absent while it is undamaged. */
   damage?: string;
   /** A damageable car's body sliding along something: the fastest contact's sliding speed (m/s), absent when none. */
-  scrape?: number }
+  scrape?: number;
+  /** Chassis angular velocity (rad/s, world frame). */
+  angvel?: V3;
+  /** The driver input of this step, absent for an undriven car: another player's client replays it (net/motion.ts). */
+  controls?: VehicleInput }
 export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: VehicleKind; pos: V3; yaw: number; mass?: number; halfExt?: V3; parked?: boolean;
   /** Per-model driving tuning (vehicle/modelTuning.ts), replacing the kind's baseline. */
   tuning?: VehicleTuning;

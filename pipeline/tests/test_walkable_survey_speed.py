@@ -37,3 +37,30 @@ def test_ground_points_within_equals_filtering_afterwards():
 
     full = ground_points(cloud)
     np.testing.assert_array_equal(ground_points(cloud, within=within), full[within(full)])
+
+
+def test_path_distance_cells_keep_exact_cutoff_and_return_order():
+    from turku3d.coarse.walkable import near_line
+
+    rng = np.random.default_rng(19)
+    line = shapely.LineString([(-80, -10), (-10, -10), (-10, 55), (70, 55), (70, -25)])
+    reach = 8.5
+    xz = np.r_[rng.uniform([-100, -50], [100, 80], (25000, 2)),
+               [[-40, -1.5], [-40, np.nextafter(-1.5, -np.inf)],
+                [-40, np.nextafter(-1.5, np.inf)], [-80, -10], [-100, -10]] * 5]
+    expected = shapely.distance(shapely.points(xz), line) < reach
+    np.testing.assert_array_equal(near_line(line, xz, reach), expected)
+    np.testing.assert_array_equal(near_line(line, xz[:100], reach), expected[:100])
+    assert not near_line(line, np.empty((0, 2)), reach).any()
+    # Sparse returns spanning more than the bounded cell table use exact distances.
+    wide = np.r_[xz, [[1e6, -1e6]]]
+    np.testing.assert_array_equal(near_line(line, wide, reach),
+                                  shapely.distance(shapely.points(wide), line) < reach)
+    # At zero, subtraction cannot round away adjacent representable distances.
+    horizontal = shapely.LineString([(-100, 0), (100, 0)])
+    cutoff = np.array([[0, np.nextafter(reach, -np.inf)], [0, reach],
+                       [0, np.nextafter(reach, np.inf)]])
+    expected_cutoff = shapely.distance(shapely.points(cutoff), horizontal) < reach
+    np.testing.assert_array_equal(expected_cutoff, [True, False, False])
+    np.testing.assert_array_equal(near_line(horizontal, np.r_[xz, cutoff], reach)[-3:],
+                                  expected_cutoff)
