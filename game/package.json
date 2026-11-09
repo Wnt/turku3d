@@ -39,6 +39,7 @@
     "@types/three": "0.186.0",
     "ktx2-encoder": "^0.4.2",
     "pngjs": "7.0.0",
+    "sharp": "0.35.5",
     "typescript": "^7.0.2",
     "vite": "8.3.5",
     "vite-plugin-wasm": "3.6.0",

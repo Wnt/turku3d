@@ -142,6 +142,12 @@ The build is deterministic (seeded); previews of the atlases go to `~/turku3d/da
 It checks Python's numpy/Pillow and the KTX-Software `ktx`/`toktx` executables before creating output or caches,
 so missing alpha-calibration tools fail before a lengthy build can replace the existing library with partial output.
 
+The bitmap gallery uses a leased Air/Windows browser through `BROWSER_CDP`; it never launches Chrome on the Mac.
+Run it under `~/turku3d/tools/host-lease/session.py run air NAME --kind func -- ...` with
+`node scripts/nature/gallery.mjs --base URL --out DIR`. The controller fetches the dev-server URL, so `URL` can
+point at its own sandbox's localhost server. `--only groundcover_rosette --no-context` captures one asset without
+requiring any old in-game camera captures. The session tool owns browser cleanup.
+
 Both spruce variants expose their lower trunks and drooping branches with smaller, less horizontal foliage cards.
 Their matching reduced meshes and impostors are rebuilt together; measured world height and crown radius remain independent.
 Grass metadata uses the actual vertex height and radial extent, rounded outwards for conservative placement bounds.
