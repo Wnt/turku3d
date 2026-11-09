@@ -98,7 +98,15 @@ rotation falls back to legacy yaw. A driven four-wheel-steer truck adds
 `drv:[throttlePct, rpm10, gear, rearMode]`: integers 0..100 (throttle percent),
 0..800 (rpm / 10), -1..3 (gear, -1 reverse) and 0..3 (rear-steer mode: 0 AUTO,
 1 SIDEWAYS (crab, in phase), 2 AUTO 50 % (MANUAL before 2026-11-06), 3 LOCK). A pose with a malformed `drv` is
-rejected; a pose without it stays valid. Rear wheels 2 and 3 carry the rear-steer angle in their `steer`. Receivers slerp the chassis along the shortest
+rejected; a pose without it stays valid. Rear wheels 2 and 3 carry the rear-steer angle in their `steer`.
+
+A car pose (`car`, `scooter`, `truck`, players and shared vehicle updates alike) also carries what another client
+needs to simulate the car forward to its own present: `ctl:[throttlePct, brakePct, steerPerMille, flags]`, integers
+-100..100, 0..100, -1000..1000 and 0..7 (flags: 1 handbrake, 2 digital key steering that the car slews itself, 4
+driven; an undriven car sends `[0,0,0,0]`, so a shallow patch never keeps a former driver's controls); `w:[E, N, H]`,
+the chassis angular velocity in rad/s (|w| <= 100 per axis); and `st`, the room-clock time in ms (the sender's
+`t` plus its server-time offset) of that state. A pose with a malformed field is rejected; a pose without them stays
+valid (older clients). Receivers slerp the chassis along the shortest
 arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
 starter car, scooter and truck roots already use the chassis frame.

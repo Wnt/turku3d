@@ -77,6 +77,8 @@ export class Vehicle {
   private readonly drive: number[];
   /** Velocity once every wheel, drag and curb impulse of the tick is applied: what the world step then changes. */
   private beforeSolve: V3 | null = null;
+  /** The input of the latest step (null: undriven), reported in state() for multiplayer (net/motion.ts). */
+  private input: VehicleInput | null = null;
   /** This step's input came from a driver (step(dt, input)). */
   private driven = false;
   /** A driver sits in it (PhysicsWorld.driveVehicle): never put to rest, also while its input is momentarily absent. */
@@ -389,6 +391,7 @@ export class Vehicle {
   }
 
   step(dt: number, input: VehicleInput | null) {
+    this.input = input;
     this.horn = input?.horn === true;
     if (input?.lights !== undefined) this.lights = input.lights;
     if (input?.rearMode !== undefined && REAR_STEER_MODES.includes(input.rearMode) && input.rearMode !== this.rear.mode) {
@@ -730,7 +733,8 @@ export class Vehicle {
     const forward = rotate({ x: 1, y: 0, z: 0 }, b.rotation());
     const t = this.tuning, rear = t.rearSteer ? { rearMode: this.rear.mode, rearLocked: this.rear.locked } : {};
     const damage = this.damageWire();
-    return { ...rear, ...(damage ? { damage } : {}), ...(this.scrape.speed ? { scrape: this.scrape.speed } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: v5(b.translation()), rot: (q => ({ x: r6(q.x), y: r6(q.y), z: r6(q.z), w: r6(q.w) }))(b.rotation()), linvel: v4(lv), speed: r4(Math.hypot(lv.x, lv.y, lv.z)),
+    return { ...rear, ...(damage ? { damage } : {}), ...(this.scrape.speed ? { scrape: this.scrape.speed } : {}), throttleApplied: this.throttleApplied, lights: this.lights, horn: this.horn, kind: this.kind, pos: v5(b.translation()),
+      angvel: v4(b.angvel()), ...(this.input ? { controls: { ...this.input } } : {}), rot: (q => ({ x: r6(q.x), y: r6(q.y), z: r6(q.z), w: r6(q.w) }))(b.rotation()), linvel: v4(lv), speed: r4(Math.hypot(lv.x, lv.y, lv.z)),
       forwardSpeed: r4(lv.x * forward.x + lv.y * forward.y + lv.z * forward.z),
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.mounts.map((cp, i) => {

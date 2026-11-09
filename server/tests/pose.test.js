@@ -20,3 +20,15 @@ test('drv: floats, out-of-range values and wrong lengths are rejected', () => {
     assert.equal(validPose(pose({ drv })), false, JSON.stringify(drv));
   }
 });
+
+test('ctl, w and st: a car pose keeps its controls, spin and room-clock stamp; malformed ones are rejected', () => {
+  const m = pose({ mode: 'car', vehicle: 'golf7/red', ctl: [-35, 0, 412, 6], w: [0.0004, -0.1234567, 1.5], st: 1794250028385.4 });
+  assert.equal(validPose(m), true);
+  assert.deepEqual(cleanPose(m).ctl, [-35, 0, 412, 6]);
+  assert.deepEqual(cleanPose(m).w, [0, -0.123, 1.5]);
+  assert.equal(cleanPose(m).st, 1794250028385);
+  assert.equal(['ctl', 'w', 'st'].some(k => k in cleanPose(pose())), false);
+  for (const bad of [{ ctl: [101, 0, 0, 4] }, { ctl: [0, -1, 0, 4] }, { ctl: [0, 0, 1001, 4] }, { ctl: [0, 0, 0, 8] }, { ctl: [0.5, 0, 0, 4] },
+    { ctl: [0, 0, 0] }, { w: [0, 0, 101] }, { w: [0, 0] }, { w: [0, 0, NaN] }, { st: -1 }, { st: '5' }])
+    assert.equal(validPose(pose(bad)), false, JSON.stringify(bad));
+});
