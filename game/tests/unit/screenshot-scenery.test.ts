@@ -5,6 +5,8 @@ import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
 import { PLACES } from '../../src/gameplay/content/places';
 import { Environment } from '../../src/render/environment';
 import { LOD_FADE_SECONDS, lodFades } from '../../src/render/lodFade';
+import { styleScenery } from '../../src/render/sceneryMaterial';
+import { TILE_DETAIL, sceneryBounds } from '../../src/world/sceneryView';
 
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
@@ -528,4 +530,68 @@ test('a kilometre fallback never draws over a square a full tile draws (Kauppato
   nearby.delete('t0_-1_0'); scenery.nearbyChanged('t0_-1_0');
   scenery.update(100, 190, 1200, true);
   expect(parent.visible).toBe(true);
+});
+
+
+/** Textures and constants a TSL node graph reads. */
+function graphInputs(node: unknown, seen = new Set<object>(), out = { textures: new Set<THREE.Texture>(), values: new Set<unknown>() }) {
+  if (!node || typeof node !== 'object' || seen.has(node)) return out;
+  seen.add(node);
+  const n = node as { isTextureNode?: boolean; isConstNode?: boolean; value?: unknown };
+  if (n.isTextureNode) out.textures.add(n.value as THREE.Texture);
+  if (n.isConstNode) out.values.add(n.value);
+  for (const child of Object.values(node))
+    if (child && typeof child === 'object' && ((child as { isNode?: boolean }).isNode || Array.isArray(child))) graphInputs(child, seen, out);
+  return out;
+}
+
+test('a kilometre fallback keeps its canopy shell off every square a full tile or a 250 m cell draws (city.lab slab)', async () => {
+  const { scenery, scene, nearby } = setup();
+  scenery.setRadius(8000, { x: 100, y: 20, z: 100, dx: 1, dz: 0, halfAngle: .8 });
+  await settle();
+  const state = scenery as unknown as { footprint: string[]; unavailable: Set<string>; squares: { pixels: Uint8Array; texture: THREE.DataTexture };
+    entries: Map<string, { model: THREE.Group; next: number; seen: number; complete: boolean }> };
+  const covered = (id: string) => {
+    const b = sceneryBounds(id), size = 256;
+    return state.squares.pixels[(b.z / 250 + size / 2) * size + b.x / 250 + size / 2] === 255;
+  };
+  // The 1 km node t2_0_0 stays drawn as the fallback while its cells load; the loaded cells dissolve in over it.
+  state.footprint = ['t0_0_0', 't0_1_0']; state.unavailable.clear();
+  const parent = new THREE.Group(), left = new THREE.Group(), right = new THREE.Group();
+  scene.add(parent, left, right);
+  const entry = (model: THREE.Group) => ({ model, next: Infinity, seen: 0, complete: true });
+  state.entries.set('t2_0_0', entry(parent)); state.entries.set('t0_0_0', entry(left));
+  scenery.update(100, 100, 1000, true);
+  expect([parent.visible, left.visible]).toEqual([true, false]);
+  expect(covered('t0_0_0')).toBe(false); // a loaded but hidden cell does not hold the shell back
+  right.visible = false;
+  state.entries.set('t0_1_0', entry(right));
+  scenery.update(100, 100, 1100, true);
+  expect([parent.visible, left.visible, right.visible]).toEqual([true, true, true]);
+  expect(covered('t0_0_0') && covered('t0_1_0')).toBe(true);
+  // A full tile drawing a square of the node (its batch can still hold the node's shell for a few frames).
+  nearby.set('t0_2_1', { model: new THREE.Group(), state: 'draft', nextPoll: 0, collision: new Map() });
+  scenery.nearbyChanged('t0_2_1');
+  expect(covered('t0_2_1')).toBe(true);
+  // The node's other squares keep the shell: only the squares something finer draws are masked.
+  for (const id of ['t0_2_0', 't0_3_3', 't0_0_2']) expect(covered(id)).toBe(false);
+
+  // The node's canopy samples exactly this texture, beyond the full-tile window; a 250 m cell's canopy does not.
+  const shell = () => {
+    const model = new THREE.Group(), geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 0, 1], 3));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial()); mesh.userData.layer = 'canopy';
+    model.add(mesh);
+    return { model, mesh };
+  };
+  const coverage = new THREE.DataTexture(new Uint8Array(4), 2, 2);
+  const node = shell(), cell = shell();
+  styleScenery(node.model, undefined, coverage, state.squares.texture);
+  styleScenery(cell.model, undefined, coverage);
+  const nodeMask = graphInputs((node.mesh.material as THREE.MeshStandardNodeMaterial).maskNode);
+  const cellMask = graphInputs((cell.mesh.material as THREE.MeshStandardNodeMaterial).maskNode);
+  expect([...nodeMask.textures]).toEqual([state.squares.texture]);
+  expect(nodeMask.values.has(TILE_DETAIL.distance)).toBe(true);
+  expect(cellMask.textures.size).toBe(0);
+  expect(cellMask.values.has(TILE_DETAIL.distance)).toBe(true);
 });
