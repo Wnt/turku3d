@@ -120,6 +120,13 @@ function resolvePath(urlPath) {
   return resolveUnder(base, p);
 }
 
+/** Vite's build output, assets/<name>-<8-character hash>.<ext> directly under /assets (public files live in its
+ *  subdirectories or keep their own names), never changes under its name: browsers keep it a year without asking
+ *  again. index.html stays no-cache, so a deploy's new names reach every player at once. A warm city.lab load
+ *  revalidated each of its ~30 scripts and workers after a minute (loadspeed 2026-11-09). */
+const HASHED = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/;
+const cacheFor = (pathname) => (HASHED.test(pathname) ? 'public, max-age=31536000, immutable' : undefined);
+
 const capture = captureMiddleware();
 async function publicHandler(req, res) {
   const pathname = req.url.split('?')[0];
@@ -134,7 +141,7 @@ async function publicHandler(req, res) {
   if (pathname.split('/').some((part) => part.startsWith('.'))) { res.writeHead(404); return res.end('not found'); }
   const file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }
-  return serveFile(req, res, file, { compress: COMPRESS });
+  return serveFile(req, res, file, { compress: COMPRESS, cacheControl: cacheFor(pathname) });
 }
 
 async function handler(req, res) {
@@ -157,7 +164,7 @@ async function handler(req, res) {
   if (isFacadeCandidates(req.url)) return candidates(req, res);
   const file = resolvePath(req.url);
   if (!file) { res.writeHead(403); return res.end('forbidden'); }
-  return serveFile(req, res, file, { compress: COMPRESS });
+  return serveFile(req, res, file, { compress: COMPRESS, cacheControl: cacheFor(req.url.split('?')[0]) });
 }
 
 if (!fs.existsSync(ROOT)) { console.error(`root ${ROOT} does not exist`); process.exit(2); }

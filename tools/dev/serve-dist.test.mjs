@@ -71,6 +71,16 @@ test('404 and traversal', async () => {
   });
   assert.notEqual(r, 200);
 });
+test("Vite's hashed build output is immutable for a year; the page and public assets revalidate", async () => {
+  fs.mkdirSync(path.join(dir, 'assets', 'cars'), { recursive: true });
+  for (const name of ['main-DF04okNI.js', 'decodeGlb.worker-Dh_bGai-.js', 'LICENSES.md', 'cars/model-12345678.glb']) fs.writeFileSync(path.join(dir, 'assets', name), 'x');
+  const cache = async (p) => (await fetch(url(p))).headers.get('cache-control');
+  assert.equal(await cache('/assets/main-DF04okNI.js'), 'public, max-age=31536000, immutable');
+  assert.equal(await cache('/assets/decodeGlb.worker-Dh_bGai-.js?worker'), 'public, max-age=31536000, immutable');
+  assert.equal(await cache('/'), 'no-cache');
+  assert.equal(await cache('/assets/LICENSES.md'), 'public, max-age=60');
+  assert.equal(await cache('/assets/cars/model-12345678.glb'), 'public, max-age=60'); // public files keep their names
+});
 test('wasm mime + etag 304', async () => {
   fs.writeFileSync(path.join(dir, 'a.wasm'), Buffer.from([0, 97, 115, 109]));
   const r = await fetch(url('/a.wasm'));
@@ -227,6 +237,10 @@ test('--public serves only the game and its services: no uploads, internals or d
     const home = await get('/');
     assert.equal(home.status, 200);
     assert.equal(home.headers.get('cross-origin-embedder-policy'), 'require-corp');
+    assert.equal(home.headers.get('cache-control'), 'no-cache');
+    fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'assets', 'city-BqGuNPKr.js'), 'x');
+    assert.equal((await get('/assets/city-BqGuNPKr.js')).headers.get('cache-control'), 'public, max-age=31536000, immutable');
     assert.deepEqual(await (await get('/version.json')).json(), { sha: 'abc' });
     assert.equal((await get('/telemetry', { method: 'POST', body: '{"t":1}\n' })).status, 405);
     assert.equal((await get('/__capture/frame', { method: 'POST', body: 'x' })).status, 405);
