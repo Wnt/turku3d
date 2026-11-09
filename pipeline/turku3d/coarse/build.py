@@ -779,7 +779,9 @@ def build(
         np.ones(len(surface_idx), bool),
         inputs.markings,
     )
-    road_graph = inputs.roads["json"] if inputs.roads else None
+    # Paint the same finished graph that traffic receives (including seam centring,
+    # bridge/tunnel corrections and surface sampling), and record that provenance.
+    road_graph = roads["json"] if roads else None
 
     def draped_paint():
         rule = road_paint.markings(json.loads(road_graph) if road_graph else None, inputs.markings)
@@ -997,6 +999,7 @@ def build(
         boats=boats.stats(tile, inputs.boats, boat_meshes),
         marking_triangles=len(paint.indices) if paint is not None else 0,
         rule_paint=paint_counts,
+        paint_road_graph=road_paint.graph_key(json.loads(road_graph) if road_graph else None),
         ground_surfaces={
             surfaces.KEYS[c]: int(
                 sum(

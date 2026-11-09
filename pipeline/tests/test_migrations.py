@@ -438,3 +438,28 @@ def test_generator_measures_each_migration_without_changing_product(tmp_path, ch
     assert set(report) == {"migration:test-tint@1", "migration:test-roads@1", "migration:publish"}
     assert all(row["status"] == "complete" and row["cpu_seconds"] >= 0 and row["seconds"] >= 0
                for row in report.values())
+
+
+def test_selective_step_publishes_new_shared_buffer_before_tile_swap(tmp_path, monkeypatch):
+    output = tmp_path / 'products' / BASE_GEN
+    original = base_product(output)
+    (output / TILE / 'ready.json').write_text(json.dumps({'generation': BASE_GEN}))
+    payload = b'new immutable paint vertices'
+    def change(product):
+        entry = product.manifest['visual'][TILE]
+        doc, binary = core.glb_chunks(product.read(entry['url']))
+        url = product.put('../shared/{hash}.bin', payload)
+        doc['buffers'] = [{'uri': url, 'byteLength': len(payload)}]
+        product.replace(entry, core.glb_pack(doc, binary))
+    step = core.Migration('new-buffer', 1, change)
+    monkeypatch.setattr(core.Migration, 'code_hash', lambda self: 'f' * 64)
+    real_move = tile_migrate.shutil.move
+    def move(source, target, *args, **kwargs):
+        assert (output / 'shared' / f'{sha(payload)}.bin').read_bytes() == payload
+        return real_move(source, target, *args, **kwargs)
+    monkeypatch.setattr(tile_migrate.shutil, 'move', move)
+    result = tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')
+    assert result['state'] == 'migrated'
+    manifest = json.loads((output / TILE / 'manifest.json').read_text())
+    tile_migrate.Farm.validate(output, TILE, manifest)
+    assert manifest['roads'] == original['roads']

@@ -47,10 +47,30 @@ def paint_partition(layers, origin, direction):
     ordered = sorted(
         enumerate(layers), key=lambda item: (item[1][3], item[0]), reverse=True
     )
+    # Dense reviewed facades have hundreds of largely disjoint openings. Avoid
+    # repeatedly unioning every earlier opening into one growing coverage map.
+    # Small walls retain the cheaper incremental path.
+    tree = None
+    if len(ordered) >= 32:
+        polygons = np.asarray([
+            shapely.make_valid(shapely.Polygon(layer[1])) for _, layer in ordered
+        ], dtype=object)
+        valid = shapely.area(polygons) >= 1e-9
+        tree = shapely.STRtree(polygons)
     for rank, (_, (points, uv, style, _priority)) in enumerate(ordered):
-        polygon = shapely.make_valid(shapely.Polygon(uv))
+        polygon = polygons[rank] if tree is not None else shapely.make_valid(shapely.Polygon(uv))
         if polygon.area < 1e-9:
             continue
+        if tree is not None:
+            # Only higher-priority layers can cover this owner. Bounding-box
+            # intersection is conservative; GEOS resolves the actual overlap.
+            rows = tree.query(polygon)
+            rows = rows[(rows < rank) & valid[rows]]
+            if not len(rows):
+                result.append((points, uv, style))
+                continue
+            rows.sort()
+            covered = shapely.union_all(polygons[rows])
         remainder = polygon.difference(covered)
         if remainder.equals(polygon):
             result.append((points, uv, style))
@@ -60,7 +80,7 @@ def paint_partition(layers, origin, direction):
                 vertices[:, 1] = coords[:, 1]
                 result.append((vertices, coords, style))
         # No later paint owner reads coverage after the last layer.
-        if rank + 1 < len(ordered):
+        if tree is None and rank + 1 < len(ordered):
             covered = covered.union(polygon)
     return reversed(result)
 

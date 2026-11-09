@@ -4,27 +4,28 @@
 // swatches, and in-context game shots. Writes JPEGs and a self-contained index.html.
 //   node scripts/nature/gallery.mjs --base http://127.0.0.1:5730/ --out ~/turku3d/loops/assets-gallery
 //     [--context-before DIR] [--context-from DIR [--context-only-from]] [--context-note TEXT] [--note TEXT]
-//     [--profile DIR] [--only tree_birch,...] [--no-context]
-// Uses one automation Chrome (tools/dev/chrome-args.mjs) and closes it at the end. Browser slots on the shared Mac go
-// through ~/turku3d/tools/chrome-guard (acquire before launch, touch per capture, release after closing).
+//     [--only tree_birch,...] [--no-context]
+// Run under ~/turku3d/tools/host-lease/session.py on Air/Windows, which supplies BROWSER_CDP and owns Chrome's
+// lifecycle. Requests to --base are fetched on this controller, so a controller-local dev server works remotely.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import sharp from 'sharp';
 import { chromium } from '@playwright/test';
-import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../../../tools/dev/chrome-args.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
+if (!process.env.BROWSER_CDP || process.env.LEASE_HOST === 'mac') {
+  throw new Error('Nature gallery requires BROWSER_CDP from host-lease/session.py on Air or Windows; it never launches a local browser.');
+}
 const base = opt('--base', 'http://127.0.0.1:5730/');
 const out = path.resolve(opt('--out', path.join(os.homedir(), 'turku3d/loops/assets-gallery')));
 const previews = path.join(os.homedir(), 'turku3d/data/assets-src/nature/build/previews');
 const before = opt('--context-before', path.join(os.homedir(), 'turku3d/data/research/turku3d-compare'));
 const only = opt('--only') ? opt('--only').split(',') : null;
-const manifest = JSON.parse(fs.readFileSync(path.join(here, '../../public/assets/nature/nature.json'), 'utf8'));
+const manifestResponse = await fetch(new URL('assets/nature/nature.json', base), { signal: AbortSignal.timeout(10000) });
+if (!manifestResponse.ok) throw new Error(`Nature viewer manifest: HTTP ${manifestResponse.status}`);
+const manifest = await manifestResponse.json();
 fs.mkdirSync(path.join(out, 'img'), { recursive: true });
 
 const ACG = id => [`ambientCG ${id}`, `https://ambientcg.com/view?id=${id}`];
@@ -41,7 +42,7 @@ const SOURCES = {
   picket_fence: [], board_fence: [], metal_railing: [], park_fence: [], granite_wall: [ACG('Granite003B')],
 };
 const MADE = {
-  tree: 'Procedural skeleton, tube bark, bent leaf cards (scripts/nature/trees.mjs); LOD 1 = whole canopy as flat cards; LOD 2 = baked 3+1-plane impostor',
+  tree: 'Procedural skeleton, tube bark, bent leaf cards (scripts/nature/trees.mjs); LOD 1 = whole canopy as flat cards; LOD 2 = hemi-octahedral impostor from 8×8 views',
   shrub: 'Procedural multi-stem shrub (scripts/nature/trees.mjs); LOD 1 = flat cards, fewer stems', hedge: '2 m module: opaque leafy core wrapped in cards',
   grass: 'Crossed cards (lawn: two wide low cards that overlap into a carpet; rosette: one flat card) with our composed atlas cell', fence: '2 m module modelled in Blender 5.2 through Blender MCP (one post per module); LOD 1 simplified',
 };
@@ -52,8 +53,8 @@ for (const [file, title, note] of [
   ['foliage.png', 'Foliage card atlas', '2048² ETC1S + alpha: 16 cards (8 trees, 4 shrubs, grass tuft, lawn band, meadow, rosette) composed from CC0 leaf scans'],
   ['bark.png', 'Bark column atlas', '4096×512 ETC1S: birch, Scots pine, spruce, oak, linden, maple, smooth, willow; 448 px columns with wrap gutters'],
   ['bark-normal.png', 'Bark normals', '2048×256 UASTC (shipped at half the albedo resolution)'],
-  ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × (3 side views + top view), baked on the CPU from LOD 0'],
-  ['impostor-normal.png', 'Impostor normals', 'UASTC at half resolution, plane tangent space'],
+  ['impostor-albedo.png', 'Impostor atlas', 'ETC1S + alpha: every tree model × 8×8 hemi-octahedral views, baked on the CPU from LOD 0'],
+  ['impostor-normal-depth.png', 'Impostor normals and depth', 'UASTC normal + depth atlas for the hemi-octahedral views'],
   ['wood.png', 'Painted wood', '512² ETC1S, drawn by our code (grain, knots, flaked paint); paint colour per instance'], ['woodNormal.png', 'Wood normal', '512² UASTC, from the drawn height field'],
   ['granite.png', 'Granite', '512² ETC1S'], ['graniteNormal.png', 'Granite normal', '512² UASTC'], ['chain.png', 'Chain-link wire', '256² ETC1S + alpha, drawn by our code'],
 ]) {
@@ -99,7 +100,7 @@ p{margin:6px 0}a{color:inherit}table{border-collapse:collapse;font-variant-numer
 <h1>Turku3D nature asset library</h1>
 ${done ? '' : '<p><b>Rendering in progress: this page fills in as assets render; reload for more.</b></p>'}
 ${opt('--note') ? `<p>${esc(opt('--note'))}</p>` : ''}
-<p class="muted">Branch <code>local/assets-nature</code> · nature.glb ${(manifest.glb.bytes / 1048576).toFixed(2)} MiB (KTX2 + meshopt) · rendered ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC with the game's renderer, shadows and post-processing at 13:00, wind off.
+<p class="muted">Library SHA-256 <code>${esc(manifest.glb.sha256)}</code> · nature.glb ${(manifest.glb.bytes / 1048576).toFixed(2)} MiB (KTX2 + meshopt) · rendered ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC with the game's renderer, shadows and post-processing at 13:00, wind off.
 All texture inputs are CC0 1.0 (ambientCG, Poly Haven); compositions, generated geometry and the Blender-MCP fence kit are project-owned. Sources and rebuild: <code>game/public/assets/nature/README.md</code>.</p>
 ${groups.map(([title, kinds]) => `<h2>${title}</h2><div class="grid">${Object.entries(manifest.assets).filter(([, a]) => [].concat(kinds).includes(a.kind)).map(([n, a]) => card(n, a)).join('')}</div>`).join('\n')}
 <h2>Texture sets</h2><table>${textures}</table><div class="grid">${swatches.map(s => `<section class="card${s.wide ? ' wide' : ''}"><h3>${esc(s.title)}</h3><a href="${s.img}"><img src="${s.img}" loading="lazy" alt="${esc(s.title)}"></a><p class="muted">${esc(s.note)}</p></section>`).join('')}</div>
@@ -108,32 +109,25 @@ ${groups.map(([title, kinds]) => `<h2>${title}</h2><div class="grid">${Object.en
 ${errors.length ? `<p class="muted">Page errors while rendering: ${esc(errors.slice(0, 3).join(' | '))}</p>` : ''}
 </main></body></html>`);
 
-const guardTool = path.join(os.homedir(), 'turku3d/tools/chrome-guard/guard.py');
-const guard = command => fs.existsSync(guardTool) ? spawnSync('python3', [guardTool, command, 'assets-nature'], { stdio: 'inherit' }).status : 0;
-// Queue for a slot (exit 3 = queued) for up to 30 minutes, then launch at once while the reservation holds.
-for (let waited = 0; guard('acquire') === 3; waited += 20) {
-  if (waited >= 1800) { console.error('chrome-guard: no browser slot within 30 min'); process.exit(3); }
-  await new Promise(resolve => setTimeout(resolve, 20000));
-}
-const context = await chromium.launchPersistentContext(opt('--profile', path.join(os.homedir(), 'turku3d/work/assets-nature/chrome-gallery')), {
-  executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true,
-  viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1,
-  args: chromeArgs(['--enable-unsafe-webgpu', '--use-angle=metal', '--ignore-gpu-blocklist']),
-});
+const browser = await chromium.connectOverCDP(process.env.BROWSER_CDP, { timeout: 10000 });
+const context = browser.contexts()[0];
 const page = context.pages()[0] ?? await context.newPage();
+await page.setViewportSize({ width: 1280, height: 860 });
+const localOrigin = `${new URL(base).origin}/**`;
+const forward = async route => route.fulfill({ response: await route.fetch() });
+await page.route(localOrigin, forward);
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 const shots = {};
 const shoot = async (file, options, frames = 45) => {
-  guard('touch');
   const start = await page.evaluate(o => window.__viewer.show(o), options);
-  await page.waitForFunction(n => window.__viewer.stats.frames > n, start + frames, { timeout: 60000 });
+  await page.waitForFunction(n => window.__viewer.stats.frames > n && window.__viewer.stats.calls > 0, start + frames, { timeout: 60000 });
   await page.screenshot({ path: path.join(out, 'img', file), type: 'jpeg', quality: 86 });
   return `img/${file}`;
 };
 try {
   await page.goto(`${base}nature.html?view=gallery&shot=1&wind=0&time=13:00`);
-  await page.waitForFunction(() => (window.__viewer?.stats.frames ?? 0) > 30, null, { timeout: 120000 });
+  await page.waitForFunction(() => (window.__viewer?.stats.frames ?? 0) > 30 && window.__viewer.stats.calls > 0, null, { timeout: 120000 });
   for (const [name, a] of Object.entries(manifest.assets)) {
     if (only && !only.includes(name)) continue;
     const H = a.height, R = a.radius, entry = shots[name] = {};
@@ -154,7 +148,7 @@ try {
     writeIndex(false);
   }
   // In context: the current branch in the game's fixed QA camera, next to the committed before shots.
-  const cameras = JSON.parse(fs.readFileSync(path.join(before, 'cameras.json'), 'utf8')).cameras;
+  const cameras = args.includes('--no-context') ? [] : JSON.parse(fs.readFileSync(path.join(before, 'cameras.json'), 'utf8')).cameras;
   shots.context = [];
   // With --no-context, the in-context section keeps the previous run's entries.
   const previous = path.join(out, 'context.json');
@@ -168,7 +162,6 @@ try {
     let fresh = false;
     if (!args.includes('--context-only-from')) {
       try {
-        guard('touch');
         await page.goto(`${base}?cam=${cam.cam}&time=13:00&quality=high&hud=0&traffic=0&walkers=0`);
         await page.waitForFunction(() => window.__qaReady || window.__qaError, null, { timeout: 240000 });
         await page.waitForTimeout(8000);
@@ -190,8 +183,8 @@ try {
   }
   fs.writeFileSync(previous, JSON.stringify(shots.context));
 } finally {
-  await context.close();
-  guard('release');
+  await page.unroute(localOrigin, forward);
+  await browser.close();
 }
 
 writeIndex(true);

@@ -5,7 +5,7 @@ Each entry runs at the end of every generator build and over existing farm produ
 from . import (bridge_ends, chain_record, finished_ground, floodlights, furniture, landmark_windows,
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
-               forest_cover)
+               forest_cover, centred_paint)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -43,4 +43,6 @@ CHAIN = (
     square_lights.MIGRATION,
     # Spot rebuild of the tiles whose forest the old tree cap or a filled track ring cut short.
     forest_cover.MIGRATION,
+    # Refresh stale paint after a road-only centring install; full builds carry a source receipt.
+    centred_paint.MIGRATION,
 )
