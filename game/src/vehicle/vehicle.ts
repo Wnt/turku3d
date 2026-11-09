@@ -8,7 +8,7 @@ import type { VehicleInput, VehicleState } from '../physics/protocol.ts';
 import { REMOTE_VEHICLE, VEHICLES, type VehicleKind, type VehicleTuning } from '../physics/constants.ts';
 import { GROUP, MATERIALS } from '../shared/col/materials.ts';
 import { REAR_STEER_MODES, rearSteerIdle, rearSteerStep, type RearSteerState } from './rearSteer.ts';
-import { corners, droopLength, schedule, type Corner } from './suspension.ts';
+import { corners, droopLength, schedule, staticLength, type Corner } from './suspension.ts';
 import { BumpDetector } from './bumps.ts';
 import { curbResponse, isCurbMaterial } from './curbStrike.ts';
 import { handling } from './handling.ts';
@@ -85,6 +85,8 @@ export class Vehicle {
   seated = false;
   /** The pose a resting undriven car has kept, and for how many steps (REST). */
   private rest: { p: V3; q: { x: number; y: number; z: number; w: number }; steps: number } | null = null;
+  /** Each wheel's last suspension length from a ray result: reported while the controller has none (state()). */
+  private shownLength: number[] = [];
   private bumps = new BumpDetector();
   private readonly longitudinal = new Float32Array(4);
   private readonly lateral = new Float32Array(4);
@@ -742,8 +744,14 @@ export class Vehicle {
       forwardSpeed: r4(lv.x * forward.x + lv.y * forward.y + lv.z * forward.z),
       curbStrike: this.lastStrike, impact: this.impact, bump: this.bumps.latest,
       wheels: this.mounts.map((cp, i) => {
+        // A controller with no ray result (just spawned, newly asleep) reports zero length and no contact: that wheel
+        // is reported where it last was (at static length before any), not up in its arch. Drawn and sent as is,
+        // claimed traffic cars' wheels sank into the body until they woke (Jonni, 2026-11-10); a wheel really
+        // compressed that far is always in contact.
+        const fresh = v.wheelSuspensionLength(i), noResult = !v.wheelIsInContact(i) && (fresh ?? 0) <= 1e-4;
+        if (!noResult && fresh != null) this.shownLength[i] = fresh;
         // A long-travel wheel hangs from its limit strap: past full droop it is unloaded and drawn at the strap.
-        const raw = v.wheelSuspensionLength(i) ?? t.rest, curve = !!this.corners[i];
+        const raw = noResult ? this.shownLength[i] ?? staticLength(t) : fresh ?? t.rest, curve = !!this.corners[i];
         const suspension = curve ? Math.min(raw, droopLength(t, i)) : raw;
         const contact = v.wheelIsInContact(i) && (!curve || raw <= droopLength(t, i) + 1e-3);
         const point = contact && !b.isSleeping() ? v.wheelContactPoint(i) : null;

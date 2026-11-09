@@ -156,3 +156,27 @@ test.each(['golf7', 'carla-mercedes-coupe-2020', 'carla-mini-cooper-s-2021'])(
     expect(peakHeightChange).toBeLessThan(.15);
     pw.world.free();
   });
+
+test('a car\'s wheels are never reported up in their arches for want of a ray result: spawned, falling asleep, asleep', () => {
+  const pw = new PhysicsWorld(R);
+  pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+  // A claimed traffic car: a spawned fleet car with a custom half extent, nobody driving it.
+  pw.spawnVehicle({ x: 20, y: 0.75, z: 0 }, 0, { id: 'tr:t0_0_0:abc:1', kind: 'car', halfExt: { x: 2.3, y: 0.42, z: 0.95 } });
+  pw.spawnCharacter({ x: 50, y: 2, z: 50 });
+  const body = (pw as unknown as { vehicles: Map<string, { body: R.RigidBody }> }).vehicles.get('tr:t0_0_0:abc:1')!.body;
+  const wheels = () => pw.vehicleStates().find(v => v.id === 'tr:t0_0_0:abc:1')!.wheels;
+  // Before any step (no ray yet): at a suspension length a wheel has under load, not zero.
+  for (const w of wheels()) expect(w.suspension).toBeGreaterThan(0.05);
+  let lowest = Infinity, slept = false;
+  for (let k = 0; k < 600; k++) {
+    pw.fixedStep(idle, null);
+    for (const w of wheels()) lowest = Math.min(lowest, w.suspension);
+    slept ||= body.isSleeping();
+  }
+  expect(slept).toBe(true);
+  expect(lowest).toBeGreaterThan(0.05);
+  // Asleep, woken and asleep again: the same.
+  body.applyImpulse({ x: 0, y: 2000, z: 0 }, true);
+  for (let k = 0; k < 600; k++) { pw.fixedStep(idle, null); for (const w of wheels()) lowest = Math.min(lowest, w.suspension); }
+  expect(lowest).toBeGreaterThan(0.05);
+});
