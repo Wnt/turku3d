@@ -22,11 +22,13 @@ export type RiverReflection = 'planar' | 'ssr' | 'sky';
 // close or closer to the Aura references in every pair, for 3-11 ms less GPU p95 on the Air; `?water=planar` is the A/B.
 // High and low keep the planar pass; without TRAA history (`aa=fxaa|off`) the march has nothing to read and the river
 // shows the sky (render/water.ts riverReflection).
+// Medium trees hand over to their impostors at 120 m (180 before the hemi-octahedral impostors, world/nature/impostor.ts:
+// they turn with the view and keep the crown's depth, so the reduced meshes' alpha-tested leaves need not reach as far).
 // midInstances: trees drawn with the reduced (LOD 1) meshes before the mid band shrinks towards impostors (world/
 // vegetationLod.ts). Those alpha-tested leaves are the costliest vegetation pool on the Radeon 560X; the budgets sit
 // above every pose measured before forests were populated from lidar crowns (at most 635 at medium), so parks and
 // streets keep their bands and only dense forests hand over earlier.
-const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, midInstances: 700, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
+const MEDIUM = { parkedBodies: 60, vegetation: { near: 50, mid: 120, far: 650, nearInstances: 300, midInstances: 700, farInstances: 10000, barrierInstances: 2500 }, grass: { density: 2.5, range: 34, instances: 12000 }, shadowSize: 2048, splits: [16, 50, 200], aoScale: 0.5, aoSamples: 0, aoStrength: 0,
   bloomScale: 0.25, bloomStrength: 0.045, temporalSubpixel: true, reflectionScale: 0.5, reflectionSlowFps: 12, riverReflection: 'ssr', detail: 0.055, saturation: 0.97,
   lights: { point: 4 }, maxPixels: 2560 * 1440, governor: false } as const;
 export const QUALITY = {
@@ -38,7 +40,7 @@ export const QUALITY = {
     lights: { point: 0 }, maxPixels: 2560 * 1440, governor: true },
   // Medium's look for lower-end GPUs (deviceQuality). On a Radeon Pro 560X (gcn-4) at 2880x1800 the beauty pass costs
   // 3x the M1 Max's at the same pixel count, mostly the alpha-tested leaf overdraw of the reduced (mid) tree meshes.
-  // Trees hand over to impostors at 100 m instead of 180, the river reflection renders at a quarter of the view and
+  // Trees hand over to impostors at 100 m instead of 120, the river reflection renders at a quarter of the view and
   // refreshes at 8 FPS while the camera is still, and the drawing buffer is capped at 1080p instead of 1440p (at 1440p
   // its 4 GB of VRAM thrashed: 200 ms frames in the 2880x1800 window).
   // Its river reflects by medium's screen-space march (see MEDIUM); `?water=planar` keeps the planar pass at 0.25 and 8 FPS.

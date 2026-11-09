@@ -16,10 +16,12 @@ import { impostorNodes } from './impostor';
  *  inside its boundary: the costlier level never draws farther than before; only the cheaper one starts earlier. */
 export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] };
 /** The impostor atlas bakes the leaves' crown-depth AO into its albedo at full strength (scripts/nature/raster.mjs:
- *  texture x vertex colour), where the live leaves take it at crownLight.x 0.5 and draw sun through the outer leaves:
- *  the impostor band read 0.018-0.026 of the sky's green before haze, the leaves it replaces about 0.06. This gain on
- *  the atlas gives the harbour's forest shore 0.059 with haze (panorama 0.059; natureref evidence/far-canopy.md). */
-const IMPOSTOR_LIGHT = 1.6;
+ *  texture x vertex colour), where the live leaves take it at crownLight.x 0.5 and draw sun through the outer leaves.
+ *  The old side/top atlas needed 1.6 for the harbour's forest shore to read 0.059 of the sky's green with haze
+ *  (panorama 0.059; natureref evidence/far-canopy.md). The hemi-octahedral views carry the leaves' own normals and
+ *  light brighter: at 1.6 they read 1.25-1.45x LOD1's linear luminance at the 120 m hand-over (birch, spruce, oak in
+ *  the nature viewer), and 1.2 matches it (natureref evidence/impostors.md). */
+const IMPOSTOR_LIGHT = 1.2;
 /** Impostor alpha scale by mip level: 1 through mip 4, where the atlas keeps its alpha-test coverage, rising by `gain`
  *  over mips 4-5, where it thins. `impostorAlphaScale` is the CPU mirror of the shader's ramp. */
 export const IMPOSTOR_BOOST = { from: 4, to: 5, gain: 0.3 } as const;
@@ -129,7 +131,7 @@ export class NatureMaterials {
   readonly windDirection = uniform(new THREE.Vector2(0.8, 0.6)).setGroup(renderGroup);
   /** LOD boundaries (m, 3D): full mesh -> reduced mesh, reduced -> impostor (or the end of a two-level asset),
    *  impostor -> nothing. VegetationLod sets them each update, with budgets folded in (world/vegetationLod.ts). */
-  readonly lodBands = uniform(new THREE.Vector3(50, 180, 650)).setGroup(renderGroup);
+  readonly lodBands = uniform(new THREE.Vector3(50, 120, 650)).setGroup(renderGroup);
   /** 0 while the camera moves (gradual cross-fades), ramping to 1 once it stands still: every band narrows to its
    *  per-tree boundary, so a settled frame keeps no dither (VegetationLod.update drives it). */
   readonly lodSharpness = uniform(0).setGroup(renderGroup);

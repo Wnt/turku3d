@@ -15,7 +15,7 @@ distance alpha boost. Geometry and other texture payloads remain unchanged. The 
 
 ## Assets
 
-Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 180 m and the impostor to 650 m at medium quality
+Triangles per LOD; LOD 0 is drawn to 50 m, LOD 1 to 120 m and the impostor to 650 m at medium quality
 (`src/render/quality.ts`). Trees and shrubs cast their shadow with LOD 1. Every tree and shrub species has two
 seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inventory ID. Fence modules are 2 m long.
 

@@ -53,13 +53,13 @@ the engine runs its normal code path; the values in effect are echoed as `result
 |---|---|
 | `hd=M` | HD building to block-shell switch: `BLOCK_LOD.hdDistance` in `game/src/world/buildingPlacements.ts` replaces each block's `hdDistance` (tile data, 280 m) |
 | `props=M` | street furniture: `PROP_LOD` in `game/src/world/propLod.ts` (hide 125, show 115 m; show stays 10 m closer) |
-| `trees=N/M/F` | vegetation LODs: `QUALITY[tier].vegetation.near/mid/far` in `game/src/render/quality.ts` (medium 50/180/650) |
+| `trees=N/M/F` | vegetation LODs: `QUALITY[tier].vegetation.near/mid/far` in `game/src/render/quality.ts` (medium 50/120/650) |
 | `shadow=M`, `cascades=N` | `QUALITY[tier].splits` (medium 16/50/200): a new far scales the tier's ratios; a new count gives log splits from 0.07 x far; read by the CSM in `game/src/render/environment.ts` |
 | `fullr=R` | full-tile window `TILE_WINDOW.radius` in `game/src/world/coarseRegion.ts` (1 = 3x3; `wantedTiles`, retain reach), the lab's default tile set (2R+1)^2, and `TILE_DETAIL.distance` in `game/src/world/sceneryView.ts` raised to keep the window full (450 m; R=2: 803, R=3: 1157) |
 | `cells=M` | scenery L0 cell refinement: `SCENERY_CELLS.distance` in `game/src/world/sceneryView.ts` replaces the pixel rule (350..2000 m); the floor past drawn full tiles (580 m) still applies |
 | `reflect=M` | `REFLECTION_RANGE.maxDistance` in `game/src/render/reflections.ts`: objects farther than M (horizontal, to their bounds) stay out of the river reflection (unlimited; only the water coverage test) |
 | `lodfade=S` | `LOD_FADE.seconds` in `game/src/render/lodFade.ts`: how long band hand-overs dissolve (cells, cut swaps, block shells, full tiles over previews or coarser nodes). 0 swaps at once, like GTA V's hand-over (techstudy §7 L2). Default 0.6 s until Jonni decides on the look |
-| `treefade=S` | scales the tree LOD cross-fade bands (`VEGETATION_FADE` in `game/src/world/nature/materials.ts`, 1 = default 24/16/10 % of the 50/180/650 m boundaries); 0 gives instant swaps, for an A/B of the fade's cost |
+| `treefade=S` | scales the tree LOD cross-fade bands (`VEGETATION_FADE` in `game/src/world/nature/materials.ts`, 1 = default 24/16/10 % of the 50/120/650 m boundaries); 0 gives instant swaps, for an A/B of the fade's cost |
 | `cars=N`, `walkers=N` | population caps: `?traffic=` / `TRAFFIC_CAPS` in `game/src/traffic/constants.ts` (medium 30), `?walkers=` / `WALKER_CAPS` in `game/src/world/walkers/index.ts` (medium 60); `off=traffic,walkers` still wins |
 
 **Output.** `window.__bench` is `{mode, phase, done, error, progress, capture, result}`; phases are

@@ -12,7 +12,7 @@ test('the M1 Max keeps medium, its 1440p-capped pixel ratio and the 0.5 adaptive
   expect(renderPixelRatio(1728, 941, 2, false, false, QUALITY.medium.maxPixels) * 0.5).toBeCloseTo(0.7528432350710724, 12);
   expect(QUALITY.medium).toMatchObject({ shadowSize: 2048, splits: [16, 50, 200], reflectionScale: 0.5, reflectionSlowFps: 12,
     bloomStrength: 0.045, temporalSubpixel: true, lights: { point: 4 }, maxPixels: 2560 * 1440,
-    vegetation: { near: 50, mid: 180, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 } });
+    vegetation: { near: 50, mid: 120, far: 650, nearInstances: 300, farInstances: 10000, barrierInstances: 2500 } });
   for (const gpu of [{ vendor: 'nvidia', architecture: 'ampere' }, { vendor: 'amd', architecture: 'rdna-3' }, null, undefined])
     expect(deviceQuality(gpu, 'medium')).toBe('medium');
 });

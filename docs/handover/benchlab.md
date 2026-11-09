@@ -27,7 +27,7 @@ Common: `tiles=` (default the 3×3 around t0_0_0), `cam=` or `id=` (default the 
 
 **LOD and distance overrides** (absent = engine value; each sets an existing constant before anything reads it;
 the values in effect are echoed in `result.lod`): `hd=` (block-shell switch, 280 m from tile data), `props=` (125 m),
-`trees=N/M/F` (medium 50/180/650), `shadow=` and `cascades=` (medium 16/50/200), `fullr=` (window radius, 1 = 3×3),
+`trees=N/M/F` (medium 50/120/650), `shadow=` and `cascades=` (medium 16/50/200), `fullr=` (window radius, 1 = 3×3),
 `cells=` (scenery L0 refinement; floor 580 m), `reflect=` (reflection max distance, unlimited), `cars=`, `walkers=`.
 The constant locations are in the README table.
 

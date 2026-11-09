@@ -174,12 +174,13 @@ const u8 = values => Uint8Array.from(values, v => Math.max(0, Math.min(255, Math
 function primitive(mesh, material) {
   const prim = doc.createPrimitive().setMaterial(material)
     .setAttribute('POSITION', accessor(new Float32Array(mesh.positions), 'VEC3'))
-    .setAttribute('NORMAL', accessor(new Float32Array(mesh.normals), 'VEC3'))
     .setAttribute('TEXCOORD_0', accessor(new Float32Array(mesh.uvs), 'VEC2'));
   if (mesh.impostor) {
-    // The impostor quad: its tree's bounding cylinder and atlas slot; the views carry the shading, and it does not sway.
+    // The impostor quad: its tree's bounding cylinder and atlas slot. The views carry the shading and the normals, and
+    // it does not sway: no vertex normal, colour or wind (a vertex stage takes 16 attributes, nature/impostor.ts).
     prim.setAttribute('_IMPOSTOR', accessor(new Float32Array(mesh.impostor), 'VEC4'));
   } else {
+    prim.setAttribute('NORMAL', accessor(new Float32Array(mesh.normals), 'VEC3'));
     const colors = [];
     for (let i = 0; i < mesh.colors.length; i += 3) colors.push(mesh.colors[i], mesh.colors[i + 1], mesh.colors[i + 2], 1);
     prim.setAttribute('COLOR_0', accessor(u8(colors), 'VEC4', true));

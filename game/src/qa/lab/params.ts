@@ -3,7 +3,7 @@
 //   ?bench=install [&tiles=...][&cam=...][&quiet=1500]
 //   ?bench=fly     [&tiles=...][&seconds=24][&height=40][&stream=1]
 // LOD and distance overrides for every scenario (qa/lab/overrides.ts; absent = the engine's own values):
-//   &hd=280 &props=125 &trees=50/180/650 &shadow=200 &cascades=3 &fullr=1 &cells=600 &reflect=400 &walkers=N &cars=N
+//   &hd=280 &props=125 &trees=50/120/650 &shadow=200 &cascades=3 &fullr=1 &cells=600 &reflect=400 &walkers=N &cars=N
 //   &lodfade=0.6 (band hand-over dissolve seconds; 0 swaps at once) &treefade=1 (tree LOD band scale; 0 = instant)
 // Every scenario takes &off=<ablations>, &on=<ablations> (re-enables a scenario default), &record=0 (no capture
 // folder), &size=WxH and &dpr=N (fixed drawing buffer), and the ordinary &quality= &aa= &time= &traffic= &walkers=.

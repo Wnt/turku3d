@@ -107,7 +107,7 @@ export const shippedNormal = normalAtlas => half(normalAtlas);
 
 /**
  * The impostor LOD's mesh: one quad whose corners (uv) the runtime places facing the camera. Its positions frame the
- * tree from the side (bounds only); `_impostor` carries the tree's bounding cylinder and atlas slot: (R, top, index, 0).
+ * tree from the side (bounds, and the instance's origin at runtime); `_impostor` carries the tree's bounding cylinder and atlas slot: (R, top, index, 0).
  */
 export function impostorQuad(MeshBuilder, index, R, top) {
   const mesh = new MeshBuilder();
