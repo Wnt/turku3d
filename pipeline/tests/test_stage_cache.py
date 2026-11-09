@@ -440,7 +440,17 @@ def test_prepared_wfs_ignores_texture_pixels_but_tracks_visual_material_assignme
         return data.replace(b'def maps(key, size=None):', b'def maps(key, size=256):') if path == source else data
     monkeypatch.setattr(Path, 'read_bytes', pixels)
     assert inputs._key([], 'wfs') == before
-    monkeypatch.setattr(street_materials, 'FIELDSTONE', 130)
+    # 5d23ad00 hashes the expanded FINISH_KEYS map; changing a runtime constant
+    # after that map was constructed does not simulate an edit to the producer.
+    # 89cf4c39 tracks referenced source constants through the static closure.
+    material_source = Path(street_materials.__file__)
+    def assignment(path):
+        data = pixels(path)
+        if path == material_source:
+            assert b'FIELDSTONE = 128' in data
+            return data.replace(b'FIELDSTONE = 128', b'FIELDSTONE = 200')
+        return data
+    monkeypatch.setattr(Path, 'read_bytes', assignment)
     assert inputs._key([], 'wfs') != before
 
 
