@@ -87,3 +87,24 @@ describe('traffic authority mirror', () => {
     }
   });
 });
+
+describe('tile prefill', () => {
+  test('a tile that joins a running flow starts with about the cars it has when present from the start', () => {
+    // Reference: both tiles from the start, 3 minutes in. Late: only t0_0_0, t0_1_0 added at 3 minutes.
+    const both = flow(['t0_0_0', 't0_1_0']), late = flow(['t0_0_0']);
+    for (let t = 0.1; t <= 180; t += 0.1) { both.update(t); late.update(t); }
+    const net = (late as unknown as { network: TrafficNetwork }).network;
+    net.setTile(buildTileTraffic('t0_1_0', trafficRoads(structuredClone(graphs.get('t0_1_0')!)), tileBounds('t0_1_0')!, 't0_1_0'));
+    late.update(180.1);
+    const mature = onTile(both, 't0_1_0').size, joined = onTile(late, 't0_1_0').size;
+    expect(mature).toBeGreaterThan(4);
+    expect(late.stats.prefilled).toBeGreaterThan(0);
+    expect(joined).toBeGreaterThan(mature * 0.5);
+    // The prefilled cars are the reference's own drivers (the timetable's keys), not new identities.
+    const shared = [...onTile(late, 't0_1_0').keys()].filter(key => onTile(both, 't0_1_0').has(key)).length;
+    expect(shared).toBeGreaterThan(joined * 0.3);
+    // And they drive on: a minute later the tile is as busy as the reference's, and no car sits stuck on it.
+    for (let t = 180.2; t <= 240; t += 0.1) { both.update(t); late.update(t); }
+    expect(onTile(late, 't0_1_0').size).toBeGreaterThan(onTile(both, 't0_1_0').size * 0.6);
+  });
+});

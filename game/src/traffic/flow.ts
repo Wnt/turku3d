@@ -3,7 +3,7 @@
 // All resident lanes participate, independent of the camera ring, render cap or local frame rate.
 import { MODEL_SIZE, MODEL_WEIGHTS, TRAFFIC, TRAFFIC_MODELS } from './constants';
 import { hash01, hash32, pick } from './hash';
-import { blankPose, entryTime, pointAtInto, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
+import { blankPose, entryTime, pointAtInto, timetable, type CarPose, type LaneHeight, type TrafficNetwork } from './network';
 import { connector, cumulative, deadEnd, intoDeadEnd, smoothPath, type Connector, type Lane } from './tileNetwork';
 import { LANE_CHANGE_SECONDS, LaneChangePlanner, type LaneChange, type LaneSignal } from './laneChanges';
 import { greenWithin, signalState, protectedLeft } from './controls';
@@ -311,7 +311,7 @@ export class TrafficFlow {
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
   stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0,
-    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0 };
+    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0, prefilled: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -547,6 +547,7 @@ export class TrafficFlow {
    * session every time one neighbour loads. A shared-world host publishes the same event/checkpoint to peers. */
   private refreshGraph(commit: () => void, revision: number) {
     const existing = [...this.cars.values()], demand = new Map([...this.demand].map(([l, n]) => [`${l.tile}:${l.id}`, n]));
+    const before = new Set(this.builtTiles.keys());
     commit();
     this.revision = revision;
     this.clearState();
@@ -567,12 +568,52 @@ export class TrafficFlow {
     }
     const t = this.tick * FLOW_STEP;
     for (const lane of this.sources) this.demand.set(lane, demand.get(`${lane.tile}:${lane.id}`) ?? Math.ceil((t - lane.phase) / TRAFFIC.headway));
+    // A tile that joins a running flow starts with the cars its timetable has on it now (a mirrored tile gets its
+    // owner's instead).
+    if (before.size) this.prefill([...this.builtTiles.keys()].filter(tile => !before.has(tile) && !this.remote.has(tile)), t);
+  }
+
+  /** Cars on the lanes of `tiles` at time t from the demand timetable (TrafficNetwork.slots, present, key and
+   *  timetable): the drivers its chains' origins would have sent, where the timetable has them, at the lane's cruise
+   *  speed; the slots it has waiting at the stop line queue behind it, stopped. One crossing the junction is left
+   *  out, and so is one that would overlap a car already there. Without it a tile entering the flow started empty and filled only from its sources at
+   *  the window's edge, so a player driving into new tiles met empty streets (multiplayer bots, 2026-11-10). */
+  private prefill(tiles: readonly string[], t: number) {
+    if (!tiles.length) return;
+    const set = new Set(tiles);
+    for (const lane of this.lanes) {
+      if (!set.has(lane.tile)) continue;
+      const [first, last] = this.network.slots(lane, t);
+      let queue = lane.length - 1;
+      for (let n = first; n <= last; n++) {
+        if (!this.network.present(lane, n)) continue;
+        const key = this.network.key(lane, n), r = timetable(lane, n, t);
+        if (r > lane.length + 0.01 || this.cars.has(key) || this.suppressed.has(key)) continue;
+        const model = pick(hash01('model', key), MODEL_WEIGHTS);
+        const [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[model]];
+        // Waiting at the stop line (the timetable holds them all there): one behind another.
+        const waiting = r >= lane.length - 0.01, s = waiting ? queue - length / 2 : r, speed = waiting ? 0 : lane.vEff;
+        if (s < 1 || (!waiting && s > lane.length - 2)) continue;
+        if (waiting) queue = s - length / 2 - GAP;
+        const route = this.chooseRoute(lane, key), slot = Number(key.slice(key.lastIndexOf(':') + 1));
+        const car: FlowCar = { key, lane, route, n: slot, model, width, length, born: t, s, speed, hops: 0, tileTick: this.tick,
+          demandDraw: this.network.demandDraw(lane, n),
+          previous: { route, s: s - speed * FLOW_STEP, speed, change: null, swerve: 0, swerveRate: 0, uturn: null }, change: null, uturn: null, signal: null, changeCooldown: 0,
+          reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0, rerouted: 0, rock: -1, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
+          blockedBy: null, pose: blankPose() };
+        sampleFlowPose(car, 0, () => 0, car.pose);
+        if (this.obstructed(car, car.pose)) continue;
+        this.cars.set(key, car);
+        this.occupy(car);
+        this.stats.prefilled++;
+      }
+    }
   }
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
     this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0,
-    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0 };
+    mirrorAdded: 0, mirrorRemoved: 0, mirrorLane: 0, mirrorShift0: 0, mirrorShift1: 0, mirrorShift2: 0, mirrorShift3: 0, prefilled: 0 };
   }
 
   reset(t: number) {

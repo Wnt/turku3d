@@ -249,7 +249,7 @@ function appendLane(knots: number[], segments: Segment[], lane: Lane, e: number,
 }
 
 /** Route distance of slot n on its own lane at time t (timetable, no smoothing). */
-function timetable(lane: Lane, n: number, t: number): number {
+export function timetable(lane: Lane, n: number, t: number): number {
   const u = t - entryTime(lane, n);
   if (u <= lane.tau) return u * lane.vEff;
   if (!lane.connector || u <= lane.tau + lane.wait) return lane.length;
