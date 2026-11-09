@@ -40,6 +40,143 @@ def mesh(tile, path):
     ix=np.concatenate([np.c_[a,a+count+1,a+1],np.c_[a+1,a+count+1,a+count+2]])
     return layer_mesh('regional' if tile.level >= 4 else 'ground',p,ix,colours,np.asarray(tile.origin))
 
+# Far canopy: WorldCover tree cover (10) and shrubland (20) drawn as crown mounds. The regional height is
+# Copernicus GLO-30, a surface model: its forest already stands near the canopy top, so the shell drapes it with crown
+# relief (m above the surface, between these bounds by a smooth field) rather than adding whole trees on top.
+CANOPY = {10: (4.0, 9.0), 20: (1.5, 3.0)}
+# Linear canopy albedo seen from afar, conifer and broadleaf ends of a smooth stand mix: about the leaves' own albedo
+# (the impostor atlas: green 0.06, B/G 0.2), as the client also takes most of the sky's light away (FAR_CANOPY_AMBIENT).
+# Calibrated against the harbour panorama's forest shores (natureref evidence/far-canopy.md).
+CANOPY_COLOURS = ((0.021, 0.035, 0.008), (0.039, 0.059, 0.013))
+# Cell size (m) of the 1 km survey nodes (drawn from ~0.6 km) and the 4 km regional tiles (from ~4.5 km): ~20 px cells
+# where each starts. Finer cells (15.625, 62.5) added 0.65-0.98 M triangles to a far view (natureref perf s10-win).
+CANOPY_STEP = {2: 31.25, 4: 125.0}
+
+
+def _lattice(i, j, salt):
+    """Deterministic [0, 1) per integer lattice point."""
+    h = (np.asarray(i, np.int64) * 374761393 + np.asarray(j, np.int64) * 668265263 + salt * 2147483647) & 0xFFFFFFFF
+    h = ((h ^ (h >> 13)) * 1274126177) & 0xFFFFFFFF
+    return ((h ^ (h >> 16)) & 0xFFFFFF) / float(1 << 24)
+
+
+def _noise(x, z, scale, salt):
+    """Smooth value noise in [0, 1] over world metres: the same everywhere, so tiles and levels agree."""
+    u, v = np.asarray(x) / scale, np.asarray(z) / scale
+    i, j = np.floor(u).astype(np.int64), np.floor(v).astype(np.int64)
+    fu, fv = u - i, v - j
+    fu, fv = fu * fu * (3 - 2 * fu), fv * fv * (3 - 2 * fv)
+    a, b = _lattice(i, j, salt), _lattice(i + 1, j, salt)
+    c, d = _lattice(i, j + 1, salt), _lattice(i + 1, j + 1, salt)
+    return (a + (b - a) * fu) + ((c + (d - c) * fu) - (a + (b - a) * fu)) * fv
+
+
+def _sample(data, x, z, order):
+    s = np.array([(np.ravel(z) - data['zmin']) / data['step'], (np.ravel(x) - data['xmin']) / data['step']])
+    return map_coordinates(data['height' if order else 'cover'], s, order=order, mode='nearest').reshape(np.shape(x))
+
+
+def _canopy_cells(data, x, z, step):
+    """Crown relief (m above the surface, 0 = open) and stand mix of cells centred at x, z: the share of WorldCover
+    canopy samples (15.625 m) inside the cell decides it; the relief follows the class and a smooth field."""
+    n = max(1, int(round(step / float(data['step']))))
+    offsets = (np.arange(n) + .5) / n - .5
+    height = np.zeros(np.shape(x))
+    share = np.zeros(np.shape(x))
+    for dx in offsets:
+        for dz in offsets:
+            kind = _sample(data, x + dx * step, z + dz * step, 0)
+            for klass, (lo, hi) in CANOPY.items():
+                hit = kind == klass
+                share += hit
+                height += hit * (lo + (hi - lo) * _noise(x, z, 140.0, 11))
+    share /= n * n
+    height = np.where(share >= .5, height / np.maximum(share * n * n, 1) * (.6 + .4 * share), 0.0)
+    return height, _noise(x, z, 260.0, 23)
+
+
+def _orient(points, faces, towards):
+    """Flip the faces whose normal points away from ``towards`` (one direction per face)."""
+    tri = points[faces]
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    flip = (normal * towards).sum(1) < 0
+    faces[flip] = faces[flip][:, ::-1]
+    return faces
+
+
+def canopy(tile, path, step, layer='canopy'):
+    """One mound per canopy cell of ``tile`` over the regional surface: an apex (jittered) at the cell's crown relief and
+    four corners sunk between crowns or kept high on the stand's edge, with dark skirts from the edge corners to 2 m
+    below the open neighbour's surface. Every height and colour is a function of world position, so neighbouring
+    tiles meet; None without canopy."""
+    from .horizon import layer_mesh
+    data = grid(str(path))
+    if not covers(tile, path):
+        raise ValueError(f'{tile.id}: outside regional source grid')
+    n = int(round(tile.size / step))
+    # Cells -1..n: the ring outside the tile decides the shared corners and the skirts on the tile edge.
+    centres = (np.arange(-1, n + 1) + .5) * step
+    gx, gz = np.meshgrid(tile.bbox.xmin + centres, tile.bbox.zmin + centres)
+    h, mix = _canopy_cells(data, gx, gz, step)
+    on = h > 0
+    rows, cols = np.nonzero(on[1:-1, 1:-1])
+    if not len(rows):
+        return None
+    low, high = np.asarray(CANOPY_COLOURS[0]), np.asarray(CANOPY_COLOURS[1])
+    colour = (low + (high - low) * mix[..., None]) * (.85 + .3 * _noise(gx, gz, 45.0, 37))[..., None]
+    # Corner (a, b) at (xmin + b step, zmin + a step) joins padded cells (a..a+1, b..b+1).
+    meet = [(slice(None, -1), slice(None, -1)), (slice(None, -1), slice(1, None)),
+            (slice(1, None), slice(None, -1)), (slice(1, None), slice(1, None))]
+    count = sum(on[m] for m in meet)
+    mean_h = sum(h[m] for m in meet) / np.maximum(count, 1)
+    mean_c = sum(colour[m] * on[m][..., None] for m in meet) / np.maximum(count, 1)[..., None]
+    # Between crowns inside a stand the corners sink to a third of the relief; the stand's edge keeps most of it, so
+    # its skirt is the forest wall over the open ground beside it.
+    lift = mean_h * np.where(count == 4, .35, .8)
+    corner_colour = mean_c * np.where(count == 4, .7, .55)[..., None]
+    kx, kz = np.meshgrid(tile.bbox.xmin + np.arange(n + 1) * step, tile.bbox.zmin + np.arange(n + 1) * step)
+    ground = _sample(data, kx, kz, 1)
+    top = np.stack([kx, ground + lift, kz], -1)
+    cell_x = np.floor(gx[1:-1, 1:-1][rows, cols] / step).astype(np.int64)
+    cell_z = np.floor(gz[1:-1, 1:-1][rows, cols] / step).astype(np.int64)
+    ax = gx[1:-1, 1:-1][rows, cols] + (_lattice(cell_x, cell_z, 41) - .5) * .4 * step
+    az = gz[1:-1, 1:-1][rows, cols] + (_lattice(cell_x, cell_z, 43) - .5) * .4 * step
+    apex = np.c_[ax, _sample(data, ax, az, 1) + h[1:-1, 1:-1][rows, cols], az]
+    corners = [(rows, cols), (rows, cols + 1), (rows + 1, cols + 1), (rows + 1, cols)]  # NW, NE, SE, SW
+    m = len(rows)
+    points = [apex] + [top[r, c] for r, c in corners]
+    colours = [colour[1:-1, 1:-1][rows, cols]] + [corner_colour[r, c] for r, c in corners]
+    cell = np.arange(m)
+    faces = [np.c_[cell, (k + 1) * m + cell, (k + 1) % 4 * m + m + cell] for k in range(4)]
+    towards = [np.tile([0.0, 1.0, 0.0], (4 * m, 1))]
+    offset = 5 * m
+    # North, east, south, west edges: (row step, column step, first corner, second corner).
+    for dr, dc, a, b in ((-1, 0, 0, 1), (0, 1, 1, 2), (1, 0, 2, 3), (0, -1, 3, 0)):
+        k = np.nonzero(~on[1 + rows + dr, 1 + cols + dc])[0]
+        if not len(k):
+            continue
+        ra, ca = corners[a][0][k], corners[a][1][k]
+        rb, cb = corners[b][0][k], corners[b][1][k]
+        # The surface model ramps up into a stand: the wall reaches down to the open neighbour's surface.
+        outside = _sample(data, gx[1 + rows[k] + dr, 1 + cols[k] + dc], gz[1 + rows[k] + dr, 1 + cols[k] + dc], 1)
+        down_a, down_b = top[ra, ca].copy(), top[rb, cb].copy()
+        down_a[:, 1] = np.minimum(ground[ra, ca], outside) - 2
+        down_b[:, 1] = np.minimum(ground[rb, cb], outside) - 2
+        dark = colour[1:-1, 1:-1][rows[k], cols[k]] * .25
+        q = len(k)
+        points += [top[ra, ca], top[rb, cb], down_b, down_a]
+        colours += [corner_colour[ra, ca], corner_colour[rb, cb], dark, dark]
+        index = offset + np.arange(q)
+        faces += [np.c_[index, index + q, index + 2 * q], np.c_[index, index + 2 * q, index + 3 * q]]
+        towards.append(np.tile([float(dc), 0.0, float(dr)], (2 * q, 1)))
+        offset += 4 * q
+    points = np.concatenate(points)
+    faces = _orient(points, np.concatenate(faces), np.concatenate(towards))
+    return layer_mesh(layer, points, faces, np.concatenate(colours), np.asarray(tile.origin))
+
+
 def build(tile, path):
     terrain=mesh(tile,path)
-    return [terrain],dict(triangles=len(terrain.indices),draws=1,regional=True)
+    trees=canopy(tile,path,CANOPY_STEP[4],'canopy-regional')
+    meshes=[terrain]+([trees] if trees is not None else [])
+    return meshes,dict(triangles=sum(len(m.indices) for m in meshes),draws=len(meshes),regional=True)

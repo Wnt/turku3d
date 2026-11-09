@@ -123,3 +123,49 @@ def test_regional_grid_preserves_coast_and_shared_lod_edges(tmp_path):
     tri=coast.positions[coast.indices]
     assert np.all(np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0])[:,1]>0)
     assert not covers(C.VisualTile(4,-1,0),path)
+
+
+def _region(tmp_path, cover_at):
+    step = 15.625
+    x, z = np.meshgrid(np.arange(513) * step, np.arange(513) * step)
+    height = (8 + x * .001 + z * .002).astype('float32')
+    path = tmp_path / 'region.npz'
+    np.savez_compressed(path, height=height, cover=cover_at(x, z).astype('uint8'), xmin=0., zmin=0., step=step)
+    return path
+
+
+def test_far_canopy_covers_tree_cells_only_and_faces_out(tmp_path):
+    from turku3d.coarse.horizon_regional import canopy
+    # Trees east of x = 1250 m, water west of 1100 m, grass between.
+    path = _region(tmp_path, lambda x, z: np.where(x >= 1250, 10, np.where(x < 1100, 80, 30)))
+    block = C.VisualTile(1, 2, 0)  # x 1000..1500
+    shell = canopy(block, path, 15.625)
+    p = shell.positions + np.asarray(block.origin)
+    assert p[:, 0].min() >= 1250 - 15.625 - 1e-6  # within one cell of the 15.625 m cover samples
+    tri = p[shell.indices]
+    normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    up = normal[:, 1] > 1e-6
+    # Mounds face up; the stand's west edge has skirts facing west (towards the open grass).
+    assert up.sum() in (4 * 16 * 32, 4 * 17 * 32)
+    side = ~up
+    assert side.any() and np.all(normal[side, 0] < 0)
+    assert canopy(C.VisualTile(1, 0, 0), path, 15.625) is None
+    tops = p[:, 1] - (8 + p[:, 0] * .001 + p[:, 2] * .002)
+    assert 4 <= tops.max() <= 9 + 1e-6 and tops.min() >= -2.1  # feet: 2 m under the lower side
+
+
+def test_far_canopy_corners_meet_across_tiles_and_levels(tmp_path):
+    from turku3d.coarse.horizon_regional import build, canopy
+    path = _region(tmp_path, lambda x, z: np.where((x // 300 + z // 300) % 2 == 0, 10, 30))
+    a, b = C.VisualTile(1, 2, 2), C.VisualTile(1, 3, 2)
+    pa = canopy(a, path, 15.625).positions + np.asarray(a.origin)
+    pb = canopy(b, path, 15.625).positions + np.asarray(b.origin)
+    edge = 1500.0
+
+    def surface(p):  # the canopy surface meets; skirt feet sit under the ground, at each side's open neighbour
+        return {tuple(np.round(q, 4)) for q in p[np.isclose(p[:, 0], edge) & (p[:, 1] > 8 + p[:, 0] * .001 + p[:, 2] * .002 - 1)]}
+    ea, eb = surface(pa), surface(pb)
+    assert ea and ea == eb
+    meshes, stats = build(C.VisualTile(4, 0, 0), path)
+    assert [m.extras['layer'] for m in meshes] == ['regional', 'canopy-regional']
+    assert stats['draws'] == 2

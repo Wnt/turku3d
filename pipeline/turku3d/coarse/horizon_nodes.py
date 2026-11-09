@@ -51,6 +51,11 @@ def describe(service, tile):
         row = dict(tile=block.id, ground=list(map(str, ground)), buildings=sorted(buildings),
                    water=sorted(water), streets=sorted(streets), osm=sorted(osm),
                    ortho=ortho_inputs(service.sources, block.children()))
+        # The far canopy comes from the regional land cover wherever it reaches (horizon_regional.canopy); it replaces
+        # the OSM woods clusters, which miss parks and street trees.
+        if service.regional_row(block):
+            row['canopy'] = service.regional
+            files.add(service.regional)
         blocks.append(row)
         for paths in (row[k] for k in ('ground', 'buildings', 'water', 'streets', 'osm')):
             files.update(paths)
@@ -228,17 +233,23 @@ def build_node(tile, blocks, appearance):
     from .horizon import layer_mesh
     ortho = {k: v for row in blocks for k, v in row.get('ortho', {}).items()}
     meshes, buildings, footprints = survey_shells(tile, {p for row in blocks for p in row['buildings']}, appearance, ortho)
-    groups = {'ground': [], 'vegetation': []}
+    from .horizon_regional import CANOPY_STEP, canopy, mesh
+    groups = {'ground': [], 'vegetation': [], 'canopy': []}
     for row in blocks:
+        block = C.VisualTile.parse(row['tile'])
         if 'regional' in row:
-            from .horizon_regional import mesh
-            block = C.VisualTile.parse(row['tile'])
             ground, trees = mesh(block,row['regional']), None
             ground.positions += np.asarray(block.origin)
         else:
-            ground, trees = block_ground(C.VisualTile.parse(row['tile']), row, tile.level >= 4, footprints)
+            ground, trees = block_ground(block, row, tile.level >= 4, footprints)
         groups['ground'].append(ground)
-        if trees: groups['vegetation'].append(trees)
+        crowns = row.get('regional') or row.get('canopy')
+        if crowns:
+            shell = canopy(block, crowns, CANOPY_STEP[4 if tile.level >= 4 else 2])
+            if shell is not None:
+                shell.positions += np.asarray(block.origin)
+                groups['canopy'].append(shell)
+        elif trees: groups['vegetation'].append(trees)
     result = [meshes] if meshes else []
     for layer, parts in groups.items():
         if not parts: continue
