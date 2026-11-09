@@ -210,8 +210,13 @@ def apply_step(root: Path, meta: dict, tile: str, step, displaced: Path) -> dict
             Farm.validate(output, tile, product.manifest)
             receipt = dict(step=step.key, code_hash=code_hash, displaced=str(aside),
                            time=time.time())
-            atomic_json(source / 'ready.json', {**ready,
-                        'data_corrections': [*(ready.get('data_corrections') or []), receipt]})
+            corrected_ready = {**ready,
+                               'data_corrections': [*(ready.get('data_corrections') or []), receipt]}
+            # It still serves, but a later chain must not resume from this
+            # generation as though its original prefix were unchanged.
+            if 'base_manifest_sha256' in corrected_ready:
+                corrected_ready['superseded_base_manifest_sha256'] = corrected_ready.pop('base_manifest_sha256')
+            atomic_json(source / 'ready.json', corrected_ready)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         return dict(tile=tile, state='migrated', step=step.key, checked=checked, displaced=str(aside))
