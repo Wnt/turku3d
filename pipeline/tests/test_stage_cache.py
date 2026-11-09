@@ -672,3 +672,38 @@ def test_transient_stage_cache_computes_without_writing_entries(tmp_path, monkey
     shared = StageCache(tmp_path / "out" / ".stages" / "building-attachments" / "b1")
     shared.run("survey", "code", [1], lambda: 5)
     assert shared.run("survey", "code", [1], lambda: 6) == 5
+
+
+def test_zlib_stage_cache_remains_a_hit_and_is_not_reencoded(tmp_path):
+    import hashlib
+    import pickle
+    import zlib
+    from turku3d.stage_cache import LEGACY_COMPRESSED, compress_payload
+
+    value = {'mesh': np.arange(1200, dtype=np.float32).reshape(-1, 3)}
+    cache = StageCache(tmp_path)
+    cache.run('legacy', 'v1', [], lambda: value)
+    target = next((tmp_path / 'legacy').glob('*.pkl'))
+    old = LEGACY_COMPRESSED + zlib.compress(pickle.dumps(value, protocol=5), 1)
+    stored = hashlib.sha256(old).digest() + old
+    target.write_bytes(stored)
+    result = cache.run('legacy', 'v1', [], lambda: None)
+    np.testing.assert_array_equal(result['mesh'], value['mesh'])
+    assert cache.metrics['legacy']['cached']
+    assert target.read_bytes() == stored
+    assert compress_payload(old) == old
+
+
+def test_invalid_zstd_stage_payload_recomputes(tmp_path):
+    import hashlib
+    import struct
+    from turku3d.stage_cache import COMPRESSED
+
+    cache = StageCache(tmp_path)
+    for payload in [COMPRESSED + b'x', COMPRESSED + struct.pack('<Q', 100) + b'bad-frame',
+                    COMPRESSED + struct.pack('<Q', 2**63) + b'bad-frame']:
+        cache.run('invalid', 'v1', [], lambda: 'original')
+        target = next((tmp_path / 'invalid').glob('*.pkl'))
+        target.write_bytes(hashlib.sha256(payload).digest() + payload)
+        assert cache.run('invalid', 'v1', [], lambda: 'rebuilt') == 'rebuilt'
+        assert not cache.metrics['invalid']['cached']

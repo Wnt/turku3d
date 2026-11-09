@@ -21,21 +21,33 @@ from pathlib import Path
 from turku3d import profiling
 
 import numpy as np
+import pyarrow as pa
 
 
-COMPRESSED = b"T3DZ1"
+COMPRESSED = b"T3DZ2"
+LEGACY_COMPRESSED = b"T3DZ1"
+_PAYLOAD_SIZE = struct.Struct("<Q")
 
 
 def compress_payload(data):
     """Fast lossless encoding, retaining already compressed payloads verbatim."""
-    if data.startswith(COMPRESSED):
+    if data.startswith((COMPRESSED, LEGACY_COMPRESSED)):
         return data
-    encoded = COMPRESSED + zlib.compress(data, level=1)
+    encoded = (COMPRESSED + _PAYLOAD_SIZE.pack(len(data))
+               + pa.Codec("zstd", compression_level=3).compress(data, asbytes=True))
     return encoded if len(encoded) < len(data) * .95 else data
 
 
 def decompress_payload(data):
-    return zlib.decompress(data[len(COMPRESSED):]) if data.startswith(COMPRESSED) else data
+    if data.startswith(COMPRESSED):
+        offset = len(COMPRESSED)
+        size = _PAYLOAD_SIZE.unpack_from(data, offset)[0]
+        return pa.Codec("zstd").decompress(
+            data[offset + _PAYLOAD_SIZE.size:], decompressed_size=size, asbytes=True
+        )
+    if data.startswith(LEGACY_COMPRESSED):
+        return zlib.decompress(data[len(LEGACY_COMPRESSED):])
+    return data
 
 
 @lru_cache(maxsize=4096)
@@ -292,7 +304,8 @@ class StageCache:
                 if len(data) >= 32 and hashlib.sha256(data[32:]).digest() == data[:32]:
                     try:
                         value, hit = pickle.loads(decompress_payload(data[32:])), True
-                    except (EOFError, pickle.UnpicklingError, AttributeError, ImportError, zlib.error):
+                    except (EOFError, pickle.UnpicklingError, AttributeError, ImportError,
+                            zlib.error, pa.ArrowException, struct.error, OSError, OverflowError):
                         pass
             if hit:
                 target.touch()  # Record use for shared LRU eviction.
