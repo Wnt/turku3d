@@ -34,7 +34,7 @@ test('a fleet car nobody drives falls asleep again once it stands still, and sti
   expect(body('parked').isSleeping()).toBe(true);
 });
 
-test('an asleep car wakes on its driver\'s throttle or steering, and its state says when it sleeps', () => {
+test('an asleep car wakes on its driver\'s physical controls, and its state says when it sleeps', () => {
   const pw = new PhysicsWorld(R);
   pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0).setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
   pw.spawnVehicle({ x: 20, y: 1.2, z: 0 }, 0, { id: 'player', kind: 'car', tuning: modelTuning(PLAYER_MODEL)! });
@@ -43,10 +43,13 @@ test('an asleep car wakes on its driver\'s throttle or steering, and its state s
   for (let k = 0; k < 240; k++) pw.fixedStep(idle, null);
   expect(body.isSleeping()).toBe(true);
   expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBe(true);
-  pw.driveVehicle('player'); body.sleep();
-  pw.fixedStep(null, { ...coast, steer: 0.3 });
-  expect(body.isSleeping()).toBe(false);
-  expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBeUndefined();
+  pw.driveVehicle('player');
+  for (const control of [{ throttle: 1 }, { steer: .3 }, { brake: 1 }, { handbrake: true }]) {
+    body.sleep();
+    pw.fixedStep(null, { ...coast, ...control });
+    expect(body.isSleeping()).toBe(false);
+    expect(pw.vehicleStates().find(v => v.id === 'player')!.asleep).toBeUndefined();
+  }
 });
 
 test('a seated car is never put to rest, even while its driver sends no input; leaving it lets it sleep again', () => {
@@ -113,3 +116,43 @@ test('stability control stays out at a standstill: a bus whose resting slip angl
   bus.body.setLinvel({ x: 10, y: 0, z: 0 }, true);
   expect(bus.stability().cut).toBeGreaterThan(0);
 });
+
+
+test.each(['golf7', 'carla-mercedes-coupe-2020', 'carla-mini-cooper-s-2021'])(
+  'an idle seated %s reports rest while asleep and drives off without stored motion', id => {
+    const pw = new PhysicsWorld(R);
+    pw.world.createCollider(R.ColliderDesc.cuboid(200, 1, 200).setTranslation(0, -1, 0)
+      .setCollisionGroups(groups(GROUP.STATIC_SOLID, 0xffff)));
+    pw.spawnVehicle({ x: 0, y: .8, z: 0 }, 0, { id: 'player', kind: 'car', tuning: modelTuning(id)! });
+    pw.spawnCharacter({ x: 50, y: 2, z: 50 });
+    pw.driveVehicle('player');
+    const body = (pw as unknown as { vehicles: Map<string, { body: R.RigidBody }> }).vehicles.get('player')!.body;
+    for (let k = 0; k < 600; k++) pw.fixedStep(null, coast);
+    expect(body.isSleeping()).toBe(true);
+    const start = { ...body.translation() };
+    for (let k = 0; k < 120; k++) {
+      pw.fixedStep(null, coast);
+      expect(body.isSleeping()).toBe(true);
+      expect(body.translation()).toEqual(start);
+      // Suspension impulses must not accumulate on a body the solver is not integrating.
+      expect(body.linvel()).toEqual({ x: 0, y: 0, z: 0 });
+      expect(body.angvel()).toEqual({ x: 0, y: 0, z: 0 });
+      const state = pw.vehicleStates().find(v => v.id === 'player')!;
+      expect(state.linvel).toEqual({ x: 0, y: 0, z: 0 });
+      expect(state.angvel).toEqual({ x: 0, y: 0, z: 0 });
+    }
+    pw.fixedStep(null, { ...coast, horn: true, lights: 2 });
+    expect(body.isSleeping()).toBe(true);
+    const state = pw.vehicleStates().find(v => v.id === 'player')!;
+    expect(state.horn).toBe(true);
+    expect(state.lights).toBe(2);
+    let peakHeightChange = 0;
+    for (let k = 0; k < 120; k++) {
+      pw.fixedStep(null, { ...coast, throttle: 1 });
+      peakHeightChange = Math.max(peakHeightChange, Math.abs(body.translation().y - start.y));
+    }
+    expect(body.isSleeping()).toBe(false);
+    expect(body.translation().x).toBeGreaterThan(start.x + 2);
+    expect(peakHeightChange).toBeLessThan(.15);
+    pw.world.free();
+  });
