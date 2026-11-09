@@ -122,6 +122,9 @@ def infer(tile, record, ways, hung=(), ground=None):
     wires = [list(w) for w in original.get("wires") or []]
     updated, _ = S.infer(original, ways, hung, ground)
     if updated:
+        # Both fragments still reach the head even though only its owner lists
+        # the lamp. Dropping the non-owner's head must not shorten its wire.
+        wires = [list(w) for w in updated["wires"]]
         for lamp in updated["lamps"][len(original.get("lamps") or []):]:
             if seam(lamp[0], lamp[2]) is None and tile.bbox.contains(lamp[0], lamp[2]):
                 lamps.append(lamp)
@@ -130,8 +133,6 @@ def infer(tile, record, ways, hung=(), ground=None):
     span = original["kinds"].index("span") if "span" in original["kinds"] else -1
     for key, points in shared.items():
         for x, y, z in points:
-            if not tile.bbox.contains(x, z) or any(math.hypot(x - a, z - b) < S.SEPARATION for a, b in lit):
-                continue
             index = -1
             best = S.CARRIED
             for i, w in enumerate(wires):
@@ -147,14 +148,13 @@ def infer(tile, record, ways, hung=(), ground=None):
                 distance = abs((x - w[0]) * dz - (z - w[2]) * dx) / length
                 if distance < best:
                     index, best = i, distance
-            if index >= 0:
-                w = wires[index]
-                dx, dz = w[3] - w[0], w[5] - w[2]
-                t = ((x - w[0]) * dx + (z - w[2]) * dz) / (dx * dx + dz * dz)
-                if t < 0:
-                    w[:3] = [x, y, z]
-                elif t > 1:
-                    w[3:6] = [x, y, z]
+                if distance < S.CARRIED:
+                    if along < 0 or math.hypot(x - w[0], z - w[2]) < S.CARRIED:
+                        w[:3] = [x, y, z]
+                    elif along > length or math.hypot(x - w[3], z - w[5]) < S.CARRIED:
+                        w[3:6] = [x, y, z]
+            if not tile.bbox.contains(x, z) or any(math.hypot(x - a, z - b) < S.SEPARATION for a, b in lit):
+                continue
             lamps.append([x, y, z, index])
             lit.append((x, z))
     result = {**original, "wires": wires, "lamps": lamps}

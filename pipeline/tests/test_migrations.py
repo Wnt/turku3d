@@ -2,6 +2,7 @@
 
 import hashlib
 import importlib.util
+import errno
 import json
 import shutil
 import sys
@@ -59,7 +60,8 @@ def base_product(generation_root: Path) -> dict:
     return manifest
 
 
-def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tmp_path, monkeypatch):
+@pytest.mark.parametrize('cross_device', [False, True])
+def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tmp_path, monkeypatch, cross_device):
     output = tmp_path / 'products' / BASE_GEN
     original = base_product(output)
     original['migrations'] = [{'name': 'older-stage', 'version': 7}]
@@ -67,10 +69,26 @@ def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tm
     (output / TILE / 'ready.json').write_text(json.dumps({'generation': BASE_GEN, 'base_manifest_sha256': 'kept'}))
     step = core.Migration('correct-lamps', 1, lambda p: p.manifest['lights'].update(count=2))
     monkeypatch.setattr(core.Migration, 'code_hash', lambda self: 'f' * 64)
+    if cross_device:
+        real_link, real_rename = tile_migrate.os.link, tile_migrate.os.rename
+
+        def link(source, target, *args, **kwargs):
+            if '/displaced/' in str(target):
+                raise OSError(errno.EXDEV, 'different filesystem')
+            return real_link(source, target, *args, **kwargs)
+
+        def rename(source, target, *args, **kwargs):
+            if str(source) == str(output / TILE) and '/displaced/' in str(target):
+                raise OSError(errno.EXDEV, 'different filesystem')
+            return real_rename(source, target, *args, **kwargs)
+
+        monkeypatch.setattr(tile_migrate.os, 'link', link)
+        monkeypatch.setattr(tile_migrate.os, 'rename', rename)
     result = tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')
     assert result['state'] == 'migrated'
     old = Path(result['displaced'])
     assert json.loads((old / 'manifest.json').read_text()) == original
+    assert all((old / p).is_file() for p in core.references(core.Product(old, original)))
     current = json.loads((output / TILE / 'manifest.json').read_text())
     assert current['lights']['count'] == 2
     assert current['migrations'] == [*original['migrations'], {'name': 'correct-lamps', 'version': 1}]

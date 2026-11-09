@@ -21,6 +21,7 @@ import { foliageAtlas, barkAtlas, propTiles } from './nature/textures.mjs';
 import { SPECIES, TREES, SHRUBS, skeleton, meshTree, hedge, clump, MeshBuilder } from './nature/trees.mjs';
 import { atlasSize, bakeTree, fitTree, impostorQuad, shippedNormal } from './nature/octahedral.mjs';
 import { ktx2 as encodeKtx2 } from './nature/ktx2.mjs';
+import { requireCalibrationTools } from './nature/calibration-tools.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
@@ -29,6 +30,7 @@ const src = path.resolve(opt('--src', path.join(os.homedir(), 'turku3d/data/asse
 const out = path.resolve(opt('--out', path.join(here, '../public/assets/nature')));
 const previews = opt('--previews', path.join(src, 'build/previews'));
 const cacheDir = path.join(src, 'build/ktx2');
+requireCalibrationTools();
 fs.mkdirSync(out, { recursive: true }); fs.mkdirSync(cacheDir, { recursive: true }); fs.mkdirSync(previews, { recursive: true });
 const log = (...m) => console.log(`[nature ${((performance.now()) / 1000).toFixed(1)}s]`, ...m);
 

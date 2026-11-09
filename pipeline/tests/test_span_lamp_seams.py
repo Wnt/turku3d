@@ -17,7 +17,8 @@ def test_both_tiles_use_the_same_edge_and_only_the_crossing_tile_keeps_the_lamp(
     street = [shapely.LineString([(200, 680), (300, 680)])]
     west = S.infer(C.VisualTile(0, 0, 2), wire((245, 10, 694), (251, 10, 681)), street)
     east = S.infer(C.VisualTile(0, 1, 2), wire((252, 10, 678), (254, 10, 668)), street)
-    assert west is None
+    assert west["lamps"] == []
+    assert west["wires"][0][3:6] == point
     assert east["lamps"] == [[*point, 0]]
     assert east["wires"][0][:3] == point
 

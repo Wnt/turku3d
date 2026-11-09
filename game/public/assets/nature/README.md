@@ -135,10 +135,12 @@ Raw sources live outside git (about 320 MB); the KTX2 encodes are cached there b
 ```bash
 node scripts/nature/fetch-sources.mjs                      # ~/turku3d/data/assets-src/nature/{acg,polyhaven}
 # Fence kit: ~/turku3d/data/assets-src/nature/blender/fence-kit.glb from the Blender MCP session (see above)
-node scripts/build-nature-assets.mjs                       # writes nature.glb and nature.json here
+bash ../pipeline/env/run.sh node scripts/build-nature-assets.mjs # writes nature.glb and nature.json here
 ```
 
 The build is deterministic (seeded); previews of the atlases go to `~/turku3d/data/assets-src/nature/build/previews`.
+It checks Python's numpy/Pillow and the KTX-Software `ktx`/`toktx` executables before creating output or caches,
+so missing alpha-calibration tools fail before a lengthy build can replace the existing library with partial output.
 
 Both spruce variants expose their lower trunks and drooping branches with smaller, less horizontal foliage cards.
 Their matching reduced meshes and impostors are rebuilt together; measured world height and crown radius remain independent.
