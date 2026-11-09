@@ -21,9 +21,11 @@ const sceneryCanopy = vec3(.225, .39, .085).mul(luminance(vertexColor().rgb));
  *  between crowns, which a single shell or cone per tree does not occlude. */
 const FAR_CANOPY_AMBIENT = float(0.3);
 /** Share of a far canopy facet's own tilt its shading keeps. The shell's crown mounds are four-faced pyramids on a
- *  31.25 m (125 m regional) grid; at their full tilt the sun lit the south faces twice as bright as the north ones and
- *  the far forest read as rows of pyramids. A third keeps the relief without the facets. */
-const CANOPY_FACET = 0.35;
+ *  31.25 m (125 m regional) grid with 20-25 degree faces: at their full tilt the midday sun lit the south faces about
+ *  twice as bright as the north ones and the far forest read as rows of pyramids. Half the tilt keeps the relief
+ *  (north faces 0.7 of the south ones); a sweep of 1, 0.6 and 0.35 at the Nunnavuori air pose is in natureref
+ *  evidence/far-walls.md. */
+const CANOPY_FACET = 0.5;
 /** The far canopy's shading normal (view space). Its stand-edge skirts stand vertical: facing away from the sun they
  *  took only the shade's light and stood as near-black bands under every stand edge at 1-3 km. A forest edge seen from
  *  afar is crowns, lit like the crowns above it, so steep faces shade with the up normal and fade, by their vertex
