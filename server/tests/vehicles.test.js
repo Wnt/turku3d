@@ -143,8 +143,9 @@ test('interest deltas send resting cars once, remove distant replicas, keep glob
   const f = fixture(), a = f.connect(), b = f.connect(); a.send(pose); b.send({ ...pose, E: 1000 });
   a.send(car(a, { id: 'park:bay', source: 'bay' }));
   f.room.flushPoses();
-  assert.deepEqual(b.messages.filter(m => m.type === 'vehicles').at(-1),
-    { v: 2, type: 'vehicles', upsert: [], remove: [], sources: ['bay'] });
+  const { serverTime, ...delta } = b.messages.filter(m => m.type === 'vehicles').at(-1);
+  assert.deepEqual(delta, { v: 2, type: 'vehicles', upsert: [], remove: [], sources: ['bay'] });
+  assert.equal(typeof serverTime, 'number');
   b.send(pose); f.room.flushPoses();
   assert.equal(b.messages.filter(m => m.type === 'vehicles').at(-1).upsert.length, 1);
   b.messages.length = 0;

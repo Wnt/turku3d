@@ -3,7 +3,7 @@
 // effects (vehicle/vehicle.ts), the renderer the engine-bay smoke, the audio the rough engine and the HUD the levels,
 // all from the same damage wire. Calibration: ~/turku3d/research/wreckfest2/damage-study.md, docs in
 // vehicle/README.md "Mechanical damage".
-import { DamageState, PART_STATE, WEAR, decodeDamage, damageLayout } from './damage';
+import { DamageState, PART_STATE, WEAR, decodeDamage, damageLayout } from './damage.ts';
 
 /** Five states per system as in Wreckfest 2: 0 intact, 1-3 damaged, 4 terminal. A level is the number of rungs its
  *  wear has passed; wear is (km/h)² beyond the 35 km/h crumple threshold under the system, summed over hits. Fitted to

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // Rebakes the tree impostors of public/assets/nature/nature.glb as hemi-octahedral views (scripts/nature/
 // octahedral.mjs) from the library's own full LOD meshes, and leaves every other mesh and texture as it is.
-// The full build (build-nature-assets.mjs) bakes the same views, but it no longer reproduces the committed spruce
-// meshes (trees.mjs is unchanged since they were committed; the cause is not known), so a full rebuild would also
-// ship different spruces. The rebake keeps every other mesh and texture byte for byte.
+// The full build (build-nature-assets.mjs) bakes the same views, but differs from the committed spruce meshes.
+// Both entry points require Node 24; compare a full scratch build before replacing the shipped library.
+// The rebake keeps every other mesh and texture byte for byte.
 //
 //   node scripts/bake-tree-impostors.mjs [--src ~/turku3d/data/assets-src/nature] [--out public/assets/nature] [--previews DIR]
+import './nature/node-version.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

@@ -106,7 +106,8 @@ needs to simulate the car forward to its own present: `ctl:[throttlePct, brakePc
 driven; an undriven car sends `[0,0,0,0]`, so a shallow patch never keeps a former driver's controls); `w:[E, N, H]`,
 the chassis angular velocity in rad/s (|w| <= 100 per axis); and `st`, the room-clock time in ms (the sender's
 `t` plus its server-time offset) of that state. A pose with a malformed field is rejected; a pose without them stays
-valid (older clients). Receivers slerp the chassis along the shortest
+valid (older clients). The frequent `poses` and `vehicles` messages carry the room's `serverTime` (ms); a client keeps the largest recent
+`serverTime - now` as its room-clock offset, since a message read late only ever makes that sample too small. Receivers slerp the chassis along the shortest
 arc and interpolate wheel transforms in the same 100 ms buffer. Model corrections
 are applied after chassis rotation: parked meshes need +π/2 about local Y;
 starter car, scooter and truck roots already use the chassis frame.

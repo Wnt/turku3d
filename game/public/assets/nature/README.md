@@ -126,7 +126,11 @@ Poly Haven files are the 1k JPG diffuse and OpenGL normal maps. Their SHA-256 ha
 
 ## Rebuild
 
-Run in `game/`. Raw sources live outside git (about 320 MB); the KTX2 encodes are cached there by content hash.
+Use Node **24.x** (`nvm install && nvm use` at the repository root, then run in `game/`).
+The root `.nvmrc` and root/game `engines.node` select this major; both the full builder and the impostor
+rebaker reject other majors before reading sources or creating output. Node/V8 changes can alter procedural
+geometry, so compare a scratch build before replacing the committed library or rebaking its far trees.
+Raw sources live outside git (about 320 MB); the KTX2 encodes are cached there by content hash.
 
 ```bash
 node scripts/nature/fetch-sources.mjs                      # ~/turku3d/data/assets-src/nature/{acg,polyhaven}

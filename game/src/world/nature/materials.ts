@@ -223,7 +223,7 @@ export class NatureMaterials {
     const leafRgb = tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leafAlpha = leaf.a.mul(mix(this.crownLight.z, float(1), shell));
     this.leaves.colorNode = vec4(leafRgb, leafAlpha.mul(fill));
     this.leaves.aoNode = pow(crownAo, this.crownLight.y);
-    // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
+    // Smooth crown normals retain the crown shape; FoliageMaterial orients them towards the viewed side.
     this.leaves.normalNode = normalViewGeometry;
     this.leaves.positionNode = wind(0.045);
     // Ground grass: the leaf atlas and wind, dissolving through the alpha test between grassRange.x and .y metres.

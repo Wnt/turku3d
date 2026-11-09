@@ -22,7 +22,7 @@ Everything installs under `~/turku3d/`, without sudo or shell profile edits:
   extracted with `pkgutil --expand-full` into the user-owned prefix, including all component payloads.
 - `envs/pipeline.env`: tool paths only. It preserves all `TURKU3D_*` sandbox settings.
 
-`run.sh` selects the current worktree with `PYTHONPATH`, so shared tools never import another
+`run.sh` selects the current worktree's `pipeline` and `textures` packages with `PYTHONPATH`, so shared tools never import another
 worker's editable install. `make pipeline-bootstrap-update` re-solves `environment.yml`; review
 and copy `~/turku3d/envs/pipeline.lock.txt` to the committed lock after a deliberate update.
 The bootstrap is idempotent. Node 24 and the macOS command-line tools must already be installed.
