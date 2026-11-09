@@ -112,7 +112,8 @@ the tyre forces after the raycast, as impulses on the chassis:
   exceeds the front's by 2°, or the body slides tail-out against its yaw by 8° (all four tyres past their peak, as on
   soil or grass with the throttle floored), it cuts the drive and brakes the outside front wheel, up to 60 % at 8°
   of excess or 16° of sideslip. Without the sideslip trigger a half-stick turn at 45 km/h on soil spun the car.
-- **Fleet** (`slipCurveHandling`, from each model's spec): the same tyres, steering, keyboard slew, assists and
+- **Fleet** (`slipCurveHandling`, from each model's spec): passenger tyres retain a rear grip reserve (peak μ 1.20 rear vs
+  1.16 front; the original Bravion fit has 1.09 rear); vans and pickups keep the Bravion tyres. Shared steering, keyboard slew, assists and
   brake build-up; centre of mass at 0.375 × the body height (the starter's 0.52 m of 1.385 m) capped at track / 2.6
   (static stability factor 1.3: no rollover on the tyres' grip); ride 1.75 × (1351 kg / mass)^0.15 Hz (0.7-1.05 ×;
   the rear 1.5 / 1.75 of it); roll 3.6°/g × height / 1.385 m (1-1.6 ×); limited-slip 0.7 FWD, 0.35 RWD (Wreckfest's
@@ -133,6 +134,15 @@ Headless harness (`tests/unit/wf2-compare.harness.test.ts`, the same `PhysicsWor
 `WF2_COMPARE=1 WF2_REPORT=out.md npx vitest run tests/unit/wf2-compare.harness.test.ts` in `game/`): skidpads R 20/30,
 full stick, braking 50/80/100, step steer 2/4/8°, full stick and a held key at 60 km/h, ride, and drivability checks
 (slalom 40-70 km/h, lift-off, braking and full throttle in a corner, handbrake turn, parked on a slope).
+The passenger stability matrix reuses this rig and writes JSON plus every physics step to CSV:
+`CARFEEL_REPORT=/tmp/carfeel/results.json WF2_RUNS=/tmp/carfeel npx vitest run tests/unit/wf2-compare.harness.test.ts -t 'passenger stability'`.
+Seven cars cover FWD/RWD/AWD, 850–2490 kg, hatch/estate/sedan/EV SUV: a rising-speed R60 circle, 0.8 g-demand
+step steer at 60/80 km/h, 1.1 g-demand corner lift/brake at 50/70/90, and a left/right lane change at 60/80.
+Both analogue input (after the pad curve) and digital -1/0/+1 pulses through the actual keyboard slew are measured.
+Limits use the original coupé's band with 20–25 % tolerance: circle 3.3°, step 1°, lift 3.6°, brake 6°, lane 1.8°
+peak sideslip, no spins, and front slip above rear at the circle's maximum lateral acceleration. Slip below 10 km/h
+is excluded. Power-limited cars may not reach the circle's 90 km/h request; CSV records the achieved speed.
+
 Starter Golf before → slice 1 (tyres, steering) → slice 2 (ride, CoM, bars, stability control), Wreckfest 2 Bravion:
 
 | Metric | Before | Slice 1 | Slice 2 | Wreckfest 2 |

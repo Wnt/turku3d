@@ -1,6 +1,6 @@
 // Slip-curve tyres (vehicle/tyres.ts): the solver's force laws on a synthetic body, and the starter car on them.
 import { expect, test } from 'vitest';
-import { loadFactor, slipMu, solveTyres, TARMAC, tyreState, type BodyState, type TyrePatch, type TyreResult } from '../../src/vehicle/tyres';
+import { loadFactor, slipMu, solveTyres, PASSENGER_TARMAC, TARMAC, tyreState, type BodyState, type TyrePatch, type TyreResult } from '../../src/vehicle/tyres';
 
 const DT = 1 / 60, deg = Math.PI / 180, up = { x: 0, y: 1, z: 0 };
 /** A 1350 kg car, CoM 0.72 m up, wheels at ±1.3 m and ±0.77 m; `steer` turns the front pair to the left. */
@@ -168,7 +168,7 @@ test('every fleet model drives on slip-curve tyres with a ride and centre of mas
   const { comHeight, cornerLoads, rideSetup } = await import('../../src/vehicle/ride');
   for (const model of AUTHORED_MODELS) {
     const t = modelTuning(model.id)!, loads = cornerLoads(t, t.mass), track = t.wheels[1].z - t.wheels[0].z;
-    expect(t.tyre, model.id).toBe(TARMAC);
+    expect(t.tyre, model.id).toBe(model.fleet.body === 'van' || model.fleet.body === 'pickup' ? TARMAC : PASSENGER_TARMAC);
     // No rollover on the tyres' grip: the static stability factor stays at least 1.3.
     expect(track / (2 * comHeight(t, t.mass)), model.id).toBeGreaterThan(1.29);
     expect(t.ride!.frequency[0], model.id).toBeGreaterThan(1.2); expect(t.ride!.frequency[0], model.id).toBeLessThan(1.9);
@@ -182,4 +182,15 @@ test('every fleet model drives on slip-curve tyres with a ride and centre of mas
   expect(comHeight(golf, golf.mass)).toBeCloseTo(0.52, 2);
   expect(golf.ride!.frequency[0]).toBeCloseTo(1.75, 3); expect(golf.ride!.frequency[1]).toBeCloseTo(1.5, 3);
   expect(golf.ride!.roll).toBeCloseTo(3.6, 2);
+});
+
+test('passenger tyres leave the nose at the limit before the rear while retaining the front calibration', () => {
+  expect(PASSENGER_TARMAC.lateral[0]).toBe(TARMAC.lateral[0]);
+  // At the old rear limit (about 8 degrees) a passenger rear retains more force than the front, so the higher
+  // rear slip that grew on the FWD starter is not required to balance its yaw. Brake/drive limits stay unchanged.
+  for (const angle of [8, 12, 20]) {
+    expect(slipMu(PASSENGER_TARMAC.lateral[1], angle * deg)).toBeGreaterThan(slipMu(PASSENGER_TARMAC.lateral[0], angle * deg));
+  }
+  expect(PASSENGER_TARMAC.longitudinal).toBe(TARMAC.longitudinal);
+  expect(PASSENGER_TARMAC.load).toBe(TARMAC.load);
 });

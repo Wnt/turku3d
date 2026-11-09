@@ -66,6 +66,15 @@ export const TARMAC: TyreTuning = {
   },
 };
 
+/** Ordinary road cars retain a rear grip reserve at the limit. The Bravion fit's lower rear peak (1.09 vs 1.16)
+ *  lets a powered front-drive car saturate its rear axle and grow sideslip before the nose runs wide. Keep the
+ *  measured front curve and raise the rear peak to 1.20; the low-slip yaw response changes by only about 5 % on
+ *  the reference coupé. Vans and pickups retain the original calibration. */
+export const PASSENGER_TARMAC: TyreTuning = {
+  ...TARMAC,
+  lateral: [TARMAC.lateral[0], { ...TARMAC.lateral[1], peak: 1.20 }],
+};
+
 export const slipMu = (c: SlipCurve, slip: number) => c.peak * (1 - Math.exp(-Math.abs(slip) / c.slip));
 
 /** Load-sensitivity factor of a tyre carrying `load` N on a car whose static corner load is `corner` N. */

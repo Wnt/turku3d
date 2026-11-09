@@ -1,7 +1,7 @@
 import { CAR, type VehicleTuning } from '../physics/constants';
 import { AUTHORED_BY_ID } from '../actors/fleet/registry';
-import { fleetDamageBox } from '../actors/fleet/catalog';
-import { TARMAC } from './tyres';
+import { fleetDamageBox, type BodyType } from '../actors/fleet/catalog';
+import { PASSENGER_TARMAC, TARMAC } from './tyres';
 import { comHeight, cornerLoads } from './ride';
 import type { DamageBox } from './damage';
 
@@ -36,16 +36,16 @@ export function modelTuning(id: string): VehicleTuning | undefined {
     topSpeed: Math.min((spec.topSpeedKmh ?? 200) / 3.6, 45),
     maxSteer: Math.max(.4, Math.min(.65, Math.atan(wheelbase / Math.max(1, turn / 2 - track / 2)))),
   };
-  return { ...base, ...slipCurveHandling(base, entry.fleet.height, drive) };
+  return { ...base, ...slipCurveHandling(base, entry.fleet.height, drive, entry.fleet.body) };
 }
 
 /** Slip-curve handling of every fleet car (vehicle/tyres.ts, ride.ts), calibrated on the starter against Wreckfest 2's
- *  Bravion and scaled by each car's own mass and size: the same tyres (their load sensitivity is relative to the
- *  car's own corner load), steering, keyboard slew, assists and brake build-up; the centre of mass at the starter's
+ *  Bravion and scaled by each car's own mass and size: passenger tyres retain a rear grip reserve (load sensitivity
+ *  is relative to the car's own corner load); shared steering, keyboard slew, assists and brake build-up; CoM at the starter's
  *  0.375 of the body height, capped so the track keeps a static stability factor of 1.3 (no rollover on the tyres'
  *  grip); softer ride for heavier and more roll for taller bodies; a limited-slip split by drivetrain; brakes and
  *  suspension force limits that grow with the weight. */
-export function slipCurveHandling(base: VehicleTuning, height: number, drive: string): Partial<VehicleTuning> {
+export function slipCurveHandling(base: VehicleTuning, height: number, drive: string, body: BodyType = 'sedan'): Partial<VehicleTuning> {
   const m = base.mass, loads = cornerLoads(base, m);
   const track = Math.abs(base.wheels[1].z - base.wheels[0].z);
   const com = Math.min(0.375 * height, track / 2.6);
@@ -54,7 +54,7 @@ export function slipCurveHandling(base: VehicleTuning, height: number, drive: st
   return {
     // The tyre's slip, not a shrinking lock, limits cornering, so the lock barely falls with speed (about 25° at
     // 60 km/h, as Wreckfest 2's keyboard reaches).
-    tyre: TARMAC, steerHalfSpeed: 40, angularDamping: 0,
+    tyre: body === 'van' || body === 'pickup' ? TARMAC : PASSENGER_TARMAC, steerHalfSpeed: 40, angularDamping: 0,
     // An open differential spins the unloaded inner wheel and loses its side grip; Wreckfest's Bravion has a 35 % lock.
     differential: drive === 'FWD' ? 0.7 : drive === 'RWD' ? 0.35 : 0.5,
     // Wreckfest 2's keyboard rate: 1.5 of full input per second, about 46°/s at the road wheel at rest.
