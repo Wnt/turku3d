@@ -2,7 +2,7 @@
 
 Input: the trees of one tile (trunk position, base height, the drawn height and crown radius) and the class-5 canopy,
 reduced to its highest return per 0.5 m cell (as the generator's own canopy input, ``trees.reduced_points``, but
-streamed from each LAZ block once into a 3 MB per-block cell cache, with no decoded copy: ``canopy_cells``). Class 12 (the second flight line, unclassified)
+reduced once from the shared decoded block into a 3 MB per-block cell cache: ``canopy_cells``). Class 12 (the second flight line, unclassified)
 adds only about 1 % to the class-5 crown top surface, so it is left out. Each
 canopy cell above 2.5 m goes to the tree whose crown it is nearest to relative to that tree's radius, within reach
 of it, and a crown keeps the cells connected to its trunk (``canopy_trees.connected_crown``). Supported crowns
@@ -153,17 +153,16 @@ def measure(trees, canopy, leaves=None, gaps=None):
 
 def block_canopy(path):
     """One LAZ block's class-5 returns, highest per 0.5 m cell, as exact LAZ integers (X, Y, Z) and the header's
-    scales and offsets. Streamed once (xyz and classification only) and cached by the block's content: about 3 MB,
-    where a decoded copy of the block is 270-410 MB. Tiles share blocks (4-8 tiles read each with the margin)."""
+    scales and offsets. Reduced from the shared source-order decode and cached by the block's content:
+    about 3 MB. Tiles share blocks (4-8 tiles read each with the margin)."""
     import fcntl
     import hashlib
     import json
     import os
     from pathlib import Path
 
-    import laspy
-
     from turku3d import config as C, profiling
+    from turku3d.lidar.decoded import source
     from turku3d.tile_layer import identities
 
     identity = identities({"laz": Path(path)})["laz"]
@@ -177,15 +176,14 @@ def block_canopy(path):
     with dest.with_suffix(".lock").open("a") as lock:
         profiling.flock(lock, fcntl.LOCK_EX, "crown-canopy")
         if not dest.exists():
-            selection = laspy.DecompressionSelection.base().decompress_z().decompress_classification()
+            header = source(path)
             parts = []
-            with laspy.open(path, decompression_selection=selection) as reader:
-                header = reader.header
-                for chunk in reader.chunk_iterator(2_000_000):
-                    keep = np.asarray(chunk.classification) == 5
-                    if keep.any():
-                        parts.append(_highest(np.c_[np.asarray(chunk.X)[keep], np.asarray(chunk.Y)[keep],
-                                                    np.asarray(chunk.Z)[keep]].astype(np.int64), header))
+            for start in range(0, len(header), 2_000_000):
+                chunk = header.data[start:start + 2_000_000]
+                keep = chunk["classification"] == 5
+                if keep.any():
+                    parts.append(_highest(np.c_[chunk["X"][keep], chunk["Y"][keep],
+                                                chunk["Z"][keep]].astype(np.int64), header))
             cells = _highest(np.concatenate(parts), header) if parts else np.empty((0, 3), np.int64)
             temporary = dest.with_suffix(".tmp.npz")
             np.savez_compressed(temporary, xyz=cells.astype(np.int32), meta=np.frombuffer(json.dumps(
@@ -202,15 +200,13 @@ def block_canopy(path):
 
 def _highest(xyz, header):
     """Rows of LAZ integers, the highest per 0.5 m engine cell (ties: the first in file order)."""
-    from turku3d import config as C
+    from turku3d import config as C, integer_rows
 
     (sx, sy, _), (ox, oy, _) = header.scales, header.offsets
     i = np.floor((xyz[:, 0] * sx + ox - C.ORIGIN_E) / CELL).astype(np.int64)
     j = np.floor((C.ORIGIN_N - (xyz[:, 1] * sy + oy)) / CELL).astype(np.int64)
-    order = np.lexsort((np.arange(len(xyz)), -xyz[:, 2], j, i))
-    first = np.ones(len(order), bool)
-    first[1:] = (i[order][1:] != i[order][:-1]) | (j[order][1:] != j[order][:-1])
-    return xyz[np.sort(order[first])]
+    top = integer_rows.highest(np.c_[i, j], xyz[:, 2])
+    return xyz[np.sort(top)]
 
 
 def block_gaps(path):

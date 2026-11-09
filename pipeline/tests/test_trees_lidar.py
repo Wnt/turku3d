@@ -198,8 +198,31 @@ def test_block_canopy_keeps_the_highest_class5_return_per_cell_and_caches_it(tmp
     las.classification = np.array([5, 5, 2, 5], np.uint8)
     path = tmp_path / "block.laz"
     las.write(path)
+    from turku3d.lidar.decoded import source
+    source(path)  # Shared survey decode already exists; a new canopy reduction must reuse it.
+    def unexpected_decode(*args, **kwargs):
+        raise AssertionError("canopy decoded LAZ again")
+    monkeypatch.setattr(laspy, "open", unexpected_decode)
     cells = block_canopy(path)
     assert sorted(map(tuple, np.round(cells, 2))) == [(10.3, 15.5, 5.2), (20.0, 9.0, 7.0)]
     cached = list((tmp_path / "cache" / "crown-canopy").glob("*.npz"))
     assert len(cached) == 1
     assert np.array_equal(block_canopy(path), cells)
+
+
+def test_canopy_highest_matches_source_order_sort_with_ties_and_negative_cells():
+    from types import SimpleNamespace
+    from turku3d import config as C
+    from turku3d.vegetation.crowns import CELL, _highest
+
+    rng = np.random.default_rng(925)
+    header = SimpleNamespace(scales=[0.01, 0.01, 0.01], offsets=[C.ORIGIN_E, C.ORIGIN_N, 0])
+    for count, span in ((0, 100), (10000, 300), (300, 1000000)):
+        xyz = rng.integers(-span, span, (count, 3))
+        xyz[:, 2] = rng.integers(-4, 4, count)  # Many equal heights within each occupied cell.
+        i = np.floor((xyz[:, 0] * 0.01 + C.ORIGIN_E - C.ORIGIN_E) / CELL).astype(np.int64)
+        j = np.floor((C.ORIGIN_N - (xyz[:, 1] * 0.01 + C.ORIGIN_N)) / CELL).astype(np.int64)
+        order = np.lexsort((np.arange(count), -xyz[:, 2], j, i))
+        first = np.ones(count, bool)
+        first[1:] = (i[order][1:] != i[order][:-1]) | (j[order][1:] != j[order][:-1])
+        assert np.array_equal(_highest(xyz, header), xyz[np.sort(order[first])])
