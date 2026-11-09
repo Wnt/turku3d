@@ -84,6 +84,13 @@ describe('centred seam with a pinned older neighbour', () => {
     }
   });
 
+  test('unmoved seams retain their lane-width transition matching', () => {
+    const b = structuredClone(fixture.b);
+    const width = b.edgeAttrColumns!.indexOf('width');
+    for (const row of b.edgeAttrs!) row[width] += 4;
+    expect(lanes(network(fixture.a, b)).filter(l => l.seamNext).length).toBeGreaterThan(2);
+  });
+
   test('a nearby unrelated seam does not match a moved endpoint', () => {
     const a = shifted(fixture.a, -2.8), b = structuredClone(fixture.b);
     b.nodeFlags!.forEach((f, n) => { if (f & NODE.SEAM) b.nodes[2 * n + 1] -= 2.8; });

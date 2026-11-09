@@ -81,7 +81,7 @@ export class TrafficNetwork {
         // Identity still uses the original 0.6 m seam tolerance. Geometry has a separate bounded repair;
         // retain the phase/tau and slot identities so crossing a generation boundary cannot teleport a car.
         const gap = Math.hypot(a.points.at(-2)! - b.points[0], a.points.at(-1)! - b.points[1]);
-        if (!blended && gap > TRAFFIC.seamMatch) continue;
+        if (moved && !blended && gap > TRAFFIC.seamMatch) continue;
         a.seamNext = b; b.seamPrev = a;
         if (blended) for (const [i, lane] of [a, b].entries()) {
           if (!this.sourceGeometry.has(lane)) this.sourceGeometry.set(lane, {
