@@ -3,6 +3,7 @@ import { ActorCache } from './actorExchange';
 import type { DebrisSpec, DebrisState, PoleState, VehicleState } from './protocol';
 import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
+import type { TrafficSnapshot } from '../traffic/flow';
 import { loading, loadBytes } from '../core/loading';
 import { streamTrace } from '../telemetry/streamTrace';
 import { CharacterInterpolation, RemoteCarInterpolation, VehicleInterpolation } from '../actors/interpolation';
@@ -114,6 +115,7 @@ export class PhysicsClient {
         // Rejected replacements preserve their previously acknowledged collider in the worker.
         case 'tileError': this.tileWaiters.get(m.id)?.reject(Object.assign(new Error(m.error), { permanent: m.permanent })); this.tileWaiters.delete(m.id); break;
         case 'tileUnloaded': this.loaded.delete(m.id); break;
+        case 'trafficSnapshot': this.onTrafficSnapshot?.(m.snapshot); break;
         case 'cameraCastResult': case 'raycastResult': case 'statsResult': case 'checkResult': { const cb = this.pending.get(m.id); this.pending.delete(m.id); cb?.(m); break; }
         case 'stepError':
           this.onError(`step ${m.seq}: ${m.error}`);
@@ -204,6 +206,9 @@ export class PhysicsClient {
   traffic(config: Partial<TrafficConfig>) { this.send({ type: 'traffic', config }); }
   trafficTiles(add: TrafficTile[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'trafficTiles', add, remove }); }
   trafficClaim(handle: number) { this.send({ type: 'trafficClaim', handle }); }
+  trafficMirror(snapshot: TrafficSnapshot) { this.send({ type: 'trafficMirror', snapshot }); }
+  /** The worker's snapshot of this client's owned traffic tiles (TrafficConfig.owned), to send to the room. */
+  onTrafficSnapshot: ((snapshot: TrafficSnapshot) => void) | null = null;
   trafficPedestrians(time: number, people: import('../traffic/pedestrians').TrafficPedestrian[]) {
     this.send({ type: 'trafficPedestrians', time, people });
   }

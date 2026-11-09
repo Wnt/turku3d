@@ -97,7 +97,11 @@ export type TrafficClock = { kind: 'cycle'; periodMs: number } | { kind: 'hour';
 export interface TrafficConfig { cap: number; offsetMs: number; shared: boolean; enabled: string[] | null; claims: string[];
   density: number; clock: TrafficClock;
   /** Multiplayer: the server's traffic watch (server/watch.js), applied at the same tick on every client. */
-  watch?: { at: number; points: [number, number][] } }
+  watch?: { at: number; points: [number, number][] };
+  /** Multiplayer traffic authority (server/roads.js): shared tiles this client owns (it sends their cars,
+   *  `trafficSnapshot`) and tiles another client owns (no cars enter at their sources here; their cars come from
+   *  the owner's snapshots, `trafficMirror`). */
+  owned?: string[]; remote?: string[] }
 /** A car the player touched or entered became the dynamic vehicle `id` (a ParkedVehicle-like record). */
 export interface TrafficClaimEvent { revision: number; handle?: number; id: string; key: string; seed?: string; model: string; color: string;
   size: [number, number, number]; pos: V3; rot: Quat; linvel: V3 }
@@ -106,7 +110,7 @@ export interface TrafficView { x: number; z: number; fx: number; fz: number; hal
 /** `hour`: the clock hour the density follows now; `deferred`: drawn cars whose slot no longer carries a car (they
  *  go once out of view). */
 export interface TrafficStats { active: number; bodies: number; lanes: number; tiles: number; stepMs: number; stepMax: number; activationMs: number;
-  claims: number; hour: number; deferred: number }
+  claims: number; hour: number; deferred: number; mirrored: number }
 
 /** Jump is an edge counter, so a pulse survives several render frames between worker reads. */
 export interface LiveInput { character: CharacterInput; vehicle: VehicleInput | null; running: boolean; jump: number; at: number; acknowledged: number; view?: TrafficView }
@@ -153,6 +157,7 @@ export type ToWorker =
   | { type: 'trafficPedestrians'; time: number; people: import('../traffic/pedestrians').TrafficPedestrian[] }
   /** Claim an ambient car for entering it; answered by its claim event (with `handle`) in the state. */
   | { type: 'trafficClaim'; handle: number }
+  | { type: 'trafficMirror'; snapshot: import('../traffic/flow').TrafficSnapshot }
   /** Advance by dt seconds of real time (worker runs fixed 60 Hz substeps, max 5 per message). */
   | { type: 'step'; seq: number; dt: number; character: CharacterInput; vehicle: VehicleInput | null }
   | { type: 'cameraCast'; id: number; origin: V3; dir: V3; distance: number }
@@ -164,6 +169,8 @@ export type FromWorker =
   | { type: 'tileLoaded'; stats: TileStats }
   | { type: 'tileError'; id: string; error: string; permanent: boolean }
   | { type: 'tileUnloaded'; id: string }
+  /** The cars on this client's owned tiles (TrafficConfig.owned), every TRAFFIC.mirrorTicks flow ticks. */
+  | { type: 'trafficSnapshot'; snapshot: import('../traffic/flow').TrafficSnapshot }
   | { type: 'checkResult'; id: number; tris: number; error: string | null }
   | { type: 'state'; coverageBlock?: { actor: string; recover: boolean } | null; publishedAt?: number; revision?: number; actorsDelta?: boolean;
       /** `vehicles` leaves out `vehicle` (sent once); the receiver puts it into its list. */

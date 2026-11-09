@@ -504,6 +504,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   }, fail, roomStart);
   const syncClock = () => world.syncClock?.(client.state.serverTime);
   client.addEventListener('welcome', syncClock);
+  // Traffic authority: another player's cars on the shared tiles it runs (server/roads.js).
+  client.addEventListener('traffic', e => {
+    const { from, snapshot } = (e as CustomEvent<{ from: string; snapshot: import('./traffic/flow').TrafficSnapshot }>).detail;
+    if (multiplayerPlaying) traffic.mirror(snapshot, from);
+  });
   if (client.state.connected) syncClock();
   scoreboard.setClient(client);
   let owned = missions.vehicle;
@@ -881,8 +886,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     }
     const effectsDt = paused || startScreen.active || saveGame.loading ? 0 : dt;
     tyreEffects.begin(effectsDt);
+    const sendTraffic = (snapshot: import('./traffic/flow').TrafficSnapshot) => multiplayer?.sendTraffic(snapshot);
     traffic.setMultiplayer(multiplayerPlaying && multiplayer ? { offsetMs: multiplayer.serverNow() - (performance.timeOrigin + performance.now()),
-      agreed: multiplayer.state.roads, sources: multiplayer.state.vehicleSources, watch: multiplayer.state.watch } : null);
+      agreed: multiplayer.state.roads, sources: multiplayer.state.vehicleSources, watch: multiplayer.state.watch,
+      owners: multiplayer.state.roadOwners, you: multiplayer.state.you?.id ?? null, send: sendTraffic } : null);
     if (multiplayerPlaying && multiplayer?.state.connected) multiplayer.reportRoads(traffic.local, traffic.revision);
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       if (!rounds.blocking) sharedVehicles?.update(now); const seatExit = sharedVehicles?.seatExit(now);

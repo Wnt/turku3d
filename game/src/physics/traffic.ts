@@ -20,7 +20,7 @@ import { GROUP } from '../shared/col/materials';
 import { CHASSIS_LIFT, MODEL_SIZE, PAINT_WEIGHTS, RING, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from '../traffic/constants';
 import { hash01, hash32, pick } from '../traffic/hash';
 import { blankPose, TrafficNetwork, type CarPose } from '../traffic/network';
-import { FLOW_STEP, LIVE_CLOCK_JUMPS, TrafficFlow, interpolateFlowPose, type FlowCar } from '../traffic/flow';
+import { FLOW_STEP, LIVE_CLOCK_JUMPS, TrafficFlow, interpolateFlowPose, type FlowCar, type TrafficSnapshot } from '../traffic/flow';
 import { honking, vehicleLights } from '../traffic/lights';
 import { inView, mayCreate, mustRemove, type View } from '../traffic/ring';
 import { trafficRoads } from '../traffic/roads';
@@ -129,7 +129,7 @@ export class TrafficSim {
   time = 0;
   /** `stepMs`: mean traffic cost per physics substep (ring, poses, bodies, contacts; ms, EMA), `stepMax` its
    *  recent peak (decaying), `activationMs` the last ring pass. */
-  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0,
+  stats = { active: 0, bodies: 0, lanes: 0, tiles: 0, stepMs: 0, stepMax: 0, activationMs: 0, claims: 0, hour: 0, deferred: 0, mirrored: 0,
     /** Drawn cars per tier: real, dummy, far. */
     tiers: [0, 0, 0],
     /** The last claim's hit on the claimed car (km/h), or why it took none. */
@@ -183,10 +183,26 @@ export class TrafficSim {
       this.flow.scheduleWatch(from, from + Math.round(TRAFFIC.watchValidMs / 1000 / FLOW_STEP),
         change.watch.points.map(([E, N]) => ({ x: E, z: -N })));
     }
+    if (change.owned) this.owned = [...change.owned];
+    if (change.remote) this.flow.setRemote(change.remote);
     this.config = { ...this.config, ...change };
     this.network.density!.multiplier = Math.max(0, this.config.density);
     this.resync();
   }
+
+  /** Multiplayer traffic authority: the shared tiles this client owns (TrafficConfig.owned). */
+  private owned: string[] = [];
+  private nextSnapshot = 0;
+  /** The cars on the owned tiles when TRAFFIC.mirrorTicks flow ticks passed since the last (on the same tick grid on
+   *  every client), else null. Nothing before the flow reached the clock. */
+  takeSnapshot(): TrafficSnapshot | null {
+    const tick = this.flow.tick;
+    if (!this.owned.length || !this.flow.live || tick < this.nextSnapshot) return null;
+    this.nextSnapshot = (Math.floor(tick / TRAFFIC.mirrorTicks) + 1) * TRAFFIC.mirrorTicks;
+    return this.flow.snapshot(this.owned);
+  }
+  /** An owner's snapshot of tiles this client holds (TrafficFlow.mirror). */
+  mirror(snapshot: TrafficSnapshot) { this.stats.mirrored += this.flow.mirror(snapshot); }
 
   /** Collision changed in [x0, z0, x1, z1]: lanes there are sampled again (their old samples stay in use until then). */
   collisionChanged(area: readonly [number, number, number, number]) {

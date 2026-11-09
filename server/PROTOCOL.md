@@ -315,6 +315,29 @@ clients with different road data spawn nothing there. Claimed traffic cars use t
 with sources `tr:<tile>:<lane>:<slot>`. Malformed reports are rejected. The message is accepted outside the
 round epoch check.
 
+The same answer carries `owners:{tile:playerId}` (traffic authority, server/roads.js): a tile two or more online
+players hold with its agreed hash is run by one of them. The owner keeps it while it holds it and is not muted;
+it yields only when it lacks the tile's eight neighbours and a settled candidate (connected 20 s) has them. A new
+owner is the best-ranked candidate (settled before new, then holding the whole neighbourhood), the lowest id among
+equals. A tile held by one player has no owner: that client runs it alone, as before.
+
+### traffic (traffic authority snapshot)
+
+```json
+{"v":2,"type":"traffic","tick":17934120,"tiles":{"t0_0_0":[["t0_0_0:9f2a:12","~4c1e","=",33.62,11.8,177,5,0.34106,32,{"k":0.1,"p":1.181}]]}}
+```
+
+An owner sends the cars on its owned tiles every 10 flow ticks (1 s), `tick` being the shared flow tick
+(seconds since TRAFFIC.epochMs / 0.1); the format of a car is game/src/traffic/flow.ts `MirrorCar`. A large
+snapshot goes in several messages (each under the 64 KiB message limit). The server checks the shape (at most 64
+tiles, 1,500 cars, 11 fields a car, 4 messages a second), drops tiles the sender does not own (a hand-over in
+flight) and relays to every other online player holding a tile `{"type":"traffic","from":id,"tick","tiles"}`
+with only that player's tiles. Receivers replace their cars on those tiles with the owner's (carried on by their
+speed for the ticks since `tick`) and admit no cars of their own there; a receiver that hears nothing of a tile
+for 5 s runs it itself again until the next snapshot. An owner that has sent nothing for 6 s since it took a tile
+or last sent is muted for 60 s (passed over as an owner), so a stalled tab hands its tiles on. Malformed or
+over-budget snapshots are rejected. The message is accepted outside the round epoch check.
+
 ## Server → client
 
 | Type | Fields in addition to `v,type` | When / behavior |
@@ -323,7 +346,8 @@ round epoch check.
 | `players` | `players:Player[]` | Full replacement roster after join, leave, idle/resume or reset. Remove absent remote bodies. |
 | `poses` | `poses:[{id,t,E,N,H,yaw,vE,vN,vH,mode,vehicle,carrying}]` | Every 50 ms when changes exist: latest accepted pose per changed player, excluding recipient. Driven poses are limited to recipients within 250 m. Omitted players have no new pose; omission does not remove them. |
 | `world` | `action:"break",poleId,by,t` | Re-broadcast of an accepted pole break. |
-| `roads` | `agreed:{tile:hash}` | Road-hash agreement over the recipient's reported tiles; sent when it changes. |
+| `roads` | `agreed:{tile:hash}`, `owners:{tile:playerId}` | Road-hash agreement and traffic owners over the recipient's reported tiles; sent when either changes. |
+| `traffic` | `from`, `tick`, `tiles:{tile:MirrorCar[]}` | An owner's traffic snapshot, only the recipient's tiles (see `traffic` above). |
 | `scores` | `scores:Score[]` | Full replacement scoreboard after every accepted delivery or fine and presence change/join/reset. Includes idle/disconnected participants from this hour. |
 | `hour_end_in` | `seconds` | Once in the last 10 seconds (normally 10; lower if the event loop was delayed). |
 | `hour_reset` | `hour:Hour` | Old hour archived; switch the UI to the new hour, clearing previous scores. Followed by welcome and roster/scores. |

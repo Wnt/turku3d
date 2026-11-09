@@ -90,6 +90,9 @@ const cmp = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 export interface FlowCar {
   key: string; lane: Lane; route: Lane; n: number; s: number; speed: number; hops: number;
   length: number; width: number; model: number; born: number; demandDraw: number;
+  /** Tick at which the car entered its lane's tile (spawned there or crossed a seam into it): a multiplayer mirror
+   *  keeps a car that reached a mirrored tile after the owner's snapshot (TrafficFlow.mirror). */
+  tileTick: number;
   /** The connector remains reserved until the rear clears the destination lane. */
   reservation: Lane | null;
   stopped: number; waiting: number;
@@ -130,7 +133,7 @@ export interface TrafficCheckpoint {
   demand: [string, number][];
   cars: { key: string; lane: string; route: string; reservation: string | null; n: number; s: number; speed: number;
     born: number; stopped: number; waiting: number; backed: number; stuck: number; progress: number; waitsFor: string | null; held: number; reverse: number; rerouted: number; rock: number; swerve: number; swerveTarget: number; swerveRate: number;
-    swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number;
+    swerveEnd: number; swerveStall: number; changeCooldown: number; hops: number; demandDraw: number; tileTick?: number;
     change: (Omit<LaneChange, 'from'> & { from: string }) | null;
     signal: (Omit<LaneSignal, 'target'> & { target: string }) | null;
     uturn: (Omit<UTurn, 'to'> & { to: string }) | null;
@@ -140,6 +143,83 @@ export interface TrafficCheckpoint {
 
 const saveChange = (change: LaneChange | null) => change ? { ...change, from: `${change.from.tile}:${change.from.id}` } : null;
 const saveUTurn = (u: UTurn | null) => u ? { ...u, to: `${u.to.tile}:${u.to.id}` } : null;
+
+type SavedCar = TrafficCheckpoint['cars'][number];
+function saveCar(c: FlowCar): SavedCar {
+  return { key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
+    reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
+    stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, waitsFor: c.waitsFor, held: c.held, reverse: c.reverse, rerouted: c.rerouted, rock: c.rock, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
+    swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw, tileTick: c.tileTick,
+    change: saveChange(c.change), changeCooldown: c.changeCooldown,
+    signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null, uturn: saveUTurn(c.uturn),
+    previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change), uturn: saveUTurn(c.previous.uturn) } };
+}
+
+/** One car of a multiplayer traffic snapshot, listed under the tile of its lane:
+ *  [key, lane, movement, s, speed, bornAge, hops, demandDraw, tileAge, rest?]. A lane id of that tile is sent as
+ *  `~id` (others as `tile:id`, as in checkpoints); the movement as `=` when it is the lane itself and `>next` when it
+ *  continues the lane; the slot `n` is the key's last part; the ages are ticks before the snapshot; `rest` holds only
+ *  the state that differs from a newly admitted car (MIRROR_FIELDS names). */
+export type MirrorCar = [string, string, string, number, number, number, number, number, number, Record<string, unknown>?];
+/** An owner's cars on its tiles at flow tick `tick` (TrafficFlow.snapshot), per tile; a receiver replaces its cars
+ *  there with them (TrafficFlow.mirror). The room relays each receiver only the tiles it holds. */
+export interface TrafficSnapshot { tick: number; tiles: Record<string, MirrorCar[]> }
+/** The state of a newly admitted car (spawn), left out of a MirrorCar's `rest`. */
+const FRESH = { reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0,
+  rerouted: 0, rock: -1, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0, changeCooldown: 0,
+  change: null, signal: null, uturn: null } as const;
+type Fresh = { -readonly [K in keyof typeof FRESH]: SavedCar[K] };
+/** Short names of the `rest` fields on the wire. */
+const MIRROR_FIELDS: Record<keyof Fresh, string> = { reservation: 'r', stopped: 'st', waiting: 'w', backed: 'b', stuck: 'k', progress: 'p',
+  waitsFor: 'f', held: 'h', reverse: 'v', rerouted: 'rr', rock: 'o', swerve: 's', swerveTarget: 'sT', swerveRate: 'sR', swerveEnd: 'sE',
+  swerveStall: 'sS', changeCooldown: 'cc', change: 'c', signal: 'g', uturn: 'u' };
+const FROM_WIRE = new Map(Object.entries(MIRROR_FIELDS).map(([name, short]) => [short, name as keyof Fresh]));
+const round = (v: number, f: number) => Math.round(v * f) / f;
+
+export function packCar(c: SavedCar, tile: string, tick: number): MirrorCar {
+  const local = (id: string) => id.startsWith(`${tile}:`) ? `~${id.slice(tile.length + 1)}` : id;
+  const route = c.route === c.lane ? '=' : c.route.startsWith(`${c.lane}>`) ? c.route.slice(c.lane.length) : local(c.route);
+  const rest: Record<string, unknown> = {};
+  for (const name of Object.keys(FRESH) as (keyof Fresh)[]) {
+    const value = c[name];
+    if (value !== FRESH[name]) rest[MIRROR_FIELDS[name]] = typeof value === 'number' ? round(value, 1000) : value;
+  }
+  const out: MirrorCar = [c.key, local(c.lane), route, round(c.s, 100), round(c.speed, 100), Math.round(tick - c.born / FLOW_STEP), c.hops,
+    round(c.demandDraw, 1e5), tick - (c.tileTick ?? tick)];
+  if (Object.keys(rest).length) out.push(rest);
+  return out;
+}
+
+const idOK = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 160;
+const numOK = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** A received MirrorCar of `tile`'s list as a saved car, or null when it is malformed or not on that tile (another
+ *  client's data: nothing in it is trusted). */
+export function unpackCar(m: unknown, tile: string, tick: number): SavedCar | null {
+  if (!Array.isArray(m) || m.length < 9 || m.length > 10) return null;
+  const [key, laneId, routeId, s, speed, bornAge, hops, demandDraw, tileAge, rest] = m as unknown[];
+  if (!idOK(key) || !idOK(laneId) || !idOK(routeId) || ![s, speed, bornAge, hops, demandDraw, tileAge].every(numOK)) return null;
+  const n = Number(key.slice(key.lastIndexOf(':') + 1));
+  if (!Number.isSafeInteger(n)) return null;
+  const full = (id: string) => id.startsWith('~') ? `${tile}:${id.slice(1)}` : id;
+  const lane = full(laneId), route = routeId === '=' ? lane : routeId.startsWith('>') ? lane + routeId : full(routeId);
+  if (!lane.startsWith(`${tile}:`)) return null;
+  const state: Fresh = { ...FRESH };
+  if (rest !== undefined) {
+    if (!rest || typeof rest !== 'object' || Array.isArray(rest)) return null;
+    for (const [short, value] of Object.entries(rest)) {
+      const name = FROM_WIRE.get(short);
+      if (!name) return null;
+      const fresh = FRESH[name];
+      const ref = name === 'change' ? 'from' : name === 'uturn' ? 'to' : 'target';
+      if (typeof fresh === 'number' ? !numOK(value) : value !== null && (name === 'reservation' || name === 'waitsFor' ? !idOK(value)
+        : typeof value !== 'object' || Array.isArray(value) || !idOK((value as Record<string, unknown>)[ref]))) return null;
+      (state as Record<string, unknown>)[name] = value;
+    }
+  }
+  return { key, lane, route, n, s: s as number, speed: speed as number, born: (tick - (bornAge as number)) * FLOW_STEP, hops: hops as number,
+    demandDraw: demandDraw as number, tileTick: tick - (tileAge as number), ...state,
+    previous: { route, s: s as number, speed: speed as number, change: state.change, swerve: state.swerve, swerveRate: state.swerveRate, uturn: state.uturn } };
+}
 
 export class TrafficFlow {
   readonly cars = new Map<string, FlowCar>();
@@ -227,7 +307,7 @@ export class TrafficFlow {
   private pedestrians: PedestrianFrame | null = null;
   private players: PedestrianFrame | null = null;
   private playerVehicles: VehicleFrame | null = null;
-  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0 };
+  stats = { entered: 0, exited: 0, blocked: 0, resets: 0, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0 };
   /** Who can see cars, for out-of-view recycling; null (the default) recycles nothing. Every peer must pass the same
    *  list at the same tick (single player: the local camera; multiplayer: the server-stamped watch). */
   private watchers: TrafficWatcher[] | null = null;
@@ -270,35 +350,100 @@ export class TrafficFlow {
       suppressed: [...this.suppressed].sort(cmp), pedestrians: this.pedestrians
         ? { time: this.pedestrians.time, people: this.pedestrians.people.map(p => ({ ...p })) } : null,
       demand: [...this.demand].map(([lane, n]) => [`${lane.tile}:${lane.id}`, n]),
-      cars: [...this.cars.values()].map(c => ({ key: c.key, lane: `${c.lane.tile}:${c.lane.id}`, route: `${c.route.tile}:${c.route.id}`,
-        reservation: c.reservation ? `${c.reservation.tile}:${c.reservation.id}` : null, n: c.n, s: c.s, speed: c.speed, born: c.born,
-        stopped: c.stopped, waiting: c.waiting, backed: c.backed, stuck: c.stuck, progress: c.progress, waitsFor: c.waitsFor, held: c.held, reverse: c.reverse, rerouted: c.rerouted, rock: c.rock, swerve: c.swerve, swerveTarget: c.swerveTarget, swerveRate: c.swerveRate,
-        swerveEnd: c.swerveEnd, swerveStall: c.swerveStall, hops: c.hops, demandDraw: c.demandDraw,
-        change: saveChange(c.change), changeCooldown: c.changeCooldown,
-        signal: c.signal ? { ...c.signal, target: `${c.signal.target.tile}:${c.signal.target.id}` } : null, uturn: saveUTurn(c.uturn),
-        previous: { ...c.previous, route: `${c.previous.route.tile}:${c.previous.route.id}`, change: saveChange(c.previous.change), uturn: saveUTurn(c.previous.uturn) } })) };
+      cars: [...this.cars.values()].map(c => saveCar(c)) };
   }
 
   restore(state: TrafficCheckpoint) {
     if (state.version !== TRAFFIC.version || state.roads !== this.roadIdentity()) throw new Error('Traffic checkpoint road generation mismatch');
     this.epoch = state.epoch; this.reset(state.tick * FLOW_STEP);
-    const { laneById: lanes, routeById: routes } = this.ids!;
-    const loadChange = (change: TrafficCheckpoint['cars'][number]['change']): LaneChange | null =>
-      change ? { ...change, from: lanes.get(change.from)! } : null;
-    const loadUTurn = (u: TrafficCheckpoint['cars'][number]['uturn']): UTurn | null => u ? { ...u, to: lanes.get(u.to)! } : null;
+    const { laneById: lanes } = this.ids!;
     this.suppressed = new Set(state.suppressed);
     this.pedestrians = state.pedestrians ? { time: state.pedestrians.time, people: state.pedestrians.people.map(p => ({ ...p })) } : null;
     this.demand = new Map(state.demand.map(([id, n]) => [lanes.get(id)!, n]));
     for (const saved of state.cars) {
-      const lane = lanes.get(saved.lane), route = routes.get(saved.route), previous = routes.get(saved.previous.route);
-      if (!lane || !route || !previous) throw new Error('Traffic checkpoint contains an unknown movement');
-      const model = pick(hash01('model', saved.key), MODEL_WEIGHTS), [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[model]];
-      const car: FlowCar = { ...saved, lane, route, model, width, length, blockedBy: null, pose: blankPose(),
-        change: loadChange(saved.change), signal: saved.signal ? { ...saved.signal, target: lanes.get(saved.signal.target)! } : null,
-        reservation: saved.reservation ? routes.get(saved.reservation)! : null, uturn: loadUTurn(saved.uturn),
-        previous: { ...saved.previous, route: previous, change: loadChange(saved.previous.change), uturn: loadUTurn(saved.previous.uturn) } };
-      sampleFlowPose(car, 0, () => 0, car.pose); this.cars.set(car.key, car);
+      const car = this.loadCar(saved, true);
+      if (!car) throw new Error('Traffic checkpoint contains an unknown movement');
+      this.cars.set(car.key, car);
     }
+  }
+
+  /** A saved car on this flow's graph, or null when its lane or movement is not here. `strict`: a lane change,
+   *  signal or U-turn naming a missing lane fails too (a checkpoint); otherwise that manoeuvre is dropped (a mirror). */
+  private loadCar(saved: SavedCar, strict = false): FlowCar | null {
+    const { laneById: lanes, routeById: routes } = this.ids!;
+    const lane = lanes.get(saved.lane), route = routes.get(saved.route), previous = routes.get(saved.previous.route);
+    if (!lane || !route || !previous) return null;
+    let missing = false;
+    const laneOf = (id: string) => { const l = lanes.get(id); if (!l) missing = true; return l; };
+    const loadChange = (change: SavedCar['change']): LaneChange | null => {
+      const from = change && laneOf(change.from);
+      return change && from ? { ...change, from } : null;
+    };
+    const loadUTurn = (u: SavedCar['uturn']): UTurn | null => { const to = u && laneOf(u.to); return u && to ? { ...u, to } : null; };
+    const target = saved.signal && laneOf(saved.signal.target);
+    const model = pick(hash01('model', saved.key), MODEL_WEIGHTS), [width, , length] = MODEL_SIZE[TRAFFIC_MODELS[model]];
+    const car: FlowCar = { ...saved, tileTick: saved.tileTick ?? 0, lane, route, model, width, length, blockedBy: null, pose: blankPose(),
+      change: loadChange(saved.change), signal: saved.signal && target ? { ...saved.signal, target } : null,
+      reservation: saved.reservation ? routes.get(saved.reservation) ?? null : null, uturn: loadUTurn(saved.uturn),
+      previous: { ...saved.previous, route: previous, change: loadChange(saved.previous.change), uturn: loadUTurn(saved.previous.uturn) } };
+    if (strict && (missing || (saved.reservation && !car.reservation))) return null;
+    sampleFlowPose(car, 0, () => 0, car.pose);
+    return car;
+  }
+
+  /** Multiplayer traffic authority (server/PROTOCOL.md `traffic`): tiles another client owns. Their sources admit no cars
+   *  here (their demand counters still run, so an ownership hand-back resumes at the current slot); their cars come
+   *  from the owner's snapshots (mirror). */
+  setRemote(tiles: Iterable<string>) { this.remote = new Set(tiles); }
+  private remote = new Set<string>();
+
+  /** The cars on `tiles` as their owner sends them to the other clients holding those tiles (claimed ones left out). */
+  snapshot(tiles: Iterable<string>): TrafficSnapshot {
+    const out: Record<string, MirrorCar[]> = {};
+    for (const tile of tiles) out[tile] = [];
+    for (const c of this.cars.values()) {
+      const list = out[c.lane.tile];
+      if (list && !this.suppressed.has(c.key)) list.push(packCar(saveCar(c), c.lane.tile, this.tick));
+    }
+    return { tick: this.tick, tiles: out };
+  }
+
+  /** Takes an owner's snapshot of its tiles: this flow's cars on them are replaced by the owner's, each carried on
+   *  along its movement at its speed for the ticks since the snapshot (never past the movement's end; the next step
+   *  continues it). Kept: a car that reached a snapshot tile after the snapshot was taken (the owner had not seen it
+   *  there yet). A car of the snapshot that has since left those tiles here is left alone (it already drives on).
+   *  Returns the cars taken over. Nothing happens while the flow warms up or before its graph exists. */
+  mirror(snapshot: TrafficSnapshot): number {
+    if (!this.ready || this.warming || !this.ids || !numOK(snapshot.tick) || snapshot.tick > this.tick + 50) return 0;
+    const ticks = Math.max(0, Math.min(20, this.tick - snapshot.tick));
+    const tiles = new Set<string>(), incoming = new Map<string, SavedCar>();
+    for (const [tile, list] of Object.entries(snapshot.tiles)) {
+      if (!this.network.isEnabled(tile) || !Array.isArray(list)) continue;
+      tiles.add(tile);
+      for (const packed of list) { const saved = unpackCar(packed, tile, snapshot.tick); if (saved) incoming.set(saved.key, saved); }
+    }
+    const replaced = new Map<string, FlowCar>();
+    for (const car of [...this.cars.values()]) {
+      if (!tiles.has(car.lane.tile) || (car.tileTick > snapshot.tick && !incoming.has(car.key))) continue;
+      this.unoccupy(car); this.cars.delete(car.key); replaced.set(car.key, car);
+    }
+    let taken = 0;
+    for (const saved of incoming.values()) {
+      if (this.suppressed.has(saved.key) || this.cars.has(saved.key)) continue;
+      const car = this.loadCar(saved);
+      if (!car) continue;
+      const route = car.route, end = route.length + (route.connector && route.next ? route.connector.length : 0);
+      if (!car.uturn && car.s < end) car.s = Math.min(end - 0.05, car.s + car.speed * ticks * FLOW_STEP);
+      // The pose between now and the next step blends from where this client last drew the car.
+      const before = replaced.get(car.key);
+      car.previous = before && before.route === car.route ? { ...before.previous }
+        : { ...car.previous, s: Math.max(0, car.s - car.speed * FLOW_STEP) };
+      sampleFlowPose(car, 0, () => 0, car.pose);
+      this.cars.set(car.key, car);
+      taken++;
+    }
+    this.stats.mirrored += taken;
+    return taken;
   }
 
   suppress(key: string) {
@@ -340,6 +485,8 @@ export class TrafficFlow {
   private warming = false;
   /** The warm-up replay has not reached the clock yet: the flow's cars are behind it. */
   get warmingUp() { return this.warming; }
+  /** Warmed up to the clock: its cars are the ones drawn. */
+  get live() { return this.ready && !this.warming; }
 
   /** Idle worker time (loading, the menu): goes on with a warm-up already started, for at most `budgetMs`. */
   idle(t: number, budgetMs: number) {
@@ -404,7 +551,7 @@ export class TrafficFlow {
 
   private clearState() {
     this.cars.clear(); this.demand.clear();
-    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0 };
+    this.stats = { entered: 0, exited: 0, blocked: 0, resets: this.stats.resets + 1, ticks: 0, laneChanges: 0, unlocks: 0, cleared: 0, recycled: 0, escapes: 0, reverses: 0, rerouted: 0, uturns: 0, reroutedAhead: 0, mirrored: 0 };
   }
 
   reset(t: number) {
@@ -607,7 +754,7 @@ export class TrafficFlow {
     for (const lane of this.sources) {
       let n = this.demand.get(lane)!;
       while (entryTime(lane, n) <= t + 1e-7) {
-        if (this.network.present(lane, n)) this.spawn(lane, n, t);
+        if (!this.remote.has(lane.tile) && this.network.present(lane, n)) this.spawn(lane, n, t);
         n++;
       }
       this.demand.set(lane, n);
@@ -835,6 +982,7 @@ export class TrafficFlow {
         else {
           const previous = this.byLane.get(car.lane);
           if (previous) { const i = previous.indexOf(car); if (i >= 0) previous.splice(i, 1); }
+          if (next.tile !== car.lane.tile) car.tileTick = this.tick;
           car.s -= end; car.lane = next; car.hops++; car.route = this.chooseRoute(next, car.key, car.hops);
           const list = this.byLane.get(next);
           if (list) { list.push(car); list.sort((a, b) => b.s - a.s); } else this.byLane.set(next, [car]);
@@ -992,6 +1140,7 @@ export class TrafficFlow {
     const u = car.uturn!;
     const list = this.byLane.get(car.lane);
     if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
+    if (u.to.tile !== car.lane.tile) car.tileTick = this.tick;
     car.lane = u.to; car.s = u.at; car.hops++; car.route = this.chooseRoute(u.to, car.key, car.hops);
     car.uturn = null; car.held = 0; car.backed = 0; car.changeCooldown = this.tick + 100; this.stats.uturns++;
     const to = this.byLane.get(u.to);
@@ -1026,6 +1175,7 @@ export class TrafficFlow {
     if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
     const departing = this.departing.get(from);
     if (departing) { const i = departing.indexOf(car); if (i >= 0) departing.splice(i, 1); }
+    if (from.tile !== car.lane.tile) car.tileTick = this.tick;
     car.s = car.s / target.length * from.length; car.lane = from; car.route = this.chooseRoute(from, car.key, car.hops);
     car.change = null; car.signal = null; car.changeCooldown = this.tick + 100;
     const back = this.byLane.get(from);
@@ -1109,7 +1259,7 @@ export class TrafficFlow {
     const tail = this.byLane.get(lane)?.at(-1);
     if (tail && tail.s < (length + tail.length) / 2 + GAP) { this.stats.blocked++; return; }
     const route = this.chooseRoute(lane, key);
-    const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0,
+    const car: FlowCar = { key, lane, route, n, model, width, length, born: t, s: 0, speed: 0, hops: 0, tileTick: this.tick,
       demandDraw: this.network.demandDraw(lane, n),
       previous: { route, s: 0, speed: 0, change: null, swerve: 0, swerveRate: 0, uturn: null }, change: null, uturn: null, signal: null, changeCooldown: 0,
       reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0, rerouted: 0, rock: -1, swerve: 0, swerveTarget: 0, swerveRate: 0, swerveEnd: 0, swerveStall: 0,
@@ -1140,6 +1290,7 @@ export class TrafficFlow {
     const from = car.lane, list = this.byLane.get(from), direction = target.k > from.k ? 1 : -1;
     if (list) { const i = list.indexOf(car); if (i >= 0) list.splice(i, 1); }
     car.change = { from, direction, progress: 0, duration: LANE_CHANGE_SECONDS, rate: 0 };
+    if (target.tile !== car.lane.tile) car.tileTick = this.tick;
     car.s = car.s / from.length * target.length; car.lane = target; car.route = this.chooseRoute(target, car.key, car.hops);
     const to = this.byLane.get(target);
     if (to) { to.push(car); to.sort((a, b) => b.s - a.s); } else this.byLane.set(target, [car]);

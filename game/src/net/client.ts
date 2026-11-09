@@ -6,6 +6,7 @@ import type { VehicleKind } from '../physics/constants';
 import { multiplayerUrl, scoresUrl } from './config';
 import { CITIES, cityKey, type CityProfile } from '../core/city';
 import type { KeyValueStore } from '../core/save';
+import type { TrafficSnapshot } from '../traffic/flow';
 
 /** A car another player holds in a contact: its shared vehicle id and its state at room-clock time `st` (the frame and
  *  units of a car pose: chassis centre E, N, H - 0.6, quaternion, velocity, spin about E, N, H). */
@@ -40,6 +41,8 @@ interface MultiplayerState {
   /** Road-graph hashes all reporting players share, for the traffic gate (traffic/gate.ts); null until the server
    *  answers this connection's report (older servers never do: multiplayer traffic then spawns nothing). */
   roads: Map<string, string> | null;
+  /** The player running each shared tile's traffic (server/roads.js owners), from the same answer. */
+  roadOwners: Map<string, string> | null;
   /** The server's latest traffic watch (server/watch.js): every online player's rounded position, stamped. */
   watch: { at: number; points: [number, number][] } | null;
   connected: boolean; you: { id: string; nick: string; spawn: NetPlayer['spawn'] } | null;
@@ -62,6 +65,8 @@ export function markProgressReset(storage: KeyValueStore | null) {
 /** The server accepts at most this many tiles per road-hash report (server/roads.js). */
 const ROAD_TILES = 64;
 const RATE_MS = 55; // under the server's 20 total messages/s token rate, including deliveries
+/** One traffic snapshot message's budget: under the room's 64 KiB message and 1,500-car limits. */
+const TRAFFIC_MESSAGE_BYTES = 56_000, TRAFFIC_MESSAGE_CARS = 1400;
 const STATIONARY_MS = 1000;
 
 /** True when another pose is useful and the combined message budget permits it. */
@@ -79,7 +84,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
 export class MultiplayerClient extends EventTarget {
   readonly url: string;
   readonly httpUrl: string;
-  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, watch: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
+  readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, roadOwners: null, watch: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private serverOffset = 0;
   private offsetAt = -Infinity;
   serverNow() { return performance.now() + this.serverOffset; }
@@ -281,6 +286,21 @@ export class MultiplayerClient extends EventTarget {
     this.roadsReported = key;
     this.queue({ type: 'roads', tiles: Object.fromEntries([...tiles].sort().slice(0, ROAD_TILES)) });
   }
+  /** Sends this client's snapshot of the tiles it owns (traffic authority). Only the newest waits in the queue. */
+  sendTraffic(snapshot: TrafficSnapshot) {
+    if (!this.state.connected) return;
+    this.pendingMessages = this.pendingMessages.filter(m => (m as { type?: string }).type !== 'traffic');
+    // Pieces under the room's message size and car limits (server/roads.js ROAD_LIMITS); a tile is never split.
+    let tiles: TrafficSnapshot['tiles'] = {}, bytes = 0, cars = 0;
+    const flush = () => { if (Object.keys(tiles).length) this.queue({ type: 'traffic', tick: snapshot.tick, tiles }); tiles = {}; bytes = 0; cars = 0; };
+    for (const [tile, list] of Object.entries(snapshot.tiles)) {
+      const size = JSON.stringify(list).length + tile.length + 4;
+      if (bytes + size > TRAFFIC_MESSAGE_BYTES || cars + list.length > TRAFFIC_MESSAGE_CARS) flush();
+      if (size > TRAFFIC_MESSAGE_BYTES || list.length > TRAFFIC_MESSAGE_CARS) continue;
+      tiles[tile] = list; bytes += size; cars += list.length;
+    }
+    flush();
+  }
   /** Counts welcomes, so each connection reports its tiles again. */
   private sessionEpoch = 0;
 
@@ -348,7 +368,7 @@ export class MultiplayerClient extends EventTarget {
           this.vehicleRequests.clear(); this.expiredAcquires.clear();
         }
         this.state.vehicles.clear();
-        this.state.roads = null; this.sessionEpoch++;
+        this.state.roads = null; this.state.roadOwners = null; this.sessionEpoch++;
         this.applyVehicles(msg.vehicles as VehicleDelta);
         this.state.you = msg.you as MultiplayerState['you'];
         this.state.hour = msg.hour as Hour;
@@ -376,8 +396,16 @@ export class MultiplayerClient extends EventTarget {
           && Number.isFinite(p[0]) && Number.isFinite(p[1]));
         this.state.watch = { at: Number(msg.at), points };
       } break;
+      case 'traffic': if (typeof msg.from === 'string' && Number.isFinite(msg.tick) && msg.tiles && typeof msg.tiles === 'object'
+        && !Array.isArray(msg.tiles)) {
+        const snapshot: TrafficSnapshot = { tick: Number(msg.tick), tiles: msg.tiles as TrafficSnapshot['tiles'] };
+        this.dispatchEvent(new CustomEvent('traffic', { detail: { from: msg.from, snapshot } }));
+      } break;
       case 'roads': if (msg.agreed && typeof msg.agreed === 'object') {
-        this.state.roads = new Map(Object.entries(msg.agreed as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'));
+        const strings = (o: unknown) => new Map(Object.entries(o && typeof o === 'object' ? o as Record<string, unknown> : {})
+          .filter((e): e is [string, string] => typeof e[1] === 'string'));
+        this.state.roads = strings(msg.agreed);
+        this.state.roadOwners = strings(msg.owners);
         this.dispatchEvent(new Event('roads'));
       } break;
       case 'vehicle_result': {

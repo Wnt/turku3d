@@ -13,7 +13,8 @@ import type { Entry } from '../world/coarseContracts';
 import type { Manifest, ParkedVehicle } from '../world/manifest';
 import type { ParkedVehicles } from '../world/parkedVehicles';
 import { DAY_MS } from '../core/dayCycle';
-import { CHASSIS_LIFT, CLAIM_PREFIX, MODEL_SIZE, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
+import { CHASSIS_LIFT, CLAIM_PREFIX, MODEL_SIZE, TRAFFIC, TRAFFIC_MODELS, TRAFFIC_PAINTS, TRAFFIC_STRIDE } from './constants';
+import type { TrafficSnapshot } from './flow';
 import { ENTER_REACH, footprintDistance } from '../vehicle/reach';
 import { enabledTiles, roadHash } from './gate';
 import { hash32 } from './hash';
@@ -34,6 +35,10 @@ export interface TrafficMultiplayer {
   sources: Iterable<string>;
   /** The server's latest traffic watch, for out-of-view recycling that every client decides alike. */
   watch?: { at: number; points: [number, number][] } | null;
+  /** Traffic authority (server/roads.js): the player running each shared tile's traffic, and this player's id. */
+  owners?: ReadonlyMap<string, string> | null; you?: string | null;
+  /** Sends this client's snapshot of its owned tiles to the room. */
+  send?: (snapshot: TrafficSnapshot) => void;
 }
 
 interface Drawn { handle: number; model: number; paint: number; x: number; y: number; z: number; q: { x: number; y: number; z: number; w: number }; vx: number; vz: number; horn: boolean }
@@ -44,7 +49,9 @@ export class TrafficClient {
   readonly local = new Map<string, string>();
   private nextSync = 0;
   private nextPedestrians = 0;
-  private sent = { enabled: '', claims: '', offset: NaN, shared: false, clock: '', watch: NaN };
+  private sent = { enabled: '', claims: '', offset: NaN, shared: false, clock: '', watch: NaN, owned: '', remote: '' };
+  /** Per tile another player owns: that owner, since when (ms) and the last snapshot of it (ms). */
+  private remotes = new Map<string, { owner: string; since: number; heard: number }>();
   private multiplayer: TrafficMultiplayer | null = null;
   private handled = new Set<string>();
   private claims = new Map<string, TrafficClaimEvent>();
@@ -69,7 +76,25 @@ export class TrafficClient {
     physics.trafficResident.clear();
     const start = clock();
     this.sent.clock = JSON.stringify(start);
-    physics.traffic({ cap, offsetMs: 0, shared: false, enabled: null, claims: [], density, clock: start });
+    physics.traffic({ cap, offsetMs: 0, shared: false, enabled: null, claims: [], density, clock: start, owned: [], remote: [] });
+    physics.onTrafficSnapshot = snapshot => this.multiplayer?.send?.(snapshot);
+  }
+
+  /** An owner's snapshot of shared tiles (the room relays only tiles this client reported). */
+  mirror(snapshot: TrafficSnapshot, from: string) {
+    const now = performance.now();
+    for (const tile of Object.keys(snapshot.tiles)) {
+      const remote = this.remotes.get(tile);
+      if (remote?.owner === from) remote.heard = now;
+    }
+    this.physics.trafficMirror(snapshot);
+    // A tile that had gone stale runs mirrored again at once.
+    if (this.remoteKey(now) !== this.sent.remote) this.nextSync = 0;
+  }
+
+  /** Tiles another player owns whose snapshots still come (or whose owner took them less than the stale time ago). */
+  private remoteKey(now: number) {
+    return [...this.remotes].filter(([, r]) => now - Math.max(r.since, r.heard) < TRAFFIC.mirrorStaleMs).map(([tile]) => tile).sort().join(',');
   }
 
   /** Follow the drawn draft tiles' road graphs (CoarseTiles). */
@@ -207,6 +232,18 @@ export class TrafficClient {
     // steps); the shared cycle is a period the worker evaluates itself.
     const clock = this.clock(), clockKey = JSON.stringify(clock.kind === 'hour' ? { ...clock, hour: Math.round(clock.hour * 60) / 60 } : clock);
     if (clockKey !== this.sent.clock) { change.clock = JSON.parse(clockKey) as TrafficClock; this.sent.clock = clockKey; }
+    // Traffic authority: only enabled (agreed) tiles; one owned by nobody is run here as before.
+    const now = performance.now(), owners = mp?.owners, you = mp?.you, on = new Set(enabled ?? []), owned: string[] = [];
+    for (const [tile, owner] of owners ?? []) {
+      if (!on.has(tile)) continue;
+      if (owner === you) { owned.push(tile); continue; }
+      const remote = this.remotes.get(tile);
+      if (remote?.owner !== owner) this.remotes.set(tile, { owner, since: now, heard: 0 });
+    }
+    for (const [tile, remote] of this.remotes) if (!on.has(tile) || owners?.get(tile) !== remote.owner) this.remotes.delete(tile);
+    const ownedKey = owned.sort().join(','), remoteKey = this.remoteKey(now);
+    if (ownedKey !== this.sent.owned) { change.owned = owned; this.sent.owned = ownedKey; }
+    if (remoteKey !== this.sent.remote) { change.remote = remoteKey ? remoteKey.split(',') : []; this.sent.remote = remoteKey; }
     if (Object.keys(change).length) this.physics.traffic(change);
   }
 

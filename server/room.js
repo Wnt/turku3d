@@ -112,6 +112,7 @@ export class Room {
     if (!c.player) { this.reject(); return; }
     if (m.type === 'round') { this.rounds.command(c.player, m, now); return; }
     if (m.type === 'roads') { if (!this.roads.report(c.player, m.tiles)) this.reject(); return; }
+    if (m.type === 'traffic') { if (!this.roads.traffic(c.player, m, now)) this.reject(); return; }
     // Outside the round epoch check: a reset only ever lowers the sender's own standing.
     if (m.type === 'reset') { this.resetProgress(c.player, now); this.send(c, 'progress_reset'); this.presence(); return; }
     if ((this.rounds.epoch && m.epoch !== this.rounds.epoch) || this.rounds.active?.phase === 'countdown') { this.reject(); return; }
@@ -251,6 +252,7 @@ export class Room {
   tick(now = this.now()) {
     this.rounds.tick(now);
     this.watch.tick(now);
+    this.roads.tick(now);
     this.vehicles.expire(now);
     while (!this.rounds.active && now >= Date.parse(this.hour.end)) {
       this.store.write(this.hour, this.scores().map(({ nick, earned, deliveries, rank }) => ({ nick, earned, deliveries, rank })));

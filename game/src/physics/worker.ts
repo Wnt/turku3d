@@ -84,6 +84,9 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
   if (remoteCars.length) state.remoteCars = remoteCars;
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
+  // Not in the state: a mailbox keeps only the latest state, and every snapshot has to reach the room.
+  const snapshot = pw.traffic?.takeSnapshot();
+  if (snapshot) post({ type: 'trafficSnapshot', snapshot });
 }
 let nextWake = performance.now() + DT * 1000;
 let lastTick = performance.now();
@@ -186,6 +189,7 @@ function handle(msg: ToWorker) {
     case 'trafficTiles': pw.trafficSim().setTiles(msg.add, msg.remove); break;
     case 'trafficPedestrians': pw.trafficSim().flow.setPedestrians(msg.people, msg.time); break;
     case 'trafficClaim': pw.traffic?.claim(msg.handle); break;
+    case 'trafficMirror': pw.traffic?.mirror(msg.snapshot); break;
     case 'step': {
       if (pw.traffic) pw.trafficTime = pw.traffic.clock(performance.timeOrigin + performance.now(), true);
       snapshot(msg.seq, msg.dt, msg.character, msg.vehicle);
