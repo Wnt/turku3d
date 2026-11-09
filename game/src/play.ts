@@ -40,7 +40,7 @@ import { onDamage } from './actors/fleet/damageRig';
 import { SeatedVehicles } from './actors/seatedVehicles';
 import { Drivers, fleetDriverLayout } from './actors/driver/drivers';
 import { FLEET_BY_ID, PLAYER_MODEL } from './actors/fleet/catalog';
-import { ENTER_REACH, footprintDistance } from './vehicle/reach';
+import { ENTER_REACH, footprintDistance, yawRotation } from './vehicle/reach';
 import { OrbitCamera } from './actors/camera';
 import { Hud } from './ui/hud';
 import { DevLayers } from './ui/devLayers';
@@ -561,10 +561,24 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       const me = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;
       if (!me) return [];
       const out: Obstacle[] = traffic.obstacles(me.pos.x, me.pos.z, 100);
+      const shared = multiplayerPlaying && multiplayer && sharedVehicles ? sharedVehicles : null;
+      const bodies = new Set<string>();
       for (const v of physics.latest?.vehicles ?? []) {
+        if (v.id) bodies.add(v.id);
         if (v === me || v.id === drivenId || Math.abs(v.pos.x - me.pos.x) > 100 || Math.abs(v.pos.z - me.pos.z) > 100) continue;
-        const pose = vehiclePose(v), half = VEHICLES[v.kind ?? 'car'].halfExt;
+        // A shared car's own size (a claimed van is longer than the default car box).
+        const pose = vehiclePose(v), half = shared?.record(v.id ?? null)?.half ?? VEHICLES[v.kind ?? 'car'].halfExt;
         out.push({ x: v.pos.x, z: v.pos.z, hx: pose.hx, hz: pose.hz, halfLength: half.x, halfWidth: half.z, vx: v.linvel.x, vz: v.linvel.z, traffic: false });
+      }
+      // Shared cars this client has no body for (other players' cars, cars another client owns: a car a bot claimed and
+      // left in the lane): their last pose. The bots drove into them unseen until contact moved the car here.
+      if (shared) for (const v of multiplayer!.state.vehicles.values()) {
+        const id = shared.localId(v), x = v.pose.E, z = -v.pose.N;
+        if (id === drivenId || bodies.has(id) || Math.abs(x - me.pos.x) > 100 || Math.abs(z - me.pos.z) > 100
+          || Math.abs(v.pose.H + VEHICLE_POSE_HEIGHT - me.pos.y) > 4) continue;
+        const rot = v.pose.rot ?? yawRotation(v.pose.yaw + Math.PI / 2);
+        const fx = 1 - 2 * (rot.y * rot.y + rot.z * rot.z), fz = 2 * (rot.x * rot.z - rot.w * rot.y), d = Math.hypot(fx, fz) || 1;
+        out.push({ x, z, hx: fx / d, hz: fz / d, halfLength: v.half.x, halfWidth: v.half.z, vx: v.pose.vE, vz: -v.pose.vN, traffic: false });
       }
       return out;
     },
