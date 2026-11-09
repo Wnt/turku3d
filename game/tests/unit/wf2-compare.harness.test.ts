@@ -3,7 +3,7 @@
 // same Vehicle.step -> world.step -> afterStep sequence the physics worker runs, driven through VehicleInput.
 // Measurement only: it changes no tuning. Every physics step is logged to CSV; the summary goes to Markdown.
 //   WF2_COMPARE=1 npx vitest run tests/unit/wf2-compare.harness.test.ts
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import * as R from '@dimforge/rapier3d';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -172,7 +172,10 @@ class Rig {
   /** Steps the harness had to wake a sleeping chassis (it only sleeps while parked at rest). */
   wakes = 0;
 
+  inputFilter = (input: VehicleInput) => input;
+
   step(input: VehicleInput) {
+    input = this.inputFilter(input);
     this.lastInput = input;
     if (this.car.body.isSleeping()) {
       this.car.body.wakeUp(); this.wakes++;
@@ -804,3 +807,94 @@ test.skipIf(!process.env.WF2_COMPARE)('WF2 comparison baseline: skidpad, braking
   ]), ''];
   fs.writeFileSync(REPORT, [...header, ...noteTable, ...md].join('\n'));
 }, 900_000);
+
+// Passenger-car stability matrix. Reuses the WF2 real-physics rig, sampling and speed controller above.
+// CARFEEL_REPORT=/absolute/result.json WF2_RUNS=/absolute/traces npx vitest run tests/unit/wf2-compare.harness.test.ts -t 'passenger stability'
+// Inputs are post gamepad deadzone/response. Keyboard runs send only -1/0/+1 and use Vehicle.keyboard's real slew.
+const PASSENGERS = (process.env.CARFEEL_MODELS ?? 'carla-mercedes-coupe-2020,golf7,yaris-2001,v60,w212,model-y,carla-audi-etron').split(',');
+function passengerRig(id: string, keys: boolean) {
+  const rig = new Rig(`model:${id}`);
+  if (keys) {
+    let held = 0;
+    rig.inputFilter = input => {
+      const target = clamp(input.steer, -1, 1), k = rig.t.keySteer!;
+      // Pulse a held direction against centre, tracking the requested stick without inventing analogue key values.
+      const raw = Math.abs(target) < 0.001 ? 0 : held * Math.sign(target) < Math.abs(target) ? Math.sign(target) : 0;
+      const rate = raw * held < 0 || Math.abs(raw) < Math.abs(held) ? k.centre : k.rate;
+      held += clamp(raw - held, -rate * DT, rate * DT);
+      return { ...input, steer: raw, steerKey: true };
+    };
+  }
+  rig.run(2, idle);
+  return rig;
+}
+function passengerMetrics(rig: Rig, from: number, referenceYaw?: number) {
+  // At walking speed slip angles are ill-conditioned; include every sample above 10 km/h.
+  const S = rig.log.slice(from).filter(s => s.speed > 10 / 3.6);
+  const alpha = (s: Sample, a: number) => mean(s.wheels.slice(a * 2, a * 2 + 2).map(w => Math.abs(w.alpha)));
+  const tail = S.slice(-60), ss = mean(tail.map(s => Math.abs(s.yawRate))), peak = Math.max(...S.map(s => Math.abs(s.yawRate)));
+  const limit = S.reduce((a, b) => Math.abs(a.ay) > Math.abs(b.ay) ? a : b);
+  return { peakBeta: Math.max(...S.map(s => Math.abs(sideslip(s)))), peakYaw: deg(peak),
+    yawOvershoot: 100 * (peak / Math.max(0.01, referenceYaw ?? ss) - 1),
+    frontSlipAtLimit: alpha(limit, 0), rearSlipAtLimit: alpha(limit, 1),
+    peakRearExcess: Math.max(...S.map(s => alpha(s, 1) - alpha(s, 0))),
+    spin: S.some(s => Math.abs(sideslip(s)) > 45), peakG: Math.abs(limit.ay) / G,
+    minKmh: Math.min(...S.map(s => s.speed * 3.6)), endKmh: S.at(-1)!.speed * 3.6 };
+}
+
+test.skipIf(!process.env.CARFEEL_REPORT)('passenger stability matrix: circle, step, lift, brake and lane change', () => {
+  const rows: unknown[] = [];
+  for (const id of PASSENGERS) for (const keys of [false, true]) {
+    const mode = keys ? 'keyboard' : 'analogue';
+    // R60 circle, pure pursuit plus radial integral as in the WF2 skidpad, slowly rising 50 -> 90 km/h.
+    {
+      const rig = passengerRig(id, keys), pi = new SpeedPI(), R0 = 60, start = rig.time;
+      let I = 0;
+      const from = rig.log.length;
+      rig.run(35, () => {
+        const p = rig.com(), psi = rig.heading(), v = Math.max(1, rig.forwardSpeed());
+        const b = -rig.t.wheels[2].x, rx = p.x - b * Math.cos(psi), rz = p.z + b * Math.sin(psi);
+        const phi = Math.atan2(rx, R0 + rz), ahead = phi + clamp(v * 0.5, 4, 12) / R0;
+        const tx = R0 * Math.sin(ahead), tz = -R0 + R0 * Math.cos(ahead);
+        const err = Math.hypot(p.x, R0 + p.z) - R0;
+        I = clamp(I + 0.015 * err * DT, -0.25, 0.25);
+        const delta = Math.atan(2 * rig.wheelbase * Math.sin(Math.atan2(-(tz - rz), tx - rx) - psi) / Math.hypot(tx - rx, tz - rz)) + I;
+        const kmh = 50 + 40 * clamp((rig.time - start - 10) / 25, 0, 1);
+        return { ...idle, throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), steer: rig.stickFor(delta) };
+      });
+      const metrics = passengerMetrics(rig, from + 8 * 60);
+      rows.push({ id, mode, manoeuvre: 'circle50-90', ...metrics, yawOvershoot: null });
+      expect(metrics.peakBeta, `${id} ${mode} circle sideslip`).toBeLessThan(3.3);
+      expect(metrics.frontSlipAtLimit, `${id} ${mode} circle front first`).toBeGreaterThan(metrics.rearSlipAtLimit);
+      expect(metrics.spin, `${id} ${mode} circle spin`).toBe(false);
+      rig.writeCsv(`passenger-${mode}-circle`); rig.free();
+    }
+    for (const manoeuvre of ['step', 'lift', 'brake', 'lane']) for (const kmh of manoeuvre === 'lift' || manoeuvre === 'brake' ? [50, 70, 90] : [60, 80]) {
+      const rig = passengerRig(id, keys), pi = new SpeedPI();
+      cruise(rig, kmh / 3.6, 2);
+      // 0.8 g step / 1.1 g corner kinematic demand: identical manoeuvre severity independent of wheelbase and steering lock.
+      const demandG = manoeuvre === 'step' ? 0.8 : 1.1;
+      const delta = Math.atan(rig.wheelbase * demandG * G / (kmh / 3.6) ** 2);
+      const steer = rig.stickFor(delta), throttle = mean(rig.log.slice(-60).map(s => s.throttle));
+      if (manoeuvre === 'lift' || manoeuvre === 'brake')
+        rig.run(4, () => ({ ...idle, throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), steer }));
+      const before = mean(rig.log.slice(-30).map(s => Math.abs(s.yawRate))), from = rig.log.length, t0 = rig.time;
+      rig.run(manoeuvre === 'lane' ? 5 : manoeuvre === 'brake' ? 2 : 4, () => {
+        const elapsed = rig.time - t0;
+        // One left/right lane-change pulse, followed by normal steering recovery.
+        const lane = elapsed < 0.6 ? steer : elapsed < 1.2 ? -steer : 0;
+        return { ...idle, throttle: manoeuvre === 'lift' || manoeuvre === 'brake' ? 0 : throttle,
+          brake: manoeuvre === 'brake' ? 0.65 : 0, steer: manoeuvre === 'lane' ? lane : steer };
+      });
+      const metrics = passengerMetrics(rig, from, manoeuvre === 'lift' || manoeuvre === 'brake' ? before : undefined);
+      rows.push({ id, mode, manoeuvre: `${manoeuvre}${kmh}`, ...metrics, yawOvershoot: manoeuvre === 'lane' ? null : metrics.yawOvershoot });
+      const betaBand = { step: 1, lift: 3.6, brake: 6, lane: 1.8 }[manoeuvre]!;
+      expect(metrics.peakBeta, `${id} ${mode} ${manoeuvre}${kmh} sideslip`).toBeLessThan(betaBand);
+      expect(metrics.spin, `${id} ${mode} ${manoeuvre}${kmh} spin`).toBe(false);
+      rig.writeCsv(`passenger-${mode}-${manoeuvre}${kmh}`); rig.free();
+    }
+  }
+  const output = { commit: execSync('git rev-parse HEAD').toString().trim(), rows };
+  fs.writeFileSync(process.env.CARFEEL_REPORT!, JSON.stringify(output, null, 2));
+  console.log(JSON.stringify(rows));
+}, 240000);
