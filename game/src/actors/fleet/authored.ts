@@ -150,6 +150,10 @@ async function fleetAsset(model:string,lod:number):Promise<FleetAsset|null> {
   return request;
 }
 
+/** Fetch and bake the asset now; loads take copies of it later (fleet/visuals.ts prefetchFleet). */
+export function prefetchAuthoredFleet(model:string,lod:number):Promise<void> {
+  return fleetAsset(model,lod).then(()=>{});
+}
 export async function loadAuthoredFleet(model:string,lod:number,part:'body'|'glass'='body') {
   return (await fleetAsset(model,lod))?.[part]?.clone()??null;
 }

@@ -8,7 +8,7 @@ import { CHASSIS_LIFT, CLAIM_PREFIX } from '../../traffic/constants';
 import { hazardOn, mechanicsOf, wrecked } from '../../vehicle/mechanics';
 import { instancePaintOf, paintActor, paintInstances } from '../parkedPaint';
 import { FALLBACK_MODELS, FLEET, FLEET_BY_ID, PLAYER_MODEL, SELECTABLE_FAMILIES, fallbackModel, fleetModel, type FleetModel } from './catalog';
-import { loadAuthoredFleet, loadAuthoredFleetParts } from './authored';
+import { loadAuthoredFleet, loadAuthoredFleetParts, prefetchAuthoredFleet } from './authored';
 import type {AuthoredFleetParts} from './authoredWheelParts';
 import { AUTHORED_BY_ID } from './registry';
 import { addAuthoredFleetWheels, applyFleetWheels } from './wheels';
@@ -57,6 +57,27 @@ async function inPool(tasks:readonly (()=>Promise<unknown>)[],limit:number) {
   const lanes=Array.from({length:Math.min(limit,tasks.length)},lane);
   const results=await Promise.allSettled(lanes);
   for(const r of results)if(r.status==='rejected')throw r.reason;
+}
+/** The models a load draws: those `cars` name and, with a traffic reserve, the always-resident fallbacks and starter
+ *  car (remote players') plus every model of a traffic/parking family. Special roles (bus, truck, ambulance) load only
+ *  when a record names them, so every client does not download them. */
+function fleetModels(cars:readonly ParkedVehicle[],traffic:boolean,failed:ReadonlySet<string>) {
+  const counts=new Map<string,number>();
+  for(const car of cars) {
+    const model=fleetModel(car.model,car.object_id,car);if(!model)continue;
+    counts.set(model.id,(counts.get(model.id)??0)+1);
+  }
+  const alwaysLoaded=new Set<string>(traffic?[...FALLBACK_MODELS,PLAYER_MODEL]:[]);
+  const models=FLEET.filter(m=>!failed.has(m.id)&&(counts.has(m.id)||alwaysLoaded.has(m.id)||traffic&&SELECTABLE_FAMILIES.has(m.family)));
+  return {counts,alwaysLoaded,models};
+}
+/** Fetches and bakes the assets a game session's fleet will draw before the session exists (authored.ts keeps each;
+ *  the session's load takes copies). A cold city.lab boot's main thread idled ~70 % of its first 5 s waiting on the
+ *  start tiles, and the fleet, loaded only once the start was placed, then held the menu 4-9 s on the M1 Air
+ *  (loadspeed 2026-11-09). Only the traffic reserve's models are known this early: parked records arrive with tiles. */
+export function prefetchFleet(traffic:boolean):Promise<void> {
+  const {models}=fleetModels([],traffic,new Set());
+  return inPool(models.flatMap(model=>[0,1,2].map(lod=>()=>prefetchAuthoredFleet(model.id,lod))),FLEET_FETCHES);
 }
 /** Damaged batches start with room for this many cars of a model and grow by doubling. */
 const WRECK_CAPACITY = 8;
@@ -167,16 +188,9 @@ export class ParkedCarVisuals {
     const run=this.loading.catch(()=>{}).then(()=>this.loadNow(cars)); this.loading=run; return run;
   }
   private async loadNow(cars:ParkedVehicle[]) {
-    const counts=new Map<string,number>();
-    for(const car of cars) {
-      const model=fleetModel(car.model,car.object_id,car);if(!model)continue;
-      counts.set(model.id,(counts.get(model.id)??0)+1);
-    }
-    // Reserved traffic may draw any model of a traffic/parking family; special roles (bus, truck, ambulance) load
-    // only when a record names them, so every client does not download them.
-    // With traffic (the game) the fallback set and the starter car (remote players') are always resident.
-    const alwaysLoaded=new Set<string>(this.reserve?[...FALLBACK_MODELS,PLAYER_MODEL]:[]);
-    let models=FLEET.filter(m=>!this.failed.has(m.id)&&(counts.has(m.id)||alwaysLoaded.has(m.id)||this.reserve&&SELECTABLE_FAMILIES.has(m.family)));
+    // Reserved traffic may draw any model of a traffic/parking family (fleetModels).
+    const selected=fleetModels(cars,this.reserve>0,this.failed),{counts,alwaysLoaded}=selected;
+    let models=selected.models;
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
