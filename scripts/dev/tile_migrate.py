@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ProcessPoolExecutor
+import errno
 import hashlib
 import json
 import os
@@ -215,8 +216,17 @@ def apply_step(root: Path, meta: dict, tile: str, step, displaced: Path) -> dict
                         os.link(source / relative, target)
                     except FileExistsError:
                         pass
+                    except OSError as error:
+                        if error.errno != errno.EXDEV:
+                            raise
+                        temporary = target.with_name(f'.{target.name}.{os.getpid()}.tmp')
+                        try:
+                            shutil.copyfile(source / relative, temporary)
+                            os.replace(temporary, target)
+                        finally:
+                            temporary.unlink(missing_ok=True)
             aside = displaced / f'{generation[:12]}-{tile}-{time.time_ns()}'
-            source.rename(aside)
+            shutil.move(str(source), str(aside))
             (staging / tile).rename(source)
             Farm.validate(output, tile, product.manifest)
             receipt = dict(step=step.key, code_hash=code_hash, displaced=str(aside),
