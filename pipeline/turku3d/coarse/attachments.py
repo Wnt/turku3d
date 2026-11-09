@@ -32,6 +32,19 @@ def support_region(mask, origin, along, outward):
     ).simplify(0.08)
 
 
+def within(geometry, points, contains=False):
+    """shapely.intersects_xy (or contains_xy) of x/z points, exactly: points outside the geometry's
+    box are outside it; the prepared geometry tests the rest."""
+    x0, z0, x1, z1 = geometry.bounds
+    inside = np.zeros(len(points), bool)
+    rows = np.flatnonzero((points[:, 0] >= x0) & (points[:, 0] <= x1) & (points[:, 2] >= z0) & (points[:, 2] <= z1))
+    if len(rows):
+        shapely.prepare(geometry)
+        test = shapely.contains_xy if contains else shapely.intersects_xy
+        inside[rows] = test(geometry, points[rows, 0], points[rows, 2])
+    return inside
+
+
 def measure(buildings, points, classes, context=()):
     """Find connected level patches with lower-side evidence, retaining source heights."""
     points, classes = np.asarray(points, dtype=np.float64), np.asarray(classes)
@@ -40,16 +53,16 @@ def measure(buildings, points, classes, context=()):
     if len(points) < 20 or not buildings:
         return []
     footprints = shapely.union_all([b.footprint for b in [*buildings, *context]])
-    outside = ~shapely.contains_xy(footprints, points[:, 0], points[:, 2])
+    outside = ~within(footprints, points, contains=True)
     points, classes = points[outside], classes[outside]
     reach = {b.key: b.footprint.buffer(REACH + 2) for b in buildings}
     ground = ground_points(SimpleNamespace(points=points, records={"classification": classes}))
     records = []
     for building in sorted(buildings, key=lambda b: b.key):
         footprint = shapely.orient_polygons(building.footprint)
-        near = shapely.intersects_xy(reach[building.key], points[:, 0], points[:, 2])
+        near = within(reach[building.key], points)
         cloud, labels = points[near], classes[near]
-        lower_ground = ground[shapely.intersects_xy(reach[building.key], ground[:, 0], ground[:, 2])]
+        lower_ground = ground[within(reach[building.key], ground)]
         if len(cloud) < 20:
             continue
         accepted = []
@@ -99,10 +112,9 @@ def measure(buildings, points, classes, context=()):
                     mask |= binary_closing(mask, structure=np.ones((3, 3)))
                     # Floor returns under a facade overhang can be occluded.
                     # Bridge at most two support cells back to the surveyed wall.
-                    for row in mask:
-                        measured = np.flatnonzero(row)
-                        if len(measured) and measured[0] <= 2:
-                            row[: measured[0]] = True
+                    first = np.argmax(mask, axis=1)
+                    first[~mask.any(axis=1) | (first > 2)] = 0
+                    mask |= np.arange(mask.shape[1]) < first[:, None]
                     groups, _ = label(mask)
                     for group, slc in enumerate(find_objects(groups), 1):
                         if slc is None:
