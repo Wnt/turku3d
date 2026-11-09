@@ -152,6 +152,13 @@ def test_far_canopy_covers_tree_cells_only_and_faces_out(tmp_path):
     assert canopy(C.VisualTile(1, 0, 0), path, 15.625) is None
     tops = p[:, 1] - (8 + p[:, 0] * .001 + p[:, 2] * .002)
     assert 4 <= tops.max() <= 9 + 1e-6 and tops.min() >= -2.1  # feet: 2 m under the lower side
+    # Skirts run from the crowns' edge colour to the open grass's land-cover colour at their feet: none is darker
+    # than the darkest crown vertex.
+    skirt = np.unique(shell.indices[side])
+    feet = skirt[tops[skirt] < 0]
+    assert len(feet) and np.allclose(shell.colors[feet], (.24, .29, .16))
+    crown = np.unique(shell.indices[up])
+    assert shell.colors[skirt].sum(1).min() >= shell.colors[crown].sum(1).min() - 1e-6
 
 
 def _chm(tmp_path, height_at, ground=10.0, step=4.0, size=2000.0, name='chm.npz'):
@@ -183,6 +190,10 @@ def test_far_canopy_follows_the_lidar_canopy_height_model(tmp_path):
     assert not np.any(middle & (tops > 5))
     # A block the model does not cover keeps the land-cover shell.
     assert canopy(C.VisualTile(1, 6, 0), region, 31.25, chm=chm) is None
+    # On a survey ground the skirts fade into the colour the caller draws there.
+    drawn = canopy(block, region, 31.25, chm=chm, ground_colour=(.2, .3, .1))
+    feet = (drawn.positions + np.asarray(block.origin))[:, 1] < 10.0
+    assert feet.any() and np.allclose(drawn.colors[feet], (.2, .3, .1))
 
 
 def test_a_growing_canopy_model_only_changes_the_blocks_it_newly_covers(tmp_path):

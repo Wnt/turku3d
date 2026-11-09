@@ -1,6 +1,6 @@
 // Far openings retain the detailed facade's program or baked glazing mask.
 import * as THREE from 'three/webgpu';
-import { attribute, cameraPosition, distance, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uniform, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
+import { attribute, cameraPosition, cameraViewMatrix, distance, dot, float, floor, fract, luminance, mix, normalWorldGeometry, positionWorld, smoothstep, texture, uniform, uv, varying, vec2, vec3, vec4, vertexColor } from 'three/tsl';
 import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
@@ -20,6 +20,20 @@ const sceneryCanopy = vec3(.225, .39, .085).mul(luminance(vertexColor().rgb));
 /** Share of the open sky's light that reaches a far canopy surface: a forest seen from afar is mostly the shaded depths
  *  between crowns, which a single shell or cone per tree does not occlude. */
 const FAR_CANOPY_AMBIENT = float(0.3);
+/** Share of a far canopy facet's own tilt its shading keeps. The shell's crown mounds are four-faced pyramids on a
+ *  31.25 m (125 m regional) grid; at their full tilt the sun lit the south faces twice as bright as the north ones and
+ *  the far forest read as rows of pyramids. A third keeps the relief without the facets. */
+const CANOPY_FACET = 0.35;
+/** The far canopy's shading normal (view space). Its stand-edge skirts stand vertical: facing away from the sun they
+ *  took only the shade's light and stood as near-black bands under every stand edge at 1-3 km. A forest edge seen from
+ *  afar is crowns, lit like the crowns above it, so steep faces shade with the up normal and fade, by their vertex
+ *  colour, into the ground (pipeline horizon_regional.canopy; natureref evidence/far-walls.md). */
+const canopyNormal = (() => {
+  const face = normalWorldGeometry;
+  const steep = float(1).sub(smoothstep(.35, .7, face.y));
+  const world = mix(face, vec3(0, 1, 0), steep.max(1 - CANOPY_FACET)).normalize();
+  return cameraViewMatrix.mul(vec4(world, 0)).xyz.normalize();
+})();
 const regionalMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
 function regionalMask(coverage: THREE.DataTexture) {
   let mask = regionalMasks.get(coverage);
@@ -97,6 +111,7 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
     : new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   material.colorNode = sceneryPigment;
   if (canopy || layer === 'vegetation') material.aoNode = FAR_CANOPY_AMBIENT;
+  if (canopy) material.normalNode = canopyNormal;
   material.name = `distant-city-${layer}`;
   material.flatShading = true;
   // The 4 km regional terrain and its canopy yield to finer loaded cells.

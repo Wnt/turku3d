@@ -67,6 +67,11 @@ test('far canopy layers are foliage with the vertex pigment; the regional one yi
   expect(sceneryMaterial('vegetation')).toBeInstanceOf(FoliageMaterial);
   expect(unmasked.maskNode).toBeFalsy();
   expect(regional.customProgramCacheKey()).not.toBe(canopy.customProgramCacheKey());
+  // Both shells shade with the same bent normal (skirts lit like crowns, softened facets); the ground keeps its own.
+  expect(canopy.normalNode).toBeTruthy();
+  expect(regional.normalNode).toBe(canopy.normalNode);
+  expect(ground.normalNode).toBeFalsy();
+  expect(sceneryMaterial('vegetation').normalNode).toBeFalsy();
   for (const material of [ground, canopy, regional, unmasked]) material.dispose();
   coverage.dispose();
 });

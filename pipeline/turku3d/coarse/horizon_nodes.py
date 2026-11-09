@@ -251,7 +251,9 @@ def build_node(tile, blocks, appearance):
         groups['ground'].append(ground)
         crowns = row.get('regional') or row.get('canopy')
         if crowns:
-            shell = canopy(block, crowns, CANOPY_STEP[4 if tile.level >= 4 else 2], chm=row.get('chm'))
+            # Skirts fade into the ground drawn under them: the survey ground's open land, or the regional terrain's.
+            shell = canopy(block, crowns, CANOPY_STEP[4 if tile.level >= 4 else 2], chm=row.get('chm'),
+                           ground_colour=None if 'regional' in row else survey_colours()['land'])
             if shell is not None:
                 shell.positions += np.asarray(block.origin)
                 groups['canopy'].append(shell)

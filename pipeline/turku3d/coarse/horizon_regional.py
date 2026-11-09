@@ -18,6 +18,11 @@ def covers(tile, path):
     return (tile.bbox.xmin >= x and tile.bbox.zmin >= z
             and tile.bbox.xmax <= x+(cols-1)*step and tile.bbox.zmax <= z+(rows-1)*step)
 
+def regional_palette():
+    """Linear RGB of the regional land-cover classes (ESA WorldCover codes): the regional terrain's vertex colours."""
+    return {10:(.12,.19,.08),20:(.20,.25,.12),30:(.24,.29,.16),40:(.32,.34,.16),
+            50:survey_colours()['built'],60:(.38,.35,.28),70:(.75,.78,.80),80:(.10,.19,.24),90:(.18,.26,.16),95:(.12,.19,.08),100:(.24,.29,.16)}
+
 def mesh(tile, path):
     from .horizon import layer_mesh
     data = grid(str(path))
@@ -32,8 +37,7 @@ def mesh(tile, path):
     cover=map_coordinates(data['cover'],sample,order=0,mode='nearest')
     h[cover==80]=0
     p=np.c_[gx.ravel(),h,gz.ravel()]
-    palette={10:(.12,.19,.08),20:(.20,.25,.12),30:(.24,.29,.16),40:(.32,.34,.16),
-             50:survey_colours()['built'],60:(.38,.35,.28),70:(.75,.78,.80),80:(.10,.19,.24),90:(.18,.26,.16),95:(.12,.19,.08),100:(.24,.29,.16)}
+    palette=regional_palette()
     if not np.isin(cover,list(palette)).all(): raise ValueError('Unknown regional land-cover category')
     colours=np.array([palette[int(kind)] for kind in cover],dtype=np.float32)
     a=(np.arange(count)[:,None]*(count+1)+np.arange(count)[None,:]).ravel()
@@ -186,12 +190,14 @@ def _orient(points, faces, towards):
     return faces
 
 
-def canopy(tile, path, step, layer='canopy', chm=None):
+def canopy(tile, path, step, layer='canopy', chm=None, ground_colour=None):
     """One mound per canopy cell of ``tile`` over the regional surface: an apex (jittered) at the cell's crown relief and
-    four corners sunk between crowns or kept high on the stand's edge, with dark skirts from the edge corners to 2 m
-    below the open neighbour's surface. Every height and colour is a function of world position, so neighbouring
-    tiles meet; None without canopy. With ``chm`` (coarse/chm.py) covering the tile, the cells, heights and ground
-    come from the lidar canopy height model instead."""
+    four corners sunk between crowns or kept high on the stand's edge, with skirts from the edge corners to 2 m below
+    the open neighbour's surface. A skirt runs from the crowns' edge colour at the top to the open ground's colour at
+    its foot: ``ground_colour`` (linear RGB) where the caller draws its own ground, else the regional land cover's
+    colour at the open neighbour (the regional terrain's). Every height and colour is a function of world position, so
+    neighbouring tiles meet; None without canopy. With ``chm`` (coarse/chm.py) covering the tile, the cells, heights
+    and ground come from the lidar canopy height model instead."""
     from .horizon import layer_mesh
     data = grid(str(path))
     if not covers(tile, path):
@@ -214,6 +220,13 @@ def canopy(tile, path, step, layer='canopy', chm=None):
         # Between crowns inside a stand the corners sink to a third of the relief; the stand's edge keeps most of
         # it, so its skirt is the forest wall over the open ground beside it.
         inside, edge = .35, .8
+    if ground_colour is None:
+        lookup = np.zeros((256, 3))
+        for kind, rgb in regional_palette().items():
+            lookup[kind] = rgb
+        open_colour = lambda x, z: lookup[_sample(data, x, z, 0).astype(np.int64)]  # noqa: E731
+    else:
+        open_colour = lambda x, z: np.broadcast_to(np.asarray(ground_colour, float), (np.size(x), 3))  # noqa: E731
     on = h > 0
     rows, cols = np.nonzero(on[1:-1, 1:-1])
     if not len(rows):
@@ -252,14 +265,18 @@ def canopy(tile, path, step, layer='canopy', chm=None):
         ra, ca = corners[a][0][k], corners[a][1][k]
         rb, cb = corners[b][0][k], corners[b][1][k]
         # The surface model ramps up into a stand: the wall reaches down to the open neighbour's surface.
-        outside = surface(gx[1 + rows[k] + dr, 1 + cols[k] + dc], gz[1 + rows[k] + dr, 1 + cols[k] + dc])
+        ox, oz = gx[1 + rows[k] + dr, 1 + cols[k] + dc], gz[1 + rows[k] + dr, 1 + cols[k] + dc]
+        outside = surface(ox, oz)
         down_a, down_b = top[ra, ca].copy(), top[rb, cb].copy()
         down_a[:, 1] = np.minimum(ground[ra, ca], outside) - 2
         down_b[:, 1] = np.minimum(ground[rb, cb], outside) - 2
-        dark = colour[1:-1, 1:-1][rows[k], cols[k]] * .25
+        # A forest edge seen from afar is crowns down to the ground, not a shadow: the skirt keeps the crowns' edge
+        # colour at the top and fades into the open ground at its foot. Its foot was a quarter of the crown colour,
+        # which stood as a near-black band under every stand edge at 1-3 km (natureref evidence/far-walls.md).
+        foot = open_colour(ox, oz)
         q = len(k)
         points += [top[ra, ca], top[rb, cb], down_b, down_a]
-        colours += [corner_colour[ra, ca], corner_colour[rb, cb], dark, dark]
+        colours += [corner_colour[ra, ca], corner_colour[rb, cb], foot, foot]
         index = offset + np.arange(q)
         faces += [np.c_[index, index + q, index + 2 * q], np.c_[index, index + 2 * q, index + 3 * q]]
         towards.append(np.tile([float(dc), 0.0, float(dr)], (2 * q, 1)))
