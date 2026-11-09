@@ -22,22 +22,22 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | Asset | Species / kind | Height (m) | LOD 0 | LOD 1 | LOD 2 |
 |---|---|---|---|---|---|
 <!-- table:begin -->
-| `tree_birch` | birch | 16.91 | 5,936 | 1,676 | 8 |
-| `tree_birch_v2` | birch | 16.9 | 5,948 | 1,626 | 8 |
-| `tree_linden` | linden | 18.47 | 9,796 | 2,238 | 8 |
-| `tree_linden_v2` | linden | 19.13 | 9,784 | 2,236 | 8 |
-| `tree_maple` | maple | 17.72 | 8,812 | 2,068 | 8 |
-| `tree_maple_v2` | maple | 16.81 | 8,896 | 1,958 | 8 |
-| `tree_oak` | oak | 13.87 | 9,848 | 2,408 | 8 |
-| `tree_oak_v2` | oak | 15.09 | 9,752 | 2,398 | 8 |
-| `tree_rowan` | rowan | 10.56 | 3,644 | 1,008 | 8 |
-| `tree_rowan_v2` | rowan | 11.27 | 3,648 | 996 | 8 |
-| `tree_willow` | willow | 18.53 | 9,512 | 2,174 | 8 |
-| `tree_willow_v2` | willow | 16.82 | 9,440 | 2,186 | 8 |
-| `tree_pine` | pine | 19.37 | 3,910 | 1,228 | 8 |
-| `tree_pine_v2` | pine | 19.47 | 3,936 | 1,222 | 8 |
-| `tree_spruce` | spruce | 17.87 | 11,990 | 3,026 | 8 |
-| `tree_spruce_v2` | spruce | 17.33 | 11,424 | 2,816 | 8 |
+| `tree_birch` | birch | 16.91 | 5,936 | 1,676 | 2 |
+| `tree_birch_v2` | birch | 16.9 | 5,948 | 1,626 | 2 |
+| `tree_linden` | linden | 18.47 | 9,796 | 2,238 | 2 |
+| `tree_linden_v2` | linden | 19.13 | 9,784 | 2,236 | 2 |
+| `tree_maple` | maple | 17.72 | 8,812 | 2,068 | 2 |
+| `tree_maple_v2` | maple | 16.81 | 8,896 | 1,958 | 2 |
+| `tree_oak` | oak | 13.87 | 9,848 | 2,408 | 2 |
+| `tree_oak_v2` | oak | 15.09 | 9,752 | 2,398 | 2 |
+| `tree_rowan` | rowan | 10.56 | 3,644 | 1,008 | 2 |
+| `tree_rowan_v2` | rowan | 11.27 | 3,648 | 996 | 2 |
+| `tree_willow` | willow | 18.53 | 9,512 | 2,174 | 2 |
+| `tree_willow_v2` | willow | 16.82 | 9,440 | 2,186 | 2 |
+| `tree_pine` | pine | 19.37 | 3,910 | 1,228 | 2 |
+| `tree_pine_v2` | pine | 19.47 | 3,936 | 1,222 | 2 |
+| `tree_spruce` | spruce | 17.09 | 10,334 | 2,686 | 2 |
+| `tree_spruce_v2` | spruce | 17.19 | 9,458 | 2,498 | 2 |
 | `shrub_lilac` | lilac | 4 | 988 | 502 | - |
 | `shrub_lilac_v2` | lilac | 3.87 | 964 | 490 | - |
 | `shrub_rose` | rose | 1.76 | 660 | 330 | - |
@@ -48,7 +48,7 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 | `grass_clump` | grass | 0.42 | 6 | - | - |
 | `grass_lawn` | grass | 0.36 | 6 | - | - |
 | `grass_meadow` | grass | 0.75 | 6 | - | - |
-| `groundcover_rosette` | grass | 0.05 | 2 | - | - |
+| `groundcover_rosette` | grass | 0.03 | 2 | - | - |
 | `picket_fence` | fence | 1.1 | 294 | 64 | - |
 | `board_fence` | fence | 1.65 | 264 | 28 | - |
 | `metal_railing` | fence | 1 | 256 | 80 | - |
@@ -59,8 +59,8 @@ seeded variants (`tree_birch`, `tree_birch_v2`); the runtime picks one per inven
 
 Shared textures (KTX2, embedded): foliage card atlas 2048² ETC1S (16 cards: eight trees, four shrubs, grass tuft,
 lawn band, meadow, ground rosette), bark column atlas 4096×512 ETC1S with a 2048×256 UASTC normal map (8 barks),
-impostor atlas 2048×1024 ETC1S (16 tree models × 3 side views + 1 top view, 128×256 cells) with a 1024×512 UASTC
-normal map, 512² wood and granite albedo/normal tiles and a 256² chain-link wire tile. Positions (14 bit) and
+impostor atlas 4096² ETC1S (16 tree models × 8×8 hemi-octahedral views, 128² cells) with a 2048² UASTC
+normal + depth map, 512² wood and granite albedo/normal tiles and a 256² chain-link wire tile. Positions (14 bit) and
 normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them back to float geometry. Draws per tree: bark + leaves at LOD 0 and 1, one impostor draw at LOD 2.
 
 ## How it is made
@@ -77,8 +77,10 @@ normals (10 bit) are quantized (KHR_mesh_quantization); the runtime bakes them b
   broadleaves with scaffold branches, branchlets and twigs; excurrent spruce whorls with hanging branchlets; Scots
   pine with a high irregular crown; multi-stem shrubs), tube bark meshes and bent leaf cards with crown-radial
   normals, vertex AO and per-vertex wind weights (`_WIND`: sway, flutter, phase). LOD 1 keeps the whole canopy as flat
-  cards and cuts the bark; LOD 2 is three crossed planes and a top plane with baked albedo + normal
-  (`scripts/nature/raster.mjs`, a CPU rasterizer).
+  cards and cuts the bark; LOD 2 is one camera-facing quad over 8×8 hemi-octahedral views of the crown-fitted full
+  LOD with baked albedo, normal and depth (`scripts/nature/octahedral.mjs` over `scripts/nature/raster.mjs`, a CPU
+  rasterizer; the runtime blends the three nearest views, `src/world/nature/impostor.ts`).
+  `scripts/bake-tree-impostors.mjs` rebakes only the impostors of the committed nature.glb.
 - **Hedge, grass, ground cover**: a 2 m hedge module with an opaque leafy core wrapped in cards; crossed-card grass
   and meadow clumps; a flat dandelion rosette.
 - **Fence kit** (picket fence, board fence, metal railing, park fence, galvanised chain-link fence, granite kerb wall;
