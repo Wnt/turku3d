@@ -274,15 +274,16 @@ describe('obstacles', () => {
     pw.world.free();
   }, 30_000);
 
-  test('stops short of a wall across its path (static collision rays) without touching it, then backs out', async () => {
+  test('passes a platform jutting into its lane, then stops short of a wall across it and backs out (static rays)', async () => {
     const pw = await devWorld();
-    // At 50 km/h into the dev world's paving-slab platform (a 0.96 m face at x 128, z 208).
+    // At 50 km/h along z 208: the dev world's paving-slab platform (0.96 m, x 128-136) covers the lane from z 208, the
+    // car's right 0.45 m; the building block's face at x 192 closes the whole corridor.
     pw.spawnVehicle({ x: 30, y: G + 0.8, z: 208 }, 0);
     for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
     const through = makePath([{ x: 30, z: 208 }, { x: 240, z: 208 }]);
     const geometry = vehicleGeometry('car'), follower = new DriveFollower(through, geometry, { speed: 14 });
-    let top = 0, impacts = 0, lastImpact = 0, front = 0, stoppedFor = 0, held = 0;
-    for (let k = 0; k < 60 * 20; k++) {
+    let top = 0, impacts = 0, lastImpact = 0, front = 0, stoppedFor = 0, held = 0, alongside = -Infinity;
+    for (let k = 0; k < 60 * 32; k++) {
       const v = pw.vehicleState()!, pose = vehiclePose(v);
       if (k % 6 === 0) {
         const rays = wallRays(through, follower.s, follower.nudge, geometry, pose);
@@ -290,15 +291,19 @@ describe('obstacles', () => {
       }
       const step = follower.step(pose, 1 / 60);
       top = Math.max(top, v.speed); front = Math.max(front, v.pos.x + geometry.back!);
+      if (v.pos.x + geometry.back! > 128 && v.pos.x - geometry.back! < 136) alongside = Math.max(alongside, v.pos.z + geometry.halfWidth!);
       if (v.impact && v.impact.id !== lastImpact) { impacts++; lastImpact = v.impact.id; }
-      stoppedFor = v.speed < 0.3 && front > 110 ? stoppedFor + 1 / 60 : 0; held = Math.max(held, stoppedFor);
+      stoppedFor = v.speed < 0.3 && front > 170 ? stoppedFor + 1 / 60 : 0; held = Math.max(held, stoppedFor);
       pw.fixedStep(null, step.command);
     }
     expect(top).toBeGreaterThan(12);
     expect(impacts).toBe(0);
-    expect(front).toBeLessThan(127.8);
-    expect(front).toBeGreaterThan(122);
-    // Held there a while, then the stuck recovery backs it away (a lane through a wall is not a place to wait).
+    // Beside the platform its right side stayed off it.
+    expect(alongside).toBeGreaterThan(-Infinity);
+    expect(alongside).toBeLessThan(208);
+    // Stopped short of the building, held there a while, then the stuck recovery backed it away.
+    expect(front).toBeLessThan(191.5);
+    expect(front).toBeGreaterThan(184);
     expect(held).toBeGreaterThan(2.5);
     expect(follower.recoveries).toBeGreaterThan(0);
     expect(pw.vehicleState()!.pos.x + geometry.back!).toBeLessThan(front - 1);
@@ -333,19 +338,20 @@ describe('obstacles', () => {
     pw.world.free();
   }, 30_000);
 
-  test('a gentle grade is not a drop: down rays along a 12 % slope find no wall', () => {
+  test('a gentle grade is no ledge: down rays along a 12 % slope find nothing; a 0.8 m step left of the path is found there', () => {
     const path = makePath([{ x: 0, z: 0, y: 0 }, { x: 100, z: 0, y: -12 }]);
     const pose = { x: 0, y: 0.7, z: 0, hx: 1, hz: 0, forwardSpeed: 14 };
     const rays = wallRays(path, 0, 0, vehicleGeometry('car'), pose);
     const ground = (x: number) => -0.12 * x;
     const hits = rays.map(r => r.line === undefined ? null : { toi: r.origin.y - ground(r.origin.x), normal: { y: 1 } });
-    expect(rays.filter(r => r.line !== undefined).length).toBeGreaterThan(30);
-    expect(wallHit(rays, hits)).toBeNull();
-    // A 0.8 m step down at x 30 on the left edge only is found, before it.
-    const step = rays.map(r => r.line === undefined ? null : { toi: r.origin.y - ground(r.origin.x) + (r.line === 0 && r.origin.x > 30 ? 0.8 : 0), normal: { y: 1 } });
-    const at = wallHit(rays, step)!;
-    expect(at).toBeGreaterThan(26);
-    expect(at).toBeLessThanOrEqual(30);
+    expect(rays.filter(r => r.line !== undefined).length).toBeGreaterThan(100);
+    expect(wallHit(rays, hits).points).toEqual([]);
+    // 0.8 m lower past x 30, only more than 1 m left of the path (z < -1): points there, none on the path.
+    const step = rays.map(r => r.line === undefined ? null
+      : { toi: r.origin.y - ground(r.origin.x) + (r.offset! < -1 && r.origin.x > 30 ? 0.8 : 0), normal: { y: 1 } });
+    const points = wallHit(rays, step).points;
+    expect(points.length).toBeGreaterThan(0);
+    for (const q of points) { expect(q.x).toBeGreaterThan(27); expect(q.x).toBeLessThan(33); expect(q.z).toBeLessThan(-1); }
   });
 
   test('brakes for a car crossing the path ahead', async () => {

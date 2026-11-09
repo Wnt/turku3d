@@ -312,7 +312,7 @@ export class Autopilot {
   private checkWalls(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
     const ray = this.world.groundRay!, rays = wallRays(follower.path, follower.s, follower.nudge, follower.geometry, pose);
     trip.wallAt = trip.elapsed;
-    if (!rays.length) { follower.wallAhead(null); return; }
+    if (!rays.length) { follower.wallAhead({ points: [] }); return; }
     trip.wallProbing = true;
     Promise.all(rays.map(r => ray(r.origin, r.dir, r.length))).then(hits => {
       trip.wallProbing = false;

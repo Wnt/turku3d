@@ -46,6 +46,9 @@ export interface Obstacle {
   x: number; z: number; hx: number; hz: number; halfLength: number; halfWidth: number; vx: number; vz: number;
   /** Ambient lane traffic: followed and queued behind, never passed (a still one waits at a light or in a queue). */
   traffic: boolean;
+  /** A point of static collision the path rays hit (a trunk, a pole, a wall): passed when there is room, like a
+   *  parked car; held up by one for WALL_PATIENCE s, the car starts the stuck recovery. */
+  wall?: boolean;
 }
 
 /** Room kept beside the car (m), and the gap behind what it follows: standstill (m) plus a time gap (s). */
@@ -60,36 +63,39 @@ const LOOK_MARGIN = 20, LOOK_MAX = 90;
 const NUDGE_AHEAD = 30, NUDGE_MAX = 2.3, NUDGE_RATE = 0.9;
 /** Speeds (m/s) below which an obstacle counts as still. */
 const STILL = 0.7;
-/** Walls and posts (static collision) along the corridor ahead: rays WALL_HEIGHT m above the road along the path in
- *  WALL_STEP m chords, at the corridor's centre and both edges, as far as the braking distance plus WALL_MARGIN.
- *  A hit with a near-vertical face (|normal y| < WALL_NORMAL_Y) counts; the car stops WALL_GAP m short of it. A
- *  result older than WALL_FRESH s is dropped. Held by one for WALL_PATIENCE s (a lane drawn through a wall), the car
- *  starts the stuck recovery: it backs out and re-plans, and gives up like any stuck trip.
- *  Drops and ledges count as walls too: down rays every DROP_STEP m along the same three lines, from DOWN_ABOVE m
- *  above the road, from under the car. Between neighbouring samples on a line, a step (up or down) of STEP_ABS m, or over STEP_LEDGE m
- *  that differs from the line's previous step by over STEP_KINK m, is a ledge (a ramp's side, a quay edge, a planter)
- *  and stops the car before the earlier sample; a steep but even ramp (the dev world's 25 % one) is not. A sample with
- *  no ground (collision not loaded) carries no information. */
+/** Walls, posts and ledges (static collision) on the road ahead, seen by rays the caller casts (wallRays) and turned
+ *  into still obstacle points (wallHit, Obstacle.wall) that the obstacle logic passes or stops for like a parked car.
+ *  The rays cover the band the car may use: the corridor plus WALL_BAND m each side, around its current shift.
+ *  - Walls: rays WALL_HEIGHT m above the road along the path in WALL_STEP m chords, on WALL_LINES lines across the
+ *    band (a tree trunk or a post is wider than their spacing); a hit with a near-vertical face (|normal y| <
+ *    WALL_NORMAL_Y) is a point.
+ *  - Ledges: down rays every DROP_STEP m on DOWN_LINES lines, from DOWN_ABOVE m above the road and from under the car.
+ *    Between neighbouring samples on a line, a step (up or down) of STEP_ABS m, or over STEP_LEDGE m that differs from
+ *    the line's previous step by over STEP_KINK m, is a ledge point (a ramp's side, a quay edge, a planter); a steep but
+ *    even ramp (the dev world's 25 % one) is not. A sample with no ground (collision not loaded) tells nothing.
+ *  Both reach the braking distance plus WALL_MARGIN (at most WALL_MAX). A scan older than WALL_FRESH s is dropped.
+ *  Held up by a wall point for WALL_PATIENCE s (a lane drawn through a building, into a pit), the car starts the stuck
+ *  recovery: it backs out and re-plans, and gives up like any stuck trip. */
 export const WALL_PERIOD = 0.1;
-const WALL_HEIGHT = 0.75, WALL_STEP = 4, WALL_MARGIN = 12, WALL_MAX = 60, WALL_NORMAL_Y = 0.6, WALL_GAP = 1.2, WALL_FRESH = 0.6,
-  WALL_PATIENCE = 3;
-const DROP_STEP = 2, STEP_ABS = 0.9, STEP_LEDGE = 0.45, STEP_KINK = 0.4, DOWN_ABOVE = 2.5, DOWN_LENGTH = 6;
+const WALL_HEIGHT = 0.75, WALL_STEP = 4, WALL_LINES = 17, WALL_BAND = 1.2, WALL_MARGIN = 12, WALL_MAX = 60, WALL_NORMAL_Y = 0.6,
+  WALL_FRESH = 0.6, WALL_PATIENCE = 3;
+const DROP_STEP = 2, DOWN_LINES = 9, STEP_ABS = 0.9, STEP_LEDGE = 0.45, STEP_KINK = 0.4, DOWN_ABOVE = 2.5, DOWN_LENGTH = 6;
 
 export interface WallRay { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; length: number; s: number;
-  /** A down ray's line (0 left edge, 1 centre, 2 right edge); undefined for a wall ray. */
-  line?: number }
+  /** A down ray's line across the band (0 = leftmost) and its offset right of the path (m); undefined for a wall ray. */
+  line?: number; offset?: number }
 
 /** The rays that look for walls along the path ahead of a car at arc length `s` driving `nudge` m right of it. */
 export function wallRays(path: Path, s: number, nudge: number, geometry: VehicleGeometry, pose: VehiclePose, brake = STYLE.normal.brake): WallRay[] {
-  const speed = Math.abs(pose.forwardSpeed), half = geometry.back ?? 2.3, w = (geometry.halfWidth ?? 0.95) + 0.1;
+  const speed = Math.abs(pose.forwardSpeed), half = geometry.back ?? 2.3, w = (geometry.halfWidth ?? 0.95) + 0.1 + WALL_BAND;
   const reach = Math.min(WALL_MAX, speed * speed / (2 * brake) + WALL_MARGIN), from = s + half, to = Math.min(path.length, from + reach);
   const rays: WallRay[] = [], a: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 }, b = { ...a };
   for (let u = from; u < to - 0.5; u += WALL_STEP) {
     const v = Math.min(to, u + WALL_STEP);
     sampleAt(path, u, a); sampleAt(path, v, b);
     const ya = (a.y ?? pose.y - 0.6) + WALL_HEIGHT, yb = (b.y ?? pose.y - 0.6) + WALL_HEIGHT;
-    for (const off of [-w, 0, w]) {
-      const l = nudge + off;
+    for (let k = 0; k < WALL_LINES; k++) {
+      const l = nudge - w + 2 * w * k / (WALL_LINES - 1);
       const o = { x: a.x - a.hz * l, y: ya, z: a.z + a.hx * l }, e = { x: b.x - b.hz * l, y: yb, z: b.z + b.hx * l };
       const dx = e.x - o.x, dy = e.y - o.y, dz = e.z - o.z, length = Math.hypot(dx, dy, dz);
       if (length > 0.1) rays.push({ origin: o, dir: { x: dx / length, y: dy / length, z: dz / length }, length, s: u });
@@ -99,32 +105,43 @@ export function wallRays(path: Path, s: number, nudge: number, geometry: Vehicle
   for (let u = s; u <= to; u += DROP_STEP) {
     sampleAt(path, u, a);
     const base = a.y ?? pose.y - 0.7;
-    [-w, 0, w].forEach((off, line) => {
-      const l = nudge + off;
-      rays.push({ origin: { x: a.x - a.hz * l, y: base + DOWN_ABOVE, z: a.z + a.hx * l }, dir: { x: 0, y: -1, z: 0 }, length: DOWN_LENGTH, s: u, line });
-    });
+    for (let line = 0; line < DOWN_LINES; line++) {
+      const l = nudge - w + 2 * w * line / (DOWN_LINES - 1);
+      rays.push({ origin: { x: a.x - a.hz * l, y: base + DOWN_ABOVE, z: a.z + a.hx * l }, dir: { x: 0, y: -1, z: 0 }, length: DOWN_LENGTH, s: u, line, offset: l });
+    }
   }
   return rays;
 }
 
-/** The nearest wall, drop or ledge along the path from the rays' hits (null: none), for DriveFollower.wallAhead. */
-export function wallHit(rays: readonly WallRay[], hits: readonly ({ toi: number; normal: { y: number } } | null)[]): number | null {
-  let best: number | null = null;
-  const lines: ({ s: number; y: number; step: number | null } | undefined)[] = [];
+/** What the path rays found: still obstacle points (walls and ledges). */
+export interface WallScan { points: Obstacle[] }
+
+/** The rays' hits as a WallScan, for DriveFollower.wallAhead. */
+export function wallHit(rays: readonly WallRay[], hits: readonly ({ toi: number; normal: { y: number } } | null)[]): WallScan {
+  const points: Obstacle[] = [];
+  const lines: ({ x: number; z: number; y: number; step: number | null } | undefined)[] = [];
   rays.forEach((r, i) => {
     const h = hits[i];
     if (r.line === undefined) {
-      if (h && Math.abs(h.normal.y) < WALL_NORMAL_Y && (best === null || r.s + h.toi < best)) best = r.s + h.toi;
+      if (!h || Math.abs(h.normal.y) >= WALL_NORMAL_Y) return;
+      const d = Math.hypot(r.dir.x, r.dir.z) || 1;
+      points.push({ x: r.origin.x + r.dir.x * h.toi, z: r.origin.z + r.dir.z * h.toi, hx: r.dir.x / d, hz: r.dir.z / d,
+        halfLength: 0.25, halfWidth: 0.15, vx: 0, vz: 0, traffic: false, wall: true });
       return;
     }
     if (!h) return;
     const y = r.origin.y - h.toi, prev = lines[r.line], step = prev ? y - prev.y : null;
     const ledge = step !== null && (Math.abs(step) >= STEP_ABS
       || (Math.abs(step) > STEP_LEDGE && prev!.step !== null && Math.abs(step - prev!.step) > STEP_KINK));
-    if (ledge && (best === null || prev!.s < best)) best = prev!.s;
-    lines[r.line] = { s: r.s, y, step };
+    if (ledge) {
+      // Between the two samples, as wide as the line spacing.
+      const dx = r.origin.x - prev!.x, dz = r.origin.z - prev!.z, d = Math.hypot(dx, dz) || 1;
+      points.push({ x: (prev!.x + r.origin.x) / 2, z: (prev!.z + r.origin.z) / 2, hx: dx / d, hz: dz / d, halfLength: d / 2,
+        halfWidth: 0.3, vx: 0, vz: 0, traffic: false, wall: true });
+    }
+    lines[r.line] = { x: r.origin.x, z: r.origin.z, y, step };
   });
-  return best;
+  return { points };
 }
 
 export interface DriveOptions {
@@ -238,11 +255,12 @@ export class DriveFollower {
   private nudgeWant = 0;
   /** Gap (m) to the obstacle that limits the speed this step, else null (traces, the bots). */
   obstacleGap: number | null = null;
-  /** The nearest wall ahead (arc length, null: none) from the caller's rays (wallRays/wallHit), and its age (s). */
-  private wall: { s: number | null; age: number } | null = null;
+  /** The caller's last path-ray scan (wallRays/wallHit) and its age (s). */
+  private wall: (WallScan & { age: number }) | null = null;
   private wallStill = 0;
+  /** The speed limit this step came from a wall point (avoidObstacles). */
+  private limitWall = false;
   private wallBlocked = false;
-  private wallGap = 0;
 
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
 
@@ -254,20 +272,13 @@ export class DriveFollower {
     this.nudge = 0; this.nudgeWant = 0; this.wall = null;
   }
 
-  /** The caller's wall rays for the path ahead found the nearest wall at arc length `s` (null: none). */
-  wallAhead(s: number | null) { this.wall = { s, age: 0 }; }
+  /** The caller's path rays for the road ahead (wallRays/wallHit). */
+  wallAhead(scan: WallScan) { this.wall = { ...scan, age: 0 }; }
 
-  /** The speed (m/s) a wall ahead allows, Infinity when none. */
-  private wallSpeed(speed: number, dt: number): number {
-    const w = this.wall;
-    if (w) w.age += dt;
-    if (!w || w.s === null || w.age > WALL_FRESH) { this.wallStill = 0; return Infinity; }
-    this.wallGap = Math.round((w.s - this.s) * 10) / 10;
-    const gap = w.s - this.s - (this.geometry.back ?? 2.3) - WALL_GAP, brake = STYLE[this.options.style ?? 'normal'].brake;
-    const allowed = Math.sqrt(2 * brake * 0.9 * Math.max(0, gap));
-    this.wallStill = allowed < 0.3 && speed < 0.3 ? this.wallStill + dt : 0;
+  /** Held up by a wall point (target and speed near zero) for WALL_PATIENCE s: the stuck recovery. */
+  private wallPatience(heldByWall: boolean, target: number, speed: number, dt: number) {
+    this.wallStill = heldByWall && target < 0.3 && speed < 0.3 ? this.wallStill + dt : 0;
     if (this.wallStill > WALL_PATIENCE) { this.wallBlocked = true; this.wallStill = 0; this.wall = null; }
-    return allowed;
   }
 
   /** The speed (m/s) the obstacles near the path ahead allow, and the shift off the path that passes the still ones.
@@ -277,7 +288,7 @@ export class DriveFollower {
     const g = this.geometry, path = this.path, style = STYLE[this.options.style ?? 'normal'];
     const half = g.back ?? 2.3, w = (g.halfWidth ?? 0.95) + SIDE_CLEAR;
     const reach = Math.min(LOOK_MAX, speed * speed / (2 * style.brake) + LOOK_MARGIN + speed);
-    const found: { gap: number; lo: number; hi: number; along: number; still: boolean; predicted: boolean }[] = [];
+    const found: { gap: number; lo: number; hi: number; along: number; still: boolean; predicted: boolean; wall: boolean }[] = [];
     const at = this.sample;
     for (const o of obstacles) {
       const dx = o.x - pose.x, dz = o.z - pose.z;
@@ -297,7 +308,7 @@ export class DriveFollower {
         if (gap < -2 * (half + along)) continue;
         if (t > 0 && Math.abs(gap / Math.max(speed, 2) - t) > PREDICT_MATCH) continue;
         found.push({ gap, lo: p.lateral - across, hi: p.lateral + across, along: t > 0 ? 0 : o.vx * at.hx + o.vz * at.hz,
-          still: still && !o.traffic, predicted: t > 0 });
+          still: still && !o.traffic, predicted: t > 0, wall: !!o.wall });
       }
     }
     // The smallest shift (staying near the current one) that clears every still obstacle close ahead.
@@ -317,7 +328,7 @@ export class DriveFollower {
     this.nudge += clamp(want - this.nudge, -rate, rate);
     // Then the speed: what overlaps the corridor (at the shift the car will have by then) is followed or stopped for.
     let target = Infinity;
-    this.obstacleGap = null;
+    this.obstacleGap = null; this.limitWall = false;
     for (const f of found) {
       const reachIn = f.gap / Math.max(speed, 1), shifted = Math.abs(want - this.nudge) <= Math.max(NUDGE_RATE, 0.12 * speed) * reachIn;
       const n = shifted ? want : this.nudge;
@@ -327,7 +338,7 @@ export class DriveFollower {
       const free = gap - GAP_STILL;
       const allowed = Math.max(0, Math.min(follow + Math.max(0, free - GAP_TIME * follow) * 0.4,
         Math.sqrt(Math.max(0, follow * follow + 2 * style.brake * 0.9 * Math.max(0, free)))));
-      if (allowed < target) { target = allowed; this.obstacleGap = Math.round(f.gap * 10) / 10; }
+      if (allowed < target) { target = allowed; this.obstacleGap = Math.round(f.gap * 10) / 10; this.limitWall = f.wall; }
     }
     return target;
   }
@@ -468,10 +479,19 @@ export class DriveFollower {
     }
 
     // Obstacles (not during a turn in the street): the speed they allow and the shift that passes a still one.
-    let obstacleTarget = obstacles?.length && !this.turn ? this.avoidObstacles(pose, speed, dt, obstacles) : Infinity;
-    if (!obstacles?.length || this.turn) { this.nudge = 0; this.nudgeWant = 0; this.obstacleGap = null; }
-    const wallTarget = this.turn ? Infinity : this.wallSpeed(speed, dt);
-    if (wallTarget < obstacleTarget) { obstacleTarget = wallTarget; this.obstacleGap = this.wallGap; }
+    // The path rays' wall points join the obstacles while fresh.
+    if (this.wall) this.wall.age += dt;
+    const walls = this.wall && this.wall.age <= WALL_FRESH ? this.wall.points : [];
+    const all = walls.length ? [...(obstacles ?? []), ...walls] : obstacles;
+    const obstacleTarget = all?.length && !this.turn ? this.avoidObstacles(pose, speed, dt, all) : Infinity;
+    if (this.turn) { this.nudge = 0; this.nudgeWant = 0; this.obstacleGap = null; this.limitWall = false; }
+    else if (!all?.length) {
+      // Nothing around: back onto the path at the shifting rate (a scan that briefly finds nothing must not snap it).
+      this.nudgeWant = 0; this.obstacleGap = null; this.limitWall = false;
+      const rate = Math.max(NUDGE_RATE, 0.12 * speed) * dt;
+      this.nudge += clamp(-this.nudge, -rate, rate);
+    }
+    if (!this.turn) this.wallPatience(this.limitWall, obstacleTarget, speed, dt);
     // Pure pursuit from the rear axle toward a point `lookahead` metres along the path (shifted `nudge` to its right).
     const rx = pose.x - pose.hx * g.rearOffset, rz = pose.z - pose.hz * g.rearOffset;
     const lookahead = clamp(3.5 + 0.55 * speed, 4, 18);
