@@ -78,6 +78,8 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
     ...(debrisDelta.updates.length || debrisDelta.removed.length ? { debris: debrisDelta.updates, removedDebris: debrisDelta.removed } : {}),
     ...(pw.traffic ? { traffic: pw.traffic.publish(), trafficEvents: pw.traffic.pending(acknowledged, revision), trafficStats: pw.traffic.stats,
       trafficTime: pw.traffic.time } : {}), ...(stalls.length ? { stalls: pendingStalls() } : {}) };
+  const proxies = pw.remoteProxies();
+  if (proxies.length) state.remoteProxies = proxies;
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
 }

@@ -226,8 +226,10 @@ The new owner first receives the full pre-impulse pose, then both impulse halves
 Two bodies already in one simulation use Rapier's normal dynamic mass solver.
 
 Each client also solves car contacts itself: a remote car is a dynamic proxy of its class
-mass, servoed to its owner's pose (game/src/physics/world.ts REMOTE_SERVO), so a hit moves
-both cars by their masses on the client that sees it. A client holds each impulse 150 ms
+mass that follows its owner's pose (game/src/physics/world.ts REMOTE_SERVO), so a hit moves
+both cars by their masses on the client that sees it. A hit car slides free like a parked
+car for a second, drawn where it slid (state `remoteProxies`), then glides onto its owner's
+pose, which by then shows the owner's own take on the hit. A client holds each impulse 150 ms
 and drops it when that car touched a remote car proxy from 500 ms before its arrival, so
 a contact is never applied twice; the impulse still moves a car whose client never saw
 the touch (latency). Wheel rays ignore proxies. This is a bounded client-physics contact

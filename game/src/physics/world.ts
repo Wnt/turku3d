@@ -47,13 +47,20 @@ const REMOTE_SWEEP = { scale: 1.25, slack: 1 } as const;
  *  resting car's late pose or a reset leaves no invisible proxy behind its drawn car; a placed proxy overlapping a
  *  local car by up to 1.8 m pushes it out at under 3 m/s (Rapier's depenetration). */
 const REMOTE_PLACE_S = 0.25, REMOTE_PLACE_MIN_M = 0.5;
-/** A remote car's proxy is a dynamic body of its class mass, without gravity, servoed every substep to the owner's
- *  newest pose (advanced along the owner's velocity): its velocity moves `follow` of the way per substep to the pose
- *  velocity plus the remaining offset over `tau` seconds. A kinematic proxy was a wall of infinite mass: the local car
- *  bounced off a remote car as off a building (Jonni, city.lab 2026-11-09, "the bots feel rock solid"). After a contact
- *  with a local car or the character the servo goes `soft` for `softS` seconds (a weak pull over `softTau`), so the hit
- *  exchanges momentum by the two masses; the owner's pose then shows how its own simulation took the hit. */
-const REMOTE_SERVO = { follow: 0.5, tau: 0.08, soft: 0.04, softTau: 0.5, softS: 0.6, extrapolateS: 0.2 } as const;
+/** A remote car's proxy is a dynamic body of its class mass without gravity, so a hit splits momentum by the two masses
+ *  as with a parked car (a kinematic proxy was a wall of infinite mass: Jonni, city.lab 2026-11-09, "the bots feel rock
+ *  solid"; a spring back to the owner's pose felt "way too springy": it must behave as any other NPC or parked car).
+ *  - follow: velocity = the owner's velocity plus the offset to its newest pose (advanced along that velocity) over
+ *    `tau`, at most the old sweep speed: first order, no overshoot.
+ *  - free, for `freeS` after a contact with a local car or the character: no pull to the owner's (pre-hit) pose. The
+ *    velocity the solver gave it beyond the owner's dies away at `slide` m/s² (a car shoved on its tyres), its spin at
+ *    `spin` 1/s; height, pitch and roll follow the owner's. The drawn car follows the proxy (remoteProxies).
+ *  - return: glides onto the owner's pose over `returnTau` (first order) at most `returnSlack` m/s faster than the
+ *    owner, until within `doneM`; by then the owner's pose shows how its own client took the same hit. */
+const REMOTE_SERVO = { tau: 0.08, freeS: 1, slide: 7.5, spin: 3, returnTau: 0.3, returnSlack: 4, doneM: 0.05, extrapolateS: 0.2,
+  /** A hit (closing faster than this, m/s) frees the proxy; a resting touch does not, so a car its owner drives away
+   *  from a local car leaning on it follows its owner. */
+  impact: 1 } as const;
 /** The server's contact impulse (PROTOCOL.md vehicle_impulse) waits IMPULSE_HOLD_S and is dropped when the car touched
  *  a remote proxy from IMPULSE_DEDUP_S before its arrival until then: this client already exchanged that momentum in
  *  its own solver. It still moves a car the remote proxy never reached here (latency: a car hit from behind). */
@@ -116,8 +123,8 @@ export class PhysicsWorld {
     /** Walkers: where the proxy is being swept to, and how fast it may get there (m/s; REMOTE_SWEEP). Cars: the
      *  servo's target pose (REMOTE_SERVO), set at `targetTick` and moving at `vel`. */
     target: V3 | null; maxSpeed: number; vel: V3; targetTick: number;
-    /** Cars: the servo stays soft until this tick (a contact with a local car or the character). */
-    softUntil: number }>();
+    /** Cars: REMOTE_SERVO phase; free until `freeUntil` (a tick); the velocity the servo set before this step's solve. */
+    phase: 'follow' | 'free' | 'return'; freeUntil: number; solvedFrom?: V3 }>();
   /** Server contact impulses waiting for IMPULSE_HOLD_S, and the tick each local car last touched a remote car proxy. */
   private pendingImpulses: { id: string; impulse: V3; arrived: number }[] = [];
   private remoteTouch = new Map<string, number>();
@@ -679,7 +686,7 @@ export class PhysicsWorld {
         desc.setCollisionGroups(half ? groups(REMOTE_VEHICLE, GROUP.CHARACTER | GROUP.VEHICLE) : groups(GROUP.DYNAMIC, GROUP.CHARACTER));
         this.world.createCollider(desc, body);
         remote = { body, mode: p.mode, pos: { ...p.pos }, rot: { x: 0, y: 0, z: 0, w: 1 }, vx: 0, vz: 0, at: performance.now(), target: null,
-          maxSpeed: 0, vel: { x: 0, y: 0, z: 0 }, targetTick: this.tick, softUntil: 0 };
+          maxSpeed: 0, vel: { x: 0, y: 0, z: 0 }, targetTick: this.tick, phase: 'follow', freeUntil: 0 };
         this.remotes.set(p.id, remote);
       }
       // Velocity from consecutive updates: ambient drivers predict where a remote player is going.
@@ -704,15 +711,17 @@ export class PhysicsWorld {
         const vel = reported ? p.vel! : prev && ticks > 0 ? { x: (p.pos.x - prev.x) / (ticks * DT), y: (y - prev.y) / (ticks * DT),
           z: (p.pos.z - prev.z) / (ticks * DT) } : remote.vel;
         if (!reported && prev && ticks === 0) continue; // a second pose within one tick: no new information for the servo
+        const jumped = !!prev && Math.hypot(p.pos.x - prev.x, y - prev.y, p.pos.z - prev.z) > REMOTE_JUMP_M + Math.hypot(vel.x, vel.z) * ticks * DT;
         remote.target = { x: p.pos.x, y, z: p.pos.z }; remote.vel = { ...vel }; remote.targetTick = this.tick;
         // As fast as a walker's sweep (REMOTE_SWEEP), so a late pose never flings the proxy into a car; a gap it could not
-        // close within REMOTE_PLACE_S is placed, except while a contact holds it softly (then only a real jump).
+        // close within REMOTE_PLACE_S is placed. After a hit only the owner's own jump (a teleport, a respawn) is: a car
+        // this client shoved stays where it slid, however far, and glides back (REMOTE_SERVO return).
         remote.maxSpeed = reported ? Math.hypot(vel.x, vel.y, vel.z) * REMOTE_SWEEP.scale + REMOTE_SWEEP.slack : Infinity;
-        const placeBeyond = this.tick < remote.softUntil ? 2 * REMOTE_JUMP_M
-          : Math.min(REMOTE_JUMP_M, Math.max(REMOTE_PLACE_MIN_M, remote.maxSpeed * REMOTE_PLACE_S));
-        if (Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > placeBeyond) {
+        const placeBeyond = Math.min(REMOTE_JUMP_M, Math.max(REMOTE_PLACE_MIN_M, remote.maxSpeed * REMOTE_PLACE_S));
+        if (remote.phase === 'follow' ? Math.hypot(p.pos.x - at.x, y - at.y, p.pos.z - at.z) > placeBeyond : jumped) {
           remote.body.setTranslation(remote.target, true); remote.body.setRotation(remote.rot, true);
           remote.body.setLinvel(vel, true); remote.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+          remote.phase = 'follow';
         }
         continue;
       }
@@ -745,27 +754,58 @@ export class PhysicsWorld {
     }
   }
 
-  private servoRemote(remote: { body: RAPIER_NS.RigidBody; rot: Quat; target: V3 | null; vel: V3; targetTick: number; softUntil: number; maxSpeed: number }) {
-    const b = remote.body, t = remote.target!, v = remote.vel, at = b.translation();
-    const soft = this.tick < remote.softUntil, k = soft ? REMOTE_SERVO.soft : REMOTE_SERVO.follow;
-    const tau = soft ? REMOTE_SERVO.softTau : REMOTE_SERVO.tau;
-    const age = Math.min(REMOTE_SERVO.extrapolateS, (this.tick - remote.targetTick) * DT);
-    const want = { x: v.x + (t.x + v.x * age - at.x) / tau, y: v.y + (t.y + v.y * age - at.y) / tau, z: v.z + (t.z + v.z * age - at.z) / tau };
-    const fast = Math.hypot(want.x, want.y, want.z), cap = fast > remote.maxSpeed ? remote.maxSpeed / fast : 1;
-    const lv = b.linvel();
-    b.setLinvel({ x: lv.x + (want.x * cap - lv.x) * k, y: lv.y + (want.y * cap - lv.y) * k, z: lv.z + (want.z * cap - lv.z) * k }, true);
+  private servoRemote(remote: { body: RAPIER_NS.RigidBody; rot: Quat; target: V3 | null; vel: V3; targetTick: number; maxSpeed: number;
+    phase: 'follow' | 'free' | 'return'; freeUntil: number; solvedFrom?: V3 }) {
+    this.servoVelocity(remote);
+    const v = remote.body.linvel();
+    remote.solvedFrom = { x: v.x, y: v.y, z: v.z };
+  }
+
+  private servoVelocity(remote: { body: RAPIER_NS.RigidBody; rot: Quat; target: V3 | null; vel: V3; targetTick: number; maxSpeed: number;
+    phase: 'follow' | 'free' | 'return'; freeUntil: number }) {
+    const S = REMOTE_SERVO, b = remote.body, t = remote.target!, v = remote.vel, at = b.translation();
+    if (remote.phase === 'free' && this.tick >= remote.freeUntil) remote.phase = 'return';
+    const age = Math.min(S.extrapolateS, (this.tick - remote.targetTick) * DT);
+    const goal = { x: t.x + v.x * age, y: t.y + v.y * age, z: t.z + v.z * age };
     // Rotation error q_target * conj(q) as an axis-angle rate over tau, the shorter way round.
+    const tau = remote.phase === 'return' ? S.returnTau : S.tau;
     const q = b.rotation(), r = remote.rot;
     let ex = r.w * -q.x + r.x * q.w + r.y * -q.z - r.z * -q.y, ey = r.w * -q.y - r.x * -q.z + r.y * q.w + r.z * -q.x;
     let ez = r.w * -q.z + r.x * -q.y - r.y * -q.x + r.z * q.w, ew = r.w * q.w - r.x * -q.x - r.y * -q.y - r.z * -q.z;
     if (ew < 0) { ex = -ex; ey = -ey; ez = -ez; ew = -ew; }
-    const sin = Math.hypot(ex, ey, ez), angle = 2 * Math.atan2(sin, ew), rate = sin > 1e-6 ? angle / sin / tau : 0;
-    const w = b.angvel();
-    b.setAngvel({ x: w.x + (ex * rate - w.x) * k, y: w.y + (ey * rate - w.y) * k, z: w.z + (ez * rate - w.z) * k }, true);
+    const sin = Math.hypot(ex, ey, ez), angle = 2 * Math.atan2(sin, ew), rate = sin > 1e-6 ? angle / sin / S.tau : 0;
+    if (remote.phase === 'free') {
+      // Shoved: the velocity beyond the owner's slides out on the tyres; no pull towards the owner's pre-hit pose.
+      const lv = b.linvel(), rx = lv.x - v.x, rz = lv.z - v.z, rel = Math.hypot(rx, rz);
+      const keep = rel > 0 ? Math.max(0, rel - S.slide * DT) / rel : 0;
+      b.setLinvel({ x: v.x + rx * keep, y: v.y + (goal.y - at.y) / S.tau, z: v.z + rz * keep }, true);
+      const w = b.angvel();
+      b.setAngvel({ x: ex * rate, y: w.y * Math.max(0, 1 - S.spin * DT), z: ez * rate }, true);
+      return;
+    }
+    const off = Math.hypot(goal.x - at.x, goal.y - at.y, goal.z - at.z);
+    if (remote.phase === 'return' && off < S.doneM && angle < 0.01) remote.phase = 'follow';
+    const want = { x: v.x + (goal.x - at.x) / tau, y: v.y + (goal.y - at.y) / tau, z: v.z + (goal.z - at.z) / tau };
+    const limit = remote.phase === 'return' ? Math.hypot(v.x, v.y, v.z) + S.returnSlack : remote.maxSpeed;
+    const fast = Math.hypot(want.x, want.y, want.z), cap = fast > limit ? limit / fast : 1;
+    b.setLinvel({ x: want.x * cap, y: want.y * cap, z: want.z * cap }, true);
+    const turn = rate * S.tau / tau;
+    b.setAngvel({ x: ex * turn, y: ey * turn, z: ez * turn }, true);
   }
 
-  /** After the solve: each remote car proxy in contact with a local car or the character goes soft (REMOTE_SERVO), and
-   *  the local car remembers the tick (applyImpulses drops the server's impulse for a contact this solver had). */
+  /** Remote cars drawn at their proxy rather than their owner's pose: shoved by a local hit, or gliding back after one. */
+  remoteProxies(): { id: string; pos: V3; rot: Quat }[] {
+    const out: { id: string; pos: V3; rot: Quat }[] = [];
+    for (const [id, r] of this.remotes) {
+      if (r.mode === 'foot' || r.phase === 'follow') continue;
+      const p = r.body.translation(), q = r.body.rotation();
+      out.push({ id, pos: { x: p.x, y: p.y - remoteColliderHeight(r.mode), z: p.z }, rot: { x: q.x, y: q.y, z: q.z, w: q.w } });
+    }
+    return out;
+  }
+
+  /** After the solve: a remote car proxy hit by a local car or the character (REMOTE_SERVO.impact) goes free, and a
+   *  local car touching one remembers the tick (applyImpulses drops the server's impulse for a contact this solver had). */
   private noteRemoteContacts(carIds: Map<number, string>) {
     for (const remote of this.remotes.values()) {
       if (remote.mode === 'foot') continue;
@@ -774,10 +814,13 @@ export class PhysicsWorld {
         let touching = false;
         this.world.contactPair(own, other, m => { if (m.numContacts() > 0) touching = true; });
         if (!touching) return;
-        const id = other.parent() ? carIds.get(other.parent()!.handle) : undefined;
+        const body = other.parent(), id = body ? carIds.get(body.handle) : undefined;
         if (id === undefined && other !== this.charCollider) return;
-        remote.softUntil = this.tick + Math.round(REMOTE_SERVO.softS / DT);
         if (id !== undefined) this.remoteTouch.set(id, this.tick);
+        // The velocity change this step's solve gave the proxy: a hit moved it, a resting touch barely does.
+        const lv = remote.body.linvel(), before = remote.solvedFrom;
+        if (!before || Math.hypot(lv.x - before.x, lv.z - before.z) < REMOTE_SERVO.impact) return;
+        remote.phase = 'free'; remote.freeUntil = this.tick + Math.round(REMOTE_SERVO.freeS / DT);
       });
     }
   }

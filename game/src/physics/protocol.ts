@@ -155,6 +155,9 @@ export type FromWorker =
       debris?: DebrisState[]; removedDebris?: string[];
       /** Drawn ambient cars, physics/traffic.ts TRAFFIC_STRIDE numbers each; claim events until acknowledged. */
       traffic?: number[]; trafficEvents?: TrafficClaimEvent[]; trafficStats?: TrafficStats; trafficTime?: number;
+      /** Remote cars a local hit moved: drawn at these poses (network frame: H at the drawn root) until back on their
+       *  owner's pose (world.ts REMOTE_SERVO). */
+      remoteProxies?: { id: string; pos: V3; rot: Quat }[];
       /** Worker stalls not yet acknowledged (PhysStall). */
       stalls?: PhysStall[] }
   | { type: 'cameraCastResult'; id: number; distance: number }

@@ -105,10 +105,6 @@ test('a local car cannot drive through a remote car: the proxy stops the chassis
   expect(closest).toBeGreaterThan(4.2 - 0.15);
   expect(car.pos.y).toBeLessThan(3.2);
   expect(car.wheels.filter(w => w.contact).length).toBe(4);
-  // Backed off, the proxy returns to its owner's pose once the contact's soft hold is over (REMOTE_SERVO.softS).
-  for (let k = 0; k < 40; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: -1, steer: 0, brake: 0, handbrake: false }); }
-  for (let k = 0; k < 90; k++) { pw.setRemotes(remote); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 1, handbrake: true }); }
-  expect(Math.abs(proxy().x - 42)).toBeLessThan(0.3);
   pw.world.free();
 });
 
@@ -139,6 +135,38 @@ test('a remote car has its mass: a local car hitting a resting one of the same c
   expect(me().linvel.x).toBeGreaterThan(before * 0.25);
   expect(me().linvel.x).toBeLessThan(before * 0.75);
   expect(proxy().x).toBeGreaterThan(40.3);
+  // Like a shoved parked car, not a spring (Jonni: "way too springy"). Its owner takes the same hit on its own client and
+  // reports it 200 ms later (here: the proxy's own path, delayed). The car only slides on and stops, drawn where it is,
+  // never back towards its pre-hit pose, and then follows its owner again.
+  const drawn = () => pw.remoteProxies().find(r => r.id === 'bot');
+  expect(drawn()).toBeDefined();
+  const path: number[] = [];
+  let x = proxy().x, backwards = 0;
+  for (let k = 0; k < 240; k++) {
+    path.push(proxy().x);
+    const owner = path.length > 12 ? path[path.length - 13] : 40;
+    pw.setRemotes([{ ...remote[0], pos: { ...remote[0].pos, x: owner } }]);
+    pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    backwards = Math.max(backwards, x - proxy().x); x = proxy().x;
+  }
+  expect(backwards).toBeLessThan(0.005);
+  expect(proxy().x).toBeGreaterThan(41);
+  expect(drawn()).toBeUndefined();
+  pw.world.free();
+});
+
+test('a car its owner drives away follows its owner even while a local car leans on it', () => {
+  const pw = flatWorld(), me = () => pw.vehicleState()!;
+  const proxy = () => (pw as unknown as { remotes: Map<string, { body: R.RigidBody }> }).remotes.get('bot')!.body.translation();
+  let ox = me().pos.x + 4.3;
+  const at = () => [{ id: 'bot', pos: { x: ox, y: me().pos.y, z: 0 }, yaw: 0, rot: { x: 0, y: 0, z: 0, w: 1 }, mode: 'car' as const, vel: { x: 0, y: 0, z: 0 } }];
+  for (let k = 0; k < 90; k++) { pw.setRemotes(at()); pw.fixedStep(null, { throttle: 0.3, steer: 0, brake: 0, handbrake: false }); }
+  // Pulls away at 5 m/s for two seconds.
+  for (let k = 0; k < 120; k++) {
+    ox += 5 / 60;
+    pw.setRemotes([{ ...at()[0], vel: { x: 5, y: 0, z: 0 } }]); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+  }
+  expect(Math.abs(proxy().x - ox)).toBeLessThan(0.5);
   pw.world.free();
 });
 

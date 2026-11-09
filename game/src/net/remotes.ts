@@ -131,6 +131,7 @@ export class RemotePlayers {
     const t0 = performance.now();
     this.horns.length = 0; this.threats.length = 0; this.engines.length = 0;
     const selfId = client.state.you?.id;
+    const proxies = this.physics.latest?.remoteProxies;
     this.selfId = selfId;
     const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
@@ -211,6 +212,10 @@ export class RemotePlayers {
       }
       if (!pose || !visible) continue;
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
+      // A car this client's hit moved is drawn where the local physics put it (shoved like a parked car, then gliding
+      // back onto its owner's pose: physics/world.ts REMOTE_SERVO); the physics proxy still follows the owner's pose.
+      const shoved = pose.mode !== 'foot' && !p.locallySimulated ? proxies?.find(r => r.id === p.id) : undefined;
+      const drawn = shoved ? shoved.pos : pos, drawnPose = shoved ? { ...pose, rot: shoved.rot } : pose;
       if (pose.mode !== 'foot') {
         const model = pose.mode === 'car' ? remote.car : pose.mode === 'truck' ? remote.truck! : remote.scooter!;
         vehicleLamps(model, pose.mode, pose.lights ?? 0);
@@ -218,12 +223,12 @@ export class RemotePlayers {
       }
       remote.pizza.position.set(pos.x - Math.sin(pose.yaw) * .45, pos.y + 1, pos.z - Math.cos(pose.yaw) * .45);
       remote.pizza.rotation.y = pose.yaw;
-      for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model?.position.set(pos.x, pos.y, pos.z);
+      for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model?.position.set(drawn.x, drawn.y, drawn.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
-      remote.car.quaternion.copy(vehicleRotation(pose, true));
+      remote.car.quaternion.copy(vehicleRotation(drawnPose, true));
       remote.car.position.y -= 0.75;
-      remote.chassis.copy(vehicleRotation(pose, false));
+      remote.chassis.copy(vehicleRotation(drawnPose, false));
       remote.scooter?.quaternion.copy(remote.chassis);
       remote.truck?.quaternion.copy(remote.chassis);
       if (pose.mode === 'car' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
@@ -273,7 +278,7 @@ export class RemotePlayers {
           if (frame) this.drivers.seat(key, frame, this.sources.truck.driverLayout, input);
         }
       }
-      remote.label.position.set(pos.x, pos.y + (pose.mode === 'foot' ? 2.2 : 2), pos.z);
+      remote.label.position.set(drawn.x, drawn.y + (pose.mode === 'foot' ? 2.2 : 2), drawn.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
         vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 } });
       if (!p.locallySimulated) {
