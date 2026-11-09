@@ -149,6 +149,30 @@ def test_profile_surface_cache_identity_tracks_sampler_support_and_geometry():
     assert content_key(profiles.ProfiledSurface(surface.mesh,shapely.GeometryCollection()))!=before
 
 
+def test_profile_stage_key_tracks_interpolation_helper(monkeypatch):
+    import ast
+    from pathlib import Path
+    from turku3d.coarse import build, surfaces, walkable
+    from turku3d.stage_cache import source_key
+
+    # Evaluate the real key expression without building a tile as a test gate.
+    tree = ast.parse(Path(build.__file__).read_text())
+    call = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == 'run'
+                and node.args and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == 'street_profiles')
+    expression = compile(ast.Expression(call.args[1]), build.__file__, 'eval')
+    namespace = dict(source_key=source_key, Path=Path, street_profiles=profiles,
+                     surfaces=surfaces, walkable=walkable, common=[])
+    before = eval(expression, namespace)
+
+    def changed_interpolator(line):
+        return None
+
+    monkeypatch.setattr(walkable, 'line_interpolator', changed_interpolator)
+    assert eval(expression, namespace) != before
+
+
 def test_adjacent_tiles_query_identical_kerb_heights_at_their_shared_edge():
     surfaces=[]
     for low,high in [(0,10),(10,20)]:
