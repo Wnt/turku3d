@@ -24,6 +24,10 @@ of it, and a crown keeps the cells connected to its trunk (``canopy_trees.connec
   stand edges and roadside rows 0.16-0.26 (Kurala, Puolanpuisto, a central park): their crowns reach lower on the
   light side.
   Inside a closed stand, shrubs and saplings under the crowns are measured with them, so no base is given there.
+- openness (with the gap cells, ``gap_cells``: per 2 m cell the count of ground and of vegetation returns): the ground
+  share of all class 2-5 returns within GAP_REACH of the radius, the sky the crown lets through from above. A roadside
+  row at Kurala 0.13, the Puolanpuisto grove 0.25 (the stand gap share its sunlit floor was calibrated to against the
+  panorama), solitary park trees 0.62.
 
 The generator measured surveyed and lidar-found trees the same way, but never OSM-area scatter (random heights) or
 unsupported register trees (planting-year heights); here every drawn tree with a supported crown takes its measured
@@ -46,6 +50,7 @@ LEAN_DEAD = (0.25, 0.1)  # m + fraction of the radius
 ELLIPSE_CELLS, ELLIPSE_ROUND, ELLIPSE_MIN = 40, 0.85, 0.75  # cells; axis ratios: round enough, flattest (neighbours sharing canopy also squeeze the cells)
 BASE_RING, BASE_OPEN, BASE_REACH, BASE_CANOPY = 2.0, 0.2, 0.9, 3.0  # m beyond the radius; ring share; of the radius; m
 BASE_RAYS = 16
+GAP_CELL, GAP_REACH, GAP_MIN_RETURNS = 2.0, 0.6, 20  # m; of the radius; returns under a crown to measure it
 
 
 def crown_base(x, z, base, height, radius, canopy, canopy_index, leaves, leaf_index):
@@ -69,13 +74,21 @@ def crown_base(x, z, base, height, radius, canopy, canopy_index, leaves, leaf_in
     return round(float(np.clip(np.median(cells[:, 4] - base) / height, 0, 1)), 3)
 
 
-def measure(trees, canopy, leaves=None):
+def openness(x, z, radius, gaps, gap_index):
+    """The ground share of the returns under one crown (module docstring), or None under GAP_MIN_RETURNS."""
+    cells = gaps[gap_index.query_ball_point([x, z], max(GAP_REACH * radius, GAP_CELL * 0.75))]
+    total = cells[:, 2].sum() + cells[:, 3].sum() if len(cells) else 0
+    return round(float(cells[:, 2].sum() / total), 3) if total >= GAP_MIN_RETURNS else None
+
+
+def measure(trees, canopy, leaves=None, gaps=None):
     """``trees``: (n, 5) x, z, base y, height, crown radius. ``canopy``: (m, 3) x, y, z cells. ``leaves``: the leaf
-    cells (``trees.leaf_cells`` rows: x, z, pulses, intensity, 10th and 98th percentile height) in the same frame.
+    cells (``trees.leaf_cells`` rows: x, z, pulses, intensity, 10th and 98th percentile height) and ``gaps`` the gap
+    cells (``gap_cells`` rows: x, z, ground returns, vegetation returns), in the same frame.
 
     Returns per tree ``[height, radius, shear_x, shear_z, stretch, angle]`` (rounded to cm and 1e-3), with ``leaves``
-    and a seventh value, the crown base fraction (``crown_base``, or None), or None without support. A round crown
-    has stretch 1 and angle 0."""
+    or ``gaps`` and two more values, the crown base fraction (``crown_base``) and the openness (``openness``), each
+    None where not measured; or None without support. A round crown has stretch 1 and angle 0."""
     trees = np.asarray(trees, dtype=float).reshape(-1, 5)
     canopy = np.asarray(canopy, dtype=float).reshape(-1, 3)
     result = [None] * len(trees)
@@ -92,11 +105,16 @@ def measure(trees, canopy, leaves=None):
     relative = np.where((distance <= reach[nearest]) & (above > 2.5), distance / radius[nearest], np.inf)
     pick = np.argmin(relative, axis=1)
     owner = np.where(np.isfinite(relative[np.arange(len(canopy)), pick]), nearest[np.arange(len(canopy)), pick], -1)
+    extended = leaves is not None or gaps is not None
+    leaf_index = gap_index = None
     if leaves is not None:
         canopy_index = cKDTree(canopy[:, [0, 2]])
         leaves = np.asarray(leaves, dtype=float).reshape(-1, 6)
         leaves = leaves[np.isfinite(leaves[:, 4])]
         leaf_index = cKDTree(leaves[:, :2]) if len(leaves) else None
+    if gaps is not None:
+        gaps = np.asarray(gaps, dtype=float).reshape(-1, 4)
+        gap_index = cKDTree(gaps[:, :2]) if len(gaps) else None
     order = np.argsort(owner, kind="stable")
     edges = np.searchsorted(owner[order], np.arange(len(trees) + 1))
     for i in range(len(trees)):
@@ -126,9 +144,10 @@ def measure(trees, canopy, leaves=None):
                 angle = float(np.arctan2(vectors[1, 1], vectors[0, 1]) % np.pi)
         result[i] = [round(height, 2), round(r, 2), round(float(shear[0]), 3), round(float(shear[1]), 3),
                      round(float(stretch), 3), round(angle, 3)]
-        if leaves is not None:
+        if extended:
             result[i].append(crown_base(x, z, base, height, r, canopy, canopy_index, leaves, leaf_index)
                              if leaf_index is not None else None)
+            result[i].append(openness(x, z, r, gaps, gap_index) if gap_index is not None else None)
     return result
 
 
@@ -192,6 +211,80 @@ def _highest(xyz, header):
     first = np.ones(len(order), bool)
     first[1:] = (i[order][1:] != i[order][:-1]) | (j[order][1:] != j[order][:-1])
     return xyz[np.sort(order[first])]
+
+
+def block_gaps(path):
+    """One LAZ block's ground (class 2) and vegetation (classes 3-5) returns counted per GAP_CELL engine cell: rows of
+    cell centre x, z and the two counts. Read from the decoded block (``lidar.decoded``, as the leaf cells are) and
+    cached by the block's content; tiles share blocks."""
+    import fcntl
+    import hashlib
+
+    from turku3d import config as C, profiling
+    from turku3d.lidar.decoded import chunks as decoded_chunks
+    from turku3d.tile_layer import identities
+
+    identity = identities({"laz": path})["laz"]
+    if identity is None:
+        raise FileNotFoundError(path)
+    key = hashlib.sha256(repr((identity, C.ORIGIN, GAP_CELL, "crown-gaps-v1")).encode()).hexdigest()
+    dest = C.cache_dir("vegetation") / (key + ".npz")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(dest.with_suffix(".lock"), "a") as lock:
+        profiling.flock(lock, fcntl.LOCK_EX, "vegetation")
+        if not dest.exists():
+            # Counted per chunk by a 1-D cell key (i in the high, j in the low 32 bits), never the points.
+            parts = []
+            for p in decoded_chunks(path):
+                cls = np.asarray(p.classification)
+                keep = (cls >= 2) & (cls <= 5)
+                if not keep.any():
+                    continue
+                x, _, z = C.en_to_local(np.asarray(p.x)[keep], np.asarray(p.y)[keep], np.asarray(p.z)[keep])
+                i, j = np.floor(x / GAP_CELL).astype(np.int64), np.floor(z / GAP_CELL).astype(np.int64)
+                unique, inverse = np.unique((i << 32) + (j & 0xFFFFFFFF), return_inverse=True)
+                ground = (cls[keep] == 2).astype(float)
+                parts.append((unique, np.bincount(inverse, ground, len(unique)), np.bincount(inverse, None, len(unique))))
+            rows = np.empty((0, 4))
+            if parts:
+                unique, inverse = np.unique(np.concatenate([k for k, _, _ in parts]), return_inverse=True)
+                ground = np.bincount(inverse, np.concatenate([g for _, g, _ in parts]), len(unique))
+                total = np.bincount(inverse, np.concatenate([n for _, _, n in parts]), len(unique))
+                j = unique & 0xFFFFFFFF
+                j = np.where(j >= 2**31, j - 2**32, j)
+                rows = np.column_stack(((unique >> 32) + 0.5, j + 0.5, ground, total - ground))
+                rows[:, :2] *= GAP_CELL
+            temporary = dest.with_suffix(".tmp.npz")
+            np.savez_compressed(temporary, cells=rows)
+            temporary.replace(dest)
+        with np.load(dest) as data:
+            return data["cells"]
+
+
+def gap_cells(tile, margin=MARGIN):
+    """Ground and vegetation return counts per GAP_CELL cell around ``tile`` (``block_gaps``): rows of cell centre x, z
+    (engine frame) and the two counts; None unless every block is on disk."""
+    from turku3d import config as C
+
+    bbox = tile.bbox.buffered(margin)
+    paths = []
+    for block in C.laz_tiles_for_bbox(bbox):
+        path = C.raw_dir("laz") / "pistepilvi" / f"{block.name}.laz"
+        if not path.is_file():
+            return None
+        paths.append(path)
+    parts = []
+    for path in sorted(paths):
+        cells = block_gaps(path)
+        x, z = cells[:, 0], cells[:, 1]
+        parts.append(cells[(x >= bbox.xmin) & (x < bbox.xmax) & (z >= bbox.zmin) & (z < bbox.zmax)])
+    if not parts:
+        return np.empty((0, 4))
+    # A cell on a block edge is counted in each block it has returns in: sum them.
+    cells = np.concatenate(parts)
+    unique, inverse = np.unique(cells[:, :2], axis=0, return_inverse=True)
+    inverse = inverse.ravel()
+    return np.c_[unique, np.bincount(inverse, cells[:, 2], len(unique)), np.bincount(inverse, cells[:, 3], len(unique))]
 
 
 def leaf_cells(tile, margin=MARGIN):

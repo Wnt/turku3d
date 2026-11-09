@@ -1,4 +1,4 @@
-"""trees-lidar@2: lidar crowns of the drawn trees, written into the vegetation nodes' extras."""
+"""trees-lidar@3: lidar crowns of the drawn trees, written into the vegetation nodes' extras."""
 
 import hashlib
 import json
@@ -69,10 +69,30 @@ def test_crown_base_is_measured_on_the_open_side_of_a_crown_with_open_ground():
     at_edge, alone, enclosed = measure(trees, canopy, leaves)
     assert at_edge[6] == round(2.0 / at_edge[0], 3)
     assert alone[6] == round(3.5 / alone[0], 3)
-    assert enclosed[6] is None and len(enclosed) == 7
-    # Without leaf cells the crowns keep the version-1 shape.
+    assert enclosed[6] is None and len(enclosed) == 8 and enclosed[7] is None
+    # Without leaf or gap cells the crowns keep the version-1 shape.
     assert [len(c) for c in measure(trees, canopy)] == [6, 6, 6]
     assert BASE_CANOPY < 10
+
+
+def gap_cells(x, z, radius, ground, vegetation):
+    """Gap cells (2 m; x, z, ground and vegetation returns) over a disc."""
+    return np.asarray([[x + i, z + j, ground, vegetation] for i in np.arange(-radius, radius + 0.01, 2.0)
+                       for j in np.arange(-radius, radius + 0.01, 2.0) if np.hypot(i, j) <= radius])
+
+
+def test_openness_is_the_ground_share_of_the_returns_under_the_crown():
+    # A dense roadside crown lets 1 return in 10 reach the ground, a solitary park crown 6 in 10; the ring of open lawn
+    # beyond 0.6 r is not counted. Too few returns measure nothing.
+    canopy = np.concatenate([crown_cells(50, 50, 12, 5), crown_cells(150, 50, 12, 5), crown_cells(250, 50, 12, 5)])
+    lawn = gap_cells(50, 50, 9, 50, 0)
+    lawn = lawn[np.hypot(lawn[:, 0] - 50, lawn[:, 1] - 50) > 4]
+    gaps = np.concatenate([gap_cells(50, 50, 3, 2, 18), lawn, gap_cells(150, 50, 3, 12, 8),
+                           gap_cells(250, 50, 3, 0, 1)[:1]])
+    trees = [[50, 50, 0, 12, 5], [150, 50, 0, 12, 5], [250, 50, 0, 12, 5]]
+    dense, open_, sparse = measure(trees, canopy, gaps=gaps)
+    assert dense[7] == 0.1 and open_[7] == 0.6 and sparse[7] is None
+    assert dense[6] is None and len(dense) == 8
 
 
 def float_view(blob: bytearray, values) -> tuple[int, int]:
@@ -112,6 +132,7 @@ def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatc
     monkeypatch.setattr(trees_lidar, "tile_canopy", lambda tile: canopy)
     # Leaf cells in the engine frame (the tile's origin is 0 for t0_0_0): the first crown's foliage from 6 m up.
     monkeypatch.setattr(trees_lidar, "tile_leaves", lambda tile: leaf_cells(40, 40, 5, lambda i, j: 2.2, base=4))
+    monkeypatch.setattr(trees_lidar, "tile_gaps", lambda tile: gap_cells(40, 40, 4, 3, 17))
     glb = vegetation_glb([[40, 4, 40], [100, 4, 40], [200, 4, 200]], [[3, 10, 3], [3, 15, 3], [1, 1, 1]],
                          ["area:1:40:40", "puut:x", "bush:2"])
     p = product(tmp_path, glb)
@@ -125,6 +146,7 @@ def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatc
     assert 21.5 < area[0] <= 22 and 4 < area[1] < 5.1
     assert 14.5 < register[0] <= 15 and bush is None
     assert area[6] == round(2.2 / area[0], 3) and register[6] is None
+    assert area[7] == 0.15 and register[7] is None
     assert entry["h"][1] == 4 + area[0]
     # Only the JSON changed: the binary chunk is the base's, and a rerun is byte-identical.
     assert binary == core.glb_chunks(glb)[1]
@@ -137,6 +159,7 @@ def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatc
 def test_tile_without_lidar_or_trees_is_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(trees_lidar, "tile_canopy", lambda tile: np.empty((0, 3)))
     monkeypatch.setattr(trees_lidar, "tile_leaves", lambda tile: None)
+    monkeypatch.setattr(trees_lidar, "tile_gaps", lambda tile: None)
     glb = vegetation_glb([[40, 4, 40]], [[3, 10, 3]], ["puut:x"])
     p = product(tmp_path, glb)
     before = json.dumps(p.manifest, sort_keys=True)
@@ -146,7 +169,7 @@ def test_tile_without_lidar_or_trees_is_unchanged(tmp_path, monkeypatch):
 
 def test_registered_in_the_chain():
     assert trees_lidar.MIGRATION in registry.CHAIN
-    assert trees_lidar.MIGRATION.key == "trees-lidar@2"
+    assert trees_lidar.MIGRATION.key == "trees-lidar@3"
 
 
 def test_canopy_needs_every_laz_block_on_disk(tmp_path, monkeypatch):

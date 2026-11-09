@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import { QUALITY, type QualityTier } from '../render/quality';
 import { PreparationBudget } from '../render/preparationBudget';
 import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
-import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
+import { UNMEASURED_OPENNESS, fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
 import { GrassField } from './nature/grass';
 import { VEGETATION_FADE } from './nature/materials';
 import { crownBaseStretch } from './nature/crowns';
@@ -303,14 +303,14 @@ export class VegetationLod {
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = owner.userData.instance_near_water?.[i] ?? water.has(waterCell(inModel.x, inModel.z));
         // trees-lidar@2 (pipeline migrations/trees_lidar.py): the lidar's crown, [height, radius, shear x, shear z,
-        // stretch, angle, base] (base: null inside a closed stand; absent from trees-lidar@1 tiles).
+        // stretch, angle, base, open] (base: null inside a closed stand; base from @2, open from @3 tiles).
         const crown = crowns?.[i];
         const height = crown ? crown[0] : s.y, radius = crown ? crown[1] : Math.max(s.x, s.z);
         const asset = library.variant(natureAsset(variant, String(id), height, nearWater, owner.userData.instance_species?.[i] ?? ""), String(id)), name = asset.name;
         const scale = natureScale(height, radius, asset.height, asset.radius);
         const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
         if (crown) lowerCrown(shapeTree(placed, crown), height, crownBaseStretch(asset.crownBase, crown[6]));
-        place(byAsset, name, placed, natureTint(String(id)), ids?.[i]);
+        place(byAsset, name, placed, natureTint(String(id), undefined, crown?.[7] ?? UNMEASURED_OPENNESS), ids?.[i]);
       }
       yield* this.commit(data, mesh, owner, byAsset, library, true);
     }

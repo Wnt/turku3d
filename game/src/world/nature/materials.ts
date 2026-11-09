@@ -1,12 +1,13 @@
 import * as THREE from 'three/webgpu';
 import {
-  abs, attribute, bool, cameraPosition, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
+  abs, attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
   renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { viewClearance } from '../../render/viewClearance';
 import type { NatureKind } from './library';
+import { OPEN_STEP, UNMEASURED_OPENNESS } from './species';
 
 /** Tree LOD cross-fade bands as fractions of each boundary distance (near, mid, far): the fade's half width, and the
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
@@ -20,14 +21,30 @@ export function impostorAlphaScale(level: number) {
   return 1 + IMPOSTOR_BOOST.gain * t * t * (3 - 2 * t);
 }
 
-/** Sun gaps in the canopy's shadow (sunflecks). `open` is the share of a closed canopy's sun shadow the sun passes
- *  through: the leaf cards' alpha cut alone left 0.4-6 % of the ground under groves and forests sunlit, against 27.5 % of
- *  the lawn under the closed Puolanpuisto grove (panorama: shade 0.018, flecks 0.14, open lawn 0.21 linear luminance)
- *  and 13-37 % (mean 25 %) of the forest floor in the k4 frames. A gap is the stand's, not one crown's: every crown along
- *  a sun ray shares it. Independent per-crown gaps multiplied where the widened crowns overlap along the sun (city.lab
- *  1dce0af7 at 35 % per crown: Ruissalo floor +23 %, the denser Puolala grove +5 %). The leaf cut adds its own few
- *  percent. `size` (m) is the larger fleck scale on the ground. */
-export const CROWN_GAPS = { open: 0.25, size: 0.9 } as const;
+/**
+ * Crown openness: one measured value per crown (trees-lidar@3 `open`, the ground share of the lidar returns under it;
+ * species.ts encodeOpenness carries it per instance) sets both how much sun its shadow lets through and how see-through
+ * the crown is.
+ * - Sun gaps (sunflecks): the shadow opens on `clamp(sun * openness, range)` of the ground. The leaf cards' alpha cut
+ *   alone left 0.4-6 % of the ground under groves and forests sunlit, against 27.5 % of the lawn under the closed
+ *   Puolanpuisto grove (panorama: shade 0.018, flecks 0.14, open lawn 0.21 linear luminance) and 13-37 % (mean 25 %) of
+ *   the forest floor in the k4 frames. That grove's crowns measure 0.21 (median, t0_-1_1): `sun` = 0.275 / 0.21. With
+ *   the sun share equal to the openness the grove's sunlit floor fell from 15.8 to 13.8 % of the view (overlay,
+ *   puolala-park-down) against 25 % for every crown (44c02e08). A Kurala roadside row measures 0.12-0.20, solitary
+ *   park trees 0.5-0.67; an unmeasured crown keeps the 25 % (species.ts UNMEASURED_OPENNESS). A gap is the stand's,
+ *   not one crown's: every crown along a sun ray shares the noise, so overlapping crowns open where the densest of
+ *   them does (independent per-crown gaps multiplied: 1dce0af7).
+ * - Fill: a crown denser than UNMEASURED_OPENNESS scales its leaf (and impostor) alpha up to `fill` at `dense`,
+ *   closing the see-through between leaves that the library's park-tree models keep; open crowns keep theirs (Kurala
+ *   row, x2: the row reads as solid crowns instead of a lattice of separate leaf clumps). The view only: the shadow
+ *   takes the measured share.
+ * `size` (m) is the larger fleck scale on the ground.
+ */
+export const CROWN_GAPS = { sun: 1.3, size: 0.9, range: [0.05, 0.6], dense: 0.1, fill: 2 } as const;
+/** The share of the ground a crown's shadow lets the sun through (CROWN_GAPS sun gaps). */
+export function crownSunShare(open: number) {
+  return Math.min(CROWN_GAPS.range[1], Math.max(CROWN_GAPS.range[0], open * CROWN_GAPS.sun));
+}
 
 /** CPU mirror of the shader's crown-gap noise at the ground point (x, z) a sun ray meets: two octaves of value noise in
  *  [0, 1]; the shadow keeps the fragments at or above `crownGapCut()`. */
@@ -41,14 +58,39 @@ export function crownGapNoise(x: number, z: number) {
   };
   return value(x / CROWN_GAPS.size, z / CROWN_GAPS.size) * 0.65 + value(x / (CROWN_GAPS.size * 0.45) + 17.3, z / (CROWN_GAPS.size * 0.45) + 5.1) * 0.35;
 }
-let gapCut: number | null = null;
-/** The noise value below which a crown's shadow opens: the `CROWN_GAPS.open` quantile of the noise over a fixed grid. */
-export function crownGapCut() {
-  if (gapCut !== null) return gapCut;
-  const values: number[] = [];
-  for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) values.push(crownGapNoise(i * 0.37 + 0.11, j * 0.41 + 0.07));
-  values.sort((a, b) => a - b);
-  return gapCut = values[Math.floor(CROWN_GAPS.open * values.length)];
+let gapSample: number[] | null = null;
+/** The noise value below which a crown's shadow opens on `share` of the ground: that quantile of the noise over a
+ *  fixed grid. */
+export function crownGapCut(share: number = crownSunShare(UNMEASURED_OPENNESS)) {
+  if (!gapSample) {
+    gapSample = [];
+    for (let i = 0; i < 160; i++) for (let j = 0; j < 160; j++) gapSample.push(crownGapNoise(i * 0.37 + 0.11, j * 0.41 + 0.07));
+    gapSample.sort((a, b) => a - b);
+  }
+  return gapSample[Math.min(gapSample.length - 1, Math.max(0, Math.floor(share * gapSample.length)))];
+}
+let gapCurve: [number, number, number, number] | null = null;
+/** The shader's cut as a cubic in the sun share: least squares to `crownGapCut` over CROWN_GAPS.range. */
+export function crownGapCurve(): [number, number, number, number] {
+  if (gapCurve) return gapCurve;
+  const [lo, hi] = CROWN_GAPS.range, n = 4, ata = Array.from({ length: n }, () => new Array(n).fill(0)), atb = new Array(n).fill(0);
+  for (let k = 0; k <= 64; k++) {
+    const p = lo + (hi - lo) * k / 64, y = crownGapCut(p), row = [1, p, p * p, p * p * p];
+    for (let i = 0; i < n; i++) { atb[i] += row[i] * y; for (let j = 0; j < n; j++) ata[i][j] += row[i] * row[j]; }
+  }
+  for (let i = 0; i < n; i++) for (let r = i + 1; r < n; r++) {
+    const f = ata[r][i] / ata[i][i];
+    for (let j = i; j < n; j++) ata[r][j] -= f * ata[i][j];
+    atb[r] -= f * atb[i];
+  }
+  const c = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) { let v = atb[i]; for (let j = i + 1; j < n; j++) v -= ata[i][j] * c[j]; c[i] = v / ata[i][i]; }
+  return gapCurve = [c[0], c[1], c[2], c[3]];
+}
+/** CPU mirror of the shader's leaf alpha scale for a crown's openness (CROWN_GAPS fill). */
+export function crownFill(open: number) {
+  const t = Math.min(1, Math.max(0, (UNMEASURED_OPENNESS - open) / (UNMEASURED_OPENNESS - CROWN_GAPS.dense)));
+  return 1 + (CROWN_GAPS.fill - 1) * t * t * (3 - 2 * t);
 }
 
 /** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
@@ -160,7 +202,12 @@ export class NatureMaterials {
     const crownAo = vertexColor().r;
     const shell = smoothstep(0.3, 0.85, crownAo);
     const tone = (rgb: THREE.Node<'vec3'>) => { const warm = rgb.mul(this.leafTone.xyz); return mix(vec3(luminance(warm)), warm, this.leafTone.w); };
-    this.leaves.colorNode = vec4(tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leaf.a.mul(mix(this.crownLight.z, float(1), shell)));
+    // The crown's openness (species.ts encodeOpenness) from the instance tint: dense crowns fill (CROWN_GAPS).
+    const step = fract(instanceColor.x.mul(OPEN_STEP));
+    const openness = select(step.lessThan(0.05), float(UNMEASURED_OPENNESS), clamp(step.sub(0.1).div(0.8), 0, 1));
+    const fill = smoothstep(UNMEASURED_OPENNESS, CROWN_GAPS.dense, openness).mul(CROWN_GAPS.fill - 1).add(1);
+    const leafRgb = tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leafAlpha = leaf.a.mul(mix(this.crownLight.z, float(1), shell));
+    this.leaves.colorNode = vec4(leafRgb, leafAlpha.mul(fill));
     this.leaves.aoNode = pow(crownAo, this.crownLight.y);
     // Crown normals (bent towards the crown's outside) light both card faces alike: no back-face flip.
     this.leaves.normalNode = normalViewGeometry;
@@ -205,6 +252,7 @@ export class NatureMaterials {
     // gap goes through the whole stand (CROWN_GAPS).
     this.crownShadow = cloneNodeMaterial(this.leaves);
     this.crownShadow.name = 'nature-leaves@shadow';
+    this.crownShadow.colorNode = vec4(leafRgb, leafAlpha);
     if (lighting) {
       const toSun = uniform(lighting.sunDir).setGroup(renderGroup);
       const lattice = (c: THREE.Node<'vec2'>) => fract(sin(dot(mod(c, 289), vec2(127.1, 311.7))).mul(43758.5453));
@@ -215,7 +263,8 @@ export class NatureMaterials {
       const q = positionWorld.xz.sub(toSun.xz.mul(positionWorld.y.div(max(toSun.y, 0.05))));
       const size = CROWN_GAPS.size, fine = size * 0.45;
       const noise = value(q.div(size)).mul(0.65).add(value(q.div(fine).add(vec2(17.3, 5.1))).mul(0.35));
-      this.crownShadow.maskShadowNode = noise.greaterThanEqual(crownGapCut());
+      const [c0, c1, c2, c3] = crownGapCurve(), share = clamp(openness.mul(CROWN_GAPS.sun), CROWN_GAPS.range[0], CROWN_GAPS.range[1]);
+      this.crownShadow.maskShadowNode = noise.greaterThanEqual(share.mul(c3).add(c2).mul(share).add(c1).mul(share).add(c0));
     }
     this.bases.set(this.crownShadow, this.leaves);
 
@@ -234,7 +283,8 @@ export class NatureMaterials {
     // mips 5 and finer-than-pixel need the 1.3x that restores mip-0 coverage.
     const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
     const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, level).mul(IMPOSTOR_BOOST.gain).add(1);
-    this.impostor.colorNode = vec4(tone(impTex.rgb), impTex.a.mul(boost).mul(visible));
+    // A dense crown's impostor fills as its leaf cards do (CROWN_GAPS fill), so it does not thin at the far band.
+    this.impostor.colorNode = vec4(tone(impTex.rgb), impTex.a.mul(boost).mul(fill).mul(visible));
     this.impostor.positionNode = wind(0);
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {

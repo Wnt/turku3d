@@ -129,7 +129,7 @@ def test_generator_step_moves_and_drops_and_resamples_height():
 
 
 def test_registered_in_the_chain():
-    assert path_trees.MIGRATION in registry.CHAIN and path_trees.MIGRATION.key == "path-trees@2"
+    assert path_trees.MIGRATION in registry.CHAIN and path_trees.MIGRATION.key == "path-trees@3"
 
 
 @pytest.mark.parametrize("layout", ["inline", "external"])

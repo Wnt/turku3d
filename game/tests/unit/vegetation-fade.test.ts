@@ -6,9 +6,9 @@ import { LodFades, dissolveTwin, drawnCoverage, isDissolveTwin, precompileDissol
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { CROWN_GAPS, VEGETATION_FADE, crownGapCut, crownGapNoise, impostorAlphaScale } from '../../src/world/nature/materials';
+import { CROWN_GAPS, VEGETATION_FADE, crownFill, crownGapCurve, crownGapCut, crownGapNoise, crownSunShare, impostorAlphaScale } from '../../src/world/nature/materials';
 import { vegetationLevels } from '../../src/world/vegetationLod';
-import { natureTint } from '../../src/world/nature/species';
+import { OPEN_STEP, UNMEASURED_OPENNESS, decodeOpenness, encodeOpenness, natureTint } from '../../src/world/nature/species';
 
 const bands = [50, 180, 650] as const;
 const smooth = (a: number, b: number, x: number) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -159,23 +159,43 @@ describe('settled frames keep no dither', () => {
 
 describe('crown sun gaps', () => {
   // The shadow proxies' leaves (NatureMaterials.crownShadow) keep a fragment where the noise at its sun ray's ground
-  // point is at least crownGapCut(): a closed canopy lets CROWN_GAPS.open of the sun through, however many crowns
-  // overlap along the ray (the gap is the stand's).
-  const open = (crowns: number) => {
+  // point is at least the cut for the crown's openness (crownGapCurve, a cubic in the openness): a closed canopy lets
+  // that share of the sun through; where crowns overlap along the ray the densest one decides (the gap is the stand's).
+  const curve = (p: number) => { const [c0, c1, c2, c3] = crownGapCurve(), s = crownSunShare(p); return c0 + s * (c1 + s * (c2 + s * c3)); };
+  const open = (opens: number[]) => {
     let lit = 0, n = 0;
     for (let i = 0; i < 120; i++) for (let j = 0; j < 120; j++, n++) {
       const x = 1000 + i * 0.53, z = -2000 + j * 0.47;
-      let through = true;
-      for (let k = 0; k < crowns; k++) if (crownGapNoise(x, z) >= crownGapCut()) through = false;
-      if (through) lit++;
+      if (opens.every(p => crownGapNoise(x, z) < curve(p))) lit++;
     }
     return lit / n;
   };
-  it('opens the calibrated share of a closed canopy away from the calibration grid', () => {
-    expect(Math.abs(open(1) - CROWN_GAPS.open)).toBeLessThan(0.04);
+  it('opens each crown\'s measured share of a closed canopy away from the calibration grid', () => {
+    for (const p of [0.03, 0.08, 0.13, UNMEASURED_OPENNESS, 0.3, 0.62]) expect(Math.abs(open([p]) - crownSunShare(p))).toBeLessThan(0.04);
+    // Calibrated at Puolanpuisto (grove crowns 0.21, sunlit lawn 27.5 %); an unmeasured crown keeps the forests' 25 %.
+    expect(crownSunShare(0.21)).toBeCloseTo(0.275, 2);
+    expect(crownSunShare(UNMEASURED_OPENNESS)).toBeCloseTo(0.25, 2);
   });
-  it('keeps that share where crowns overlap along the sun', () => {
-    expect(open(3)).toBe(open(1));
+  it('keeps the densest share where crowns overlap along the sun', () => {
+    expect(open([0.21, 0.21, 0.21])).toBe(open([0.21]));
+    expect(open([0.13, 0.4])).toBe(open([0.13]));
+  });
+  it('fills dense crowns and leaves open ones as the models draw them', () => {
+    expect(crownFill(UNMEASURED_OPENNESS)).toBe(1);
+    expect(crownFill(0.62)).toBe(1);
+    expect(crownFill(CROWN_GAPS.dense)).toBe(CROWN_GAPS.fill);
+    expect(crownFill(0.13)).toBeGreaterThan(1.5);
+  });
+  it('carries the openness in the tint below the 8-bit colour step', () => {
+    for (const red of [0.7, 0.93, 1.0, 1.21]) for (const p of [0, 0.13, 0.25, 0.62, 1]) {
+      const encoded = encodeOpenness(red, p);
+      expect(Math.abs(encoded - red)).toBeLessThan(1 / OPEN_STEP);
+      expect(decodeOpenness(Math.fround(encoded))).toBeCloseTo(p, 3);
+    }
+    const tint = natureTint('lidar:1:2', undefined, 0.13), plain = natureTint('lidar:1:2');
+    expect(decodeOpenness(tint[0])).toBeCloseTo(0.13, 3); expect(decodeOpenness(plain[0])).toBeCloseTo(UNMEASURED_OPENNESS, 3);
+    expect([tint[1], tint[2]]).toEqual([plain[1], plain[2]]);
+    for (const untinted of [0, 0.5, 1]) expect(decodeOpenness(untinted)).toBe(UNMEASURED_OPENNESS);
   });
   it('makes flecks of about the sun-fleck scale, not single-texel speckle', () => {
     // Along a 50 m line the open/closed state changes about once per fleck, not per 10 cm sample.

@@ -48,12 +48,31 @@ export function natureAsset(variant: string, objectId: string, height: number, n
   return pick(/detailed/i.test(variant) || height >= 13 ? LARGE : SMALL, unit);
 }
 
-/** Per-tree linear tint (brightness and a little yellow/blue shift), shared by every LOD of that tree. */
-export function natureTint(objectId: string, out: [number, number, number] = [1, 1, 1]): [number, number, number] {
+/** Openness of a crown nothing measured (trees-lidar@3 `open`: the ground share of the lidar returns under a crown):
+ *  the one whose sun share (materials.ts CROWN_GAPS.sun) is the 25 % the forest floors were calibrated to, and below
+ *  which a crown fills. */
+export const UNMEASURED_OPENNESS = 0.19;
+/** A crown's openness rides in its tint's red channel, below what 8-bit colour shows: red is quantised to
+ *  1/OPEN_STEP and the openness sits in the middle 80 % of that step (under 0.4 % of red). Every LOD, pool and shadow
+ *  proxy copies the tint, so the leaf shader (materials.ts) reads it per instance with no extra attribute. A colour
+ *  without it (on a step, such as an untinted 1 or no instance colour) reads as UNMEASURED_OPENNESS. */
+export const OPEN_STEP = 256;
+export function encodeOpenness(red: number, open: number) {
+  return Math.floor(red * OPEN_STEP) / OPEN_STEP + (0.1 + 0.8 * Math.min(1, Math.max(0, open))) / OPEN_STEP;
+}
+/** CPU mirror of the leaf shader's decoding. */
+export function decodeOpenness(red: number) {
+  const step = red * OPEN_STEP, f = step - Math.floor(step);
+  return f < 0.05 ? UNMEASURED_OPENNESS : Math.min(1, Math.max(0, (f - 0.1) / 0.8));
+}
+
+/** Per-tree linear tint (brightness and a little yellow/blue shift), shared by every LOD of that tree, carrying the
+ *  crown's openness (`encodeOpenness`). */
+export function natureTint(objectId: string, out: [number, number, number] = [1, 1, 1], open = UNMEASURED_OPENNESS): [number, number, number] {
   const h = hashId(`${objectId}:tint`);
   const brightness = 0.82 + ((h & 0xff) / 255) * 0.3;
   const warm = (((h >>> 8) & 0xff) / 255 - 0.5) * 0.16;
-  out[0] = brightness * (1 + warm); out[1] = brightness * (1 + warm * 0.35); out[2] = brightness * (1 - warm);
+  out[0] = encodeOpenness(brightness * (1 + warm), open); out[1] = brightness * (1 + warm * 0.35); out[2] = brightness * (1 - warm);
   return out;
 }
 

@@ -49,10 +49,14 @@ Two smaller findings:
   - an oval footprint: axis ratio under 0.85, never below 0.75.
 
   Bushes and unsupported trees keep their size.
-- **Output:** `instance_crowns` `[h, r, shear x, shear z, stretch, angle, base]` in each vegetation node's extras.
+- **Output:** `instance_crowns` `[h, r, shear x, shear z, stretch, angle, base, open]` in each vegetation node's
+  extras.
   - `base` (`trees-lidar@2`): the crown base as a fraction of the height, from the leaf cells on the crown's open
     side; null inside a closed stand. The game stretches a crown about its top down to a lower measured base
     (`crownBaseStretch`, at most 1.3x), so stand edges and roadside rows read as foliage from near the ground.
+  - `open` (`trees-lidar@3`): the ground share of the class 2-5 returns within 0.6 r (2 m gap cells from the decoded
+    LAZ, 2.4 s per block once). The game opens the crown's shadow on 1.3x that share (calibrated at Puolanpuisto) and
+    fills crowns under 0.19 up to 2x leaf alpha (`nature/materials.ts` CROWN_GAPS).
   - Only the visual GLB's JSON is written; every other payload is a hard link.
   - No new manifest key and no farm upgrade.
   - Trunk collision keeps the generator's placement.
