@@ -326,7 +326,7 @@ describe('bench lab LOD overrides', () => {
     applyLodOverrides(parseLodOverrides(''), 'medium', params);
     expect(snapshot()).toBe(original);
     expect(params.traffic).toBeNull();
-    expect(lodSettings('medium', params)).toMatchObject({ props: { hide: 125, show: 115 }, trees: [50, 180, 650],
+    expect(lodSettings('medium', params)).toMatchObject({ props: { hide: 125, show: 115 }, trees: [50, 120, 650],
       shadow: { far: 200, cascades: 3, splits: [16, 50, 200] }, fullr: { radius: 1, window: '3x3', tileDetail: 450 },
       cellFloor: 580, cars: 30, walkers: 60, lodfade: 0.6, treefade: { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] } });
     expect(wantedTiles(125, 125)).toHaveLength(9);

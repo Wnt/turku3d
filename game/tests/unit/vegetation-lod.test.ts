@@ -107,7 +107,7 @@ describe('vegetation LOD', () => {
     const scene=new THREE.Scene();scene.add(model);
     const lod=new VegetationLod('medium',library);lod.screenshotDistance=4000;lod.add(model);
     const camera=new THREE.PerspectiveCamera(65,1,.1,5000);
-    for(const [height,level]of [[120,1],[400,2]]) {
+    for(const [height,level]of [[80,1],[400,2]]) {
       camera.position.set(0,height,0);camera.lookAt(0,0,-20);lod.update(camera);
       const foliage=generated(model,mesh).filter(b=>b.visible&&!b.userData.shadowProxy&&base(b)!==library.materials.bark);
       expect(foliage).toHaveLength(1);expect(foliage[0].userData.level).toBe(level);
@@ -175,7 +175,7 @@ describe('vegetation LOD', () => {
   });
 
   it('draws far trees as impostors without shadows, and drops shrubs beyond their last LOD', () => {
-    const scene = new THREE.Scene(), trees = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, i ? -400 : -100));
+    const scene = new THREE.Scene(), trees = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(0, 0, i ? -400 : -80));
     scene.add(trees.model);
     const lod = new VegetationLod('medium', library);
     lod.add(trees.model);
@@ -553,7 +553,10 @@ it('cross-fades cost a few per cent of vegetation triangles at the riverside fli
     try { scaleVegetationFade(0); instant = measure(); } finally { Object.assign(VEGETATION_FADE, { width: [...saved.width], stagger: [...saved.stagger] }); }
     process.stderr.write(JSON.stringify({ height, faded, instant }) + '\n');
     expect(faded.byLevel[0]).toBeLessThanOrEqual(instant.byLevel[0]); // full meshes never reach farther
-    expect(faded.triangles).toBeLessThan(instant.triangles * 1.06);
+    // The fades' extra triangles are mostly the near band's full + reduced meshes. At street level they are 114k with
+    // the medium mid band at 180 m and at 120 m alike; the shorter reduced band leaves fewer triangles in all (1.39M
+    // against 1.98M), so the same overlap is a larger share there.
+    expect(faded.triangles).toBeLessThan(instant.triangles * (height > 10 ? 1.06 : 1.09));
     expect(faded.draws).toBeLessThanOrEqual(instant.draws * 1.1);
   }
 });

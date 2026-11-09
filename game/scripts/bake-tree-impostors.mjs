@@ -76,10 +76,10 @@ for (const [index, name] of trees.entries()) {
   const quad = impostorQuad(MeshBuilder, index, R, top), lod = nodes.get(`${name}.lod${info.lods.length - 1}`);
   const mesh = lod.getMesh();
   for (const prim of mesh.listPrimitives()) prim.dispose();
-  // No colour or wind: the views carry the crown's shading, and the far band does not sway.
+  // No normal, colour or wind: the views carry the shading and the normals, and the far band does not sway (a vertex
+  // stage takes 16 attributes, src/world/nature/impostor.ts).
   mesh.addPrimitive(doc.createPrimitive().setMaterial(impostorMaterial)
     .setAttribute('POSITION', accessor(new Float32Array(quad.positions), 'VEC3'))
-    .setAttribute('NORMAL', accessor(new Float32Array(quad.normals), 'VEC3'))
     .setAttribute('TEXCOORD_0', accessor(new Float32Array(quad.uvs), 'VEC2'))
     .setAttribute('_IMPOSTOR', accessor(new Float32Array(quad.impostor), 'VEC4'))
     .setIndices(accessor(new Uint16Array(quad.indices), 'SCALAR')));

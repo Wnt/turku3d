@@ -2,7 +2,6 @@
 // (scripts/nature/octahedral.mjs), and nature.glb carries one quad per tree with its slot and the baked depth.
 import { describe, expect, it } from 'vitest';
 import { IMPOSTOR_BLOCKS, IMPOSTOR_FRAMES, IMPOSTOR_MARGIN } from '../../src/world/nature/impostor';
-// @ts-expect-error untyped build module
 import { BLOCKS, FRAMES, MARGIN, atlasSize, hemiOctDecode, hemiOctEncode, viewFrame } from '../../scripts/nature/octahedral.mjs';
 import { readFileSync } from 'node:fs';
 import { NodeIO } from '@gltf-transform/core';
@@ -17,7 +16,7 @@ describe('octahedral impostor layout', () => {
 
   it('round-trips view directions over the upper hemisphere and frames each view upright', () => {
     for (let i = 0; i < FRAMES; i++) for (let j = 0; j < FRAMES; j++) {
-      const g = [i / (FRAMES - 1), j / (FRAMES - 1)], d = hemiOctDecode(g[0], g[1]);
+      const g = [i / (FRAMES - 1), j / (FRAMES - 1)], d = hemiOctDecode(g[0], g[1]) as [number, number, number];
       expect(Math.hypot(...d)).toBeCloseTo(1, 6); expect(d[1]).toBeGreaterThanOrEqual(-1e-9);
       const back = hemiOctEncode(d);
       expect(back[0]).toBeCloseTo(g[0], 6); expect(back[1]).toBeCloseTo(g[1], 6);
@@ -48,9 +47,11 @@ describe('nature.glb impostors', () => {
       const primitives = node.getMesh()!.listPrimitives();
       expect(primitives).toHaveLength(1);
       expect(primitives[0].getMaterial()!.getName()).toBe('nature_impostor');
+      // Position, corner and cylinder only: the vertex stage's 16 attributes also carry the instancing (impostor.ts).
+      expect(primitives[0].listSemantics().sort()).toEqual(['POSITION', 'TEXCOORD_0', '_IMPOSTOR']);
       const info = primitives[0].getAttribute('_IMPOSTOR')!;
       expect(info.getCount()).toBe(4);
-      const [R, top, slot] = info.getElement(0, []);
+      const [R, top, slot] = info.getElement(0, []) as number[];
       // The cylinder holds the fitted crown: wider than a trunk, as tall as the model.
       expect(R).toBeGreaterThan(2); expect(top).toBeGreaterThan(8); expect(top).toBeLessThan(30);
       slots.add(slot);

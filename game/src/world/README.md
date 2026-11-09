@@ -37,7 +37,7 @@ Cached city scenery advertises small content-keyed `trees_url` sidecars for the 
 placements, extracted without loading textures or rebuilding geometry. Nearby scenery
 waits for those placements and the shared nature library before it becomes visible.
 Both paths use `VegetationLod`: cells cull and pack instances, while each tree's own
-3D camera distance chooses full mesh, reduced mesh or impostor. Each boundary (50/180/650 m
+3D camera distance chooses full mesh, reduced mesh or impostor. Each boundary (50/120/650 m
 at medium) cross-fades per tree over a band just inside it: a tree in the band draws both
 levels, and their materials (`NatureMaterials.lodVariant`) split its pixels with one per-frame
 screen-door threshold, which TRAA resolves into a blend. Each tree's band is offset by a hash
