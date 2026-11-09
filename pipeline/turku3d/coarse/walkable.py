@@ -49,6 +49,30 @@ def coordinates(line, points):
     return station, np.sum((points - centre) * normal, axis=1)
 
 
+def near_line(line, points, reach):
+    """Exact cutoff for finite points, rejecting whole cells far from the path."""
+    candidates = np.arange(len(points))
+    if len(points) >= 4096:
+        origin = points.min(axis=0)
+        cells = np.floor((points - origin) / 4).astype(np.int64)
+        size = cells.max(axis=0) + 1
+        if int(size[0]) * int(size[1]) <= 1 << 20:
+            flat = cells[:, 0] * size[1] + cells[:, 1]
+            occupied = np.zeros(int(size[0]) * int(size[1]), bool)
+            occupied[flat] = True
+            used = np.flatnonzero(occupied)
+            x, z = (origin + np.c_[used // size[1], used % size[1]] * 4).T
+            boxes = shapely.box(x - 1e-3, z - 1e-3, x + 4 + 1e-3, z + 4 + 1e-3)
+            # The expanded box contains every return assigned to it, so its
+            # distance is a lower bound. Never accept a point from this bound.
+            occupied[used] = shapely.distance(boxes, line) <= reach + 1e-6
+            candidates = np.flatnonzero(occupied[flat])
+    query = shapely.points(points[candidates])
+    keep = np.zeros(len(points), bool)
+    keep[candidates] = shapely.distance(query, line) < reach
+    return keep
+
+
 def measure(key, line, width, points, window):
     """Fixed eight-metre knots make fitting independent of tile crop and pass order."""
     bounds = line.buffer(width / 2 + 7).bounds
@@ -59,14 +83,7 @@ def measure(key, line, width, points, window):
         & (points[:, 2] <= bounds[3])
     )
     points = points[near]
-    query, reach = shapely.points(points[:, [0, 2]]), width / 2 + 7
-    # An indexed distance-within test (1 µm wider) admits a superset; the exact
-    # distance then decides only those, instead of every point in the box.
-    shapely.prepare(line)
-    candidates = np.flatnonzero(shapely.dwithin(line, query, reach + 1e-6))
-    keep = np.zeros(len(points), bool)
-    keep[candidates] = shapely.distance(query[candidates], line) < reach
-    points = points[keep]
+    points = points[near_line(line, points[:, [0, 2]], width / 2 + 7)]
     station, lateral = coordinates(line, points[:, [0, 2]])
     knots = np.unique(np.r_[np.arange(0, line.length, 8), line.length])
     centres = shapely.get_coordinates(shapely.line_interpolate_point(line, knots))
