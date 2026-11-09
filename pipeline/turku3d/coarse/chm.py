@@ -12,6 +12,10 @@ config.ORIGIN), fills ground under buildings from the nearest ground cell, and s
 
     python -m turku3d.coarse.chm blocks SRC_DIR OUT_DIR    # one npz per block, nearest the origin first; resumes
     python -m turku3d.coarse.chm merge OUT_DIR CHM.npz
+
+The merged model may be rewritten as the batch finishes more blocks (centre-out). Survey blocks key on the model
+inside their own window (horizon_regional.chm_digest), so a rewrite rebuilds only the blocks it newly covers; the
+scenery service reads the file once, so restart it after a rewrite.
 """
 from __future__ import annotations
 

@@ -109,18 +109,36 @@ def chm_grid(path):
         return {key: data[key] for key in data.files}
 
 
-def chm_covers(tile, path):
-    """The model holds every cell of ``tile`` and the ring of shell cells around it."""
-    data = chm_grid(str(path)); step = float(data['step'])
+def _chm_window(tile, data):
+    """Grid rows and columns of ``tile`` and the ring of shell cells around it (two 1 km node cells), or None when the
+    grid does not reach that far."""
+    step, margin = float(data['step']), 2 * CANOPY_STEP[2]
     rows, cols = data['chm'].shape
-    margin = CANOPY_STEP[4]
     r0, r1 = int((tile.bbox.zmin - margin - float(data['zmin'])) // step), int((tile.bbox.zmax + margin - float(data['zmin'])) // step)
     c0, c1 = int((tile.bbox.xmin - margin - float(data['xmin'])) // step), int((tile.bbox.xmax + margin - float(data['xmin'])) // step)
     if r0 < 0 or c0 < 0 or r1 >= rows or c1 >= cols:
-        return False
-    r0, r1 = int((tile.bbox.zmin - float(data['zmin'])) // step), int((tile.bbox.zmax - 1e-6 - float(data['zmin'])) // step)
-    c0, c1 = int((tile.bbox.xmin - float(data['xmin'])) // step), int((tile.bbox.xmax - 1e-6 - float(data['xmin'])) // step)
-    return bool(data['seen'][r0:r1 + 1, c0:c1 + 1].all())
+        return None
+    return slice(r0, r1 + 1), slice(c0, c1 + 1)
+
+
+def chm_covers(tile, path):
+    """Every model cell of ``tile`` and of the ring of shell cells around it was scanned. The model grows block by block
+    as its batch runs; a tile switches to it once its whole window is in."""
+    data = chm_grid(str(path))
+    window = _chm_window(tile, data)
+    return window is not None and bool(data['seen'][window].all())
+
+
+def chm_digest(tile, path):
+    """Identity of the model inside ``tile``'s window: unchanged when the model grows elsewhere, so only the tiles it
+    newly covers rebuild."""
+    import hashlib
+    data = chm_grid(str(path))
+    window = _chm_window(tile, data)
+    h = hashlib.sha256(f"{tile.id}:{float(data['step'])}".encode())
+    for key in ('chm', 'dtm'):
+        h.update(np.ascontiguousarray(data[key][window]).tobytes())
+    return h.hexdigest()
 
 
 def _chm_index(data, x, z):

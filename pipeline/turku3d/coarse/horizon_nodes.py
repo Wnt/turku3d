@@ -20,7 +20,7 @@ from .far_ground import skirt, survey_colours
 
 def describe(service, tile):
     from .horizon import digest
-    from .horizon_regional import chm_covers
+    from .horizon_regional import chm_covers, chm_digest
     blocks, files = [], set()
     for i, j in C.grid_range(tile.bbox, 500):
         block = C.VisualTile(1, i, j)
@@ -57,9 +57,11 @@ def describe(service, tile):
         if service.regional_row(block):
             row['canopy'] = service.regional
             files.add(service.regional)
+            # The model file grows as its batch runs: the node's key takes the model inside the block's window, not the
+            # file, so a growing model only rebuilds the blocks it newly covers.
             if getattr(service, 'chm', None) and chm_covers(block, service.chm):
                 row['chm'] = service.chm
-                files.add(service.chm)
+                row['chm_sha256'] = chm_digest(block, service.chm)
         blocks.append(row)
         for paths in (row[k] for k in ('ground', 'buildings', 'water', 'streets', 'osm')):
             files.update(paths)

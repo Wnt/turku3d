@@ -103,7 +103,7 @@ if __name__ == '__main__':
     parser.add_argument('--survey', action='store_true', help='Fill missing far tiles directly from cached survey inputs')
     parser.add_argument('--regional', help='Immutable public regional.npz terrain grid')
     parser.add_argument('--lod-buildings', action='store_true', help='Distant buildings as LoD2 block parents (gen2arch)')
-    parser.add_argument('--chm', help='Immutable city lidar canopy height model (pipeline/turku3d/coarse/chm.py merge)')
+    parser.add_argument('--chm', help='City lidar canopy height model (pipeline/turku3d/coarse/chm.py merge); read once at start')
     args = parser.parse_args()
     survey = None
     if args.survey:

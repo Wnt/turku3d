@@ -154,11 +154,11 @@ def test_far_canopy_covers_tree_cells_only_and_faces_out(tmp_path):
     assert 4 <= tops.max() <= 9 + 1e-6 and tops.min() >= -2.1  # feet: 2 m under the lower side
 
 
-def _chm(tmp_path, height_at, ground=10.0, step=4.0, size=2000.0):
+def _chm(tmp_path, height_at, ground=10.0, step=4.0, size=2000.0, name='chm.npz'):
     """A merged lidar canopy model (coarse/chm.py format) over x, z 0..size with flat ground."""
     n = int(size / step)
     x, z = np.meshgrid((np.arange(n) + .5) * step, (np.arange(n) + .5) * step)
-    path = tmp_path / 'chm.npz'
+    path = tmp_path / name
     np.savez_compressed(path, chm=np.round(height_at(x, z) * 10).astype('int16'),
                         dtm=np.full((n, n), int(ground * 10), 'int16'), seen=np.ones((n, n), bool),
                         xmin=0., zmin=0., step=step)
@@ -183,6 +183,21 @@ def test_far_canopy_follows_the_lidar_canopy_height_model(tmp_path):
     assert not np.any(middle & (tops > 5))
     # A block the model does not cover keeps the land-cover shell.
     assert canopy(C.VisualTile(1, 6, 0), region, 31.25, chm=chm) is None
+
+
+def test_a_growing_canopy_model_only_changes_the_blocks_it_newly_covers(tmp_path):
+    from turku3d.coarse.horizon_regional import chm_covers, chm_digest, chm_grid
+    trees = lambda x, z: np.where((x // 100 + z // 100) % 2 == 0, 12.0, 0.0)
+    small = _chm(tmp_path, trees, size=2000.0, name='small.npz')
+    grown = _chm(tmp_path, trees, size=3000.0, name='grown.npz')
+    inside, edge, new = C.VisualTile(1, 1, 1), C.VisualTile(1, 3, 1), C.VisualTile(1, 4, 1)  # x 500.., 1500.., 2000..
+    assert chm_covers(inside, small) and chm_covers(inside, grown)
+    assert chm_digest(inside, small) == chm_digest(inside, grown)
+    assert not chm_covers(edge, small) and chm_covers(edge, grown)  # its ring of shell cells reaches past 2000 m
+    assert not chm_covers(new, small) and chm_covers(new, grown)
+    changed = _chm(tmp_path, lambda x, z: trees(x, z) + (abs(x - 700) < 20) * 3.0, size=3000.0, name='changed.npz')
+    assert chm_digest(inside, changed) != chm_digest(inside, grown)
+    chm_grid.cache_clear()
 
 
 def test_chm_merge_orients_blocks_and_fills_ground(tmp_path, monkeypatch):
