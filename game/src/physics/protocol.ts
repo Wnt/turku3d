@@ -61,12 +61,15 @@ export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode
   /** A car's newest owner state (net/motion.ts), for the full simulation of nearby remote cars (world.ts REMOTE_SIM). */
   state?: RemoteCarState;
   /** Its model and the model's driving tuning: the tuning is resent now and then, the worker keeps the last one. */
-  model?: string; tuning?: VehicleTuning | null }
+  model?: string; tuning?: VehicleTuning | null;
+  /** This client is the authority of this car's contacts with its own car (world.ts REMOTE_SIM). */
+  lead?: boolean }
 /** `st`: room-clock ms of the state; `age`: seconds it was old when sent; `pos`: chassis centre; `input`: the owner's
  *  replicated controls (null: undriven). */
 export interface RemoteCarState { st: number; age: number; pos: V3; rot: Quat; vel: V3; spin: V3; input: VehicleInput | null }
-/** A remote car simulated here, as drawn: chassis centre, rotation and how often it was placed on its owner's state. */
-export interface RemoteCarDraw { id: string; pos: V3; rot: Quat; snaps: number }
+/** A remote car simulated here: chassis centre, rotation, velocity and how often it was placed on its owner's state;
+ *  `held` while this client is the authority of its contact (world.ts REMOTE_SIM), with its velocity and spin. */
+export interface RemoteCarDraw { id: string; pos: V3; rot: Quat; vel: V3; snaps: number; held?: { vel: V3; spin: V3 } }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
 /** A car part that came off (actors/fleet/debris.ts): a box body of `half` extents and `mass` (kg) at its drawn pose. */
@@ -141,6 +144,7 @@ export type ToWorker =
   /** This client owns vehicle `id` (its shared record): other players' cars damage it here too (vehicle.ts ownDamage). */
   | { type: 'ownVehicleDamage'; id: string }
   | { type: 'remotes'; bodies: RemoteBody[] }
+  | { type: 'follow'; id: string; state: RemoteCarState | null }
   | { type: 'poles'; add: PoleSpec[]; remove: string[] }
   | { type: 'breakPole'; id: string }
   | { type: 'spawnDebris'; spec: DebrisSpec }

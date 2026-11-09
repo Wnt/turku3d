@@ -178,6 +178,7 @@ function handle(msg: ToWorker) {
     case 'vehicleDamage': pw.setVehicleDamage(msg.id, msg.state); break;
     case 'ownVehicleDamage': pw.ownVehicleDamage(msg.id); break;
     case 'remotes': pw.setRemotes(msg.bodies); break;
+    case 'follow': pw.follow(msg.id, msg.state); break;
     case 'poles': pw.setPoles(msg.add, msg.remove); break;
     case 'breakPole': pw.breakPole(msg.id); break;
     case 'spawnDebris': pw.spawnDebris(msg.spec); break;
