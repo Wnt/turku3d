@@ -1,12 +1,14 @@
-"""trees-lidar@1: every drawn tree's crown from the classified lidar (``vegetation.crowns``).
+"""trees-lidar@2: every drawn tree's crown from the classified lidar (``vegetation.crowns``).
 
 Reads the tile's vegetation instances (EXT_mesh_gpu_instancing TRANSLATION and SCALE of each variant's nodes) and the
 class-5 canopy of the LAZ blocks under the tile (``crowns.canopy_cells``, streamed, nothing cached), and
 writes ``instance_crowns`` into the extras of every vegetation node: per instance ``[height, crown radius, shear x,
-shear z, stretch, angle]`` or null where the lidar shows no crown. The game draws a tree with these instead of the
-instance scale, leans it by the shear and stretches its footprint to the crown's ellipse
-(``game/src/world/vegetationLod.ts`` ``shapeTree``). Only the visual GLB's JSON changes; trunk collision keeps
-the generator's placement. A tile without lidar on disk is not changed."""
+shear z, stretch, angle, base]`` or null where the lidar shows no crown; ``base`` (version 2) is the crown base as a
+fraction of the height where open ground lets the lidar measure it, else null (``crowns.crown_base``, from the leaf
+cells of the same blocks). The game draws a tree with these instead of the instance scale, leans it by the shear,
+stretches its footprint to the crown's ellipse and lowers its crown to a lower measured base
+(``game/src/world/vegetationLod.ts`` ``shapeTree``, ``lowerCrown``). Only the visual GLB's JSON changes; trunk
+collision keeps the generator's placement. A tile without lidar on disk is not changed."""
 
 from __future__ import annotations
 
@@ -63,7 +65,22 @@ def tile_canopy(tile: C.VisualTile):
     return canopy_cells(tile)
 
 
-def crowns(document: dict, binary: bytes, product: Product, glb_url: str, origin, canopy) -> dict[str, list]:
+def tile_leaves(tile: C.VisualTile):
+    from turku3d.vegetation.crowns import leaf_cells
+
+    return leaf_cells(tile)
+
+
+def local_leaves(tile: C.VisualTile):
+    """The tile's leaf cells in the tile-local frame of its instances (None without every LAZ block)."""
+    leaves = tile_leaves(tile)
+    if leaves is None:
+        return None
+    return leaves - [tile.origin[0], tile.origin[2], 0.0, 0.0, 0.0, 0.0]
+
+
+def crowns(document: dict, binary: bytes, product: Product, glb_url: str, origin, canopy,
+           leaves=None) -> dict[str, list]:
     """``instance_crowns`` per variant, for the variants' instances in accessor order."""
     from turku3d.vegetation.crowns import measure
 
@@ -83,7 +100,7 @@ def crowns(document: dict, binary: bytes, product: Product, glb_url: str, origin
         return {}
     table = np.asarray(rows, dtype=float)
     trees = np.flatnonzero(table[:, 5] == 0)
-    measured = measure(table[trees, :5], canopy)
+    measured = measure(table[trees, :5], canopy, leaves)
     result = [None] * len(table)
     for i, crown in zip(trees, measured, strict=True):
         result[i] = crown
@@ -104,7 +121,7 @@ def transform(product: Product) -> None:
         return
     # Tile-local canopy, as the instances.
     per_variant = crowns(document, binary, product, entry["url"], (0.0, 0.0, 0.0),
-                         canopy - [tile.origin[0], 0.0, tile.origin[2]])
+                         canopy - [tile.origin[0], 0.0, tile.origin[2]], local_leaves(tile))
     if not any(c is not None for values in per_variant.values() for c in values):
         return
     top = None
@@ -122,4 +139,4 @@ def transform(product: Product) -> None:
         entry["h"] = [entry["h"][0], top]
 
 
-MIGRATION = Migration("trees-lidar", 1, transform)
+MIGRATION = Migration("trees-lidar", 2, transform)

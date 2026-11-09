@@ -5,6 +5,7 @@ import type { NatureAsset, NatureLibrary, NaturePart } from './nature/library';
 import { fenceAsset, fenceTint, natureAsset, natureScale, natureTint } from './nature/species';
 import { GrassField } from './nature/grass';
 import { VEGETATION_FADE } from './nature/materials';
+import { crownBaseStretch } from './nature/crowns';
 import { TILE_SHADOW_LAYER } from './shadowBatch';
 import { materialKey, surfaceStyle } from '../render/materials';
 import { shareInstanceProgram } from '../render/instancePrograms';
@@ -62,6 +63,15 @@ export interface CasterVolumes { toSun: THREE.Vector3; frusta: readonly THREE.Fr
 const MAX_SHADOW_RUN = 6;
 /** Cascade volumes are read one frame (two for alternate-frame cascades) before they render; casters keep this margin. */
 const CASTER_MARGIN = 8;
+
+/** Stretch a placed tree `stretch` times about its top, `height` m above its foot (crowns.ts crownBaseStretch): the crown
+ *  reaches lower, the top stays, and the trunk's foot sinks into the ground. Affine, after the lean. */
+export function lowerCrown(matrix: THREE.Matrix4, height: number, stretch: number) {
+  if (stretch === 1) return matrix;
+  const e = matrix.elements;
+  e[1] *= stretch; e[5] *= stretch; e[9] *= stretch; e[13] -= (stretch - 1) * height;
+  return matrix;
+}
 
 /** Metadata lives on the glTF node; loaders may put the InstancedMesh below it. */
 export function vegetationOwner(object: THREE.Object3D): THREE.Object3D | null {
@@ -292,14 +302,14 @@ export class VegetationLod {
         const id = ids?.[i] ?? `${variant}:${i}`;
         inModel.copy(t).applyMatrix4(toModel);
         const nearWater = owner.userData.instance_near_water?.[i] ?? water.has(waterCell(inModel.x, inModel.z));
-        // trees-lidar@1 (pipeline migrations/trees_lidar.py): the lidar's crown, [height, radius, shear x, shear z,
-        // stretch, angle].
+        // trees-lidar@2 (pipeline migrations/trees_lidar.py): the lidar's crown, [height, radius, shear x, shear z,
+        // stretch, angle, base] (base: null inside a closed stand; absent from trees-lidar@1 tiles).
         const crown = crowns?.[i];
         const height = crown ? crown[0] : s.y, radius = crown ? crown[1] : Math.max(s.x, s.z);
         const asset = library.variant(natureAsset(variant, String(id), height, nearWater, owner.userData.instance_species?.[i] ?? ""), String(id)), name = asset.name;
         const scale = natureScale(height, radius, asset.height, asset.radius);
         const placed = new THREE.Matrix4().compose(t, q, s.set(scale.xz, scale.y, scale.xz));
-        if (crown) shapeTree(placed, crown);
+        if (crown) lowerCrown(shapeTree(placed, crown), height, crownBaseStretch(asset.crownBase, crown[6]));
         place(byAsset, name, placed, natureTint(String(id)), ids?.[i]);
       }
       yield* this.commit(data, mesh, owner, byAsset, library, true);

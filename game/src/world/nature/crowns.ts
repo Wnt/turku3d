@@ -22,6 +22,21 @@ export const LIDAR_CROWNS: Record<string, readonly number[]> = {
 /** Conifers keep their model's taper (too few surveyed in the probe); their widest fifth reaches the measured radius. */
 export const CONIFER_WIDEST = 1.0;
 const CONIFERS = new Set(['pine', 'spruce']);
+/** The lowest crown base (fraction of the height) a measured tree takes, and the most its crown stretches down. */
+export const CROWN_BASE_LIMITS = { min: 0.05, stretch: 1.3 } as const;
+/**
+ * Vertical stretch about the tree top that brings the model's crown base (`modelBase`, crownShape's 3rd-percentile leaf
+ * height as a fraction of the height) down to the measured one (`measured`, trees-lidar@2: the median 10th-percentile
+ * return height of the 2 m leaf cells on the crown's open side, as a fraction of the height). On solitary park trees
+ * the measurement gives 0.29-0.31, the models' 0.27-0.35; stand edges and roadside rows 0.16-0.26 (Kurala,
+ * Puolanpuisto, a central park). 1 where nothing was measured or the measured base is not lower: the foot would lift off.
+ */
+export function crownBaseStretch(modelBase: number | undefined, measured: number | null | undefined): number {
+  if (modelBase === undefined || measured === null || measured === undefined || !(measured < modelBase)) return 1;
+  const base = Math.max(CROWN_BASE_LIMITS.min, measured);
+  return Math.min(CROWN_BASE_LIMITS.stretch, (1 - base) / (1 - modelBase));
+}
+
 /** Widening factor limits per fifth, and the core around the trunk that keeps its thickness (fraction of the radius). */
 export const CROWN_LIMITS = { min: 0.8, max: 1.6, core: [0.04, 0.14] as const, below: 0.12 };
 
@@ -102,6 +117,7 @@ export function fitCrown(asset: NatureAsset, done = new WeakSet<object>()): numb
   const shape = crownShape(asset);
   if (!shape) return null;
   const widening = crownWidening(asset, shape);
+  asset.crownBase = shape.base;
   const mean = widening.reduce((a, b) => a + b, 0) / widening.length;
   let extent = 0;
   asset.lods.forEach((lod, level) => {

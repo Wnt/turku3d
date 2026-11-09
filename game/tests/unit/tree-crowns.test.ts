@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { CROWN_LIMITS, LIDAR_CROWNS, crownFactor, crownShape, crownWidening, fitCrown } from '../../src/world/nature/crowns';
+import { CROWN_BASE_LIMITS, CROWN_LIMITS, LIDAR_CROWNS, crownBaseStretch, crownFactor, crownShape, crownWidening, fitCrown } from '../../src/world/nature/crowns';
 import type { NatureAsset } from '../../src/world/nature/library';
 
 const material = (name: string) => Object.assign(new THREE.MeshBasicMaterial(), { name });
@@ -69,4 +69,18 @@ it('keeps conifer tapers and leaves shrubs and fences alone', () => {
   const widening = crownWidening(spruce, crownShape(spruce)!);
   expect(new Set(widening.map(k => k.toFixed(6))).size).toBe(1);
   expect(fitCrown({ ...tree('lilac'), kind: 'shrub' })).toBeNull();
+});
+
+it('stretches a crown down to its measured base about the top, only ever lower, within the limits', () => {
+  const asset = tree('birch');
+  fitCrown(asset);
+  expect(asset.crownBase).toBeCloseTo(crownShape(asset)!.base, 6);
+  // A stand-edge birch: foliage from 0.19 of its height on the open side against the model's 0.34.
+  const k = crownBaseStretch(0.34, 0.19);
+  expect(k).toBeCloseTo(0.81 / 0.66, 6);
+  expect(1 - (1 - 0.34) * k).toBeCloseTo(0.19, 6); // the model's base lands on the measured one, the top stays
+  for (const measured of [0.34, 0.5, null, undefined]) expect(crownBaseStretch(0.34, measured)).toBe(1);
+  expect(crownBaseStretch(undefined, 0.19)).toBe(1);
+  expect(crownBaseStretch(0.34, 0)).toBeCloseTo(Math.min(CROWN_BASE_LIMITS.stretch, (1 - CROWN_BASE_LIMITS.min) / 0.66), 6);
+  expect(crownBaseStretch(0.6, 0.05)).toBe(CROWN_BASE_LIMITS.stretch);
 });

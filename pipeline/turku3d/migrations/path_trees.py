@@ -1,4 +1,4 @@
-"""path-trees@1: no drawn trunk on walked or driven ground (``vegetation.clearance``, the generator's
+"""path-trees@2: no drawn trunk on walked or driven ground (``vegetation.clearance``, the generator's
 ``coarse.forests.trunk_clearance``).
 
 Decodes the tile's vegetation instances, runs the shared rule against the tile's walked ground (the same
@@ -6,8 +6,8 @@ prepared ``trunk_ground`` input as the generator) and rewrites what it moves or 
 - the instance TRANSLATION/SCALE/ROTATION accessors and the per-instance extras of each variant's nodes;
   a moved trunk keeps its object id (so its rotation and identity) and takes the ground height change at
   its new place from the tile's collision terrain;
-- ``instance_crowns`` re-measured from the lidar for the whole tile (``trees-lidar``'s own ``crowns``), as a
-  generator build measures them after this placement;
+- ``instance_crowns`` re-measured from the lidar for the whole tile (``trees-lidar``'s own ``crowns``, with the crown
+  base since version 2), as a generator build measures them after this placement;
 - the trunk cylinders in the collision cells.
 A tile with no trunk on walked ground is unchanged.
 """
@@ -23,7 +23,7 @@ from turku3d import config as C
 
 from .core import Migration, Product, glb_chunks, glb_pack
 from .furniture import splice_primitives
-from .trees_lidar import accessor, crowns, tile_canopy, vegetation_nodes
+from .trees_lidar import accessor, crowns, local_leaves, tile_canopy, vegetation_nodes
 
 MATCH = 0.05  # m: a collision trunk this close to an instance's old place is that instance's trunk
 
@@ -202,7 +202,7 @@ def transform(product: Product) -> None:
         canopy = tile_canopy(tile)
         if canopy is not None and len(canopy):
             per_variant = crowns(document, binary, product, entry["url"], (0.0, 0.0, 0.0),
-                                 canopy - [tile.origin[0], 0.0, tile.origin[2]])
+                                 canopy - [tile.origin[0], 0.0, tile.origin[2]], local_leaves(tile))
             for variant, nodes in vegetation_nodes(document).items():
                 for i in nodes:
                     document["nodes"][i].setdefault("extras", {})["instance_crowns"] = per_variant[variant]
@@ -265,4 +265,4 @@ def _collision(product, manifest, edits, stats):
         entry["prims"] = entry.get("prims", 0) - found.count(True) + len(additions.get(cell_id, []))
 
 
-MIGRATION = Migration("path-trees", 1, transform)
+MIGRATION = Migration("path-trees", 2, transform)

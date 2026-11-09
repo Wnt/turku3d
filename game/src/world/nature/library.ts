@@ -17,6 +17,8 @@ export interface NatureAsset {
   /** Model height and crown radius (m) at scale 1; fences and hedges are 2 m modules along X. A tile's measured
    *  crown radius maps to `radius`; `extent` is the widest point after the lidar crown fit (nature/crowns.ts). */
   height: number; radius: number; module?: number; extent?: number;
+  /** Trees: the foliage's base as a fraction of the height (crowns.ts crownShape), set by the crown fit. */
+  crownBase?: number;
   /** Nearest first. Trees end with their impostor. */
   lods: NatureLod[];
 }

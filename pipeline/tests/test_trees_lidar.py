@@ -1,4 +1,4 @@
-"""trees-lidar@1: lidar crowns of the drawn trees, written into the vegetation nodes' extras."""
+"""trees-lidar@2: lidar crowns of the drawn trees, written into the vegetation nodes' extras."""
 
 import hashlib
 import json
@@ -6,7 +6,7 @@ import json
 import numpy as np
 
 from turku3d.migrations import core, registry, trees_lidar
-from turku3d.vegetation.crowns import SHEAR_MAX, measure
+from turku3d.vegetation.crowns import BASE_CANOPY, SHEAR_MAX, measure
 
 TILE = "t0_0_0"
 
@@ -41,6 +41,38 @@ def test_measure_fits_an_elliptic_footprint():
     turned = cells[:, [2, 1, 0]]
     (crown,) = measure([[10, 10, 0, 15, 4]], turned)
     assert abs(crown[5] - np.pi / 2) < 0.05
+
+
+def leaf_cells(x, z, radius, low, base=0.0):
+    """Leaf cells (2 m; x, z, pulses, intensity, low, top) under a crown, ``low(dx, dz)`` m above ``base``."""
+    rows = []
+    for i in np.arange(-radius, radius + 0.01, 2.0):
+        for j in np.arange(-radius, radius + 0.01, 2.0):
+            if np.hypot(i, j) <= radius:
+                rows.append([x + i, z + j, 10, 100, base + low(i, j), base + 12])
+    return np.asarray(rows)
+
+
+def test_crown_base_is_measured_on_the_open_side_of_a_crown_with_open_ground():
+    # A 12 m crown at a stand edge: the stand (canopy over BASE_CANOPY) west of it, a field east. Its foliage reaches
+    # 2 m on the field side and 7 m on the stand side (the half facing the field, trunk line included, is measured);
+    # a solitary crown is measured all round; inside the stand none.
+    edge, solitary, inner = crown_cells(50, 50, 12, 4), crown_cells(150, 50, 12, 4), crown_cells(250, 50, 12, 4)
+    stand = np.asarray([[x, 10.0, z] for x in np.arange(30, 47.6, 0.5) for z in np.arange(30, 70.1, 0.5)])
+    around = np.asarray([[x, 10.0, z] for x in np.arange(235, 265.1, 0.5) for z in np.arange(35, 65.1, 0.5)
+                         if np.hypot(x - 250, z - 50) > 4])
+    canopy = np.concatenate([edge, solitary, inner, stand, around])
+    side = lambda i, j: 2.0 if i >= 0 else 7.0
+    leaves = np.concatenate([leaf_cells(50, 50, 4, side), leaf_cells(150, 50, 4, lambda i, j: 3.5),
+                             leaf_cells(250, 50, 4, lambda i, j: 1.0)])
+    trees = [[50, 50, 0, 12, 4], [150, 50, 0, 12, 4], [250, 50, 0, 12, 4]]
+    at_edge, alone, enclosed = measure(trees, canopy, leaves)
+    assert at_edge[6] == round(2.0 / at_edge[0], 3)
+    assert alone[6] == round(3.5 / alone[0], 3)
+    assert enclosed[6] is None and len(enclosed) == 7
+    # Without leaf cells the crowns keep the version-1 shape.
+    assert [len(c) for c in measure(trees, canopy)] == [6, 6, 6]
+    assert BASE_CANOPY < 10
 
 
 def float_view(blob: bytearray, values) -> tuple[int, int]:
@@ -78,6 +110,8 @@ def product(tmp_path, glb):
 def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatch):
     canopy = np.concatenate([crown_cells(40, 40, 22, 5, base=4), crown_cells(100, 40, 15, 3, base=4)])
     monkeypatch.setattr(trees_lidar, "tile_canopy", lambda tile: canopy)
+    # Leaf cells in the engine frame (the tile's origin is 0 for t0_0_0): the first crown's foliage from 6 m up.
+    monkeypatch.setattr(trees_lidar, "tile_leaves", lambda tile: leaf_cells(40, 40, 5, lambda i, j: 2.2, base=4))
     glb = vegetation_glb([[40, 4, 40], [100, 4, 40], [200, 4, 200]], [[3, 10, 3], [3, 15, 3], [1, 1, 1]],
                          ["area:1:40:40", "puut:x", "bush:2"])
     p = product(tmp_path, glb)
@@ -90,6 +124,7 @@ def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatc
     area, register, bush = crowns[0]
     assert 21.5 < area[0] <= 22 and 4 < area[1] < 5.1
     assert 14.5 < register[0] <= 15 and bush is None
+    assert area[6] == round(2.2 / area[0], 3) and register[6] is None
     assert entry["h"][1] == 4 + area[0]
     # Only the JSON changed: the binary chunk is the base's, and a rerun is byte-identical.
     assert binary == core.glb_chunks(glb)[1]
@@ -101,6 +136,7 @@ def test_migration_writes_crowns_into_every_vegetation_node(tmp_path, monkeypatc
 
 def test_tile_without_lidar_or_trees_is_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(trees_lidar, "tile_canopy", lambda tile: np.empty((0, 3)))
+    monkeypatch.setattr(trees_lidar, "tile_leaves", lambda tile: None)
     glb = vegetation_glb([[40, 4, 40]], [[3, 10, 3]], ["puut:x"])
     p = product(tmp_path, glb)
     before = json.dumps(p.manifest, sort_keys=True)
@@ -110,7 +146,7 @@ def test_tile_without_lidar_or_trees_is_unchanged(tmp_path, monkeypatch):
 
 def test_registered_in_the_chain():
     assert trees_lidar.MIGRATION in registry.CHAIN
-    assert trees_lidar.MIGRATION.key == "trees-lidar@1"
+    assert trees_lidar.MIGRATION.key == "trees-lidar@2"
 
 
 def test_canopy_needs_every_laz_block_on_disk(tmp_path, monkeypatch):

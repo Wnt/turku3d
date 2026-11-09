@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three/webgpu';
-import { VegetationLod, fadeReach, leanTree, shapeTree, vegetationLevels } from '../../src/world/vegetationLod';
+import { VegetationLod, fadeReach, leanTree, lowerCrown, shapeTree, vegetationLevels } from '../../src/world/vegetationLod';
 import { VEGETATION_FADE, scaleVegetationFade } from '../../src/world/nature/materials';
 import { GrassField } from '../../src/world/nature/grass';
 import { natureAsset, natureScale, natureTint } from '../../src/world/nature/species';
@@ -707,6 +707,36 @@ it('stretches a tree footprint to its lidar ellipse, preserving the area, before
   // The lean is applied after the ellipse: the crown offset per metre of height is the measured shear.
   const both = shapeTree(new THREE.Matrix4(), [10, 4, 0.05, 0, 1.25, 0]).elements;
   expect(both[4]).toBeCloseTo(0.05, 6);
+});
+
+it('lowers a measured crown to its lidar base: stretched about the top, the foot sunk, the lean kept', () => {
+  const { model, mesh } = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(i * 20, 2, -30));
+  mesh.userData.instance_object_ids = ['lidar:a', 'lidar:b'];
+  mesh.userData.instance_crowns = [[12, 4, 0.05, 0, 1, 0], [12, 4, 0.05, 0, 1, 0, 0.19]];
+  const scene = new THREE.Scene(); scene.add(model);
+  const lod = new VegetationLod('medium', library);
+  const saved = [...library.assets.values()].map(a => [a, a.crownBase] as const);
+  for (const [a] of saved) a.crownBase = 0.34;
+  try {
+    lod.add(model);
+    lod.update(new THREE.PerspectiveCamera(65, 1, 0.1, 1000));
+    const trees = new Map<string, { matrix: THREE.Matrix4; asset: string }>();
+    lod.forEachTree(tree => trees.set(tree.id, { matrix: tree.matrix.clone(), asset: tree.asset }));
+    const asset = library.asset(trees.get('lidar:b')!.asset), k = 0.81 / 0.66;
+    const upright = trees.get('lidar:a')!.matrix, lowered = trees.get('lidar:b')!.matrix;
+    // Without a measured base the tree stands on its trunk; with one, its top stays 12 m up and its model crown base
+    // (0.34 of the height) comes down to 0.19, the trunk's foot below the ground.
+    expect(upright.elements[13]).toBe(2);
+    const at = (m: THREE.Matrix4, u: number) => new THREE.Vector3(0, u * asset.height, 0).applyMatrix4(m);
+    expect(at(lowered, 1).y).toBeCloseTo(at(upright, 1).y, 6);
+    expect(at(lowered, 0.34).y).toBeCloseTo(2 + 0.19 * 12, 6);
+    expect(at(lowered, 0).y).toBeCloseTo(2 - (k - 1) * 12, 6);
+    expect(at(lowered, 1).x - lowered.elements[12]).toBeCloseTo(at(upright, 1).x - upright.elements[12], 6);
+    expect(lowerCrown(new THREE.Matrix4(), 12, 1).equals(new THREE.Matrix4())).toBe(true);
+  } finally {
+    for (const [a, base] of saved) a.crownBase = base;
+    lod.remove(model);
+  }
 });
 
 describe('tree shadow casters', () => {
