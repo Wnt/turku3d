@@ -71,6 +71,7 @@ def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tm
     assert result['state'] == 'migrated'
     old = Path(result['displaced'])
     assert json.loads((old / 'manifest.json').read_text()) == original
+    assert all((old / p).is_file() for p in core.references(core.Product(old, original)))
     current = json.loads((output / TILE / 'manifest.json').read_text())
     assert current['lights']['count'] == 2
     assert current['migrations'] == [*original['migrations'], {'name': 'correct-lamps', 'version': 1}]
