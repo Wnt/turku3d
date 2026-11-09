@@ -2,7 +2,8 @@ import * as THREE from 'three/webgpu';
 import {
   abs, attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
-  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
+  renderGroup, specularColor, specularColorBlended, specularF90, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix,
+  luminance,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { viewClearance } from '../../render/viewClearance';
@@ -93,6 +94,20 @@ export function crownFill(open: number) {
   return 1 + (CROWN_GAPS.fill - 1) * t * t * (3 - 2 * t);
 }
 
+/** Share of the dielectric specular (F0 0.04, F90 1) that leaf and impostor cards keep. A card reflects the open sky,
+ *  but inside a crown most of that sky is other leaves: at full strength the sky's blue made shaded crowns B/G 0.72
+ *  even without the bloom veil (panorama 0.21); half of it, with the lighter crown light, gives 0.2. */
+export const FOLIAGE_SPECULAR = 0.5;
+/** Leaf and impostor cards: a standard material with FOLIAGE_SPECULAR. Clones (LOD variants) keep the class. */
+class FoliageMaterial extends THREE.MeshStandardNodeMaterial {
+  setupSpecular() {
+    const f0 = vec3(0.04 * FOLIAGE_SPECULAR);
+    specularColor.assign(f0);
+    specularColorBlended.assign(f0);
+    specularF90.assign(float(FOLIAGE_SPECULAR));
+  }
+}
+
 /** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
 export function scaleVegetationFade(scale: number) {
   for (let j = 0; j < 3; j++) { VEGETATION_FADE.width[j] = Math.max(1e-4, VEGETATION_FADE.width[j] * scale); VEGETATION_FADE.stagger[j] *= scale; }
@@ -133,9 +148,10 @@ export class NatureMaterials {
   /** Crown light from the baked crown-depth AO in the leaf vertex colour (0.18 in the core .. 1 on the shell,
    *  scripts/nature/trees.mjs): x albedo exponent, y ambient (indirect light) exponent, z alpha gain of the core cards
    *  (closes the sky gaps inside a crown while the rim keeps the 0.5 cut), w translucency exponent (only the outer
-   *  leaves let the sun through). Calibrated against 18 summer Turku panoramas (green value p10 0.17, 6 % darker than
-   *  0.15): before, forest and aerial views had p10 0.22-0.27 and no darks at all; now 0.13-0.22 and 3-13 %. */
-  readonly crownLight = uniform(new THREE.Vector4(1.7, 1.55, 1.5, 2.1)).setGroup(renderGroup);
+   *  leaves let the sun through). x and y were 1.7 and 1.55, calibrated against 18 summer Turku panoramas while the
+   *  daytime bloom still veiled the frame; without the veil the Kansanpuisto crown in shade fell to 0.024 of the sky's
+   *  luminance (panorama 0.064). At 0.5 it is 0.061, and its ~250 m treeline 0.12 (panorama 0.13). */
+  readonly crownLight = uniform(new THREE.Vector4(0.5, 0.5, 1.5, 2.1)).setGroup(renderGroup);
   /** Bark albedo multiplier for mid and dark barks; the white birch stays white (luminance above ~0.6). */
   readonly barkTint = uniform(new THREE.Vector3(0.78, 0.71, 0.64)).setGroup(renderGroup);
   /** Leaf and impostor tone: an rgb multiplier and w the saturation around the luminance. The panoramas' greens sit at
@@ -197,11 +213,12 @@ export class NatureMaterials {
     // Double-sided, alpha test 0.5, shadow-receiving on every tier: Jonni's pick (2026-11-05, treelook2, live A/B after
     // the TRAA fix) over single-sided cards and alpha test 0.65. None differed beyond noise on the M1 Max (medium).
     // The vertex colour is the crown-depth AO; crownLight shapes it (the material applies it, not vertexColors).
-    this.leaves = new THREE.MeshStandardNodeMaterial({ name: 'nature-leaves', side: THREE.DoubleSide,
+    this.leaves = new FoliageMaterial({ name: 'nature-leaves', side: THREE.DoubleSide,
       alphaTest: 0.5, roughness: 0.92, metalness: 0 });
     const crownAo = vertexColor().r;
     const shell = smoothstep(0.3, 0.85, crownAo);
-    const tone = (rgb: THREE.Node<'vec3'>) => { const warm = rgb.mul(this.leafTone.xyz); return mix(vec3(luminance(warm)), warm, this.leafTone.w); };
+    // The saturation gain drove the blue of the greenest texels below zero; clamped, a leaf never absorbs other light.
+    const tone = (rgb: THREE.Node<'vec3'>) => { const warm = rgb.mul(this.leafTone.xyz); return max(mix(vec3(luminance(warm)), warm, this.leafTone.w), vec3(0)); };
     // The crown's openness (species.ts encodeOpenness) from the instance tint: dense crowns fill (CROWN_GAPS).
     const step = fract(instanceColor.x.mul(OPEN_STEP));
     const openness = select(step.lessThan(0.05), float(UNMEASURED_OPENNESS), clamp(step.sub(0.1).div(0.8), 0, 1));
@@ -270,7 +287,7 @@ export class NatureMaterials {
 
     const imp = sources.nature_impostor;
     const impMap = imp.map!, impTex = texture(impMap, uv());
-    this.impostor = new THREE.MeshStandardNodeMaterial({ name: 'nature-impostor', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0,
+    this.impostor = new FoliageMaterial({ name: 'nature-impostor', side: THREE.DoubleSide, alphaTest: 0.5, roughness: 0.95, metalness: 0,
       normalMap: imp.normalMap, normalScale: imp.normalScale.clone() });
     // Crossed planes fade out edge-on through a screen door that changes every frame, so temporal AA resolves it
     // into a blend (a screen-fixed pattern crawled over the crowns as the camera moved: the speckle flicker).
