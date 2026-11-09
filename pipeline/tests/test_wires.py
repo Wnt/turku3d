@@ -58,7 +58,7 @@ def test_a_hogging_fit_is_held_straight():
     assert profile[2] == 0.0
 
 
-def test_span_wire_between_facades_carries_a_hung_lamp():
+def test_span_wire_between_facades_carries_a_hung_lamp(monkeypatch):
     lamp = (25.0, 13.0, 20.6)
     # The last 1.5 m before each wall and 0.8 m round the lamp give no returns, as in the survey.
     left = catenary((11.5, 14.0, 20.0), (24.2, 13.1, 20.57), 80)
@@ -80,6 +80,13 @@ def test_span_wire_between_facades_carries_a_hung_lamp():
     field = W.record(found, lamps)
     assert field["version"] == 1 and len(field["wires"]) == len(found) and len(field["lamps"]) == 1
     assert all(len(w) == 8 for w in field["wires"])
+    from turku3d.stage_cache import content_key
+    expected = content_key(([vars(w) for w in found], lamps))
+    permutation = np.random.default_rng(815).permutation(len(xyz))
+    monkeypatch.setattr(W, "near_segments", lambda points, segments, margin:
+                        points[np.lexsort((points[:, 1], points[:, 2], points[:, 0]))])
+    full, full_lamps = W.detect(xyz[permutation], classes[permutation], (0, 0, 50, 40), search=0)
+    assert content_key(([vars(w) for w in full], full_lamps)) == expected
 
 
 def test_a_crown_of_overlap_returns_holds_no_wire():
@@ -185,7 +192,39 @@ def test_segment_crop_keeps_every_possible_query_return_in_source_order():
         expected |= ((points[:, 0] >= lo[0]) & (points[:, 0] <= hi[0]) &
                      (points[:, 2] >= lo[2]) & (points[:, 2] <= hi[2]))
     assert np.array_equal(W.near_segments(points, segments, 2), points[expected])
+    shuffled = points[rng.permutation(len(points))]
+    assert np.array_equal(W.near_segments(shuffled, segments, 2), points[expected])
     assert W.near_segments(points, [], 2).shape == (0, 3)
+
+
+def test_late_candidate_order_equals_sorting_the_complete_survey():
+    from turku3d.wire_points import height_above_ground, wire_points
+
+    rng = np.random.default_rng(224)
+    line = catenary((10, 14, 20), (45, 14, 20), 80)
+    clutter = rng.uniform([55, 3, 55], [85, 20, 85], (12000, 3))
+    xyz, classes = scene((ground(0, 0, 90, 90, step=2), 2),
+                         (line, 1), (line[::11], 12), (clutter, 5))
+    permutation = rng.permutation(len(xyz))
+    xyz, classes = xyz[permutation], classes[permutation]
+    order = np.lexsort((xyz[:, 1], xyz[:, 2], xyz[:, 0]))
+
+    def extract(points, labels, canonical):
+        x, y, z = points.T
+        height = height_above_ground(x, z, y, labels, origin=(0, 0))
+        options = {} if canonical is None else dict(canonical_order=canonical)
+        return wire_points(x, z, y, labels, height, r=W.STAGE,
+                           origin=(0, 0), workers=1, **options)
+
+    expected, segments = extract(xyz[order], classes[order], False)
+    assert len(expected) >= W.STAGE['min_points']
+    actual, actual_segments = extract(xyz, classes, True)
+    np.testing.assert_array_equal(actual, order[expected])
+    np.testing.assert_array_equal(actual_segments, segments)
+    default, default_segments = extract(xyz, classes, None)
+    explicit, explicit_segments = extract(xyz, classes, False)
+    np.testing.assert_array_equal(default, explicit)
+    np.testing.assert_array_equal(default_segments, explicit_segments)
 
 
 def test_wire_records_equal_full_search_with_distant_clutter(monkeypatch):
@@ -196,6 +235,7 @@ def test_wire_records_equal_full_search_with_distant_clutter(monkeypatch):
                          (wall(10, 0, 40, 18), 6), (wall(40, 0, 40, 18), 6),
                          (line, 1), (clutter, 5))
     bounded = W.record(*W.detect(xyz, classes, (0, 0, 200, 200), search=0))
-    monkeypatch.setattr(W, "near_segments", lambda points, segments, margin: points)
+    monkeypatch.setattr(W, "near_segments", lambda points, segments, margin:
+                        points[np.lexsort((points[:, 1], points[:, 2], points[:, 0]))])
     full = W.record(*W.detect(xyz, classes, (0, 0, 200, 200), search=0))
     assert bounded is not None and bounded == full

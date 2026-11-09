@@ -19,7 +19,7 @@ A class rule over the city ``pistepilvi`` returns, with no per-street data:
 
 Each tile lists the wires whose middle it owns (half-open bounds) and the lamps standing in it,
 read from returns ``SEARCH`` around the tile, so neighbour tiles agree whatever the load order.
-Coordinates are engine metres (x east, y up, z south). Output is deterministic: inputs are sorted,
+Coordinates are engine metres (x east, y up, z south). Output is deterministic: fitting inputs are sorted,
 and there is no random sampling.
 """
 
@@ -240,12 +240,18 @@ def join(parts: list[Piece]) -> list[Piece]:
 
 # -- ends -------------------------------------------------------------------------------------------
 def near_segments(points, segments, margin):
-    """Keep sorted survey returns inside conservative plan boxes around segments.
+    """Keep canonically sorted returns inside conservative segment plan boxes.
 
-    All callers filter the same x-sorted survey. Search each box's x range first;
-    this avoids building multiple trees over a whole forest for a few short wires.
-    Retained returns keep their original order, including coincident returns.
+    Reject the overall box before sorting; support trees need only this subset
+    of the survey. Stable ties retain source order for coincident returns.
     """
+    if not segments or not len(points):
+        return points[:0]
+    low = np.min([np.minimum(a, b) - margin for a, b in segments], axis=0)
+    high = np.max([np.maximum(a, b) + margin for a, b in segments], axis=0)
+    points = points[(points[:, 0] >= low[0]) & (points[:, 0] <= high[0]) &
+                    (points[:, 2] >= low[2]) & (points[:, 2] <= high[2])]
+    points = points[np.lexsort((points[:, 1], points[:, 2], points[:, 0]))]
     keep = np.zeros(len(points), bool)
     for a, b in segments:
         lo = np.minimum(a, b) - margin
@@ -492,8 +498,6 @@ def detect(xyz, classes, bounds, search=SEARCH):
 
     xyz = np.asarray(xyz, dtype=np.float64)
     classes = np.asarray(classes)
-    order = np.lexsort((xyz[:, 1], xyz[:, 2], xyz[:, 0]))
-    xyz, classes = xyz[order], classes[order]
     x0, z0, x1, z1 = bounds
     outer = (x0 - search, z0 - search, x1 + search, z1 + search)
     inside = (xyz[:, 0] >= outer[0]) & (xyz[:, 0] < outer[2]) & (xyz[:, 2] >= outer[1]) & (xyz[:, 2] < outer[3])
@@ -503,7 +507,8 @@ def detect(xyz, classes, bounds, search=SEARCH):
     # anchored at the search area's corner so that every tile's crop agrees where they overlap.
     corner = (outer[0], outer[1])
     height = height_above_ground(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, origin=corner)
-    index, stretch = wire_points(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, height, r=STAGE, origin=corner, workers=1)
+    index, stretch = wire_points(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, height,
+                                r=STAGE, origin=corner, workers=1, canonical_order=True)
     found = xyz[index]
     parts = join([p for label in np.unique(stretch) for p in split(found[stretch == label])])
     if not parts:
