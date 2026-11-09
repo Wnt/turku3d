@@ -9,6 +9,26 @@ from turku3d.coarse.retaining_survey import ground_points
 from turku3d.coarse.walkable import intersects_parts
 
 
+def test_station_interpolation_matches_geos_at_vertices_and_adjacent_floats():
+    from turku3d.coarse.walkable import line_interpolator
+
+    rng = np.random.default_rng(221)
+    paths = [np.array([[0., 0.], [0., 0.], [3., 4.], [3., 4.], [-10., 7.]]),
+             np.array([[2., 3.], [2., 3.]]),
+             np.cumsum(rng.normal(size=(200, 2)), axis=0),
+             np.array([[0., 0.], [1e6, 0.], [1e6, 1e-8], [1e6 + 1, 1.]])]
+    for points in paths:
+        line = shapely.LineString(points)
+        segments = shapely.linestrings(np.stack([points[:-1], points[1:]], axis=1))
+        knots = np.r_[0., np.cumsum(shapely.length(segments))]
+        distances = np.clip(np.r_[knots, np.nextafter(knots, -np.inf),
+                                  np.nextafter(knots, np.inf),
+                                  rng.uniform(0, line.length, 400)], 0, line.length)
+        expected = shapely.get_coordinates(shapely.line_interpolate_point(line, distances))
+        np.testing.assert_array_equal(line_interpolator(line)(distances), expected)
+        assert line_interpolator(line)(np.empty(0)).shape == (0, 2)
+
+
 def test_part_by_part_point_test_matches_prepared_collection():
     rng = np.random.default_rng(4)
     ring = shapely.Point(50, 50).buffer(30).difference(shapely.box(40, 40, 60, 60))

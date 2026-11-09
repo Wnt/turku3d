@@ -32,3 +32,14 @@ test('ctl, w and st: a car pose keeps its controls, spin and room-clock stamp; m
     { ctl: [0, 0, 0] }, { w: [0, 0, 101] }, { w: [0, 0] }, { w: [0, 0, NaN] }, { st: -1 }, { st: '5' }])
     assert.equal(validPose(pose(bad)), false, JSON.stringify(bad));
 });
+
+test('a car pose relays the cars its player leads in a contact and rejects malformed ones', () => {
+  const lead = { id: 'player:abc', st: 1794253530469, E: 1.23456, N: -2, H: 0.5, rot: { x: 0, y: 0, z: 0, w: 1 }, vE: 4, vN: 0, vH: 0, w: [0, 0, 0.5] };
+  const base = { t: 1, E: 0, N: 0, H: 0, yaw: 0, vE: 0, vN: 0, vH: 0, mode: 'car', vehicle: 'player', carrying: false };
+  assert.equal(validPose({ ...base, lead: [lead] }), true);
+  assert.deepEqual(cleanPose({ ...base, lead: [lead] }).lead, [{ ...lead, E: 1.235 }]);
+  assert.equal(cleanPose(base).lead, undefined);
+  assert.equal(validPose({ ...base, lead: [{ ...lead, rot: { x: 1, y: 1, z: 0, w: 0 } }] }), false);
+  assert.equal(validPose({ ...base, lead: [lead, lead, lead, lead, lead] }), false);
+  assert.equal(validPose({ ...base, lead: [{ ...lead, vE: 1e6 }] }), false);
+});

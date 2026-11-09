@@ -25,7 +25,7 @@ test('a shared vehicle driven by the local player renders without its tag and of
   vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ fillRect() {}, fillText() {}, measureText: (text: string) => ({ width: text.length * 18 }) }) }) });
   const root = new THREE.Group(), car = new THREE.Group(), scooter = new THREE.Group();
   const lean = new THREE.Group(); lean.name = 'scooter-lean'; scooter.add(lean);
-  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), latest: { vehicles: [] } };
+  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), remoteCarRender: { sample: () => [] }, latest: { vehicles: [] } };
   const sources = { player: { root: new THREE.Group() }, car: { root: car }, scooter: { root: scooter }, truck: { root: car },
     parked: { remoteModel: () => new THREE.Group(), requestRemoteModel: vi.fn() } };
   const effects = { reserve: () => 1, release: vi.fn() };

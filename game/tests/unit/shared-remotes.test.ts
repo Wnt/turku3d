@@ -11,7 +11,7 @@ test('a released remote car keeps its paint/pose/proxy after its driver leaves t
   const root = new THREE.Group(), car = new THREE.Group(), scooter = new THREE.Group();
   const lean = new THREE.Group(); lean.name = 'scooter-lean'; scooter.add(lean);
   const red = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
-  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn() };
+  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), remoteCarRender: { sample: () => [] } };
   const sources = { player: { root: new THREE.Group() }, car: { root: car }, scooter: { root: scooter }, truck: { root: car },
     parked: { remoteModel: () => red.clone(), requestRemoteModel: vi.fn() } };
   const effects = { reserve: () => 1, release: vi.fn() };
@@ -44,7 +44,7 @@ test('the driven shared vehicle this player owns is drawn at its render pose, no
   const red = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
   const state = (x: number) => ({ id: 'park:bay', pos: { x, y: 4.6, z: 252 }, rot: { x: 0, y: 0, z: 0, w: 1 }, linvel: { x: 10, y: 0, z: 0 },
     speed: 10, forwardSpeed: 10, curbStrike: null, wheels: [] });
-  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), latest: { vehicles: [state(180)] } };
+  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), remoteCarRender: { sample: () => [] }, latest: { vehicles: [state(180)] } };
   const sources = { player: { root: new THREE.Group() }, car: { root: car }, scooter: { root: scooter }, truck: { root: car },
     parked: { remoteModel: () => red.clone(), requestRemoteModel: vi.fn() } };
   const effects = { reserve: () => 1, release: vi.fn() };
@@ -72,7 +72,7 @@ test('remote scooters and trucks join the scene only while ridden: 40 parked sha
   const truck = new THREE.Group(); truck.name = 'truck';
   for (let i = 0, parent: THREE.Object3D = truck; i < 100; i++) { const bone = new THREE.Bone(); parent.add(bone); parent = bone; }
   const red = new THREE.Mesh(new THREE.BoxGeometry(4, 1, 2), new THREE.MeshStandardMaterial({ color: 0xff0000 }));
-  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn() };
+  const physics = { loaded: new Set(['c_2_4']), setRemotes: vi.fn(), remoteCarRender: { sample: () => [] } };
   const sources = { player: { root: new THREE.Group() }, car: { root: car }, scooter: { root: scooter }, truck: { root: truck },
     parked: { remoteModel: () => red.clone(), requestRemoteModel: vi.fn() } };
   const remotes = new RemotePlayers(root, physics as unknown as PhysicsClient,

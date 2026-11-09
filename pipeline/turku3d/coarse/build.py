@@ -379,7 +379,7 @@ def build(
     dry_surface, solid_surface = cache.run(
         "street_profiles",
         source_key(Path(street_profiles.__file__), surfaces.split_boundaries,
-                   walkable.coordinates, street_profiles.Mesh.compact,
+                   walkable.coordinates, walkable.line_interpolator, street_profiles.Mesh.compact,
                    surfaces.vertex_normals, *common),
         [dry, solid, inputs.street_profiles],
         lambda: (street_profiles.constrain(dry, inputs.street_profiles),

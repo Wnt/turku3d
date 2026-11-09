@@ -29,15 +29,41 @@ def robust_plane(xz, heights):
     return fit
 
 
+def line_interpolator(line):
+    """Interpolate 1D float arrays of nonnegative, in-range survey stations."""
+    xy = shapely.get_coordinates(line)
+    if line.geom_type != "LineString" or len(xy) < 2 or not np.isfinite(xy).all():
+        return lambda distance: shapely.get_coordinates(shapely.line_interpolate_point(line, distance))
+    segments = shapely.linestrings(np.stack([xy[:-1], xy[1:]], axis=1))
+    lengths = shapely.length(segments)
+    ends = np.cumsum(lengths)
+    starts = np.r_[0., ends[:-1]]
+
+    def interpolate(distance):
+        # GEOS admits the first segment whose end is strictly past the station.
+        # Keep original lengths: subtracting cumulative ends loses low bits.
+        index = np.minimum(np.searchsorted(ends, distance, side="right"), len(segments) - 1)
+        fraction = np.divide(distance - starts[index], lengths[index],
+                             out=np.zeros_like(distance), where=lengths[index] > 0)
+        fraction = np.clip(fraction, 0, 1)
+        result = xy[index] + fraction[:, None] * (xy[index + 1] - xy[index])
+        result[fraction == 0] = xy[index[fraction == 0]]
+        result[fraction == 1] = xy[index[fraction == 1] + 1]
+        result[distance >= ends[-1]] = xy[-1]
+        result[distance <= 0] = xy[0]
+        return result
+
+    return interpolate
+
+
 def coordinates(line, points):
     """Signed lateral distance and station on the complete, uncut OSM way."""
     query = shapely.points(points)
     station = shapely.line_locate_point(line, query)
-    centre = shapely.get_coordinates(shapely.line_interpolate_point(line, station))
-    a = shapely.get_coordinates(shapely.line_interpolate_point(line, np.maximum(0, station - 0.05)))
-    b = shapely.get_coordinates(
-        shapely.line_interpolate_point(line, np.minimum(line.length, station + 0.05))
-    )
+    interpolate = line_interpolator(line)
+    centre = interpolate(station)
+    a = interpolate(np.maximum(0, station - 0.05))
+    b = interpolate(np.minimum(line.length, station + 0.05))
     direction = b - a
     direction /= np.maximum(np.linalg.norm(direction, axis=1), 1e-12)[:, None]
     normal = np.c_[-direction[:, 1], direction[:, 0]]

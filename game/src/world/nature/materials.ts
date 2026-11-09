@@ -223,7 +223,7 @@ export class NatureMaterials {
     const leafRgb = tone(leaf.rgb).mul(pow(crownAo, this.crownLight.x)), leafAlpha = leaf.a.mul(mix(this.crownLight.z, float(1), shell));
     this.leaves.colorNode = vec4(leafRgb, leafAlpha.mul(fill));
     this.leaves.aoNode = pow(crownAo, this.crownLight.y);
-    // Smooth crown normals retain the crown shape; FoliageMaterial orients them towards the viewed side.
+    // Radial crown normals shade the canopy as a volume on both card faces; bark tubes use outward winding.
     this.leaves.normalNode = normalViewGeometry;
     this.leaves.positionNode = wind(0.045);
     // Ground grass: the leaf atlas and wind, dissolving through the alpha test between grassRange.x and .y metres.

@@ -5,14 +5,14 @@
     "name": "Salo Kipinä S",
     "body": "hatch",
     "family": "hatchback-sports",
-    "length": 4.5527,
-    "width": 2.1853,
-    "height": 1.7672,
-    "wheelbase": 3.0083,
+    "length": 3.876,
+    "width": 1.8605,
+    "height": 1.5045,
+    "wheelbase": 2.5626,
     "hood": 0.25,
     "rear": -0.4,
     "taper": 0.82,
-    "wheel": 0.3476,
+    "wheel": 0.3101,
     "belt": 1,
     "face": 0,
     "accessory": "none",
@@ -21,47 +21,47 @@
   },
   "id": "carla-mini-cooper-s-2021",
   "wheels": {
-    "radius": 0.3476,
-    "width": 0.2756,
+    "radius": 0.3101,
+    "width": 0.2346,
     "pivots": {
       "wheel_FL": [
-        -0.8979,
-        0.3476,
-        1.3995
+        -0.7644,
+        0.3101,
+        1.1929
       ],
       "wheel_FR": [
-        0.8979,
-        0.3476,
-        1.3995
+        0.7644,
+        0.3101,
+        1.1929
       ],
       "wheel_RL": [
-        -0.8979,
-        0.3476,
-        -1.6088
+        -0.7644,
+        0.3101,
+        -1.3696
       ],
       "wheel_RR": [
-        0.8979,
-        0.3476,
-        -1.6088
+        0.7644,
+        0.3101,
+        -1.3696
       ]
     }
   },
   "collision": {
     "center": [
       0,
-      0.8836,
+      0.7523,
       0
     ],
     "half": [
-      1.0926,
-      0.8836,
-      2.2763
+      0.9302,
+      0.7523,
+      1.938
     ]
   },
   "triangles": [
-    31500,
-    7880,
-    2945
+    31501,
+    7881,
+    2952
   ],
   "source": {
     "title": "Mini Cooper S 2021 (vehicle.mini.cooper_s_2021)",
@@ -84,13 +84,24 @@
     "gears": 7,
     "rideHeightM": 0.13,
     "character": "sport",
-    "lengthM": 4.5527,
-    "widthM": 2.1853,
-    "heightM": 1.7672,
-    "wheelbaseM": 3.0083,
-    "trackM": 1.7957,
-    "wheelRadiusM": 0.3476,
-    "wheelWidthM": 0.2756
+    "dimensionReference": {
+      "lengthM": 3.876,
+      "wheelbaseM": 2.495,
+      "heightM": 1.414,
+      "widthWithoutMirrorsM": 1.727,
+      "source": "https://www.mini.com.tw/content/dam/MINI/marketTW/mini_com_tw/e-brochure/MINI%20F55%2B56-2021%2006-7.pdf",
+      "page": 7,
+      "note": "Uniformly normalize the CARLA mesh to the manufacturer length. Runtime dimensions/hubs remain measured source geometry, preserving proportions and round tyres. The current importer also corrects the prior registry/visible-radius mismatch (0.3476 versus about 0.3642 m before normalization). This reference supplies dimensions only; existing 141 kW/1235 kg power/mass data is retained separately.",
+      "sourceSha256": "dd8f8c7a72112d53a9cc224cfb7923fbc37a8b967d59519ca7300490c3203dc4",
+      "importerSha256": "9d962889a6073017ab0660fb534c9052a1b60a6a6e5090229aa6ec5d750c4946"
+    },
+    "lengthM": 3.876,
+    "widthM": 1.8605,
+    "heightM": 1.5045,
+    "wheelbaseM": 2.5626,
+    "trackM": 1.5288,
+    "wheelRadiusM": 0.3101,
+    "wheelWidthM": 0.2346
   },
   "accepted": false
 }

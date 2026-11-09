@@ -68,15 +68,17 @@ const IMPULSE_HOLD_S = 0.15, IMPULSE_DEDUP_S = 0.5;
 /** Other players' cars near this client run here as real vehicles: wheels, tyres, gravity and the world, driven by their
  *  owner's replicated controls (net/motion.ts) and pulled towards the owner's state predicted to the present (at most
  *  predictS ahead, turning with its spin): velocity towards the goal's plus the gap over `tau`, blended in over `velTau`;
- *  yaw likewise over `spinTau`, pitch and roll left to the suspension unless 0.3 rad off. Local cars, the character and
- *  the other simulated remote cars collide with them like with any car, so a hit plays out in this solver: for
- *  `contactS` after a contact the pull is `contactGain` of itself, then it ramps back over `settleS` and the owner's
- *  state, which carries the same hit, takes over. A goal farther than `snapM` (plus 0.15 s of its speed) or `snapRad`
- *  off is placed (net/remotes.ts hides the jump). The nearest `max` within `near` m of this player (kept until `far`) on
- *  resident collision run so; the others stay proxies (REMOTE_SERVO). Ambient traffic passes them, as it passes parked
- *  cars. */
+ *  yaw likewise over `spinTau`, pitch and roll left to the suspension unless 0.3 rad off. A goal farther than `snapM`
+ *  (plus 0.15 s of its speed) or `snapRad` off is placed (net/remotes.ts hides the jump). The nearest `max` within `near`
+ *  m of this player (kept until `far`) on resident collision run so; the others stay proxies (REMOTE_SERVO). Ambient
+ *  traffic passes them, as it passes parked cars.
+ *  A contact between two players' cars has one authority, the player with the lower id (net/remotes.ts `lead`), so both
+ *  clients see one outcome (crash lab 2026-11-09: each client letting its own car win left the two truths 1 m apart and
+ *  the pulls then pushed the cars apart or on). The leader's copy of the other car runs on its owner's controls alone
+ *  for `leaseS` after it last touched the leader's car, and the leader publishes that state; the other owner's car is
+ *  pulled to it (`follow`) while it keeps arriving (`followS`), and its copy of the leader's car keeps its full pull. */
 const REMOTE_SIM = { near: 60, far: 75, max: 5, predictS: 0.5, snapM: 4, snapRad: 0.8, tau: 0.25, velTau: 0.1, spinTau: 0.2,
-  contactS: 0.6, contactGain: 0.15, settleS: 0.4 } as const;
+  leaseS: 1, followS: 0.3 } as const;
 type QuatLike = { x: number; y: number; z: number; w: number };
 const qMul = (a: QuatLike, b: QuatLike): Quat => ({ x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
   z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z });
@@ -87,7 +89,9 @@ const qSpin = (spin: V3, t: number): Quat => {
 };
 /** `v` turned by `a` rad about +Y. */
 const turnY = (v: V3, a: number): V3 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), y: v.y, z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
-interface RemoteCar { vehicle: Vehicle; model: string; st: number; input: VehicleInput | null; touched: number; snaps: number;
+interface RemoteCar { vehicle: Vehicle; model: string; st: number; input: VehicleInput | null; snaps: number;
+  /** This client leads contacts with the car, and until which tick it holds the car (REMOTE_SIM). */
+  lead: boolean; leaseUntil: number;
   /** The owner's state and the local tick it was true at. */
   target: { pos: V3; rot: Quat; vel: V3; spin: V3; tick: number } }
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
@@ -154,6 +158,10 @@ export class PhysicsWorld {
   /** Remote cars simulated here (REMOTE_SIM), and each remote's last model and driving tuning (null: the class default). */
   private remoteCars = new Map<string, RemoteCar>();
   private remoteTunings = new Map<string, { model: string; tuning: VehicleTuning | null }>();
+  /** Own cars a leading player holds in a contact: its state of the car, the tick it was true at and when it came. */
+  private follows = new Map<string, { st: number; seen: number; target: RemoteCar['target'] }>();
+  /** Own cars just placed (resetVehicle): leading states are ignored until the tick, as they predate the placement. */
+  private followBlocked = new Map<string, number>();
   private pendingImpulses: { id: string; impulse: V3; arrived: number }[] = [];
   private remoteTouch = new Map<string, number>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
@@ -629,6 +637,8 @@ export class PhysicsWorld {
     if (!car) return;
     this.coverageHold.clear(id);
     this.heldVehicles.delete(id);
+    // A leading player's states of the car from before the placement no longer apply.
+    this.follows.delete(id); this.followBlocked.set(id, this.tick + Math.round(REMOTE_SIM.followS / DT));
     car.body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     car.reset(pos, yaw);
     this.vehicleSnapshots.delete(id);
@@ -807,9 +817,10 @@ export class PhysicsWorld {
       const vehicle = new Vehicle(this.R, this.world, start.pos, 0, this.curbQueries, { kind: 'car', ...(known.tuning ? { tuning: known.tuning } : {}) },
         (collider, point) => this.materialAt(collider, point));
       vehicle.body.setRotation(start.rot, true); vehicle.body.setLinvel(start.vel, true); vehicle.body.setAngvel(target.spin, true);
-      this.remoteCars.set(p.id, { vehicle, model: known.model, st: s.st, input: s.input, touched: -Infinity, snaps: 0, target });
+      this.remoteCars.set(p.id, { vehicle, model: known.model, st: s.st, input: s.input, snaps: 0, target, lead: !!p.lead, leaseUntil: -Infinity });
       return;
     }
+    car.lead = !!p.lead;
     // The same owner state seen again keeps the tick it was first seen at; an older one (reordered) is ignored.
     if (s.st <= car.st) return;
     car.st = s.st; car.target = target; car.input = s.input;
@@ -830,49 +841,79 @@ export class PhysicsWorld {
       vel: turnY(t.vel, turn) };
   }
 
-  /** Steps each simulated remote car on its owner's controls and pulls it towards the predicted owner state. */
+  /** Steps each simulated remote car on its owner's controls and pulls it towards the predicted owner state, unless this
+   *  client holds it in a contact; then pulls each own car a leading player holds towards that player's state of it. */
   private driveRemoteCars() {
-    const S = REMOTE_SIM;
     for (const car of this.remoteCars.values()) {
-      const b = car.vehicle.body;
       car.vehicle.step(DT, car.input);
-      const goal = this.predictRemote(car.target), at = b.translation(), q = b.rotation();
-      const ex = goal.pos.x - at.x, ey = goal.pos.y - at.y, ez = goal.pos.z - at.z;
-      const err = qMul(goal.rot, { x: -q.x, y: -q.y, z: -q.z, w: q.w });
-      if (err.w < 0) { err.x = -err.x; err.y = -err.y; err.z = -err.z; err.w = -err.w; }
-      const sin = Math.hypot(err.x, err.y, err.z), angle = 2 * Math.atan2(sin, err.w), rate = sin > 1e-6 ? angle / sin : 0;
-      if (Math.hypot(ex, ey, ez) > S.snapM + Math.hypot(goal.vel.x, goal.vel.z) * 0.15 || angle > S.snapRad) {
-        b.setTranslation(goal.pos, true); b.setRotation(goal.rot, true); b.setLinvel(goal.vel, true); b.setAngvel(car.target.spin, true);
-        car.snaps++;
-        continue;
-      }
-      const since = (this.tick - car.touched) * DT;
-      const gain = since < S.contactS ? S.contactGain : S.contactGain + (1 - S.contactGain) * Math.min(1, (since - S.contactS) / S.settleS);
-      const k = gain * Math.min(1, DT / S.velTau), lv = b.linvel(), w = b.angvel(), spin = car.target.spin;
-      b.setLinvel({ x: lv.x + (goal.vel.x + ex / S.tau - lv.x) * k, y: lv.y + (goal.vel.y + ey / S.tau - lv.y) * k * 0.3,
-        z: lv.z + (goal.vel.z + ez / S.tau - lv.z) * k }, true);
-      const tilt = Math.hypot(err.x, err.z) * rate, kt = tilt > 0.3 ? k : 0;
-      b.setAngvel({ x: w.x + (spin.x + err.x * rate / S.spinTau - w.x) * kt, y: w.y + (spin.y + err.y * rate / S.spinTau - w.y) * k,
-        z: w.z + (spin.z + err.z * rate / S.spinTau - w.z) * kt }, true);
+      const goal = this.predictRemote(car.target);
+      // A hold ends early when the owner's own state is a placement away (the owner placed or reset its car).
+      if (this.tick < car.leaseUntil && !this.placementAway(car.vehicle.body, goal)) continue;
+      car.leaseUntil = -Infinity;
+      if (this.pullTo(car.vehicle.body, goal, car.target.spin)) car.snaps++;
+    }
+    for (const [id, f] of this.follows) {
+      const own = this.vehicles.get(id), goal = this.predictRemote(f.target);
+      // A leading state a placement away is not this car's contact (stale, or from before a placement): ignored.
+      if (!own || this.tick - f.seen > REMOTE_SIM.followS / DT || this.placementAway(own.body, goal)) { this.follows.delete(id); continue; }
+      this.pullTo(own.body, goal, f.target.spin);
     }
   }
 
-  /** After the solve: a simulated remote car touching a local car, the character or another simulated remote car. A
-   *  local car touching one remembers the tick (applyImpulses drops the server's impulse for a contact this solver had). */
+  /** `goal` is too far from `b` to pull towards: it is placed there (REMOTE_SIM snapM, snapRad). */
+  private placementAway(b: RAPIER_NS.RigidBody, goal: { pos: V3; rot: Quat; vel: V3 }): boolean {
+    const at = b.translation(), q = b.rotation(), err = qMul(goal.rot, { x: -q.x, y: -q.y, z: -q.z, w: q.w });
+    const angle = 2 * Math.atan2(Math.hypot(err.x, err.y, err.z), Math.abs(err.w));
+    return Math.hypot(goal.pos.x - at.x, goal.pos.y - at.y, goal.pos.z - at.z) > REMOTE_SIM.snapM + Math.hypot(goal.vel.x, goal.vel.z) * 0.15
+      || angle > REMOTE_SIM.snapRad;
+  }
+
+  /** Pulls `b` towards `goal` (REMOTE_SIM), or places it there when it is too far off; true when placed. */
+  private pullTo(b: RAPIER_NS.RigidBody, goal: { pos: V3; rot: Quat; vel: V3 }, spin: V3): boolean {
+    const S = REMOTE_SIM, at = b.translation(), q = b.rotation();
+    const ex = goal.pos.x - at.x, ey = goal.pos.y - at.y, ez = goal.pos.z - at.z;
+    const err = qMul(goal.rot, { x: -q.x, y: -q.y, z: -q.z, w: q.w });
+    if (err.w < 0) { err.x = -err.x; err.y = -err.y; err.z = -err.z; err.w = -err.w; }
+    const sin = Math.hypot(err.x, err.y, err.z), angle = 2 * Math.atan2(sin, err.w), rate = sin > 1e-6 ? angle / sin : 0;
+    if (this.placementAway(b, goal)) {
+      b.setTranslation(goal.pos, true); b.setRotation(goal.rot, true); b.setLinvel(goal.vel, true); b.setAngvel(spin, true);
+      return true;
+    }
+    const k = Math.min(1, DT / S.velTau), lv = b.linvel(), w = b.angvel();
+    b.setLinvel({ x: lv.x + (goal.vel.x + ex / S.tau - lv.x) * k, y: lv.y + (goal.vel.y + ey / S.tau - lv.y) * k * 0.3,
+      z: lv.z + (goal.vel.z + ez / S.tau - lv.z) * k }, true);
+    const tilt = Math.hypot(err.x, err.z) * rate, kt = tilt > 0.3 ? k : 0;
+    b.setAngvel({ x: w.x + (spin.x + err.x * rate / S.spinTau - w.x) * kt, y: w.y + (spin.y + err.y * rate / S.spinTau - w.y) * k,
+      z: w.z + (spin.z + err.z * rate / S.spinTau - w.z) * kt }, true);
+    return false;
+  }
+
+  /** A leading player's state of own car `id` (null: none): the car follows it while it keeps coming (REMOTE_SIM). */
+  follow(id: string, s: import('./protocol').RemoteCarState | null) {
+    if (!s) { this.follows.delete(id); return; }
+    if (this.tick < (this.followBlocked.get(id) ?? -Infinity)) return;
+    const known = this.follows.get(id);
+    if (known && s.st <= known.st) return;
+    this.follows.set(id, { st: s.st, seen: this.tick, target: { pos: { ...s.pos }, rot: { ...s.rot }, vel: { ...s.vel }, spin: { ...s.spin },
+      tick: this.tick - Math.round(s.age / DT) } });
+  }
+
+  /** After the solve: a simulated remote car touching a local car or the character. A local car touching one remembers
+   *  the tick (applyImpulses drops the server's impulse for a contact this solver had); the own driven car touching one
+   *  this client leads starts or extends its hold (REMOTE_SIM leaseS). */
   private noteRemoteCarContacts(carIds: Map<number, string>) {
-    const remoteHandles = new Set([...this.remoteCars.values()].map(c => c.vehicle.body.handle));
     for (const car of this.remoteCars.values()) {
       const b = car.vehicle.body;
       for (let i = 0; i < b.numColliders(); i++) {
         const own = b.collider(i);
         this.world.contactPairsWith(own, other => {
           const body = other.parent(), id = body ? carIds.get(body.handle) : undefined;
-          if (id === undefined && other !== this.charCollider && !(body && body.handle !== b.handle && remoteHandles.has(body.handle))) return;
+          if (id === undefined) return;
           let touching = false;
           this.world.contactPair(own, other, m => { if (m.numContacts() > 0) touching = true; });
           if (!touching) return;
-          car.touched = this.tick;
-          if (id !== undefined) this.remoteTouch.set(id, this.tick);
+          this.remoteTouch.set(id, this.tick);
+          if (car.lead && id === this.drivenId) car.leaseUntil = this.tick + Math.round(REMOTE_SIM.leaseS / DT);
         });
       }
     }
@@ -881,8 +922,9 @@ export class PhysicsWorld {
   /** The simulated remote cars as drawn (net/remotes.ts). */
   remoteCarDraws(): import('./protocol').RemoteCarDraw[] {
     return [...this.remoteCars].map(([id, car]) => {
-      const p = car.vehicle.body.translation(), q = car.vehicle.body.rotation();
-      return { id, pos: { x: p.x, y: p.y, z: p.z }, rot: { x: q.x, y: q.y, z: q.z, w: q.w }, snaps: car.snaps };
+      const b = car.vehicle.body, p = b.translation(), q = b.rotation(), held = this.tick < car.leaseUntil;
+      return { id, pos: { x: p.x, y: p.y, z: p.z }, rot: { x: q.x, y: q.y, z: q.z, w: q.w }, vel: { ...b.linvel() }, snaps: car.snaps,
+        ...(held ? { held: { vel: { ...b.linvel() }, spin: { ...b.angvel() } } } : {}) };
     });
   }
 

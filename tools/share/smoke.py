@@ -4,7 +4,7 @@
   python3 tools/share/smoke.py [SHA]     # exit 0 green, 1 red; one line per check
 
 Checks, all in parallel under one 5 s deadline:
-* version: city.lab /version.json names SHA (when given) and the page answers 200;
+* version: city.lab /version.json names SHA or a locally verified descendant, and the page answers 200;
 * tiles: a central manifest per city through city.lab is a full, non-stale pass;
 * farm: the newest Turku train alias the share follows reports no build failures and nothing stuck building;
 * cities: each city tile service on osgallery-dev (one ssh) reports failure_count 0;
@@ -12,11 +12,13 @@ Checks, all in parallel under one 5 s deadline:
   failed request in the last 10 minutes (a hung service once froze every scenery request).
 HTTP 200 alone is never green: each check reads the payload."""
 import json, re, subprocess, sys, threading, time, urllib.request
+from pathlib import Path
 
 SITE, FARM = "https://city.lab.madekivi.fi", "http://192.168.1.114:7950"
 CITIES = {"espoo": 7970, "amsterdam": 7980, "rotterdam": 7990}
 DEADLINE = time.monotonic() + 5.0
 results = {}
+REPO = Path(__file__).resolve().parents[2]
 
 
 def get(url):
@@ -32,11 +34,31 @@ def check(name, fn):
     results[name] = (ok, detail)
 
 
+def version_relation(sha, want, repo):
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        return False, "invalid deployed revision"
+    if not want:
+        return True, ""
+    if not re.fullmatch(r"[0-9a-f]{4,40}", want):
+        return False, f"invalid requested revision {want}"
+    if sha.startswith(want):
+        return True, f"want {want}"
+    remaining = DEADLINE - time.monotonic()
+    if remaining <= 0:
+        return False, "no time to verify revision ancestry"
+    proof = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", want, sha],
+                           capture_output=True, timeout=remaining)
+    if proof.returncode == 0:
+        return True, f"includes requested {want} (newer deploy)"
+    return False, f"want {want}; " + ("deployed revision does not include it" if proof.returncode == 1 else "cannot verify ancestry locally")
+
+
 def version():
     status, page = get(f"{SITE}/")
     sha = json.loads(get(f"{SITE}/version.json")[1])["sha"]
     want = sys.argv[1] if len(sys.argv) > 1 else ""
-    return status == 200 and sha.startswith(want), f"page {status}, deployed {sha[:12]}" + (f", want {want}" if want else "")
+    matches, relation = version_relation(sha, want, REPO)
+    return status == 200 and matches, f"page {status}, deployed {str(sha)[:12]}" + (f", {relation}" if relation else "")
 
 
 def manifest(prefix):
@@ -73,16 +95,24 @@ def scenery():
                                                      f"errors={errors.get('count')}" + (", one in the last 10 min" if recent else ""))
 
 
-checks = {"version": version, "scenery": scenery, "tiles:turku": manifest(""), "farm": farm, "cities": cities,
-          **{f"tiles:{c}": manifest(f"cities/{c}/") for c in CITIES}}
-threads = [threading.Thread(target=check, args=(n, f), daemon=True) for n, f in checks.items()]
-for t in threads:
-    t.start()
-for t in threads:
-    t.join(max(0, DEADLINE - time.monotonic()))
-red = 0
-for name in checks:
-    ok, detail = results.get(name, (False, "no answer within 5 s"))
-    red += not ok
-    print(f"{'ok ' if ok else 'RED'} {name}: {detail}")
-sys.exit(1 if red else 0)
+def main():
+    global DEADLINE
+    DEADLINE = time.monotonic() + 5.0
+    results.clear()
+    checks = {"version": version, "scenery": scenery, "tiles:turku": manifest(""), "farm": farm, "cities": cities,
+              **{f"tiles:{c}": manifest(f"cities/{c}/") for c in CITIES}}
+    threads = [threading.Thread(target=check, args=(n, f), daemon=True) for n, f in checks.items()]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(max(0, DEADLINE - time.monotonic()))
+    red = 0
+    for name in checks:
+        ok, detail = results.get(name, (False, "no answer within 5 s"))
+        red += not ok
+        print(f"{'ok ' if ok else 'RED'} {name}: {detail}")
+    return 1 if red else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
