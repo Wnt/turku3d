@@ -46,7 +46,7 @@ def health(scenery, activity, regional=None):
                       age_s=round(now - activity.last_served, 1) if activity.last_served else None)
         errors = dict(count=activity.errors, last=activity.last_error)
     with scenery.lock:
-        pending = len(scenery.pending)
+        pending = len(scenery.pending) + len(scenery.survey_pending)
     ok = cache_ok and all(inputs.values())
     return dict(state='ready' if ok else 'degraded', service='scenery', recipe=scenery.recipe,
                 uptime_s=round(now - activity.started), inputs=inputs,

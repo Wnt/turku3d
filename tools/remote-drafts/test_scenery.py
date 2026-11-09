@@ -102,7 +102,8 @@ class SceneryTest(unittest.TestCase):
             self.assertEqual(cache.descriptor(other['key'])[0], 202)  # nothing built for that tile yet
             # A full build queue answers stale too, without holding the lock (it once deadlocked every request).
             full = {f'{n:064x}': None for n in range(16)}
-            with patch.object(cache, 'pending', {k: SimpleNamespace(done=lambda: False) for k in full}):
+            with patch.object(cache, 'survey_pending', {k: SimpleNamespace(done=lambda: False) for k in full}), \
+                    patch('scenery.SURVEY_QUEUE', 16):
                 self.assertTrue(cache.descriptor(new['key'])[1]['stale'])
                 self.assertEqual(cache.descriptor(other['key']), (202, {'state': 'queued'}))
             self.assertTrue(cache.lock.acquire(timeout=1)); cache.lock.release()
@@ -110,11 +111,33 @@ class SceneryTest(unittest.TestCase):
             restarted = Scenery(temp, survey=survey); restarted._index_built()
             self.assertTrue(restarted.descriptor(new['key'])[1]['stale'])
             gate.set()
-            for future in list(cache.pending.values()) + list(restarted.pending.values()):
+            for future in list(cache.survey_pending.values()) + list(restarted.survey_pending.values()):
                 future.result(10)
             status, value = cache.descriptor(new['key'])
             self.assertEqual((status, 'stale' in value, value['visual']['t2_0_0']['url']), (200, False, f"../scenery/lod.{new['key']}.glb"))
-            cache.pool.shutdown(); restarted.pool.shutdown()
+            cache.pool.shutdown(); restarted.pool.shutdown(); cache.survey_pool.shutdown(); restarted.survey_pool.shutdown()
+
+    def test_authored_cells_keep_their_own_workers_while_the_survey_queue_is_full(self):
+        import threading
+        from types import SimpleNamespace
+        gate = threading.Event()
+        survey = [dict(tile=f't2_{n}_0', key=f'{n + 1:064x}', kind='survey', source_sha256='s', h=[0, 20]) for n in range(3)]
+        authored = dict(tile='t0_0_0', key='d' * 64, source_sha256='a', h=[0, 20], source_url='vis.glb')
+        with tempfile.TemporaryDirectory() as temp, patch('scenery.SURVEY_QUEUE', 2):
+            cache = Scenery(temp, survey=SimpleNamespace()); cache.cache.mkdir()
+            for row in survey + [authored]:
+                (cache.cache / (row['key'] + '.source.json')).write_text(json.dumps(row))
+            def build(key):
+                if key != authored['key']:
+                    gate.wait(10)  # survey rebuilds that take minutes
+                return dict(built=key)
+            with patch.object(cache, '_build', side_effect=build):
+                for row in survey[:2]:
+                    self.assertEqual(cache.descriptor(row['key']), (202, {'state': 'preparing'}))
+                self.assertEqual(cache.descriptor(survey[2]['key']), (202, {'state': 'queued'}))  # survey queue full
+                self.assertEqual(cache.descriptor(authored['key']), (200, {'built': authored['key']}))
+                gate.set()
+            cache.pool.shutdown(); cache.survey_pool.shutdown()
 
     def test_tree_sidecar_is_content_keyed_and_does_not_rebuild_or_change_source(self):
         with tempfile.TemporaryDirectory() as temp:

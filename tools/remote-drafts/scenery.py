@@ -104,6 +104,10 @@ def survey_shells(tile, buildings):
     return build_glb(meshes, root_translation=(0.0, 0.0, 0.0)) if meshes else b''
 
 
+# Survey node builds admitted at once (two run, the rest wait in their own pool); beyond that a key answers stale or 202.
+SURVEY_QUEUE = 6
+
+
 class Scenery:
     def __init__(self, root, cache=None, survey=None, preferred=None, lod=False, chain: FarmChain | None = None):
         self.root = Path(root)
@@ -127,8 +131,12 @@ class Scenery:
         self.lod = lod
         if lod:
             self.recipe = hashlib.sha256((self.recipe + ':lod-v1').encode()).hexdigest()
+        # Authored derivatives and tree sidecars keep their own workers and queue: a long survey rebuild (nice 19,
+        # minutes per node under farm load) never holds back a new authored cell.
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
+        self.survey_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-survey')
+        self.survey_pending = {}
         self.lock = threading.Lock()
         # Newest generation first, falling back (docs: newest-generation policy): while a tile's new key builds, its
         # newest finished build serves, marked stale, so a recipe change never blanks the far city. Tile -> (mtime,
@@ -260,6 +268,16 @@ class Scenery:
             return None
         return 200, {**value, 'stale': True}
 
+    @staticmethod
+    def _admit(pending, job, limit, pool, *call):
+        """Under the lock: the job's future, a new one when its queue has room, else None."""
+        for done in [k for k, v in pending.items() if v.done()]:
+            del pending[done]
+        future = pending.get(job)
+        if future is None and len(pending) < limit:
+            future = pending[job] = pool.submit(*call)
+        return future
+
     def descriptor(self, key):
         if not KEY.fullmatch(key):
             return 404, {'state': 'missing'}
@@ -270,14 +288,14 @@ class Scenery:
                 return 200, value
         except (OSError, ValueError):
             pass
-        if not (self.cache / f'{key}.source.json').is_file():
+        try:
+            survey = json.loads((self.cache / f'{key}.source.json').read_text()).get('kind') == 'survey'
+        except (OSError, ValueError, AttributeError):
             return 404, {'state': 'missing'}
+        pending = self.survey_pending if survey else self.pending
         with self.lock:
-            self.pending = {k: v for k, v in self.pending.items() if not v.done()}
-            future = self.pending.get(key)
-            if future is None and len(self.pending) < 16:
-                future = self.pool.submit(self._build, key)
-                self.pending[key] = future
+            future = self._admit(pending, key, SURVEY_QUEUE if survey else 16,
+                                 self.survey_pool if survey else self.pool, self._build, key)
         if future is None:  # queue full; _stale takes the lock itself
             return self._stale(key) or (202, {'state': 'queued'})
         try:
@@ -290,8 +308,8 @@ class Scenery:
         finally:
             if future.done():
                 with self.lock:
-                    if self.pending.get(key) is future:
-                        del self.pending[key]
+                    if pending.get(key) is future:
+                        del pending[key]
 
     def _build(self, key):
         row = json.loads((self.cache / f'{key}.source.json').read_text())
@@ -382,13 +400,9 @@ class Scenery:
             return 200, json.loads(target.read_text())
         job = f'trees:{key}:{recipe}'
         with self.lock:
-            self.pending = {k: v for k, v in self.pending.items() if not v.done()}
-            future = self.pending.get(job)
-            if future is None:
-                if len(self.pending) >= 16:
-                    return 202, {'state': 'queued'}
-                future = self.pool.submit(self._build_trees, key, target)
-                self.pending[job] = future
+            future = self._admit(self.pending, job, 16, self.pool, self._build_trees, key, target)
+        if future is None:
+            return 202, {'state': 'queued'}
         try:
             return 200, future.result(timeout=.8)
         except TimeoutError:

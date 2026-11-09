@@ -7,7 +7,9 @@ Checks, all in parallel under one 5 s deadline:
 * version: city.lab /version.json names SHA (when given) and the page answers 200;
 * tiles: a central manifest per city through city.lab is a full, non-stale pass;
 * farm: the newest Turku train alias the share follows reports no build failures and nothing stuck building;
-* cities: each city tile service on osgallery-dev (one ssh) reports failure_count 0.
+* cities: each city tile service on osgallery-dev (one ssh) reports failure_count 0;
+* scenery: the distant scenery service (local-horizon, through city.lab) answers health in time, ready, with no
+  failed request in the last 10 minutes (a hung service once froze every scenery request).
 HTTP 200 alone is never green: each check reads the payload."""
 import json, re, subprocess, sys, threading, time, urllib.request
 
@@ -63,7 +65,15 @@ def cities():
     return ok, ", ".join(" ".join(r) for r in rows) or "no answer"
 
 
-checks = {"version": version, "tiles:turku": manifest(""), "farm": farm, "cities": cities,
+def scenery():
+    h = json.loads(get(f"{SITE}/coarse/scenery/health")[1])
+    errors = h.get("errors") or {}
+    recent = bool((errors.get("last") or {}).get("t")) and time.time() - errors["last"]["t"] < 600
+    return h.get("state") == "ready" and not recent, (f"{h.get('state')} pending={(h.get('cache') or {}).get('pending_builds')} "
+                                                     f"errors={errors.get('count')}" + (", one in the last 10 min" if recent else ""))
+
+
+checks = {"version": version, "scenery": scenery, "tiles:turku": manifest(""), "farm": farm, "cities": cities,
           **{f"tiles:{c}": manifest(f"cities/{c}/") for c in CITIES}}
 threads = [threading.Thread(target=check, args=(n, f), daemon=True) for n, f in checks.items()]
 for t in threads:
