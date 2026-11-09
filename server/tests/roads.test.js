@@ -146,3 +146,22 @@ test('owner rule: kept unless it lacks the neighbourhood a settled candidate has
   assert.equal(chooseOwners(agreed, [edge, inner], new Map(), { candidate: () => false }).size, 0);
   assert.equal(chooseOwners(agreed, [inner]).size, 0);
 });
+
+test('clients of another traffic version agree among themselves and never remove the other version\'s tiles', () => {
+  const f = fixture(), a = f.connect(), b = f.connect(), old = f.connect();
+  f.advance(25_000);
+  a.send({ type: 'roads', tiles: block(0, 0, 1, '16.4.4.aa') });
+  b.send({ type: 'roads', tiles: block(0, 0, 1, '16.4.4.aa') });
+  old.send({ type: 'roads', tiles: block(0, 0, 1, '15.4.4.bb') });
+  // The new clients still agree and share an owner; the old tab agrees with itself alone and has none.
+  assert.equal(last(a, 'roads').agreed.t0_0_0, '16.4.4.aa');
+  assert.ok([id(a), id(b)].includes(last(a, 'roads').owners.t0_0_0));
+  assert.equal(last(old, 'roads').agreed.t0_0_0, '15.4.4.bb');
+  assert.deepEqual(last(old, 'roads').owners, {});
+  // The owner's cars go to the other new client only.
+  const owner = id(a) === last(a, 'roads').owners.t0_0_0 ? a : b, other = owner === a ? b : a;
+  owner.send({ type: 'traffic', tick: 5, tiles: { t0_0_0: [] } });
+  assert.equal(last(other, 'traffic').tick, 5);
+  assert.equal(old.messages.filter(m => m.type === 'traffic').length, 0);
+  assert.equal(f.room.stats.rejected, 0);
+});

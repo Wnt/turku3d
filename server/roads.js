@@ -2,6 +2,9 @@
 // cars from its own copy of each tile's roads.json; they match only when the copies match. A client reports one
 // hash per resident tile; each client receives, for the tiles it reported, the hashes that every online player
 // who reported that tile shares. A tile with two different reports is agreed by nobody, so it spawns nothing.
+// Clients of different traffic versions (a hash's first field, TRAFFIC.version) never compute the same cars: each
+// version agrees (and has owners) only among its own clients, so a tab left on an older build keeps its own traffic
+// instead of removing everyone's on the tiles it shares.
 //
 // Traffic authority: a tile two or more online players hold (agreed) is run by one of them, its owner, who sends
 // the cars there about once a second (`traffic`); the room relays each other holder the tiles it holds, and their
@@ -20,6 +23,8 @@ export const ROAD_LIMITS = Object.freeze({ tiles: 64,
   settleMs: 20_000 });
 const tileOK = id => typeof id === 'string' && /^t0_-?\d{1,4}_-?\d{1,4}$/.test(id);
 const hashOK = h => typeof h === 'string' && /^[A-Za-z0-9.:_-]{1,64}$/.test(h);
+/** The traffic version a road hash belongs to: its first dot-separated field ('' without one). */
+export const versionOf = hash => { const i = hash.indexOf('.'); return i < 0 ? '' : hash.slice(0, i); };
 /** Whether a report holds all eight neighbours of `tile`. */
 function surrounded(roads, tile) {
   const [, x, z] = tile.match(/^t0_(-?\d+)_(-?\d+)$/).map(Number);
@@ -66,7 +71,7 @@ export function chooseOwners(agreed, holders, previous = new Map(), { candidate 
 export class RoadAgreement {
   constructor(room) {
     this.room = room;
-    /** tile -> owner id, and tile -> when that owner took it (ms). */
+    /** `version|tile` -> owner id, and -> when that owner took it (ms). */
     this.owners = new Map();
     this.since = new Map();
   }
@@ -77,6 +82,7 @@ export class RoadAgreement {
     const entries = Object.entries(tiles);
     if (entries.length > ROAD_LIMITS.tiles || !entries.every(([tile, hash]) => tileOK(tile) && hashOK(hash))) return false;
     p.roads = new Map(entries);
+    p.roadsVersion = entries.length ? versionOf(entries[0][1]) : '';
     this.flush();
     return true;
   }
@@ -85,18 +91,26 @@ export class RoadAgreement {
   flush() {
     const now = this.room.now();
     const holders = [...this.room.players.values()].filter(p => p.online && p.connection && p.roads);
-    const agreed = agree(holders.map(p => p.roads));
-    const owners = chooseOwners(agreed, holders, this.owners, { candidate: p => !(p.trafficMutedUntil > now),
-      settled: p => now - p.connection.joinedAt >= ROAD_LIMITS.settleMs });
-    for (const [tile, id] of owners) if (this.owners.get(tile) !== id) this.since.set(tile, now);
-    for (const tile of this.since.keys()) if (!owners.has(tile)) this.since.delete(tile);
+    const groups = new Map();
+    for (const p of holders) { const list = groups.get(p.roadsVersion); if (list) list.push(p); else groups.set(p.roadsVersion, [p]); }
+    const agreedBy = new Map(), owners = new Map();
+    for (const [version, list] of groups) {
+      const agreed = agree(list.map(p => p.roads));
+      agreedBy.set(version, agreed);
+      const previous = new Map([...this.owners].filter(([key]) => key.startsWith(`${version}|`)).map(([key, id]) => [key.slice(version.length + 1), id]));
+      const chosen = chooseOwners(agreed, list, previous, { candidate: p => !(p.trafficMutedUntil > now),
+        settled: p => now - p.connection.joinedAt >= ROAD_LIMITS.settleMs });
+      for (const [tile, id] of chosen) owners.set(`${version}|${tile}`, id);
+    }
+    for (const [key, id] of owners) if (this.owners.get(key) !== id) this.since.set(key, now);
+    for (const key of this.since.keys()) if (!owners.has(key)) this.since.delete(key);
     this.owners = owners;
     for (const c of this.room.connections) {
       const p = c.player;
       if (!p?.roads) continue;
-      const tiles = [...p.roads.keys()].sort();
+      const tiles = [...p.roads.keys()].sort(), agreed = agreedBy.get(p.roadsVersion) ?? new Map();
       const mine = Object.fromEntries(tiles.flatMap(tile => agreed.has(tile) ? [[tile, agreed.get(tile)]] : []));
-      const owned = Object.fromEntries(tiles.flatMap(tile => owners.has(tile) ? [[tile, owners.get(tile)]] : []));
+      const owned = Object.fromEntries(tiles.flatMap(tile => owners.has(`${p.roadsVersion}|${tile}`) ? [[tile, owners.get(`${p.roadsVersion}|${tile}`)]] : []));
       const text = JSON.stringify([mine, owned]);
       if (c.roadsSent === text) continue;
       c.roadsSent = text;
@@ -120,12 +134,12 @@ export class RoadAgreement {
     p.trafficSent = (p.trafficSent ?? []).filter(t => t > now - 1000);
     if (p.trafficSent.length >= ROAD_LIMITS.trafficPerSecond) return false;
     p.trafficSent.push(now);
-    const owned = entries.filter(([tile]) => this.owners.get(tile) === p.id);
+    const owned = entries.filter(([tile]) => this.owners.get(`${p.roadsVersion}|${tile}`) === p.id);
     if (!owned.length) return true;
     p.trafficAt = now;
     for (const c of this.room.connections) {
       const q = c.player;
-      if (!q || q === p || !q.online || !q.roads) continue;
+      if (!q || q === p || !q.online || !q.roads || q.roadsVersion !== p.roadsVersion) continue;
       const theirs = owned.filter(([tile]) => q.roads.has(tile));
       if (theirs.length) this.room.send(c, 'traffic', { from: p.id, tick: m.tick, tiles: Object.fromEntries(theirs) });
     }
@@ -135,9 +149,9 @@ export class RoadAgreement {
   /** Passes over owners whose snapshots stopped, and takes muted players back when their time is up. */
   tick(now) {
     let changed = false;
-    for (const [tile, id] of this.owners) {
+    for (const [key, id] of this.owners) {
       const p = this.room.players.get(id);
-      if (!p || now - Math.max(this.since.get(tile) ?? now, p.trafficAt ?? 0) <= ROAD_LIMITS.staleMs || p.trafficMutedUntil > now) continue;
+      if (!p || now - Math.max(this.since.get(key) ?? now, p.trafficAt ?? 0) <= ROAD_LIMITS.staleMs || p.trafficMutedUntil > now) continue;
       p.trafficMutedUntil = now + ROAD_LIMITS.muteMs;
       changed = true;
     }

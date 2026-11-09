@@ -309,7 +309,9 @@ Clients compute ambient traffic locally from each tile's road graph (game/src/tr
 hash per resident tile (at most 64, tile ids `t0_<i>_<j>`, hashes `[A-Za-z0-9.:_-]{1,64}`), replacing its
 previous report, whenever its tiles change and after every welcome. The server answers each reporting client
 with `{"type":"roads","agreed":{tile:hash}}` over that client's own tiles: a tile is agreed when every online
-player who reported it reported the same hash. It is resent only when it changes (reports, disconnects, idle
+player of the same traffic version (the hash's first dot-separated field) who reported it reported the same hash.
+Each version agrees and has owners only among its own clients, so a tab left on an older build keeps its own
+traffic instead of removing everyone's on the tiles it shares. It is resent only when it changes (reports, disconnects, idle
 and resume). A client spawns traffic on a multiplayer tile only when its own hash is the agreed one, so two
 clients with different road data spawn nothing there. Claimed traffic cars use the ordinary vehicle registry,
 with sources `tr:<tile>:<lane>:<slot>`. Malformed reports are rejected. The message is accepted outside the
