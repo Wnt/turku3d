@@ -249,3 +249,37 @@ test('converted models keep their true length and only take parking slots they f
   }
   expect(longInRoomy).toBeGreaterThan(0);
 });
+
+// The CARLA MINI arrived at 4.55 m, with a 3.01 m wheelbase. Normalize the whole articulated asset to the
+// manufacturer's 2021 length; keep each LOD's measured hubs and the physics in agreement with that asset.
+test('MINI scale matches the manufacturer length across all LODs and keeps its drivetrain', async () => {
+  const m = FLEET_BY_ID.get('carla-mini-cooper-s-2021')!;
+  const entry = AUTHORED_MODELS.find(model => model.id === m.id)!;
+  expect(m.length).toBeCloseTo(3.876, 3);
+  expect(Math.abs(m.wheelbase / 2.495 - 1)).toBeLessThan(0.03); // the source mesh retains its proportions
+  for (const lod of [0, 1, 2]) {
+    const whole = (await loadAuthoredFleet(m.id, lod))!, parts = (await loadAuthoredFleetParts(m.id, lod))!;
+    whole.computeBoundingBox();
+    // LOD simplification may remove a few millimetres from the bumper extrema.
+    expect(Math.abs((whole.boundingBox!.max.z - whole.boundingBox!.min.z) / m.length - 1)).toBeLessThan(0.01);
+    expect(parts.wheels).toHaveLength(4);
+    const axle = (names: string[]) => parts.wheels.filter(w => names.includes(w.name)).reduce((sum, w) => sum + w.pivot.z, 0) / 2;
+    expect(axle(['wheel_FL', 'wheel_FR']) - axle(['wheel_RL', 'wheel_RR'])).toBeCloseTo(m.wheelbase, 3);
+    for (const wheel of parts.wheels) {
+      const pivot = entry.wheels.pivots[wheel.name as keyof typeof entry.wheels.pivots];
+      expect(wheel.pivot.x).toBeCloseTo(pivot[0], 3); expect(wheel.pivot.y).toBeCloseTo(pivot[1], 3); expect(wheel.pivot.z).toBeCloseTo(pivot[2], 3);
+      if (lod === 0) {
+        wheel.geometry.computeBoundingBox();
+        expect(wheel.geometry.boundingBox!.max.y).toBeCloseTo(entry.wheels.radius, 2);
+        expect(wheel.geometry.boundingBox!.min.y).toBeCloseTo(-entry.wheels.radius, 2);
+      }
+    }
+    parts.body.dispose(); for (const wheel of parts.wheels) wheel.geometry.dispose(); whole.dispose();
+  }
+  const { modelTuning } = await import('../../src/vehicle/modelTuning');
+  const t = modelTuning(m.id)!;
+  expect(entry.spec.torqueNm).toBe(280); expect(entry.spec.turningCircleM).toBe(10.8);
+  expect(t.mass).toBe(1235);
+  expect(t.enginePower).toBe(141000 * 0.86);
+  expect(t.driven).toEqual([0, 1]);
+});
