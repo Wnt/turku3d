@@ -45,6 +45,65 @@ def test_narrow_wall_remnant_never_inherits_artificial_clipping_heights():
     assert result.symmetric_difference(polygon).area < 1e-8
 
 
+@pytest.mark.parametrize("count", [31, 32, 96])
+def test_dense_paint_preserves_priority_regions_and_world_coordinates(count):
+    from turku3d.wall_surfaces import paint_partition
+
+    # Rotated wall with absolute heights, sloping roof, overlapping bands,
+    # priority ties and holes left by the small window patches.
+    origin = np.array([120., -7., 80.])
+    direction = np.array([.6, 0., .8])
+    regions = [shapely.Polygon([[0, -7], [30, -7], [30, 15], [0, 11]])]
+    regions += [shapely.box(0, -3, 30, -2), shapely.box(0, 3, 30, 4)]
+    for i in range(count - 5):
+        x, y = (i % 10) * 3 + .5, (i // 10) * 2 - 6
+        regions.append(shapely.box(x, y, x + 2, y + 1.3))
+    regions += [regions[-1], shapely.Polygon([[0, 0], [0, 0], [0, 0]])]
+    priorities = [0, 1, 1] + [2] * (count - 3)
+    layers = []
+    for i, region in enumerate(regions):
+        uv = np.asarray(region.exterior.coords)[:-1]
+        points = origin + uv[:, :1] * direction
+        points[:, 1] = uv[:, 1]
+        layers.append((points, uv, dict(owner=i), priorities[i]))
+
+    actual = list(paint_partition(layers, origin, direction))
+    visible = {}
+    for points, uv, style in actual:
+        expected_points = origin + uv[:, :1] * direction
+        expected_points[:, 1] = uv[:, 1]
+        np.testing.assert_array_equal(points, expected_points)
+        visible.setdefault(style["owner"], []).append(shapely.Polygon(uv))
+
+    # Independent global coverage oracle includes all earlier paint, including
+    # distant windows, rather than consulting the candidate's spatial index.
+    covered = shapely.Polygon()
+    expected_owners = set()
+    for i in sorted(range(count), key=lambda i: (priorities[i], i), reverse=True):
+        polygon = shapely.make_valid(regions[i])
+        if polygon.area < 1e-9:
+            continue
+        expected = polygon.difference(covered)
+        if expected.area > 1e-8:
+            expected_owners.add(i)
+            parts = visible[i]
+            union = shapely.union_all(parts)
+            assert union.symmetric_difference(expected).area < 1e-8
+            assert sum(p.area for p in parts) == pytest.approx(union.area, abs=1e-8)
+        covered = covered.union(polygon)
+    assert visible.keys() == expected_owners
+    assert count - 2 in visible and count - 3 not in visible  # later equal-priority paint wins
+
+
+def test_dense_paint_skips_degenerate_layers_and_accepts_no_layers():
+    from turku3d.wall_surfaces import paint_partition
+
+    origin, direction = np.zeros(3), np.array([1., 0., 0.])
+    assert list(paint_partition([], origin, direction)) == []
+    layer = (np.zeros((4, 3)), np.zeros((4, 2)), {}, 0)
+    assert list(paint_partition([layer] * 32, origin, direction)) == []
+
+
 def test_build_guard_reports_wall_ids_and_near_parallel_triangle_overlap():
     first = mesh(quad(), "first-building")
     second = mesh(quad(z=0.004), "second-building")
