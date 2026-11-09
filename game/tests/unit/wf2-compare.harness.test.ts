@@ -819,7 +819,7 @@ function passengerRig(id: string, keys: boolean) {
     rig.inputFilter = input => {
       const target = clamp(input.steer, -1, 1), k = rig.t.keySteer!;
       // Pulse a held direction against centre, tracking the requested stick without inventing analogue key values.
-      const raw = Math.abs(target) < 0.001 ? 0 : held * Math.sign(target) < Math.abs(target) ? Math.sign(target) : 0;
+      const raw = Math.abs(target) >= 0.999 ? Math.sign(target) : Math.abs(target) < 0.001 ? 0 : held * Math.sign(target) < Math.abs(target) ? Math.sign(target) : 0;
       const rate = raw * held < 0 || Math.abs(raw) < Math.abs(held) ? k.centre : k.rate;
       held += clamp(raw - held, -rate * DT, rate * DT);
       return { ...input, steer: raw, steerKey: true };
@@ -834,7 +834,9 @@ function passengerMetrics(rig: Rig, from: number, referenceYaw?: number) {
   const alpha = (s: Sample, a: number) => mean(s.wheels.slice(a * 2, a * 2 + 2).map(w => Math.abs(w.alpha)));
   const tail = S.slice(-60), ss = mean(tail.map(s => Math.abs(s.yawRate))), peak = Math.max(...S.map(s => Math.abs(s.yawRate)));
   const limit = S.reduce((a, b) => Math.abs(a.ay) > Math.abs(b.ay) ? a : b);
-  return { peakBeta: Math.max(...S.map(s => Math.abs(sideslip(s)))), peakYaw: deg(peak),
+  return { steadySpeedKmh: mean(tail.map(s => s.speed)) * 3.6, steadyYaw: deg(ss),
+    steadyCurvature: mean(tail.map(s => Math.abs(s.yawRate) / s.speed)),
+    peakBeta: Math.max(...S.map(s => Math.abs(sideslip(s)))), peakYaw: deg(peak),
     yawOvershoot: 100 * (peak / Math.max(0.01, referenceYaw ?? ss) - 1),
     frontSlipAtLimit: alpha(limit, 0), rearSlipAtLimit: alpha(limit, 1),
     peakRearExcess: Math.max(...S.map(s => alpha(s, 1) - alpha(s, 0))),
@@ -897,4 +899,66 @@ test.skipIf(!process.env.CARFEEL_REPORT)('passenger stability matrix: circle, st
   const output = { commit: execSync('git rev-parse HEAD').toString().trim(), rows };
   fs.writeFileSync(process.env.CARFEEL_REPORT!, JSON.stringify(output, null, 2));
   console.log(JSON.stringify(rows));
+}, 240000);
+
+
+// Loose-ground continuation of the same passenger rig: a half-stick turn at speed with throttle used to hold it,
+// then lift, corner braking, and steering release. Samples and controls follow the worker's real path.
+test.skipIf(!process.env.CARFEEL_LOOSE_REPORT)('passenger loose-ground stability and recovery', () => {
+  const rows: unknown[] = [];
+  for (const id of PASSENGERS) for (const keys of [false, true])
+    for (const [surface, mat] of [['soil', MAT.soil], ['grass', MAT.grass]] as const) for (const kmh of [35, 45, 60]) {
+      const was = GROUND; GROUND = mat;
+      const rig = passengerRig(id, keys), pi = new SpeedPI();
+      GROUND = was;
+      rig.run(12, () => ({ ...idle, throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), steer: pursue(rig, () => 0) }));
+      const mode = keys ? 'keyboard' : 'analogue', phases = [];
+      for (const [phase, seconds, control] of [
+        ['power', 4, () => ({ ...idle, throttle: pi.update(kmh / 3.6, rig.forwardSpeed()), steer: -0.5 })],
+        ['lift', 2, () => ({ ...idle, steer: -0.5 })],
+        ['brake', 1.5, () => ({ ...idle, steer: -0.5, brake: 0.65 })],
+        ['recover', 2, () => ({ ...idle, throttle: 0.2 })],
+      ] as const) {
+        const from = rig.log.length;
+        rig.run(seconds, control);
+        const samples = rig.log.slice(from).filter(s => s.speed > 10 / 3.6).length;
+        const metrics = samples ? passengerMetrics(rig, from) : { peakBeta: null, spin: null, steadySpeedKmh: null, steadyCurvature: null, endKmh: rig.log.at(-1)!.speed * 3.6 };
+        phases.push({ phase, samples, ...metrics });
+        if (samples) expect(metrics.spin, `${id} ${mode} ${surface}${kmh} ${phase} spin`).toBe(false);
+        if (phase === 'power') {
+          expect(metrics.peakBeta, `${id} ${mode} ${surface}${kmh} power`).toBeLessThan(5.7);
+          if (surface === 'grass' && kmh === 45) {
+            expect(metrics.peakBeta, `${id} ${mode} grass45 parity`).toBeLessThan(3.6);
+            // Keep useful steering authority: the old reference coupé turns R26 m here; allow R30 m, at road speed.
+            expect(metrics.steadyCurvature, `${id} ${mode} grass45 curvature`).toBeGreaterThan(1 / 30);
+            expect(metrics.steadySpeedKmh, `${id} ${mode} grass45 speed`).toBeGreaterThan(35);
+          }
+        }
+        if (phase === 'lift') expect(metrics.peakBeta, `${id} ${mode} ${surface}${kmh} lift`).toBeLessThan(4.1);
+      }
+      rows.push({ id, mode, surface, kmh, phases });
+      rig.writeCsv(`loose-${mode}-${surface}-${kmh}`); rig.free();
+    }
+  const recovery = [];
+  for (const id of PASSENGERS) for (const keys of [false, true]) for (const direction of [-1, 1]) {
+    const was = GROUND; GROUND = MAT.grass;
+    const rig = passengerRig(id, keys), pi = new SpeedPI(); GROUND = was;
+    rig.run(12, () => ({ ...idle, throttle: pi.update(45 / 3.6, rig.forwardSpeed()), steer: pursue(rig, () => 0) }));
+    const from = rig.log.length;
+    // Keyboard: hold a direction continuously, then release. Analogue: a half-stick corner, then release.
+    const input = keys ? direction : direction * 0.5;
+    rig.run(4, () => ({ ...idle, throttle: pi.update(45 / 3.6, rig.forwardSpeed()), steer: input }));
+    const entry = passengerMetrics(rig, from), release = rig.log.length;
+    rig.run(3, () => ({ ...idle, throttle: pi.update(45 / 3.6, rig.forwardSpeed()) }));
+    const metrics = passengerMetrics(rig, release), end = rig.log.at(-1)!;
+    const endBeta = Math.abs(sideslip(end));
+    recovery.push({ id, mode: keys ? 'held key' : 'analogue', direction, entry, release: metrics, endBeta });
+    expect(entry.spin, `${id} ${direction} entry spin`).toBe(false);
+    expect(metrics.spin, `${id} ${direction} release spin`).toBe(false);
+    expect(end.speed * 3.6, `${id} ${direction} moving recovery`).toBeGreaterThan(30);
+    expect(endBeta, `${id} ${direction} caught release`).toBeLessThan(1);
+    rig.writeCsv(`moving-release-${keys ? 'key' : 'analogue'}-${direction}`); rig.free();
+  }
+  const diffHash = execSync('git diff HEAD -- game/src/vehicle/modelTuning.ts game/src/vehicle/tyres.ts').toString();
+  fs.writeFileSync(process.env.CARFEEL_LOOSE_REPORT!, JSON.stringify({ commit: execSync('git rev-parse HEAD').toString().trim(), tuningDiff: diffHash, tuning: Object.fromEntries(PASSENGERS.map(id => [id, tuningOf(`model:${id}`)])), rows, recovery }, null, 2));
 }, 240000);
