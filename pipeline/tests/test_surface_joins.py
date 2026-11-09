@@ -77,6 +77,17 @@ def test_ground_stair_landing_stops_at_dry_shore_and_keeps_a_landing_hole():
     )
     _, cuts = stairs.produce(C.VisualTile(0, 0, 0), prepared, lambda x, z: 1, landing_domain=land)
     assert shapely.union_all(cuts).difference(land).area < 1e-9
+    aprons = []
+
+    def local_land(apron):
+        aprons.append(apron)
+        return land.intersection(apron.envelope.buffer(0.01))
+
+    _, local_cuts = stairs.produce(
+        C.VisualTile(0, 0, 0), prepared, lambda x, z: 1, landing_domain=local_land
+    )
+    assert len(aprons) == 2  # Query each landing, rather than reuse the first landing's domain.
+    assert shapely.union_all(local_cuts).symmetric_difference(shapely.union_all(cuts)).area < 1e-9
     area = shapely.box(0, 0, 4, 4).difference(shapely.box(1, 1, 2, 2))
     pieces = [shapely.Polygon(p) for p in terrain_patches(area, 3)]
     assert shapely.union_all(pieces).symmetric_difference(area).area < 1e-9

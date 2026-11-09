@@ -90,7 +90,8 @@ def number(value, default):
 
 
 def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
-    """Landing aprons are clipped to ``landing_domain`` (a polygon, or a callable giving it)."""
+    """Landing aprons are clipped to ``landing_domain``: a polygon, or a callable giving the domain
+    under one apron (any polygon that agrees with the full domain over the apron)."""
     meshes, openings = [], []
     rows, areas = prepared or ((), ())
     window = shapely.box(*tile.bbox.as_tuple())
@@ -282,9 +283,8 @@ def produce(tile, prepared, sample, decks=(), *, landing_domain=None):
             outer = inner + outward
             apron = shapely.Polygon([inner[0], outer[0], outer[1], inner[1]])
             if landing_domain is not None and not bridge_access:
-                if callable(landing_domain):
-                    landing_domain = landing_domain()
-                apron = apron.intersection(landing_domain)
+                domain = landing_domain(apron) if callable(landing_domain) else landing_domain
+                apron = apron.intersection(domain)
             if apron.is_empty:
                 continue
             aprons.append(apron)
@@ -504,10 +504,16 @@ def stage(
     ]
 
     @functools.cache
-    def land():
+    def land_index():
         # Only a flight's landing apron reads it; most tiles have none.
         polygons, planar = surface_join.footprint(dry)
-        return shapely.union_all(polygons[planar], grid_size=1e-8)
+        return polygons[planar], shapely.STRtree(polygons[planar])
+
+    def land(apron):
+        """The dry ground under one apron: the union of the terrain triangles it touches. The
+        union of the whole tile's triangles (the same ground over the apron) cost 20-35 s."""
+        polygons, tree = land_index()
+        return shapely.union_all(polygons[tree.query(apron, predicate="intersects")], grid_size=1e-8)
 
     def geometry():
         flights, flight_cuts = produce(tile, prepared, sample, decks, landing_domain=land)
