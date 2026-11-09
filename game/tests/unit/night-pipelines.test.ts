@@ -17,6 +17,7 @@ import { DayClock } from '../../src/render/dayClock';
 import { sceneryMaterial } from '../../src/render/sceneryMaterial';
 import { PostProcessing } from '../../src/render/post';
 import { dissolveTwin } from '../../src/render/lodFade';
+import { VehicleLightData } from '../../src/render/vehicleLightData';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -329,7 +330,7 @@ test('idle light slots cost no shader loop iterations; active ones are packed fi
   const { env, shaders } = world(false, 'high');
   shaders();
   const scene = env.sun.parent as THREE.Scene;
-  type Data = { countNode: { value: number }; update(frame: { camera: THREE.Camera }): void };
+  type Data = { countNode: { value: number }; _lights: THREE.Light[]; update(frame: { camera: THREE.Camera }): void };
   const lighting = (env as unknown as { renderer: THREE.WebGPURenderer }).renderer.lighting;
   const data = (lighting.getNode(scene) as unknown as { _dataNodes: Map<string, Data> })._dataNodes;
   const camera = new THREE.PerspectiveCamera();
@@ -338,8 +339,22 @@ test('idle light slots cost no shader loop iterations; active ones are packed fi
   env.lamps.point[5].intensity = 10; env.lamps.point[2].intensity = 3;
   data.get('PointLight')!.update({ camera });
   expect(data.get('PointLight')!.countNode.value).toBe(2);
+  expect(data.get('PointLight')!._lights).toEqual([env.lamps.point[2], env.lamps.point[5]]);
   expect(env.lamps.point).toHaveLength(QUALITY.high.lights.point);
-  expect(data.has('SpotLight')).toBe(false);
+  // aaea3bb8: vehicle spots have a permanent packed node too, with an active-count loop.
+  const spots = data.get('SpotLight') as unknown as { count: { value: number }; update(frame: { camera: THREE.Camera }): void; setLights: VehicleLightData['setLights'] };
+  expect(spots).toBeInstanceOf(VehicleLightData);
+  spots.update({ camera });
+  expect(spots.count.value).toBe(0);
+  const lights = [new THREE.SpotLight(), new THREE.SpotLight(), new THREE.SpotLight()];
+  scene.add(...lights);
+  lights[0].intensity = 0;
+  spots.setLights(lights);
+  spots.update({ camera });
+  expect(spots.count.value).toBe(2);
+  lights[1].intensity = lights[2].intensity = 0;
+  spots.update({ camera });
+  expect(spots.count.value).toBe(0);
 });
 
 test('cascades freeze only in play while the sun is dark, and resume at dawn', () => {

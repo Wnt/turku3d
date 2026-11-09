@@ -93,7 +93,7 @@ describe('4400 truck on the headless course', () => {
       const sent = vehiclePose(s, 'truck', 0, drvOf(s, 900, 1));
       expect(validPose(JSON.parse(JSON.stringify(sent)))).toBe(true);
       const relayed = cleanPose(JSON.parse(JSON.stringify(sent)));
-      expect(relayed.drv[3]).toBe(REAR_STEER_MODES.indexOf(mode));
+      expect(relayed.drv?.[3]).toBe(REAR_STEER_MODES.indexOf(mode));
       for (const i of [0, 1, 2, 3]) expect(Math.abs(relayed.wheels[i].steer - s.wheels[i].steer)).toBeLessThan(0.002);
       rear[mode] = deg(relayed.wheels[2].steer);
     }

@@ -1,4 +1,4 @@
-import { expect, test, vi } from 'vitest';
+import { assert, expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { STANDBY_MARGIN, ScreenshotScenery, dissolveTiers } from '../../src/world/screenshotScenery';
 import type { CoarseHost, Entry } from '../../src/world/coarseContracts';
@@ -588,8 +588,13 @@ test('a kilometre fallback keeps its canopy shell off every square a full tile o
   const node = shell(), cell = shell();
   styleScenery(node.model, undefined, coverage, state.squares.texture);
   styleScenery(cell.model, undefined, coverage);
-  const nodeMask = graphInputs((node.mesh.material as THREE.MeshStandardNodeMaterial).maskNode);
-  const cellMask = graphInputs((cell.mesh.material as THREE.MeshStandardNodeMaterial).maskNode);
+  const nodeMaterial: THREE.Material = node.mesh.material, cellMaterial: THREE.Material = cell.mesh.material;
+  expect(nodeMaterial).toBeInstanceOf(THREE.MeshStandardNodeMaterial);
+  expect(cellMaterial).toBeInstanceOf(THREE.MeshStandardNodeMaterial);
+  assert(nodeMaterial instanceof THREE.MeshStandardNodeMaterial);
+  assert(cellMaterial instanceof THREE.MeshStandardNodeMaterial);
+  const nodeMask = graphInputs(nodeMaterial.maskNode);
+  const cellMask = graphInputs(cellMaterial.maskNode);
   expect([...nodeMask.textures]).toEqual([state.squares.texture]);
   expect(nodeMask.values.has(TILE_DETAIL.distance)).toBe(true);
   expect(cellMask.textures.size).toBe(0);

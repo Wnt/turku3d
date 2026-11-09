@@ -27,6 +27,11 @@ test('explicit steps do not depend on replies and worker errors are surfaced', a
     worker.onmessage!({ data: { type: 'tileLoaded', stats: { id: 'c_2_3', tris: 1, prims: 0, bytes: 4, buildMs: 1, colliders: 1 } } });
     expect(client.loaded.has('c_2_3')).toBe(true);
     worker.onmessage!({ data: { type: 'tileError', id: 'c_2_3', error: 'decode failed', permanent: true } });
+    // 9abfa634b: a rejected replacement keeps the worker's acknowledged collider.
+    expect(client.loaded.get('c_2_3')).toMatchObject({ tris: 1, colliders: 1 });
+    worker.onmessage!({ data: { type: 'tileError', id: 'c_9_9', error: 'initial load failed', permanent: true } });
+    expect(client.loaded.has('c_9_9')).toBe(false);
+    worker.onmessage!({ data: { type: 'tileUnloaded', id: 'c_2_3' } });
     expect(client.loaded.has('c_2_3')).toBe(false);
   } finally { vi.unstubAllGlobals(); }
 });
