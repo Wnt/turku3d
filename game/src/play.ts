@@ -1003,7 +1003,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         orbit.clampDist = h ? Math.max(0.8, h.toi - 0.3) : Infinity; camRayBusy = false;
       });
     }
-    vehicleBeams.update(mode === 'car' ? latestOf(drivenId ?? 'player') : null, now);
+    vehicleBeams.update(mode === 'car' ? latestOf(drivenId ?? 'player') : null, now, multiplayerPlaying ? remotePlayers.lamps : [], camera.position);
     audio.emit({ type: 'horns', vehicles: [
       ...(vehicleSignals.horn && vs ? [{ id: 'local', kind: vs.kind ?? 'car' as const, position: vs.pos }] : []),
       ...(multiplayerPlaying ? remotePlayers.horns : []),

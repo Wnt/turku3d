@@ -2,6 +2,7 @@ import { applyFleetWheels } from '../actors/fleet/wheels';
 import { showFleetDamage } from '../actors/fleet/visuals';
 import { vehicleLamps } from '../vehicle/lamps';
 import type { HornEmitter } from '../audio/mix';
+import type { BeamSource } from '../vehicle/beams';
 import type { TyreEffects } from '../vehicle/tyreEffects';
 import { hazardOn, mechanicsOf, wrecked } from '../vehicle/mechanics';
 import { CLAIM_PREFIX } from '../traffic/constants';
@@ -116,6 +117,8 @@ export class RemotePlayers {
   private readonly view = new THREE.Vector3();
   frameMs = 0;
   readonly horns: HornEmitter[] = [];
+  /** Other players' lit vehicles this frame, chassis pose as drawn: their headlights light the road (vehicle/beams.ts). */
+  readonly lamps: BeamSource[] = [];
   /** Engine voices of remote trucks with a driver, refreshed by update() (GameAudio.engineVoice, SPEC §4.6). */
   readonly engines: { id: string; state: EngineVoiceState }[] = [];
   /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
@@ -129,7 +132,7 @@ export class RemotePlayers {
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
     drawn: (id: string) => VehicleState | null = () => null) {
     const t0 = performance.now();
-    this.horns.length = 0; this.threats.length = 0; this.engines.length = 0;
+    this.horns.length = 0; this.threats.length = 0; this.engines.length = 0; this.lamps.length = 0;
     const selfId = client.state.you?.id;
     const proxies = this.physics.latest?.remoteProxies;
     this.selfId = selfId;
@@ -215,7 +218,7 @@ export class RemotePlayers {
       // A car this client's hit moved is drawn where the local physics put it (shoved like a parked car, then gliding
       // back onto its owner's pose: physics/world.ts REMOTE_SERVO); the physics proxy still follows the owner's pose.
       const shoved = pose.mode !== 'foot' && !p.locallySimulated ? proxies?.find(r => r.id === p.id) : undefined;
-      const drawn = shoved ? shoved.pos : pos, drawnPose = shoved ? { ...pose, rot: shoved.rot } : pose;
+      const shownPos = shoved ? shoved.pos : pos, shownPose = shoved ? { ...pose, rot: shoved.rot } : pose;
       if (pose.mode !== 'foot') {
         const model = pose.mode === 'car' ? remote.car : pose.mode === 'truck' ? remote.truck! : remote.scooter!;
         vehicleLamps(model, pose.mode, pose.lights ?? 0);
@@ -223,14 +226,18 @@ export class RemotePlayers {
       }
       remote.pizza.position.set(pos.x - Math.sin(pose.yaw) * .45, pos.y + 1, pos.z - Math.cos(pose.yaw) * .45);
       remote.pizza.rotation.y = pose.yaw;
-      for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model?.position.set(drawn.x, drawn.y, drawn.z);
+      for (const model of [remote.distant, remote.car, remote.scooter, remote.truck]) model?.position.set(shownPos.x, shownPos.y, shownPos.z);
       if (remote.foot) { remote.foot.position.set(pos.x, pos.y, pos.z); remote.foot.rotation.y = pose.yaw + Math.PI; }
       remote.distant.rotation.y = pose.yaw + Math.PI;
-      remote.car.quaternion.copy(vehicleRotation(drawnPose, true));
+      remote.car.quaternion.copy(vehicleRotation(shownPose, true));
       remote.car.position.y -= 0.75;
-      remote.chassis.copy(vehicleRotation(drawnPose, false));
+      remote.chassis.copy(vehicleRotation(shownPose, false));
       remote.scooter?.quaternion.copy(remote.chassis);
       remote.truck?.quaternion.copy(remote.chassis);
+      if (pose.mode !== 'foot' && pose.lights && !p.locallySimulated) {
+        const q = remote.chassis;
+        this.lamps.push({ id: p.id, kind: pose.mode, lights: pose.lights, pos: { ...shownPos }, rot: { x: q.x, y: q.y, z: q.z, w: q.w } });
+      }
       if (pose.mode === 'car' && pose.wheels) applyFleetWheels(remote.car, pose.wheels);
       // The owner's body damage (vehicle/damage.ts), replicated in the pose.
       if (pose.mode === 'car') showFleetDamage(remote.car, pose.damage);
@@ -278,7 +285,7 @@ export class RemotePlayers {
           if (frame) this.drivers.seat(key, frame, this.sources.truck.driverLayout, input);
         }
       }
-      remote.label.position.set(drawn.x, drawn.y + (pose.mode === 'foot' ? 2.2 : 2), drawn.z);
+      remote.label.position.set(shownPos.x, shownPos.y + (pose.mode === 'foot' ? 2.2 : 2), shownPos.z);
       if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
         vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 } });
       if (!p.locallySimulated) {

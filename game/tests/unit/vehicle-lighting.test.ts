@@ -11,12 +11,12 @@ import { vehicleLamps } from '../../src/vehicle/lamps';
 import { nightUniforms } from '../../src/render/nightLights';
 import type { VehicleState } from '../../src/physics/protocol';
 
-test('two shadowless beams stay in one packed shader across off, dipped and long', () => {
+test('the beams of the driven car and two remote cars stay in one packed shader across off, dipped and long', () => {
   const renderer = new GameRenderer({ canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   renderer.hasFeature = () => false;
   Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
   const scene = new T.Scene(), beam = new VehicleBeams(scene, { raycast: async () => null });
-  expect(beam.lights).toHaveLength(2); expect(beam.lights.every(l => !l.castShadow)).toBe(true);
+  expect(beam.lights).toHaveLength(6); expect(beam.lights.every(l => !l.castShadow)).toBe(true);
   const material = new T.MeshStandardNodeMaterial(), mesh = new T.Mesh(new T.BoxGeometry(), material);
   const lighting = new GameLighting({ point: 4 }), lights = [...beam.lights, new T.PointLight(), new T.HemisphereLight()];
   type Builder = NodeBuilder & { scene: T.Scene; camera: T.Camera; lightsNode: T.LightsNode; build(): void; fragmentShader: string };
@@ -24,13 +24,14 @@ test('two shadowless beams stay in one packed shader across off, dipped and long
   const programs = [], lightsNode = lighting.createNode(lights);
   for (const mode of [0, 1, 2] as const) {
     nightUniforms.night.value = 1;
-    beam.update({ id: 'player', lights: mode, pos: { x: 0, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } } as VehicleState, 0);
+    beam.update({ id: 'player', lights: mode, pos: { x: 0, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } } as VehicleState, 0,
+      [{ id: 'bot', lights: mode, pos: { x: 20, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } }], { x: 0, y: 2, z: 5 });
     const builder = backend.createNodeBuilder(mesh, renderer);
     builder.scene = scene; builder.camera = new T.PerspectiveCamera(); builder.lightsNode = lightsNode;
     builder.build(); programs.push(builder.fragmentShader);
   }
   expect(new Set(programs).size).toBe(1);
-  expect(programs[0]).toContain('array< vec4<f32>, 14 >');
+  expect(programs[0]).toContain('array< vec4<f32>, 42 >');
   beam.dispose(); nightUniforms.night.value = 0;
 });
 
@@ -75,4 +76,24 @@ test('authored fleet GLBs retain named front and running-tail roles in their sin
   expect(lamps).toContain(1);
   expect(Array.from({ length: tags.count }, (_, i) => tags.getX(i)).every(v => v === 0)).toBe(true);
   geometry.dispose();
+});
+
+test("remote players' lit cars get the spare beams: nearest first, off and far ones none, a car keeps its pair", () => {
+  const beam = new VehicleBeams(new T.Scene(), { raycast: async () => null });
+  const car = (id: string, x: number, lights: 0 | 1 | 2 = 1) => ({ id, lights, pos: { x, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 } });
+  const lit = () => beam.lights.map(l => l.intensity > 0 ? Math.round(l.parent!.position.x) : null);
+  try {
+    nightUniforms.night.value = 1;
+    beam.update(null, 0, [car('far', 400), car('dark', 10, 0), car('b', 60), car('a', 30, 2), car('c', 90)], { x: 0, y: 1, z: 0 });
+    expect(lit()).toEqual([null, null, 30, 30, 60, 60]);
+    // b is now the nearer one: both keep the pair they had (and its occlusion fan).
+    beam.update(null, 16, [car('a', 70, 2), car('b', 60), car('c', 90)], { x: 0, y: 1, z: 0 });
+    expect(lit()).toEqual([null, null, 70, 70, 60, 60]);
+    // a falls behind c: c takes a's pair.
+    beam.update(null, 24, [car('a', 120, 2), car('b', 60), car('c', 90)], { x: 0, y: 1, z: 0 });
+    expect(lit()).toEqual([null, null, 90, 90, 60, 60]);
+    nightUniforms.night.value = 0;
+    beam.update(null, 32, [car('a', 30, 2)], { x: 0, y: 1, z: 0 });
+    expect(lit().every(x => x === null)).toBe(true);
+  } finally { beam.dispose(); nightUniforms.night.value = 0; }
 });

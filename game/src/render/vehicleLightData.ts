@@ -9,11 +9,13 @@ interface LightingContext {
   lightingModel: { direct(data: Record<string, unknown>, builder: T.NodeBuilder): void };
   reflectedLight: { directDiffuse: ReturnType<typeof vec3>; directSpecular: ReturnType<typeof vec3> };
 }
-/** Two vehicle beams in one packed UBO. Zero active lights means a zero-iteration fragment loop.
+/** Vehicle beams, at most this many lit at once: the driven car's pair and two remote players' (vehicle/beams.ts). */
+export const VEHICLE_BEAM_LIGHTS = 6;
+/** Vehicle beams in one packed UBO. Zero active lights means a zero-iteration fragment loop.
  * Nine conservative angular depth bins stop light behind collision walls without shadow maps. */
 export class VehicleLightData extends T.Node {
   private lights: T.SpotLight[] = [];
-  private values = Array.from({ length: 14 }, () => new T.Vector4());
+  private values = Array.from({ length: VEHICLE_BEAM_LIGHTS * 7 }, () => new T.Vector4());
   private packed = uniformArray(this.values, 'vec4').setGroup(renderGroup);
   private count = uniform(0, 'int').setGroup(renderGroup);
   constructor() { super(); this.updateType = T.NodeUpdateType.RENDER; }
@@ -22,7 +24,7 @@ export class VehicleLightData extends T.Node {
     if (!camera) return;
     let count = 0;
     for (const light of this.lights) {
-      if (light.intensity <= 0 || count === 2) continue;
+      if (light.intensity <= 0 || count === VEHICLE_BEAM_LIGHTS) continue;
       const at = count++ * 7, q = light.parent!.getWorldQuaternion(new T.Quaternion());
       vector.setFromMatrixPosition(light.matrixWorld).applyMatrix4(camera.matrixWorldInverse);
       this.values[at].set(vector.x, vector.y, vector.z, light.distance);
