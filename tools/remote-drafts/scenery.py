@@ -275,11 +275,11 @@ class Scenery:
         with self.lock:
             self.pending = {k: v for k, v in self.pending.items() if not v.done()}
             future = self.pending.get(key)
-            if future is None:
-                if len(self.pending) >= 16:
-                    return self._stale(key) or (202, {'state': 'queued'})
+            if future is None and len(self.pending) < 16:
                 future = self.pool.submit(self._build, key)
                 self.pending[key] = future
+        if future is None:  # queue full; _stale takes the lock itself
+            return self._stale(key) or (202, {'state': 'queued'})
         try:
             value = future.result(timeout=.8)
             return 200, value

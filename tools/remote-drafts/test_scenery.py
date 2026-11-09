@@ -100,6 +100,12 @@ class SceneryTest(unittest.TestCase):
             status, value = cache.descriptor(new['key'])  # building: the old build serves, stale
             self.assertEqual((status, value['stale'], value['visual']['t2_0_0']['url']), (200, True, f"../scenery/lod.{old['key']}.glb"))
             self.assertEqual(cache.descriptor(other['key'])[0], 202)  # nothing built for that tile yet
+            # A full build queue answers stale too, without holding the lock (it once deadlocked every request).
+            full = {f'{n:064x}': None for n in range(16)}
+            with patch.object(cache, 'pending', {k: SimpleNamespace(done=lambda: False) for k in full}):
+                self.assertTrue(cache.descriptor(new['key'])[1]['stale'])
+                self.assertEqual(cache.descriptor(other['key']), (202, {'state': 'queued'}))
+            self.assertTrue(cache.lock.acquire(timeout=1)); cache.lock.release()
             # A restarted service finds the old build in its cache.
             restarted = Scenery(temp, survey=survey); restarted._index_built()
             self.assertTrue(restarted.descriptor(new['key'])[1]['stale'])
