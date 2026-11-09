@@ -1,21 +1,38 @@
 // Far openings retain the detailed facade's program or baked glazing mask.
 import * as THREE from 'three/webgpu';
-import { attribute, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uniform, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
+import { attribute, cameraPosition, distance, dot, float, floor, fract, luminance, mix, positionWorld, smoothstep, texture, uniform, uv, varying, vec2, vec3, vertexColor } from 'three/tsl';
 import { nightUniforms, wallFrame, windowEmission } from './nightLights';
 import { facadeProgramSurface } from './facadeProgramSurface';
 import { interleaveProgram } from './facadeProgramAttributes';
 import type { SharedMaterials } from './sharedMaterials';
+import { FoliageMaterial } from './foliageMaterial';
+import { TILE_DETAIL } from '../world/sceneryView';
 
 const source = new THREE.MeshStandardMaterial({ name: 'distant-city-pigment', roughness: 1, metalness: 0 });
 // Node identity participates in the program key. Ground and plain shells have the
 // same pigment expression; share it without sharing their material lifetimes.
 const sceneryPigment = vertexColor().rgb;
-// The far canopy's summer tint, one node for every cell's material (fresh nodes gave each cell its own program).
-const sceneryCanopy = vec3(.45, .78, .30).mul(luminance(vertexColor().rgb));
+// The far crown cones' summer tint, one node for every cell's material (fresh nodes gave each cell its own program). It
+// was (.45, .78, .30): with the open sky's full ambient light a 1.2 km shore read 0.23 of the sky's green at B/G 0.71
+// before haze, four times the panorama's forests; this albedo under FAR_CANOPY_AMBIENT gives 0.053 at B/G 0.38
+// (natureref evidence/far-canopy.md).
+const sceneryCanopy = vec3(.225, .39, .085).mul(luminance(vertexColor().rgb));
+/** Share of the open sky's light that reaches a far canopy surface: a forest seen from afar is mostly the shaded depths
+ *  between crowns, which a single shell or cone per tree does not occlude. */
+const FAR_CANOPY_AMBIENT = float(0.3);
 const regionalMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
 function regionalMask(coverage: THREE.DataTexture) {
   let mask = regionalMasks.get(coverage);
   if (!mask) regionalMasks.set(coverage, mask = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5));
+  return mask;
+}
+/** The regional canopy also stays out of the full-tile window: those tiles carry the real trees, and a coverage gap while
+ *  one swaps in must not raise the shell through them. */
+const canopyMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
+function canopyMask(coverage: THREE.DataTexture) {
+  let mask = canopyMasks.get(coverage);
+  if (!mask) canopyMasks.set(coverage, mask = regionalMask(coverage)
+    .and(distance(positionWorld.xz, cameraPosition.xz).greaterThan(TILE_DETAIL.distance)));
   return mask;
 }
 
@@ -62,11 +79,18 @@ function shellWindows(grid: boolean) {
 export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map?: THREE.Texture | null, programVersion = 5,
   roof?: ShellRoof) {
   // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
-  const material = new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
+  // The far canopy shell (pipeline horizon_regional.canopy) and the far tree crowns are foliage: the leaves' specular.
+  const canopy = layer === 'canopy' || layer === 'canopy-regional';
+  const material = canopy || layer === 'vegetation' ? new FoliageMaterial({ roughness: 1, metalness: 0 })
+    : new THREE.MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
   material.colorNode = sceneryPigment;
+  if (canopy || layer === 'vegetation') material.aoNode = FAR_CANOPY_AMBIENT;
   material.name = `distant-city-${layer}`;
   material.flatShading = true;
+  // The 4 km regional terrain and its canopy yield to finer loaded cells.
   if (layer === 'regional' && coverage) material.maskNode = regionalMask(coverage);
+  if (layer === 'canopy-regional' && coverage) material.maskNode = canopyMask(coverage);
+  if (canopy) return material;
   // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
   // retaining their tonal variation without turning the far skyline into bright orange spikes.
   if (layer === 'vegetation') material.colorNode = sceneryCanopy;

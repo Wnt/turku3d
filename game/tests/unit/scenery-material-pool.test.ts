@@ -1,6 +1,7 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
 import { sceneryMaterial, styleScenery } from '../../src/render/sceneryMaterial';
+import { FoliageMaterial } from '../../src/render/foliageMaterial';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { disposeModelResources } from '../../src/world/disposeModel';
 
@@ -52,4 +53,20 @@ test('plain scenery reuses program keys while coverage and atlas bindings stay d
   expect(mapped.customProgramCacheKey()).not.toBe(otherMap.customProgramCacheKey());
   for (const material of [ground, shell, masked, otherMask, mapped, otherMap]) material.dispose();
   first.dispose(); second.dispose();
+});
+
+test('far canopy layers are foliage with the vertex pigment; the regional one yields to loaded cells', () => {
+  const ground = sceneryMaterial('ground'), canopy = sceneryMaterial('canopy');
+  const coverage = new THREE.DataTexture(new Uint8Array([0]), 1, 1, THREE.RedFormat);
+  const regional = sceneryMaterial('canopy-regional', coverage), unmasked = sceneryMaterial('canopy-regional');
+  expect(canopy).toBeInstanceOf(FoliageMaterial);
+  expect(canopy.colorNode).toBe(ground.colorNode);
+  expect(canopy.customProgramCacheKey()).not.toBe(ground.customProgramCacheKey());
+  expect(regional.maskNode).toBeTruthy();
+  expect(regional.maskNode).not.toBe(sceneryMaterial('regional', coverage).maskNode);  // also out of the tile window
+  expect(sceneryMaterial('vegetation')).toBeInstanceOf(FoliageMaterial);
+  expect(unmasked.maskNode).toBeFalsy();
+  expect(regional.customProgramCacheKey()).not.toBe(canopy.customProgramCacheKey());
+  for (const material of [ground, canopy, regional, unmasked]) material.dispose();
+  coverage.dispose();
 });

@@ -100,7 +100,7 @@ export class SceneryBatches {
           const mesh = object as THREE.Mesh;
           if (!mesh.isMesh || (mesh as THREE.InstancedMesh).isInstancedMesh || Array.isArray(mesh.material)
             || mesh.material.transparent || !mesh.geometry.attributes.position
-            || !['ground','buildings','buildings-program','buildings-mapped','vegetation','regional'].includes(mesh.userData.layer)) return;
+            || !['ground','buildings','buildings-program','buildings-mapped','vegetation','regional','canopy','canopy-regional'].includes(mesh.userData.layer)) return;
           const mask = this.masks.get(mesh) ?? mesh.layers.mask; this.masks.set(mesh, mask);
           const layout = Object.entries(mesh.geometry.attributes).map(([name,a]) =>
             `${name}:${a.itemSize}:${a.normalized}:${a.array.constructor.name}`).sort().join(';');

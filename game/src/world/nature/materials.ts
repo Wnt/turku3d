@@ -2,10 +2,10 @@ import * as THREE from 'three/webgpu';
 import {
   abs, attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionView, positionWorld, pow, select, sin, smoothstep,
-  renderGroup, specularColor, specularColorBlended, specularF90, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix,
-  luminance,
+  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance,
 } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
+import { FoliageMaterial } from '../../render/foliageMaterial';
 import { viewClearance } from '../../render/viewClearance';
 import type { NatureKind } from './library';
 import { OPEN_STEP, UNMEASURED_OPENNESS } from './species';
@@ -14,6 +14,11 @@ import { OPEN_STEP, UNMEASURED_OPENNESS } from './species';
  *  per-tree stagger (from its stable tint) that keeps a tile's trees from switching together. A band lies wholly
  *  inside its boundary: the costlier level never draws farther than before; only the cheaper one starts earlier. */
 export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06, 0.03] };
+/** The impostor atlas bakes the leaves' crown-depth AO into its albedo at full strength (scripts/nature/raster.mjs:
+ *  texture x vertex colour), where the live leaves take it at crownLight.x 0.5 and draw sun through the outer leaves:
+ *  the impostor band read 0.018-0.026 of the sky's green before haze, the leaves it replaces about 0.06. This gain on
+ *  the atlas gives the harbour's forest shore 0.059 with haze (panorama 0.059; natureref evidence/far-canopy.md). */
+const IMPOSTOR_LIGHT = 1.6;
 /** Impostor alpha scale by mip level: 1 through mip 4, where the atlas keeps its alpha-test coverage, rising by `gain`
  *  over mips 4-5, where it thins. `impostorAlphaScale` is the CPU mirror of the shader's ramp. */
 export const IMPOSTOR_BOOST = { from: 4, to: 5, gain: 0.3 } as const;
@@ -92,20 +97,6 @@ export function crownGapCurve(): [number, number, number, number] {
 export function crownFill(open: number) {
   const t = Math.min(1, Math.max(0, (UNMEASURED_OPENNESS - open) / (UNMEASURED_OPENNESS - CROWN_GAPS.dense)));
   return 1 + (CROWN_GAPS.fill - 1) * t * t * (3 - 2 * t);
-}
-
-/** Share of the dielectric specular (F0 0.04, F90 1) that leaf and impostor cards keep. A card reflects the open sky,
- *  but inside a crown most of that sky is other leaves: at full strength the sky's blue made shaded crowns B/G 0.72
- *  even without the bloom veil (panorama 0.21); half of it, with the lighter crown light, gives 0.2. */
-export const FOLIAGE_SPECULAR = 0.5;
-/** Leaf and impostor cards: a standard material with FOLIAGE_SPECULAR. Clones (LOD variants) keep the class. */
-class FoliageMaterial extends THREE.MeshStandardNodeMaterial {
-  setupSpecular() {
-    const f0 = vec3(0.04 * FOLIAGE_SPECULAR);
-    specularColor.assign(f0);
-    specularColorBlended.assign(f0);
-    specularF90.assign(float(FOLIAGE_SPECULAR));
-  }
 }
 
 /** Bench lab `treefade=S`: scale the bands before the materials are built; 0 gives the old instant swaps. */
@@ -301,7 +292,7 @@ export class NatureMaterials {
     const level = log2(max(max(fwidth(uv().x), fwidth(uv().y)).mul(imageWidth(impMap)), 1));
     const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, level).mul(IMPOSTOR_BOOST.gain).add(1);
     // A dense crown's impostor fills as its leaf cards do (CROWN_GAPS fill), so it does not thin at the far band.
-    this.impostor.colorNode = vec4(tone(impTex.rgb), impTex.a.mul(boost).mul(fill).mul(visible));
+    this.impostor.colorNode = vec4(tone(impTex.rgb).mul(IMPOSTOR_LIGHT), impTex.a.mul(boost).mul(fill).mul(visible));
     this.impostor.positionNode = wind(0);
 
     const plain = (source: THREE.MeshStandardMaterial, name: string) => {
