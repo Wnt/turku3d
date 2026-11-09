@@ -95,6 +95,70 @@ def _canopy_cells(data, x, z, step):
     return height, _noise(x, z, 260.0, 23)
 
 
+# Lidar canopy (coarse/chm.py): where the city's 4 m canopy height model covers a block, the shell stands on the lidar
+# ground at the measured canopy height instead of draping the surface model by land cover. It also finds the canopy
+# the land cover misses (parks, yards, street trees) and the real clearings.
+CHM_CANOPY = 2.0     # m: a lidar cell taller than this is canopy
+CHM_STAND = 0.4      # canopy share that makes a shell cell part of a stand
+CHM_LIFT = (.85, .7)  # corner height over the cells' mean canopy height: inside a stand, on its edge
+
+
+@lru_cache(maxsize=1)
+def chm_grid(path):
+    with np.load(path) as data:
+        return {key: data[key] for key in data.files}
+
+
+def chm_covers(tile, path):
+    """The model holds every cell of ``tile`` and the ring of shell cells around it."""
+    data = chm_grid(str(path)); step = float(data['step'])
+    rows, cols = data['chm'].shape
+    margin = CANOPY_STEP[4]
+    r0, r1 = int((tile.bbox.zmin - margin - float(data['zmin'])) // step), int((tile.bbox.zmax + margin - float(data['zmin'])) // step)
+    c0, c1 = int((tile.bbox.xmin - margin - float(data['xmin'])) // step), int((tile.bbox.xmax + margin - float(data['xmin'])) // step)
+    if r0 < 0 or c0 < 0 or r1 >= rows or c1 >= cols:
+        return False
+    r0, r1 = int((tile.bbox.zmin - float(data['zmin'])) // step), int((tile.bbox.zmax - 1e-6 - float(data['zmin'])) // step)
+    c0, c1 = int((tile.bbox.xmin - float(data['xmin'])) // step), int((tile.bbox.xmax - 1e-6 - float(data['xmin'])) // step)
+    return bool(data['seen'][r0:r1 + 1, c0:c1 + 1].all())
+
+
+def _chm_index(data, x, z):
+    step = float(data['step']); rows, cols = data['chm'].shape
+    r = np.clip(((np.asarray(z) - float(data['zmin'])) // step).astype(np.int64), 0, rows - 1)
+    c = np.clip(((np.asarray(x) - float(data['xmin'])) // step).astype(np.int64), 0, cols - 1)
+    return r, c
+
+
+def _chm_ground(data, x, z):
+    """Bilinear lidar ground (m) between the 4 m cell centres."""
+    step = float(data['step']); rows, cols = data['dtm'].shape
+    fr = (np.asarray(z, float) - float(data['zmin'])) / step - .5
+    fc = (np.asarray(x, float) - float(data['xmin'])) / step - .5
+    r0 = np.clip(np.floor(fr).astype(np.int64), 0, rows - 2); c0 = np.clip(np.floor(fc).astype(np.int64), 0, cols - 2)
+    tr, tc = np.clip(fr - r0, 0, 1), np.clip(fc - c0, 0, 1)
+    d = data['dtm']
+    top = d[r0, c0] * (1 - tc) + d[r0, c0 + 1] * tc
+    bottom = d[r0 + 1, c0] * (1 - tc) + d[r0 + 1, c0 + 1] * tc
+    return (top * (1 - tr) + bottom * tr) / 10.0
+
+
+def _chm_cells(data, x, z, step):
+    """Mean and peak canopy height (m above the ground, 0 = open) and canopy share of shell cells centred at x, z,
+    from the 4 m model cells inside each."""
+    n = max(1, int(round(step / float(data['step']))))
+    offsets = (np.arange(n) + .5) / n - .5
+    total, count, peak = np.zeros(np.shape(x)), np.zeros(np.shape(x)), np.zeros(np.shape(x))
+    for dx in offsets:
+        for dz in offsets:
+            h = data['chm'][_chm_index(data, x + dx * step, z + dz * step)] / 10.0
+            hit = h > CHM_CANOPY
+            count += hit; total += h * hit; peak = np.maximum(peak, h)
+    share = count / (n * n)
+    stand = share >= CHM_STAND
+    return np.where(stand, total / np.maximum(count, 1), 0.0), np.where(stand, peak, 0.0), share
+
+
 def _orient(points, faces, towards):
     """Flip the faces whose normal points away from ``towards`` (one direction per face)."""
     tri = points[faces]
@@ -104,11 +168,12 @@ def _orient(points, faces, towards):
     return faces
 
 
-def canopy(tile, path, step, layer='canopy'):
+def canopy(tile, path, step, layer='canopy', chm=None):
     """One mound per canopy cell of ``tile`` over the regional surface: an apex (jittered) at the cell's crown relief and
     four corners sunk between crowns or kept high on the stand's edge, with dark skirts from the edge corners to 2 m
     below the open neighbour's surface. Every height and colour is a function of world position, so neighbouring
-    tiles meet; None without canopy."""
+    tiles meet; None without canopy. With ``chm`` (coarse/chm.py) covering the tile, the cells, heights and ground
+    come from the lidar canopy height model instead."""
     from .horizon import layer_mesh
     data = grid(str(path))
     if not covers(tile, path):
@@ -117,7 +182,20 @@ def canopy(tile, path, step, layer='canopy'):
     # Cells -1..n: the ring outside the tile decides the shared corners and the skirts on the tile edge.
     centres = (np.arange(-1, n + 1) + .5) * step
     gx, gz = np.meshgrid(tile.bbox.xmin + centres, tile.bbox.zmin + centres)
-    h, mix = _canopy_cells(data, gx, gz, step)
+    if chm is not None and chm_covers(tile, chm):
+        lidar = chm_grid(str(chm))
+        h, peak, share = _chm_cells(lidar, gx, gz, step)
+        mix = .5 * np.clip(share, 0, 1) + .5 * _noise(gx, gz, 260.0, 23)
+        crest = h + .5 * (peak - h)
+        surface = lambda x, z: _chm_ground(lidar, x, z)
+        inside, edge = CHM_LIFT
+    else:
+        h, mix = _canopy_cells(data, gx, gz, step)
+        crest = h
+        surface = lambda x, z: _sample(data, x, z, 1)
+        # Between crowns inside a stand the corners sink to a third of the relief; the stand's edge keeps most of
+        # it, so its skirt is the forest wall over the open ground beside it.
+        inside, edge = .35, .8
     on = h > 0
     rows, cols = np.nonzero(on[1:-1, 1:-1])
     if not len(rows):
@@ -130,18 +208,16 @@ def canopy(tile, path, step, layer='canopy'):
     count = sum(on[m] for m in meet)
     mean_h = sum(h[m] for m in meet) / np.maximum(count, 1)
     mean_c = sum(colour[m] * on[m][..., None] for m in meet) / np.maximum(count, 1)[..., None]
-    # Between crowns inside a stand the corners sink to a third of the relief; the stand's edge keeps most of it, so
-    # its skirt is the forest wall over the open ground beside it.
-    lift = mean_h * np.where(count == 4, .35, .8)
+    lift = mean_h * np.where(count == 4, inside, edge)
     corner_colour = mean_c * np.where(count == 4, .7, .55)[..., None]
     kx, kz = np.meshgrid(tile.bbox.xmin + np.arange(n + 1) * step, tile.bbox.zmin + np.arange(n + 1) * step)
-    ground = _sample(data, kx, kz, 1)
+    ground = surface(kx, kz)
     top = np.stack([kx, ground + lift, kz], -1)
     cell_x = np.floor(gx[1:-1, 1:-1][rows, cols] / step).astype(np.int64)
     cell_z = np.floor(gz[1:-1, 1:-1][rows, cols] / step).astype(np.int64)
     ax = gx[1:-1, 1:-1][rows, cols] + (_lattice(cell_x, cell_z, 41) - .5) * .4 * step
     az = gz[1:-1, 1:-1][rows, cols] + (_lattice(cell_x, cell_z, 43) - .5) * .4 * step
-    apex = np.c_[ax, _sample(data, ax, az, 1) + h[1:-1, 1:-1][rows, cols], az]
+    apex = np.c_[ax, surface(ax, az) + crest[1:-1, 1:-1][rows, cols], az]
     corners = [(rows, cols), (rows, cols + 1), (rows + 1, cols + 1), (rows + 1, cols)]  # NW, NE, SE, SW
     m = len(rows)
     points = [apex] + [top[r, c] for r, c in corners]
@@ -158,7 +234,7 @@ def canopy(tile, path, step, layer='canopy'):
         ra, ca = corners[a][0][k], corners[a][1][k]
         rb, cb = corners[b][0][k], corners[b][1][k]
         # The surface model ramps up into a stand: the wall reaches down to the open neighbour's surface.
-        outside = _sample(data, gx[1 + rows[k] + dr, 1 + cols[k] + dc], gz[1 + rows[k] + dr, 1 + cols[k] + dc], 1)
+        outside = surface(gx[1 + rows[k] + dr, 1 + cols[k] + dc], gz[1 + rows[k] + dr, 1 + cols[k] + dc])
         down_a, down_b = top[ra, ca].copy(), top[rb, cb].copy()
         down_a[:, 1] = np.minimum(ground[ra, ca], outside) - 2
         down_b[:, 1] = np.minimum(ground[rb, cb], outside) - 2

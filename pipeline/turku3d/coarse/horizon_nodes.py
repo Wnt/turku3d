@@ -20,6 +20,7 @@ from .far_ground import skirt, survey_colours
 
 def describe(service, tile):
     from .horizon import digest
+    from .horizon_regional import chm_covers
     blocks, files = [], set()
     for i, j in C.grid_range(tile.bbox, 500):
         block = C.VisualTile(1, i, j)
@@ -56,6 +57,9 @@ def describe(service, tile):
         if service.regional_row(block):
             row['canopy'] = service.regional
             files.add(service.regional)
+            if getattr(service, 'chm', None) and chm_covers(block, service.chm):
+                row['chm'] = service.chm
+                files.add(service.chm)
         blocks.append(row)
         for paths in (row[k] for k in ('ground', 'buildings', 'water', 'streets', 'osm')):
             files.update(paths)
@@ -245,7 +249,7 @@ def build_node(tile, blocks, appearance):
         groups['ground'].append(ground)
         crowns = row.get('regional') or row.get('canopy')
         if crowns:
-            shell = canopy(block, crowns, CANOPY_STEP[4 if tile.level >= 4 else 2])
+            shell = canopy(block, crowns, CANOPY_STEP[4 if tile.level >= 4 else 2], chm=row.get('chm'))
             if shell is not None:
                 shell.positions += np.asarray(block.origin)
                 groups['canopy'].append(shell)

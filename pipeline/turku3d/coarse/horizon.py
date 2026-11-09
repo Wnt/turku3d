@@ -41,13 +41,31 @@ def digest(path):
     return _digest(str(p), s.st_size, s.st_mtime_ns)
 
 
+def _low():
+    """Lowest CPU priority and the idle IO class (Linux) for a build worker."""
+    import os
+    import platform
+    import sys
+
+    os.nice(19 - os.nice(0))
+    if sys.platform == 'linux' and platform.machine() == 'x86_64':
+        try:
+            import ctypes
+            ctypes.CDLL(None, use_errno=True).syscall(251, 1, 0, 3 << 13)  # ioprio_set(PROCESS, self, IDLE)
+        except (OSError, AttributeError):
+            pass
+
+
 class SurveyScenery:
     """Catalogue cheap source identities; build geometry only for requested nodes."""
 
-    def __init__(self, regional=None):
+    def __init__(self, regional=None, chm=None):
         self.sources = Sources()
         self.regional = str(Path(regional).resolve()) if regional else None
-        self.workers = ProcessPoolExecutor(max_workers=2, mp_context=get_context("spawn"))
+        # The city's lidar canopy height model (coarse/chm.py): the far canopy of lidar blocks follows it.
+        self.chm = str(Path(chm).resolve()) if chm else None
+        # Node builds yield to serving and to the farm's tile builds, like the derivative builds.
+        self.workers = ProcessPoolExecutor(max_workers=2, mp_context=get_context("spawn"), initializer=_low)
         # This service pins one immutable source overlay for its lifetime.
         for index in (self.sources.wfs, self.sources.ortho, self.sources.mosaics):
             index.MAX_AGE = float('inf')

@@ -154,6 +154,57 @@ def test_far_canopy_covers_tree_cells_only_and_faces_out(tmp_path):
     assert 4 <= tops.max() <= 9 + 1e-6 and tops.min() >= -2.1  # feet: 2 m under the lower side
 
 
+def _chm(tmp_path, height_at, ground=10.0, step=4.0, size=2000.0):
+    """A merged lidar canopy model (coarse/chm.py format) over x, z 0..size with flat ground."""
+    n = int(size / step)
+    x, z = np.meshgrid((np.arange(n) + .5) * step, (np.arange(n) + .5) * step)
+    path = tmp_path / 'chm.npz'
+    np.savez_compressed(path, chm=np.round(height_at(x, z) * 10).astype('int16'),
+                        dtm=np.full((n, n), int(ground * 10), 'int16'), seen=np.ones((n, n), bool),
+                        xmin=0., zmin=0., step=step)
+    return path
+
+
+def test_far_canopy_follows_the_lidar_canopy_height_model(tmp_path):
+    from turku3d.coarse.horizon_regional import canopy
+    # Land cover says grass everywhere; the lidar finds 15 m canopy east of x = 1250 m and a 60 m clearing in it.
+    region = _region(tmp_path, lambda x, z: np.full(x.shape, 30))
+    trees = lambda x, z: np.where((x >= 1250) & ~((abs(x - 1400) < 30) & (abs(z - 750) < 30)), 15.0, 0.0)
+    chm = _chm(tmp_path, trees)
+    block = C.VisualTile(1, 2, 1)  # x 1000..1500, z 500..1000: the model also holds the ring of cells around it
+    assert canopy(block, region, 31.25) is None  # the land cover alone has no canopy here
+    shell = canopy(block, region, 31.25, chm=chm)
+    p = shell.positions + np.asarray(block.origin)
+    assert p[:, 0].min() >= 1250 - 31.25 - 1e-6
+    tops = p[:, 1] - 10.0  # above the lidar ground, not the surface model
+    assert 14 <= tops.max() <= 15 + 1e-6 and tops.min() >= -2 - 1e-6
+    # The clearing stays open: no shell vertex stands high above its middle.
+    middle = (abs(p[:, 0] - 1400) < 12) & (abs(p[:, 2] - 750) < 12)
+    assert not np.any(middle & (tops > 5))
+    # A block the model does not cover keeps the land-cover shell.
+    assert canopy(C.VisualTile(1, 6, 0), region, 31.25, chm=chm) is None
+
+
+def test_chm_merge_orients_blocks_and_fills_ground(tmp_path, monkeypatch):
+    from turku3d.coarse import chm as M
+    monkeypatch.setattr(M.C, 'ORIGIN_E', 1000.0, raising=False)
+    monkeypatch.setattr(M.C, 'ORIGIN_N', 2000.0, raising=False)
+    n = int(M.BLOCK / M.CELL)
+    rows = np.arange(n)[:, None] * np.ones((1, n))  # block rows run south to north
+    for east, north, base in ((1000, 2000, 0), (1500, 2000, 100)):
+        dtm = np.full((n, n), 50 + base, 'int16'); dtm[0, 5] = M.MISSING  # one gap inside each block
+        np.savez_compressed(tmp_path / f'{east}_{north}.npz', chm=(rows * 2).astype('int16'), dtm=dtm,
+                            x0=float(east), y0=float(north - 500), cell=M.CELL)
+    out = tmp_path / 'chm.npz'
+    info = M.merge(tmp_path, out)
+    with np.load(out) as d:
+        assert d['chm'].shape == (n, 2 * n) and float(d['xmin']) == 0.0 and float(d['zmin']) == 0.0
+        assert d['chm'][0, 0] == 2 * (n - 1) and d['chm'][-1, 0] == 0  # north row first: the block's top row
+        assert d['dtm'].min() == 50 and d['dtm'][-1, 5] == 50 and d['dtm'][-1, n + 5] == 150  # gaps filled
+        assert d['seen'].all()
+    assert info['blocks'] == 2 and info['holes'] == 2
+
+
 def test_far_canopy_corners_meet_across_tiles_and_levels(tmp_path):
     from turku3d.coarse.horizon_regional import build, canopy
     path = _region(tmp_path, lambda x, z: np.where((x // 300 + z // 300) % 2 == 0, 10, 30))
