@@ -22,6 +22,9 @@ export const VEGETATION_FADE = { width: [0.12, 0.08, 0.05], stagger: [0.08, 0.06
  *  light brighter: at 1.6 they read 1.25-1.45x LOD1's linear luminance at the 120 m hand-over (birch, spruce, oak in
  *  the nature viewer), and 1.2 matches it (natureref evidence/impostors.md). */
 const IMPOSTOR_LIGHT = 1.2;
+/** Impostor alpha scale at the mid boundary, rising to 1 at `ramp` times the boundary's distance (the impostor
+ *  hand-over in NatureMaterials). */
+export const IMPOSTOR_HANDOVER = { alpha: 0.65, ramp: 1.6 } as const;
 /** Impostor alpha scale by mip level: 1 through mip 4, where the atlas keeps its alpha-test coverage, rising by `gain`
  *  over mips 4-5, where it thins. `impostorAlphaScale` is the CPU mirror of the shader's ramp. */
 export const IMPOSTOR_BOOST = { from: 4, to: 5, gain: 0.3 } as const;
@@ -248,13 +251,14 @@ export class NatureMaterials {
       const lift = max(attribute('position', 'vec3').y, 0).mul(attribute('grassInstance', 'vec4').w);
       return vec3(0, lift.mul(shown.oneMinus()).negate(), 0);
     });
+    let transmitted: THREE.Node<'vec3'> | null = null;
     if (lighting) {
       // Sunlight through thin leaves when looking towards the sun.
       // Scene-wide values in the shared render group: the per-object default rewrote each tree pool's buffer per pass.
       const sunDir = uniform(lighting.sunDir).setGroup(renderGroup), sunColor = uniform(lighting.sun.color).setGroup(renderGroup);
       const sunIntensity = uniform('float').onRenderUpdate(() => lighting.sun.intensity).setGroup(renderGroup);
       const back = pow(max(dot(normalize(positionWorld.sub(cameraPosition)), sunDir), 0), 2);
-      const transmitted = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
+      transmitted = diffuseColor.rgb.mul(sunColor).mul(sunIntensity).mul(back).mul(0.4);
       this.leaves.emissiveNode = transmitted.mul(pow(crownAo, this.crownLight.w));
       this.grass.emissiveNode = transmitted;
       this.grassBlade.emissiveNode = transmitted;
@@ -288,7 +292,16 @@ export class NatureMaterials {
     // restores mip-0 coverage (IMPOSTOR_BOOST).
     const boost = smoothstep(IMPOSTOR_BOOST.from, IMPOSTOR_BOOST.to, views.level).mul(IMPOSTOR_BOOST.gain).add(1);
     // A dense crown's impostor fills as its leaf cards do (CROWN_GAPS fill), so it does not thin at the far band.
-    this.impostor.colorNode = vec4(tone(views.color.rgb).mul(IMPOSTOR_LIGHT), views.color.a.mul(boost).mul(fill));
+    // At the hand-over the impostor's coverage follows the reduced mesh's: alpha-tested leaf cards thin with distance
+    // and TRAA resolves their sub-pixel leaves into a see-through crown (birch, spruce and oak drew 0.55-0.9 of the
+    // impostor's coverage at 130 m in the nature viewer), where the impostor's baked crown stays solid. Its alpha
+    // scales by IMPOSTOR_HANDOVER.alpha at the mid boundary and back to 1 over the next IMPOSTOR_HANDOVER.ramp of the
+    // boundary's distance. (A per-frame coverage dither there instead left a stipple TRAA did not resolve.)
+    const handover = mix(float(IMPOSTOR_HANDOVER.alpha), float(1),
+      smoothstep(this.lodBands.y, this.lodBands.y.mul(IMPOSTOR_HANDOVER.ramp), positionWorld.sub(cameraPosition).length()));
+    this.impostor.colorNode = vec4(tone(views.color.rgb).mul(IMPOSTOR_LIGHT), views.color.a.mul(boost).mul(fill).mul(handover));
+    // The same sun through the outer leaves as the leaf cards (whose shell takes it at crown AO 1).
+    if (transmitted) this.impostor.emissiveNode = transmitted;
     this.impostor.normalNode = views.normal;
     this.impostor.positionNode = views.position;
 
