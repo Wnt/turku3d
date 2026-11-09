@@ -54,24 +54,37 @@ function baseHeaders(ext, stat, cacheControl) {
   };
 }
 
-/** `file` compressed whole (`br` or `gzip`), kept in memory per encoding and mtime: it goes out with its exact length. */
-async function encodedFile(file, stat, encoding) {
-  const key = `${encoding}|${file}|${stat.mtimeMs}`;
+const encoding = new Map(); // key -> the compression in flight, shared by every request for it
+/** `file` compressed whole (`br` or `gzip`), kept in memory per encoding and mtime: it goes out with its exact length.
+ *  Compressed off the event loop (zlib's thread pool), once however many requests ask meanwhile: compressed in place,
+ *  the first request for the 33 MB walkers.bin after each deploy held every other request on city.lab for 3.5-4.7 s
+ *  (a cold boot's collision and tile requests among them; loadspeed 2026-11-09). */
+async function encodedFile(file, stat, kind) {
+  const key = `${kind}|${file}|${stat.mtimeMs}`;
   const hit = brCache.get(key);
   if (hit) { brCache.delete(key); brCache.set(key, hit); return hit; }
-  const raw = await fsp.readFile(file);
-  const out = encoding === 'br'
-    ? zlib.brotliCompressSync(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } })
-    : zlib.gzipSync(raw, { level: 6 });
-  // Least recently compressed first out: a long-running share server sees each deploy's files under new mtimes.
-  if (out.length < BR_CACHE_MAX / 8) {
-    brCache.set(key, out); brCacheBytes += out.length;
-    for (const [old, body] of brCache) {
-      if (brCacheBytes <= BR_CACHE_MAX) break;
-      brCache.delete(old); brCacheBytes -= body.length;
-    }
+  let pending = encoding.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const raw = await fsp.readFile(file);
+      const out = await new Promise((resolve, reject) => {
+        const done = (error, body) => (error ? reject(error) : resolve(body));
+        if (kind === 'br') zlib.brotliCompress(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }, done);
+        else zlib.gzip(raw, { level: 6 }, done);
+      });
+      // Least recently compressed first out: a long-running share server sees each deploy's files under new mtimes.
+      if (out.length < BR_CACHE_MAX / 8) {
+        brCache.set(key, out); brCacheBytes += out.length;
+        for (const [old, body] of brCache) {
+          if (brCacheBytes <= BR_CACHE_MAX) break;
+          brCache.delete(old); brCacheBytes -= body.length;
+        }
+      }
+      return out;
+    })().finally(() => encoding.delete(key));
+    encoding.set(key, pending);
   }
-  return out;
+  return pending;
 }
 
 /** Serves `file` (a directory serves its index.html); 404 when missing. `cacheControl` overrides the per-type

@@ -48,6 +48,19 @@ test('brotli on request; gzip whole with its length', async () => {
   const body = raw.length === big.length ? raw : zlib.brotliDecompressSync(raw);
   assert.ok(body.equals(big));
 });
+test('compressing a big file holds no other request, and concurrent requests share one compression', async () => {
+  // ~32 MB that brotli works on for a while (random words, not one repeated byte).
+  const words = Array.from({ length: 4096 }, (_, i) => `w${(i * 2654435761 % 1e9).toString(36)} `);
+  let text = ''; for (let i = 0; text.length < 32e6; i++) text += words[(i * 7919) % words.length] + (i % 13 ? '' : '\n');
+  fs.writeFileSync(path.join(dir, 'big.bin'), text);
+  const t0 = performance.now();
+  const big = [1, 2].map(() => fetch(url('/big.bin'), { headers: { 'accept-encoding': 'br' } }).then(async (r) => ({ at: performance.now() - t0, n: (await r.arrayBuffer()).byteLength })));
+  await new Promise((r) => setTimeout(r, 30));
+  const page = await fetch(url('/')).then(async (r) => { await r.text(); return performance.now() - t0; });
+  const [a, b] = await Promise.all(big);
+  assert.ok(page < a.at, `the page waited for the compression (${page.toFixed(0)} ms vs ${a.at.toFixed(0)} ms)`);
+  assert.equal(a.n, text.length); assert.equal(b.n, text.length); // undici decodes; both whole
+});
 test('/__localhost/status: a dist server is never the localhost game service', async () => {
   const r = await fetch(url('/__localhost/status'));
   assert.equal(r.status, 200);
