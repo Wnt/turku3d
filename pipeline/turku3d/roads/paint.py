@@ -49,6 +49,16 @@ CENTRE_CLASSES = MAJOR | {
 MINOR_CLASSES = {"residential", "unclassified"}
 
 
+def graph_key(graph: dict | None) -> str:
+    """Planar road inputs used by paint; height-only roadbed repairs do not invalidate it."""
+    import hashlib
+    import json
+
+    fields = ("nodes", "edges", "edgeAttrColumns", "edgeAttrs", "edgeEvents")
+    payload = {key: (graph or {}).get(key) for key in fields}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def _edges(graph: dict):
     nodes = graph["nodes"]
     columns = {name: i for i, name in enumerate(graph["edgeAttrColumns"])}
