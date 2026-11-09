@@ -1,5 +1,5 @@
 {
-  "about": "Turku3D night priors from locally reviewed Aurajoki previews 509084, 509951, 554993, 856077; exposure and colour temperature are not calibrated photo measurements. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. mesopic sets how far dim light loses colour at full night.",
+  "about": "Turku3D night priors from locally reviewed Aurajoki previews 509084, 509951, 554993, 856077; exposure and colour temperature are not calibrated photo measurements. Light rows are keyed by sun elevation in degrees, so the synthetic play cycle and QA's calendar dates share one table. litFraction is keyed by local clock hour. Colours are sRGB hex, interpolated in linear light. bloomStrength is in medium-tier units; other tiers scale it by their own day strength. The daytime bloomThreshold (sun at 6 deg and higher) sits above the clear sky (3-4 in scene units): at 1.5 the whole sky bloomed into a blue-white veil of about 2.5 % of its luminance, which turned shaded crowns blue-grey (Kansanpuisto crown B/G 0.83 against the panorama 0.21); by day only the sun, glints and lamps bloom. skyZenith/skyHorizon are added to the analytic sky below the horizon: the blue hour, then the city-lit night. mesopic sets how far dim light loses colour at full night.",
   "elevation": [-90, -12, -6, -3, -1, 2, 6, 12, 25, 90],
   "rows": {
     "sunIntensity":         [0,         0,         0,         0,         0,         0.9,       2.0,       6.0,       6.0,       6.0],
@@ -13,7 +13,7 @@
     "fogFar":               [2600,      2600,      2800,      3100,      3300,      3400,      3500,      12000,     12000,     12000],
     "exposure":             [1.1,       1.1,       1.0,       0.92,      0.85,      0.78,      0.7,       0.9,       0.9,       0.9],
     "bloomStrength":        [0.3,       0.3,       0.27,      0.2,       0.13,      0.07,      0.045,     0.045,     0.045,     0.045],
-    "bloomThreshold":       [0.85,      0.85,      0.9,       1.05,      1.2,       1.4,       1.5,       1.5,       1.5,       1.5],
+    "bloomThreshold":       [0.85,      0.85,      0.9,       1.05,      1.2,       1.4,       6,         6,         6,         6],
     "night":                [1,         1,         0.95,      0.7,       0.45,      0.15,      0,         0,         0,         0],
     "skyZenith":            ["#050a16", "#080f20", "#142547", "#1c325c", "#213657", "#000000", "#000000", "#000000", "#000000", "#000000"],
     "skyHorizon":           ["#172435", "#243650", "#455c7b", "#69768a", "#595d75", "#000000", "#000000", "#000000", "#000000", "#000000"]
