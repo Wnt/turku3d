@@ -130,6 +130,11 @@ class Scenery:
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='scenery-derivative')
         self.pending = {}
         self.lock = threading.Lock()
+        # Newest generation first, falling back (docs: newest-generation policy): while a tile's new key builds, its
+        # newest finished build serves, marked stale, so a recipe change never blanks the far city. Tile -> (mtime,
+        # key), from the cache on a background scan and from every build after it.
+        self.built = {}
+        threading.Thread(target=self._index_built, name='scenery-built-index', daemon=True).start()
 
     def catalogue(self, tiles):
         """Prefer retained visuals; optional surveys prepare identities, never street tiles or source writes."""
@@ -217,6 +222,44 @@ class Scenery:
             raise ValueError('Unconfigured scenery source root')
         return (root / row['tile'] / row['source_url']).resolve()
 
+    def _index_built(self):
+        found = {}
+        try:
+            entries = list(os.scandir(self.cache))
+        except OSError:
+            return
+        for entry in entries:
+            name = entry.name
+            if not name.endswith('.json') or not KEY.fullmatch(name[:-5]):
+                continue
+            try:
+                if not (self.cache / f'lod.{name[:-5]}.glb').is_file():
+                    continue
+                tile, mtime = json.loads(Path(entry.path).read_text())['tile'], entry.stat().st_mtime
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if mtime > found.get(tile, (0, ''))[0]:
+                found[tile] = (mtime, name[:-5])
+        with self.lock:
+            for tile, value in found.items():
+                if value[0] > self.built.get(tile, (0, ''))[0]:
+                    self.built[tile] = value
+
+    def _stale(self, key):
+        """The newest finished build of the tile ``key`` describes, marked stale, or None."""
+        try:
+            tile = json.loads((self.cache / f'{key}.source.json').read_text())['tile']
+            with self.lock:
+                previous = self.built.get(tile, (0, None))[1]
+            if not previous or previous == key:
+                return None
+            value = json.loads((self.cache / f'{previous}.json').read_text())
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+        if value.get('tile') != tile or not (self.cache / f'lod.{previous}.glb').is_file():
+            return None
+        return 200, {**value, 'stale': True}
+
     def descriptor(self, key):
         if not KEY.fullmatch(key):
             return 404, {'state': 'missing'}
@@ -234,14 +277,14 @@ class Scenery:
             future = self.pending.get(key)
             if future is None:
                 if len(self.pending) >= 16:
-                    return 202, {'state': 'queued'}
+                    return self._stale(key) or (202, {'state': 'queued'})
                 future = self.pool.submit(self._build, key)
                 self.pending[key] = future
         try:
             value = future.result(timeout=.8)
             return 200, value
         except TimeoutError:
-            return 202, {'state': 'preparing'}
+            return self._stale(key) or (202, {'state': 'preparing'})
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
             return 503, {'state': 'failed'}
         finally:
@@ -323,7 +366,10 @@ class Scenery:
                      source_sha256=row['source_sha256'], visual={row['tile']: dict(
                          url=f'../scenery/lod.{key}.glb', sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
                          bytes=stats['bytes'], tris=stats['triangles'], h=row['h'])})
-        self._write(self.cache / f'{key}.json', json.dumps(value).encode())
+        target = self.cache / f'{key}.json'
+        self._write(target, json.dumps(value).encode())
+        with self.lock:
+            self.built[row['tile']] = (target.stat().st_mtime, key)
         return value
 
     def trees(self, key):

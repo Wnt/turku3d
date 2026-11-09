@@ -595,3 +595,26 @@ test('a kilometre fallback keeps its canopy shell off every square a full tile o
   expect(cellMask.textures.size).toBe(0);
   expect(cellMask.values.has(TILE_DETAIL.distance)).toBe(true);
 });
+
+test('a stale scenery manifest draws the previous build and swaps to the new key once it is ready (no far gap)', async () => {
+  const { scenery, request, load } = setup();
+  let ready = false;
+  request.mockImplementation(async (url: string) => {
+    if (url.includes('/scenery?')) return new Response(JSON.stringify({ tiles: [{ tile: 't2_-2_1', h: [0, 107], key: 'b'.repeat(64), source_sha256: 'new' }], missing: [] }));
+    // The service answers the new key with the tile's previous build, marked stale, until the new one is built.
+    return new Response(JSON.stringify({ coarse: true, scenery: true, tile: 't2_-2_1', pass_kind: 'full', ...(ready ? {} : { stale: true }),
+      visual: { 't2_-2_1': { url: `../scenery/lod.${ready ? 'new' : 'old'}.glb`, sha256: ready ? 'new' : 'old' } } }));
+  });
+  const view = { x: 3751.26, y: 164.15, z: 430.05, dx: 1, dz: 0, halfAngle: .8 };
+  scenery.setRadius(6000, view);
+  await settle(); scenery.update(3751, 430, 1000); await settle();
+  expect(load).toHaveBeenLastCalledWith('http://localhost/coarse/scenery/lod.old.glb', expect.any(String));
+  expect(scenery.progress.pending).toBe(1); // the stale build draws while the node stays pending
+  scenery.update(3751, 430, 4000); await settle();
+  expect(load).toHaveBeenCalledTimes(1); // re-polled, same stale build: nothing reloads
+  ready = true;
+  scenery.update(3751, 430, 7000); await settle();
+  expect(load).toHaveBeenLastCalledWith('http://localhost/coarse/scenery/lod.new.glb', expect.any(String));
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(scenery.progress.pending).toBe(0);
+});

@@ -80,6 +80,36 @@ class SceneryTest(unittest.TestCase):
             self.assertTrue((cache.cache/f"lod.{row['key']}.glb").is_file())
             cache.pool.shutdown()
 
+    def test_a_tile_serves_its_newest_finished_build_marked_stale_while_its_new_key_builds(self):
+        import threading
+        from types import SimpleNamespace
+        old = dict(tile='t2_0_0', key='a' * 64, kind='survey', source_sha256='old', h=[0, 20])
+        new = dict(old, key='b' * 64, source_sha256='new')
+        other = dict(old, tile='t2_1_0', key='c' * 64)
+        gate = threading.Event()
+        def build(source, target):
+            if source['key'] != old['key']:
+                gate.wait(10)
+            target.write_bytes(source['key'].encode()); return dict(bytes=64, triangles=2)
+        survey = SimpleNamespace(build=build)
+        with tempfile.TemporaryDirectory() as temp:
+            cache = Scenery(temp, survey=survey); cache.cache.mkdir()
+            for row in (old, new, other):
+                (cache.cache / (row['key'] + '.source.json')).write_text(json.dumps(row))
+            self.assertEqual(cache.descriptor(old['key'])[0], 200)
+            status, value = cache.descriptor(new['key'])  # building: the old build serves, stale
+            self.assertEqual((status, value['stale'], value['visual']['t2_0_0']['url']), (200, True, f"../scenery/lod.{old['key']}.glb"))
+            self.assertEqual(cache.descriptor(other['key'])[0], 202)  # nothing built for that tile yet
+            # A restarted service finds the old build in its cache.
+            restarted = Scenery(temp, survey=survey); restarted._index_built()
+            self.assertTrue(restarted.descriptor(new['key'])[1]['stale'])
+            gate.set()
+            for future in list(cache.pending.values()) + list(restarted.pending.values()):
+                future.result(10)
+            status, value = cache.descriptor(new['key'])
+            self.assertEqual((status, 'stale' in value, value['visual']['t2_0_0']['url']), (200, False, f"../scenery/lod.{new['key']}.glb"))
+            cache.pool.shutdown(); restarted.pool.shutdown()
+
     def test_tree_sidecar_is_content_keyed_and_does_not_rebuild_or_change_source(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp); folder=root/'t0_0_0';folder.mkdir()
