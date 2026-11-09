@@ -46,6 +46,33 @@ def voxel_keys(ix, iy, iz):
     return (ix << 42) | ((iy & 0x1fffff) << 21) | (iz & 0x1fffff)
 
 
+def uncrowded(ix, iy, iz, occupied, counts, limit):
+    """The original 27-voxel count test, once per candidate cell with early rejection.
+
+    Many returns occupy the same voxel. Once a cell exceeds the threshold,
+    further nonnegative counts cannot make it eligible again. Keep source
+    return order through the inverse map; only the amount of searching changes.
+    """
+    _, first, inverse = np.unique(voxel_keys(ix, iy, iz), return_index=True, return_inverse=True)
+    x, y, z = ix[first], iy[first], iz[first]
+    total = np.zeros(len(first), np.int64)
+    keep = np.ones(len(first), bool)
+    if not len(occupied):
+        return keep[inverse]
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                rows = np.flatnonzero(keep)
+                if not len(rows):
+                    return keep[inverse]
+                keys = voxel_keys(x[rows] + dx, y[rows] + dy, z[rows] + dz)
+                index = np.minimum(np.searchsorted(occupied, keys), len(occupied) - 1)
+                hit = occupied[index] == keys
+                total[rows] += hit if counts is None else np.where(hit, counts[index], 0)
+                keep[rows] = total[rows] <= limit
+    return keep[inverse]
+
+
 def wire_points(x, y, z, cls, hag, r=RECIPE, origin=None, workers=2):
     """Indices of wire returns and their stretch (segment) ids, dense from 0."""
     cand = np.flatnonzero(((cls == 1) | (cls == 12)) & (hag > r['min_hag']))
@@ -59,28 +86,14 @@ def wire_points(x, y, z, cls, hag, r=RECIPE, origin=None, workers=2):
                 np.floor((z[idx] + 100) / v).astype(np.int64))
     uk, uc = np.unique(voxel_keys(*vox(others)), return_counts=True) if len(others) else (np.zeros(1, np.int64) - 1, np.zeros(1, np.int64))
     cx, cy, cz = vox(cand)
-    crowd = np.zeros(len(cand), np.int64)
-    for dx in (-1, 0, 1):
-        for dy in (-1, 0, 1):
-            for dz in (-1, 0, 1):
-                k = voxel_keys(cx + dx, cy + dy, cz + dz)
-                i = np.minimum(np.searchsorted(uk, k), len(uk) - 1)
-                crowd += np.where(uk[i] == k, uc[i], 0)
-    iso = cand[crowd <= r['crowd']]
+    iso = cand[uncrowded(cx, cy, cz, uk, uc, r['crowd'])]
     if 'self_crowd' in r and len(iso):
         # Optional: candidates crowd themselves too. Strip-overlap returns (12) fill whole roofs and crowns where
         # no classified return is left to crowd them; a wire occupies a thin line of voxels.
         ix, iy, iz = vox(iso)
         own = voxel_keys(ix, iy, iz)
         uo = np.unique(own)
-        occupied = np.zeros(len(iso), np.int64)
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                for dz in (-1, 0, 1):
-                    k = voxel_keys(ix + dx, iy + dy, iz + dz)
-                    i = np.minimum(np.searchsorted(uo, k), len(uo) - 1)
-                    occupied += uo[i] == k
-        iso = iso[occupied <= r['self_crowd']]
+        iso = iso[uncrowded(ix, iy, iz, uo, None, r['self_crowd'])]
     if len(iso) < r['min_points']:
         return iso[:0], iso[:0]
     P = np.c_[x[iso], y[iso], z[iso]]

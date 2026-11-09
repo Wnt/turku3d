@@ -149,3 +149,24 @@ def test_shared_decode_reads_the_same_returns_without_reopening(tmp_path, monkey
     for got in (first, again):
         assert np.array_equal(got[0], streamed[0]) and np.array_equal(got[1], streamed[1])
     assert len(streamed[0]) > 0
+
+
+def test_voxel_crowding_matches_every_return_count_and_boundary():
+    from turku3d.wire_points import uncrowded, voxel_keys
+
+    rng = np.random.default_rng(32)
+    candidates = rng.integers(-2, 12, (3, 20000), dtype=np.int64)
+    other = rng.integers(-3, 13, (3, 700), dtype=np.int64)
+    occupied, counts = np.unique(voxel_keys(*other), return_counts=True)
+    for weights in (counts, None):
+        total = np.zeros(candidates.shape[1], np.int64)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    keys = voxel_keys(*(candidates + np.array([[dx], [dy], [dz]])))
+                    index = np.minimum(np.searchsorted(occupied, keys), len(occupied) - 1)
+                    hit = occupied[index] == keys
+                    total += hit if weights is None else np.where(hit, weights[index], 0)
+        for limit in (0, 1, 6, 27):
+            np.testing.assert_array_equal(uncrowded(*candidates, occupied, weights, limit), total <= limit)
+    assert uncrowded(*candidates, np.empty(0, np.int64), None, 1).all()
