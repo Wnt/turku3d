@@ -115,12 +115,12 @@ def test_named_source_index_refreshes_changed_and_removed_summaries(tmp_path):
     assert files.named(summary.name) == ()
 
 
-def test_a_large_source_index_is_read_in_parallel_in_order_and_refreshes(tmp_path):
+def test_a_large_source_index_preserves_order_and_refreshes(tmp_path):
     import json
 
     from turku3d.coarse.sources import READERS, _Files
 
-    names = [f"area-{k:03d}/a.summary.json" for k in range(READERS * 4)]
+    names = [f"area-{k:03d}/a.summary.json" for k in range(max(64, READERS * 4))]
     for k, name in enumerate(names):
         (tmp_path / name).parent.mkdir()
         (tmp_path / name).write_text(json.dumps({"k": k}))

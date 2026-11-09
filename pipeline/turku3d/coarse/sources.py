@@ -29,6 +29,7 @@ import hashlib
 from itertools import batched, chain
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -222,7 +223,10 @@ def vrt_bounds(text: str) -> tuple[float, float, float, float]:
     return e0, n0 + h * dy, e0 + w * dx, n0
 
 
-READERS = 16  # threads reading source summaries; the reads wait on the disk, not the interpreter
+# Keep parallel cold source discovery for services, but honour the worker's
+# existing CPU budget. Sixteen metadata threads per one-core bulk lane cost
+# 17 CPU s for a warm city listing versus 5 s in its calling thread.
+READERS = max(1, min(16, int(os.environ.get("TURKU3D_THREADS_PER_WORKER", "16"))))
 _READER = None
 _READER_LOCK = threading.Lock()
 
@@ -269,7 +273,7 @@ class _Files:
             # ThreadPoolExecutor ignores chunksize: submit batches explicitly instead of
             # allocating a Future and taking queue locks for each of 35,000 summaries.
             rows = (chain.from_iterable(_reader().map(self._read_batch, batched(paths, 32)))
-                    if len(paths) > READERS else map(self._read, paths))
+                    if READERS > 1 and len(paths) > READERS else map(self._read, paths))
             for path, present, cached in rows:
                 if present:
                     seen.add(path)
