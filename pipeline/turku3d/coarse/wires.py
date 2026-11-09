@@ -239,6 +239,24 @@ def join(parts: list[Piece]) -> list[Piece]:
 
 
 # -- ends -------------------------------------------------------------------------------------------
+def near_segments(points, segments, margin):
+    """Keep sorted survey returns inside conservative plan boxes around segments.
+
+    All callers filter the same x-sorted survey. Search each box's x range first;
+    this avoids building multiple trees over a whole forest for a few short wires.
+    Retained returns keep their original order, including coincident returns.
+    """
+    keep = np.zeros(len(points), bool)
+    for a, b in segments:
+        lo = np.minimum(a, b) - margin
+        hi = np.maximum(a, b) + margin
+        start = np.searchsorted(points[:, 0], lo[0], side="left")
+        end = np.searchsorted(points[:, 0], hi[0], side="right")
+        z = points[start:end, 2]
+        keep[start:end] |= (z >= lo[2]) & (z <= hi[2])
+    return points[keep]
+
+
 class Index:
     """Plan grid of returns for radius queries."""
 
@@ -488,17 +506,27 @@ def detect(xyz, classes, bounds, search=SEARCH):
     index, stretch = wire_points(xyz[:, 0], xyz[:, 2], xyz[:, 1], classes, height, r=STAGE, origin=corner, workers=1)
     found = xyz[index]
     parts = join([p for label in np.unique(stretch) for p in split(found[stretch == label])])
+    if not parts:
+        return [], []
     candidate = np.isin(classes, CLASSES) & (height >= MIN_HEIGHT) & (height <= MAX_HEIGHT)
     candidate[index] = False
     loose = xyz[candidate]
     # Walls and roofs: in a strip overlap they are filed as overlap (12) like everything else there.
     built = np.isin(classes, (BUILDING, OVERLAP)) & (height >= MIN_HEIGHT - 1.0)
     built[index] = False
-    buildings = Index(xyz[built])
-    columns = Index(xyz[np.isin(classes, CLASSES) & (height >= 0.8)])
+    segments = [(p.at(p.s0), p.at(p.s1)) for p in parts]
+    # End searches extend at most FAR_REACH; roof samples stay between those ends.
+    buildings = Index(near_segments(xyz[built], segments, FAR_REACH + max(FACADE_RADIUS, 0.5)))
+    columns = Index(near_segments(xyz[np.isin(classes, CLASSES) & (height >= 0.8)],
+                                  segments, REACH + POLE_RADIUS))
     wires = [to_wire(p, buildings, columns, ground) for p in parts]
     wires = [w for w in wires if not over_roof(w, buildings, ground)]
     found = knots(wires)
+    # Knots have now moved the ends. Lamp members are at most size from a wire,
+    # each accepted cluster spans at most size, then clearance reaches another clear.
+    # Keep that entire support, including clutter that disqualifies a lamp.
+    loose = near_segments(loose, [(w.a, w.b) for w in wires],
+                          max(CROWN_END, 2 * LAMP["size"] + LAMP["clear"]))
     crowns = cKDTree(loose) if len(loose) else None
     kept = [i for i, w in enumerate(wires) if (w.length >= MIN_WIRE or "knot" in w.ends) and _held(w, crowns)]
     renumber = {old: new for new, old in enumerate(kept)}

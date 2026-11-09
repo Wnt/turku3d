@@ -170,3 +170,32 @@ def test_voxel_crowding_matches_every_return_count_and_boundary():
         for limit in (0, 1, 6, 27):
             np.testing.assert_array_equal(uncrowded(*candidates, occupied, weights, limit), total <= limit)
     assert uncrowded(*candidates, np.empty(0, np.int64), None, 1).all()
+
+
+def test_segment_crop_keeps_every_possible_query_return_in_source_order():
+    rng = np.random.default_rng(12)
+    points = rng.uniform(-80, 80, (50000, 3))
+    points = np.concatenate((points, [[-12, 100, -2], [12, -100, 2], [12, -100, 2]]))
+    points = points[np.lexsort((points[:, 1], points[:, 2], points[:, 0]))]
+    segments = [(np.array([-10, 0, 0]), np.array([10, 10, 0])),
+                (np.array([30, 1, 20]), np.array([40, 3, 30]))]
+    expected = np.zeros(len(points), bool)
+    for a, b in segments:
+        lo, hi = np.minimum(a, b) - 2, np.maximum(a, b) + 2
+        expected |= ((points[:, 0] >= lo[0]) & (points[:, 0] <= hi[0]) &
+                     (points[:, 2] >= lo[2]) & (points[:, 2] <= hi[2]))
+    assert np.array_equal(W.near_segments(points, segments, 2), points[expected])
+    assert W.near_segments(points, [], 2).shape == (0, 3)
+
+
+def test_wire_records_equal_full_search_with_distant_clutter(monkeypatch):
+    rng = np.random.default_rng(26)
+    line = catenary((11.5, 14, 20), (38.5, 14, 20), 80)
+    clutter = rng.uniform([100, 3, 100], [180, 20, 180], (12000, 3))
+    xyz, classes = scene((ground(0, 0, 200, 200, step=2), 2),
+                         (wall(10, 0, 40, 18), 6), (wall(40, 0, 40, 18), 6),
+                         (line, 1), (clutter, 5))
+    bounded = W.record(*W.detect(xyz, classes, (0, 0, 200, 200), search=0))
+    monkeypatch.setattr(W, "near_segments", lambda points, segments, margin: points)
+    full = W.record(*W.detect(xyz, classes, (0, 0, 200, 200), search=0))
+    assert bounded is not None and bounded == full
