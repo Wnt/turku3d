@@ -381,3 +381,30 @@ test('a trip never leaves a seat behind: moving out frees it at once, an arrival
   f.connect(undefined, { arrival: 'yes' });
   assert.equal(f.room.stats.rejected, rejected + 1);
 });
+
+test('at most three empty world cars stay within 50 m of each other; older wrecks go once nobody is beside them', () => {
+  const f = fixture(), a = f.connect(); a.send(pose);
+  const wreck = (n, dE) => car(a, { id: `park:tr:t0_0_0:7:${n}`, source: `tr:t0_0_0:7:${n}`, localId: `tr:t0_0_0:7:${n}`,
+    pose: { ...pose, E: pose.E + dE, mode: 'car', vehicle: 'prius-2012/white', vE: 0 } });
+  const left = () => f.room.vehicles.sources().sort();
+  // Five wrecks on one street 100 m from the player, a second apart, and one 200 m further along it.
+  for (let n = 1; n <= 5; n++) { a.send(wreck(n, 100 + 4 * n)); f.advance(1000); }
+  a.send(car(a, { id: 'park:t0_0_0:GIS:9', source: 't0_0_0:GIS:9', localId: 't0_0_0:GIS:9', pose: { ...pose, E: pose.E - 100, mode: 'car', vehicle: 'sedan/red', vE: 0 } }));
+  // Within their grace all stay.
+  f.advance(VEHICLE_LIMITS.areaGraceMs - 6000);
+  assert.equal(f.room.vehicles.entries.size, 6);
+  // Past it, the two oldest on the street go; the newest three and the lone car elsewhere stay.
+  f.advance(6000);
+  assert.deepEqual(left(), ['t0_0_0:GIS:9', 'tr:t0_0_0:7:3', 'tr:t0_0_0:7:4', 'tr:t0_0_0:7:5']);
+  // A pile-up beside the player stays while the player is there, up to areaForceMs.
+  for (let n = 6; n <= 9; n++) { a.send(wreck(n, 2 * n - 12)); f.advance(1000); }
+  f.advance(VEHICLE_LIMITS.areaGraceMs * 2);
+  assert.equal(left().filter(s => /:7:[6-9]$/.test(s)).length, 4);
+  f.advance(VEHICLE_LIMITS.areaForceMs);
+  assert.deepEqual(left().filter(s => /:7:[6-9]$/.test(s)), ['tr:t0_0_0:7:7', 'tr:t0_0_0:7:8', 'tr:t0_0_0:7:9']);
+  // A car someone sits in is not passive.
+  const b = f.connect(); b.send({ ...pose, E: pose.E + 112 });
+  b.send({ type: 'vehicle', action: 'acquire', id: 'park:tr:t0_0_0:7:3', request: 'take' });
+  assert.equal(result(b).ok, true);
+});
+

@@ -13,7 +13,14 @@ export const VEHICLE_LIMITS = { perPlayer: 8, total: 256, lifetime: 3_600_000, r
   abandonedEmptyMs: 300_000, floor: -100,
   // A starter car (pose.vehicle "player") whose owner left this long ago is gone unless someone sits in it: every
   // client that ever joined brings one, and departed players' cars piled up around the spawn.
-  starterOfflineMs: 600_000 };
+  starterOfflineMs: 600_000,
+  // At most `areaEmpty` empty world cars (claimed traffic cars, moved parked cars) within `areaRadius` m of each other;
+  // older ones beyond that go and their traffic or parked slots come back. Players crashing on the same street left
+  // their wrecks in its lanes and the traffic queued behind them (Jonni, city.lab 2026-11-09: "lots of NPC cars are
+  // getting stuck after collisions to the linnankatu area. we need to limit how many passive cars are abandoned like
+  // this in one region"). A car stays `areaGraceMs` after its last use, and while a player is within `areaQuietM`
+  // until `areaForceMs`, so a wreck does not vanish in front of whoever just made it. Checked every `areaEveryMs`.
+  areaRadius: 50, areaEmpty: 3, areaGraceMs: 20_000, areaQuietM: 30, areaForceMs: 120_000, areaEveryMs: 1000 };
 /** Largest chassis half extent per axis (m): the fleet's longest model, the transit bus, with room to spare. */
 export const HALF_MAX = 6.5;
 const idOK = id => typeof id === 'string' && /^[A-Za-z0-9_.:-]{1,180}$/.test(id);
@@ -23,7 +30,7 @@ const publicVehicle = v => ({ id: v.id, source: v.source, creator: v.creator, lo
 
 /** Ownership/seat arbitration, bounded retention and interest-filtered deltas. */
 export class VehicleRegistry {
-  constructor(room) { this.room = room; this.entries = new Map(); this.contacts = new Map(); this.serial = 0; }
+  constructor(room) { this.room = room; this.entries = new Map(); this.contacts = new Map(); this.serial = 0; this.areaAt = -Infinity; }
   changed(v) { v.revision = ++this.serial; }
   nearby(v, p) { return v.owner === p.id || distance(v.pose, p.pose ?? p.spawn) <= VEHICLE_LIMITS.radius; }
   snapshot(c) {
@@ -149,6 +156,20 @@ export class VehicleRegistry {
       }
     }
     for (const [key, at] of this.contacts) if (now - at > 1000) this.contacts.delete(key);
+    if (now - this.areaAt >= VEHICLE_LIMITS.areaEveryMs) { this.areaAt = now; this.thinAreas(now); }
+  }
+  /** VEHICLE_LIMITS.areaEmpty: newest first, an empty world car with `areaEmpty` newer ones within `areaRadius` goes
+   *  once it is past its grace. O(n²) over the empty world cars (at most `total`), once a second. */
+  thinAreas(now) {
+    const L = VEHICLE_LIMITS, kept = [];
+    const passive = [...this.entries.values()].filter(v => v.source !== null && !v.occupant).sort((a, b) => b.used - a.used);
+    const players = [...this.room.players.values()].filter(p => p.connection && p.pose);
+    for (const v of passive) {
+      const crowd = kept.reduce((n, k) => n + (distance(k.pose, v.pose) <= L.areaRadius ? 1 : 0), 0), idle = now - v.used;
+      const watched = idle < L.areaForceMs && players.some(p => distance(p.pose, v.pose) <= L.areaQuietM);
+      if (crowd < L.areaEmpty || idle < L.areaGraceMs || watched) kept.push(v);
+      else this.entries.delete(v.id);
+    }
   }
   resolveContacts(now) {
     const all = [...this.entries.values()];

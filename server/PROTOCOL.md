@@ -200,7 +200,9 @@ Disconnected owners' empty records also survive the five-minute reconnect grace,
 even at the end of their lifetime. Any other empty record (a moved world car, a claimed traffic car, a bought scooter,
 a job truck) goes five minutes after it became empty once its owner is offline past that grace, and its parked or
 traffic slot comes back; a starter car (`pose.vehicle` `"player"`) goes ten minutes after its owner left, unless
-someone sits in it. A retained-session hello renews the lifetime of
+someone sits in it. Within 50 m of each other at most three empty world cars (claimed traffic cars, moved parked
+cars) stay, the most recently used; an older one goes 20 s after its last use, or up to two minutes later while a
+player is within 30 m, and its slot comes back (`VEHICLE_LIMITS.area*`). A retained-session hello renews the lifetime of
 its owned records. The session token stored by the tab identifies the player across
 reloads; a new socket does not create a new owner. A fresh client restores its
 registry bodies and occupied seat before publishing poses.
