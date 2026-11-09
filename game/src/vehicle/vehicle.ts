@@ -406,7 +406,9 @@ export class Vehicle {
     if (input && (input.throttle !== 0 || input.steer !== 0 || input.brake !== 0 || input.handbrake) && this.body.isSleeping()) this.body.wakeUp();
     // A sleeping damageable car still measures a hit that wakes it during the coming solver step.
     this.damageBefore = this.damage && this.body.isSleeping() ? { v: { x: 0, y: 0, z: 0 }, w: { x: 0, y: 0, z: 0 } } : null;
-    if (!input && this.body.isSleeping()) return;
+    // An idle driver can remain seated while Rapier sleeps the chassis. Updating the suspension on that body
+    // changes its stored velocities without moving it; skip forces until controls or a collision wake it.
+    if (this.body.isSleeping()) return;
     const v = this.controller, b = this.body;
     const f = rotate({ x: 1, y: 0, z: 0 }, b.rotation()), lv = b.linvel();
     const speed = lv.x * f.x + lv.y * f.y + lv.z * f.z;
