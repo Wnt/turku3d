@@ -164,6 +164,59 @@ def products(root: Path, generation: str) -> Path:
     return root / 'products' / generation
 
 
+def apply_step(root: Path, meta: dict, tile: str, step, displaced: Path) -> dict:
+    """Apply one data correction to a served product, retaining the displaced product.
+
+    This deliberately does not replay a newer generator's unrelated migration chain.
+    Payloads remain immutable; validate the complete staged product before touching
+    the served directory, publish ready.json last, and never roll back.
+    """
+    from turku3d.migrations import core
+
+    if not TILE.fullmatch(tile) or isinstance(step, core.Rebuild):
+        raise ValueError('apply --step requires a valid tile and a pure data migration')
+    generation = meta['generation']
+    code_hash = step.code_hash()
+    output = products(root, generation)
+    displaced = displaced.resolve()
+    if displaced == output.resolve() or displaced.is_relative_to(output.resolve()):
+        raise ValueError('displaced products must be outside the generation being edited')
+    with file_lock(root / 'locks' / f'{generation}-{tile}.lock'):
+        source = output / tile
+        ready = read_json(source / 'ready.json')
+        manifest = read_json(source / 'manifest.json')
+        if not ready or not manifest:
+            raise MissingBase(f'{tile} has no finished product')
+        Farm.validate(output, tile, manifest)
+        before = core.manifest_bytes(manifest)
+        product = core.Product(source, manifest)
+        step.apply(product)
+        if core.manifest_bytes(product.manifest) == before:
+            return dict(tile=tile, state='kept', step=step.key)
+        record = dict(name=step.name, version=step.version)
+        done = product.manifest.setdefault('migrations', [])
+        if record not in done:
+            done.append(record)
+        staging = output / f'.{tile}.step-{os.getpid()}'
+        if staging.exists():
+            raise RuntimeError(f'staging directory already exists: {staging}')
+        try:
+            core.materialize(product, staging / tile)
+            checked = Farm.validate(staging, tile, product.manifest)
+            displaced.mkdir(parents=True, exist_ok=True)
+            aside = displaced / f'{generation[:12]}-{tile}-{time.time_ns()}'
+            source.rename(aside)
+            (staging / tile).rename(source)
+            Farm.validate(output, tile, product.manifest)
+            receipt = dict(step=step.key, code_hash=code_hash, displaced=str(aside),
+                           time=time.time())
+            atomic_json(source / 'ready.json', {**ready,
+                        'data_corrections': [*(ready.get('data_corrections') or []), receipt]})
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return dict(tile=tile, state='migrated', step=step.key, checked=checked, displaced=str(aside))
+
+
 _VERIFIED = {}
 
 
@@ -404,6 +457,8 @@ def main(argv=None):
     parser.add_argument('--rebuild-revision', help='derive: new spot-rebuild steps adopt the finished products of '
                         'this registered generator revision (it already has their fix) instead of new builds')
     parser.add_argument('--revision')
+    parser.add_argument('--step', help='apply: one registered pure data step over existing served products')
+    parser.add_argument('--keep-displaced', type=Path, help='apply --step: retain displaced products here')
     parser.add_argument('--generated', help='parity: generator alias or revision of the same tile')
     parser.add_argument('--jobs', type=int, default=MAX_JOBS)
     parser.add_argument('--watch', type=float, default=0, help='rescan the base every N seconds')
@@ -422,6 +477,17 @@ def main(argv=None):
         print(json.dumps(status(root, meta)))
         return 0
     use_base_data(root, meta)
+    if args.step:
+        if args.action != 'apply' or not args.keep_displaced:
+            parser.error('--step requires apply and --keep-displaced')
+        from turku3d.migrations import chain
+
+        step = next((m for m in chain() if m.key == args.step), None)
+        if step is None:
+            parser.error(f'unknown migration step {args.step}')
+        for tile in args.tiles:
+            print(json.dumps(apply_step(root, meta, tile, step, args.keep_displaced)), flush=True)
+        return 0
     if args.action == 'parity':
         results = [parity(root, meta, args.generated, tile) for tile in args.tiles]
         for result in results:

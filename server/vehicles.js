@@ -225,7 +225,7 @@ export class VehicleRegistry {
       const remove = [...previous.keys()].filter(id => !next.has(id));
       const sourcesChanged = JSON.stringify(c.vehicleSources) !== JSON.stringify(sources);
       if (upsert.length || patches.length || remove.length || sourcesChanged) this.room.send(c, 'vehicles', {
-        upsert, remove, ...(patches.length ? { patches } : {}), ...(sourcesChanged ? { sources } : {}) });
+        upsert, remove, ...(patches.length ? { patches } : {}), ...(sourcesChanged ? { sources } : {}), serverTime: now });
       c.vehicleVersions = next; c.vehicleSources = sources; c.vehicleSent = snapshots;
     }
   }

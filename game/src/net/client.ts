@@ -74,7 +74,18 @@ export class MultiplayerClient extends EventTarget {
   readonly httpUrl: string;
   readonly state: MultiplayerState = { rounds: emptyRounds(), vehicles: new Map(), vehicleSources: new Set(), serverTime: 0, roads: null, watch: null, connected: false, you: null, hour: null, players: [], scores: [], brokenPoles: [], countdown: null, error: null };
   private serverOffset = 0;
+  private offsetAt = -Infinity;
   serverNow() { return performance.now() + this.serverOffset; }
+  /** The room clock from a message's `serverTime`: a message read late (on the wire, or behind a busy frame) only ever
+   *  makes the sample too small, so the largest recent one wins; it may fall 1 ms per second for clock drift. The
+   *  frequent `poses` and `vehicles` messages carry it, so a client busy when it joined does not keep that error. */
+  private syncClock(serverTime: unknown) {
+    const t = Number(serverTime), now = performance.now();
+    if (!Number.isFinite(t) || t <= 0) return;
+    const sample = t - now, kept = this.serverOffset - (now - this.offsetAt) * 0.001;
+    this.serverOffset = this.offsetAt === -Infinity || sample > kept ? sample : kept;
+    this.offsetAt = now;
+  }
   /** Server-issued token shared with the mission-progress snapshot for this tab. */
   get session(): string | null { return this.token; }
   round(action: 'propose' | 'agree' | 'start', minutes?: number) {
@@ -319,7 +330,8 @@ export class MultiplayerClient extends EventTarget {
         if (this.resetInHello) { this.resetInHello = false; this.resetConfirmed(); }
         this.arrival = false; // a later reconnect in this city keeps its seat
         this.state.serverTime = Number(msg.serverTime);
-        this.serverOffset = this.state.serverTime - performance.now();
+        this.offsetAt = -Infinity; // a new connection starts its clock afresh
+        this.syncClock(msg.serverTime);
         const previousEpoch = this.state.rounds.epoch;
         this.state.rounds = msg.rounds as RoundState ?? emptyRounds();
         const reset = !!this.state.rounds.epoch && previousEpoch !== this.state.rounds.epoch;
@@ -347,11 +359,11 @@ export class MultiplayerClient extends EventTarget {
       }
       case 'rounds':
         this.state.rounds = msg.rounds as RoundState;
-        this.serverOffset = Number(msg.serverTime) - performance.now();
+        this.syncClock(msg.serverTime);
         this.state.countdown = null; this.changed(); break;
       case 'round_result': this.dispatchEvent(new CustomEvent('roundResult', { detail: msg.result })); break;
       case 'progress_reset': this.resetConfirmed(); for (const done of [...this.resetWaiters]) done(true); break;
-      case 'vehicles': this.applyVehicles(msg as unknown as VehicleDelta); break;
+      case 'vehicles': this.syncClock(msg.serverTime); this.applyVehicles(msg as unknown as VehicleDelta); break;
       case 'watch': if (Number.isFinite(msg.at) && Array.isArray(msg.points)) {
         const points = (msg.points as unknown[]).filter((p): p is [number, number] => Array.isArray(p) && p.length === 2
           && Number.isFinite(p[0]) && Number.isFinite(p[1]));
@@ -382,6 +394,7 @@ export class MultiplayerClient extends EventTarget {
       case 'vehicle_impulse': this.dispatchEvent(new CustomEvent('vehicleImpulse', { detail: msg })); break;
       case 'players': this.state.players = msg.players as NetPlayer[]; this.changed(); break;
       case 'poses': {
+        this.syncClock(msg.serverTime);
         const byId = new Map(this.state.players.map(p => [p.id, p]));
         for (const pose of msg.poses as (NetPose & { id: string })[]) {
           const player = byId.get(pose.id);

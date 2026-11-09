@@ -5,8 +5,9 @@ import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
 import { capturePlugin } from '../tools/dev/capture.mjs';
 import { editSessionsPlugin } from '../tools/dev/editSessions.mjs';
-import { execFileSync } from 'node:child_process';
-const captureCommit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+import { buildRevision } from '../tools/dev/buildRevision.mjs';
+const revision = () => buildRevision(path.resolve(import.meta.dirname, '..'));
+const captureCommit = revision().commit;
 
 // Local servers isolate directly; static hosts use public/isolation.js for the shared physics exchange.
 const isolation = { 'Document-Policy': 'js-profiling', 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
@@ -24,7 +25,7 @@ export default defineConfig({
       let cached = { at: 0, commit: '' };
       server.middlewares.use('/__build', (_req, res) => {
         if (Date.now() - cached.at > 3000) {
-          try { cached = { at: Date.now(), commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }; } catch { /* keep the last */ }
+          try { cached = { at: Date.now(), commit: revision().commit }; } catch { /* keep the last */ }
         }
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ commit: cached.commit }));
@@ -34,9 +35,7 @@ export default defineConfig({
     transformIndexHtml: { order: 'pre', handler() {
       let content = captureCommit;
       try {
-        const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-        const dirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).trim() !== '';
-        content = head + (dirty ? '+dirty' : '');
+        content = revision().stamp;
       } catch { /* keep the server's start commit */ }
       return [{ tag: 'meta', attrs: { name: 'turku3d-build', content }, injectTo: 'head' }];
     } },

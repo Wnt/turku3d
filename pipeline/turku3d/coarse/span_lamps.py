@@ -10,8 +10,8 @@ One class rule, with no per-street data: a ``span`` wire that carries no detecte
 on it, no wire lamp or register lamp hung over the street within ``CARRIED`` of it) gets a lamp
 wherever it crosses the centreline of a lit street (an OSM way of ``STREETS``, ``lit`` not ``no``),
 reaching at most ``EXTEND`` past its surveyed ends; the drawn wire is extended to its lamps. A
-crossing with a lamp within ``SEPARATION`` already is lit. The tile owns the wires whose middle it
-holds (``coarse.wires``), so it owns every lamp this rule hangs, and neighbours agree.
+crossing with a lamp within ``SEPARATION`` already is lit. This is the unowned inference primitive;
+``coarse.span_lamp_seams`` assigns crossings to tiles using common survey windows at borders.
 """
 
 from __future__ import annotations
