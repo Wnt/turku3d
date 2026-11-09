@@ -98,6 +98,7 @@ import { PoleSession } from './gameplay/poles/session';
 import { FramePacer } from './render/framePacer';
 import { QUALITY } from './render/quality';
 import { Walkers, walkerCap, type WalkerThreat } from './world/walkers';
+import { WALKERS_URL } from './world/walkers/asset';
 import { chassisForward } from './traffic/pedestrians';
 import { CROWD_RADIUS } from './audio/mix';
 import { viewClearance } from './render/viewClearance';
@@ -227,7 +228,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
     optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
     player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
-    optional('walkers', walkers.load(`${import.meta.env.BASE_URL}assets/walkers/walkers.bin`), undefined)]));
+    optional('walkers', walkers.load(WALKERS_URL), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
   if (player.template) drivers.setCharacter(player.template.scene, player.template.clips, renderer, root);
   Object.assign(window.__game!, { drivers });

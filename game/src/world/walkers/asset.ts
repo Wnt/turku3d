@@ -65,8 +65,30 @@ export function parseWalkerAsset(buffer: ArrayBuffer): WalkerAsset {
   };
 }
 
+/** The game's walker asset; its wardrobe atlas is named inside it. */
+export const WALKERS_URL = `${import.meta.env.BASE_URL}assets/walkers/walkers.bin`;
+
+const prefetched = new Map<string, Promise<WalkerAsset>>();
+/** Starts loading the asset at `url` (and the atlas it names) now, at low fetch priority; the next loadWalkerAsset(url)
+ *  takes it. Once: a session owns its asset's texture, so a later load (a hot swap's) fetches again. On a cold
+ *  city.lab boot the session's own load began when the start was placed and its 21 MB + 3.5 MB atlas were the last
+ *  model assets before the menu (4.4 s, M1 Air, loadspeed 2026-11-09). */
+export function prefetchWalkerAsset(url: string) {
+  if (prefetched.has(url)) return;
+  const early = fetchWalkerAsset(url, 'low');
+  early.catch(() => {}); // a failed prefetch is fetched again by the load that takes it
+  prefetched.set(url, early);
+}
+
 export async function loadWalkerAsset(url: string): Promise<WalkerAsset> {
-  const res = await fetch(url);
+  const early = prefetched.get(url);
+  if (!early) return fetchWalkerAsset(url);
+  prefetched.delete(url);
+  return early.catch(() => fetchWalkerAsset(url));
+}
+
+async function fetchWalkerAsset(url: string, priority: RequestPriority = 'auto'): Promise<WalkerAsset> {
+  const res = await fetch(url, { priority });
   if (!res.ok) throw new Error(`walkers ${url}: HTTP ${res.status}`);
   const asset = parseWalkerAsset(await res.arrayBuffer());
   if (asset.atlas) {

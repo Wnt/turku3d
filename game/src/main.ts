@@ -5,6 +5,8 @@ import { modelDamageBox, modelTuning } from './vehicle/modelTuning';
 import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { prefetchFleet } from './actors/fleet/visuals';
 import { TRAFFIC_CAPS } from './traffic/constants';
+import { walkerCap } from './world/walkers';
+import { WALKERS_URL, prefetchWalkerAsset } from './world/walkers/asset';
 import { paceYields } from './render/yieldPacer';
 import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
@@ -940,6 +942,8 @@ async function runPlay() {
   }
   // The session's fleet assets fetch and bake while the start streams, not after it is placed (fleet/visuals.ts).
   void prefetchFleet((params.traffic ?? TRAFFIC_CAPS[params.quality]) > 0);
+  // Walkers too (world/walkers/asset.ts), at low priority: the start tiles' requests go first.
+  if (walkerCap(params.quality, params.walkers) > 0) prefetchWalkerAsset(WALKERS_URL);
   const { physics, rapier, manifest, streamer, coarse, city: booted } = await draftWorld();
   let current: CityWorld = booted;
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
