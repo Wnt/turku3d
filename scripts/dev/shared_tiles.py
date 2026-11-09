@@ -66,6 +66,7 @@ DECODED_KEEP_SECONDS = 3600  # a decoded LiDAR array used (touched) within this 
 RAW_ORDER = ('lidar-source', 'lidar-crop', 'roof', 'vegetation', 'crown-canopy')  # eviction order
 RETAINED_SECONDS = 60  # a tile's stand-in lookup (the tile's copy in every product) is reused this long
 FALLBACK_SECONDS = 10
+PROC_FD = Path('/proc/self/fd').is_dir()  # Linux: an open file's real path is a readlink away
 RETAINED_WAIT = 0.25   # a request waits this long for that lookup; a slower one finishes behind its answer
 RETAINED_MAX = 8192    # remembered lookups (tiles)
 PLAYER_SECONDS = 45    # a player stands on a tile while its d=0 requests continue (built tiles refresh every <= 30 s)
@@ -198,6 +199,7 @@ class Farm:
         self.navigations = {}
         self.lock = threading.RLock()
         self.fallback_memo = None  # (fallbacks.json mtime, monotonic time, token -> root): fallback_roots
+        self.real_roots = {}  # payload root -> (monotonic time, resolved root): real_root
         # Serialised fragments of built tiles: (revision, tile, manifest stamp) -> (bytes, bundle path or None).
         # A built tile's fragment depends only on its immutable products, so it is rendered once, outside the lock.
         self.fragments, self.fragment_bytes, self.fragments_lock = OrderedDict(), 0, threading.Lock()
@@ -497,20 +499,35 @@ class Farm:
                 _, (dropped, _) = self.fragments.popitem(last=False)
                 self.fragment_bytes -= len(dropped)
 
+    def real_root(self, root):
+        """`root` resolved, remembered for FALLBACK_SECONDS (a product moved to the bulk HDD is a symlink)."""
+        now = time.monotonic()
+        hit = self.real_roots.get(root)
+        if hit and now - hit[0] < FALLBACK_SECONDS:
+            return hit[1]
+        real = root.resolve()
+        self.real_roots[root] = (now, real)
+        return real
+
     @contextmanager
     def payload(self, root, rel):
         """Pin an opened inode and renew its lease; an eviction after the open cannot cut the stream. Off the farm
         lock (eviction never held it): an open in a product moved to the bulk HDD can take seconds under load."""
-        path = (root / Path(*rel)).resolve()
-        if not path.is_relative_to(root.resolve()) or any(p.startswith('.') for p in rel):
+        if any(p.startswith('.') for p in rel):
             raise ValueError('payload not found')
         if not (TILE.fullmatch(rel[0]) or rel[0] == 'shared'):
             raise ValueError('payload not public')
         try:
-            source = path.open('rb')
-        except (FileNotFoundError, IsADirectoryError):
+            source = (root / Path(*rel)).open('rb')
+        except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
             raise ValueError('payload not found') from None
         try:
+            # The opened file's real path is one readlink, where resolving it walked every component in pure Python
+            # under the GIL (with the root's own resolve, a fifth of a 128-request burst; loadspeed 2026-11-09).
+            # A symlink out of the root is refused like a missing file.
+            path = Path(os.readlink(f'/proc/self/fd/{source.fileno()}')) if PROC_FD else (root / Path(*rel)).resolve()
+            if not path.is_relative_to(self.real_root(root)):
+                raise ValueError('payload not found')
             if root == self.root / 'delivery':
                 os.utime(source.fileno(), None)
             elif root.is_relative_to(self.root / 'products'):

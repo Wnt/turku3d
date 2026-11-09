@@ -1194,6 +1194,31 @@ class FarmTests(unittest.TestCase):
                 farm.fallback_roots()
             self.assertGreater(len(resolved), n + 2)  # the list changed, and the memo expired
 
+    def test_payload_resolves_its_root_once_and_refuses_a_symlink_out_of_it(self):
+        farm = self.farm()
+        root = self.root / 'products' / 'g1'
+        (root / 'shared').mkdir(parents=True)
+        (root / 'shared' / 'a.bin').write_bytes(b'inside')
+        outside = self.root / 'outside.bin'
+        outside.write_bytes(b'secret')
+        (root / 'shared' / 'b.bin').symlink_to(outside)
+        resolved = []
+        real = farm_module.Path.resolve
+        def counting(path, *args, **kw):
+            resolved.append(path); return real(path, *args, **kw)
+        with mock.patch.object(farm_module.Path, 'resolve', counting):
+            for _ in range(20):
+                with farm.payload(root, ['shared', 'a.bin']) as (path, source):
+                    self.assertEqual(source.read(), b'inside')
+                    self.assertEqual(path.name, 'a.bin')
+        self.assertEqual(resolved.count(root), 1)
+        with self.assertRaisesRegex(ValueError, 'payload not found'):
+            with farm.payload(root, ['shared', 'b.bin']):
+                pass
+        with self.assertRaisesRegex(ValueError, 'payload not found'):
+            with farm.payload(root, ['shared', 'a.bin', 'x']):
+                pass
+
     def test_http_cold_tile_serves_complete_accepted_fallback_while_building(self):
         release = threading.Event()
         def build(revision, tile, root):
