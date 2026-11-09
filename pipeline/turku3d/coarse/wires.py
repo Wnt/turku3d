@@ -566,42 +566,36 @@ def survey_paths(tile) -> dict | None:
     return paths
 
 
-CHUNK = 2_000_000  # returns per LAZ read
-# Decoded LAZ blocks kept per process, most recent last. 0 for a build (it reads each block once); the city pass
-# keeps the blocks of neighbouring tiles (scripts/dev/tile_city_pass.py), about 260 MB each.
+CHUNK = 2_000_000  # returns per mapped source-order slice
+# City-pass lanes can retain a few handles to immutable source-version blocks.
+# These are mappings of the shared decode, not private copies of each LAZ block.
 BLOCKS = 0
-_decoded: dict[str, list] = {}
+_decoded: dict[str, object] = {}
 
 
 def _chunks(path):
     """(scales, offsets, X, Y, Z, classification) per CHUNK returns of one LAZ block, raw integers as stored."""
-    import laspy
+    from turku3d.lidar.decoded import source
 
     key = str(path)
-    if key in _decoded:
-        _decoded[key] = _decoded.pop(key)  # most recent last
-        yield from _decoded[key]
-        return
-    kept = []
-    with laspy.open(path) as reader:
-        scales, offsets = reader.header.scales, reader.header.offsets
-        for chunk in reader.chunk_iterator(CHUNK):
-            part = (scales, offsets, np.asarray(chunk.X), np.asarray(chunk.Y), np.asarray(chunk.Z),
-                    np.asarray(chunk.classification))
-            if BLOCKS > 0:
-                kept.append(part)
-            yield part
+    decoded = _decoded.pop(key, None)
+    if decoded is None:
+        decoded = source(path)
     if BLOCKS > 0:
-        _decoded[key] = kept
+        _decoded[key] = decoded
         while len(_decoded) > BLOCKS:
             del _decoded[next(iter(_decoded))]
+    for start in range(0, len(decoded), CHUNK):
+        rows = decoded.data[start:start + CHUNK]
+        yield (decoded.scales, decoded.offsets, rows['X'], rows['Y'], rows['Z'], rows['classification'])
 
 
 def survey(paths, bbox):
-    """(engine xyz, classes) of the returns inside ``bbox``, read from the LAZ blocks.
+    """(engine xyz, classes) inside ``bbox`` from the shared, source-order LAZ decode.
 
-    Nothing is written to disk. With ``BLOCKS`` > 0 the decoded blocks stay in memory for the next tiles; the
-    result is the same either way."""
+    Surveys and neighbouring tiles reuse the same memory-mapped integers. A
+    fresh tile no longer decodes its blocks again at the final wire migration.
+    """
     from turku3d import config as C
 
     xyz, classes = [], []

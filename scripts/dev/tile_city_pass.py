@@ -66,8 +66,7 @@ def _timed(cls):
 
 
 def _init(blocks=0):
-    """Worker: nice 19, every step's apply timed (the transforms and their code hashes are untouched), and the wires
-    step keeping ``blocks`` decoded LAZ blocks for the next tiles of its lane (same output, fewer decodes)."""
+    """Worker: nice 19, every step timed, and a few handles to the shared memory-mapped survey decodes."""
     os.nice(max(0, 19 - os.nice(0)))
     from turku3d.coarse import wires
     from turku3d.migrations import core
@@ -243,7 +242,7 @@ def pick(pending: list[str], last: tuple[int, int] | None) -> int:
 
 
 class Lane:
-    """One worker process that keeps its decoded blocks between tiles."""
+    """One worker process that reuses shared decoded mappings between tiles."""
 
     def __init__(self, blocks: int):
         # spawn, not fork: the scheduler runs threads (spot-rebuild requests to the farm), and a worker forked
@@ -318,7 +317,7 @@ def main():
     parser.add_argument('--min-free-mem-gb', type=float, default=8,
                         help='the cap steps down while less memory than this is available')
     parser.add_argument('--blocks', type=int, default=9,
-                        help='decoded LAZ blocks each lane keeps (0.3-0.6 GB each; a lane with 9 reached 6-8 GB RSS)')
+                        help='shared decoded LAZ mappings each lane keeps open (no private decoded-block copies)')
     parser.add_argument('--checkpoint', help='also store the product after this step (e.g. wires@2), so a later '
                         'chain that changes only the steps after it resumes from there')
     args = parser.parse_args()

@@ -119,7 +119,7 @@ def test_migration_adds_the_wires_beside_the_light_list(monkeypatch, tmp_path):
     assert "lights" not in bare.manifest
 
 
-def test_kept_blocks_read_the_same_returns_without_reopening(tmp_path, monkeypatch):
+def test_shared_decode_reads_the_same_returns_without_reopening(tmp_path, monkeypatch):
     import laspy
     from turku3d import config as C
 
@@ -135,10 +135,11 @@ def test_kept_blocks_read_the_same_returns_without_reopening(tmp_path, monkeypat
     las.write(path)
     bbox = C.BBoxLocal(100.0, 100.0, 300.0, 350.0)
     monkeypatch.setattr(W, "CHUNK", 777)
-    monkeypatch.setattr(W, "BLOCKS", 0)
-    streamed = W.survey({"b": path}, bbox)
-    monkeypatch.setattr(W, "BLOCKS", 2)
-    monkeypatch.setattr(W, "_decoded", {})
+    monkeypatch.setenv('TURKU3D_SHARED_CACHE', str(tmp_path / 'cache'))
+    direct = laspy.read(path)
+    x, y, z = C.en_to_local(np.asarray(direct.x), np.asarray(direct.y), np.asarray(direct.z))
+    keep = (x >= bbox.xmin) & (x < bbox.xmax) & (z >= bbox.zmin) & (z < bbox.zmax)
+    streamed = np.c_[x[keep], y[keep], z[keep]], np.asarray(direct.classification)[keep]
     first = W.survey({"b": path}, bbox)
     opened = []
     real = laspy.open
