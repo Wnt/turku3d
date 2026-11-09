@@ -270,7 +270,8 @@ function tube(mesh, b, segs, slot, tint, aoFn, vOffset, maxRings) {
   }
   for (let i = 0; i < rings.length - 1; i++) for (let j = 0; j < segs; j++) {
     const a = rings[i][j], bb = rings[i][j + 1], c = rings[i + 1][j], d = rings[i + 1][j + 1];
-    mesh.tri(a, c, bb); mesh.tri(bb, c, d);
+    // frameB = cross(axis, frameN): advance around the ring before moving up the branch for outward winding.
+    mesh.tri(a, bb, c); mesh.tri(bb, d, c);
   }
 }
 

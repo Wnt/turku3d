@@ -74,7 +74,9 @@ def test_selective_step_preserves_displaced_product_and_skips_unrelated_chain(tm
     current = json.loads((output / TILE / 'manifest.json').read_text())
     assert current['lights']['count'] == 2
     assert current['migrations'] == [*original['migrations'], {'name': 'correct-lamps', 'version': 1}]
-    assert json.loads((output / TILE / 'ready.json').read_text())['base_manifest_sha256'] == 'kept'
+    ready = json.loads((output / TILE / 'ready.json').read_text())
+    assert ready['superseded_base_manifest_sha256'] == 'kept'
+    assert 'base_manifest_sha256' not in ready
     assert tile_migrate.apply_step(tmp_path, {'generation': BASE_GEN}, TILE, step, tmp_path / 'displaced')['state'] == 'kept'
 
 
