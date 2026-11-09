@@ -36,6 +36,18 @@ function canopyMask(coverage: THREE.DataTexture) {
   return mask;
 }
 
+/** A 1 km survey node's canopy shell stays out of the full-tile window too, and yields to every square a full tile or a
+ *  250 m cell draws (`squares`): a node kept as a fallback while its cells load, or a cell's coverage gap, must not
+ *  raise the shell, which drapes the surface model (roofs included), over the streets and the real trees. */
+const nodeCanopyMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
+const outsideDetail = distance(positionWorld.xz, cameraPosition.xz).greaterThan(TILE_DETAIL.distance);
+function nodeCanopyMask(squares?: THREE.DataTexture) {
+  if (!squares) return outsideDetail;
+  let mask = nodeCanopyMasks.get(squares);
+  if (!mask) nodeCanopyMasks.set(squares, mask = regionalMask(squares).and(outsideDetail));
+  return mask;
+}
+
 /** The HD roof photo a block shell's roofs sample, and its world-plane mapping: uv = (u . (x, z, 1), v . (x, z, 1)). */
 export interface ShellRoof { map: THREE.Texture; u: readonly [number, number, number]; v: readonly [number, number, number] }
 
@@ -77,7 +89,7 @@ function shellWindows(grid: boolean) {
 }
 
 export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map?: THREE.Texture | null, programVersion = 5,
-  roof?: ShellRoof) {
+  roof?: ShellRoof, squares?: THREE.DataTexture) {
   // colorNode owns the authored pigment; vertexColors=true would multiply it a second time.
   // The far canopy shell (pipeline horizon_regional.canopy) and the far tree crowns are foliage: the leaves' specular.
   const canopy = layer === 'canopy' || layer === 'canopy-regional';
@@ -90,6 +102,7 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
   // The 4 km regional terrain and its canopy yield to finer loaded cells.
   if (layer === 'regional' && coverage) material.maskNode = regionalMask(coverage);
   if (layer === 'canopy-regional' && coverage) material.maskNode = canopyMask(coverage);
+  if (layer === 'canopy') material.maskNode = nodeCanopyMask(squares);
   if (canopy) return material;
   // The old cached tree prototypes carry autumn pigments. Match the city's summer canopy,
   // retaining their tonal variation without turning the far skyline into bright orange spikes.
@@ -133,7 +146,9 @@ export function sceneryMaterial(layer: string, coverage?: THREE.DataTexture, map
   return material;
 }
 
-export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, coverage?: THREE.DataTexture) {
+/** `squares` (sceneryMaterial) goes to the canopy of nodes coarser than a 250 m cell. */
+export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, coverage?: THREE.DataTexture,
+  squares?: THREE.DataTexture) {
   const originals = new Set<THREE.Material>();
   const materials = new Map<string, THREE.MeshStandardNodeMaterial>();
   model.traverse(object => {
@@ -144,11 +159,12 @@ export function styleScenery(model: THREE.Object3D, shared?: SharedMaterials, co
     interleaveProgram(mesh.geometry);
     const map = (mesh.material as THREE.MeshStandardMaterial).map;
     const programVersion = mesh.geometry.getAttribute('_kit_layout')?.itemSize === 4 ? 6 : 5;
-    const key = `${layer}:${map?.uuid ?? ''}:${programVersion}`;
+    const finer = layer === 'canopy' ? squares : undefined;
+    const key = `${layer}:${map?.uuid ?? ''}:${programVersion}${finer ? ':node' : ''}`;
     let material = materials.get(key);
     if (!material) {
-      material = (shared ? shared.styled.acquire(source, `distant-city-${key}`, model, () => sceneryMaterial(layer, coverage, map, programVersion))
-        : sceneryMaterial(layer, coverage, map, programVersion)) as THREE.MeshStandardNodeMaterial;
+      material = (shared ? shared.styled.acquire(source, `distant-city-${key}`, model, () => sceneryMaterial(layer, coverage, map, programVersion, undefined, finer))
+        : sceneryMaterial(layer, coverage, map, programVersion, undefined, finer)) as THREE.MeshStandardNodeMaterial;
       materials.set(key, material);
     }
     mesh.material = material;

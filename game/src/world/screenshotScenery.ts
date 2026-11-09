@@ -26,6 +26,9 @@ export const dissolveTiers = (level: number) => level === 0 ? [0, 1] : level ===
 export class ScreenshotScenery {
   radius = 0;
   private readonly coverage = new SceneryCoverage();
+  /** The 250 m squares a full tile or a 250 m cell draws: a kilometre node's canopy shell yields to them (their own
+   *  trees stand there) while it still draws as a fallback over them. */
+  private readonly squares = new SceneryCoverage();
   private readonly cutState = new SceneryCutState();
   private committed = new Set<string>();
   private nextCutExpiry = Infinity;
@@ -151,10 +154,9 @@ export class ScreenshotScenery {
     // Preserve the collision preview until richer city geometry is actually prepared.
     for (const [id, entry] of this.nearby) if (entry.preview && entry.model)
       entry.model.visible = !city.some(([parent]) => sceneryContains(parent, id));
-    this.coverage.update([
-      ...[...this.nearby].filter(([, e]) => e.model?.visible).map(([id]) => id),
-      ...city.map(([id]) => id),
-    ]);
+    const full = [...this.nearby].filter(([, e]) => e.model?.visible).map(([id]) => id);
+    this.coverage.update([...full, ...city.map(([id]) => id)]);
+    this.squares.update([...full, ...city.filter(([id]) => sceneryBounds(id).level === 0).map(([id]) => id)]);
   }
 
   private release(id: string, e: Scenery) {
@@ -244,6 +246,7 @@ export class ScreenshotScenery {
     for (const [id, e] of this.entries) this.release(id,e);
     for (const entry of this.nearby.values()) if (entry.preview && entry.model) entry.model.visible = true;
     this.coverage.update([]);
+    this.squares.update([]);
     this.entries.clear(); this.sources.clear(); this.wanted = []; this.footprint = []; this.standby.clear();
     this.catalogueError = false; this.cataloguePending = false; this.unavailable.clear();
     this.footprintView = null; this.nextView = 0; this.catalogueRetry = 0;
@@ -531,7 +534,8 @@ export class ScreenshotScenery {
       if (source) {
         model.userData.scenery = true;
         const loaded = model;
-        streamTrace.time('scenery', () => styleScenery(loaded, this.shared, this.coverage.texture));
+        streamTrace.time('scenery', () => styleScenery(loaded, this.shared, this.coverage.texture,
+          sceneryBounds(id).level > 0 ? this.squares.texture : undefined));
         e.treesReady = false;
         const trees = streamTrace.begin('cell.trees', id);
         await this.prepareTrees(id,e,model,distance,source);
