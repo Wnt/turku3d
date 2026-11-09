@@ -25,6 +25,8 @@ const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i >= 0 ? argv[i + 1] : fallback; };
 const PORT = Number(opt('port', 5226)), MP_PORT = Number(opt('mp-port', 5229)), KEEP = argv.includes('--keep');
 const ONLY = (opt('only', '') ?? '').split(',').filter(Boolean);
+/** --frames MS: both pages' views saved every MS ms (OUT/frames/<scenario>/), from the holding spots to the leg's end. */
+const FRAMES = Number(opt('frames', 0));
 const OUT = path.resolve(opt('out', path.join(os.homedir(), 'turku3d/loops/mpsession/crashlab')));
 const GAME = path.resolve(import.meta.dirname, '..'), REPO = path.resolve(GAME, '..');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -100,9 +102,9 @@ const LAB = () => {
     const sim = (g.physics.latest?.remoteCars ?? [])[0];
     const vis = (s.multiplayer?.remoteVisuals ?? []).find(r => r.mode === 'car');
     const local = leg?.baseline ? g.physics.latest?.vehicles?.find(c => c.id === 'lab-parked') : null;
-    const row = { t: Math.round(now), x: r3(at.x), z: r3(at.z), vx: r3(lv.x), vz: r3(lv.z), yaw: yawOf(v.rot),
-      sim: sim ? { x: r3(sim.pos.x), z: r3(sim.pos.z), snaps: sim.snaps, ...(sim.held ? { held: 1 } : {}) } : null,
-      drawn: vis ? { x: r3(vis.x), z: r3(vis.z) } : null,
+    const row = { t: Math.round(now), x: r3(at.x), y: r3(at.y), z: r3(at.z), vx: r3(lv.x), vz: r3(lv.z), yaw: yawOf(v.rot),
+      sim: sim ? { x: r3(sim.pos.x), y: r3(sim.pos.y), z: r3(sim.pos.z), snaps: sim.snaps, ...(sim.held ? { held: 1 } : {}) } : null,
+      drawn: vis ? { x: r3(vis.x), z: r3(vis.z), bottom: r3(vis.bottom) } : null,
       ...(leg ? { rel: leg.released !== null, drove: leg.car.speed > 0 } : {}),
       ...(local ? { local: { x: r3(v2(local.pos).x), z: r3(v2(local.pos).z), vx: r3(v2(local.linvel).x), vz: r3(v2(local.linvel).z) } } : {}) };
     lab.trace.push(row); lab.last = { ...row, id: v.id };
@@ -219,6 +221,13 @@ function unexplained(name, own, other, ownMarks, otherMarks) {
     const e = found.findLast(f => f.what === what);
     if (e && t - e.to < 150) { e.to = t; e.max = Math.max(e.max, m); e.n++; } else found.push({ what, from: t, to: t, max: m, n: 1 });
   };
+  // Height: a car standing or driving on the flat ground has its chassis centre at REST_Y and its drawn model's bottom
+  // at the ground (G); more than 0.3 m above is a car in the air.
+  for (const b of own) {
+    if (b.y - REST_Y > 0.3 && !after(ownMarks, b.t, 400)) add(`${name}'s own car in the air`, b.t, b.y - REST_Y);
+    if (b.sim && b.sim.y - REST_Y > 0.3) add(`${name}'s simulated other car in the air`, b.t, b.sim.y - REST_Y);
+    if (b.drawn && b.drawn.bottom - G > 0.3) add(`${name}'s drawn other car in the air`, b.t, b.drawn.bottom - G);
+  }
   // Physics states (own car, simulated other car) advance in 60 Hz steps, one or two per frame: compared over 50 ms.
   // The drawn car is compared frame by frame, as it is seen.
   for (let i = 1, k = 0; i < own.length; i++) {
@@ -266,6 +275,9 @@ async function settle(pages, targets, ms = 10000) {
   log(`  settle: not settled in ${ms} ms: ${JSON.stringify(last.map(st => st && { x: st.x, z: st.z, v: Math.hypot(st.vx, st.vz).toFixed(2), seen: st.drawn ?? st.sim }))}`);
   return null;
 }
+
+/** The chassis centre height of a car at rest on the ground, measured on A's page once it is seated (main). */
+let REST_Y = Y;
 
 const legSnaps = rows => { const s = rows.filter(r => r.sim).map(r => r.sim.snaps); return s.length ? s.at(-1) - s[0] : '-'; };
 function report(s, A, B, base, from, baseFrom) {
@@ -318,12 +330,29 @@ await join(pa, HOLD.A);
 await join(pb, HOLD.B);
 await Promise.all([pa, pb].map(p => p.page.waitForFunction(() => window.__game.state().multiplayer?.players === 2, null, { timeout: 60000 })));
 log(`both players in their cars at their holding spots: ${(await settle([pa, pb], [HOLD.A, HOLD.B])) === null ? 'NOT settled' : 'settled'}`);
+REST_Y = (await pa.page.evaluate(() => window.__lab.status())).y;
+const heights = await Promise.all([pa, pb].map(p => p.page.evaluate(() => window.__lab.status())));
+log(`rest heights: chassis centre A ${heights[0].y}, B ${heights[1].y}; A sees B's model bottom at ${heights[0].drawn?.bottom}, B sees A's at ${heights[1].drawn?.bottom} (ground ${G})`);
 for (const p of [pa, pb]) await p.page.evaluate(() => window.__lab.drain());
 
 const results = [];
 for (const s of SCENARIOS.filter(s => !ONLY.length || ONLY.includes(s.name))) {
   for (const p of [pa, pb]) await p.page.evaluate(t => window.__lab.label(t), `${s.name}: ${s.what}`);
   const legMs = Math.max(...[s.a, s.b].map(c => c.speed > 0 ? (c.release + 10) / c.speed * 1000 : 0)) + 5000;
+  let filming = null;
+  if (FRAMES) {
+    const dir = path.join(OUT, 'frames', s.name);
+    fs.mkdirSync(dir, { recursive: true });
+    const t0 = Date.now();
+    filming = { on: true };
+    filming.done = (async () => {
+      while (filming.on) {
+        const ms = String(Date.now() - t0).padStart(6, '0');
+        await Promise.all([pa, pb].map(p => p.page.screenshot({ path: path.join(dir, `${ms}-${p.name}.jpg`), type: 'jpeg', quality: 60 }).catch(() => {})));
+        await sleep(FRAMES);
+      }
+    })();
+  }
   // Multiplayer: both cars to their holding spots, then to their starts; each step waits until both pages agree where
   // both cars stand. Then both legs from the same room time.
   await Promise.all([pa.page.evaluate(([c, y]) => window.__lab.place(c, y), [HOLD.A, Y]), pb.page.evaluate(([c, y]) => window.__lab.place(c, y), [HOLD.B, Y])]);
@@ -335,6 +364,7 @@ for (const s of SCENARIOS.filter(s => !ONLY.length || ONLY.includes(s.name))) {
   const [A, B] = await Promise.all([pa.page.evaluate(leg => window.__lab.run(leg), { car: s.a, at: startAt, ms: legMs }),
     pb.page.evaluate(leg => window.__lab.run(leg), { car: s.b, at: startAt, ms: legMs })]);
   if (s.b.handbrake) await pb.page.keyboard.up('Space');
+  if (filming) { filming.on = false; await filming.done; }
   fs.writeFileSync(path.join(OUT, `${s.name}.json`), JSON.stringify({ scenario: s, A, B }));
   const [trA, trB] = await Promise.all([pa, pb].map(p => p.page.evaluate(() => window.__lab.drain())));
   // Single player: B's car far away, a local parked car of the same model where B stood (once A no longer sees B
