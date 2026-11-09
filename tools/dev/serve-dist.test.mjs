@@ -61,6 +61,27 @@ test('compressing a big file holds no other request, and concurrent requests sha
   assert.ok(page < a.at, `the page waited for the compression (${page.toFixed(0)} ms vs ${a.at.toFixed(0)} ms)`);
   assert.equal(a.n, text.length); assert.equal(b.n, text.length); // undici decodes; both whole
 });
+test('precompress writes brotli sidecars for big compressible files, which are served instead of compressing', async () => {
+  const { precompress } = await import('./http.mjs');
+  const pre = fs.mkdtempSync(path.join(dir, 'pre-'));
+  const text = Array.from({ length: 40000 }, (_, i) => `line ${i} ${(i * 2654435761) % 1e9}`).join('\n'); // ~700 KB
+  fs.writeFileSync(path.join(pre, 'big.js'), text);
+  fs.writeFileSync(path.join(pre, 'small.js'), 'export const x = 1;');
+  fs.writeFileSync(path.join(pre, 'big.ktx2'), Buffer.alloc(300000, 1));
+  assert.equal(await precompress(pre).then((d) => d.files), 1);
+  assert.deepEqual(fs.readdirSync(pre).sort(), ['big.js', 'big.js.br', 'big.ktx2', 'small.js']);
+  assert.equal(await precompress(pre).then((d) => d.files), 0); // current sidecars stay
+  const served = async () => {
+    const r = await new Promise((res) => import('node:http').then(({ default: http }) => http.get(url(`/${path.basename(pre)}/big.js`),
+      { headers: { 'accept-encoding': 'br' } }, (x) => { const c = []; x.on('data', (d) => c.push(d)); x.on('end', () => res(Buffer.concat(c))); })));
+    return zlib.brotliDecompressSync(r).toString();
+  };
+  // A marked sidecar shows which body goes out: the sidecar while it is current, a fresh compression once it is stale.
+  fs.writeFileSync(path.join(pre, 'big.js.br'), zlib.brotliCompressSync('from the sidecar'));
+  assert.equal(await served(), 'from the sidecar');
+  const later = new Date(Date.now() + 5000); fs.utimesSync(path.join(pre, 'big.js'), later, later);
+  assert.equal(await served(), text);
+});
 test('/__localhost/status: a dist server is never the localhost game service', async () => {
   const r = await fetch(url('/__localhost/status'));
   assert.equal(r.status, 200);

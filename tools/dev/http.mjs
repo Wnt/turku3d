@@ -55,6 +55,43 @@ function baseHeaders(ext, stat, cacheControl) {
 }
 
 const encoding = new Map(); // key -> the compression in flight, shared by every request for it
+const brotliParams = (raw) => ({ params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } });
+/** A `.br` sidecar next to `file` that is at least as new as it (an older one belongs to replaced content), or null. */
+async function sidecar(file, stat) {
+  try {
+    const br = await fsp.stat(file + '.br');
+    return br.mtimeMs >= stat.mtimeMs ? await fsp.readFile(file + '.br') : null;
+  } catch { return null; }
+}
+
+/** Writes `<file>.br` (as served at runtime) for every compressible file of at least `minBytes` under `dir` that has no
+ *  current one, `parallel` at a time on zlib's thread pool. The share deploy runs it on each dist (tools/share/
+ *  precompress.mjs), so city-web never compresses a big file on a player's request. */
+export async function precompress(dir, { minBytes = 256 * 1024, parallel = 4 } = {}) {
+  const todo = [];
+  const walk = async (d) => {
+    for (const e of await fsp.readdir(d, { withFileTypes: true })) {
+      const f = path.join(d, e.name);
+      if (e.isDirectory()) await walk(f);
+      else if (e.isFile() && COMPRESSIBLE.has(path.extname(f).toLowerCase())) {
+        const st = await fsp.stat(f);
+        if (st.size >= minBytes && !(await fsp.stat(f + '.br').then((b) => b.mtimeMs >= st.mtimeMs, () => false))) todo.push(f);
+      }
+    }
+  };
+  await walk(dir);
+  const done = { files: 0, bytesIn: 0, bytesOut: 0 };
+  const next = async () => {
+    for (let f; (f = todo.shift());) {
+      const raw = await fsp.readFile(f);
+      const out = await new Promise((resolve, reject) => zlib.brotliCompress(raw, brotliParams(raw), (e, b) => (e ? reject(e) : resolve(b))));
+      await fsp.writeFile(f + '.br.tmp', out); await fsp.rename(f + '.br.tmp', f + '.br');
+      done.files++; done.bytesIn += raw.length; done.bytesOut += out.length;
+    }
+  };
+  await Promise.all(Array.from({ length: parallel }, next));
+  return done;
+}
 /** `file` compressed whole (`br` or `gzip`), kept in memory per encoding and mtime: it goes out with its exact length.
  *  Compressed off the event loop (zlib's thread pool), once however many requests ask meanwhile: compressed in place,
  *  the first request for the 33 MB walkers.bin after each deploy held every other request on city.lab for 3.5-4.7 s
@@ -69,7 +106,7 @@ async function encodedFile(file, stat, kind) {
       const raw = await fsp.readFile(file);
       const out = await new Promise((resolve, reject) => {
         const done = (error, body) => (error ? reject(error) : resolve(body));
-        if (kind === 'br') zlib.brotliCompress(raw, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }, done);
+        if (kind === 'br') zlib.brotliCompress(raw, brotliParams(raw), done);
         else zlib.gzip(raw, { level: 6 }, done);
       });
       // Least recently compressed first out: a long-running share server sees each deploy's files under new mtimes.
@@ -111,8 +148,7 @@ export async function serveFile(req, res, file, { compress = true, cacheControl 
     return fs.createReadStream(file, { start, end }).pipe(res);
   }
   if (compress && COMPRESSIBLE.has(ext) && /\bbr\b/.test(ae)) {
-    let body;
-    try { body = await fsp.readFile(file + '.br'); } catch { body = await encodedFile(file, stat, 'br'); }
+    const body = (await sidecar(file, stat)) ?? (await encodedFile(file, stat, 'br'));
     res.writeHead(200, { ...h, 'Content-Encoding': 'br', 'Content-Length': body.length });
     return res.end(req.method === 'HEAD' ? undefined : body);
   }

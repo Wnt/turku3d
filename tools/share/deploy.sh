@@ -13,7 +13,8 @@
 # game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
-# changed and checks the public URL. /version.json names the deployed commit. Content-hashed assets of the builds
+# changed and checks the public URL. Big compressible dist files get brotli sidecars city-web serves as they are
+# (tools/share/precompress.mjs). /version.json names the deployed commit. Content-hashed assets of the builds
 # deployed in the last 12 h stay served next to the new ones, so a page that loaded an earlier build keeps working.
 #
 # Tiles resolve per tile (scripts/dev/shared-tile-proxy.mjs `follow`): newest first through the farm's train<N>
@@ -141,6 +142,8 @@ if [ "$LOCAL_BUILD" = 0 ]; then
   find "$STAGE/dist" -name '*.map' -delete
   cp "$STAGE/version.json" "$STAGE/dist/version.json"
 fi
+# Brotli sidecars for the big compressible files (tools/share/precompress.mjs): city-web never compresses them at runtime.
+nice -n 10 node "$STAGE/tools/share/precompress.mjs" "$STAGE/dist"
 mkdir -p "$R/dist" "$R/src"
 rsync -a --delete "$STAGE/dist/" "$R/dist/"
 # Earlier builds' assets stay served for ASSET_HOURS: a page loaded before this deploy (or still loading across it)
