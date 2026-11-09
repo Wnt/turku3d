@@ -43,12 +43,16 @@ export function modelTuning(id: string): VehicleTuning | undefined {
  *  Bravion and scaled by each car's own mass and size: passenger tyres retain a rear grip reserve (load sensitivity
  *  is relative to the car's own corner load); shared steering, keyboard slew, assists and brake build-up; CoM at the starter's
  *  0.375 of the body height, capped so the track keeps a static stability factor of 1.3 (no rollover on the tyres'
- *  grip); softer ride for heavier and more roll for taller bodies; a limited-slip split by drivetrain; brakes and
- *  suspension force limits that grow with the weight. */
+ *  grip) and a passenger forward tipping threshold of 2 g (reserve for brake dive); softer ride for heavier and more
+ *  roll for taller bodies; a limited-slip split by drivetrain; brakes and suspension force limits that grow with the weight. */
 export function slipCurveHandling(base: VehicleTuning, height: number, drive: string, body: BodyType = 'sedan'): Partial<VehicleTuning> {
   const m = base.mass, loads = cornerLoads(base, m), passenger = body !== 'van' && body !== 'pickup';
   const track = Math.abs(base.wheels[1].z - base.wheels[0].z);
-  const com = Math.min(0.375 * height, track / 2.6);
+  // A short wheelbase can lose both rear contacts under brake dive even with a safe lateral stability factor.
+  // Keep the forward tipping threshold (front axle distance / CoM height) at 2 g for passenger cars. This leaves
+  // pitch reserve above tyre-limited deceleration without changing their mass, power, yaw inertia or wheel layout.
+  const frontArm = base.front.reduce((sum, i) => sum + base.wheels[i].x, 0) / base.front.length - (base.comAhead ?? 0);
+  const com = Math.min(0.375 * height, track / 2.6, passenger ? frontArm / 2 : Infinity);
   // 1.75 / 1.5 Hz (Wreckfest 2) at the starter's weight, softer for heavier cars (vans 1.6, buses 1.25 Hz).
   const ride = 1.75 * Math.min(1.05, Math.max(0.7, (1351 / m) ** 0.15));
   return {

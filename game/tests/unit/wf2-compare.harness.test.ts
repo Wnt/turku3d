@@ -12,6 +12,7 @@ import { PhysicsWorld } from '../../src/physics/world';
 import { DT, VEHICLES, type VehicleKind, type VehicleTuning } from '../../src/physics/constants';
 import { GROUP, MAT } from '../../src/shared/col/materials';
 import { handling } from '../../src/vehicle/handling';
+import { rideSetup } from '../../src/vehicle/ride';
 import { rotate } from '../../src/vehicle/math';
 import type { VehicleInput } from '../../src/physics/protocol';
 import { modelDamageBox, modelTuning } from '../../src/vehicle/modelTuning';
@@ -962,3 +963,30 @@ test.skipIf(!process.env.CARFEEL_LOOSE_REPORT)('passenger loose-ground stability
   const diffHash = execSync('git diff HEAD -- game/src/vehicle/modelTuning.ts game/src/vehicle/tyres.ts').toString();
   fs.writeFileSync(process.env.CARFEEL_LOOSE_REPORT!, JSON.stringify({ commit: execSync('git rev-parse HEAD').toString().trim(), tuningDiff: diffHash, tuning: Object.fromEntries(PASSENGERS.map(id => [id, tuningOf(`model:${id}`)])), rows, recovery }, null, 2));
 }, 240000);
+
+
+// The 43-model sweep found a short-wheelbase car lifting both rear tyres under ordinary corner braking.
+// Use an actually reached speed, rather than labelling a power-limited run by an unreachable target.
+test.skipIf(!process.env.CARFEEL_REPORT)('short wheelbase keeps rear support under corner braking', () => {
+  const rows = [];
+  for (const keys of [false, true]) for (const direction of [-1, 1]) {
+    const rig = passengerRig('carla-micro-microlino', keys), pi = new SpeedPI();
+    expect(cruise(rig, 55 / 3.6, 2), 'reach measured 55 km/h').toBe(true);
+    const steer = direction * rig.stickFor(Math.atan(rig.wheelbase / 35));
+    rig.run(4, () => ({ ...idle, throttle: pi.update(55 / 3.6, rig.forwardSpeed()), steer }));
+    const entryKmh = rig.forwardSpeed() * 3.6, from = rig.log.length;
+    expect(entryKmh).toBeGreaterThan(50);
+    rig.run(2, () => ({ ...idle, brake: .65, steer }));
+    const samples = rig.log.slice(from), metrics = passengerMetrics(rig, from);
+    const rearUnsupportedSeconds = samples.filter(s => s.wheels.slice(2).every(w => !w.contact)).length * DT;
+    rows.push({ mode: keys ? 'keyboard' : 'analogue', direction, entryKmh, rearUnsupportedSeconds, ...metrics });
+    expect(rearUnsupportedSeconds, 'rear axle remains supported').toBe(0);
+    expect(metrics.peakBeta, 'corner braking stays catchable').toBeLessThan(4.5);
+    expect(metrics.spin).toBe(false);
+    rig.writeCsv(`short-brake-${keys ? 'key' : 'analogue'}-${direction}`); rig.free();
+  }
+  const tuning = tuningOf('model:carla-micro-microlino');
+  fs.writeFileSync(process.env.CARFEEL_REPORT!.replace(/\.json$/, '-short-brake.json'), JSON.stringify({
+    commit: execSync('git rev-parse HEAD').toString().trim(), tuning, ride: rideSetup(tuning, tuning.mass), rows,
+  }, null, 2));
+}, 30000);
