@@ -12,7 +12,7 @@ export class FoliageMaterial extends THREE.MeshStandardNodeMaterial {
   static get type() { return 'FoliageMaterial'; }
 
   setupNormal() {
-    const normal = super.setupNormal();
+    const normal = super.setupNormal() as THREE.Node<'vec3'>;
     // Custom crown normals bypass three's back-face normal flip. A crown's far wall then catches sunlight as an
     // exterior even when seen from inside, making its shell read inside out through the leaf gaps. Orient the
     // shading normal towards the eye on both mesh and impostor cards. Use the normal itself, not triangle winding:
