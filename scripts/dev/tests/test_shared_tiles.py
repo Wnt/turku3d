@@ -189,6 +189,45 @@ class FarmTests(unittest.TestCase):
         self.assertFalse((farm.output(GEN) / 't0_0_0/ready.json').exists())
         self.assertEqual(farm.metrics['failed'], 1)
 
+    def test_uncovered_ground_is_unbuildable_until_the_source_version_changes(self):
+        """A NoCoverage build (drive.py's UNBUILDABLE texts) is never requeued; a new source version builds again."""
+        drive = Path(__file__).parents[3] / 'pipeline/turku3d/coarse/drive.py'
+        for rev, gen, source in ((REV, GEN, '1' * 64), (REV2, GEN2, '2' * 64)):
+            farm_module.atomic_json(self.root / 'revisions' / rev / 'revision.json',
+                                    dict(revision=rev, generation=gen, source_version=source))
+            (self.root / 'revisions' / rev / 'repo/pipeline/turku3d/coarse').mkdir(parents=True)
+            shutil.copy(drive, self.root / 'revisions' / rev / 'repo/pipeline/turku3d/coarse/drive.py')
+        calls = []
+        def uncovered(rev, tile, root):
+            calls.append((rev, tile))
+            if rev == REV2:
+                return fake_build(rev, tile, root)
+            (self.root / 'logs').mkdir(exist_ok=True)
+            last = (f'turku3d.coarse.sources.NoCoverage: {tile}: only 0 ground key points' if tile == 't0_0_0'
+                    else "KeyError: 'Katuosalaji'")
+            (self.root / 'logs' / f'{rev}-{tile}.log').write_text(f'Traceback (most recent call last):\n{last}\n')
+            raise RuntimeError(f'generator exit 1; see logs/{rev}-{tile}.log')
+        farm = self.farm(execute=uncovered)
+        for tile in ('t0_0_0', 't0_1_0'):
+            farm.request(REV, tile, 10)
+        self.wait(farm)
+        self.assertEqual((farm.metrics['unbuildable'], farm.metrics['failed']), (1, 1))
+        self.assertEqual(farm.status()['unbuildable_tiles'], 1)
+        # Past the 60 s failure window, the uncovered tile stays refused and only the other failure is requeued.
+        farm.failures[(GEN, 't0_1_0')]['t'] -= 120
+        status, value = farm.request(REV, 't0_0_0', 10)
+        self.assertEqual((status, value['state']), (422, 'unbuildable'))
+        self.assertIn('only 0 ground key points', value['error'])
+        self.assertEqual(farm.request(REV, 't0_1_0', 10)[0], 202)
+        self.wait(farm)
+        # It survives a restart, and a revision on another source version builds the tile.
+        restarted = self.farm(execute=uncovered)
+        self.assertEqual(restarted.request(REV, 't0_0_0')[0], 422)
+        self.assertEqual(restarted.request(REV2, 't0_0_0')[0], 202)
+        self.wait(restarted)
+        self.assertEqual(calls.count((REV, 't0_0_0')), 1)
+        self.assertEqual(restarted.request(REV2, 't0_0_0')[0], 200)
+
     def test_retired_generator_is_not_requeued_by_old_clients(self):
         farm = self.farm()
         farm_module.atomic_json(self.root / 'retired.json', {REV: 'manifest serialization fixed in next commit'})

@@ -15,8 +15,9 @@ export interface CoarseFragment { generation?: string; stale?: boolean; pass_kin
   roads?: { url: string; bytes: number } | null; vehicles?: ParkedVehicle[]; vehicle_models?: Manifest['vehicle_models'];
   /** The generator's street lights for this tile (render/lights/tileLights.ts). */
   lights?: TileLightsField | null }
-/** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). */
-type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed';
+/** `built`: the service has it but it is not loaded (a prefetched tile outside the 3x3 window). `none`: the service
+ *  answered 422 `unbuildable` (its sources do not cover this ground): no tile here, regional scenery stays, never asked again. */
+type State = 'pending' | 'loading' | 'built' | 'draft' | 'failed' | 'none';
 export interface Entry extends DraftFreshness {
   state: State; model?: THREE.Object3D; nextPoll: number; error?: string; roads?: RoadGraphJson;
   /** The collision entries this tile put into the manifest (dropped only while they are still there). */

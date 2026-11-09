@@ -72,3 +72,33 @@ test('one unanswered request or a lost demand never pauses the tiles; a failed h
     expect(coarse.outage).not.toBeNull();
   } finally { warn.mockRestore(); }
 });
+
+test('an unbuildable tile (422 unbuildable) is no tile here: never asked again, settled, not awaited at startup', async () => {
+  const scene = new THREE.Scene();
+  const urls: string[] = [];
+  const fetch = vi.fn(async (url: string) => {
+    urls.push(url);
+    if (url.endsWith('/health')) return new Response(JSON.stringify({ state: 'online' }));
+    if (url.includes('t0_0_0/')) return new Response(JSON.stringify({ state: 'unbuildable', error: 'NoCoverage: t0_0_0: only 0 ground key points' }), { status: 422 });
+    if (url.includes('t0_1_0/')) return new Response(JSON.stringify({ state: 'failed', error: 'generator exit 1' }), { status: 422 });
+    return new Response('{}', { status: 202 });
+  });
+  const coarse = new CoarseTiles({ scene, manifest: { visual: {}, collision: {} } as unknown as Manifest,
+    pageUrl: 'https://wnt.github.io/turku3d/', fetch: fetch as unknown as typeof globalThis.fetch,
+    unloadCollision: vi.fn(), refreshCollision: vi.fn(), checkCollision: async () => 2,
+    renderer: {} as THREE.WebGPURenderer, loadModel: async () => new THREE.Group() });
+  const settle = async () => { for (let k = 0; k < 6; k++) await new Promise(r => setTimeout(r, 0)); };
+  const asked = (tile: string) => urls.filter(u => u.includes(`${tile}/`)).length;
+  coarse.update(100, 100, 0); await settle();
+  expect(coarse.entries.get('t0_0_0')?.state).toBe('none');
+  // The start tile is critical, yet startup does not wait for ground that will never exist (nor, as before, for the
+  // failed neighbour): 9 window tiles less those two.
+  expect(coarse.progressAt(100, 100).total).toBe(7);
+  for (let t = 1000; t <= 30_000; t += 1000) { coarse.update(100, 100, t); await settle(); }
+  expect(asked('t0_0_0')).toBe(1);
+  // A build failure is not permanent: it is retried.
+  expect(coarse.entries.get('t0_1_0')?.state).toBe('failed');
+  expect(asked('t0_1_0')).toBeGreaterThan(1);
+  expect(coarse.resolvedAt(100, 100)).toBe(true);
+  expect(coarse.collisionComing('c_0_0')).toBe(false);
+});

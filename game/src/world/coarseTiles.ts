@@ -700,7 +700,8 @@ export class CoarseTiles {
       return (e?.state === 'pending' || e?.state === 'loading') && now - (e.since ?? now) > WAITING_MS;
     });
     const failing = wanted.find(id => this.entries.get(id)?.state === 'failed');
-    const head = !at ? '' : at.state === 'draft' ? `tile ${here}`
+    const settled = at?.state === 'draft' || at?.state === 'none';
+    const head = !at ? '' : settled ? `tile ${here}`
       : `tile ${here}${at.state === 'failed' ? ` retrying: ${at.error}` : waiting}`;
     const problems = [
       failing && failing !== here ? `retrying ${failing}: ${this.entries.get(failing)!.error}` : '',
@@ -708,7 +709,7 @@ export class CoarseTiles {
       queueFull ? 'remote queue full; retrying' : '',
     ].filter(Boolean);
     this.show([head, loaded ? `${loaded} loaded` : '', installing ? `${installing} installing` : '',
-      building ? `${building} building` : '', ...problems].filter(Boolean).join(' · '), (!!at && at.state !== 'draft') || problems.length > 0);
+      building ? `${building} building` : '', ...problems].filter(Boolean).join(' · '), (!!at && !settled) || problems.length > 0);
   }
 
   /** Startup waits for the requested draft ground on both localhost and Pages. A draft whose build failed, or that the
@@ -719,6 +720,7 @@ export class CoarseTiles {
     const critical = new Set(startupDraftTiles(points, 3));
     const wanted = this.wantedStarts(x, z).filter(id => {
       const entry = this.entries.get(id);
+      if (entry?.state === 'none') return false;
       if (!entry || critical.has(id)) return true;
       const building = entry.state !== 'draft' && entry.building !== undefined && this.clock - entry.building > START_BUILD_GRACE_MS;
       if (entry.state !== 'failed' && !building) return true;
@@ -736,7 +738,7 @@ export class CoarseTiles {
    *  in the manifest, so "no collision entry" there does not mean open space. */
   resolvedAt(x: number, z: number) {
     const state = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`)?.state;
-    return state === 'draft' || state === 'failed';
+    return state === 'draft' || state === 'failed' || state === 'none';
   }
   /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
@@ -751,7 +753,7 @@ export class CoarseTiles {
     return viewWedgeTiles(view.x, view.z, view.dx, view.dz, START_VIEW_M, Math.min(view.halfAngle, Math.PI)).every(id => {
       if (wanted.includes(id)) return true;
       const e = this.entries.get(id);
-      if (e?.state === 'failed') return true;
+      if (e?.state === 'failed' || e?.state === 'none') return true;
       if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) return true;
       return e?.state === 'draft' && !e.preview && !!e.model;
     });
@@ -760,7 +762,7 @@ export class CoarseTiles {
   viewStatus(x: number, z: number) {
     const near = this.wantedStarts(x, z).map(id => {
       const e = this.entries.get(id);
-      return { id, hash: e?.visualHash, ready: !!e?.model && !e.preview && e.pass === 'full' && !e.stale };
+      return { id, hash: e?.visualHash, ready: e?.state === 'none' || (!!e?.model && !e.preview && e.pass === 'full' && !e.stale) };
     });
     const scenery = this.screenshotScenery.progress;
     return { ready: near.every(e => e.ready) && scenery.ready, near, scenery };
@@ -1286,9 +1288,12 @@ export class CoarseTiles {
       }
       e.building = undefined;
       if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        e.state = 'failed'; e.error = body.error ?? `HTTP ${res.status}`; e.nextPoll = this.clock + RETRY_MS;
-        traced?.({ status: res.status, error: e.error });
+        const body = await res.json().catch(() => ({})) as { state?: string; error?: string };
+        // Ground the service's sources do not cover: a rebuild fails the same way, so it is never asked again.
+        const none = res.status === 422 && body.state === 'unbuildable';
+        e.state = none ? 'none' : 'failed'; e.error = body.error ?? `HTTP ${res.status}`;
+        e.nextPoll = none ? Infinity : this.clock + RETRY_MS;
+        traced?.({ status: res.status, state: body.state, error: e.error });
         return;
       }
       if (!load) {
@@ -1511,7 +1516,7 @@ export class CoarseTiles {
     const m = /^c_(-?\d+)_(-?\d+)$/.exec(cid);
     if (!m) return false;
     const per = VISUAL_L0 / COLLISION_TILE, e = this.entries.get(`t0_${Math.floor(+m[1] / per)}_${Math.floor(+m[2] / per)}`);
-    return !!e && e.state !== 'failed' && !e.collision.has(cid);
+    return !!e && e.state !== 'failed' && e.state !== 'none' && !e.collision.has(cid);
   }
 
   /** Withdraw the tile's published collision (its cells leave the worker). */

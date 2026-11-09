@@ -133,6 +133,38 @@ def read_json(path, default=None):
         return default
 
 
+def unbuildable_markers(repo):
+    """The producer's own failure texts for ground its sources cannot cover (coarse/drive.py UNBUILDABLE), read
+    from a revision snapshot without importing it; () for a snapshot without the list."""
+    try:
+        tree = ast.parse((repo / 'pipeline/turku3d/coarse/drive.py').read_text())
+    except (OSError, SyntaxError, ValueError):
+        return ()
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, 'id', None) == 'UNBUILDABLE' for t in node.targets):
+            try:
+                return tuple(str(m) for m in ast.literal_eval(node.value))
+            except ValueError:
+                return ()
+    return ()
+
+
+def last_line(path, size=4096):
+    """The last non-empty line of a build log (a failed generator's exception), or ''."""
+    try:
+        with path.open('rb') as log:
+            log.seek(max(0, log.seek(0, os.SEEK_END) - size))
+            lines = log.read().decode(errors='replace').strip().splitlines()
+    except OSError:
+        return ''
+    return lines[-1].strip() if lines else ''
+
+
+def source_version(meta):
+    """The source snapshot a revision builds from (its pinned version, else its data root, else the farm's own)."""
+    return meta.get('source_version') or meta.get('data_root') or ''
+
+
 @contextmanager
 def file_lock(path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,6 +243,10 @@ class Farm:
         self.bundles = OrderedDict()
         self.pool = ThreadPoolExecutor(max_workers=MAX_WORKERS + MIGRATION_WORKERS, thread_name_prefix='tile')
         self.jobs, self.active, self.failures = {}, set(), {}
+        # Ground a source version cannot cover (NoCoverage): source version -> tile -> row. A rebuild fails the same
+        # way, so such tiles answer 422 `unbuildable` without a build until the revision's source version changes.
+        self.unbuildable = read_json(self.root / 'unbuildable.json', {})
+        self.markers = {}  # revision -> unbuildable_markers of its snapshot
         self.awaiting = {}  # migrated key -> the spot-rebuild build key it waits for
         self.dispatched, self.queue_info, self.demands = set(), {}, {}
         self.build_seconds = BUILD_SECONDS
@@ -225,7 +261,7 @@ class Farm:
         self.stop = stop or self.stop_worker
         self.metrics = dict(requests=0, hits=0, joined=0, builds=0, failed=0,
                             stage_hits=0, stage_misses=0, input_hits=0, input_misses=0, evicted_bytes=0,
-                            migrations=0)
+                            migrations=0, unbuildable=0)
         self.skipped_links = set()
         self.seed_copied = 0
         self.round_start, self.round_deficit = 0, 0
@@ -556,7 +592,8 @@ class Farm:
                                     age=round(time.time()-self.queue_info[k]['requested']))
                                for k in sorted(self.jobs, key=self.priority) if k not in self.dispatched], metrics=self.metrics.copy(),
                         free_gib=round(self.free() / GIB, 2), floor_gib=self.floor / GIB,
-                        failures=list(self.failures.values())[-10:])
+                        failures=list(self.failures.values())[-10:],
+                        unbuildable_tiles=sum(len(tiles) for tiles in self.unbuildable.values()))
 
     def status_cached(self, max_age=5.0):
         """``status()`` as of at most ``max_age`` seconds ago, refreshed off the request thread.
@@ -626,6 +663,10 @@ class Farm:
                 self.metrics['joined'] += 1
                 return 202, dict(state='building' if key in self.active else 'queued',
                                  revision=revision, generation=generation)
+            # A migrated revision asks its base below, which builds and so knows its sources.
+            blocked = meta.get('kind') != 'migrated' and self.unbuildable.get(source_version(meta), {}).get(tile)
+            if blocked:
+                return 422, dict(state='unbuildable', revision=revision, generation=generation, error=blocked['error'])
             failed = self.failures.get(key)
             if failed and time.time() - failed['t'] < 60:
                 return 422, failed
@@ -988,6 +1029,14 @@ class Farm:
             if self.queue_info.get(key, {}).get('cancelled'):
                 self.event('cancelled-build', revision=revision, tile=tile, generation=generation,
                            seconds=round(time.monotonic() - started, 3))
+            elif str(error).startswith('generator exit') and (reason := self.uncovered(revision, tile)):
+                source = source_version(self.revision(revision))
+                with self.lock:
+                    self.unbuildable.setdefault(source, {})[tile] = dict(t=time.time(), revision=revision, error=reason)
+                    atomic_json(self.root / 'unbuildable.json', self.unbuildable)
+                    self.metrics['unbuildable'] += 1
+                self.event('unbuildable', revision=revision, tile=tile, generation=generation, source=source,
+                           error=reason)
             else:
                 row = dict(t=time.time(), revision=revision, tile=tile, state='failed', error=str(error)[-1000:])
                 with self.lock:
@@ -1005,6 +1054,13 @@ class Farm:
                 self.queue_info.pop(key, None)
                 self.dispatched.discard(key)
                 self.pump()
+
+    def uncovered(self, revision, tile):
+        """The NoCoverage line a failed build of ``tile`` ended with, or None for any other failure."""
+        if revision not in self.markers:
+            self.markers[revision] = unbuildable_markers(self.root / 'revisions' / revision / 'repo')
+        line = last_line(self.root / 'logs' / f'{revision}-{tile}.log')
+        return line[-300:] if line and any(m in line for m in self.markers[revision]) else None
 
     def build_migrated(self, revision, tile, generation):
         """Apply a migrated revision's chain to its finished base tile (tile_migrate.py)."""
