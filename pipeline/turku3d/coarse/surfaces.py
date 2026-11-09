@@ -867,7 +867,11 @@ def split_boundaries(
         window encloses its triangles with a margin, so its artificial edges
         never cut the terrain. Original region edges and last-wins order stay.
         """
-        if len(hits) < 32 or shapely.get_num_coordinates(polygon) < 256:
+        # Earlier geometry passes may subsequently loft the vertices through a
+        # nonlinear height field. Even equivalent retriangulation then changes
+        # the surface between vertices. Only the final visual finish keeps its
+        # source planes fixed, so earlier passes retain the original overlays.
+        if not keep_steep or len(hits) < 32 or shapely.get_num_coordinates(polygon) < 256:
             yield hits, polygon
             return
         bounds = shapely.bounds(remaining[hits])

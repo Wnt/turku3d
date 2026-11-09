@@ -750,6 +750,7 @@ def test_boundary_cut_local_windows_preserve_complex_region_holes_and_precedence
     pos, idx, mat, normals = split_boundaries(
         p, ix, material, np.ones(len(ix), bool),
         [(region, mat_id('gravel')), (road, mat_id('road'))], material,
+        keep_steep=True,
     )
     np.testing.assert_allclose(pos[:, 1], .1 * pos[:, 0] + .2 * pos[:, 2], atol=1e-10)
     np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1, atol=1e-10)
