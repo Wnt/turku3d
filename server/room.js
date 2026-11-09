@@ -243,7 +243,7 @@ export class Room {
       if (!c.player) continue;
       const poses = dirty.filter(p => p !== c.player && (p.pose.mode === 'foot'
         || Math.hypot(p.pose.E - (c.player.pose ?? c.player.spawn).E, p.pose.N - (c.player.pose ?? c.player.spawn).N) <= 250)).map(p => ({ id: p.id, ...p.pose }));
-      if (poses.length) this.send(c, 'poses', { poses });
+      if (poses.length) this.send(c, 'poses', { poses, serverTime: this.now() });
     }
     for (const p of dirty) p.dirty = false;
   }
