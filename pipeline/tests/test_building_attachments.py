@@ -169,3 +169,23 @@ def test_decks_at_the_terrain_height_are_terrain_not_platforms():
     step = dict(building="b", region=shapely.box(0, 12, 10, 12.4), height=10.6, bottom=10.36, kind="tread")
     balcony = dict(building="b", region=shapely.box(0, -3, 4, 0), height=4.0, bottom=3.78, kind="balcony")
     assert raised([band, porch, step, balcony], slope) == [porch, balcony]
+
+
+def test_dense_survey_predicates_preserve_holes_boundaries_and_point_order():
+    from turku3d.coarse.attachments import within
+
+    rng = np.random.default_rng(91)
+    ring = shapely.box(-20, -30, 60, 50).difference(shapely.box(-4, -10, 20, 12))
+    geometry = shapely.GeometryCollection([
+        ring, shapely.LineString([(80, -20), (80, 40)]), shapely.Point(90, 0),
+    ])
+    # Force dense classification and include exact boundary hits and duplicates.
+    xz = np.r_[rng.uniform([-25, -35], [95, 55], (18000, 2)),
+               shapely.get_coordinates(geometry), [[-20, 0], [0, -10], [80, 0], [90, 0]] * 8,
+               [[np.nan, 0], [0, np.nan]]]
+    points = np.c_[xz[:, 0], rng.normal(size=len(xz)), xz[:, 1]]
+    for contains in (False, True):
+        predicate = shapely.contains_xy if contains else shapely.intersects_xy
+        np.testing.assert_array_equal(within(geometry, points, contains=contains),
+                                      predicate(geometry, points[:, 0], points[:, 2]))
+        assert not within(shapely.Polygon(), points, contains=contains).any()

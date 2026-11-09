@@ -33,14 +33,27 @@ def support_region(mask, origin, along, outward):
 
 
 def within(geometry, points, contains=False):
-    """shapely.intersects_xy (or contains_xy) of x/z points, exactly: points outside the geometry's
-    box are outside it; the prepared geometry tests the rest."""
+    """Exact point predicates, classifying dense survey interiors a cell at a time."""
     x0, z0, x1, z1 = geometry.bounds
     inside = np.zeros(len(points), bool)
     rows = np.flatnonzero((points[:, 0] >= x0) & (points[:, 0] <= x1) & (points[:, 2] >= z0) & (points[:, 2] <= z1))
     if len(rows):
         shapely.prepare(geometry)
         test = shapely.contains_xy if contains else shapely.intersects_xy
+        nx, nz = int((x1 - x0) // 4) + 1, int((z1 - z0) // 4) + 1
+        if len(rows) >= 4096 and nx * nz <= 1 << 20:
+            ix = ((points[rows, 0] - x0) // 4).astype(np.int64)
+            iz = ((points[rows, 2] - z0) // 4).astype(np.int64)
+            cells, inverse = np.unique(ix * nz + iz, return_inverse=True)
+            x, z = x0 + (cells // nz) * 4, z0 + (cells % nz) * 4
+            # A strict margin puts every binned point inside its cell. Coverage
+            # therefore proves contains as well as intersects, including holes;
+            # only cells crossing a boundary need individual point tests.
+            boxes = shapely.box(x - 1e-3, z - 1e-3, x + 4 + 1e-3, z + 4 + 1e-3)
+            covered = shapely.covers(geometry, boxes)
+            boundary = ~covered & shapely.intersects(geometry, boxes)
+            inside[rows[covered[inverse]]] = True
+            rows = rows[boundary[inverse]]
         inside[rows] = test(geometry, points[rows, 0], points[rows, 2])
     return inside
 
@@ -159,7 +172,7 @@ def measure(buildings, points, classes, context=()):
                         continue
                     edge = region.buffer(1.5).difference(region.buffer(0.1))
                     lower = lower_ground[
-                        shapely.intersects_xy(edge, lower_ground[:, 0], lower_ground[:, 2])
+                        within(edge, lower_ground)
                         & (lower_ground[:, 1] < height - 0.3)
                         & (lower_ground[:, 1] > height - 5)
                     ]
@@ -175,7 +188,7 @@ def measure(buildings, points, classes, context=()):
                     if region.area < 3:
                         continue
                     low = cloud[cloud[:, 1] < height - 2.3]
-                    under = low[shapely.contains_xy(region.buffer(-0.2), low[:, 0], low[:, 2])]
+                    under = low[within(region.buffer(-0.2), low, contains=True)]
                     suspended = len(under) >= 12
                     bottom = height - 0.22 if suspended else float(np.median(lower[:, 1]))
                     records.append(
@@ -256,7 +269,7 @@ def prepare(tile, vector, paths):
         context = [b for b in buildings if b.footprint.distance(building.footprint) < REACH + 2]
         identity = hashlib.sha256(building.key.encode()).hexdigest()[:20]
         cache = StageCache(C.work_root() / ".stages" / "building-attachments" / identity)
-        code = code or source_key(measure, support_region, ground_points)
+        code = code or source_key(measure, within, support_region, ground_points)
         records.extend(
             cache.run(
                 "survey",
