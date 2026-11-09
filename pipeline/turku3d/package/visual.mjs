@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { codecRunner, completed } from './codec.mjs';
+import { codecRunner, completed, uastcLinear } from './codec.mjs';
 import { compileTexture } from './texture_compile.mjs';
 import { brotliCompressSync, constants as zlibConstants } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -48,8 +48,10 @@ async function encodeFacade(t, request) {
   const linear = slot !== 'albedo';
   // A measured codec comparison selects ETC1S for colour/ORM and UASTC for normals.
   const codec = slot === 'normal' ? 'uastc' : 'etc1s';
+  // A UASTC map's keys carry its encoder arguments (they changed with RDO); ETC1S keys are as before.
+  const uastc = codec === 'uastc' ? JSON.stringify(uastcLinear(18)) : '';
   const key = createHash('sha256').update('facade-density-v2').update(slot)
-    .update(codec).update(JSON.stringify(target)).update(t.getImage()).digest('hex');
+    .update(codec).update(uastc).update(JSON.stringify(target)).update(t.getImage()).digest('hex');
   const mapping = path.join(request.textureCache, key + '.hash');
   if (fs.existsSync(mapping)) {
     const cached = path.join(request.textureCache, fs.readFileSync(useTextureCache(request, mapping), 'utf8') + '.ktx2');
@@ -69,14 +71,14 @@ async function encodeFacade(t, request) {
     const { data, info } = await sharp(resized).raw().toBuffer({ resolveWithObject:true });
     for (let i = 0; i < data.length; i++) data[i] >>= 2;
     const content = createHash('sha256').update('facade-near-v1').update(slot)
-      .update(codec).update(JSON.stringify([info.width, info.height, info.channels]))
+      .update(codec).update(uastc).update(JSON.stringify([info.width, info.height, info.channels]))
       .update(data).digest('hex');
     const dest = path.join(request.textureCache, content + '.ktx2');
     if (!fs.existsSync(dest)) {
       temp = dest + `.${process.pid}.tmp.ktx2`;
       await run('toktx', ['--t2', '--genmipmap', '--threads', '1', '--assign_oetf', linear ? 'linear' : 'srgb',
         '--assign_primaries', linear ? 'none' : 'bt709', '--encode', codec,
-        ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80'] : ['--uastc_quality', '2', '--zcmp', '18']),
+        ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80'] : uastcLinear(18)),
         temp, resized]);
       await run('ktx', ['validate', '--gltf-basisu', temp]);
       fs.renameSync(temp, dest);
@@ -210,7 +212,7 @@ async function assembleVisual(request) {
     const aligned = [width, height].map(v => Math.ceil(v / 4) * 4);
     const resize = aligned[0] !== width || aligned[1] !== height ? ['--resize', `${aligned[0]}x${aligned[1]}`] : [];
     const options = ['--t2','--genmipmap','--threads','1','--assign_oetf', srgb ? 'srgb' : 'linear', ...resize,
-      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : ['--uastc_quality','2','--zcmp', request.draftTextures ? '6' : '18'])];
+      '--encode', srgb ? 'etc1s' : 'uastc', ...(srgb ? ['--qlevel','128', ...effort] : uastcLinear(request.draftTextures ? 6 : 18))];
     const key = createHash('sha256').update('ktx-4.4.2-v1').update(JSON.stringify(options)).update(t.getImage()).digest('hex');
     const dest = await compileTexture(request, key, 'ktx2', async output => {
       const input = output + (t.getMimeType() === 'image/png' ? '.png' : '.jpg');

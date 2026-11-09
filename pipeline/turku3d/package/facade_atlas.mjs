@@ -1,5 +1,5 @@
 import { decodeFacadeRgb, facadeDecoderIdentity } from './facade_decode.mjs';
-import { completed } from './codec.mjs';
+import { completed, uastcLinear } from './codec.mjs';
 import { compileTexture } from './texture_compile.mjs';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -106,7 +106,9 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu,
     return completed(slots.map(async (slot, slotIndex) => {
       // Lookup before extraction/compositing. Geometry and unrelated slots cannot
       // invalidate an identical page; source bytes and every placement participate.
+      // The normal page's key carries its UASTC arguments (they changed with RDO); colour/ORM keys are as before.
       const key = createHash('sha256').update('facade-atlas-recipe-v4-raw').update(facadeDecoderIdentity).update(slot)
+        .update(slot === 'normal' ? JSON.stringify(uastcLinear(6)) : '')
         .update(JSON.stringify([PAGE, GUTTER, page.height, page.entries.map(entry => [
           entry.x, entry.y, entry.width, entry.height,
           createHash('sha256').update(entry.maps[slotIndex].getImage()).digest('hex'),
@@ -133,7 +135,7 @@ export async function atlasFacades(doc, request, { sharp, run, KHRTextureBasisu,
           const codec = slot === 'normal' ? 'uastc' : 'etc1s';
           await run('toktx', ['--t2', '--genmipmap', '--threads', '1', '--assign_oetf', slot === 'albedo' ? 'srgb' : 'linear',
             '--assign_primaries', slot === 'albedo' ? 'bt709' : 'none', '--encode', codec,
-            ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80', '--clevel', '0'] : ['--uastc_quality', '2', '--zcmp', '6']),
+            ...(codec === 'etc1s' ? ['--qlevel', slot === 'albedo' ? '100' : '80', '--clevel', '0'] : uastcLinear(6)),
             output, source]);
           await run('ktx', ['validate', '--gltf-basisu', output]);
         } finally { fs.rmSync(source, { force:true }); }

@@ -36,6 +36,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { atlasFacades } from './facade_atlas.mjs';
+import { uastcLinear } from './codec.mjs';
 const require = createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS ?? path.join(os.homedir(), 'turku3d/tools/npm'), 'package.json'));
 const dep = name => import(pathToFileURL(require.resolve(name)).href);
 const { Document } = await dep('@gltf-transform/core');
@@ -62,6 +63,29 @@ function atlasFixture(change = 0) {
   }
   return doc;
 }
+
+test('linear UASTC maps encode with RDO lambda 1 before zstd; colour and ORM pages stay ETC1S', async () => {
+  assert.deepEqual(uastcLinear(18), ['--uastc_quality', '2', '--uastc_rdo_l', '1', '--zcmp', '18']);
+  assert.deepEqual(uastcLinear(6).slice(-2), ['--zcmp', '6']);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-args-'));
+  const encodes = [];
+  const run = async (tool, args) => {
+    if (tool !== 'toktx') return;
+    encodes.push(args);
+    fs.copyFileSync(args.at(-1), args.at(-2));
+  };
+  const decode = async () => ({ data:Buffer.alloc(64 * 64 * 3, 90), width:64, height:64 });
+  try {
+    await atlasFacades(atlasFixture(), { textureCache:path.join(root, 't'), sharedTextureCache:path.join(root, 'shared') },
+      { sharp, run, KHRTextureBasisu, decode });
+    const codec = args => args[args.indexOf('--encode') + 1];
+    assert.deepEqual(encodes.map(codec).sort(), ['etc1s', 'etc1s', 'uastc']);
+    for (const args of encodes) {
+      if (codec(args) === 'uastc') assert.deepEqual(args.slice(args.indexOf('--uastc_quality'), args.indexOf('--zcmp') + 2), uastcLinear(6));
+      else assert.ok(!args.includes('--uastc_rdo_l'), args.join(' '));
+    }
+  } finally { fs.rmSync(root, { recursive:true, force:true }); }
+});
 
 test('atlas recipe hits skip every decode and composite across tiles; only changed slot rebuilds', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'atlas-cache-'));
