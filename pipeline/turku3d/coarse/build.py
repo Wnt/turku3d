@@ -1047,7 +1047,7 @@ def build(
     # regeneration equals the farm's migrated products (turku3d.migrations).
     from turku3d.migrations import apply_in_place
 
-    manifest = apply_in_place(out, manifest)
+    manifest = apply_in_place(out, manifest, measure=cache.measure)
     if manifest["visual"][tile.id]["url"] != visual_url:
         _write(out / "vis.glb", (out / manifest["visual"][tile.id]["url"]).read_bytes())
     if roads is not None and manifest["roads"]["url"] != roads_url:

@@ -368,3 +368,22 @@ def test_forest_cover_holds_on_old_forest_rule_products_only():
     assert not affected(manifest(422, 768))  # below the cap, no ring: old and new rules agree
     assert not affected(manifest(1544, 2048, tracks=1)) and not affected(manifest(2048, 2048))  # the fixed generator
     assert not affected(dict(trees=0))  # no vegetation record
+
+
+def test_generator_measures_each_migration_without_changing_product(tmp_path, chain):
+    from turku3d.stage_cache import StageCache
+
+    chain(TINT, ROADS)
+    base = tmp_path / "base"
+    manifest = base_product(base)
+    measured = tmp_path / "measured"
+    shutil.copytree(base, measured)
+    expected = migrations.apply_in_place(base / TILE, manifest)
+    cache = StageCache(tmp_path / "stages", report_path=measured / TILE / "stage-times.json")
+    actual = migrations.apply_in_place(measured / TILE, manifest, measure=cache.measure)
+    assert core.manifest_bytes(actual) == core.manifest_bytes(expected)
+    assert payloads(measured, actual) == payloads(base, expected)
+    report = json.loads((measured / TILE / "stage-times.json").read_text())
+    assert set(report) == {"migration:test-tint@1", "migration:test-roads@1", "migration:publish"}
+    assert all(row["status"] == "complete" and row["cpu_seconds"] >= 0 and row["seconds"] >= 0
+               for row in report.values())

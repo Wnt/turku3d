@@ -20,6 +20,7 @@ import posixpath
 import re
 import struct
 import sys
+from contextlib import nullcontext
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
@@ -332,7 +333,7 @@ def normalise(manifest: dict) -> dict:
     return json.loads(manifest_bytes(manifest))
 
 
-def run(product: Product, chain: Iterable[Migration], full: Iterable[Migration] = ()) -> list[dict]:
+def run(product: Product, chain: Iterable[Migration], full: Iterable[Migration] = (), *, measure=None) -> list[dict]:
     """Apply ``chain`` and append it to the manifest's ``migrations`` record.
 
     A spot rebuild adopts a fresh build of its commit, whose generator already applied the whole
@@ -340,7 +341,9 @@ def run(product: Product, chain: Iterable[Migration], full: Iterable[Migration] 
     chain = list(chain)
     done = list(product.manifest.get("migrations", []))
     for migration in chain:
-        if migration.apply(product):
+        with measure("migration:" + migration.key) if measure else nullcontext():
+            rebuilt = migration.apply(product)
+        if rebuilt:
             record = [dict(name=m.name, version=m.version) for m in (full or chain)]
             if product.manifest.get("migrations") != record:
                 raise RuntimeError(f"rebuilt product records {product.manifest.get('migrations')}, "
