@@ -80,6 +80,8 @@ function snapshot(seq: number, dt: number, character: LiveInput['character'], ve
       trafficTime: pw.traffic.time } : {}), ...(stalls.length ? { stalls: pendingStalls() } : {}) };
   const proxies = pw.remoteProxies();
   if (proxies.length) state.remoteProxies = proxies;
+  const remoteCars = pw.remoteCarDraws();
+  if (remoteCars.length) state.remoteCars = remoteCars;
   if (stateMailbox) stateMailbox.write(state);
   else if (!statePending) { statePending = true; post(state); }
 }
