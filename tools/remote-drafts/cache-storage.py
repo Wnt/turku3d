@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import time
 
-from turku3d.stage_cache import compress_payload
+from turku3d.stage_cache import COMPRESSED, LEGACY_COMPRESSED, compress_payload
 
 CACHE_PATHS = ('coarse/.stages', 'coarse/.inputs', 'cache/lidar', 'cache/coarse-roofs', 'cache/coarse-area', 'cache/inputs')
 
@@ -60,7 +60,7 @@ def compress_existing(root):
         before += size
         with path.open('rb') as handle:
             handle.seek(32)
-            if handle.read(5) == b'T3DZ1':
+            if handle.read(len(COMPRESSED)) in (COMPRESSED, LEGACY_COMPRESSED):
                 after += size
                 continue
         data = path.read_bytes()

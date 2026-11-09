@@ -109,9 +109,11 @@ the tyre forces after the raycast, as impulses on the chassis:
   60 % of the force on the front axle; anti-lock caps each wheel at 95 % of its peak, which it reaches at about two
   thirds pressure, so the deceleration reaches 90 % in 0.15-0.18 s (Wreckfest 2: 0.16-0.19 s).
 - **Stability control** (`tuning.stability`, Wreckfest's "half" assist): once the rear axle's relaxed slip angle
-  exceeds the front's by 2°, or the body slides tail-out against its yaw by 8° (all four tyres past their peak, as on
-  soil or grass with the throttle floored), it cuts the drive and brakes the outside front wheel, up to 60 % at 8°
-  of excess or 16° of sideslip. Without the sideslip trigger a half-stick turn at 45 km/h on soil spun the car.
+  exceeds the front's by 2°, or a passenger body slides tail-out against its yaw by 1.5° (all four tyres can slide
+  alike on loose ground), it cuts drive and brakes the outside front wheel, up to 60 % at 8° of axle excess or 3°
+  body sideslip. Vans/pickups retain the 8°/16° body trigger. Below jogging speed and while the body slides into
+  its yaw the assist stays out. Earlier passenger intervention brings the Golf's grass 45 km/h half-stick peak
+  sideslip from 9.9° to 3.3° without changing tyre grip or the coupé's normal tarmac response.
 - **Fleet** (`slipCurveHandling`, from each model's spec): passenger tyres retain a rear grip reserve (peak μ 1.20 rear vs
   1.16 front; the original Bravion fit has 1.09 rear); vans and pickups keep the Bravion tyres. Shared steering, keyboard slew, assists and
   brake build-up; centre of mass at 0.375 × the body height (the starter's 0.52 m of 1.385 m) capped at track / 2.6
@@ -142,6 +144,15 @@ Both analogue input (after the pad curve) and digital -1/0/+1 pulses through the
 Limits use the original coupé's band with 20–25 % tolerance: circle 3.3°, step 1°, lift 3.6°, brake 6°, lane 1.8°
 peak sideslip, no spins, and front slip above rear at the circle's maximum lateral acceleration. Slip below 10 km/h
 is excluded. Power-limited cars may not reach the circle's 90 km/h request; CSV records the achieved speed.
+The loose-ground matrix uses the same rig: `CARFEEL_LOOSE_REPORT=/tmp/carfeel-loose/results.json WF2_RUNS=/tmp/carfeel-loose npx vitest run tests/unit/wf2-compare.harness.test.ts -t 'passenger loose'`.
+It drives seven cars on soil/grass at 35/45/60 km/h with both input paths: four seconds of half-stick speed hold,
+two seconds lift, 1.5 seconds corner braking, then two seconds steering release. Power/lift bounds are 5.7°/4.1°
+body sideslip and grass 45 km/h ≤3.6°, with no spins; lower-speed recovery windows report no angular metric when
+they contain no samples above 10 km/h. Separate moving steering-release runs cover both turn directions and
+continuous held keys, ending above 30 km/h with sideslip below 1°. Grass45 must still turn within R30 m above
+35 km/h (the reference coupé is about R27 m). The stronger assist deliberately trades some flooded-throttle
+yaw response for stability: Golf grass45 R18→R25 m, closer to the reference. Brake peaks include geometric
+sideslip near walking speed.
 
 Starter Golf before → slice 1 (tyres, steering) → slice 2 (ride, CoM, bars, stability control), Wreckfest 2 Bravion:
 

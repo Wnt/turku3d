@@ -134,10 +134,9 @@ if [ "$LOCAL_BUILD" = 0 ]; then
     touch "$D/.ok"
   fi
   ln -s "$D/node_modules" "$STAGE/game/node_modules"
-  # vite.config.ts stamps the commit from `git rev-parse HEAD`; the archive has no .git, so give it a bare HEAD.
-  git -C "$STAGE" init -q && echo "$SHA" > "$STAGE/.git/HEAD"
+  # The archive has no Git objects; stamp its source revision without manufacturing an incomplete repository.
   echo "building (vite, share host $PUBLIC_HOST)"
-  (cd "$STAGE/game" && TURKU3D_WORK="$STAGE/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
+  (cd "$STAGE/game" && TURKU3D_BUILD_COMMIT="$SHA" TURKU3D_WORK="$STAGE/work" VITE_SHARE_HOSTS=$PUBLIC_HOST VITE_PUBLIC_RELEASE=1 \
     nice -n 10 ./node_modules/.bin/vite build --logLevel warn --outDir "$STAGE/dist")
   find "$STAGE/dist" -name '*.map' -delete
   cp "$STAGE/version.json" "$STAGE/dist/version.json"

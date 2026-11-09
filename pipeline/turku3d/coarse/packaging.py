@@ -124,6 +124,7 @@ SOURCES = (
     "ground/inputs.py",
     "ground/mesh.py",
     "ground/points.py",
+    "integer_rows.py",
     "lidar/__init__.py",
     "lidar/cache.py",
     "lidar/profiles.py",

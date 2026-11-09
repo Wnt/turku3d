@@ -46,7 +46,7 @@ export function modelTuning(id: string): VehicleTuning | undefined {
  *  grip); softer ride for heavier and more roll for taller bodies; a limited-slip split by drivetrain; brakes and
  *  suspension force limits that grow with the weight. */
 export function slipCurveHandling(base: VehicleTuning, height: number, drive: string, body: BodyType = 'sedan'): Partial<VehicleTuning> {
-  const m = base.mass, loads = cornerLoads(base, m);
+  const m = base.mass, loads = cornerLoads(base, m), passenger = body !== 'van' && body !== 'pickup';
   const track = Math.abs(base.wheels[1].z - base.wheels[0].z);
   const com = Math.min(0.375 * height, track / 2.6);
   // 1.75 / 1.5 Hz (Wreckfest 2) at the starter's weight, softer for heavier cars (vans 1.6, buses 1.25 Hz).
@@ -54,7 +54,7 @@ export function slipCurveHandling(base: VehicleTuning, height: number, drive: st
   return {
     // The tyre's slip, not a shrinking lock, limits cornering, so the lock barely falls with speed (about 25° at
     // 60 km/h, as Wreckfest 2's keyboard reaches).
-    tyre: body === 'van' || body === 'pickup' ? TARMAC : PASSENGER_TARMAC, steerHalfSpeed: 40, angularDamping: 0,
+    tyre: passenger ? PASSENGER_TARMAC : TARMAC, steerHalfSpeed: 40, angularDamping: 0,
     // An open differential spins the unloaded inner wheel and loses its side grip; Wreckfest's Bravion has a 35 % lock.
     differential: drive === 'FWD' ? 0.7 : drive === 'RWD' ? 0.35 : 0.5,
     // Wreckfest 2's keyboard rate: 1.5 of full input per second, about 46°/s at the road wheel at rest.
@@ -65,9 +65,10 @@ export function slipCurveHandling(base: VehicleTuning, height: number, drive: st
     ride: { frequency: [ride, ride * 1.5 / 1.75], bump: [0.45, 0.41], rebound: [0.59, 0.5],
       roll: 3.6 * Math.min(1.6, Math.max(1, height / 1.385)), rollFront: 0.64 },
     comDrop: Math.max(0, comHeight({ ...base, comDrop: 0 }, m) - com),
-    // A light stability control, as Wreckfest's default "half": it acts only once the tail slides 2° more than the nose
-    // or the whole car slides tail-out by 8° (a loose surface under power).
-    stability: { onset: 2, full: 8, max: 0.6, sideslip: 8 },
+    // Keep the light intervention, but catch a passenger car's whole-body tail-out slide early. On loose ground all
+    // four tyres can slide alike, so rear-over-front slip misses it; waiting for 8° let FWD cars reach 13° sideslip.
+    // Body sideslip starts intervention at 1.5°, full at 3°. The tail-out/yaw and low-speed guards stay in Vehicle.
+    stability: { onset: 2, full: 8, max: 0.6, sideslip: passenger ? 1.5 : 8 },
     // Wreckfest 2: deceleration reaches 90 % in 0.16-0.19 s (the pressure ramps over 0.26 s; anti-lock caps the force at
     // about two thirds of it) and releases as fast; 60 % front balance. Brake force and spring force limits scale with
     // the weight, so a van or a bus also brakes at its tyres' limit and does not sit on its bump stops.
