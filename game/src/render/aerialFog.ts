@@ -6,9 +6,13 @@ import { abs, cameraPosition, dot, exp, float, Fn, max, mix, normalize, output, 
 import type { TimecycleSample } from './timecycle';
 import type { WeatherSample } from './weather/schedule';
 
-/** Haze optical depth at the timecycle's fogFar (green channel). The clear-day fogFar (12 km) leaves about half the
- *  light of land at the 6 km far plane; weather fog shortens fogFar to its visibility (weather/lighting.ts). */
-export const HAZE_DEPTH = 1.3;
+/** Haze optical depth at the timecycle's fogFar (green channel): 0.8 over the clear-day 12 km, a meteorological
+ *  visibility of 59 km (a clear summer day), two thirds of the light of land at the 6 km far plane. In the harbour
+ *  panorama the forest shore ~1.4 km away keeps 0.08 of the sky's luminance (green) and B/G 0.39, against 0.13 and
+ *  0.36 for the Kansanpuisto treeline at ~250 m: no haze to measure at that range. 1.3 (36 km) added 0.04 of sky
+ *  luminance and 0.09 B/G to ours there, on forest that is already 0.20 and B/G 0.98 without haze. Weather fog
+ *  shortens fogFar to its visibility (weather/lighting.ts). */
+export const HAZE_DEPTH = 0.8;
 /** Relative extinction of red, green and blue: aerosol haze between Mie (about λ^-1.3) and Rayleigh (λ^-4), so
  *  distant land turns blue-grey before it fades into the horizon colour. */
 export const HAZE_COLOUR = [0.7, 1, 1.5] as const;
