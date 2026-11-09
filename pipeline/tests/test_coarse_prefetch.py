@@ -516,7 +516,7 @@ def _real_raw(tile: C.VisualTile):
         ("GIS_Katualueet", {"Katuosalaji": ["Ajorata"], "Pintamateriaali": ["Asfalttibetoni"]}),
         ("kanta_Vesikohde", {"kplkoodi": ["w"]}),
     ):
-        frame = gpd.GeoDataFrame(rows, geometry=[poly], crs="EPSG:3877")
+        frame = gpd.GeoDataFrame({"feature_key": [name], **rows}, geometry=[poly], crs="EPSG:3877")
         frame["geometry_local"] = gpd.GeoSeries([poly])
         frame["geom_type"] = "Polygon"
         frame.to_parquet(adir / f"{name}.parquet")

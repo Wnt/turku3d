@@ -276,3 +276,22 @@ def test_sampler_stage_identities_ignore_other_surface_producers(monkeypatch):
     changed = audit.identities()
     for name in ("kerbs", "tunnels", "parked"):
         assert changed[name] != before[name], name
+
+
+def test_input_worker_uses_the_builds_content_identity(tmp_path, monkeypatch):
+    import numpy as np
+    from turku3d.coarse import inputs
+
+    tile = C.VisualTile(0, 1, 1)
+    entry = tmp_path / 'ground.pkl', 'source-snapshot'
+    value = {'points': np.arange(12).reshape(4, 3)}
+    inputs._save(*entry, value)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError('A worker must not resolve the already frozen source identity again')
+
+    monkeypatch.setattr(inputs, '_pass_entry', unexpected)
+    obtained, key, cached = inputs._obtain(tile, tmp_path, 'ground', [], False, entry=entry)
+    assert key == entry[1] and cached
+    np.testing.assert_array_equal(obtained['points'], value['points'])
+    assert inputs._prepare_ahead(tile, tmp_path, 'ground', [], False, entry) is None

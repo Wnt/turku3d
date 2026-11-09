@@ -844,12 +844,13 @@ def _pass_entry(root: Path, tile: C.VisualTile, dataset: str, full_paths: list, 
     return _entry(root, tile, cache_dataset, _used_paths(dataset, full_paths, first_pass))
 
 
-def _obtain(tile: C.VisualTile, root: Path, dataset: str, full_paths: list, first_pass: bool, *, ahead=False):
+def _obtain(tile: C.VisualTile, root: Path, dataset: str, full_paths: list, first_pass: bool, *, ahead=False,
+            entry=None):
     """(value, key, cached) of one dataset: its current cache entry, or produced and saved now.
 
     ``ahead`` (a helper process): return None at once when the entry exists, without loading it."""
     paths = _used_paths(dataset, full_paths, first_pass)
-    path, key = _pass_entry(root, tile, dataset, full_paths, first_pass)
+    path, key = entry if entry is not None else _pass_entry(root, tile, dataset, full_paths, first_pass)
     with _input_lock(path):
         value = _ABSENT
         if first_pass and dataset == "wfs":
@@ -878,10 +879,10 @@ def _obtain(tile: C.VisualTile, root: Path, dataset: str, full_paths: list, firs
     return value, key, cached
 
 
-def _prepare_ahead(tile: C.VisualTile, root: Path, dataset: str, paths: list, first_pass: bool):
+def _prepare_ahead(tile: C.VisualTile, root: Path, dataset: str, paths: list, first_pass: bool, entry):
     """A helper process's share of ``gather``: (dataset, seconds, profile) when it produced the entry."""
     t, profile = time.perf_counter(), profiling.snapshot()
-    if _obtain(tile, root, dataset, paths, first_pass, ahead=True) is None:
+    if _obtain(tile, root, dataset, paths, first_pass, ahead=True, entry=entry) is None:
         return None
     return dataset, time.perf_counter() - t, profiling.elapsed(profile)
 
@@ -891,19 +892,22 @@ class _Helpers:
     takes every dataset in its usual order. Both sides go through the entry's lock, so each entry is
     produced once, by whoever reaches it first, and the build loads the same cached values either way."""
 
-    def __init__(self, tile, root, wanted, first_pass):
+    def __init__(self, tile, root, wanted, first_pass, entries):
         self.pool, self.pending = None, []
         jobs = int(os.environ.get("TURKU3D_JOBS", "1"))
+        if jobs < 2:
+            return
         order = sorted(wanted, key=lambda d: SLOW_FIRST.index(d) if d in SLOW_FIRST else len(SLOW_FIRST))
-        todo = [d for d in order if not _pass_entry(root, tile, d, wanted[d], first_pass)[0].exists()]
-        if jobs < 2 or len(todo) < 2:
+        todo = [d for d in order if not entries[d][0].exists()]
+        if len(todo) < 2:
             return
         import multiprocessing
 
         context = multiprocessing.get_context("forkserver")
         context.set_forkserver_preload([__name__])
         self.pool = context.Pool(min(jobs - 1, len(todo)))
-        self.pending = [self.pool.apply_async(_prepare_ahead, (tile, root, d, wanted[d], first_pass)) for d in todo]
+        self.pending = [self.pool.apply_async(_prepare_ahead, (tile, root, d, wanted[d], first_pass, entries[d]))
+                        for d in todo]
 
     def stop(self):
         if self.pool is not None:
@@ -947,14 +951,19 @@ def gather(
             prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance, cache_metrics = {}, {}, {}, {}
+    paths_by_dataset = _sources(tile, sources, first_pass=first_pass)
     wanted = {
         dataset: paths
-        for dataset, paths in _sources(tile, sources, first_pass=first_pass).items()
+        for dataset, paths in paths_by_dataset.items()
         if paths is not None and not (first_pass and dataset in FIRST_PASS_SKIPPED)
     }
-    helpers = _Helpers(tile, root, wanted, first_pass)
+    # The build and its helpers read one source snapshot. Resolve each content
+    # identity once; tracing the same producer closure in both processes used
+    # to cost more than loading all the prepared entries on a warm tile.
+    entries = {d: _pass_entry(root, tile, d, paths, first_pass) for d, paths in wanted.items()}
+    helpers = _Helpers(tile, root, wanted, first_pass, entries)
     try:
-        for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
+        for dataset, paths in paths_by_dataset.items():
             if first_pass and dataset in FIRST_PASS_SKIPPED:
                 # Collision-safe structural coverage precedes decorative inputs. These
                 # are all restored by the full pass, using their ordinary caches.
@@ -976,7 +985,7 @@ def gather(
                 continue
             t = time.perf_counter()
             profile = profiling.snapshot()
-            value, key, cached = _obtain(tile, root, dataset, paths, first_pass)
+            value, key, cached = _obtain(tile, root, dataset, paths, first_pass, entry=entries[dataset])
             values[dataset] = value
             provenance[dataset] = [str(p) if p else None for p in _used_paths(dataset, paths, first_pass)]
             seconds[dataset] = time.perf_counter() - t
