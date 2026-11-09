@@ -10,7 +10,7 @@ import numpy as np
 from scipy.ndimage import maximum_filter
 from scipy.spatial import cKDTree
 
-from turku3d import config as C, profiling
+from turku3d import config as C, integer_rows, profiling
 
 SOURCES = ("GIS_Puut", "kanta_Lehtipuu", "kanta_Havupuu", "kanta_Lehtipuurivi")
 VARIANTS = ("tree_default_fall", "tree_detailed_fall", "tree_oak_fall", "tree_pineDefaultA")
@@ -142,8 +142,7 @@ LEAF_BIN = 0.5  # m of height per profile bin
 
 def _summed(keys, values):
     """Unique rows of ``keys`` with the matching rows of ``values`` summed."""
-    unique, inverse = np.unique(keys, axis=0, return_inverse=True)
-    inverse = inverse.ravel()
+    unique, inverse = integer_rows.unique(keys, return_inverse=True)
     return unique, np.column_stack([np.bincount(inverse, v, len(unique)) for v in values.T])
 
 
@@ -247,18 +246,14 @@ def _cells(points):
 def first_per_cell(points):
     if not len(points):
         return points.reshape(0, 3)
-    _, first = np.unique(_cells(points), axis=0, return_index=True)
+    _, first = integer_rows.unique(_cells(points), return_index=True)
     return points[np.sort(first)]
 
 
 def highest_per_cell(points):
     if not len(points):
         return points.reshape(0, 3)
-    order = np.lexsort((-points[:, 1], *_cells(points).T[::-1]))
-    cells = _cells(points[order])
-    keep = np.ones(len(order), bool)
-    keep[1:] = np.any(cells[1:] != cells[:-1], axis=1)
-    return points[order[keep]]
+    return points[integer_rows.highest(_cells(points), points[:, 1])]
 
 
 def load_points(bounds):

@@ -823,6 +823,110 @@ def prepare(tile: C.VisualTile, root: Path, sources: Sources | None = None) -> d
     return out
 
 
+# The first pass leaves decorative datasets to the full pass (``gather``).
+FIRST_PASS_SKIPPED = frozenset({
+    "parking", "kerb_parking", "trees", "vegetation_canopy", "vegetation_leaves", "vegetation_shrubs",
+    "green_areas", "forests", "vegetation_paths", "trunk_ground", "poles", "surfaces", "markings", "tram_rails",
+    "kerbs", "appearance", "register", "ortho", "playgrounds",
+})
+# Farm medians, slowest first: helper processes start these while the build loads the rest in order.
+SLOW_FIRST = ("walkable", "vegetation_canopy", "attachments", "vegetation_leaves", "finished_ground", "barriers",
+              "wfs", "street_profiles", "retaining", "boats", "soffits", "gardens", "vegetation_shrubs", "roads")
+
+
+def _used_paths(dataset: str, paths: list, first_pass: bool) -> list:
+    return paths[:3] if first_pass and paths and dataset == "wfs" else paths
+
+
+def _pass_entry(root: Path, tile: C.VisualTile, dataset: str, full_paths: list, first_pass: bool):
+    """The cache entry a pass reads for ``dataset`` (the first pass keeps its own WFS entry)."""
+    cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
+    return _entry(root, tile, cache_dataset, _used_paths(dataset, full_paths, first_pass))
+
+
+def _obtain(tile: C.VisualTile, root: Path, dataset: str, full_paths: list, first_pass: bool, *, ahead=False):
+    """(value, key, cached) of one dataset: its current cache entry, or produced and saved now.
+
+    ``ahead`` (a helper process): return None at once when the entry exists, without loading it."""
+    paths = _used_paths(dataset, full_paths, first_pass)
+    path, key = _pass_entry(root, tile, dataset, full_paths, first_pass)
+    with _input_lock(path):
+        value = _ABSENT
+        if first_pass and dataset == "wfs":
+            full_path, full_key = _entry(root, tile, dataset, full_paths)
+            if ahead and full_path.exists():
+                return None
+            value = _load(full_path, full_key)
+        if ahead and path.exists():
+            return None
+        if value is _ABSENT:
+            value = _load(path, key)
+        cached = value is not _ABSENT
+        if value is _ABSENT:
+            if dataset == "wfs" and not first_pass:
+                base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
+                with _input_lock(base_path):
+                    value = _load(base_path, base_key)
+                    if value is _ABSENT:
+                        value = _prepare_one(tile, dataset, paths[:3])
+                        _save(base_path, base_key, value)
+                if (value["buildings"] or value.get("wall_context")) and paths[3:]:
+                    roofs.refine(value["buildings"] + value.get("wall_context", []), paths[3:])
+            else:
+                value = _prepare_one(tile, dataset, paths)
+            _save(path, key, value)
+    return value, key, cached
+
+
+def _prepare_ahead(tile: C.VisualTile, root: Path, dataset: str, paths: list, first_pass: bool):
+    """A helper process's share of ``gather``: (dataset, seconds, profile) when it produced the entry."""
+    t, profile = time.perf_counter(), profiling.snapshot()
+    if _obtain(tile, root, dataset, paths, first_pass, ahead=True) is None:
+        return None
+    return dataset, time.perf_counter() - t, profiling.elapsed(profile)
+
+
+class _Helpers:
+    """TURKU3D_JOBS - 1 helper processes that prepare uncached datasets, slowest first, while the build
+    takes every dataset in its usual order. Both sides go through the entry's lock, so each entry is
+    produced once, by whoever reaches it first, and the build loads the same cached values either way."""
+
+    def __init__(self, tile, root, wanted, first_pass):
+        self.pool, self.pending = None, []
+        jobs = int(os.environ.get("TURKU3D_JOBS", "1"))
+        order = sorted(wanted, key=lambda d: SLOW_FIRST.index(d) if d in SLOW_FIRST else len(SLOW_FIRST))
+        todo = [d for d in order if not _pass_entry(root, tile, d, wanted[d], first_pass)[0].exists()]
+        if jobs < 2 or len(todo) < 2:
+            return
+        import multiprocessing
+
+        context = multiprocessing.get_context("forkserver")
+        context.set_forkserver_preload([__name__])
+        self.pool = context.Pool(min(jobs - 1, len(todo)))
+        self.pending = [self.pool.apply_async(_prepare_ahead, (tile, root, d, wanted[d], first_pass)) for d in todo]
+
+    def stop(self):
+        if self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+
+    def finish(self) -> dict:
+        """{dataset: (seconds, profile)} of the entries the helpers produced."""
+        if self.pool is None:
+            return {}
+        produced = {}
+        for result in self.pending:
+            try:
+                done = result.get()
+            except Exception:
+                continue  # The build produced (or failed) that dataset itself, in its usual order.
+            if done is not None:
+                produced[done[0]] = done[1:]
+        self.pool.close()
+        self.pool.join()
+        return produced
+
+
 def unprepared(tile: C.VisualTile, root: Path, sources: Sources) -> bool:
     """A dataset on disk has no current prepared entry (file stats only)."""
     for dataset, paths in _sources(tile, sources).items():
@@ -843,79 +947,48 @@ def gather(
             prepare(tile, root, sources)
         raise MissingInputs(tile.id, [u.key for u in missing])
     seconds, values, provenance, cache_metrics = {}, {}, {}, {}
-    for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
-        if first_pass and dataset in {
-            "parking",
-            "kerb_parking",
-            "trees",
-            "vegetation_canopy",
-            "vegetation_leaves",
-            "vegetation_shrubs",
-            "green_areas",
-            "forests",
-            "vegetation_paths",
-            "trunk_ground",
-            "poles",
-            "surfaces",
-            "markings",
-            "tram_rails",
-            "kerbs",
-            "appearance",
-            "register",
-            "ortho",
-            "playgrounds",
-        }:
-            # Collision-safe structural coverage precedes decorative inputs. These
-            # are all restored by the full pass, using their ordinary caches.
-            values[dataset] = (
-                np.zeros((ORTHO_PX, ORTHO_PX, 3), np.uint8)
-                if dataset == "ortho"
-                else None
-                if dataset == "kerbs"
-                else {}
-                if dataset in ("appearance", "register")
-                else ()
-            )
-            seconds[dataset] = 0.0
-            continue
-        full_paths = paths
-        if first_pass and paths and dataset == "wfs":
-            paths = paths[:3]
-        # Bridge geometry is structural: neighboring initial/full drafts must use
-        # the same optional survey inputs and the same prepared road cache.
-        if paths is None:  # only the optional roads and trees: no OSM clip yet
-            values[dataset] = None
-            continue
-        t = time.perf_counter()
-        profile = profiling.snapshot()
-        cache_dataset = dataset + "-first" if first_pass and dataset == "wfs" else dataset
-        path, key = _entry(root, tile, cache_dataset, paths)
-        with _input_lock(path):
-            value = _ABSENT
-            if first_pass and dataset == "wfs":
-                full_path, full_key = _entry(root, tile, dataset, full_paths)
-                value = _load(full_path, full_key)
-            if value is _ABSENT:
-                value = _load(path, key)
-            cached = value is not _ABSENT
-            if value is _ABSENT:
-                if dataset == "wfs" and not first_pass:
-                    base_path, base_key = _entry(root, tile, "wfs-first", paths[:3])
-                    with _input_lock(base_path):
-                        value = _load(base_path, base_key)
-                        if value is _ABSENT:
-                            value = _prepare_one(tile, dataset, paths[:3])
-                            _save(base_path, base_key, value)
-                    if (value["buildings"] or value.get("wall_context")) and paths[3:]:
-                        roofs.refine(value["buildings"] + value.get("wall_context", []), paths[3:])
-                else:
-                    value = _prepare_one(tile, dataset, paths)
-                _save(path, key, value)
-        values[dataset] = value
-        provenance[dataset] = [str(p) if p else None for p in paths]
-        seconds[dataset] = time.perf_counter() - t
-        cache_metrics[dataset] = dict(key=key, cached=cached, seconds=round(seconds[dataset], 6),
-                                      **profiling.elapsed(profile))
+    wanted = {
+        dataset: paths
+        for dataset, paths in _sources(tile, sources, first_pass=first_pass).items()
+        if paths is not None and not (first_pass and dataset in FIRST_PASS_SKIPPED)
+    }
+    helpers = _Helpers(tile, root, wanted, first_pass)
+    try:
+        for dataset, paths in _sources(tile, sources, first_pass=first_pass).items():
+            if first_pass and dataset in FIRST_PASS_SKIPPED:
+                # Collision-safe structural coverage precedes decorative inputs. These
+                # are all restored by the full pass, using their ordinary caches.
+                values[dataset] = (
+                    np.zeros((ORTHO_PX, ORTHO_PX, 3), np.uint8)
+                    if dataset == "ortho"
+                    else None
+                    if dataset == "kerbs"
+                    else {}
+                    if dataset in ("appearance", "register")
+                    else ()
+                )
+                seconds[dataset] = 0.0
+                continue
+            # Bridge geometry is structural: neighboring initial/full drafts must use
+            # the same optional survey inputs and the same prepared road cache.
+            if paths is None:  # only the optional roads and trees: no OSM clip yet
+                values[dataset] = None
+                continue
+            t = time.perf_counter()
+            profile = profiling.snapshot()
+            value, key, cached = _obtain(tile, root, dataset, paths, first_pass)
+            values[dataset] = value
+            provenance[dataset] = [str(p) if p else None for p in _used_paths(dataset, paths, first_pass)]
+            seconds[dataset] = time.perf_counter() - t
+            cache_metrics[dataset] = dict(key=key, cached=cached, seconds=round(seconds[dataset], 6),
+                                          **profiling.elapsed(profile))
+    except BaseException:
+        helpers.stop()
+        raise
+    # A helper's entry was loaded above as if cached: report the helper's own preparation instead.
+    for dataset, (elapsed, profile) in helpers.finish().items():
+        seconds[dataset] = elapsed
+        cache_metrics[dataset].update(cached=False, seconds=round(elapsed, 6), **profile)
     if os.environ.get("TURKU3D_SHARED_CACHE"):
         report = root / tile.id / "input-cache.json"
         report.parent.mkdir(parents=True, exist_ok=True)
