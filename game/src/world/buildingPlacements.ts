@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shareModelTextures } from './sharedAssets';
 import { retainGeometry } from './modelGeometry';
-import { PreparationBudget, streamingBudget } from '../render/preparationBudget';
+import { PreparationBudget, streamingAllowance, streamingBudget } from '../render/preparationBudget';
 import { placementVisibility, type PlacementVisibility } from './placementVisibility';
 import { lodFades, stableMaterial, type LodFades } from '../render/lodFade';
 import { StaticGroup } from './frozenTransforms';
@@ -82,8 +82,13 @@ export class BuildingModelCache {
    *  own tiles waited behind reads of tiles requested later from nearer (fastdrive fly, 2026-11-08). */
   private queue: { priority: ReadPriority; seq: number; start: () => void }[] = [];
   private seq = 0;
-  /** Concurrent model reads: fetch, GLB decode and meshopt workers overlap. */
-  readonly reads = 6;
+  /** Concurrent model reads: fetch, GLB decode and meshopt workers overlap. While the world loads behind the loading
+   *  screen (StreamingAllowance.loading) LOADING_READS: each read waits on the network (its GLB and every KTX2 it
+   *  names, 160-400 ms to first byte through the share host under load), and six slots made the reads the cold boot's
+   *  longest stage on the M1 Air: 348 reads, 218 s summed, ~36 s through six slots (loadspeed 2026-11-09). */
+  get reads() { return streamingAllowance.loading() ? BuildingModelCache.LOADING_READS : BuildingModelCache.READS; }
+  static readonly READS = 6;
+  static readonly LOADING_READS = 16;
   constructor(private load: (url: string, rank?: () => number) => Promise<THREE.Object3D>,
     private dispose: (root: THREE.Object3D) => void, private budget: PreparationBudget = streamingBudget(),
     private visibility: PlacementVisibility = placementVisibility,
@@ -122,8 +127,9 @@ export class BuildingModelCache {
       for (const geometry of geometries) retainGeometry(geometry);
       return root;
     } finally {
-      const next = this.next();
-      if (next) next.start(); else this.active--;
+      // The freed slot starts the next waiting read; slots open beyond `reads` (the loading window ended) close.
+      this.active--;
+      for (let next; this.active < this.reads && (next = this.next());) { this.active++; next.start(); }
     }
   }
 

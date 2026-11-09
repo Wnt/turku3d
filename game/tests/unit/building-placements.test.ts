@@ -5,7 +5,7 @@ import { disposeModelResources } from '../../src/world/disposeModel';
 import { SharedMaterials } from '../../src/render/sharedMaterials';
 import { CoarseTiles, cellsOf } from '../../src/world/coarseTiles';
 import type { Manifest } from '../../src/world/manifest';
-import { PreparationBudget } from '../../src/render/preparationBudget';
+import { PreparationBudget, streamingAllowance } from '../../src/render/preparationBudget';
 import { LOD_FADE_SECONDS, LodFades, dissolveReady, dissolveTwin, fadeTier, isDissolveTwin, precompileDissolve } from '../../src/render/lodFade';
 
 beforeAll(() => vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0)));
@@ -448,4 +448,31 @@ test('compiled twins stay compiled until their base material goes: keepers are k
   base.dispose();
   expect(disposed).toHaveBeenCalledTimes(2);
   expect(fades.canStart(root, 0)).toBe(false);
+});
+
+test('while the world loads more model reads run at once; once it is loaded the extra slots close as reads end', async () => {
+  const models = (prefix: string, count: number): BuildingPlacements => {
+    const ids = Array.from({ length: count }, (_, k) => `${prefix}${k.toString(16).padStart(2, '0')}`.padEnd(64, '0'));
+    return { version: 1, models: ids.map(model => ({ id: model, uri: `../shared/${model}.glb`, bounds: { min: [-1, 0, -1], max: [1, 1, 1] } })),
+      placements: ids.map((model, k) => ({ id: `p${k}`, model, position: [10 * k, 0, 0], viewDistance: 300 })) };
+  };
+  const started: string[] = [], finish: (() => void)[] = [], shared = new SharedMaterials();
+  const budget = new PreparationBudget(() => 0, () => new Promise(() => {}));
+  const cache = new BuildingModelCache(url => { started.push(url);
+    return new Promise(resolve => finish.push(() => resolve(prototype().root))); }, root => disposeModelResources(root, shared), budget);
+  let loading = true;
+  streamingAllowance.loading = () => loading;
+  try {
+    const all = cache.prefetch(models('a', 30), base, 1);
+    expect(started).toHaveLength(BuildingModelCache.LOADING_READS);
+    loading = false;
+    // Reads ending after the loading window free their slots until six run.
+    for (let i = 0; i < BuildingModelCache.LOADING_READS - BuildingModelCache.READS; i++) { finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+    expect(started).toHaveLength(BuildingModelCache.LOADING_READS);
+    finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0));
+    expect(started).toHaveLength(BuildingModelCache.LOADING_READS + 1); // six again: one ends, one starts
+    while (finish.length) { finish.shift()!(); await new Promise(resolve => setTimeout(resolve, 0)); }
+    expect(started).toHaveLength(30);
+    all();
+  } finally { streamingAllowance.loading = () => false; }
 });
