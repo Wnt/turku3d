@@ -859,6 +859,31 @@ def split_boundaries(
                     )
             return np.asarray(result, dtype=object)
 
+    def local_regions(polygon, hits):
+        """Bound complex overlays to small groups of whole terrain triangles.
+
+        Overlaying a tiny triangle with a city's winding woodland/shore polygon
+        otherwise walks thousands of unrelated edges twice per triangle. Each
+        window encloses its triangles with a margin, so its artificial edges
+        never cut the terrain. Original region edges and last-wins order stay.
+        """
+        if len(hits) < 32 or shapely.get_num_coordinates(polygon) < 256:
+            yield hits, polygon
+            return
+        bounds = shapely.bounds(remaining[hits])
+        nonempty = np.isfinite(bounds).all(axis=1)
+        hits, bounds = hits[nonempty], bounds[nonempty]
+        cells = np.floor((bounds[:, :2] + bounds[:, 2:]) / 32).astype(np.int64)
+        _, groups = np.unique(cells, axis=0, return_inverse=True)
+        order = np.argsort(groups, kind="stable")
+        starts = np.r_[0, np.flatnonzero(np.diff(groups[order])) + 1, len(order)]
+        for start, end in zip(starts[:-1], starts[1:], strict=True):
+            rows = order[start:end]
+            lower, upper = bounds[rows, :2].min(axis=0), bounds[rows, 2:].max(axis=0)
+            window = shapely.box(*(lower - 1e-6), *(upper + 1e-6))
+            local = overlay(shapely.intersection, np.asarray([window], dtype=object), polygon)[0]
+            yield hits[rows], local
+
     normals = vertex_normals(positions, indices)
     if not regions:
         return positions, indices[keep], materials[keep], normals
@@ -915,14 +940,15 @@ def split_boundaries(
     region_groups, starts, counts = np.unique(grouped, return_index=True, return_counts=True)
     for region, start, count in zip(region_groups[::-1], starts[::-1], counts[::-1], strict=True):
         hits = triangle_ids[order[start:start + count]]
-        pieces.append(overlay(shapely.intersection, remaining[hits], polygons[region]))
-        owners.append(boundary[hits])
-        channels.append(
-            materials[selected[boundary[hits]]]
-            if preserve_materials
-            else np.full(len(hits), regions[region][1], np.uint8)
-        )
-        remaining[hits] = overlay(shapely.difference, remaining[hits], polygons[region])
+        for local_hits, polygon in local_regions(polygons[region], hits):
+            pieces.append(overlay(shapely.intersection, remaining[local_hits], polygon))
+            owners.append(boundary[local_hits])
+            channels.append(
+                materials[selected[boundary[local_hits]]]
+                if preserve_materials
+                else np.full(len(local_hits), regions[region][1], np.uint8)
+            )
+            remaining[local_hits] = overlay(shapely.difference, remaining[local_hits], polygon)
     pieces.append(remaining)
     owners.append(boundary)
     fallback = materials if fallback_materials is None else fallback_materials

@@ -731,3 +731,35 @@ def test_rock_visual_carries_moss_tint_toward_its_edges():
     middle, edge = np.hypot(p[:, 0] - 10, p[:, 2] - 10) < 1, (abs(p[:, 0] - 10) > 5.5) | (abs(p[:, 2] - 10) > 5.5)
     assert tint[middle].mean() > tint[edge].mean() + 0.1
     assert all(m.colors is None for m in meshes if m.extras["material_key"] == "draft_grass")
+
+
+def test_boundary_cut_local_windows_preserve_complex_region_holes_and_precedence():
+    from turku3d.coarse.surfaces import split_boundaries
+
+    x, z = np.meshgrid(np.arange(0, 101., 5), np.arange(0, 101., 5))
+    p = np.c_[x.ravel(), .1 * x.ravel() + .2 * z.ravel(), z.ravel()]
+    cells = [r * 21 + c for r in range(20) for c in range(20)]
+    ix = np.asarray([[a, a + 21, a + 1] for a in cells]
+                    + [[a + 1, a + 21, a + 22] for a in cells], np.uint32)
+    angle = np.linspace(0, 2 * np.pi, 1024, endpoint=False)
+    radius = 45 + 4 * np.sin(angle * 19)
+    region = shapely.Polygon(np.c_[50 + radius * np.cos(angle), 50 + radius * np.sin(angle)])
+    region = region.difference(shapely.Point(50, 50).buffer(17, quad_segs=64))
+    road = shapely.box(42, -10, 57, 110)
+    material = np.full(len(ix), mat_id('grass'), np.uint8)
+    pos, idx, mat, normals = split_boundaries(
+        p, ix, material, np.ones(len(ix), bool),
+        [(region, mat_id('gravel')), (road, mat_id('road'))], material,
+    )
+    np.testing.assert_allclose(pos[:, 1], .1 * pos[:, 0] + .2 * pos[:, 2], atol=1e-10)
+    np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1, atol=1e-10)
+    polys = shapely.polygons(pos[idx][:, :, [0, 2]])
+    whole = shapely.box(0, 0, 100, 100)
+    for key, expected in (
+        ('road', whole.intersection(road)),
+        ('gravel', whole.intersection(region).difference(road)),
+        ('grass', whole.difference(region).difference(road)),
+    ):
+        pieces = polys[mat == mat_id(key)]
+        assert abs(shapely.area(pieces).sum() - expected.area) < 1e-8
+        assert shapely.union_all(pieces).symmetric_difference(expected).area < 1e-8
