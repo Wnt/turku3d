@@ -116,9 +116,9 @@ def _ground(cloud, x, z):
 def _tile_inputs(tile):
     """The furniture stage's inputs of the tile, through the generator's own loaders."""
     from turku3d.coarse.inputs import _prepare_one, _sources, buildings
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
-    sources = Sources()
+    sources = current_sources()
     paths = _sources(tile, sources)
     poles = _prepare_one(tile, "poles", paths["poles"]) if paths.get("poles") is not None else []
     barriers = _prepare_one(tile, "barriers", paths["barriers"]) if paths.get("barriers") is not None else []

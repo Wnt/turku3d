@@ -20,6 +20,9 @@ the network; the service runs it in the background prefetcher, never inside a bu
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 from turku3d import cities
 import dataclasses
 import hashlib
@@ -584,3 +587,31 @@ def size(paths: list[Path]) -> int:
         elif p.exists():
             total += p.stat().st_size
     return total
+
+
+_active_sources = ContextVar("migration_sources", default=None)
+
+
+def current_sources():
+    """The migration chain's source listing, or a normal live lookup outside a chain."""
+    sources = _active_sources.get()
+    return sources if sources is not None else Sources()
+
+
+@contextmanager
+def source_session(sources=None):
+    """Share one listing across a fixed-input migration chain, then release it.
+
+    A fresh build supplies the listing it already used. Standalone migrations list
+    once per chain; the next chain sees newly supplied data. Context-local state
+    keeps concurrent builds and nested chains independent.
+    """
+    if sources is None:
+        sources = _active_sources.get()
+    if sources is None:
+        sources = Sources(max_age=float("inf"))
+    token = _active_sources.set(sources)
+    try:
+        yield sources
+    finally:
+        _active_sources.reset(token)

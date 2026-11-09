@@ -14,7 +14,7 @@ from .core import Migration, Product
 
 
 def transform(product: Product) -> None:
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
     m = product.manifest
     lights = m.get("lights") or {}
@@ -22,7 +22,7 @@ def transform(product: Product) -> None:
     if not record or not record.get("wires"):
         return
     tile = C.VisualTile.parse(product.tile)
-    osm = Sources().osm_source(tile)
+    osm = current_sources().osm_source(tile)
     if osm is None:
         return
     from turku3d.coarse.floodlights import collision_ground

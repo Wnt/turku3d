@@ -295,3 +295,38 @@ def test_input_worker_uses_the_builds_content_identity(tmp_path, monkeypatch):
     assert key == entry[1] and cached
     np.testing.assert_array_equal(obtained['points'], value['points'])
     assert inputs._prepare_ahead(tile, tmp_path, 'ground', [], False, entry) is None
+
+
+def test_chain_shares_source_listing_and_releases_it_after_failure(tmp_path, monkeypatch):
+    from turku3d.coarse import sources
+    from turku3d import migrations
+    from turku3d.migrations import core, registry
+    import pytest
+
+    TILE = "t0_0_0"
+
+    made = []
+    class Listing:
+        def __init__(self, **kwargs):
+            made.append(self)
+    monkeypatch.setattr(sources, "Sources", Listing)
+    seen = []
+    def lookup(product):
+        seen.append(sources.current_sources())
+    steps = [core.Migration("one", 1, lookup), core.Migration("two", 1, lookup)]
+    monkeypatch.setattr(registry, "CHAIN", steps)
+    with sources.source_session():
+        migrations.apply_in_place(tmp_path, {"tile": TILE})
+    assert len(made) == 1 and seen == [made[0], made[0]]
+    supplied = Listing()
+    with sources.source_session(supplied):
+        migrations.apply_in_place(tmp_path, {"tile": TILE})
+    assert seen[-2:] == [supplied, supplied] and len(made) == 2
+    def failed(product):
+        assert sources.current_sources() is supplied
+        raise ValueError("broken")
+    with pytest.raises(ValueError, match="broken"):
+        monkeypatch.setattr(registry, "CHAIN", [core.Migration("fail", 1, failed)])
+        with sources.source_session(supplied):
+            migrations.apply_in_place(tmp_path, {"tile": TILE})
+    assert sources.current_sources() is not supplied and len(made) == 3

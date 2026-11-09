@@ -14,11 +14,11 @@ from .floodlights import EMPTY_LIGHTS
 
 
 def transform(product: Product) -> None:
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
     m = product.manifest
     tile = C.VisualTile.parse(product.tile)
-    osm = Sources().osm_source(tile)
+    osm = current_sources().osm_source(tile)
     if osm is None:
         return
     ground = floodlights.collision_ground(m.get("collision") or {}, product.read)

@@ -58,7 +58,7 @@ def _row_parts(row, idx, pos):
 
 def transform(product: Product) -> None:
     from turku3d.coarse.floodlights import collision_ground
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
     from turku3d.props import signposts
     from turku3d.roads.signal_posts import load_carriageway
 
@@ -74,7 +74,7 @@ def transform(product: Product) -> None:
     if not batches:
         return
     tile = C.VisualTile.parse(product.tile)
-    found, path = Sources().wfs_source("GIS:Katualueet", tile)
+    found, path = current_sources().wfs_source("GIS:Katualueet", tile)
     road = load_carriageway(path if found and path else None, tile.bbox.buffered(WINDOW))
     ground = collision_ground(m.get("collision") or {}, product.read)
     stats = Counter()

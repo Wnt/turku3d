@@ -32,9 +32,9 @@ def tile_inputs(tile):
     """The rule's inputs through the generator's own loaders and source paths (``coarse.inputs._sources``):
     walked ground, water, owned building footprints."""
     from turku3d.coarse.inputs import _prepare_one, buildings
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
-    sources = Sources()
+    sources = current_sources()
     osm = sources.osm_source(tile)
     if osm is None:
         return [], []

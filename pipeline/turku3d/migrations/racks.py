@@ -29,9 +29,9 @@ from .furniture import MATCH, _append_view, fit_origin, read_accessor
 def _tile_inputs(tile):
     """The tile's prepared ``poles`` and ``roads`` (encoded graph), through the generator's loaders."""
     from turku3d.coarse.inputs import _prepare_one, _sources
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
-    paths = _sources(tile, Sources())
+    paths = _sources(tile, current_sources())
     poles = _prepare_one(tile, "poles", paths["poles"]) if paths.get("poles") is not None else []
     roads = _prepare_one(tile, "roads", paths["roads"]) if paths.get("roads") is not None else None
     return poles, (roads or {}).get("json")

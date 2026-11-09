@@ -20,7 +20,7 @@ WINDOW = 60.0  # m around the tile: carriageway polygons a head near the seam ca
 
 def transform(product: Product) -> None:
     from turku3d.coarse.floodlights import collision_ground
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
     from turku3d.roads import encode, signal_posts
 
     m = product.manifest
@@ -31,7 +31,7 @@ def transform(product: Product) -> None:
     if graph.get("revision", 1) < 2 or not any(True for _ in signal_posts.heads(graph)):
         return
     tile = C.VisualTile.parse(product.tile)
-    found, path = Sources().wfs_source("GIS:Katualueet", tile)
+    found, path = current_sources().wfs_source("GIS:Katualueet", tile)
     road = signal_posts.load_carriageway(path if found and path else None, tile.bbox.buffered(WINDOW))
     ground = collision_ground(m.get("collision") or {}, product.read)
     rows, stats = signal_posts.place(graph, road, ground)

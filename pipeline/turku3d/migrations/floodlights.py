@@ -14,11 +14,11 @@ EMPTY_LIGHTS = {"format": "turku3d-lights", "version": 1, "count": 0, "posts": 0
 
 
 def transform(product: Product) -> None:
-    from turku3d.coarse.sources import Sources
+    from turku3d.coarse.sources import current_sources
 
     m = product.manifest
     tile = C.VisualTile.parse(product.tile)
-    osm = Sources().osm_source(tile)
+    osm = current_sources().osm_source(tile)
     if osm is None:
         return
     harbour = {h["id"]: float(h["height_m"]) for h in (m.get("boats") or {}).get("harbour", ())

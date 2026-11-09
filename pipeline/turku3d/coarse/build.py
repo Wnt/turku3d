@@ -38,7 +38,7 @@ from .forests import draft_trees, structure_clearance
 from .inputs import CELLS, Inputs, gather
 from .packaging import code_hash, package_visual  # noqa: F401 (producer API)
 from .retention import managed_build
-from .sources import Sources
+from .sources import Sources, source_session
 from .stages import (
     building_visual,
     cached_terrain,
@@ -1047,7 +1047,8 @@ def build(
     # regeneration equals the farm's migrated products (turku3d.migrations).
     from turku3d.migrations import apply_in_place
 
-    manifest = apply_in_place(out, manifest, measure=cache.measure)
+    with source_session(ground_sources):
+        manifest = apply_in_place(out, manifest, measure=cache.measure)
     if manifest["visual"][tile.id]["url"] != visual_url:
         _write(out / "vis.glb", (out / manifest["visual"][tile.id]["url"]).read_bytes())
     if roads is not None and manifest["roads"]["url"] != roads_url:

@@ -23,10 +23,10 @@ def affected(manifest: dict) -> bool:
         return False  # built by this rule, which left the ground alone
     from turku3d import config as C
     from turku3d.coarse.inputs import _ABSENT, _entry, _input_lock, _load, _prepare_one, _save, finished_sources
-    from turku3d.coarse.sources import NoCoverage, Sources
+    from turku3d.coarse.sources import NoCoverage, current_sources
 
     tile = C.VisualTile.parse(manifest["tile"])
-    sources = Sources()
+    sources = current_sources()
     try:
         laz, missing = sources.lidar_paths(tile)
     except NoCoverage:
