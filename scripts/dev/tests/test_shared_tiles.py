@@ -1036,7 +1036,13 @@ class FarmTests(unittest.TestCase):
         farm.registrations_scanned = float('-inf')
         self.assertIsNotNone(farm.registered(GEN))
         farm.registrations_scanned = float('-inf')
-        with patch.object(farm_module, 'read_json', side_effect=AssertionError('read under the lock')):
+        # Only this thread's reads fail: run.py runs other cases in threads at once, and their farms read their state.
+        real, me = farm_module.read_json, threading.get_ident()
+        def guarded(*args, **kwargs):
+            if threading.get_ident() == me:
+                raise AssertionError('read under the lock')
+            return real(*args, **kwargs)
+        with patch.object(farm_module, 'read_json', side_effect=guarded):
             self.assertIsNotNone(farm.registered(GEN2))
             self.assertEqual(farm.revision(REV)['generation'], GEN)
         rev3, gen3 = 'e' * 40, 'f' * 64
