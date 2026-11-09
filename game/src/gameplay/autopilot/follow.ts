@@ -60,6 +60,45 @@ const LOOK_MARGIN = 20, LOOK_MAX = 90;
 const NUDGE_AHEAD = 30, NUDGE_MAX = 2.3, NUDGE_RATE = 0.9;
 /** Speeds (m/s) below which an obstacle counts as still. */
 const STILL = 0.7;
+/** Walls and posts (static collision) along the corridor ahead: rays WALL_HEIGHT m above the road along the path in
+ *  WALL_STEP m chords, at the corridor's centre and both edges, as far as the braking distance plus WALL_MARGIN.
+ *  A hit with a near-vertical face (|normal y| < WALL_NORMAL_Y) counts; the car stops WALL_GAP m short of it. A
+ *  result older than WALL_FRESH s is dropped. Held by one for WALL_PATIENCE s (a lane drawn through a wall), the car
+ *  starts the stuck recovery: it backs out and re-plans, and gives up like any stuck trip. */
+export const WALL_PERIOD = 0.1;
+const WALL_HEIGHT = 0.75, WALL_STEP = 4, WALL_MARGIN = 12, WALL_MAX = 60, WALL_NORMAL_Y = 0.6, WALL_GAP = 1.2, WALL_FRESH = 0.6,
+  WALL_PATIENCE = 3;
+
+export interface WallRay { origin: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number }; length: number; s: number }
+
+/** The rays that look for walls along the path ahead of a car at arc length `s` driving `nudge` m right of it. */
+export function wallRays(path: Path, s: number, nudge: number, geometry: VehicleGeometry, pose: VehiclePose, brake = STYLE.normal.brake): WallRay[] {
+  const speed = Math.abs(pose.forwardSpeed), half = geometry.back ?? 2.3, w = (geometry.halfWidth ?? 0.95) + 0.1;
+  const reach = Math.min(WALL_MAX, speed * speed / (2 * brake) + WALL_MARGIN), from = s + half, to = Math.min(path.length, from + reach);
+  const rays: WallRay[] = [], a: PathSample = { x: 0, z: 0, y: null, hx: 1, hz: 0 }, b = { ...a };
+  for (let u = from; u < to - 0.5; u += WALL_STEP) {
+    const v = Math.min(to, u + WALL_STEP);
+    sampleAt(path, u, a); sampleAt(path, v, b);
+    const ya = (a.y ?? pose.y - 0.6) + WALL_HEIGHT, yb = (b.y ?? pose.y - 0.6) + WALL_HEIGHT;
+    for (const off of [-w, 0, w]) {
+      const l = nudge + off;
+      const o = { x: a.x - a.hz * l, y: ya, z: a.z + a.hx * l }, e = { x: b.x - b.hz * l, y: yb, z: b.z + b.hx * l };
+      const dx = e.x - o.x, dy = e.y - o.y, dz = e.z - o.z, length = Math.hypot(dx, dy, dz);
+      if (length > 0.1) rays.push({ origin: o, dir: { x: dx / length, y: dy / length, z: dz / length }, length, s: u });
+    }
+  }
+  return rays;
+}
+
+/** The nearest wall along the path from the rays' hits (null: none), for DriveFollower.wallAhead. */
+export function wallHit(rays: readonly WallRay[], hits: readonly ({ toi: number; normal: { y: number } } | null)[]): number | null {
+  let best: number | null = null;
+  rays.forEach((r, i) => {
+    const h = hits[i];
+    if (h && Math.abs(h.normal.y) < WALL_NORMAL_Y && (best === null || r.s + h.toi < best)) best = r.s + h.toi;
+  });
+  return best;
+}
 
 export interface DriveOptions {
   /** Cruise speed (m/s); the path's own limit applies on top when given. */
@@ -172,6 +211,11 @@ export class DriveFollower {
   private nudgeWant = 0;
   /** Gap (m) to the obstacle that limits the speed this step, else null (traces, the bots). */
   obstacleGap: number | null = null;
+  /** The nearest wall ahead (arc length, null: none) from the caller's rays (wallRays/wallHit), and its age (s). */
+  private wall: { s: number | null; age: number } | null = null;
+  private wallStill = 0;
+  private wallBlocked = false;
+  private wallGap = 0;
 
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
 
@@ -180,7 +224,23 @@ export class DriveFollower {
     this.path = path; this.s = 0; this.s = this.locate(null).s; this.stuckFor = 0; this.turn = null; this.pendingTurnLeg = null;
     this.pendingEdgeCheck = null; this.edgeAhead = null;
     this.hairpins = null; this.hairpinsDone.clear();
-    this.nudge = 0; this.nudgeWant = 0;
+    this.nudge = 0; this.nudgeWant = 0; this.wall = null;
+  }
+
+  /** The caller's wall rays for the path ahead found the nearest wall at arc length `s` (null: none). */
+  wallAhead(s: number | null) { this.wall = { s, age: 0 }; }
+
+  /** The speed (m/s) a wall ahead allows, Infinity when none. */
+  private wallSpeed(speed: number, dt: number): number {
+    const w = this.wall;
+    if (w) w.age += dt;
+    if (!w || w.s === null || w.age > WALL_FRESH) { this.wallStill = 0; return Infinity; }
+    this.wallGap = Math.round((w.s - this.s) * 10) / 10;
+    const gap = w.s - this.s - (this.geometry.back ?? 2.3) - WALL_GAP, brake = STYLE[this.options.style ?? 'normal'].brake;
+    const allowed = Math.sqrt(2 * brake * 0.9 * Math.max(0, gap));
+    this.wallStill = allowed < 0.3 && speed < 0.3 ? this.wallStill + dt : 0;
+    if (this.wallStill > WALL_PATIENCE) { this.wallBlocked = true; this.wallStill = 0; this.wall = null; }
+    return allowed;
   }
 
   /** The speed (m/s) the obstacles near the path ahead allow, and the shift off the path that passes the still ones.
@@ -381,8 +441,10 @@ export class DriveFollower {
     }
 
     // Obstacles (not during a turn in the street): the speed they allow and the shift that passes a still one.
-    const obstacleTarget = obstacles?.length && !this.turn ? this.avoidObstacles(pose, speed, dt, obstacles) : Infinity;
+    let obstacleTarget = obstacles?.length && !this.turn ? this.avoidObstacles(pose, speed, dt, obstacles) : Infinity;
     if (!obstacles?.length || this.turn) { this.nudge = 0; this.nudgeWant = 0; this.obstacleGap = null; }
+    const wallTarget = this.turn ? Infinity : this.wallSpeed(speed, dt);
+    if (wallTarget < obstacleTarget) { obstacleTarget = wallTarget; this.obstacleGap = this.wallGap; }
     // Pure pursuit from the rear axle toward a point `lookahead` metres along the path (shifted `nudge` to its right).
     const rx = pose.x - pose.hx * g.rearOffset, rz = pose.z - pose.hz * g.rearOffset;
     const lookahead = clamp(3.5 + 0.55 * speed, 4, 18);
@@ -507,9 +569,9 @@ export class DriveFollower {
 
     // Stuck: throttle held, no progress along the path.
     if (throttle > 0.3 && speed < 0.5 && progressed < 0.02) this.stuckFor += dt; else if (speed > 1) this.stuckFor = 0;
-    if (this.stuckFor > STUCK_AFTER) {
+    if (this.stuckFor > STUCK_AFTER || this.wallBlocked) {
       this.recoveries++;
-      this.stuckFor = 0;
+      this.stuckFor = 0; this.wallBlocked = false;
       const away = -Math.sign(steer || 1);
       if (this.options.checkReverse) this.pendingReverse = away; else this.reverse(away);
       return { command: { throttle: 0, brake: 0, steer: 0, handbrake: false }, status: 'stuck', s: this.s, lateral: at.lateral, target };

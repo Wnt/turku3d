@@ -7,7 +7,7 @@ import * as RAPIER from '@dimforge/rapier3d';
 import { PhysicsWorld } from '../../src/physics/world';
 import { CAR, FOOT, NODE, type RoadGraphJson } from '../../src/gameplay/roadGraph';
 import { curvatureAt, makePath, project, sampleAt } from '../../src/gameplay/autopilot/path';
-import { DriveFollower, type Obstacle } from '../../src/gameplay/autopilot/follow';
+import { DriveFollower, wallHit, wallRays, type Obstacle } from '../../src/gameplay/autopilot/follow';
 import { LaneRouter } from '../../src/gameplay/autopilot/lanes';
 import { Autopilot, vehicleGeometry, vehiclePose, type AutopilotWorld } from '../../src/gameplay/autopilot/autopilot';
 import { emptyActions } from '../../src/input/bindings';
@@ -212,7 +212,7 @@ describe('drive follower on the real vehicle', () => {
 
 describe('obstacles', () => {
   // East along z = 100 on open ground; obstacles are footprints handed to the follower (follow.ts Obstacle).
-  // (The dev world has a wall across z = 100 near x = 248.)
+  // (The dev world's collision ends near x = 250: the coverage guard stops a car there.)
   const route = makePath([{ x: 30, z: 100 }, { x: 240, z: 100 }]);
   const car = vehicleGeometry('car'), half = car.back!, width = car.halfWidth!;
   const box = (x: number, z: number, vx = 0, traffic = true): Obstacle => ({ x, z, hx: 1, hz: 0, halfLength: 2.3, halfWidth: 0.95, vx, vz: 0, traffic });
@@ -271,6 +271,37 @@ describe('obstacles', () => {
     expect(gaps(end, queued)[0]).toBeLessThan(6);
     expect(follower.nudge).toBe(0);
     expect(follower.recoveries).toBe(0);
+    pw.world.free();
+  }, 30_000);
+
+  test('stops short of a wall across its path (static collision rays) without touching it, then backs out', async () => {
+    const pw = await devWorld();
+    // At 50 km/h into the dev world's paving-slab platform (a 0.96 m face at x 128, z 208).
+    pw.spawnVehicle({ x: 30, y: G + 0.8, z: 208 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const through = makePath([{ x: 30, z: 208 }, { x: 240, z: 208 }]);
+    const geometry = vehicleGeometry('car'), follower = new DriveFollower(through, geometry, { speed: 14 });
+    let top = 0, impacts = 0, lastImpact = 0, front = 0, stoppedFor = 0, held = 0;
+    for (let k = 0; k < 60 * 20; k++) {
+      const v = pw.vehicleState()!, pose = vehiclePose(v);
+      if (k % 6 === 0) {
+        const rays = wallRays(through, follower.s, follower.nudge, geometry, pose);
+        follower.wallAhead(wallHit(rays, rays.map(r => pw.raycast(r.origin, r.dir, r.length, 'solid'))));
+      }
+      const step = follower.step(pose, 1 / 60);
+      top = Math.max(top, v.speed); front = Math.max(front, v.pos.x + geometry.back!);
+      if (v.impact && v.impact.id !== lastImpact) { impacts++; lastImpact = v.impact.id; }
+      stoppedFor = v.speed < 0.3 && front > 110 ? stoppedFor + 1 / 60 : 0; held = Math.max(held, stoppedFor);
+      pw.fixedStep(null, step.command);
+    }
+    expect(top).toBeGreaterThan(12);
+    expect(impacts).toBe(0);
+    expect(front).toBeLessThan(127.8);
+    expect(front).toBeGreaterThan(122);
+    // Held there a while, then the stuck recovery backs it away (a lane through a wall is not a place to wait).
+    expect(held).toBeGreaterThan(2.5);
+    expect(follower.recoveries).toBeGreaterThan(0);
+    expect(pw.vehicleState()!.pos.x + geometry.back!).toBeLessThan(front - 1);
     pw.world.free();
   }, 30_000);
 

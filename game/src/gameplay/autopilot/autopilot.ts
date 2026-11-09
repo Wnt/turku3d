@@ -14,7 +14,7 @@
 import { VEHICLES, type VehicleKind } from '../../physics/constants';
 import type { VehicleState } from '../../physics/protocol';
 import type { Actions } from '../../input/bindings';
-import { DriveFollower, TURN_FIRST_LEGS, WalkFollower, type DriveStyle, type Obstacle, type VehicleGeometry, type VehiclePose } from './follow';
+import { DriveFollower, TURN_FIRST_LEGS, WALL_PERIOD, WalkFollower, wallHit, wallRays, type DriveStyle, type Obstacle, type VehicleGeometry, type VehiclePose } from './follow';
 import { tilesBetween, type LaneRef, type LaneRouter, type LaneRoute } from './lanes';
 export { tilesBetween } from './lanes';
 import { makePath, project, type Path, type PathPoint } from './path';
@@ -130,6 +130,9 @@ class Trip implements AutopilotHandle {
   elapsed = 0; replans = 0; speed = 0; target = 0; lateral = 0;
   /** A reverse-out's ground check is running. */
   probing = false;
+  /** The wall rays ahead are out, and when they were last cast (trip seconds). */
+  wallProbing = false;
+  wallAt = -Infinity;
   /** A turn in the street found no room: the trip re-planned to drive on the way the car faces (lanes.ts forward). */
   forwardOnly = false;
   planning: Promise<void> | null = null;
@@ -294,6 +297,7 @@ export class Autopilot {
     if (trip.drive.pendingReverse !== null && !trip.probing) this.checkReverse(trip, trip.drive, pose);
     if (trip.drive.pendingTurnLeg && !trip.probing) this.checkTurnLeg(trip, trip.drive, pose);
     if (trip.drive.pendingEdgeCheck && !trip.probing) this.checkEdge(trip, trip.drive, pose);
+    if (this.world.groundRay && !trip.wallProbing && trip.elapsed - trip.wallAt >= WALL_PERIOD) this.checkWalls(trip, trip.drive, pose);
     const replan = step.status === 'off-path' || (step.status === 'stuck' && trip.drive.recoveries >= 2);
     if (replan && !trip.planning && !trip.options.path) {
       trip.replans++;
@@ -302,6 +306,18 @@ export class Autopilot {
       trip.planning = this.plan(trip, true).catch(error => trip.finish('failed', `re-plan: ${(error as Error).message}`))
         .finally(() => { trip.planning = null; });
     } else if (step.status === 'off-path' && !trip.planning) trip.finish('failed', 'off path');
+  }
+
+  /** Casts the wall rays along the path ahead (follow.ts wallRays) and hands the nearest hit to the follower. */
+  private checkWalls(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
+    const ray = this.world.groundRay!, rays = wallRays(follower.path, follower.s, follower.nudge, follower.geometry, pose);
+    trip.wallAt = trip.elapsed;
+    if (!rays.length) { follower.wallAhead(null); return; }
+    trip.wallProbing = true;
+    Promise.all(rays.map(r => ray(r.origin, r.dir, r.length))).then(hits => {
+      trip.wallProbing = false;
+      if (trip.drive === follower) follower.wallAhead(wallHit(rays, hits));
+    }, () => { trip.wallProbing = false; });
   }
 
   /** Backs a stuck car out only over drivable ground: the way it wants (opposite lock), else the other lock, else
