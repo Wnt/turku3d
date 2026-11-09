@@ -509,7 +509,7 @@ def attach_points(edges, points, crossing_lines, car_degree):
 # -- tile graph -----------------------------------------------------------------------------------
 
 
-def build_tile_graph(ways, points, crossing_lines, bbox, area: str, size: float) -> dict:
+def build_tile_graph(ways, points, crossing_lines, bbox, area: str, size: float, seam_context=None) -> dict:
     """roads.json v2 (without heights) of the tile ``bbox`` from its OSM context."""
     context = bbox.buffered(CONTEXT).as_tuple()
     edges = logical_edges(cut_at_barriers(ways, points), context)
@@ -571,6 +571,14 @@ def build_tile_graph(ways, points, crossing_lines, bbox, area: str, size: float)
                     way=edge.way.way,
                     events=sorted(events, key=lambda e: (e[0], e[1], e[2] or "")),
                     seams=(run.cut0, run.cut1),
+                    # Source tangents and distance to real ends, before tile clipping. Both neighbours
+                    # see the same local OSM geometry even when their logical ids are tile-local.
+                    seam_context=[
+                        (_at(edge.points, edge.cumulative, min(s + 0.5, edge.cumulative[-1])),
+                         _at(edge.points, edge.cumulative, max(s - 0.5, 0)),
+                         min(s, edge.cumulative[-1] - s), edge.attrs["width"])
+                        for s in (run.s0, run.s1)
+                    ] if seam_context is not None else None,
                 )
             )
     rows.sort(key=lambda r: (r["id"], r["span"][0], r["keys"][0], r["keys"][-1]))
@@ -637,6 +645,12 @@ def build_tile_graph(ways, points, crossing_lines, bbox, area: str, size: float)
         if degree.get(k, 0) == 1 and k not in seam_nodes:
             f |= NODE_FLAGS["DEAD_END"]
         node_flags.append(f)
+    if seam_context is not None:
+        for row in rows:
+            for end in (0, 1):
+                k = row["keys"][0 if end == 0 else -1]
+                if node_flags[index[k]] & NODE_FLAGS["SEAM"]:
+                    seam_context[index[k]] = row["seam_context"][end]
     graph = {
         "format": FORMAT,
         "version": VERSION,
@@ -700,9 +714,9 @@ def validate(graph: dict) -> None:
             raise ValueError(f"edgeEvents[{i}] malformed")
 
 
-def prepare(path, bbox, area: str, size: float) -> dict:
+def prepare(path, bbox, area: str, size: float, seam_context=None) -> dict:
     ways, points, crossings = read_osm(path, bbox)
-    return build_tile_graph(ways, points, crossings, bbox, area, size)
+    return build_tile_graph(ways, points, crossings, bbox, area, size, seam_context)
 
 
 HEIGHT_STEP = 8.0  # m: longest polyline segment once heights are sampled (spec §3.1)

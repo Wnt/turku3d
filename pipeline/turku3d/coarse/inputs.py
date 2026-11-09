@@ -358,7 +358,8 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=(),
     from turku3d.roads import centring, encode
     from turku3d.roads.tile_graph import prepare as tile_graph
 
-    graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size)
+    seam_context = {}
+    graph = tile_graph(osm, tile.bbox, f"coarse-{tile.id}", tile.size, seam_context)
     centred = Counter()
     if street is not None:
         around = tile.bbox.buffered(centring.HALF + 5)
@@ -367,7 +368,7 @@ def prepare_roads(tile: C.VisualTile, osm: Path, survey_paths=(), spot_paths=(),
         if not centred_carriageways():
             # A Finnish register carriageway includes its kerbside bays: only the lanes beside bays OSM maps move.
             bays = centring.kerbside_bays(carriageway, centring.parking_areas(osm, around))
-        centring.centre(graph, carriageway, centred, streets, bays)
+        centring.centre(graph, carriageway, centred, streets, bays, seam_context)
     from .bridges import prepare as prepare_bridges
 
     return {

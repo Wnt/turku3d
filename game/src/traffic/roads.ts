@@ -46,6 +46,8 @@ export interface TrafficRoads {
   /** Signalised junction nodes with their controller id ('' when the data names none). */
   signals: ReadonlyMap<number, string>;
   nodeFlags: Uint16Array;
+  /** Seam identities before carriageway centring (old tiles use their nodes). */
+  seamOrigins?: Record<string, [number, number]>;
 }
 
 /** Revision 2 streets whose `highway` the flow table does not know, by car density (spec §3.5 rules). */
@@ -90,7 +92,7 @@ export function trafficRoads(json: RoadGraphJson, every = false): TrafficRoads {
     }
   }
   const seams = revision === 2 ? new Set([...graph.nodeFlags.keys()].filter(n => graph.nodeFlags[n] & NODE.SEAM)) : null;
-  return { revision, nodes: graph.nodes, edges, seams, signals, nodeFlags: graph.nodeFlags };
+  return { revision, nodes: graph.nodes, edges, seams, signals, nodeFlags: graph.nodeFlags, seamOrigins: json.seamOrigins };
 }
 
 /** Peak flow of one edge: by OSM `highway` in revision 2 (service roads, aisles and driveways none), by class in v1
