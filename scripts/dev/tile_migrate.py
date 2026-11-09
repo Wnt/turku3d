@@ -204,6 +204,17 @@ def apply_step(root: Path, meta: dict, tile: str, step, displaced: Path) -> dict
             core.materialize(product, staging / tile)
             checked = Farm.validate(staging, tile, product.manifest)
             displaced.mkdir(parents=True, exist_ok=True)
+            # Displaced tile manifests still resolve ../shared themselves;
+            # preserve those immutable payloads as well as the tile directory.
+            previous = core.Product(source, json.loads(before))
+            for relative in core.references(previous):
+                if relative.startswith('../shared/'):
+                    target = displaced / relative.removeprefix('../')
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        os.link(source / relative, target)
+                    except FileExistsError:
+                        pass
             aside = displaced / f'{generation[:12]}-{tile}-{time.time_ns()}'
             source.rename(aside)
             (staging / tile).rename(source)
