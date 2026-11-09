@@ -8,7 +8,7 @@ import { readCol, readColSync, COL_FLAG_FIX_INTERNAL_EDGES, type ColTile } from 
 import { CellPlanner, compactPiece, InstallQueue, planCell, type CellPlan, type InstallJob, type Piece } from './tileInstall';
 import { TriLocator } from './triLocator';
 import { EdgeWalls } from './edgeWalls';
-import { CHARACTER, DEBRIS, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES } from './constants';
+import { CHARACTER, DEBRIS, DT, MAX_SUBSTEPS, REMOTE_VEHICLE, VEHICLES, type VehicleTuning } from './constants';
 import { Vehicle } from '../vehicle/vehicle';
 import { CurbQueries } from '../vehicle/curbQueries';
 import { remoteColliderHeight } from '../net/height';
@@ -65,6 +65,31 @@ const REMOTE_SERVO = { tau: 0.08, freeS: 1, slide: 7.5, spin: 3, returnTau: 0.3,
  *  a remote proxy from IMPULSE_DEDUP_S before its arrival until then: this client already exchanged that momentum in
  *  its own solver. It still moves a car the remote proxy never reached here (latency: a car hit from behind). */
 const IMPULSE_HOLD_S = 0.15, IMPULSE_DEDUP_S = 0.5;
+/** Other players' cars near this client run here as real vehicles: wheels, tyres, gravity and the world, driven by their
+ *  owner's replicated controls (net/motion.ts) and pulled towards the owner's state predicted to the present (at most
+ *  predictS ahead, turning with its spin): velocity towards the goal's plus the gap over `tau`, blended in over `velTau`;
+ *  yaw likewise over `spinTau`, pitch and roll left to the suspension unless 0.3 rad off. Local cars, the character and
+ *  the other simulated remote cars collide with them like with any car, so a hit plays out in this solver: for
+ *  `contactS` after a contact the pull is `contactGain` of itself, then it ramps back over `settleS` and the owner's
+ *  state, which carries the same hit, takes over. A goal farther than `snapM` (plus 0.15 s of its speed) or `snapRad`
+ *  off is placed (net/remotes.ts hides the jump). The nearest `max` within `near` m of this player (kept until `far`) on
+ *  resident collision run so; the others stay proxies (REMOTE_SERVO). Ambient traffic passes them, as it passes parked
+ *  cars. */
+const REMOTE_SIM = { near: 60, far: 75, max: 5, predictS: 0.5, snapM: 4, snapRad: 0.8, tau: 0.25, velTau: 0.1, spinTau: 0.2,
+  contactS: 0.6, contactGain: 0.15, settleS: 0.4 } as const;
+type QuatLike = { x: number; y: number; z: number; w: number };
+const qMul = (a: QuatLike, b: QuatLike): Quat => ({ x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y, y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+  z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w, w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z });
+/** The rotation `spin` (rad/s, world frame) turns through in `t` seconds. */
+const qSpin = (spin: V3, t: number): Quat => {
+  const rate = Math.hypot(spin.x, spin.y, spin.z), half = rate * t / 2, k = rate > 1e-9 ? Math.sin(half) / rate : 0;
+  return { x: spin.x * k, y: spin.y * k, z: spin.z * k, w: Math.cos(half) };
+};
+/** `v` turned by `a` rad about +Y. */
+const turnY = (v: V3, a: number): V3 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), y: v.y, z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
+interface RemoteCar { vehicle: Vehicle; model: string; st: number; input: VehicleInput | null; touched: number; snaps: number;
+  /** The owner's state and the local tick it was true at. */
+  target: { pos: V3; rot: Quat; vel: V3; spin: V3; tick: number } }
 const groups = (membership: number, filter: number) => ((membership & 0xffff) << 16) | (filter & 0xffff);
 
 /** One solver step of `world`. Rapier 0.21's World.step() also wraps, after every step, what the engine created on
@@ -126,6 +151,9 @@ export class PhysicsWorld {
     /** Cars: REMOTE_SERVO phase; free until `freeUntil` (a tick); the velocity the servo set before this step's solve. */
     phase: 'follow' | 'free' | 'return'; freeUntil: number; solvedFrom?: V3 }>();
   /** Server contact impulses waiting for IMPULSE_HOLD_S, and the tick each local car last touched a remote car proxy. */
+  /** Remote cars simulated here (REMOTE_SIM), and each remote's last model and driving tuning (null: the class default). */
+  private remoteCars = new Map<string, RemoteCar>();
+  private remoteTunings = new Map<string, { model: string; tuning: VehicleTuning | null }>();
   private pendingImpulses: { id: string; impulse: V3; arrived: number }[] = [];
   private remoteTouch = new Map<string, number>();
   private poles = new Map<string, { spec: PoleSpec; body: RAPIER_NS.RigidBody; anchor: RAPIER_NS.RigidBody; joint: RAPIER_NS.ImpulseJoint | null; brokenAt: number | null; brokeNow: boolean }>();
@@ -173,6 +201,7 @@ export class PhysicsWorld {
         if (!this.charEnabled && this.vehicles.get(this.drivenId ?? '')?.body.handle === handle) return 'driven';
         if (this.claimedBodies.has(handle)) return 'claimed';
         for (const vehicle of this.vehicles.values()) if (vehicle.body.handle === handle) return 'vehicle';
+        for (const car of this.remoteCars.values()) if (car.vehicle.body.handle === handle) return 'vehicle';
         return null;
       },
       pushCharacter: (dx, dz) => {
@@ -672,7 +701,11 @@ export class PhysicsWorld {
       this.world.removeRigidBody(remote.body);
       this.remotes.delete(id);
     }
+    for (const id of [...this.remoteCars.keys()]) if (!incoming.has(id)) this.dropRemoteCar(id);
+    for (const id of [...this.remoteTunings.keys()]) if (!incoming.has(id)) this.remoteTunings.delete(id);
+    const simulated = this.simulateRemoteCars(bodies);
     for (const p of bodies) {
+      if (simulated.has(p.id)) continue;
       let remote = this.remotes.get(p.id);
       if (remote?.mode !== p.mode) {
         if (remote) this.world.removeRigidBody(remote.body);
@@ -737,6 +770,120 @@ export class PhysicsWorld {
         remote.body.setNextKinematicRotation(remote.rot);
       }
     }
+  }
+
+  /** Picks the remote cars simulated here (REMOTE_SIM), creates or updates them and drops the rest; their proxies go. */
+  private simulateRemoteCars(bodies: RemoteBody[]): Set<string> {
+    const S = REMOTE_SIM, ref = this.remoteReference(), picked = new Set<string>(), candidates: { p: RemoteBody; d: number }[] = [];
+    for (const p of bodies) if (p.model && p.tuning !== undefined) this.remoteTunings.set(p.id, { model: p.model, tuning: p.tuning });
+    for (const p of bodies) {
+      const known = this.remoteTunings.get(p.id);
+      if (p.mode !== 'car' || !p.state || !ref || known?.model !== p.model) continue;
+      const at = p.state.pos, d = Math.hypot(at.x - ref.x, at.z - ref.z), cell = collisionTileAt(at.x, at.z);
+      if (d < (this.remoteCars.has(p.id) ? S.far : S.near) && this.residentCells.has(collisionTileId(cell.i, cell.j))) candidates.push({ p, d });
+    }
+    candidates.sort((a, b) => a.d - b.d);
+    for (const { p } of candidates.slice(0, S.max)) picked.add(p.id);
+    for (const id of [...this.remoteCars.keys()]) if (!picked.has(id)) this.dropRemoteCar(id);
+    for (const p of bodies) if (picked.has(p.id)) this.updateRemoteCar(p, p.state!, this.remoteTunings.get(p.id)!);
+    return picked;
+  }
+
+  /** Where this player is: the driven car, else the character. */
+  private remoteReference(): V3 | null {
+    const car = this.vehicles.get(this.drivenId ?? '');
+    if (car && !this.charEnabled) return car.body.translation();
+    return this.charCollider?.translation() ?? car?.body.translation() ?? null;
+  }
+
+  private updateRemoteCar(p: RemoteBody, s: import('./protocol').RemoteCarState, known: { model: string; tuning: VehicleTuning | null }) {
+    const proxy = this.remotes.get(p.id);
+    if (proxy) { this.world.removeRigidBody(proxy.body); this.remotes.delete(p.id); }
+    let car = this.remoteCars.get(p.id);
+    if (car && car.model !== known.model) { this.dropRemoteCar(p.id); car = undefined; }
+    const target = { pos: { ...s.pos }, rot: { ...s.rot }, vel: { ...s.vel }, spin: { ...s.spin }, tick: this.tick - Math.round(s.age / DT) };
+    if (!car) {
+      const start = this.predictRemote(target);
+      const vehicle = new Vehicle(this.R, this.world, start.pos, 0, this.curbQueries, { kind: 'car', ...(known.tuning ? { tuning: known.tuning } : {}) },
+        (collider, point) => this.materialAt(collider, point));
+      vehicle.body.setRotation(start.rot, true); vehicle.body.setLinvel(start.vel, true); vehicle.body.setAngvel(target.spin, true);
+      this.remoteCars.set(p.id, { vehicle, model: known.model, st: s.st, input: s.input, touched: -Infinity, snaps: 0, target });
+      return;
+    }
+    // The same owner state seen again keeps the tick it was first seen at; an older one (reordered) is ignored.
+    if (s.st <= car.st) return;
+    car.st = s.st; car.target = target; car.input = s.input;
+  }
+
+  private dropRemoteCar(id: string) {
+    const car = this.remoteCars.get(id);
+    if (!car) return;
+    this.world.removeVehicleController(car.vehicle.controller);
+    this.world.removeRigidBody(car.vehicle.body);
+    this.remoteCars.delete(id);
+  }
+
+  /** The owner's state carried on to this tick: along its velocity turning with its yaw rate, rotated by its spin. */
+  private predictRemote(t: RemoteCar['target']): { pos: V3; rot: Quat; vel: V3 } {
+    const age = Math.max(0, Math.min(REMOTE_SIM.predictS, (this.tick - t.tick) * DT)), turn = t.spin.y * age, mid = turnY(t.vel, turn / 2);
+    return { pos: { x: t.pos.x + mid.x * age, y: t.pos.y + t.vel.y * age, z: t.pos.z + mid.z * age }, rot: qMul(qSpin(t.spin, age), t.rot),
+      vel: turnY(t.vel, turn) };
+  }
+
+  /** Steps each simulated remote car on its owner's controls and pulls it towards the predicted owner state. */
+  private driveRemoteCars() {
+    const S = REMOTE_SIM;
+    for (const car of this.remoteCars.values()) {
+      const b = car.vehicle.body;
+      car.vehicle.step(DT, car.input);
+      const goal = this.predictRemote(car.target), at = b.translation(), q = b.rotation();
+      const ex = goal.pos.x - at.x, ey = goal.pos.y - at.y, ez = goal.pos.z - at.z;
+      const err = qMul(goal.rot, { x: -q.x, y: -q.y, z: -q.z, w: q.w });
+      if (err.w < 0) { err.x = -err.x; err.y = -err.y; err.z = -err.z; err.w = -err.w; }
+      const sin = Math.hypot(err.x, err.y, err.z), angle = 2 * Math.atan2(sin, err.w), rate = sin > 1e-6 ? angle / sin : 0;
+      if (Math.hypot(ex, ey, ez) > S.snapM + Math.hypot(goal.vel.x, goal.vel.z) * 0.15 || angle > S.snapRad) {
+        b.setTranslation(goal.pos, true); b.setRotation(goal.rot, true); b.setLinvel(goal.vel, true); b.setAngvel(car.target.spin, true);
+        car.snaps++;
+        continue;
+      }
+      const since = (this.tick - car.touched) * DT;
+      const gain = since < S.contactS ? S.contactGain : S.contactGain + (1 - S.contactGain) * Math.min(1, (since - S.contactS) / S.settleS);
+      const k = gain * Math.min(1, DT / S.velTau), lv = b.linvel(), w = b.angvel(), spin = car.target.spin;
+      b.setLinvel({ x: lv.x + (goal.vel.x + ex / S.tau - lv.x) * k, y: lv.y + (goal.vel.y + ey / S.tau - lv.y) * k * 0.3,
+        z: lv.z + (goal.vel.z + ez / S.tau - lv.z) * k }, true);
+      const tilt = Math.hypot(err.x, err.z) * rate, kt = tilt > 0.3 ? k : 0;
+      b.setAngvel({ x: w.x + (spin.x + err.x * rate / S.spinTau - w.x) * kt, y: w.y + (spin.y + err.y * rate / S.spinTau - w.y) * k,
+        z: w.z + (spin.z + err.z * rate / S.spinTau - w.z) * kt }, true);
+    }
+  }
+
+  /** After the solve: a simulated remote car touching a local car, the character or another simulated remote car. A
+   *  local car touching one remembers the tick (applyImpulses drops the server's impulse for a contact this solver had). */
+  private noteRemoteCarContacts(carIds: Map<number, string>) {
+    const remoteHandles = new Set([...this.remoteCars.values()].map(c => c.vehicle.body.handle));
+    for (const car of this.remoteCars.values()) {
+      const b = car.vehicle.body;
+      for (let i = 0; i < b.numColliders(); i++) {
+        const own = b.collider(i);
+        this.world.contactPairsWith(own, other => {
+          const body = other.parent(), id = body ? carIds.get(body.handle) : undefined;
+          if (id === undefined && other !== this.charCollider && !(body && body.handle !== b.handle && remoteHandles.has(body.handle))) return;
+          let touching = false;
+          this.world.contactPair(own, other, m => { if (m.numContacts() > 0) touching = true; });
+          if (!touching) return;
+          car.touched = this.tick;
+          if (id !== undefined) this.remoteTouch.set(id, this.tick);
+        });
+      }
+    }
+  }
+
+  /** The simulated remote cars as drawn (net/remotes.ts). */
+  remoteCarDraws(): import('./protocol').RemoteCarDraw[] {
+    return [...this.remoteCars].map(([id, car]) => {
+      const p = car.vehicle.body.translation(), q = car.vehicle.body.rotation();
+      return { id, pos: { x: p.x, y: p.y, z: p.z }, rot: { x: q.x, y: q.y, z: q.z, w: q.w }, snaps: car.snaps };
+    });
   }
 
   /** This substep's kinematic target of each remote walker still on its way (REMOTE_SWEEP), and each remote car's
@@ -1084,9 +1231,12 @@ export class PhysicsWorld {
       carIds.set(car.body.handle, id);
     }
     this.sweepRemotes();
+    this.driveRemoteCars();
     stepPipeline(this.world, this.poleEvents, this.traffic?.hooks);
     if (this.remotes.size) this.noteRemoteContacts(carIds);
+    if (this.remoteCars.size) this.noteRemoteCarContacts(carIds);
     for (const [id, car] of this.vehicles) if (!this.heldVehicles.has(id)) car.afterStep(DT);
+    for (const car of this.remoteCars.values()) car.vehicle.afterStep(DT);
     const poleColliders = new Map<number, string>();
     for (const [id, pole] of this.poles) if (pole.brokenAt === null) poleColliders.set(pole.body.collider(0).handle, id);
     this.poleEvents.drainContactForceEvents(event => {

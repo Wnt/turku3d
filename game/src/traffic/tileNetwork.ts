@@ -30,6 +30,8 @@ export interface SeamKey {
   line: string; vertical: boolean; coord: number;
   /** Position of the crossing along the seam (m) and the travel sign across it (+1 toward +x / +z). */
   u: number; dir: 1 | -1;
+  /** Geometry was centred away from this original OSM seam identity. */
+  moved?: boolean;
 }
 
 export interface LaneEnd {
@@ -148,7 +150,7 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   edges.forEach((e, i) => { incident[e.a].push(i); if (e.b !== e.a) incident[e.b].push(i); });
   const tol = TRAFFIC.seamTolerance;
   const seamOf = (n: number): { vertical: boolean; coord: number } | null => {
-    const x = nodes[2 * n], z = nodes[2 * n + 1];
+    const [x, z] = roads.seamOrigins?.[n] ?? [nodes[2 * n], nodes[2 * n + 1]];
     const dx = Math.min(Math.abs(x - bounds[0]), Math.abs(x - bounds[2]));
     const dz = Math.min(Math.abs(z - bounds[1]), Math.abs(z - bounds[3]));
     // Revision 2 marks seam nodes itself; the bbox only tells which seam line.
@@ -229,9 +231,11 @@ export function buildTileTraffic(tile: string, roads: TrafficRoads, bounds: Boun
   const endOf = (n: number, tx: number, tz: number): LaneEnd => {
     if (kind(n) !== 'seam') return { kind: 'junction', node: n, seam: null };
     const seam = seamOf(n)!;
-    const u = seam.vertical ? nodes[2 * n + 1] : nodes[2 * n];
+    const origin = roads.seamOrigins?.[n] ?? [nodes[2 * n], nodes[2 * n + 1]];
+    const u = origin[seam.vertical ? 1 : 0];
     const dir = (seam.vertical ? tx : tz) >= 0 ? 1 : -1;
-    return { kind: 'seam', node: n, seam: { line: `${seam.vertical ? 'x' : 'z'}:${seam.coord}`, vertical: seam.vertical, coord: seam.coord, u, dir } };
+    return { kind: 'seam', node: n, seam: { line: `${seam.vertical ? 'x' : 'z'}:${seam.coord}`, vertical: seam.vertical, coord: seam.coord, u, dir,
+      moved: !!roads.seamOrigins?.[n] } };
   };
   /** Stop short of a junction node by the data's setback (revision 2), else by the default trim. */
   const trimAt = (n: number, setback: number) => kind(n) === 'seam' ? 0 : incident[n].length === 1 ? TRAFFIC.deadEndTrim

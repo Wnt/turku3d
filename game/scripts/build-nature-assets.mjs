@@ -6,6 +6,7 @@
 //   node scripts/build-nature-assets.mjs [--src ~/turku3d/data/assets-src/nature] [--out public/assets/nature] [--previews DIR]
 //
 // Raw sources stay outside git under --src; encoded KTX2 textures are cached there by content hash.
+import './nature/node-version.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

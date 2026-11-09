@@ -217,3 +217,43 @@ def test_a_driveway_junction_beside_bays_moves_with_the_lane():
     assert abs(end["nodes"][3] - (-1.3)) < 0.05
     beyond = interior(end["edges"][1])
     assert beyond and -1.3 < beyond[0][1] < -0.3 and all(abs(z) < 0.05 for x, z in beyond if x >= 40)
+
+
+def test_seam_move_uses_unclipped_source_and_keeps_its_original_identity():
+    from turku3d import config as C
+    from turku3d.roads.tile_graph import Way, build_tile_graph
+
+    # Oblique OSM way; moving it shifts both x and z, off the nominal tile boundary.
+    ways = [Way([(180, 90), (320, 110)], 3, 42, "residential", {"highway": "residential"})]
+    line = shapely.LineString(ways[0].coords)
+    carriageway = line.buffer(5, cap_style="square")
+    bays = shapely.Polygon([(170, 91), (330, 114), (330, 118), (170, 95)])
+    origins, moved = [], []
+    for i in (0, 1):
+        tile = C.VisualTile(0, i, 0)
+        context = {}
+        g = build_tile_graph(ways, [], [], tile.bbox, tile.id, tile.size, context)
+        centring.centre(g, carriageway, Counter(), bays=bays, seam_context=context)
+        assert len(g["seamOrigins"]) == 1
+        n, origin = next(iter(g["seamOrigins"].items()))
+        origins.append(origin)
+        moved.append(g["nodes"][2 * int(n):2 * int(n) + 2])
+    assert origins[0] == origins[1] == [250, 100]
+    assert moved[0] == moved[1]
+    assert moved[0][0] != 250 and moved[0][1] < 99
+
+
+def test_a_short_clipped_stub_uses_the_same_seam_rule_as_its_long_neighbour():
+    from turku3d import config as C
+    from turku3d.roads.tile_graph import Way, build_tile_graph
+    # Real end is 12 m from the seam; both sides apply its slope limit, not their clipped lengths.
+    way = Way([(100, 100), (262, 100)], 3, 42, "residential", {"highway": "residential"})
+    moved = []
+    for i in (0, 1):
+        tile = C.VisualTile(0, i, 0)
+        context = {}
+        g = build_tile_graph([way], [], [], tile.bbox, tile.id, tile.size, context)
+        centring.centre(g, shapely.box(90, 95, 280, 105), bays=shapely.box(90, 101, 280, 105), seam_context=context)
+        n = next(iter(g["seamOrigins"]))
+        moved.append(g["nodes"][2 * int(n):2 * int(n) + 2])
+    assert moved == [[250, 98.2], [250, 98.2]]

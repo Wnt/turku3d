@@ -11,7 +11,10 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { collisionTileAt } from '../core/origin';
 import type { V3 } from '../core/origin';
-import type { RemoteBody, VehicleState } from '../physics/protocol';
+import type { RemoteBody, RemoteCarState, VehicleState } from '../physics/protocol';
+import type { VehicleTuning } from '../physics/constants';
+import { modelTuning } from '../vehicle/modelTuning';
+import { decodeCtl, spinOf } from './motion';
 import { VEHICLES } from '../physics/constants';
 import { chassisForward } from '../traffic/pedestrians';
 import type { WalkerThreat } from '../world/walkers';
@@ -42,6 +45,27 @@ interface Remote {
   pizza: THREE.Mesh; label: THREE.Sprite;  lastT: number; effectSlot: number; receivedAt: number;
   /** The remote truck's engine voice input, stepped once per frame from its synced wheels and `drv`. */
   engine: { feed: TruckSoundFeed; at: number } | null;
+  /** Where the model was drawn last frame, from which source, and the offset still hiding a jump between sources or a
+   *  placement of the simulated car (RESIDUAL); `snaps` is the simulated car's placement count last seen. */
+  shown: V3 | null; source: 'pose' | 'proxy' | 'sim'; residual: V3; snaps: number; drawnAt: number;
+  /** The model whose driving tuning the physics worker last got for this car, and when (TUNING_RESEND_MS). */
+  tuningSent: { model: string; at: number } | null;
+}
+
+/** A jump of the drawn car (between its buffered pose, a proxy and its local simulation, or a placement of the
+ *  simulated car on its owner's state) is hidden by an offset that halves every `halfLife` s, at most `maxM`. */
+const RESIDUAL = { halfLife: 0.12, maxM: 4 } as const;
+const TUNING_RESEND_MS = 5000;
+const tunings = new Map<string, VehicleTuning | null>();
+const tuningOf = (model: string) => { if (!tunings.has(model)) tunings.set(model, modelTuning(model) ?? null); return tunings.get(model)!; };
+
+/** A car pose's owner state for the local simulation (physics/world.ts REMOTE_SIM), from a client that sends its spin,
+ *  controls and room-clock stamp (net/motion.ts); undefined otherwise. */
+export function remoteCarState(pose: NetPose, serverNow: number): RemoteCarState | undefined {
+  const spin = spinOf(pose.w);
+  if (pose.mode !== 'car' || typeof pose.st !== 'number' || !spin || !pose.ctl || !pose.rot) return undefined;
+  return { st: pose.st, age: Math.max(0, (serverNow - pose.st) / 1000), pos: { x: pose.E, y: pose.H + VEHICLE_POSE_HEIGHT, z: -pose.N },
+    rot: pose.rot, vel: { x: pose.vE, y: pose.vH, z: -pose.vN }, spin, input: decodeCtl(pose.ctl) };
 }
 
 const FULL_MODEL_DISTANCE = 6;
@@ -135,6 +159,7 @@ export class RemotePlayers {
     this.horns.length = 0; this.threats.length = 0; this.engines.length = 0; this.lamps.length = 0;
     const selfId = client.state.you?.id;
     const proxies = this.physics.latest?.remoteProxies;
+    const sims = this.physics.latest?.remoteCars;
     this.selfId = selfId;
     const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
@@ -173,7 +198,8 @@ export class RemotePlayers {
         pizza.userData.devLayer = 'People/Players';
         this.root.add(distant, car, label, pizza);
         remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter: null, truck: null, chassis: new THREE.Quaternion(),
-          label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null };
+          label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null,
+          shown: null, source: 'pose', residual: { x: 0, y: 0, z: 0 }, snaps: 0, drawnAt: now, tuningSent: null };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
@@ -217,8 +243,20 @@ export class RemotePlayers {
       const pos = { x: pose.E, y: pose.H + remoteRootHeight(pose.mode), z: -pose.N };
       // A car this client's hit moved is drawn where the local physics put it (shoved like a parked car, then gliding
       // back onto its owner's pose: physics/world.ts REMOTE_SERVO); the physics proxy still follows the owner's pose.
-      const shoved = pose.mode !== 'foot' && !p.locallySimulated ? proxies?.find(r => r.id === p.id) : undefined;
-      const shownPos = shoved ? shoved.pos : pos, shownPose = shoved ? { ...pose, rot: shoved.rot } : pose;
+      // A nearby car simulated here is drawn at its simulated body, which local cars collide with (REMOTE_SIM).
+      const sim = pose.mode === 'car' && !p.locallySimulated ? sims?.find(r => r.id === p.id) : undefined;
+      const shoved = !sim && pose.mode !== 'foot' && !p.locallySimulated ? proxies?.find(r => r.id === p.id) : undefined;
+      const drawn = sim ?? shoved, source = sim ? 'sim' : shoved ? 'proxy' : 'pose';
+      const target = drawn ? drawn.pos : pos, shownPose = drawn ? { ...pose, rot: drawn.rot } : pose;
+      const r = remote.residual, fade = Math.exp(-Math.max(0, now - remote.drawnAt) / 1000 * Math.LN2 / RESIDUAL.halfLife);
+      r.x *= fade; r.y *= fade; r.z *= fade;
+      if (remote.shown && (remote.source !== source || (sim && sim.snaps !== remote.snaps))) {
+        r.x = remote.shown.x - target.x; r.y = remote.shown.y - target.y; r.z = remote.shown.z - target.z;
+        const size = Math.hypot(r.x, r.y, r.z), cap = size > RESIDUAL.maxM ? 0 : 1;
+        r.x *= cap; r.y *= cap; r.z *= cap;
+      }
+      const shownPos = { x: target.x + r.x, y: target.y + r.y, z: target.z + r.z };
+      remote.shown = shownPos; remote.source = source; remote.snaps = sim?.snaps ?? remote.snaps; remote.drawnAt = now;
       if (pose.mode !== 'foot') {
         const model = pose.mode === 'car' ? remote.car : pose.mode === 'truck' ? remote.truck! : remote.scooter!;
         vehicleLamps(model, pose.mode, pose.lights ?? 0);
@@ -286,8 +324,16 @@ export class RemotePlayers {
         }
       }
       remote.label.position.set(shownPos.x, shownPos.y + (pose.mode === 'foot' ? 2.2 : 2), shownPos.z);
-      if (!p.locallySimulated) bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
-        vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 } });
+      if (!p.locallySimulated) {
+        // The newest owner state (not the buffered pose drawn ~100 ms late) for the local simulation of a nearby car.
+        const state = p.pose && typeof p.pose.st === 'number' ? remoteCarState(p.pose, client.serverNow()) : undefined;
+        const key = p.pose?.vehicle, model = key === 'player' ? PLAYER_MODEL : key?.split('/')[0];
+        const resend = !!state && !!model && (remote.tuningSent?.model !== model || now - remote.tuningSent.at > TUNING_RESEND_MS);
+        if (resend) remote.tuningSent = { model: model!, at: now };
+        bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
+          vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 },
+          ...(state && model ? { state, model, ...(resend ? { tuning: tuningOf(model) } : {}) } : {}) });
+      }
       if (!p.locallySimulated) {
         const half = pose.mode === 'foot' ? null : VEHICLES[pose.mode].halfExt;
         const heading = pose.rot ? chassisForward(pose.rot) : { hx: Math.cos(pose.yaw + Math.PI / 2), hz: -Math.sin(pose.yaw + Math.PI / 2) };

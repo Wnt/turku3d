@@ -159,7 +159,27 @@ directions is at `o_div = -width/2 + B * w`.
 | 32 | `SEAM` | clip point on the tile edge; not a real junction (the edge continues in the next tile) |
 | 64 | `DEAD_END` | way end with no other edge (turning circle, cul-de-sac, data end) |
 
-Node identity across tiles is its coordinate: nodes within 0.11 m are the same node (as in v1).
+Node identity across tiles is its original OSM coordinate: nodes within 0.11 m are the same node.
+When carriageway centring moves a `SEAM` node, `seamOrigins` records that identity as a sparse object
+`{"node index": [original x, original z]}`. `nodes` contains its centred position (up to 3 m away,
+rounded to 0.01 m); edge ids and source spans stay unchanged. Older neighbours have no entry and
+use their node position as the identity. The manifest continues to content-address the entire graph;
+train pins may select different generations independently for each tile.
+
+The Finnish bay-side rule computes a seam shift from the unclipped OSM tangent and the surveyed
+cross-section at the original clip point. It is limited by the distance to the logical edge's real ends,
+not by either tile's clipped length. Both independent builds therefore compute the same move.
+
+The client keeps its identity tolerances (merged graph 0.11 m; traffic seam line/direction/lane and
+along-seam position 0.6 m). It never broadens coordinate matching to a car's lane width. For a moved
+seam, differing geometries may be reconciled within 6.1 m (two opposite 3 m shifts plus rounding).
+Two continuing approaches meet at their midpoint with a shared tangent; a cubic displacement dies
+with zero derivative within 20 m on each side, capped at 45% of the edge length to preserve the next
+junction. Heights blend with it. Traffic and autopilot use those same repaired lane polylines. Traffic
+phases still derive from the original identity, driving times stay fixed, and lengths/effective speeds
+are recomputed. Removing a neighbour restores the original per-tile geometry before relinking.
+Parked-car locations remain source-derived from parking polygons and kerbs, independent of these
+lane corrections. The minimap uses the merged, reconciled road graph.
 
 `bits` gains the tables `"edge_flags"`, `"node_flags"`, `"event_kinds"`, `"event_bits"` (name → bit
 value, as above and in 3.7) and `"highways"` (the list the `highway` column indexes).

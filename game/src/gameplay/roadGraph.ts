@@ -2,6 +2,7 @@
 // lanes, heights, junctions, signals and crossings: docs/specs/roads-json-v2.md).
 import type { Manifest } from '../world/manifest';
 import { readStreamingJson } from '../world/streamingJson';
+import { blendSeam } from './seamGeometry';
 
 export const FOOT = 1, CAR = 2, ONEWAY = 4;
 const CLASS_SHIFT = 3;
@@ -104,6 +105,8 @@ export interface RoadGraphJson {
   edgeAttrs?: number[][];
   edgeEvents?: (number[] | null)[];
   nodeFlags?: number[];
+  /** Original OSM clip point of a moved seam node; absent on older tile generations. */
+  seamOrigins?: Record<string, [number, number]>;
   controllers?: [string, number, number][];
   /** Signal posts at the kerb (pipeline roads/signal_posts.py): [edge, event index, dir ±1, x, z, ground y | null]. */
   signalPosts?: [number, number, number, number, number, number | null][];
@@ -310,11 +313,16 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   const bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   const controllers = new Map<string, RoadController>();
   const flagged: [number, number][] = [];
+  const movedNodes: number[] = [];
   let rows: { row: Row; a: number; b: number }[] = [];
   for (const part of parts) {
     const decoded = decode(part);
-    const map = Array.from({ length: part.nodes.length / 2 }, (_, i) => clusters.add(part.nodes[2 * i], part.nodes[2 * i + 1]));
+    const map = Array.from({ length: part.nodes.length / 2 }, (_, i) => {
+      const p = part.seamOrigins?.[i] ?? [part.nodes[2 * i], part.nodes[2 * i + 1]];
+      return clusters.add(p[0], p[1]);
+    });
     for (const [i, f] of decoded.nodeFlags) flagged.push([map[i], f]);
+    for (const i of Object.keys(part.seamOrigins ?? {})) movedNodes.push(map[Number(i)]);
     decoded.rows.forEach((row, i) => rows.push({ row, a: map[part.edges[i][0]], b: map[part.edges[i][1]] }));
     for (const c of decoded.controllers.values()) if (!controllers.has(c.id)) controllers.set(c.id, c);
     for (let k = 0; k < 4; k++) bbox[k] = k < 2 ? Math.min(bbox[k], part.bbox[k]) : Math.max(bbox[k], part.bbox[k]);
@@ -335,6 +343,28 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   const length = (r: Row) => r.cumulative[r.cumulative.length - 1];
   rows.sort((p, q) => compareRows(p.row, q.row) || key(p.a).localeCompare(key(q.a)) || key(p.b).localeCompare(key(q.b))
     || p.row.flags - q.row.flags || length(p.row) - length(q.row));
+  // Match by original clip identity, then reconcile geometry. Never proximity-match moved coordinates:
+  // that could join two parallel streets. Long logical edges have different tile-local ids but the same anchor.
+  const seamRoots = new Set(flagged.filter(([, f]) => f & NODE.SEAM).map(([n]) => clusters.root(n)));
+  const movedRoots = new Set(movedNodes.map(n => clusters.root(n)));
+  const incident = new Map<number, { row: Row; start: boolean }[]>();
+  for (const r of rows) for (const [n, start] of [[r.a, true], [r.b, false]] as const) {
+    const root = clusters.root(n);
+    if (seamRoots.has(root) && movedRoots.has(root)) incident.set(root, [...incident.get(root) ?? [], { row: r.row, start }]);
+  }
+  for (const list of incident.values()) {
+    if (list.length !== 2) continue;
+    const [a, b] = list;
+    if (a.row.way !== b.row.way) continue;
+    const blended = blendSeam(a.row, a.start, b.row, b.start);
+    if (!blended) continue;
+    for (const [i, end] of list.entries()) {
+      const old = end.row.cumulative, fresh = blended[i];
+      // Map events through the new arc length at their old physical station.
+      for (const e of end.row.events) e.s *= fresh.cumulative.at(-1)! / old.at(-1)!;
+      end.row.points = fresh.points; end.row.cumulative = fresh.cumulative; end.row.heights = fresh.heights ?? null;
+    }
+  }
   const joined: { row: Row; a: number; b: number }[] = [];
   for (const r of rows) {
     const last = joined[joined.length - 1];
@@ -351,6 +381,10 @@ export function mergeRoadGraphs(parts: readonly RoadGraphJson[]): RoadGraph {
   const index = new Map(used.map((k, i) => [k, i]));
   const nodes = new Float64Array(used.length * 2);
   used.forEach((k, i) => { nodes[2 * i] = clusters.x(k); nodes[2 * i + 1] = clusters.z(k); });
+  for (const r of joined) for (const [k, offset] of [[r.a, 0], [r.b, r.row.points.length - 2]]) {
+    const i = index.get(clusters.root(k))!;
+    nodes[2 * i] = r.row.points[offset]; nodes[2 * i + 1] = r.row.points[offset + 1];
+  }
   const nodeFlags = new Uint16Array(used.length);
   for (const [k, f] of flagged) {
     const i = index.get(clusters.root(k));

@@ -1,5 +1,5 @@
-import type { WheelState } from '../physics/protocol';
-import { MAT } from '../shared/col/materials';
+import type { WheelState } from '../physics/protocol.ts';
+import { MAT } from '../shared/col/materials.ts';
 
 /** Rapier's ray vehicle has no simulated wheel angular inertia. Estimate longitudinal sliding
  * from demanded engine/brake impulse beyond the solver's suspension-load friction budget. */

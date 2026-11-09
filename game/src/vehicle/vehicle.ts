@@ -130,11 +130,13 @@ export class Vehicle {
   private R: RapierApi;
   private world: Rapier.World;
   private surfaces: WheelQueries;
+  private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number;
 
   constructor(R: RapierApi, world: Rapier.World, pos: V3, yaw: number, surfaces: WheelQueries,
     spec: { kind?: VehicleKind; mass?: number; halfExt?: V3; parked?: boolean; tuning?: VehicleTuning;
       damage?: { box: import('./damage.ts').DamageBox } } = {},
-    private readonly contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
+    contactMaterial: (collider: Rapier.Collider, point: V3) => number = () => 0) {
+    this.contactMaterial = contactMaterial;
     this.R = R; this.world = world; this.surfaces = surfaces;
     this.kind = spec.kind ?? 'car';
     const t = this.tuning = spec.tuning ?? VEHICLES[this.kind];

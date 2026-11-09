@@ -57,7 +57,16 @@ export interface VehicleSpec { rot?: Quat; linvel?: V3; id: string; kind?: Vehic
    *  shared damage arrives with `vehicleDamage`. */
   damage?: { box: import('../vehicle/damage').DamageBox } }
 /** `vel`: the owner's reported velocity (net pose vE/vH/-vN); the proxy is swept towards `pos` no faster (world.ts). */
-export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind; vel?: V3 }
+export interface RemoteBody { rot?: Quat; id: string; pos: V3; yaw: number; mode: 'foot' | VehicleKind; vel?: V3;
+  /** A car's newest owner state (net/motion.ts), for the full simulation of nearby remote cars (world.ts REMOTE_SIM). */
+  state?: RemoteCarState;
+  /** Its model and the model's driving tuning: the tuning is resent now and then, the worker keeps the last one. */
+  model?: string; tuning?: VehicleTuning | null }
+/** `st`: room-clock ms of the state; `age`: seconds it was old when sent; `pos`: chassis centre; `input`: the owner's
+ *  replicated controls (null: undriven). */
+export interface RemoteCarState { st: number; age: number; pos: V3; rot: Quat; vel: V3; spin: V3; input: VehicleInput | null }
+/** A remote car simulated here, as drawn: chassis centre, rotation and how often it was placed on its owner's state. */
+export interface RemoteCarDraw { id: string; pos: V3; rot: Quat; snaps: number }
 export interface PoleSpec { id: string; base: V3; yaw: number; height: number }
 export interface PoleState { id: string; pos: V3; rot: Quat; broken: boolean; brokeNow: boolean }
 /** A car part that came off (actors/fleet/debris.ts): a box body of `half` extents and `mass` (kg) at its drawn pose. */
@@ -162,6 +171,7 @@ export type FromWorker =
       /** Remote cars a local hit moved: drawn at these poses (network frame: H at the drawn root) until back on their
        *  owner's pose (world.ts REMOTE_SERVO). */
       remoteProxies?: { id: string; pos: V3; rot: Quat }[];
+      remoteCars?: RemoteCarDraw[];
       /** Worker stalls not yet acknowledged (PhysStall). */
       stalls?: PhysStall[] }
   | { type: 'cameraCastResult'; id: number; distance: number }

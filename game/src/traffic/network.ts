@@ -13,6 +13,7 @@ import { TRAFFIC } from './constants';
 import { slotShare, type TrafficDensity } from './density';
 import { hash01, mod } from './hash';
 import { laneSpan, type Connector, type Lane, type TileTraffic } from './tileNetwork';
+import { blendSeam, type SeamLine } from '../gameplay/seamGeometry';
 
 const H = TRAFFIC.headway;
 
@@ -39,6 +40,7 @@ export class TrafficNetwork {
   revision = 0;
   /** Which slots carry cars; null: every slot (the conveyor's capacity). */
   density: TrafficDensity | null = null;
+  private readonly sourceGeometry = new WeakMap<Lane, { line: SeamLine; length: number; bbox: Lane['bbox']; crossings: Lane['crossings'] }>();
 
   setTile(tile: TileTraffic) { this.tiles.set(tile.tile, tile); this.relink(); }
   removeTile(id: string) { if (this.tiles.delete(id)) this.relink(); }
@@ -52,6 +54,12 @@ export class TrafficNetwork {
     const ends = new Map<string, Lane[]>(), starts = new Map<string, Lane[]>();
     const add = (map: Map<string, Lane[]>, key: string, lane: Lane) => { const list = map.get(key); if (list) list.push(lane); else map.set(key, [lane]); };
     for (const tile of this.tiles.values()) for (const lane of tile.lanes) {
+      const saved = this.sourceGeometry.get(lane);
+      if (saved) {
+        lane.points = saved.line.points; lane.cum = saved.line.cumulative; lane.ys = saved.line.heights ?? null;
+        lane.length = saved.length; lane.vEff = lane.length / lane.tau;
+        lane.bbox = [...saved.bbox]; lane.crossings = saved.crossings.map(c => ({ ...c }));
+      }
       lane.seamNext = null; lane.seamPrev = null;
       const end = lane.end.seam, start = lane.start.seam;
       if (end) add(ends, `${end.line}|${end.dir}|${lane.k}`, lane);
@@ -66,7 +74,29 @@ export class TrafficNetwork {
         if (b.tile !== a.tile && d < TRAFFIC.seamMatch) pairs.push({ d, a, b });
       }
       pairs.sort((p, q) => p.d - q.d || (p.a.tile + p.a.id < q.a.tile + q.a.id ? -1 : 1));
-      for (const { a, b } of pairs) if (!a.seamNext && !b.seamPrev) { a.seamNext = b; b.seamPrev = a; }
+      for (const { a, b } of pairs) if (!a.seamNext && !b.seamPrev) {
+        const line = (lane: Lane): SeamLine => ({ points: lane.points, cumulative: lane.cum, heights: lane.ys });
+        const moved = a.end.seam!.moved || b.start.seam!.moved;
+        const blended = moved ? blendSeam(line(a), false, line(b), true) : null;
+        // Identity still uses the original 0.6 m seam tolerance. Geometry has a separate bounded repair;
+        // retain the phase/tau and slot identities so crossing a generation boundary cannot teleport a car.
+        const gap = Math.hypot(a.points.at(-2)! - b.points[0], a.points.at(-1)! - b.points[1]);
+        if (moved && !blended && gap > TRAFFIC.seamMatch) continue;
+        a.seamNext = b; b.seamPrev = a;
+        if (blended) for (const [i, lane] of [a, b].entries()) {
+          if (!this.sourceGeometry.has(lane)) this.sourceGeometry.set(lane, {
+            line: line(lane), length: lane.length, bbox: [...lane.bbox], crossings: lane.crossings.map(c => ({ ...c })),
+          });
+          const oldLength = lane.length, fresh = blended[i];
+          lane.points = fresh.points; lane.cum = fresh.cumulative; lane.ys = fresh.heights ?? null;
+          lane.length = lane.cum.at(-1)!; lane.vEff = lane.length / lane.tau;
+          for (const crossing of lane.crossings) crossing.s *= lane.length / oldLength;
+          for (let j = 0; j < lane.points.length; j += 2) {
+            lane.bbox[0] = Math.min(lane.bbox[0], lane.points[j]); lane.bbox[2] = Math.max(lane.bbox[2], lane.points[j]);
+            lane.bbox[1] = Math.min(lane.bbox[1], lane.points[j + 1]); lane.bbox[3] = Math.max(lane.bbox[3], lane.points[j + 1]);
+          }
+        }
+      }
     }
   }
 

@@ -148,7 +148,7 @@ def _narrow(graph, k, widths, stats):
             stats["narrowed_edges"] += 1
 
 
-def centre(graph: dict, carriageway, stats=None, streets=None, bays=None) -> dict:
+def centre(graph: dict, carriageway, stats=None, streets=None, bays=None, seam_context=None) -> dict:
     """Move the interior vertices of every car edge (not bridge/tunnel) onto the carriageway's middle, in place.
     ``streets``: every surveyed street part (carriageway, pavements, verges, parking...); vertices off it stay.
     ``bays``: kerbside bays inside the carriageway (``kerbside_bays``); when given, only cross-sections over them place
@@ -181,13 +181,16 @@ def centre(graph: dict, carriageway, stats=None, streets=None, bays=None) -> dic
                            (nodes[2 * edge[1]], nodes[2 * edge[1] + 1])], float)
         line = shapely.LineString(points)
         length = line.length
-        if length < (STEP if bays is not None else 2 * STEP):  # beside bays a 9 m piece between driveways moves too
+        seam_end = bays is not None and any(n in (seam_context or {}) for n in edge[:2])
+        if length < (0.1 if seam_end else STEP if bays is not None else 2 * STEP):
             continue
         stations = np.unique(np.r_[np.arange(STEP, length - STEP / 2, STEP),
                                    shapely.line_locate_point(line, shapely.points(points[1:-1]))])
         stations = stations[(stations > 0.5) & (stations < length - 0.5)]
         if not len(stations):
-            continue
+            if not seam_end:
+                continue
+            stations = np.array([length / 2])
         xz = shapely.get_coordinates(shapely.line_interpolate_point(line, stations))
         ahead = shapely.get_coordinates(shapely.line_interpolate_point(line, np.minimum(stations + 0.5, length)))
         behind = shapely.get_coordinates(shapely.line_interpolate_point(line, np.maximum(stations - 0.5, 0)))
@@ -222,7 +225,7 @@ def centre(graph: dict, carriageway, stats=None, streets=None, bays=None) -> dic
         shift *= np.clip(np.abs(stations[:, None] - anchors[None, :]).min(axis=1) / TAPER, 0, 1)
         _shift_edge(graph, k, points[0], points[-1], xz, normal, shift, stats)
     if bays is not None:
-        _move_beside_bays(graph, plans, stats, carriageway, bays)
+        _move_beside_bays(graph, plans, stats, carriageway, bays, seam_context or {})
     return graph
 
 
@@ -266,12 +269,13 @@ def _rescale_events(graph, k, old, new):
             events[i] = round(min(events[i] * new / old, new), 2)
 
 
-def _move_beside_bays(graph, plans, stats, carriageway, bays):
+def _move_beside_bays(graph, plans, stats, carriageway, bays, seam_context):
     """Apply the bay-side shifts of ``plans`` (edge -> stations, xz, normal, shift, placed, length). A node where a
     street runs on through driveways (two car edges that are no service ways, every other car edge one, not on a tile
     seam) moves with the lane by the mean of its two nearest placed stations: Turku Kristiinankatu's line is cut into
     9-13 m pieces by driveways, and pinned there it could not leave the parked cars' noses. Junctions with other
-    streets and seam nodes (shared with the next tile) stay. Each edge's shift then drifts at BAY_SLOPE between its end
+    streets stay. Seam nodes use the unclipped OSM tangent and survey cross-section, independently of the tile's
+    length or interior sampling. Each edge's shift then drifts at BAY_SLOPE between its end
     nodes' shifts and its unplaced stations (0)."""
     edges = graph["edges"]
     columns = graph["edgeAttrColumns"]
@@ -288,6 +292,23 @@ def _move_beside_bays(graph, plans, stats, carriageway, bays):
     moves = {}
     for n, ends in at.items():
         if node_flags[n] & seam:
+            if n not in seam_context or len(ends) != 1 or ends[0][0] not in plans:
+                continue
+            ahead, behind, reach, width = seam_context[n]
+            tangent = np.asarray(ahead) - behind
+            tangent /= max(np.linalg.norm(tangent), 1e-9)
+            normal = np.array([-tangent[1], tangent[0]])
+            point = _node(graph, n)
+            cut = _cut(carriageway, *point, *normal, bays, width / 2)
+            if cut is not None:
+                shift = np.clip(cut[0], -BAY_SLOPE * reach, BAY_SLOPE * reach)
+                if abs(shift) >= MIN_SHIFT:
+                    moves[n] = normal * shift
+                    # Identity is the original OSM clip point, also available in old neighbours.
+                    graph.setdefault("seamOrigins", {})[str(n)] = point.tolist()
+                    if stats is not None:
+                        stats["moved_seam_nodes"] += 1
+                        stats["max_seam_shift_cm"] = max(stats["max_seam_shift_cm"], round(abs(shift) * 100))
             continue
         through = [(k, end) for k, end in ends if graph["edgeAttrs"][k][columns.index("highway")] != highways.index("service")]
         if len(through) != 2 or through[0][0] == through[1][0] or any(k not in plans for k, _ in through):

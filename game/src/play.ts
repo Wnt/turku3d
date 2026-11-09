@@ -335,7 +335,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // Developer tools (localhost, or ?dev=1 also on Pages): fly mode, the time panel (T) and the Developer page (ui/devMenu.ts).
   const fly = devToolsEnabled(location) ? new FlyMode() : null;
   const timePanel = fly ? new TimePanel(document.body, world.dayClock, world.weather) : null;
-  const devFlow = fly && timePanel ? new DevMenuFlow(pauseMenu, {
+  const devFlow: DevMenuFlow | null = fly && timePanel ? new DevMenuFlow(pauseMenu, {
     money: () => missions.money,
     addMoney: euros => missions.grantDevMoney(euros),
     flying: () => fly.active,
