@@ -892,7 +892,18 @@ def split_boundaries(
     footprints = shapely.polygons(triangles[:, :, [0, 2]])
     polygons = [g for g, _ in regions]
     tree = shapely.STRtree(footprints)
-    _, boundary = tree.query(shapely.boundary(polygons), predicate="intersects")
+    # Query short, connected spans rather than a city's complete perimeter.
+    # Their union is exactly the original boundary, but each tree search visits
+    # only nearby triangles instead of the perimeter's whole bounding box.
+    spans = []
+    for ring in shapely.get_parts(shapely.boundary(polygons)):
+        coordinates = shapely.get_coordinates(ring)
+        if len(coordinates) <= 65:
+            spans.append(ring)
+        else:
+            spans.extend(shapely.LineString(coordinates[start:start + 33])
+                         for start in range(0, len(coordinates) - 1, 32))
+    _, boundary = tree.query(spans, predicate="intersects")
     boundary = np.unique(boundary)
     # Vertical bank faces have no terrain plane in x/z. Preserve them exactly;
     # trying to invert their projected basis used to fail the entire tile.
@@ -903,8 +914,13 @@ def split_boundaries(
         region_materials = np.asarray([m for _, m in regions], np.uint8)
 
         def last_region(faces, predicate):
-            qi, pi = shapely.STRtree(polygons).query(
-                shapely.points(triangles[faces][:, :, [0, 2]].mean(axis=1)), predicate=predicate
+            # STRtree prepares its query geometries, not the indexed ones.
+            # Put the complex regions on that side so each point-in-polygon
+            # test uses their edge index instead of scanning every ring again.
+            pi, qi = shapely.STRtree(
+                shapely.points(triangles[faces][:, :, [0, 2]].mean(axis=1))
+            ).query(
+                polygons, predicate="contains" if predicate == "within" else predicate
             )
             winner = np.full(len(faces), -1, dtype=np.int64)
             np.maximum.at(winner, qi, pi)
