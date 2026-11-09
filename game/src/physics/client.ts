@@ -5,10 +5,10 @@ import { SharedMailbox } from './exchange';
 import type { LiveInput } from './protocol';
 import { loading, loadBytes } from '../core/loading';
 import { streamTrace } from '../telemetry/streamTrace';
-import { CharacterInterpolation, VehicleInterpolation } from '../actors/interpolation';
+import { CharacterInterpolation, RemoteCarInterpolation, VehicleInterpolation } from '../actors/interpolation';
 import type { V3 } from '../core/origin';
 import type { DamageHit } from '../vehicle/damage';
-import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, TileStats, ToWorker, TrafficConfig, TrafficTile, TrafficView, VehicleInput, VehicleSpec } from './protocol';
+import type { CharacterInput, FromWorker, PoleSpec, RayFilter, RayHit, RemoteBody, RemoteCarState, TileStats, ToWorker, TrafficConfig, TrafficTile, TrafficView, VehicleInput, VehicleSpec } from './protocol';
 import { VEHICLES, type VehicleKind } from './constants';
 
 type StateMsg = Extract<FromWorker, { type: 'state' }>;
@@ -30,6 +30,7 @@ export class PhysicsClient {
   get stateBytes() { return this.stateMailbox?.publishedBytes ?? null; }
   readonly characterRender = new CharacterInterpolation();
   readonly vehicleRender = new VehicleInterpolation();
+  readonly remoteCarRender = new RemoteCarInterpolation();
   private state: StateMsg | null = null;
   private vehicles = new ActorCache<VehicleState>();
   private poles = new ActorCache<PoleState>();
@@ -67,6 +68,7 @@ export class PhysicsClient {
     const published = m.publishedAt === undefined ? now : (m.publishedAt - performance.timeOrigin) / 1000;
     this.characterRender.push(m.character, m.previousCharacter, m.tick, published);
     this.vehicleRender.push(m.vehicle, m.previousVehicle, m.tick, published);
+    this.remoteCarRender.push(m.remoteCars ?? [], m.tick, published);
   }
   readonly loaded = new Map<string, TileStats>();
   /** The newest explicit placement of the character (`actor` 'character') or a vehicle (its id): a teleport, a reset
@@ -194,6 +196,8 @@ export class PhysicsClient {
   /** A car part that came off becomes a physics body for a while (world.ts spawnDebris). */
   spawnDebris(spec: DebrisSpec) { this.send({ type: 'spawnDebris', spec }); }
   setRemotes(bodies: RemoteBody[]) { this.send({ type: 'remotes', bodies }); }
+  /** A leading player's state of own car `id` in a contact (physics/world.ts REMOTE_SIM), or null. */
+  follow(id: string, state: RemoteCarState | null) { this.send({ type: 'follow', id, state }); }
   setPoles(add: PoleSpec[], remove: string[]) { if (add.length || remove.length) this.send({ type: 'poles', add, remove }); }
   breakPole(id: string) { this.send({ type: 'breakPole', id }); }
   /** Ambient traffic (traffic/client.ts): configuration, resident road tiles and entry claims. */

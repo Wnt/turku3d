@@ -1,4 +1,4 @@
-import type { CharacterState, Quat, VehicleState } from '../physics/protocol';
+import type { CharacterState, Quat, RemoteCarDraw, VehicleState } from '../physics/protocol';
 import type { V3 } from '../core/origin';
 import { PoseCorrection, SourceClock, quatConjugate, quatExp, quatLog, quatMultiply } from './renderClock';
 const STEP = 1 / 60;
@@ -171,4 +171,40 @@ export class VehicleInterpolation {
     this.track.push(tick * STEP, current, arrival, true, continuous);
   }
   sample(now: number, extrapolate = true): VehicleState | null { return this.track.sample(now, extrapolate); }
+}
+
+const remoteCarOps: PoseOps<RemoteCarDraw> = {
+  lerp: (p, c, a) => ({ ...c, pos: vector(p.pos, c.pos, a), rot: rotation(p.rot, c.rot, a), vel: vector(p.vel, c.vel, a) }),
+  extrapolate: (p, c, dt, s) => {
+    const turn = quatLog(quatMultiply(c.rot, quatConjugate(p.rot))), k = dt > 0 ? s / dt : 0;
+    return { ...c, pos: ahead(c.pos, c.vel, s), rot: quatMultiply(quatExp({ x: turn.x * k, y: turn.y * k, z: turn.z * k }), c.rot) };
+  },
+  pos: s => s.pos, rot: s => s.rot, speed: s => Math.hypot(s.vel.x, s.vel.z),
+  with: (s, pos, rot) => ({ ...s, pos, rot: rot ?? s.rot }),
+};
+
+/** The render poses of the other players' cars simulated here (physics/world.ts REMOTE_SIM), on the same clock as the
+ *  driven vehicle: the worker steps at 60 Hz, and drawn at its raw steps a moving car would advance every other frame
+ *  at 120 Hz (and two steps at once now and then). A placement (`snaps`) starts its track afresh. */
+export class RemoteCarInterpolation {
+  private readonly tracks = new Map<string, PoseTrack<RemoteCarDraw>>();
+  private tick = -1;
+  push(cars: RemoteCarDraw[], tick: number, arrival: number) {
+    if (tick === this.tick) return;
+    this.tick = tick;
+    const continuous = (a: RemoteCarDraw, b: RemoteCarDraw) => a.snaps === b.snaps && distance(a.pos, b.pos) < TELEPORT;
+    const seen = new Set<string>();
+    for (const car of cars) {
+      seen.add(car.id);
+      let track = this.tracks.get(car.id);
+      if (!track) this.tracks.set(car.id, track = new PoseTrack(remoteCarOps));
+      track.push(tick * STEP, car, arrival, true, continuous);
+    }
+    for (const id of [...this.tracks.keys()]) if (!seen.has(id)) this.tracks.delete(id);
+  }
+  sample(now: number, extrapolate = true): RemoteCarDraw[] {
+    const out: RemoteCarDraw[] = [];
+    for (const track of this.tracks.values()) { const s = track.sample(now, extrapolate); if (s) out.push(s); }
+    return out;
+  }
 }

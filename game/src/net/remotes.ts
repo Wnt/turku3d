@@ -27,7 +27,7 @@ import type { TruckVisual } from '../actors/truck';
 import { applyTrophyRig } from '../actors/trophy4400/rig';
 import { TruckSoundFeed } from '../audio/engine/feed';
 import type { EngineVoiceState } from '../audio/engine/voices';
-import type { MultiplayerClient, NetPlayer, NetPose } from './client';
+import type { LeadState, MultiplayerClient, NetPlayer, NetPose } from './client';
 import { vehicleRotation } from './orientation';
 import { vehiclePose } from './sharedVehicles';
 import type { SharedVehicles } from './sharedVehicles';
@@ -50,11 +50,13 @@ interface Remote {
   shown: V3 | null; source: 'pose' | 'proxy' | 'sim'; residual: V3; snaps: number; drawnAt: number;
   /** The model whose driving tuning the physics worker last got for this car, and when (TUNING_RESEND_MS). */
   tuningSent: { model: string; at: number } | null;
+  /** How fast the current residual fades (RESIDUAL). */
+  residualHalfLife: number;
 }
 
 /** A jump of the drawn car (between its buffered pose, a proxy and its local simulation, or a placement of the
  *  simulated car on its owner's state) is hidden by an offset that halves every `halfLife` s, at most `maxM`. */
-const RESIDUAL = { halfLife: 0.12, maxM: 4 } as const;
+const RESIDUAL = { halfLife: 0.12, switchHalfLife: 0.3, maxM: 4 } as const;
 const TUNING_RESEND_MS = 5000;
 const tunings = new Map<string, VehicleTuning | null>();
 const tuningOf = (model: string) => { if (!tunings.has(model)) tunings.set(model, modelTuning(model) ?? null); return tunings.get(model)!; };
@@ -137,6 +139,10 @@ export class RemotePlayers {
   private readonly pizzaMaterial = new THREE.MeshStandardMaterial({ color: 0xd8b479, roughness: .9 });
   private readonly distantSource = distantCharacter();
   private selfId: string | undefined;
+  /** The other players' cars this client holds in a contact, as published in its pose, and the room-clock stamp of
+   *  the last leading state of each own car passed to physics (physics/world.ts REMOTE_SIM). */
+  private leading: LeadState[] = [];
+  private readonly followed = new Map<string, number>();
   private readonly toTag = new THREE.Vector3();
   private readonly view = new THREE.Vector3();
   frameMs = 0;
@@ -154,14 +160,15 @@ export class RemotePlayers {
 
   /** `drawn`: the render pose of a locally simulated vehicle (the driven one), else its latest physics state is used. */
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
-    drawn: (id: string) => VehicleState | null = () => null) {
+    drawn: (id: string) => VehicleState | null = () => null, extrapolate = true) {
     const t0 = performance.now();
     this.horns.length = 0; this.threats.length = 0; this.engines.length = 0; this.lamps.length = 0;
     const selfId = client.state.you?.id;
     const proxies = this.physics.latest?.remoteProxies;
-    const sims = this.physics.latest?.remoteCars;
+    // Simulated remote cars at their render poses (actors/interpolation.ts RemoteCarInterpolation).
+    const sims = this.physics.remoteCarRender.sample(now / 1000, extrapolate);
     this.selfId = selfId;
-    const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null })[] = client.state.connected
+    const players: (NetPlayer & { locallySimulated?: boolean; occupant?: string | null; owner?: string | null })[] = client.state.connected
       ? client.state.players.filter(p => p.id !== selfId && !p.pose?.vehicleId) : [];
     if (client.state.connected && shared) for (const v of client.state.vehicles.values()) {
       const localId = shared.localId(v);
@@ -175,7 +182,7 @@ export class RemotePlayers {
         // A replica is drawn on its owner's own pose clock (net/interpolation.ts times poses by sender `t`, ms);
         // the record revision is a change counter, which made every remote shared car stutter.
         pose: state ? vehiclePose(state, v.pose.vehicle!, now) : { ...v.pose, t: Number.isFinite(v.pose.t) && v.pose.t > 0 ? v.pose.t : v.revision }, locallySimulated: local,
-        occupant: v.occupant });
+        occupant: v.occupant, owner: v.owner });
     }
     const present = new Set(players.map(p => p.id));
     for (const [id, remote] of this.remotes) if (!present.has(id)) {
@@ -199,7 +206,7 @@ export class RemotePlayers {
         this.root.add(distant, car, label, pizza);
         remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter: null, truck: null, chassis: new THREE.Quaternion(),
           label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null,
-          shown: null, source: 'pose', residual: { x: 0, y: 0, z: 0 }, snaps: 0, drawnAt: now, tuningSent: null };
+          shown: null, source: 'pose', residual: { x: 0, y: 0, z: 0 }, snaps: 0, drawnAt: now, tuningSent: null, residualHalfLife: RESIDUAL.halfLife };
         this.remotes.set(p.id, remote);
       }
       remote.player = p;
@@ -248,10 +255,13 @@ export class RemotePlayers {
       const shoved = !sim && pose.mode !== 'foot' && !p.locallySimulated ? proxies?.find(r => r.id === p.id) : undefined;
       const drawn = sim ?? shoved, source = sim ? 'sim' : shoved ? 'proxy' : 'pose';
       const target = drawn ? drawn.pos : pos, shownPose = drawn ? { ...pose, rot: drawn.rot } : pose;
-      const r = remote.residual, fade = Math.exp(-Math.max(0, now - remote.drawnAt) / 1000 * Math.LN2 / RESIDUAL.halfLife);
+      const r = remote.residual, fade = Math.exp(-Math.max(0, now - remote.drawnAt) / 1000 * Math.LN2 / remote.residualHalfLife);
       r.x *= fade; r.y *= fade; r.z *= fade;
       if (remote.shown && (remote.source !== source || (sim && sim.snaps !== remote.snaps))) {
         r.x = remote.shown.x - target.x; r.y = remote.shown.y - target.y; r.z = remote.shown.z - target.z;
+        // A hand-over between sources (a proxy drawn ~0.1 s in the past becoming a car simulated in the present) glides
+        // over `switchHalfLife`; a placement settles faster.
+        remote.residualHalfLife = remote.source !== source ? RESIDUAL.switchHalfLife : RESIDUAL.halfLife;
         const size = Math.hypot(r.x, r.y, r.z), cap = size > RESIDUAL.maxM ? 0 : 1;
         r.x *= cap; r.y *= cap; r.z *= cap;
       }
@@ -332,7 +342,8 @@ export class RemotePlayers {
         if (resend) remote.tuningSent = { model: model!, at: now };
         bodies.push({ id: p.id, pos, yaw: pose.yaw, rot: pose.rot, mode: pose.mode,
           vel: { x: Number.isFinite(pose.vE) ? pose.vE : 0, y: Number.isFinite(pose.vH) ? pose.vH : 0, z: Number.isFinite(pose.vN) ? -pose.vN : 0 },
-          ...(state && model ? { state, model, ...(resend ? { tuning: tuningOf(model) } : {}) } : {}) });
+          // The player with the lower id is the authority of a contact between two players' cars.
+          ...(state && model ? { state, model, ...(resend ? { tuning: tuningOf(model) } : {}), lead: !!selfId && !!p.owner && selfId < p.owner } : {}) });
       }
       if (!p.locallySimulated) {
         const half = pose.mode === 'foot' ? null : VEHICLES[pose.mode].halfExt;
@@ -342,6 +353,7 @@ export class RemotePlayers {
       }
     }
     this.physics.setRemotes(bodies);
+    this.exchangeLeads(client, selfId, shared);
     this.frameMs += (performance.now() - t0 - this.frameMs) * 0.1;
   }
 
@@ -390,6 +402,31 @@ export class RemotePlayers {
       const p = r.buffer.sample(performance.now());
       return p ? [{ id: r.player.id, nick: r.player.nick, x: p.E, z: -p.N }] : [];
     });
+  }
+
+  /** The other players' cars this client holds in a contact (physics/world.ts REMOTE_SIM), for its pose. */
+  leads(): LeadState[] { return this.leading; }
+
+  /** Publishes the states of the cars this client holds in a contact, and passes each lower-id player's state of an own
+   *  car to physics, which pulls the car to it (physics/world.ts REMOTE_SIM). */
+  private exchangeLeads(client: MultiplayerClient, selfId: string | undefined, shared?: SharedVehicles) {
+    const serverNow = client.serverNow();
+    this.leading = (this.physics.latest?.remoteCars ?? []).flatMap(c => c.held ? [{ id: c.id, st: Math.round(serverNow),
+      E: c.pos.x, N: -c.pos.z, H: c.pos.y - VEHICLE_POSE_HEIGHT, rot: c.rot, vE: c.held.vel.x, vN: -c.held.vel.z, vH: c.held.vel.y,
+      w: [c.held.spin.x, -c.held.spin.z, c.held.spin.y] as LeadState['w'] }] : []);
+    if (!selfId) return;
+    for (const leader of client.state.players) {
+      if (!leader.pose?.lead || !(leader.id < selfId)) continue;
+      for (const e of leader.pose.lead) {
+        const v = client.state.vehicles.get(e.id), spin = spinOf(e.w);
+        if (!v || v.owner !== selfId || !spin) continue;
+        const localId = shared?.localId(v) ?? v.id;
+        if (this.followed.get(localId) === e.st) continue;
+        this.followed.set(localId, e.st);
+        this.physics.follow(localId, { st: e.st, age: Math.max(0, (serverNow - e.st) / 1000), pos: { x: e.E, y: e.H + VEHICLE_POSE_HEIGHT, z: -e.N },
+          rot: e.rot, vel: { x: e.vE, y: e.vH, z: -e.vN }, spin, input: null });
+      }
+    }
   }
 
   visualBounds(): { id: string; mode: NetPose['mode']; vehicle: string | null; paint: string | null;

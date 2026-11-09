@@ -73,8 +73,8 @@ def uncrowded(ix, iy, iz, occupied, counts, limit):
     return keep[inverse]
 
 
-def wire_points(x, y, z, cls, hag, r=RECIPE, origin=None, workers=2):
-    """Indices of wire returns and their stretch (segment) ids, dense from 0."""
+def wire_points(x, y, z, cls, hag, r=RECIPE, origin=None, workers=2, canonical_order=False):
+    """Wire indices and dense stretch ids; optionally order fitting returns by x/y/z."""
     cand = np.flatnonzero(((cls == 1) | (cls == 12)) & (hag > r['min_hag']))
     others = np.flatnonzero((hag > 1.0) & (cls != 1) & (cls != 7) & (cls != 12))
     if not len(cand):
@@ -96,6 +96,10 @@ def wire_points(x, y, z, cls, hag, r=RECIPE, origin=None, workers=2):
         iso = iso[uncrowded(ix, iy, iz, uo, None, r['self_crowd'])]
     if len(iso) < r['min_points']:
         return iso[:0], iso[:0]
+    if canonical_order:
+        # Crowding uses integer-cell counts, independent of source row order.
+        # Canonicalise only the survivors, before order-sensitive trees and fits.
+        iso = iso[np.lexsort((z[iso], y[iso], x[iso]))]
     P = np.c_[x[iso], y[iso], z[iso]]
     nbrs = cKDTree(P).query_ball_point(P, r['radius'], workers=workers)
     keep = np.zeros(len(iso), bool)

@@ -94,3 +94,79 @@ test('a remote car far away, of an unknown model or without owner state stays a 
   expect(sim(pw)).toBeUndefined();
   pw.world.free();
 });
+
+test('a contact this client leads is held: the other car runs on its controls alone and is published as held', () => {
+  const pw = flatWorld(), me = () => pw.vehicleState()!, y = me().pos.y;
+  // Its owner keeps reporting it standing at x 40 (its report of the hit is not here yet).
+  const parked = () => remote({ st: 1000, age: 0.1, pos: { x: 40, y, z: 0 }, vel: { x: 0, y: 0, z: 0 }, input: null, yaw: 0 }, { lead: true });
+  let hit = -1;
+  for (let k = 0; k < 600 && hit < 0; k++) {
+    pw.setRemotes([parked()]); pw.fixedStep(null, { throttle: 1, steer: 0, brake: 0, handbrake: false });
+    if (sim(pw)!.pos.x - me().pos.x < 4.4) hit = k;
+  }
+  expect(hit).toBeGreaterThan(0);
+  let far = 0;
+  for (let k = 0; k < 30; k++) {
+    pw.setRemotes([parked()]); pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: false });
+    far = Math.max(far, sim(pw)!.pos.x - 40);
+    expect(sim(pw)!.held).toBeDefined();
+  }
+  // Pushed on by the hit as a free car (not pulled back to the stale report), like the car that hit it.
+  expect(far).toBeGreaterThan(1);
+  expect(sim(pw)!.held!.vel.x).toBeGreaterThan(1);
+  pw.world.free();
+});
+
+test('an own car follows a leading player\'s state of it while that keeps coming', () => {
+  const pw = flatWorld(), me = () => pw.vehicleState()!, y = me().pos.y;
+  const x0 = me().pos.x;
+  for (let k = 0; k < 60; k++) {
+    // The leader has the car 1.5 m ahead, moving at 2 m/s.
+    pw.follow('me', { st: 1000 + k, age: 0.05, pos: { x: x0 + 1.5 + 2 * k * DT, y, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 2, y: 0, z: 0 },
+      spin: { x: 0, y: 0, z: 0 }, input: null });
+    pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: false });
+  }
+  expect(Math.abs(me().pos.x - (x0 + 1.5 + 2 * 60 * DT + 2 * 0.05))).toBeLessThan(0.3);
+  // Stale: the car is its own again.
+  const at = me().pos.x;
+  for (let k = 0; k < 120; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 1, handbrake: false });
+  expect(me().pos.x - at).toBeLessThan(1.5);
+  pw.world.free();
+});
+
+test('a hold ends when the owner places its car elsewhere, and a placed own car ignores the old leading state', () => {
+  const pw = flatWorld(), me = () => pw.vehicleState()!, y = me().pos.y;
+  // The remote car stands touching ours (as when both cars start at the same parking): this client holds it.
+  const at = (x: number, st: number) => remote({ st, age: 0.05, pos: { x, y, z: 0 }, vel: { x: 0, y: 0, z: 0 }, input: null, yaw: 0 }, { lead: true });
+  for (let k = 0; k < 30; k++) { pw.setRemotes([at(me().pos.x + 3.9, 1000)]); pw.fixedStep(null, null); }
+  expect(sim(pw)!.held).toBeDefined();
+  // Its owner moves it 40 m away: the hold ends and it is placed there.
+  for (let k = 0; k < 3; k++) { pw.setRemotes([at(40, 2000 + k)]); pw.fixedStep(null, null); }
+  expect(sim(pw)!.held).toBeUndefined();
+  expect(Math.abs(sim(pw)!.pos.x - 40)).toBeLessThan(0.5);
+  // A leading state of our car from before our placement does not pull it back.
+  const old = { st: 1500, age: 0.05, pos: { x: 0, y, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: 0, y: 0, z: 0 }, spin: { x: 0, y: 0, z: 0 }, input: null };
+  pw.resetVehicle({ x: -30, y, z: 10 }, 0, 'me');
+  for (let k = 0; k < 40; k++) { pw.follow('me', { ...old, st: old.st + k }); pw.fixedStep(null, null); }
+  expect(Math.hypot(me().pos.x + 30, me().pos.z - 10)).toBeLessThan(0.5);
+  pw.world.free();
+});
+
+test('a simulated remote car is drawn between physics steps: no frame stands still or jumps two steps', async () => {
+  const { RemoteCarInterpolation } = await import('../../src/actors/interpolation');
+  const track = new RemoteCarInterpolation(), step = 1 / 60, v = 8.33;
+  const car = (tick: number) => ({ id: 'r', pos: { x: v * tick * step, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0, w: 1 }, vel: { x: v, y: 0, z: 0 }, snaps: 0 });
+  // Steps arrive at 60 Hz, two at once now and then; frames are drawn at 120 Hz.
+  const moves: number[] = [];
+  let tick = 0, last: number | null = null;
+  for (let f = 0; f < 240; f++) {
+    const now = f / 120;
+    if (f % 2 === 0) { tick += f % 40 === 0 ? 2 : 1; track.push([car(tick)], tick, now); }
+    const x = track.sample(now + 0.001)[0]?.pos.x;
+    if (f > 30 && x !== undefined && last !== null) moves.push(x - last);
+    if (x !== undefined) last = x;
+  }
+  const frame = v / 120;
+  expect(Math.min(...moves)).toBeGreaterThan(frame * 0.3);
+  expect(Math.max(...moves)).toBeLessThan(frame * 2.2);
+});

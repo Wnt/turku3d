@@ -7,6 +7,10 @@ import { multiplayerUrl, scoresUrl } from './config';
 import { CITIES, cityKey, type CityProfile } from '../core/city';
 import type { KeyValueStore } from '../core/save';
 
+/** A car another player holds in a contact: its shared vehicle id and its state at room-clock time `st` (the frame and
+ *  units of a car pose: chassis centre E, N, H - 0.6, quaternion, velocity, spin about E, N, H). */
+export interface LeadState { id: string; st: number; E: number; N: number; H: number; rot: Quat; vE: number; vN: number; vH: number;
+  w: import('./motion').Spin }
 export interface NetPose {
   lights?: 0 | 1 | 2; horn?: boolean;
   vehicleId?: string;
@@ -17,6 +21,9 @@ export interface NetPose {
   damage?: string;
   /** A car's spin and driver controls (net/motion.ts), and the room-clock time (ms, server time) its state is from. */
   w?: import('./motion').Spin; ctl?: import('./motion').Ctl; st?: number;
+  /** The cars of other players this player is the authority of in a contact (physics/world.ts REMOTE_SIM), as it
+   *  simulates them: their owners' cars follow these states. */
+  lead?: LeadState[];
   t: number; E: number; N: number; H: number; yaw: number;
   vE: number; vN: number; vH: number; mode: 'foot' | VehicleKind; vehicle: string | null; carrying: boolean;
 }
@@ -64,7 +71,7 @@ export function shouldSendPose(now: number, previous: NetPose | null, lastSent: 
   const moved = Math.hypot(pose.E - previous.E, pose.N - previous.N, pose.H - previous.H) > 0.005;
   const turned = Math.abs(pose.yaw - previous.yaw) > 0.005;
   const articulated = JSON.stringify([pose.rot, pose.wheels, pose.drv, pose.ctl]) !== JSON.stringify([previous.rot, previous.wheels, previous.drv, previous.ctl]);
-  const changed = pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
+  const changed = !!pose.lead?.length || !!previous.lead?.length || pose.lights !== previous.lights || pose.horn !== previous.horn || articulated || moved || turned || pose.mode !== previous.mode || pose.vehicle !== previous.vehicle || pose.vehicleId !== previous.vehicleId || pose.carrying !== previous.carrying
     || Math.hypot(pose.vE - previous.vE, pose.vN - previous.vN, pose.vH - previous.vH) > 0.05;
   return changed || now - lastSent >= STATIONARY_MS;
 }

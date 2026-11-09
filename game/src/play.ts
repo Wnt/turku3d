@@ -901,7 +901,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     // the same render pose as everything else (the chase camera follows it), never the newer raw worker state.
     if (multiplayerPlaying && multiplayer && !saveGame.loading && !startScreen.active) {
       remotePlayers.update(multiplayer, now, feet, effectsDt, sharedVehicles ?? undefined,
-        id => renderVehicle && id === drivenId && renderVehicle.id === id ? renderVehicle : null);
+        id => renderVehicle && id === drivenId && renderVehicle.id === id ? renderVehicle : null, extrapolating);
     }
     if (st) {
       physEma += (st.stepMs - physEma) * 0.05;
@@ -947,6 +947,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         lights: mode === 'car' ? vs?.lights ?? 1 : 0, horn: mode === 'car' && vehicleSignals.horn,
         ...(mode === 'car' && drivenDrv(drivenId) ? { drv: drivenDrv(drivenId) } : {}),
         ...(poseMode !== 'foot' && vs ? motionOf(vs) : {}),
+        ...(remotePlayers.leads().length ? { lead: remotePlayers.leads() } : {}),
         carrying: missions.phase === 'carrying' }, updates);
       if (sent) sharedVehicles?.sentUpdates(updates);
     }
