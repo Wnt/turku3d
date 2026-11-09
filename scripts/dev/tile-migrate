@@ -2,7 +2,7 @@
 """Tile migrations on the shared LAN farm: edit existing tiles without regenerating them.
 
 Usage: scripts/dev/tile-migrate register --base bulkgen2-3d1445b2 [--ref HEAD] [--alias NAME]
-                                         [--rebuilds-from PINNED_MIGRATED_ALIAS]
+                                         [--rebuilds-from PINNED_MIGRATED_ALIAS] [--rebuild-revision REV]
        scripts/dev/tile-migrate apply --version ALIAS t0_0_0 t0_1_0     (foreground, a few tiles)
        scripts/dev/tile-migrate run --version ALIAS [--jobs 6] [--watch 60]   (background, city)
        scripts/dev/tile-migrate pass --version ALIAS [--max-jobs 6] [--radius RINGS] [--checkpoint STEP] [--estimate]
@@ -67,6 +67,8 @@ def main():
     register.add_argument('--alias')
     register.add_argument('--rebuilds-from', help='reuse the unchanged spot rebuilds of this migrated alias '
                           '(e.g. the pinned one), so only the new steps run')
+    register.add_argument('--rebuild-revision', help='new spot-rebuild steps adopt the finished products of this '
+                          'registered generator revision (which already has their fix): no new builds')
     for name in ('apply', 'run', 'status', 'parity', 'pass'):
         p = sub.add_parser(name)
         p.add_argument('--version', required=True, help='migrated alias or revision')
@@ -114,7 +116,9 @@ def main():
             f'TURKU3D_WORK={shlex.quote(args.root)}/work/migrate', shlex.quote(args.runner),
             'python scripts/dev/tile_migrate.py derive --farm-root', shlex.quote(args.root),
             '--base', base, '--code', args.code,
-            *(['--rebuilds-from', resolve(args, args.rebuilds_from)] if args.rebuilds_from else [])])).splitlines()[-1])
+            *(['--rebuilds-from', resolve(args, args.rebuilds_from)] if args.rebuilds_from else []),
+            *(['--rebuild-revision', resolve(args, args.rebuild_revision)] if args.rebuild_revision else [])
+        ])).splitlines()[-1])
         alias = args.alias or f"{args.base}+m{derived['generation'][:8]}"
         body = json.dumps(dict(revision=derived['revision'], alias=alias)).encode()
         registered = json.load(urlopen(Request(args.url + '/register', data=body,

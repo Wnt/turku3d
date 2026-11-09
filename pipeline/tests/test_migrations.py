@@ -337,3 +337,34 @@ def test_a_longer_chain_inherits_unchanged_spot_rebuilds(tmp_path, chain):
     longer = tile_migrate.derive(root, BASE_REV, newer, first["revision"])
     assert longer["migrations"][1]["rebuild_generation"] == REBUILT_GEN
     assert longer["generation"] == first["generation"] and longer["revision"] != first["revision"]
+
+
+def test_a_new_rebuild_step_adopts_an_existing_generators_products_recording_the_chain_before_it(tmp_path, chain):
+    root, steps, _ = rebuild_farm(tmp_path, chain)
+    newer = "e" * 40  # the snapshot that adds the step; its own generator has never built the class
+    (root / "revisions" / newer / "repo").mkdir(parents=True)
+    (root / "revisions" / newer / "revision.json").write_text(json.dumps(dict(revision=newer, generation="8" * 64)))
+    meta = tile_migrate.derive(root, BASE_REV, newer, rebuild_from=CODE_REV)
+    assert meta["migrations"][1]["rebuild_generation"] == REBUILT_GEN
+    assert meta["revision"] != tile_migrate.derive(root, BASE_REV, newer)["revision"]
+    # CODE_REV's generator already has the fix but predates the step: its build records the chain before it.
+    rebuilt_product(root, steps[:1])
+    result = tile_migrate.migrate_tile(root, meta, TILE)
+    assert (result["state"], result["rebuilt_from"]) == ("migrated", REBUILT_GEN)
+    stored = json.loads((root / "products" / meta["generation"] / TILE / "manifest.json").read_bytes())
+    assert stored["migrations"] == [dict(name="chain-record", version=1), dict(name="test-rebuild", version=1)]
+    assert stored["visual"][TILE]["url"] == json.loads(
+        (root / "products" / REBUILT_GEN / TILE / "manifest.json").read_bytes())["visual"][TILE]["url"]
+
+
+def test_forest_cover_holds_on_old_forest_rule_products_only():
+    from turku3d.migrations.forest_cover import affected
+
+    def manifest(trees, cap, tracks=0):
+        return dict(trees=trees, vegetation=dict(tree_cap=cap), venues=dict(tracks=tracks))
+
+    assert affected(manifest(768, 768)) and affected(manifest(761, 768))  # a closed forest cut at the old cap
+    assert affected(manifest(58, 768, tracks=1))  # a track ring filled into a playing surface (Nunnavuori)
+    assert not affected(manifest(422, 768))  # below the cap, no ring: old and new rules agree
+    assert not affected(manifest(1544, 2048, tracks=1)) and not affected(manifest(2048, 2048))  # the fixed generator
+    assert not affected(dict(trees=0))  # no vegetation record

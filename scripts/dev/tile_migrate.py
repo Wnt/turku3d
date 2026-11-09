@@ -6,6 +6,7 @@ Runs on the farm host from a registered source snapshot, in the pipeline environ
 ``scripts/dev/tile-migrate``.
 
   tile_migrate.py derive --farm-root ROOT --base ALIAS_OR_REVISION --code REVISION
+                         [--rebuilds-from DERIVED] [--rebuild-revision REVISION]
   tile_migrate.py apply  --farm-root ROOT --revision DERIVED TILE...
   tile_migrate.py run    --farm-root ROOT --revision DERIVED [--jobs 6] [--watch SECONDS]
   tile_migrate.py status --farm-root ROOT --revision DERIVED
@@ -87,8 +88,21 @@ def inherited_rebuilds(root: Path, selector: str | None, migrations) -> dict:
     return out
 
 
-def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -> dict:
-    """Write the derived revision of ``base`` with this snapshot's migration chain."""
+def registered_rebuild(root: Path, selector: str) -> dict:
+    """A registered generator revision (with its source version) whose finished products a new spot-rebuild step
+    adopts instead of the code snapshot's own: products of a generator that already has the step's fix need no
+    new builds. They record that generator's chain, which ends before the new step (``run_chain``)."""
+    meta = revision_meta(root, selector)
+    if meta.get('kind') == 'migrated' or not REV.fullmatch(meta.get('generation', '')):
+        raise ValueError(f'{selector} is not a registered generator revision')
+    return dict(revision=meta['revision'], generation=meta['generation'])
+
+
+def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None,
+           rebuild_from: str | None = None) -> dict:
+    """Write the derived revision of ``base`` with this snapshot's migration chain. ``rebuilds_from``: inherit the
+    unchanged spot rebuilds of that derived revision; ``rebuild_from``: the generator revision whose products the
+    other spot-rebuild steps adopt (default: this snapshot's generator with the base's source version)."""
     from turku3d.migrations import Rebuild, chain, chain_generations
 
     base_meta = revision_meta(root, base)
@@ -98,12 +112,14 @@ def derive(root: Path, base: str, code: str, rebuilds_from: str | None = None) -
         raise KeyError(f'code snapshot {code} is not uploaded')
     migrations = chain()
     inherited = inherited_rebuilds(root, rebuilds_from, migrations)
-    rebuilds = {m.name: inherited.get(m.name) or rebuild_revision(root, code, base_meta.get('source_version'))
+    adopted = registered_rebuild(root, rebuild_from) if rebuild_from else None
+    rebuilds = {m.name: inherited.get(m.name) or adopted
+                or rebuild_revision(root, code, base_meta.get('source_version'))
                 for m in migrations if isinstance(m, Rebuild)}
     generations = chain_generations(base_meta['generation'], migrations,
                                     {name: r['generation'] for name, r in rebuilds.items()})
-    # Inherited rebuilds give the same code another chain generation, hence another revision.
-    suffix = f":{generations[-1]}" if inherited else ""
+    # Inherited or adopted rebuilds give the same code another chain generation, hence another revision.
+    suffix = f":{generations[-1]}" if inherited or adopted else ""
     revision = hashlib.sha256(f"migrated:{base_meta['revision']}:{code}{suffix}".encode()).hexdigest()
     meta = dict(
         kind='migrated', revision=revision, generation=generations[-1],
@@ -173,19 +189,23 @@ def run_chain(core, product, migrations, done: int) -> None:
     A rebuild built by this chain's commit records the whole chain, and ``core.run`` stops there. A rebuild
     inherited from an earlier, shorter chain (``--rebuilds-from``, same step code) records that chain only, a prefix
     of this one through the rebuild step: the steps after that prefix are then applied to the adopted product, as
-    on every other tile, instead of failing on the shorter record."""
+    on every other tile, instead of failing on the shorter record. A rebuild adopted from the generator before a new
+    step (``--rebuild-revision``) records the chain up to that step only; the step is a no-op in a generator that
+    already has its fix, so the adopted product also records the step itself."""
     keys = [dict(name=m.name, version=m.version) for m in migrations]
     while done < len(migrations):
         end = next((i + 1 for i in range(done, len(migrations)) if isinstance(migrations[i], core.Rebuild)),
                    len(migrations))
-        full = migrations
+        full, before = migrations, False
         step = migrations[end - 1]
         if isinstance(step, core.Rebuild) and product.rebuilds and step.name in product.rebuilds:
             path = product.rebuilds[step.name] / product.tile / 'manifest.json'
             recorded = read_json(path, {}).get('migrations') if path.exists() else None
-            if recorded and end <= len(recorded) < len(keys) and recorded == keys[:len(recorded)]:
-                full = migrations[:len(recorded)]
+            if recorded and end - 1 <= len(recorded) < len(keys) and recorded == keys[:len(recorded)]:
+                full, before = migrations[:len(recorded)], len(recorded) == end - 1
         core.run(product, migrations[done:end], full=full)
+        if before and product.manifest.get('migrations') == keys[:end - 1]:
+            product.manifest['migrations'] = keys[:end]
         reached = len(product.manifest.get('migrations') or [])
         if product.manifest.get('migrations') != keys[:reached] or reached < end:
             raise RuntimeError(f"product records {product.manifest.get('migrations')}, not a prefix of {keys}")
@@ -381,6 +401,8 @@ def main(argv=None):
     parser.add_argument('--base')
     parser.add_argument('--code')
     parser.add_argument('--rebuilds-from', help='derive: reuse the spot rebuilds of this derived revision')
+    parser.add_argument('--rebuild-revision', help='derive: new spot-rebuild steps adopt the finished products of '
+                        'this registered generator revision (it already has their fix) instead of new builds')
     parser.add_argument('--revision')
     parser.add_argument('--generated', help='parity: generator alias or revision of the same tile')
     parser.add_argument('--jobs', type=int, default=MAX_JOBS)
@@ -391,7 +413,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     root = args.farm_root.resolve()
     if args.action == 'derive':
-        print(json.dumps(derive(root, args.base, args.code, args.rebuilds_from)))
+        print(json.dumps(derive(root, args.base, args.code, args.rebuilds_from, args.rebuild_revision)))
         return 0
     meta = revision_meta(root, args.revision)
     if meta.get('kind') != 'migrated':
