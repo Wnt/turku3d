@@ -18,20 +18,6 @@ VISUAL = re.compile(r'^vis(?:\.[a-f0-9]{64})?\.glb$')
 MODEL = re.compile(r'^[a-f0-9]{64}\.glb$')
 
 
-def _low():
-    """Derivative builds yield to serving and the farm's builds: lowest CPU priority, idle IO class (Linux)."""
-    import platform
-    import sys
-
-    os.nice(19 - os.nice(0))
-    if sys.platform == 'linux' and platform.machine() == 'x86_64':
-        try:
-            import ctypes
-            ctypes.CDLL(None, use_errno=True).syscall(251, 1, 0, 3 << 13)  # ioprio_set(PROCESS, self, IDLE)
-        except (OSError, AttributeError):
-            pass
-
-
 class FarmChain:
     """Newest-first product roots of a farm alias family (``train``: trainN ... train1), as the tile proxy follows it.
 
@@ -322,9 +308,10 @@ class Scenery:
                     value['shells'] = str(shell_path)
             self._write(spec, json.dumps(value).encode())
             command.append(str(spec))
+        from turku3d.coarse.horizon import low_priority
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=90,
-                                    preexec_fn=_low)
+                                    preexec_fn=low_priority)
             stats = json.loads(result.stdout.strip().splitlines()[-1])
             temporary.replace(output)
         finally:
@@ -371,9 +358,10 @@ class Scenery:
         if hashlib.sha256(source.read_bytes()).hexdigest() != row['source_sha256']:
             raise ValueError('Tree source changed')
         temporary = target.with_suffix(f'.{threading.get_ident()}.tmp')
+        from turku3d.coarse.horizon import low_priority
         try:
             subprocess.run(['node', str(self.tree_script), str(source), str(temporary)],
-                           check=True, capture_output=True, timeout=30, preexec_fn=_low)
+                           check=True, capture_output=True, timeout=30, preexec_fn=low_priority)
             temporary.replace(target)
         finally:
             temporary.unlink(missing_ok=True)

@@ -41,8 +41,9 @@ def digest(path):
     return _digest(str(p), s.st_size, s.st_mtime_ns)
 
 
-def _low():
-    """Lowest CPU priority and the idle IO class (Linux) for a build worker."""
+def low_priority():
+    """Lowest CPU priority and the idle IO class (Linux) for a build process: builds yield to serving and to the farm's
+    tile builds."""
     import os
     import platform
     import sys
@@ -65,7 +66,7 @@ class SurveyScenery:
         # The city's lidar canopy height model (coarse/chm.py): the far canopy of lidar blocks follows it.
         self.chm = str(Path(chm).resolve()) if chm else None
         # Node builds yield to serving and to the farm's tile builds, like the derivative builds.
-        self.workers = ProcessPoolExecutor(max_workers=2, mp_context=get_context("spawn"), initializer=_low)
+        self.workers = ProcessPoolExecutor(max_workers=2, mp_context=get_context("spawn"), initializer=low_priority)
         # This service pins one immutable source overlay for its lifetime.
         for index in (self.sources.wfs, self.sources.ortho, self.sources.mosaics):
             index.MAX_AGE = float('inf')
