@@ -404,11 +404,11 @@ def read_sources(bbox, source_area="work-3x3", *, source_paths=None, osm_path=No
     roads = None
     if road_path is not None and road_path.exists():
         frame = load(road_path, None)
+        # An optional WFS field like the register's: a centreline extract without it marks no carriageway.
+        part = frame.get("Katuosalaji")
+        carriageway = part.astype(str).str.casefold() == "ajorata" if part is not None else False
         roads = STRtree(
-            frame.geometry_local[
-                (frame.geometry_local.geom_type == "LineString")
-                & (frame["Katuosalaji"].astype(str).str.casefold() == "ajorata")
-            ].values
+            frame.geometry_local[(frame.geometry_local.geom_type == "LineString") & carriageway].values
         )
     else:
         missing.append("GIS_Keskilinjat.parquet")

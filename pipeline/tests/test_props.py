@@ -207,6 +207,26 @@ def test_register_ingestion_and_missing_optional_sources(tmp_path, monkeypatch):
     assert all(p.orientation == "no_road_default" for p in props)
 
 
+def test_centrelines_without_the_street_part_field_mark_no_carriageway(tmp_path, monkeypatch):
+    """t0_16_-11 / t0_16_-12: a GIS_Keskilinjat extract without Katuosalaji is optional data, not a KeyError."""
+    import geopandas as gpd
+    from shapely.geometry import LineString, Point
+    from turku3d.props import read_sources
+
+    def write(name, records, shapes):
+        frame = gpd.GeoDataFrame(records, geometry=shapes, crs=C.CRS_HORIZONTAL)
+        frame["geometry_local"] = gpd.GeoSeries(shapes, crs=C.CRS_HORIZONTAL)
+        frame.to_parquet(tmp_path / (name + ".parquet"))
+        return tmp_path / (name + ".parquet")
+
+    signs = write("GIS_Liikennemerkit", [dict(Id="s", feature_key="s", Varustelaji_koodi="E6")], [Point(15, 15)])
+    roads = write("GIS_Keskilinjat", [dict(feature_key="r")], [LineString([(0, 15), (25, 15)])])
+    props, _ = read_sources(C.BBoxLocal(0, 0, 25, 25),
+                            source_paths={"GIS_Liikennemerkit": signs, "GIS_Keskilinjat": roads})
+    assert [(p.kind, p.x, p.z) for p in props] == [("sign", 15, 15)]
+    assert props[0].orientation == "no_road_default"
+
+
 def test_published_surface_and_unsupported_distance():
     from turku3d.placement import Surfaces
 
