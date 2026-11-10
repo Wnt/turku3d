@@ -207,7 +207,7 @@ export class VegetationLod {
   private sharpness = 0;
   private sharpAt = NaN;
   /** With a scene, tile grass surfaces also grow instanced grass near the camera (world-space draws under it). */
-  constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, scene?: THREE.Object3D) {
+  constructor(private tier: QualityTier, library: NatureLibrary | Promise<NatureLibrary>, private scene?: THREE.Object3D) {
     const loaded = (lib: NatureLibrary) => {
       if (this.disposed) return;
       this.library = lib;
@@ -216,6 +216,21 @@ export class VegetationLod {
     };
     if (library instanceof Promise) this.ready = library.then(loaded);
     else { loaded(library); this.ready = Promise.resolve(); }
+  }
+
+  /** A preset switch in a running session: the tree bands and budgets follow at the next update; the grass field is
+   *  rebuilt for the new density, range and cap over the loaded tiles (sampled at once: a menu action). */
+  setTier(tier: QualityTier) {
+    if (tier === this.tier) return;
+    const grass = JSON.stringify(QUALITY[tier].grass) !== JSON.stringify(QUALITY[this.tier].grass);
+    this.tier = tier; this.dirty = true;
+    this.bands = [NaN, NaN, NaN];
+    if (!grass || !this.library || !this.scene || this.disposed) return;
+    this.grass?.dispose(); this.grass = null;
+    if (QUALITY[tier].grass.density <= 0) return;
+    const field = this.grass = new GrassField(this.library, tier);
+    this.scene.add(field.root);
+    for (const model of this.models.keys()) for (const _step of field.addSteps(model)) { /* every step now */ }
   }
 
   loadedModels() { return [...new Set([...this.models.keys(), ...this.pending.keys()])]; }

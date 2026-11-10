@@ -11,6 +11,13 @@ import { WATER_SWITCHES } from './waterSwitches';
 import { WATER_HISTORY, type WaterHistory } from './waterHistory';
 
 const liveRivers = new Set<RiverMaterial>();
+/** A preset switch in a running session (main.ts switchQuality): the tier whose reflection size and still-camera rate
+ *  the planar rivers use from now on; the technique itself (planar, screen-space, sky) stays the one they were built with. */
+let reflectionTier: QualityTier | null = null;
+export function setReflectionTier(tier: QualityTier) {
+  reflectionTier = tier;
+  for (const river of liveRivers) river.applyReflectionTier();
+}
 
 /** A water mesh's mirror point and normal (local space, its first vertex), sampled once while its arrays exist and
  *  kept in userData: render arrays (normals) of uploaded tiles are released later. Non-finite samples fall back to the
@@ -60,6 +67,16 @@ export class RiverMaterial {
   /** A sloped reach (stream, weir, rapids): its ripples flow downhill and steep parts foam (W4). */
   private sloped: boolean;
 
+  private cadence: ReflectionCadence | null = null;
+  private builtTier: QualityTier = 'medium';
+  /** The planar pass's size and still-camera rate: the switched tier's where it draws a reflection, else the built one's. */
+  applyReflectionTier() {
+    if (!this.reflection || !this.cadence) return;
+    const q = reflectionTier && QUALITY[reflectionTier].reflectionScale > 0 ? QUALITY[reflectionTier] : QUALITY[this.builtTier];
+    this.reflection.reflector.resolutionScale = q.reflectionScale;
+    this.cadence.slowFps = q.reflectionSlowFps;
+  }
+
   constructor(mesh: THREE.Mesh, private env: Environment, tier: QualityTier, private deterministic: boolean, renderer: THREE.WebGPURenderer) {
     const rgb = waterColour(mesh.userData);
     this.bodyColour = rgb ? new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace) : new THREE.Color(0.075, 0.062, 0.035);
@@ -70,7 +87,7 @@ export class RiverMaterial {
     // Reflections do not sample the main camera's screen-space GTAO context.
     const context = this.context = renderer.contextNode;
     if (reflection) {
-      reflection.reflector.resolutionScale = QUALITY[tier].reflectionScale;
+      this.builtTier = tier;
       const reflector = reflection.reflector;
       const renderTarget = reflector.getRenderTarget.bind(reflector);
       reflector.getRenderTarget = camera => {
@@ -87,7 +104,8 @@ export class RiverMaterial {
       };
       const update = reflector.updateBefore.bind(reflector);
       const shadows = new ReflectionShadows();
-      const cadence = new ReflectionCadence(QUALITY[tier].reflectionSlowFps);
+      const cadence = this.cadence = new ReflectionCadence(QUALITY[tier].reflectionSlowFps);
+      this.applyReflectionTier();
       reflector.updateBefore = frame => {
         if (isPrecompiling(renderer)) return;
         this.reflectionDepth = nextRenderDepth(renderer);

@@ -556,10 +556,26 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     url.searchParams.delete('quality');
     if (url.href === location.href) location.reload(); else location.replace(url.href);
   };
+  let graphicsChosen = false;
   const graphicsControl: GraphicsControl = {
     current: () => params.quality,
-    choose: tier => { storePreset(browserStorage(), tier); reloadGraphics(); },
-    status: () => ({ text: null, reload: null }),
+    choose: tier => {
+      storePreset(browserStorage(), tier);
+      // A `?quality=` in the URL would bring its tier back on the next load: the menu's choice is the newer one.
+      const url = new URL(location.href);
+      if (url.searchParams.has('quality')) { url.searchParams.delete('quality'); history.replaceState(history.state, '', url.href); }
+      world.graphics.set(tier);
+      walkers.setCap(walkerCap(tier, params.walkers));
+      graphicsChosen = true;
+    },
+    status: () => {
+      const pending = world.graphics.pending(), name = presetName(params.quality);
+      return {
+        text: !graphicsChosen ? null : pending.length
+          ? `${name}: draw distances, trees and grass, resolution, reflections, loading priority and walkers changed now. A reload applies the rest.`
+          : `${name} applied.`,
+        reload: pending.length ? `Still ${presetName(world.graphics.boot)}: ${pending.join(', ')}` : null };
+    },
     reload: reloadGraphics,
   };
   import.meta.hot?.on('vite:beforeFullReload', autosaveForReload);
