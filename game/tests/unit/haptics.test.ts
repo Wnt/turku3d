@@ -1,12 +1,13 @@
 import { test, expect } from 'vitest';
 import {
   Haptics, bumpRumble, curbRumble, curbStrength, engineRumble, impactRumble, landingRumble, STAIR_STEP,
-  ENGINE_PULSE_MS, ENGINE_REFRESH_MS, JOLT_FELT, STEP_FELT, type HapticFrame, type Rumble,
+  CONTINUOUS_PULSE_MS, CONTINUOUS_REFRESH_MS, JOLT_FELT, SILENCE, STEP_FELT, SURFACE_ROUGHNESS, roughShare,
+  surfaceRumble, type HapticFrame, type Rumble,
 } from '../../src/input/haptics';
 import { curbResponse } from '../../src/vehicle/curbStrike';
 import { CAR, SCOOTER } from '../../src/physics/constants';
 import { MAT } from '../../src/shared/col/materials';
-import type { VehicleState } from '../../src/physics/protocol';
+import type { VehicleState, WheelState } from '../../src/physics/protocol';
 
 const power = (r: Rumble | null) => r ? r.strong + r.weak : 0;
 const car = (patch: Partial<VehicleState> = {}): VehicleState => ({
@@ -105,10 +106,10 @@ test('the engine rumble renews in overlapping pulses, steps aside for transients
   const throttle = { throttle: 0.8, steer: 0, brake: 0, handbrake: false };
   for (let i = 0; i < 60; i++) frame({ vehicle: car({ forwardSpeed: 3 }), vehicleId: 'player', input: throttle });
   const pulses = played.length;
-  expect(pulses).toBeGreaterThanOrEqual(Math.floor(1000 / ENGINE_REFRESH_MS) - 1);
-  expect(pulses).toBeLessThanOrEqual(Math.ceil(1000 / ENGINE_REFRESH_MS) + 1);
-  expect(played.every(r => r.duration === ENGINE_PULSE_MS && r.strong === 0 && r.weak > 0)).toBe(true);
-  expect(ENGINE_PULSE_MS).toBeGreaterThan(ENGINE_REFRESH_MS);
+  expect(pulses).toBeGreaterThanOrEqual(Math.floor(1000 / CONTINUOUS_REFRESH_MS) - 1);
+  expect(pulses).toBeLessThanOrEqual(Math.ceil(1000 / CONTINUOUS_REFRESH_MS) + 1);
+  expect(played.every(r => r.duration === CONTINUOUS_PULSE_MS && r.strong === 0 && r.weak > 0)).toBe(true);
+  expect(CONTINUOUS_PULSE_MS).toBeGreaterThan(2 * CONTINUOUS_REFRESH_MS);
   frame({ vehicle: car({ forwardSpeed: 3, bump: { id: 1, wheel: 0, height: 0.12, jolt: 0, speed: 3 } }), vehicleId: 'player', input: throttle });
   const kerb = played.at(-1)!;
   expect(kerb.strong).toBeGreaterThan(0);
@@ -120,6 +121,11 @@ test('the engine rumble renews in overlapping pulses, steps aside for transients
   for (let i = 0; i < 30; i++) frame({ vehicle: car({ forwardSpeed: 3 }), vehicleId: 'player', input: { ...throttle, throttle: 0 } });
   expect(played).toHaveLength(before);
   expect(haptics.counts.engine).toBe(pulses + (before - during));
+  // Lifting off while a pulse still plays cuts it with one zero effect; then nothing more is sent.
+  for (let i = 0; i < 12; i++) frame({ vehicle: car({ forwardSpeed: 3 }), vehicleId: 'player', input: throttle });
+  const lifted = played.length;
+  for (let i = 0; i < 30; i++) frame({ vehicle: car({ forwardSpeed: 3 }), vehicleId: 'player', input: { ...throttle, throttle: 0 } });
+  expect(played.slice(lifted)).toEqual([SILENCE]);
 });
 
 test('on foot: a landing rumbles by the fall speed before touchdown; stair footsteps tick, other footsteps do not', () => {
@@ -149,4 +155,93 @@ test('paused, menu and start-screen frames rumble nothing and never replay what 
   frame({ active: false, character: { grounded: false, vy: -8 } });
   frame({ character: { grounded: true, vy: -0.5 } });
   expect(played).toEqual([]);
+});
+
+const wheel = (material: number | null, contact = true): WheelState => ({
+  pos: { x: 0, y: 0, z: 0 }, steer: 0, rotation: 0, contact, suspension: 0.3,
+  tyre: material === null ? undefined : { point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 }, material, lateral: 0, longitudinal: 0 } });
+const cobbles = (n = 4, of = 4) => Array.from({ length: of }, (_, i) => wheel(i < n ? MAT.cobblestone : MAT.road));
+const kmh = (v: number) => v / 3.6;
+
+test('surface: cobbles rumble above 5 km/h, rise to full at 50 km/h and scale with the wheels on them', () => {
+  expect(SURFACE_ROUGHNESS).toEqual({ [MAT.cobblestone]: 1 });
+  expect(roughShare(cobbles())).toBe(1);
+  expect(roughShare(cobbles(1))).toBe(0.25);
+  expect(roughShare(cobbles(1, 2))).toBe(0.5);
+  expect(roughShare([wheel(MAT.cobblestone, false), wheel(null), wheel(MAT.paving_slab), wheel(MAT.quay)])).toBe(0);
+  expect(roughShare([])).toBe(0);
+  expect(surfaceRumble(kmh(5), 1)).toBeNull();
+  expect(surfaceRumble(kmh(30), 0)).toBeNull();
+  const slow = surfaceRumble(kmh(6), 1)!, mid = surfaceRumble(kmh(27.5), 1)!, full = surfaceRumble(kmh(50), 1)!;
+  expect(slow.weak).toBeGreaterThan(0.1);
+  expect(mid.weak).toBeGreaterThan(slow.weak);
+  expect(mid.weak).toBeCloseTo((0.15 + 1) / 2);
+  expect(full).toEqual({ strong: 0.55, weak: 1 });
+  expect(surfaceRumble(kmh(120), 1)).toEqual(full);
+  expect(surfaceRumble(-kmh(50), 1)).toEqual(full);
+  // The buzz of the high-frequency motor leads at every speed; one wheel of four is a quarter as strong.
+  for (const r of [slow, mid, full]) expect(r.weak).toBeGreaterThan(r.strong);
+  expect(surfaceRumble(kmh(50), 0.25)!.weak).toBeCloseTo(0.25);
+});
+
+test('the surface rumble plays without gaps, lets transients through on top and stops at once', () => {
+  const { haptics, played, frame } = rig();
+  const idle = { throttle: 0, steer: 0, brake: 0, handbrake: false };
+  const on = (v: number, patch: Partial<VehicleState> = {}, wheels = cobbles()) =>
+    frame({ vehicle: car({ speed: kmh(v), forwardSpeed: kmh(v), wheels, ...patch }), vehicleId: 'player', input: idle });
+  // Covered time: every effect replaces the one before, so the motors run until the latest effect's end.
+  let t = 0, end = -Infinity, gaps = 0;
+  const step = (run: () => void) => {
+    const before = played.length;
+    run(); t += 1000 / 60;
+    if (played.length > before) end = played.at(-1)!.strong + played.at(-1)!.weak > 0 ? t + played.at(-1)!.duration : -Infinity;
+    else if (t >= end) gaps++;
+  };
+  step(() => on(3)); expect(played).toEqual([]); expect(haptics.surface).toBeNull();
+  gaps = 0;
+  for (let i = 0; i < 120; i++) step(() => on(30));
+  expect(haptics.surface).toMatchObject({ share: 1, ...surfaceRumble(kmh(30), 1) });
+  expect(haptics.continuous).toEqual(surfaceRumble(kmh(30), 1));
+  // A kerb at full speed: the strong motor rises above the cobbles' body, the buzz stays, and the rumble resumes.
+  for (let i = 0; i < 30; i++) step(() => on(50));
+  step(() => on(50, { bump: { id: 1, wheel: 0, height: 0.15, jolt: 0, speed: 8 } }));
+  const kerb = played.at(-1)!;
+  expect(kerb.strong).toBeGreaterThan(0.55);
+  expect(kerb.weak).toBe(1);
+  expect(haptics.log.at(-1)!.cause).toBe('bump');
+  for (let i = 0; i < 30; i++) step(() => on(50, { bump: { id: 1, wheel: 0, height: 0.15, jolt: 0, speed: 8 } }));
+  expect(played.at(-1)).toEqual({ duration: CONTINUOUS_PULSE_MS, strong: 0.55, weak: 1 });
+  // A crash is stronger still on the low-frequency motor.
+  step(() => on(50, { bump: { id: 1, wheel: 0, height: 0.15, jolt: 0, speed: 8 }, impact: { id: 1, impulse: 8 * CAR.mass } }));
+  expect(played.at(-1)).toEqual({ duration: 350, strong: 1, weak: 1 });
+  const crashed = { bump: { id: 1, wheel: 0, height: 0.15, jolt: 0, speed: 8 }, impact: { id: 1, impulse: 8 * CAR.mass } };
+  for (let i = 0; i < 40; i++) step(() => on(50, crashed));
+  // The engine joins per motor: the louder of the two wins, here the cobbles.
+  step(() => frame({ vehicle: car({ speed: kmh(50), forwardSpeed: kmh(50), wheels: cobbles(), ...crashed }), vehicleId: 'player', input: { ...idle, throttle: 1 } }));
+  expect(gaps).toBe(0);
+  expect(haptics.counts.surface).toBeGreaterThan(15);
+  // One wheel in a cobbled gutter is weaker; leaving the cobbles cuts the pulse at once.
+  for (let i = 0; i < 12; i++) on(50, crashed, cobbles(1));
+  expect(played.at(-1)!.weak).toBeCloseTo(0.25);
+  const cut = (run: () => void) => { for (let i = 0; i < 12; i++) on(50, crashed); const n = played.length; run(); expect(played.slice(n)).toEqual([SILENCE]); };
+  cut(() => on(50, crashed, cobbles(0)));
+  cut(() => on(4, crashed));
+  cut(() => frame({ character: { grounded: true, vy: 0 } }));
+  cut(() => frame({ active: false, vehicle: car({ speed: kmh(50), wheels: cobbles(), ...crashed }), vehicleId: 'player' }));
+  const n = played.length;
+  for (let i = 0; i < 20; i++) frame({ active: false, vehicle: car({ speed: kmh(50), wheels: cobbles(), ...crashed }), vehicleId: 'player' });
+  expect(played).toHaveLength(n);
+  expect(haptics.surface).toBeNull();
+});
+
+test('slow frames: the surface rumble still overlaps at 8 frames per second', () => {
+  const played: Rumble[] = [];
+  const haptics = new Haptics(r => played.push(r));
+  let end = 0;
+  for (let now = 0; now < 3000; now += 125) {
+    if (now > 0) expect(end).toBeGreaterThanOrEqual(now);
+    const before = played.length;
+    haptics.update({ now, active: true, vehicle: car({ speed: 10, wheels: cobbles() }), vehicleId: 'player', input: null, character: null });
+    if (played.length > before) end = now + played.at(-1)!.duration;
+  }
 });

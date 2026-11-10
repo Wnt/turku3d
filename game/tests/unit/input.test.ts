@@ -2,6 +2,7 @@ import { describe, expect, test, vi, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ACTIONS, DEFAULT_BINDINGS, MOVE_CURVE, emptyActions, mapActions, promptLabel, radial, Input } from '../../src/input';
+import { playRumble, rumbleDriver, stopRumble } from '../../src/input/actuator';
 const bindings = () => structuredClone(DEFAULT_BINDINGS);
 function pad(axes = [0, 0, 0, 0], buttons: Record<number, number> = {}): Gamepad {
   return { id: 'Xbox Wireless Controller', index: 0, connected: true, mapping: 'standard', timestamp: 0, axes,
@@ -202,4 +203,94 @@ test('developer time keys use free codes and pass a focused time panel control; 
   input.update(1 / 60);
   expect(input.lookX).toBeGreaterThan(0);
   input.dispose();
+});
+
+describe('rumble on any pad', () => {
+  const sony = 'DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)';
+  const rig = () => {
+    let pads: (Gamepad | null)[] = [];
+    const events = new EventTarget();
+    vi.stubGlobal('addEventListener', events.addEventListener.bind(events));
+    vi.stubGlobal('navigator', { getGamepads: () => pads });
+    const input = new Input(new EventTarget() as HTMLElement);
+    return { input, events, set: (...list: (Gamepad | null)[]) => { pads = list; input.update(1 / 60); } };
+  };
+  const withPad = (extra: object, index = 0, id = 'Xbox Wireless Controller', buttons: Record<number, number> = {}) =>
+    ({ ...pad([0, 0, 0, 0], buttons), id, index, ...extra }) as unknown as Gamepad;
+  const effect = (extra: object = {}) => {
+    const playEffect = vi.fn().mockResolvedValue('complete'), reset = vi.fn().mockResolvedValue('complete');
+    return { playEffect, reset, actuator: { playEffect, reset, ...extra } };
+  };
+
+  test('detection: dual-rumble by capability, hapticActuators pulse as the fallback, nothing without an actuator', async () => {
+    const chrome = effect({ effects: ['dual-rumble', 'trigger-rumble'] }), old = effect({ type: 'dual-rumble' });
+    const safari = effect({ canPlayEffectType: (t: string) => t === 'dual-rumble' }), bare = effect();
+    for (const a of [chrome, old, safari, bare]) {
+      expect(rumbleDriver({ vibrationActuator: a.actuator })).toBe('dual-rumble');
+      expect(await playRumble({ vibrationActuator: a.actuator }, 2000, 0.4, 2)).toBe(true);
+      expect(a.playEffect).toHaveBeenCalledWith('dual-rumble', { duration: 1000, startDelay: 0, strongMagnitude: 0.4, weakMagnitude: 1 });
+    }
+    chrome.playEffect.mockResolvedValue('preempted');
+    expect(await playRumble({ vibrationActuator: chrome.actuator }, 100, 0.4, 0.2)).toBe(true);
+    // An actuator that cannot play dual-rumble is not asked; with pulse actuators the pad still vibrates.
+    const triggers = effect({ effects: ['trigger-rumble'] }), vibration = effect({ type: 'vibration' });
+    const none = effect({ canPlayEffectType: () => false });
+    for (const a of [triggers, vibration, none]) {
+      expect(rumbleDriver({ vibrationActuator: a.actuator })).toBe('none');
+      expect(await playRumble({ vibrationActuator: a.actuator }, 100, 0.4, 0.2)).toBe(false);
+      expect(a.playEffect).not.toHaveBeenCalled();
+    }
+    const one = vi.fn().mockResolvedValue(true), strong = vi.fn().mockResolvedValue(true), weak = vi.fn().mockResolvedValue(true);
+    expect(rumbleDriver({ vibrationActuator: triggers.actuator, hapticActuators: [{ pulse: one }] })).toBe('pulse');
+    expect(await playRumble({ hapticActuators: [{ pulse: one }] }, 120, 0.3, 0.7)).toBe(true);
+    expect(one).toHaveBeenCalledWith(0.7, 120);
+    expect(await playRumble({ hapticActuators: [{ pulse: strong }, { pulse: weak }] }, 120, 0.3, 0.7)).toBe(true);
+    expect(strong).toHaveBeenCalledWith(0.3, 120); expect(weak).toHaveBeenCalledWith(0.7, 120);
+    await stopRumble({ hapticActuators: [{ pulse: strong }, { pulse: weak }] });
+    expect(strong).toHaveBeenLastCalledWith(0, 1); expect(weak).toHaveBeenLastCalledWith(0, 1);
+    for (const p of [null, {}, { vibrationActuator: null, hapticActuators: [] }, { hapticActuators: [null, {}] }]) {
+      expect(rumbleDriver(p)).toBe('none');
+      expect(await playRumble(p, 100, 1, 1)).toBe(false);
+      await stopRumble(p);
+    }
+    // Stop: reset where the actuator has it, else a zero effect.
+    await stopRumble({ vibrationActuator: chrome.actuator }); expect(chrome.reset).toHaveBeenCalledOnce();
+    const noReset = { playEffect: vi.fn().mockResolvedValue('complete') };
+    await stopRumble({ vibrationActuator: noReset });
+    expect(noReset.playEffect).toHaveBeenCalledWith('dual-rumble', expect.objectContaining({ strongMagnitude: 0, weakMagnitude: 0 }));
+  });
+
+  test('the pad in use rumbles: a Sony pad like an Xbox pad, the latest input wins, hot plug and index changes follow', async () => {
+    const { input, events, set } = rig();
+    const xbox = effect({ effects: ['dual-rumble'] }), dualsense = effect({ effects: ['dual-rumble'] });
+    expect(input.rumbleDriver).toBe('none');
+    set(withPad({ vibrationActuator: xbox.actuator }), withPad({ vibrationActuator: dualsense.actuator }, 1, sony));
+    expect(input.rumbleDriver).toBe('dual-rumble');
+    expect(await input.rumble(250, 0.55, 1)).toBe(true);
+    expect(xbox.playEffect).toHaveBeenCalledOnce(); expect(dualsense.playEffect).not.toHaveBeenCalled();
+    // The DualSense gets input: it takes over with the same magnitudes, and the Xbox pad left behind stops.
+    set(withPad({ vibrationActuator: xbox.actuator }), withPad({ vibrationActuator: dualsense.actuator }, 1, sony, { 0: 1 }));
+    expect(input.padFamily).toBe('playstation'); expect(xbox.reset).toHaveBeenCalledOnce();
+    expect(await input.rumble(250, 0.55, 1)).toBe(true);
+    expect(dualsense.playEffect).toHaveBeenCalledWith('dual-rumble', { duration: 250, startDelay: 0, strongMagnitude: 0.55, weakMagnitude: 1 });
+    expect(xbox.playEffect).toHaveBeenCalledOnce();
+    // It stays the pad in use without further input; zero magnitudes stop it.
+    set(withPad({ vibrationActuator: xbox.actuator }), withPad({ vibrationActuator: dualsense.actuator }, 1, sony));
+    expect(await input.rumble(0, 0, 0)).toBe(false); expect(dualsense.reset).toHaveBeenCalledOnce();
+    // Unplugged mid-drive: nothing to drive. Back under another index: it rumbles again.
+    set(); expect(input.rumbleDriver).toBe('none'); expect(await input.rumble(250, 0.55, 1)).toBe(false);
+    set(null, null, withPad({ vibrationActuator: dualsense.actuator }, 2, sony));
+    expect(await input.rumble(250, 0.3, 0.6)).toBe(true); expect(dualsense.playEffect).toHaveBeenCalledTimes(2);
+    // A pad without any actuator is silent, a pulse-only pad is pulsed.
+    set(withPad({}, 0, 'Generic USB Joystick'));
+    expect(input.rumbleDriver).toBe('none'); expect(await input.rumble(250, 0.3, 0.6)).toBe(false);
+    const pulse = vi.fn().mockResolvedValue(true);
+    set(withPad({ hapticActuators: [{ pulse }] }, 0, 'Generic USB Joystick'));
+    expect(input.rumbleDriver).toBe('pulse'); expect(await input.rumble(250, 0.3, 0.6)).toBe(true);
+    expect(pulse).toHaveBeenCalledWith(0.6, 250);
+    // Losing focus stops the pad and nothing plays until the window has focus again.
+    events.dispatchEvent(new Event('blur')); expect(pulse).toHaveBeenLastCalledWith(0, 1);
+    input.update(1 / 60); expect(await input.rumble(250, 0.3, 0.6)).toBe(false);
+    events.dispatchEvent(new Event('focus')); input.update(1 / 60); expect(await input.rumble(250, 0.3, 0.6)).toBe(true);
+  });
 });

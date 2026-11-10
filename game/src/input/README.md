@@ -10,6 +10,7 @@ device indices; `tests/unit/input.test.ts` fails if code outside `src/input/` li
 | `index.ts` | `Input`: listeners, per-frame merge of keyboard, gamepad and touch, edges, sprint burst, rumble |
 | `touch.ts` | Touch source: `TouchPad` (pointer bookkeeping, no DOM) and `TouchOverlay` (thumb buttons and the floating stick) |
 | `haptics.ts` | `Haptics`: controller rumble from what the player feels; pure mappers (impulse, step, speed -> strength and duration) |
+| `actuator.ts` | Plays and stops a rumble on whatever vibration a pad exposes, by feature detection |
 
 ## Sources
 
@@ -77,16 +78,19 @@ panel never turns the camera.
 
 `play.ts` feeds `Haptics.update` once per render frame (driven vehicle state and input, or the character's
 grounded flag and vertical speed) and `Haptics.footstep` from the audio stride events; every effect goes to
-`Input.rumble` as one `dual-rumble` (strong = low-frequency motor, weak = high-frequency motor). Nothing rumbles
+`Input.rumble` as one effect (strong = low-frequency motor, weak = high-frequency motor). Nothing rumbles
 while paused, in a menu or on the start screen, and a vehicle's old events never replay when it is entered.
-`__game.haptics` exposes `counts` per cause and a `log` of the latest transients.
+`__game.haptics` exposes `counts` per cause, a `log` of the latest transients, `surface` (this frame's surface
+rumble with the wheel share and km/h) and `continuous` (the level last sent); `__game.input.rumbleDriver` names
+how the pad in use vibrates.
 
 Strength ladder, weakest first (`haptics.ts` holds the constants):
 
 | Cause | Trigger | Strong | Weak | ms |
 |---|---|---|---|---|
-| Engine (car) | RT (or LT reversing) above 5 %; strongest pulling away | 0 | up to 0.14 | 150, renewed every 100 |
-| Engine (scooter) | always while ridden, rising with throttle and speed | 0 | 0.05–0.18 | 150, renewed every 100 |
+| Engine (car) | RT (or LT reversing) above 5 %; strongest pulling away | 0 | up to 0.14 | 250, renewed every 100 |
+| Engine (scooter) | always while ridden, rising with throttle and speed | 0 | 0.05–0.18 | 250, renewed every 100 |
+| Cobbles | any vehicle above 5 km/h with wheels on a `SURFACE_ROUGHNESS` material | 0.08–0.55 (at 50 km/h) × wheel share | 0.15–1 × wheel share | 250, renewed every 100 |
 | Stairs | each footstep on a `STAIR` material | 0.10 | 0.08 | 45 |
 | Landing | touchdown after falling at 2 m/s or faster (a jump is 4.6 m/s) | 0.15–0.8 | 0.1–0.5 | 70–180 |
 | Kerb | a wheel's ground path steps 7 cm or more (`VehicleState.bump.height`), or a curb-material strike | speed × height × 0.8 (drops × 0.7) | 0.6 × strong | 120 |
@@ -97,7 +101,39 @@ Kerbs in the real tiles are lidar slopes without curb material (10–20 cm over 
 the wheel step (vehicle/README.md "Bumps") with the same strength the synthetic scene's curb faces give through
 the curb-strike module: a 12 cm kerb at 4 m/s plays 0.38 strong either way. The engine uses only the weak motor so
 every transient stays distinct. One transient plays at a time: a new one preempts a running one only when it is
-stronger, and the engine pulses pause until it ends. Measured on the same 24 s car route (three kerb crossings at
+stronger, and the continuous pulses pause until it ends.
+
+The continuous layer is the louder per motor of engine, horn and surface. Its 250 ms pulses are renewed every
+100 ms, so they overlap down to a few frames per second; a transient plays with at least the layer's magnitudes
+on each motor and hands back one frame before it ends, so the motors never stop in between. The moment the layer
+ends (off the cobbles, at or below 5 km/h, out of the vehicle, paused, menu) a zero effect cuts the pulse still
+playing; losing window focus resets the actuator.
+
+Surface rumble (`surfaceRumble`, `roughShare`): level = 0.15 + 0.85 × (km/h − 5) / 45, clamped at 50 km/h, times
+the share of wheels in contact with a rough material (one wheel of four in a cobbled gutter: a quarter; a wheel in
+the air counts as off). Weak motor = level (the rapid buzz of the setts), strong motor = 0.55 × level (body), which
+leaves kerbs (strong up to 1), jolts (0.8) and crashes (1) audible on top at full speed. `SURFACE_ROUGHNESS` is a
+table per collision material, the only place deciding what rattles: `cobblestone` = 1. The generators give that
+material to every sett and cobble surface in the source data (street register noppakivi, nupukivi, luonnonkivi,
+kenttäkivi, graniitti; OSM `sett`, `cobblestone`, `unhewn_cobblestone`), Kauppatori and Portsa included;
+`paving_slab` is concrete pavers, brick and slabs and stays silent.
+
+### Controllers
+
+`actuator.ts` detects the vibration interface, never the controller name, and `Input` drives the pad in use: the
+pad with the latest input, else the one used before, else the first. A pad that takes over stops the one left
+behind; a pad that disconnects mid-drive is silent and rumbles again within 100 ms of coming back, under any index.
+
+| Interface | Detection | Driven as |
+|---|---|---|
+| `vibrationActuator.playEffect('dual-rumble')` | `effects` lists it (Chrome 126+), `canPlayEffectType` accepts it (Safari), `type` is `dual-rumble` (older Chrome), or neither is present | strong and weak magnitudes as they are; `reset()` stops |
+| `hapticActuators[i].pulse(value, ms)` | no usable `vibrationActuator`, at least one actuator with `pulse` (Firefox) | two actuators: strong, weak; one: the larger magnitude; `pulse(0)` stops |
+| none | neither | nothing |
+
+Chrome exposes `dual-rumble` for Xbox pads (Elite Series 2 included; XInput, Bluetooth and USB), DualSense and
+DualShock 4 (HID, USB and Bluetooth), Switch Pro and generic XInput or HID pads with rumble, so they all get the
+same magnitudes: one curve, no per-family gain (none was measured to be needed; a gain keyed on the vendor id
+belongs in `actuator.ts` if a pad feels weaker). Measured on the same 24 s car route (three kerb crossings at
 3, 5 and 8 m/s, two cruises at 8 and 12 m/s, a building crash) the synthetic scene went from 15 to 35 transient
 rumbles per minute and the real tiles from 0 to 67.5; the real tiles' rough paving is felt as well as the kerb.
 
