@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { GameAudio } from '../../src/audio';
+import { ENTRY_QUIET, GameAudio } from '../../src/audio';
 
 class Param { value = 0; setTargetAtTime(v: number) { this.value = v; } setValueAtTime(v: number) { this.value = v; } linearRampToValueAtTime(v: number) { this.value = v; } cancelScheduledValues() {} }
 class FakeNode {
@@ -40,9 +40,9 @@ test('GameAudio: music streams on demand after the game is playable, follows the
     await audio.preload(); frame(30, false, true, 'menu');
     expect(fetched.some(url => url.includes('music'))).toBe(false); expect(requested).toEqual([]);
     // The click that starts the game unlocks audio; the menu closes at once: no menu theme, and no stream for the
-    // first five seconds of play.
+    // first fifteen seconds of play.
     await audio.unlock(); audio.music?.stop();
-    frame(0.2, false, true, 'menu'); frame(4.8, false, false, 'explore');
+    frame(0.2, false, true, 'menu'); frame(ENTRY_QUIET - 0.2, false, false, 'explore');
     expect(requested).toEqual([]); expect(track()).toBeNull();
     frame(1.2, false, false, 'explore');
     expect(requested).toEqual(['audio/music/synthwave.ogg']); expect(track()).toBe('synthwave');
@@ -61,10 +61,10 @@ test('GameAudio: music streams on demand after the game is playable, follows the
     expect(audio.snapshot().music).toMatchObject({ muted: true, playing: { playing: false, wanted: null } });
     audio.setMusicMuted(false); audio.setMusicVolume(0.7); frame(1.5, false, false, 'explore');
     expect(track()).toBe('funk'); expect(audio.snapshot().music).toMatchObject({ volume: 0.7, muted: false, playing: { playing: true } });
-    // Loading a save: what plays fades out, nothing starts until five seconds after it ends.
+    // Loading a save: what plays fades out, nothing starts until fifteen seconds after it ends.
     const streams = requested.length;
     frame(6, true, false, 'menu'); expect(audio.snapshot().music.playing).toMatchObject({ playing: false, hold: true });
-    frame(4.5, false, false, 'explore'); expect(track()).toBeNull();
+    frame(ENTRY_QUIET - 0.5, false, false, 'explore'); expect(track()).toBeNull();
     frame(1.5, false, false, 'explore'); expect(track()).toBe('funk'); expect(requested.length).toBe(streams + 1);
     // Six files at most are ever opened, each only when first played.
     expect(new Set(requested).size).toBeLessThanOrEqual(6);
@@ -92,9 +92,10 @@ test('GameAudio: the start menu theme plays for a player who stays in the menu w
     frame(3.5, true, 'menu'); expect(requested).toEqual([]);
     frame(1, true, 'menu'); expect(requested).toEqual(['audio/music/menu.ogg']);
     expect(audio.snapshot().music.playing).toMatchObject({ track: { id: 'menu', name: 'Harbour Glass' }, lobby: true });
-    // Starting the game: the theme fades out, free play follows five seconds in.
+    // Starting the game: the theme fades out, free play follows fifteen seconds in.
     frame(3, false, 'explore'); expect(audio.snapshot().music.playing?.playing).toBe(false);
-    frame(3, false, 'explore'); expect(audio.snapshot().music.playing?.track?.id).toBe('synthwave');
+    frame(ENTRY_QUIET - 3.2, false, 'explore'); expect(audio.snapshot().music.playing?.track).toBeNull();
+    frame(1.2, false, 'explore'); expect(audio.snapshot().music.playing?.track?.id).toBe('synthwave');
     audio.dispose();
   } finally { g.Audio = before; }
 });

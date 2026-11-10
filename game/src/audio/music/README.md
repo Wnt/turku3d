@@ -25,7 +25,7 @@ delivery; pausing crossfades to the menu theme and back to where free play was.
 has stood for `SETTLE` (0.6 s): a quick pause and resume starts nothing. `setHold(true)` (the world is loading)
 starts no stream; `setLobby(true)` (the start menu) waits `LOBBY_SETTLE` (4 s) with audio on before the menu theme
 starts, so clicking straight through the menu downloads no music. `GameAudio.setLoading` drives both from the play
-session and holds for five more seconds after the game becomes playable. With the music muted or at zero volume the
+session and holds for fifteen more seconds after the game becomes playable (`ENTRY_QUIET`). With the music muted or at zero volume the
 stream fades out and pauses.
 
 **The delivery deadline** (`hurry`): from `hurryStart` (65 % of the par time) the track speeds up smoothly to

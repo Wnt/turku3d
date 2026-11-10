@@ -116,7 +116,7 @@ mute button (`setMusicVolume`, `setMusicMuted`; muted or at zero the stream paus
 
 No music is part of what loads before the menu or before the game is playable: a track's file is requested when the
 track first plays, never in the start menu unless the player stays there for four seconds with audio on, never while
-the world loads, and not in the first five seconds of play (`GameAudio.setLoading`, once per frame from the play
+the world loads, and not in the first fifteen seconds of play (`ENTRY_QUIET`; `GameAudio.setLoading`, once per frame from the play
 session). `window.__game.audio.snapshot().music` exposes the requested scene, deadline, muffle, volume and the
 system's snapshot (track, position, rate, intensity, guards, opened streams).
 

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { GameAudio } from '../../src/audio';
+import { ENTRY_QUIET, GameAudio } from '../../src/audio';
 import { CALL_GAP, FIRST_CALL, GULL_SOUNDS, GullScheduler, WATERS, airCutoff, echoShare, gullPresence, insidePolygon, nearestOnLine, pointAlong,
   waterReflection, type GullCall } from '../../src/audio/gulls';
 import { SOUNDS } from '../../src/audio/mix';
@@ -153,8 +153,8 @@ test('GameAudio: the calls are fetched near the water only, play as spatial one-
   for (const end = now + 300; now < end; now += 1) at(QUAY);
   expect(audio.snapshot().gulls.calls).toBe(1);
   audio.setLoading(false);
-  for (const end = now + 4.9; now < end; now += 1 / 30) at(QUAY);
-  expect(audio.snapshot().gulls.calls).toBe(1); // five more seconds after the loading ends
+  for (const end = now + ENTRY_QUIET - 0.1; now < end; now += 1 / 30) at(QUAY);
+  expect(audio.snapshot().gulls.calls).toBe(1); // fifteen more seconds after the loading ends
   for (const end = now + 1; now < end && audio.snapshot().gulls.calls < 2; now += 1 / 30) at(QUAY);
   expect(audio.snapshot().gulls.calls).toBe(2);
   // Likewise in the start menu.

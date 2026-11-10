@@ -11,6 +11,10 @@ import type { VoiceOutput } from './voice';
 import { DEFAULT_PARAMETERS, MusicSystem, type MusicState } from './music';
 
 type Voice = { source: AudioBufferSourceNode; gain: GainNode; panner?: PannerNode };
+/** Seconds after entering the city (or after a save has loaded) before music streams and gull calls may start: the
+ *  first seconds of play belong to the tiles that stream in around the player, and the load probe's "playable" mark
+ *  can trail the start by up to twelve seconds (loops/ocishare/probe-load.mjs). */
+export const ENTRY_QUIET = 15;
 const CHANNELS: Channel[] = ['master', 'footsteps', 'vehicle', 'ambience', 'voice', 'ui'];
 
 /** Owns all Web Audio nodes; gameplay only emits semantic events. No renderer dependency. */
@@ -39,8 +43,8 @@ export class GameAudio {
   /** The world is loading (a save being restored) / the start menu is open: before "playable". */
   private loadingWorld = false;
   private lobby = false;
-  /** Clock time from which on-demand audio may start again: SETTLE_SECONDS after the start menu closed or the loading
-   *  ended, so it is not part of what downloads on the way to "playable". */
+  /** Clock time from which on-demand audio may start again: ENTRY_QUIET seconds after the start menu closed or the
+   *  loading ended, so it is not part of what downloads on the way to "playable". */
   private settledAt = -Infinity;
   private listener: Extract<AudioEvent, { type: 'listener' }> | null = null;
   /** Drawn walkers near the camera; null until the walker system reports (no crowd loop before that). */
@@ -210,12 +214,12 @@ export class GameAudio {
   }
 
   /** Once per frame from the play session. On-demand audio waits for the game to be playable, so the download before
-   *  that does not grow: in the start menu (`lobby`), while the world loads and for five seconds after either, no gull
-   *  call is fetched or scheduled; no music stream starts while loading or in those five seconds, and the start
+   *  that does not grow: in the start menu (`lobby`), while the world loads and for ENTRY_QUIET seconds after either,
+   *  no gull call is fetched or scheduled; no music stream starts while loading or in that quiet, and the start
    *  menu's own theme only for a player who stays there (MusicSystem.setLobby). */
   setLoading(loading: boolean, lobby = false) {
     const now = this.clock();
-    if ((this.loadingWorld || this.lobby) && !loading && !lobby) this.settledAt = now + 5;
+    if ((this.loadingWorld || this.lobby) && !loading && !lobby) this.settledAt = now + ENTRY_QUIET;
     this.loadingWorld = loading; this.lobby = lobby;
     this.music?.setHold(loading || now < this.settledAt); this.music?.setLobby(lobby);
   }
