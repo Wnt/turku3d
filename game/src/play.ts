@@ -113,6 +113,8 @@ import { CityAvailability, cameThrough, showTransition, takeTicket, walletOnly, 
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
 /** Milliseconds between attempts to place the heist's trophy truck in its yard. */
 const HEIST_RETRY_MS = 2000;
+/** A start's start pairs are searched once the collision within this distance (m) of it is loaded. */
+const START_STREAM_M = 100;
 /** The truck heist's reward car parks at a road-graph kerb spot this far from the drop-off (first within the near
  *  radius, else the far one), out of the drop zone and at the drop-off's road level, not on the bridge above. */
 const HEIST_CAR_MIN_M = 10, HEIST_CAR_NEAR_M = 30, HEIST_CAR_FAR_M = 60, HEIST_CAR_LEVEL_M = 1.5;
@@ -382,9 +384,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   /**
    * "Reset progress" (SaveGameController.resetProgress, gameplay/progressReset.ts), after the player left any vehicle:
    * every city's stored progress goes; in a room the shared records resync; the room resets the player (score, seat,
-   * own vehicles); the bought scooter and truck go. The new game starts at Turku's default start: on this page, or
-   * after a trip there (from another city, or from Turku entered at a portal exit, ?spawn=) that carries the fresh
-   * mission and the multiplayer choice like a trip home.
+   * own vehicles); the bought scooter and truck go. The new game starts at Turku's default start: on this page (also
+   * when it was entered at a portal exit, ?spawn=: SaveGameController places it at the city's start), or after a trip
+   * there from another city that carries the fresh mission and the multiplayer choice like a trip home.
    */
   const forgetProgress = async (): Promise<boolean> => {
     autopilot.cancel('progress reset'); fly?.set(false);
@@ -397,7 +399,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     // the next hello carries the reset.
     await multiplayer?.resetProgress();
     for (const id of [SCOOTER_ID, TRUCK_ID]) physics.removeVehicle(id);
-    if (storyCity && !params.spawnGiven) return true;
+    if (storyCity) return true;
     travelling = true;
     writeTicket(sessionStore(), { v: 1, from: CITY.name, to: HOME_CITY, portal: null, ride: null, mission: missions.serialize(),
       multiplayer: multiplayerPlaying, at: Date.now() });
@@ -423,7 +425,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     });
     return startPairs(first, coarse.roadGraphs(), (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
       (x, z, radius) => streamer.supports(x, z, radius), count, { ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
-        view: { dx: -Math.sin(world.spawn.yaw), dz: -Math.cos(world.spawn.yaw) },
+        view: { dx: -Math.sin(first.spawn.yaw), dz: -Math.cos(first.spawn.yaw) },
         obstacles: [...others.map(o => ({ minX: o.x - 2.8, maxX: o.x + 2.8, minZ: o.z - 2.8, maxZ: o.z + 2.8 })),
           ...propFootprints(models, first.car, 90), ...parkedFootprints(manifest.vehicles, first.car, 90)] });
   };
@@ -439,24 +441,25 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       run: () => { void bringHere().catch(fail); },
     },
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
-    spawn, car: world.car,
+    spawn, car: world.car, cityStart: world.cityStart,
+    startStreamed: (x, z) => streamer.missingNear(x, z, START_STREAM_M).length === 0 && (!coarse || coarse.resolvedAt(x, z)),
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
       { along: streetViews(at, coarse?.roadGraphs() ?? []), car: world.car }),
     startCarPlaced: at => sharedVehicles?.starterPlaced(at),
-    freeStart: async car => {
+    freeStart: async start => {
       const others = standingCars();
-      if (!others.some(o => insideCar(car, o.x, o.z, 1))) return null;
-      return (await pairsAround({ spawn: world.spawn, car }, 1, others))[0]?.car ?? null;
+      if (!others.some(o => insideCar(start.car, o.x, o.z, 1))) return null;
+      return (await pairsAround(start, 1, others))[0]?.car ?? null;
     },
-    startPair: async () => {
+    startPair: async start => {
       // Every player of a room computes the same start, and a start car stays local until it moves: each player takes
       // the start pair of its own room slot (its car apart from the others', itself beside it), clear of any shared
       // record or car already standing there.
       const slot = multiplayerPlaying ? roomSlot(multiplayer?.state.you?.spawn) % ROOM_START_CARS : 0, others = standingCars();
-      if (!slot && !others.some(o => insideCar(world.car, o.x, o.z, 1))) return null;
-      const pairs = await pairsAround({ spawn: world.spawn, car: world.car }, slot + 1, others);
+      if (!slot && !others.some(o => insideCar(start.car, o.x, o.z, 1))) return null;
+      const pairs = await pairsAround(start, slot + 1, others);
       return pairs[Math.min(slot, pairs.length - 1)] ?? null;
     },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
@@ -484,10 +487,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         startScreen.showNotice('Multiplayer unavailable. Reload to reconnect.');
       }).catch(fail);
     } });
-  // The room hands out Turku's spawn slots around the office: a fresh join elsewhere (another city, or ?spawn=, which
-  // also carries a portal exit) starts at this page's own ground-checked start.
   // Every city's fresh join starts at its ground-checked start and takes its room slot's start pair there (in Turku too:
-  // the room's slot positions only number the players).
+  // the room's slot positions only number the players). This pose only marks a start as fresh and is where the menu
+  // preloads; SaveGameController resolves the start itself (the page's for the first placement, then the city's).
   const roomStart = world.spawn;
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
   const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket);
@@ -650,7 +652,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     startScreen.close();
     const home = TURKU_PORTALS.find(p => p.id === t.portal && isHome()) ?? null;
     // world.spawn is the city centre, or in Turku the ?spawn= exit pose the leaving page asked for. An arrival is a
-    // fresh start there: in a room it takes its slot's start pair like a join (solo: the start itself).
+    // fresh start there: in a room it takes its slot's start pair like a join (solo: the start itself). The exit pose
+    // is used this once: it leaves the URL, so a reload starts at the city's start (Continue restores the saved pose).
+    if (params.spawnGiven) history.replaceState(history.state, '', cityPageUrl(CITY.name, location));
     const at = { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, fresh: true };
     const seat = t.ride ? () => seatRide(t.ride!, home) : undefined;
     const solo = () => saveGame.playAt(at, seat, t.mission);

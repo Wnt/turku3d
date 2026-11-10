@@ -81,7 +81,8 @@ within the city omits it and reclaims its seat as below.
 player's own cars keep the normal lifetime below.
 
 Send once within 5 seconds of connecting; omit `session` on first join. A current
-hour token rejoins the same ID, nickname, spawn, score and paid-order set. It
+hour token rejoins the same ID, nickname, spawn, score and paid-order set (the spawn slot changes only when a present
+player took it meanwhile: a join gets the lowest slot no present player holds, so players never share a start). It
 replaces any earlier socket using that token (old socket closes with code 4001).
 An unknown but well-formed token starts a new player; malformed tokens are rejected.
 The token is a bearer credential; retain it privately, never put it in a URL.

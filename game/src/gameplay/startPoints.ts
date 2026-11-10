@@ -2,12 +2,11 @@ import { enToEngine, type V3 } from '../core/origin';
 import type { SaveGame } from '../core/save';
 import room from '../../../server/spawns.json';
 
-/** Start pairs (own car, player beside it) the players of a room cycle through by room slot (world/startGround.ts
- *  startPairs): the search for more would reach too far from the start; with more players at once than this, two may
- *  share one again. */
-export const ROOM_START_CARS = 8;
-/** The index of the room's spawn slot `spawn` (server/spawns.json order; the room hands them out in turn to joining
- *  players, in every city), or 0. */
+/** Start pairs (own car, player beside it) the players of a room take by room slot (world/startGround.ts
+ *  startPairs): one per spawn slot of the room, so players present together never share one. */
+export const ROOM_START_CARS = room.points.length;
+/** The index of the room's spawn slot `spawn` (server/spawns.json order; the room gives a joining player the lowest
+ *  slot no present player holds, in every city), or 0. */
 export function roomSlot(spawn?: { E: number; N: number } | null) {
   const i = spawn ? room.points.findIndex(p => Math.abs(p.E - spawn.E) < 0.01 && Math.abs(p.N - spawn.N) < 0.01) : -1;
   return Math.max(0, i);

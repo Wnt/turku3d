@@ -595,7 +595,42 @@ async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
   return { name: CITY.name, manifest, streamer: holder.streamer, coarse, life };
 }
 
-/** Streams the active city's start (params.spawn) and finds supported ground for the player and the own car there
+/** Supported ground for the player and the own car at `requested`, viewed along `startYaw` (world/startGround.ts), from
+ *  the collision and street graphs loaded there now; null while no start is found in them. */
+function findStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest,
+  requested: { x: number; z: number }, startYaw: number) {
+  const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
+  return findInitialGround(requested, coarse.roadGraphs(),
+    (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
+    (x, z, radius) => streamer.supports(x, z, radius), {
+      // Open ground once the start's collision is complete: no street near the spawn may support a car.
+      open: streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending,
+      obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M)],
+      view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) },
+      // The car faces open road along its street, the player open street (not the facade a few metres away).
+      ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi) });
+}
+
+/** How long (ms) a session waits for the city's own start to stream in and be found from a `?spawn=` page. */
+const CITY_START_MS = 90_000;
+
+/** The city's own start (CITY.spawn) for a session whose page started elsewhere (`?spawn=`: a portal exit, a tool's
+ *  URL): respawn at the start, a round start, reset progress and a new game go there, never to the `?spawn=` pose.
+ *  `stream` streams the surroundings of a point in (SaveGameController, the world paused). */
+async function cityStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest,
+  stream: (x: number, z: number) => Promise<void>) {
+  const requested = enToEngine(CITY.spawn.E, CITY.spawn.N, 0), startYaw = headingToYaw(CITY.spawn.headingDeg);
+  const t0 = performance.now();
+  for (;;) {
+    await stream(requested.x, requested.z);
+    const placed = streamer.supports(requested.x, requested.z) ? await findStart(physics, streamer, coarse, manifest, requested, startYaw) : null;
+    if (placed) return placed;
+    if (performance.now() - t0 > CITY_START_MS) throw new Error(`No supported street start at the city's start: ${coarse.status}`);
+    await new Promise(r => setTimeout(r, 100));
+  }
+}
+
+/** Streams the page's start (params.spawn) and finds supported ground for the player and the own car there
  *  (world/startGround.ts); the collision radius stays at the startup radius until the session releases its starts. */
 async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest) {
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
@@ -616,16 +651,7 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
     loadingScreen.update(false, coarse.status);
     if (streamer.supports(requested.x, requested.z)) {
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
-      const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
-      placed = await findInitialGround(requested, coarse.roadGraphs(),
-        (x, z) => physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000),
-        (x, z, radius) => streamer.supports(x, z, radius), {
-          // Open ground once the start's collision is complete: no street near the spawn may support a car.
-          open: streamer.missingNear(requested.x, requested.z, streamer.radius).length === 0 && !streamer.pending,
-          obstacles: [...propFootprints(models, requested, START_SEARCH_M), ...parkedFootprints(manifest.vehicles, requested, START_SEARCH_M)],
-          view: { dx: -Math.sin(startYaw), dz: -Math.cos(startYaw) },
-          // The car faces open road along its street, the player open street (not the facade a few metres away).
-          ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi) });
+      placed = await findStart(physics, streamer, coarse, manifest, requested, startYaw);
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
@@ -973,14 +999,16 @@ async function runPlay() {
       loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
       trafficClock: () => dayClock.trafficClock(),
       setClock: date => dayClock.restore(date),
-      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, travel };
+      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, travel,
+      ...(params.spawnGiven ? { cityStart: (stream: (x: number, z: number) => Promise<void>) => cityStart(physics, streamer, coarse, manifest, stream) } : {}) };
   };
   let world: PlayWorld;
   /**
    * In-place city switch (gameplay/travel.ts): the play session ends (its ticket in session storage carries the trip),
    * the old city's tiles, collision and vehicles go, the engine origin moves to the new city (core/city.ts setCity),
    * its world streams in around the start (the arrival portal's exit pose in Turku), and a new session takes the
-   * ticket. One page, one renderer, one physics world; the URL follows (?city=, ?spawn=) for reloads and links.
+   * ticket. One page, one renderer, one physics world; the URL follows (?city=) for reloads and links. The exit pose
+   * places the arrival once and stays out of the URL: a reload starts at the city's start.
    */
   let travelling: Promise<void> | null = null;
   function travel(to: CityName, spawn?: { E: number; N: number; headingDeg: number }) {
@@ -999,7 +1027,7 @@ async function runPlay() {
       leaving.life.abort();
       leaving.coarse.leaveCity();
       setCity(to);
-      history.replaceState(history.state, '', cityPageUrl(to, location, spawn));
+      history.replaceState(history.state, '', cityPageUrl(to, location));
       params.spawnGiven = !!spawn;
       params.spawn = spawn ?? { E: CITY.spawn.E, N: CITY.spawn.N, headingDeg: CITY.spawn.headingDeg };
       worldLoad.update({ phase: 'loading', errors: [] });
