@@ -1,15 +1,17 @@
-// Controller rumble from what the player feels: wheel bumps, curb strikes, collisions, landings, stairs and engine
-// load. The mappers are pure (impulse or speed -> strength and duration); `Haptics` deduplicates the physics events,
-// mixes one transient over the continuous engine rumble and hands each effect to `Input.rumble` (README "Haptics").
+// Controller rumble from what the player feels: wheel bumps, curb strikes, collisions, landings, stairs, engine load
+// and rough paving under the tyres. The mappers are pure (impulse or speed -> strength and duration); `Haptics`
+// deduplicates the physics events, mixes one transient over the continuous layer (engine, horn, surface) and hands
+// each effect to `Input.rumble` (README "Haptics").
 import { VEHICLES, type VehicleKind } from '../physics/constants';
-import type { BumpState, VehicleInput, VehicleState } from '../physics/protocol';
-import { MAT_FLAG, materialHasFlag } from '../shared/col/materials';
+import type { BumpState, VehicleInput, VehicleState, WheelState } from '../physics/protocol';
+import { MAT, MAT_FLAG, materialHasFlag } from '../shared/col/materials';
 import { curbResponse } from '../vehicle/curbStrike';
 import { clamp } from './bindings';
 
 /** One dual-rumble effect: duration in ms, motor magnitudes 0..1 (strong: low-frequency, weak: high-frequency). */
 export interface Rumble { duration: number; strong: number; weak: number }
-type RumbleCause = 'bump' | 'curb' | 'impact' | 'landing' | 'stairs' | 'engine';
+type RumbleCause = 'bump' | 'curb' | 'impact' | 'landing' | 'stairs' | 'engine' | 'surface';
+type Level = Omit<Rumble, 'duration'>;
 interface RumbleRecord extends Rumble { time: number; cause: RumbleCause }
 
 const ramp = (value: number, from: number, to: number) => clamp((value - from) / (to - from), 0, 1);
@@ -75,9 +77,46 @@ export function engineRumble(kind: VehicleKind, throttle: number, speed: number)
   if (t < 0.05) return null;
   return { strong: 0, weak: t * (0.06 + 0.08 * (1 - v)) };
 }
-/** The engine rumble is renewed this often with effects of ENGINE_PULSE_MS, so consecutive pulses overlap. */
-export const ENGINE_REFRESH_MS = 100;
-export const ENGINE_PULSE_MS = 150;
+/** Roughness (0..1) of the collision materials a tyre feels as a constant rattle. Cobblestone is every sett and
+ *  cobble surface of the city: the generators map the street register's noppakivi, nupukivi, luonnonkivi, kenttäkivi
+ *  and graniitti and OSM's sett, cobblestone and unhewn_cobblestone to it (Kauppatori, Portsa, the riverside).
+ *  Concrete pavers, brick and slabs (paving_slab) are laid flat and stay silent. */
+export const SURFACE_ROUGHNESS: Readonly<Record<number, number>> = { [MAT.cobblestone]: 1 };
+/** The surface rumble starts above SURFACE_FELT_KMH and is at full strength from SURFACE_FULL_KMH. */
+export const SURFACE_FELT_KMH = 5;
+export const SURFACE_FULL_KMH = 50;
+/** Strength just above SURFACE_FELT_KMH (so the start is felt), as a share of full strength. */
+const SURFACE_FLOOR = 0.15;
+/** Full strength per motor: the high-frequency motor carries the rapid buzz of the setts, the low-frequency one
+ *  gives it body and leaves room for kerbs, jolts and crashes to come through on top. */
+const SURFACE_FULL: Level = { strong: 0.55, weak: 1 };
+
+/** The share of the vehicle's wheels rolling on a rough material, weighted by its roughness: 1 with every wheel on
+ *  cobbles, 0.25 with one of four in a cobbled gutter. A wheel in the air counts as off. */
+export function roughShare(wheels: readonly Pick<WheelState, 'contact' | 'tyre'>[]): number {
+  if (!wheels.length) return 0;
+  let sum = 0;
+  for (const w of wheels) if (w.contact && w.tyre) sum += SURFACE_ROUGHNESS[w.tyre.material] ?? 0;
+  return sum / wheels.length;
+}
+
+/** Continuous rumble of rough paving: `speed` in m/s, `share` from roughShare. Null at or below SURFACE_FELT_KMH and
+ *  off the paving; it rises linearly to SURFACE_FULL at SURFACE_FULL_KMH and stays there. */
+export function surfaceRumble(speed: number, share: number): Level | null {
+  const kmh = Math.abs(speed) * 3.6;
+  if (kmh <= SURFACE_FELT_KMH || share <= 0) return null;
+  const level = (SURFACE_FLOOR + (1 - SURFACE_FLOOR) * ramp(kmh, SURFACE_FELT_KMH, SURFACE_FULL_KMH)) * clamp(share, 0, 1);
+  return { strong: SURFACE_FULL.strong * level, weak: SURFACE_FULL.weak * level };
+}
+
+/** The continuous layer (engine, horn, surface) is renewed this often with effects of CONTINUOUS_PULSE_MS, so
+ *  consecutive pulses overlap even over a few slow frames; it is cut with a zero effect the moment it ends. */
+export const CONTINUOUS_REFRESH_MS = 100;
+export const CONTINUOUS_PULSE_MS = 250;
+/** The zero effect that cuts whatever still plays. */
+export const SILENCE: Rumble = { duration: 0, strong: 0, weak: 0 };
+const loudest = (a: Level | null, b: Level | null): Level | null =>
+  a && b ? { strong: Math.max(a.strong, b.strong), weak: Math.max(a.weak, b.weak) } : a ?? b;
 const LOG_SIZE = 256;
 
 export interface HapticFrame {
@@ -94,8 +133,9 @@ export interface HapticFrame {
 }
 
 export class Haptics {
-  /** Effects sent per cause since load; `log` keeps the latest LOG_SIZE transient effects (engine pulses excluded). */
-  readonly counts: Record<RumbleCause, number> = { bump: 0, curb: 0, impact: 0, landing: 0, stairs: 0, engine: 0 };
+  /** Effects sent per cause since load (`engine`: every continuous pulse; `surface`: those carrying a surface
+   *  rumble); `log` keeps the latest LOG_SIZE transient effects (continuous pulses excluded). */
+  readonly counts: Record<RumbleCause, number> = { bump: 0, curb: 0, impact: 0, landing: 0, stairs: 0, engine: 0, surface: 0 };
   readonly log: RumbleRecord[] = [];
   private seen = { vehicle: null as string | null, curb: 0, bump: 0, impact: 0 };
   private pending: { cause: RumbleCause; rumble: Rumble }[] = [];
@@ -103,7 +143,12 @@ export class Haptics {
   private fall = 0;
   private until = -Infinity;
   private playing: Rumble | null = null;
-  private engineAt = -Infinity;
+  private continuousAt = -Infinity;
+  private last = -Infinity;
+  /** The surface rumble of the latest frame (null off rough paving, too slow, on foot or inactive) and the
+   *  continuous level last sent to the pad (null while silent): what a test or the console reads. */
+  surface: (Level & { share: number; kmh: number }) | null = null;
+  continuous: Level | null = null;
 
   constructor(private readonly play: (rumble: Rumble) => void) {}
 
@@ -115,6 +160,8 @@ export class Haptics {
   update(frame: HapticFrame) {
     const v = frame.vehicle;
     if (!frame.active) {
+      this.silence(frame.now);
+      this.surface = null;
       this.pending = [];
       this.seed(v, frame.vehicleId);
       this.grounded = true; this.fall = 0;
@@ -154,29 +201,50 @@ export class Haptics {
 
   private add(cause: RumbleCause, rumble: Rumble | null) { if (rumble) this.pending.push({ cause, rumble }); }
 
-  /** The strongest new transient plays unless a stronger one is still running; the engine fills the gaps. */
+  /** Cuts a continuous pulse or transient that may still be playing. */
+  private silence(now: number) {
+    if (now < this.until || now < this.continuousAt + CONTINUOUS_PULSE_MS) this.play(SILENCE);
+    this.until = this.continuousAt = -Infinity;
+    this.playing = this.continuous = null;
+  }
+
+  /** The strongest new transient plays unless a stronger one is still running; the continuous layer (the loudest
+   *  per motor of engine, horn and surface) lies under it and fills the time between transients without a gap. */
   private mix(frame: HapticFrame, v: VehicleState | null) {
     const input = frame.input;
     const throttle = input ? Math.abs(input.throttle) + ((v?.forwardSpeed ?? 0) < 0 ? input.brake : 0) : 0;
     const engine = v ? engineRumble(v.kind ?? 'car', throttle, v.forwardSpeed) : null;
-    const continuous = frame.input?.horn ? { strong: .08, weak: Math.max(.15, engine?.weak ?? 0) } : engine;
-    const power = (r: Rumble) => r.strong + r.weak;
+    const share = v ? roughShare(v.wheels) : 0;
+    const surface = v ? surfaceRumble(v.speed, share) : null;
+    this.surface = surface && v ? { ...surface, share, kmh: Math.abs(v.speed) * 3.6 } : null;
+    const horn = frame.input?.horn ? { strong: .08, weak: .15 } : null;
+    const continuous = loudest(loudest(engine, horn), surface);
+    const power = (r: Level) => r.strong + r.weak;
     const next = this.pending.reduce<{ cause: RumbleCause; rumble: Rumble } | null>(
       (best, row) => !best || power(row.rumble) > power(best.rumble) ? row : best, null);
     this.pending = [];
     const now = frame.now;
+    // A transient hands over to the continuous layer one frame early, so no frame passes with the motors off.
+    const handover = Math.min(Math.max(now - this.last, 0) * 1.5, CONTINUOUS_REFRESH_MS);
+    this.last = now;
     if (next && (now >= this.until || !this.playing || power(next.rumble) > power(this.playing))) {
-      const r = { duration: next.rumble.duration, strong: Math.max(next.rumble.strong, engine?.strong ?? 0),
-        weak: Math.max(next.rumble.weak, engine?.weak ?? 0) };
+      const under = loudest(engine, surface);
+      const r = { duration: next.rumble.duration, strong: Math.max(next.rumble.strong, under?.strong ?? 0),
+        weak: Math.max(next.rumble.weak, under?.weak ?? 0) };
       this.play(r);
       this.playing = r; this.until = now + r.duration;
+      this.continuous = null; this.continuousAt = -Infinity;
       this.counts[next.cause]++;
       this.log.push({ time: now, cause: next.cause, ...r });
       if (this.log.length > LOG_SIZE) this.log.shift();
-    } else if (continuous && now >= this.until && now - this.engineAt >= ENGINE_REFRESH_MS) {
-      this.play({ duration: ENGINE_PULSE_MS, ...continuous });
-      this.engineAt = now;
+    } else if (!continuous) {
+      if (this.continuous) { this.play(SILENCE); this.continuous = null; this.continuousAt = -Infinity; }
+    } else if (now >= this.until - handover && now - this.continuousAt >= CONTINUOUS_REFRESH_MS) {
+      this.play({ duration: CONTINUOUS_PULSE_MS, ...continuous });
+      this.continuous = continuous;
+      this.continuousAt = now;
       this.counts.engine++;
+      if (surface) this.counts.surface++;
     }
   }
 }

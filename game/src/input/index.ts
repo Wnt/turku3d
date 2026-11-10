@@ -1,5 +1,6 @@
-import { ACTIONS, DEFAULT_BINDINGS, editorBindings, emptyActions, mapActions, padFamily, promptLabel, clamp, type Action, type Actions, type Binding, type Bindings, type PadFamily, type PromptDevice } from './bindings';
+import { ACTIONS, DEFAULT_BINDINGS, editorBindings, emptyActions, mapActions, padFamily, promptLabel, type Action, type Actions, type Binding, type Bindings, type PadFamily, type PromptDevice } from './bindings';
 import { TouchOverlay, TouchPad, type TouchContext } from './touch';
+import { playRumble, rumbleDriver, stopRumble, type RumbleDriver } from './actuator';
 export * from './bindings';
 export type InputSource = 'keyboard' | 'gamepad' | 'touch';
 /** `game`: the default bindings. `editor`: the developer object editor's layer (bindings.ts editorBindings). */
@@ -79,7 +80,7 @@ export class Input {
       this.keys.add(e.code); this.source = 'keyboard';
     }, options);
     addEventListener('keyup', e => this.keys.delete(e.code), options);
-    addEventListener('blur', () => { this.focused = false; this.clear(); this.touch.clear(); void this.pad?.vibrationActuator?.reset?.(); }, options);
+    addEventListener('blur', () => { this.focused = false; this.clear(); this.touch.clear(); void stopRumble(this.pad); }, options);
     addEventListener('focus', () => { this.focused = true; }, options);
     addEventListener('gamepaddisconnected', e => { if (this.pad?.index === e.gamepad.index) { this.pad = null; this.clear(); } }, options);
     addEventListener('pointerdown', e => {
@@ -154,7 +155,10 @@ export class Input {
       const a = mapActions(p, NO_KEYS, bindings);
       return ACTIONS.some(k => Math.abs(a[k]) > 0.01);
     });
-    this.pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
+    const pad = active ?? pads.find(p => p.index === this.pad?.index) ?? pads[0] ?? null;
+    // Rumble follows the pad in use: the one left behind (another pad took over) stops instead of playing out.
+    if (this.pad && pad && pad.index !== this.pad.index) void stopRumble(this.pad);
+    this.pad = pad;
     if (this.pad) this.family = padFamily(this.pad.id);
     if (active) { this.source = 'gamepad'; if (!this.padActive) this.activate(); }
     this.padActive = !!active;
@@ -229,13 +233,12 @@ export class Input {
    *  promptLabel). Every help line, hint and "Press … to" prompt takes its button names from here. */
   prompt(action: Action, device: PromptDevice = this.device) { return promptLabel(action, this.active, device); }
   private clear() { this.keys.clear(); this.tapped.clear(); this.actions = emptyActions(); this.edges.clear(); this.activity.clear(); this.mouseLooking = false; this.mouseX = this.mouseY = this.wheel = this.sprintUntil = 0; }
+  /** How the pad in use vibrates (actuator.ts): 'none' without a pad or without an actuator. */
+  get rumbleDriver(): RumbleDriver { return rumbleDriver(this.pad); }
+  /** One effect on the pad in use, replacing the one playing; zero magnitudes stop the vibration now. */
   async rumble(duration = 100, strong = 0.35, weak = 0.15): Promise<boolean> {
-    const actuator = this.pad?.vibrationActuator;
-    if (!actuator?.playEffect) return false;
-    try {
-      return await actuator.playEffect('dual-rumble', { duration: clamp(duration, 0, 1000), startDelay: 0,
-        strongMagnitude: clamp(strong, 0, 1), weakMagnitude: clamp(weak, 0, 1) }) === 'complete';
-    } catch { return false; }
+    if (strong <= 0 && weak <= 0) { await stopRumble(this.pad); return false; }
+    return playRumble(this.pad, duration, strong, weak);
   }
-  dispose() { this.listeners.abort(); this.clear(); this.touch.clear(); this.overlay?.dispose(); void this.pad?.vibrationActuator?.reset?.(); }
+  dispose() { this.listeners.abort(); this.clear(); this.touch.clear(); this.overlay?.dispose(); void stopRumble(this.pad); }
 }
