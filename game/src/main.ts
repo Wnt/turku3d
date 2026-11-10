@@ -101,7 +101,7 @@ declare global {
       builds: ReturnType<NonNullable<GameRenderer['asyncBuilds']>['stats']> | null; allowance: ReturnType<typeof streamingAllowance.stats> };
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
-      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null; readonly birds?: ReturnType<Birds['snapshot']> | null;
+      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null; readonly birds?: Birds | null;
       landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       geometryState: () => Promise<unknown>;
       coplanarDebug: (report: { findings: { kind: string; mesh: string; other_mesh?: string }[] } | null) => Promise<unknown>;
@@ -783,7 +783,7 @@ async function runQa() {
     geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
     coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),
     get rainEffects() { return rain; },
-    get birds() { return birds?.snapshot() ?? null; },
+    get birds() { return birds; },
     setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
     landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,

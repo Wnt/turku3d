@@ -17,14 +17,14 @@ function birdGeometry() {
     for (const v of [a, b, c]) { position.push(v[0], v[1], v[2]); part.push(body ? 0 : v[0] * 2, body); }
   };
   // Body: a stretched octahedron, thickest ahead of the middle; then a tail fan.
-  const nose = [0, 0, 0.2], rear = [0, 0, -0.16], ring = [[0.045, 0, 0.04], [0, 0.04, 0.04], [-0.045, 0, 0.04], [0, -0.035, 0.04]];
+  const nose = [0, 0, 0.23], rear = [0, 0, -0.17], ring = [[0.06, 0, 0.05], [0, 0.05, 0.05], [-0.06, 0, 0.05], [0, -0.045, 0.05]];
   for (let i = 0; i < 4; i++) { tri(nose, ring[i], ring[(i + 1) % 4], 1); tri(rear, ring[(i + 1) % 4], ring[i], 1); }
-  tri([0, 0, -0.1], [0.05, 0, -0.23], [-0.05, 0, -0.23], 1);
+  tri([0, 0, -0.1], [0.07, 0, -0.26], [-0.07, 0, -0.26], 1);
   // Wings: root to wrist (a quad), wrist to a swept-back tip.
   for (const side of [1, -1]) {
     const root = 0.03 * side, wrist = WRIST * 0.5 * side, tip = 0.5 * side;
-    tri([root, 0, 0.1], [wrist, 0, 0.085], [wrist, 0, -0.045], 0); tri([root, 0, 0.1], [wrist, 0, -0.045], [root, 0, -0.07], 0);
-    tri([wrist, 0, 0.085], [tip, 0, -0.03], [wrist, 0, -0.045], 0);
+    tri([root, 0, 0.12], [wrist, 0, 0.11], [wrist, 0, -0.07], 0); tri([root, 0, 0.12], [wrist, 0, -0.07], [root, 0, -0.1], 0);
+    tri([wrist, 0, 0.11], [tip, 0, -0.035], [wrist, 0, -0.07], 0);
   }
   const base = new THREE.BufferGeometry(), geometry = new THREE.InstancedBufferGeometry();
   base.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
