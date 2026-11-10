@@ -154,7 +154,7 @@ Browser checks tolerate a loaded host without weaker assertions. Waits that used
 | `scene=dev` | Explicitly load the synthetic development world. Without it, load Turku. |
 | `tiles=<url>` | Override the scene tileset (also overrides `scene=dev`). Default: `../tiles/tileset.json`, resolving to sibling `tiles/` on Pages and `/tiles/` on local servers. |
 | `manifest=<url>` | manifest.json. The default is `manifest.json` next to `tiles` (an absolute `tiles` URL on another origin, e.g. `make game-serve-dist` on :8081, keeps that origin). |
-| `spawn=E,N[,heading]` | Spawn point in EPSG:3877 (default: the office, E 23459668 N 6704254, heading 0 = north). |
+| `spawn=E,N[,heading]` | Where the page's first start is placed, in EPSG:3877 (default: the city's start; Turku: the office, E 23459668 N 6704254, heading 0 = north). Used once: respawn at the start, a round start, reset progress and a later new game go to the city's start. A portal arrival removes it from the URL. |
 | `time=HH:MM` | Freeze a local view of the play cycle at that clock hour (sun path, timecycle, lit windows, street lights; single-player traffic and walker density), e.g. `13:00`, `19:30`, `22:00`. The developer time panel can move or run it from there. |
 | `time=<ISO-8601>` | Freeze a calendar instant with the astronomical sun (NOAA formula, Turku lat/lon) under the same timecycle. QA default: `2026-10-15T14:00:00+03:00`. |
 | `cycle=<minutes>` | Local length of the play cycle (default 30, the shared cycle; other values only change this browser's view, which the time panel's Live button returns to). |

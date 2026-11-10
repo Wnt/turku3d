@@ -740,6 +740,12 @@ export class CoarseTiles {
     const state = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`)?.state;
     return state === 'draft' || state === 'failed' || state === 'none';
   }
+  /** Whether the L0 tile under (x, z) is settled with its street graph: drawn in full (a collision preview has no
+   *  streets yet), or failed or absent for now. A start is searched on the streets of such tiles. */
+  streetsAt(x: number, z: number) {
+    const e = this.entries.get(`t0_${Math.floor(x / VISUAL_L0)}_${Math.floor(z / VISUAL_L0)}`);
+    return e?.state === 'failed' || e?.state === 'none' || (e?.state === 'draft' && !e.preview);
+  }
   /** True when every drawn tile around (x, z) carries its full visual model, not a collision preview. Play may
    *  start on previews; fixed-camera QA and the bench probe wait for the real surfaces. */
   detailedAt(x: number, z: number) {

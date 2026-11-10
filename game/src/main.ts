@@ -624,7 +624,7 @@ async function cityStart(physics: PhysicsClient, streamer: CollisionStreamer, co
   for (;;) {
     await stream(requested.x, requested.z);
     const placed = streamer.supports(requested.x, requested.z) ? await findStart(physics, streamer, coarse, manifest, requested, startYaw) : null;
-    if (placed) return placed;
+    if (placed) return { ...placed, at: { x: requested.x, z: requested.z } };
     if (performance.now() - t0 > CITY_START_MS) throw new Error(`No supported street start at the city's start: ${coarse.status}`);
     await new Promise(r => setTimeout(r, 100));
   }
@@ -655,7 +655,7 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
-  return placed;
+  return { ...placed, at: { x: requested.x, z: requested.z } };
 }
 
 async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
@@ -983,7 +983,7 @@ async function runPlay() {
   if (birds) birds.probe = async (x, z) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? null;
   const playWorld = async (city: Pick<CityWorld, 'manifest' | 'streamer' | 'coarse'>, first: boolean): Promise<PlayWorld> => {
     const { manifest, streamer, coarse } = city;
-    const { spawn, car: parking } = await placeStart(physics, streamer, coarse, manifest);
+    const { spawn, car: parking, at: startAt } = await placeStart(physics, streamer, coarse, manifest);
     const groundAt = async (x: number, z: number) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? spawn.y;
     physics.spawnCharacter({ x: spawn.x, y: spawn.y + 0.05, z: spawn.z });
     // The requested heading, or the open street when it faces a wall (startGround openView).
@@ -999,7 +999,7 @@ async function runPlay() {
       loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
       trafficClock: () => dayClock.trafficClock(),
       setClock: date => dayClock.restore(date),
-      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, travel,
+      spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, startAt, travel,
       ...(params.spawnGiven ? { cityStart: (stream: (x: number, z: number) => Promise<void>) => cityStart(physics, streamer, coarse, manifest, stream) } : {}) };
   };
   let world: PlayWorld;
