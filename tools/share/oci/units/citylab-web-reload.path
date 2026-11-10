@@ -1,0 +1,9 @@
+[Unit]
+Description=Reload citylab-web when deploy.sh installs a new Caddyfile (an invalid one leaves the running config)
+
+[Path]
+PathChanged=/srv/turku3d/citylab/oci/Caddyfile
+Unit=citylab-web-reload.service
+
+[Install]
+WantedBy=multi-user.target

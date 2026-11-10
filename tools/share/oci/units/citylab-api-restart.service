@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart citylab-api after a deploy
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart citylab-api.service

@@ -1,0 +1,6 @@
+[Unit]
+Description=Reload citylab-web after a Caddyfile deploy
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl reload citylab-web.service

@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart citylab-api when deploy.sh installs a new citylab-api.mjs
+
+[Path]
+PathChanged=/srv/turku3d/citylab/oci/citylab-api.mjs
+Unit=citylab-api-restart.service
+
+[Install]
+WantedBy=multi-user.target

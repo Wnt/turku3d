@@ -1,0 +1,17 @@
+[Unit]
+Description=city.madekivi.fi multiplayer server (server/index.js, deployed by tools/share/deploy.sh) on 127.0.0.1:7782
+After=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/srv/turku3d/citylab/mp/server
+Environment=NODE_ENV=production TURKU_MP_PORT=7782 TURKU_MP_SCORES=/srv/turku3d/citylab/mp-scores TURKU_MP_ORIGINS=https://city.madekivi.fi,https://city.lab.madekivi.fi TURKU_MP_PRODUCER_PORTS=
+ExecStart=/home/ubuntu/citylab/node/bin/node index.js
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

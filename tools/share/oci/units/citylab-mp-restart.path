@@ -1,0 +1,9 @@
+[Unit]
+Description=Restart citylab-mp when deploy.sh installs new server code (mp/server.tree changes)
+
+[Path]
+PathChanged=/srv/turku3d/citylab/mp/server.tree
+Unit=citylab-mp-restart.service
+
+[Install]
+WantedBy=multi-user.target

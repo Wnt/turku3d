@@ -1,0 +1,11 @@
+[Unit]
+Description=Turku3D city share: reverse tunnel OCI 127.0.0.1:7790 -> city-web 127.0.0.1:7780, only for seeding city.madekivi.fi (tools/share/oci/export-oci.mjs)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -T -i %h/.ssh/citylab_oci_tunnel -o IdentitiesOnly=yes -o UserKnownHostsFile=%h/.ssh/citylab_oci_known_hosts -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes -R 127.0.0.1:7790:127.0.0.1:7780 ubuntu@82.70.50.61
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

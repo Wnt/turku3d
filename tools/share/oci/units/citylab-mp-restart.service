@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart citylab-mp after a server deploy
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart citylab-mp.service

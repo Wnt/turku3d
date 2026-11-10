@@ -1,0 +1,122 @@
+# The published game at https://city.madekivi.fi, served by OCI (ubuntu@82.70.50.61) alone: nothing at runtime
+# reaches osgallery-dev, which only seeds files (export-oci.mjs, tools/share/deploy.sh).
+#   /srv/turku3d/citylab/www          the game (deploy.sh) and the exported tiles, scenery and navigation
+#   127.0.0.1:7782 citylab-mp         multiplayer: WebSocket upgrades, /live.json, /scores/
+#   127.0.0.1:7783 citylab-api        the distant-scenery catalogue (/coarse/scenery?tiles=)
+# The tile service's other routes get the answers a finished, static world gives: healthy, no build queue (demand and
+# want 404: the game asks again once a minute), and a tile that was not exported is unbuildable (422), so the game
+# draws nothing there and never asks again. Headers mirror tools/dev/serve-dist.mjs --public.
+# city.lab.madekivi.fi still points at osgallery-dev; its block here (tls internal) is for --resolve tests only.
+# deploy.sh installs it as /srv/turku3d/citylab/oci/Caddyfile; citylab-web.service runs it (own caddy copy, admin
+# localhost:2020) and citylab-web-reload.path reloads it on change. Units: tools/share/oci/units (installed by hand).
+{
+	admin localhost:2020
+	storage file_system /home/ubuntu/citylab/caddy-data
+	skip_install_trust
+	servers {
+		protocols h1 h2
+	}
+}
+
+(isolation) {
+	header {
+		Cross-Origin-Opener-Policy same-origin
+		Cross-Origin-Embedder-Policy require-corp
+		Cross-Origin-Resource-Policy cross-origin
+		Access-Control-Allow-Origin *
+		Access-Control-Expose-Headers "Content-Length, Content-Range, Content-Encoding, ETag"
+		Document-Policy js-profiling
+	}
+}
+
+(citylab) {
+	root * /srv/turku3d/citylab/www
+	log {
+		output file /home/ubuntu/citylab/logs/access.log {
+			roll_size 100MiB
+			roll_keep 5
+		}
+		format json
+	}
+
+	@mp {
+		header Connection *Upgrade*
+		header Upgrade websocket
+	}
+	handle @mp {
+		reverse_proxy 127.0.0.1:7782
+	}
+	@mpRead path /live.json /scores/*
+	handle @mpRead {
+		import isolation
+		reverse_proxy 127.0.0.1:7782
+	}
+
+	handle /coarse/scenery {
+		import isolation
+		reverse_proxy 127.0.0.1:7783
+	}
+	@health path /coarse/health /coarse/status
+	handle @health {
+		import isolation
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"state":"ready","service":"city.madekivi.fi static"}` 200
+	}
+	@noQueue path /coarse/demand /coarse/want
+	handle @noQueue {
+		import isolation
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"state":"missing"}` 404
+	}
+
+	@page path / /index.html
+	handle @page {
+		import isolation
+		header Cache-Control no-cache
+		rewrite * /index.html
+		file_server {
+			precompressed br
+		}
+	}
+
+	@exported {
+		method GET HEAD
+		file
+	}
+	handle @exported {
+		import isolation
+		@immutable path_regexp ^/(coarse/_v/|coarse/scenery/lod\.|assets/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$)
+		@polled path_regexp ^/(coarse/[^/]+\.json|coarse/t0_-?[0-9]+_-?[0-9]+/[a-z]+\.json|coarse/scenery/[^/]+\.json|version\.json)$
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		header @polled Cache-Control no-cache
+		header ?Cache-Control "public, max-age=60"
+		file_server {
+			precompressed br
+		}
+	}
+
+	@unpublished path_regexp ^/coarse/t0_-?[0-9]+_-?[0-9]+/(manifest|collision)\.json$
+	handle @unpublished {
+		import isolation
+		header Content-Type application/json
+		header Cache-Control no-store
+		respond `{"state":"unbuildable","error":"not published"}` 422
+	}
+
+	handle {
+		import isolation
+		header Cache-Control no-store
+		respond 404
+	}
+}
+
+city.madekivi.fi {
+	import citylab
+}
+
+city.lab.madekivi.fi {
+	tls internal
+	import citylab
+}

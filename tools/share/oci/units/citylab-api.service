@@ -1,0 +1,14 @@
+[Unit]
+Description=city.madekivi.fi distant-scenery catalogue (tools/share/oci/citylab-api.mjs) on 127.0.0.1:7783
+After=network-online.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/citylab/node/bin/node /srv/turku3d/citylab/oci/citylab-api.mjs --port 7783 --www /srv/turku3d/citylab/www
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

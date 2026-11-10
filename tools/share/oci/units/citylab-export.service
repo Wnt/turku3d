@@ -1,0 +1,12 @@
+[Unit]
+Description=Seed city.madekivi.fi from osgallery-dev: newly finished tiles, navigation, distant scenery (export-oci.mjs)
+# Reads through the reverse tunnel osgallery-dev keeps open (citylab-oci-tunnel, 127.0.0.1:7790). Without it the
+# run fails and the published files stay as they are: nothing at runtime depends on it.
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/srv/turku3d/citylab/oci
+ExecStart=/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --tiles tiles-city.txt --scenery scenery-squares.txt --jobs 32 --frag-jobs 8 --scenery-wait-s 600
+TimeoutStartSec=3600
