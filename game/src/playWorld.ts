@@ -64,8 +64,10 @@ export interface PlayWorld {
    *  `?spawn=` pose (a portal exit, a tool's URL). */
   spawn: Pose;
   car: Pose;
+  /** The requested point the page's start was searched from (the same on every client). */
+  startAt: { x: number; z: number };
   /** On a `?spawn=` page: finds the city's own start (SaveGameController `cityStart`). */
-  cityStart?: (stream: (x: number, z: number) => Promise<void>) => Promise<{ spawn: Pose; car: Pose }>;
+  cityStart?: (stream: (x: number, z: number) => Promise<void>) => Promise<{ spawn: Pose; car: Pose; at: { x: number; z: number } }>;
   /** Switches the page to `to` in place (main.ts): the session ends and a new one starts there. `spawn` is the start
    *  in that city's grid (a portal exit); absent, its centre spawn. Absent in modes without travel. */
   travel?: (to: CityName, spawn?: { E: number; N: number; headingDeg: number }) => Promise<void>;

@@ -41,10 +41,11 @@ export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 
 /** `fresh`: a fresh start (a join without a pose to restore, a round start): the player starts at the start, on its
  *  start pair (startPair), wherever the pose itself points. */
 type Pose = V3 & { yaw: number; fresh?: boolean };
-/** A start: where the player stands and the own car's parking beside it. */
-export type Start = { spawn: Pose; car: Pose };
+/** A start: where the player stands and the own car's parking beside it. `at`: the requested point it was searched
+ *  from, the same on every client (the found start may differ by what had streamed in). */
+export type Start = { spawn: Pose; car: Pose; at?: { x: number; z: number } };
 /** How long (ms) a start waits for its surroundings to stream in before its start pairs are searched in what is there. */
-const START_STREAM_MS = 20_000;
+const START_STREAM_MS = 30_000;
 
 /** The kerb 5.5 m behind a parked car (`yaw` turns the chassis +X axis): where a second vehicle waits beside it. */
 export function kerbBehind(car: Pose): Pose {
@@ -65,7 +66,7 @@ interface SaveGameOptions {
   enterVehicle: (id: string) => void;
   /** The page's start, and the own car's parking there: the city's start, or on a `?spawn=` page (a portal exit, a
    *  tool's URL) that pose. Only the session's first placement starts there when `cityStart` is given. */
-  spawn: Pose; car: Pose;
+  spawn: Pose; car: Pose; startAt?: { x: number; z: number };
   /** On a `?spawn=` page: finds the city's own start, where everything after the first placement starts (respawn at
    *  the start, a round start, reset progress, a new game). `stream` streams a point's surroundings in first. */
   cityStart?: (stream: (x: number, z: number) => Promise<void>) => Promise<Start>;
@@ -285,11 +286,12 @@ export class SaveGameController {
     // A new game or a fresh start is at the start, on this player's start pair; another placement keeps its pose and
     // only moves the start car off a car standing on it.
     const fresh = !game?.player && (!override || override.fresh === true);
+    // The start (the city's may have to stream in first) only where the placement uses it.
     const start = fresh || !saved || bought ? await this.start() : null;
     if (fresh) await this.streamStart(start!.spawn.x, start!.spawn.z);
     const pair = fresh && this.o.startPair ? await this.o.startPair(start!) : null;
-    const moved = pair?.car ?? (start ? await this.o.freeStart?.(start) ?? null : null);
-    const car = start ? moved ?? start.car : saved!;
+    const moved = pair?.car ?? (saved && !bought ? null : await this.o.freeStart?.(start!) ?? null);
+    const car = saved && !bought ? saved : moved ?? start!.car;
     const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : moved || prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
     this.o.startCarPlaced?.({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z });
@@ -337,7 +339,7 @@ export class SaveGameController {
   /** Where a start is now: the page's own start for the session's first placement (a `?spawn=` page: that pose, once),
    *  then always the city's. */
   private async start(): Promise<Start> {
-    if (this.first || !this.o.cityStart) return { spawn: this.o.spawn, car: this.o.car };
+    if (this.first || !this.o.cityStart) return { spawn: this.o.spawn, car: this.o.car, at: this.o.startAt };
     return this.city ??= await this.o.cityStart((x, z) => this.streamStart(x, z));
   }
 

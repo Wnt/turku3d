@@ -113,7 +113,7 @@ import { CityAvailability, cameThrough, showTransition, takeTicket, walletOnly, 
 const BRING_NEAR_SEARCH_M = 40, BRING_FAR_M = 150, BRING_CHECKS = 24;
 /** Milliseconds between attempts to place the heist's trophy truck in its yard. */
 const HEIST_RETRY_MS = 2000;
-/** A start's start pairs are searched once the collision within this distance (m) of it is loaded. */
+/** A start and its start pairs are searched once the tiles and collision within this distance (m) of it are loaded. */
 const START_STREAM_M = 100;
 /** The truck heist's reward car parks at a road-graph kerb spot this far from the drop-off (first within the near
  *  radius, else the far one), out of the drop zone and at the drop-off's road level, not on the bridge above. */
@@ -429,6 +429,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
         obstacles: [...others.map(o => ({ minX: o.x - 2.8, maxX: o.x + 2.8, minZ: o.z - 2.8, maxZ: o.z + 2.8 })),
           ...propFootprints(models, first.car, 90), ...parkedFootprints(manifest.vehicles, first.car, 90)] });
   };
+  /** The start pairs of a room's slots at `start`, the same on every client. */
+  const roomPairs = (start: { spawn: V3 & { yaw: number }; car: V3 & { yaw: number }; at?: { x: number; z: number } }) => {
+    const at = start.at ? { x: start.at.x, y: start.spawn.y, z: start.at.z } : null;
+    return pairsAround(at ? { spawn: { ...at, yaw: start.spawn.yaw }, car: { ...at, yaw: start.car.yaw } } : start, ROOM_START_CARS, []);
+  };
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
@@ -441,8 +446,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       run: () => { void bringHere().catch(fail); },
     },
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
-    spawn, car: world.car, cityStart: world.cityStart,
-    startStreamed: (x, z) => streamer.missingNear(x, z, START_STREAM_M).length === 0 && (!coarse || coarse.resolvedAt(x, z)),
+    spawn, car: world.car, startAt: world.startAt, cityStart: world.cityStart,
+    // The start's street may be in the next tile (Turku's office stands 4 m from a tile edge): every tile in reach
+    // is drawn in full, with its street graph, and the collision there is loaded.
+    startStreamed: (x, z) => streamer.missingNear(x, z, START_STREAM_M).length === 0 && (!coarse
+      || [-START_STREAM_M, 0, START_STREAM_M].every(dx => [-START_STREAM_M, 0, START_STREAM_M].every(dz => coarse.streetsAt(x + dx, z + dz)))),
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
@@ -454,13 +462,18 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       return (await pairsAround(start, 1, others))[0]?.car ?? null;
     },
     startPair: async start => {
-      // Every player of a room computes the same start, and a start car stays local until it moves: each player takes
-      // the start pair of its own room slot (its car apart from the others', itself beside it), clear of any shared
-      // record or car already standing there.
+      // Every player of a room computes the same start pairs: from the same world data (the start's tiles are drawn
+      // in full by now), whatever cars stand there, and around the start's requested point (the start found from it
+      // differs between clients by what had streamed in when they searched). Each takes the pair of its own room slot
+      // (its car apart from the others', itself beside it): no two players of a room start on the same spot.
       const slot = multiplayerPlaying ? roomSlot(multiplayer?.state.you?.spawn) % ROOM_START_CARS : 0, others = standingCars();
-      if (!slot && !others.some(o => insideCar(start.car, o.x, o.z, 1))) return null;
-      const pairs = await pairsAround(start, slot + 1, others);
-      return pairs[Math.min(slot, pairs.length - 1)] ?? null;
+      const blocked = (pair: { car: V3 & { yaw: number } }) => others.some(o => insideCar(pair.car, o.x, o.z, 1));
+      if (!multiplayerPlaying && !blocked(start)) return null;
+      const pairs = await roomPairs(start);
+      const own = pairs.length ? pairs[slot % pairs.length] : null;
+      if (!own || !blocked(own)) return own;
+      // A car stands on the own pair (one left there): the nearest pair clear of it and of every other slot's pair.
+      return (await pairsAround(start, 1, [...others, ...pairs.filter(p => p !== own).map(p => p.car)]))[0] ?? own;
     },
     setPaused: value => { paused = value; }, showIntro: () => introDialog.show(), fail,
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
@@ -600,7 +613,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   stopStreaming();
   const releaseStarts = await preloadStarts(world, feet, SLOT_IDS.map(id => saves.get(id)), multiplayerStartState.position ?? null, saveGame, [audioPreload, voicePreload], [player.root, car.root]);
   Object.assign(window.__game!, { damage: damageConsole, vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
-    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, ready: true });
+    shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, saveGame,
+    // Tool hook: the start pairs at this page's start, as the players of a room take them by slot.
+    startPairs: () => roomPairs({ spawn: world.spawn, car: world.car, at: world.startAt }), ready: true });
 
   // Tests and the trip bench leave through a portal as its trigger does (the ticket, the ride, the money).
   window.__game!.depart = (to: CityName, portalId?: string) => depart(to, portalList.find(p => p.id === portalId) ?? null);

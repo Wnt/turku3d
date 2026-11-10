@@ -126,7 +126,7 @@ test('sixteen room slots take sixteen start pairs: no two cars within the gap, e
   const town: RoadGraphJson = { format: 'turku3d-roadgraph', version: 1, frame: 'engine-xz', bbox: [-100, -50, 100, 50],
     nodes, nodeFlags: nodes.filter((_, i) => i % 2 === 0).map(() => 32),
     edges: [[0, 1, STREET, 180], [2, 3, STREET, 180], [4, 5, STREET, 180], [6, 7, STREET, 80], [8, 9, STREET, 80]] };
-  const probe = async (x: number, z: number) => ({ point: { x, y: 4, z }, normal: { x: 0, y: 1, z: 0 }, material: MAT.road, toi: 496 });
+  const probe = async (x: number, z: number) => ({ point: { x, y: 4, z }, normal: { x: 0, y: 1, z: 0 }, material: MAT.road, toi: 496, tile: 'c_0_0' });
   const first = (await findInitialGround({ x: 5, z: -3 }, [town], probe, () => true))!;
   const pairs = await startPairs(first, [town], probe, () => true, ROOM_START_CARS);
   expect(pairs.length).toBe(16);
