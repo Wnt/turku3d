@@ -10,6 +10,7 @@ import { streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
+import { Birds } from './render/birds';
 import { weatherUniforms } from './render/weather/surfaces';
 import { collisionPreview } from './world/collisionPreview';
 // Turku3D game skeleton entry. Modes:
@@ -100,7 +101,7 @@ declare global {
       builds: ReturnType<NonNullable<GameRenderer['asyncBuilds']>['stats']> | null; allowance: ReturnType<typeof streamingAllowance.stats> };
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
-      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null;
+      setWeather: (name: WeatherName | 'live', seconds?: number) => void; weather: WeatherClock; readonly rainEffects: Rain | null; readonly birds?: ReturnType<Birds['snapshot']> | null;
       landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       geometryState: () => Promise<unknown>;
       coplanarDebug: (report: { findings: { kind: string; mesh: string; other_mesh?: string }[] } | null) => Promise<unknown>;
@@ -227,6 +228,8 @@ const clock = new FrameClock(initialDrive ? driveEpoch(initialDrive) : params.ti
 const dayClock = new DayClock(env, clockMode, !params.qa, () => params.qa ? clock.utcMs : Date.now());
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
+// Gulls, jackdaws, pigeons and the rest (world/birds/flocks.ts): placed by the shared clock, the same for every player.
+let birds = idPass ? null : new Birds(scene, params.quality === 'low' ? 160 : 384);
 window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
@@ -440,6 +443,11 @@ if (import.meta.hot) import.meta.hot.accept('./render/post', next => {
   window.__render!.post = post;
   graphics.retire(() => previous?.dispose());
 });
+if (import.meta.hot) import.meta.hot.accept('./render/birds', next => {
+  if (!next || !birds) return;
+  const previous = birds; previous.dispose();
+  birds = new next.Birds(scene, params.quality === 'low' ? 160 : 384); birds!.probe = previous.probe;
+});
 if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   if (!next || !rain) return;
   const previous = rain; previous.dispose(true);
@@ -462,6 +470,7 @@ const renderFrame = () => {
   weatherUniforms.rain.value = weatherSample.rain;
   weatherUniforms.seconds.value = (dayClock.sharedNow() / 1000) % 4096;
   rain?.update(camera, weatherSample, dayClock.sharedNow() / 1000, env.nightFactor);
+  birds?.update(camera, dayClock.sharedNow() / 1000, env.sunElevation, weatherSample.rain);
   refreshWeatherIBL(weatherSample);
   if (params.qa || worldLoad.snapshot().phase === 'ready') distantCity?.follow(camera);
   // QA fixes weather independently of the HUD; players share UTC-driven cloud drift.
@@ -774,6 +783,7 @@ async function runQa() {
     geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)),
     coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)),
     get rainEffects() { return rain; },
+    get birds() { return birds?.snapshot() ?? null; },
     setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
     landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)),
     setPose: window.__qaMove,
@@ -944,6 +954,7 @@ async function runPlay() {
   let current: CityWorld = booted;
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
   Object.assign(window.__game!, { physics, coarse, streamer });
+  if (birds) birds.probe = async (x, z) => (await physics.raycast({ x, y: 500, z }, { x: 0, y: -1, z: 0 }, 1000))?.point.y ?? null;
   const playWorld = async (city: Pick<CityWorld, 'manifest' | 'streamer' | 'coarse'>, first: boolean): Promise<PlayWorld> => {
     const { manifest, streamer, coarse } = city;
     const { spawn, car: parking } = await placeStart(physics, streamer, coarse, manifest);
