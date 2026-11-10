@@ -1,7 +1,7 @@
 # Music
 
-`MusicSystem` streams six instrumental tracks (`public/assets/audio/music/<id>.ogg`, Ogg/Opus 96 kbit/s stereo, about
-1.5 MB and two minutes each; sources and licences in `public/assets/audio/LICENSES.md`). It takes an existing
+`MusicSystem` streams twenty instrumental tracks (`public/assets/audio/music/<id>.ogg`, Ogg/Opus 96 kbit/s stereo,
+1.4–2.5 MB and two to three minutes each; sources and licences in `public/assets/audio/LICENSES.md`). It takes an existing
 `AudioContext` and an optional destination `AudioNode`. Call `start()` synchronously in an input handler. Then
 `setState('explore' | 'mission' | 'menu')`, `setDeadline(progress)` with progress 0–1, `setMuffled(amount)`,
 `setVolume(value)`, `nextTrack()` or `selectTrack(index)`; `deliver()` plays the resolved cadence and returns to free
@@ -10,15 +10,30 @@ intensity, the load guards and which streams have been opened. Call `dispose()` 
 
 | Track | File | BPM | Style | Plays |
 |---|---|---:|---|---|
-| Harbour Glass | `menu.ogg` | 70 | piano and strings | the menu theme (start menu, pause menu), looped |
+| Harbour Glass | `menu.ogg` | 70 | piano and strings | menu theme 1 (start menu, pause menu) |
+| Sea Wind | `menu2.ogg` | 66 | piano, cello and synth pads | menu theme 2 |
 | Aura Neon | `synthwave.ogg` | 108 | night-drive synthwave | free play 1 |
 | Market Sun | `lofi.ogg` | 80 | lo-fi hip hop | free play 2 |
-| Ring Road | `funk.ogg` | 112 | 1970s cop-show funk | free play 3; second track of a delivery run |
+| Ring Road | `funk.ogg` | 112 | 1970s cop-show funk | free play 3; third track of a delivery run |
 | River Dub | `dubtechno.ogg` | 120 | dub techno | free play 4 |
+| Night Ferry | `italo.ogg` | 118 | Italo disco | free play 5 |
+| Corner Kiosk | `boombap.ogg` | 92 | acid-jazz hip hop | free play 6 |
+| Harbour Dawn | `ambient.ogg` | 60 | ambient | free play 7 |
+| Sunrise Quay | `house.ogg` | 122 | deep house | free play 8 |
+| Evening Walk | `downtempo.ogg` | 90 | downtempo electronica | free play 9 |
+| Mirror Ball Bridge | `disco.ogg` | 120 | 1970s disco funk | free play 10 |
+| Rain on the Aura | `triphop.ogg` | 84 | trip hop | free play 11 |
+| Motorway Glow | `motorway.ogg` | 150 | driving synthwave | free play 12 |
+| Night River | `ambient-river.ogg` | 60 | piano ambient | free play 13 |
+| Brass Block | `boombap2.ogg` | 92 | neo-soul hip hop | free play 14 |
+| Open Sea | `ambient-sea.ogg` | 60 | guitar ambient | free play 15 |
+| Glitter Quay | `italo2.ogg` | 118 | Italo disco | free play 16 |
+| Blue Lights | `darksynth.ogg` | 126 | dark synthwave | free play 17; second track of a delivery run |
 | Last Slice | `dnb.ogg` | 172 | liquid drum and bass | a delivery run, from the top with the mission bell |
 
-`tracks.ts` holds the list and `PLAYLISTS`. Free play moves to its next track when one ends, on N and after each
-delivery; pausing crossfades to the menu theme and back to where free play was.
+`tracks.ts` holds the list and `PLAYLISTS`. Free play starts at a random track each session (`options.random`) and
+moves to its next track when one ends, on N and after each delivery; pausing crossfades to the menu theme and back to
+where free play was. The session's first menu theme is random too, and the two themes take turns when one ends.
 
 **Streaming, never preloading.** Each track is a media element created when the track is first played
 (`preload = 'none'`), so no music is requested before it is wanted. A change of track is applied once the request
@@ -31,7 +46,7 @@ stream fades out and pauses.
 **The delivery deadline** (`hurry`): from `hurryStart` (65 % of the par time) the track speeds up smoothly to
 `1 + rateLift` (6 %) at the deadline with its pitch preserved, the low-pass opens from 12 to 18 kHz and the level
 rises by a quarter; from `stingerFrom` (82 %) a two-note stinger sounds every two seconds. A run longer than the
-chase track continues with the funk at the same lift.
+chase track continues with the dark synthwave and then the funk at the same lift.
 
 Tracks crossfade over `crossfadeSeconds` (2 s) through per-track gains into one master gain (the volume) and a
 low-pass (`setMuffled`: intro and shop dialogue fully, driving 0.6). A stream that fails is skipped after five

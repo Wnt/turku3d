@@ -208,5 +208,103 @@
     "seconds": 115.916,
     "sha256": "a02fdec2776da101eefdfb5ddaff493342619cbbb4d430741705d8b3a69245d4",
     "license": "CC0-1.0"
+  },
+  "music/italo.ogg": {
+    "bytes": 1592589,
+    "channels": 2,
+    "seconds": 119.356,
+    "sha256": "a566efc7f573eca0395673184dab56b2da46c3a1e59d1509717dfeacca324e6a",
+    "license": "CC0-1.0"
+  },
+  "music/boombap.ogg": {
+    "bytes": 1455155,
+    "channels": 2,
+    "seconds": 116.606,
+    "sha256": "1f83aa03dab516e8f5314b79adf2cbb2bf95934226561297684246ad6789b67d",
+    "license": "CC0-1.0"
+  },
+  "music/ambient.ogg": {
+    "bytes": 2487153,
+    "channels": 2,
+    "seconds": 173.607,
+    "sha256": "05063fba9854f523d3893f4b3c0901bf5527a66464dda8e25ae8ed8af517f8cb",
+    "license": "CC0-1.0"
+  },
+  "music/house.ogg": {
+    "bytes": 1986046,
+    "channels": 2,
+    "seconds": 146.857,
+    "sha256": "2247e4e0ee476c443b5a7095e693d33112c75086c55e1a23fec93f9e970274ec",
+    "license": "CC0-1.0"
+  },
+  "music/downtempo.ogg": {
+    "bytes": 1991892,
+    "channels": 2,
+    "seconds": 146.607,
+    "sha256": "ccdecbc7ec9e74da4411b659bd4e8c2bb5891c39ac1e751c9143c28a483ffff7",
+    "license": "CC0-1.0"
+  },
+  "music/disco.ogg": {
+    "bytes": 1557820,
+    "channels": 2,
+    "seconds": 116.356,
+    "sha256": "f18864fb56678ce7e076c167595d66713974dbbf7ab16c6f46d90dcb1845b3a3",
+    "license": "CC0-1.0"
+  },
+  "music/triphop.ogg": {
+    "bytes": 1737506,
+    "channels": 2,
+    "seconds": 150.006,
+    "sha256": "b111c61bc568ff4b22117aa280ea2cfc7eb08e39cfc13790313e381c032e81ec",
+    "license": "CC0-1.0"
+  },
+  "music/motorway.ogg": {
+    "bytes": 1958043,
+    "channels": 2,
+    "seconds": 145.107,
+    "sha256": "427b7eff474d46a4809a583e14cad68de476a68dac81abff9285a7f10c8a461b",
+    "license": "CC0-1.0"
+  },
+  "music/ambient-river.ogg": {
+    "bytes": 2162357,
+    "channels": 2,
+    "seconds": 174.357,
+    "sha256": "6b45bc3a94e072f5c55e0019d229ba7a674112e7bbbc233fc9283d9934b4d354",
+    "license": "CC0-1.0"
+  },
+  "music/boombap2.ogg": {
+    "bytes": 1436749,
+    "channels": 2,
+    "seconds": 114.356,
+    "sha256": "5a07f6578447b7fddebed8004f4a88686cedd519abac0a0c30468fc6bc4078b3",
+    "license": "CC0-1.0"
+  },
+  "music/ambient-sea.ogg": {
+    "bytes": 2353555,
+    "channels": 2,
+    "seconds": 176.607,
+    "sha256": "df1b0db6f3574f37db29a6fe3109caf59b040673e5a525b0f9e93336283b5af9",
+    "license": "CC0-1.0"
+  },
+  "music/italo2.ogg": {
+    "bytes": 1640485,
+    "channels": 2,
+    "seconds": 119.106,
+    "sha256": "7c00596e029521f7d3893f4b90db9e52f3991a7208ba9e55b111d518bf138113",
+    "license": "CC0-1.0"
+  },
+  "music/darksynth.ogg": {
+    "bytes": 1689526,
+    "channels": 2,
+    "seconds": 118.856,
+    "sha256": "52b705940a0eabbda58934e917ef05b14c2f86edc237082915e0995b1ce2da1a",
+    "license": "CC0-1.0"
+  },
+  "music/menu2.ogg": {
+    "bytes": 1903461,
+    "channels": 2,
+    "seconds": 148.357,
+    "sha256": "ebe2112c023eab3bfc39a7cdd8138b1249e4a93f4f8c2ab90342d92ae4125ac1",
+    "license": "CC0-1.0"
   }
 }

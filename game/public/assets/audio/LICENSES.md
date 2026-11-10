@@ -7,7 +7,7 @@ model-generated; nothing else is.
    2026-10-25 on. Source: [`game/scripts/prepare-audio.mjs`](../../../scripts/prepare-audio.mjs).
 2. **Gull calls** (`gull-herring-longcall.ogg`, `gull-common-longcall.ogg`): resyntheses by Turku3D code from
    measurements of two CC0 field recordings (section "Gull calls").
-3. **Music** (`music/*.ogg`, six tracks): generated locally with the open ACE-Step 1.5 model from our own text
+3. **Music** (`music/*.ogg`, twenty tracks): generated locally with the open ACE-Step 1.5 model from our own text
    prompts (section "Music").
 
 To the extent possible under law, the authors dedicate the generators, the synthesis code and the audio of kinds 1
@@ -86,7 +86,7 @@ the harbour (`game/src/audio/gulls.ts`).
 
 ## Music
 
-Six instrumental tracks in `music/`, generated for Turku3D on 2026-11-10 on an Apple M1 Max with **ACE-Step 1.5**
+Twenty instrumental tracks in `music/`. The first six were generated for Turku3D on 2026-11-10 on an Apple M1 Max with **ACE-Step 1.5**
 (ACE Studio and StepFun), an open text-to-music model, and chosen by ear from a first batch of ten. No lyrics, no
 reference audio and no audio prompt were given to the model: the only inputs are the text below.
 
@@ -100,7 +100,7 @@ reference audio and no audio prompt were given to the model: the only inputs are
 - Components used: the `acestep-v15-turbo` diffusion transformer (2B, distilled), the `acestep-5Hz-lm-1.7B` planner
   ("thinking" on: it writes the metadata, rewrites the caption and plans the structure), the Qwen3-Embedding-0.6B text
   encoder and the model's VAE, all from that repository.
-- Settings, the same for every track: 120 s, lyrics `[Instrumental]`, seed 1, 8 steps, Euler ODE sampler, shift 3.0,
+- Settings, the same for each of these six tracks: 120 s, lyrics `[Instrumental]`, seed 1, 8 steps, Euler ODE sampler, shift 3.0,
   guidance 1.0 (turbo), planner temperature 0.85 and CFG 2.0, output peak-normalised to -1 dBFS.
 - For the game each track was scaled to -18 dB RMS, the silence after its ending trimmed, and encoded as Ogg/Opus
   96 kbit/s stereo (9,330,066 bytes together). Nothing else was edited.
@@ -123,3 +123,43 @@ vocal-leak check (the Demucs vocal stem is 24 to 42 dB below the mix in every tr
 instruments at `lofi` 0:50-1:02 and `menu` 1:48 the loudest moments) are in the generation manifest kept with the
 weights outside the repository (`~/turku3d/loops/sounds-fable/gen/out/manifest.json`). `manifest.json` here lists each file's size,
 duration and SHA-256. The game streams the tracks on demand (`game/src/audio/music/`).
+
+### Second batch (fourteen tracks)
+
+Generated on 2026-11-10 with the same local ACE-Step 1.5 setup (code commit `ca1e85f`) from our own text prompts and
+chosen by ear from a board of 35 candidates. Lyrics `[Instrumental]`, no reference audio and no audio prompt. The
+settings vary per track and are in the table. Besides the components above, some tracks used these, all MIT
+(`license: mit` in each model card's metadata, not gated; read at the Hugging Face API on 2026-11-10 23:49 UTC):
+
+- `xl-turbo`: https://huggingface.co/ACE-Step/acestep-v15-xl-turbo (revision `d4a0b288`), the 4B distilled transformer.
+- `sft`: https://huggingface.co/ACE-Step/acestep-v15-sft (revision `c410d249`), the 2B undistilled transformer.
+- planner `0.6B`: https://huggingface.co/ACE-Step/acestep-5Hz-lm-0.6B (revision `148d8ea0`).
+
+Common settings: shift 3.0, ODE sampling, planner "thinking" on with CFG 2.0, turbo guidance 1.0, output
+peak-normalised to -1 dBFS. The turbo models run at most 8 steps. For the game each track was scaled to -17.1 LUFS
+integrated (EBU R128; the median of the first six), the silence after its ending trimmed, and encoded as Ogg/Opus
+96 kbit/s stereo (25,952,337 bytes together). One track needed a peak limiter after the gain, as marked.
+
+| File | Use in the game | Prompt (caption) | Tempo and key given to the model | Model and settings |
+|---|---|---|---|---|
+| `music/italo.ogg` | free play | Instrumental Italo disco and space disco for a night drive along the river: a bouncing octave synth bassline, bright arpeggiated sequencers, crisp drum-machine claps and hi-hats, a catchy lead synth melody and string-machine chords. Glittering, upbeat and a little melancholic. No vocals. | 118 BPM, F# minor | turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 7; 120 s; caption kept |
+| `music/boombap.ogg` | free play | Instrumental 1990s boom bap hip hop beat: hard punchy drums with a swung groove, a deep bassline, a chopped soul piano loop, horn stabs and vinyl scratches. Head-nodding, gritty and confident, for cruising the suburbs. No vocals. | 92 BPM, key left to the planner (E♭ major) | turbo; 8 steps; Euler; planner 1.7B at 1.1; seed 45; 120 s; caption rewritten by the planner |
+| `music/ambient.ogg` | free play | Instrumental ambient for a quiet harbour at dawn: slowly evolving warm analog synth pads, soft bell-like tones, distant low drones and gentle shimmering textures, with no drums. Calm, wide and weightless. No vocals. | 60 BPM, key left to the planner (B♭ major) | turbo; 8 steps; Euler; planner 1.7B at 0.6; seed 42; 180 s; 10 s fade-out; caption kept |
+| `music/house.ogg` | free play | Instrumental deep house for a harbour at sunrise: warm Rhodes chord stabs, a round rolling bassline, a steady four-on-the-floor kick with shuffled hi-hats and soft claps, airy pads and a gentle marimba hook. Smooth, sunny and unhurried. No vocals. | 122 BPM, key left to the planner (D minor) | xl-turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 21; 150 s; 6 s fade-out; caption kept |
+| `music/downtempo.ogg` | free play | Instrumental downtempo electronica for an evening walk through a quiet city: a soft slow breakbeat, a deep warm sub bass, dreamy detuned analog pads and a gentle plucked synth melody. Mellow, nocturnal and reflective. No vocals. | 90 BPM, key left to the planner (A minor) | turbo; 8 steps; Euler; planner 0.6B at 0.85; seed 64; 150 s; 8 s fade-out; caption kept |
+| `music/disco.ogg` | free play | Instrumental 1970s disco funk: four-on-the-floor drums with open hi-hats, an octave-jumping bass guitar, chicken-scratch rhythm guitar, lush string section runs, brass hits and congas. Glamorous, joyful and danceable. No vocals. | 120 BPM, key left to the planner (D minor) | turbo; 8 steps; Heun; planner 1.7B at 0.85; seed 47; 120 s; caption kept |
+| `music/triphop.ogg` | free play | Instrumental trip hop for a rainy night by the river: a slow heavy breakbeat, a deep dubby bassline, smoky Rhodes chords, a lonely muted trumpet melody, vinyl crackle and tape echo. Moody, noir and spacious. No vocals. | 84 BPM, key left to the planner (G minor) | sft; 32 steps; Euler; guidance 5; planner 1.7B at 0.85; seed 41; 150 s; 6 s fade-out; caption kept |
+| `music/motorway.ogg` | free play | Instrumental krautrock with a motorik beat for a long motorway drive: a steady hypnotic four-four drum pattern, a pulsing one-note bass, shimmering delayed electric guitars and warm analog synth drones that slowly build. Endless, optimistic and propulsive. No vocals. | 150 BPM, key left to the planner (G minor) | xl-turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 46; 150 s; 8 s fade-out; caption rewritten by the planner |
+| `music/ambient-river.ogg` | free play | Instrumental ambient for a river at night: a slow sparse felt piano with long reverb tails over deep warm drones and soft tape-saturated pads, with a faint granular shimmer and no drums. Still, nocturnal and comforting. No vocals. | 60 BPM, key left to the planner (A♭ major) | turbo; 8 steps; Euler; planner 1.7B at 0.6; seed 61; 180 s; 10 s fade-out; caption kept; peak-limited at -1.5 dBFS |
+| `music/boombap2.ogg` | free play | Instrumental 1990s boom bap hip hop beat: hard punchy drums with a swung groove, a deep bassline, a chopped soul piano loop, horn stabs and vinyl scratches. Head-nodding, gritty and confident, for cruising the suburbs. No vocals. | 92 BPM, key left to the planner (B♭ minor) | turbo; 8 steps; Euler; planner 1.7B at 1.1; seed 45; 120 s; caption rewritten by the planner |
+| `music/ambient-sea.ogg` | free play | Instrumental ambient with guitar for the open sea and the archipelago: slow volume-swelled electric guitar notes with shimmer reverb, a warm sub drone, glassy synth pads and distant bowed textures, with no drums. Vast, serene and luminous. No vocals. | 60 BPM, key left to the planner (E minor) | turbo; 8 steps; Euler; planner 1.7B at 0.6; seed 62; 180 s; 10 s fade-out; caption kept |
+| `music/italo2.ogg` | free play | Instrumental Italo disco and space disco for a night drive along the river: a bouncing octave synth bassline, bright arpeggiated sequencers, crisp drum-machine claps and hi-hats, a catchy lead synth melody and string-machine chords. Glittering, upbeat and a little melancholic. No vocals. | 118 BPM, F# minor | turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 7; 120 s; caption kept |
+| `music/darksynth.ogg` | free play, delivery run | Instrumental dark synthwave for a night pursuit: an aggressive distorted bass arpeggio, pounding gated drums, ominous minor-key pads, stabbing brass synths and a soaring lead in the chorus. Menacing, cinematic and fast. No vocals. | 126 BPM, D minor | turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 33; 120 s; caption kept |
+| `music/menu2.ogg` | menu theme | Cinematic main-menu theme for a Nordic city by the sea: a slow felt-piano motif, a solo cello melody, warm analog synth pads and a soft pulsing bass that builds gently with subtle percussion. Hopeful, wistful and wide. Instrumental, no vocals. | 66 BPM, key left to the planner (D minor) | xl-turbo; 8 steps; Euler; planner 1.7B at 0.85; seed 49; 150 s; 8 s fade-out; caption kept |
+
+Where the table says the planner rewrote the caption, the diffusion model saw the planner's text instead of ours: for
+`boombap.ogg` an acid-jazz hip hop piece with a vibraphone and a saxophone, for `boombap2.ogg` neo-soul hip hop with a
+horn section, and for `motorway.ogg` (prompted as krautrock) "an energetic synthwave track". The Demucs vocal-leak
+check found no clear vocals: the vocal stem is 24 to 43 dB below the mix in every track. The full rewritten captions,
+timings and measurements are in the generation manifest kept outside the repository
+(`~/turku3d/loops/music2/out/manifest.json`).
