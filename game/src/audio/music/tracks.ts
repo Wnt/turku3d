@@ -1,14 +1,24 @@
-export type Stem = 'pad' | 'bass' | 'drums' | 'lead' | 'percussion' | 'panic';
-export const STEMS: Stem[] = ['pad', 'bass', 'drums', 'lead', 'percussion', 'panic'];
-export interface Track {
-  id: string; name: string; style: string; bpm: number; key: string; root: number;
-  progression: number[]; wave: OscillatorType; liftStart?: number; tempoLift?: number; panicStem?: Stem;
-}
-/** All pitches and patterns are original, synthesized at playback. */
+import type { MusicState } from './index';
+
+/** A streamed music track (public/assets/audio/music/<id>.ogg; sources and licences in ../../../public/assets/audio/LICENSES.md). */
+export interface Track { id: string; name: string; style: string; bpm: number; seconds: number }
+
+/** Six instrumental tracks generated with ACE-Step 1.5, as chosen on the soundboard of 2026-11-10. */
 export const TRACKS: Track[] = [
-  { id: 'aura-neon', name: 'Aura Neon', style: 'night synthwave', bpm: 108, key: 'A minor', root: 220, progression: [0, 5, 3, 7], wave: 'sawtooth', liftStart: 0.62, tempoLift: 0.2 },
-  { id: 'market-sun', name: 'Market Sun', style: 'acoustic daytime', bpm: 102, key: 'C major', root: 261.63, progression: [0, 5, 2, 7], wave: 'triangle', liftStart: 0.7, tempoLift: 0.15 },
-  { id: 'river-dub', name: 'River Dub', style: 'dub bass', bpm: 92, key: 'D minor', root: 293.66, progression: [0, 3, 7, 5], wave: 'sine', liftStart: 0.58, tempoLift: 0.24, panicStem: 'bass' },
-  { id: 'ring-road', name: 'Ring Road', style: 'motorik rock', bpm: 120, key: 'E minor', root: 329.63, progression: [0, 5, 7, 3], wave: 'square', liftStart: 0.64, tempoLift: 0.18, panicStem: 'percussion' },
-  { id: 'harbour-glass', name: 'Harbour Glass', style: 'minimal piano ambient', bpm: 84, key: 'G major', root: 196, progression: [0, 4, 7, 2], wave: 'triangle', liftStart: 0.72, tempoLift: 0.22 },
+  { id: 'menu', name: 'Harbour Glass', style: 'piano and strings, calm', bpm: 70, seconds: 113.8 },
+  { id: 'synthwave', name: 'Aura Neon', style: 'night-drive synthwave', bpm: 108, seconds: 118.4 },
+  { id: 'lofi', name: 'Market Sun', style: 'lo-fi hip hop', bpm: 80, seconds: 118.4 },
+  { id: 'funk', name: 'Ring Road', style: '1970s cop-show funk', bpm: 112, seconds: 113.4 },
+  { id: 'dubtechno', name: 'River Dub', style: 'dub techno', bpm: 120, seconds: 116.9 },
+  { id: 'dnb', name: 'Last Slice', style: 'liquid drum and bass', bpm: 172, seconds: 115.9 },
 ];
+
+/** Which tracks play in which state, in order. The menu theme loops. Free play rotates through four tracks, a new one
+ *  when a track ends, after each delivery, and on N. A delivery run gets the chase track, then the funk. */
+export const PLAYLISTS: Record<MusicState, readonly string[]> = {
+  menu: ['menu'],
+  explore: ['synthwave', 'lofi', 'funk', 'dubtechno'],
+  mission: ['dnb', 'funk'],
+};
+
+export const trackOf = (id: string) => TRACKS.find(t => t.id === id)!;

@@ -153,9 +153,13 @@ test('GameAudio: the calls are fetched near the water only, play as spatial one-
   for (const end = now + 300; now < end; now += 1) at(QUAY);
   expect(audio.snapshot().gulls.calls).toBe(1);
   audio.setLoading(false);
-  for (const end = now + 2.9; now < end; now += 1 / 30) at(QUAY);
-  expect(audio.snapshot().gulls.calls).toBe(1); // three more seconds after the loading ends
+  for (const end = now + 4.9; now < end; now += 1 / 30) at(QUAY);
+  expect(audio.snapshot().gulls.calls).toBe(1); // five more seconds after the loading ends
   for (const end = now + 1; now < end && audio.snapshot().gulls.calls < 2; now += 1 / 30) at(QUAY);
+  expect(audio.snapshot().gulls.calls).toBe(2);
+  // Likewise in the start menu.
+  audio.setLoading(false, true);
+  for (const end = now + 300; now < end; now += 1) at(QUAY);
   expect(audio.snapshot().gulls.calls).toBe(2);
   expect(audio.errors).toEqual([]);
   audio.dispose();

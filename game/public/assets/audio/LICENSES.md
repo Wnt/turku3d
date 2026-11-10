@@ -1,11 +1,14 @@
 # Turku3D audio: sources and licences
 
-This directory holds three kinds of audio. No file contains a third-party sample, recording or voice.
+This directory holds three kinds of audio. No file contains a third-party sample, recording or voice. The music is
+model-generated; nothing else is.
 
 1. **Procedural effects** (22 `.ogg` files, table below): original sound effects created for Turku3D from
    2026-10-25 on. Source: [`game/scripts/prepare-audio.mjs`](../../../scripts/prepare-audio.mjs).
 2. **Gull calls** (`gull-herring-longcall.ogg`, `gull-common-longcall.ogg`): resyntheses by Turku3D code from
    measurements of two CC0 field recordings (section "Gull calls").
+3. **Music** (`music/*.ogg`, six tracks): generated locally with the open ACE-Step 1.5 model from our own text
+   prompts (section "Music").
 
 To the extent possible under law, the authors dedicate the generators, the synthesis code and the audio of kinds 1
 and 2 to [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), waiving copyright and
@@ -80,3 +83,43 @@ from the measurements, and the recordings themselves are not in the repository. 
 (`extract.py`, `resynth.py`) on the branch `local/loop-sounds-fable`. Both files are mono Ogg/Opus at 64 kbit/s from
 48 kHz PCM, peak -3 dBFS (164,881 bytes together). The game plays them as occasional one-shots by the river and in
 the harbour (`game/src/audio/gulls.ts`).
+
+## Music
+
+Six instrumental tracks in `music/`, generated for Turku3D on 2026-11-10 on an Apple M1 Max with **ACE-Step 1.5**
+(ACE Studio and StepFun), an open text-to-music model, and chosen by ear from a first batch of ten. No lyrics, no
+reference audio and no audio prompt were given to the model: the only inputs are the text below.
+
+- Code: https://github.com/ace-step/ACE-Step-1.5 at commit `ca1e85f`, MIT (`LICENSE`: "MIT License, Copyright (c)
+  2026 ACEStep").
+- Weights: https://huggingface.co/ACE-Step/Ace-Step1.5 (revision `19671f40`), MIT (`license: mit` in the model card's
+  metadata and its "License: [MIT]" line), not gated. The card states: "You can strictly use the generated music for
+  commercial purposes" and describes the training data as licensed, royalty-free and public-domain music. The weights
+  repository has no separate LICENSE file; the grant is the model card. Both licences were read at these URLs on
+  2026-11-10 19:08 UTC.
+- Components used: the `acestep-v15-turbo` diffusion transformer (2B, distilled), the `acestep-5Hz-lm-1.7B` planner
+  ("thinking" on: it writes the metadata, rewrites the caption and plans the structure), the Qwen3-Embedding-0.6B text
+  encoder and the model's VAE, all from that repository.
+- Settings, the same for every track: 120 s, lyrics `[Instrumental]`, seed 1, 8 steps, Euler ODE sampler, shift 3.0,
+  guidance 1.0 (turbo), planner temperature 0.85 and CFG 2.0, output peak-normalised to -1 dBFS.
+- For the game each track was scaled to -18 dB RMS, the silence after its ending trimmed, and encoded as Ogg/Opus
+  96 kbit/s stereo (9,330,066 bytes together). Nothing else was edited.
+
+To the extent we hold any rights in these generated tracks, we dedicate them to
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/) like the rest of this directory.
+
+| File | Use in the game | Prompt (caption) | Tempo and key given to the model |
+|---|---|---|---|
+| `music/menu.ogg` | menu theme | Calm ambient main-menu theme: slow piano melody over warm string pads, Nordic atmosphere, a river at dusk. Spacious, peaceful and cinematic. Instrumental, no vocals. | 70 BPM; key left to the planner (F major) |
+| `music/synthwave.ogg` | free play | Instrumental night-drive synthwave: analog synth arpeggios, warm lush pads, gated-reverb 80s drums and a driving pulsing bassline. Nostalgic, neon-lit, cinematic retro mood. No vocals. | 108 BPM, A minor |
+| `music/lofi.ogg` | free play | Instrumental lo-fi hip hop for walking through a quiet city: mellow Rhodes electric piano chords, soft dusty boom-bap drums, warm bass and vinyl crackle. Relaxed and mellow. No vocals. | 80 BPM; key left to the planner (C major) |
+| `music/funk.ogg` | free play, delivery run | Instrumental 1970s cop-show funk: funky driving groove with slap bass, wah-wah guitar, clavinet, tight punchy drums and brass section stabs. Energetic and gritty. No vocals. | 112 BPM; key left to the planner (E minor) |
+| `music/dubtechno.ogg` | free play | Instrumental dub techno by a river at night: deep chords with long echoing delays and reverb, soft four-on-the-floor kick, subtle hi-hats. Hazy, hypnotic and minimal. No vocals. | 120 BPM; key left to the planner (B minor) |
+| `music/dnb.ogg` | delivery run | Instrumental liquid drum and bass chase music: fast breakbeat drums, deep sub bass, urgent synth stabs and atmospheric pads. Tense but melodic. No vocals. | 172 BPM; key left to the planner (B minor) |
+
+The planner rewrote each caption before the diffusion model saw it (for example, the dub techno prompt became "a
+hypnotic progressive house track built on layers of evolving synthesis"); the full rewritten captions, timings and a
+vocal-leak check (the Demucs vocal stem is 24 to 42 dB below the mix in every track: no clear vocals, with lead
+instruments at `lofi` 0:50-1:02 and `menu` 1:48 the loudest moments) are in the generation manifest kept with the
+weights outside the repository (`~/turku3d/loops/sounds-fable/gen/out/manifest.json`). `manifest.json` here lists each file's size,
+duration and SHA-256. The game streams the tracks on demand (`game/src/audio/music/`).

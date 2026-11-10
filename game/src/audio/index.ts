@@ -36,9 +36,11 @@ export class GameAudio {
   private disposed = false;
   private paused = false;
   private pendingConnect = false;
-  /** The start menu is open or the world is loading (before "playable"): nothing is fetched or started on demand. */
+  /** The world is loading (a save being restored) / the start menu is open: before "playable". */
   private loadingWorld = false;
-  /** Clock time from which on-demand audio may start again: a few seconds after the loading ended. */
+  private lobby = false;
+  /** Clock time from which on-demand audio may start again: SETTLE_SECONDS after the start menu closed or the loading
+   *  ended, so it is not part of what downloads on the way to "playable". */
   private settledAt = -Infinity;
   private listener: Extract<AudioEvent, { type: 'listener' }> | null = null;
   /** Drawn walkers near the camera; null until the walker system reports (no crowd loop before that). */
@@ -113,7 +115,8 @@ export class GameAudio {
           const bus = ctx.createGain(); bus.connect(name === 'ambience' ? ducker : master); this.channels.set(name, bus);
         }
         this.musicDucker = ctx.createGain(); this.musicDucker.connect(master);
-        this.music = new MusicSystem(ctx, this.musicDucker);
+        this.music = new MusicSystem(ctx, this.musicDucker, { base: `${this.base}music/` });
+        this.music.setHold(this.loadingWorld || this.clock() < this.settledAt); this.music.setLobby(this.lobby);
         this.music.setState(this.musicState);
         this.music.setDeadline(this.musicDeadline);
         this.music.setMuffled(this.musicMuffle);
@@ -206,11 +209,15 @@ export class GameAudio {
     };
   }
 
-  /** In the start menu and while the world loads, on-demand audio waits: the gull calls are neither fetched nor
-   *  scheduled, so the download before the game is playable does not grow. */
-  setLoading(loading: boolean) {
-    if (this.loadingWorld && !loading) this.settledAt = this.clock() + 3;
-    this.loadingWorld = loading;
+  /** Once per frame from the play session. On-demand audio waits for the game to be playable, so the download before
+   *  that does not grow: in the start menu (`lobby`), while the world loads and for five seconds after either, no gull
+   *  call is fetched or scheduled; no music stream starts while loading or in those five seconds, and the start
+   *  menu's own theme only for a player who stays there (MusicSystem.setLobby). */
+  setLoading(loading: boolean, lobby = false) {
+    const now = this.clock();
+    if ((this.loadingWorld || this.lobby) && !loading && !lobby) this.settledAt = now + 5;
+    this.loadingWorld = loading; this.lobby = lobby;
+    this.music?.setHold(loading || now < this.settledAt); this.music?.setLobby(lobby);
   }
   setMusicState(state: MusicState) { if (state !== this.musicState) { this.musicState = state; this.music?.setState(state); } }
   setMusicDeadline(progress: number) { this.musicDeadline = clamp(progress); this.music?.setDeadline(this.musicDeadline); }
@@ -231,7 +238,7 @@ export class GameAudio {
     this.nextMix = now + 1 / MIX_HZ;
     if (this.listener) {
       this.place(ctx.listener, this.listener);
-      if (!this.loadingWorld && now >= this.settledAt) this.gulls.update(this.listener.position, now, this.paused);
+      if (!this.loadingWorld && !this.lobby && now >= this.settledAt) this.gulls.update(this.listener.position, now, this.paused);
     }
     this.refreshHorns(true); this.refreshLoops(); this.refreshTraffic();
   }

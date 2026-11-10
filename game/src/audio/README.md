@@ -75,7 +75,7 @@ permit/pizzeria hint variants before Ready. The first key/pointer input resumes 
 also attempts unlock; Chrome may still require a click or key under its user-activation policy.
 Asset loading is asynchronous and errors are contained in `audio.snapshot().errors`; missing audio
 never blocks gameplay. No historical steps/impacts are replayed after loading. A pending connection
-blip is retained. At most 24 active voices (including eight loops) are allowed. One-shot completion
+blip is retained. At most 24 active voices (loops, engine, tyre and gull voices included) are allowed. One-shot completion
 disconnects every node; `dispose()` stops voices and closes the context on pagehide. QA mode stays silent.
 
 The listener follows camera position, forward and rotated up vectors. Spatial positions use engine
@@ -97,21 +97,28 @@ GATE_PYTHON="$HOME/turku3d/envs/pipeline/bin/python" scripts/dev/gate --base mai
 
 Fake AudioContext tests cover lazy unlock, routing, failures, teardown, mute/volumes, bounded voices,
 material mappings and mixing. Synthetic Rapier tests cover resting contacts and wall impact impulses.
-The Chrome e2e test unlocks via a real key, decodes every asset, builds all eight loops, walks for
+The Chrome e2e test unlocks via a real key, decodes every asset, builds the loops, walks for
 footsteps and triggers each effect family without errors on WebGPU and WebGL2. `window.__game.audio`
 exposes `emit`, `snapshot`, `unlock` and `dispose` for diagnostics; `snapshot()` reports graph state,
 loaded count, loop/voice counts, volumes, played counts and errors.
 
-## Procedural music in play
+## Music in play
 
-The five-track engine starts on the first audio gesture using the same `AudioContext` as effects and voice.
-The start screen, pause and save/load pages request `menu`; free play requests `explore`; an accepted order
-requests `mission` until hand-over. Delivery progress is elapsed time divided by par time, updated once a
-second. The intro and shop dialogue fully muffle music; driving applies a 0.6 muffle without reducing the
-vehicle engine bus. The engine and its track clock survive a Vite play-session swap. N and the localhost
-Developer page select the next track; free play also moves on every 64 bars and after each delivery. `music/params.json` holds the tuned defaults and accepts the lab's
-Copy as JSON object. `window.__game.audio.snapshot().music` exposes the requested scene, progress, muffle
-and the engine's playing snapshot for diagnostics. See [`music/README.md`](music/README.md).
+Six generated instrumental tracks stream on demand through `MusicSystem` ([`music/README.md`](music/README.md)),
+using the same `AudioContext` as effects and voice. The start screen, pause and save/load pages request `menu` (the
+menu theme); free play requests `explore` (four tracks in rotation: a new one when a track ends, after each delivery
+and on N or the localhost Developer page); an accepted order requests `mission` until hand-over (the chase track
+from the top, then the funk). Delivery progress is elapsed time divided by par time, updated once a second: from
+65 % the track speeds up to +6 % with its pitch kept, brightens and gets louder, and from 82 % a stinger sounds
+every two seconds; the hand-over plays a resolved cadence. The intro and shop dialogue fully muffle music; driving
+applies a 0.6 muffle without reducing the vehicle engine bus. The pause menu's Audio page has the music slider and
+mute button (`setMusicVolume`, `setMusicMuted`; muted or at zero the stream pauses).
+
+No music is part of what loads before the menu or before the game is playable: a track's file is requested when the
+track first plays, never in the start menu unless the player stays there for four seconds with audio on, never while
+the world loads, and not in the first five seconds of play (`GameAudio.setLoading`, once per frame from the play
+session). `window.__game.audio.snapshot().music` exposes the requested scene, deadline, muffle, volume and the
+system's snapshot (track, position, rate, intensity, guards, opened streams).
 
 ## Held vehicle horns
 

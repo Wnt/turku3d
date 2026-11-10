@@ -166,5 +166,47 @@
     "seconds": 9.3015,
     "sha256": "6152700e6238567cb68e7ac5136f9b0a4807b30df921c884eb6498b00ffae255",
     "license": "CC0-1.0"
+  },
+  "music/menu.ogg": {
+    "bytes": 1544371,
+    "channels": 2,
+    "seconds": 113.832,
+    "sha256": "ef07feee8c592c6792ee356f1693ae8583a6ae5c2c85973b95e9ce3a0d14121b",
+    "license": "CC0-1.0"
+  },
+  "music/synthwave.ogg": {
+    "bytes": 1582243,
+    "channels": 2,
+    "seconds": 118.393,
+    "sha256": "19be69c3d2013e78df39dc367a20923feabf1d48821f3f06a6ad02eac2211cc1",
+    "license": "CC0-1.0"
+  },
+  "music/lofi.ogg": {
+    "bytes": 1583799,
+    "channels": 2,
+    "seconds": 118.397,
+    "sha256": "ccc42b96411915a30328aee3de50b8e075d47ab042339735a6422cfe23bb0ae2",
+    "license": "CC0-1.0"
+  },
+  "music/funk.ogg": {
+    "bytes": 1464603,
+    "channels": 2,
+    "seconds": 113.438,
+    "sha256": "17f343c41c6e3183213f8e3940a653bea9fe88beeb1f5e8cb0f6fbfa4e1a6437",
+    "license": "CC0-1.0"
+  },
+  "music/dubtechno.ogg": {
+    "bytes": 1579159,
+    "channels": 2,
+    "seconds": 116.873,
+    "sha256": "73cc1c9f8b7d8a0f464e492b0db99c48bebbb6838a0990e7c5f9e20abc6f1251",
+    "license": "CC0-1.0"
+  },
+  "music/dnb.ogg": {
+    "bytes": 1575891,
+    "channels": 2,
+    "seconds": 115.916,
+    "sha256": "a02fdec2776da101eefdfb5ddaff493342619cbbb4d430741705d8b3a69245d4",
+    "license": "CC0-1.0"
   }
 }

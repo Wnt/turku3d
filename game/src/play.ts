@@ -893,7 +893,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     else if (wasCarrying && !carrying) audio.setMusicDeadline(0);
     wasCarrying = carrying;
     // In the start menu and while the world loads, on-demand audio waits (nothing extra downloads before "playable").
-    audio.setLoading(startScreen.active || saveGame.loading);
+    audio.setLoading(saveGame.loading, startScreen.active);
     audio.setMusicState(musicScene(startScreen.active, (paused || pauseMenu.open || saveGame.loading) && !introDialog.open, carrying));
     audio.setMusicMuffle(musicMuffle(introDialog.open, missions.shop !== null, mode === 'car'));
     if (carrying && now - lastDeadlineUpdate >= 1000) {
