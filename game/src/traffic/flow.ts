@@ -165,7 +165,10 @@ export type MirrorCar = [string, string, string, number, number, number, number,
  *  there with them (TrafficFlow.mirror). The room relays each receiver only the tiles it holds. */
 export interface TrafficSnapshot { tick: number; tiles: Record<string, MirrorCar[]> }
 /** TrafficFlow.probe. */
-export interface TrafficProbe { tick: number; live: boolean; remote: string[]; tiles: Record<string, [string, string, number, number][]>;
+/** A car in the probe: key, lane id, s (m), speed (m/s), then why it may be waiting: seconds without STUCK_PROGRESS of
+ *  headway, the car it last waited on (or null), seconds held by a player, and the lane it heads for (route). */
+export type ProbeCar = [string, string, number, number, number, string | null, number, string];
+export interface TrafficProbe { tick: number; live: boolean; remote: string[]; tiles: Record<string, ProbeCar[]>;
   stats: Record<string, number> }
 /** The state of a newly admitted car (spawn), left out of a MirrorCar's `rest`. */
 const FRESH = { reservation: null, stopped: 0, waiting: 0, backed: 0, stuck: 0, progress: 0, waitsFor: null, held: 0, reverse: 0,
@@ -401,12 +404,13 @@ export class TrafficFlow {
   setRemote(tiles: Iterable<string>) { this.remote = new Set(tiles); }
   private remote = new Set<string>();
 
-  /** Developer probe: the flow tick, the tiles running remote (mirrored) and every car per tile of its lane as
-   *  [key, lane id, s, speed] (multiplayer traffic checks compare clients with it; game/scripts or bots read it through
-   *  window.__game.physics.trafficProbe()). */
+  /** Developer probe: the flow tick, the tiles running remote (mirrored) and every car per tile of its lane (ProbeCar)
+   *  (multiplayer traffic checks compare clients with it; jam checks read the waiting fields; game/scripts or bots read
+   *  it through window.__game.physics.trafficProbe()). */
   probe(): TrafficProbe {
-    const tiles: Record<string, [string, string, number, number][]> = {};
-    for (const c of this.cars.values()) (tiles[c.lane.tile] ??= []).push([c.key, c.lane.id, round(c.s, 100), round(c.speed, 100)]);
+    const tiles: Record<string, ProbeCar[]> = {};
+    for (const c of this.cars.values()) (tiles[c.lane.tile] ??= []).push([c.key, c.lane.id, round(c.s, 100), round(c.speed, 100),
+      round(c.stuck, 10), c.waitsFor, round(c.held, 10), c.route.id]);
     return { tick: this.tick, live: this.live, remote: [...this.remote].sort(cmp), tiles, stats: { ...this.stats } };
   }
 
