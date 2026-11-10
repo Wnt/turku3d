@@ -28,7 +28,9 @@ GUARD = 0.3
 
 def spec_hash(spec: dict) -> str:
     parts = {k: v for k, v in spec.items() if k not in ("title", "desc", "rating")}
-    parts["builder"] = 2  # bump to rebuild everything after a change in this script
+    parts["builder"] = 2
+    if spec.get("loop"):
+        parts["seam_metric"] = 2  # bump to rebuild everything after a change in this script
     for key in ("src", "copy"):
         if spec.get(key):
             stat = Path(spec[key]).stat()
@@ -128,6 +130,7 @@ def main(out: Path) -> None:
     html = (HERE / "template.html").read_text()
     html = html.replace("<!--__SECTIONS__-->", (HERE / "sections.html").read_text())
     html = html.replace("<!--__SUMMARY__-->", (HERE / "summary.html").read_text())
+    html = html.replace("<!--__SOURCES__-->", candidates.sources_table())
     html = html.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
     html = html.replace("/*__TYRE_CORE__*/''", json.dumps((HERE.parent / "tyre" / "core.js").read_text()).replace("</", "<\\/"))
     extra = HERE / "extra.js"

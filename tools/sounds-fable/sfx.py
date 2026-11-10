@@ -109,11 +109,12 @@ def seam_report(decoded: np.ndarray, start: float, end: float, sr: int = SR) -> 
     wrapped = np.concatenate([body[-2400:], body[:2400]])
     step = np.abs(np.diff(wrapped))
     typical = np.percentile(np.abs(np.diff(body)), 99.9) + 1e-9
+    # A click is broadband and local: compare the top band in the 4 ms around the wrap with the 40 ms on either side.
     sos = signal.butter(4, 6000, "highpass", fs=sr, output="sos")
     high = signal.sosfilt(sos, wrapped)
-    reference = signal.sosfilt(sos, body[: 4800 * 4])
     seam_energy = rms(high[2400 - 96:2400 + 96])
-    return {"jump_vs_p999": float(step[2399] / typical), "seam_high_db_vs_body": float(db(seam_energy) - db(rms(reference)))}
+    around = rms(np.concatenate([high[2400 - 2016:2400 - 96], high[2400 + 96:2400 + 2016]]))
+    return {"jump_vs_p999": float(step[2399] / typical), "seam_high_db_vs_body": float(db(seam_energy) - db(around))}
 
 
 def synthetic_ir(seconds: float, sr: int = SR, seed: int = 1, bright: float = 6000, early: list[tuple[float, float]] | None = None,
