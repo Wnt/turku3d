@@ -3,7 +3,7 @@ const items=Object.fromEntries(CATALOGUE.map(item=>[item.id,item]));
 const storageKey='turku3d-sounds-astra-selection-v1';
 let chosen=new Set();
 try{const saved=JSON.parse(localStorage.getItem(storageKey)||'[]');if(Array.isArray(saved))chosen=new Set(saved.filter(id=>items[id]||id==='t08-live'));}catch{}
-let context,master,voice,activeId=null,startTime=0,startOffset=0,generation=0,workletReady=false,liveNode=null;
+let context,master,voice,activeId=null,startTime=0,startOffset=0,generation=0,workletReady=false,liveNode=null,liveGain=null;
 const cache=new Map();
 const status=document.querySelector('#status');
 function setStatus(message){status.textContent=message;}
@@ -31,7 +31,7 @@ function resetButtons(){document.querySelectorAll('.card').forEach(card=>{card.c
 function stop(invalidate=true){
  if(invalidate)generation++;
  if(voice){const old=voice;old.gain.gain.cancelScheduledValues(context.currentTime);old.gain.gain.setTargetAtTime(0,context.currentTime,.008);setTimeout(()=>{try{old.source.stop();}catch{}old.source.disconnect();old.gain.disconnect();},50);voice=null;}
- if(liveNode){liveNode.disconnect();liveNode.port.postMessage({stop:true});liveNode=null;}
+ if(liveNode){const old=liveNode,oldGain=liveGain;oldGain.gain.setTargetAtTime(0,context.currentTime,.008);setTimeout(()=>{old.disconnect();oldGain.disconnect();old.port.postMessage({stop:true});},50);liveNode=null;liveGain=null;}
  activeId=null;resetButtons();
 }
 document.querySelector('#stop').onclick=()=>{stop();setStatus('Toisto pysäytetty.');};
@@ -82,7 +82,7 @@ document.querySelector('#liveStart').onclick=async()=>{
    const url=URL.createObjectURL(new Blob([body],{type:'application/javascript'}));try{await context.audioWorklet.addModule(url);workletReady=true;}finally{URL.revokeObjectURL(url);}
   }
   if(token!==generation)return;
-  liveNode=new AudioWorkletNode(context,'astra-tyre',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]});liveNode.connect(master);activeId='t08-live';updateLive();document.querySelector('#liveStart').textContent='Pysäytä rengasmalli';setStatus('Rengasmalli soi · säädä luistoa, kuormaa ja pintaa.');
+  liveNode=new AudioWorkletNode(context,'astra-tyre',{numberOfInputs:0,numberOfOutputs:1,outputChannelCount:[1]});liveGain=context.createGain();liveGain.gain.setValueAtTime(0,context.currentTime);liveGain.gain.linearRampToValueAtTime(LIVE_GAIN,context.currentTime+.02);liveNode.connect(liveGain);liveGain.connect(master);activeId='t08-live';updateLive();document.querySelector('#liveStart').textContent='Pysäytä rengasmalli';setStatus('Rengasmalli soi · säädä luistoa, kuormaa ja pintaa.');
  }catch(error){stop();setStatus(`Rengasmallin käynnistys epäonnistui: ${error.message}`);}
 };
 document.addEventListener('keydown',event=>{if(event.key==='Escape'){stop();setStatus('Toisto pysäytetty.');}});

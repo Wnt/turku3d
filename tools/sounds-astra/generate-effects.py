@@ -42,6 +42,7 @@ for channel in range(2):
     harbour[:,channel]=water*swell*.015
 for at,call,pan,gain,cutoff in [(2,series,-.6,.23,6500),(15,reply,.45,.12,4200),(30,single,-.15,.3,8000),(39,series,.7,.07,2800),(53,reply,-.7,.13,3800)]:
     dry=filt(call,cutoff);add(harbour,dry,at,gain,pan)
+    add(harbour,filt(dry,4200),at+.004,gain*.20,pan)
     add(harbour,filt(dry,2400),at+.064,gain*.12,-pan)
     add(harbour,filt(dry,1600),at+.139,gain*.07,pan*.2)
 emit('g05-harbour',loop_join(harbour,4),loop=True,target=-27,bitrate='128k')
@@ -72,9 +73,12 @@ emit('g07-mew-model',np.pad(gull_voice(1.12), (round(.15*RATE),round(.4*RATE))))
 # Same recorded call at near/mid/far: audibly lower high-frequency content and
 # more diffuse early reflections. Gains are kept relative, not renormalised per step.
 distance=np.zeros((round(17*RATE),2))
-for at,gain,hz,pan in [(0.3,1,11000,-.2),(6,.38,4000,.15),(11.7,.14,2100,.45)]:
+for at,gain,hz,pan,metres in [(0.3,1,11000,-.2,15),(6,.38,4000,.15,60),(11.7,.14,2100,.45,150)]:
     dry=filt(series,hz);add(distance,dry,at,gain,pan)
-    add(distance,filt(dry,1800),at+.08,gain*.12,-pan)
+    # Image-source path difference over a flat water plane: emitter 12 m,
+    # listener 1.7 m. Bank/building reflections are a separate harbour effect.
+    delay=(np.hypot(metres,12+1.7)-np.hypot(metres,12-1.7))/343
+    add(distance,filt(dry,3600),at+delay,gain*.24,pan)
 emit('g08-distance',fade(distance),target=-22)
 
 # Real tyre recordings, retain their natural attacks. Original source files are

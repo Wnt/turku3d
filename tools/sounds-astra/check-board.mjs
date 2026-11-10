@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 const work=process.env.SOUND_WORK||`${process.env.HOME}/turku3d/loops/sounds-astra`;
 const {chromium}=await import(pathToFileURL(`${work}/work/node/node_modules/playwright/index.mjs`));
 const board=`${work}/board`;
+const started=performance.now();
 const types={'.html':'text/html; charset=utf-8','.json':'application/json','.ogg':'audio/ogg','.png':'image/png','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer((req,res)=>{
  try{const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);const file=path.resolve(board,'.'+(pathname==='/'?'/index.html':pathname));if(!file.startsWith(board+'/'))throw Error('path');const data=readFileSync(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'text/plain','Content-Length':data.length});res.end(data);}catch{res.writeHead(404);res.end('not found');}
@@ -57,6 +58,6 @@ await page.locator('[data-pick="g02-herring-series"]').uncheck();await page.loca
 await page.setViewportSize({width:390,height:844});await page.goto(url);await page.screenshot({path:`${work}/evidence/board-mobile.png`});
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'mobile overflow');
 assert.deepEqual(external,[]);assert.deepEqual(errors,[]);
-const result={url,decoded,clipboard:copied,loopPosition,pageErrors:errors,externalRequests:external,checks:['current sound first','selection persistence','clipboard export','playback and switching','loop boundary playback','live AudioWorklet and presets','all files decode with signal and headroom','mobile width','no external requests']};
+const result={url,wallSeconds:(performance.now()-started)/1000,decoded,clipboard:copied,loopPosition,pageErrors:errors,externalRequests:external,checks:['current sound first','selection persistence','clipboard export','playback and switching','loop boundary playback','live AudioWorklet and presets','all files decode with signal and headroom','mobile width','no external requests']};
 writeFileSync(`${work}/evidence/browser-check.json`,JSON.stringify(result,null,2));console.log(JSON.stringify({status:'PASS',files:decoded.length,checks:result.checks},null,2));
-await page.close();await browser.close();await new Promise(resolve=>server.close(resolve));
+await page.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await browser.close();

@@ -1,0 +1,105 @@
+{
+  "id": "ACE-Step/ACE-Step-v1-3.5B",
+  "sha": "82cd0d7b6322bd28cd4e830fe675ddb6180ce36c",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes",
+      "blobId": "26c69d3a00694048e77d4b8835ee685beba29b91",
+      "size": 1580
+    },
+    {
+      "rfilename": "README.md",
+      "blobId": "54282c2816e4f28d6ce93bc705761a599546c9a9",
+      "size": 3513
+    },
+    {
+      "rfilename": "ace_step_transformer/config.json",
+      "blobId": "2c2612ef8ae605a1468e25f0b93a44885ad1758f",
+      "size": 639
+    },
+    {
+      "rfilename": "ace_step_transformer/diffusion_pytorch_model.safetensors",
+      "blobId": "6ec6eb0edd66eb1a09cef5b5a81605a26b93dc89",
+      "size": 6611422728,
+      "lfs": {
+        "sha256": "e810f16728d8a2e0d1b9c3a907aac8c9a427ce38edbd890cb3dce5ff92da5aad",
+        "size": 6611422728,
+        "pointerSize": 135
+      }
+    },
+    {
+      "rfilename": "config.json",
+      "blobId": "2c2612ef8ae605a1468e25f0b93a44885ad1758f",
+      "size": 639
+    },
+    {
+      "rfilename": "music_dcae_f8c8/config.json",
+      "blobId": "199e97f31cda65b4eb4d7c00200d94bd15455981",
+      "size": 1034
+    },
+    {
+      "rfilename": "music_dcae_f8c8/diffusion_pytorch_model.safetensors",
+      "blobId": "358411fcbd3db8d7b8ab0c1d2da3a2ef03dbd519",
+      "size": 313646516,
+      "lfs": {
+        "sha256": "2b0cb469307ac50659d1880db2a99bae47d0df335cbb36853964662d4b80e8ee",
+        "size": 313646516,
+        "pointerSize": 134
+      }
+    },
+    {
+      "rfilename": "music_vocoder/config.json",
+      "blobId": "149f85c6739e7d90b95330697247a870cbdb01dc",
+      "size": 940
+    },
+    {
+      "rfilename": "music_vocoder/diffusion_pytorch_model.safetensors",
+      "blobId": "6af74a7e86a20ee37915ed9e1ae79ee63b8e74d1",
+      "size": 206350988,
+      "lfs": {
+        "sha256": "c92c9b46e28ab7b37b777780cf4308ad7ddac869636bb77aa61599358c4bc1c0",
+        "size": 206350988,
+        "pointerSize": 134
+      }
+    },
+    {
+      "rfilename": "umt5-base/config.json",
+      "blobId": "a0d07f3ebc5d622e7c8c9d1b3285cefe7665304a",
+      "size": 848
+    },
+    {
+      "rfilename": "umt5-base/model.safetensors",
+      "blobId": "c670c9990e0ec8bb8787984e16f1123bf1bc5889",
+      "size": 1127460248,
+      "lfs": {
+        "sha256": "779cec0d210b2123e21d0a9cd8128f02b4d412627355028965a8be0b241cc3b6",
+        "size": 1127460248,
+        "pointerSize": 135
+      }
+    },
+    {
+      "rfilename": "umt5-base/special_tokens_map.json",
+      "blobId": "2ed25bf989a28d20b5d4b5822fbc24666d12a6f7",
+      "size": 7079
+    },
+    {
+      "rfilename": "umt5-base/tokenizer.json",
+      "blobId": "9c6427ab2f801c942da4ee9740f1a750d3978a3b",
+      "size": 16837459,
+      "lfs": {
+        "sha256": "20a46ac256746594ed7e1e3ef733b83fbc5a6f0922aa7480eda961743de080ef",
+        "size": 16837459,
+        "pointerSize": 133
+      }
+    },
+    {
+      "rfilename": "umt5-base/tokenizer_config.json",
+      "blobId": "4e1cc1cd85599ce0b47fd0a746af188fe4043ff2",
+      "size": 61728
+    }
+  ],
+  "cardData": {
+    "license": "apache-2.0"
+  },
+  "source_url": "https://huggingface.co/ACE-Step/ACE-Step-v1-3.5B"
+}

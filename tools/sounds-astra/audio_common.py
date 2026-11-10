@@ -18,8 +18,9 @@ RNG = np.random.default_rng(10261110)
 def decode(path, channels=1):
     # Explicit arithmetic stereo downmix for analysis; FFmpeg's default -ac 1
     # uses 0.707 coefficients, which would make stereo comparisons 3 dB louder.
-    probe=subprocess.run(['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=channels','-of','csv=p=0',str(path)],capture_output=True,text=True,check=True)
-    source_channels=int(probe.stdout.strip())
+    probe=subprocess.run(['ffprobe','-v','error','-select_streams','a:0','-show_entries','stream=channels','-of','json',str(path)],capture_output=True,text=True,check=True)
+    source_channels=json.loads(probe.stdout)['streams'][0]['channels']
+    if channels==0:channels=source_channels
     mix=['-af','pan=mono|c0=0.5*c0+0.5*c1'] if channels==1 and source_channels==2 else []
     r = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), *mix, '-f', 'f32le', '-ar', str(RATE), '-ac', str(channels), '-'], capture_output=True, check=True)
     data = np.frombuffer(r.stdout, dtype='<f4').copy()

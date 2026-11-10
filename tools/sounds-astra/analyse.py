@@ -6,7 +6,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 def metrics(path):
-    x=decode(path)
+    raw=decode(path,channels=0)
+    x=raw.mean(axis=1) if raw.ndim==2 else raw
     f,p=signal.welch(x,fs=RATE,nperseg=4096)
     centroid=float(np.sum(f*p)/max(np.sum(p),1e-20))
     frame=480;n=len(x)//frame
@@ -16,7 +17,7 @@ def metrics(path):
     active=active_rms(x)
     peaks,_=signal.find_peaks(p,distance=8)
     peaks=peaks[np.argsort(p[peaks])[-5:][::-1]]
-    return dict(seconds=round(len(x)/RATE,5),peak_dbfs=round(20*np.log10(max(abs(x).max(),1e-12)),2),
+    return dict(seconds=round(len(x)/RATE,5),peak_dbfs=round(20*np.log10(max(abs(raw).max(),1e-12)),2),
                 active_rms_dbfs=round(20*np.log10(max(active,1e-12)),2),centroid_hz=round(centroid),
                 energy_over_3khz_pct=round(float(p[f>3000].sum()/p.sum()*100),2),
                 active_pct=round(float(np.mean(rms>threshold))*100,1),
@@ -39,9 +40,11 @@ comparisons=[('gulls','current-gulls','g02-herring-series','Nykyinen lokki','Ä�
              ('tyres','current-screech','t01-recorded-chirp','Nykyinen rengasääni','Äänitetty renkaan kirskahdus'),
              ('music','current-music-aura-neon','m01-river-afterhours','Nykyinen Aura Neon','Uusi: Aurajoen jälkeen')]
 for name,a,b,an,bn in comparisons:
-    fig,axs=plt.subplots(2,3,figsize=(13,5.2),gridspec_kw={'width_ratios':[1.2,1.2,1]})
+    pairs=[(a,an),(b,bn)]
+    if name=='music' and 'm05-auransilta-fm' in rows:pairs.append(('m05-auransilta-fm','Paikallinen malli: Auransilta FM'))
+    fig,axs=plt.subplots(len(pairs),3,figsize=(13,2.6*len(pairs)),gridspec_kw={'width_ratios':[1.2,1.2,1]})
     fig.patch.set_facecolor('#f5f3e9')
-    for i,(id,label) in enumerate([(a,an),(b,bn)]):
+    for i,(id,label) in enumerate(pairs):
         x=decode(BOARD/'audio'/f'{id}.ogg');limit=min(len(x),round((20 if name=='music' else 8)*RATE));clip=x[:limit]
         t=np.arange(limit)/RATE
         axs[i,0].plot(t[::120],clip[::120],lw=.5,color='#18635a');axs[i,0].set_title(label);axs[i,0].set_xlabel('Aika (s)');axs[i,0].set_ylabel('Amplitudi')
@@ -58,5 +61,8 @@ for row in loops:
     assert m['peak_dbfs'] < -.5, (row['id'],'peak',m)
     assert m['seam_vs_p999'] < 1.5, (row['id'],'seam',m)
 assert sum(p.stat().st_size for p in BOARD.rglob('*') if p.is_file())<100_000_000
+for id,row in rows.items():
+    assert row['peak_dbfs']<0,(id,'decoded clipping')
+    if id.startswith('m0'):assert 60<=row['seconds']<=180,(id,'music length')
 print(json.dumps({id:rows[id] for id in ['current-gulls','g02-herring-series','current-screech','t01-recorded-chirp','current-music-aura-neon','m01-river-afterhours']},indent=2,default=float))
 print('PASS: decoded peaks, candidate loop boundaries, board size',len(rows),'files')
