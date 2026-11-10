@@ -30,7 +30,10 @@ try {
   result.inland.newCalls = result.inland.calls - before;
   log('inland', JSON.stringify(result.inland));
   // 3: the harbour, on the quay by the ferry terminals: a call within 10-30 s, placed over the basin.
+  // (The player may have left the car meanwhile: a relocation moves the car, so get back in first.)
+  if (await page.evaluate(() => window.__game.state().mode) !== 'car') await takeCar(page);
   result.harbourPlaced = await page.evaluate(() => window.__game.relocateVehicle(-2364, 1560, 0)); await sleep(6000);
+  result.harbourAt = await page.evaluate(() => window.__game.state().camera.pos.map(Math.round));
   const callsBefore = (await gulls()).calls;
   result.harbour = await waitFor(g => g.calls > callsBefore, 60);
   log('harbour', JSON.stringify(result.harbour));

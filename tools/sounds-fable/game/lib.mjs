@@ -23,7 +23,8 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
   // A local dev server has no multiplayer server (its refused WebSocket is not a finding). Failed requests are
   // reported with their URL from the response listener; the OCI copy has no /coarse/demand endpoint (404, as before).
   page.on('console', m => { if (m.type() === 'error' && !/WebSocket connection|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text().slice(0, 300)); });
-  page.on('response', r => { if (r.status() >= 400 && !/\/coarse\/(demand|want)/.test(r.url())) errors.push(`HTTP ${r.status()} ${r.url().slice(0, 140)}`); });
+  // (The OCI copy also answers 422 for tiles outside its exported city: the harbour is only on city.lab.)
+  page.on('response', r => { if (r.status() >= 400 && !/\/coarse\/(demand|want)/.test(r.url()) && !(r.status() === 422 && /\/coarse\//.test(r.url()))) errors.push(`HTTP ${r.status()} ${r.url().slice(0, 140)}`); });
   // Audio downloads with their time since navigation: which sound files load before the menu, before playable, after.
   const t0 = Date.now(), audioRequests = [], marks = {};
   page.on('request', r => { if (/\/assets\/(audio|voice)\/|\.(ogg|opus|mp3)(\?|$)/.test(r.url())) audioRequests.push({ file: r.url().split('/assets/').pop().slice(0, 80), s: +((Date.now() - t0) / 1000).toFixed(2) }); });
