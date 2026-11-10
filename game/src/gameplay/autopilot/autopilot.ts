@@ -61,6 +61,8 @@ export interface AutopilotProgress {
   elapsed: number;
   /** Gap (m) to the obstacle that limits the speed now, else null; metres right of the path to pass a still one. */
   obstacle: number | null; nudge: number;
+  /** The obstacle limiting the speed is static collision the path rays found (a wall, a trunk, a ledge). */
+  obstacleWall: boolean;
 }
 
 export interface AutopilotResult { state: 'arrived' | 'failed' | 'cancelled'; reason?: string; progress: AutopilotProgress }
@@ -146,7 +148,7 @@ class Trip implements AutopilotHandle {
     const f = this.drive ?? this.walk, length = this.path?.length ?? 0, s = f?.s ?? 0;
     return { s, length, fraction: length ? Math.min(1, s / length) : 0, speed: this.speed, target: this.target, lateral: this.lateral,
       recoveries: f?.recoveries ?? 0, replans: this.replans, turns: this.drive?.turns ?? 0, elapsed: this.elapsed,
-      obstacle: this.drive?.obstacleGap ?? null, nudge: this.drive ? Math.round(this.drive.nudge * 10) / 10 : 0 };
+      obstacle: this.drive?.obstacleGap ?? null, obstacleWall: !!this.drive?.obstacleWall, nudge: this.drive ? Math.round(this.drive.nudge * 10) / 10 : 0 };
   }
   finish(state: 'arrived' | 'failed' | 'cancelled', reason?: string) {
     if (this.state === 'arrived' || this.state === 'failed' || this.state === 'cancelled') return;

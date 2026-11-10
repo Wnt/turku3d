@@ -260,6 +260,7 @@ export class DriveFollower {
   private wallStill = 0;
   /** The speed limit this step came from a wall point (avoidObstacles). */
   private limitWall = false;
+  get obstacleWall() { return this.limitWall; }
   private wallBlocked = false;
 
   constructor(public path: Path, readonly geometry: VehicleGeometry, public options: DriveOptions) {}
