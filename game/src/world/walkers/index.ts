@@ -137,15 +137,19 @@ export class Walkers {
     systems.add(this);
   }
 
-  async load(url: string) {
+  async load(url: string, prepare?: (model: THREE.Object3D) => Promise<void>) {
     if (this.options.cap <= 0 || this.disposed) return;
     const token = ++this.assetRequest;
     const asset = await loadWalkerAsset(url);
     if (this.disposed || token !== this.assetRequest) { asset.albedo?.dispose(); return; }
     const meshes = new WalkerMeshes(asset, this.options.cap + RING.margin);
+    this.group.add(meshes.group);
+    // The live session loads after driving starts: prepare the hidden VAT draws before publishing them.
+    try { await prepare?.(meshes.group); }
+    catch (error) { meshes.dispose(); throw error; }
+    if (this.disposed || token !== this.assetRequest) { meshes.dispose(); return; }
     this.meshes?.dispose();
     this.asset = asset; this.meshes = meshes;
-    this.group.add(meshes.group);
     this.ring.clear(); this.lastScan = -Infinity;
   }
 

@@ -242,7 +242,7 @@ describe('ring', () => {
 });
 
 test('caps per quality tier and the ?walkers= override', () => {
-  expect(WALKER_CAPS).toEqual({ mobile: 0, low: 10, medium: 60, high: 100 });
+  expect(WALKER_CAPS).toEqual({ mobile: 0, low: 10, reduced: 60, medium: 60, high: 100 });
   expect(walkerCap('low', null)).toBe(10); expect(walkerCap('medium', null)).toBe(60); expect(walkerCap('high', null)).toBe(100);
   expect(walkerCap('medium', 0)).toBe(0); expect(walkerCap('low', 80)).toBe(80);
   expect(parseParams('?walkers=12').walkers).toBe(12); expect(parseParams('').walkers).toBeNull();

@@ -47,6 +47,10 @@ draft tiles' `roads.json` (FOOT-only ways) that every client already streams.
   the median ground speed of baked shoe vertices in contact), so feet stay planted; idle cycles its 2.5 s loop.
 - **Lifecycle fade.** 0.8 s at birth and at the end of life, part of the shared state.
 
+Live play starts the crowd download three seconds after the start window releases the player. Its wardrobe and VAT
+programs prepare in the background before the crowd is published; leaving the session discards a pending load.
+Replay and camera modes still await the asset for deterministic captures.
+
 ## Drawing (local only)
 
 The ring scores walkers by distance in view (camera cone plus 12°) and 2.5× distance out of view: drawn to 100 m

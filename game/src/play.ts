@@ -226,11 +226,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const stopStreaming = hot ? () => {} : streamWhileLoading(world, spawn);
   const gameplayData = loadGameplayData(manifest);
   gameplayData.catch(() => {}); // awaited by createGameplay below, where its failure surfaces
-  // The player character is required; vehicles, the parked fleet and walkers are optional (core/retryFetch.ts).
+  // The player character is required; vehicles and the parked fleet are optional (core/retryFetch.ts).
   await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
     optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined),
-    optional('walkers', walkers.load(WALKERS_URL), undefined)]));
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
   if (player.template) drivers.setCharacter(player.template.scene, player.template.clips, renderer, root);
   Object.assign(window.__game!, { drivers });
@@ -687,6 +686,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   });
   let lastDeadlineUpdate = -Infinity;
   let lastCrowd = -1;
+  let walkersStarted = false, walkersAfter: number | null = null;
   let draftRoute: typeof minimap.routes.route = null;
   let wasCarrying = missions.phase === 'carrying';
   // The truck heist's trophy truck (TRUCK_ID; offered only to a player who owns no truck): placed in the yard once its
@@ -1072,6 +1072,14 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
     edgeMarker.update(() => streamer.trueEdges());
     env.follow(feet);
+    // Give the first driving window's road/collision requests three seconds before the 25 MB crowd download.
+    if (!walkersStarted && !startScreen.active && !saveGame.loading) {
+      walkersAfter ??= now + 3000;
+      if (now >= walkersAfter) {
+        walkersStarted = true;
+        void optional('walkers', walkers.load(WALKERS_URL, world.prepareGraphics), undefined);
+      }
+    }
     walkers.update(dt, camera, now);
     const crowd = walkers.nearby(CROWD_RADIUS);
     if (crowd !== lastCrowd) { lastCrowd = crowd; audio.emit({ type: 'crowd', walkers: crowd }); }
