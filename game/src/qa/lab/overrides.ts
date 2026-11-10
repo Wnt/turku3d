@@ -12,6 +12,7 @@ import { VEGETATION_FADE, scaleVegetationFade } from '../../world/nature/materia
 import { TRAFFIC_CAPS } from '../../traffic/constants';
 import { walkerCap } from '../../world/walkers';
 import { VISUAL_L0 } from '../../core/origin';
+import { canopyClear } from '../../render/sceneryMaterial';
 import type { LodOverrides } from './params';
 
 /** Props show again this much closer than they hide (the engine's 125/115 m hysteresis). */
@@ -50,6 +51,7 @@ export function applyLodOverrides(lod: LodOverrides, tier: QualityTier, params: 
   if (lod.fullr !== null) {
     TILE_WINDOW.radius = lod.fullr;
     (TILE_DETAIL as Mutable<typeof TILE_DETAIL>).distance = tileDetailFor(lod.fullr, TILE_DETAIL.distance);
+    canopyClear.value = TILE_DETAIL.distance;
   }
   if (lod.cells !== null) SCENERY_CELLS.distance = lod.cells;
   if (lod.reflect !== null) REFLECTION_RANGE.maxDistance = lod.reflect;

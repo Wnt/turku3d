@@ -11,7 +11,9 @@ import { streamTrace } from '../telemetry/streamTrace';
 
 type Vec3 = [number, number, number];
 /** Bench lab `hd=`: one HD-to-block-shell switch distance (m) for every block; null keeps each block's own. */
-export const BLOCK_LOD = { hdDistance: null as number | null };
+export const BLOCK_LOD = { hdDistance: null as number | null,
+  /** Scale of a building's own view distance (render/quality.ts WORLD_TIERS buildingView; 1 on every tier but ultra). */
+  viewScale: 1 };
 export interface BuildingModel {
   id: string; uri: string; bounds: { min: Vec3; max: Vec3 };
   /** Conservative opaque volumes, never inferred from display bounds. Owned by perfcpu. */
@@ -270,7 +272,7 @@ export class BuildingModelCache {
       wrapper.position.fromArray(block.position);
       wrapper.userData = { blockLod: block.id };
       wrapper.add(root); owner.add(wrapper); wrapper.freeze();
-      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: BLOCK_LOD.hdDistance ?? block.hdDistance, near: true, hd: true, settled: false });
+      states.set(block.id, { lod: wrapper, bounds: block.bounds, hdDistance: block.hdDistance, near: true, hd: true, settled: false });
     }
     if (states.size) {
       owner.userData.blockLods = states;
@@ -333,7 +335,7 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
       const { min, max } = state.bounds;
       const d = Math.hypot(Math.max(min[0] - x, 0, x - max[0]), Math.max(min[2] - z, 0, z - max[2]),
         height ? Math.max(0, y - max[1], min[1] - y) : 0);
-      const near = d <= state.hdDistance + (state.near ? SWAP_BAND : -SWAP_BAND);
+      const near = d <= (BLOCK_LOD.hdDistance ?? state.hdDistance) + (state.near ? SWAP_BAND : -SWAP_BAND);
       if (!state.settled) { state.settled = true; state.near = state.hd = near; }
       else if (near !== state.near) {
         state.near = near;
@@ -359,7 +361,7 @@ export function updateBuildingDistances(root: THREE.Object3D, x: number, z: numb
     const dz = Math.max(child.position.z + bounds.min[2] - z, 0, z - child.position.z - bounds.max[2]);
     // With an LOD parent the block swap alone decides: a small child's own view distance (as low as 282 m) must
     // not open a hole inside the swap band before its parent appears.
-    child.visible = block ? block.hd : dx * dx + dz * dz <= child.userData.viewDistance ** 2;
+    child.visible = block ? block.hd : dx * dx + dz * dz <= (child.userData.viewDistance * BLOCK_LOD.viewScale) ** 2;
     visibility.setActive(child.userData.visibilitySlot as number | undefined, shown && child.visible);
   }
   updateStaticBatchVisibility(root);

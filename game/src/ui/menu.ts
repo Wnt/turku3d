@@ -244,7 +244,9 @@ export class SaveMenuFlow {
     /** Opens the Developer page (ui/devMenu.ts); only where the developer tools run. */
     private readonly developer?: () => void,
     private readonly audio?: () => void,
-    private readonly timedRounds?: () => void, private readonly multiplayerActive: () => boolean = () => false) {}
+    private readonly timedRounds?: () => void, private readonly multiplayerActive: () => boolean = () => false,
+    /** Opens the Graphics page (ui/graphicsMenu.ts); `current` names the preset in use. */
+    private readonly graphics?: { open: () => void; current: () => string }) {}
 
   /** Start screen: Continue (latest save, with its details), New game, Load game. */
   start(): MenuPage {
@@ -283,6 +285,7 @@ export class SaveMenuFlow {
       ...(!this.multiplayerActive() ? [{ id: 'save', label: 'Save game', detail: null, enabled: true, run: () => this.host.show(this.save()) },
       { id: 'load', label: 'Load game', detail: null, enabled: this.store.any, run: () => this.host.show(this.load(root)) }] : []),
       ...(this.audio ? [{ id: 'audio', label: 'Audio', detail: 'Music volume and mute', enabled: true, run: this.audio }] : []),
+      ...(this.graphics ? [{ id: 'graphics', label: 'Graphics', detail: `Preset: ${this.graphics.current()}`, enabled: true, run: this.graphics.open }] : []),
       ...(!this.multiplayerActive() ? [{ id: 'new', label: 'New game', detail: null, enabled: true, run: () => this.host.show(this.confirmNew(root)) }] : []),
       ...(this.game.resetProgress ? [{ id: 'reset-progress', label: 'Reset progress', detail: 'Start over as a new player', enabled: true,
         run: () => this.host.show(this.confirmReset()) }] : []),

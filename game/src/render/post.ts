@@ -57,7 +57,7 @@ export class PostProcessing {
     // ?taafix=0: r186's build-time velocity projection, for the A/B of render/rigidVelocity.ts.
     installRigidVelocity(new URLSearchParams(globalThis.location?.search ?? '').get('taafix') === '0');
     const q = QUALITY[tier];
-    const taa = aa === 'taa', wet = tier === 'reduced' || tier === 'medium' || tier === 'high';
+    const taa = aa === 'taa', wet = tier === 'reduced' || tier === 'medium' || tier === 'high' || tier === 'ultra';
     // GTAO darkens beauty's indirect light, so it needs depth and normals before beauty: a second geometry pass.
     // Without GTAO, TRAA depth/velocity and puddle normals come from beauty's own MRT: one geometry pass, not two.
     const pre = this.pre = q.aoSamples > 0 ? pass(scene, camera) : null;

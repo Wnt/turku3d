@@ -49,10 +49,12 @@ const DEMAND_MISSING_MS = 60_000;
 /** A leaving full visual draws until scenery covers its square (or none can). Only this far (m) from the camera
  *  is it let go uncovered: a stalled cover never keeps a model alive across the city. */
 const HOLD_FAR_M = 1500;
-const RETURN_CACHE_TILES = 16;
 /** Cached visuals keep their decoded arrays in the JS heap (8-14 MiB of accessors per full tile GLB, plus facades and
  *  merged block shells): the newest cached tiles within this many owned bytes stay, older ones are released. */
 export const RETURN_CACHE_BYTES = 96 * 2 ** 20;
+/** The tier's streaming reach and concurrency (render/quality.ts WORLD_TIERS; world/tierWorld.ts sets it with the
+ *  tier, also at runtime): the constants below are every tier's but ultra's. `lead` scales DETAIL_LEAD_M and its cap. */
+export const TILE_STREAM = { viewDetail: 400, hd3d: 250, lead: 1, detailSlots: 6, previewSlots: 6, returnTiles: 16, returnBytes: RETURN_CACHE_BYTES };
 /** Hidden full visuals wait this long for a return: driving round a block often comes back within a minute. */
 const RETURN_CACHE_MS = 60_000;
 /** Ahead-only build acknowledgements own no model or collision resources. Keep them across quick turns. */
@@ -70,12 +72,10 @@ const DETAIL_LEAD_S = 28;
 const DETAIL_LEAD_M = 450;
 const DETAIL_LEAD_MAX_M = 700;
 const DETAIL_LEAD_MAX_SPEED = 40;
-/** Concurrent full-visual installs; tiles ahead and in view may use all but two, which stay free for the current window. */
-const DETAIL_SLOTS = 6;
-const AHEAD_DETAIL_SLOTS = DETAIL_SLOTS - 2;
-/** Concurrent unconfirmed ahead acknowledgements, and concurrent collision previews being prepared. */
+/** Concurrent full-visual installs (TILE_STREAM.detailSlots, 6); tiles ahead and in view may use all but two, which
+ *  stay free for the current window. */
+/** Concurrent unconfirmed ahead acknowledgements; collision previews being prepared: TILE_STREAM.previewSlots (6). */
 const ACK_SLOTS = 4;
-const PREVIEW_SLOTS = 6;
 /** A preview or load started for the lead stays this long after the lead last covered it: reversals and heading
  *  jitter must not drop and rebuild it. Full visuals leave through the heap-budgeted return cache instead. */
 const LEAD_KEEP_MS = 30_000;
@@ -85,19 +85,17 @@ const LEAD_DWELL_MS = 1500;
 /** Tiles in the view wedge dwell less: they are on screen or about to be (a glance shorter than this installs nothing). */
 const VIEW_DWELL_MS = 750;
 const LEAD_MIN_RESIDENCE_S = 4;
-/** Everything in the camera's view wedge within this distance (m) draws full detail: it joins the lead, nearest
- *  first and ahead of the path, under the same dwell rule (a quick look around installs nothing). */
-const VIEW_DETAIL_M = 400;
+/** Everything in the camera's view wedge within TILE_STREAM.viewDetail (400 m) draws full detail: it joins the lead,
+ *  nearest first and ahead of the path, under the same dwell rule (a quick look around installs nothing). */
 /** A driving camera also counts from where it will be this many seconds ahead (at most VIEW_LEAD_MAX_M); a chosen
- *  view tile stays until it is VIEW_KEEP_M beyond VIEW_DETAIL_M. */
+ *  view tile stays until it is VIEW_KEEP_M beyond that distance. */
 const VIEW_LEAD_S = 8;
 const VIEW_LEAD_MAX_M = 200;
 const VIEW_KEEP_M = 75;
-/** A camera this far above a tile's top (m) is flying: full installs only within HD_3D_M of 3D distance (GTA V's HD
+/** A camera this far above a tile's top (m) is flying: full installs only within TILE_STREAM.hd3d (250 m) of 3D distance (GTA V's HD
  *  band, techstudy L1/L5), so from 150 m up only a small disc under the camera installs; the scenery tier draws the
  *  rest. Lower cameras keep the ground rules (3x3 window, path and view wedge). */
 const HIGH_CAMERA_M = 40;
-const HD_3D_M = 250;
 /** How often committed tiles release the CPU copies of uploaded render-only arrays (ms). */
 const RELEASE_MS = 2000;
 /** GPU-byte residency budget per render tier (uploaded scene vertex/index buffers, pooled ones at their slot, plus
@@ -621,7 +619,7 @@ export class CoarseTiles {
         const [id,e] = cached[i];
         bytes += e.cachedBytes ?? 0;
         // The newest cached tile always stays (a U-turn); older ones within the count, age and heap budget.
-        if (i < RETURN_CACHE_TILES && now-e.cachedAt! <= RETURN_CACHE_MS && (i === 0 || bytes <= RETURN_CACHE_BYTES)) continue;
+        if (i < TILE_STREAM.returnTiles && now-e.cachedAt! <= RETURN_CACHE_MS && (i === 0 || bytes <= TILE_STREAM.returnBytes)) continue;
         this.drop(e); this.entries.delete(id);
       }
     }
@@ -651,7 +649,7 @@ export class CoarseTiles {
     }
     // Core requests always start first. This separate slot limits speculative preparation only.
     for (const id of new Set([...nextWindow, ...lookahead])) {
-      if (this.preparing.size >= PREVIEW_SLOTS || this.preparing.has(id)) continue;
+      if (this.preparing.size >= TILE_STREAM.previewSlots || this.preparing.has(id)) continue;
       const e = this.entry(id), distance = this.demandDistance(id, x, z);
       const task = due(e) ? this.poll(id, e, distance, true, 'lookahead') : null;
       if (task) {
@@ -663,7 +661,7 @@ export class CoarseTiles {
     // The current window strictly first; then the windows ahead in arrival order, leaving one slot for the current one.
     for (const id of [...wanted, ...nextWindow]) {
       const e = this.entries.get(id);
-      const inWindow = wanted.includes(id), slots = inWindow ? DETAIL_SLOTS : AHEAD_DETAIL_SLOTS;
+      const inWindow = wanted.includes(id), slots = inWindow ? TILE_STREAM.detailSlots : TILE_STREAM.detailSlots - 2;
       if (!inWindow && (!this.leadReady(id, now) || this.overGpu)) continue;
       if (e?.preview && !this.withinHdBand(id, e.preview, x, z)) continue;
       if (e?.preview && !e.refreshing && this.details < slots && now >= e.nextPoll) {
@@ -886,7 +884,7 @@ export class CoarseTiles {
     this.leadInfo.clear();
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
     if (this.startup || this.host.detailRadius !== undefined || speed < 3 || speed > DETAIL_LEAD_MAX_SPEED) return [];
-    const reach = Math.min(Math.max(DETAIL_LEAD_S * speed, DETAIL_LEAD_M), DETAIL_LEAD_MAX_M), step = VISUAL_L0 / 5;
+    const reach = Math.min(Math.max(DETAIL_LEAD_S * speed, DETAIL_LEAD_M * TILE_STREAM.lead), DETAIL_LEAD_MAX_M * TILE_STREAM.lead), step = VISUAL_L0 / 5;
     const seen = new Set(wanted), order: string[] = [], first = new Map<string, number>(), last = new Map<string, number>();
     let end = 0;
     for (let s = step; s < reach + step; s += step) {
@@ -901,7 +899,7 @@ export class CoarseTiles {
     return order;
   }
 
-  /** L0 tiles outside the current window inside the camera's horizontal view wedge within VIEW_DETAIL_M, seen from
+  /** L0 tiles outside the current window inside the camera's horizontal view wedge within TILE_STREAM.viewDetail, seen from
    *  the camera now and from where a driving camera will be VIEW_LEAD_S ahead (a full install takes several seconds,
    *  so it starts before the tile comes within range), nearest first. Tiles already chosen stay until they are
    *  VIEW_KEEP_M farther or a little outside the wedge: no install, cache and reinstall on the 400 m line. */
@@ -915,13 +913,13 @@ export class CoarseTiles {
     if (ahead) origins.push([x + this.velocity.x / speed * ahead, z + this.velocity.z / speed * ahead]);
     const inWedge = (i: number, j: number, ox: number, oz: number, range: number, angle: number) =>
       inViewWedge(i, j, ox, oz, dx, dz, range, angle);
-    const reach = VIEW_DETAIL_M + VIEW_KEEP_M + ahead, out: { id: string; d: number }[] = [];
+    const detail = TILE_STREAM.viewDetail, reach = detail + VIEW_KEEP_M + ahead, out: { id: string; d: number }[] = [];
     for (let i = Math.floor((x - reach) / VISUAL_L0); i <= Math.floor((x + reach) / VISUAL_L0); i++) {
       for (let j = Math.floor((z - reach) / VISUAL_L0); j <= Math.floor((z + reach) / VISUAL_L0); j++) {
         const id = `t0_${i}_${j}`;
         if (wanted.includes(id)) continue;
-        const chosen = origins.some(([ox, oz]) => inWedge(i, j, ox, oz, VIEW_DETAIL_M, halfAngle))
-          || (this.viewSet.has(id) && inWedge(i, j, x, z, VIEW_DETAIL_M + VIEW_KEEP_M, halfAngle + 0.15));
+        const chosen = origins.some(([ox, oz]) => inWedge(i, j, ox, oz, detail, halfAngle))
+          || (this.viewSet.has(id) && inWedge(i, j, x, z, detail + VIEW_KEEP_M, halfAngle + 0.15));
         if (chosen) out.push({ id, d: distToL0(id, x, z) });
       }
     }
@@ -930,12 +928,12 @@ export class CoarseTiles {
     return ordered;
   }
 
-  /** A full install is due on the ground, or for a high camera within HD_3D_M of 3D distance to the tile. */
+  /** A full install is due on the ground, or for a high camera within TILE_STREAM.hd3d of 3D distance to the tile. */
   private withinHdBand(id: string, fragment: CoarseFragment, x: number, z: number) {
     if (!Number.isFinite(this.viewY)) return true;
     const top = (fragment.visual[id]?.h as [number, number] | undefined)?.[1] ?? 0;
     const above = this.viewY - top;
-    return above < HIGH_CAMERA_M || Math.hypot(distToL0(id, x, z), above) <= HD_3D_M;
+    return above < HIGH_CAMERA_M || Math.hypot(distToL0(id, x, z), above) <= TILE_STREAM.hd3d;
   }
 
   /** A lead tile is worth a full install: covered for LEAD_DWELL_MS and held by the window long enough. */
