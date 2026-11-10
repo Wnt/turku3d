@@ -20,11 +20,17 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => { errors.push(e.message.slice(0, 300)); log(`${label} pageerror: ${e.message.slice(0, 200)}`); });
-  // A local dev server has no multiplayer server: its refused WebSocket is not a finding.
-  page.on('console', m => { if (m.type() === 'error' && !(BASE.includes('localhost') && /WebSocket connection/.test(m.text()))) errors.push('console: ' + m.text().slice(0, 300)); });
+  // A local dev server has no multiplayer server (its refused WebSocket is not a finding). Failed requests are
+  // reported with their URL from the response listener; the OCI copy has no /coarse/demand endpoint (404, as before).
+  page.on('console', m => { if (m.type() === 'error' && !/WebSocket connection|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text().slice(0, 300)); });
+  page.on('response', r => { if (r.status() >= 400 && !/\/coarse\/(demand|want)/.test(r.url())) errors.push(`HTTP ${r.status()} ${r.url().slice(0, 140)}`); });
+  // Audio downloads with their time since navigation: which sound files load before the menu, before playable, after.
+  const t0 = Date.now(), audioRequests = [], marks = {};
+  page.on('request', r => { if (/\/assets\/(audio|voice)\/|\.(ogg|opus|mp3)(\?|$)/.test(r.url())) audioRequests.push({ file: r.url().split('/assets/').pop().slice(0, 80), s: +((Date.now() - t0) / 1000).toFixed(2) }); });
   await page.goto(`${BASE}?quality=low&telemetry=0${query}`, { waitUntil: 'domcontentloaded', timeout: 180000 });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 400000 });
   const atReady = await page.evaluate(() => window.__game.audio.snapshot());
+  marks.ready = +((Date.now() - t0) / 1000).toFixed(2);
   for (let k = 0; k < 10 && await page.evaluate(() => window.__game.state().startScreen); k++) {
     await page.evaluate(() => { for (const b of document.querySelectorAll('.browser-warning button, [class*="warning"] button')) if (b.offsetParent) b.click(); });
     await page.locator(`[data-option="${option}"]`).first().click({ timeout: 5000 }).catch(() => {});
@@ -32,6 +38,7 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
     await sleep(1500);
   }
   await page.waitForFunction(() => { const s = window.__game.state(); return !s.loading && !s.startScreen; }, null, { timeout: 400000 });
+  marks.playable = +((Date.now() - t0) / 1000).toFixed(2);
   // The story intro (a new game): skip it.
   for (let k = 0; k < 6; k++) {
     const skipped = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => b.offsetParent && /skip/i.test(b.textContent ?? '')); if (b) b.click(); return !!b; });
@@ -47,7 +54,7 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
     requestAnimationFrame(tick);
   });
   log(`${label}: playable`);
-  return { context, page, errors, atReady };
+  return { context, page, errors, atReady, audioRequests, marks, seconds: () => +((Date.now() - t0) / 1000).toFixed(2) };
 }
 
 /** Takes the nearest car (not a scooter or truck unless `kind` asks) and optionally puts it on the road at x, z. */
