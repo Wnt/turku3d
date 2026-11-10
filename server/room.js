@@ -30,7 +30,6 @@ export class Room {
     this.roads = new RoadAgreement(this);
     this.watch = new TrafficWatch(this);
     this.rounds = new TimedRounds(this);
-    this.spawnIndex = 0;
     this.warned = false;
     this.lastPruneDay = null;
     this.stats = { rejected: 0, deliveries: 0, poses: 0, bytesIn: 0, bytesOut: 0 };
@@ -124,6 +123,15 @@ export class Room {
     this.reject();
   }
 
+  /** The spawn slot the fewest present players (online or connected, `self` aside) hold, the lowest such: players
+   *  present together never share a slot while one of the sixteen is free. Clients start on the start pair of their
+   *  slot's index, so a shared slot would be a shared start. */
+  freeSpawn(self = null) {
+    const held = SPAWNS.map(() => 0);
+    for (const q of this.players.values()) if (q !== self && (q.online || q.connection)) held[SPAWNS.indexOf(q.spawn)]++;
+    return SPAWNS[held.indexOf(Math.min(...held))];
+  }
+
   hello(c, m, now) {
     if ((m.session !== undefined && (typeof m.session !== 'string' || !/^[a-f0-9]{64}$/.test(m.session)))
       || (m.arrival !== undefined && typeof m.arrival !== 'boolean')) {
@@ -142,11 +150,13 @@ export class Room {
       }
       this.usedNicks.add(nick);
       p = { id: randomUUID(), session: randomBytes(32).toString('hex'), nick,
-        spawn: SPAWNS[this.spawnIndex++ % SPAWNS.length], earned: 0, deliveries: 0, reachedAt: now,
+        spawn: this.freeSpawn(), earned: 0, deliveries: 0, reachedAt: now,
         orders: new Set(), finedPoles: new Set(), pose: null, dirty: false, bot: m.bot === true };
       this.players.set(p.id, p);
       this.sessions.set(p.session, p);
     }
+    // A returning player whose slot a present player took meanwhile gets a free one.
+    if ([...this.players.values()].some(q => q !== p && (q.online || q.connection) && q.spawn === p.spawn)) p.spawn = this.freeSpawn(p);
     c.player = p;
     this.vehicles.reconnectPlayer(p, now);
     // An arrival from another city resumes no seat here: one still held is a release lost when it left.

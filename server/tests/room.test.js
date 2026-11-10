@@ -19,12 +19,25 @@ test('nicknames exhaust without collisions; reroll changes nickname', () => {
   for (const old of NICKS) assert.notEqual(nickname(new Set(), old), old);
 });
 
-test('joins use sixteen fixed spawns in round-robin order, with 32 connections maximum', () => {
+test('joins use sixteen fixed spawns, each once before any twice, with 32 connections maximum', () => {
   const f = fixture();
   assert.equal(SPAWNS.length, 16);
   assert.equal(new Set(SPAWNS.map(p => `${p.E},${p.N}`)).size, 16);
   for (let i = 0; i < 32; i++) assert.deepEqual(f.connect().welcome.you.spawn, SPAWNS[i % 16]);
   assert.equal(f.room.connect(() => {}, () => {}), null);
+});
+
+test('a join takes the lowest spawn slot no present player holds; a rejoin keeps its slot unless one took it', () => {
+  const f = fixture(), players = Array.from({ length: 16 }, () => f.connect());
+  // Player 3 leaves; the next join takes its slot, not the seventeenth round-robin one (slot 0, shared with player 0).
+  f.room.disconnect(players[3].c);
+  const next = f.connect();
+  assert.deepEqual(next.welcome.you.spawn, SPAWNS[3]);
+  // Player 3 returns with its session: its slot is taken, and every slot is held once, so it shares the lowest.
+  assert.deepEqual(f.connect(players[3].welcome.session).welcome.you.spawn, SPAWNS[0]);
+  // Player 5 reconnects into its own free slot.
+  f.room.disconnect(players[5].c);
+  assert.deepEqual(f.connect(players[5].welcome.session).welcome.you.spawn, SPAWNS[5]);
 });
 
 test('session rejoin preserves identity, score and deduplication; concurrent rejoin replaces socket', () => {

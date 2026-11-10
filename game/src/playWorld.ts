@@ -60,9 +60,12 @@ export interface PlayWorld {
   setClock: (date: Date) => void;
   /** Ground height under (x, z) from a physics ray. */
   groundAt: (x: number, z: number) => Promise<number>;
-  /** Where a new game starts, and the start car's parking (both placed in physics by main.ts). */
+  /** The page's start, and the start car's parking (both placed in physics by main.ts): the city's start, or the
+   *  `?spawn=` pose (a portal exit, a tool's URL). */
   spawn: Pose;
   car: Pose;
+  /** On a `?spawn=` page: finds the city's own start (SaveGameController `cityStart`). */
+  cityStart?: (stream: (x: number, z: number) => Promise<void>) => Promise<{ spawn: Pose; car: Pose }>;
   /** Switches the page to `to` in place (main.ts): the session ends and a new one starts there. `spawn` is the start
    *  in that city's grid (a portal exit); absent, its centre spawn. Absent in modes without travel. */
   travel?: (to: CityName, spawn?: { E: number; N: number; headingDeg: number }) => Promise<void>;

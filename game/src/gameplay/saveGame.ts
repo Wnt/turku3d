@@ -38,8 +38,13 @@ export function driverSide(car: { pos: V3; rot: Quat; kind?: VehicleKind }): V3 
   return { x: car.pos.x + axis.x, y: car.pos.y + 0.2, z: car.pos.z + axis.z };
 }
 
-/** `fresh`: a fresh start (a join without a pose to restore): the player takes its start pair (startPair). */
+/** `fresh`: a fresh start (a join without a pose to restore, a round start): the player starts at the start, on its
+ *  start pair (startPair), wherever the pose itself points. */
 type Pose = V3 & { yaw: number; fresh?: boolean };
+/** A start: where the player stands and the own car's parking beside it. */
+export type Start = { spawn: Pose; car: Pose };
+/** How long (ms) a start waits for its surroundings to stream in before its start pairs are searched in what is there. */
+const START_STREAM_MS = 20_000;
 
 /** The kerb 5.5 m behind a parked car (`yaw` turns the chassis +X axis): where a second vehicle waits beside it. */
 export function kerbBehind(car: Pose): Pose {
@@ -58,8 +63,14 @@ interface SaveGameOptions {
   clock: () => Date;
   router: StreetRouter;
   enterVehicle: (id: string) => void;
-  /** Where a new game starts, and the own car's spawn parking. */
+  /** The page's start, and the own car's parking there: the city's start, or on a `?spawn=` page (a portal exit, a
+   *  tool's URL) that pose. Only the session's first placement starts there when `cityStart` is given. */
   spawn: Pose; car: Pose;
+  /** On a `?spawn=` page: finds the city's own start, where everything after the first placement starts (respawn at
+   *  the start, a round start, reset progress, a new game). `stream` streams a point's surroundings in first. */
+  cityStart?: (stream: (x: number, z: number) => Promise<void>) => Promise<Start>;
+  /** Whether the surroundings of a start at (x, z) are streamed in, so start pairs can be found there (absent: yes). */
+  startStreamed?: (x: number, z: number) => boolean;
   /** The live player: mode, driven vehicle, feet and camera yaw. */
   view: () => { mode: 'foot' | 'car'; drivenId: string | null; feet: V3; cameraYaw: number };
   /** Leaves the driven car without placing the character. */
@@ -69,14 +80,14 @@ interface SaveGameOptions {
   /** The view for a placement at a given pose (a room's spawn slot, an arrival): its yaw, or the open street when that
    *  faces a wall (world/startGround.ts openView). */
   face?: (at: V3, yaw: number) => Promise<number>;
-  /** Another spot for the start car when a car already stands on `car` (a room's shared car, another player's start
-   *  car); null keeps it. */
-  freeStart?: (car: Pose) => Promise<Pose | null>;
+  /** Another spot for the start car of `start` when a car already stands on it (a room's shared car, another player's
+   *  start car); null keeps it. */
+  freeStart?: (start: Start) => Promise<Pose | null>;
   /** The own start car was just placed at `at` (multiplayer keeps it local until it moves: SharedVehicles). */
   startCarPlaced?: (at: V3) => void;
-  /** A fresh start's pair for this player (its room slot's own car and the spot beside it, facing open street), or
-   *  null for the start itself (`spawn`, `car`). */
-  startPair?: () => Promise<{ spawn: Pose; car: Pose } | null>;
+  /** This player's pair at `start` (its room slot's own car and the spot beside it, facing open street), or null for
+   *  the start itself (a solo player). */
+  startPair?: (start: Start) => Promise<Start | null>;
   setPaused: (paused: boolean) => void;
   /** Opening story shown after a new solo game is placed. */
   showIntro: () => Promise<void>;
@@ -116,6 +127,9 @@ export class SaveGameController {
   private readonly pauseFlow: SaveMenuFlow;
   /** Collision streams around this point instead of the feet until the placed character reports it. */
   private focus: { x: number; z: number } | null = null;
+  /** Until the session's first placement: the start is the page's (`spawn`, `car`), then the city's (start). */
+  private first = true;
+  private city: Start | null = null;
   private prepared = new Map<SaveGame | Pose | null, { playerY: number; carY: number; boughtY: number | null; lastSpot: VehicleSpot | null }>();
   private lastVehicle: SavedVehicle | null = null;
   private lastUsedId: string | null = null;
@@ -260,7 +274,7 @@ export class SaveGameController {
 
   /** Puts the world in the state of `game` (null: a new game): missions, clock, the own car, then the player. */
   private async place(game: SaveGame | null, override?: Pose, mission?: string | null) {
-    const { physics, missions, spawn } = this.o;
+    const { physics, missions } = this.o;
     const prepared = this.prepared.get(override ?? game);
     this.prepared.clear();
     if (this.o.view().mode === 'car') this.o.leaveCar();
@@ -268,12 +282,14 @@ export class SaveGameController {
     const saved = game?.vehicle ? { ...enToEngine(game.vehicle.E, game.vehicle.N, game.vehicle.H), yaw: game.vehicle.yaw } : null;
     // A bought scooter or truck is its own physics vehicle; the start car stays where a new game puts it.
     const bought = missions.vehicle === 'scooter' || missions.vehicle === 'truck' ? missions.vehicle : null;
-    // A new game or a fresh join starts on this player's start pair; another placement keeps its pose and only moves
-    // the start car off a car standing on it.
+    // A new game or a fresh start is at the start, on this player's start pair; another placement keeps its pose and
+    // only moves the start car off a car standing on it.
     const fresh = !game?.player && (!override || override.fresh === true);
-    const pair = fresh && this.o.startPair ? await this.o.startPair() : null;
-    const moved = pair?.car ?? (saved && !bought ? null : await this.o.freeStart?.(this.o.car) ?? null);
-    const car = saved && !bought ? saved : moved ?? this.o.car;
+    const start = fresh || !saved || bought ? await this.start() : null;
+    if (fresh) await this.streamStart(start!.spawn.x, start!.spawn.z);
+    const pair = fresh && this.o.startPair ? await this.o.startPair(start!) : null;
+    const moved = pair?.car ?? (start ? await this.o.freeStart?.(start) ?? null : null);
+    const car = start ? moved ?? start.car : saved!;
     const carY = saved && !bought ? prepared?.carY ?? await this.snap(car) : moved || prepared ? car.y : (await this.settle(car.x, car.z), car.y);
     physics.resetVehicle({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z }, car.yaw, OWN_VEHICLE_ID);
     this.o.startCarPlaced?.({ x: car.x, y: carY + SPAWN_HEIGHT.car, z: car.z });
@@ -287,7 +303,8 @@ export class SaveGameController {
       const y = prepared?.boughtY ?? await this.snap(at);
       physics.spawnVehicle({ x: at.x, y: y + SPAWN_HEIGHT[bought], z: at.z }, at.yaw, { id: ownedVehicleId(bought)!, kind: bought });
     }
-    const at = pair?.spawn ?? override ?? (game?.player ? { ...enToEngine(game.player.E, game.player.N, game.player.H), yaw: game.player.yaw } : spawn);
+    const at = pair?.spawn ?? (fresh ? start!.spawn : override
+      ?? { ...enToEngine(game!.player!.E, game!.player!.N, game!.player!.H), yaw: game!.player!.yaw });
     const y = pair ? at.y : prepared?.playerY ?? (override || game?.player ? await this.snap(at) : (await this.settle(at.x, at.z), at.y));
     const yaw = !pair && override && this.o.face ? await this.o.face({ x: at.x, y, z: at.z }, at.yaw) : at.yaw;
     await this.putCharacter({ x: at.x, y, z: at.z }, yaw);
@@ -314,6 +331,25 @@ export class SaveGameController {
       }
     }
     missions.begin();
+    this.first = false;
+  }
+
+  /** Where a start is now: the page's own start for the session's first placement (a `?spawn=` page: that pose, once),
+   *  then always the city's. */
+  private async start(): Promise<Start> {
+    if (this.first || !this.o.cityStart) return { spawn: this.o.spawn, car: this.o.car };
+    return this.city ??= await this.o.cityStart((x, z) => this.streamStart(x, z));
+  }
+
+  /** Streams the surroundings of a start in (the world stays paused), so its start pairs can be searched from far away. */
+  private async streamStart(x: number, z: number) {
+    await this.settle(x, z);
+    const t0 = performance.now();
+    while (this.o.startStreamed && !this.o.startStreamed(x, z) && performance.now() - t0 < START_STREAM_MS) {
+      await new Promise(r => setTimeout(r, 50));
+      this.o.streamer.update(x, z);
+    }
+    this.o.physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
   }
 
   private vehicleSpot(saved: SavedVehicle, player: V3) {
@@ -364,14 +400,18 @@ export class SaveGameController {
   }
 
   /**
-   * Respawn at the start (the pause menu, every build): the player goes back to where a new game starts, with the
-   * ground snap and safe-reset restart of a loaded game; money, missions and a running order are untouched. Vehicles
-   * stay where they are, except the driven one: the own car returns to its start parking, any other to the kerb
-   * behind it.
+   * Respawn at the start (the pause menu, every build): the player goes back to where a new game starts (the city's
+   * start, never a `?spawn=` pose; in a room its own start pair), with the ground snap and safe-reset restart of a
+   * loaded game; money, missions and a running order are untouched. Vehicles stay where they are, except the driven
+   * one: the own car returns to its start parking, any other to the kerb behind it.
    */
   respawn(): Promise<void> {
     return this.relocating(async () => {
-      const { physics, spawn, car } = this.o;
+      const { physics } = this.o;
+      this.first = false;
+      const start = await this.start();
+      await this.streamStart(start.spawn.x, start.spawn.z);
+      const { spawn, car } = await this.o.startPair?.(start) ?? start;
       const view = this.o.view();
       if (view.mode === 'car') {
         this.o.leaveCar();
