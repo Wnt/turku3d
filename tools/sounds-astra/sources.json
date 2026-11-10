@@ -1,0 +1,67 @@
+[
+  {
+    "id": "538016",
+    "author": "Canardo55",
+    "url": "https://freesound.org/people/Canardo55/sounds/538016/",
+    "download": "https://cdn.freesound.org/previews/538/538016_11982267-hq.mp3",
+    "license": [
+      "http://creativecommons.org/publicdomain/zero/1.0/"
+    ],
+    "sha256": "62c3cb38dfc552dbeb7036536646bbd59bda92b3fbcd2ea00e1836f10bb0aaf9",
+    "bytes": 354240,
+    "retrieved_utc": "2026-11-10",
+    "local_file": "538016.mp3"
+  },
+  {
+    "id": "353416",
+    "author": "squashy555",
+    "url": "https://freesound.org/people/squashy555/sounds/353416/",
+    "download": "https://cdn.freesound.org/previews/353/353416_1149179-hq.mp3",
+    "license": [
+      "http://creativecommons.org/publicdomain/zero/1.0/"
+    ],
+    "sha256": "d3fcae085e6fd7af67f22edfac00370e432161f506b3f83f090c099ccb2f25b9",
+    "bytes": 753257,
+    "retrieved_utc": "2026-11-10",
+    "local_file": "353416.mp3"
+  },
+  {
+    "id": "73616",
+    "author": "jus",
+    "url": "https://freesound.org/people/jus/sounds/73616/",
+    "download": "https://cdn.freesound.org/previews/73/73616_157342-hq.mp3",
+    "license": [
+      "https://creativecommons.org/licenses/by/4.0/"
+    ],
+    "sha256": "e9264e7a74c9475c66ce2504ae19f1fd3f5691de9029448b9d4e2b35d21bdc95",
+    "bytes": 843952,
+    "retrieved_utc": "2026-11-10",
+    "local_file": "73616.mp3"
+  },
+  {
+    "id": "2368",
+    "author": "Dorian CLAIR",
+    "title": "Screeching Tires #1",
+    "url": "https://bigsoundbank.com/crissement-de-pneus-1-s2368.html",
+    "download": "https://bigsoundbank.com/UPLOAD/mp3/2368.mp3",
+    "license": "CC0-1.0",
+    "license_url": "https://bigsoundbank.com/licenses.html",
+    "sha256": "27acdf2db9b9d28dd2ed21adba1f98bc62cb64eb3a23299154efdcf0d430e25f",
+    "bytes": 70880,
+    "retrieved_utc": "2026-11-10",
+    "local_file": "2368.mp3"
+  },
+  {
+    "id": "2370",
+    "author": "Dorian CLAIR",
+    "title": "Screeching Tires #3",
+    "url": "https://bigsoundbank.com/crissement-de-pneus-3-s2370.html",
+    "download": "https://bigsoundbank.com/UPLOAD/mp3/2370.mp3",
+    "license": "CC0-1.0",
+    "license_url": "https://bigsoundbank.com/licenses.html",
+    "sha256": "e6c74b6e16e90f3270ccfaa7d5031fe5aa37248e87e9d3ebacae4376da99be8e",
+    "bytes": 67808,
+    "retrieved_utc": "2026-11-10",
+    "local_file": "2370.mp3"
+  }
+]
