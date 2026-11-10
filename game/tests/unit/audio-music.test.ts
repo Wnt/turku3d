@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { ENTRY_QUIET, GameAudio } from '../../src/audio';
 
 class Param { value = 0; setTargetAtTime(v: number) { this.value = v; } setValueAtTime(v: number) { this.value = v; } linearRampToValueAtTime(v: number) { this.value = v; } cancelScheduledValues() {} }
@@ -8,6 +8,8 @@ class FakeNode {
   type = ''; buffer: unknown; loop = false; onended?: () => void;
   connect(n: unknown) { return n; } disconnect() {} start() {} stop() {}
 }
+// The session's random start on the playlists is pinned to their first tracks.
+vi.spyOn(Math, 'random').mockReturnValue(0);
 const requested: string[] = [];
 class FakeAudio {
   preload = ''; loop = false; currentTime = 0; playbackRate = 1; preservesPitch = false; paused = true; ended = false;

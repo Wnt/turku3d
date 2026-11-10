@@ -32,6 +32,8 @@ export interface MusicOptions {
   base?: string;
   /** Makes a media element; the default is `new Audio()` where it exists (without it the music stays silent). */
   element?: () => MusicElement;
+  /** Picks where the menu and free-play playlists start (0..1); the default is `Math.random`. */
+  random?: () => number;
 }
 
 /** A change of track waits until the request has stood this long: a quick pause and resume, or a click straight
@@ -79,6 +81,9 @@ export class MusicSystem {
     this.base = options.base ?? 'assets/audio/music/';
     this.makeElement = options.element ?? (typeof Audio === 'undefined' || typeof context.createMediaElementSource !== 'function' ? null
       : () => new Audio() as unknown as MusicElement);
+    // Each session opens with a different menu theme and a different place on the free-play radio.
+    const random = options.random ?? Math.random;
+    for (const state of ['menu', 'explore'] as const) this.index[state] = Math.min(PLAYLISTS[state].length - 1, Math.floor(clamp(random()) * PLAYLISTS[state].length));
     this.master = context.createGain(); this.filter = context.createBiquadFilter();
     this.filter.type = 'lowpass';
     this.master.connect(this.filter); this.filter.connect(destination);
@@ -200,7 +205,7 @@ export class MusicSystem {
   private enter(track: Track, now: number) {
     const voice = this.voice(track), element = voice.element, fade = this.leaving.size || this.current ? this.parameters.crossfadeSeconds : 0.4;
     this.leaving.delete(voice);
-    element.loop = PLAYLISTS.menu.includes(track.id);
+    element.loop = PLAYLISTS.menu.length === 1 && PLAYLISTS.menu[0] === track.id;
     if (element.ended || element.currentTime > track.seconds - 3) element.currentTime = 0;
     element.playbackRate = this.rate;
     voice.gain.gain.cancelScheduledValues?.(now); voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);

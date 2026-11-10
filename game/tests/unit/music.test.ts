@@ -1,4 +1,5 @@
 import { expect, test } from 'vitest';
+import audioManifest from '../../public/assets/audio/manifest.json';
 import { LOBBY_SETTLE, MusicSystem, PLAYLISTS, SETTLE, TRACKS, hurry, type MusicElement } from '../../src/audio/music';
 
 class Param {
@@ -25,7 +26,7 @@ class FakeContext { state = 'running'; currentTime = 0; destination = new Node()
 
 function setup() {
   const ctx = new FakeContext(), elements: FakeElement[] = [];
-  const music = new MusicSystem(ctx as unknown as AudioContext, undefined, { base: 'm/', element: () => { const e = new FakeElement(); elements.push(e); return e; } });
+  const music = new MusicSystem(ctx as unknown as AudioContext, undefined, { base: 'm/', random: () => 0, element: () => { const e = new FakeElement(); elements.push(e); return e; } });
   const advance = (seconds: number) => { const end = ctx.currentTime + seconds; while (ctx.currentTime < end - 1e-9) { ctx.currentTime = Math.min(end, ctx.currentTime + 0.1); music.tick(); } };
   const playing = () => elements.filter(e => !e.paused).map(e => e.src.replace(/^m\/|\.ogg$/g, ''));
   return { ctx, music, elements, advance, playing, master: ctx.nodes[0], filter: ctx.nodes[1] };
@@ -33,10 +34,25 @@ function setup() {
 /** Started (the unlock gesture) and stopped again, so the test drives the ticks itself. */
 function started() { const s = setup(); s.music.start(); s.music.stop(); return s; }
 
-test('six tracks: a menu theme, four for free play and the delivery run starts with the chase track', () => {
-  expect(TRACKS.map(t => t.id).sort()).toEqual(['dnb', 'dubtechno', 'funk', 'lofi', 'menu', 'synthwave']);
-  expect(PLAYLISTS).toEqual({ menu: ['menu'], explore: ['synthwave', 'lofi', 'funk', 'dubtechno'], mission: ['dnb', 'funk'] });
-  for (const list of Object.values(PLAYLISTS)) for (const id of list) expect(TRACKS.some(t => t.id === id)).toBe(true);
+test('twenty tracks: two menu themes, seventeen for free play and the delivery run starts with the chase track', () => {
+  expect(TRACKS).toHaveLength(20); expect(new Set(TRACKS.map(t => t.id)).size).toBe(20);
+  expect(PLAYLISTS.menu).toEqual(['menu', 'menu2']); expect(PLAYLISTS.mission).toEqual(['dnb', 'darksynth', 'funk']);
+  expect(PLAYLISTS.explore.slice(0, 4)).toEqual(['synthwave', 'lofi', 'funk', 'dubtechno']); expect(PLAYLISTS.explore).toHaveLength(17);
+  for (const list of Object.values(PLAYLISTS)) { expect(new Set(list).size).toBe(list.length); for (const id of list) expect(TRACKS.some(t => t.id === id)).toBe(true); }
+  // Every track is in a playlist and has its file in the audio manifest with the same length.
+  for (const track of TRACKS) {
+    expect(Object.values(PLAYLISTS).some(list => list.includes(track.id))).toBe(true);
+    expect(audioManifest[`music/${track.id}.ogg` as keyof typeof audioManifest].seconds).toBeCloseTo(track.seconds, 0);
+  }
+});
+
+test('a session starts at a random menu theme and a random place on the free-play radio', () => {
+  const ctx = new FakeContext(), elements: FakeElement[] = [];
+  const music = new MusicSystem(ctx as unknown as AudioContext, undefined, { random: () => 0.999, element: () => { const e = new FakeElement(); elements.push(e); return e; } });
+  music.start(); music.stop(); music.setState('explore');
+  expect(music.snapshot().wanted).toBe(PLAYLISTS.explore.at(-1));
+  music.nextTrack(); expect(music.snapshot().wanted).toBe('synthwave');
+  music.setState('menu'); expect(music.snapshot().wanted).toBe('menu2');
 });
 
 test('nothing streams before the gesture; a track starts once its request has stood for the settle time', () => {
@@ -63,22 +79,26 @@ test('pause and resume: the menu theme crossfades in after the settle time and f
   expect(playing()).toEqual(['synthwave']); expect(elements).toHaveLength(1);
   music.setState('menu'); advance(SETTLE + 0.2);
   expect(playing().sort()).toEqual(['menu', 'synthwave']); // crossfading
-  const menu = elements[1]; expect(menu.loop).toBe(true);
+  const menu = elements[1]; expect(menu.loop).toBe(false);
   expect(ctx.nodes.at(-2)!.gain.events.at(-1)).toMatchObject({ type: 'ramp', value: 1 }); // the theme's fade gain (the last node is its source)
   advance(2.2); expect(playing()).toEqual(['menu']); expect(music.snapshot().track?.id).toBe('menu');
   music.setState('explore'); advance(SETTLE + 2.4);
   expect(playing()).toEqual(['synthwave']); expect(elements[0].currentTime).toBe(37); expect(elements).toHaveLength(2);
 });
 
-test('free play moves on when a track ends, on N and after a delivery; the menu theme loops', () => {
+test('free play moves on when a track ends, on N and after a delivery; the menu themes alternate', () => {
   const { music, elements, advance, playing } = started();
   music.setState('explore'); advance(1);
   elements[0].fire('ended'); expect(playing()).toEqual(['lofi']); // at once, no gap
   music.nextTrack(); advance(0.1); expect(music.snapshot().wanted).toBe('funk'); advance(2.2); expect(playing()).toEqual(['funk']);
-  music.nextTrack(); music.nextTrack(); advance(2.3); expect(playing()).toEqual(['synthwave']); // around the playlist
+  for (let i = 2; i < PLAYLISTS.explore.length; i++) music.nextTrack();
+  advance(2.3); expect(playing()).toEqual(['synthwave']); // around the playlist
   expect(elements[0].currentTime).toBe(0); // it had ended: from the top again
   music.selectTrack(3); advance(2.3); expect(playing()).toEqual(['dubtechno']);
-  music.selectTrack(9); advance(1); expect(playing()).toEqual(['dubtechno']);
+  music.selectTrack(99); advance(1); expect(playing()).toEqual(['dubtechno']);
+  // In the menu the two themes take turns.
+  music.setState('menu'); advance(SETTLE + 2.4); expect(playing()).toEqual(['menu']);
+  elements.find(e => e.src.includes('menu.ogg'))!.fire('ended'); expect(playing()).toEqual(['menu2']);
 });
 
 test('a delivery run: the chase track from the top with a bell, the deadline lifts tempo, brightness and level, then the cadence', () => {
@@ -101,8 +121,8 @@ test('a delivery run: the chase track from the top with a bell, the deadline lif
   expect(master.gain.value).toBeCloseTo(0.42 * 1.25, 5);
   expect(ctx.oscillators.length - stingers).toBeGreaterThanOrEqual(4); // a two-note stinger every two seconds
   expect(ctx.oscillators.length - stingers).toBeLessThanOrEqual(6);
-  // The track ends mid-run: the funk takes over at the same lifted tempo.
-  dnb.fire('ended'); expect(playing()).toEqual(['funk']); expect(elements.find(e => e.src.includes('funk'))!.playbackRate).toBeCloseTo(1.06, 5);
+  // The track ends mid-run: the dark synthwave takes over at the same lifted tempo.
+  dnb.fire('ended'); expect(playing()).toEqual(['darksynth']); expect(elements.find(e => e.src.includes('darksynth'))!.playbackRate).toBeCloseTo(1.06, 5);
   // Delivered: the resolved cadence (three notes) and free play moves on to its next track at normal speed.
   const cadence = ctx.oscillators.length;
   music.deliver(); advance(0.2);
