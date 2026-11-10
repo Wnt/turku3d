@@ -1,10 +1,21 @@
 import { expect, test, vi } from 'vitest';
 import * as THREE from 'three/webgpu';
+import { FileLoader } from 'three';
 import { AssetCache, sharedAssetKey, shareModelTextures, releaseModelTextures, releaseTextureData, releaseModelTextureData, keepTextureData,
   ktxTemplates, textureRelease } from '../../src/world/sharedAssets';
 import { modelGpuBytes } from '../../src/world/gpuBytes';
 import { LoadingKtx, guardReleasedTextures, sharedKtx } from '../../src/world/loadingKtx';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+
+function mockKtx(template: THREE.CompressedTexture) {
+  const parse = vi.spyOn(KTX2Loader.prototype, 'parse').mockImplementation((_buffer, done) => { queueMicrotask(() => done?.(template)); });
+  const load = vi.spyOn(FileLoader.prototype, 'load').mockImplementation((_url, done) => {
+    queueMicrotask(() => done?.(new ArrayBuffer(8))); return undefined;
+  });
+  const restore = load.mockRestore.bind(load);
+  load.mockRestore = () => { parse.mockRestore(); restore(); };
+  return load;
+}
 
 const url = `https://turku.lab.madekivi.fi/coarse/shared/${'a'.repeat(64)}.ktx2`;
 test('content keys, in-flight dedupe, retry and byte LRU', async () => {
@@ -24,7 +35,7 @@ test('content keys, in-flight dedupe, retry and byte LRU', async () => {
 
 test('shared KTX is fetched/transcoded once; glTF sampler mutations remain private', async () => {
   const template = new THREE.CompressedTexture([{ data: new Uint8Array(8), width: 4, height: 4 }], 4, 4);
-  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  const load = mockKtx(template);
   try {
     const loader = new LoadingKtx();
     const textures = await Promise.all(Array.from({ length: 22 }, (_, i) => loader.loadAsync(
@@ -67,7 +78,7 @@ test('identical GPU textures survive either tile unloading; sampler/UV variants 
 test('a resident decoded source survives eviction from the bounded template cache', async () => {
   const url = `https://turku.lab.madekivi.fi/coarse/shared/${'e'.repeat(64)}.ktx2`;
   const template = new THREE.CompressedTexture([{ data: new Uint8Array(65 * 1024 ** 2), width: 4, height: 4 }], 4, 4);
-  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, done) => { queueMicrotask(() => done?.(template)); });
+  const load = mockKtx(template);
   try {
     const loader = new LoadingKtx(), first = await loader.loadAsync(url), scene = model(first);
     shareModelTextures(scene);
@@ -88,7 +99,7 @@ test('glTF dot segments preserve immutable identities across tile and generation
   expect(sharedAssetKey(`blob:https://example.com/coarse/shared/${key}`)).toBeUndefined();
   expect(sharedAssetKey('/coarse/t0_1_0/../shared/mutable.ktx2')).toBeUndefined();
   const template = new THREE.CompressedTexture([{ data: new Uint8Array(8), width: 4, height: 4 }], 4, 4);
-  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, done) => { queueMicrotask(() => done?.(template)); });
+  const load = mockKtx(template);
   try {
     const loader = new LoadingKtx();
     const [first, second] = await Promise.all(paths.map(path => loader.loadAsync(path)));
@@ -104,7 +115,7 @@ test('glTF dot segments preserve immutable identities across tile and generation
 test('a resident compressed texture drops its CPU mips once uploaded; its template, other variants and kept maps keep theirs', async () => {
   const asset = url.replace('a'.repeat(64), 'b'.repeat(64));
   const template = new THREE.CompressedTexture([{ data: new Uint8Array(64), width: 8, height: 8 }, { data: new Uint8Array(16), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 8, 8);
-  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  const load = mockKtx(template);
   try {
     const loader = new LoadingKtx();
     const [first, second] = await Promise.all([loader.loadAsync(asset), loader.loadAsync(asset)]);
@@ -138,7 +149,7 @@ test('a resident compressed texture drops its CPU mips once uploaded; its templa
 test('released mips never reach an upload: the texture (or a clone) decodes again, keeps that data and uploads then', async () => {
   const asset = url.replace('a'.repeat(64), 'c'.repeat(64));
   const template = new THREE.CompressedTexture([{ data: new Uint8Array(64), width: 8, height: 8 }, { data: new Uint8Array(16), width: 4, height: 4 }] as unknown as THREE.CompressedTextureMipmap[], 8, 8);
-  const load = vi.spyOn(KTX2Loader.prototype, 'load').mockImplementation((_url, onLoad) => { queueMicrotask(() => onLoad?.(template)); });
+  const load = mockKtx(template);
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
     // The backend's upload of a compressed texture: what WebGPU's WriteTexture would get, per mip.
@@ -162,4 +173,46 @@ test('released mips never reach an upload: the texture (or a clone) decodes agai
     expect(releaseTextureData(resident, () => true)).toBe(0); // keeps its data from now on
     releaseModelTextures(scene, new Set([resident]));
   } finally { load.mockRestore(); warn.mockRestore(); }
+});
+
+test('encoded KTX bytes survive decoded eviction and worker transfer, shared across generation paths', async () => {
+  const asset = url.replace('a'.repeat(64), 'f'.repeat(64));
+  const source = new Uint8Array([1, 2, 3, 4]).buffer;
+  const fetch = vi.spyOn(FileLoader.prototype, 'load').mockImplementation((_url, done) => {
+    queueMicrotask(() => done?.(source)); return undefined;
+  });
+  const inputs: ArrayBuffer[] = [];
+  const parse = vi.spyOn(KTX2Loader.prototype, 'parse').mockImplementation((buffer, done) => {
+    inputs.push(buffer);
+    expect([...new Uint8Array(buffer)]).toEqual([1, 2, 3, 4]);
+    structuredClone(buffer, { transfer: [buffer] }); // the real KTX transcoder transfers its input too
+    // Larger than the decoded LRU cap, so a new variant must transcode again.
+    done?.(new THREE.CompressedTexture([{ data: new Uint8Array(17 * 1024 ** 2), width: 4, height: 4 }], 4, 4));
+  });
+  try {
+    const loader = new LoadingKtx();
+    const first = await loader.loadAsync(asset);
+    const second = await loader.loadAsync(asset.replace('/coarse/', '/coarse/_v/next/'));
+    expect(fetch).toHaveBeenCalledOnce(); expect(parse).toHaveBeenCalledTimes(2);
+    expect(inputs.every(buffer => buffer.byteLength === 0)).toBe(true);
+    expect(source.byteLength).toBe(4); // the reusable cache entry was never transferred
+    expect(first.source).not.toBe(second.source);
+    first.dispose(); second.dispose();
+  } finally { fetch.mockRestore(); parse.mockRestore(); }
+});
+
+test('an encoded fetch failure is retryable and a synchronous parser failure rejects instead of hanging', async () => {
+  const asset = url.replace('a'.repeat(64), '1'.repeat(64)); let attempts = 0;
+  const fetch = vi.spyOn(FileLoader.prototype, 'load').mockImplementation((_url, done, _progress, fail) => {
+    queueMicrotask(() => ++attempts === 1 ? fail?.(Error('offline')) : done?.(new ArrayBuffer(4))); return undefined;
+  });
+  const parse = vi.spyOn(KTX2Loader.prototype, 'parse').mockImplementation(() => { throw Error('parse'); });
+  try {
+    const loader = new LoadingKtx();
+    await expect(loader.loadAsync(asset)).rejects.toThrow('offline');
+    await expect(loader.loadAsync(asset)).rejects.toThrow('parse');
+    parse.mockImplementation((_buffer, done) => done?.(new THREE.CompressedTexture([{ data: new Uint8Array(4), width: 4, height: 4 }], 4, 4)));
+    await expect(loader.loadAsync(asset)).resolves.toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(2); // successful source fetch remains reusable after a parse failure
+  } finally { fetch.mockRestore(); parse.mockRestore(); }
 });

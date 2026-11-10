@@ -1,4 +1,4 @@
-import type { CompressedTexture, Texture } from 'three';
+import { FileLoader, type CompressedTexture, type Texture } from 'three';
 import { AssetCache, sharedAssetKey, textureBytes, residentTexture, ktxTemplates, releasedMips } from './sharedAssets';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { loading, loadBytes } from '../core/loading';
@@ -8,6 +8,9 @@ const templates = ktxTemplates as WeakMap<object, CompressedTexture>;
 // Decoded KTX2 textures shared between tiles; 16 MiB (census: 62 MiB at a 64 MiB cap, mostly not shared again).
 export const decodedTextures = new AssetCache<CompressedTexture>(16 * 1024 ** 2, textureBytes);
 const decoded = decodedTextures;
+// Keep immutable source bytes independently of decoded mips: eviction/upload can drop the latter before another
+// tile needs a sampler variant. A cold start otherwise refetched ~15 MB of the same KTX2 content (loadsize).
+export const encodedTextures = new AssetCache<ArrayBuffer>(48 * 1024 ** 2, buffer => buffer.byteLength);
 
 /** Also counts embedded glTF textures, which have no separate Resource Timing entry. */
 export class LoadingKtx extends KTX2Loader {
@@ -22,7 +25,14 @@ export class LoadingKtx extends KTX2Loader {
       const resident = residentTexture(content);
       const template = resident && templates.get(resident.source);
       if (template) resolve(template);
-      else super.load(url, texture => { templates.set(texture.source, texture); resolve(texture); }, onProgress, reject);
+      else void encodedTextures.get(key, () => new Promise<ArrayBuffer>((loaded, failed) => {
+        const file = new FileLoader(this.manager).setPath(this.path).setCrossOrigin(this.crossOrigin)
+          .setWithCredentials(this.withCredentials).setRequestHeader(this.requestHeader).setResponseType('arraybuffer');
+        file.load(url, buffer => loaded(buffer as ArrayBuffer), onProgress, failed);
+      })).then(buffer => {
+        // The transcoder transfers its input to a worker. Keep the cache's original buffer attached.
+        this.parse(buffer.slice(0), texture => { templates.set(texture.source, texture); resolve(texture); }, reject);
+      }).catch(reject);
     })).then(template => {
       // glTF mutates sampler/UV/colour state; share decoded data, then canonicalize the final variant.
       const texture = template.clone();

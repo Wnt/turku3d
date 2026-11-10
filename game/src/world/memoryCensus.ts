@@ -4,7 +4,7 @@
 // and texture counts once, in the first category that reaches it.
 import type * as THREE from 'three/webgpu';
 import { visualBuffers } from './loadGlb';
-import { decodedTextures, textureRestores } from './loadingKtx';
+import { decodedTextures, encodedTextures, textureRestores } from './loadingKtx';
 import { sharedBuffers, textureBytes, textureRelease } from './sharedAssets';
 import { staticBatchSources } from './staticBatch';
 import { vegetationOwner } from './vegetationLod';
@@ -104,6 +104,7 @@ export async function memoryCensus({ scene, coarse, collision, ground, renderer 
   }
   add('cache: visual GLB bytes', visualBuffers.residentBytes, visualBuffers.count);
   add('cache: shared GLB buffers', sharedBuffers.residentBytes, sharedBuffers.count);
+  add('cache: encoded KTX2 bytes', encodedTextures.residentBytes, encodedTextures.count);
   add('cache: decoded KTX2 textures', decodedTextures.residentBytes, decodedTextures.count);
   if (parts) {
     add('cache: final tile fragments', parts.fragmentCache.bytes, parts.fragmentCache.count);
