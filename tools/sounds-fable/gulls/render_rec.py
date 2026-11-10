@@ -109,6 +109,18 @@ def main() -> None:
         entries.append({"id": name, "sources": [entry_of(prefix)["id"]], "note": note, "loop": True})
         print(name, f"{seconds:.0f} s loop")
 
+    # Whole soundscapes as recorded: a fishing port with gulls, and gulls over a town at dawn.
+    for name, sid, start, seconds, note in (("gull-rec-port-loop", "bsb-2573-gulls-on-the-harbor", 42.0, 60.0, "fishing port soundscape with gulls"),
+                                            ("gull-rec-town-dawn-loop", "wc-pdsounds-gulls-street-dawn", 1.0, 50.0, "gulls above the streets of a seaside town at dawn")):
+        if sid not in manifest:
+            continue
+        raw = sfx.load(manifest[sid]["path"], mono=False)
+        raw = signal.sosfiltfilt(signal.butter(2, 80, "highpass", fs=SR, output="sos"), raw, axis=0)
+        loop = sfx.make_loop(raw, seconds, 4.0, offset=start)
+        sfx.save(out / f"{name}.wav", sfx.normalise(loop, -2))
+        entries.append({"id": name, "sources": [sid], "note": note, "loop": True})
+        print(name, f"{seconds:.0f} s loop")
+
     # Harbour scene from recordings on a circular timeline: real water, a far roost, and single birds placed around.
     seconds = 60.0
     n = int(seconds * SR)

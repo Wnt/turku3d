@@ -22,7 +22,7 @@ def load_json(path: Path, default):
 
 
 SOURCES = {e["id"]: e for e in load_json(ROOT / "sources/manifest.json", [])}
-LICENCE_FI = {"CC0-1.0": "CC0", "CC-BY-4.0": "CC BY 4.0"}
+LICENCE_FI = {"CC0-1.0": "CC0", "CC-BY-4.0": "CC BY 4.0", "CC-BY-3.0": "CC BY 3.0", "Public domain (PD-author)": "public domain"}
 
 
 def credit(source_ids: list[str], use: str = "ääni") -> str:
@@ -33,7 +33,8 @@ def credit(source_ids: list[str], use: str = "ääni") -> str:
         if not entry:
             continue
         USED_SOURCES.setdefault(sid, set()).add(use)
-        label = "xeno-canto XC" + sid.split("-")[0][2:] if sid.startswith("xc") else "BigSoundBank " + sid.split("-")[1] if sid.startswith("bsb") else sid
+        label = ("xeno-canto XC" + sid.split("-")[0][2:] if sid.startswith("xc") else "BigSoundBank " + sid.split("-")[1] if sid.startswith("bsb")
+                 else "SoundBible " + sid.split("-")[1] if sid.startswith("sb-") else "OpenGameArt" if sid.startswith("oga-") else "Wikimedia Commons")
         author = entry["author"].replace("_", " ").split(" (")[0]
         parts.append(f'<a href="{html.escape(entry["source_page"])}">{label}</a> ({html.escape(author)}, {LICENCE_FI.get(entry["licence"], entry["licence"])})')
     return "Lähde: " + ", ".join(parts) + "."
@@ -96,6 +97,9 @@ def gull_items() -> list[dict]:
                       "desc": "Vesi (kohina, liplatus, kuplat), tuuli, kaukainen yhdyskunta (46 huutoa 140–420 m päässä) ja muutama lähilintu, jotka vastaavat toisilleen. "
                               "Ympyräaikajana, saumaton. " + OWN})
     for name, title, what, rating in (
+        ("gull-rec-port-loop", "Äänite: kalasatama ja lokit, luuppi (60 s)", "Kokonainen äänimaisema sellaisenaan: lähellä huutava lokki, kauempana muita, sataman taustaa. Ylipäästö 80 Hz, 4 s:n ristihäivytys. "
+                               "Valmis tausta, mutta yksittäisiä lintuja ei voi sijoittaa pelimaailmaan.", 4),
+        ("gull-rec-town-dawn-loop", "Äänite: lokit kaupungin kattojen yllä aamunkoitteessa, luuppi (50 s)", "Tiheä lokkikuoro katujen yllä: torin ja jokirannan aamu. Alkuperäinen on 128 kbit/s MP3. 4 s:n ristihäivytys.", 3),
         ("gull-rec-herring-roost-loop", "Äänite: yli 2400 harmaalokin yöpymisparvi, luuppi (44 s)", "Tiheä kaukainen kuoro: sopii sataman tai kaatopaikan taustaksi. Vain ylipäästö, 3 s:n ristihäivytys. MP3-lähde.", 3),
         ("gull-rec-blackheaded-colony-loop", "Äänite: naurulokkiyhdyskunta pesimäpaikalla, luuppi (36 s)", "Jatkuva lähikuoro; Aurajoen ja torin kesä-ääni. Vain ylipäästö, 3 s:n ristihäivytys.", 4),
     ):
@@ -177,7 +181,7 @@ def tyre_items() -> list[dict]:
     if items:
         groups.append({"title": "Äänitteet ja niistä tehdyt luupit", "items": items, "note": rec_meta and next(iter(rec_meta.values())).get("group_note_fi")})
 
-    method = "Menetelmä: stick-slip-malli (9 kulutuspinnan palaa, jousi + Coulomb/Stribeck-kitka, 4× ylinäytteistys), hankauskohina ja vierintäkohina. "
+    method = "Menetelmä: stick-slip-malli (5 kulutuspinnan palaa, jousi + Coulomb/Stribeck-kitka, 4× ylinäytteistys), hankauskohina ja vierintäkohina. "
     synth = [
         ("chirp-short", "Synteesi: lyhyt sirkaisu", "Rengas irtoaa 0,18 s ajaksi (vaihto, reunakivi, nopea ohjausliike). Sävelkorkeus nousee ja laskee luiston mukana.", None, 3),
         ("chirp-double", "Synteesi: kaksoissirkaisu", "Kaksi peräkkäistä irtoamista, toinen kevyempi.", None, 3),

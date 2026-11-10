@@ -1,7 +1,7 @@
 // Stick-slip tyre squeal synthesiser core. Plain JS without imports or exports: the Node renderer evaluates this
 // file, and the soundboard inlines it into an AudioWorklet. Original Turku3D code, CC0-1.0.
 //
-// Model: a handful of tread-block oscillators (mass on a spring, dragged by the road at the sliding speed) with
+// Model: five tread-block oscillators (mass on a spring, dragged by the road at the sliding speed) with
 // Coulomb/Stribeck friction and explicit stick and slip states. While a block sticks it moves with the road; when the
 // spring force exceeds static friction it snaps back (slip) and is caught again. The emitted sound is the block
 // velocity. Pitch, loudness, onset and the chirp at the start of a slide all come out of the model:
@@ -21,10 +21,10 @@ class TyreSquealCore {
     this.target = { slide: 0, load: 1, speed: 0, squeal: 1, rough: 0.35, grit: 0, tone: 1, scrub: 1, roll: 1 };
     this.cur = Object.assign({}, this.target);
     // Tread-block resonances (Hz) of the four tyres; the spread makes a cluster instead of one whistle.
+    // Measured on CC0 recordings (BigSoundBank 2368-2371): three or four tones 60-120 Hz apart between 0.85 and
+    // 1.27 kHz, so the tones beat against each other at tens of hertz.
     const table = [
-      [905, 0.55, -0.6], [1180, 0.30, -0.5], [1490, 0.22, -0.7],
-      [840, 0.50, 0.6], [1105, 0.32, 0.5], [1730, 0.15, 0.7],
-      [760, 0.45, -0.25], [980, 0.34, 0.25], [1320, 0.2, 0],
+      [1085, 0.55, -0.6], [1190, 0.36, -0.3], [1140, 0.50, 0.6], [1010, 0.30, 0.3], [1255, 0.26, 0],
     ];
     this.blocks = table.map(([hz, share, pan], i) => ({
       hz, share, pan, x: 0, v: 0, stuck: true, zeta: 0.02 + 0.006 * (i % 3),
@@ -33,10 +33,11 @@ class TyreSquealCore {
     this.wanderIn = 0;
     // Output filters (state per channel): DC blocker, body peaks, scrub band, roll band.
     this.f = {
-      dc: [this.onePoleHp(180), this.onePoleHp(180)],
-      body1: [this.biquad('peak', 1050, 1.1, 5), this.biquad('peak', 1050, 1.1, 5)],
-      body2: [this.biquad('peak', 2600, 1.4, 4), this.biquad('peak', 2600, 1.4, 4)],
-      lp: [this.biquad('lowpass', 9000, 0.7, 0), this.biquad('lowpass', 9000, 0.7, 0)],
+      dc: [this.biquad('highpass', 640, 0.8, 0), this.biquad('highpass', 640, 0.8, 0)],
+      body1: [this.biquad('peak', 1080, 1.2, 4), this.biquad('peak', 1080, 1.2, 4)],
+      body2: [this.biquad('peak', 2200, 1.3, 9), this.biquad('peak', 2200, 1.3, 9)],
+      lp: [this.biquad('lowpass', 5200, 0.6, 0), this.biquad('lowpass', 5200, 0.6, 0)],
+      scrubLp: [this.biquad('lowpass', 3800, 0.6, 0), this.biquad('lowpass', 3800, 0.6, 0)],
       scrubBp: [this.biquad('bandpass', 1300, 0.8, 0), this.biquad('bandpass', 1300, 0.8, 0)],
       scrubHi: [this.biquad('bandpass', 4200, 0.8, 0), this.biquad('bandpass', 4200, 0.8, 0)],
       rollBp: [this.biquad('bandpass', 950, 0.6, 0), this.biquad('bandpass', 950, 0.6, 0)],
@@ -60,6 +61,7 @@ class TyreSquealCore {
     const w = 2 * Math.PI * hz / this.sr, cos = Math.cos(w), sin = Math.sin(w), alpha = sin / (2 * q);
     let b0, b1, b2, a0, a1, a2;
     if (type === 'lowpass') { b0 = (1 - cos) / 2; b1 = 1 - cos; b2 = b0; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; }
+    else if (type === 'highpass') { b0 = (1 + cos) / 2; b1 = -(1 + cos); b2 = b0; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; }
     else if (type === 'bandpass') { b0 = alpha; b1 = 0; b2 = -alpha; a0 = 1 + alpha; a1 = -2 * cos; a2 = 1 - alpha; }
     else { const A = Math.pow(10, gainDb / 40); b0 = 1 + alpha * A; b1 = -2 * cos; b2 = 1 - alpha * A; a0 = 1 + alpha / A; a1 = -2 * cos; a2 = 1 - alpha / A; }
     return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, z1: 0, z2: 0 };
@@ -84,8 +86,8 @@ class TyreSquealCore {
     }
     const wanderK = 1 - Math.exp(-n / (0.25 * sr));
     const muS = 1.0, dMu = 0.42 * c.squeal, muD = muS - dMu, vStribeck = 5.5; // rubber keeps losing grip as it slides faster (heating): the tone survives a long slide
-    const N0 = 2.6e4; // normal force per unit block mass at static load (m/s²); sets where the pitch saturates
-    const active = V > 0.02 && c.tone > 0.001;
+    const N0 = 5.2e4; // normal force per unit block mass at static load (m/s²); sets where the pitch saturates
+    const active = V > 0.02 && c.tone > 0.001, roughNow = c.rough * (1 + V / 14);
     const roughK = Math.exp(-2 * Math.PI * 420 / sr), roughK2 = Math.exp(-2 * Math.PI * 35 / sr);
     for (const b of this.blocks) {
       b.wander += (b.wanderTarget - b.wander) * wanderK;
@@ -101,7 +103,7 @@ class TyreSquealCore {
           // Road roughness: band-limited noise on the normal force (fast texture + slow patches).
           const white = this.noise();
           b.n1 = roughK * b.n1 + (1 - roughK) * white; b.n2 = roughK2 * b.n2 + (1 - roughK2) * white;
-          const N = N0 * load * b.share * 2.2 * Math.max(0.05, 1 + c.rough * (2.2 * b.n1 + 7 * b.n2));
+          const N = N0 * load * b.share * 2.2 * Math.max(0.05, 1 + roughNow * (1.3 * b.n1 + 7 * b.n2));
           const Vb = V * (1 + 1.5 * c.rough * b.n2);
           let acc = 0;
           for (let s = 0; s < os; s++) {
@@ -118,15 +120,17 @@ class TyreSquealCore {
             }
             acc += b.v - Vb;
           }
-          const out = acc / os;
+          // A vibrating block radiates with its acceleration: differentiating lifts the harmonics (measured 2nd -8 dB, 3rd -19 dB).
+          const velocity = acc / os, out = 0.3 * velocity + 0.7 * (velocity - b.lastOut) * sr / (2 * Math.PI * 1000);
+          b.lastOut = velocity;
           l += out * (1 - b.pan) * 0.5; r += out * (1 + b.pan) * 0.5;
         }
       } else for (const b of this.blocks) { b.x *= 0.999; b.v = 0; b.stuck = true; }
       // Tone: velocity pulses -> DC blocker -> tyre body peaks. Level compressed: loudness grows slower than sliding speed.
-      const toneGain = c.tone * 0.03 / (1 + 0.06 * V);
-      let tl = TyreSquealCore.hp(f.dc[0], l) * toneGain, tr = TyreSquealCore.hp(f.dc[1], r) * toneGain;
-      tl = TyreSquealCore.bq(f.body2[0], TyreSquealCore.bq(f.body1[0], tl));
-      tr = TyreSquealCore.bq(f.body2[1], TyreSquealCore.bq(f.body1[1], tr));
+      const toneGain = c.tone * 0.019 / (1 + 0.06 * V);
+      let tl = TyreSquealCore.bq(f.dc[0], l) * toneGain, tr = TyreSquealCore.bq(f.dc[1], r) * toneGain;
+      tl = TyreSquealCore.bq(f.lp[0], TyreSquealCore.bq(f.body2[0], TyreSquealCore.bq(f.body1[0], tl)));
+      tr = TyreSquealCore.bq(f.lp[1], TyreSquealCore.bq(f.body2[1], TyreSquealCore.bq(f.body1[1], tr)));
       // Scrub: rubber sliding without a tone, growing with sliding speed and load; flutters at a few tens of hertz.
       this.flutterPhase += (38 + 14 * this.flutter) / sr; if (this.flutterPhase > 1) { this.flutterPhase -= 1; this.flutter = this.noise(); }
       const judder = 1 + 0.25 * Math.sin(2 * Math.PI * this.flutterPhase) * Math.min(1, V / 3);
@@ -135,7 +139,7 @@ class TyreSquealCore {
       for (let ch = 0; ch < 2; ch++) {
         const w = this.noise();
         let y = 0;
-        if (scrubGain > 1e-6) y += scrubGain * (TyreSquealCore.bq(f.scrubBp[ch], w) + 0.3 * TyreSquealCore.bq(f.scrubHi[ch], w));
+        if (scrubGain > 1e-6) y += scrubGain * TyreSquealCore.bq(f.scrubLp[ch], TyreSquealCore.bq(f.scrubBp[ch], w) + 0.2 * TyreSquealCore.bq(f.scrubHi[ch], w));
         if (rollGain > 1e-6) y += rollGain * (TyreSquealCore.bq(f.rollBp[ch], w) + 2.5 * TyreSquealCore.bq(f.rollLp[ch], w));
         // Loose gravel: short random ticks instead of a tone.
         if (c.grit > 0.01 && (V > 0.05 || c.speed > 0.5)) {
@@ -148,7 +152,7 @@ class TyreSquealCore {
         }
         if (ch === 0) tl += y; else tr += y;
       }
-      left[i] = TyreSquealCore.bq(f.lp[0], tl); right[i] = TyreSquealCore.bq(f.lp[1], tr);
+      left[i] = tl; right[i] = tr;
     }
   }
 }
