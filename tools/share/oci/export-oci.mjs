@@ -31,6 +31,9 @@ if (!/^\/(cities\/[a-z]{2,24}\/)?coarse\/$/.test(MOUNT)) throw new Error(`bad --
 // A path the service named: absolute /coarse/... means this mount's (cityTileUrl); fragments are never payloads.
 const mounted = p => MOUNT !== '/coarse/' && p.startsWith('/coarse/') ? MOUNT + p.slice('/coarse/'.length) : p;
 const FRAGMENT = /^t0_-?\d+_-?\d+\/(manifest|collision)\.json$/;
+// --accept-draft: also a stale or first-pass tile the service answers with a visual (another city's service may never
+// rebuild it, and a published hole is worse); a later run replaces it once a finished build exists.
+const ACCEPT_DRAFT = process.argv.includes('--accept-draft');
 const OUT = path.resolve(arg('out', 'oci-export'));
 const TILES = fs.readFileSync(arg('tiles'), 'utf8').split(/\s+/).filter(t => /^t0_-?\d+_-?\d+$/.test(t));
 const SQUARES = arg('scenery') ? [...new Set(fs.readFileSync(arg('scenery'), 'utf8').split(/\s+/).filter(t => /^t[024]_-?\d+_-?\d+$/.test(t)))] : [];
@@ -112,7 +115,7 @@ async function exportTile(id) {
   let f;
   try { f = JSON.parse(frags.manifest); } catch { stats.skipped['no fragment'] = (stats.skipped['no fragment'] ?? 0) + 1; return; }
   if (!f.coarse || !f.visual?.[id]) { stats.skipped['not built'] = (stats.skipped['not built'] ?? 0) + 1; return; }
-  if (f.stale || (f.queue_state && f.queue_state !== 'built') || f.pass_kind !== 'full') {
+  if (!(ACCEPT_DRAFT && f.visual?.[id]?.url) && (f.stale || (f.queue_state && f.queue_state !== 'built') || f.pass_kind !== 'full')) {
     const why = f.stale ? 'stale' : f.pass_kind !== 'full' ? `pass ${f.pass_kind}` : `queue ${f.queue_state}`;
     stats.skipped[why] = (stats.skipped[why] ?? 0) + 1; return;
   }
