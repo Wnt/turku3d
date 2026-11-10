@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Turku3D-äänilauta (Fable): lokit, rengasvinkuna, musiikki</title>
+<style>
+  :root { color-scheme: dark; --bg: #14161a; --panel: #1d2026; --line: #30343c; --text: #e6e8ec; --dim: #9aa1ad; --accent: #ffb454; --ok: #7fd18b; --cur: #6fb3ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 16px 18px 120px; }
+  h1 { font-size: 24px; margin: 12px 0 4px; }
+  h2 { font-size: 21px; margin: 44px 0 8px; padding-top: 12px; border-top: 2px solid var(--line); }
+  h3 { font-size: 16px; margin: 22px 0 8px; color: var(--accent); }
+  p { margin: 8px 0; }
+  a { color: var(--cur); }
+  code, .id { font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .dim { color: var(--dim); }
+  .bar { position: sticky; top: 0; z-index: 5; background: #101216ee; backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  .bar > div { max-width: 1080px; margin: 0 auto; padding: 8px 18px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .bar nav { display: flex; gap: 12px; margin-right: auto; }
+  button { font: inherit; color: var(--text); background: #2a2f38; border: 1px solid #454b57; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: #343a45; }
+  button.primary { background: #5a3d12; border-color: var(--accent); }
+  .card { display: grid; grid-template-columns: 54px 1fr auto; gap: 4px 12px; align-items: start; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+  .card.current { border-color: var(--cur); background: #1a2330; }
+  .card.playing { outline: 2px solid var(--accent); }
+  .card .play { width: 50px; height: 50px; border-radius: 50%; font-size: 18px; padding: 0; grid-row: span 2; }
+  .card .title { font-weight: 600; }
+  .card .tag { display: inline-block; font-size: 11.5px; padding: 0 7px; border-radius: 9px; margin-left: 6px; background: #333a46; color: var(--dim); vertical-align: 1px; }
+  .card.current .tag.cur { background: var(--cur); color: #08131f; }
+  .card .desc { color: var(--dim); font-size: 13.5px; }
+  .card .side { text-align: right; white-space: nowrap; font-size: 13.5px; }
+  .card .side label { display: block; cursor: pointer; padding: 2px 0; }
+  .card .side input { transform: scale(1.3); margin-right: 6px; accent-color: var(--accent); }
+  .card .stars { color: var(--accent); letter-spacing: 1px; }
+  .card img { display: block; margin-top: 6px; max-width: 100%; height: auto; border-radius: 4px; opacity: .92; }
+  .card audio { width: 100%; margin-top: 6px; height: 36px; }
+  .progress { height: 3px; background: #2c313a; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .research { background: #191c21; border-left: 3px solid var(--accent); padding: 6px 14px; margin: 10px 0; border-radius: 0 6px 6px 0; }
+  .research ul { margin: 6px 0; padding-left: 20px; }
+  .research li { margin: 3px 0; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 13.5px; }
+  th, td { border: 1px solid var(--line); padding: 3px 9px; text-align: left; vertical-align: top; }
+  th { background: #22262d; }
+  .figs { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+  .figs figure { margin: 0; flex: 1 1 320px; }
+  .figs img { width: 100%; height: auto; border-radius: 4px; }
+  .figs figcaption { font-size: 12.5px; color: var(--dim); }
+  .live { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 10px 0; }
+  .live .row { display: grid; grid-template-columns: 190px 1fr 70px; gap: 10px; align-items: center; margin: 5px 0; }
+  .live input[type=range] { width: 100%; accent-color: var(--accent); }
+  .live .buttons { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .live button.on { background: #5a3d12; border-color: var(--accent); }
+  textarea { width: 100%; background: #101216; color: var(--text); border: 1px solid var(--line); border-radius: 6px; font: 12.5px ui-monospace, Menlo, monospace; padding: 8px; }
+  details summary { cursor: pointer; color: var(--accent); margin: 6px 0; }
+  @media (max-width: 640px) { .card { grid-template-columns: 54px 1fr; } .card .side { grid-column: 2; text-align: left; } .live .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="bar"><div>
+  <nav><a href="#lokit">Lokit</a><a href="#renkaat">Rengasvinkuna</a><a href="#musiikki">Musiikki</a><a href="#yhteenveto">Suositus</a></nav>
+  <span class="dim" id="pickCount">0 valittu</span>
+  <button id="stopAll">Pysäytä</button>
+  <button class="primary" id="copyPicks">Kopioi valinnat</button>
+</div></div>
+<main>
+<h1>Turku3D-äänilauta: lokit, rengasvinkuna ja musiikki</h1>
+<p class="dim">Tekijä: Claude Fable (agentti <code>sounds-fable</code>) · versio <span id="version"></span> · peliin ei ole viety mitään.</p>
+<p>Kysymys oli: <em>mikä tekisi näistä kolmesta kymmenen kertaa parempia?</em> Jokaisessa ryhmässä ensimmäisenä on
+pelin nykyinen ääni (sininen kehys), sen alla ehdokkaat. Paina ▶, vertaa, rastita <b>valitse</b> ja paina lopuksi
+<b>Kopioi valinnat</b>: leikepöydälle tulee lista valituista tunnisteista. Rastit säilyvät selaimen muistissa.</p>
+<p class="dim">Rehellisyyden nimissä: en pysty kuuntelemaan ääniä. Omat tähtiarvioni perustuvat mittauksiin (spektri, verhokäyrät,
+vertailu oikeisiin äänitteisiin) ja siihen, mitä menetelmästä tiedetään. Korva ratkaisee, ja se on sinun.</p>
+
+<!--__SECTIONS__-->
+
+<h2 id="yhteenveto">Suositus ja jatko</h2>
+<!--__SUMMARY__-->
+
+<h3>Valinnat</h3>
+<p class="dim">Sama lista, jonka <b>Kopioi valinnat</b> vie leikepöydälle.</p>
+<textarea id="pickText" rows="6" readonly></textarea>
+</main>
+<script>
+'use strict';
+const DATA = /*__DATA__*/null;
+const TYRE_CORE = /*__TYRE_CORE__*/'';
+const STORE = 'sounds-fable-picks-v1';
+document.getElementById('version').textContent = DATA.version;
+
+// ---------- picks ----------
+const picks = new Set(JSON.parse(localStorage.getItem(STORE) || '[]'));
+const allIds = [];
+function pickList() { return allIds.filter(id => picks.has(id)); }
+function refreshPicks() {
+  localStorage.setItem(STORE, JSON.stringify([...picks]));
+  const list = pickList();
+  document.getElementById('pickCount').textContent = list.length + ' valittu';
+  document.getElementById('pickText').value = list.join('\n');
+}
+document.getElementById('copyPicks').addEventListener('click', async event => {
+  const text = pickList().join('\n');
+  try { await navigator.clipboard.writeText(text); }
+  catch { const area = document.getElementById('pickText'); area.focus(); area.select(); document.execCommand('copy'); }
+  const button = event.currentTarget, old = button.textContent;
+  button.textContent = 'Kopioitu (' + pickList().length + ')'; setTimeout(() => { button.textContent = old; }, 1500);
+});
+
+// ---------- playback ----------
+let context = null;
+function audio() { context ??= new AudioContext({ latencyHint: 'interactive' }); if (context.state !== 'running') void context.resume(); return context; }
+const buffers = new Map();
+async function bufferOf(item) {
+  if (!buffers.has(item.id)) buffers.set(item.id, fetch(item.file).then(r => { if (!r.ok) throw new Error(r.status + ' ' + item.file); return r.arrayBuffer(); }).then(b => audio().decodeAudioData(b)));
+  return buffers.get(item.id);
+}
+let current = null; // { item, card, source?, element?, raf }
+const stoppers = new Set(); // live demos register a stop function
+function stopAll() {
+  if (current) {
+    const c = current; current = null;
+    try { c.source?.stop(); } catch {}
+    c.element?.pause();
+    cancelAnimationFrame(c.raf);
+    c.card.classList.remove('playing');
+    const button = c.card.querySelector('.play'); if (button) button.textContent = '▶';
+    const bar = c.card.querySelector('.progress i'); if (bar) bar.style.width = '0';
+  }
+  for (const stop of stoppers) stop();
+}
+document.getElementById('stopAll').addEventListener('click', stopAll);
+async function toggle(item, card) {
+  if (current && current.item === item) { stopAll(); return; }
+  stopAll();
+  const ctx = audio(), button = card.querySelector('.play');
+  button.textContent = '…';
+  const mine = current = { item, card, raf: 0 };
+  let buffer;
+  try { buffer = await bufferOf(item); } catch (error) { button.textContent = '!'; console.error(error); current = null; return; }
+  if (current !== mine) return;
+  const source = ctx.createBufferSource(), gain = ctx.createGain();
+  source.buffer = buffer; gain.gain.value = item.gain ?? 1;
+  let offset = 0;
+  if (item.loop) { source.loop = true; source.loopStart = item.loop[0]; source.loopEnd = item.loop[1] > 0 ? item.loop[1] : buffer.duration; offset = item.loop[0]; }
+  source.connect(gain).connect(ctx.destination);
+  const started = ctx.currentTime; source.start(started, offset);
+  mine.source = source; card.classList.add('playing'); button.textContent = '■';
+  const length = item.loop ? (source.loopEnd - source.loopStart) : buffer.duration, bar = card.querySelector('.progress i');
+  const tick = () => { if (current !== mine) return; const at = (ctx.currentTime - started) % length; bar.style.width = (100 * at / length).toFixed(1) + '%'; mine.raf = requestAnimationFrame(tick); };
+  tick();
+  source.onended = () => { if (current === mine) stopAll(); };
+}
+
+// ---------- cards ----------
+function stars(n) { return n ? '★'.repeat(n) + '☆'.repeat(5 - n) : ''; }
+function cardFor(item) {
+  const card = document.createElement('div');
+  card.className = 'card' + (item.current ? ' current' : '');
+  card.id = item.id;
+  const music = item.kind === 'music';
+  const seconds = item.seconds ? (item.seconds >= 90 ? Math.floor(item.seconds / 60) + ' min ' + Math.round(item.seconds % 60) + ' s' : item.seconds.toFixed(1).replace('.', ',') + ' s') : '';
+  card.innerHTML = `
+    ${music ? '<div></div>' : '<button class="play" title="Soita / pysäytä">▶</button>'}
+    <div>
+      <span class="title"></span>
+      ${item.current ? '<span class="tag cur">pelin nykyinen</span>' : ''}${item.loop ? '<span class="tag">luuppi</span>' : ''}<span class="tag">${seconds}</span>
+      <div class="id"></div>
+    </div>
+    <div class="side">
+      ${item.current ? '' : '<label><input type="checkbox">valitse</label>'}
+      <div class="stars" title="Fablen oma arvio (mittauksiin perustuva, ei kuunneltu)">${stars(item.rating)}</div>
+    </div>
+    <div style="grid-column: 2 / -1">
+      <div class="desc"></div>
+      ${music ? '' : '<div class="progress"><i></i></div>'}
+      ${item.image ? `<img loading="lazy" alt="spektrogrammi" src="${item.image}" width="${item.imageSize?.[0] ?? ''}" height="${item.imageSize?.[1] ?? ''}">` : ''}
+    </div>`;
+  card.querySelector('.title').textContent = item.title;
+  card.querySelector('.id').textContent = item.id;
+  card.querySelector('.desc').innerHTML = item.desc;
+  if (music) {
+    const element = document.createElement('audio');
+    element.controls = true; element.preload = 'none'; element.src = item.file; element.loop = false;
+    element.addEventListener('play', () => { if (current?.element !== element) { stopAll(); current = { item, card, element, raf: 0 }; card.classList.add('playing'); } });
+    element.addEventListener('pause', () => { if (current?.element === element) { current = null; card.classList.remove('playing'); } });
+    card.lastElementChild.append(element);
+  } else card.querySelector('.play').addEventListener('click', () => toggle(item, card));
+  const box = card.querySelector('input[type=checkbox]');
+  if (box) {
+    allIds.push(item.id);
+    box.checked = picks.has(item.id);
+    box.addEventListener('change', () => { if (box.checked) picks.add(item.id); else picks.delete(item.id); refreshPicks(); });
+  }
+  return card;
+}
+for (const group of DATA.groups) {
+  const host = document.getElementById('cards-' + group.id);
+  if (!host) continue;
+  for (const sub of group.subgroups) {
+    if (sub.title) { const h = document.createElement('h3'); h.textContent = sub.title; host.append(h); }
+    if (sub.note) { const p = document.createElement('p'); p.className = 'dim'; p.innerHTML = sub.note; host.append(p); }
+    for (const item of sub.items) host.append(cardFor(item));
+  }
+}
+refreshPicks();
+
+// ---------- live tyre synthesiser ----------
+(function tyreDemo() {
+  const root = document.getElementById('tyre-live');
+  if (!root) return;
+  const SURFACES = { asphalt: { squeal: 1, rough: 0.35, grit: 0 }, concrete: { squeal: 1.25, rough: 0.08, grit: 0 }, wet: { squeal: 0.12, rough: 0.3, grit: 0 }, gravel: { squeal: 0, rough: 0.9, grit: 1 } };
+  const state = { slide: 0, load: 1, speed: 14, surface: 'asphalt', mode: 'new', on: false };
+  let node = null, out = null, old = null, scenario = 0;
+  const $ = name => root.querySelector('[data-k=' + name + ']');
+  function show() {
+    for (const k of ['slide', 'load', 'speed']) { $(k).value = state[k]; root.querySelector('[data-v=' + k + ']').textContent = state[k].toFixed(1).replace('.', ',') + (k === 'load' ? ' ×' : ' m/s'); }
+  }
+  // The game's current mapping (mix.ts carMix, tyreSlip.ts tyreStrength) for the same sliding speed.
+  function gameMix() {
+    const v = Math.min(30, state.speed), strength = Math.min(1, Math.max(0, (state.slide / (2.2 + v * 0.05) - 1) * 0.8));
+    const surfaceOk = state.surface !== 'gravel';
+    return { screech: surfaceOk ? Math.min(1, Math.max(0, (strength - 0.15) / 0.65)) * Math.min(1, state.speed / 5) * 0.3 : 0, roll: Math.min(1, state.speed / 24) * 0.22 };
+  }
+  function push() {
+    show();
+    if (!state.on) return;
+    const t = context.currentTime, isNew = state.mode === 'new';
+    node.port.postMessage({ slide: isNew ? state.slide : 0, load: state.load, speed: isNew ? state.speed : 0, ...SURFACES[state.surface] });
+    const mix = gameMix();
+    old.screech.gain.setTargetAtTime(isNew ? 0 : mix.screech * 2.2, t, 0.04);
+    old.roll.gain.setTargetAtTime(isNew ? 0 : mix.roll * 2.2, t, 0.04);
+  }
+  async function start() {
+    stopAll();
+    const ctx = audio();
+    if (!node) {
+      const source = TYRE_CORE + `
+class TyreSquealProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this.core = new TyreSquealCore(sampleRate, 20261110); this.spare = new Float32Array(128); this.port.onmessage = event => this.core.set(event.data); }
+  process(inputs, outputs) { const o = outputs[0]; if (o[0].length !== this.spare.length) this.spare = new Float32Array(o[0].length); this.core.process(o[0], o[1] ?? this.spare); return true; }
+}
+registerProcessor('tyre-squeal', TyreSquealProcessor);`;
+      await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([source], { type: 'application/javascript' })));
+      node = new AudioWorkletNode(ctx, 'tyre-squeal', { numberOfInputs: 0, outputChannelCount: [2] });
+      out = ctx.createGain(); out.gain.value = 0;
+      node.connect(out).connect(ctx.destination);
+      old = {};
+      for (const name of ['screech', 'roll']) {
+        const item = DATA.index['f-cur-' + name], buffer = await bufferOf(item), source = ctx.createBufferSource(), gain = ctx.createGain();
+        source.buffer = buffer; source.loop = true; gain.gain.value = 0; source.connect(gain).connect(out); source.start(); old[name] = gain;
+      }
+    }
+    out.gain.setTargetAtTime(0.9, ctx.currentTime, 0.03);
+    state.on = true; root.querySelector('[data-a=power]').textContent = '■ Pysäytä'; root.querySelector('[data-a=power]').classList.add('on');
+    push();
+  }
+  function stop() {
+    scenario++;
+    if (!state.on) return;
+    state.on = false; out.gain.setTargetAtTime(0, context.currentTime, 0.03);
+    root.querySelector('[data-a=power]').textContent = '▶ Käynnistä'; root.querySelector('[data-a=power]').classList.remove('on');
+  }
+  stoppers.add(stop);
+  root.querySelector('[data-a=power]').addEventListener('click', () => (state.on ? stop() : start()));
+  for (const k of ['slide', 'load', 'speed']) $(k).addEventListener('input', event => { scenario++; state[k] = +event.target.value; push(); });
+  root.querySelector('[data-k=surface]').addEventListener('change', event => { state.surface = event.target.value; push(); });
+  for (const radio of root.querySelectorAll('[name=tyre-mode]')) radio.addEventListener('change', () => { state.mode = radio.value; push(); });
+  // Scripted manoeuvres: (t) => { slide, load, speed }, run at 60 Hz like the game's physics tick.
+  const lerp = (a, b, x) => a + (b - a) * Math.max(0, Math.min(1, x));
+  const SCENARIOS = {
+    chirp: [0.6, t => ({ slide: t < 0.22 ? 3.4 * Math.sin(Math.PI * t / 0.22) : 0, load: 1.15, speed: 12 })],
+    corner: [6.4, t => ({ slide: t < 0.8 ? lerp(0, 6.5, t / 0.8) : t < 4.6 ? 6.5 + 1.6 * Math.sin(t * 3.1) + 0.8 * Math.sin(t * 7.7) : lerp(6, 0, (t - 4.6) / 0.8), load: 1.25 + 0.25 * Math.sin(t * 2.2), speed: lerp(22, 14, t / 6) })],
+    brake: [3.2, t => { const v = Math.max(0, 16.7 - 7.5 * t); return { slide: v, load: 1.35, speed: v }; }],
+    donut: [8, t => ({ slide: lerp(0, 9, t / 1.2) * (t < 7 ? 1 : lerp(1, 0, (t - 7) / 0.8)) * (1 + 0.12 * Math.sin(t * 5)), load: 1.1 + 0.15 * Math.sin(t * 2.6), speed: 7 })],
+  };
+  for (const button of root.querySelectorAll('[data-s]')) button.addEventListener('click', async () => {
+    if (!state.on) await start();
+    const [length, fn] = SCENARIOS[button.dataset.s], mine = ++scenario, t0 = performance.now();
+    const step = () => {
+      if (scenario !== mine) return;
+      const t = (performance.now() - t0) / 1000;
+      if (t > length) { state.slide = 0; push(); return; }
+      Object.assign(state, fn(t)); push(); setTimeout(step, 16);
+    };
+    step();
+  });
+  show();
+})();
+/*__EXTRA_JS__*/
+</script>
+</body>
+</html>

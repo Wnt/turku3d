@@ -1,0 +1,79 @@
+<h2 id="lokit">1. Lokit</h2>
+<div class="research">
+<p><b>Miksi nykyinen kuulostaa keinotekoiselta</b> (mitattu tiedostosta <code>gulls.ogg</code>):</p>
+<ul>
+  <li>Huuto on kaksi puhdasta siniääntä, jotka liukuvat suoraviivaisesti alas. Oikean lokin äänessä on 10–20 harmonista kerrannaista
+      noin 8–10 kHz:iin asti, ja sävelkorkeus <em>nousee nopeasti ja laskee</em> jokaisessa äänessä.</li>
+  <li>Sama huuto toistuu tasan 4,000 sekunnin välein. Oikea lokki huutaa sarjoina (naurusarjassa 8–15 ääntä, 2–4 ääntä sekunnissa),
+      eikä kahta samanlaista ole.</li>
+  <li>Ei rahinaa, ei hengitystä, ei tilaa: ääni tulee yhdestä pisteestä joen yltä ilman etäisyyden vaikutusta tai kaikua veden yli.</li>
+  <li>Tiedosto on 24 kHz:n monoa, joten 12 kHz:n yläpuolella ei ole mitään.</li>
+</ul>
+<p><b>Mistä oikea ääni koostuu.</b> Turun lokit ovat harmaalokki (matala, kalskahtava "kjau", naurusarja pää takakenossa), kalalokki
+(korkeampi, naukuva) ja naurulokki (karhea, pärisevä "krrriä"; Aurajoen ja torin yleisin). Ääni syntyy syrinksissä
+pulssimaisena, harmonisrikkaana; henkitorvi ja nokka korostavat 1–4 kHz:n aluetta. Kovissa huudoissa värähtely muuttuu
+epävakaaksi (jakson kahdentuminen, kaaos), mikä kuuluu rahinana. Yhdyskunta on kymmenien lintujen päällekkäistä huutoa eri
+etäisyyksiltä; veden yli kantautuessa diskantti vaimenee ja kaiku kasvaa.</p>
+<div id="fig-gulls"></div>
+</div>
+<div id="cards-gulls"></div>
+
+<h2 id="renkaat">2. Rengasvinkuna</h2>
+<div class="research">
+<p><b>Miksi nykyinen kuulostaa keinotekoiselta</b> (mitattu tiedostosta <code>screech.ogg</code> ja pelin koodista):</p>
+<ul>
+  <li>Vinkuna on yksi 1400 Hz:n siniääni, jossa on 33 Hz:n värinä, ja päällä tasaista valkoista kohinaa. Ei harmonisia, ei muita osaääniä.</li>
+  <li>Sävelkorkeus on aina sama. Peli säätää vain voimakkuutta: <code>(luisto − 0,15) / 0,65 × nopeus / 5 × 0,3</code>. Kuorma, pinta ja
+      luiston nopeus eivät vaikuta ääneen.</li>
+  <li>Alku ja loppu ovat pelkkiä häivytyksiä: ei sirkaisua pidon irrotessa, ei madaltuvaa ulvontaa pysähtyessä.</li>
+  <li>Vierintäkohina (<code>roll.ogg</code>) on alle 120 Hz:n ruskeaa kohinaa; oikean renkaan kohina painottuu noin 1 kHz:n ympärille.</li>
+</ul>
+<p><b>Mistä oikea ääni koostuu.</b> Kulutuspinnan palat tarttuvat tiehen ja irtoavat siitä satoja kertoja sekunnissa
+(stick-slip). Syntyvä aalto on sahalaitamainen, joten perusäänen (tyypillisesti 0,5–1,5 kHz) päällä on vahvat kerrannaiset.
+Mitä nopeammin rengas luistaa, sitä lyhyempi tarttumisvaihe ja sitä korkeampi ääni, palan omaan resonanssiin asti;
+mitä suurempi kuorma, sitä matalampi ja karheampi. Eri renkaat ja palat soivat hieman eri taajuuksilla, mistä tulee
+huojuva klusteri. Alla on äänetön hankauskohina (0,5–4 kHz). Märällä ei vinku lainkaan, soralla rapisee.
+<b>Sirkaisu</b> on 0,1–0,3 s:n irtoaminen, jossa sävel käy ylhäällä ja palaa; <b>pitkä drifti</b> on jatkuva, elävä klusteri kohinan päällä.</p>
+<div id="fig-tyres"></div>
+</div>
+
+<div class="live" id="tyre-live">
+  <b>Kokeile itse: ajonaikainen rengassynteesi</b>
+  <span class="dim">· sama koodi, joka menisi peliin (AudioWorklet, ei tiedostoja)</span>
+  <div class="buttons">
+    <button data-a="power">▶ Käynnistä</button>
+    <label><input type="radio" name="tyre-mode" value="new" checked> uusi synteesi</label>
+    <label><input type="radio" name="tyre-mode" value="old"> pelin nykyinen samoilla arvoilla</label>
+  </div>
+  <div class="row"><label>Luistonopeus (renkaan liuku)</label><input type="range" data-k="slide" min="0" max="16" step="0.1" value="0"><span data-v="slide"></span></div>
+  <div class="row"><label>Kuorma (1 = levossa)</label><input type="range" data-k="load" min="0.4" max="2.2" step="0.05" value="1"><span data-v="load"></span></div>
+  <div class="row"><label>Ajonopeus</label><input type="range" data-k="speed" min="0" max="40" step="0.5" value="14"><span data-v="speed"></span></div>
+  <div class="row"><label>Pinta</label><select data-k="surface">
+    <option value="asphalt">kuiva asfaltti</option><option value="concrete">sileä betoni (parkkihalli)</option>
+    <option value="wet">märkä asfaltti</option><option value="gravel">sora</option></select><span></span></div>
+  <div class="buttons">
+    <span class="dim">Valmiit liikkeet:</span>
+    <button data-s="chirp">Sirkaisu</button><button data-s="corner">Drifti mutkassa</button>
+    <button data-s="brake">Lukkojarrutus 60 → 0</button><button data-s="donut">Donitsi</button>
+  </div>
+  <p class="dim">Vedä luistoa hitaasti nollasta ylös: ääni syttyy matalana ja nousee. Lisää kuormaa: ääni madaltuu ja karhenee.
+  "Pelin nykyinen" soittaa <code>screech.ogg</code>- ja <code>roll.ogg</code>-luuppeja pelin omalla kaavalla samoista arvoista.</p>
+</div>
+<div id="cards-tyres"></div>
+
+<h2 id="musiikki">3. Musiikki</h2>
+<div class="research">
+<p><b>Miksi nykyinen kuulostaa halvalta</b> (luettu ja renderöity tiedostosta <code>music/index.ts</code>):</p>
+<ul>
+  <li>Jokainen kerros soittaa yhden äänen kerrallaan: ei sointuja, ei melodiaa. "Rummut" ovat 65 ja 160 Hz:n siniääniä.</li>
+  <li>Kaikki viisi kappaletta käyttävät täsmälleen samaa neljän iskun kuviota; vain sävellaji, tempo ja yksi aaltomuoto vaihtuvat.
+      Neljän tahdin jälkeen kaikki on kuultu.</li>
+  <li>Paljaat oskillaattorit ilman suodinliikettä, kaikua, viivettä tai stereokuvaa; ei rakennetta (intro, nosto, tauko), ei fillejä, ei svengiä.</li>
+  <li>Valikossa on hiljaista, ja koko musiikki soi noin −41 dB:n RMS-tasolla.</li>
+</ul>
+<p><b>Mitä ajopeli tarvitsee.</b> Valikolle oman tunnistettavan teeman; kävelylle rauhallista taustaa; autoon radion, jossa on
+selvästi erilaisia kanavia (tämä on se, mistä GTA-tyylinen maailma tunnistetaan); tilaukselle kiireen, joka kasvaa
+määräajan lähestyessä; toimituksesta palkinnon. Proseduraalinen musiikki kuulostaa hyvältä, kun siinä on oikeat soinnut ja
+äänenkuljetus, soitinmaiset äänet (suodinverhot, rumpusynteesi), tila (kaiku, viive, stereo), pitkä muoto ja pieni epätarkkuus.</p>
+</div>
+<div id="cards-music"></div>
