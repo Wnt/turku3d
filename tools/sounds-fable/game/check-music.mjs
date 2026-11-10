@@ -17,7 +17,7 @@ try {
   result.version = await page.evaluate(() => fetch('version.json').then(r => r.json()).catch(() => null));
   result.marks = marks;
   // 1: free play: the first stream opens only after the game is playable.
-  const first = await waitFor(m => m.track && m.playing.playing, 20);
+  const first = await waitFor(m => m.track && m.playing.playing, 35);
   result.firstStream = { at: g.seconds(), requests: musicRequests(), state: first.state, track: first.track };
   log('first stream', JSON.stringify(result.firstStream), 'marks', JSON.stringify(marks));
   await sleep(2500);
@@ -58,7 +58,8 @@ try {
   const p = result.problems;
   const before = result.firstStream.requests.filter(r => r.s <= marks.playable);
   if (before.length) p.push(`music requested before playable: ${before.map(r => r.file).join(', ')}`);
-  if (!first.track) p.push('no track in free play within 20 s');
+  if (!first.track) p.push('no track in free play within 35 s');
+  if (result.firstStream.requests[0] && result.firstStream.requests[0].s < marks.entered + 14) p.push(`the first stream opened ${(result.firstStream.requests[0].s - marks.entered).toFixed(1)} s after entering`);
   if (!(result.advancing.to > result.advancing.from)) p.push('the stream does not advance');
   if (![200, 206].includes(result.file.status) || !/ogg/.test(result.file.type ?? '')) p.push(`music file: ${JSON.stringify(result.file)}`);
   if (result.paused.track !== 'menu') p.push('pause did not bring the menu theme');

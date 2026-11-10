@@ -31,6 +31,7 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
   await page.goto(`${BASE}?quality=low&telemetry=0${query}`, { waitUntil: 'domcontentloaded', timeout: 180000 });
   await page.waitForFunction(() => window.__game?.ready, null, { timeout: 400000 });
   const atReady = await page.evaluate(() => window.__game.audio.snapshot());
+  await page.evaluate(() => { const watch = () => { if (!window.__game.state().startScreen) window.__enteredAt = Date.now(); else requestAnimationFrame(watch); }; watch(); });
   marks.ready = +((Date.now() - t0) / 1000).toFixed(2);
   for (let k = 0; k < 10 && await page.evaluate(() => window.__game.state().startScreen); k++) {
     await page.evaluate(() => { for (const b of document.querySelectorAll('.browser-warning button, [class*="warning"] button')) if (b.offsetParent) b.click(); });
@@ -40,6 +41,7 @@ export async function openGame(browser, { option = 'new', query = '', label = 'g
   }
   await page.waitForFunction(() => { const s = window.__game.state(); return !s.loading && !s.startScreen; }, null, { timeout: 400000 });
   marks.playable = +((Date.now() - t0) / 1000).toFixed(2);
+  marks.entered = +((await page.evaluate(() => window.__enteredAt ?? Date.now()) - t0) / 1000).toFixed(2);
   // The story intro (a new game): skip it.
   for (let k = 0; k < 6; k++) {
     const skipped = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => b.offsetParent && /skip/i.test(b.textContent ?? '')); if (b) b.click(); return !!b; });
