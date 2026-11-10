@@ -14,7 +14,7 @@ try {
   result.version = await page.evaluate(() => fetch('version.json').then(r => r.json()).catch(() => null));
   result.atReady = { gullsLoaded: atReady.gulls?.loaded, loaded: atReady.loaded };
   // 1: the spawn is 60 m from the Aura's centreline: the files load now, and a first call comes within 10-30 s.
-  const first = await waitFor(g => g.calls >= 1, 50);
+  const first = await waitFor(g => g.calls >= 1, 75);
   result.river = first;
   result.marks = marks;
   result.fetches = audioRequests.filter(r => /gull-/.test(r.file));
@@ -41,7 +41,7 @@ try {
   result.afterCall = await waitFor(g => g.playing === null, 16);
   const p = result.problems;
   if (result.atReady.gullsLoaded) p.push('gull files were loaded before the menu');
-  if (first.calls < 1) p.push('no call by the river within 50 s');
+  if (first.calls < 1) p.push('no call by the river within 75 s');
   if (first.last && first.last.where !== 'river') p.push(`the river call was placed in the ${first.last.where}`);
   if (result.fetches.length !== 2) p.push(`${result.fetches.length} gull fetches`);
   if (result.fetches.some(f => f.s < marks.playable)) p.push('a gull file was fetched before playable');

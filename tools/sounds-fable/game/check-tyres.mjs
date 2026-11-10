@@ -12,12 +12,18 @@ try {
   result.version = await page.evaluate(() => fetch('version.json').then(r => r.json()).catch(() => null));
   await recordCarEvents(page);
   const car = await takeCar(page, { place: { x: 81.04, z: 190.96 } });
-  log(`took ${car.id}`);
+  // The placement pauses the world while the tiles there load: drive only once it runs again. Whatever the tyres did
+  // during the placement itself is reported apart from the driving.
+  await page.waitForFunction(() => { const s = window.__game.state(); return !s.loading && s.mode === 'car' && !s.vehicle?.held; }, null, { timeout: 30000 });
+  await sleep(1500);
+  result.placement = summarise(await drainCarEvents(page));
+  log(`took ${car.id}; placement`, JSON.stringify(result.placement));
   // A: the autopilot drives to the market and back at city speeds: no squeal expected, apart from real tight turns.
   await page.evaluate(() => { window.__trip = window.__game.autopilot.goTo({ x: 291.32, z: 210.84 }, { mode: 'drive', speed: 50 / 3.6, limitFactor: 1.2, stop: true, arrive: 12 }); window.__tripState = null; window.__trip.done.then(r => { window.__tripState = r.state; }); });
   const t0 = Date.now();
   while (Date.now() - t0 < 90000 && !(await page.evaluate(() => window.__tripState))) await sleep(1000);
   result.autopilot = { trip: await page.evaluate(() => window.__tripState), ...summarise(await drainCarEvents(page)) };
+  if (result.autopilot.trip !== 'arrived') result.problems.push(`the autopilot leg ended as ${result.autopilot.trip}`);
   log('autopilot leg', JSON.stringify(result.autopilot));
   await page.evaluate(() => window.__game.autopilot.cancel('check'));
   result.voicesAfterDrive = await page.evaluate(() => window.__game.audio.snapshot().tyres);
