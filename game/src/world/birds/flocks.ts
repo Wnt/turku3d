@@ -2,7 +2,7 @@
 // same gull over the same quay: groups are hashed from grid cells of the city, and a bird's place is a closed-form
 // function of time (no simulation state, no history, nothing to synchronise). render/birds.ts draws the result.
 import { CITY } from '../../core/city';
-import { gullPresence } from '../../audio/gulls';
+import { WATERS, gullPresence, nearestOnLine } from '../../audio/gulls';
 
 /** How a species moves.
  *  soar: each bird circles alone on a slow wobbly loop, gliding most of the time (gulls, the eagle);
@@ -30,20 +30,21 @@ export interface Species {
   rainShy: number; dusk: number;
 }
 
-/** The birds of a Finnish coastal city. Sizes, wing-beat rates and speeds are the species' own. */
+/** The birds of a Finnish coastal city. Wingspans, wing-beat rates and speeds are the species' own; DRAWN_SIZE then
+ *  enlarges every bird a little, as a true-size jackdaw 200 m away is three pixels. */
 export const SPECIES: readonly Species[] = [
   { name: 'herring gull', behaviour: 'soar', span: 1.4, chord: 0.8, body: 0.85, wing: 0.55, tip: 0.05, speed: 10, flapHz: 2.8, flapAngle: 0.55,
-    glide: 0.7, cell: 192, chance: 0.05, count: [1, 3], height: [14, 70], radius: [18, 60], range: 650, rainShy: 0.3, dusk: 0 },
+    glide: 0.7, cell: 128, chance: 0.03, count: [1, 3], height: [14, 70], radius: [18, 60], range: 650, rainShy: 0.3, dusk: 0 },
   { name: 'jackdaw', behaviour: 'flock', span: 0.7, chord: 1.15, body: 0.045, wing: 0.035, tip: 0.03, speed: 12, flapHz: 4.6, flapAngle: 0.75,
-    glide: 0.12, cell: 384, chance: 0.22, count: [8, 34], height: [28, 75], radius: [70, 170], range: 520, rainShy: 0.6, dusk: 1 },
+    glide: 0.12, cell: 384, chance: 0.4, count: [8, 34], height: [28, 75], radius: [70, 170], range: 520, rainShy: 0.6, dusk: 1 },
   { name: 'feral pigeon', behaviour: 'flock', span: 0.68, chord: 1.1, body: 0.3, wing: 0.36, tip: 0.12, speed: 15, flapHz: 6.5, flapAngle: 0.85,
-    glide: 0.1, cell: 320, chance: 0.25, count: [6, 18], height: [22, 45], radius: [40, 90], range: 420, rainShy: 0.7, dusk: 0 },
+    glide: 0.1, cell: 320, chance: 0.45, count: [8, 22], height: [20, 40], radius: [40, 90], range: 420, rainShy: 0.7, dusk: 0 },
   { name: 'common swift', behaviour: 'dart', span: 0.44, chord: 0.6, body: 0.04, wing: 0.04, tip: 0.04, speed: 17, flapHz: 8, flapAngle: 0.6,
     glide: 0.45, cell: 448, chance: 0.3, count: [3, 8], height: [24, 80], radius: [22, 60], range: 320, rainShy: 0.9, dusk: 0.3 },
   { name: 'barnacle goose', behaviour: 'travel', span: 1.35, chord: 1, body: 0.4, wing: 0.22, tip: 0.05, speed: 17, flapHz: 3.8, flapAngle: 0.5,
     glide: 0, cell: 1024, chance: 0.14, count: [7, 23], height: [80, 150], radius: [0, 0], range: 900, rainShy: 0.4, dusk: 0.2 },
   { name: 'hooded crow', behaviour: 'travel', span: 0.98, chord: 1.25, body: 0.4, wing: 0.04, tip: 0.035, speed: 11, flapHz: 3.6, flapAngle: 0.7,
-    glide: 0.05, cell: 512, chance: 0.45, count: [1, 2], height: [20, 48], radius: [0, 0], range: 450, rainShy: 0.4, dusk: 0 },
+    glide: 0.05, cell: 512, chance: 0.6, count: [1, 3], height: [18, 40], radius: [0, 0], range: 450, rainShy: 0.4, dusk: 0 },
   { name: 'white-tailed eagle', behaviour: 'soar', span: 2.2, chord: 1.4, body: 0.16, wing: 0.11, tip: 0.07, speed: 12, flapHz: 2, flapAngle: 0.4,
     glide: 0.95, cell: 2048, chance: 0.3, count: [1, 1], height: [140, 260], radius: [90, 180], range: 1500, rainShy: 0.8, dusk: 0 },
 ];
@@ -53,6 +54,10 @@ export const SPECIES: readonly Species[] = [
 const TRAVEL_PERIOD = 300;
 /** A group's weight falls to nothing over the last metres of its anchor's reach, so nothing pops as the camera moves. */
 const ANCHOR_FADE = 250;
+/** Birds are drawn this much larger than life. */
+export const DRAWN_SIZE = 1.4;
+/** Over the water gulls fly low and close: height above the surface and loop radius (m). */
+const WATER_HEIGHT: readonly [number, number] = [4, 26], WATER_RADIUS: readonly [number, number] = [8, 24];
 /** The floats sampleBirds writes per bird. */
 export const BIRD_STRIDE = 14;
 
@@ -91,16 +96,19 @@ const TAU = 2 * Math.PI;
  *  and harbour their calls come from, audio/gulls.ts); a few wander inland. */
 export function groupAt(speciesIndex: number, ix: number, iz: number, city: string = CITY.name): Group | null {
   const s = SPECIES[speciesIndex], salt = speciesIndex * 16;
-  const x = (ix + cellHash(ix, iz, salt + 1)) * s.cell, z = (iz + cellHash(ix, iz, salt + 2)) * s.cell;
-  const water = s.name === 'herring gull' ? gullPresence({ x, y: 0, z }, city).presence : 0;
-  if (cellHash(ix, iz, salt) >= s.chance + water * 0.45) return null;
+  let x = (ix + cellHash(ix, iz, salt + 1)) * s.cell, z = (iz + cellHash(ix, iz, salt + 2)) * s.cell;
+  const gulls = s.name === 'herring gull' ? gullPresence({ x, y: 0, z }, city) : null, water = gulls?.presence ?? 0;
+  if (cellHash(ix, iz, salt) >= s.chance + water) return null;
+  // By the river the gulls circle over the water itself, low between the banks; in the harbour the basin is open.
+  const low = water > 0.5;
+  if (low && gulls!.where === 'river') { const on = nearestOnLine(WATERS[city]!.river, x, z); x = on.x; z = on.z; }
   const random = stream(Math.floor(cellHash(ix, iz, salt + 3) * 4294967296));
   const between = (range: readonly [number, number]) => range[0] + (range[1] - range[0]) * random();
-  const count = Math.round(between(s.count)) + (water > 0.5 ? 1 : 0);
+  const count = Math.round(between(s.count)) + (low ? 1 : 0);
   const loop = (cx: number, cz: number, wobble: number): Path => {
-    const r = between(s.radius);
+    const r = between(low ? WATER_RADIUS : s.radius), height = low ? WATER_HEIGHT : s.height;
     return { loop: { x: cx, z: cz, r, w: (random() < 0.5 ? -1 : 1) * s.speed / r, p: random() * TAU, a2: wobble * (0.5 + 0.5 * random()), p2: random() * TAU,
-      a3: wobble * 0.6 * random(), p3: random() * TAU, h: between(s.height), dh: (s.height[1] - s.height[0]) * 0.12 * random(), ph: random() * TAU } };
+      a3: wobble * 0.6 * random(), p3: random() * TAU, h: between(height), dh: (height[1] - height[0]) * 0.12 * random(), ph: random() * TAU } };
   };
   const members: Member[] = [];
   const member = (path: Path, lag: number, ox: number, oy: number, oz: number) => members.push({ path, lag, ox, oy, oz,
@@ -122,7 +130,7 @@ export function groupAt(speciesIndex: number, ix: number, iz: number, city: stri
     for (let i = 0; i < count; i++) member(path, random() * spread / s.speed * 2.2, (random() - 0.5) * spread * 1.6, (random() - 0.5) * spread * 0.7, (random() - 0.5) * spread * 1.6);
     reach = path.loop!.r * 1.5 + spread;
   } else {
-    const scatter = s.behaviour === 'dart' ? 70 : 90;
+    const scatter = s.behaviour === 'dart' ? 70 : low ? (gulls!.where === 'river' ? 24 : 160) : 90;
     for (let i = 0; i < count; i++) {
       const path = loop(x + (random() - 0.5) * scatter, z + (random() - 0.5) * scatter, s.behaviour === 'dart' ? 0.45 : 0.18);
       member(path, 0, 0, 0, 0);
@@ -215,7 +223,7 @@ export function sampleBirds(groups: readonly Group[], view: BirdView, t: number,
       const o = n++ * BIRD_STRIDE;
       out[o] = x; out[o + 1] = y; out[o + 2] = z;
       out[o + 3] = vx / speed; out[o + 4] = vy / speed; out[o + 5] = vz / speed; out[o + 6] = bank;
-      out[o + 7] = s.span * m.size * shown * fade;
+      out[o + 7] = s.span * DRAWN_SIZE * m.size * shown * fade;
       const phase = t * s.flapHz * TAU + m.beat;
       out[o + 8] = phase - Math.floor(phase / TAU) * TAU; out[o + 9] = s.flapAngle * bout; out[o + 10] = s.chord;
       out[o + 11] = s.body; out[o + 12] = s.wing; out[o + 13] = s.tip;

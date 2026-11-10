@@ -230,7 +230,7 @@ const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.q
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
 // Gulls, jackdaws, pigeons and the rest (world/birds/flocks.ts): placed by the shared clock, the same for every player.
 let birds = idPass ? null : new Birds(scene, params.quality === 'low' ? 160 : 384);
-window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
+window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, get birds() { return birds; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
 if (!idPass) env.updateIBL();
