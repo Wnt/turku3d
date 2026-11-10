@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { BIRD_STRIDE, SPECIES, activity, birdConditions, groupAt, groupsNear, sampleBirds, type BirdView, type Group } from '../../src/world/birds/flocks';
+import { BIRD_STRIDE, DRAWN_SIZE, SPECIES, activity, birdConditions, groupAt, groupsNear, sampleBirds, type BirdView, type Group } from '../../src/world/birds/flocks';
 
 // Engine metres (x east, z south): the riverside by the office, and four blocks inland.
 const QUAY: BirdView = { x: 250, y: 4, z: 300, ground: 2 }, INLAND: BirdView = { x: 900, y: 12, z: -2600, ground: 10 };
@@ -19,7 +19,7 @@ test('the same second shows the same birds to everyone, and they move like birds
   for (let i = 0; i < a.n; i++) {
     const o = i * BIRD_STRIDE, [x, y, z, fx, fy, fz, bank, span, phase, beat] = a.out.subarray(o, o + 10);
     expect(Math.hypot(fx, fy, fz)).toBeCloseTo(1, 4); expect(Math.abs(fy)).toBeLessThan(0.5); expect(Math.abs(bank)).toBeLessThanOrEqual(1.1001);
-    expect(y - QUAY.ground).toBeGreaterThan(8); expect(span).toBeGreaterThan(0); expect(span).toBeLessThan(2.6);
+    expect(y - QUAY.ground).toBeGreaterThan(2); expect(span).toBeGreaterThan(0); expect(span).toBeLessThan(2.6 * DRAWN_SIZE);
     expect(phase).toBeGreaterThanOrEqual(0); expect(phase).toBeLessThan(6.2832); expect(beat).toBeGreaterThanOrEqual(0);
     expect(Math.hypot(x - QUAY.x, y - QUAY.y, z - QUAY.z)).toBeLessThan(1500);
   }
@@ -45,6 +45,10 @@ test('each species flies at about its own air speed, on loops that turn smoothly
 test('gulls gather over the river; night grounds every bird and dusk gathers the jackdaws', () => {
   const quay = only(groupsNear(QUAY, new Map(), 'turku'), 'herring gull'), inland = only(groupsNear(INLAND, new Map(), 'turku'), 'herring gull');
   expect(quay.length).toBeGreaterThan(inland.length * 2); expect(quay.length).toBeGreaterThanOrEqual(3);
+  // On the quay a gull is always close: several within 150 m, over the water and below the roofs.
+  const near = sample(QUAY, T), close: number[] = [];
+  for (let i = 0; i < near.n; i++) { const o = i * BIRD_STRIDE; if (near.out[o + 11] > 0.8 && Math.hypot(near.out[o] - QUAY.x, near.out[o + 2] - QUAY.z) < 150) close.push(near.out[o + 1] - QUAY.ground); }
+  expect(close.length).toBeGreaterThanOrEqual(4); expect(Math.max(...close)).toBeLessThan(32);
   expect(sample(QUAY, T, NIGHT).n).toBe(0);
   const jackdaw = SPECIES[index('jackdaw')];
   expect(activity(jackdaw, DUSK)).toBeGreaterThan(activity(jackdaw, DAY) + 0.3); expect(activity(jackdaw, NIGHT)).toBe(0);
