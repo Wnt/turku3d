@@ -310,6 +310,34 @@ describe('obstacles', () => {
     pw.world.free();
   }, 30_000);
 
+  test('stops short of the playable-area edge wall (drive rays see it, scene rays pass through it)', async () => {
+    const pw = await devWorld();
+    // Along z 100 the dev world's collision ends at x 250: an invisible edge wall closes it (physics/edgeWalls.ts).
+    const probe = { x: 240, y: G + 0.75, z: 100 }, east = { x: 1, y: 0, z: 0 };
+    expect(pw.raycast(probe, east, 30, 'solid')).toBeNull();
+    expect(pw.raycast(probe, east, 30, 'drive')?.point.x).toBeGreaterThan(249);
+    pw.spawnVehicle({ x: 120, y: G + 0.8, z: 100 }, 0);
+    for (let k = 0; k < 30; k++) pw.fixedStep(null, { throttle: 0, steer: 0, brake: 0, handbrake: true });
+    const through = makePath([{ x: 120, z: 100 }, { x: 330, z: 100 }]);
+    const geometry = vehicleGeometry('car'), follower = new DriveFollower(through, geometry, { speed: 14 });
+    let top = 0, impacts = 0, lastImpact = 0, front = 0;
+    for (let k = 0; k < 60 * 20; k++) {
+      const v = pw.vehicleState()!, pose = vehiclePose(v);
+      if (k % 6 === 0) {
+        const rays = wallRays(through, follower.s, follower.nudge, geometry, pose);
+        follower.wallAhead(wallHit(rays, rays.map(r => pw.raycast(r.origin, r.dir, r.length, 'drive'))));
+      }
+      const step = follower.step(pose, 1 / 60);
+      top = Math.max(top, v.speed); front = Math.max(front, v.pos.x + geometry.back!);
+      if (v.impact && v.impact.id !== lastImpact) { impacts++; lastImpact = v.impact.id; }
+      pw.fixedStep(null, step.command);
+    }
+    expect(top).toBeGreaterThan(12);
+    expect(impacts).toBe(0);
+    expect(front).toBeLessThan(249.5);
+    pw.world.free();
+  }, 30_000);
+
   test('stops short of a drop along its path (down rays: the ground falls 1 m past x 170)', async () => {
     const pw = await devWorld();
     pw.spawnVehicle({ x: 60, y: G + 0.8, z: 100 }, 0);

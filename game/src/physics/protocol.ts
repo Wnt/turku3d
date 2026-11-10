@@ -21,7 +21,9 @@ export interface VehicleInput { throttle: number; steer: number; brake: number; 
   steerKey?: boolean }
 
 /** `water`: only the water sensor surfaces (the river), which every other filter passes through. */
-export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water';
+/** 'drive': what blocks a car, as a car meets it: static solids and the playable-area edge walls (physics/edgeWalls.ts),
+ *  not barriers only walkers meet. */
+export type RayFilter = 'solid' | 'query' | 'all' | 'foot' | 'water' | 'drive';
 export interface RayHit { toi: number; point: V3; normal: V3; material: number; tile: string | null }
 
 export interface CharacterState { pos: V3; vel: V3; grounded: boolean; enabled: boolean; groundMaterial: number }

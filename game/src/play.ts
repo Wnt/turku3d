@@ -556,6 +556,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     footRoute: (a, b) => router.route(a, b, 'foot'),
     carRoute: (a, b) => router.route(a, b, 'car'),
     groundRay: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),
+    driveRay: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi, 'drive'),
     // Ambient traffic and every other vehicle (parked, shared, other players') within 100 m of the driven car.
     obstacles: () => {
       const me = physics.latest?.vehicles.find(v => v.id === (drivenId ?? 'player')) ?? physics.latest?.vehicle;

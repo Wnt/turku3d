@@ -94,6 +94,9 @@ export interface AutopilotWorld {
   carRoute?(from: PathPoint, to: PathPoint): PathPoint[] | null;
   /** Downward rays against static collision: a stuck car backs out only over ground it can drive (reverseCheck.ts). */
   groundRay?: GroundRay;
+  /** Rays against what blocks a car (static solids and the playable-area edge walls): the path rays ahead
+   *  (follow.ts wallRays). Without it, groundRay. */
+  driveRay?: GroundRay;
   /** Cars and other bodies near the driven car (not it): followed, stopped for and passed (follow.ts Obstacle). */
   obstacles?(): readonly Obstacle[];
 }
@@ -312,7 +315,7 @@ export class Autopilot {
 
   /** Casts the wall rays along the path ahead (follow.ts wallRays) and hands the nearest hit to the follower. */
   private checkWalls(trip: Trip, follower: DriveFollower, pose: VehiclePose) {
-    const ray = this.world.groundRay!, rays = wallRays(follower.path, follower.s, follower.nudge, follower.geometry, pose);
+    const ray = this.world.driveRay ?? this.world.groundRay!, rays = wallRays(follower.path, follower.s, follower.nudge, follower.geometry, pose);
     trip.wallAt = trip.elapsed;
     if (!rays.length) { follower.wallAhead({ points: [] }); return; }
     trip.wallProbing = true;

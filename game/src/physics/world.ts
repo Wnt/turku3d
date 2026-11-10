@@ -1317,10 +1317,12 @@ export class PhysicsWorld {
     const l = Math.hypot(dir.x, dir.y, dir.z) || 1;
     const d = { x: dir.x / l, y: dir.y / l, z: dir.z / l };
     const ray = new R.Ray(origin, d);
-    const mask = filter === 'solid' ? GROUP.STATIC_SOLID : filter === 'query' ? GROUP.STATIC_QUERY : filter === 'water' ? GROUP.STATIC_SENSOR
+    const mask = filter === 'solid' || filter === 'drive' ? GROUP.STATIC_SOLID : filter === 'query' ? GROUP.STATIC_QUERY : filter === 'water' ? GROUP.STATIC_SENSOR
       : GROUP.STATIC_SOLID | GROUP.STATIC_QUERY | GROUP.VEHICLE;
     const flags = filter === 'water' ? R.QueryFilterFlags.EXCLUDE_SOLIDS : R.QueryFilterFlags.EXCLUDE_SENSORS;
-    const hit = this.world.castRayAndGetNormal(ray, maxToi, true, flags, groups(0xff00, mask), this.charCollider ?? undefined);
+    // A query is a member of 0xff00, which the edge walls do not take; 'drive' queries as a car does (GROUP.VEHICLE).
+    const hit = this.world.castRayAndGetNormal(ray, maxToi, true, flags, groups(filter === 'drive' ? GROUP.VEHICLE : 0xff00, mask),
+      this.charCollider ?? undefined);
     if (!hit) return null;
     const toi = hit.timeOfImpact;
     const point = { x: origin.x + d.x * toi, y: origin.y + d.y * toi, z: origin.z + d.z * toi };
