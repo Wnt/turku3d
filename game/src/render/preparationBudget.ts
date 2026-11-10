@@ -4,6 +4,16 @@ import { STREAMING_TIERS, type StreamingTier } from './quality';
 /** A window opened longer ago than this (ms) belongs to an earlier frame. */
 const STALE_MS = 16;
 const nextTask = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+/** A fresh task without timer clamping (a chain of setTimeout(0) hops is clamped to 4 ms after five). */
+let hopChannel: MessageChannel | null = null;
+const hops: (() => void)[] = [];
+export function taskHop(): Promise<void> {
+  if (typeof MessageChannel !== 'function') return nextTask();
+  if (!hopChannel) { hopChannel = new MessageChannel(); hopChannel.port1.onmessage = () => hops.shift()?.(); }
+  const channel = hopChannel;
+  return new Promise<void>(resolve => { hops.push(resolve); channel.port2.postMessage(0); });
+}
+const drawnFrame = () => new Promise<void>(resolve => afterRender(resolve));
 
 /** Main-thread idle time between frames, from the scheduler's idle periods (requestIdleCallback). Each idle period
  *  counts once, with the remaining time its first callback sees: a callback re-posted inside the same period sees the
@@ -51,6 +61,24 @@ export class StreamingAllowance {
   /** The session tier's targets and caps (render/quality.ts STREAMING_TIERS; main.ts sets it with the tier): every
    *  tier but ultra has the values documented here. */
   tuning: StreamingTier = STREAMING_TIERS.medium;
+  /** Continuous streaming (`tuning.continuous`, ultra) outside the loading screen: a budget whose slice is used up
+   *  resumes after one task hop instead of the next drawn frame, so streaming works on wall-clock time and frames draw
+   *  between its tasks. Frame-paced streaming rationed ultra to one 12 ms window a frame: at the M1 Max's GPU-bound
+   *  115-160 ms frames (19.7 M triangles, 4096 px cascades) that was 0.1 s of install work a second and the 5x5
+   *  window's tiles took 150 s (Jonni's tab 2026-11-10). */
+  get continuous() { return this.tuning.continuous && !this.loading(); }
+  /** Continuous streaming stops starting work once no frame has been drawn for this long (ms) and waits for the next
+   *  drawn frame instead: frames that wait behind a GPU queue full of uploads still come at `tuning.minFps`. Frames
+   *  over GAP_CEILING of the minimum rate's interval halve it; faster ones let it grow back to GAP_MAX. */
+  static readonly GAP_MIN_MS = 50;
+  static readonly GAP_MAX = 0.5;
+  static readonly GAP_CEILING = 0.75;
+  private gap = 500;
+  /** No frame has been drawn for longer than the continuous gap. */
+  get overdue() { return this.now() - this.frameAt > this.gap; }
+  /** Where a streaming step that ran out of its slice resumes: the next drawn frame, or in continuous streaming the
+   *  next task unless a frame is overdue. */
+  turn(): Promise<void> { return this.continuous && !this.overdue ? this.hop() : this.drawn(); }
   /** The window waits for full installs, or the tier streams as if it always did (ultra). */
   get pressed() { return this.tuning.always || this.urgent; }
   get target() {
@@ -89,7 +117,7 @@ export class StreamingAllowance {
   urgent = false;
   /** The player moves at MOVING_SPEED or faster (coarseTiles). */
   moving = false;
-  constructor(private now = () => performance.now()) {}
+  constructor(private now = () => performance.now(), private hop = taskHop, private drawn = drawnFrame) {}
   /** `idleMs`: the main thread's idle time since the previous frame (MainThreadIdle); `gpuMs`: the latest GPU frame
    *  time (0 without timestamp queries: CPU-bound control only). */
   frame(_cpuMs: number, intervalMs: number | null, idleMs = 0, gpuMs = 0) {
@@ -97,6 +125,11 @@ export class StreamingAllowance {
     const worked = this.windows > 0;
     this.lastWindows = Math.max(1, this.windows); this.windows = 0;
     if (intervalMs === null) return;
+    if (this.tuning.continuous) {
+      const longest = 1000 / this.tuning.minFps, ceiling = StreamingAllowance.GAP_CEILING * longest;
+      this.gap = intervalMs > ceiling ? Math.max(StreamingAllowance.GAP_MIN_MS, this.gap * 0.5)
+        : Math.min(StreamingAllowance.GAP_MAX * longest, this.gap + 0.1 * (ceiling - intervalMs));
+    }
     this.interval += (intervalMs - this.interval) * 0.15;
     this.idle += (Math.min(idleMs, intervalMs) - this.idle) * 0.15;
     this.gpu += (gpuMs - this.gpu) * 0.15;
@@ -112,7 +145,10 @@ export class StreamingAllowance {
   }
   /** Streaming milliseconds per frame across all budgets: also the paced shader-build share while the window waits
    *  (main.ts paceYields), which the controller then counts in the frame interval it steers. */
-  get share() { return this.now() - this.frameAt > 100 ? StreamingAllowance.BASE_MS : this.total; }
+  get share() {
+    if (this.continuous) return this.tuning.urgentLimit;
+    return this.now() - this.frameAt > 100 ? StreamingAllowance.BASE_MS : this.total;
+  }
   /** A budget starts a window this frame. */
   opened() { this.windows++; }
   /** Changes with every reported frame: budgets that keep their own window open a new one when it changes. */
@@ -120,12 +156,14 @@ export class StreamingAllowance {
   /** Diagnostics (window.__perf.allowance): the controller's state and what budgets and the yield pacer get now. */
   stats() {
     const r = (x: number) => Math.round(x * 10) / 10;
-    return { urgent: this.urgent, moving: this.moving, total: r(this.total), limit: r(this.limit), share: r(this.share), windows: this.lastWindows,
+    return { urgent: this.urgent, moving: this.moving, continuous: this.continuous, gap: r(this.gap), overdue: this.overdue, total: r(this.total), limit: r(this.limit), share: r(this.share), windows: this.lastWindows,
       interval: r(this.interval), idle: r(this.idle), gpu: r(this.gpu) };
   }
   /** Milliseconds one streaming budget may work in this frame. */
   get limit() {
     if (this.loading()) return StreamingAllowance.LOADING_MS;
+    // Continuous slices: one budget's work between two task hops, however long ago the last frame was.
+    if (this.continuous) return this.tuning.urgentLimit;
     // No frame reports (a page without the monitor, or a stalled loop): the old fixed window.
     if (this.now() - this.frameAt > 100) return StreamingAllowance.BASE_MS;
     const floor = this.pressed ? StreamingAllowance.BASE_MS : StreamingAllowance.MIN_MS;
@@ -151,7 +189,7 @@ export class PreparationBudget {
     const stale = elapsed > STALE_MS;
     const limit = this.account ? this.account.limit : 2;
     if (elapsed < limit) return;
-    const wait = this.resumeStale && stale ? this.resumeStale() : this.nextFrame();
+    const wait = this.account?.continuous ? this.account.turn() : this.resumeStale && stale ? this.resumeStale() : this.nextFrame();
     this.pending = wait.then(() => { this.started = this.now(); this.pending = null; this.account?.opened(); });
     return this.pending;
   }
@@ -160,4 +198,11 @@ export class PreparationBudget {
 /** A streaming install budget: the frame's adaptive allowance, and sporadic steps do not wait a whole frame. */
 export function streamingBudget() {
   return new PreparationBudget(undefined, undefined, nextTask, streamingAllowance);
+}
+
+/** Runs `work` where streaming resumes after a pause (StreamingAllowance.turn): after the next drawn frame, or after a
+ *  task hop in continuous streaming. Never inside an animation callback. */
+export function afterStreamingTurn(work: () => void) {
+  if (!streamingAllowance.continuous) { afterRender(work); return; }
+  void streamingAllowance.turn().then(work);
 }

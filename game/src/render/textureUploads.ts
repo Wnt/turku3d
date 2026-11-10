@@ -4,7 +4,7 @@ import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
 import { shareModelTextures } from '../world/sharedAssets';
 import { guardReleasedTextures } from '../world/loadingKtx';
-import { afterRender } from './afterRender';
+import { afterStreamingTurn } from './preparationBudget';
 import { streamTrace } from '../telemetry/streamTrace';
 
 /** Includes TSL array maps as well as ordinary glTF PBR slots. */
@@ -112,7 +112,7 @@ class TextureUploads {
   private schedule() {
     if (this.scheduled) return;
     this.scheduled = true;
-    afterRender(() => {
+    afterStreamingTurn(() => {
       this.scheduled = false;
       const before = this.budget.pending;
       const started = streamTrace.on ? performance.now() : 0;
