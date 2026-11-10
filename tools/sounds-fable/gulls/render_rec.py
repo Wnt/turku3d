@@ -133,6 +133,7 @@ def main() -> None:
         water = signal.sosfiltfilt(signal.butter(2, 90, "highpass", fs=SR, output="sos"), water, axis=0)
         start = steady_stretch(water[: len(water) - int((seconds + 6) * SR)], seconds)
         bed = sfx.make_loop(water[start:], seconds, 4.0, offset=0.0)
+        sfx.save(out / "bed-water.wav", sfx.normalise(sfx.make_loop(water[start:], 30.0, 3.0, offset=0.0), -6))
         mix += bed / (sfx.rms(bed) + 1e-9) * 10 ** (-27 / 20)
         used.add(water_entry["id"])
     else:

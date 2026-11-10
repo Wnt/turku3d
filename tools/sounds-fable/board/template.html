@@ -89,6 +89,7 @@ vertailu oikeisiin äänitteisiin) ja siihen, mitä menetelmästä tiedetään. 
 'use strict';
 const DATA = /*__DATA__*/null;
 const TYRE_CORE = /*__TYRE_CORE__*/'';
+const MUSIC_CORE = /*__MUSIC_CORE__*/'';
 const STORE = 'sounds-fable-picks-v1';
 document.getElementById('version').textContent = DATA.version;
 
@@ -133,6 +134,13 @@ function stopAll() {
   for (const stop of stoppers) stop();
 }
 document.getElementById('stopAll').addEventListener('click', stopAll);
+/** Peak level at a node over `ms` (headless self-check of the live demos). */
+async function peakOf(node, ms) {
+  const analyser = context.createAnalyser(); analyser.fftSize = 2048; node.connect(analyser);
+  const data = new Float32Array(2048); let peak = 0; const end = performance.now() + ms;
+  while (performance.now() < end) { await new Promise(r => setTimeout(r, 40)); analyser.getFloatTimeDomainData(data); for (const v of data) peak = Math.max(peak, Math.abs(v)); }
+  node.disconnect(analyser); return +peak.toFixed(4);
+}
 async function toggle(item, card) {
   if (current && current.item === item) { stopAll(); return; }
   stopAll();
@@ -265,6 +273,7 @@ registerProcessor('tyre-squeal', TyreSquealProcessor);`;
     root.querySelector('[data-a=power]').textContent = '▶ Käynnistä'; root.querySelector('[data-a=power]').classList.remove('on');
   }
   stoppers.add(stop);
+  window.__liveChecks = Object.assign(window.__liveChecks ?? {}, { tyrePeak: async () => { await start(); state.slide = 6; push(); const peak = await peakOf(out, 600); stop(); state.slide = 0; show(); return peak; } });
   root.querySelector('[data-a=power]').addEventListener('click', () => (state.on ? stop() : start()));
   for (const k of ['slide', 'load', 'speed']) $(k).addEventListener('input', event => { scenario++; state[k] = +event.target.value; push(); });
   root.querySelector('[data-k=surface]').addEventListener('change', event => { state.surface = event.target.value; push(); });
@@ -288,6 +297,115 @@ registerProcessor('tyre-squeal', TyreSquealProcessor);`;
     };
     step();
   });
+  show();
+})();
+
+// ---------- live music engine ----------
+(function musicDemo() {
+  const root = document.getElementById('music-live');
+  if (!root) return;
+  const state = { song: 'aura-neon', intensity: 0, muffle: 0, on: false };
+  let node = null, out = null;
+  const power = root.querySelector('[data-a=power]');
+  function show() { root.querySelector('[data-v=intensity]').textContent = Math.round(state.intensity * 100) + ' %'; root.querySelector('[data-v=muffle]').textContent = Math.round(state.muffle * 100) + ' %'; }
+  async function start() {
+    stopAll();
+    const ctx = audio();
+    if (!node) {
+      const source = MUSIC_CORE + `
+class MusicProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super(); this.core = new MusicCore(sampleRate, 'aura-neon', 20261110); this.core.loop = true; this.on = false; this.spare = new Float32Array(128);
+    this.port.onmessage = event => { const m = event.data; if (m.song) this.core.select(m.song); if ('intensity' in m) this.core.intensity = m.intensity; if ('muffle' in m) this.core.muffle = m.muffle; if ('on' in m) this.on = m.on; };
+  }
+  process(inputs, outputs) { const o = outputs[0]; if (!this.on) return true; if (o[0].length !== this.spare.length) this.spare = new Float32Array(o[0].length); this.core.process(o[0], o[1] ?? this.spare); return true; }
+}
+registerProcessor('music-core', MusicProcessor);`;
+      await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([source], { type: 'application/javascript' })));
+      node = new AudioWorkletNode(ctx, 'music-core', { numberOfInputs: 0, outputChannelCount: [2] });
+      out = ctx.createGain(); out.gain.value = 0; node.connect(out).connect(ctx.destination);
+    }
+    node.port.postMessage({ song: state.song, intensity: state.intensity, muffle: state.muffle, on: true });
+    out.gain.setTargetAtTime(0.9, ctx.currentTime, 0.03);
+    state.on = true; power.textContent = '■ Pysäytä'; power.classList.add('on');
+  }
+  function stop() {
+    if (!state.on) return;
+    state.on = false; out.gain.setTargetAtTime(0, context.currentTime, 0.05); setTimeout(() => { if (!state.on) node.port.postMessage({ on: false }); }, 300);
+    power.textContent = '▶ Käynnistä'; power.classList.remove('on');
+  }
+  stoppers.add(stop);
+  window.__liveChecks = Object.assign(window.__liveChecks ?? {}, { musicPeak: async () => { await start(); const peak = await peakOf(out, 1500); stop(); return peak; } });
+  power.addEventListener('click', () => (state.on ? stop() : start()));
+  for (const radio of root.querySelectorAll('[name=music-song]')) radio.addEventListener('change', () => { state.song = radio.value; if (state.on) node.port.postMessage({ song: state.song }); });
+  for (const k of ['intensity', 'muffle']) root.querySelector('[data-k=' + k + ']').addEventListener('input', event => { state[k] = +event.target.value; show(); if (state.on) node.port.postMessage({ [k]: state[k] }); });
+  show();
+})();
+
+// ---------- live gull scene ----------
+(function gullDemo() {
+  const root = document.getElementById('gull-live');
+  if (!root) return;
+  const samples = Object.values(DATA.index).filter(item => item.species);
+  const state = { rate: 14, distance: 90, water: true, on: false, species: { herring: true, common: true, blackheaded: true, other: false } };
+  let master = null, reverb = null, bed = null, timer = 0, played = 0;
+  const power = root.querySelector('[data-a=power]');
+  function show() { root.querySelector('[data-v=rate]').textContent = state.rate + ' / min'; root.querySelector('[data-v=distance]').textContent = state.distance + ' m'; }
+  function impulse(ctx) { // open water between quays: a short diffuse tail and three discrete echoes
+    const length = Math.round(1.5 * ctx.sampleRate), buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = buffer.getChannelData(ch); let low = 0;
+      for (let i = 0; i < length; i++) { const t = i / ctx.sampleRate; low += (Math.random() * 2 - 1 - low) * (0.5 * Math.exp(-t * 2.5) + 0.08); data[i] = low * Math.exp(-6.9 * t / 1.3) * Math.min(1, t / 0.012) * 0.5; }
+      for (const [delay, gain] of [[0.035, 0.5], [0.19, 0.42], [0.41, 0.22]]) data[Math.round((delay + 0.0007 * ch) * ctx.sampleRate)] += gain;
+    }
+    return buffer;
+  }
+  async function call() {
+    const pool = samples.filter(s => state.species[s.species] && (!s.long || Math.random() < 0.5));
+    if (!pool.length || !state.on) return;
+    const item = pool[Math.floor(Math.random() * pool.length)], buffer = await bufferOf(item), ctx = context;
+    if (!state.on) return;
+    const metres = Math.max(8, state.distance * Math.exp((Math.random() + Math.random() + Math.random() - 1.5) * 0.9));
+    const source = ctx.createBufferSource(), air = ctx.createBiquadFilter(), dry = ctx.createGain(), wet = ctx.createGain(), pan = ctx.createStereoPanner();
+    source.buffer = buffer; source.playbackRate.value = 0.94 + Math.random() * 0.13;
+    air.type = 'lowpass'; air.frequency.value = 20000 / (1 + metres / 55); air.Q.value = 0.5;
+    const level = 10 / Math.max(metres, 10), share = Math.min(0.85, 0.12 + metres / 260);
+    dry.gain.value = level * (1 - 0.5 * share); wet.gain.value = level * share * 1.6; pan.pan.value = Math.random() * 1.8 - 0.9;
+    source.connect(air); air.connect(dry).connect(pan).connect(master); air.connect(wet).connect(reverb);
+    source.start(); played++;
+    source.onended = () => { source.disconnect(); air.disconnect(); dry.disconnect(); wet.disconnect(); pan.disconnect(); };
+  }
+  function schedule() {
+    if (!state.on) return;
+    void call();
+    timer = setTimeout(schedule, -Math.log(1 - Math.random()) * 60000 / state.rate);
+  }
+  async function start() {
+    stopAll();
+    const ctx = audio();
+    if (!master) {
+      master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
+      reverb = ctx.createConvolver(); reverb.buffer = impulse(ctx); reverb.connect(master);
+      const item = DATA.index['f-bed-water'];
+      if (item) { const buffer = await bufferOf(item), source = ctx.createBufferSource(); bed = ctx.createGain(); source.buffer = buffer; source.loop = true; source.loopStart = item.loop[0]; source.loopEnd = item.loop[1];
+        bed.gain.value = state.water ? 1 : 0; source.connect(bed).connect(master); source.start(0, item.loop[0]); }
+    }
+    master.gain.setTargetAtTime(1.6, ctx.currentTime, 0.05);
+    state.on = true; power.textContent = '■ Pysäytä'; power.classList.add('on');
+    schedule();
+  }
+  function stop() {
+    clearTimeout(timer);
+    if (!state.on) return;
+    state.on = false; master.gain.setTargetAtTime(0, context.currentTime, 0.1);
+    power.textContent = '▶ Käynnistä'; power.classList.remove('on');
+  }
+  stoppers.add(stop);
+  window.__liveChecks = Object.assign(window.__liveChecks ?? {}, { gullPeak: async () => { await start(); const peak = await peakOf(master, 1500); stop(); return peak; }, gullSamples: async () => samples.length });
+  power.addEventListener('click', () => (state.on ? stop() : start()));
+  for (const k of ['rate', 'distance']) root.querySelector('[data-k=' + k + ']').addEventListener('input', event => { state[k] = +event.target.value; show(); });
+  for (const box of root.querySelectorAll('[data-sp]')) box.addEventListener('change', () => { state.species[box.dataset.sp] = box.checked; });
+  root.querySelector('[data-k=water]').addEventListener('change', event => { state.water = event.target.checked; if (bed) bed.gain.setTargetAtTime(state.water ? 1 : 0, context.currentTime, 0.1); });
   show();
 })();
 /*__EXTRA_JS__*/

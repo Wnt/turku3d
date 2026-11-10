@@ -16,6 +16,22 @@ epävakaaksi (jakson kahdentuminen, kaaos), mikä kuuluu rahinana. Yhdyskunta on
 etäisyyksiltä; veden yli kantautuessa diskantti vaimenee ja kaiku kasvaa.</p>
 <div id="fig-gulls"></div>
 </div>
+<div class="live" id="gull-live">
+  <b>Kokeile itse: lokkikohtaus, jonka peli kokoaisi ajossa</b>
+  <span class="dim">· 33 lyhyttä näytettä CC0-äänitteistä, jokainen soitto eri paikasta ja hieman eri korkeudelta</span>
+  <div class="buttons">
+    <button data-a="power">▶ Käynnistä</button>
+    <label><input type="checkbox" data-sp="herring" checked> harmaalokki</label>
+    <label><input type="checkbox" data-sp="common" checked> kalalokki</label>
+    <label><input type="checkbox" data-sp="blackheaded" checked> naurulokki</label>
+    <label><input type="checkbox" data-sp="other"> selkälokki</label>
+    <label><input type="checkbox" data-k="water" checked> veden liplatus</label>
+  </div>
+  <div class="row"><label>Huutoja minuutissa</label><input type="range" data-k="rate" min="2" max="70" step="1" value="14"><span data-v="rate"></span></div>
+  <div class="row"><label>Tyypillinen etäisyys</label><input type="range" data-k="distance" min="15" max="400" step="5" value="90"><span data-v="distance"></span></div>
+  <p class="dim">Jokainen huuto saa oman etäisyyden: taso laskee (1/r), diskantti vaimenee (ilman absorptio), kaiun osuus kasvaa ja ääni sijoittuu stereokuvaan.
+  Pelissä samat arvot tulisivat linnun ja kameran sijainnista; hiljainen jokiranta on 4–8 huutoa minuutissa, tori kesäpäivänä 30–60.</p>
+</div>
 <div id="cards-gulls"></div>
 
 <h2 id="renkaat">2. Rengasvinkuna</h2>
@@ -75,5 +91,20 @@ huojuva klusteri. Alla on äänetön hankauskohina (0,5–4 kHz). Märällä ei 
 selvästi erilaisia kanavia (tämä on se, mistä GTA-tyylinen maailma tunnistetaan); tilaukselle kiireen, joka kasvaa
 määräajan lähestyessä; toimituksesta palkinnon. Proseduraalinen musiikki kuulostaa hyvältä, kun siinä on oikeat soinnut ja
 äänenkuljetus, soitinmaiset äänet (suodinverhot, rumpusynteesi), tila (kaiku, viive, stereo), pitkä muoto ja pieni epätarkkuus.</p>
+</div>
+<div class="live" id="music-live">
+  <b>Kokeile itse: uusi proseduraalinen moottori</b>
+  <span class="dim">· neljä omaa sävellystä, soi selaimessa ajonaikaisena synteesinä (AudioWorklet, ei tiedostoja)</span>
+  <div class="buttons">
+    <button data-a="power">▶ Käynnistä</button>
+    <label><input type="radio" name="music-song" value="aura-neon" checked> Aura Neon (synthwave)</label>
+    <label><input type="radio" name="music-song" value="ring-road"> Ring Road (tilaus)</label>
+    <label><input type="radio" name="music-song" value="river-dub"> River Dub (dub techno)</label>
+    <label><input type="radio" name="music-song" value="harbour-glass"> Harbour Glass (valikko)</label>
+  </div>
+  <div class="row"><label>Kiire (toimitusaika)</label><input type="range" data-k="intensity" min="0" max="1" step="0.01" value="0"><span data-v="intensity"></span></div>
+  <div class="row"><label>Vaimennus (auton sisällä)</label><input type="range" data-k="muffle" min="0" max="1" step="0.01" value="0"><span data-v="muffle"></span></div>
+  <p class="dim">Valitse Ring Road ja vedä kiirettä hitaasti ylös: kerrokset tulevat mukaan ja tempo nousee 14 %, kuten pelin nykyisessä tilausmusiikissa mutta soittimilla.
+  Muissa kappaleissa kiire avaa suotimia ja lisää hihatteja.</p>
 </div>
 <div id="cards-music"></div>

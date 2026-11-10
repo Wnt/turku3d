@@ -92,6 +92,7 @@ def build_item(spec: dict, out: Path, cache: dict, scratch: Path) -> dict:
         item["bytes"] = audio_path.stat().st_size
         cache[item_id] = {"hash": key, "item": item}
     shown = dict(item)
+    shown.update(spec.get("extra", {}))
     for field in ("title", "desc", "rating", "current"):
         if spec.get(field) is not None:
             shown[field] = spec[field]
@@ -133,6 +134,7 @@ def main(out: Path) -> None:
     html = html.replace("<!--__SOURCES__-->", candidates.sources_table())
     html = html.replace("/*__DATA__*/null", json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
     html = html.replace("/*__TYRE_CORE__*/''", json.dumps((HERE.parent / "tyre" / "core.js").read_text()).replace("</", "<\\/"))
+    html = html.replace("/*__MUSIC_CORE__*/''", json.dumps((HERE.parent / "music" / "engine.js").read_text()).replace("</", "<\\/"))
     extra = HERE / "extra.js"
     html = html.replace("/*__EXTRA_JS__*/", extra.read_text() if extra.exists() else "")
     (out / "index.html").write_text(html)

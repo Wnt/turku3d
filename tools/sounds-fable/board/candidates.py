@@ -231,8 +231,24 @@ def music_items() -> list[dict]:
     return groups
 
 
+def gull_demo_samples() -> list[dict]:
+    """Single calls and a water bed for the live gull scene; built and indexed, not shown as cards."""
+    cand = WORK / "gulls-cand"
+    items = []
+    for index, sample in enumerate(load_json(cand / "samples.json", [])):
+        if sample["source"] in SOURCES:
+            USED_SOURCES.setdefault(sample["source"], set()).add("ääni")
+        items.append({"id": f"f-smp-{index:02d}", "src": str(cand / sample["file"]), "mono": True, "norm": ("peak", -3), "bitrate": "48k", "image": False,
+                      "extra": {"species": sample["kind"], "long": sample["long"]}})
+    if (cand / "bed-water.wav").exists():
+        items.append({"id": "f-bed-water", "src": str(cand / "bed-water.wav"), "loop": "body", "norm": ("rms", -30), "bitrate": "64k", "image": False})
+        USED_SOURCES.setdefault("bsb-1444-pontoon-marina-deauville", set()).add("ääni")
+    return [{"items": items}]
+
+
 def groups() -> list[dict]:
-    return [{"id": "gulls", "subgroups": gull_items()}, {"id": "tyres", "subgroups": tyre_items()}, {"id": "music", "subgroups": music_items()}]
+    return [{"id": "gulls", "subgroups": gull_items()}, {"id": "tyres", "subgroups": tyre_items()}, {"id": "music", "subgroups": music_items()},
+            {"id": "samples", "subgroups": gull_demo_samples()}]
 
 
 def sources_table() -> str:

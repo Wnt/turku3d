@@ -92,6 +92,7 @@ const live = await evaluate(`(async () => {
 console.log('live', JSON.stringify(live));
 if (!live.playing) problems.push('first card did not start playing');
 if (live.tyreOn === false) problems.push('tyre synthesiser did not start');
+for (const name of ['tyrePeak', 'musicPeak', 'gullPeak']) if (name in live && !(live[name] > 0.01)) problems.push(`${name} is silent (${live[name]})`);
 if (external.length) problems.push('external requests: ' + [...new Set(external)].join(', '));
 if (shot) {
   const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
