@@ -2,7 +2,9 @@
 # reaches osgallery-dev, which only seeds files (export-oci.mjs, tools/share/deploy.sh).
 #   /srv/turku3d/citylab/www          the game (deploy.sh) and the exported tiles, scenery and navigation
 #   127.0.0.1:7782 citylab-mp         multiplayer: WebSocket upgrades, /live.json, /scores/
-#   127.0.0.1:7783 citylab-api        the distant-scenery catalogue (/coarse/scenery?tiles=)
+#   127.0.0.1:7783 citylab-api        the distant-scenery catalogues (/coarse/scenery?tiles=, /cities/<name>/coarse/...)
+# Other cities live at /cities/<name>/coarse/ (game/src/core/city.ts), exported with export-oci.mjs --mount; a city's
+# health answers ready only once its export exists, so the game opens its portal only then (gameplay/travel.ts).
 # The tile service's other routes get the answers a finished, static world gives: healthy, no build queue (demand and
 # want 404: the game asks again once a minute), and a tile that was not exported is unbuildable (422), so the game
 # draws nothing there and never asks again. Headers mirror tools/dev/serve-dist.mjs --public.
@@ -52,7 +54,8 @@
 		reverse_proxy 127.0.0.1:7782
 	}
 
-	handle /coarse/scenery {
+	@catalogue path_regexp ^/(cities/[a-z]+/)?coarse/scenery$
+	handle @catalogue {
 		import isolation
 		reverse_proxy 127.0.0.1:7783
 	}
@@ -63,7 +66,16 @@
 		header Cache-Control no-store
 		respond `{"state":"ready","service":"city.madekivi.fi static"}` 200
 	}
-	@noQueue path /coarse/demand /coarse/want
+	@cityHealth path_regexp city ^/cities/([a-z]+)/coarse/(health|status)$
+	handle @cityHealth {
+		import isolation
+		header Content-Type application/json
+		header Cache-Control no-store
+		@published file /cities/{re.city.1}/coarse/export-index.json
+		respond @published `{"state":"ready","service":"city.madekivi.fi static"}` 200
+		respond `{"state":"missing"}` 404
+	}
+	@noQueue path_regexp ^/(cities/[a-z]+/)?coarse/(demand|want)$
 	handle @noQueue {
 		import isolation
 		header Content-Type application/json
@@ -87,8 +99,8 @@
 	}
 	handle @exported {
 		import isolation
-		@immutable path_regexp ^/(coarse/_v/|coarse/scenery/lod\.|assets/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$)
-		@polled path_regexp ^/(coarse/[^/]+\.json|coarse/t0_-?[0-9]+_-?[0-9]+/[a-z]+\.json|coarse/scenery/[^/]+\.json|version\.json)$
+		@immutable path_regexp ^/((cities/[a-z]+/)?coarse/(_v/|shared/|scenery/lod\.)|assets/[^/]+-[A-Za-z0-9_-]{8}\.[a-z0-9]+$)
+		@polled path_regexp ^/((cities/[a-z]+/)?coarse/([^/]+\.json|t0_-?[0-9]+_-?[0-9]+/[a-z]+\.json|scenery/[^/]+\.json)|version\.json)$
 		header @immutable Cache-Control "public, max-age=31536000, immutable"
 		header @polled Cache-Control no-cache
 		header ?Cache-Control "public, max-age=60"
@@ -97,7 +109,7 @@
 		}
 	}
 
-	@unpublished path_regexp ^/coarse/t0_-?[0-9]+_-?[0-9]+/(manifest|collision)\.json$
+	@unpublished path_regexp ^/(cities/[a-z]+/)?coarse/t0_-?[0-9]+_-?[0-9]+/(manifest|collision)\.json$
 	handle @unpublished {
 		import isolation
 		header Content-Type application/json

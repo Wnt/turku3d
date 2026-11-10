@@ -1,5 +1,5 @@
 [Unit]
-Description=Seed city.madekivi.fi from osgallery-dev: newly finished tiles, navigation, distant scenery (export-oci.mjs)
+Description=Seed city.madekivi.fi from osgallery-dev: newly finished tiles, navigation, distant scenery of Turku and the other cities (export-oci.mjs)
 # Reads through the reverse tunnel osgallery-dev keeps open (citylab-oci-tunnel, 127.0.0.1:7790). Without it the
 # run fails and the published files stay as they are: nothing at runtime depends on it.
 
@@ -8,5 +8,9 @@ Type=oneshot
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/srv/turku3d/citylab/oci
-ExecStart=/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --tiles tiles-city.txt --scenery scenery-squares.txt --jobs 32 --frag-jobs 8 --scenery-wait-s 600
+# Turku, then the other cities at their mounts (a failed city does not stop the next: the '-' prefix).
+ExecStart=-/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --tiles tiles-city.txt --scenery scenery-squares.txt --jobs 32 --frag-jobs 8 --scenery-wait-s 600
+ExecStart=-/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --mount /cities/espoo/coarse/ --tiles tiles-espoo.txt --scenery scenery-squares-espoo.txt --jobs 16 --frag-jobs 4 --scenery-wait-s 600
+ExecStart=-/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --mount /cities/amsterdam/coarse/ --tiles tiles-amsterdam.txt --jobs 16 --frag-jobs 4
+ExecStart=-/home/ubuntu/citylab/node/bin/node export-oci.mjs --src http://127.0.0.1:7790 --out /srv/turku3d/citylab/www --mount /cities/rotterdam/coarse/ --tiles tiles-rotterdam.txt --jobs 16 --frag-jobs 4
 TimeoutStartSec=3600

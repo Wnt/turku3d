@@ -11,10 +11,12 @@
 //                                                       citylab-api.mjs answers /coarse/scenery?tiles= from
 // Payload paths name their revision, so a file already exported is never fetched again; fragments and descriptors are
 // rewritten only when they changed. A tile whose fragment is not finished (pending, stale, queued) is skipped.
+// Another city: --mount /cities/<name>/coarse/ reads and writes under that mount instead of /coarse/ (the game maps a
+// manifest's absolute /coarse/... URLs onto its city's mount, game/src/core/city.ts cityTileUrl; so does this).
 // Writes <out>/coarse/export-index.json: tile -> revision, files, bytes. This only seeds files: at runtime the
 // published host serves them alone (tools/share/oci/Caddyfile).
 //
-//   node export-oci.mjs --src http://127.0.0.1:7790 --out DIR --tiles tiles.txt [--scenery squares.txt]
+//   node export-oci.mjs --src http://127.0.0.1:7790 --out DIR --tiles tiles.txt [--scenery squares.txt] [--mount M]
 //        [--jobs 32] [--frag-jobs 8] [--scenery-wait-s 2400]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +26,11 @@ import zlib from 'node:zlib';
 
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const SRC = new URL(arg('src', 'http://127.0.0.1:7781'));
+const MOUNT = arg('mount', '/coarse/');
+if (!/^\/(cities\/[a-z]{2,24}\/)?coarse\/$/.test(MOUNT)) throw new Error(`bad --mount (/coarse/ or /cities/<name>/coarse/): ${MOUNT}`);
+// A path the service named: absolute /coarse/... means this mount's (cityTileUrl); fragments are never payloads.
+const mounted = p => MOUNT !== '/coarse/' && p.startsWith('/coarse/') ? MOUNT + p.slice('/coarse/'.length) : p;
+const FRAGMENT = /^t0_-?\d+_-?\d+\/(manifest|collision)\.json$/;
 const OUT = path.resolve(arg('out', 'oci-export'));
 const TILES = fs.readFileSync(arg('tiles'), 'utf8').split(/\s+/).filter(t => /^t0_-?\d+_-?\d+$/.test(t));
 const SQUARES = arg('scenery') ? [...new Set(fs.readFileSync(arg('scenery'), 'utf8').split(/\s+/).filter(t => /^t[024]_-?\d+_-?\d+$/.test(t)))] : [];
@@ -63,7 +70,7 @@ const seen = new Map();  // payload path -> Promise<bytes on disk | -1>
 
 // One payload (identity + .br when offered); glbs also pull what they reference. Returns bytes on disk or -1.
 function payload(p) {
-  if (!p.startsWith('/coarse/_v/') && !/^\/coarse\/scenery\/lod\.[0-9a-f]{64}\.glb$/.test(p)) return Promise.resolve(-1);
+  if (!p.startsWith(MOUNT) || FRAGMENT.test(p.slice(MOUNT.length)) || p.includes('?')) return Promise.resolve(-1);
   if (seen.has(p)) return seen.get(p);
   const job = (async () => {
     const file = path.join(OUT, decodeURIComponent(p));
@@ -85,7 +92,7 @@ function payload(p) {
     if (body && p.endsWith('.glb')) {
       let refs = [];
       try { refs = glbRefs(body); } catch (e) { stats.errors.push(`${p}: glb ${e.message}`); }
-      const sub = await Promise.all(refs.map(ref => payload(new URL(ref, new URL(p, 'http://x')).pathname)));
+      const sub = await Promise.all(refs.map(ref => payload(mounted(new URL(ref, new URL(p, 'http://x')).pathname))));
       if (sub.some(b => b < 0)) return -1;
       bytes += sub.reduce((a, b) => a + b, 0);
     }
@@ -99,7 +106,7 @@ const index = {};
 async function exportTile(id) {
   const frags = {};
   for (const name of ['manifest', 'collision']) {
-    const r = await fragSlot(() => get(`/coarse/${id}/${name}.json?d=1000`, 'identity'));
+    const r = await fragSlot(() => get(`${MOUNT}${id}/${name}.json?d=1000`, 'identity'));
     if (r.status === 200) frags[name] = decode(r);
   }
   let f;
@@ -109,15 +116,15 @@ async function exportTile(id) {
     const why = f.stale ? 'stale' : f.pass_kind !== 'full' ? `pass ${f.pass_kind}` : `queue ${f.queue_state}`;
     stats.skipped[why] = (stats.skipped[why] ?? 0) + 1; return;
   }
-  const base = new URL(`/coarse/${id}/`, 'http://x');
+  const base = new URL(`${MOUNT}${id}/`, 'http://x');
   const urls = [f.visual[id].url, f.roads?.url, f.collision_bundle?.url, ...Object.values(f.collision ?? {}).map(c => c.url),
     ...(f.buildingPlacements?.models ?? []).map(m => m.uri), ...Object.values(f.vehicle_models ?? {}).map(m => m.url)]
-    .filter(Boolean).map(u => new URL(u, base).pathname);
+    .filter(Boolean).map(u => mounted(new URL(u, base).pathname));
   const sizes = await Promise.all([...new Set(urls)].map(payload));
   if (sizes.some(b => b < 0)) { stats.skipped['payload missing'] = (stats.skipped['payload missing'] ?? 0) + 1; return; }
   // Fragments last: a fragment on disk always has its payloads in place.
   for (const [name, body] of Object.entries(frags)) {
-    const file = path.join(OUT, 'coarse', id, `${name}.json`);
+    const file = path.join(OUT, MOUNT, id, `${name}.json`);
     if (!fs.existsSync(file) || !fs.readFileSync(file).equals(body)) {
       writeAtomic(file, body);
       writeAtomic(`${file}.br`, zlib.brotliCompressSync(body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 9 } }));
@@ -151,7 +158,8 @@ async function exportScenery() {
   const deadline = Date.now() + SCENERY_WAIT_MS, rows = new Map(); let recipe, generation;
   for (let i = 0; i < SQUARES.length; i += 256) {
     const batch = SQUARES.slice(i, i + 256);
-    const r = await fragSlot(() => get(`/coarse/scenery?tiles=${batch.join(',')}`, 'identity'));
+    const r = await fragSlot(() => get(`${MOUNT}scenery?tiles=${batch.join(',')}`, 'identity'));
+    if (r.status === 404) { scenery.none = true; return; }  // a city without distant scenery: the game draws none either
     if (r.status !== 200) { stats.errors.push(`scenery catalogue ${i}: ${r.status || r.error}`); continue; }
     const c = JSON.parse(decode(r));
     recipe ??= c.recipe; generation ??= c.generation;
@@ -160,37 +168,37 @@ async function exportScenery() {
   scenery.rows = rows.size;
   const published = {};
   await Promise.all([...rows.values()].map(async row => {
-    const body = await settled(`/coarse/scenery/${row.key}.json`, deadline);
+    const body = await settled(`${MOUNT}scenery/${row.key}.json`, deadline);
     if (!body) { scenery.unbuilt++; return; }
     let refs = [];
     try { const text = body.toString(); refs = [...text.matchAll(/"([^"]*\/scenery\/lod\.[0-9a-f]{64}\.glb)"/g)].map(m => m[1]); } catch {}
-    const lods = await Promise.all(refs.map(ref => payload(new URL(ref, `http://x/coarse/scenery/${row.key}.json`).pathname)));
+    const lods = await Promise.all(refs.map(ref => payload(mounted(new URL(ref, `http://x${MOUNT}scenery/${row.key}.json`).pathname))));
     if (lods.some(b => b < 0)) { scenery.unbuilt++; return; }
     if (row.trees_url) {
-      const rel = path.join('coarse', new URL(row.trees_url, 'http://x/coarse/').pathname.slice('/coarse/'.length));
+      const at = mounted(new URL(row.trees_url, `http://x${MOUNT}`).pathname), rel = at.slice(1);
       if (!fs.existsSync(path.join(OUT, rel))) {
-        const trees = await settled(`/coarse/${row.trees_url}`, deadline);
+        const trees = await settled(at, deadline);
         if (!trees) { scenery.unbuilt++; return; }
         writeJson(rel, trees);
       }
     }
-    writeJson(path.join('coarse', 'scenery', `${row.key}.json`), body);  // last: its files are in place
+    writeJson(path.join(MOUNT, 'scenery', `${row.key}.json`), body);  // last: its files are in place
     published[row.tile] = row; scenery.published++;
   }));
-  writeJson(path.join('coarse', 'scenery-catalogue.json'), Buffer.from(JSON.stringify({ at: new Date().toISOString(), recipe, generation, tiles: published })));
+  writeJson(path.join(MOUNT, 'scenery-catalogue.json'), Buffer.from(JSON.stringify({ at: new Date().toISOString(), recipe, generation, tiles: published })));
 }
 
 const t0 = Date.now();
 const tick = setInterval(() => console.error(`${((Date.now() - t0) / 1000).toFixed(0)} s: ${stats.tiles} tiles, scenery ${JSON.stringify(scenery)}, ${stats.fetched} files fetched ` +
   `(${(stats.bytes / 1e9).toFixed(2)} GB), skipped ${JSON.stringify(stats.skipped)}, errors ${stats.errors.length}`), 30_000);
-const nav = await fragSlot(() => get('/coarse/navigation.json', 'identity'));
-if (nav.status === 200) writeJson(path.join('coarse', 'navigation.json'), decode(nav));
+const nav = await fragSlot(() => get(`${MOUNT}navigation.json`, 'identity'));
+if (nav.status === 200) writeJson(path.join(MOUNT, 'navigation.json'), decode(nav));
 else stats.errors.push(`navigation.json: ${nav.status || nav.error}`);
 await Promise.all([
   ...TILES.map(id => exportTile(id).catch(e => stats.errors.push(`${id}: ${e.message}`))),
   SQUARES.length ? exportScenery().catch(e => stats.errors.push(`scenery: ${e.message}`)) : null,
 ]);
 clearInterval(tick);
-writeAtomic(path.join(OUT, 'coarse', 'export-index.json'), JSON.stringify({ at: new Date().toISOString(), src: SRC.origin, tiles: index }));
+writeAtomic(path.join(OUT, MOUNT, 'export-index.json'), JSON.stringify({ at: new Date().toISOString(), src: SRC.origin, tiles: index }));
 console.log(JSON.stringify({ ...stats, scenery, errors: stats.errors.slice(0, 20), errorCount: stats.errors.length, seconds: (Date.now() - t0) / 1000 }));
 process.exit(0);
