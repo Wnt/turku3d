@@ -72,7 +72,9 @@ import { SafeReset } from './gameplay/safeReset';
 import { ZoneMarkers } from './gameplay/zones';
 import { DropoffGuard } from './gameplay/missions/dropoffs';
 import { DEFAULT_ZONE_RAY_TOP } from './gameplay/content/shops';
-import { disposePlayScene, applyHot, markResume, takeResume, type HotPlay, type PlaySession } from './gameplay/hotState';
+import { disposePlayScene, applyHot, markResume, takeResume, markGraphicsReload, takeGraphicsReload, type HotPlay, type PlaySession } from './gameplay/hotState';
+import { graphicsPage, presetName, type GraphicsControl } from './ui/graphicsMenu';
+import { storePreset } from './render/quality';
 import { MATERIALS } from './shared/col/materials';
 import type { CharacterInput, VehicleInput } from './physics/protocol';
 import { DT, VEHICLES, type VehicleKind } from './physics/constants';
@@ -178,6 +180,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
+  // A reload the Graphics page asked for continues the same way on every site: the room again, or the autosave.
+  const graphicsReload = hot ? null : takeGraphicsReload(sessionStore());
   const startScreen = new StartScreen(input, {
     hint: fullscreenHint(input.touchDevice, fullscreen.supported, fullscreen.standalone),
     onClose: () => { world.loadingScreen.enter(); fullscreen.enterScene(input.source === 'touch'); } });
@@ -434,6 +438,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     const at = start.at ? { x: start.at.x, y: start.spawn.y, z: start.at.z } : null;
     return pairsAround(at ? { spawn: { ...at, yaw: start.spawn.yaw }, car: { ...at, yaw: start.car.yaw } } : start, ROOM_START_CARS, []);
   };
+  /** The start screen's Multiplayer choice: joins the room and places the player. */
+  let joinRoom: () => void = () => {};
   const saveGame = new SaveGameController({ physics, streamer, manifest, missions, recovery, saves, startScreen, pauseMenu,
     tileResolved: coarse ? (x, z) => coarse.resolvedAt(x, z) : undefined,
     clock: world.clockTime, router,
@@ -489,7 +495,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
     timedRounds: () => rounds.open(), multiplayerActive: () => multiplayerPlaying,
     audio: () => showAudioPage(pauseMenu, audio, () => saveGame.pausePage()),
-    multiplayer: () => {
+    // Presets are a desktop choice: phones keep their own tier.
+    graphics: params.mobile ? undefined : { current: () => presetName(graphicsControl.current()),
+      open: () => pauseMenu.show(graphicsPage(pauseMenu, graphicsControl, () => saveGame.pausePage())) },
+    multiplayer: joinRoom = () => {
       startScreen.close();
       multiplayerRunId = crypto.randomUUID();
       poles.setClient(client); scoreboard.setClient(client);
@@ -537,6 +546,22 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     }
   }
   const autosaveForReload = () => { if (saveGame.autosave.save('reload')) markResume(sessionStore()); };
+  /** Reloads into the stored graphics preset and continues: the room is rejoined (the server keeps the player's place
+   *  and progress as on any reload), a solo game continues from the autosave written here. A `?quality=` in the URL
+   *  would override the preset just chosen, so it leaves the URL. */
+  const reloadGraphics = () => {
+    const saved = saveGame.autosave.save('reload');
+    if (multiplayerPlaying || saved) markGraphicsReload(sessionStore(), multiplayerPlaying ? 'multiplayer' : 'solo');
+    const url = new URL(location.href);
+    url.searchParams.delete('quality');
+    if (url.href === location.href) location.reload(); else location.replace(url.href);
+  };
+  const graphicsControl: GraphicsControl = {
+    current: () => params.quality,
+    choose: tier => { storePreset(browserStorage(), tier); reloadGraphics(); },
+    status: () => ({ text: null, reload: null }),
+    reload: reloadGraphics,
+  };
   import.meta.hot?.on('vite:beforeFullReload', autosaveForReload);
   import.meta.hot?.on('vite:ws:disconnect', autosaveForReload);
   const state = () => {
@@ -693,7 +718,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   };
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
   else if (ticket) startScreen.afterBrowserWarning(() => arrive(ticket));
-  else if (resume) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume));
+  else if (graphicsReload === 'multiplayer') startScreen.afterBrowserWarning(() => joinRoom());
+  else if (resume ?? (graphicsReload === 'solo' ? saves.get('auto') : null)) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume ?? saves.get('auto')));
   else startScreen.show(saveGame.startFlow.start());
   const multiplayerReady = multiplayerStartState.position === undefined ? null : !!multiplayerStartState.position;
   startScreen.ready(multiplayerReady);

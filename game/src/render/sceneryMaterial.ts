@@ -42,13 +42,16 @@ function regionalMask(coverage: THREE.DataTexture) {
   if (!mask) regionalMasks.set(coverage, mask = texture(coverage, positionWorld.xz.div(250 * 256).add(.5)).r.lessThan(.5));
   return mask;
 }
+/** Horizontal camera distance (m) within which the canopy shells stay out: the full-tile window's reach (TILE_DETAIL's
+ *  450 m for the 3x3). world/tierWorld.ts and the bench lab's `fullr=` set it with the window. */
+export const canopyClear = uniform(TILE_DETAIL.distance);
 /** The regional canopy also stays out of the full-tile window: those tiles carry the real trees, and a coverage gap while
  *  one swaps in must not raise the shell through them. */
 const canopyMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
 function canopyMask(coverage: THREE.DataTexture) {
   let mask = canopyMasks.get(coverage);
   if (!mask) canopyMasks.set(coverage, mask = regionalMask(coverage)
-    .and(distance(positionWorld.xz, cameraPosition.xz).greaterThan(TILE_DETAIL.distance)));
+    .and(distance(positionWorld.xz, cameraPosition.xz).greaterThan(canopyClear)));
   return mask;
 }
 
@@ -56,7 +59,7 @@ function canopyMask(coverage: THREE.DataTexture) {
  *  250 m cell draws (`squares`): a node kept as a fallback while its cells load, or a cell's coverage gap, must not
  *  raise the shell, which drapes the surface model (roofs included), over the streets and the real trees. */
 const nodeCanopyMasks = new WeakMap<THREE.DataTexture, THREE.Node<'bool'>>();
-const outsideDetail = distance(positionWorld.xz, cameraPosition.xz).greaterThan(TILE_DETAIL.distance);
+const outsideDetail = distance(positionWorld.xz, cameraPosition.xz).greaterThan(canopyClear);
 function nodeCanopyMask(squares?: THREE.DataTexture) {
   if (!squares) return outsideDetail;
   let mask = nodeCanopyMasks.get(squares);

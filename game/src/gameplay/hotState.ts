@@ -59,6 +59,21 @@ export function takeResume(storage: Pick<KeyValueStore, 'getItem' | 'removeItem'
   } catch { return false; }
 }
 
+/** sessionStorage key: the next page load continues this session after a reload the Graphics page asked for. */
+export const GRAPHICS_RELOAD_KEY = 'turku3d.graphicsReload';
+/** Marks that the next load continues the game: `multiplayer` rejoins the room, `solo` continues from the autosave. */
+export function markGraphicsReload(storage: Pick<KeyValueStore, 'setItem'> | null, mode: 'multiplayer' | 'solo') {
+  try { storage?.setItem(GRAPHICS_RELOAD_KEY, mode); } catch { /* blocked storage: the start menu shows after the reload */ }
+}
+/** The marked mode, once: the marker is consumed. */
+export function takeGraphicsReload(storage: Pick<KeyValueStore, 'getItem' | 'removeItem'> | null): 'multiplayer' | 'solo' | null {
+  try {
+    const mode = storage?.getItem(GRAPHICS_RELOAD_KEY);
+    if (mode) storage?.removeItem(GRAPHICS_RELOAD_KEY);
+    return mode === 'multiplayer' || mode === 'solo' ? mode : null;
+  } catch { return null; }
+}
+
 /** A running play session (play.ts startPlay). */
 export interface PlaySession {
   /** Stops the session and returns what the next one continues from; `travel` (a city switch) keeps the multiplayer

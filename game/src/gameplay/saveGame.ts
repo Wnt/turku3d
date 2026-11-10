@@ -106,6 +106,8 @@ interface SaveGameOptions {
   /** Opens the pause menu's Developer page (localhost only, ui/devMenu.ts). */
   developer?: () => void;
   audio?: () => void;
+  /** The pause menu's Graphics page (ui/graphicsMenu.ts). */
+  graphics?: { open: () => void; current: () => string };
   timedRounds?: () => void;
   multiplayerActive?: () => boolean;
   onQuit?: () => void;
@@ -155,7 +157,7 @@ export class SaveGameController {
       ...(o.resetProgress ? { resetProgress: () => { void this.resetProgress(o.resetProgress!.forget, o.resetProgress!.at).catch(o.fail); } } : {}),
     };
     this.startFlow = new SaveMenuFlow(o.startScreen, o.saves, this.hooks, o.multiplayer, o.scoreboardStart);
-    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio, o.timedRounds, o.multiplayerActive);
+    this.pauseFlow = new SaveMenuFlow(o.pauseMenu, o.saves, this.hooks, undefined, o.scoreboardPause, o.developer, o.audio, o.timedRounds, o.multiplayerActive, o.graphics);
     this.autosave = new Autosave(o.saves, () => {
       if (o.startScreen.active || this.loading) return null;
       const game = this.capture();

@@ -21,7 +21,7 @@ export const SPRITE = {
   /** Fade-in of newly streamed lights, seconds. */
   fadeIn: 1.5,
   /** Capacity of the instance buffers per tier (all resident sprites; the shader skips unlit ones). */
-  capacity: { mobile: 1024, low: 1536, reduced: 4096, medium: 4096, high: 10240 } satisfies Record<QualityTier, number>,
+  capacity: { mobile: 1024, low: 1536, reduced: 4096, medium: 4096, high: 10240, ultra: 20480 } satisfies Record<QualityTier, number>,
 } as const;
 
 /** W6 of the GTA V water study (loops/techstudy REPORT.md §8): GTA draws coronas into its water reflection at half size

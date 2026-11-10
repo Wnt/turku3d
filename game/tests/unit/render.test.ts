@@ -49,7 +49,8 @@ test('HiDPI render budget and QA output sizes are explicit', () => {
   expect(renderPixelRatio(1280, 720, 2, true)).toBe(1);
   expect(parseParams('?quality=low').quality).toBe('low');
   expect(parseParams('').quality).toBe('medium');
-  expect(() => parseParams('?quality=ultra')).toThrow(/quality/);
+  expect(parseParams('?quality=ultra').quality).toBe('ultra');
+  expect(() => parseParams('?quality=extreme')).toThrow(/quality/);
 });
 
 test('material keys inherit glTF node extras; per-primitive material key takes precedence', () => {

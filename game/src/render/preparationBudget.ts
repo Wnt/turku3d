@@ -1,4 +1,5 @@
 import { afterRender } from './afterRender';
+import { STREAMING_TIERS, type StreamingTier } from './quality';
 
 /** A window opened longer ago than this (ms) belongs to an earlier frame. */
 const STALE_MS = 16;
@@ -47,8 +48,13 @@ export class StreamingAllowance {
    *  all the time, so the urgent 24 ms target held the Air at ~50 fps once the graphics queue kept up (fastdrive
    *  fly 2026-11-08: 17.5 ms gave the same stand-ins at 53.5 fps). The per-budget floors still move installs along. */
   static readonly MOVING_TARGET = 17.5;
+  /** The session tier's targets and caps (render/quality.ts STREAMING_TIERS; main.ts sets it with the tier): every
+   *  tier but ultra has the values documented here. */
+  tuning: StreamingTier = STREAMING_TIERS.medium;
+  /** The window waits for full installs, or the tier streams as if it always did (ultra). */
+  get pressed() { return this.tuning.always || this.urgent; }
   get target() {
-    return this.moving ? StreamingAllowance.MOVING_TARGET : this.urgent ? StreamingAllowance.WINDOW_TARGET : StreamingAllowance.PREFETCH_TARGET;
+    return this.moving && !this.tuning.always ? this.tuning.moving : this.pressed ? this.tuning.window : this.tuning.prefetch;
   }
   static readonly MIN_MS = 0.5;
   /** Each budget's window while the world loads behind the loading screen (boot and city switches, `loading`): no
@@ -100,8 +106,9 @@ export class StreamingAllowance {
     // Grow only while streaming has work: no wind-up during quiet periods.
     else if (gpuBound) { if (worked || this.idle < StreamingAllowance.IDLE_MARGIN_MS) this.total += 0.1 * (this.idle - StreamingAllowance.IDLE_MARGIN_MS); }
     else if (worked || this.interval > this.target) this.total += 0.1 * (this.target - this.interval);
-    const floor = this.urgent ? StreamingAllowance.URGENT_SHARE * Math.min(this.interval, 30) : StreamingAllowance.MIN_MS;
-    this.total = Math.min(this.urgent ? 12 : 6, Math.max(floor, this.total));
+    const t = this.tuning;
+    const floor = this.pressed ? t.floorShare * Math.min(this.interval, t.floorInterval) : StreamingAllowance.MIN_MS;
+    this.total = Math.min(this.pressed ? t.urgentCap : t.cap, Math.max(floor, this.total));
   }
   /** Streaming milliseconds per frame across all budgets: also the paced shader-build share while the window waits
    *  (main.ts paceYields), which the controller then counts in the frame interval it steers. */
@@ -121,8 +128,8 @@ export class StreamingAllowance {
     if (this.loading()) return StreamingAllowance.LOADING_MS;
     // No frame reports (a page without the monitor, or a stalled loop): the old fixed window.
     if (this.now() - this.frameAt > 100) return StreamingAllowance.BASE_MS;
-    const floor = this.urgent ? StreamingAllowance.BASE_MS : StreamingAllowance.MIN_MS;
-    return Math.min(this.urgent ? 6 : 3, Math.max(floor, this.total / this.lastWindows));
+    const floor = this.pressed ? StreamingAllowance.BASE_MS : StreamingAllowance.MIN_MS;
+    return Math.min(this.pressed ? this.tuning.urgentLimit : this.tuning.limit, Math.max(floor, this.total / this.lastWindows));
   }
 }
 export const streamingAllowance = new StreamingAllowance();

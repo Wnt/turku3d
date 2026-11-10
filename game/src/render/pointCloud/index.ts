@@ -68,7 +68,7 @@ export interface PointCloudOverlayApi extends HookOverlay {
 declare global { interface Window { __turku3dPointCloud?: PointCloudOverlayApi } }
 
 /** Hard point budgets per tier (drawn points; 24 B each on the GPU). Desktop medium is the M1 Max target. */
-export const BUDGET: Record<QualityTier, number> = { mobile: 300_000, low: 600_000, reduced: 1_000_000, medium: 1_500_000, high: 3_000_000 };
+export const BUDGET: Record<QualityTier, number> = { mobile: 300_000, low: 600_000, reduced: 1_000_000, medium: 1_500_000, high: 3_000_000, ultra: 5_000_000 };
 export const LOD = {
   /** A node refines while its own spacing projects above this many pixels. */
   refinePx: 2.5,

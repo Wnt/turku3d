@@ -1,4 +1,4 @@
-export type QualityTier = 'mobile' | 'low' | 'reduced' | 'medium' | 'high';
+export type QualityTier = 'mobile' | 'low' | 'reduced' | 'medium' | 'high' | 'ultra';
 /** How a tier's river reflects the city: the planar reflector pass, a screen-space march over TRAA's last frame, or sky only. */
 export type RiverReflection = 'planar' | 'ssr' | 'sky';
 
@@ -51,19 +51,76 @@ export const QUALITY = {
   high: { parkedBodies: 80, vegetation: { near: 70, mid: 260, far: 850, nearInstances: 600, midInstances: 1400, farInstances: 16000, barrierInstances: 5000 }, grass: { density: 3.5, range: 48, instances: 24000 }, shadowSize: 2048, splits: [12, 32, 80, 240], aoScale: 0.75, aoSamples: 16, aoStrength: 0.3,
     bloomScale: 0.5, bloomStrength: 0.05, temporalSubpixel: true, reflectionScale: 0.75, reflectionSlowFps: 20, riverReflection: 'planar', detail: 0.07, saturation: 0.97,
     lights: { point: 8 }, maxPixels: 2560 * 1440, governor: false },
+  // For screenshots and judging the look, not for frame rate; chosen only in the pause menu or by `?quality=ultra`,
+  // never by deviceQuality. Trees keep full meshes to 160 m and reduced ones to 600 m, grass reaches 90 m, the sun's
+  // four 4096 px cascades reach 400 m, GTAO runs at full resolution, the river reflects at full size every frame, and
+  // the drawing buffer is the display's native one (no pixel cap; main.ts also keeps AdaptiveResolution at 1.0).
+  // Its draw distances and streaming share are WORLD_TIERS.ultra and STREAMING_TIERS.ultra below.
+  ultra: { parkedBodies: 120, vegetation: { near: 160, mid: 600, far: 2500, nearInstances: 2500, midInstances: 6000, farInstances: 60000, barrierInstances: 15000 }, grass: { density: 5, range: 90, instances: 80000 }, shadowSize: 4096, splits: [12, 36, 110, 400], aoScale: 1, aoSamples: 16, aoStrength: 0.3,
+    bloomScale: 0.5, bloomStrength: 0.05, temporalSubpixel: true, reflectionScale: 1, reflectionSlowFps: 240, riverReflection: 'planar', detail: 0.07, saturation: 0.97,
+    lights: { point: 16 }, maxPixels: Infinity, governor: false },
 } as const;
+
+/** The presets the pause menu offers (ui/graphicsMenu.ts), lowest first; `mobile` is only a device default. */
+export const MENU_TIERS = ['low', 'reduced', 'medium', 'high', 'ultra'] as const satisfies readonly QualityTier[];
+
+/** Draw distances and install concurrency of a tier (world/tierWorld.ts applies them to the engine's constants):
+ *  `window`: full tiles each way around the camera's tile (1: 3x3); `viewDetail`: full tiles in the view wedge (m);
+ *  `tileDetail`: 3D distance beyond which a resident full tile yields to its scenery cell; `hd3d`: a flying camera's
+ *  full-install distance; `blockHd`: buildings' HD children instead of their block LOD (null: per block, 280 m);
+ *  `buildingView`: scale of a building's own view distance; `props`: street furniture hide distance; `cells`: 250 m
+ *  scenery cell refinement (null: the pixel rule, 350..2000 m); `scenery`: distant city radius; `lead`: scale of the
+ *  path lead a driving player prepares; `detailSlots`/`previewSlots`: concurrent full installs and previews;
+ *  `returnTiles`/`returnBytes`: hidden full visuals kept for a return. */
+export interface WorldTier { window: number; viewDetail: number; tileDetail: number; hd3d: number; blockHd: number | null; buildingView: number;
+  props: number; cells: number | null; scenery: number; lead: number; detailSlots: number; previewSlots: number; returnTiles: number; returnBytes: number }
+const WORLD: WorldTier = { window: 1, viewDetail: 400, tileDetail: 450, hd3d: 250, blockHd: null, buildingView: 1, props: 125, cells: null,
+  scenery: 4000, lead: 1, detailSlots: 6, previewSlots: 6, returnTiles: 16, returnBytes: 96 * 2 ** 20 };
+export const WORLD_TIERS: Readonly<Record<QualityTier, WorldTier>> = {
+  mobile: { ...WORLD, scenery: 2500 }, low: { ...WORLD, scenery: 2500 }, reduced: WORLD, medium: WORLD, high: WORLD,
+  // A 5x5 full-tile window, full tiles to 1 km in the view, HD buildings to 900 m, the distant city to 8 km.
+  ultra: { window: 2, viewDetail: 1000, tileDetail: 1150, hd3d: 900, blockHd: 900, buildingView: 4, props: 450, cells: 2000,
+    scenery: 8000, lead: 2, detailSlots: 12, previewSlots: 12, returnTiles: 48, returnBytes: 512 * 2 ** 20 },
+};
+
+/** How much of a frame streaming takes (render/preparationBudget.ts StreamingAllowance): the main-thread frame targets
+ *  (ms) while the window waits (`window`), for prefetch (`prefetch`) and while moving fast (`moving`); the caps of the
+ *  total per frame (`cap`, `urgentCap`) and of one budget's window (`limit`, `urgentLimit`); the share of the frame
+ *  interval (at most `floorInterval` ms of it) streaming keeps while urgent; `always`: urgent all the time. */
+export interface StreamingTier { window: number; prefetch: number; moving: number; cap: number; urgentCap: number; limit: number; urgentLimit: number;
+  floorShare: number; floorInterval: number; always: boolean }
+const STREAMING: StreamingTier = { window: 24, prefetch: 20.5, moving: 17.5, cap: 6, urgentCap: 12, limit: 3, urgentLimit: 6, floorShare: 0.2, floorInterval: 30, always: false };
+export const STREAMING_TIERS: Readonly<Record<QualityTier, StreamingTier>> = {
+  mobile: STREAMING, low: STREAMING, reduced: STREAMING, medium: STREAMING, high: STREAMING,
+  // Loading before frames: a 66 ms frame target (15 FPS) whatever the speed, up to 40 ms of streaming a frame in
+  // 12 ms windows, and never less than half of the frame interval.
+  ultra: { window: 66, prefetch: 66, moving: 66, cap: 40, urgentCap: 40, limit: 12, urgentLimit: 12, floorShare: 0.5, floorInterval: 60, always: true },
+};
 
 export function parseQuality(value: string | null, fallback: QualityTier = 'medium'): QualityTier {
   if (value === null) return fallback;
-  if (value === 'mobile' || value === 'low' || value === 'reduced' || value === 'medium' || value === 'high') return value;
-  throw new Error(`bad ?quality= (mobile|low|reduced|medium|high): ${value}`);
+  if (value === 'mobile' || value === 'low' || value === 'reduced' || value === 'medium' || value === 'high' || value === 'ultra') return value;
+  throw new Error(`bad ?quality= (mobile|low|reduced|medium|high|ultra): ${value}`);
 }
 
-/** The tier this session renders with and why: `url` (?quality=), `recorded` (a recorded drive replay's), `device`
- *  (deviceQuality lowered the default) or `default`. main.ts resolves it before the renderer exists; streaming
+/** localStorage key of the preset chosen in the pause menu's Graphics page. */
+export const PRESET_KEY = 'turku3d.graphics';
+/** The stored menu preset, or null (none, unreadable storage, or a value this build does not offer). */
+export function storedPreset(storage: Pick<Storage, 'getItem'> | null): QualityTier | null {
+  try {
+    const value = storage?.getItem(PRESET_KEY);
+    return (MENU_TIERS as readonly string[]).includes(value ?? '') ? value as QualityTier : null;
+  } catch { return null; }
+}
+export function storePreset(storage: Pick<Storage, 'setItem'> | null, tier: QualityTier) {
+  try { storage?.setItem(PRESET_KEY, tier); } catch { /* blocked storage: the choice lasts for this page */ }
+}
+
+/** The tier this session renders with and why: `url` (?quality=), `recorded` (a recorded drive replay's), `menu` (the
+ *  pause menu's stored preset), `device` (deviceQuality lowered the default) or `default`. main.ts resolves it before the renderer exists; streaming
  *  residency (stream2) reads it. */
 export interface RenderTier {
-  tier: QualityTier; source: 'url' | 'recorded' | 'device' | 'default'; gpu: { vendor: string; architecture: string } | null;
+  tier: QualityTier; source: 'url' | 'recorded' | 'menu' | 'device' | 'default'; gpu: { vendor: string; architecture: string } | null;
   /** navigator.hardwareConcurrency, the second Apple signal. */
   cores?: number | null;
   /** Startup GPU throughput probe (render/gpuProbe.ts): before the renderer on Apple GPUs, shortly after start elsewhere. */
@@ -104,5 +161,7 @@ export function mobileDevice(userAgent: string, maxTouchPoints: number): boolean
 /** Bound play-mode fill rate to 720p on mobile and to the tier's `maxPixels` (1440p) on desktop. QA uses one pixel per CSS pixel. */
 export function renderPixelRatio(width: number, height: number, dpr: number, qa: boolean, mobile = false, maxPixels = 2560 * 1440): number {
   const pixels = mobile ? 1280 * 720 : maxPixels;
+  // No pixel cap (ultra): the display's own ratio.
+  if (!qa && !mobile && pixels === Infinity) return dpr;
   return qa ? 1 : Math.min(dpr, mobile ? 1.5 : 2, Math.sqrt(pixels / Math.max(1, width * height)));
 }

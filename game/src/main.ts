@@ -36,7 +36,9 @@ import { StreetLights } from './render/lights';
 import { PointCloudOverlay, pointCloudParam } from './render/pointCloud';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, deviceQuality, renderPixelRatio, renderTier, setRenderTier } from './render/quality';
+import { QUALITY, STREAMING_TIERS, WORLD_TIERS, deviceQuality, renderPixelRatio, renderTier, setRenderTier, storedPreset } from './render/quality';
+import { applyWorldTier } from './world/tierWorld';
+import { browserStorage } from './core/storage';
 import { gpuProbe } from './render/gpuProbe';
 import { SettingGovernor } from './render/settingGovernor';
 import { addTreePlacements } from './world/treePlacements';
@@ -131,6 +133,8 @@ try {
 }
 // ?water= river technique A/B switches (render/waterSwitches.ts), before any river material exists.
 try { applyWaterSwitches(location.search); } catch (e) { window.__qaError = String((e as Error).message ?? e); throw e; }
+// The tier's draw distances (world/tierWorld.ts); the lab's overrides below then replace single constants.
+applyWorldTier(params.quality);
 // Lab LOD overrides and ablations set engine constants, quality-tier fields and AA before anything reads them.
 if (params.lab) applyLodOverrides(params.lab.lod, params.quality, params);
 if (params.lab) ablateSettings(params.lab.off, params.quality, params, new URLSearchParams(location.search).has('aa'));
@@ -156,11 +160,15 @@ if (params.drive) {
   const adapter = params.backend === 'webgpu' ? await adapterInfo() : null;
   const gpu = adapter && { vendor: adapter.vendor, architecture: adapter.architecture };
   const cores = navigator.hardwareConcurrency ?? null;
-  const tier = detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms, cores) : params.quality;
-  if (tier !== params.quality) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}${adapter?.probe ? ` (probe ${adapter.probe.ms.toFixed(2)} ms)` : ''}`);
+  // The pause menu's stored preset (ui/graphicsMenu.ts) replaces the device default in play; never in replays.
+  const preset = detect && !params.qa && !params.mobile ? storedPreset(browserStorage()) : null;
+  const tier = preset ?? (detect ? deviceQuality(gpu, params.quality, adapter?.probe?.ms, cores) : params.quality);
+  if (tier !== params.quality && !preset) loading.note(`Quality ${tier} for ${gpu?.vendor} ${gpu?.architecture}${adapter?.probe ? ` (probe ${adapter.probe.ms.toFixed(2)} ms)` : ''}`);
   setRenderTier({ tier, gpu, cores, probe: adapter?.probe ?? undefined,
-    source: given ? 'url' : params.drive && !live ? 'recorded' : tier !== params.quality ? 'device' : 'default' });
+    source: given ? 'url' : params.drive && !live ? 'recorded' : preset ? 'menu' : tier !== params.quality ? 'device' : 'default' });
+  if (tier !== params.quality && !params.lab) applyWorldTier(tier);
   params.quality = tier;
+  streamingAllowance.tuning = STREAMING_TIERS[tier];
 }
 const loadingScreen = new LoadingScreen(!!params.qa);
 /** Bench probe: requests in flight with their start times, so a slow download keeps the scene unsettled. */
@@ -398,7 +406,7 @@ const resolution = new AdaptiveResolution(params.mobile ? 30 : new URLSearchPara
 // Rendering-only steps for tiers below medium when frames miss the goal at the resolution floor (render/settingGovernor.ts),
 // least visible first. ?governor=0 keeps the tier fixed: A/B, owner winperf, decided by Windows and Air live replays;
 // the losing path goes within ten merges.
-const sceneryRadius = params.quality === 'low' || params.quality === 'mobile' ? 2500 : 4000;
+const sceneryRadius = WORLD_TIERS[params.quality].scenery;
 const governedVegetation = QUALITY[params.quality].vegetation as { near: number; mid: number };
 const vegetationAsConfigured = { ...governedVegetation };
 const governor = QUALITY[params.quality].governor && new URLSearchParams(location.search).get('governor') !== '0' ? new SettingGovernor([
@@ -422,7 +430,7 @@ let benchSettled = () => false;
 const LOADING_SHARE_MS = 50;
 const deferredShare = () => renderer instanceof GameRenderer ? renderer.asyncBuilds?.share ?? 0 : 0;
 paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
-  : Math.max(streamingAllowance.urgent ? Math.max(3, streamingAllowance.share) : 3, deferredShare()));
+  : Math.max(streamingAllowance.pressed ? Math.max(3, streamingAllowance.share) : 3, deferredShare()));
 // Streaming budgets take long windows while the world loads behind the loading screen (render/preparationBudget.ts
 // LOADING_MS); QA, bench and lab runs keep the play-time windows they measure.
 streamingAllowance.loading = () => !params.qa && !params.lab && worldLoad.phase !== 'ready';
@@ -457,7 +465,9 @@ if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
 });
 const renderFrame = () => {
   if ((liveDrive || (!params.qa && worldLoad.snapshot().phase === 'ready')) && document.visibilityState === 'visible') {
-    const scale = resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
+    // Ultra draws the native drawing buffer whatever the frame rate.
+    if (params.quality === 'ultra') resolution.scale = 1;
+    const scale = params.quality === 'ultra' ? 1 : resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
     const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
     const stepped = governor?.update(performance.now(), scale <= 0.5 + 1e-9);
