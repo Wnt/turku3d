@@ -395,6 +395,15 @@ darker, smoother films; facade runoff is restrained. A two-metre worker height f
 depths and shelter. Centimetre-scale puddles still use a shared world-space material pattern below that resolution.
 Rain keeps its scene/depth bindings and roof cache through Vite HMR.
 
+`birds.ts` draws the birds of `world/birds/flocks.ts` as one instanced draw in the main scene (opaque, lit, fogged,
+no shadows): herring gulls and a rare white-tailed eagle soaring on loops, jackdaw and pigeon flocks, swifts, barnacle
+geese in a V and hooded crows crossing the sky. Groups are hashed from grid cells per species and every bird's place
+is a closed-form function of the shared clock, so all players see the same birds with nothing to synchronise. Gulls
+gather over the waters their calls come from (`audio/gulls.ts`); night and rain ground the birds and the low sun
+gathers the jackdaws. Heights are relative to the ground under the camera. The vertex stage places, banks and flaps
+each bird from four per-instance attributes; `SPECIES` holds every size, speed and density.
+`window.__dev.birds.snapshot()` reports the birds drawn.
+
 The normal prepass packs mineral receiver eligibility into its existing alpha channel; normal RGB and velocity
 are unchanged. Medium/high puddles trace twenty projected samples and four crossing refinements at half resolution,
 then reconstruct with depth/normal/material checks before temporal AA. Dry weather skips the
