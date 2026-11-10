@@ -537,9 +537,10 @@ test('a kilometre fallback never draws over a square a full tile draws (Kauppato
 function graphInputs(node: unknown, seen = new Set<object>(), out = { textures: new Set<THREE.Texture>(), values: new Set<unknown>() }) {
   if (!node || typeof node !== 'object' || seen.has(node)) return out;
   seen.add(node);
-  const n = node as { isTextureNode?: boolean; isConstNode?: boolean; value?: unknown };
+  const n = node as { isTextureNode?: boolean; isConstNode?: boolean; isUniformNode?: boolean; value?: unknown };
   if (n.isTextureNode) out.textures.add(n.value as THREE.Texture);
-  if (n.isConstNode) out.values.add(n.value);
+  // Constants, and the canopy-clear distance uniform (render/sceneryMaterial.ts canopyClear).
+  if (n.isConstNode || n.isUniformNode) out.values.add(n.value);
   for (const child of Object.values(node))
     if (child && typeof child === 'object' && ((child as { isNode?: boolean }).isNode || Array.isArray(child))) graphInputs(child, seen, out);
   return out;

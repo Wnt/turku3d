@@ -50,7 +50,8 @@ export class ReflectionShadows {
 export class ReflectionCadence {
   private last = -Infinity;
   private pose = new THREE.Matrix4();
-  constructor(private slowFps: number) {}
+  /** Refresh rate (FPS) while the camera is still. */
+  constructor(public slowFps: number) {}
 
   shouldUpdate(camera: THREE.Camera, now: number, hasOutput: boolean, force = false): boolean {
     const moved = !camera.matrixWorld.equals(this.pose);

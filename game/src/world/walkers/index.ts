@@ -316,6 +316,13 @@ export class Walkers {
     return walker;
   }
 
+  /** A preset switch in a running session: the drawn cap, with meshes of that capacity. */
+  setCap(cap: number) {
+    if (cap === this.options.cap) return;
+    this.options.cap = cap;
+    if (this.meshes) this.replaceMeshes(WalkerMeshes);
+  }
+
   /** Hot-swap only GPU meshes; the deterministic lives and ground cache survive. */
   replaceMeshes(Renderer: typeof WalkerMeshes) {
     if (!this.asset) return;

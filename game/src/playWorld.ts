@@ -55,6 +55,9 @@ export interface PlayWorld {
   /** The clock single-player traffic density follows (DayClock.trafficClock). */
   trafficClock: () => TrafficClock;
   syncClock?: (serverTime: number) => void;
+  /** The pause menu's graphics presets (main.ts switchQuality): `set` switches what a running session can and returns
+   *  what still waits for a reload; `pending` is that list for the preset in use. */
+  graphics: { set(tier: import('./render/quality').QualityTier): string[]; pending(): string[]; boot: import('./render/quality').QualityTier };
   /** Shared UTC milliseconds (synchronised with the multiplayer server); deterministic world simulations use it. */
   sharedNow: () => number;
   setClock: (date: Date) => void;

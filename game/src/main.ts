@@ -36,8 +36,10 @@ import { StreetLights } from './render/lights';
 import { PointCloudOverlay, pointCloudParam } from './render/pointCloud';
 import { PerformanceMonitor, type PerfSnapshot } from './render/performance';
 import { AdaptiveResolution } from './render/adaptiveResolution';
-import { QUALITY, STREAMING_TIERS, WORLD_TIERS, deviceQuality, renderPixelRatio, renderTier, setRenderTier, storedPreset } from './render/quality';
+import { QUALITY, STREAMING_TIERS, WORLD_TIERS, deviceQuality, renderPixelRatio, renderTier, setRenderTier, storedPreset, type QualityTier } from './render/quality';
 import { applyWorldTier } from './world/tierWorld';
+import { reloadBound } from './render/presetSwitch';
+import { setReflectionTier } from './render/water';
 import { browserStorage } from './core/storage';
 import { gpuProbe } from './render/gpuProbe';
 import { SettingGovernor } from './render/settingGovernor';
@@ -407,6 +409,25 @@ const resolution = new AdaptiveResolution(params.mobile ? 30 : new URLSearchPara
 // least visible first. ?governor=0 keeps the tier fixed: A/B, owner winperf, decided by Windows and Air live replays;
 // the losing path goes within ten merges.
 const sceneryRadius = WORLD_TIERS[params.quality].scenery;
+/** The tier this page booted with: its startup-bound parts (render/presetSwitch.ts) stay until a reload. */
+const bootTier = params.quality;
+/** The pause menu's preset switch in a running session: everything that reads the tier per frame or per scan follows
+ *  at once (draw distances and streaming concurrency, the streaming share, the resolution cap and adaptive floor in
+ *  renderFrame, trees and grass, the planar reflection's size and rate, the distant city's radius). Returns what
+ *  still waits for a reload. */
+function switchQuality(tier: QualityTier): string[] {
+  if (tier === params.quality) return reloadBound(bootTier, tier);
+  params.quality = tier;
+  const resolved = renderTier();
+  if (resolved) setRenderTier({ ...resolved, tier, source: 'menu' });
+  applyWorldTier(tier);
+  streamingAllowance.tuning = STREAMING_TIERS[tier];
+  vegetation?.setTier(tier);
+  setReflectionTier(tier);
+  if (distantCity && distantCity.radius > 0 && distantCity.radius !== WORLD_TIERS[tier].scenery) distantCity.setRadius(WORLD_TIERS[tier].scenery);
+  console.info(`[graphics] preset ${tier} (booted ${bootTier}); waits for a reload: ${reloadBound(bootTier, tier).join(', ') || 'nothing'}`);
+  return reloadBound(bootTier, tier);
+}
 const governedVegetation = QUALITY[params.quality].vegetation as { near: number; mid: number };
 const vegetationAsConfigured = { ...governedVegetation };
 const governor = QUALITY[params.quality].governor && new URLSearchParams(location.search).get('governor') !== '0' ? new SettingGovernor([
@@ -470,7 +491,8 @@ const renderFrame = () => {
     const scale = params.quality === 'ultra' ? 1 : resolution.update(performance.now(), params.mobile ? perf.frameCostMs : undefined);
     const ratio = renderPixelRatio(innerWidth, innerHeight, devicePixelRatio, false, params.mobile, QUALITY[params.quality].maxPixels) * scale;
     if (Math.abs(renderer.getPixelRatio() - ratio) > 0.001) renderer.setPixelRatio(ratio);
-    const stepped = governor?.update(performance.now(), scale <= 0.5 + 1e-9);
+    // The governor steps the booted tier's settings: a preset switched in the menu is the player's own choice.
+    const stepped = params.quality === bootTier ? governor?.update(performance.now(), scale <= 0.5 + 1e-9) : null;
     if (stepped) console.info(`[governor] level ${governor!.level}: ${stepped.name}`);
   }
   dayClock.update();
@@ -672,7 +694,8 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, signal?: AbortSignal) {
   const coarse = await CoarseTiles.start({ scene, renderer, manifest,
     detailRadius: params.mobile ? 80 : undefined,
-    vegetationDistance: QUALITY[params.quality].vegetation.mid,
+    // Read per use: the pause menu can switch the preset in a running session.
+    get vegetationDistance() { return QUALITY[params.quality].vegetation.mid; },
     prepareVegetation: async (m, data, order) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal, 'tile', order); },
     previewCollision: collisionPreview, preparePreview: (m, order) => prepareGraphics(m, signal, 'tile', order),
     // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
@@ -690,7 +713,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
   if (!coarse) throw new Error('World generation service is unavailable');
   adoptCoarse(coarse);
   if (!idPass) {
-    distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : sceneryRadius);
+    distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : WORLD_TIERS[params.quality].scenery);
     if (params.qa) distantCity!.follow(camera);
     // Keep the sky behind the far city; atmospheric haze still comes from the timecycle.
     env.setCityDistance(camera, 15000);
@@ -1008,6 +1031,7 @@ async function runPlay() {
       streamer, coarse, telemetry, clock, errors, fail, hudEl, renderFrame, prepareGraphics: prepareActorGraphics, groundAt,
       loadingScreen, dayClock, weather, syncClock: time => dayClock.synchronize(time), sharedNow: () => dayClock.sharedNow(), clockTime: () => dayClock.time,
       trafficClock: () => dayClock.trafficClock(),
+      graphics: { set: switchQuality, pending: () => reloadBound(bootTier, params.quality), boot: bootTier },
       setClock: date => dayClock.restore(date),
       spawn: { ...spawn, yaw: yaw0 }, car: { x: parking.x, y: parking.y, z: parking.z, yaw: parking.yaw }, startAt, travel,
       ...(params.spawnGiven ? { cityStart: (stream: (x: number, z: number) => Promise<void>) => cityStart(physics, streamer, coarse, manifest, stream) } : {}) };
