@@ -6,7 +6,7 @@ import { PLAYER_MODEL } from './actors/fleet/catalog';
 import { prefetchFleet } from './actors/fleet/visuals';
 import { TRAFFIC_CAPS } from './traffic/constants';
 import { paceYields } from './render/yieldPacer';
-import { streamingAllowance } from './render/preparationBudget';
+import { afterStreamingTurn, streamingAllowance } from './render/preparationBudget';
 import { DriveBench, loadDrive, driveQaPose, driveEpoch, driveClockMode, type LoadedDrive } from './qa/drive';
 import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
@@ -451,7 +451,7 @@ let benchSettled = () => false;
 const LOADING_SHARE_MS = 50;
 const deferredShare = () => renderer instanceof GameRenderer ? renderer.asyncBuilds?.share ?? 0 : 0;
 paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.snapshot().phase !== 'ready' ? LOADING_SHARE_MS
-  : Math.max(streamingAllowance.pressed ? Math.max(3, streamingAllowance.share) : 3, deferredShare()));
+  : Math.max(streamingAllowance.pressed ? Math.max(3, streamingAllowance.share) : 3, deferredShare()), afterStreamingTurn);
 // Streaming budgets take long windows while the world loads behind the loading screen (render/preparationBudget.ts
 // LOADING_MS); QA, bench and lab runs keep the play-time windows they measure.
 streamingAllowance.loading = () => !params.qa && !params.lab && worldLoad.phase !== 'ready';

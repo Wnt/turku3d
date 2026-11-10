@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { MainThreadIdle, PreparationBudget, StreamingAllowance } from '../../src/render/preparationBudget';
+import { STREAMING_TIERS } from '../../src/render/quality';
 import { afterRender } from '../../src/render/afterRender';
 
 test('preparation resumes after animation callbacks rather than inside the frame being drawn', async () => {
@@ -174,4 +175,40 @@ test('while the world loads behind the loading screen every budget gets the long
   // The menu is ready: play-time windows again.
   loading = false;
   expect(account.limit).toBe(StreamingAllowance.BASE_MS);
+});
+
+test('continuous streaming (ultra) resumes after a task hop between frames and waits for a frame once one is overdue', async () => {
+  let now = 0, hops = 0, frames = 0;
+  const account = new StreamingAllowance(() => now, () => { hops++; return Promise.resolve(); }, () => { frames++; return Promise.resolve(); });
+  account.tuning = STREAMING_TIERS.ultra;
+  const budget = new PreparationBudget(() => now, () => { throw new Error('a continuous budget never waits on its own frame'); }, null, account);
+  account.frame(8, 120); // a GPU-bound ultra frame
+  expect(account.continuous).toBe(true);
+  expect(account.limit).toBe(12); // one slice, however long ago the frame was
+  await budget.checkpoint();
+  now = 13; await budget.checkpoint(); // the slice is used: one task hop, no frame
+  expect([hops, frames]).toEqual([1, 0]);
+  now = 26; await budget.checkpoint();
+  expect([hops, frames]).toEqual([2, 0]);
+  now = 600; await budget.checkpoint(); // no frame for 600 ms: past the 500 ms gap, streaming waits for the next one
+  expect([hops, frames]).toEqual([2, 1]);
+  account.loading = () => true; // behind the loading screen streaming keeps its frame-paced windows
+  expect(account.continuous).toBe(false);
+  account.loading = () => false; account.tuning = STREAMING_TIERS.high;
+  expect(account.continuous).toBe(false);
+});
+
+test('continuous streaming holds back sooner while frames come slower than 1 FPS allows', () => {
+  let now = 0;
+  const account = new StreamingAllowance(() => now, () => Promise.resolve(), () => Promise.resolve());
+  account.tuning = STREAMING_TIERS.ultra;
+  account.frame(8, 120); now = 499;
+  expect(account.overdue).toBe(false);
+  account.frame(8, 900); // a frame behind a GPU queue of uploads: over 75 % of the 1 s budget
+  now += 300;
+  expect(account.overdue).toBe(true); // the gap halved to 250 ms
+  for (let i = 0; i < 40; i++) account.frame(8, 120); // fast frames let it grow back
+  now += 499;
+  expect(account.overdue).toBe(false);
+  expect(account.stats().gap).toBe(500);
 });

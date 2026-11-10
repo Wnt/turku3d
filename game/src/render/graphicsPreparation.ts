@@ -1,5 +1,5 @@
 import type * as THREE from 'three/webgpu';
-import { afterRender } from './afterRender';
+import { afterStreamingTurn } from './preparationBudget';
 import { compileStats } from './compileModel';
 import { streamTrace } from '../telemetry/streamTrace';
 
@@ -81,7 +81,7 @@ export class GraphicsPreparation {
   }
   constructor(private scene: THREE.Scene, private prepareView: (model: THREE.Object3D) => void | Promise<void>,
     private retireFrame: (release: () => void) => void,
-    private nextTask = () => new Promise<void>(resolve => afterRender(resolve))) {}
+    private nextTask = () => new Promise<void>(resolve => afterStreamingTurn(resolve))) {}
 
   defer(model: THREE.Object3D, prepare: Job['prepare'], signal?: AbortSignal) {
     this.skipped.set(model, { model, prepare, signal });

@@ -86,15 +86,19 @@ export const WORLD_TIERS: Readonly<Record<QualityTier, WorldTier>> = {
 /** How much of a frame streaming takes (render/preparationBudget.ts StreamingAllowance): the main-thread frame targets
  *  (ms) while the window waits (`window`), for prefetch (`prefetch`) and while moving fast (`moving`); the caps of the
  *  total per frame (`cap`, `urgentCap`) and of one budget's window (`limit`, `urgentLimit`); the share of the frame
- *  interval (at most `floorInterval` ms of it) streaming keeps while urgent; `always`: urgent all the time. */
+ *  interval (at most `floorInterval` ms of it) streaming keeps while urgent; `always`: urgent all the time;
+ *  `continuous`: streaming resumes after a task hop instead of a drawn frame (slices of `urgentLimit` ms), while frames
+ *  still come at `minFps` or faster. */
 export interface StreamingTier { window: number; prefetch: number; moving: number; cap: number; urgentCap: number; limit: number; urgentLimit: number;
-  floorShare: number; floorInterval: number; always: boolean }
-const STREAMING: StreamingTier = { window: 24, prefetch: 20.5, moving: 17.5, cap: 6, urgentCap: 12, limit: 3, urgentLimit: 6, floorShare: 0.2, floorInterval: 30, always: false };
+  floorShare: number; floorInterval: number; always: boolean; continuous: boolean; minFps: number }
+const STREAMING: StreamingTier = { window: 24, prefetch: 20.5, moving: 17.5, cap: 6, urgentCap: 12, limit: 3, urgentLimit: 6, floorShare: 0.2, floorInterval: 30, always: false,
+  continuous: false, minFps: 0 };
 export const STREAMING_TIERS: Readonly<Record<QualityTier, StreamingTier>> = {
   mobile: STREAMING, low: STREAMING, reduced: STREAMING, medium: STREAMING, high: STREAMING,
-  // Loading before frames: a 66 ms frame target (15 FPS) whatever the speed, up to 40 ms of streaming a frame in
-  // 12 ms windows, and never less than half of the frame interval.
-  ultra: { window: 66, prefetch: 66, moving: 66, cap: 40, urgentCap: 40, limit: 12, urgentLimit: 12, floorShare: 0.5, floorInterval: 60, always: true },
+  // Loading before frames: streaming works continuously in 12 ms slices between task hops, on wall-clock time rather
+  // than once a drawn frame, and holds back only when a frame would come later than 1 FPS.
+  ultra: { window: 66, prefetch: 66, moving: 66, cap: 40, urgentCap: 40, limit: 12, urgentLimit: 12, floorShare: 0.5, floorInterval: 60, always: true,
+    continuous: true, minFps: 1 },
 };
 
 export function parseQuality(value: string | null, fallback: QualityTier = 'medium'): QualityTier {

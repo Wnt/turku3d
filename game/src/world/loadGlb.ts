@@ -53,7 +53,9 @@ const postTask = (globalThis as { scheduler?: { postTask?: PostTask } }).schedul
 /** The admission loop's hop: ahead of ordinary tasks where the Prioritized Task Scheduling API exists, so the time
  *  between an admission and the next is that admission's own work, not other streaming work queued meanwhile. */
 const admissionTask = postTask ? () => postTask(() => {}, { priority: 'user-blocking' }) : nextTask;
-const nextWindow = () => new Promise<void>(resolve => { afterRender(resolve); setTimeout(resolve, 100); });
+/** The next window: after a drawn frame (or 100 ms without one), or the next continuous streaming turn (ultra). */
+const nextWindow = () => streamingAllowance.continuous ? streamingAllowance.turn()
+  : new Promise<void>(resolve => { afterRender(resolve); setTimeout(resolve, 100); });
 
 /** Lower first: seconds until the player reaches the tile that wants the glTF (coarseTiles arrivalRank). */
 export type ParseRank = () => number;
@@ -106,7 +108,8 @@ async function runAdmissions() {
   admitting = true;
   try {
     while (waiting.size) {
-      while (!room()) await nextWindow();
+      // A continuous turn is a new window whether or not a frame was drawn meanwhile.
+      while (!room()) { await nextWindow(); if (streamingAllowance.continuous) windowFrame = NaN; }
       const parse = nextParse();
       if (!parse) break;
       const count = Math.max(1, Math.min(parse.turns.length, Math.floor((streamingAllowance.limit - spent) / turnMs)));

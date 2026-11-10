@@ -5,11 +5,12 @@ import { afterRender } from './afterRender';
  * preparation chained several 10–30 ms build stages back to back between two frames: on the Radeon Pro 560X they
  * were in 132 of 135 hitches over 50 ms (LoAF `Scheduler.yield.then` in three.core, 13 ms each on average).
  *
- * During play, `self.scheduler.yield` instead queues the continuation and releases queued ones after each frame
- * while that gap has used under `budgetMs()` (main.ts: more while the 3x3 window still waits for full tiles); a stage that runs over ends the gap's share, so at most one long stage
+ * During play, `self.scheduler.yield` instead queues the continuation and releases queued ones after each frame (or
+ * after each continuous streaming turn, `turn`: render/preparationBudget.ts afterStreamingTurn) while that gap has used
+ * under `budgetMs()` (main.ts: more while the 3x3 window still waits for full tiles); a stage that runs over ends the gap's share, so at most one long stage
  * lands between two frames. Loading, the bench settle, hidden pages and every other caller outside play keep the
  * browser's own scheduler.yield, so warm-up compiles are as fast as before. */
-export function paceYields(playing: () => boolean, budgetMs: () => number = () => 3) {
+export function paceYields(playing: () => boolean, budgetMs: () => number = () => 3, turn: (work: () => void) => void = afterRender) {
   const scheduler = (globalThis as { scheduler?: { yield?: () => Promise<void> } }).scheduler;
   if (!scheduler?.yield) return null;
   const native = scheduler.yield.bind(scheduler);
@@ -44,7 +45,7 @@ export function paceYields(playing: () => boolean, budgetMs: () => number = () =
   const nextGap = () => {
     if (waiting) return;
     waiting = true;
-    afterRender(() => { waiting = false; gapStart = performance.now(); step(); });
+    turn(() => { waiting = false; gapStart = performance.now(); step(); });
   };
   scheduler.yield = () => {
     if (!live()) return native();
