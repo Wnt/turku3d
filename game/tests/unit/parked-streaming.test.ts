@@ -10,7 +10,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
 test('draft cars wait for collision, spawn once, retain borrowed identity and unload untouched cars', async () => {
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = [car, { ...car, object_id: 'other', x: 40 }];
   const physics = { loaded: new Map(), latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn() } as unknown as PhysicsClient;
-  const visuals = { load: vi.fn(async () => {}), has: () => true }, seated = { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() };
+  const visuals = { stream: vi.fn(async () => {}), has: () => true }, seated = { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() };
   const stream = new ParkedVehicles(manifest, physics, visuals, seated);
   stream.update(30, 30, null, 0); await settle();
   expect(physics.spawnVehicle).not.toHaveBeenCalled();
@@ -32,7 +32,7 @@ test('rare parked truck uses the built-in truck appearance and physics without a
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = [{ ...car, model: 'truck', width: 2.5, length: 5.6 }];
   const physics = { loaded: new Map([['c_0_0', {}]]), latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn() } as unknown as PhysicsClient;
   const seated = { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() };
-  const stream = new ParkedVehicles(manifest, physics, { load: async () => {}, has: () => true }, seated);
+  const stream = new ParkedVehicles(manifest, physics, { stream: async () => {}, has: () => true }, seated);
   stream.update(30, 30, null, 0); await settle();
   expect(seated.addTruck).toHaveBeenCalledExactlyOnceWith(car.object_id);
   expect(physics.spawnVehicle).not.toHaveBeenCalled();
@@ -47,7 +47,7 @@ test('rare parked truck uses the built-in truck appearance and physics without a
 test('global claimed slots never respawn locally, and expiry releases the source slot', async () => {
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = [car];
   const physics = { loaded: new Set(['c_0_0']), latest: { vehicles: [] }, spawnVehicle: vi.fn(), removeVehicle: vi.fn() };
-  const visuals = { load: vi.fn(async () => {}), has: () => true }, seated = { addTruck: vi.fn(), retainTrucks: vi.fn() };
+  const visuals = { stream: vi.fn(async () => {}), has: () => true }, seated = { addTruck: vi.fn(), retainTrucks: vi.fn() };
   const stream = new ParkedVehicles(manifest, physics as never, visuals, seated);
   stream.setShared(new Set([car.object_id]), new Set());
   stream.update(30, 30, null, 0); await settle();
@@ -67,7 +67,7 @@ test('cars already drawn get bodies near the player while a later appearance loa
   const drawn = new Set<string>();
   let release: () => void = () => {};
   const visuals = {
-    load: vi.fn(() => new Promise<void>(resolve => {
+    stream: vi.fn(() => new Promise<void>(resolve => {
       const ids = (manifest.vehicles ?? []).map(v => v.object_id);
       release = () => { for (const id of ids) drawn.add(id); resolve(); };
     })),
@@ -83,7 +83,7 @@ test('cars already drawn get bodies near the player while a later appearance loa
   // A tile streams in another car; its appearance load does not finish (a backed-up preparation queue)...
   manifest.vehicles = [car, ahead, { ...car, object_id: 'streamed', x: 234 }];
   stream.update(30, 30, null, 2000); await settle();
-  expect(visuals.load).toHaveBeenCalledTimes(2);
+  expect(visuals.stream).toHaveBeenCalledTimes(2);
   // ...while the player walks on to the drawn car ahead: it gets its body, the undrawn one does not.
   stream.update(230, 30, null, 3000); await settle();
   expect(physics.spawnVehicle).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ id: 'ahead', parked: true }));

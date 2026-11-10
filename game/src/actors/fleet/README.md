@@ -13,6 +13,12 @@ Kenney fallback any more.
 - Special roles (bus, trucks, ambulances, fire truck, microcar) are registered but need an exact model id.
 - The trophy truck (#19-style 4400 car, `actors/trophy4400/`, `public/assets/vehicles/trophy4400/`) is its own model and stays separate.
 
+Live play bootstraps only LOD2 of the light fallbacks and starter car. `stream(manifest)` keeps the live inventory,
+loads a visible design's complete LOD2 first, then requests LOD0 within 42 m or LOD1 within 105 m. The prepared far
+mesh remains visible during the upgrade. Unseen designs do not fetch, and a parked body waits for its first prepared
+visual. Driving a car and multiplayer peer appearances request articulated LOD0 directly. `load(manifest)` explicitly
+preloads complete fleets for deterministic replays and the gallery.
+
 `visuals.ts` keeps one instanced draw per visible model and LOD (shared node material; glazing is a second instanced
 pass), four authored wheel hubs per near car (LOD0/1; LOD2 keeps them merged), paint and lamp state as instance
 attributes. LOD boundaries are 42 and 105 metres; vehicles beyond 320 metres are culled. Only the nearest LOD casts

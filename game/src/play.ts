@@ -229,7 +229,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // The player character is required; vehicles and the parked fleet are optional (core/retryFetch.ts).
   await loading.track('Player and vehicle models', Promise.all([optional('player car', car.load(), undefined),
     optional('scooter and truck', seated.load(import.meta.env.BASE_URL, renderer), undefined),
-    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.load(manifest), undefined)]));
+    player.load(`${import.meta.env.BASE_URL}assets/character/player.glb`, renderer), optional('parked cars', parkedVisuals.stream(manifest), undefined)]));
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
   if (player.template) drivers.setCharacter(player.template.scene, player.template.clips, renderer, root);
   Object.assign(window.__game!, { drivers });

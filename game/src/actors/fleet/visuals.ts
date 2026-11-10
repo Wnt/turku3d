@@ -71,13 +71,11 @@ function fleetModels(cars:readonly ParkedVehicle[],traffic:boolean,failed:Readon
   const models=FLEET.filter(m=>!failed.has(m.id)&&(counts.has(m.id)||alwaysLoaded.has(m.id)||traffic&&SELECTABLE_FAMILIES.has(m.family)));
   return {counts,alwaysLoaded,models};
 }
-/** Fetches and bakes the assets a game session's fleet will draw before the session exists (authored.ts keeps each;
- *  the session's load takes copies). A cold city.lab boot's main thread idled ~70 % of its first 5 s waiting on the
- *  start tiles, and the fleet, loaded only once the start was placed, then held the menu 4-9 s on the M1 Air
- *  (loadspeed 2026-11-09). Only the traffic reserve's models are known this early: parked records arrive with tiles. */
+/** Only bootstrap the light fallbacks and starter car's far LOD while the start streams. Live cars request
+ *  their own designs when visible; the player's articulated LOD0 is loaded by CarVisual. */
 export function prefetchFleet(traffic:boolean):Promise<void> {
-  const {models}=fleetModels([],traffic,new Set());
-  return inPool(models.flatMap(model=>[0,1,2].map(lod=>()=>prefetchAuthoredFleet(model.id,lod))),FLEET_FETCHES);
+  return inPool((traffic?[...FALLBACK_MODELS,PLAYER_MODEL]:[PLAYER_MODEL])
+    .map(id=>()=>prefetchAuthoredFleet(id,2)),FLEET_FETCHES);
 }
 /** Damaged batches start with room for this many cars of a model and grow by doubling. */
 const WRECK_CAPACITY = 8;
@@ -88,6 +86,14 @@ const HIDDEN = new THREE.Matrix4().makeScale(0,0,0);
  * far cars retain one flattened draw. Paint and lamps do not add draws. Existing physics records remain authoritative. */
 export class ParkedCarVisuals {
   private cars: ParkedVehicle[]=[];
+  /** Live inventory; only records with a prepared visual enter `cars` and get physics bodies. */
+  private records: ParkedVehicle[]=[];
+  private recordCounts=new Map<string,number>();
+  private scanAfter=-Infinity;
+  private demanded=new Map<string,Promise<void>>();
+  private lodQueue:{model:FleetModel;lod:number;priority:number;resolve:()=>void;reject:(error:unknown)=>void}[]=[];
+  private draining=false;
+  private assets=new Map<string,Promise<void>>();
   private groups=new Map<string,Batch>();
   /** Per model and LOD 0/1: the batch of its damaged parked cars, on the damage material (built after its cage). */
   private damaged=new Map<string,Batch>();
@@ -142,11 +148,18 @@ export class ParkedCarVisuals {
     const designs=parts?parts.wheels.map(w=>({key:w.name,pivot:w.pivot,sharedSide:false})):[];
     this.designs.set(key,designs);return designs;
   }
-  private async authored(model:FleetModel,lod:number) {
+  private authored(model:FleetModel,lod:number):Promise<void> {
+    const key=`${model.id}/${lod}`;
+    let job=this.assets.get(key);
+    if(!job){job=this.authoredNow(model,lod).finally(()=>this.assets.delete(key));this.assets.set(key,job);}
+    return job;
+  }
+  private async authoredNow(model:FleetModel,lod:number) {
     if(!AUTHORED_BY_ID.has(model.id)||this.failed.has(model.id)||this.geometries.has(`${model.id}/${lod}`))return;
     const key=`${model.id}/${lod}`;
     const parts=lod<2?await loadAuthoredFleetParts(model.id,lod):null;
     const body=parts?.body??await loadAuthoredFleet(model.id,lod);
+    if(this.disposed){body?.dispose();for(const wheel of parts?.wheels??[])wheel.geometry.dispose();return;}
     // The asset failed after its fetch retries (authored.ts warned once): the model is drawn as a fallback (resolve).
     if(!body){this.failed.add(model.id);return;}
     this.geometries.set(key,body);
@@ -166,6 +179,7 @@ export class ParkedCarVisuals {
       this.authoredParts.set(key,parts);this.designs.delete(key);
     }
     const glass=await loadAuthoredFleet(model.id,lod,'glass');
+    if(this.disposed){glass?.dispose();return;}
     if(glass)this.geometries.set(`${key}/glass`,glass);
   }
   private geometry(model:FleetModel,lod:number) {
@@ -187,21 +201,68 @@ export class ParkedCarVisuals {
     const cars=(manifest.vehicles??[]).filter(c=>c.model!=='truck').map(c=>({...c}));
     const run=this.loading.catch(()=>{}).then(()=>this.loadNow(cars)); this.loading=run; return run;
   }
-  private async loadNow(cars:ParkedVehicle[]) {
+  /** Live play publishes metadata immediately, then prepares only designs the camera can see. `load` above
+   *  remains the explicit preload for galleries and deterministic replays. */
+  stream(manifest:Manifest):Promise<void> {
+    this.scanAfter=-Infinity;
+    this.records=(manifest.vehicles??[]).filter(c=>c.model!=='truck').map(c=>({...c}));
+    this.countRecords();
+    this.publishRecords();
+    return Promise.all([...FALLBACK_MODELS,PLAYER_MODEL].map(id=>this.requestLod(FLEET_BY_ID.get(id)!,2))).then(()=>{});
+  }
+  private requestLod(model:FleetModel,lod:number,priority=lod):Promise<void> {
+    const key=`${model.id}/${lod}`;
+    const count=(this.recordCounts.get(model.id)??0)+this.reserve;
+    if(this.disposed||this.failed.has(model.id)||(this.groups.get(key)?.mesh.instanceMatrix.count??0)>=Math.max(1,count))return Promise.resolve();
+    let pending=this.demanded.get(key);
+    if(!pending){
+      pending=new Promise<void>((resolve,reject)=>this.lodQueue.push({model,lod,priority,resolve,reject}))
+        .finally(()=>this.demanded.delete(key));
+      this.demanded.set(key,pending);void this.drainLods();
+    }else {
+      const queued=this.lodQueue.find(job=>job.model===model&&job.lod===lod);
+      if(queued)queued.priority=Math.min(queued.priority,priority);
+    }
+    return pending;
+  }
+  private async drainLods() {
+    if(this.draining)return;
+    this.draining=true;
+    try {
+      while(this.lodQueue.length){
+        // A nearby design's far mesh and upgrades overtake far-only work that has not started yet.
+        this.lodQueue.sort((a,b)=>a.priority-b.priority);
+        const job=this.lodQueue.shift()!;
+        const run=this.loading.catch(()=>{}).then(()=>this.disposed?undefined:this.loadNow(this.records,new Map([[job.model.id,new Set([job.lod])]])));
+        this.loading=run;
+        try{await run;job.resolve();}catch(error){job.reject(error);}
+      }
+    }finally{this.draining=false;}
+  }
+  private demand(model:FleetModel,lod:number) {
+    // Every design gets a small, complete far mesh first. The next frame requests the visible near LOD.
+    const wanted=this.groups.has(`${model.id}/2`)?lod:2;
+    void this.requestLod(model,wanted,lod).catch(error=>console.warn(`[fleet] streamed ${model.id}/${wanted}: ${error}`));
+  }
+  private async loadNow(cars:ParkedVehicle[],requested?:ReadonlyMap<string,ReadonlySet<number>>) {
+
     // Reserved traffic may draw any model of a traffic/parking family (fleetModels).
     const selected=fleetModels(cars,this.reserve>0,this.failed),{counts,alwaysLoaded}=selected;
-    let models=selected.models;
+    let models=requested?FLEET.filter(m=>requested.has(m.id)&&!this.failed.has(m.id)):selected.models;
+    const lods=(model:FleetModel)=>requested?[...requested.get(model.id)!]:[0,1,2];
     const replacements: [string,Batch][]=[];
     const wheelReplacements:[string,WheelBatch][]=[];
     const plans=new Map<string,{model:FleetModel;lod:number;count:number;reserve:number}>();
     // Fetched and decoded FLEET_FETCHES at a time: one after another, each asset's request, decode and paced bake
     // left the network and the decoder idle between assets (~45 models x 3 LODs held a cold city.lab boot 28 s).
-    await inPool(models.flatMap(model=>[0,1,2].map(lod=>()=>this.authored(model,lod))),FLEET_FETCHES);
+    await inPool(models.flatMap(model=>lods(model).map(lod=>()=>this.authored(model,lod))),FLEET_FETCHES);
+    if(this.disposed)return;
     // The fallbacks and the starter car must load; any other model whose asset failed is drawn as a fallback.
-    const required=[...alwaysLoaded].filter(id=>this.failed.has(id));
+    const required=[...alwaysLoaded].filter(id=>(!requested||requested.has(id))&&this.failed.has(id));
     if(required.length)throw Error(`Fleet model ${required.join(', ')} failed to load`);
     models=models.filter(m=>!this.failed.has(m.id));
-    for(const model of models)for(const lod of [0,1] as const){
+    if(requested){this.countRecords();for(const model of models)counts.set(model.id,this.recordCounts.get(model.id)??0);}
+    for(const model of models)for(const lod of lods(model).filter(lod=>lod<2)){
       const uses=new Map<string,number>();
       for(const wheel of this.wheelDesigns(model,lod))uses.set(wheel.key,(uses.get(wheel.key)??0)+1);
       for(const [key,multiplicity] of uses){
@@ -222,8 +283,8 @@ export class ParkedCarVisuals {
         mesh.count=0;mesh.setMatrixAt(0,HIDDEN);paintInstances(mesh,[]);fleetLamps(mesh,[]);shareBatchProgram(mesh);
         wheelReplacements.push([key,{mesh,count:0,dirty:true}]);await this.prepare(mesh);
       }
-      for(const model of models) for(let lod=0;lod<3;lod++) {
-        const key=`${model.id}/${lod}`, required=(counts.get(model.id)??0)+this.reserve;
+      for(const model of models) for(const lod of lods(model)) {
+        const key=`${model.id}/${lod}`, required=Math.max(1,(counts.get(model.id)??0)+this.reserve);
         if((this.groups.get(key)?.mesh.instanceMatrix.count??0)>=required) continue;
         const capacity=Math.max(16,2**Math.ceil(Math.log2(Math.max(1,required))));
         if(!this.geometries.has(key)) {
@@ -239,6 +300,10 @@ export class ParkedCarVisuals {
         await this.prepare(mesh);
       }
     } catch(error) { for(const [,b] of replacements){b.glass?.dispose();b.mesh.dispose();} for(const [,b] of wheelReplacements)b.mesh.dispose(); throw error; }
+    if(this.disposed){
+      for(const [,b] of replacements){b.glass?.dispose();b.mesh.dispose();}
+      for(const [,b] of wheelReplacements)b.mesh.dispose();return;
+    }
     // Keep every old draw until ALL replacement materials and passes are ready.
     for(const [key,batch] of replacements) {
       const old=this.groups.get(key); if(old) {old.mesh.removeFromParent();old.glass?.dispose();old.mesh.dispose();}
@@ -248,6 +313,10 @@ export class ParkedCarVisuals {
       const old=this.wheelGroups.get(key);if(old){old.mesh.removeFromParent();old.mesh.dispose();}
       this.wheelGroups.set(key,batch);this.addBatch(batch.mesh);
     }
+    if(requested)this.publishRecords();else this.setRecords(cars);
+    void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
+  }
+  private setRecords(cars:ParkedVehicle[]) {
     // A slot no real model fits stays empty: no definition, so no draw and no body either (world/parkedVehicles.ts),
     // although ParkedVehicles.restingPose still gives a solo record its slot pose.
     const resident=new Set<string>();
@@ -258,21 +327,39 @@ export class ParkedCarVisuals {
     for(const id of this.definitions.keys())if(!resident.has(id)&&!this.dynamic.has(id))this.definitions.delete(id);
     for(const [id,wreck] of this.wrecks)if(!this.definitions.has(id)||this.dynamic.has(id)){wreck.rig.release();this.wrecks.delete(id);}
     this.cars=cars.filter(c=>resident.has(c.object_id)&&!this.dynamic.has(c.object_id));
-    void this.warmActors(models).catch(error=>console.warn(`[fleet] actor warmup: ${error}`));
+  }
+  private countRecords() {
+    this.recordCounts.clear();
+    for(const car of this.records){
+      const chosen=fleetModel(car.model,car.object_id,car);if(!chosen)continue;
+      const model=this.resolve(chosen,car.object_id);
+      this.recordCounts.set(model.id,(this.recordCounts.get(model.id)??0)+1);
+    }
+  }
+  private publishRecords() {
+    this.setRecords(this.records.filter(car=>{
+      const model=fleetModel(car.model,car.object_id,car);if(!model)return false;
+      const id=this.resolve(model,car.object_id).id;
+      // A streamed tile can add more copies of a resident design. Keep old bodies while its batch grows,
+      // but do not publish extra colliders before the replacement has room to draw them.
+      const required=(this.recordCounts.get(id)??0)+this.reserve;
+      return this.definitions.has(car.object_id)||[0,1,2].some(lod=>(this.groups.get(`${id}/${lod}`)?.mesh.instanceMatrix.count??0)>=Math.max(1,required));
+    }));
   }
   /** Prepare a takeOver actor of each design ahead (see `keepers`); a design whose geometry is not built yet waits for
    *  its own load. */
   private async warmActors(models:readonly FleetModel[]) {
     for(const model of models) {
-      if(this.keepers.has(model.id)||!this.geometries.has(`${model.id}/0`))continue;
+      if(this.disposed||!this.geometries.has(`${model.id}/0`))continue;
       // Its damage cage weights first, in frame-sized phases (actor() would compute them in one go).
       const layout=modelLayout(model),glass=this.geometries.get(`${model.id}/0/glass`);
       await skinToCageAsync(this.geometry(model,0),layout);if(glass)await skinToCageAsync(glass,layout,'glass');
-      if(this.keepers.has(model.id))continue;
+      if(this.disposed)continue;
       // LOD1 on the cage too: damaged parked cars keep their dents out to 105 m.
       const lod1=this.geometries.get(`${model.id}/1`),glass1=this.geometries.get(`${model.id}/1/glass`);
       if(lod1)await skinToCageAsync(lod1,layout);if(glass1)await skinToCageAsync(glass1,layout,'glass');
       for(const lod of [0,1])await this.damagedBatch(model,lod,WRECK_CAPACITY);
+      if(this.disposed||this.keepers.has(model.id))continue;
       const keeper=this.actor(model,'silver',`keeper/${model.id}`);
       // Detached on purpose: the graphics queue prepares it even after the menu (render/graphicsPreparation.ts).
       keeper.userData.preparesDetached=true;
@@ -377,8 +464,10 @@ export class ParkedCarVisuals {
       // A just-claimed car whose model is not resident yet: an empty actor holds its pose (update) until the model
       // loads, then the real model takes its place.
       const holder=new THREE.Mesh();holder.name=`driven/${id}`;this.scene.add(holder);this.dynamic.set(id,holder);
-      void this.authored(model,0).then(()=>{
-        if(this.dynamic.get(id)!==holder)return;
+      void this.authored(model,0).then(async()=>{
+        const resolved=this.resolve(model,id);
+        if(resolved!==model)await this.authored(resolved,0);
+        if(this.disposed||this.dynamic.get(id)!==holder)return;
         // An asset that failed meanwhile is drawn as a resident fallback model.
         const actor=this.actor(this.resolve(model,id),def.color,`driven/${id}`);actor.matrix.copy(holder.matrix);actor.matrixAutoUpdate=holder.matrixAutoUpdate;
         actor.position.copy(holder.position);actor.quaternion.copy(holder.quaternion);
@@ -396,12 +485,15 @@ export class ParkedCarVisuals {
   }
   requestRemoteModel(key:string) {
     const model=fleetModel(key.split('/')[0],key), geometryKey=`${model.id}/0`;
-    if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(geometryKey)||this.remoteRequests.has(geometryKey))return;
-    this.remoteRequests.set(geometryKey,this.authored(model,0)
+    const resolved=this.resolve(model,key);
+    if(!AUTHORED_BY_ID.has(model.id)||this.geometries.has(`${resolved.id}/0`)||this.remoteRequests.has(geometryKey))return;
+    this.remoteRequests.set(geometryKey,this.authored(model,0).then(async()=>{
+      const resolved=this.resolve(model,key);if(resolved!==model)await this.authored(resolved,0);
+    })
       .catch(error=>console.error('Remote fleet asset failed',error)).finally(()=>this.remoteRequests.delete(geometryKey)));
   }
   remoteModel(key:string):THREE.Mesh|null {
-    const [id,color]=key.split('/'), model=fleetModel(id,key);
+    const [id,color]=key.split('/'), model=this.resolve(fleetModel(id,key),key);
     if(!this.geometries.has(`${model.id}/0`))return null;
     return this.actor(model,color??'silver',`remote/${key}`);
   }
@@ -425,7 +517,12 @@ export class ParkedCarVisuals {
     const d=this.seen(draw.pos);
     if(d===null)return null;
     draw={...draw,model:this.resolve(draw.model,draw.id)};
-    const lod=d<42?0:d<105?1:2;
+    const wanted=d<42?0:d<105?1:2;
+    this.demand(draw.model,wanted);
+    // Keep the same design at a coarser LOD until its requested detail is prepared.
+    const available=[wanted,2,1,0].find(lod=>this.groups.has(`${draw.model.id}/${lod}`));
+    if(available===undefined)return null;
+    const lod=available;
     const matrix=this.transform(draw);
     // A damaged car draws in its model's damaged batch while it holds a pool slot (within 105 m); its rig follows the
     // state every frame it is drawn (loose parts swing) and its hubs move with the cage.
@@ -473,6 +570,18 @@ export class ParkedCarVisuals {
   }
   update(states:VehicleState[],rest?:ParkedRest) {
     const byId=new Map(states.map(s=>[s.id,s]));
+    // Unloaded parked records need a visibility scan before they can have a resting pose or physics body.
+    // Loaded draws request their precise LOD below every frame; scan the rest at 5 Hz.
+    const now=performance.now();
+    if(now>=this.scanAfter){
+      this.scanAfter=now+200;
+      for(const car of this.records){
+        if(this.definitions.has(car.object_id))continue;
+        const pos=byId.get(car.object_id)?.pos??car,d=this.seen(pos);
+        if(d===null)continue;
+        const model=fleetModel(car.model,car.object_id,car);if(model)this.demand(this.resolve(model,car.object_id),d<42?0:d<105?1:2);
+      }
+    }
     for(const b of this.groups.values()){b.count=0;b.dirty=false;}
     for(const b of this.damaged.values()){b.count=0;b.dirty=false;}
     for(const b of this.wheelGroups.values()){b.count=0;b.dirty=false;}
@@ -540,7 +649,7 @@ export class ParkedCarVisuals {
     }
   }
   dispose() {
-    this.disposed=true;
+    this.disposed=true;this.records=[];
     for(const b of [...this.groups.values(),...this.damaged.values()]){b.mesh.removeFromParent();b.glass?.dispose();b.mesh.dispose();}
     for(const w of this.wrecks.values())w.rig.release();this.wrecks.clear();this.damaged.clear();
     for(const b of this.wheelGroups.values()){b.mesh.removeFromParent();b.mesh.dispose();}

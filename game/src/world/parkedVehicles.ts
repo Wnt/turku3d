@@ -68,7 +68,7 @@ export class ParkedVehicles {
   private sharedUtcMs: number | undefined;
 
   constructor(private manifest: Manifest, private physics: Pick<PhysicsClient, 'loaded' | 'latest' | 'spawnVehicle' | 'removeVehicle'> & Partial<Pick<PhysicsClient,'raycast' | 'setVehicleDamage'>>, 
-    private visuals: Pick<ParkedCarVisuals, 'load' | 'has'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
+    private visuals: Pick<ParkedCarVisuals, 'stream' | 'has'>, private seated: Pick<SeatedVehicles, 'addTruck' | 'retainTrucks'>,
     private readonly cap = 60) {}
 
   resetRound() {
@@ -197,14 +197,13 @@ export class ParkedVehicles {
     }
   }
 
-  /** Load the appearance of every car in `cars` (fleet batches, seated trucks) without holding the body sync: the
-   *  batches wait in the shared GPU preparation queue behind every streamed tile's install, often tens of seconds
-   *  while the player moves. Bodies of cars already drawn keep spawning, colliding and accepting F meanwhile. */
+  /** Publish the live inventory without holding body sync. Fleet designs stream as the camera needs them;
+   *  bodies of cars with a prepared appearance keep spawning, colliding and accepting F meanwhile. */
   private appear(key: string, cars: ReadonlyMap<string, ParkedVehicle>) {
     this.appearing = true;
     const trucks = [...cars.values()].filter(v => v.model === 'truck').map(v => v.object_id);
     void (async () => {
-      await this.visuals.load(this.manifest);
+      await this.visuals.stream(this.manifest);
       await Promise.all(trucks.map(id => this.seated.addTruck(id)));
       this.seated.retainTrucks(new Set(cars.keys()));
       this.trucks = new Set(trucks);

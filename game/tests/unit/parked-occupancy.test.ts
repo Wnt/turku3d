@@ -58,7 +58,7 @@ test('an empty slot draws no car and gets no body; a resting body leaves when it
   const office = slot('office', 'centre-kerb', 0.8, 0), home = slot('home', 'residential-kerb', 0.8, 10);
   const always = slot('always', 'centre-kerb', 0.1, 20);
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = [office, home, always];
-  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {}, has: () => true },
+  const stream = new ParkedVehicles(manifest, physics as never, { stream: async () => {}, has: () => true },
     { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() }, 60);
   let now = 0;
   const at = async (night: number) => { stream.setNight(night); stream.update(0, 0, null, now += 1000); await settle(); };
@@ -83,10 +83,10 @@ test('an empty slot draws no car and gets no body; a resting body leaves when it
 test('the night level comes from the shared cycle alone: day, then dusk, full night, dawn', () => {
   const at = (minutes: number) => parkedNight(CYCLE_EPOCH + minutes * 60_000);
   expect(at(10)).toBe(0);
-  expect(at(26)).toBe(1);
+  expect(at(27)).toBe(1);
   expect(at(10 + DAY_MS / 60_000)).toBe(0);
   // Through dusk the level only rises, so slots empty or fill one at a time and never flicker.
-  const dusk = Array.from({ length: 41 }, (_, i) => at(20 + i * 0.1));
+  const dusk = Array.from({ length: 41 }, (_, i) => at(23 + i * 0.1));
   expect(dusk.every((v, i) => i === 0 || v >= dusk[i - 1])).toBe(true);
   expect(dusk[0]).toBeLessThan(0.05);
   expect(dusk[40]).toBeGreaterThan(0.95);

@@ -57,7 +57,7 @@ test('parked cars cache four static-ground rays instead of querying each render 
     async raycast(origin:{x:number;y:number;z:number}){
       queries++;return {point:{...origin,y:origin.x>0&&origin.z<0?10.15:10},normal:{x:0,y:1,z:0},toi:2,material:0,tile:'test'};
     }};
-  const parked=new ParkedVehicles(manifest,physics as never,{load:async()=>{},has:()=>true},{addTruck:async()=>{},retainTrucks(){}},0);
+  const parked=new ParkedVehicles(manifest,physics as never,{stream:async()=>{},has:()=>true},{addTruck:async()=>{},retainTrucks(){}},0);
   parked.update(0,0,null,1000);parked.restingPose(car);
   await new Promise(resolve=>setTimeout(resolve,0));
   const pose=parked.restingPose(car)!;

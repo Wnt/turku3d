@@ -22,7 +22,7 @@ function world(cars: ParkedVehicle[], cap: number) {
     removeVehicle: vi.fn((id: string) => { bodies.delete(id); physics.latest.vehicles = [...bodies.values()]; }),
   };
   const manifest = draftManifest('http://localhost/'); manifest.vehicles = cars;
-  const stream = new ParkedVehicles(manifest, physics as never, { load: async () => {}, has: () => true },
+  const stream = new ParkedVehicles(manifest, physics as never, { stream: async () => {}, has: () => true },
     { addTruck: vi.fn(async () => {}), retainTrucks: vi.fn() }, cap);
   let now = 0;
   const at = async (x: number, z: number) => { stream.update(x, z, null, now += 1000); await settle(); };
