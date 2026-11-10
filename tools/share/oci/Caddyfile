@@ -109,6 +109,17 @@
 		}
 	}
 
+	# Stand-alone soundboards (/sounds-<name>/, published with ~/turku3d/loops/sounds/publish.sh): candidate sounds
+	# Jonni listens to and picks from before any of them reaches the game. Plain files, no isolation headers.
+	@soundsBare path_regexp ^/sounds-[a-z0-9-]+$
+	redir @soundsBare {path}/ 308
+	@sounds path_regexp ^/sounds-[a-z0-9-]+/
+	handle @sounds {
+		root * /srv/turku3d/citylab/sounds
+		header Cache-Control "public, max-age=30"
+		file_server
+	}
+
 	@unpublished path_regexp ^/(cities/[a-z]+/)?coarse/t0_-?[0-9]+_-?[0-9]+/(manifest|collision)\.json$
 	handle @unpublished {
 		import isolation
