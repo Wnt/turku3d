@@ -60,7 +60,11 @@ class Player {
   session() {
     if (this.sess && !this.sess.closed && !this.sess.destroyed) return this.sess;
     const lookup = CONNECT ? (h, o, cb) => (o && o.all ? cb(null, [{ address: CONNECT, family: 4 }]) : cb(null, CONNECT, 4)) : undefined;
-    this.sess = http2.connect(BASE.origin, { servername: BASE.hostname, lookup, rejectUnauthorized: !INSECURE });
+    // Chrome's HTTP/2 flow-control windows (6 MB per stream, 15 MB per connection); Node's 64 KB default would cap
+    // one connection at a few MB/s on a 15 ms path and measure the client instead of the server.
+    this.sess = http2.connect(BASE.origin, { servername: BASE.hostname, lookup, rejectUnauthorized: !INSECURE,
+      settings: { initialWindowSize: 6 * 1024 * 1024 } });
+    this.sess.on('connect', () => { try { this.sess.setLocalWindowSize(15 * 1024 * 1024); } catch {} });
     this.sess.on('error', () => {}); this.sess.on('goaway', () => {});
     return this.sess;
   }
