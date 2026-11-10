@@ -233,7 +233,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   await Promise.all((manifest.vehicles ?? []).filter(v => v.model === 'truck').map(v => optional('truck', seated.addTruck(v.object_id), undefined)));
   if (player.template) drivers.setCharacter(player.template.scene, player.template.clips, renderer, root);
   Object.assign(window.__game!, { drivers });
-  let remoteEngines = new Set<string>();
+  let remoteEngines = new Set<string>(), remoteTyres = new Set<string>();
   const remotePlayers = new RemotePlayers(root, physics, { player, scooter: seated.scooter, truck: seated.truck, parked: parkedVisuals }, tyreEffects, drivers);
   const scoreboard = new Scoreboard(document.body);
   const { router, minimap, area, addresses, streets } = await createGameplay(manifest, document.body, gameplayData);
@@ -1051,6 +1051,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     if (multiplayerPlaying) for (const e of remotePlayers.engines) { engineIds.add(e.id); audio.engineVoice(e.id, e.state); }
     for (const id of remoteEngines) if (!engineIds.has(id)) audio.engineVoice(id, null);
     remoteEngines = engineIds;
+    // Tyre voices of the other players' cars and scooters, likewise.
+    const tyreIds = new Set<string>();
+    if (multiplayerPlaying) for (const t of remotePlayers.tyres) { tyreIds.add(t.id); audio.tyreVoice(t.id, t.state); }
+    for (const id of remoteTyres) if (!tyreIds.has(id)) audio.tyreVoice(id, null);
+    remoteTyres = tyreIds;
     tyreEffects.end(camera);
     audioGameplay.update({ tick: st?.tick ?? 0, time: now / 1000, paused, mode, connected: input.connected,
       character: st?.character ?? null, vehicle: st?.vehicle ?? null, input: carIn,

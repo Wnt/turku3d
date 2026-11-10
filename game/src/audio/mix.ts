@@ -1,11 +1,12 @@
 import type { V3 } from '../core/origin';
 import type { VehicleKind } from '../physics/constants';
 import { MATERIALS } from '../shared/col/materials';
+import type { TyreFrame } from './engine/tyre';
 import type { EngineVoiceState } from './engine/voices';
 import { MIX_HZ } from './automation';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
-  'engine', 'scooter', 'roll', 'screech', 'curb', 'impact', 'door-open', 'door-close',
+  'engine', 'scooter', 'curb', 'impact', 'door-open', 'door-close',
   'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd', 'crunch', 'scrape', 'glass-break', 'rattle', 'hiss'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
@@ -47,25 +48,22 @@ export const SYNTH_ENGINE = 'v8-synth';
 /** Engine sound per vehicle class: the car's low four-stroke rumble and the scooter's buzzing single cylinder as
  *  sample loops; the trophy truck's NA crossplane V8 from the engine voice pool (GameAudio.engineVoice). */
 export const ENGINE_SOUND = { car: 'engine', scooter: 'scooter', truck: SYNTH_ENGINE } as const satisfies Record<VehicleKind, Sound | typeof SYNTH_ENGINE>;
-/** Vehicle classes whose engine, roll and screech come from the sample loops. */
+/** Vehicle classes whose engine is a sample loop and whose tyres have their own synthesised voice (engine/tyreVoices.ts). */
 export type LoopVehicle = Exclude<VehicleKind, 'truck'>;
 export const isLoopVehicle = (kind: VehicleKind): kind is LoopVehicle => ENGINE_SOUND[kind] !== SYNTH_ENGINE;
 
 /** Per sample-loop class: playback rate at 0 rpm and its rise up to `rpmTop`, engine gain at idle and its rise with
- *  throttle, and the tyre roll gain. The scooter's small engine idles and revs higher with quieter tyres. */
+ *  throttle. The scooter's small engine idles and revs higher. */
 const ENGINE_MIX = {
-  car: { rate: 0.65, rise: 2, rpmTop: 6000, idle: 0.12, throttle: 0.23, roll: 0.22 },
-  scooter: { rate: 0.8, rise: 1.6, rpmTop: 9000, idle: 0.1, throttle: 0.2, roll: 0.12 },
+  car: { rate: 0.65, rise: 2, rpmTop: 6000, idle: 0.12, throttle: 0.23 },
+  scooter: { rate: 0.8, rise: 1.6, rpmTop: 9000, idle: 0.1, throttle: 0.2 },
 } as const satisfies Record<LoopVehicle, object>;
 
-/** Loop gains of a sample-loop vehicle; the synthesised truck gets silence here (its voice carries everything). */
-export function carMix(rpm: number, throttle: number, speed: number, slip: number, running: boolean, kind: VehicleKind = 'car') {
-  if (!isLoopVehicle(kind)) return { rate: 1, engine: 0, roll: 0, screech: 0 };
+/** Engine loop of a sample-loop vehicle; the synthesised truck gets silence here (its voice carries everything). */
+export function carMix(rpm: number, throttle: number, running: boolean, kind: VehicleKind = 'car') {
+  if (!isLoopVehicle(kind)) return { rate: 1, engine: 0 };
   const m = ENGINE_MIX[kind];
-  return { rate: m.rate + clamp(rpm / m.rpmTop) * m.rise,
-    engine: running ? m.idle + clamp(throttle) * m.throttle : 0,
-    roll: clamp(Math.abs(speed) / 24) * m.roll,
-    screech: clamp((Math.abs(slip) - 0.15) / 0.65) * clamp(Math.abs(speed) / 5) * 0.3 };
+  return { rate: m.rate + clamp(rpm / m.rpmTop) * m.rise, engine: running ? m.idle + clamp(throttle) * m.throttle : 0 };
 }
 
 /** A damaged engine runs rough (vehicle/mechanics.ts `rough`, 0..1): at each continuous-mix tick (MIX_HZ) an
@@ -116,8 +114,9 @@ export type AudioEvent =
   | { type: 'volume'; channel: Channel; value: number }
   | { type: 'listener'; position: V3; forward: V3; up: V3; paused: boolean }
   | { type: 'crowd'; walkers: number }
-  /** The local vehicle; `rough`: a damaged engine's roughness (vehicle/mechanics.ts), absent or 0 when intact. */
-  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; slip: number; running: boolean; rough?: number;
+  /** The local vehicle; `tyres`: its tyre frame (engine/tyre.ts TyreTracker), silent while nobody drives it;
+   *  `rough`: a damaged engine's roughness (vehicle/mechanics.ts), absent or 0 when intact. */
+  | { type: 'car'; kind: VehicleKind; position: V3; rpm: number; throttle: number; speed: number; tyres: TyreFrame; running: boolean; rough?: number;
     /** Damage layers (damageLoops): the body sliding along something (m/s), parts hanging loose, the radiator's steam. */
     scrape?: number; loose?: number; steam?: number }
   /** One frame of a synthesised truck engine voice (GameAudio.engineVoice); `state` null releases it. */

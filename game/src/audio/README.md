@@ -2,7 +2,7 @@
 
 `GameAudio` owns the Web Audio graph: buffer source → per-voice gain → optional HRTF panner →
 channel gain → master gain → compressor → output. The renderer backend has no audio dependency.
-The 20 original CC0 mono Opus effects total 232,444 bytes; sources and licences are in
+The 23 original CC0 mono Opus effects total 274,000 bytes; sources and licences are in
 [`public/assets/audio/LICENSES.md`](../../public/assets/audio/LICENSES.md).
 
 Gameplay emits typed `AudioEvent` objects from `mix.ts`. `GameplayAudio.update` adapts the existing
@@ -16,8 +16,16 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
   `engineRpm` gives the car a three-gear speed approximation, the scooter high CVT revs that climb with
   speed, and the trophy truck four long gears from an 800 rpm idle. `ENGINE_SOUND` picks the loop per vehicle class
   (`engine` for the car, the buzzing two-stroke `scooter` for the scooter at a higher playback rate, the V6 `truck`
-  for the trophy truck, the loudest layer); the other engine loops stay silent. Rolling follows speed with wheel contact;
-  screech follows lateral velocity/handbrake slip with wheel contact.
+  for the trophy truck, the loudest layer); the other engine loops stay silent.
+- Tyres are synthesised at runtime (`engine/tyre.ts`): squeal, scrub, rolling noise and gravel grit, no samples.
+  `TyreTracker` reads the wheels' sliding speed (lateral and longitudinal slip, faded in from 70 % of the tyre-mark
+  limit), each tyre's load (suspension compression against its slow mean) and the surface, once per physics tick; a
+  slide sounds after 80 ms of settled contact and 50 ms of sliding, so landings and bumps stay silent and a chirp is
+  heard. `TyreSynth` is a stick-slip model of five tread blocks, calibrated against CC0 recordings: the tone cluster
+  sits near 1 kHz with harmonics, falls with load and with the slide's speed, and loose surfaces only crunch.
+  `TyreVoices` runs one AudioWorklet voice for the driven car or scooter and up to three for the nearest audible
+  cars and scooters of other players (within 70 m, from the synced wheels their tyre marks use); the trophy truck's
+  tyres render inside its engine voice (`ChassisSynth`), local and remote. `snapshot().tyres` lists the voices.
 - Curb events consume W1-07 `curbStrike.id` once. Collision events use optional
   `VehicleState.impact = {id, impulse}` (N·s): the chassis momentum each fixed world step changes beyond gravity
   (vehicle/README.md "Collision telemetry"). A 0.5 m/s speed-change threshold and 150 ms cooldown keep resting contact quiet.

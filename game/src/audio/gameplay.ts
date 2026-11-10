@@ -1,10 +1,10 @@
 import type { V3 } from '../core/origin';
 import type { CharacterState, VehicleInput, VehicleState } from '../physics/protocol';
 import { VEHICLES, type VehicleKind } from '../physics/constants';
-import { TyreSlipFilter } from '../vehicle/tyreSlip';
 import { mechanicsOf } from '../vehicle/mechanics';
 import { clamp, type AudioEvent } from './mix';
 import { TruckSoundFeed } from './engine/feed';
+import { SILENT_TYRES, TyreTracker } from './engine/tyre';
 import type { EngineDrive } from './engine/drivetrain';
 
 /** Converts game snapshots into audio events once per physics tick, independent of render FPS. */
@@ -19,9 +19,10 @@ export function engineRpm(kind: VehicleKind, speed: number, throttle: number) {
 
 export class GameplayAudio {
   private tick = -1;
-  private readonly tyreSlip = new TyreSlipFilter(4);
-  private slipTick = -1;
-  private slipStrength = 0;
+  private tyres = new TyreTracker('car');
+  private tyreKind: VehicleKind = 'car';
+  private tyreTick = -1;
+  private tyreFrame = SILENT_TYRES;
   private distance = 0;
   private previousFeet: V3 | null = null;
   private mode: 'foot' | 'car' = 'foot';
@@ -73,21 +74,22 @@ export class GameplayAudio {
       this.emit({ type: 'door', position: v?.pos ?? this.doorPosition, open: false }); this.doorPosition = null;
     }
     if (v) {
-      if (!frame.paused && frame.tick !== this.slipTick) {
-        const dt = this.slipTick < 0 ? 1 / 60 : (frame.tick - this.slipTick) / 60;
-        this.slipTick = frame.tick; this.slipStrength = 0;
-        for (let i = 0; i < 4; i++) {
-          if (v.wheels[i]) this.slipStrength = Math.max(this.slipStrength, this.tyreSlip.update(i, v.wheels[i], v.speed, dt));
-          else this.tyreSlip.reset(i);
-        }
+      const kind = v.kind ?? 'car';
+      // The tyre frame once per physics tick: every tick's slide reaches the synthesiser, so a short chirp is heard.
+      if (kind !== this.tyreKind) { this.tyreKind = kind; this.tyres = new TyreTracker(kind); this.tyreTick = -1; }
+      if (!frame.paused && frame.tick !== this.tyreTick) {
+        const dt = this.tyreTick < 0 ? 1 / 60 : (frame.tick - this.tyreTick) / 60;
+        this.tyreTick = frame.tick;
+        this.tyreFrame = this.tyres.step(dt, v.wheels, v.speed);
       }
-      const slip = this.slipStrength;
+      // An undriven car still rolls audibly, but only a driven one squeals.
+      const tyres = mode === 'car' ? this.tyreFrame : { ...this.tyreFrame, slide: 0 };
       const contact = v.wheels.some(w => w.contact);
       const throttle = clamp(Math.abs(input?.throttle ?? 0) + (v.forwardSpeed < 0 ? input?.brake ?? 0 : 0));
-      const kind = v.kind ?? 'car', rpm = kind === 'truck' ? this.truck(frame.tick, v, input, throttle, mode === 'car') : engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
+      const rpm = kind === 'truck' ? this.truck(frame.tick, v, input, throttle, mode === 'car') : engineRpm(kind, Math.abs(v.forwardSpeed), throttle);
       const { rough, steam, loose } = mechanicsOf(v.damage);
       this.emit({ type: 'car', kind, position: v.pos, rpm,
-        throttle, speed: contact ? v.speed : 0, slip,
+        throttle, speed: contact ? v.speed : 0, tyres,
         running: mode === 'car', ...(rough ? { rough } : {}), ...(steam ? { steam } : {}), ...(loose ? { loose } : {}),
         ...(v.scrape ? { scrape: v.scrape } : {}) });
     }
@@ -95,10 +97,7 @@ export class GameplayAudio {
       this.emit({ type: 'engine-voice', id: this.truckId, state: null });
       this.truckId = null; this.truckFeed = null; this.truckDrive = null; this.truckTick = -1;
     }
-    if (!v || mode !== 'car') {
-      for (let i = 0; i < 4; i++) this.tyreSlip.reset(i);
-      this.slipTick = -1; this.slipStrength = 0;
-    }
+    if (!v) { this.tyreTick = -1; this.tyreFrame = SILENT_TYRES; }
     if (frame.paused || frame.tick === this.tick) return;
     this.tick = frame.tick;
     if (c?.enabled && c.grounded && mode === 'foot') {

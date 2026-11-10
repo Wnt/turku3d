@@ -41,20 +41,6 @@
     "sha256": "3a9fa67be177d8f328f0488ce50ecb94fa5ea6e3aec826a0d6155c5bbcd27c01",
     "license": "CC0-1.0"
   },
-  "roll.ogg": {
-    "bytes": 14678,
-    "channels": 1,
-    "seconds": 3.9,
-    "sha256": "0cea853f2cd3afa18357d55b0754c4403d50eaa589e1d9354701b13799b2bbf9",
-    "license": "CC0-1.0"
-  },
-  "screech.ogg": {
-    "bytes": 15648,
-    "channels": 1,
-    "seconds": 3.9,
-    "sha256": "88aaa0b4ee6b6aa1c1aabb5e5b8539b6635fd5ad7a71a94b3814a11d6ef4c4d7",
-    "license": "CC0-1.0"
-  },
   "curb.ogg": {
     "bytes": 1592,
     "channels": 1,

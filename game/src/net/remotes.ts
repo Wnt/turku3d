@@ -26,6 +26,8 @@ import type { ScooterVisual } from '../actors/scooter';
 import type { TruckVisual } from '../actors/truck';
 import { applyTrophyRig } from '../actors/trophy4400/rig';
 import { TruckSoundFeed } from '../audio/engine/feed';
+import { TyreTracker } from '../audio/engine/tyre';
+import type { TyreVoiceState } from '../audio/engine/tyreVoices';
 import type { EngineVoiceState } from '../audio/engine/voices';
 import type { LeadState, MultiplayerClient, NetPlayer, NetPose } from './client';
 import { vehicleRotation } from './orientation';
@@ -45,6 +47,8 @@ interface Remote {
   pizza: THREE.Mesh; label: THREE.Sprite;  lastT: number; effectSlot: number; receivedAt: number;
   /** The remote truck's engine voice input, stepped once per frame from its synced wheels and `drv`. */
   engine: { feed: TruckSoundFeed; at: number } | null;
+  /** Tyre frames of a remote car or scooter for its tyre voice (audio/engine/tyreVoices.ts). */
+  tyres: { kind: 'car' | 'scooter'; tracker: TyreTracker; at: number } | null;
   /** Where the model was drawn last frame, from which source, and the offset still hiding a jump between sources or a
    *  placement of the simulated car (RESIDUAL); `snaps` is the simulated car's placement count last seen. */
   shown: V3 | null; source: 'pose' | 'proxy' | 'sim'; residual: V3; snaps: number; drawnAt: number;
@@ -151,6 +155,8 @@ export class RemotePlayers {
   readonly lamps: BeamSource[] = [];
   /** Engine voices of remote trucks with a driver, refreshed by update() (GameAudio.engineVoice, SPEC §4.6). */
   readonly engines: { id: string; state: EngineVoiceState }[] = [];
+  /** Tyre voices of the other players' moving cars and scooters, refreshed by update() (GameAudio.tyreVoice). */
+  readonly tyres: { id: string; state: TyreVoiceState }[] = [];
   /** Remote players as ambient walkers see them (world/walkers/reactions.ts), refreshed by update(). */
   readonly threats: WalkerThreat[] = [];
   /** `drivers`: seats an animated driver in every remote car and truck that has one (actors/driver/drivers.ts). */
@@ -162,7 +168,7 @@ export class RemotePlayers {
   update(client: MultiplayerClient, now: number, local: V3, effectsDt = 0, shared?: SharedVehicles,
     drawn: (id: string) => VehicleState | null = () => null, extrapolate = true) {
     const t0 = performance.now();
-    this.horns.length = 0; this.threats.length = 0; this.engines.length = 0; this.lamps.length = 0;
+    this.horns.length = 0; this.threats.length = 0; this.engines.length = 0; this.tyres.length = 0; this.lamps.length = 0;
     const selfId = client.state.you?.id;
     const proxies = this.physics.latest?.remoteProxies;
     // Simulated remote cars at their render poses (actors/interpolation.ts RemoteCarInterpolation).
@@ -205,7 +211,7 @@ export class RemotePlayers {
         pizza.userData.devLayer = 'People/Players';
         this.root.add(distant, car, label, pizza);
         remote = { pizza, player: p, buffer: new PoseBuffer(), foot: null, distant, car, scooter: null, truck: null, chassis: new THREE.Quaternion(),
-          label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null,
+          label, lastT: -1, vehicleKey: '', effectSlot: this.tyreEffects.reserve(), receivedAt: now, engine: null, tyres: null,
           shown: null, source: 'pose', residual: { x: 0, y: 0, z: 0 }, snaps: 0, drawnAt: now, tuningSent: null, residualHalfLife: RESIDUAL.halfLife };
         this.remotes.set(p.id, remote);
       }
@@ -309,6 +315,14 @@ export class RemotePlayers {
             local: false, wheels: pose.wheels, rearSlew: out.rearSlew } });
         }
       } else remote.engine = null;
+      // Another player's car or scooter squeals and rolls from the same synced wheels its tyre marks use (a truck's
+      // tyres are part of its engine voice above). This client's own cars are voiced from the physics state.
+      if ((pose.mode === 'car' || pose.mode === 'scooter') && pose.wheels && !p.locallySimulated && now - remote.receivedAt < 500) {
+        if (remote.tyres?.kind !== pose.mode) remote.tyres = { kind: pose.mode, tracker: new TyreTracker(pose.mode), at: now };
+        const dt = Math.min(0.25, Math.max(1e-3, (now - remote.tyres.at) / 1000)); remote.tyres.at = now;
+        this.tyres.push({ id: `remote:${p.id}`, state: { kind: pose.mode, local: false, position: pos,
+          frame: remote.tyres.tracker.step(dt, pose.wheels, Math.hypot(pose.vE, pose.vN)) } });
+      } else remote.tyres = null;
       if (effectsDt > 0 && now - remote.receivedAt < 300 && pose.mode !== 'foot' && pose.wheels) {
         // Network ground points are relative to the physical chassis, including parked-model cars.
         this.tyreEffects.vehicle(remote.effectSlot, pos, remote.chassis, pose.wheels, pose.mode, effectsDt, Math.hypot(pose.vE, pose.vN));

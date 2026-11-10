@@ -2,6 +2,7 @@ import { expect, test } from 'vitest';
 import { GameAudio } from '../../src/audio';
 import { GameplayAudio, engineRpm } from '../../src/audio/gameplay';
 import { ENGINE_SOUND, SYNTH_ENGINE, ambience, carMix, crowdGain, footstep, oneShot, SOUNDS, type AudioEvent } from '../../src/audio/mix';
+import { SILENT_TYRES } from '../../src/audio/engine/tyre';
 import { MAT } from '../../src/shared/col/materials';
 
 /** Keeps its scheduled event times like Chrome: an event leaves the list only by a cancel (the fake never renders). */
@@ -60,24 +61,23 @@ test('material contract maps five surfaces; sensors and silent boundaries never 
   expect(impact(1e9)).toBeLessThanOrEqual(1); expect(impact(NaN)).toBe(0);
 });
 
-test('river fades with distance, engine follows RPM/throttle, rolling and slip are bounded', () => {
+test('river fades with distance, engine follows RPM/throttle and stays bounded', () => {
   const near = ambience({ x: 200, y: 4, z: 310 }), far = ambience({ x: -500, y: 4, z: -500 });
   expect(near.water).toBeGreaterThan(far.water); expect(far.water).toBe(0);
   expect(near.gulls).toBeGreaterThan(far.gulls); expect(near.city).toBeLessThan(far.city);
   expect(near.river).toEqual({ x: 200, y: 0, z: 310 });
-  const idle = carMix(850, 0, 0, 0, true), fast = carMix(5000, 1, 20, 1, true);
+  const idle = carMix(850, 0, true), fast = carMix(5000, 1, true);
   expect(fast.rate).toBeGreaterThan(idle.rate); expect(fast.engine).toBeGreaterThan(idle.engine);
-  expect(idle.roll).toBe(0); expect(idle.screech).toBe(0); expect(fast.screech).toBeGreaterThan(0);
-  expect(carMix(900, 0, 0, 1, false).engine).toBe(0);
-  expect(Object.values(carMix(NaN, Infinity, NaN, Infinity, true)).every(Number.isFinite)).toBe(true);
-  // The scooter buzzes higher than the car at the same estimated rpm and rolls more quietly.
-  const scooter = carMix(3000, 0.5, 10, 0, true, 'scooter'), car = carMix(3000, 0.5, 10, 0, true, 'car');
-  expect(scooter.rate).toBeGreaterThan(carMix(1500, 0.5, 10, 0, true, 'car').rate);
-  expect(scooter.roll).toBeLessThan(car.roll);
+  expect(carMix(900, 0, false).engine).toBe(0);
+  expect(Object.values(carMix(NaN, Infinity, true)).every(Number.isFinite)).toBe(true);
+  // The scooter buzzes higher than the car at the same estimated rpm.
+  expect(carMix(3000, 0.5, true, 'scooter').rate).toBeGreaterThan(carMix(1500, 0.5, true, 'car').rate);
   // The trophy truck's engine, tyres and slides are synthesised by its engine voice; its sample loops stay silent.
   expect(ENGINE_SOUND).toEqual({ car: 'engine', scooter: 'scooter', truck: SYNTH_ENGINE });
   expect(SOUNDS).not.toContain('truck');
-  expect(carMix(3000, 0.5, 10, 1, true, 'truck')).toEqual({ rate: 1, engine: 0, roll: 0, screech: 0 });
+  expect(carMix(3000, 0.5, true, 'truck')).toEqual({ rate: 1, engine: 0 });
+  // Tyres are synthesised (engine/tyre.ts): no rolling or squeal sample is loaded.
+  expect(SOUNDS).not.toContain('roll'); expect(SOUNDS).not.toContain('screech');
 });
 
 test('engine rpm: the car and scooter keep their gear approximations', () => {
@@ -94,12 +94,12 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   expect(created).toBe(1); expect(audio.snapshot().loaded).toBe(SOUNDS.length);
   expect(audio.snapshot().loops).toBe(5); expect(audio.snapshot().played.connect).toBe(1);
   expect(ctx.nodes[0].connections[0].connections).toContain(ctx.destination);
-  audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, slip: 0.7, running: true });
-  // Both sample engine loops exist (car, scooter) beside roll and screech; only the driven class's one is audible.
-  expect(audio.snapshot().loops).toBe(9);
+  audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, tyres: { ...SILENT_TYRES, slide: 4, speed: 12 }, running: true });
+  // Both sample engine loops exist (car, scooter); only the driven class's one is audible. The tyres are a synth voice.
+  expect(audio.snapshot().loops).toBe(7);
   // The walkers' crowd murmur joins the beds once the walker system reports a count.
   audio.emit({ type: 'crowd', walkers: 6 });
-  expect(audio.snapshot().loops).toBe(10);
+  expect(audio.snapshot().loops).toBe(8);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
@@ -148,7 +148,7 @@ test('Firefox legacy listener and panner positioning work without spatial AudioP
   const moved = { x: 9, y: 4, z: 5 };
   audio.emit({ ...listener, position: moved, forward: { x: 1, y: 0, z: 0 } });
   audio.emit({ type: 'car', kind: 'car', position: moved, rpm: 3000, throttle: 0.5,
-    speed: 10, slip: 0, running: true });
+    speed: 10, tyres: SILENT_TYRES, running: true });
   expect(listenerPositions.at(-1)).toEqual([9, 4, 5]);
   expect(orientations.at(-1)).toEqual([1, 0, 0, 0, 1, 0]);
   expect(pannerPositions).toContainEqual([9, 4, 5]);
@@ -256,7 +256,7 @@ test('continuous mix: at most 30 updates a second, unchanged targets skipped, bo
     const at = { x: position.x + (moving ? i * 0.5 : 0), y: position.y, z: position.z };
     audio.emit({ ...listener, position: at });
     audio.emit({ type: 'traffic', cars: [{ id: 1, position: { ...at, x: at.x + 20 }, speed: 8 }], count: 1, centre: at });
-    audio.emit({ type: 'car', kind: 'car', position: at, rpm: 2000, throttle: 0.5, speed: moving ? 8 : 0, slip: 0, running: true });
+    audio.emit({ type: 'car', kind: 'car', position: at, rpm: 2000, throttle: 0.5, speed: moving ? 8 : 0, tyres: SILENT_TYRES, running: true });
   };
   // Suspended (no user gesture yet): 10 s of frames schedule nothing, so no event list grows.
   const before = params().reduce((n, p) => n + p.targets, 0);

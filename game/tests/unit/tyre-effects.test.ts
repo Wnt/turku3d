@@ -102,25 +102,29 @@ test('worker resolves actual wheel material and contact, measures rear handbrake
   } finally { pw.world.free(); }
 });
 
-test('screech audio uses exactly the same contact/material slip strength as the effects', () => {
+test('squeal audio reads the same contact and slip as the effects, sooner: 130 ms where the marks need 260 ms', () => {
   const events: AudioEvent[] = [], audio = new GameplayAudio(event => events.push(event)), w = wheel();
   const frame = { tick: 1, time: 1, paused: false, mode: 'car' as const, connected: false, character: null,
     vehicle: { pos, rot: q, linvel: { x: 10, y: 0, z: 5 }, speed: 11, forwardSpeed: 10, wheels: [w], curbStrike: null },
     input: { throttle: 1, steer: 1, brake: 0, handbrake: true }, position: pos,
     forward: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } };
-  const filter = new TyreSlipFilter(1);
+  const filter = new TyreSlipFilter(1), sounding: boolean[] = [], marking: boolean[] = [];
+  const tyres = () => { const e = events.findLast(e => e.type === 'car'); return e?.type === 'car' ? e.tyres : null; };
   for (let i = 0; i < 30; i++) {
     frame.tick++; frame.time += 1 / 60; audio.update(frame);
-    const slip = filter.update(0, w, frame.vehicle.speed, 1 / 60);
-    expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip });
+    marking.push(filter.update(0, w, frame.vehicle.speed, 1 / 60) > 0); sounding.push(tyres()!.slide > 0);
   }
-  expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: tyreStrength(w, frame.vehicle.speed) });
+  // The sound starts once the contact has settled (80 ms) and slid on for 50 ms, well before the marks do.
+  expect(sounding.indexOf(true)).toBeGreaterThanOrEqual(7); expect(sounding.indexOf(true)).toBeLessThan(marking.indexOf(true) - 4);
+  expect(tyres()).toMatchObject({ slide: 6, squeal: 1, grit: 0 });
+  expect(tyreStrength(w, frame.vehicle.speed)).toBeGreaterThan(0);
+  // Grass: the slide stays, without a squeal.
   w.tyre!.material = MAT.grass; frame.tick++; audio.update(frame);
-  expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: 0 });
+  expect(tyres()).toMatchObject({ squeal: 0 }); expect(tyres()!.grit).toBeGreaterThan(0);
 });
 
 
-test('bumpy straight driving never starts local or replicated marks, smoke or screech', () => {
+test('bumpy straight driving never starts local or replicated marks, smoke or squeal', () => {
   for (const dt of [1 / 60, 1 / 30]) {
     const fx = new TyreEffects(new THREE.Group(), 'high'), filter = new TyreSlipFilter(1), w = wheel();
     const remote = fx.reserve(), events: AudioEvent[] = [], audio = new GameplayAudio(e => events.push(e));
@@ -135,7 +139,7 @@ test('bumpy straight driving never starts local or replicated marks, smoke or sc
         character: null, vehicle: { pos, rot: q, linvel: { x: 18, y: 0, z: 0 }, speed: 18, forwardSpeed: 18,
           wheels: [w], curbStrike: null }, input: null, position: pos,
         forward: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 } });
-      expect(events.findLast(e => e.type === 'car')).toMatchObject({ slip: 0 });
+      expect(events.findLast(e => e.type === 'car')).toMatchObject({ tyres: { slide: 0 } });
       fx.begin(dt);
       for (const slot of [0, remote]) fx.vehicle(slot, { ...pos, x: i * 18 * dt }, q, [w], 'car', dt, 18);
       fx.end(new THREE.PerspectiveCamera());

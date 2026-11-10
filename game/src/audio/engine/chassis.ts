@@ -1,7 +1,7 @@
 import type { WheelState } from '../../physics/protocol';
 import { MATERIALS } from '../../shared/col/materials';
-import { TyreSlipFilter } from '../../vehicle/tyreSlip';
 import { Biquad, OnePole, Rng, clamp, dbToGain } from './dsp';
+import { SILENT_TYRES, TYRE_KINDS, TyreSynth, TyreTracker, type TyreFrame } from './tyre';
 
 /** Trophy-truck chassis and tyre sounds (SPEC §4.4-4.5), synthesised by us. `ChassisTracker` derives events and
  *  continuous levels from the synced wheel state only (identically for the local and remote trucks);
@@ -22,12 +22,14 @@ export interface ChassisFrame {
   hits: ChassisHit[];
   /** Asphalt knobby hum level 0..1 and its lug-pass frequency (Hz). */
   hum: number; lugHz: number;
-  /** Gravel/sand roost, soil/grass bed, asphalt slide, body rattle (0..1). */
-  gravel: number; soil: number; screech: number; rattle: number;
+  /** Gravel/sand roost, soil/grass bed, body rattle (0..1). */
+  gravel: number; soil: number; rattle: number;
+  /** The tyres' slide, load and surface (tyre.ts): the stick-slip squeal and scrub. */
+  tyres: TyreFrame;
   /** Rear-steer hydraulic whine level 0..1 and pitch (Hz). */
   whine: number; whineHz: number;
 }
-export const SILENT_FRAME: ChassisFrame = { hits: [], hum: 0, lugHz: 0, gravel: 0, soil: 0, screech: 0, rattle: 0, whine: 0, whineHz: 1200 };
+export const SILENT_FRAME: ChassisFrame = { hits: [], hum: 0, lugHz: 0, gravel: 0, soil: 0, rattle: 0, tyres: SILENT_TYRES, whine: 0, whineHz: 1200 };
 
 export type SurfaceClass = 'asphalt' | 'gravel' | 'soil' | 'none';
 /** The tyre surface class of a ground material, from the same `MATERIALS[..].audio` key the grip table uses. */
@@ -62,7 +64,7 @@ export class ChassisTracker {
   private readonly quiet = new Float64Array(4).fill(1);
   private readonly cooldown = new Float64Array(4);
   private readonly stopCooldown = new Float64Array(4);
-  private readonly slip = new TyreSlipFilter(4);
+  private readonly tyres = new TyreTracker('truck');
   private heave: number[] = [];
   private accelSq = 0;
 
@@ -72,10 +74,10 @@ export class ChassisTracker {
     const dt = clamp(input.dt, 1e-4, 0.25), speed = Math.abs(Number.isFinite(input.speed) ? input.speed : 0), sp = this.spec;
     const hits: ChassisHit[] = [];
     const counts = { asphalt: 0, gravel: 0, soil: 0, none: 0 };
-    let slipSum = 0, screech = 0, suspAccel = 0;
+    let slipSum = 0, suspAccel = 0;
     for (let i = 0; i < 4; i++) {
       const w = input.wheels[i];
-      if (!w || !Number.isFinite(w.suspension)) { this.last[i] = NaN; this.lastVelocity[i] = 0; this.slip.reset(i); continue; }
+      if (!w || !Number.isFinite(w.suspension)) { this.last[i] = NaN; this.lastVelocity[i] = 0; continue; }
       const prev = this.last[i];
       const velocity = Number.isFinite(prev) ? (prev - w.suspension) / dt : 0; // + compressing
       this.last[i] = w.suspension;
@@ -106,8 +108,7 @@ export class ChassisTracker {
         counts[surfaceClass(w.tyre?.material)]++;
         const t = w.tyre;
         slipSum += t && Number.isFinite(t.lateral) && Number.isFinite(t.longitudinal) ? clamp(Math.hypot(t.lateral, t.longitudinal) / 6) : 0;
-        screech = Math.max(screech, this.slip.update(i, w, speed, dt));
-      } else this.slip.reset(i);
+      }
     }
     // Body rattle from the chassis' vertical acceleration (RMS over ≈ 0.3 s).
     const heave = Number.isFinite(input.heave) ? input.heave! : NaN;
@@ -128,8 +129,8 @@ export class ChassisTracker {
       hits,
       hum: share(counts.asphalt) * clamp((speed - 5) / 25), lugHz: lugHz(speed, sp),
       gravel: share(counts.gravel) * roost, soil: share(counts.soil) * roost * 0.85,
-      screech: share(counts.asphalt) > 0 ? screech : 0,
       rattle: clamp(Math.sqrt(this.accelSq) / 25),
+      tyres: this.tyres.step(dt, input.wheels, speed),
       whine: slew > 0.1 ? clamp((slew - 0.1) / 0.6) : 0, whineHz: 1100 + 300 * clamp(slew / 1.4),
     };
   }
@@ -142,12 +143,13 @@ export class ChassisSynth {
   private readonly rng: Rng;
   private readonly hits: Hit[];
   private target: ChassisFrame = SILENT_FRAME;
-  private cur = { hum: 0, lugHz: 0, gravel: 0, soil: 0, screech: 0, rattle: 0, whine: 0, whineHz: 1200 };
-  private humPhase = 0; private whinePhase = 0; private screechPhase = 0; private vib = 0;
+  private cur = { hum: 0, lugHz: 0, gravel: 0, soil: 0, rattle: 0, whine: 0, whineHz: 1200 };
+  private humPhase = 0; private whinePhase = 0;
+  private readonly tyre: TyreSynth;
   private readonly humBp = new Biquad(); private readonly whineBp = new Biquad();
   private readonly gravelHp: Biquad; private readonly gravelLp: Biquad;
   private readonly soilHp: Biquad; private readonly soilLp: Biquad;
-  private readonly screechBp: Biquad; private readonly rattleBp: Biquad; private readonly tickBp: Biquad;
+  private readonly rattleBp: Biquad; private readonly tickBp: Biquad;
   private grain = 0; private grainIn = 0; private tick = 0; private tickIn = 0;
   private lastLug = -1;
   /** Hits started so far, by kind (tests and the snapshot). */
@@ -159,13 +161,15 @@ export class ChassisSynth {
     this.hits = Array.from({ length: 8 }, () => ({ kind: 'thump' as HitKind, age: 0, length: 0, amp: 0, phase: 0, lp: new OnePole().lowpass(2500, sr) }));
     this.gravelHp = new Biquad().highpass(2000, Math.SQRT1_2, sr); this.gravelLp = new Biquad().lowpass(8000, Math.SQRT1_2, sr);
     this.soilHp = new Biquad().highpass(300, Math.SQRT1_2, sr); this.soilLp = new Biquad().lowpass(1500, Math.SQRT1_2, sr);
-    this.screechBp = new Biquad().bandpass(1050, 6, sr); this.rattleBp = new Biquad().bandpass(550, 1.2, sr);
+    this.rattleBp = new Biquad().bandpass(550, 1.2, sr);
     this.tickBp = new Biquad().bandpass(4500, 1.5, sr);
     this.whineBp.bandpass(1250, 20, sr);
+    // The squeal and scrub of the 42" tyres; rolling noise and loose surfaces are the hum, roost and soil layers here.
+    this.tyre = new TyreSynth(sr, seed + 7, { pitch: TYRE_KINDS.truck.pitch, roll: 0, grit: false });
   }
 
   frame(f: ChassisFrame) {
-    this.target = f;
+    this.target = f; this.tyre.frame(f.tyres);
     for (const h of f.hits) {
       const slot = this.hits.find(x => x.age >= x.length) ?? this.hits[0];
       slot.kind = h.kind; slot.age = 0; slot.phase = 0;
@@ -179,14 +183,15 @@ export class ChassisSynth {
     const sr = this.sampleRate, n = out.length, t = this.target, c = this.cur;
     const k = 1 - Math.exp(-n / (0.05 * sr));
     c.hum += (t.hum - c.hum) * k; c.gravel += (t.gravel - c.gravel) * k; c.soil += (t.soil - c.soil) * k;
-    c.screech += (t.screech - c.screech) * k; c.rattle += (t.rattle - c.rattle) * k; c.whine += (t.whine - c.whine) * k;
+    c.rattle += (t.rattle - c.rattle) * k; c.whine += (t.whine - c.whine) * k;
     c.lugHz += (t.lugHz - c.lugHz) * Math.min(1, k * 2); c.whineHz += (t.whineHz - c.whineHz) * k;
     if (Math.abs(c.lugHz - this.lastLug) > 1 && c.lugHz > 20) { this.humBp.bandpass(c.lugHz, 8, sr); this.lastLug = c.lugHz; }
-    const hum = c.hum * 0.05, gravel = c.gravel * 0.09, soil = c.soil * 0.08, screech = c.screech * 0.07;
+    const hum = c.hum * 0.05, gravel = c.gravel * 0.09, soil = c.soil * 0.08;
     // Rear-steer whine: −30 dB re the idle engine (FULL_SCALE·−16 dB in v8core).
     const whine = c.whine * 0.32 * dbToGain(-16) * dbToGain(-30) * 1.4;
     const grainRate = c.rattle * 30, tickRate = c.gravel * 70;
-    const active = hum + gravel + soil + screech + whine + c.rattle > 1e-5 || this.hits.some(h => h.age < h.length);
+    this.tyre.render(out, TYRE_KINDS.truck.gain);
+    const active = hum + gravel + soil + whine + c.rattle > 1e-5 || this.hits.some(h => h.age < h.length);
     if (!active) return;
     const hitsLive = this.hits.some(h => h.age < h.length);
     for (let i = 0; i < n; i++) {
@@ -203,10 +208,6 @@ export class ChassisSynth {
         if (this.tick > 0) { y += gravel * 3 * this.tickBp.process(this.rng.bi()); this.tick--; }
       }
       if (soil > 1e-5) y += soil * this.soilLp.process(this.soilHp.process(noise)) * 1.6;
-      if (screech > 1e-5) {
-        this.vib += 6.5 / sr; this.screechPhase += (1050 + 40 * Math.sin(2 * Math.PI * this.vib)) / sr;
-        y += screech * (0.5 * Math.sin(2 * Math.PI * this.screechPhase) + 4 * this.screechBp.process(noise));
-      }
       if (c.rattle > 0.02) {
         if (--this.grainIn <= 0 && grainRate > 0.5) { this.grain = Math.round(this.rng.range(0.005, 0.015) * sr); this.grainIn = sr / grainRate * this.rng.range(0.3, 1.7); }
         if (this.grain > 0) { y += 0.035 * c.rattle * this.rattleBp.process(this.rng.bi()) * 3; this.grain--; }

@@ -23,8 +23,9 @@ const definitions = {
   'step-gravel': [0.34, t => pulse(t, 14) * noise() * (0.3 + Math.abs(sine(37, t)))],
   'step-wood': [0.3, t => pulse(t, 20) * (sine(180, t) + 0.4 * sine(410, t) + 0.1 * noise())],
   engine: [4, t => (sine(50, t) + 0.35 * sine(100, t) + 0.22 * sine(150, t) + brown()) * (0.85 + 0.15 * sine(25, t))],
-  roll: [4, t => brown() * 5 * (0.8 + 0.2 * sine(3, t))],
-  screech: [4, t => sine(1400, t + 0.00015 * sine(33, t)) * 0.5 + noise() * 0.2],
+  // The tyre roll and squeal loops moved to runtime synthesis (src/audio/engine/tyre.ts). Their eight seconds still
+  // take their turn in the shared noise stream (one value per sample), so the sounds after them regenerate unchanged.
+  'retired-tyres': [8, null],
   curb: [0.4, t => pulse(t, 15) * (sine(62, t) + brown() * 4)],
   impact: [0.7, t => pulse(t, 12) * (sine(48, t) + noise() * 0.7 + sine(287, t) * 0.25)],
   'door-open': [0.45, t => pulse(t, 17) * noise() + 0.2 * Math.sin(Math.PI * t / 0.45) * sine(370 - t * 180, t)],
@@ -108,6 +109,7 @@ for (const name of only) if (!(name in definitions)) throw new Error(`unknown so
 const manifest = only.size ? JSON.parse(readFileSync(path.join(output, 'manifest.json'), 'utf8')) : {};
 for (const [name, [seconds, sample]] of Object.entries(definitions)) {
   if (only.size && !only.has(name)) continue;
+  if (!sample) { for (let i = 0; i < seconds * rate; i++) noise(); continue; }
   low = 0;
   let data = Float32Array.from({ length: Math.round(seconds * rate) }, (_, i) => sample(i / rate));
   if (seconds >= 4) {
