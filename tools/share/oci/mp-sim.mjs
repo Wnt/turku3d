@@ -25,7 +25,8 @@ function pose(i, t) {
 }
 const pct = (xs, q) => { const s = [...xs].sort((a, b) => a - b); return s.length ? +s[Math.min(s.length - 1, Math.floor(q * s.length))].toFixed(1) : null; };
 
-const drivers = [], t0 = now();
+// Latency only for this process's drivers: other players' `t` is their own clock.
+const drivers = [], ours = new Set(), t0 = now();
 let measuring = false, tMeasure = 0;
 async function join(i) {
   const d = { i, types: {}, msgs: 0, poses: 0, lat: [], closes: [], errors: [], joinMs: null, sent: 0, seen: new Set(), bytes: 0 };
@@ -37,7 +38,7 @@ async function join(i) {
   ws.on('message', raw => {
     const m = JSON.parse(raw); d.bytes += raw.length;
     if (m.type === 'welcome' && d.joinMs == null) {
-      d.joinMs = now() - d.start; d.id = m.you.id;
+      d.joinMs = now() - d.start; d.id = m.you.id; ours.add(d.id);
       // Stand at the car first: acquisition needs the player within 7 m (server/PROTOCOL.md, shared vehicles).
       const p = pose(i, now());
       ws.send(JSON.stringify({ v: 2, type: 'pose', ...p }));
@@ -49,7 +50,7 @@ async function join(i) {
     if (m.type === 'error') d.errors.push(`error ${m.code}`);
     if (!measuring) return;
     d.msgs++;
-    if (m.type === 'poses') for (const p of m.poses) { d.poses++; d.seen.add(p.id); d.lat.push(now() - p.t); }
+    if (m.type === 'poses') for (const p of m.poses) { d.poses++; d.seen.add(p.id); if (ours.has(p.id)) d.lat.push(now() - p.t); }
   });
   d.start = now();
   await new Promise((ok, ko) => { ws.once('open', ok); ws.once('error', ko); ws.once('unexpected-response', () => ko(new Error('upgrade refused'))); });
@@ -74,6 +75,7 @@ const result = {
   joined: drivers.filter(d => d.joinMs != null).length, openAtEnd: drivers.filter(d => d.ws.readyState === WebSocket.OPEN).length,
   joinMs: { p50: pct(drivers.map(d => d.joinMs).filter(x => x != null), .5), max: pct(drivers.map(d => d.joinMs).filter(x => x != null), 1) },
   peersSeen: { min: Math.min(...drivers.map(d => d.seen.size)), expected: N - 1 },
+  peersSeenMax: Math.max(...drivers.map(d => d.seen.size)),
   posesPerSecPerDriver: { min: +Math.min(...drivers.map(d => d.poses / secs)).toFixed(1), p50: pct(drivers.map(d => d.poses / secs), .5),
     expected: (N - 1) * Math.min(HZ, 20) },
   messagesPerSecPerDriver: pct(drivers.map(d => d.msgs / secs), .5),

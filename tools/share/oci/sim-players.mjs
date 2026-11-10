@@ -123,7 +123,8 @@ class Player {
     t.busy = true;
     const r = await this.get(`/coarse/${id}/manifest.json?d=${Math.round(distTo(id, this.pos.x, this.pos.z))}&client=${this.client}`, { parse: true });
     let frag = null; try { frag = r.ok && r.body ? JSON.parse(r.body) : null; } catch {}
-    if (!frag?.visual?.[id]) { t.state = 'missing'; t.busy = false; t.retryAt = now() + 5000; return; }
+    // 422 unbuildable (a tile the host does not publish): the game never asks again (world/coarseTiles.ts); others retry.
+    if (!frag?.visual?.[id]) { t.state = 'missing'; t.busy = false; t.retryAt = r.status === 422 ? Infinity : now() + 5000; return; }
     t.frag = frag;
     const base = new URL(`/coarse/${id}/`, BASE);
     const col = frag.collision_bundle ? [frag.collision_bundle.url] : Object.values(frag.collision ?? {}).map(c => c.url);
