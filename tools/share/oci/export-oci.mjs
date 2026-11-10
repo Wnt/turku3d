@@ -15,9 +15,12 @@
 // manifest's absolute /coarse/... URLs onto its city's mount, game/src/core/city.ts cityTileUrl; so does this).
 // Writes <out>/coarse/export-index.json: tile -> revision, files, bytes. This only seeds files: at runtime the
 // published host serves them alone (tools/share/oci/Caddyfile).
+// Tiles go in list order (tiles-city.txt lists the nearest first). No new payload is fetched while the volume has less
+// than --min-free-gb free: it is shared with the GitHub Pages generator and the servers. Such tiles count as
+// "disk low" and wait for room.
 //
 //   node export-oci.mjs --src http://127.0.0.1:7790 --out DIR --tiles tiles.txt [--scenery squares.txt] [--mount M]
-//        [--jobs 32] [--frag-jobs 8] [--scenery-wait-s 2400]
+//        [--jobs 32] [--frag-jobs 8] [--scenery-wait-s 2400] [--min-free-gb 10]
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -40,6 +43,9 @@ const SQUARES = arg('scenery') ? [...new Set(fs.readFileSync(arg('scenery'), 'ut
 const SCENERY_WAIT_MS = Number(arg('scenery-wait-s', 2400)) * 1000;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const JOBS = Number(arg('jobs', 8)), FRAG_JOBS = Number(arg('frag-jobs', 3));
+const MIN_FREE = Number(arg('min-free-gb', 10)) * 1e9;
+const roomLeft = () => { fs.mkdirSync(OUT, { recursive: true }); const s = fs.statfsSync(OUT); return s.bavail * s.bsize >= MIN_FREE; };
+let diskLow = false;
 const agent = new (SRC.protocol === 'https:' ? https : http).Agent({ keepAlive: true, maxSockets: JOBS + FRAG_JOBS });
 
 function get(p, encoding) {
@@ -82,7 +88,8 @@ function payload(p) {
       body = p.endsWith('.glb') ? fs.readFileSync(file) : null;
       bytes = fs.statSync(file).size + (fs.existsSync(`${file}.br`) ? fs.statSync(`${file}.br`).size : 0);
     } else {
-      const r = await payloadSlot(() => get(p, 'br'));
+      const r = await payloadSlot(() => (roomLeft() ? get(p, 'br') : Promise.resolve({ status: 0, error: 'disk low' })));
+      if (r.error === 'disk low') { diskLow = true; return -1; }
       if (r.status !== 200) { stats.errors.push(`${p}: ${r.status || r.error}`); return -1; }
       if (r.enc === 'br') {
         body = zlib.brotliDecompressSync(r.body);
@@ -124,7 +131,7 @@ async function exportTile(id) {
     ...(f.buildingPlacements?.models ?? []).map(m => m.uri), ...Object.values(f.vehicle_models ?? {}).map(m => m.url)]
     .filter(Boolean).map(u => mounted(new URL(u, base).pathname));
   const sizes = await Promise.all([...new Set(urls)].map(payload));
-  if (sizes.some(b => b < 0)) { stats.skipped['payload missing'] = (stats.skipped['payload missing'] ?? 0) + 1; return; }
+  if (sizes.some(b => b < 0)) { const why = diskLow ? 'disk low' : 'payload missing'; stats.skipped[why] = (stats.skipped[why] ?? 0) + 1; return; }
   // Fragments last: a fragment on disk always has its payloads in place.
   for (const [name, body] of Object.entries(frags)) {
     const file = path.join(OUT, MOUNT, id, `${name}.json`);
