@@ -1,6 +1,6 @@
 // Original Turku3D procedural sound bank. Source and generated audio dedicated to CC0-1.0.
 // No samples, voices, field recordings or external assets are used.
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
@@ -32,12 +32,6 @@ const definitions = {
   'door-close': [0.45, t => pulse(t, 20) * (sine(82, t) + noise() * 0.4)],
   city: [8, t => brown() * 3 + 0.07 * sine(80, t) * (1 + sine(0.5, t))],
   river: [8, t => (brown() * 4 + noise() * 0.12) * (0.7 + 0.2 * sine(0.5, t) + 0.1 * sine(1.25, t))],
-  gulls: [8, t => {
-    const call = t % 4;
-    if (call > 0.8) return 0;
-    const envelope = Math.sin(Math.PI * call / 0.8) ** 2;
-    return envelope * (sine(1250 - call * 500, call) + 0.25 * sine(2400 - call * 700, call));
-  }],
   traffic: [8, t => (brown() * 3 + sine(72, t) * 0.12) * (0.6 + 0.4 * sine(0.125, t))],
   wind: [8, t => brown() * 4 * (0.7 + 0.3 * sine(0.25, t))],
   connect: [0.2, t => pulse(t, 18) * sine(t < 0.09 ? 660 : 990, t)],
@@ -105,8 +99,11 @@ const definitions = {
 };
 // `node scripts/prepare-audio.mjs [name ...]` regenerates only the named sounds and keeps the other manifest rows.
 const only = new Set(process.argv.slice(2));
-for (const name of only) if (!(name in definitions)) throw new Error(`unknown sound ${name}`);
-const manifest = only.size ? JSON.parse(readFileSync(path.join(output, 'manifest.json'), 'utf8')) : {};
+for (const name of only) if (!definitions[name]?.[1]) throw new Error(`unknown sound ${name}`);
+// The manifest also lists files this script does not make (the gull calls and the music: see LICENSES.md); their rows stay.
+const previous = existsSync(path.join(output, 'manifest.json')) ? JSON.parse(readFileSync(path.join(output, 'manifest.json'), 'utf8')) : {};
+const manifest = only.size ? previous : Object.fromEntries(Object.entries(previous)
+  .filter(([file]) => !(file.replace(/\.ogg$/, '') in definitions) && existsSync(path.join(output, file))));
 for (const [name, [seconds, sample]] of Object.entries(definitions)) {
   if (only.size && !only.has(name)) continue;
   if (!sample) { for (let i = 0; i < seconds * rate; i++) noise(); continue; }
@@ -135,4 +132,4 @@ for (const [name, [seconds, sample]] of Object.entries(definitions)) {
     sha256: createHash('sha256').update(bytes).digest('hex'), license: 'CC0-1.0' };
 }
 writeFileSync(path.join(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log(`Generated ${Object.keys(manifest).length} mono Opus sounds (${Object.values(manifest).reduce((n, v) => n + v.bytes, 0)} bytes).`);
+console.log(`${Object.keys(manifest).length} files in the manifest (${Object.values(manifest).reduce((n, v) => n + v.bytes, 0)} bytes).`);

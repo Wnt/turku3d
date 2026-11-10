@@ -2,7 +2,7 @@
 
 `GameAudio` owns the Web Audio graph: buffer source → per-voice gain → optional HRTF panner →
 channel gain → master gain → compressor → output. The renderer backend has no audio dependency.
-The 23 original CC0 mono Opus effects total 274,000 bytes; sources and licences are in
+The 22 original CC0 mono Opus effects total 255,691 bytes; the gull calls and the music are documented with them in
 [`public/assets/audio/LICENSES.md`](../../public/assets/audio/LICENSES.md).
 
 Gameplay emits typed `AudioEvent` objects from `mix.ts`. `GameplayAudio.update` adapts the existing
@@ -30,9 +30,21 @@ input state and mute actions. No gameplay class creates audio nodes or selects s
   `VehicleState.impact = {id, impulse}` (N·s): the chassis momentum each fixed world step changes beyond gravity
   (vehicle/README.md "Collision telemetry"). A 0.5 m/s speed-change threshold and 150 ms cooldown keep resting contact quiet.
 - Entering and leaving a car open the door, then close it after 300 ms; the scooter has no door sounds. Gamepad connection emits one blip.
-- City bed, wind and distant traffic mix with a positional river/gull pair. River position is the
-  nearest point on an approximate Aura centreline in engine coordinates; the water/gull mix fades
-  to zero over 140 m. This is an office-area approximation, not measured water geometry.
+- City bed, wind and distant traffic mix with a positional river bed. The river sounds from the nearest point of
+  the Aura's centreline (`gulls.ts` `WATERS`, simplified from OpenStreetMap, from the Halinen rapids to the mouth)
+  and fades to zero over 140 m. A city without a river line has no river bed.
+- Gulls (`gulls.ts`) call now and then, only by the river bank (within 130 m of the Aura's centreline, full within
+  60 m) and in the harbour (over the basin Linnanaukko and up to 350 m from its edge, full within 150 m: the quays
+  and the ferry terminals); elsewhere and in other cities never. `GullScheduler`: the first call comes 10-30 s after arriving at the water, the next 45-120 s after the
+  previous one ended (x 0.7 in the harbour, up to x 2 at the zone's edge), so about one call a minute or two and
+  never two at once. Each call is a one-shot of one of two long calls (a herring gull and a common gull, mostly
+  alternating, played 0.95-1.05 x), placed over the water 40-260 m from the listener and 12-35 m up. `GullVoices`
+  gives it distance: an inverse-distance HRTF panner at the bird (reference 30 m), an air-absorption low-pass
+  (about 10 kHz at 50 m, 3 kHz at 300 m), a reflection off the water a few milliseconds late, and an echo from the
+  quays (a generated impulse response) whose share grows with distance. The two files are fetched when the
+  listener first comes within 250 m of the zone, never at startup: in the start menu and while the world loads
+  the gulls wait (`setLoading`, from the play session). Ambient and local to each client, so it needs no
+  multiplayer sync. `snapshot().gulls` reports presence, the next call's wait and the last call's placement.
 - D-pad down/K toggles master mute; N selects the next music track. Menu/Escape pauses (View/M is the map).
   The Audio panel has master, footsteps, vehicle, ambience, voice and UI sliders. The pause menu's Audio
   page has a music slider and mute button. Volumes and mute settings persist in `localStorage`.

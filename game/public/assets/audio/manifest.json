@@ -83,13 +83,6 @@
     "sha256": "c1fc26e05f4c9921b17d8962f1535ab7c3092952d54e5e072fc8876d0301f474",
     "license": "CC0-1.0"
   },
-  "gulls.ogg": {
-    "bytes": 18309,
-    "channels": 1,
-    "seconds": 7.9,
-    "sha256": "6cd50caaf787e378577b966e8dac01234ac0cf71a087873fea3b288657477bc7",
-    "license": "CC0-1.0"
-  },
   "traffic.ogg": {
     "bytes": 29001,
     "channels": 1,
@@ -158,6 +151,20 @@
     "channels": 1,
     "seconds": 3.9,
     "sha256": "ea12f634d7d669482b5d04f253f003dad8077bc1af8d506514221f3b079c0b1f",
+    "license": "CC0-1.0"
+  },
+  "gull-herring-longcall.ogg": {
+    "bytes": 87519,
+    "channels": 1,
+    "seconds": 11.6565,
+    "sha256": "4e8db6df8d626f81560d43a7323c87f93d8daaca88838e5c279cd43add58f368",
+    "license": "CC0-1.0"
+  },
+  "gull-common-longcall.ogg": {
+    "bytes": 77362,
+    "channels": 1,
+    "seconds": 9.3015,
+    "sha256": "6152700e6238567cb68e7ac5136f9b0a4807b30df921c884eb6498b00ffae255",
     "license": "CC0-1.0"
   }
 }

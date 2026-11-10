@@ -3,6 +3,7 @@ import type { HornEmitter } from './mix';
 import { loading, loadBytes } from '../core/loading';
 import type { V3 } from '../core/origin';
 import { TyreVoices, type TyreVoiceState } from './engine/tyreVoices';
+import { GullVoices } from './gulls';
 import { EngineVoices, type EngineVoiceState } from './engine/voices';
 import { MIX_HZ, POSITION_EPSILON, glide } from './automation';
 import { ENGINE_SOUND, SOUNDS, TRAFFIC_VOICES, ambience, carMix, clamp, crowdGain, damageLoops, duckGain, isLoopVehicle, oneShot, roughEngine, trafficBed, trafficMix, type AudioEvent, type Channel, type Sound } from './mix';
@@ -35,6 +36,10 @@ export class GameAudio {
   private disposed = false;
   private paused = false;
   private pendingConnect = false;
+  /** The start menu is open or the world is loading (before "playable"): nothing is fetched or started on demand. */
+  private loadingWorld = false;
+  /** Clock time from which on-demand audio may start again: a few seconds after the loading ended. */
+  private settledAt = -Infinity;
   private listener: Extract<AudioEvent, { type: 'listener' }> | null = null;
   /** Drawn walkers near the camera; null until the walker system reports (no crowd loop before that). */
   private crowd: number | null = null;
@@ -47,13 +52,15 @@ export class GameAudio {
   /** Synthesised truck engines (local and remote), counted against the 24-voice budget. */
   private readonly engines = new EngineVoices({
     context: () => (this.disposed ? null : this.context), bus: () => this.channels.get('vehicle') ?? null,
-    used: () => this.voices.size + this.tyres.size, error: message => this.errors.push(message),
+    used: () => this.voices.size + this.tyres.size + this.gulls.size, error: message => this.errors.push(message),
   });
   /** Synthesised tyres of cars and scooters (the local one and other players'), in the same budget. */
   private readonly tyres: TyreVoices = new TyreVoices({
     context: () => (this.disposed ? null : this.context), bus: () => this.channels.get('vehicle') ?? null,
-    used: () => this.voices.size + this.engines.size, error: message => this.errors.push(message),
+    used: () => this.voices.size + this.engines.size + this.gulls.size, error: message => this.errors.push(message),
   });
+  /** Gull calls by the river and in the harbour: one-shots now and then, placed over the water (gulls.ts). */
+  private readonly gulls: GullVoices;
   private panel?: HTMLElement;
   private muteButton?: HTMLButtonElement;
   /** The mute key and pad button names (setMuteHint), shown on the mute button. */
@@ -69,6 +76,9 @@ export class GameAudio {
     private readonly base = `${import.meta.env.BASE_URL}assets/audio/`,
     /** Seconds; paces the continuous mix (tests pass a clock that always advances past the interval). */
     private readonly clock = () => performance.now() / 1000) {
+    this.gulls = new GullVoices({ context: () => (this.disposed ? null : this.context), bus: () => this.channels.get('ambience') ?? null,
+      fetch: this.fetcher, base: this.base, full: () => this.voices.size + this.engines.size + this.tyres.size >= 24,
+      error: message => this.errors.push(message) });
     try {
       const saved = JSON.parse(globalThis.localStorage?.getItem('turku3d.audio') ?? 'null');
       if (saved && typeof saved === 'object') {
@@ -196,6 +206,12 @@ export class GameAudio {
     };
   }
 
+  /** In the start menu and while the world loads, on-demand audio waits: the gull calls are neither fetched nor
+   *  scheduled, so the download before the game is playable does not grow. */
+  setLoading(loading: boolean) {
+    if (this.loadingWorld && !loading) this.settledAt = this.clock() + 3;
+    this.loadingWorld = loading;
+  }
   setMusicState(state: MusicState) { if (state !== this.musicState) { this.musicState = state; this.music?.setState(state); } }
   setMusicDeadline(progress: number) { this.musicDeadline = clamp(progress); this.music?.setDeadline(this.musicDeadline); }
   setMusicMuffle(amount: number) { this.musicMuffle = clamp(amount); this.music?.setMuffled(this.musicMuffle); }
@@ -213,7 +229,10 @@ export class GameAudio {
     const now = this.clock();
     if (now < this.nextMix) return;
     this.nextMix = now + 1 / MIX_HZ;
-    if (this.listener) this.place(ctx.listener, this.listener);
+    if (this.listener) {
+      this.place(ctx.listener, this.listener);
+      if (!this.loadingWorld && now >= this.settledAt) this.gulls.update(this.listener.position, now, this.paused);
+    }
     this.refreshHorns(true); this.refreshLoops(); this.refreshTraffic();
   }
 
@@ -268,7 +287,7 @@ export class GameAudio {
 
   private start(sound: Sound, channel: Channel, gain: number, loop: boolean, position?: V3): Voice | null {
     const ctx = this.context, buffer = this.buffers.get(sound);
-    if (!ctx || !buffer || this.disposed || (!loop && (this.voices.size + this.engines.size + this.tyres.size >= 24 || ctx.state !== 'running'))) return null;
+    if (!ctx || !buffer || this.disposed || (!loop && (this.voices.size + this.engines.size + this.tyres.size + this.gulls.size >= 24 || ctx.state !== 'running'))) return null;
     const source = ctx.createBufferSource(), volume = ctx.createGain();
     source.buffer = buffer; source.loop = loop; volume.gain.value = gain;
     source.connect(volume);
@@ -332,7 +351,6 @@ export class GameAudio {
       const bed = this.traffic;
       this.loop('traffic', 'ambience', mix.traffic * trafficBed(bed?.count ?? 0), bed?.centre ?? this.listener.position);
       this.loop('river', 'ambience', mix.water, mix.river);
-      this.loop('gulls', 'ambience', mix.gulls, { ...mix.river, y: 16 });
       if (this.crowd !== null) this.loop('crowd', 'ambience', crowdGain(this.crowd));
     }
     if (this.car) {
@@ -373,7 +391,7 @@ export class GameAudio {
   }
 
   snapshot() { return { state: this.context?.state ?? 'locked', loaded: this.buffers.size, loops: this.loops.size, loopSounds: [...this.loops.keys()],
-    trafficVoices: this.trafficVoices.filter(s => s.car !== null).length, engines: this.engines.snapshot(), tyres: this.tyres.snapshot(),
+    trafficVoices: this.trafficVoices.filter(s => s.car !== null).length, engines: this.engines.snapshot(), tyres: this.tyres.snapshot(), gulls: this.gulls.snapshot(this.clock()),
     voices: this.voices.size, ducked: this.ducked, muted: this.muted, volumes: { ...this.volumes }, played: { ...this.played }, errors: [...this.errors],
     music: { state: this.musicState, deadline: this.musicDeadline, muffle: this.musicMuffle,
       volume: this.musicVolume, muted: this.musicMuted, playing: this.music?.snapshot() ?? null } }; }
@@ -381,7 +399,7 @@ export class GameAudio {
   dispose() {
     for (const entry of this.horns.values()) entry.voice.stop();
     this.horns.clear(); this.hornEmitters = [];
-    this.engines.dispose(); this.tyres.dispose();
+    this.engines.dispose(); this.tyres.dispose(); this.gulls.dispose();
     this.disposed = true;
     this.music?.dispose(); this.music = null;
     for (const voice of this.voices) { voice.source.stop(); voice.source.disconnect(); voice.gain.disconnect(); voice.panner?.disconnect(); }

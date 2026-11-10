@@ -64,8 +64,11 @@ test('material contract maps five surfaces; sensors and silent boundaries never 
 test('river fades with distance, engine follows RPM/throttle and stays bounded', () => {
   const near = ambience({ x: 200, y: 4, z: 310 }), far = ambience({ x: -500, y: 4, z: -500 });
   expect(near.water).toBeGreaterThan(far.water); expect(far.water).toBe(0);
-  expect(near.gulls).toBeGreaterThan(far.gulls); expect(near.city).toBeLessThan(far.city);
-  expect(near.river).toEqual({ x: 200, y: 0, z: 310 });
+  expect(near.city).toBeLessThan(far.city);
+  // The water sounds from the nearest point of the Aura's centreline (gulls.ts WATERS), here 25 m away.
+  expect(Math.hypot(near.river.x - 200, near.river.z - 310)).toBeLessThan(40); expect(near.river.y).toBe(0);
+  // Further down the river, beyond the old office-area polyline, the river is still there.
+  expect(ambience({ x: -1000, y: 3, z: 1150 }).water).toBeGreaterThan(0.2);
   const idle = carMix(850, 0, true), fast = carMix(5000, 1, true);
   expect(fast.rate).toBeGreaterThan(idle.rate); expect(fast.engine).toBeGreaterThan(idle.engine);
   expect(carMix(900, 0, false).engine).toBe(0);
@@ -92,14 +95,16 @@ test('fake AudioContext: lazy unlock, routing, smoothing, pause, mute, bounded v
   expect(created).toBe(0); expect(audio.snapshot().state).toBe('locked');
   await audio.unlock(); await audio.unlock();
   expect(created).toBe(1); expect(audio.snapshot().loaded).toBe(SOUNDS.length);
-  expect(audio.snapshot().loops).toBe(5); expect(audio.snapshot().played.connect).toBe(1);
+  // City, wind, traffic and river beds; gulls are one-shots now (gulls.ts), not a loop.
+  expect(audio.snapshot().loops).toBe(4); expect(audio.snapshot().played.connect).toBe(1);
+  expect(SOUNDS).not.toContain('gulls');
   expect(ctx.nodes[0].connections[0].connections).toContain(ctx.destination);
   audio.emit({ type: 'car', kind: 'car', position, rpm: 3000, throttle: 1, speed: 12, tyres: { ...SILENT_TYRES, slide: 4, speed: 12 }, running: true });
   // Both sample engine loops exist (car, scooter); only the driven class's one is audible. The tyres are a synth voice.
-  expect(audio.snapshot().loops).toBe(7);
+  expect(audio.snapshot().loops).toBe(6);
   // The walkers' crowd murmur joins the beds once the walker system reports a count.
   audio.emit({ type: 'crowd', walkers: 6 });
-  expect(audio.snapshot().loops).toBe(8);
+  expect(audio.snapshot().loops).toBe(7);
   audio.emit({ ...listener, position: { x: 1, y: 2, z: 3 } });
   expect(ctx.listener.positionX.value).toBe(1); expect(ctx.listener.forwardZ.value).toBe(-1);
   audio.emit({ type: 'volume', channel: 'master', value: 0.4 });
@@ -280,7 +285,7 @@ test('continuous mix: at most 30 updates a second, unchanged targets skipped, bo
   for (let i = 0; i < 300; i++) { now = 30 + i / 30; frame(i, true); }
   // (Music notes keep their own one-shot envelopes; every param the mix drives holds at most its latest target.)
   const driven = params().filter(p => p.targets > 5);
-  expect(driven.length).toBeGreaterThan(10);
+  expect(driven.length).toBeGreaterThan(7); // the listener and the beds, engine and traffic loops (tyres and gulls are not mix loops)
   expect(Math.max(...driven.map(p => p.events.length))).toBeLessThanOrEqual(1);
   expect(audio.errors).toEqual([]);
   audio.dispose();

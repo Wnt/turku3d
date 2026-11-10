@@ -4,10 +4,12 @@ import { MATERIALS } from '../shared/col/materials';
 import type { TyreFrame } from './engine/tyre';
 import type { EngineVoiceState } from './engine/voices';
 import { MIX_HZ } from './automation';
+import { WATERS, nearestOnLine } from './gulls';
+import { CITY } from '../core/city';
 
 export const SOUNDS = ['step-asphalt', 'step-stone', 'step-grass', 'step-gravel', 'step-wood',
   'engine', 'scooter', 'curb', 'impact', 'door-open', 'door-close',
-  'city', 'river', 'gulls', 'traffic', 'wind', 'connect', 'crowd', 'crunch', 'scrape', 'glass-break', 'rattle', 'hiss'] as const;
+  'city', 'river', 'traffic', 'wind', 'connect', 'crowd', 'crunch', 'scrape', 'glass-break', 'rattle', 'hiss'] as const;
 export type Sound = typeof SOUNDS[number];
 export type Channel = 'master' | 'footsteps' | 'vehicle' | 'ambience' | 'voice' | 'ui';
 export const clamp = (v: number, max = 1) => Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
@@ -22,20 +24,12 @@ export function footstep(material: number): Sound | null {
   return 'step-stone';
 }
 
-// Approximate Aura centreline through the office AOI, engine-local metres. Replace with
-// measured water geometry when the world exports a water emitter contract.
-const RIVER = [{ x: -150, y: 0, z: 540 }, { x: 200, y: 0, z: 310 }, { x: 540, y: 0, z: 100 }];
+/** The beds by place: the river's water sounds from the nearest point of the city's river centreline (gulls.ts
+ *  WATERS, the Aura in Turku; a city without one has no river bed) and fades to zero over 140 m. */
 export function ambience(position: V3) {
-  let distance = Infinity, river = RIVER[0];
-  for (let i = 1; i < RIVER.length; i++) {
-    const a = RIVER[i - 1], b = RIVER[i], dx = b.x - a.x, dz = b.z - a.z;
-    const t = clamp(((position.x - a.x) * dx + (position.z - a.z) * dz) / (dx * dx + dz * dz));
-    const p = { x: a.x + t * dx, y: 0, z: a.z + t * dz };
-    const d = Math.hypot(p.x - position.x, p.z - position.z);
-    if (d < distance) { distance = d; river = p; }
-  }
-  const near = clamp(1 - distance / 140);
-  return { river, water: near * 0.32, gulls: near * 0.16,
+  const line = WATERS[CITY.name]?.river, at = line ? nearestOnLine(line, position.x, position.z) : null;
+  const near = at ? clamp(1 - at.distance / 140) : 0;
+  return { river: at ? { x: at.x, y: 0, z: at.z } : { x: position.x, y: 0, z: position.z }, water: near * 0.32,
     city: 0.16 - near * 0.07, traffic: 0.12 - near * 0.04, wind: 0.06 + near * 0.04 };
 }
 
