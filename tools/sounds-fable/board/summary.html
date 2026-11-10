@@ -1,8 +1,66 @@
-<p class="dim">Ensimmäinen versio: synteesiehdokkaat ja pelin nykyiset äänet. Äänitepohjaiset lokit ja renkaat, paikallisella
-mallilla tehty musiikki, omat sävellykset sekä mittaustaulukot tulevat seuraaviin versioihin tämän yön aikana.</p>
+<p>Lyhyesti: <b>lokeille oikeat äänitteet ja ajonaikainen kohtaus, renkaille ajonaikainen fysikaalinen synteesi, musiikille radio valmiista
+kappaleista ja adaptiivinen kerros proseduraalisesti.</b> Kolme eri vastausta, koska kolme ääntä ovat eri tavalla vaikeita.</p>
 <table>
-  <tr><th>Alue</th><th>Suurin hyppy (alustava)</th><th>Tila tällä sivulla</th></tr>
-  <tr><td>Lokit</td><td>Näytesarja oikeista äänitteistä (CC0/CC-BY) + ajonaikainen sijoittelu, muuntelu ja etäisyyskäsittely</td><td>synteesi tehty; äänitteet haussa</td></tr>
-  <tr><td>Rengasvinkuna</td><td>Ajonaikainen stick-slip-synteesi, jota ohjaavat luistonopeus, kuorma ja pinta</td><td>tehty: demo ja renderöinnit</td></tr>
-  <tr><td>Musiikki</td><td>Valmiiksi tuotetut kappaleet "radiokanavina" + kerrokset kiireelle</td><td>nykyinen renderöity; ehdokkaat tulossa</td></tr>
+  <tr><th>Alue</th><th>1. Suurin hyppy</th><th>2. Täydentää</th><th>Ei kannata</th></tr>
+  <tr><td>Lokit</td>
+    <td>Näytesarja CC0-äänitteistä (30–40 huutoa, alle 1 Mt) + ajonaikainen kohtaus: linnut veden, sataman ja torin yllä, jokaiselle soitolle oma paikka,
+        korkeus ja etäisyyskäsittely. Katso demo ja ryhmä "Äänitteet".</td>
+    <td>Uudelleensynteesi mitatuista huudoista, jos halutaan rajattomasti yksilöitä. Valmis satamaluuppi taustaksi kaukaisille linnuille.</td>
+    <td>Puhdas synteesi: tunnistettava, mutta ei aito. Generatiivinen malli: kokeiltu, tulos huono.</td></tr>
+  <tr><td>Rengasvinkuna</td>
+    <td>Ajonaikainen stick-slip-synteesi, jota ohjaavat jokaisen pyörän luistonopeus, kuorma ja pinta. Korvaa <code>screech.ogg</code>:n, <code>roll.ogg</code>:n ja
+        trophy truckin siniäänen. Katso demo.</td>
+    <td>Äänitetyt sirkaisut kertatehosteina (esim. <code>f-tyre-rec-chirp-koenig</code>, <code>f-tyre-rec-squeal-1</code>) ja parkkihallin kaiku.</td>
+    <td>Luupit eri voimakkuuksilla: sävel ei seuraa ajoa, toisto kuuluu.</td></tr>
+  <tr><td>Musiikki</td>
+    <td>Autoradio valmiista kappaleista (6–10 kpl, 2 Mt kappale), tehty paikallisella avoimella mallilla ja valittu korvalla. Kanavan vaihto N-näppäimestä kuten nyt.</td>
+    <td>Uusi proseduraalinen moottori tilauksen kiireelle (Ring Road) ja valikolle (Harbour Glass): reagoi peliin iskun tarkkuudella.</td>
+    <td>Nykyisen sekvensserin viilaus: rakenne (yksi ääni, yksi kuvio) on rajoite, ei parametrit.</td></tr>
 </table>
+
+<h3>Mitä tein ja mitä vain arvioin</h3>
+<table>
+  <tr><th>Lähestymistapa</th><th>Lokit</th><th>Renkaat</th><th>Musiikki</th></tr>
+  <tr><td>Parempi synteesi</td><td><b>tehty</b>: lähde–suodin-malli ja huutojen kielioppi (8 ehdokasta)</td><td><b>tehty</b>: stick-slip-malli, kalibroitu äänitteisiin (9 renderöintiä + demo)</td>
+      <td><b>tehty</b>: uusi moottori, 4 sävellystä (4 renderöintiä + demo)</td></tr>
+  <tr><td>Äänitteiden käsittely</td><td><b>tehty</b>: 15 leikkausta, 4 luuppia, satamakohtaus, 33 näytteen demo</td><td><b>tehty</b>: 7 äänitettä, 4 luuppia, rakeistus</td>
+      <td>vain arvioitu: CC0-kappalekirjastot (laatu ja tyyli sattumanvaraisia)</td></tr>
+  <tr><td>Mittauksiin perustuva uudelleensynteesi</td><td><b>tehty</b>: harmoninen + kohina -malli (6 ehdokasta)</td><td>tehty osana kalibrointia; ei erillistä ehdokasta</td><td>ei sovellu</td></tr>
+  <tr><td>Paikallinen generatiivinen malli</td><td><b>kokeiltu, hylätty</b>: ACE-Step 1.5 teki lokkikehotteesta pianomusiikkia tai kohinaa</td><td><b>kokeiltu, hylätty</b>: sama tulos</td>
+      <td><b>tehty</b>: ACE-Step 1.5 (MIT), 10 tyyliä</td></tr>
+  <tr><td>Muut mallit</td><td colspan="3">vain arvioitu ja hylätty lisenssin takia: MusicGen/AudioGen (CC BY-NC), AudioLDM (NC), Stable Audio Open (kirjautuminen ja yhteisölisenssi),
+      TangoFlux (ei-kaupallinen). Näitä ei ladattu.</td></tr>
+</table>
+<p class="dim">ACE-Step 1.5:n painojen MIT-lisenssi on mallikortin metatiedoissa ja tekstissä (kortti sanoo myös, että generoitua musiikkia saa käyttää kaupallisesti);
+erillistä LICENSE-tiedostoa painojen mukana ei ole. Vanhempi ACE-Step v1 on Apache 2.0 -lisenssillä, jos tämä halutaan varmistaa.</p>
+
+<h3>Mitä peliin vieminen vaatisi</h3>
+<table>
+  <tr><th>Alue</th><th>Työ</th><th>Huomioita</th></tr>
+  <tr><td>Lokit</td>
+    <td>Uusi <code>audio/gulls.ts</code> (noin 150 riviä): lintulähteet veden ja torin yllä, satunnainen näyte, korkeus ±6 %, etäisyyden mukaan alipäästö ja kaikulähetys
+        (yksi jaettu ConvolverNode ambienssiväylässä), enintään 4 huutoa yhtä aikaa. Näytteet <code>assets/audio/gulls/</code>, rivit LICENSES.md:hen. <code>gulls.ogg</code> poistuu.</td>
+    <td>Tarvitsee veden sijainnin maailmasta: nykyinen kolmen pisteen Aurajoki-viiva kattaa vain toimiston alueen. Satama, meri ja tori tarvitsevat omat lähteensä.
+        Moninpelissä ambienssi voi olla paikallinen; yhteisen kokemuksen saa siementämällä ajan ja ruudun mukaan.</td></tr>
+  <tr><td>Renkaat</td>
+    <td><code>tyre/core.js</code> TypeScriptiksi (noin 200 riviä) <code>audio/engine/</code>-hakemistoon olemassa olevan worklet-äänen rinnalle. Syötteet <code>GameplayAudio</code>sta:
+        pyöräkohtainen luistonopeus (<code>hypot(lateral, longitudinal)</code>), kuorma jousituksen painumasta, pinta <code>surfaceClass</code>ista, ajonopeus.</td>
+    <td>Lyhyet sirkaisut vaativat, että ääni lukee luistonopeuden suoraan eikä 0,18 s:n luistosuotimen läpi (suodin jää renkaanjäljille).
+        Sama data on jo synkronoidussa pyörätilassa, joten muiden pelaajien autot saavat äänen samalla koodilla. CPU: 5 oskillaattoria 4× ylinäytteistyksellä; mitattava Airilla.</td></tr>
+  <tr><td>Musiikki</td>
+    <td>Radio: <code>audio/radio.ts</code>, joka soittaa Opus-tiedostoja nykyiseen musiikkiväylään (vaimennus ja puheen alta väistäminen säilyvät) ja kappalelista tempoineen.
+        Moottori: <code>music/engine.js</code> workletiksi nykyisen <code>MusicSystem</code>-rajapinnan taakse (<code>setState</code>, <code>setDeadline</code>, <code>setMuffled</code>, <code>deliver</code>).</td>
+    <td>10 kappaletta on noin 20 Mt: ladataan vasta soitettaessa, mieluiten samasta lähteestä kuin muut isot resurssit. Korvalla valinta on välttämätön; lauluvuodot ja
+        tyyliharhat (iskelmästä tuli balkanilaista) karsitaan kuuntelemalla. Tempon nosto valmiille kappaleelle onnistuu soittonopeudella (äänenkorkeus säilyy selaimessa).</td></tr>
+</table>
+
+<h3>Mitä tekisin seuraavaksi</h3>
+<ul>
+  <li><b>Kuuntelukierros:</b> sinun valintasi tältä sivulta; sen jälkeen valitut viedään pelin haaraan yksi alue kerrallaan.</li>
+  <li><b>Lokit:</b> lisää Itämeren äänitteitä (nyt vain Lidingön kalalokki on täältä), naurulokille enemmän puhtaita yksittäishuutoja, ja huutojen ketjutus:
+      yhden linnun naurusarja laukaisee naapurien vastaukset.</li>
+  <li><b>Renkaat:</b> kalibrointi pitkään driftiin ja burnoutiin, kun niistä löytyy vapaa äänite (nyt aineisto on jarrutuksia); savun suhina; märän ja lumen pinnat.</li>
+  <li><b>Musiikki:</b> toinen kierros generointia tarkoilla kehotteilla ja suuremmalla 4B-mallilla, suomenkielinen laulu kokeeksi, ja jokaiselle radiokappaleelle
+      mitattu tahtiruudukko, jotta kiirekerros voi soida sen päällä tahdissa.</li>
+  <li><b>Arviointi ilman korvia:</b> BirdNET-tunnistin tuomariksi lokeille (tunnistaako se synteesin harmaalokiksi) ja CLAP-samankaltaisuus renkaille.</li>
+</ul>

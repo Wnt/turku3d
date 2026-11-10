@@ -17,7 +17,7 @@ import sfx  # noqa: E402
 
 STYLES = {
     "synthwave": ("synthwave, yöajo", "Radio: yö ja moottoritie"),
-    "iskelma": ("iskelmä/tango, haitari", "Radio: paikallisväriä; malli tulkitsi tyylin osin itäeurooppalaiseksi kansanmusiikiksi"),
+    "iskelma": ("iskelmä/tango, haitari", "Radio: paikallisväriä"),
     "funk": ("70-luvun poliisisarjafunk", "Radio: ajo ja takaa-ajo"),
     "dnb": ("liquid drum and bass", "Tilaus ja kiire"),
     "lofi": ("lo-fi hiphop", "Kävely ja vapaa ajo"),
@@ -45,15 +45,21 @@ def main() -> None:
         m = analyse.measure(str(path), requested)
         rows.append(m)
         model = entry["model"]
-        leak = vocals.get(entry["file"])
+        leak = entry.get("vocal_check") or vocals.get(entry["file"])
         leak_text = ""
         if leak is not None:
-            leak_text = " Lauluvuoto (Demucs): " + ("ei havaittu." if not leak.get("vocals_suspected") else f"mahdollinen, laulustemmin taso {leak.get('vocals_rel_db', '?')} dB.")
+            level = leak.get("vocal_minus_mix_db")
+            loudest = (leak.get("loudest_vocal_windows") or ["?"])[0].split(":")[0]
+            leak_text = (f" Laulun tarkistus (Demucs): laulustemmi {level:.0f} dB miksauksesta" + ("; ei laulua." if level < -32 else f"; kuuntele kohta {loudest}, siinä voi olla lauluääntä tai soolosoitin.")) if level is not None else ""
         tempo = f"pyydetty {requested} BPM, mitattu {m['tempo_bpm']:.0f}" if requested else f"mitattu {m['tempo_bpm']:.0f} BPM"
+        exact = entry["settings"].get("use_cot_caption") is False or entry.get("lm_output", {}).get("caption") in (None, "", entry["prompt"])
+        rewritten = (entry.get("lm_output") or {}).get("caption") or ""
+        caption_text = (" Kehote annettiin mallille sellaisenaan." if exact or not rewritten
+                        else f" Mallin suunnitteluosa kirjoitti kehotteen uudelleen: <i>{rewritten[:150].rstrip()}…</i>")
         tracks[f"music-gen-{slug}-s{entry['seed']}"] = {
             "file": str(path), "title_fi": f"Generoitu: {style} (siemen {entry['seed']})", "rating": 4, "bitrate": "128k",
             "desc_fi": (f"{use}. Kehote: <i>{entry['prompt']}</i> Malli: {model['name']} ({model['dit']}, {entry['settings']['steps']} askelta), paikallisesti M1 Maxilla "
-                        f"{entry['wall_time_s']['generate']:.0f} sekunnissa; koodi ja painot MIT-lisenssillä. Tempo: {tempo}.{leak_text}"),
+                        f"{entry['wall_time_s']['generate']:.0f} sekunnissa; koodi ja painot MIT-lisenssillä. Tempo: {tempo}.{caption_text}{leak_text}"),
         }
     note = ("Tekstikehotteesta kokonaisen tuotetun kappaleen tekevä avoin malli (ACE-Step 1.5). Kappaleet ovat ensimmäisiä otoksia, ei valikoituja: "
             "samasta kehotteesta saa uuden version noin 40 sekunnissa. En ole kuullut näitä; tähdet kertovat vain, että tiedosto on ehjä ja tempo osuu.")
