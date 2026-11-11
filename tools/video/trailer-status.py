@@ -30,8 +30,8 @@ def cell(found):
     name, s = found
     c = s.get('cadence', {})
     text = f"`{name}.mp4` {s.get('size')} {s.get('preset')}"
-    if s.get('tier') == 'final':
-        text += f", {'PASS' if s.get('pass') else 'FAIL'}"
+    if s.get('tier') == 'final' or name.startswith('s'):
+        text += f", {'PASS' if s.get('pass') else 'FAIL'}, grab {s.get('grab')}"
     text += f", {c.get('stream', {}).get('nb_read_frames')}/{c.get('expectedFrames')} frames, {c.get('exactDuplicateCaptures')} dup, {c.get('freezes')} freezes"
     if s.get('minCameraClearance') is not None:
         text += f", camera {s['minCameraClearance']} m above ground"
@@ -41,9 +41,9 @@ def cell(found):
 
 
 lines = [f'<!-- table:start -->', f'Updated {time.strftime("%H:%M:%S")}. Clips are `clips/<shot>/<name>.mp4` with a `.json` sidecar and `-contact.jpg`.', '',
-         '| Shot | Newest draft | Newest final | State |', '|---|---|---|---|']
+         '| Shot | Newest draft (720p high) | Newest safety take (1080p high, CRF 12) | Newest final (1080p ultra) | State |', '|---|---|---|---|---|']
 for shot in ORDER:
-    lines.append(f"| {shot} | {cell(newest(shot, 'd'))} | {cell(newest(shot, 'v'))} | {notes.get(shot, '') or (('variant: ' + VARIANT[shot]) if VARIANT.get(shot) else '')} |")
+    lines.append(f"| {shot} | {cell(newest(shot, 'd'))} | {cell(newest(shot, 's'))} | {cell(newest(shot, 'v'))} | {notes.get(shot, '') or (('variant: ' + VARIANT[shot]) if VARIANT.get(shot) else '')} |")
 lines.append('<!-- table:end -->')
 path = os.path.join(ROOT, 'DP-STATUS.md')
 text = open(path).read()
