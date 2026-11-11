@@ -127,7 +127,7 @@ add('D3-wide',1,{...D3,duration:2,cars:[{take:'d3-f',...HERO,t0:22.2}],follow:un
 add('D3-chase',1,{...D3,cars:[{take:'d3-f',...HERO,t0:14.2}],follow:{car:0,frame:'heading',smooth:.15},keys:[[-1.2,-9,3,2,-6,40],[-.6,-7.5,2.6,1,-5,42]],target:undefined,variant:'crane chase on the approach, castle ahead (sun near the frame)'});
 
 // ---- D4 riverside quay ----
-const quay={take:'d4-quay-2',...HERO,t0:1.3};
+const quay={take:'d4-quay-2',...HERO,t0:1.3,lights:0};
 const D4={duration:2,hour:18.4,...common,cars:[quay],follow:{car:0,frame:'heading',smooth:.15},keys:[[1.2,-5.5,.38,-14,2,55],[1.2,-5.2,.38,-14,2,55]],
  note:'Riverside quay: chase from 1 m above the quay surface, behind and right of the car, moored boats and the river on the left (26-73 km/h; the quay ends at clip 5.0 s)'};
 add('D4',0,D4);
@@ -136,8 +136,8 @@ add('D4-front',1,{...D4,keys:[[1.8,7,.5,198,2,50],[1.8,6,.5,198,2,50]],variant:'
 // ---- W1 on foot: same quay, locked-off ----
 const parked={take:'d4-quay-2',...HERO,t0:3,rate:0};
 const W1={duration:1.6,hour:18.5,...common,cars:[parked],walker:{from:[B+735.48,N0+199.81],heading:57,speed:1.4,t0:0,H:2.68},
- keys:[k(722.99,186.92,4.15,31.4,0,36),k(722.94,186.9,4.15,31.4,0,36)],
- note:'On foot: locked-off at 1.5 m on the quay, hero car parked in the left foreground, the driver walks away on the right (about 70 % of frame width). UNSURE: walker actor never rendered; walker height taken from the quay take'};
+ keys:[k(721.43,184.36,4.1,30,0,36),k(721.38,184.34,4.1,30,0,36)],
+ note:'On foot: locked-off at 1.5 m on the quay, hero car parked in the left foreground, the driver walks away on the right (about 70 % of frame width). Walker renders (server draft d2); lens pulled back 3 m after that draft so the whole car is in frame'};
 add('W1',0,W1);
 add('W1-back',1,{...W1,walker:{from:[B+714.93,N0+186.46],heading:237,speed:1.4,t0:0,H:2.58},keys:[k(727.01,199.08,4.15,211.3,0,36),k(727.05,199.1,4.15,211.3,0,36)],variant:'looking south-west into the low sun: backlit walker, lens over the quay edge'});
 
