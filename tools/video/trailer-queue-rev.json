@@ -1,15 +1,40 @@
 {
- "C1": 2,
- "T1b": 2,
- "H1": 2,
+ "C1": 3,
+ "T1b": 3,
+ "H1": 3,
+ "P1": 3,
+ "T1a": 3,
+ "D1": 3,
+ "D2": 3,
+ "D4": 3,
  "order": [
   "C1",
+  "P1",
   "T1b",
+  "T1a",
   "H1",
   "D1",
   "D2",
   "D4"
  ],
+ "variants": [
+  "H1-slow",
+  "H1-low",
+  "C1-low",
+  "T1b-14m",
+  "T1a-high",
+  "H1-high",
+  "P1-11m",
+  "C1-late",
+  "T1b-rev",
+  "T1a-track",
+  "D1-front",
+  "D2-front",
+  "D4-front",
+  "P1-dawn",
+  "C1-low-late",
+  "P1-11m-dawn"
+ ],
  "extra": [],
- "note": "P1 and T1a base finals were started 13:10:46 from the current definitions; W1 and D3 wait for their drafts"
+ "note": "rev 3 = after the canvas-grab fix (earlier server frames were black); W1, W1-back and D3 wait for their drafts"
 }
