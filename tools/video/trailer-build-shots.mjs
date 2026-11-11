@@ -158,7 +158,7 @@ const orbit2=(height,from,to,nearest,pitch,fov)=>{const dist=R+nearest-2.5,keys=
 const T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...orbit2(4.5,143,135,19,6,34),
  note:`Tori donuts: lens 4.5 m above the paving, 19 m from the nearest car, 40 degree lens tilted 7 degrees down: Orthodox church dome whole with sky above it, cars at about 40-64 % of frame height, the bottom third clean paving for the title, the group fills about 80 % of the width; slow orbit panning with the group. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch. The layout is centred so the lamp post of the square stands inside one donut`};
 add('T1b',0,T1b);
-add('T1b-sun',1,{...T1b,...orbit2(3,84,76,14,7,40),variant:'second angle: from the east side looking west-north-west, sun just out of frame on the left, smoke backlit'});
+add('T1b-sun',1,{...T1b,keys:orbit2(3,84,76,14,5.5,40).keys.map(q=>[q[0],q[1],q[2],q[3]-5,q[4],q[5]]),target:undefined,variant:'second angle: from the east side looking west-north-west, sun just out of frame on the left, smoke backlit'});
 add('T1b-low',1,{...T1b,...orbit(3,143,135,14,10.5,36),variant:'3 m above the paving, 14 m from the nearest car, 36 degree lens (dome cut at the top)'});
 add('T1b-14m',1,{...T1b,...orbit2(14,143,135,35,17,34),variant:'drone 14 m above the paving, 35 m from the nearest car'});
 add('T1b-rev',1,{...T1b,...orbit2(4.5,135,143,19,7,40),variant:'orbit reversed'});
