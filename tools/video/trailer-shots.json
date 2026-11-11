@@ -1,6 +1,519 @@
-{"fps":60,"handles":1,"date":"2026-09-08","traffic":0,"walkers":60,"shots":[
-{"id":"D1","duration":1.5,"hour":19.0,"weather":"clear","note":"Low chase behind the car at full throttle on Lantinen Rantakatu",
- "cars":[{"take":"rantakatu-launch","model":"golf7","color":"red","t0":4.6}],
- "follow":{"car":0,"frame":"heading","smooth":0.12},
- "keys":[[0.7,-6.8,1.0,0,-2,60],[0.35,-5.2,0.8,0,-1,68]]}
-]}
+{
+ "fps": 60,
+ "handles": 1,
+ "date": "2026-09-08",
+ "traffic": 40,
+ "walkers": 100,
+ "shots": [
+  {
+   "id": "P1",
+   "duration": 2.6,
+   "hour": 7.5,
+   "weather": "clear",
+   "traffic": 40,
+   "note": "Postcard: slow low glide up the Aura, boats right, cathedral tower on the skyline",
+   "ease": "linear",
+   "keys": [
+    [
+     23459668,
+     6704196,
+     10,
+     60,
+     -4,
+     50
+    ],
+    [
+     23459694,
+     6704211,
+     8.5,
+     60,
+     -3,
+     50
+    ]
+   ]
+  },
+  {
+   "id": "H1",
+   "duration": 2.0,
+   "hour": 18.3,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Cathedral slide: low wide lens, real handbrake slide towards camera, west tower above",
+   "cars": [
+    {
+     "take": "h1-d",
+     "model": "golf7",
+     "color": "red",
+     "t0": 2.6
+    }
+   ],
+   "ease": "linear",
+   "keys": [
+    [
+     23460183.5,
+     6704685.5,
+     9.35,
+     87,
+     23,
+     80
+    ],
+    [
+     23460184.6,
+     6704686.2,
+     9.3,
+     87,
+     24,
+     78
+    ]
+   ]
+  },
+  {
+   "id": "D1",
+   "duration": 1.5,
+   "hour": 18.6,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Launch: low chase behind the car at full throttle on Lantinen Rantakatu",
+   "cars": [
+    {
+     "take": "rantakatu-launch",
+     "model": "golf7",
+     "color": "red",
+     "t0": 4.6
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.1
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     0.9,
+     -5.6,
+     0.75,
+     -3,
+     0,
+     62
+    ],
+    [
+     0.5,
+     -4.6,
+     0.6,
+     -2,
+     1,
+     70
+    ]
+   ]
+  },
+  {
+   "id": "D2",
+   "duration": 1.5,
+   "hour": 19.0,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Bridge: side tracking from over the river while the car crosses Auransilta at 85 km/h (take ends in a crash at clip second 2.9: tail handle is short)",
+   "cars": [
+    {
+     "take": "d2-bridge",
+     "model": "golf7",
+     "color": "red",
+     "t0": 4.6
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.2
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     -26,
+     -14,
+     1.2,
+     0,
+     0,
+     30
+    ],
+    [
+     -22,
+     -21,
+     1.8,
+     0,
+     0,
+     30
+    ]
+   ],
+   "target": [
+    [
+     0,
+     0,
+     0.5
+    ],
+    [
+     0,
+     0,
+     0.5
+    ]
+   ]
+  },
+  {
+   "id": "T1",
+   "duration": 3.5,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Tori donuts: six real-physics donuts, high oblique orbiting drone, Orthodox church at the top",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 3.0
+    },
+    {
+     "take": "tori-1",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 3.0
+    },
+    {
+     "take": "tori-2",
+     "model": "e30",
+     "color": "white",
+     "t0": 3.0
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "black",
+     "t0": 3.0
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "silver",
+     "t0": 3.0
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "beige",
+     "t0": 3.0
+    }
+   ],
+   "ease": "linear",
+   "keys": [
+    [
+     23459677.2,
+     6704565.5,
+     46,
+     0,
+     0,
+     50
+    ],
+    [
+     23459689.6,
+     6704572.2,
+     46,
+     0,
+     0,
+     50
+    ],
+    [
+     23459700.1,
+     6704581.5,
+     46,
+     0,
+     0,
+     50
+    ]
+   ],
+   "target": [
+    [
+     23459654,
+     6704628,
+     6
+    ],
+    [
+     23459654,
+     6704628,
+     6
+    ]
+   ]
+  },
+  {
+   "id": "C1",
+   "duration": 6.4,
+   "hour": 18.2,
+   "hourTo": 22.2,
+   "weather": "clear",
+   "traffic": 40,
+   "scenery": true,
+   "note": "Pull-back from the Tori donuts up to the whole city, golden hour through dusk into night",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 6.5
+    },
+    {
+     "take": "tori-1",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 6.5
+    },
+    {
+     "take": "tori-2",
+     "model": "e30",
+     "color": "white",
+     "t0": 6.5
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "black",
+     "t0": 6.5
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "silver",
+     "t0": 6.5
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "beige",
+     "t0": 6.5
+    }
+   ],
+   "ease": "smooth",
+   "keys": [
+    [
+     23459700.1,
+     6704581.5,
+     46,
+     0,
+     0,
+     50
+    ],
+    [
+     23459800,
+     6704640,
+     110,
+     0,
+     0,
+     52
+    ],
+    [
+     23460050,
+     6704760,
+     280,
+     0,
+     0,
+     55
+    ],
+    [
+     23460450,
+     6704930,
+     520,
+     0,
+     0,
+     58
+    ]
+   ],
+   "target": [
+    [
+     23459654,
+     6704628,
+     6
+    ],
+    [
+     23459640,
+     6704600,
+     6
+    ],
+    [
+     23459500,
+     6704400,
+     0
+    ],
+    [
+     23459000,
+     6703900,
+     0
+    ]
+   ]
+  },
+  {
+   "id": "D5a",
+   "duration": 0.8,
+   "hour": 13,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Triplet 1/3: Aurakatu towards the bridge, noon",
+   "cars": [
+    {
+     "take": "d2-bridge",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 2.2
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.1
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     0,
+     -5.6,
+     1.15,
+     0,
+     -4,
+     60
+    ],
+    [
+     0,
+     -5.2,
+     1.05,
+     0,
+     -3,
+     62
+    ]
+   ]
+  },
+  {
+   "id": "D5b",
+   "duration": 0.8,
+   "hour": 19.3,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Triplet 2/3: same path, sunset",
+   "cars": [
+    {
+     "take": "d2-bridge",
+     "model": "carla-ford-mustang",
+     "color": "red",
+     "t0": 2.2
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.1
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     0,
+     -5.6,
+     1.15,
+     0,
+     -4,
+     60
+    ],
+    [
+     0,
+     -5.2,
+     1.05,
+     0,
+     -3,
+     62
+    ]
+   ]
+  },
+  {
+   "id": "D5c",
+   "duration": 0.8,
+   "hour": 22.5,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "Triplet 3/3: same path, night with headlights",
+   "cars": [
+    {
+     "take": "d2-bridge",
+     "model": "model-y",
+     "color": "white",
+     "t0": 2.2,
+     "lights": 1
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.1
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     0,
+     -5.6,
+     1.15,
+     0,
+     -4,
+     60
+    ],
+    [
+     0,
+     -5.2,
+     1.05,
+     0,
+     -3,
+     62
+    ]
+   ]
+  },
+  {
+   "id": "W1",
+   "duration": 1.6,
+   "hour": 19.3,
+   "weather": "clear",
+   "traffic": 0,
+   "note": "On foot: the player character walks away into a low sun on the riverside street, hero car parked in the foreground",
+   "cars": [
+    {
+     "take": "rantakatu-launch",
+     "model": "golf7",
+     "color": "red",
+     "t0": 0,
+     "rate": 0
+    }
+   ],
+   "walker": {
+    "from": [
+     23459617,
+     6704210.5
+    ],
+    "heading": 242,
+    "speed": 1.4,
+    "t0": 3
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     23459629.5,
+     6704221.5,
+     4.45,
+     236,
+     1,
+     42
+    ],
+    [
+     23459629.2,
+     6704221.2,
+     4.5,
+     236,
+     1,
+     42
+    ]
+   ]
+  }
+ ]
+}

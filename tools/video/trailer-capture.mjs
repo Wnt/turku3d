@@ -16,6 +16,9 @@ import {carAt,anchorAt} from './trailer-cars.mjs';
 let clipSeconds=()=>0;
 const poseAt=(shot,u,seconds=clipSeconds(shot,u))=>pathPose(shot,u,shot.follow&&shot.cars?anchorAt(shot.cars[shot.follow.car??0],seconds,shot.follow):undefined);
 const carsAt=(shot,seconds)=>(shot.cars??[]).map(car=>carAt(car,seconds));
+// A scripted walk: {from:[E,N],heading,speed,t0} in engine metres for the page.
+const walkAt=(shot,seconds)=>{const w=shot.walker;if(!w)return null;const h=w.heading*Math.PI/180,v=w.speed??1.4,d=v*((w.t0??0)+seconds);
+ return{x:w.from[0]-23459500+Math.sin(h)*d,z:6704500-w.from[1]-Math.cos(h)*d,vx:Math.sin(h)*v,vz:-Math.cos(h)*v};};
 
 const args=process.argv.slice(2),opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d,flag=k=>args.includes(k);
 const config=JSON.parse(fs.readFileSync(opt('--shots')));
@@ -38,7 +41,8 @@ await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value
 let page=null,session=null,loadedKey='';const failures=[],inflight=new Set();
 
 async function open(shot){
- const key=`${shot.traffic??config.traffic??40}|${shot.walkers??config.walkers??100}|${shot.quality??quality}`;
+ // One page per configuration: the URL reserves the ambient population, each shot then sets its own traffic cap.
+ const key=`${opt('--traffic',config.traffic??40)}|${opt('--walkers',config.walkers??100)}|${quality}`;
  if(page&&key===loadedKey)return;
  const tag=`${key}|${scale}|${base}`;
  // A long-lived session keeps its loaded world: reuse the page that already runs this configuration.
@@ -66,16 +70,25 @@ async function open(shot){
 }
 // Replay actors: the game's own fleet models and tyre effects, driven by recorded physics states.
 async function installCars(shot){
- await page.evaluate(async({cars,quality})=>{
-  const T=window.__trailerCars??={visuals:[],tyres:null,key:''},key=JSON.stringify(cars.map(c=>[c.model,c.color]));
+ await page.evaluate(async({cars,quality,walker})=>{
+  const T=window.__trailerCars??={visuals:[],tyres:null,key:''},key=JSON.stringify([cars.map(c=>[c.model,c.color]),!!walker]);
   if(T.key===key)return;
   const scene=window.__render.environment.scene;
   for(const v of T.visuals)v.root.removeFromParent();T.visuals=[];T.key=key;
-  if(!cars.length)return;
+  if(!cars.length&&!walker){T.apply=null;return;}
   const {CarVisual}=await import('/src/actors/car.ts');
   for(const c of cars){const v=new CarVisual(scene,c.model??'golf7',c.color??'red');await v.load();T.visuals.push(v);}
   if(!T.tyres){const {TyreEffects}=await import('/src/vehicle/tyreEffects.ts');T.tyres=new TyreEffects(scene,quality);}
-  T.apply=(states,dt)=>{
+  if(walker&&!T.walker){
+   // The game's own player character on a scripted straight walk (as in the 2 November film).
+   const source=await(await fetch('/src/actors/player.ts')).text(),threeURL=source.match(/import \* as THREE from ["']([^"']+)["']/)?.[1];
+   T.THREE=await import(threeURL);const {PlayerVisual}=await import('/src/actors/player.ts');
+   const actor=new PlayerVisual(scene,async()=>null);await actor.load('/assets/character/player.glb',window.__render.renderer);T.walker=actor;
+  }
+  T.walk=null;
+  T.apply=(states,dt,walk)=>{
+   if(T.walker){T.walker.root.visible=!!walk;if(walk){const THREE=T.THREE,g=window.__game.coarse,y=g.groundBelow(walk.x,walk.z);
+    T.walker.update(dt||1/60,new THREE.Vector3(walk.x,Number.isFinite(y)?y:walk.y??0,walk.z),new THREE.Vector3(walk.vx,0,walk.vz),true,0);}}
    const g=window.__game.coarse;
    T.tyres.begin(dt);
    states.forEach((s,i)=>{
@@ -84,8 +97,8 @@ async function installCars(shot){
     T.visuals[i].update(s);T.tyres.vehicle(i+1,s.pos,s.rot,s.wheels,'car',dt,s.speed??0);});
    T.tyres.end(window.__render.camera);
   };
- },{cars:shot.cars??[],quality:shot.quality??quality});
- if(shot.cars?.length){await page.evaluate(states=>window.__trailerCars.apply(states,0),carsAt(shot,0));await page.waitForTimeout(2500);}
+ },{cars:shot.cars??[],quality:shot.quality??quality,walker:!!shot.walker});
+ if(shot.cars?.length||shot.walker){await page.evaluate(({states,walk})=>window.__trailerCars.apply(states,0,walk),{states:carsAt(shot,0),walk:walkAt(shot,0)});await page.waitForTimeout(2500);}
 }
 // The static OCI host marks some full products stale and never rebuilds them: accept them, and report them.
 async function acceptStale(){
@@ -120,7 +133,7 @@ async function settle(shot,u,label){
   else if(state.error)throw Error(`${shot.id}: ${state.error}`);
   // Jonni 2026-11-11: the whole visible world resident before any frame: near tiles full, scenery complete,
   // vegetation placed, the graphics (program build) queues and the tile stream idle, no asset request in flight.
-  const idle=draft?state.ready&&!state.notReady.length&&!state.vegetation&&!inflight.size&&(shot.scenery?state.scenery:true)
+  const idle=draft?(shot.allowPartial||(state.ready&&!state.notReady.length))&&!state.vegetation&&!inflight.size&&(shot.scenery?state.scenery:true)
    :state.ready&&!state.notReady.length&&state.scenery&&!state.vegetation&&!state.queue&&!state.stream&&!inflight.size;
   quiet=idle?quiet+1:0;if(quiet>=3)break;
   if((Date.now()-start)%20000<750)log(`  waiting ${shot.id}@${u}: near ${state.near-state.notReady.length}/${state.near} scenery ${state.sceneryLoaded} queue ${state.queue} stream ${state.stream} veg ${state.vegetation} inflight ${inflight.size}`);
@@ -133,11 +146,11 @@ async function settle(shot,u,label){
 }
 // One exact frame at shot time t (seconds from clip start, may be negative during warm-up).
 async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
- const pose=poseAt(shot,u,clip),time=shot.hourTo==null?null:iso(shot,hourAt(shot,u)),cars=shot.cars?.length?carsAt(shot,clip):null;
- return page.evaluate(({pose,seconds,time,hold,cars,dt})=>new Promise((resolve,reject)=>{
+ const pose=poseAt(shot,u,clip),time=shot.hourTo==null?null:iso(shot,hourAt(shot,u)),cars=shot.cars?.length||shot.walker?carsAt(shot,clip):null,walk=walkAt(shot,clip);
+ return page.evaluate(({pose,seconds,time,hold,cars,dt,walk})=>new Promise((resolve,reject)=>{
   const r=window.__render,g=window.__game;
   if(time)r.setTime(time);
-  if(cars)window.__trailerCars.apply(cars,dt);
+  if(cars)window.__trailerCars.apply(cars,dt,walk);
   window.__dev?.rainEffects?.setPhaseSeconds?.(seconds);
   window.__qaMove(pose);
   const timer=setTimeout(()=>reject(Error('frame timeout')),60000);
@@ -146,12 +159,14 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
    const c=r.camera.position,v=hold?null:g.coarse.viewStatus(c.x,c.z),k=g.coarse;
    const full=id=>{const e=k.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
    resolve({sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(v.scenery.ready||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null});};
- }),{pose,seconds,time,hold,cars,dt:1/fps/Math.max(1,sub)});
+ }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub)});
 }
 const shot1=async()=>Buffer.from((await session.send('Page.captureScreenshot',{format:'jpeg',quality:still?95:draft?90:98,captureBeyondViewport:false})).data,'base64');
 const lead=Number(opt('--lead','1.2'));// seconds of simulated pre-roll: temporal history, traffic and water settle
 async function warm(shot,u0,t0){
- await page.evaluate(async({epochMs})=>{await window.__game.replay.reset({epochMs,seed:20261111});},{epochMs:Date.parse(iso(shot,hourAt(shot,u0)))});
+ await page.evaluate(async({epochMs,cap})=>{
+  const p=window.__game.population;if(p){p.__reserved??=p.cap;p.cap=Math.min(p.__reserved,cap??p.__reserved);}
+  await window.__game.replay.reset({epochMs,seed:20261111});},{epochMs:Date.parse(iso(shot,hourAt(shot,u0))),cap:shot.traffic});
  const n=Math.round(lead*fps),c0=clipSeconds(shot,u0);for(let k=0;k<n;k++)await frame(shot,u0,t0+(k+1)/fps,true,c0-(n-1-k)/fps);
  return t0+lead;
 }
@@ -166,6 +181,8 @@ try{
    for(const u of ats){
     for(const [k,hour] of hours.entries()){
      const s={...shot,hour,hourTo:undefined};
+     const stillName=`${shot.id}${ats.length>1?`-u${u}`:''}${hours.length>1?`-h${String(hour).replace('.','_')}`:''}`;
+     if(fs.existsSync(path.join(out,`${stillName}.jpg`))&&!flag('--force')){log(`skip ${stillName}`);continue;}
      clipSeconds=()=>shot.carTime??0;await installCars(s);
      await settle(s,u,`${shot.id} h${hour}`);
      if(shot.agl!=null&&k===0){

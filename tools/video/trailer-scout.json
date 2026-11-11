@@ -62,8 +62,9 @@
     22.5
    ],
    "weather": "clear",
-   "note": "C1 end frame: whole city, river running to the sea",
-   "scenery": true
+   "note": "C1 end frame: whole city, river running to the sea (high preset draws no full tiles from this altitude; ultra does to 1 km)",
+   "scenery": true,
+   "allowPartial": true
   },
   {
    "id": "h1-cathedral-low",
@@ -341,8 +342,9 @@
     23
    ],
    "weather": "clear",
-   "note": "High aerial down the river towards the sea",
-   "scenery": true
+   "note": "High aerial down the river towards the sea (high preset draws no full tiles from this altitude; ultra does to 1 km)",
+   "scenery": true,
+   "allowPartial": true
   },
   {
    "id": "tori-ground",
