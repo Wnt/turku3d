@@ -1,0 +1,6 @@
+{"fps":60,"handles":1,"date":"2026-09-08","traffic":0,"walkers":60,"shots":[
+{"id":"D1","duration":1.5,"hour":19.0,"weather":"clear","note":"Low chase behind the car at full throttle on Lantinen Rantakatu",
+ "cars":[{"take":"rantakatu-launch","model":"golf7","color":"red","t0":4.6}],
+ "follow":{"car":0,"frame":"heading","smooth":0.12},
+ "keys":[[0.7,-6.8,1.0,0,-2,60],[0.35,-5.2,0.8,0,-1,68]]}
+]}

@@ -36,10 +36,8 @@ export function carAt(car,seconds){
   const a=-(car.rotate??0)*Math.PI/180,c=Math.cos(a),s=Math.sin(a),px=(car.pivot?.[0]??23459500)-23459500,pz=6704500-(car.pivot?.[1]??6704500);
   const dx=car.move?.[0]??0,dz=-(car.move?.[1]??0);
   const point=p=>{const x=p.x-px,z=p.z-pz;return{x:px+x*c+z*s+dx,y:p.y,z:pz-x*s+z*c+dz};};
-  const dir=p=>({x:p.x*c+p.z*s,y:p.y,z:-p.x*s+p.z*c});
   v.moved={from:{x:v.pos.x,z:v.pos.z}};
   v.pos=point(v.pos);v.rot=mul(yawQuat(a),v.rot);
-  for(const w of v.wheels)if(w.tyre){w.tyre.point=point(w.tyre.point);if(w.tyre.normal)w.tyre.normal=dir(w.tyre.normal);}
  }
  if(car.lights!=null)v.lights=car.lights;
  return v;

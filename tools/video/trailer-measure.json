@@ -1,0 +1,6 @@
+{"fps":60,"handles":0,"date":"2026-09-08","traffic":40,"walkers":100,"shots":[
+{"id":"m-street-8k","duration":1,"hour":7.5,"weather":"clear","keys":[[23459650,6704182,6,62,-2,48],[23459655,6704185,6,62,-2,48]]},
+{"id":"m-c1-8k","duration":1,"hour":20.3,"weather":"clear","sceneryRadius":8000,"stations":[0],"keys":[[23460300,6705100,600,225,-28,55],[23460305,6705105,602,225,-28,55]]},
+{"id":"m-c1-4k","duration":1,"hour":20.3,"weather":"clear","sceneryRadius":4000,"stations":[0],"keys":[[23460300,6705100,600,225,-28,55],[23460305,6705105,602,225,-28,55]]},
+{"id":"m-c1-2k","duration":1,"hour":20.3,"weather":"clear","sceneryRadius":2000,"stations":[0],"keys":[[23460300,6705100,600,225,-28,55],[23460305,6705105,602,225,-28,55]]}
+]}

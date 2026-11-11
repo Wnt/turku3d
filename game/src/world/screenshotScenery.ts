@@ -522,7 +522,9 @@ export class ScreenshotScenery {
       if (source && this.sources.get(id)?.key !== source.key) return;
       const visual = fragment.visual?.[id];
       if (!fragment.coarse || fragment.tile !== id || !visual) throw new Error('Missing scenery');
-      e.complete = fragment.pass_kind === 'full' && !fragment.stale;
+      // ?acceptStale (trailer capture against the static OCI host): a stale-marked full cell is the newest product
+      // that host will ever serve; polling it for ever would also starve the cells that have not started.
+      e.complete = fragment.pass_kind === 'full' && (!fragment.stale || new URLSearchParams(location.search).has('acceptStale'));
       e.error = undefined;
       if (e.model && e.hash === visual.sha256) {
         if (source) await this.prepareTrees(id,e,e.model,distance,source);
