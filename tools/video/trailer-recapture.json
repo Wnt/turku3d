@@ -209,16 +209,16 @@
    "hour": 19.5,
    "duration": 3.5,
    "handles": 0,
-   "ground": "probe",
    "subject": "walker",
    "walker": {
     "from": [
-     23457427.4,
-     6702797.86
+     23457426.61,
+     6702797.0
     ],
     "heading": 43,
     "speed": 1.4,
-    "t0": 0
+    "t0": 0,
+    "H": 2.78
    },
    "keys": [
     [
@@ -238,7 +238,7 @@
      60
     ]
    ],
-   "note": "OR WALK at Turku Castle (Jonni's screenshot 3): the game's third-person view from the lawn, walker 4.7 m ahead walking towards the castle, camera travelling with him; sky free at the upper left for the title"
+   "note": "OR WALK at Turku Castle (Jonni's screenshot 3): the game's third-person view from the lawn (lens 0.2 m above the grass), walker 3.5 m ahead walking towards the castle, camera travelling with him; sky free at the upper left for the title. Feet height from the screenshot (the game's ground query is 1.7 m below the visible lawn here)"
   },
   {
    "id": "W1-stadium",
@@ -248,16 +248,16 @@
    "hour": 19.5,
    "duration": 3.5,
    "handles": 0,
-   "ground": "probe",
    "subject": "walker",
    "walker": {
     "from": [
-     23459309.54,
-     6703558.96
+     23459309.74,
+     6703558.5
     ],
     "heading": 53,
     "speed": 1.4,
-    "t0": 0
+    "t0": 0,
+    "H": 20.29
    },
    "keys": [
     [
@@ -277,7 +277,7 @@
      60
     ]
    ],
-   "note": "OR WALK on the stadium running track (Jonni's screenshot 1): his framing, grandstand across the field and lane lines in frame; the walker walks along the lane (in profile, as in the screenshot) and the camera tracks beside him"
+   "note": "OR WALK on the stadium running track (Jonni's screenshot 1): his framing, grandstand across the field and lane lines in frame; the walker walks along the lane (in profile, as in the screenshot) and the camera tracks beside him. Feet height from the screenshot (the game's ground query is 1 m below the visible track here)"
   }
  ]
 }

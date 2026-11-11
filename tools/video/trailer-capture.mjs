@@ -298,9 +298,9 @@ try{
   const freeze=spawnSync('ffmpeg',['-hide_banner','-i',file,'-vf','freezedetect=n=-70dB:d=0.03','-f','null','-'],{encoding:'utf8',maxBuffer:1<<28});
   const frames=f1-f0,cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:frames,exactDuplicateCaptures:duplicates,mpdecimateDropped:frames-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
   // Motion proof: the subject's rendered screen track and, for the yellow hero, the same track measured on the encoded pixels.
-  const subject=subjectOf(shot),yellow=typeof subject==='number'&&shot.cars[subject].color==='yellow';
-  const motion=subject==null||sub>1?null:motionVerdict(heroTrack,yellow?await pixelTrack(file):[],{subject:yellow});
-  if(motion){motion.subject=subject==='walker'?'walker':`car ${subject}`;motion.track=heroTrack;log(`${shot.id} ${v} motion ${motion.pass?'pass':'FAIL'}: rendered rms ${motion.rendered?.rms} max ${motion.rendered?.max} px; pixels x ${motion.pixels?.medianRmsX} y ${motion.pixels?.medianRmsY} px in ${motion.pixels?.found}/${frames} frames${motion.reasons.length?'; '+motion.reasons.join('; '):''}`);}
+  const subject=subjectOf(shot);
+  const motion=subject==null||sub>1?null:motionVerdict(heroTrack,await pixelTrack(file,heroTrack));
+  if(motion){motion.subject=subject==='walker'?'walker':`car ${subject}`;motion.track=heroTrack;log(`${shot.id} ${v} motion ${motion.pass?'pass':'FAIL'}: rendered rms ${motion.rendered?.rms} max ${motion.rendered?.max} px; pixels median ${motion.pixels?.median} rms ${motion.pixels?.rms} px in ${motion.pixels?.found}/${frames} frames${motion.reasons.length?'; '+motion.reasons.join('; '):''}`);}
   const unsettled=settleFailures.splice(0);const steady=duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===frames&&motion?.pass!==false;
   const pass=steady&&(draft||(resettled===0&&unsettled.length===0));
   fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass,size:`${width}x${height}`,shot,file,fps,frames,clipFrames:count,window:win?[f0/fps,f1/fps]:null,motion,cleanCars:!(shot.cars??[]).some(c=>c.damage),takeClocks:Object.fromEntries([...new Set((shot.cars??[]).map(c=>c.take))].map(id=>[id,takeClock(id)])),handles:hd,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
