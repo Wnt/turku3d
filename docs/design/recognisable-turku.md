@@ -14,12 +14,17 @@ lamp silhouette or a sign planted inside a building. Prioritise those errors bef
 adding more post-processing. Photorealism also requires motion stability and contact:
 a photogenic still with shimmering windows or non-collidable furniture is insufficient.
 
-The code already implements sky/PMREM lighting, cascaded shadows, GTAO, TRAA, bloom,
-AgX, planar water reflection, PBR texture preservation and adaptive resolution.
-Do not reimplement those features under new names. Current facade shader programs
-paint much of the surround/cornice/balcony detail on flat wall surfaces; they need
-real depth at walking distance. Sky-only environment lighting lacks nearby city
-occlusion, bounce and reflected buildings outside the water reflection path.
+The live client is `local/loop-integration` at baseline `470e14d4`, independently
+confirmed by city.lab `/version.json`; this workspace's `main` was an older October
+snapshot. Target the live branch and city share delivery path. Do not overwrite the
+newer game by deploying that old main through the historical Pages workflow.
+
+The live code already implements sky/PMREM, cascaded shadows, GTAO, TRAA, bloom,
+AgX, water reflections/SSR, wet surfaces, timecycle/weather, street-light pools,
+occlusion-aware ground lighting, facade relief and instanced opening depth/frames.
+The task is to improve their accuracy, coverage and calibration. Sky-only PMREM still
+makes city-aware daylight occlusion/bounce and local specular probes worth studying.
+Do not describe already implemented facade depth, lamps or weather as new features.
 
 ## Reference study and its limits
 
@@ -31,6 +36,7 @@ pose uncertainty and source; distinguish a measurement from an inferred prior.
 |---|---|---|
 | Live [Turku360Tour](https://turku.360tour.fi/) aerial view over Samppalinna | Dense irregular tree crowns, continuous street walls, roof silhouettes, bridges and river corridor | Aerial view, sunset exposure; cannot measure small curbs or lamp dimensions |
 | Existing Google Maps 3D captures for office/river tiles t0_0_0 and t0_0_1 | Block proportions, roof colours, courtyard voids, bank width and vegetation volumes | Photogrammetric facade distortion; old capture and unregistered camera, unsuitable as exact collision truth |
+| Existing central July 2026 street panorama | Cornice/sill depth, mixed shop apertures, awnings, narrow granite curbs and paving grids | Equirectangular distortion; different street from the office play capture |
 | Existing Google reference street render | Shows why aerial mesh is insufficient at walking distance: smeared openings and large distorted triangles | Rendering/coverage defects also contaminate it; do not score the game against this as clean ground truth |
 | Vastavalo 509952, Kirjastosilta | Heritage lantern profile, paving slab scale, stair/handrail relationship and cool bridge strip versus warm lamps | Blue-hour photograph, clipped lamp exposure, 2014 filename; exact present fixture inventory unverified |
 | Vastavalo 846451, low quay | Large masonry courses, coping, narrow lower path, upper tree line and dark water with broken reflections | Night exposure; bank attribution and dimensions need registration |
@@ -46,6 +52,15 @@ geometry. It is **not evidence of the normal game's visual quality**. Use the ac
 play session, record its release and loaded tile generations, and wait for full
 geometry before judging materials. A comparison with different pose/time/season is
 qualitative only. Do not advertise a numerical similarity gain from it.
+
+The actual office play capture (`game-play.png`) has recognisable Qwensel-style red
+wooden frontage, benches, trees, moored vessels and river reflections. Remaining
+visible weaknesses include a largely uniform grey promenade material, repetitive
+bench placement/form, conspicuous foliage cards and simplified frontage detail.
+These are hypotheses for matched-pose review, not evidence that all corresponding
+systems are missing. The capture settled 17 visual models and about 6.48 million
+visual triangles with no reported game errors; a single instantaneous frame time
+is not a performance benchmark.
 
 ## Scalable reconstruction
 
@@ -123,9 +138,10 @@ Use neutral albedo and coherent normal/roughness/occlusion maps at metric scale.
 Keep real lighting out of albedo where possible. Texture generation is not a geometry
 measurement. Existing authored building assets win over statistical defaults.
 
-### 5. Give facade programs actual depth
+### 5. Extend the existing facade depth where it is missing
 
-Near the player, emit recessed glass, sill/lintel relief, cornice silhouettes, balcony
+Audit existing facadeModules/facade_relief coverage before adding geometry. Near the
+player, improve recessed glass, sill/lintel relief, cornice silhouettes, balcony
 slabs/railings, door reveals and shop entrances. Derive them from the same program
 that controls distant shading. Instance repeated modules, limit geometric detail by
 screen-space size, and retain a stable distant representation without popping.
@@ -152,7 +168,18 @@ Windows study: inspect installed titles using repeatable daylight/overcast/night
 routes and available frame-debugging/source material. Record pass structure, LOD,
 material scale, shadow softness, vegetation and streaming behaviour. Investigate
 shipped shaders/binaries where accessible to understand implementation; no proprietary
-assets enter this repository. No game has been run or disassembled in this slice yet.
+assets enter this repository. The existing November 2 Bodycam UE5.5.4 study already contains captures, configuration
+and asset/shader investigation (`~/turku3d/research/bodycam/report.md`). Its Rome
+frame was reviewed: masonry/cobble scale, shadowed reveals, cornice silhouettes and
+warm sunlight versus cool enclosed streets are stronger transferable cues than its
+camera blur or chromatic aberration. Historical GTA road captures show coherent wheel
+wear, patching and curb/crossing transitions. Those images are local evidence, not
+assets or a new performance measurement.
+
+The Windows GTA bridge was reachable, but a bounded new launch failed before starting
+the game because its `capture-high` preset parser could not find `ReflectionQuality`
+in `lowest.xml`. No new gameplay capture or disassembly is claimed for this slice;
+repair the research preset separately if a fresh controlled comparison is needed.
 
 ## Iteration schedule and acceptance
 
@@ -163,10 +190,10 @@ observed defects and the user's playtest after each deployment.
 
 | Order | Deliverable | Playtest / evidence |
 |---|---|---|
-| 1 | Final-surface sign and stop support, source exclusion and matching collider origins | Office streets and riverside; no floating/buried bases, unsupported water or wall placements; first/full builds and retained pole counts |
+| 1 | Final-surface sign and stop support after existing migrations, matching recorded collider origins | Office streets and riverside; check actual final solid support, preserved sign stacks/IDs and correction/omission counts |
 | 2 | Review and correct sign facing and mapped lamp families on representative streets | Kirjastosilta approaches, river promenade and a road intersection; compare silhouette, height and orientation |
 | 3 | Continuous quay/curb/stair cross-section corrections | Walk office–Auransilta–Kirjastosilta, descend lower quay; no terrain wall across path, missing collision or seam |
-| 4 | Shared facade geometry for recesses/sills/cornices | Oblique walking views; real parallax/shadows, preserved facade rhythm and authored textures |
+| 4 | Improve existing facade relief/module coverage and source accuracy | Oblique walking views; real parallax/shadows, preserved facade rhythm and authored textures |
 | 5 | Street surfaces and small asset kits | Metric granite courses, paving joints, drains and curb transitions; no stretched texture or tiled photographic shadow |
 | 6 | One hero building plus reusable family improvements | Compare the actual building from multiple sides; reuse generalisable rules, retain unique details |
 | 7 | City-aware indirect light/reflection prototype | Shaded street versus open river, window reflections and contact; record leaks and time-of-day response |
@@ -182,11 +209,19 @@ For every slice:
    loaded generator identities. Capture both still and motion evidence where relevant.
 2. Select affected tests only; all pre-merge commands, including policy stages, share
    one hard 30-second budget. Commit with the project coauthor trailer.
-3. Run `codex-task finish`: merge, immediately package/upload Pages, publish OCI source.
+3. Merge the selected commits into the actual live `local/loop-integration` using
+   `~/turku3d/tools/codex-loop/merge.py`, then immediately package/upload using
+   `tools/share/deploy.sh` through the existing coordination wrapper. This also mirrors
+   the existing city.madekivi.fi copy; the old Pages/turku.lab deployment stays untouched.
+   Register generator changes against the existing base/rebuild history with
+   `scripts/dev/tile-migrate`, retaining on-demand content-addressed products.
 4. Curl smoke within five seconds; inspect rolling pass failures/cancellations/latency.
 5. One selective post-deploy run, hard ten minutes including admission. Generator work
-   builds representative real tiles on frozen published OCI source, first and full;
-   verify source counts, supported geometry and timings. Client work exercises the
+   updates representative real tiles on the live osgallery farm from the frozen
+   deployed source and existing approved product chain; verify packed geometry,
+   collision support, counts and timings. For a migration-only fix, reuse the existing
+   full products rather than rebuilding unrelated terrain/facades. First-pass generation
+   is not changed by this final sign migration. Client work exercises the
    changed feature on the deployed game. No generic suite substitutes for this.
 6. At most one forward fix. Record remaining defects and next playtest; no rollback.
 
@@ -210,5 +245,5 @@ network and tax where applicable. No resources have been purchased. Prefer exist
 capacity until a measured bottleneck justifies offload. Before provisioning, read
 current prices, choose a bounded instance duration and record maximum total exposure,
 then arrange shutdown/deletion and independently verify it. Historical runbook prices
-are not a live quote. Do not provision a recurring resource without enforceable cleanup.
+are not a live quote. Do not leave a resource running beyond its budgeted cleanup deadline.
 Keep a local ledger of creation time, hourly cost, storage, deadline and deletion receipt.
