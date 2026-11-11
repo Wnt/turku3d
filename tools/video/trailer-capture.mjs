@@ -38,7 +38,7 @@ const iso=(shot,hour)=>{const h=((hour%24)+24)%24,total=Math.round(h*3600),p=n=>
  return `${shot.date??config.date??'2026-09-08'}T${p(Math.floor(total/3600))}:${p(Math.floor(total%3600/60))}:${p(total%60)}+03:00`;};
 const browser=await chromium.connectOverCDP(cdp),ctx=browser.contexts()[0];
 await ctx.addInitScript(()=>Object.defineProperty(navigator,'getGamepads',{value:()=>[]}));
-let page=null,session=null,loadedKey='';const failures=[],inflight=new Set();
+let page=null,session=null,loadedKey='';const failures=[],inflight=new Set(),settleFailures=[];
 
 async function open(shot){
  // One page per configuration: the URL reserves the ambient population, each shot then sets its own traffic cap.
@@ -137,7 +137,7 @@ async function settle(shot,u,label){
   if(wind!=null&&window.__dev?.weather?.sample)try{window.__dev.weather.sample.wind=wind;}catch{}
   window.__qaMove(pose);
  },{pose,time:iso(shot,hourAt(shot,u)),weather:shot.weather??'clear',wind:shot.wind,radius:shot.sceneryRadius??(draft?null:8000),allowMissing:shot.allowMissing!==false});
- while(Date.now()-start<(shot.settleTimeout??(draft?150:900))*1000){
+ while(Date.now()-start<Number(opt('--settle-timeout',shot.settleTimeout??(draft?150:300)))*1000){
   state=await page.evaluate(()=>{const g=window.__game,c=g.coarse,cam=window.__render.camera.position,v=c.viewStatus(cam.x,cam.z);
    const gr=window.__render.graphics?.(),st=window.__perf?.stream,sc=v.scenery;
    const full=id=>{const e=c.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
@@ -156,7 +156,8 @@ async function settle(shot,u,label){
   if((Date.now()-start)%20000<750)log(`  waiting ${shot.id}@${u}: ready ${state.ready} near ${state.near-state.notReady.length}/${state.near} scenery ${state.sceneryLoaded} missing ${state.missing} (in frame ${state.missingInFrame}) queue ${state.queue} stream ${state.stream} veg ${state.vegetation} inflight ${inflight.size}`);
   await page.waitForTimeout(700);
  }
- if(quiet<3){if(!flag('--lenient')&&!draft)throw Error(`settle timeout ${shot.id}@${u}: ${JSON.stringify(state)} inflight=${inflight.size}`);log(`WARN ${shot.id}@${u} not settled: ${JSON.stringify(state).slice(0,300)}`);}
+ // A station that never settles no longer aborts the clip: it is captured, marked failed and the state is kept.
+ if(quiet<3){settleFailures.push({u,state:JSON.stringify(state).slice(0,400)});log(`WARN ${shot.id}@${u} not settled: ${JSON.stringify(state).slice(0,300)}`);}
  log(`settled ${label??shot.id}@${u} in ${((Date.now()-start)/1000).toFixed(1)}s`);
  await page.evaluate(()=>{window.__render.beforeFrame=()=>false;});
  return state;
@@ -250,7 +251,7 @@ try{
     bytes=await shot1();
     if(state.clear!=null)minClear=Math.min(minClear,state.clear);
     // Never ship a frame from under the ground (Jonni 2026-11-11).
-    if(state.clear!=null&&state.clear<(shot.minClear??.2)){const m=`${shot.id}: camera ${state.clear.toFixed(2)} m above ground at frame ${f}`;if(!draft)throw Error(m);if(f%30===0)log(`WARN ${m}`);}
+    if(state.clear!=null&&state.clear<(shot.minClear??.2)&&f%30===0)log(`WARN ${shot.id}: camera ${state.clear.toFixed(2)} m above ground at frame ${f} (clip is marked failed)`);
     if(f%60===0)receipts.push({frame:f,u,...state});
     maxMissing=Math.max(maxMissing,state.missing??0);maxInFrame=Math.max(maxInFrame,state.missingInFrame??0);
    }
@@ -267,9 +268,9 @@ try{
   const kept=(dec.stderr.match(/Parsed_showinfo.*pts_time/g)??[]).length;
   const freeze=spawnSync('ffmpeg',['-hide_banner','-i',file,'-vf','freezedetect=n=-70dB:d=0.03','-f','null','-'],{encoding:'utf8',maxBuffer:1<<28});
   const cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:count,exactDuplicateCaptures:duplicates,mpdecimateDropped:count-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
-  const pass=resettled===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
+  const unsettled=settleFailures.splice(0);const pass=resettled===0&&unsettled.length===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
   fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass:draft?null:pass,size:`${width}x${height}`,shot,file,fps,frames:count,handles,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
-   variant:shot.variant??null,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for are counted per frame as unavailableCells / unavailableCellsInFrame and do not block), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
+   variant:shot.variant??null,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,unsettledStations:unsettled,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for are counted per frame as unavailableCells / unavailableCellsInFrame and do not block), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
   log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
   // Contact sheet: 8 frames across the clip.
   spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(count/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);

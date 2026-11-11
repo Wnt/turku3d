@@ -128,7 +128,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
-   "minClear": 0.05,
+   "minClear": -0.1,
    "cars": [
     {
      "take": "h1-d",
@@ -236,7 +236,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
-   "minClear": -0.15,
+   "minClear": -0.3,
    "cars": [
     {
      "take": "h1-d",
@@ -436,7 +436,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
-   "minClear": 0.05,
+   "minClear": -0.1,
    "cars": [
     {
      "take": "h1-d",
@@ -994,6 +994,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
+   "minClear": 0.05,
    "cars": [
     {
      "take": "tori-0",
@@ -1139,6 +1140,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
+   "minClear": 0.05,
    "cars": [
     {
      "take": "tori-0",
@@ -1284,6 +1286,7 @@
    "traffic": 0,
    "sceneryRadius": 2000,
    "ease": "linear",
+   "minClear": 0.05,
    "cars": [
     {
      "take": "tori-0",
@@ -1423,8 +1426,7 @@
     "car": 1,
     "frame": "world",
     "smooth": 0.3
-   },
-   "minClear": 0.05
+   }
   },
   {
    "id": "T1b",

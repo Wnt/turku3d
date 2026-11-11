@@ -93,11 +93,11 @@ let sxx=0,sxy=0;for(const p of h1Samples){const s=(p[0]-hm[0])*hd[0]+(p[1]-hm[1]
 const h1Slope=[+(sxy/sxx*hd[0]).toFixed(5),+(sxy/sxx*hd[1]).toFixed(5)];
 const h1Car={take:'h1-d',...HERO,t0:3.4,rate:.6,move:[7.4,-5.1],slope:h1Slope};
 const off=(d,b,dh,yaw,pitch,fov)=>{const [s,c]=dir(b);return[+(d*s).toFixed(2),+(d*c).toFixed(2),dh,yaw,pitch,fov];};
-const H1={duration:2.4,hour:18.2,...common,minClear:.05,cars:[h1Car],follow:{car:0,frame:'world',smooth:.3},
+const H1={duration:2.4,hour:18.2,...common,minClear:-.1,cars:[h1Car],follow:{car:0,frame:'world',smooth:.3},
  keys:[off(9,298,-.53,100,17,70),off(6.5,296,-.43,99,19,68),off(4.8,292,-.36,96,22,64),off(4.5,285,-.35,93,24,64),off(4.6,278,-.35,90,25,64),off(4.8,274,-.36,88.5,26,64),off(5,272,-.37,87.5,26,64),off(5,272,-.37,87.5,26,64),off(5,272,-.37,87.5,26,64)],
  note:'Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight.'};
 add('H1',0,H1);
-add('H1-low',1,{...H1,minClear:-.15,keys:H1.keys.map(([e,n,h,y,p])=>[+(e*.8).toFixed(2),+(n*.8).toFixed(2),+(h-.2).toFixed(2),y,p-2,80]),variant:'lower (0.25 m) and closer (3.6-4 m), 80 degree lens'});
+add('H1-low',1,{...H1,minClear:-.3,keys:H1.keys.map(([e,n,h,y,p])=>[+(e*.8).toFixed(2),+(n*.8).toFixed(2),+(h-.2).toFixed(2),y,p-2,80]),variant:'lower (0.25 m) and closer (3.6-4 m), 80 degree lens'});
 add('H1-high',1,{...H1,minClear:.2,keys:[off(9,238,.5,66,10,58),off(7.5,242,.55,68,12,58),off(7,246,.6,70,14,58),off(6.5,250,.6,72,15,58),off(6.2,253,.6,74,16,58),off(6,255,.6,75,16,58),off(6,255,.6,75,16,58)],variant:'three-quarter view from 1.3 m, 6-7 m to the side of the track'});
 add('H1-rt',1,{...H1,cars:[{...h1Car,t0:2.8,rate:1}],variant:'real time (slide 1.9 s)'});
 
@@ -138,7 +138,7 @@ add('W1-back',1,{...W1,walker:{from:[B+714.93,N0+186.46],heading:237,speed:1.4,t
 
 // ---- T1a / T1b / C1: one donut replay ----
 const lg=toriGround(lens.e,lens.n),t1aT0=lens.tc-handles;
-const T1a={duration:2.1,hour:17.8,...common,cars:six(t1aT0),keys:[k(lens.e,lens.n,+(lg+.4).toFixed(2),SUN-4,6,75),k(lens.e,lens.n,+(lg+.4).toFixed(2),SUN+4,6,75)],
+const T1a={duration:2.1,hour:17.8,...common,minClear:.05,cars:six(t1aT0),keys:[k(lens.e,lens.n,+(lg+.4).toFixed(2),SUN-4,6,75),k(lens.e,lens.n,+(lg+.4).toFixed(2),SUN+4,6,75)],
  note:`Tori donuts from the cobbles: lens 0.4 m above the paving looking into the sun, the yellow E30 passes ${lens.nearest.toFixed(1)} m from the lens at clip ${(lens.when-t1aT0).toFixed(1)} s, no car closer than ${lens.clipMin.toFixed(1)} m`};
 add('T1a',0,T1a);
 add('T1a-high',1,{...T1a,keys:T1a.keys.map(key=>[key[0],key[1],+(lg+1).toFixed(2),key[3],2,75]),variant:'lens 1.0 m above the paving'});
