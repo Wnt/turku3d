@@ -11,14 +11,18 @@ import {once} from 'node:events';
 import {createHash} from 'node:crypto';
 import {chromium} from '../../game/node_modules/playwright-core/index.mjs';
 import {poseAt as pathPose,hourAt} from './trailer-paths.mjs';
-import {carAt,anchorAt} from './trailer-cars.mjs';
+import {carAt,anchorAt,takeClock} from './trailer-cars.mjs';
+import {pixelTrack,motionVerdict} from './trailer-motion.mjs';
 // Clip seconds for a path fraction (stills: the requested moment `shot.carTime`).
 let clipSeconds=()=>0;
 const poseAt=(shot,u,seconds=clipSeconds(shot,u))=>pathPose(shot,u,shot.follow&&shot.cars?anchorAt(shot.cars[shot.follow.car??0],seconds,shot.follow):undefined);
 const carsAt=(shot,seconds)=>(shot.cars??[]).map(car=>carAt(car,seconds));
 // A scripted walk: {from:[E,N],heading,speed,t0} in engine metres for the page.
+// `H` is the feet height at the start and `rise` its change per metre walked (both set by `shot.ground:'probe'`).
 const walkAt=(shot,seconds)=>{const w=shot.walker;if(!w)return null;const h=w.heading*Math.PI/180,v=w.speed??1.4,d=v*((w.t0??0)+seconds);
- return{x:w.from[0]-23459500+Math.sin(h)*d,z:6704500-w.from[1]-Math.cos(h)*d,vx:Math.sin(h)*v,vz:-Math.cos(h)*v,y:w.H};};
+ return{x:w.from[0]-23459500+Math.sin(h)*d,z:6704500-w.from[1]-Math.cos(h)*d,vx:Math.sin(h)*v,vz:-Math.cos(h)*v,y:w.H==null?undefined:w.H+(w.rise??0)*d};};
+// The shot's subject for the motion proof: the followed car, else the yellow hero, else the walker.
+const subjectOf=shot=>shot.cars?.length&&!(shot.walker&&shot.subject==='walker')?(shot.follow?.car??Math.max(0,shot.cars.findIndex(c=>c.color==='yellow'))):shot.walker?'walker':null;
 
 const args=process.argv.slice(2),opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d,flag=k=>args.includes(k);
 const config=JSON.parse(fs.readFileSync(opt('--shots')));
@@ -165,7 +169,7 @@ async function settle(shot,u,label){
 // One exact frame at shot time t (seconds from clip start, may be negative during warm-up).
 async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
  const pose=poseAt(shot,u,clip),time=shot.hourTo==null&&!shot.hourKeys?null:iso(shot,hourAt(shot,u)),cars=shot.cars?.length||shot.walker?carsAt(shot,clip):null,walk=walkAt(shot,clip);
- return page.evaluate(({pose,seconds,time,hold,cars,dt,walk})=>new Promise((resolve,reject)=>{
+ return page.evaluate(({pose,seconds,time,hold,cars,dt,walk,subject,size})=>new Promise((resolve,reject)=>{
   const r=window.__render,g=window.__game;
   if(time)r.setTime(time);
   if(cars)window.__trailerCars.apply(cars,dt,walk);
@@ -180,8 +184,12 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
    // Camera height above the streamed ground, and above the wheels' ground of every replayed car nearby.
    let clear=c.y-k.groundBelow(c.x,c.z);if(!Number.isFinite(clear))clear=null;
    for(const s of cars??[])if(Math.hypot(s.pos.x-c.x,s.pos.z-c.z)<10){const d=c.y-(s.pos.y-.62);clear=clear==null?d:Math.min(clear,d);}
-   resolve({clear,sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(window.__trailerScenery().ok||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null,missingInFrame:v?window.__trailerScenery().inFrame:0,missing:v?window.__trailerScenery().missing:0});};
- }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub)});
+   // Where the subject was rendered in this frame: its scene node through the render camera (pixels of the output frame).
+   let hero=null;const T=window.__trailerCars,node=subject==='walker'?T?.walker?.root:T?.visuals?.[subject]?.root;
+   if(node){r.camera.updateMatrixWorld();const p=node.position.clone();if(subject==='walker')p.y+=.9;p.applyMatrix4(r.camera.matrixWorldInverse);
+    const k=size[1]/2/Math.tan(r.camera.fov*Math.PI/360);if(p.z<0)hero=[size[0]/2-p.x/p.z*k,size[1]/2+p.y/p.z*k,-p.z];}
+   resolve({hero,clear,sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(window.__trailerScenery().ok||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null,missingInFrame:v?window.__trailerScenery().inFrame:0,missing:v?window.__trailerScenery().missing:0});};
+ }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub),subject:subjectOf(shot),size:[width,height]});
 }
 const cdpShot=async()=>Buffer.from((await session.send('Page.captureScreenshot',{format:'jpeg',quality:still?95:draft?90:98,captureBeyondViewport:false})).data,'base64');
 // Frame grabbing: CDP screenshots, or (hosts whose compositor shows the WebGPU canvas black, e.g. headless Linux/Vulkan)
@@ -233,19 +241,29 @@ try{
   const dir=path.join(out,shot.id);fs.mkdirSync(dir,{recursive:true});
   const prefix=draft?'d':'v';
   let v=version;if(!v){let n=1;while(fs.existsSync(path.join(dir,`${prefix}${n}.mp4`)))n++;v=`${prefix}${n}`;}
-  const file=path.join(dir,`${v}.mp4`),duration=(shot.duration??4)+2*handles,count=Math.round(duration*fps);
+  const hd=shot.handles??handles,file=path.join(dir,`${v}.mp4`),duration=(shot.duration??4)+2*hd,count=Math.round(duration*fps);
   clipSeconds=(_shot,u)=>u*duration;await installCars(shot);
+  // `--window a:b` (clip seconds) captures only that part of the unchanged clip timeline: same path, cars and in-points.
+  const win=opt('--window','')?opt('--window').split(':').map(Number):(shot.window??null),f0=win?Math.max(0,Math.round(win[0]*fps)):0,f1=win?Math.min(count,Math.round(win[1]*fps)):count,uOf=f=>count>1?f/(count-1):0;
+  if(shot.ground==='probe'){
+   // Walk on the streamed ground: feet height from the ground under the walk, camera height change from the ground under its path.
+   await settle(shot,uOf(f0));
+   const w=shot.walker,h=w.heading*Math.PI/180,len=(w.speed??1.4)*duration,at=([E,N])=>[E-23459500,6704500-N];
+   const g=await page.evaluate(points=>points.map(([x,z])=>window.__game.coarse.groundBelow(x,z)),[at(w.from),at([w.from[0]+Math.sin(h)*len,w.from[1]+Math.cos(h)*len]),...shot.keys.map(k=>at(k))]);
+   if(g.every(Number.isFinite)){w.H=g[0];w.rise=(g[1]-g[0])/len;shot.keys.forEach((k,i)=>{k[2]=shot.keys[0][2]+(g[2+i]-g[2]);});shot.ground={walker:[g[0],g[1]],camera:g.slice(2)};log(`ground ${JSON.stringify(shot.ground)}`);}
+   else log(`WARN ${shot.id}: no ground under the walk (${g})`);
+  }
   // Visit the end and the middle first so their tiles are resident, then return to the start.
-  for(const u of shot.stations??(draft?[1,0]:[1,.75,.5,.25,0]))await settle(shot,u);
-  const t0=await warm(shot,0,shot.preroll??20);await chooseGrab();
+  for(const u of shot.stations??(win?[uOf(f1-1),uOf(f0)]:draft?[1,0]:[1,.75,.5,.25,0]))await settle(shot,u);
+  const t0=await warm(shot,uOf(f0),shot.preroll??20);await chooseGrab();
   const readyWall=(Date.now()-started)/1000,framesStarted=Date.now();
   const vf=scale>1||(canvasSize&&(canvasSize[0]!==width||canvasSize[1]!==height))?['-vf',`scale=${width}:${height}:flags=lanczos`]:[];
   const encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(fps),'-i','pipe:0','-an',...vf,
    '-c:v','libx264','-preset',draft?'veryfast':'slow','-crf',String(opt('--crf',draft?'18':'10')),'-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-movflags','+faststart',file],{stdio:['pipe','inherit','inherit']});
   const closed=once(encoder,'close');encoder.stdin.on('error',()=>{});
-  const receipts=[];let resettled=0,duplicates=0,lastHash='',minClear=Infinity,maxMissing=0,maxInFrame=0;
-  for(let f=0;f<count;f++){
-   const u=count>1?f/(count-1):0,t=t0+f/fps;
+  const receipts=[],heroTrack=[];let resettled=0,duplicates=0,lastHash='',minClear=Infinity,maxMissing=0,maxInFrame=0;
+  for(let f=f0;f<f1;f++){
+   const u=uOf(f),t=t0+(f-f0)/fps;
    let bytes;
    if(sub>1){
     // Temporal supersampling: average sub-frames across the shutter interval (180 degrees by default).
@@ -259,7 +277,7 @@ try{
    }else{
     let state=await frame(shot,u,t,false);
     if(!state.ready&&!shot.allowPartial&&!draft){resettled++;await settle(shot,u);state=await frame(shot,u,t,false);}
-    bytes=await shot1();
+    bytes=await shot1();heroTrack.push(state.hero?[+state.hero[0].toFixed(2),+state.hero[1].toFixed(2)]:null);
     if(state.clear!=null)minClear=Math.min(minClear,state.clear);
     // Never ship a frame from under the ground (Jonni 2026-11-11).
     if(state.clear!=null&&state.clear<(shot.minClear??.2)&&f%30===0)log(`WARN ${shot.id}: camera ${state.clear.toFixed(2)} m above ground at frame ${f} (clip is marked failed)`);
@@ -267,9 +285,9 @@ try{
     maxMissing=Math.max(maxMissing,state.missing??0);maxInFrame=Math.max(maxInFrame,state.missingInFrame??0);
    }
    const hash=createHash('md5').update(bytes).digest('hex');if(hash===lastHash)duplicates++;lastHash=hash;
-   if(f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${v}-mid.jpg`),bytes);
+   if(f===Math.floor((f0+f1)/2))fs.writeFileSync(path.join(dir,`${v}-mid.jpg`),bytes);
    if(!encoder.stdin.write(bytes))await once(encoder.stdin,'drain');
-   if(f%120===0){log(`${shot.id} ${v} frame ${f}/${count}`);if(touch()===4)throw Error('lease lost');}
+   if(f%120===0||f===f0){log(`${shot.id} ${v} frame ${f-f0}/${f1-f0}`);if(touch()===4)throw Error('lease lost');}
   }
   encoder.stdin.end();if((await closed)[0])throw Error('ffmpeg failed');
   const wall=(Date.now()-started)/1000,frameWall=(Date.now()-framesStarted)/1000;
@@ -278,14 +296,19 @@ try{
   const dec=spawnSync('ffmpeg',['-hide_banner','-i',file,'-vf','mpdecimate=hi=64*4:lo=64*2:frac=0.1,showinfo','-f','null','-'],{encoding:'utf8',maxBuffer:1<<28});
   const kept=(dec.stderr.match(/Parsed_showinfo.*pts_time/g)??[]).length;
   const freeze=spawnSync('ffmpeg',['-hide_banner','-i',file,'-vf','freezedetect=n=-70dB:d=0.03','-f','null','-'],{encoding:'utf8',maxBuffer:1<<28});
-  const cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:count,exactDuplicateCaptures:duplicates,mpdecimateDropped:count-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
-  const unsettled=settleFailures.splice(0);const pass=resettled===0&&unsettled.length===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
-  fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass:draft?null:pass,size:`${width}x${height}`,shot,file,fps,frames:count,handles,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
+  const frames=f1-f0,cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:frames,exactDuplicateCaptures:duplicates,mpdecimateDropped:frames-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
+  // Motion proof: the subject's rendered screen track and, for the yellow hero, the same track measured on the encoded pixels.
+  const subject=subjectOf(shot),yellow=typeof subject==='number'&&shot.cars[subject].color==='yellow';
+  const motion=subject==null||sub>1?null:motionVerdict(heroTrack,yellow?await pixelTrack(file):[],{subject:yellow});
+  if(motion){motion.subject=subject==='walker'?'walker':`car ${subject}`;motion.track=heroTrack;log(`${shot.id} ${v} motion ${motion.pass?'pass':'FAIL'}: rendered rms ${motion.rendered?.rms} max ${motion.rendered?.max} px; pixels x ${motion.pixels?.medianRmsX} y ${motion.pixels?.medianRmsY} px in ${motion.pixels?.found}/${frames} frames${motion.reasons.length?'; '+motion.reasons.join('; '):''}`);}
+  const unsettled=settleFailures.splice(0);const steady=duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===frames&&motion?.pass!==false;
+  const pass=steady&&(draft||(resettled===0&&unsettled.length===0));
+  fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass,size:`${width}x${height}`,shot,file,fps,frames,clipFrames:count,window:win?[f0/fps,f1/fps]:null,motion,cleanCars:!(shot.cars??[]).some(c=>c.damage),takeClocks:Object.fromEntries([...new Set((shot.cars??[]).map(c=>c.take))].map(id=>[id,takeClock(id)])),handles:hd,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
    variant:shot.variant??null,grab,canvasSize,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,unsettledStations:unsettled,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for are counted per frame as unavailableCells / unavailableCellsInFrame and do not block), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
-  log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
+  log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${frames}`);
   // Contact sheet: 8 frames across the clip.
-  spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(count/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);
-  log(`captured ${shot.id} ${v}: ${count} frames in ${wall.toFixed(0)}s total; frames only ${frameWall.toFixed(0)}s = ${(frameWall/duration).toFixed(1)} s per clip second; ready after ${readyWall.toFixed(0)}s`);
+  spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(frames/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);
+  log(`captured ${shot.id} ${v}: ${frames} frames in ${wall.toFixed(0)}s total; frames only ${frameWall.toFixed(0)}s = ${(frameWall/(frames/fps)).toFixed(1)} s per clip second; ready after ${readyWall.toFixed(0)}s`);
  }
 }finally{
  if(page&&flag('--close'))await page.close().catch(()=>{});
