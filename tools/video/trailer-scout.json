@@ -1,0 +1,612 @@
+{
+ "fps": 60,
+ "date": "2026-09-08",
+ "traffic": 40,
+ "walkers": 100,
+ "shots": [
+  {
+   "id": "p1-river-low",
+   "keys": [
+    [
+     23459665,
+     6704190,
+     4,
+     62,
+     2,
+     50
+    ]
+   ],
+   "hours": [
+    6.8,
+    7.5,
+    8.5
+   ],
+   "weather": "clear",
+   "note": "P1: low over the Aura looking upstream, cathedral tower on the skyline, moored boats right"
+  },
+  {
+   "id": "t1-tori-drone",
+   "keys": [
+    [
+     23459710,
+     6704560,
+     55,
+     315,
+     -32,
+     55
+    ]
+   ],
+   "hours": [
+    15,
+    19.2,
+    20.2
+   ],
+   "weather": "clear",
+   "note": "T1: high oblique drone over Kauppatori towards the Orthodox church"
+  },
+  {
+   "id": "c1-pullback-end",
+   "keys": [
+    [
+     23460300,
+     6705100,
+     600,
+     225,
+     -28,
+     55
+    ]
+   ],
+   "hours": [
+    19.2,
+    20.3,
+    22.5
+   ],
+   "weather": "clear",
+   "note": "C1 end frame: whole city, river running to the sea",
+   "scenery": true
+  },
+  {
+   "id": "h1-cathedral-low",
+   "keys": [
+    [
+     23460190,
+     6704686,
+     12,
+     90,
+     18,
+     75
+    ]
+   ],
+   "hours": [
+    9,
+    13,
+    18.5
+   ],
+   "weather": "clear",
+   "note": "H1: low wide on the cathedral square, tower filling the top",
+   "agl": 0.6
+  },
+  {
+   "id": "d1-rantakatu",
+   "keys": [
+    [
+     23459633,
+     6704221,
+     4.6,
+     62,
+     2,
+     60
+    ]
+   ],
+   "hours": [
+    13,
+    19.2,
+    22
+   ],
+   "weather": "clear",
+   "note": "D1: low on Lantinen Rantakatu, chase height, looking upstream"
+  },
+  {
+   "id": "d2-auransilta-side",
+   "keys": [
+    [
+     23459770,
+     6704249,
+     8,
+     54,
+     0,
+     50
+    ]
+   ],
+   "hours": [
+    8,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "D2: side view of Auransilta from over the river (downstream side)"
+  },
+  {
+   "id": "d4-quay-boats",
+   "keys": [
+    [
+     23459750,
+     6704185,
+     6,
+     62,
+     0,
+     60
+    ]
+   ],
+   "hours": [
+    8,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "D4: east bank promenade beside the moored boats",
+   "agl": 1.0
+  },
+  {
+   "id": "w1-linnankatu",
+   "keys": [
+    [
+     23459497.59,
+     6704253.76,
+     7.5,
+     235,
+     -8,
+     60
+    ]
+   ],
+   "hours": [
+    18,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "W1: street towards a low sun, walkers"
+  },
+  {
+   "id": "d5-eerikinkatu",
+   "keys": [
+    [
+     23459493,
+     6704408,
+     9.8,
+     56,
+     -12,
+     60
+    ]
+   ],
+   "hours": [
+    13,
+    19.2,
+    22
+   ],
+   "weather": "clear",
+   "note": "D5: proven chase path on Eerikinkatu"
+  },
+  {
+   "id": "d5-aurakatu",
+   "keys": [
+    [
+     23459786,
+     6704296,
+     9,
+     324,
+     3,
+     60
+    ]
+   ],
+   "hours": [
+    13,
+    19.2,
+    22
+   ],
+   "weather": "clear",
+   "note": "D5 alt: Aurakatu from the bridge towards the market square",
+   "agl": 1.2
+  },
+  {
+   "id": "aerial-centre",
+   "keys": [
+    [
+     23459800,
+     6704350,
+     120,
+     205,
+     -15,
+     66
+    ]
+   ],
+   "hours": [
+    12,
+    19.2,
+    20.3,
+    23
+   ],
+   "weather": "clear",
+   "note": "Aerial wide of the centre (noon, golden, blue hour, night)",
+   "scenery": true
+  },
+  {
+   "id": "p1-river-boats",
+   "keys": [
+    [
+     23459720,
+     6704222,
+     3.5,
+     60,
+     3,
+     45
+    ]
+   ],
+   "hours": [
+    7.5,
+    19.5
+   ],
+   "weather": "clear",
+   "note": "P1 alt: closer to the boats, lower"
+  },
+  {
+   "id": "p1-river-down",
+   "keys": [
+    [
+     23459780,
+     6704262,
+     5,
+     242,
+     0,
+     50
+    ]
+   ],
+   "hours": [
+    7.5,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "River looking downstream from Auransilta"
+  },
+  {
+   "id": "t1-tori-drone-b",
+   "keys": [
+    [
+     23459650,
+     6704530,
+     45,
+     0,
+     -28,
+     60
+    ]
+   ],
+   "hours": [
+    15,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "T1 alt: from the south edge looking north"
+  },
+  {
+   "id": "h1-cathedral-low-b",
+   "keys": [
+    [
+     23460200,
+     6704650,
+     12,
+     50,
+     20,
+     75
+    ]
+   ],
+   "hours": [
+    13,
+    18.5
+   ],
+   "weather": "clear",
+   "note": "H1 alt: from the south-west of the tower",
+   "agl": 0.6
+  },
+  {
+   "id": "d2-auransilta-upstream",
+   "keys": [
+    [
+     23459834,
+     6704297,
+     8,
+     234,
+     0,
+     50
+    ]
+   ],
+   "hours": [
+    19.2
+   ],
+   "weather": "clear",
+   "note": "D2 alt: bridge from the upstream side, backlit"
+  },
+  {
+   "id": "aerial-high-sw",
+   "keys": [
+    [
+     23460100,
+     6704900,
+     350,
+     230,
+     -22,
+     60
+    ]
+   ],
+   "hours": [
+    12,
+    19.4,
+    20.4,
+    23
+   ],
+   "weather": "clear",
+   "note": "High aerial down the river towards the sea",
+   "scenery": true
+  },
+  {
+   "id": "tori-ground",
+   "keys": [
+    [
+     23459628,
+     6704527,
+     12,
+     28,
+     -5,
+     66
+    ]
+   ],
+   "hours": [
+    13
+   ],
+   "weather": "clear",
+   "note": "Kauppatori at eye level (proven pose)"
+  },
+  {
+   "id": "market-hall",
+   "keys": [
+    [
+     23459562.4,
+     6704466.3,
+     8,
+     145,
+     4,
+     78
+    ]
+   ],
+   "hours": [
+    15
+   ],
+   "weather": "clear",
+   "note": "Market hall (proven pose)"
+  },
+  {
+   "id": "library-air",
+   "keys": [
+    [
+     23459950,
+     6704480,
+     40,
+     315,
+     -18,
+     60
+    ]
+   ],
+   "hours": [
+    15,
+    19
+   ],
+   "weather": "clear",
+   "note": "Library block, low aerial"
+  },
+  {
+   "id": "w1-old-square",
+   "keys": [
+    [
+     23460070,
+     6704430,
+     12,
+     250,
+     0,
+     50
+    ]
+   ],
+   "hours": [
+    18.8
+   ],
+   "weather": "clear",
+   "note": "Old Great Square cobbles towards a low sun",
+   "agl": 1.6
+  },
+  {
+   "id": "river-tele",
+   "keys": [
+    [
+     23459500,
+     6704100,
+     8,
+     60,
+     2,
+     28
+    ]
+   ],
+   "hours": [
+    7.5
+   ],
+   "weather": "clear",
+   "note": "Long lens up the river to the cathedral tower"
+  },
+  {
+   "id": "cathedral-air",
+   "keys": [
+    [
+     23460320,
+     6704420,
+     110,
+     320,
+     -18,
+     66
+    ]
+   ],
+   "hours": [
+    11,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "Cathedral and the Aura bend from the air (proven pose)"
+  },
+  {
+   "id": "martinsilta",
+   "keys": [
+    [
+     23459115,
+     6703888,
+     12,
+     235,
+     -3,
+     70
+    ]
+   ],
+   "hours": [
+    19.2
+   ],
+   "weather": "clear",
+   "note": "Martinsilta at golden hour (proven pose)"
+  },
+  {
+   "id": "bridges-air",
+   "keys": [
+    [
+     23458900,
+     6703680,
+     95,
+     52,
+     -18,
+     66
+    ]
+   ],
+   "hours": [
+    18,
+    20.2
+   ],
+   "weather": "clear",
+   "note": "Aura bridges flyover (proven pose)"
+  },
+  {
+   "id": "d4-fori",
+   "keys": [
+    [
+     23458450,
+     6703480,
+     14,
+     215,
+     -8,
+     60
+    ]
+   ],
+   "hours": [
+    16,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "Fori crossing area"
+  },
+  {
+   "id": "d4-joutsen",
+   "keys": [
+    [
+     23457971,
+     6702928,
+     18,
+     228,
+     -8,
+     66
+    ]
+   ],
+   "hours": [
+    10,
+    19.5
+   ],
+   "weather": "clear",
+   "note": "Forum Marinum waterfront (proven harbour pose)"
+  },
+  {
+   "id": "d3-castle",
+   "keys": [
+    [
+     23457775,
+     6702860,
+     23,
+     265,
+     1,
+     55
+    ]
+   ],
+   "hours": [
+    10.5,
+    15,
+    19.2
+   ],
+   "weather": "clear",
+   "note": "Turku Castle (proven pose)"
+  },
+  {
+   "id": "d3-castle-low",
+   "keys": [
+    [
+     23457580,
+     6702888.7,
+     12,
+     225,
+     8,
+     65
+    ]
+   ],
+   "hours": [
+    10.5,
+    16
+   ],
+   "weather": "clear",
+   "note": "Castle from street level, north-east side",
+   "agl": 1.2
+  },
+  {
+   "id": "castle-air",
+   "keys": [
+    [
+     23457800,
+     6703000,
+     90,
+     235,
+     -20,
+     60
+    ]
+   ],
+   "hours": [
+    16,
+    19.3
+   ],
+   "weather": "clear",
+   "note": "Castle and harbour from the air"
+  },
+  {
+   "id": "harbour-air",
+   "keys": [
+    [
+     23457600,
+     6702500,
+     120,
+     40,
+     -18,
+     60
+    ]
+   ],
+   "hours": [
+    19.3
+   ],
+   "weather": "clear",
+   "note": "From the harbour up the river towards the centre",
+   "scenery": true
+  }
+ ]
+}

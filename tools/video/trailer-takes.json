@@ -1,0 +1,4 @@
+{"takes":[
+{"id":"tori-donut-a","start":[23459652,6704624,135],"seconds":12,"program":[[0,["KeyW"]],[1.5,["KeyW","KeyA"]],[2.0,["KeyW","KeyA","Space"]],[2.5,["KeyW","KeyA"]]]},
+{"id":"rantakatu-launch","start":[23459620,6704214,62],"seconds":9,"program":[[0,["KeyW"]]]}
+]}

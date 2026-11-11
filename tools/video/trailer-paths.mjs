@@ -17,12 +17,21 @@ function spline(points,k,t,wrap){
  return .5*((2*b)+(-a+c)*u+(2*a-5*b+4*c-d)*u*u+(-a+3*b-3*c+d)*u*u*u);
 }
 export function keysOf(shot){return shot.keys??[shot.from,...(shot.via??[]),shot.to];}
-export function poseAt(shot,u){
+// With an anchor (a followed car: {E,N,H,heading}) the keys and targets are offsets from it: [right, forward, up]
+// in the anchor's heading frame (follow.frame 'heading', yaw relative to the heading) or [dE, dN, dH] ('world').
+export function poseAt(shot,u,anchor){
  const t=(EASE[shot.ease??'cruise']??EASE.cruise)(Math.max(0,Math.min(1,u))),keys=keysOf(shot);
  const pose={E:spline(keys,0,t),N:spline(keys,1,t),H:spline(keys,2,t),yaw:spline(keys,3,t,true),pitch:spline(keys,4,t),fov:spline(keys,5,t)||60,roll:spline(keys,6,t)};
- if(shot.target){
-  const g=shot.target,a={E:spline(g,0,t),N:spline(g,1,t),H:spline(g,2,t)},dE=a.E-pose.E,dN=a.N-pose.N;
-  pose.yaw=(Math.atan2(dE,dN)*180/Math.PI+360)%360;pose.pitch=Math.atan2(a.H-pose.H,Math.hypot(dE,dN))*180/Math.PI;
+ let aim=shot.target?{E:spline(shot.target,0,t),N:spline(shot.target,1,t),H:spline(shot.target,2,t)}:null;
+ if(anchor){
+  const world=shot.follow?.frame==='world',h=anchor.heading*Math.PI/180,c=Math.cos(h),s=Math.sin(h);
+  const place=p=>world?{E:anchor.E+p.E,N:anchor.N+p.N,H:anchor.H+p.H}:{E:anchor.E+p.E*c+p.N*s,N:anchor.N-p.E*s+p.N*c,H:anchor.H+p.H};
+  Object.assign(pose,place(pose));if(!world)pose.yaw+=anchor.heading;
+  if(aim)aim=place(aim);
+ }
+ if(aim){
+  const dE=aim.E-pose.E,dN=aim.N-pose.N;
+  pose.yaw=(Math.atan2(dE,dN)*180/Math.PI+360)%360;pose.pitch=Math.atan2(aim.H-pose.H,Math.hypot(dE,dN))*180/Math.PI;
  }
  return pose;
 }
