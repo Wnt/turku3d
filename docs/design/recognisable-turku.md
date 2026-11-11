@@ -2,9 +2,18 @@
 
 2026-11-12. Owner: realism-20261112. Target: https://city.lab.madekivi.fi/.
 This plan implements the user's request for iterative photorealism and recognisability.
-It supersedes the old architecture's expectation of individually generated textures
-for every street-facing facade. Preserve all existing authored descriptions, facade
-programs, approved textures and library assets. Generate the world on demand.
+The latest direction is a clean next-generation game/map pipeline: **no backward
+compatibility with the existing game, APIs or tile format is required**. Start in the
+city centre, prove a small set of contrasting city blocks across different regions,
+then run large generation only after those pilots pass. Existing imagery-derived
+observations and reusable assets are valuable inputs, not schema constraints.
+
+This supersedes the old expectation of individually generated textures for every
+street-facing facade. Preserve useful authored descriptions, facade programs, approved
+textures and library assets by importing their information into the new scene model;
+do not preserve old loaders, migration chains or rendering paths merely for compatibility.
+On-demand generation is useful during development; the user's latest instruction also
+permits large generation after proof. Do not start a city-wide batch as a pilot test.
 
 ## What matters most
 
@@ -25,6 +34,92 @@ occlusion-aware ground lighting, facade relief and instanced opening depth/frame
 The task is to improve their accuracy, coverage and calibration. Sky-only PMREM still
 makes city-aware daylight occlusion/bounce and local specular probes worth studying.
 Do not describe already implemented facade depth, lamps or weather as new features.
+
+## Clean next-generation target and pilot gates
+
+Treat source processing, the semantic city model, asset compilation and runtime
+streaming as separate layers. Keep EPSG:3877/N2000 georeferencing and source precision
+because those describe real geography; the existing 250 m product grid, `.col`, GLB
+extras and REST endpoints do not constrain the new design.
+
+The authoritative block model contains buildings/facade programs, continuous street
+and quay cross-sections, surface/material regions, vegetation and typed furniture.
+Every placed object references its support surface and attachment/orientation rule.
+It carries dimensions, provenance and uncertainty. Geometry, collision, draw instances,
+LOD and lighting data compile from that same model. Do not reconstruct gameplay
+meaning from rendered triangles or repair a stack of already-compiled products.
+The sign issue in the first slice is a concrete example of why final attachment
+must be resolved before emitting visual and collision products.
+
+Use reusable meshes/material arrays, authored detail for landmarks, and compiled
+instance records. Runtime should upload prepared data with bounded work, rather than
+rediscover window layouts or pole origins from mesh attributes during play. Spatial
+chunks are a streaming/compiler choice; a building/street entity may span chunks
+without losing identity. A release pins one consistent scene/asset/compiler revision.
+When the schema changes, replace producer and consumer together; no dual reader is
+required. Retain content hashes and the source evidence needed to regenerate outputs.
+
+Before implementation, define a strict scene schema with discriminated feature types,
+explicit support/attachment IDs, collision policy (solid, passable, dynamic, sensor),
+light-emitter records and required collections that may be empty. Reject invalid
+imports before expensive compilation. A source adapter can interpret old evidence;
+the runtime accepts one current schema, not accumulated legacy variants.
+
+A canonical entity owns its geometry once. Compiler chunks reference that entity;
+shared edges are derived from one common boundary, not separately fitted in adjacent
+chunks. Record dependency halos for terrain fitting, casts and tree/facade occlusion,
+so an edit invalidates every affected neighbour and no unrelated region. Choose chunk
+sizes from measured streaming/upload costs, independently of the lidar input grid.
+
+Bound A1's first delivery to an approximately 50 m frontage and its complete street
+cross-section: one existing approved facade program, road/curb/promenade/quay,
+one measured lamp family, signs and benches. Compile materials, geometry, collision
+and emitter data together and load them through the new runtime. Broader bridge
+geometry and additional building families follow after that complete path works.
+
+Freeze source revisions, camera position/FOV/time, images and a short walk/drive
+route before generation. Set geometric tolerances per measured source confidence
+rather than claiming centimetre truth for every source. Record missed essential
+features and severity per category; require no major route/contact defect and a
+city-familiar review of frontage recognition. Hold those criteria fixed for the
+comparison. Unregistered photos support qualitative detail assessment only.
+
+Pilot locations are candidate areas, not assertions that their current data are complete:
+
+| Stage | Small pilot | What it must prove |
+|---|---|---|
+| A1 | Office / Qwensel House / Läntinen Rantakatu frontage | Wood + masonry facades, promenade materials, trees, furniture support, quay profile |
+| A2 | Auransilta–City Hall junction | Street levels, bridge approach, granite, traffic signs and walk/drive collision |
+| A3 | Market Hall / Linnankatu block | Dense retail frontage, awnings, irregular openings, lane/footway boundaries |
+| B1 | Port Arthur residential block | Wooden-house families, varied rooflines, cobbles and narrow streets |
+| B2 | Martti apartment block | Balconies, plaster/brick families, parking and courtyard vegetation |
+| B3 | Kupittaa modern block | Large glazing, modern road sections, different trees and fixture families |
+
+Select exact footprints and fixed camera routes from source coverage before building;
+include only seam/context neighbours needed to test those blocks. A1 is the first
+complete vertical slice. A2/A3 test city-centre generalisation; B1–B3 are held-out
+transfer checks before broad generation. Do not tune every block with unique exceptions.
+
+Promotion gates, declared before each comparison:
+
+1. Recognisable silhouette, frontage rhythm, surface layout and fixture families at
+   matched poses; record unknowns and independent review, not just a beauty screenshot.
+2. No invisible blockers, fall-throughs, unsupported furniture or disconnected required
+   routes; visual and collision surfaces come from the same authoritative support data.
+3. Centre street, river edge and one seam crossing pass walking and driving checks.
+4. Fixed-resolution moving-route frame/GPU p50/p95, memory and upload/compile hitches
+   recorded on the actual target hardware. Use the current 30+ FPS medium target as
+   the initial floor, then raise quality/performance goals from measurements.
+5. Cold build, cached build and a one-building/one-material edit record wall time,
+   CPU time, output size and recomputed stages. Unrelated assets must remain reusable.
+6. A held-out block uses the same rules and succeeds without new per-building vision
+   or manually patched coordinates. Only explicitly selected landmarks get that effort.
+
+After these pass, estimate city-centre generation cost from the measured distribution
+(including difficult blocks), generate the centre, review it, and then expand by region.
+Large batches are a later delivery mode, not a substitute for proving the new system.
+The 30-minute playtest cadence delivers useful pilot increments and clear receipts;
+it does not require completing an entire subsystem every 30 minutes.
 
 ## Reference study and its limits
 
@@ -68,7 +163,8 @@ is not a performance benchmark.
 
 Use stable building, facade, street-segment and object IDs. Attach source, date,
 coordinate system, uncertainty, field confidence and content hash to each observation.
-Continue EPSG:3877/N2000 and the existing tile-local coordinate contract. Resolve
+Continue EPSG:3877/N2000 georeferencing and precise local coordinates, without
+retaining the old product chunk size. Resolve
 source disagreement per field, not by selecting one universal source:
 
 - City vectors: footprints, curb/stair/wall breaklines and street/furniture locations.
@@ -181,7 +277,11 @@ the game because its `capture-high` preset parser could not find `ReflectionQual
 in `lowest.xml`. No new gameplay capture or disassembly is claimed for this slice;
 repair the research preset separately if a fresh controlled comparison is needed.
 
-## Iteration schedule and acceptance
+## Immediate repair and next-generation iteration schedule
+
+The deployed sign-support repair is an immediate improvement to the current game,
+not a requirement to extend its migration architecture. Subsequent work follows the
+clean pilot sequence above. The feature priorities below guide that new implementation.
 
 Aim for a playable delivery every 30 minutes; this is a working cadence, not a
 promise to ship an unverified change at a deadline. Each slice has a concrete test
@@ -199,8 +299,8 @@ observed defects and the user's playtest after each deployment.
 | 7 | City-aware indirect light/reflection prototype | Shaded street versus open river, window reflections and contact; record leaks and time-of-day response |
 | 8 | Temporal reconstruction and vegetation refinement | Moving route at fixed resolution; readable signs/rails, stable leaves, no ghosting or excessive GPU cost |
 
-Use the remaining 12-hour resource window for repeated bounded slices and observation,
-not an automatic whole-city rebuild. If a slice misses its slot, report the actual
+Use the remaining 12-hour resource window for bounded pilot slices and observation.
+Large generation becomes appropriate only after the pilot gates pass. If a slice misses its slot, report the actual
 blocker and next useful deliverable rather than claiming a deployment occurred.
 
 For every slice:
