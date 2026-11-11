@@ -8,6 +8,48 @@ city centre, prove a small set of contrasting city blocks across different regio
 then run large generation only after those pilots pass. Existing imagery-derived
 observations and reusable assets are valuable inputs, not schema constraints.
 
+## Active ten-hour campaign
+
+Started 2026-11-11 23:47 UTC; target finish 2026-11-12 09:50 UTC (11:50 Helsinki).
+The goal is about twenty meaningful playable improvements across three compact
+city-centre pilots, a connected showcase core, two detailed landmark frontages and
+at least one contrasting held-out block proving reusable rules. Native Codex workers
+run at high reasoning effort; the current session provides three worker slots plus
+the coordinator. Workers own scene generation, runtime/rendering, and visual
+evidence/look development. The coordinator integrates, deploys and resolves blockers.
+
+| Iterations | Intended visible result |
+|---|---|
+| 1–4 | Complete new scene, coherent street/quay sections and reliable walking/driving contact |
+| 5–8 | Correctly assigned furniture families, granite/paving detail and road surfaces |
+| 9–12 | Landmark/commercial facade depth, entrances and passages |
+| 13–16 | Vegetation, daylight contact/indirect light and river appearance |
+| 17–20 | Night lighting, temporal stability, held-out transfer and consolidated walkthrough |
+
+These are priorities, not a claim that every item will finish on a fixed clock.
+Reorder work using actual evidence and dependencies. The normal city.lab game enters
+the new prepared pilot by default; city.madekivi.fi preserves the previous world.
+A complete approximately 50 m initial scene is acceptable, then expands with context
+and adjacent blocks. Do not build a legacy/next-generation chooser or a QA-only demo.
+
+Every claimed visual iteration needs matched before/after game screenshots: same
+camera transform, FOV, clock, weather, quality and internal/output resolution. Add
+3–8-second clips for motion, vegetation, water or streaming changes. Preserve source
+and release identities, actual capture hardware, exact playtest location and relevant
+validation. Publish game-owned evidence at **city.lab.madekivi.fi/progress/**; media
+lives outside Git under the read-only `/progress-evidence/` mount. Private reference
+photographs and other games' captures never enter the gallery. Planning, tooling and
+asset-library-only commits do not count as visible improvements. Never relabel a
+different-resolution beauty capture as a controlled before/after result.
+
+Routine HTTP errors, host availability, game settings and broken verification tools
+are work to resolve. Search existing project solutions, repair the cause, try another
+permitted source or host and continue independent work. A per-slice forward-fix limit
+routes remaining issues to the coordinator; it does not end this campaign. Account
+access requirements remain real constraints, not permission to evade access controls.
+At the time limit, report achieved and unmet targets with evidence; elapsed time is
+not proof of completion or visual quality.
+
 This supersedes the old expectation of individually generated textures for every
 street-facing facade. Preserve useful authored descriptions, facade programs, approved
 textures and library assets by importing their information into the new scene model;

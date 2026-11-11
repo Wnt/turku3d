@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Turku — the next generation</title>
+<style>
+:root{color-scheme:dark;font:16px/1.55 system-ui,sans-serif;background:#111917;color:#eaf0e9}
+*{box-sizing:border-box}body{margin:0}main{max-width:1320px;margin:auto;padding:38px 24px 80px}
+header{padding-bottom:30px;border-bottom:1px solid #35473e}.eyebrow{color:#b0ca9f;letter-spacing:.14em;text-transform:uppercase;font-size:.75rem}
+h1{font-size:clamp(2rem,5vw,4rem);line-height:1.08;font-weight:550;letter-spacing:-.04em;margin:14px 0}h2{font-weight:550;margin:0 0 8px}h3{font-weight:500;margin:0}
+p{max-width:75ch;color:#b8c9be}a{color:#cee7a6}nav{display:flex;gap:24px;flex-wrap:wrap}.meta{font-size:.85rem;color:#a7bbad}
+.status{padding:18px 0;color:#cee7a6}.iteration{border-top:1px solid #35473e;padding:30px 0}.iteration:first-child{border-top:0}
+.views{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,470px),1fr));gap:24px;margin-top:20px}
+figure{margin:0;background:#1c2921;border:1px solid #35473e;border-radius:10px;overflow:hidden}
+.compare{position:relative;aspect-ratio:3/2;--cut:50%;background:#0c100d}.compare img{width:100%;height:100%;object-fit:contain;display:block}
+.compare .after{position:absolute;inset:0;clip-path:inset(0 0 0 var(--cut))}.compare .divider{position:absolute;top:0;bottom:0;left:var(--cut);width:2px;background:white;pointer-events:none}
+.labels{position:absolute;inset:12px 12px auto;display:flex;justify-content:space-between;pointer-events:none}.labels span{background:#07100acc;padding:3px 10px;border-radius:20px;font-size:.75rem}
+figcaption{padding:14px 16px}input[type=range]{width:100%;accent-color:#c6e29c;margin-top:12px;cursor:ew-resize}
+.clips{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px}.clips figure{flex:1;min-width:min(100%,320px)}video{display:block;width:100%;max-height:540px;background:#000}
+.facts{display:flex;gap:8px 28px;flex-wrap:wrap;margin:12px 0}.facts span{color:#b8c9be;font-size:.85rem}.notice{border-left:3px solid #cee7a6;padding-left:14px}
+button{font:inherit;color:#cee7a6;background:none;border:1px solid #607c58;border-radius:6px;padding:7px 16px;cursor:pointer}
+footer{margin-top:40px;border-top:1px solid #35473e;padding-top:20px;color:#a7bbad;font-size:.8rem}
+</style>
+<main>
+<header><div class="eyebrow">Turku / Work in progress</div><h1>A more recognisable city.</h1>
+<p>Compare each playable improvement at the same location. Drag the divider to reveal the before and after; use the short clips to judge movement.</p>
+<nav><a href="/">Play the current experiment ↗</a><a href="https://city.madekivi.fi/">Play the frozen release ↗</a><button id="refresh">Refresh evidence</button></nav></header>
+<div id="status" class="status" role="status">Loading the evidence log…</div>
+<section id="iterations" aria-label="Improvement comparisons"></section>
+<section id="baseline" aria-label="Starting point"></section>
+<footer>Game captures: Turku3D. City data © City of Turku, CC BY 4.0. Reference photographs and third-party game captures are kept outside this public gallery.</footer>
+</main>
+<script type="module" src="./progress.js"></script>
+</html>

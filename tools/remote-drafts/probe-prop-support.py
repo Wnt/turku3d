@@ -56,7 +56,7 @@ for (const node of doc.getRoot().listNodes()) {
     const bottom = vertices.filter(p => p[1] <= low + .001);
     const local = [bottom.reduce((s,p) => s+p[0],0)/bottom.length, low, bottom.reduce((s,p) => s+p[2],0)/bottom.length];
     const base = [0,1,2].map(k => matrix[k]*local[0]+matrix[4+k]*local[1]+matrix[8+k]*local[2]+matrix[12+k]);
-    output.push({id:e.pole_id, object_id:e.object_id, height:e.pole_height, base, recorded:e.pole_base, count, plates:e.plate_ids, merged:e.merged});
+    output.push({id:e.pole_id, object_id:e.object_id, height:e.pole_height, base, recorded:e.pole_base, count, plates:e.plate_ids ?? null, merged:e.merged ?? null});
   }
 }
 console.log(JSON.stringify(output));
@@ -285,6 +285,7 @@ def main():
         print(json.dumps(result), flush=True)
     result = dict(
         tiles=report,
+        verifier_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         seconds=round(time.monotonic() - started, 3),
         evidence="existing full products migrated; no generator rebuild",
     )

@@ -4,6 +4,7 @@ import argparse
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 
 BOOTSTRAP = r"""
 import json, os, pathlib, sys, tempfile
@@ -16,9 +17,11 @@ assert meta.get('kind') == 'migrated', 'Expected a migration publication'
 assert meta['code_revision'] == commit, 'Registered migration uses another source commit'
 repo = farm / 'revisions' / commit / 'repo'
 work = pathlib.Path(tempfile.mkdtemp(prefix='prop-support-', dir=farm / 'work'))
+probe = work / 'probe-prop-support.py'
+probe.write_text(sys.stdin.read())
 os.environ.update(REPO=str(repo), TURKU3D_WORK=str(work), TURKU3D_THREADS_PER_WORKER='2')
 args = [str(repo / 'scripts/dev/shared-tiles-run.sh'), 'python',
-        str(repo / 'tools/remote-drafts/probe-prop-support.py'), '--commit', commit,
+        str(probe), '--commit', commit,
         '--farm-root', str(farm), '--revision', revision, '--public-url', public]
 os.execv(args[0], args)
 """
@@ -67,6 +70,7 @@ def main():
         ],
         capture_output=True,
         text=True,
+        input=(Path(__file__).resolve().parents[2] / "tools/remote-drafts/probe-prop-support.py").read_text(),
         timeout=550,
     )
     print(result.stdout, end="", flush=True)

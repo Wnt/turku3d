@@ -64,6 +64,13 @@ A web restart drops multiplayer sockets for about a second; the client reconnect
 
 ## Client behaviour
 
+The experiment evidence gallery is `/progress/`. Its game screenshots, short clips
+and `index.json` are served read-only from `/progress-evidence/`, mounted to
+`~/turku3d-local/city/progress` on osgallery-dev. Publish media first and the index
+last; use unique per-iteration paths. This evidence survives client deployments.
+Only game-owned captures belong there; keep reference photographs and other games'
+captures private. MP4/WebM use native video MIME types and existing byte-range serving.
+
 `game/src/core/localOnly.ts` `isShareHost`: a `VITE_SHARE_HOSTS` hostname is served like a local origin, but
 it is public like Pages. Unit tests: `game/tests/unit/share-host.test.ts`.
 
