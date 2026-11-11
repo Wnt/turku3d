@@ -5,7 +5,9 @@ NOTES.json maps a shot id to its state text. Everything between the table marker
 import json, os, re, sys, time
 
 ROOT = os.path.expanduser('~/turku3d/video/2026-11-11-trailer')
-ORDER = ['P1', 'H1', 'D1', 'D2', 'D3', 'D4', 'W1', 'T1a', 'T1b', 'C1']
+SHOTS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trailer-shots.json')))['shots']
+ORDER = [s['id'] for s in SHOTS]
+VARIANT = {s['id']: s.get('variant') for s in SHOTS}
 notes = json.load(open(sys.argv[1])) if len(sys.argv) > 1 else {}
 
 
@@ -41,7 +43,7 @@ def cell(found):
 lines = [f'<!-- table:start -->', f'Updated {time.strftime("%H:%M:%S")}. Clips are `clips/<shot>/<name>.mp4` with a `.json` sidecar and `-contact.jpg`.', '',
          '| Shot | Newest draft | Newest final | State |', '|---|---|---|---|']
 for shot in ORDER:
-    lines.append(f"| {shot} | {cell(newest(shot, 'd'))} | {cell(newest(shot, 'v'))} | {notes.get(shot, '')} |")
+    lines.append(f"| {shot} | {cell(newest(shot, 'd'))} | {cell(newest(shot, 'v'))} | {notes.get(shot, '') or (('variant: ' + VARIANT[shot]) if VARIANT.get(shot) else '')} |")
 lines.append('<!-- table:end -->')
 path = os.path.join(ROOT, 'DP-STATUS.md')
 text = open(path).read()
