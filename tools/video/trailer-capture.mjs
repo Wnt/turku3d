@@ -179,7 +179,7 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
    const full=id=>{const e=k.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
    // Camera height above the streamed ground, and above the wheels' ground of every replayed car nearby.
    let clear=c.y-k.groundBelow(c.x,c.z);if(!Number.isFinite(clear))clear=null;
-   for(const s of cars??[])if(Math.hypot(s.pos.x-c.x,s.pos.z-c.z)<30){const d=c.y-(s.pos.y-.62);clear=clear==null?d:Math.min(clear,d);}
+   for(const s of cars??[])if(Math.hypot(s.pos.x-c.x,s.pos.z-c.z)<10){const d=c.y-(s.pos.y-.62);clear=clear==null?d:Math.min(clear,d);}
    resolve({clear,sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(window.__trailerScenery().ok||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null,missingInFrame:v?window.__trailerScenery().inFrame:0,missing:v?window.__trailerScenery().missing:0});};
  }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub)});
 }
