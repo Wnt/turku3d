@@ -792,6 +792,47 @@
    "note": "Bridge: drone over the river 18 m downstream of Auransilta and 6 m above the deck, tracking alongside; car on the bridge from clip 0.4 s to 3.2 s (70-82 km/h), it leaves the bridge at 3.2 s and hits a kerb at 3.8 s (end of the tail handle is unusable)"
   },
   {
+   "id": "D5",
+   "duration": 1.8,
+   "hour": 18.3,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "d2-e",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 4.9
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.15
+   },
+   "keys": [
+    [
+     3.6,
+     0.8,
+     -0.22,
+     -98,
+     3,
+     62
+    ],
+    [
+     3.6,
+     -0.2,
+     -0.22,
+     -88,
+     3,
+     62
+    ]
+   ],
+   "note": "Bridge from the side at wheel height: lens 0.4 m above the deck, 3.6 m to the right of the car, tracking with it at 70-82 km/h, railing and the river upstream streaking behind (replaces D3). Core = car time 6.4-8.2 on the bridge; the tail handle ends in the kerb hit"
+  },
+  {
    "id": "D2-front",
    "variant": "high front view along the bridge, the car drives towards the lens",
    "duration": 1.6,
@@ -1717,24 +1758,24 @@
      6704590.29,
      10.38,
      323,
-     -7,
-     40
+     -6,
+     34
     ],
     [
      23459681.73,
      6704591.89,
      10.38,
      319,
-     -7,
-     40
+     -6,
+     34
     ],
     [
      23459683.58,
      6704593.62,
      10.38,
      315,
-     -7,
-     40
+     -6,
+     34
     ]
    ],
    "note": "Tori donuts: lens 4.5 m above the paving, 19 m from the nearest car, 40 degree lens tilted 7 degrees down: Orthodox church dome whole with sky above it, cars at about 40-64 % of frame height, the bottom third clean paving for the title, the group fills about 80 % of the width; slow orbit panning with the group. Six takes packed into a circle of 40 m (never closer than 6.4 m centre to centre); tighter than that the cars would touch. The layout is centred so the lamp post of the square stands inside one donut"
@@ -1866,26 +1907,26 @@
    ],
    "keys": [
     [
-     23459693.14,
-     6704610.51,
-     10.38,
-     284,
+     23459689.05,
+     6704622.57,
+     8.88,
+     264,
      -7,
      40
     ],
     [
-     23459693.67,
-     6704612.99,
-     10.38,
-     280,
+     23459688.75,
+     6704624.74,
+     8.88,
+     260,
      -7,
      40
     ],
     [
-     23459694.02,
-     6704615.5,
-     10.38,
-     276,
+     23459688.29,
+     6704626.88,
+     8.88,
+     256,
      -7,
      40
     ]
