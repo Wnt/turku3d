@@ -1,9 +1,9 @@
 {
  "fps": 60,
- "handles": 1,
+ "handles": 1.5,
  "date": "2026-09-08",
  "traffic": 40,
- "walkers": 100,
+ "walkers": 0,
  "shots": [
   {
    "id": "P1",
@@ -12,132 +12,543 @@
    "weather": "clear",
    "traffic": 40,
    "sceneryRadius": 4000,
-   "note": "Postcard: slow glide up the Aura at about 15 m with a slight descent, starting past the black-hulled ship, cathedral tower on the skyline left of centre",
    "ease": "linear",
    "keys": [
     [
-     23459700,
-     6704203,
-     16,
-     58,
-     -6,
-     50
+     23459698,
+     6704202,
+     15.5,
+     52,
+     -4,
+     30
     ],
     [
-     23459722,
-     6704215.5,
-     14.2,
-     58,
-     -5,
-     50
+     23459724.5,
+     6704216.1,
+     14.5,
+     52,
+     -4,
+     30
     ]
-   ]
+   ],
+   "note": "Postcard: slow glide up the Aura at 15 m with a slight descent, 30 degree lens, cathedral tower on the skyline left of centre, sun 35 degrees out of frame to the right, starts past the black-hulled ship"
+  },
+  {
+   "id": "P1-11m",
+   "variant": "eye height 11 m",
+   "duration": 2.6,
+   "hour": 7.5,
+   "weather": "clear",
+   "traffic": 40,
+   "sceneryRadius": 4000,
+   "ease": "linear",
+   "keys": [
+    [
+     23459698,
+     6704202,
+     11.5,
+     52,
+     -2.5,
+     30
+    ],
+    [
+     23459724.5,
+     6704216.1,
+     10.8,
+     52,
+     -2.5,
+     30
+    ]
+   ],
+   "note": "Postcard: slow glide up the Aura at 15 m with a slight descent, 30 degree lens, cathedral tower on the skyline left of centre, sun 35 degrees out of frame to the right, starts past the black-hulled ship"
+  },
+  {
+   "id": "P1-dawn",
+   "variant": "hour 6.8 (sunrise)",
+   "duration": 2.6,
+   "hour": 6.8,
+   "weather": "clear",
+   "traffic": 40,
+   "sceneryRadius": 4000,
+   "ease": "linear",
+   "keys": [
+    [
+     23459698,
+     6704202,
+     15.5,
+     52,
+     -4,
+     30
+    ],
+    [
+     23459724.5,
+     6704216.1,
+     14.5,
+     52,
+     -4,
+     30
+    ]
+   ],
+   "note": "Postcard: slow glide up the Aura at 15 m with a slight descent, 30 degree lens, cathedral tower on the skyline left of centre, sun 35 degrees out of frame to the right, starts past the black-hulled ship"
+  },
+  {
+   "id": "P1-11m-dawn",
+   "variant": "eye height 11 m, hour 6.8",
+   "duration": 2.6,
+   "hour": 6.8,
+   "weather": "clear",
+   "traffic": 40,
+   "sceneryRadius": 4000,
+   "ease": "linear",
+   "keys": [
+    [
+     23459698,
+     6704202,
+     11.5,
+     52,
+     -2.5,
+     30
+    ],
+    [
+     23459724.5,
+     6704216.1,
+     10.8,
+     52,
+     -2.5,
+     30
+    ]
+   ],
+   "note": "Postcard: slow glide up the Aura at 15 m with a slight descent, 30 degree lens, cathedral tower on the skyline left of centre, sun 35 degrees out of frame to the right, starts past the black-hulled ship"
   },
   {
    "id": "H1",
-   "duration": 2.0,
-   "hour": 18.3,
+   "duration": 2.4,
+   "hour": 18.2,
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Cathedral slide: low wide lens retreating in front of a real handbrake slide (68 km/h entry, 180 degrees); the car is a third of the frame width at the cut (clip 1.0 s) and comes to rest 5 m from the lens under the west tower",
+   "ease": "linear",
+   "minClear": 0.05,
    "cars": [
     {
      "take": "h1-d",
-     "model": "golf7",
-     "color": "red",
-     "t0": 3.3
+     "model": "e30",
+     "color": "yellow",
+     "t0": 3.4,
+     "rate": 0.6,
+     "move": [
+      7.4,
+      -5.1
+     ],
+     "slope": [
+      0.02643,
+      -0.0191
+     ]
     }
    ],
-   "ease": "linear",
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.3
+   },
    "keys": [
     [
-     23460206.3,
-     6704677.0,
-     10.0,
-     104,
-     16,
-     72
-    ],
-    [
-     23460202.3,
-     6704680.25,
-     9.85,
-     101,
-     19,
+     -7.95,
+     4.23,
+     -0.53,
+     100,
+     17,
      70
     ],
     [
-     23460197.2,
-     6704683.2,
-     9.6,
-     98,
-     21,
-     66
+     -5.84,
+     2.85,
+     -0.43,
+     99,
+     19,
+     68
     ],
     [
-     23460192.5,
-     6704685.0,
-     9.4,
-     94,
-     23,
-     66
+     -4.45,
+     1.8,
+     -0.36,
+     96,
+     22,
+     64
     ],
     [
-     23460189.2,
-     6704686.5,
-     9.3,
-     92,
+     -4.35,
+     1.16,
+     -0.35,
+     93,
      24,
-     66
+     64
     ],
     [
-     23460188.2,
-     6704687.25,
-     9.28,
-     90.5,
-     25,
-     66
-    ],
-    [
-     23460188.0,
-     6704687.3,
-     9.28,
+     -4.56,
+     0.64,
+     -0.35,
      90,
      25,
-     66
+     64
     ],
     [
-     23460187.85,
-     6704687.35,
-     9.28,
-     90,
-     25,
-     66
+     -4.79,
+     0.33,
+     -0.36,
+     88.5,
+     26,
+     64
     ],
     [
-     23460187.7,
-     6704687.4,
-     9.28,
-     90,
-     25,
-     66
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
+    ],
+    [
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
+    ],
+    [
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
     ]
-   ]
+   ],
+   "note": "Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight."
+  },
+  {
+   "id": "H1-low",
+   "variant": "lower (0.25 m) and closer (3.6-4 m), 80 degree lens",
+   "duration": 2.4,
+   "hour": 18.2,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "minClear": -0.15,
+   "cars": [
+    {
+     "take": "h1-d",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 3.4,
+     "rate": 0.6,
+     "move": [
+      7.4,
+      -5.1
+     ],
+     "slope": [
+      0.02643,
+      -0.0191
+     ]
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.3
+   },
+   "keys": [
+    [
+     -6.36,
+     3.38,
+     -0.73,
+     100,
+     15,
+     80
+    ],
+    [
+     -4.67,
+     2.28,
+     -0.63,
+     99,
+     17,
+     80
+    ],
+    [
+     -3.56,
+     1.44,
+     -0.56,
+     96,
+     20,
+     80
+    ],
+    [
+     -3.48,
+     0.93,
+     -0.55,
+     93,
+     22,
+     80
+    ],
+    [
+     -3.65,
+     0.51,
+     -0.55,
+     90,
+     23,
+     80
+    ],
+    [
+     -3.83,
+     0.26,
+     -0.56,
+     88.5,
+     24,
+     80
+    ],
+    [
+     -4,
+     0.14,
+     -0.57,
+     87.5,
+     24,
+     80
+    ],
+    [
+     -4,
+     0.14,
+     -0.57,
+     87.5,
+     24,
+     80
+    ],
+    [
+     -4,
+     0.14,
+     -0.57,
+     87.5,
+     24,
+     80
+    ]
+   ],
+   "note": "Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight."
+  },
+  {
+   "id": "H1-high",
+   "variant": "three-quarter view from 1.3 m, 6-7 m to the side of the track",
+   "duration": 2.4,
+   "hour": 18.2,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "minClear": 0.2,
+   "cars": [
+    {
+     "take": "h1-d",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 3.4,
+     "rate": 0.6,
+     "move": [
+      7.4,
+      -5.1
+     ],
+     "slope": [
+      0.02643,
+      -0.0191
+     ]
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.3
+   },
+   "keys": [
+    [
+     -7.63,
+     -4.77,
+     0.5,
+     66,
+     10,
+     58
+    ],
+    [
+     -6.62,
+     -3.52,
+     0.55,
+     68,
+     12,
+     58
+    ],
+    [
+     -6.39,
+     -2.85,
+     0.6,
+     70,
+     14,
+     58
+    ],
+    [
+     -6.11,
+     -2.22,
+     0.6,
+     72,
+     15,
+     58
+    ],
+    [
+     -5.93,
+     -1.81,
+     0.6,
+     74,
+     16,
+     58
+    ],
+    [
+     -5.8,
+     -1.55,
+     0.6,
+     75,
+     16,
+     58
+    ],
+    [
+     -5.8,
+     -1.55,
+     0.6,
+     75,
+     16,
+     58
+    ]
+   ],
+   "note": "Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight."
+  },
+  {
+   "id": "H1-rt",
+   "variant": "real time (slide 1.9 s)",
+   "duration": 2.4,
+   "hour": 18.2,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "minClear": 0.05,
+   "cars": [
+    {
+     "take": "h1-d",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 2.8,
+     "rate": 1,
+     "move": [
+      7.4,
+      -5.1
+     ],
+     "slope": [
+      0.02643,
+      -0.0191
+     ]
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.3
+   },
+   "keys": [
+    [
+     -7.95,
+     4.23,
+     -0.53,
+     100,
+     17,
+     70
+    ],
+    [
+     -5.84,
+     2.85,
+     -0.43,
+     99,
+     19,
+     68
+    ],
+    [
+     -4.45,
+     1.8,
+     -0.36,
+     96,
+     22,
+     64
+    ],
+    [
+     -4.35,
+     1.16,
+     -0.35,
+     93,
+     24,
+     64
+    ],
+    [
+     -4.56,
+     0.64,
+     -0.35,
+     90,
+     25,
+     64
+    ],
+    [
+     -4.79,
+     0.33,
+     -0.36,
+     88.5,
+     26,
+     64
+    ],
+    [
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
+    ],
+    [
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
+    ],
+    [
+     -5,
+     0.17,
+     -0.37,
+     87.5,
+     26,
+     64
+    ]
+   ],
+   "note": "Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight."
   },
   {
    "id": "D1",
    "duration": 1.6,
-   "hour": 18.6,
+   "hour": 18.2,
    "weather": "clear",
    "traffic": 0,
-   "note": "Launch: low chase behind the car at full throttle on Lantinen Rantakatu",
+   "sceneryRadius": 2000,
+   "ease": "linear",
    "cars": [
     {
      "take": "rantakatu-launch",
-     "model": "golf7",
-     "color": "red",
-     "t0": 4.6
+     "model": "e30",
+     "color": "yellow",
+     "t0": 4.2
     }
    ],
    "follow": {
@@ -145,95 +556,177 @@
     "frame": "heading",
     "smooth": 0.1
    },
-   "ease": "linear",
    "keys": [
     [
-     0.9,
-     -5.6,
-     0.75,
-     -3,
-     0,
-     62
+     1.5,
+     -3.8,
+     -0.27,
+     -8,
+     4,
+     80
     ],
     [
-     0.5,
-     -4.6,
-     0.6,
-     -2,
-     1,
+     1.5,
+     -3.4,
+     -0.27,
+     -9,
+     4,
+     80
+    ]
+   ],
+   "note": "Launch at full throttle on Lantinen Rantakatu (76-95 km/h): lens 0.35 m above the paving, 1.5 m right of the car axis, 80 degree lens"
+  },
+  {
+   "id": "D1-front",
+   "variant": "low front three-quarter, lens ahead of the car looking back",
+   "duration": 1.6,
+   "hour": 18.2,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "rantakatu-launch",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 4.2
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.1
+   },
+   "keys": [
+    [
+     -1.4,
+     5.5,
+     -0.2,
+     168,
+     3,
+     70
+    ],
+    [
+     -1.4,
+     4.6,
+     -0.2,
+     168,
+     3,
      70
     ]
    ],
-   "sceneryRadius": 2000
+   "note": "Launch at full throttle on Lantinen Rantakatu (76-95 km/h): lens 0.35 m above the paving, 1.5 m right of the car axis, 80 degree lens"
   },
   {
    "id": "D2",
    "duration": 1.6,
-   "hour": 18.6,
+   "hour": 18.3,
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Bridge: drone over the river tracks and pans with the car crossing Auransilta at 70-82 km/h (take d2-e, clean crossing)",
+   "ease": "linear",
    "cars": [
     {
      "take": "d2-e",
-     "model": "golf7",
-     "color": "red",
-     "t0": 5.3
+     "model": "e30",
+     "color": "yellow",
+     "t0": 5.4
     }
    ],
    "follow": {
     "car": 0,
     "frame": "world",
-    "smooth": 0.15,
-    "aimOnly": true
+    "smooth": 0.15
    },
-   "ease": "linear",
    "keys": [
     [
-     23459767,
-     6704258.7,
-     9.5,
+     -4.1,
+     -22.5,
+     5.4,
      0,
      0,
-     24
+     36
     ],
     [
-     23459777.6,
-     6704246.7,
-     9.5,
+     -18.7,
+     -6,
+     5.4,
      0,
      0,
-     24
+     36
     ]
    ],
    "target": [
     [
      0,
      0,
-     0.3
+     0.2
     ],
     [
      0,
      0,
-     0.3
+     0.2
     ]
-   ]
+   ],
+   "note": "Bridge: drone over the river 18 m downstream of Auransilta and 6 m above the deck, tracking alongside; car on the bridge from clip 0.4 s to 3.2 s (70-82 km/h), it leaves the bridge at 3.2 s and hits a kerb at 3.8 s (end of the tail handle is unusable)"
+  },
+  {
+   "id": "D2-front",
+   "variant": "high front view along the bridge, the car drives towards the lens",
+   "duration": 1.6,
+   "hour": 18.3,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "d2-e",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 5.4
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.15
+   },
+   "keys": [
+    [
+     0.5,
+     26,
+     6.5,
+     180,
+     -13,
+     40
+    ],
+    [
+     0.5,
+     18,
+     6,
+     180,
+     -15,
+     42
+    ]
+   ],
+   "note": "Bridge: drone over the river 18 m downstream of Auransilta and 6 m above the deck, tracking alongside; car on the bridge from clip 0.4 s to 3.2 s (70-82 km/h), it leaves the bridge at 3.2 s and hits a kerb at 3.8 s (end of the tail handle is unusable)"
   },
   {
    "id": "D3",
    "duration": 1.6,
-   "hour": 17.6,
+   "hour": 18.3,
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Castle: low tracking shot from the street side while the car passes Turku Castle at 64-75 km/h (autopilot take d3-f, real physics)",
+   "ease": "linear",
    "cars": [
     {
      "take": "d3-f",
-     "model": "golf7",
-     "color": "red",
-     "t0": 21.9
+     "model": "e30",
+     "color": "yellow",
+     "t0": 21.4
     }
    ],
    "follow": {
@@ -241,136 +734,257 @@
     "frame": "world",
     "smooth": 0.2
    },
-   "ease": "linear",
    "keys": [
     [
-     -7.5,
-     -7,
-     0.5,
+     -3,
+     7.5,
+     0.4,
      0,
      0,
-     55
+     50
     ],
     [
-     -5.5,
-     -7.5,
-     0.6,
+     2,
+     7,
+     0.4,
      0,
      0,
-     55
+     50
     ]
    ],
    "target": [
     [
-     0,
-     3,
-     2.6
+     -1.5,
+     -3,
+     1.6
     ],
     [
-     0,
-     3,
-     2.6
+     -1.5,
+     -3,
+     1.6
     ]
-   ]
+   ],
+   "note": "Castle: low tracking from the north side of Linnankatu while the car passes at 64-75 km/h (autopilot take d3-f). UNSURE: the castle should be to the south of this stretch; never rendered"
   },
   {
-   "id": "D4",
-   "duration": 2.0,
-   "hour": 18.9,
+   "id": "D3-chase",
+   "variant": "crane chase on the approach, castle ahead (sun near the frame)",
+   "duration": 1.6,
+   "hour": 18.3,
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Riverside walkway: tracking from over the river while the car runs along the east-bank quay at 45-73 km/h",
+   "ease": "linear",
    "cars": [
     {
-     "take": "d4-quay-2",
-     "model": "golf7",
-     "color": "red",
-     "t0": 2.3
+     "take": "d3-f",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 14.2
     }
    ],
    "follow": {
     "car": 0,
-    "frame": "world",
-    "smooth": 0.2
+    "frame": "heading",
+    "smooth": 0.15
    },
-   "ease": "linear",
    "keys": [
     [
-     -2.2,
-     16.9,
-     2.5,
-     0,
-     0,
+     -1.2,
+     -9,
+     3,
+     2,
+     -6,
      40
     ],
     [
-     -1.0,
-     15.0,
-     2.2,
-     0,
-     0,
-     40
+     -0.6,
+     -7.5,
+     2.6,
+     1,
+     -5,
+     42
     ]
    ],
-   "target": [
+   "note": "Castle: low tracking from the north side of Linnankatu while the car passes at 64-75 km/h (autopilot take d3-f). UNSURE: the castle should be to the south of this stretch; never rendered"
+  },
+  {
+   "id": "D4",
+   "duration": 2,
+   "hour": 18.4,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "d4-quay-2",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 1.3
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.15
+   },
+   "keys": [
+    [
+     1.2,
+     -5.5,
+     0.38,
+     -14,
+     2,
+     55
+    ],
+    [
+     1.2,
+     -5.2,
+     0.38,
+     -14,
+     2,
+     55
+    ]
+   ],
+   "note": "Riverside quay: chase from 1 m above the quay surface, behind and right of the car, moored boats and the river on the left (26-73 km/h; the quay ends at clip 5.0 s)"
+  },
+  {
+   "id": "D4-front",
+   "variant": "front three-quarter from the land side, boats behind the car",
+   "duration": 2,
+   "hour": 18.4,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "d4-quay-2",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 1.3
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "heading",
+    "smooth": 0.15
+   },
+   "keys": [
     [
      1.8,
-     0.9,
-     0.4
+     7,
+     0.5,
+     198,
+     2,
+     50
     ],
     [
      1.8,
-     0.9,
-     0.4
+     6,
+     0.5,
+     198,
+     2,
+     50
     ]
-   ]
+   ],
+   "note": "Riverside quay: chase from 1 m above the quay surface, behind and right of the car, moored boats and the river on the left (26-73 km/h; the quay ends at clip 5.0 s)"
   },
   {
    "id": "W1",
    "duration": 1.6,
-   "hour": 19.3,
+   "hour": 18.5,
    "weather": "clear",
    "traffic": 0,
-   "note": "On foot: the player character walks away into a low sun on the riverside street, hero car parked in the foreground",
+   "sceneryRadius": 2000,
+   "ease": "linear",
    "cars": [
     {
-     "take": "rantakatu-launch",
-     "model": "golf7",
-     "color": "red",
-     "t0": 0,
+     "take": "d4-quay-2",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 3,
      "rate": 0
     }
    ],
    "walker": {
     "from": [
-     23459617,
-     6704210.5
+     23459735.48,
+     6704199.81
     ],
-    "heading": 242,
+    "heading": 57,
     "speed": 1.4,
-    "t0": 3
+    "t0": 0,
+    "H": 2.68
    },
-   "ease": "linear",
    "keys": [
     [
-     23459629.5,
-     6704221.5,
-     4.45,
-     236,
-     1,
-     42
+     23459722.99,
+     6704186.92,
+     4.15,
+     31.4,
+     0,
+     36
     ],
     [
-     23459629.2,
-     6704221.2,
-     4.5,
-     236,
-     1,
-     42
+     23459722.94,
+     6704186.9,
+     4.15,
+     31.4,
+     0,
+     36
     ]
    ],
-   "sceneryRadius": 2000
+   "note": "On foot: locked-off at 1.5 m on the quay, hero car parked in the left foreground, the driver walks away on the right (about 70 % of frame width). UNSURE: walker actor never rendered; walker height taken from the quay take"
+  },
+  {
+   "id": "W1-back",
+   "variant": "looking south-west into the low sun: backlit walker, lens over the quay edge",
+   "duration": 1.6,
+   "hour": 18.5,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "d4-quay-2",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 3,
+     "rate": 0
+    }
+   ],
+   "walker": {
+    "from": [
+     23459714.93,
+     6704186.46
+    ],
+    "heading": 237,
+    "speed": 1.4,
+    "t0": 0,
+    "H": 2.58
+   },
+   "keys": [
+    [
+     23459727.01,
+     6704199.08,
+     4.15,
+     211.3,
+     0,
+     36
+    ],
+    [
+     23459727.05,
+     6704199.1,
+     4.15,
+     211.3,
+     0,
+     36
+    ]
+   ],
+   "note": "On foot: locked-off at 1.5 m on the quay, hero car parked in the left foreground, the driver walks away on the right (about 70 % of frame width). UNSURE: walker actor never rendered; walker height taken from the quay take"
   },
   {
    "id": "T1a",
@@ -379,64 +993,438 @@
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Tori donuts from the cobbles: wide lens low on the paving, one car circles past the lens, five more behind, Orthodox church beyond",
+   "ease": "linear",
    "cars": [
     {
      "take": "tori-0",
      "model": "golf7",
      "color": "red",
-     "t0": 5.0
+     "t0": 10.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-1",
-     "model": "octavia-rs-2020",
-     "color": "white",
-     "t0": 5.0
+     "model": "e30",
+     "color": "yellow",
+     "t0": 10.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-2",
-     "model": "e30",
-     "color": "silver",
-     "t0": 5.0
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 10.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-3",
      "model": "carla-ford-mustang",
-     "color": "blue",
-     "t0": 5.0
+     "color": "white",
+     "t0": 10.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-6",
      "model": "v60",
      "color": "black",
-     "t0": 5.0
+     "t0": 10.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-7",
      "model": "carla-mini-cooper-s-2021",
-     "color": "beige",
-     "t0": 5.0
+     "color": "silver",
+     "t0": 10.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     }
    ],
-   "ease": "linear",
    "keys": [
     [
-     23459657.6,
-     6704585.6,
-     5.95,
-     352,
-     5,
-     78
+     23459681.18,
+     6704621.18,
+     6.26,
+     246,
+     6,
+     75
     ],
     [
-     23459656.4,
-     6704585.9,
-     5.95,
-     342,
-     5,
-     78
+     23459681.18,
+     6704621.18,
+     6.26,
+     254,
+     6,
+     75
     ]
-   ]
+   ],
+   "note": "Tori donuts from the cobbles: lens 0.4 m above the paving looking into the sun, the yellow E30 passes 3.7 m from the lens at clip 1.8 s, no car closer than 3.7 m"
+  },
+  {
+   "id": "T1a-high",
+   "variant": "lens 1.0 m above the paving",
+   "duration": 2.1,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 10.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 10.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 10.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 10.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 10.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 10.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "keys": [
+    [
+     23459681.18,
+     6704621.18,
+     6.86,
+     246,
+     2,
+     75
+    ],
+    [
+     23459681.18,
+     6704621.18,
+     6.86,
+     254,
+     2,
+     75
+    ]
+   ],
+   "note": "Tori donuts from the cobbles: lens 0.4 m above the paving looking into the sun, the yellow E30 passes 3.7 m from the lens at clip 1.8 s, no car closer than 3.7 m"
+  },
+  {
+   "id": "T1a-track",
+   "variant": "lens rides 4.6 m beside the hero car, looking into the sun (other cars may pass close)",
+   "duration": 2.1,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 10.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 10.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 10.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 10.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 10.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 10.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "keys": [
+    [
+     4.32,
+     1.57,
+     -0.2,
+     250,
+     5,
+     75
+    ],
+    [
+     4.32,
+     1.57,
+     -0.2,
+     250,
+     5,
+     75
+    ]
+   ],
+   "note": "Tori donuts from the cobbles: lens 0.4 m above the paving looking into the sun, the yellow E30 passes 3.7 m from the lens at clip 1.8 s, no car closer than 3.7 m",
+   "follow": {
+    "car": 1,
+    "frame": "world",
+    "smooth": 0.3
+   },
+   "minClear": 0.05
   },
   {
    "id": "T1b",
@@ -445,89 +1433,507 @@
    "weather": "clear",
    "traffic": 0,
    "sceneryRadius": 2000,
-   "note": "Tori donuts: six real-physics donuts, oblique orbiting drone at 25 m, Orthodox church at the top",
+   "ease": "linear",
    "cars": [
     {
      "take": "tori-0",
      "model": "golf7",
      "color": "red",
-     "t0": 7.1
+     "t0": 5.6,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-1",
-     "model": "octavia-rs-2020",
-     "color": "white",
-     "t0": 7.1
+     "model": "e30",
+     "color": "yellow",
+     "t0": 5.6,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-2",
-     "model": "e30",
-     "color": "silver",
-     "t0": 7.1
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 5.6,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-3",
      "model": "carla-ford-mustang",
-     "color": "blue",
-     "t0": 7.1
+     "color": "white",
+     "t0": 5.6,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-6",
      "model": "v60",
      "color": "black",
-     "t0": 7.1
+     "t0": 5.6,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-7",
      "model": "carla-mini-cooper-s-2021",
-     "color": "beige",
-     "t0": 7.1
+     "color": "silver",
+     "t0": 5.6,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     }
    ],
-   "ease": "linear",
    "keys": [
     [
-     23459673.5,
-     6704574.8,
-     25,
+     23459684.57,
+     6704588.4,
+     13.36,
      0,
      0,
-     52
+     35
     ],
     [
-     23459683.8,
-     6704580.4,
-     25,
+     23459686.78,
+     6704590.19,
+     13.38,
      0,
      0,
-     52
+     35
     ],
     [
-     23459692.6,
-     6704588.2,
-     24.5,
+     23459688.86,
+     6704592.14,
+     13.41,
      0,
      0,
-     52
+     35
     ]
    ],
    "target": [
     [
-     23459654,
-     6704621,
-     6
+     23459655.79,
+     6704626.59,
+     6.5
     ],
     [
-     23459654,
-     6704621,
-     6
+     23459655.41,
+     6704626.28,
+     6.5
     ],
     [
-     23459654,
-     6704621,
-     6
+     23459655.05,
+     6704625.95,
+     6.5
     ]
-   ]
+   ],
+   "note": "Tori donuts, drone 8 m above the paving and about 25 m from the nearest car, 35 degree lens, slow orbit towards the Orthodox church. Six takes packed into a circle of 40 m (never closer than 6.4 m centre to centre); tighter than that the cars would touch"
+  },
+  {
+   "id": "T1b-14m",
+   "variant": "drone 14 m above the paving",
+   "duration": 3.5,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 5.6,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 5.6,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 5.6,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 5.6,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 5.6,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 5.6,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "keys": [
+    [
+     23459684.57,
+     6704588.4,
+     19.36,
+     0,
+     0,
+     35
+    ],
+    [
+     23459686.78,
+     6704590.19,
+     19.38,
+     0,
+     0,
+     35
+    ],
+    [
+     23459688.86,
+     6704592.14,
+     19.41,
+     0,
+     0,
+     35
+    ]
+   ],
+   "target": [
+    [
+     23459662.41,
+     6704617.81,
+     6.5
+    ],
+    [
+     23459662.62,
+     6704617.98,
+     6.5
+    ],
+    [
+     23459662.83,
+     6704618.17,
+     6.5
+    ]
+   ],
+   "note": "Tori donuts, drone 8 m above the paving and about 25 m from the nearest car, 35 degree lens, slow orbit towards the Orthodox church. Six takes packed into a circle of 40 m (never closer than 6.4 m centre to centre); tighter than that the cars would touch"
+  },
+  {
+   "id": "T1b-rev",
+   "variant": "orbit reversed",
+   "duration": 3.5,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "ease": "linear",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 5.6,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 5.6,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 5.6,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 5.6,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 5.6,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 5.6,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "keys": [
+    [
+     23459688.86,
+     6704592.14,
+     13.41,
+     0,
+     0,
+     35
+    ],
+    [
+     23459686.78,
+     6704590.19,
+     13.38,
+     0,
+     0,
+     35
+    ],
+    [
+     23459684.57,
+     6704588.4,
+     13.36,
+     0,
+     0,
+     35
+    ]
+   ],
+   "target": [
+    [
+     23459655.05,
+     6704625.95,
+     6.5
+    ],
+    [
+     23459655.41,
+     6704626.28,
+     6.5
+    ],
+    [
+     23459655.79,
+     6704626.59,
+     6.5
+    ]
+   ],
+   "note": "Tori donuts, drone 8 m above the paving and about 25 m from the nearest car, 35 degree lens, slow orbit towards the Orthodox church. Six takes packed into a circle of 40 m (never closer than 6.4 m centre to centre); tighter than that the cars would touch"
   },
   {
    "id": "C1",
@@ -539,112 +1945,730 @@
      17.8
     ],
     [
-     0.096,
+     0.1316,
      17.8
     ],
     [
-     0.327,
-     19.3
-    ],
-    [
-     0.481,
-     20.2
-    ],
-    [
-     0.615,
-     21.4
-    ],
-    [
-     0.75,
-     22.0
+     0.605,
+     20.4
     ],
     [
      1,
-     22.0
+     20.5
     ]
    ],
    "weather": "clear",
    "traffic": 40,
    "scenery": true,
-   "note": "Pull-back from directly above the Tori donuts to the whole city, golden hour through sunset to night: 1 s handle, 5.4 s move (hour 17.8 at the cut, 21.4 at its end), 1 s handle, then 3 s of slow night drift (hour 22.0) for the end card; clip 10.4 s. View distance 8 km. The frame top stays about 13 degrees below the horizon.",
+   "allowMissing": true,
    "cars": [
     {
      "take": "tori-0",
      "model": "golf7",
      "color": "red",
-     "t0": 10.6
+     "t0": 9.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-1",
-     "model": "octavia-rs-2020",
-     "color": "white",
-     "t0": 10.6
+     "model": "e30",
+     "color": "yellow",
+     "t0": 9.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-2",
-     "model": "e30",
-     "color": "silver",
-     "t0": 10.6
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 9.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-3",
      "model": "carla-ford-mustang",
-     "color": "blue",
-     "t0": 10.6
+     "color": "white",
+     "t0": 9.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-6",
      "model": "v60",
      "color": "black",
-     "t0": 10.6
+     "t0": 9.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     },
     {
      "take": "tori-7",
      "model": "carla-mini-cooper-s-2021",
-     "color": "beige",
-     "t0": 10.6
+     "color": "silver",
+     "t0": 9.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
     }
    ],
    "drift": [
-    0.635,
+    0.605,
     0.93,
-    0.35
+    0.4
    ],
    "keys": [
     [
-     23459660.2,
-     6704627.4,
-     78,
-     252,
-     -84,
-     50
+     23459667.26,
+     6704606.74,
+     27.9,
+     333,
+     -48,
+     55
     ],
     [
-     23459722,
-     6704651.2,
-     150,
-     246,
-     -62,
-     50
+     23459700,
+     6704545,
+     60,
+     325,
+     -30,
+     60
     ],
     [
-     23459898.2,
-     6704761.2,
-     330,
-     239,
-     -47,
-     50
+     23459750,
+     6704440,
+     95,
+     280,
+     -20,
+     64
     ],
     [
-     23460243.6,
-     6705051.9,
-     620,
-     234,
-     -38,
-     50
+     23459800,
+     6704350,
+     120,
+     205,
+     -15,
+     66
     ]
    ],
-   "draftPartial": true
+   "note": "Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to the aerial-centre pose (120 m, yaw 205, pitch -15, river to the horizon); clock 17.8 to 20.4 so the lights come on at dusk. Clip: 1.5 s handle, 5.4 s move, 1.5 s handle, 3 s slow continued drift for the end card. View distance 8 km."
+  },
+  {
+   "id": "C1-low",
+   "variant": "end pose 60 m lower and closer",
+   "duration": 8.4,
+   "hour": 17.8,
+   "hourKeys": [
+    [
+     0,
+     17.8
+    ],
+    [
+     0.1316,
+     17.8
+    ],
+    [
+     0.605,
+     20.4
+    ],
+    [
+     1,
+     20.5
+    ]
+   ],
+   "weather": "clear",
+   "traffic": 40,
+   "scenery": true,
+   "allowMissing": true,
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 9.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 9.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 9.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 9.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 9.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 9.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "drift": [
+    0.605,
+    0.93,
+    0.4
+   ],
+   "keys": [
+    [
+     23459667.26,
+     6704606.74,
+     27.9,
+     333,
+     -48,
+     55
+    ],
+    [
+     23459695,
+     6704550,
+     40,
+     325,
+     -28,
+     58
+    ],
+    [
+     23459735,
+     6704470,
+     50,
+     285,
+     -16,
+     60
+    ],
+    [
+     23459770,
+     6704400,
+     60,
+     208,
+     -10,
+     62
+    ]
+   ],
+   "note": "Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to a lower end pose (60 m over the river bank); clock 17.8 to 20.4 so the lights come on at dusk. Clip: 1.5 s handle, 5.4 s move, 1.5 s handle, 3 s slow continued drift for the end card. View distance 8 km."
+  },
+  {
+   "id": "C1-late",
+   "variant": "clock 18.5 to 21.5",
+   "duration": 8.4,
+   "hour": 18.5,
+   "hourKeys": [
+    [
+     0,
+     18.5
+    ],
+    [
+     0.1316,
+     18.5
+    ],
+    [
+     0.605,
+     21.5
+    ],
+    [
+     1,
+     21.6
+    ]
+   ],
+   "weather": "clear",
+   "traffic": 40,
+   "scenery": true,
+   "allowMissing": true,
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 9.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 9.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 9.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 9.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 9.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 9.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "drift": [
+    0.605,
+    0.93,
+    0.4
+   ],
+   "keys": [
+    [
+     23459667.26,
+     6704606.74,
+     27.9,
+     333,
+     -48,
+     55
+    ],
+    [
+     23459700,
+     6704545,
+     60,
+     325,
+     -30,
+     60
+    ],
+    [
+     23459750,
+     6704440,
+     95,
+     280,
+     -20,
+     64
+    ],
+    [
+     23459800,
+     6704350,
+     120,
+     205,
+     -15,
+     66
+    ]
+   ],
+   "note": "Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to the aerial-centre pose; clock 18.5 to 21.5 so the lights come on at dusk. Clip: 1.5 s handle, 5.4 s move, 1.5 s handle, 3 s slow continued drift for the end card. View distance 8 km."
+  },
+  {
+   "id": "C1-low-late",
+   "variant": "end pose 60 m, clock 18.5 to 21.5",
+   "duration": 8.4,
+   "hour": 18.5,
+   "hourKeys": [
+    [
+     0,
+     18.5
+    ],
+    [
+     0.1316,
+     18.5
+    ],
+    [
+     0.605,
+     21.5
+    ],
+    [
+     1,
+     21.6
+    ]
+   ],
+   "weather": "clear",
+   "traffic": 40,
+   "scenery": true,
+   "allowMissing": true,
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 9.1,
+     "rotate": -308.23,
+     "pivot": [
+      23459668.17,
+      6704611.59
+     ],
+     "move": [
+      1,
+      14.3
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-1",
+     "model": "e30",
+     "color": "yellow",
+     "t0": 9.1,
+     "rotate": 542.01,
+     "pivot": [
+      23459657.21,
+      6704652.93
+     ],
+     "move": [
+      11.16,
+      -35.82
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-2",
+     "model": "octavia-rs-2020",
+     "color": "blue",
+     "t0": 9.1,
+     "rotate": -9.97,
+     "pivot": [
+      23459640.14,
+      6704629.7
+     ],
+     "move": [
+      20.42,
+      -0.26
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "white",
+     "t0": 9.1,
+     "rotate": 616.59,
+     "pivot": [
+      23459656.08,
+      6704597.98
+     ],
+     "move": [
+      5.06,
+      14.95
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 9.1,
+     "rotate": -60.14,
+     "pivot": [
+      23459667.83,
+      6704637.63
+     ],
+     "move": [
+      -16.51,
+      -21.35
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "silver",
+     "t0": 9.1,
+     "rotate": 127.01,
+     "pivot": [
+      23459634.07,
+      6704605.76
+     ],
+     "move": [
+      15.36,
+      18.59
+     ],
+     "slope": [
+      -0.00245,
+      0.01476
+     ]
+    }
+   ],
+   "drift": [
+    0.605,
+    0.93,
+    0.4
+   ],
+   "keys": [
+    [
+     23459667.26,
+     6704606.74,
+     27.9,
+     333,
+     -48,
+     55
+    ],
+    [
+     23459695,
+     6704550,
+     40,
+     325,
+     -28,
+     58
+    ],
+    [
+     23459735,
+     6704470,
+     50,
+     285,
+     -16,
+     60
+    ],
+    [
+     23459770,
+     6704400,
+     60,
+     208,
+     -10,
+     62
+    ]
+   ],
+   "note": "Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to a lower end pose (60 m); clock 18.5 to 21.5 so the lights come on at dusk. Clip: 1.5 s handle, 5.4 s move, 1.5 s handle, 3 s slow continued drift for the end card. View distance 8 km."
   }
  ]
 }

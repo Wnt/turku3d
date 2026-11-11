@@ -36,8 +36,10 @@ export function carAt(car,seconds){
   const a=-(car.rotate??0)*Math.PI/180,c=Math.cos(a),s=Math.sin(a),px=(car.pivot?.[0]??23459500)-23459500,pz=6704500-(car.pivot?.[1]??6704500);
   const dx=car.move?.[0]??0,dz=-(car.move?.[1]??0);
   const point=p=>{const x=p.x-px,z=p.z-pz;return{x:px+x*c+z*s+dx,y:p.y,z:pz-x*s+z*c+dz};};
-  v.moved={from:{x:v.pos.x,z:v.pos.z}};
-  v.pos=point(v.pos);v.rot=mul(yawQuat(a),v.rot);
+  // Height on the new spot: `slope` [dH per m east, dH per m north] fitted to the take's own ground (preferred),
+  // else the page corrects by the streamed ground under both spots (v.moved).
+  const old=v.pos;v.pos=point(old);v.rot=mul(yawQuat(a),v.rot);
+  if(car.slope)v.pos.y=old.y+car.slope[0]*(v.pos.x-old.x)-car.slope[1]*(v.pos.z-old.z);else v.moved={from:{x:old.x,z:old.z}};
  }
  if(car.lights!=null)v.lights=car.lights;
  return v;

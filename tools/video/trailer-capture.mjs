@@ -18,7 +18,7 @@ const poseAt=(shot,u,seconds=clipSeconds(shot,u))=>pathPose(shot,u,shot.follow&&
 const carsAt=(shot,seconds)=>(shot.cars??[]).map(car=>carAt(car,seconds));
 // A scripted walk: {from:[E,N],heading,speed,t0} in engine metres for the page.
 const walkAt=(shot,seconds)=>{const w=shot.walker;if(!w)return null;const h=w.heading*Math.PI/180,v=w.speed??1.4,d=v*((w.t0??0)+seconds);
- return{x:w.from[0]-23459500+Math.sin(h)*d,z:6704500-w.from[1]-Math.cos(h)*d,vx:Math.sin(h)*v,vz:-Math.cos(h)*v};};
+ return{x:w.from[0]-23459500+Math.sin(h)*d,z:6704500-w.from[1]-Math.cos(h)*d,vx:Math.sin(h)*v,vz:-Math.cos(h)*v,y:w.H};};
 
 const args=process.argv.slice(2),opt=(k,d)=>args.includes(k)?args[args.indexOf(k)+1]:d,flag=k=>args.includes(k);
 const config=JSON.parse(fs.readFileSync(opt('--shots')));
@@ -77,6 +77,8 @@ async function installCars(shot){
   for(const v of T.visuals)v.root.removeFromParent();T.visuals=[];T.key=key;
   if(!cars.length&&!walker){T.apply=null;return;}
   const {CarVisual}=await import('/src/actors/car.ts');
+  // Trailer paint: a saturated yellow for the hero car (the game's palette has no light saturated colour).
+  const paint=await import('/src/actors/parkedPaint.ts');if(!paint.PAINT_COLORS.yellow)paint.PAINT_COLORS.yellow=[238,186,22];
   for(const c of cars){const v=new CarVisual(scene,c.model??'golf7',c.color??'red');await v.load();T.visuals.push(v);}
   if(!T.tyres){const {TyreEffects}=await import('/src/vehicle/tyreEffects.ts');T.tyres=new TyreEffects(scene,quality);}
   if(walker&&!T.walker){
@@ -88,7 +90,7 @@ async function installCars(shot){
   T.walk=null;
   T.apply=(states,dt,walk)=>{
    if(T.walker){T.walker.root.visible=!!walk;if(walk){const THREE=T.THREE,g=window.__game.coarse,y=g.groundBelow(walk.x,walk.z);
-    T.walker.update(dt||1/60,new THREE.Vector3(walk.x,Number.isFinite(y)?y:walk.y??0,walk.z),new THREE.Vector3(walk.vx,0,walk.vz),true,0);}}
+    T.walker.update(dt||1/60,new THREE.Vector3(walk.x,walk.y??(Number.isFinite(y)?y:0),walk.z),new THREE.Vector3(walk.vx,0,walk.vz),true,0);}}
    const g=window.__game.coarse;
    T.tyres.begin(dt);
    states.forEach((s,i)=>{
@@ -114,7 +116,7 @@ async function acceptStale(){
     return c.every(q=>q[2]<=0)||c.every(q=>q[0]<-q[2])||c.every(q=>q[0]>q[2])||c.every(q=>q[1]<-q[2])||c.every(q=>q[1]>q[2]);};
    const missing=s.footprint.filter(id=>s.unavailable.has(id)&&!s.detailed(id)),inFrame=missing.filter(id=>!outside(id));
    const committed=s.wanted.every(id=>s.entries.get(id)?.model?.visible);
-   return{ok:p.ready||(committed&&!p.batching&&!p.partial&&!p.pending&&!p.errors&&!p.cataloguePending&&p.loaded===p.total&&!inFrame.length),missing:missing.length,inFrame:inFrame.length};
+   return{ok:p.ready||(committed&&!p.batching&&!p.partial&&!p.pending&&!p.errors&&!p.cataloguePending&&p.loaded===p.total&&(!inFrame.length||!!window.__trailerAllowMissing)),missing:missing.length,inFrame:inFrame.length};
   };
  });
  await page.evaluate(()=>{
@@ -128,13 +130,13 @@ async function acceptStale(){
 async function settle(shot,u,label){
  await acceptStale();
  const pose=poseAt(shot,u),start=Date.now();let state,quiet=0;
- await page.evaluate(({pose,time,weather,wind,radius})=>{
-  const r=window.__render;r.beforeFrame=undefined;r.afterFrame=undefined;r.setTime(time);
+ await page.evaluate(({pose,time,weather,wind,radius,allowMissing})=>{
+  window.__trailerAllowMissing=allowMissing;const r=window.__render;r.beforeFrame=undefined;r.afterFrame=undefined;r.setTime(time);
   window.__dev?.setWeather?.(weather,0);
   if(radius&&window.__game.scenery&&window.__game.scenery.radius!==radius)window.__game.scenery.setRadius(radius);
   if(wind!=null&&window.__dev?.weather?.sample)try{window.__dev.weather.sample.wind=wind;}catch{}
   window.__qaMove(pose);
- },{pose,time:iso(shot,hourAt(shot,u)),weather:shot.weather??'clear',wind:shot.wind,radius:shot.sceneryRadius??(draft?null:8000)});
+ },{pose,time:iso(shot,hourAt(shot,u)),weather:shot.weather??'clear',wind:shot.wind,radius:shot.sceneryRadius??(draft?null:8000),allowMissing:!!shot.allowMissing});
  while(Date.now()-start<(shot.settleTimeout??(draft?150:900))*1000){
   state=await page.evaluate(()=>{const g=window.__game,c=g.coarse,cam=window.__render.camera.position,v=c.viewStatus(cam.x,cam.z);
    const gr=window.__render.graphics?.(),st=window.__perf?.stream,sc=v.scenery;
@@ -229,7 +231,7 @@ try{
   const encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(fps),'-i','pipe:0','-an',...vf,
    '-c:v','libx264','-preset',draft?'veryfast':'slow','-crf',String(opt('--crf',draft?'18':'10')),'-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-movflags','+faststart',file],{stdio:['pipe','inherit','inherit']});
   const closed=once(encoder,'close');encoder.stdin.on('error',()=>{});
-  const receipts=[];let resettled=0,duplicates=0,lastHash='',minClear=Infinity,maxMissing=0;
+  const receipts=[];let resettled=0,duplicates=0,lastHash='',minClear=Infinity,maxMissing=0,maxInFrame=0;
   for(let f=0;f<count;f++){
    const u=count>1?f/(count-1):0,t=t0+f/fps;
    let bytes;
@@ -250,7 +252,7 @@ try{
     // Never ship a frame from under the ground (Jonni 2026-11-11).
     if(state.clear!=null&&state.clear<(shot.minClear??.2)){const m=`${shot.id}: camera ${state.clear.toFixed(2)} m above ground at frame ${f}`;if(!draft)throw Error(m);if(f%30===0)log(`WARN ${m}`);}
     if(f%60===0)receipts.push({frame:f,u,...state});
-    maxMissing=Math.max(maxMissing,state.missing??0);
+    maxMissing=Math.max(maxMissing,state.missing??0);maxInFrame=Math.max(maxInFrame,state.missingInFrame??0);
    }
    const hash=createHash('md5').update(bytes).digest('hex');if(hash===lastHash)duplicates++;lastHash=hash;
    if(f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${v}-mid.jpg`),bytes);
@@ -267,7 +269,7 @@ try{
   const cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:count,exactDuplicateCaptures:duplicates,mpdecimateDropped:count-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
   const pass=resettled===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
   fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass:draft?null:pass,size:`${width}x${height}`,shot,file,fps,frames:count,handles,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
-   unavailableCellsOutsideFrame:maxMissing,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for must lie outside the camera frustum), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
+   variant:shot.variant??null,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for must lie outside the camera frustum), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
   log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
   // Contact sheet: 8 frames across the clip.
   spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(count/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);
