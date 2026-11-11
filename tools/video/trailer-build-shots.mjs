@@ -175,6 +175,8 @@ add('C1-low-late',1,{...c1(endLow,[18.5,21.5],'a lower end pose (60 m)'),variant
 const config={fps:60,handles,date:'2026-09-08',traffic:40,walkers:0,shots};
 fs.writeFileSync(path.join(here,'trailer-shots.json'),JSON.stringify(config,null,1));
 // ---- finals queue: corrected base shots in priority order, then variants for coverage ----
+// D3 was dropped by the coordinator at 13:28: its definitions stay above for reference but are not published.
+for(let i=shots.length-1;i>=0;i--)if(shots[i].id.startsWith('D3'))shots.splice(i,1);
 const REV=JSON.parse(fs.readFileSync(path.join(here,'trailer-queue-rev.json')));
 const order=(REV.order??['C1','P1','T1b','T1a','H1','W1','D1','D2','D4']);// base shots to capture now; D3 and W1 wait for a verdict on their drafts
 const variants=REV.variants??['H1-slow','H1-low','C1-low','T1b-14m','T1a-high','H1-high','P1-11m','C1-late','T1b-rev','T1a-track','W1-back','D1-front','D2-front','D4-front','P1-dawn','C1-low-late','P1-11m-dawn'];

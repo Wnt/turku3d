@@ -19,11 +19,10 @@
   "D4"
  ],
  "variants": [
-  "H1-slow",
   "T1b-sun",
-  "C1-low",
-  "T1a-high",
   "H1-low",
+  "C1-low",
+  "D5",
   "P1-11m",
   "W1-back",
   "C1-late",
@@ -36,9 +35,11 @@
   "D4-front",
   "P1-dawn",
   "C1-low-late",
-  "P1-11m-dawn"
+  "P1-11m-dawn",
+  "H1-slow",
+  "T1a-high"
  ],
  "extra": [],
- "note": "rev 3 = after the canvas-grab fix (earlier server frames were black); D3 waits for its draft; W1 is captured either way (parked E30 on the quay is the fallback composition)",
+ "note": "D3 is dropped (13:28) and removed from the shots file so the runner does not auto-capture it; D5 replaces it",
  "W1": 3
 }
