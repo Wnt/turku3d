@@ -67,9 +67,9 @@ const six=t0=>TAKES.map((take,i)=>{const [model,color]=i===lens.who?[HERO.model,
   move:[+(layout[i][0]-centre0[i][0]).toFixed(2),+(layout[i][1]-centre0[i][1]).toFixed(2)],slope};});
 const gG=toriGround(G[0],G[1]);
 // T1b drone: from the south-east towards the Orthodox church, the nearest car about 25 m away.
-const orbit=(height,from,to,pitchAim=7)=>{const dist=R+21,keys=[],target=[];
- for(const b of [from,(from+to)/2,to]){const [s,c]=dir(b),e=G[0]+dist*s,n=G[1]+dist*c;keys.push(k(e,n,+(toriGround(e,n)+height).toFixed(2),0,0,35));
-  target.push(k(G[0]-pitchAim*s,G[1]-pitchAim*c,+(gG+.6).toFixed(2)));}
+const orbit=(height,from,to,nearest=22,pitch=11.1,fov=40)=>{const dist=R+nearest-2.5,aim=(height-.6)/Math.tan(rad(pitch)),keys=[],target=[];
+ for(const b of [from,(from+to)/2,to]){const [s,c]=dir(b),e=G[0]+dist*s,n=G[1]+dist*c;keys.push(k(e,n,+(toriGround(e,n)+height).toFixed(2),0,0,fov));
+  target.push(k(e-aim*s,n-aim*c,+(gG+.6).toFixed(2)));}
  return{keys,target};};
 const b0=5.6,c0=b0+3.5;// T1b clip start in car time; C1 continues the same replay at the cut
 const common={weather:'clear',traffic:0,sceneryRadius:2000,ease:'linear'};
@@ -91,15 +91,19 @@ const h1Samples=[];for(let t=2.5;t<=6;t+=.05){const p=carAt({take:'h1-d',t0:0},t
 const hm=[0,1,2].map(i=>h1Samples.reduce((a,p)=>a+p[i],0)/h1Samples.length),hd=(()=>{const a=h1Samples[0],b=h1Samples.at(-1),l=Math.hypot(b[0]-a[0],b[1]-a[1]);return[(b[0]-a[0])/l,(b[1]-a[1])/l];})();
 let sxx=0,sxy=0;for(const p of h1Samples){const s=(p[0]-hm[0])*hd[0]+(p[1]-hm[1])*hd[1];sxx+=s*s;sxy+=s*(p[2]-hm[2]);}
 const h1Slope=[+(sxy/sxx*hd[0]).toFixed(5),+(sxy/sxx*hd[1]).toFixed(5)];
-const h1Car={take:'h1-d',...HERO,t0:3.4,rate:.6,move:[7.4,-5.1],slope:h1Slope};
+// Lens position relative to the car by car time: [distance ahead, bearing from the car, height offset, yaw, pitch, fov].
+const H1T=[[2.8,10,298,-.57,100,16,70],[3.4,9,298,-.53,100,17,70],[3.8,6.5,296,-.43,99,19,68],[4.2,4.8,292,-.36,96,22,64],[4.6,4.5,285,-.35,93,24,64],[5,4.6,278,-.35,90,25,64],[5.4,4.8,274,-.36,88.5,26,64],[5.8,5,272,-.37,87.5,26,64],[9,5,272,-.37,87.5,26,64]];
+const h1At=t=>{const c=Math.max(H1T[0][0],Math.min(H1T.at(-1)[0],t));let i=1;while(H1T[i][0]<c)i++;const a=H1T[i-1],b=H1T[i],f=(c-a[0])/(b[0]-a[0]);return a.map((v,j)=>v+(b[j]-v)*f).slice(1);};
+const h1Keys=(t0,rate,edit=v=>v)=>Array.from({length:13},(_,i)=>{const [d,b,dh,yaw,pitch,fov]=edit(h1At(t0+rate*5.4*i/12)),[sn,cs]=dir(b);return[+(d*sn).toFixed(2),+(d*cs).toFixed(2),+dh.toFixed(2),+yaw.toFixed(1),+pitch.toFixed(1),+fov.toFixed(1)];});
+const h1Car=(t0,rate)=>({take:'h1-d',...HERO,t0,rate,move:[7.4,-5.1],slope:h1Slope});
 const off=(d,b,dh,yaw,pitch,fov)=>{const [s,c]=dir(b);return[+(d*s).toFixed(2),+(d*c).toFixed(2),dh,yaw,pitch,fov];};
-const H1={duration:2.4,hour:18.2,...common,minClear:-.1,cars:[h1Car],follow:{car:0,frame:'world',smooth:.3},
- keys:[off(9,298,-.53,100,17,70),off(6.5,296,-.43,99,19,68),off(4.8,292,-.36,96,22,64),off(4.5,285,-.35,93,24,64),off(4.6,278,-.35,90,25,64),off(4.8,274,-.36,88.5,26,64),off(5,272,-.37,87.5,26,64),off(5,272,-.37,87.5,26,64),off(5,272,-.37,87.5,26,64)],
- note:'Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above. Real handbrake slide (68 km/h entry, 180 degrees) replayed at 0.6x so the slide reads for 3.3 s; first frame after the cut is car time 4.3 (car sideways, smoke). The take is shifted 9 m back along its own track so the car rests in sunlight.'};
+const h1Note='Cathedral slide: lens 0.45 m above the cobbles, 4.5-5 m in front of the car through the slide, west tower above; real handbrake slide (68 km/h entry, 180 degrees); the first frame after the cut is car time 4.3 (car sideways, smoke); the take is shifted 9 m back along its own track so the car rests in sunlight. ';
+const H1={duration:2.4,hour:18.2,...common,minClear:-.1,cars:[h1Car(2.8,1)],follow:{car:0,frame:'world',smooth:.3},keys:h1Keys(2.8,1),note:h1Note+'Real time: 1.9 s of slide, then the car rests in its smoke.'};
 add('H1',0,H1);
-add('H1-low',1,{...H1,minClear:-.3,keys:H1.keys.map(([e,n,h,y,p])=>[+(e*.8).toFixed(2),+(n*.8).toFixed(2),+(h-.2).toFixed(2),y,p-2,80]),variant:'lower (0.25 m) and closer (3.6-4 m), 80 degree lens'});
-add('H1-high',1,{...H1,minClear:.2,keys:[off(9,238,.5,66,10,58),off(7.5,242,.55,68,12,58),off(7,246,.6,70,14,58),off(6.5,250,.6,72,15,58),off(6.2,253,.6,74,16,58),off(6,255,.6,75,16,58),off(6,255,.6,75,16,58)],variant:'three-quarter view from 1.3 m, 6-7 m to the side of the track'});
-add('H1-rt',1,{...H1,cars:[{...h1Car,t0:2.8,rate:1}],variant:'real time (slide 1.9 s)'});
+add('H1-slow',1,{...H1,cars:[h1Car(3.4,.6)],keys:h1Keys(3.4,.6),note:h1Note,variant:'replay at 0.6x: 3.3 s of slide'});
+add('H1-low',1,{...H1,minClear:-.3,keys:h1Keys(2.8,1,([d,b,dh,yaw,pitch])=>[d*.8,b,dh-.2,yaw,pitch-2,80]),variant:'lower (0.25 m) and closer (3.6-4 m), 80 degree lens'});
+const h1High=[off(10,236,.5,65,9,58),off(9,238,.5,66,10,58),off(7.5,242,.55,68,12,58),off(7,246,.6,70,14,58),off(6.5,250,.6,72,15,58),off(6.2,253,.6,74,16,58),off(6,255,.6,75,16,58),off(6,255,.6,75,16,58),off(6,255,.6,75,16,58),off(6,255,.6,75,16,58)];
+add('H1-high',1,{...H1,minClear:.2,keys:h1High,variant:'three-quarter view from 1.3 m, 6-7 m to the side of the track'});
 
 // ---- D1 launch ----
 const launch={take:'rantakatu-launch',...HERO,t0:4.2};
@@ -143,15 +147,15 @@ const T1a={duration:2.1,hour:17.8,...common,minClear:.05,cars:six(t1aT0),keys:[k
 add('T1a',0,T1a);
 add('T1a-high',1,{...T1a,keys:T1a.keys.map(key=>[key[0],key[1],+(lg+1).toFixed(2),key[3],2,75]),variant:'lens 1.0 m above the paving'});
 add('T1a-track',1,{...T1a,follow:{car:lens.who,frame:'world',smooth:.3},keys:[off(4.6,SUN-180,-.2,SUN,5,75),off(4.6,SUN-180,-.2,SUN,5,75)],minClear:.05,variant:'lens rides 4.6 m beside the hero car, looking into the sun (other cars may pass close)'});
-const o8=orbit(8,143,135),T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...o8,
- note:`Tori donuts, drone 8 m above the paving and about 25 m from the nearest car, 35 degree lens, slow orbit towards the Orthodox church. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch`};
+const o8=orbit(6.6,143,135),T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...o8,
+ note:`Tori donuts, drone 6.6 m above the paving, nearest car about 22 m away, 40 degree lens tilted 11 degrees down so the cars sit at 35-60 % of frame height (title block below them), slow orbit towards the Orthodox church. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch`};
 add('T1b',0,T1b);
-add('T1b-14m',1,{...T1b,...orbit(14,143,135,-4),variant:'drone 14 m above the paving'});
-add('T1b-rev',1,{...T1b,...orbit(8,135,143),variant:'orbit reversed'});
+add('T1b-14m',1,{...T1b,...orbit(14,143,135,35,17.3,35),variant:'drone 14 m above the paving, 35 m from the nearest car (steeper, church only at the top edge)'});
+add('T1b-rev',1,{...T1b,...orbit(6.6,135,143),variant:'orbit reversed'});
 const [s153,c153]=dir(153);
-const c1=(end,clock,label)=>({duration:8.4,hour:clock[0],hourKeys:[[0,clock[0]],[.1316,clock[0]],[.605,clock[1]],[1,clock[1]+.1]],weather:'clear',traffic:40,scenery:true,allowMissing:true,cars:six(c0),drift:[.605,.93,.4],
+const c1=(end,clock,label)=>({duration:10.4,hour:clock[0],hourKeys:[[0,clock[0]],[.112,clock[0]],[.515,clock[1]],[1,clock[1]+.1]],weather:'clear',traffic:40,scenery:true,allowMissing:true,cars:six(c0),drift:[.515,.9,.4],
  keys:[k(G[0]+16*s153,G[1]+16*c153,+(gG+22).toFixed(1),333,-48,55),...end],
- note:`Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to ${label}; clock ${clock[0]} to ${clock[1]} so the lights come on at dusk. Clip: 1.5 s handle, 5.4 s move, 1.5 s handle, 3 s slow continued drift for the end card. View distance 8 km.`});
+ note:`Rise and pull back from low over the Tori donuts (same replay and hour as the end of T1b), turning through the sunset to ${label}; clock ${clock[0]} to ${clock[1]} so the lights come on at dusk. Clip 13.4 s: 1.5 s handle, 5.4 s move, then 6.5 s of slow continued drift for the end card. View distance 8 km.`});
 const endHigh=[k(700,545,60,325,-30,60),k(750,440,95,280,-20,64),k(800,350,120,205,-15,66)],endLow=[k(695,550,40,325,-28,58),k(735,470,50,285,-16,60),k(770,400,60,208,-10,62)];
 add('C1',0,c1(endHigh,[17.8,20.4],'the aerial-centre pose (120 m, yaw 205, pitch -15, river to the horizon)'));
 add('C1-low',1,{...c1(endLow,[17.8,20.4],'a lower end pose (60 m over the river bank)'),variant:'end pose 60 m lower and closer'});
@@ -161,12 +165,12 @@ add('C1-low-late',1,{...c1(endLow,[18.5,21.5],'a lower end pose (60 m)'),variant
 const config={fps:60,handles,date:'2026-09-08',traffic:40,walkers:0,shots};
 fs.writeFileSync(path.join(here,'trailer-shots.json'),JSON.stringify(config,null,1));
 // ---- finals queue: corrected base shots in priority order, then variants for coverage ----
-const order=['C1','P1','T1b','T1a','H1','W1','D1','D2','D4'];// D3 waits for the coordinator's go/no-go on its draft
-const variants=['H1-low','C1-low','T1b-14m','T1a-high','H1-high','P1-11m','C1-late','T1b-rev','T1a-track','W1-back','D1-front','D2-front','D4-front','P1-dawn','H1-rt','C1-low-late','P1-11m-dawn'];
+const order=['C1','P1','T1b','T1a','H1','W1','D1','D2','D4'];// D3 waits for a verdict on its draft
+const variants=['H1-slow','H1-low','C1-low','T1b-14m','T1a-high','H1-high','P1-11m','C1-late','T1b-rev','T1a-track','W1-back','D1-front','D2-front','D4-front','P1-dawn','C1-low-late','P1-11m-dawn'];
+// Bump a shot's revision to capture it again (the runner keys entries by their content).
+const REV=JSON.parse(fs.readFileSync(path.join(here,'trailer-queue-rev.json')));
 const byId=Object.fromEntries(shots.map(s=>[s.id,s]));
-const queue=[...order,...variants].map(id=>({shot:id,note:(byId[id].variant?`variant: ${byId[id].variant}. `:'')+byId[id].note.slice(0,160),
- ready:true,key:id,command:`cloud/run-capture.sh --only ${id} --tier final`,
- view:`${byId[id].sceneryRadius??8000} m`,hours:byId[id].hourKeys?`${byId[id].hourKeys[0][1]} to ${byId[id].hourKeys.at(-2)[1]}`:String(byId[id].hour)}));
+const queue=[...order,...variants,...(REV.extra??[])].filter(id=>byId[id]).map(id=>({shot:id,rev:REV[id]??1,note:byId[id].variant?`variant: ${byId[id].variant}`:'base'}));
 fs.mkdirSync(path.join(root,'cloud'),{recursive:true});
 const qfile=path.join(root,'cloud/finals-queue.json');fs.writeFileSync(qfile+'.tmp',JSON.stringify({updated:new Date().toISOString(),queue},null,1));fs.renameSync(qfile+'.tmp',qfile);
 console.log(JSON.stringify({layoutDiameter:+(2*R).toFixed(1),minGap:+best.cost.min.toFixed(2),toriPlane:tori.map(v=>+v.toFixed(4)),G,lens:{...lens,hero:TAKES[lens.who]},h1Slope,centres:layout.map(s=>[+s[0].toFixed(1),+s[1].toFixed(1)]),shots:shots.length,queue:queue.length}));
