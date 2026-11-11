@@ -117,3 +117,90 @@ def heritage_lantern(position: tuple, yaw: float = 0) -> list[dict]:
     return [base.record("post","iron","solid",position,yaw),
             trim.record("lantern-frame","iron","passable",position,yaw),
             panes.record("lantern-panes","glass","passable",position,yaw)]
+
+
+PROMENADE_BENCH = {
+    "family": "turku-promenade-bench-v1",
+    "dimensions": [1.8, 0.87, 0.61],
+    "seatHeightM": 0.45,
+    "source": "Google panorama hOH16IE5o9B6ar0x7Cm-9w, 2019-06, 15 Lantinen Rantakatu; private observation",
+    "dimensionConfidence": "inferred ergonomic prior; unregistered depth",
+    "dimensionUncertaintyM": 0.15,
+    "forward": "+Z; long axis +X",
+}
+LITTER_BIN = {
+    "family": "turku-ribbed-litter-bin-v1",
+    "dimensions": [0.48, 0.95, 0.48],
+    "source": PROMENADE_BENCH["source"],
+    "dimensionConfidence": "inferred prior; image ratio to pedestrians, no survey",
+    "dimensionUncertaintyM": 0.15,
+}
+
+
+def _check_attachment(position, yaw):
+    if len(position) != 3 or not all(math.isfinite(v) for v in (*position,yaw)):
+        raise ValueError("Furniture position and yaw must be finite")
+
+
+def promenade_bench(position: tuple, yaw: float = 0, *, backrest: bool = True) -> list[dict]:
+    """Dark slatted timber/iron bench. Long axis +X; seated viewer faces +Z.
+
+    Matched office evidence has two distinct kinds: a backed, curved-arm bench
+    beside the facade and a separate backless block bench near the river. The
+    source importer must choose; river distance alone does not establish type.
+    Dimensions are ergonomic priors. Model base is exactly the support plane.
+    """
+    _check_attachment(position,yaw)
+    wood, iron = _Geometry(), _Geometry()
+    for x in (-0.65,0.65):
+        if backrest:
+            for z in (-0.18,0.18):
+                iron.box((x,0.01,z),(0.08,0.02,0.07))
+                iron.beam((x,0.02,z),(x,0.415,z*0.7),0.026,8)
+            iron.beam((x,0.39,-0.23),(x,0.39,0.25),0.03,8)
+            iron.beam((x,0.38,-0.23),(x,0.84,-0.30),0.025,8)
+            # Curved continuous iron arm, with open space underneath.
+            curve=[(x,0.48,0.20),(x,0.58,0.25),(x,0.65,0.18),
+                   (x,0.67,0.04),(x,0.65,-0.12),(x,0.61,-0.25)]
+            for a,b in zip(curve,curve[1:]):iron.beam(a,b,0.021,8)
+        else:
+            iron.box((x,0.19,0),(0.11,0.38,0.50))
+    for z in (-0.21,-0.105,0,0.105,0.21):
+        wood.box((0,0.428,z),(1.8,0.044,0.092))
+    if backrest:
+        for y,z in ((0.59,-0.245),(0.71,-0.267),(0.83,-0.29)):
+            wood.box((0,y,z),(1.8,0.09,0.04))
+    else:
+        # Backless river bench has a low closed skirt below its slatted top.
+        for z in (-0.245,0.245):wood.box((0,0.33,z),(1.8,0.15,0.035))
+        for x in (-0.8825,0.8825):wood.box((x,0.33,0),(0.035,0.15,0.455))
+    return [iron.record("bench-frame","iron","solid",position,yaw),
+            wood.record("bench-slats","wood","solid",position,yaw)]
+
+
+def litter_bin(position: tuple, yaw: float = 0) -> list[dict]:
+    """Cylindrical dark ribbed bin with recessed opening and a foot flange.
+
+    The dark recess is geometry, not a painted hole or a point light. A closed
+    inner cylinder provides a stable solid contact surface instead of individual
+    collision ribs. Body and rim share the existing iron material.
+    """
+    _check_attachment(position,yaw)
+    body, ribs = _Geometry(), _Geometry()
+    body.taper(0,0.10,0.24,0.24,20)
+    body.taper(0.10,0.85,0.205,0.205,20)
+    # A shallow black-metal interior stops below the open lip, preserving depth.
+    body.taper(0.85,0.89,0.205,0.205,20)
+    for i in range(24):
+        a=i*math.tau/24; x,z=0.218*math.cos(a),0.218*math.sin(a)
+        ribs.beam((x,0.12,z),(x,0.90,z),0.009,5)
+    # Annular lip is emitted explicitly, so the top is visibly open.
+    for i in range(24):
+        a,b=i*math.tau/24,(i+1)*math.tau/24
+        outer=[(0.24*math.cos(v),0.95,0.24*math.sin(v)) for v in (a,b)]
+        inner=[(0.18*math.cos(v),0.95,0.18*math.sin(v)) for v in (a,b)]
+        ribs.face((inner[0],inner[1],outer[1],outer[0]))
+        ribs.face((outer[0],outer[1],(outer[1][0],0.89,outer[1][2]),(outer[0][0],0.89,outer[0][2])))
+        ribs.face((inner[1],inner[0],(inner[0][0],0.89,inner[0][2]),(inner[1][0],0.89,inner[1][2])))
+    return [body.record("bin-body","iron","solid",position,yaw),
+            ribs.record("bin-ribs","iron","passable",position,yaw)]

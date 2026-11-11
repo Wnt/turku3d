@@ -1,7 +1,7 @@
 """Furniture contact, winding and transform regressions, no renderer required."""
 import math
 import unittest
-from turku3d.scene.families import _Geometry, HERITAGE_LANTERN, heritage_lantern
+from turku3d.scene.families import _Geometry, HERITAGE_LANTERN, heritage_lantern, promenade_bench, litter_bin
 
 
 def volume(mesh):
@@ -47,6 +47,18 @@ class LanternFamilyTests(unittest.TestCase):
                 x,y,z=ma['positions'][i:i+3]
                 for actual,want in zip(mb['positions'][i:i+3],(10+z,20+y,30-x)):
                     self.assertAlmostEqual(actual,want)
+
+    def test_bench_and_bin_contact_and_extent(self):
+        for meshes,height in ((promenade_bench((0,0,0)),0.875),
+                              (promenade_bench((0,0,0),backrest=False),0.45),
+                              (litter_bin((0,0,0)),0.95)):
+            ys=[y for m in meshes for y in m['positions'][1::3]]
+            self.assertAlmostEqual(min(ys),0,places=7)
+            self.assertAlmostEqual(max(ys),height,places=2)
+            self.assertLess(sum(len(m['indices'])//3 for m in meshes),1500)
+            for m in meshes:
+                self.assertTrue(all(math.isfinite(v) for v in m['positions']))
+                if m['collision']=='solid':self.assertGreater(volume(m),0)
 
     def test_reject_nonfinite_attachment(self):
         for p,yaw in (((0,math.nan,0),0),((0,0,0),math.inf)):
