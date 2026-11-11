@@ -148,13 +148,18 @@ const T1a={duration:2.1,hour:17.8,...common,minClear:.05,cars:six(t1aT0),keys:[k
 add('T1a',0,T1a);
 add('T1a-high',1,{...T1a,keys:T1a.keys.map(key=>[key[0],key[1],+(lg+1).toFixed(2),key[3],2,75]),variant:'lens 1.0 m above the paving'});
 add('T1a-track',1,{...T1a,follow:{car:lens.who,frame:'world',smooth:.3},keys:[off(4.6,SUN-180,-.2,SUN,5,75),off(4.6,SUN-180,-.2,SUN,5,75)],minClear:.05,variant:'lens rides 4.6 m beside the hero car, looking into the sun (other cars may pass close)'});
-const o8=orbit(3,143,135,14,10.5,36),T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...o8,
- note:`Tori donuts: lens 3 m above the paving, 14 m from the nearest car, 36 degree lens tilted 8 degrees down: the group fills the frame width, the cars sit at 37-63 % of frame height (title block below them), the Orthodox church dome at the top edge; slow orbit. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch. The layout is centred so the lamp post of the square stands inside one donut`};
+// Orbit about the group centre with an explicit tilt: height above the paving at the group centre, bearings of the lens
+// from the centre, distance to the nearest car, tilt down and lens. All six cars stay in frame because the lens pans with G.
+const orbit2=(height,from,to,nearest,pitch,fov)=>{const dist=R+nearest-2.5,keys=[];
+ for(const b of [from,(from+to)/2,to]){const [s,c]=dir(b);keys.push(k(G[0]+dist*s,G[1]+dist*c,+(gG+height).toFixed(2),(b+180)%360,-pitch,fov));}
+ return{keys,target:undefined};};
+const T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...orbit2(4.5,143,135,19,8.8,44),
+ note:`Tori donuts: lens 4.5 m above the paving, 19 m from the nearest car, 44 degree lens tilted 8.8 degrees down: Orthodox church dome whole with sky above it, cars at about 40-64 % of frame height, the bottom third clean paving for the title, the group fills about 80 % of the width; slow orbit panning with the group. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch. The layout is centred so the lamp post of the square stands inside one donut`};
 add('T1b',0,T1b);
-add('T1b-sun',1,{...T1b,...orbit(3,104,96,14,10.5,36),variant:'second angle: from the east side looking west-north-west, sun just out of frame on the left, smoke backlit'});
-add('T1b-mid',1,{...T1b,...orbit(6.6,143,135,18,12.5,34),variant:'6.6 m above the paving, 18 m from the nearest car'});
-add('T1b-14m',1,{...T1b,...orbit(14,143,135,35,16,32),variant:'drone 14 m above the paving, 35 m from the nearest car'});
-add('T1b-rev',1,{...T1b,...orbit(3,135,143,14,10.5,36),variant:'orbit reversed'});
+add('T1b-sun',1,{...T1b,...orbit2(4.5,104,96,19,8.8,44),variant:'second angle: from the east side looking west-north-west, sun just out of frame on the left, smoke backlit'});
+add('T1b-low',1,{...T1b,...orbit(3,143,135,14,10.5,36),variant:'3 m above the paving, 14 m from the nearest car, 36 degree lens (dome cut at the top)'});
+add('T1b-14m',1,{...T1b,...orbit2(14,143,135,35,17,34),variant:'drone 14 m above the paving, 35 m from the nearest car'});
+add('T1b-rev',1,{...T1b,...orbit2(4.5,135,143,19,8.8,44),variant:'orbit reversed'});
 const [s153,c153]=dir(153);
 const c1=(end,clock,label)=>({duration:10.4,hour:clock[0],hourKeys:[[0,clock[0]],[.112,clock[0]],[.515,clock[1]],[1,clock[1]+.1]],weather:'clear',traffic:40,scenery:true,allowMissing:true,cars:six(c0),drift:[.515,.9,.4],
  keys:[k(G[0]+16*s153,G[1]+16*c153,+(gG+22).toFixed(1),333,-48,55),...end],
