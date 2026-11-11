@@ -42,7 +42,7 @@ for(let restart=0;restart<6;restart++){
 }
 if(!best)throw Error('no donut layout found');
 // Cluster centre on the open, sunlit east half of the square, inside the area the takes drove over.
-const G=[660,621],shift=[G[0]-best.cost.g[0],G[1]-best.cost.g[1]],layout=best.state.map(s=>[s[0]+shift[0],s[1]+shift[1],s[2]]);
+const G=[657.9,619.3],shift=[G[0]-best.cost.g[0],G[1]-best.cost.g[1]],layout=best.state.map(s=>[s[0]+shift[0],s[1]+shift[1],s[2]]);
 const paths=layout.map((s,i)=>place(i,s)),R=best.cost.r,at=(i,t)=>paths[i][Math.max(0,Math.min(STEPS-1,Math.round((t-T0)/DT)))];
 const slope=[+tori[0].toFixed(5),+tori[1].toFixed(5)];
 // ---- T1a: lens on the cobbles, looking into the sun (azimuth 250 at 17.8), nearest pass 3-4 m ----
@@ -123,6 +123,7 @@ add('D2-front',1,{...D2,follow:{car:0,frame:'heading',smooth:.15},keys:[[.5,26,6
 const D3={duration:1.6,hour:18.3,...common,cars:[{take:'d3-f',...HERO,t0:21.4}],follow:{car:0,frame:'world',smooth:.2},keys:[[-3,7.5,.4,0,0,50],[2,7,.4,0,0,50]],target:[[-1.5,-3,1.6],[-1.5,-3,1.6]],
  note:'Castle: low tracking from the north side of Linnankatu while the car passes at 64-75 km/h (autopilot take d3-f). UNSURE: the castle should be to the south of this stretch; never rendered'};
 add('D3',0,D3);
+add('D3-wide',1,{...D3,duration:2,cars:[{take:'d3-f',...HERO,t0:22.2}],follow:undefined,target:undefined,keys:[k(-1440,-1057,5.6,182,3,50),k(-1441,-1057,5.6,182,3,50)],variant:'locked-off wide view from 72 m north of the road, low lens, castle mass above the passing car'});
 add('D3-chase',1,{...D3,cars:[{take:'d3-f',...HERO,t0:14.2}],follow:{car:0,frame:'heading',smooth:.15},keys:[[-1.2,-9,3,2,-6,40],[-.6,-7.5,2.6,1,-5,42]],target:undefined,variant:'crane chase on the approach, castle ahead (sun near the frame)'});
 
 // ---- D4 riverside quay ----
@@ -147,11 +148,13 @@ const T1a={duration:2.1,hour:17.8,...common,minClear:.05,cars:six(t1aT0),keys:[k
 add('T1a',0,T1a);
 add('T1a-high',1,{...T1a,keys:T1a.keys.map(key=>[key[0],key[1],+(lg+1).toFixed(2),key[3],2,75]),variant:'lens 1.0 m above the paving'});
 add('T1a-track',1,{...T1a,follow:{car:lens.who,frame:'world',smooth:.3},keys:[off(4.6,SUN-180,-.2,SUN,5,75),off(4.6,SUN-180,-.2,SUN,5,75)],minClear:.05,variant:'lens rides 4.6 m beside the hero car, looking into the sun (other cars may pass close)'});
-const o8=orbit(6.6,143,135),T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...o8,
- note:`Tori donuts, drone 6.6 m above the paving, nearest car about 22 m away, 40 degree lens tilted 11 degrees down so the cars sit at 35-60 % of frame height (title block below them), slow orbit towards the Orthodox church. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch`};
+const o8=orbit(3,143,135,14,8,36),T1b={duration:3.5,hour:17.8,...common,cars:six(b0),...o8,
+ note:`Tori donuts: lens 3 m above the paving, 14 m from the nearest car, 36 degree lens tilted 8 degrees down: the group fills the frame width, the cars sit at 37-63 % of frame height (title block below them), the Orthodox church dome at the top edge; slow orbit. Six takes packed into a circle of ${(2*R).toFixed(0)} m (never closer than ${best.cost.min.toFixed(1)} m centre to centre); tighter than that the cars would touch. The layout is centred so the lamp post of the square stands inside one donut`};
 add('T1b',0,T1b);
-add('T1b-14m',1,{...T1b,...orbit(14,143,135,35,17.3,35),variant:'drone 14 m above the paving, 35 m from the nearest car (steeper, church only at the top edge)'});
-add('T1b-rev',1,{...T1b,...orbit(6.6,135,143),variant:'orbit reversed'});
+add('T1b-sun',1,{...T1b,...orbit(3,104,96,14,8,36),variant:'second angle: from the east side looking west-north-west, sun just out of frame on the left, smoke backlit'});
+add('T1b-mid',1,{...T1b,...orbit(6.6,143,135,18,12.5,34),variant:'6.6 m above the paving, 18 m from the nearest car'});
+add('T1b-14m',1,{...T1b,...orbit(14,143,135,35,16,32),variant:'drone 14 m above the paving, 35 m from the nearest car'});
+add('T1b-rev',1,{...T1b,...orbit(3,135,143,14,8,36),variant:'orbit reversed'});
 const [s153,c153]=dir(153);
 const c1=(end,clock,label)=>({duration:10.4,hour:clock[0],hourKeys:[[0,clock[0]],[.112,clock[0]],[.515,clock[1]],[1,clock[1]+.1]],weather:'clear',traffic:40,scenery:true,allowMissing:true,cars:six(c0),drift:[.515,.9,.4],
  keys:[k(G[0]+16*s153,G[1]+16*c153,+(gG+22).toFixed(1),333,-48,55),...end],
