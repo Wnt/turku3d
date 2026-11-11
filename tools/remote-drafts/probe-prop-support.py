@@ -1,22 +1,20 @@
-"""Build two real tiles and check packed sign bases against source and solid collision."""
+"""Audit two migrated city tiles, packed poles, unchanged collision and public payloads."""
 
 import argparse
-import importlib.util
+import hashlib
 import json
-import pickle
 import subprocess
+import time
 from pathlib import Path
+from urllib.parse import urljoin
+from urllib.request import urlopen
 
 import numpy as np
 import shapely
 from turku3d import config as C
-from turku3d.coarse.inputs import gather
-from turku3d.coarse.packaging import current_code
-from turku3d.coarse.sources import Sources
 from turku3d.col.format import read_col
 from turku3d.col.materials import table
 from turku3d.package.gltf import read_glb
-from turku3d.stage_cache import decompress_payload
 
 # Match extractPoles' object ranges and lowest-vertex base, using the actual codec
 # output. The client creates dynamic bodies from these IDs/bases, not .col poles.
@@ -58,7 +56,7 @@ for (const node of doc.getRoot().listNodes()) {
     const bottom = vertices.filter(p => p[1] <= low + .001);
     const local = [bottom.reduce((s,p) => s+p[0],0)/bottom.length, low, bottom.reduce((s,p) => s+p[2],0)/bottom.length];
     const base = [0,1,2].map(k => matrix[k]*local[0]+matrix[4+k]*local[1]+matrix[8+k]*local[2]+matrix[12+k]);
-    output.push({id:e.pole_id, object_id:e.object_id, height:e.pole_height, base, count});
+    output.push({id:e.pole_id, object_id:e.object_id, height:e.pole_height, base, recorded:e.pole_base, count, plates:e.plate_ids, merged:e.merged});
   }
 }
 console.log(JSON.stringify(output));
@@ -132,80 +130,154 @@ def support_error(triangles, tree, x, y, z):
     return min(hits)
 
 
-def verify(root, out, manifest):
-    assert manifest["code"] == current_code(), "Build did not use frozen deployed generator"
+def verify(out, manifest, before_out, before_manifest):
     packed = packed_poles(out, manifest)
-    if manifest["pass_kind"] == "first":
-        assert not packed
-        return dict(poles=0, expected="structural first pass")
-    tile = C.VisualTile.parse(manifest["tile"])
-    inputs = gather(tile, root, Sources())
-    stats = manifest["pole_support"]
-    assert stats["source"] == len(inputs.poles) > 0, "No real pole source coverage"
-    assert manifest["poles"] == stats["placed"] == len(packed) > 0
+    previous = packed_poles(before_out, before_manifest)
+    stats = manifest["furniture"]["pole_support"]
+    assert stats["source"] == len(previous) > 0, "No source posts or wrong migration baseline"
+    assert stats["placed"] == len(packed) > 0
     assert stats["source"] == stats["placed"] + stats["omitted"]
     assert sum(stats["reasons"].values()) == stats["omitted"]
-    assert sum(stats["support"].values()) == stats["placed"]
-    metrics = json.loads((out / "stage-times.json").read_text())
-    path = root / ".stages" / tile.id / "pole_support" / (metrics["pole_support"]["key"] + ".pkl")
-    poles, cached_stats = pickle.loads(decompress_payload(path.read_bytes()[32:]))
-    assert cached_stats == stats
-    expected = {f"{tile.id}:{p.object_id}": p for p in poles}
-    assert len(expected) == len(poles)
-    assert {p["id"] for p in packed} == set(expected)
-    source = {p.object_id: p for p in inputs.poles}
+    assert manifest["collision"] == before_manifest["collision"], "Unrelated collision changed"
+    for key in ("buildings", "buildingPlacements", "lights", "roads"):
+        assert manifest.get(key) == before_manifest.get(key), f"Unrelated {key} changed"
+    prior = {row["id"]: row for row in previous}
+    assert len(prior) == len(previous)
+    assert len({row["id"] for row in packed}) == len(packed)
     triangles, tree = solid_support(out, manifest)
-    max_base_error = max_collision_error = 0.0
+    max_base_error = max_collision_error = max_rim_error = 0.0
+    unresolved = []
     angles = np.arange(8) * np.pi / 4
     base_offsets = 0.05 * np.c_[np.cos(angles), np.sin(angles)]
-    max_rim_error = 0.0
     for row in packed:
-        pole = expected[row["id"]]
-        original = source[pole.object_id]
-        assert (pole.x, pole.z) == (original.x, original.z), "Mapped pole moved horizontally"
-        assert row["object_id"] == pole.object_id and row["height"] == 2.7
-        delta = float(np.max(np.abs(np.asarray(row["base"]) - [pole.x, pole.y, pole.z])))
+        assert row["id"] in prior and row["object_id"] and row["height"] == 2.7
+        recorded = np.asarray(row["recorded"], float)
+        assert recorded.shape == (3,) and np.isfinite(recorded).all()
+        before = prior[row["id"]]
+        assert np.allclose(
+            recorded[[0, 2]], np.asarray(before["recorded"])[[0, 2]], atol=0.001, rtol=0
+        )
+        assert row["plates"] == before["plates"] and row["merged"] == before["merged"]
+        delta = float(np.max(np.abs(np.asarray(row["base"]) - recorded)))
         assert delta <= 0.003, (row, delta)
-        error = support_error(triangles, tree, *row["base"])
+        x, y, z = recorded
+        if any(
+            C.CollisionTile.at(x + dx, z + dz).id not in manifest["collision"]
+            for dx, dz in np.vstack(([0, 0], base_offsets))
+        ):
+            assert np.array_equal(recorded, np.asarray(before["recorded"]))
+            unresolved.append(row["id"])
+            continue
+        error = support_error(triangles, tree, *recorded)
         assert error <= 0.01, (row, error)
-        x, y, z = row["base"]
         for dx, dz in base_offsets:
             rim_error = support_error(triangles, tree, x + dx, y, z + dz)
             assert rim_error <= 0.055, (row, dx, dz, rim_error)
             max_rim_error = max(max_rim_error, rim_error)
-        max_base_error, max_collision_error = (
-            max(max_base_error, delta),
-            max(max_collision_error, error),
-        )
+        max_base_error = max(max_base_error, delta)
+        max_collision_error = max(max_collision_error, error)
+    assert len(unresolved) == stats["unresolved"]
+    assert len(packed) > len(unresolved), "No resolved posts were verified"
     return dict(
         **stats,
         packed_poles=len(packed),
         max_base_error=max_base_error,
         max_collision_support_error=max_collision_error,
         max_collision_rim_error=max_rim_error,
-        dynamic_body_metadata="complete; runtime collision behavior not exercised by this probe",
+        unresolved_ids=unresolved,
+        dynamic_body_metadata="verified; runtime collision behavior not exercised",
     )
+
+
+def public_payloads(base, tile, manifest, generation, revision):
+    url = urljoin(base.rstrip("/") + "/", tile + "/manifest.json")
+    with urlopen(url, timeout=20) as response:
+        served = json.load(response)
+    assert served.get("pass_kind") == "full" and not served.get("stale"), served
+    assert served["generation"] == generation, "City is not serving the registered migration"
+    assert served["revision"] == revision, "City is serving another revision"
+    files, sizes = 0, 0
+
+    def fetch(entry, expected):
+        nonlocal files, sizes
+        assert entry["sha256"] == expected["sha256"] and entry["bytes"] == expected["bytes"]
+        with urlopen(urljoin(url, entry["url"]), timeout=30) as response:
+            data = response.read()
+        assert len(data) == entry["bytes"] and hashlib.sha256(data).hexdigest() == entry["sha256"]
+        files += 1
+        sizes += len(data)
+        return data
+
+    visual = fetch(served["visual"][tile], manifest["visual"][tile])
+    document, _ = read_glb(visual)
+    # Migration geometry is often in external content-addressed buffers.
+    for buffer in document.get("buffers", []):
+        uri = buffer.get("uri")
+        if not uri or uri.startswith("data:"):
+            continue
+        with urlopen(
+            urljoin(urljoin(url, served["visual"][tile]["url"]), uri), timeout=30
+        ) as response:
+            data = response.read()
+        assert len(data) == buffer["byteLength"]
+        name = Path(uri).stem
+        assert len(name) == 64 and hashlib.sha256(data).hexdigest() == name
+        files += 1
+        sizes += len(data)
+    assert set(served["collision"]) == set(manifest["collision"])
+    for cell, entry in served["collision"].items():
+        fetch(entry, manifest["collision"][cell])
+    return dict(files=files, bytes=sizes, generation=served["generation"])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--farm-root", type=Path, required=True)
+    parser.add_argument("--revision", required=True)
+    parser.add_argument("--public-url", required=True)
     args = parser.parse_args()
-    root = Path("/srv/turku3d/work/coarse")
-    spec = importlib.util.spec_from_file_location(
-        "build_probe", Path(__file__).with_name("probe-builds.py")
-    )
-    probe = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(probe)
-    for tile in ("t0_0_0", "t0_1_0"):
-        result = probe.run(
-            root,
-            tile_id=tile,
-            first_budget=45,
-            full_budget=150,
-            verify=lambda out, manifest: verify(root, out, manifest),
+    started = time.monotonic()
+    meta = json.loads((args.farm_root / "revisions" / args.revision / "revision.json").read_text())
+    assert meta["code_revision"] == args.commit
+    report = []
+    for tile in ("t0_0_0", "t0_0_1", "t0_1_0"):
+        out = args.farm_root / "products" / meta["generation"] / tile
+        receipt = json.loads((out / "ready.json").read_text())
+        assert receipt["revision"] == args.revision
+        assert receipt["generation"] == meta["generation"]
+        assert receipt["applied"] == ["pole-support@1"], (
+            "Unexpected regeneration or migration scope"
         )
-        print(json.dumps(dict(commit=args.commit, generator=current_code(), **result)), flush=True)
+        manifest = json.loads((out / "manifest.json").read_text())
+        before_out = args.farm_root / "products" / receipt["source_generation"] / tile
+        before_manifest = json.loads((before_out / "manifest.json").read_text())
+        assert manifest["pass_kind"] == before_manifest["pass_kind"] == "full"
+        assert len(manifest["collision"]) == 16
+        result = dict(
+            tile=tile,
+            commit=args.commit,
+            revision=args.revision,
+            migration_seconds=receipt["seconds"],
+            support=verify(out, manifest, before_out, before_manifest),
+            public=public_payloads(
+                args.public_url, tile, manifest, meta["generation"], args.revision
+            ),
+        )
+        report.append(result)
+        print(json.dumps(result), flush=True)
+    result = dict(
+        tiles=report,
+        seconds=round(time.monotonic() - started, 3),
+        evidence="existing full products migrated; no generator rebuild",
+    )
+    (C.work_root() / "prop-support-result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(
+        json.dumps(
+            dict(report=str(C.work_root() / "prop-support-result.json"), seconds=result["seconds"])
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
