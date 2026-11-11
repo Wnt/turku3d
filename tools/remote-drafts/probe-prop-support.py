@@ -147,6 +147,7 @@ def verify(out, manifest, before_out, before_manifest):
     triangles, tree = solid_support(out, manifest)
     max_base_error = max_collision_error = max_rim_error = 0.0
     unresolved = []
+    shifted = []
     angles = np.arange(8) * np.pi / 4
     base_offsets = 0.05 * np.c_[np.cos(angles), np.sin(angles)]
     for row in packed:
@@ -154,6 +155,16 @@ def verify(out, manifest, before_out, before_manifest):
         recorded = np.asarray(row["recorded"], float)
         assert recorded.shape == (3,) and np.isfinite(recorded).all()
         before = prior[row["id"]]
+        adjustment = float(recorded[1] - before["recorded"][1])
+        if abs(adjustment) > 0.001:
+            shifted.append(
+                dict(
+                    id=row["id"],
+                    before=before["recorded"],
+                    after=row["recorded"],
+                    adjustment_m=round(adjustment, 4),
+                )
+            )
         assert np.allclose(
             recorded[[0, 2]], np.asarray(before["recorded"])[[0, 2]], atol=0.001, rtol=0
         )
@@ -185,6 +196,12 @@ def verify(out, manifest, before_out, before_manifest):
         max_collision_support_error=max_collision_error,
         max_collision_rim_error=max_rim_error,
         unresolved_ids=unresolved,
+        shifted_examples=sorted(shifted, key=lambda row: -abs(row["adjustment_m"]))[:3],
+        omitted_examples=[
+            dict(id=row["id"], before=row["recorded"])
+            for row in previous
+            if row["id"] not in {p["id"] for p in packed}
+        ][:3],
         dynamic_body_metadata="verified; runtime collision behavior not exercised",
     )
 
