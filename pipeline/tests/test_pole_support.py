@@ -19,17 +19,21 @@ def plane(height=3, xmin=0, xmax=60, material="sidewalk"):
     return pos, np.array([[0, 2, 1], [1, 2, 3]], np.uint32), np.full(2, mat_id(material), np.uint8)
 
 
-def product(tmp_path, planes=(), rows=None, external=False, stack=False):
+def product(tmp_path, planes=(), rows=None, external=False, stack=False, bus_stop=False):
     data = _batch_glb(rows or [("one", "E1", 10, 10, 0)])
     doc, binary = glb_chunks(data)
     if stack:
         doc["nodes"][0]["extras"]["objects"][0]["plates"] = ["E1", "H19.1"]
+    if bus_stop:
+        doc["nodes"][0]["extras"]["objects"][0]["prop_type"] = "bus_stop"
     if external:
         (tmp_path / "source.bin").write_bytes(binary)
         doc["buffers"][0]["uri"] = "source.bin"
         binary = b""
-    name = "vis.glb"
-    (tmp_path / name).write_bytes(glb_pack(doc, binary))
+    visual = glb_pack(doc, binary)
+    digest = hashlib.sha256(visual).hexdigest()
+    name = f"vis.{digest}.glb"
+    (tmp_path / name).write_bytes(visual)
     collision = {}
     if planes:
         pos, idx, mats, offset = [], [], [], 0
@@ -50,8 +54,8 @@ def product(tmp_path, planes=(), rows=None, external=False, stack=False):
             "visual": {
                 "t0_0_0": {
                     "url": name,
-                    "sha256": hashlib.sha256(data).hexdigest(),
-                    "bytes": len(data),
+                    "sha256": digest,
+                    "bytes": len(visual),
                 }
             },
         },
@@ -91,11 +95,11 @@ def test_absent_support_removes_visible_and_runtime_post_without_empty_accessor(
 
 def test_only_unsupported_range_is_removed_while_supported_bus_stop_survives(tmp_path):
     p = product(
-        tmp_path, [plane(xmin=0, xmax=20)], rows=[("a", "E1", 10, 10, 0), ("b", "E1", 30, 10, 0)]
+        tmp_path,
+        [plane(xmin=0, xmax=20)],
+        rows=[("a", "E1", 10, 10, 0), ("b", "E1", 30, 10, 0)],
+        bus_stop=True,
     )
-    doc, binary = glb_chunks(p.read("vis.glb"))
-    doc["nodes"][0]["extras"]["objects"][0]["prop_type"] = "bus_stop"
-    (tmp_path / "vis.glb").write_bytes(glb_pack(doc, binary))
     transform(p)
     entry = p.manifest["visual"]["t0_0_0"]
     doc, binary = glb_chunks(p.read(entry["url"]))
