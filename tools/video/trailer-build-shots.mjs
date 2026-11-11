@@ -113,7 +113,7 @@ add('D1',0,D1);
 add('D1-front',1,{...D1,keys:[[-1.4,5.5,-.2,168,3,70],[-1.4,4.6,-.2,168,3,70]],variant:'low front three-quarter, lens ahead of the car looking back'});
 
 // ---- D2 bridge ----
-const bridge={take:'d2-e',...HERO,t0:5.4};
+const bridge={take:'d2-e',...HERO,t0:5.8};// 5.4 put the lens inside the bank trees for the first 2 s (safety take s1)
 const D2={duration:1.6,hour:18.3,...common,cars:[bridge],follow:{car:0,frame:'world',smooth:.15},keys:[[-4.1,-22.5,5.4,0,0,36],[-18.7,-6,5.4,0,0,36]],target:[[0,0,.2],[0,0,.2]],
  note:'Bridge: drone over the river 18 m downstream of Auransilta and 6 m above the deck, tracking alongside; car on the bridge from clip 0.4 s to 3.2 s (70-82 km/h), it leaves the bridge at 3.2 s and hits a kerb at 3.8 s (end of the tail handle is unusable)'};
 add('D2',0,D2);
