@@ -1,1 +1,15 @@
-{"C1":2,"T1b":2,"H1":2,"extra":[]}
+{
+ "C1": 2,
+ "T1b": 2,
+ "H1": 2,
+ "order": [
+  "C1",
+  "T1b",
+  "H1",
+  "D1",
+  "D2",
+  "D4"
+ ],
+ "extra": [],
+ "note": "P1 and T1a base finals were started 13:10:46 from the current definitions; W1 and D3 wait for their drafts"
+}

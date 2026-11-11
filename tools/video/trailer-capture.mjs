@@ -174,6 +174,7 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
   const timer=setTimeout(()=>reject(Error('frame timeout')),60000);
   r.beforeFrame=()=>{g.replay.seek(seconds);return true;};
   r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);
+   if(window.__trailerGrab)window.__trailerFrame=r.renderer.domElement.toDataURL('image/jpeg',window.__trailerGrab);
    const c=r.camera.position,v=hold?null:g.coarse.viewStatus(c.x,c.z),k=g.coarse;
    const full=id=>{const e=k.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
    // Camera height above the streamed ground, and above the wheels' ground of every replayed car nearby.
@@ -182,7 +183,17 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
    resolve({clear,sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(window.__trailerScenery().ok||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null,missingInFrame:v?window.__trailerScenery().inFrame:0,missing:v?window.__trailerScenery().missing:0});};
  }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub)});
 }
-const shot1=async()=>Buffer.from((await session.send('Page.captureScreenshot',{format:'jpeg',quality:still?95:draft?90:98,captureBeyondViewport:false})).data,'base64');
+const cdpShot=async()=>Buffer.from((await session.send('Page.captureScreenshot',{format:'jpeg',quality:still?95:draft?90:98,captureBeyondViewport:false})).data,'base64');
+// Frame grabbing: CDP screenshots, or (hosts whose compositor shows the WebGPU canvas black, e.g. headless Linux/Vulkan)
+// the canvas itself, read back inside the frame callback. `auto` probes one screenshot and switches when it is black.
+let grab=process.env.TRAILER_GRAB??opt('--grab','auto'),canvasSize=null;
+const shot1=async()=>grab==='canvas'?Buffer.from((await page.evaluate(()=>window.__trailerFrame)).split(',')[1],'base64'):cdpShot();
+async function chooseGrab(){
+ if(grab==='auto'){const probe=await cdpShot();if(probe.length>width*height*scale*scale*.012){grab='cdp';return false;}log(`CDP screenshot is black here (${probe.length} bytes): grabbing the canvas instead`);grab='canvas';}
+ if(grab!=='canvas')return false;
+ canvasSize=await page.evaluate(q=>{window.__trailerGrab=q;const c=window.__render.renderer.domElement;return[c.width,c.height];},still?.95:draft?.9:.98);
+ log(`canvas grab ${canvasSize.join('x')}`);return true;
+}
 const lead=Number(opt('--lead','1.2'));// seconds of simulated pre-roll: temporal history, traffic and water settle
 async function warm(shot,u0,t0){
  await page.evaluate(async({epochMs,cap})=>{
@@ -212,7 +223,7 @@ try{
       if(Number.isFinite(ground)){for(const key of s.keys)key[2]=ground+shot.agl;shot.keys=s.keys;shot.ground=ground;await settle(s,u,`${shot.id} agl`);}
       else log(`WARN ${shot.id}: no ground under camera`);
      }
-     const base=shot.preroll??20;await warm(s,u,base);
+     const base=shot.preroll??20,stillT=await warm(s,u,base);if(await chooseGrab())await frame(s,u,stillT+1/fps,true);
      const name=`${shot.id}${ats.length>1?`-u${u}`:''}${hours.length>1?`-h${String(hour).replace('.','_')}`:''}`;
      fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,`${name}.jpg`),await shot1());log(`still ${name}`);
     }
@@ -226,9 +237,9 @@ try{
   clipSeconds=(_shot,u)=>u*duration;await installCars(shot);
   // Visit the end and the middle first so their tiles are resident, then return to the start.
   for(const u of shot.stations??(draft?[1,0]:[1,.75,.5,.25,0]))await settle(shot,u);
-  const t0=await warm(shot,0,shot.preroll??20);
+  const t0=await warm(shot,0,shot.preroll??20);await chooseGrab();
   const readyWall=(Date.now()-started)/1000,framesStarted=Date.now();
-  const vf=scale>1?['-vf',`scale=${width}:${height}:flags=lanczos`]:[];
+  const vf=scale>1||(canvasSize&&(canvasSize[0]!==width||canvasSize[1]!==height))?['-vf',`scale=${width}:${height}:flags=lanczos`]:[];
   const encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(fps),'-i','pipe:0','-an',...vf,
    '-c:v','libx264','-preset',draft?'veryfast':'slow','-crf',String(opt('--crf',draft?'18':'10')),'-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-movflags','+faststart',file],{stdio:['pipe','inherit','inherit']});
   const closed=once(encoder,'close');encoder.stdin.on('error',()=>{});
@@ -270,7 +281,7 @@ try{
   const cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:count,exactDuplicateCaptures:duplicates,mpdecimateDropped:count-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
   const unsettled=settleFailures.splice(0);const pass=resettled===0&&unsettled.length===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
   fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass:draft?null:pass,size:`${width}x${height}`,shot,file,fps,frames:count,handles,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
-   variant:shot.variant??null,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,unsettledStations:unsettled,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for are counted per frame as unavailableCells / unavailableCellsInFrame and do not block), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
+   variant:shot.variant??null,grab,canvasSize,unavailableCells:maxMissing,unavailableCellsInFrame:maxInFrame,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,unsettledStations:unsettled,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for are counted per frame as unavailableCells / unavailableCellsInFrame and do not block), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
   log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
   // Contact sheet: 8 frames across the clip.
   spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(count/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);
