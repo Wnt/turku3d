@@ -11,23 +11,24 @@
    "hour": 7.5,
    "weather": "clear",
    "traffic": 40,
-   "note": "Postcard: slow low glide up the Aura, boats right, cathedral tower on the skyline",
+   "sceneryRadius": 4000,
+   "note": "Postcard: slow glide up the Aura at about 15 m with a slight descent, starting past the black-hulled ship, cathedral tower on the skyline left of centre",
    "ease": "linear",
    "keys": [
     [
-     23459668,
-     6704196,
-     10,
-     60,
-     -4,
+     23459700,
+     6704203,
+     16,
+     58,
+     -6,
      50
     ],
     [
-     23459694,
-     6704211,
-     8.5,
-     60,
-     -3,
+     23459722,
+     6704215.5,
+     14.2,
+     58,
+     -5,
      50
     ]
    ]
@@ -38,38 +39,95 @@
    "hour": 18.3,
    "weather": "clear",
    "traffic": 0,
-   "note": "Cathedral slide: low wide lens, real handbrake slide towards camera, west tower above",
+   "sceneryRadius": 2000,
+   "note": "Cathedral slide: low wide lens retreating in front of a real handbrake slide (68 km/h entry, 180 degrees); the car is a third of the frame width at the cut (clip 1.0 s) and comes to rest 5 m from the lens under the west tower",
    "cars": [
     {
      "take": "h1-d",
      "model": "golf7",
      "color": "red",
-     "t0": 2.6
+     "t0": 3.3
     }
    ],
    "ease": "linear",
    "keys": [
     [
-     23460183.5,
-     6704685.5,
-     9.35,
-     87,
-     23,
-     80
+     23460206.3,
+     6704677.0,
+     10.0,
+     104,
+     16,
+     72
     ],
     [
-     23460184.6,
-     6704686.2,
+     23460202.3,
+     6704680.25,
+     9.85,
+     101,
+     19,
+     70
+    ],
+    [
+     23460197.2,
+     6704683.2,
+     9.6,
+     98,
+     21,
+     66
+    ],
+    [
+     23460192.5,
+     6704685.0,
+     9.4,
+     94,
+     23,
+     66
+    ],
+    [
+     23460189.2,
+     6704686.5,
      9.3,
-     87,
+     92,
      24,
-     78
+     66
+    ],
+    [
+     23460188.2,
+     6704687.25,
+     9.28,
+     90.5,
+     25,
+     66
+    ],
+    [
+     23460188.0,
+     6704687.3,
+     9.28,
+     90,
+     25,
+     66
+    ],
+    [
+     23460187.85,
+     6704687.35,
+     9.28,
+     90,
+     25,
+     66
+    ],
+    [
+     23460187.7,
+     6704687.4,
+     9.28,
+     90,
+     25,
+     66
     ]
    ]
   },
   {
    "id": "D1",
-   "duration": 1.5,
+   "duration": 1.6,
    "hour": 18.6,
    "weather": "clear",
    "traffic": 0,
@@ -105,21 +163,77 @@
      1,
      70
     ]
-   ]
+   ],
+   "sceneryRadius": 2000
   },
   {
    "id": "D2",
-   "duration": 1.5,
-   "hour": 19.0,
+   "duration": 1.6,
+   "hour": 18.6,
    "weather": "clear",
    "traffic": 0,
-   "note": "Bridge: side tracking from over the river while the car crosses Auransilta at 85 km/h (take ends in a crash at clip second 2.9: tail handle is short)",
+   "sceneryRadius": 2000,
+   "note": "Bridge: drone over the river tracks and pans with the car crossing Auransilta at 70-82 km/h (take d2-e, clean crossing)",
    "cars": [
     {
-     "take": "d2-bridge",
+     "take": "d2-e",
      "model": "golf7",
      "color": "red",
-     "t0": 4.6
+     "t0": 5.3
+    }
+   ],
+   "follow": {
+    "car": 0,
+    "frame": "world",
+    "smooth": 0.15,
+    "aimOnly": true
+   },
+   "ease": "linear",
+   "keys": [
+    [
+     23459767,
+     6704258.7,
+     9.5,
+     0,
+     0,
+     24
+    ],
+    [
+     23459777.6,
+     6704246.7,
+     9.5,
+     0,
+     0,
+     24
+    ]
+   ],
+   "target": [
+    [
+     0,
+     0,
+     0.3
+    ],
+    [
+     0,
+     0,
+     0.3
+    ]
+   ]
+  },
+  {
+   "id": "D3",
+   "duration": 1.6,
+   "hour": 17.6,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "note": "Castle: low tracking shot from the street side while the car passes Turku Castle at 64-75 km/h (autopilot take d3-f, real physics)",
+   "cars": [
+    {
+     "take": "d3-f",
+     "model": "golf7",
+     "color": "red",
+     "t0": 21.9
     }
    ],
    "follow": {
@@ -130,343 +244,85 @@
    "ease": "linear",
    "keys": [
     [
-     -26,
-     -14,
-     1.2,
-     0,
-     0,
-     30
-    ],
-    [
-     -22,
-     -21,
-     1.8,
-     0,
-     0,
-     30
-    ]
-   ],
-   "target": [
-    [
-     0,
-     0,
-     0.5
-    ],
-    [
-     0,
-     0,
-     0.5
-    ]
-   ]
-  },
-  {
-   "id": "T1",
-   "duration": 3.5,
-   "hour": 17.8,
-   "weather": "clear",
-   "traffic": 0,
-   "note": "Tori donuts: six real-physics donuts, high oblique orbiting drone, Orthodox church at the top",
-   "cars": [
-    {
-     "take": "tori-0",
-     "model": "golf7",
-     "color": "red",
-     "t0": 3.0
-    },
-    {
-     "take": "tori-1",
-     "model": "octavia-rs-2020",
-     "color": "blue",
-     "t0": 3.0
-    },
-    {
-     "take": "tori-2",
-     "model": "e30",
-     "color": "white",
-     "t0": 3.0
-    },
-    {
-     "take": "tori-3",
-     "model": "carla-ford-mustang",
-     "color": "black",
-     "t0": 3.0
-    },
-    {
-     "take": "tori-6",
-     "model": "v60",
-     "color": "silver",
-     "t0": 3.0
-    },
-    {
-     "take": "tori-7",
-     "model": "carla-mini-cooper-s-2021",
-     "color": "beige",
-     "t0": 3.0
-    }
-   ],
-   "ease": "linear",
-   "keys": [
-    [
-     23459677.2,
-     6704565.5,
-     46,
-     0,
-     0,
-     50
-    ],
-    [
-     23459689.6,
-     6704572.2,
-     46,
-     0,
-     0,
-     50
-    ],
-    [
-     23459700.1,
-     6704581.5,
-     46,
-     0,
-     0,
-     50
-    ]
-   ],
-   "target": [
-    [
-     23459654,
-     6704628,
-     6
-    ],
-    [
-     23459654,
-     6704628,
-     6
-    ]
-   ]
-  },
-  {
-   "id": "C1",
-   "duration": 6.4,
-   "hour": 18.2,
-   "hourTo": 22.2,
-   "weather": "clear",
-   "traffic": 40,
-   "scenery": true,
-   "note": "Pull-back from the Tori donuts up to the whole city, golden hour through dusk into night",
-   "cars": [
-    {
-     "take": "tori-0",
-     "model": "golf7",
-     "color": "red",
-     "t0": 6.5
-    },
-    {
-     "take": "tori-1",
-     "model": "octavia-rs-2020",
-     "color": "blue",
-     "t0": 6.5
-    },
-    {
-     "take": "tori-2",
-     "model": "e30",
-     "color": "white",
-     "t0": 6.5
-    },
-    {
-     "take": "tori-3",
-     "model": "carla-ford-mustang",
-     "color": "black",
-     "t0": 6.5
-    },
-    {
-     "take": "tori-6",
-     "model": "v60",
-     "color": "silver",
-     "t0": 6.5
-    },
-    {
-     "take": "tori-7",
-     "model": "carla-mini-cooper-s-2021",
-     "color": "beige",
-     "t0": 6.5
-    }
-   ],
-   "ease": "smooth",
-   "keys": [
-    [
-     23459700.1,
-     6704581.5,
-     46,
-     0,
-     0,
-     50
-    ],
-    [
-     23459800,
-     6704640,
-     110,
-     0,
-     0,
-     52
-    ],
-    [
-     23460050,
-     6704760,
-     280,
+     -7.5,
+     -7,
+     0.5,
      0,
      0,
      55
     ],
     [
-     23460450,
-     6704930,
-     520,
+     -5.5,
+     -7.5,
+     0.6,
      0,
      0,
-     58
+     55
     ]
    ],
    "target": [
     [
-     23459654,
-     6704628,
-     6
+     0,
+     3,
+     2.6
     ],
     [
-     23459640,
-     6704600,
-     6
-    ],
-    [
-     23459500,
-     6704400,
-     0
-    ],
-    [
-     23459000,
-     6703900,
-     0
+     0,
+     3,
+     2.6
     ]
    ]
   },
   {
-   "id": "D5a",
-   "duration": 0.8,
-   "hour": 13,
+   "id": "D4",
+   "duration": 2.0,
+   "hour": 18.9,
    "weather": "clear",
    "traffic": 0,
-   "note": "Triplet 1/3: Aurakatu towards the bridge, noon",
+   "sceneryRadius": 2000,
+   "note": "Riverside walkway: tracking from over the river while the car runs along the east-bank quay at 45-73 km/h",
    "cars": [
     {
-     "take": "d2-bridge",
-     "model": "octavia-rs-2020",
-     "color": "blue",
-     "t0": 2.2
-    }
-   ],
-   "follow": {
-    "car": 0,
-    "frame": "heading",
-    "smooth": 0.1
-   },
-   "ease": "linear",
-   "keys": [
-    [
-     0,
-     -5.6,
-     1.15,
-     0,
-     -4,
-     60
-    ],
-    [
-     0,
-     -5.2,
-     1.05,
-     0,
-     -3,
-     62
-    ]
-   ]
-  },
-  {
-   "id": "D5b",
-   "duration": 0.8,
-   "hour": 19.3,
-   "weather": "clear",
-   "traffic": 0,
-   "note": "Triplet 2/3: same path, sunset",
-   "cars": [
-    {
-     "take": "d2-bridge",
-     "model": "carla-ford-mustang",
+     "take": "d4-quay-2",
+     "model": "golf7",
      "color": "red",
-     "t0": 2.2
+     "t0": 2.3
     }
    ],
    "follow": {
     "car": 0,
-    "frame": "heading",
-    "smooth": 0.1
+    "frame": "world",
+    "smooth": 0.2
    },
    "ease": "linear",
    "keys": [
     [
+     -2.2,
+     16.9,
+     2.5,
      0,
-     -5.6,
-     1.15,
      0,
-     -4,
-     60
+     40
     ],
     [
+     -1.0,
+     15.0,
+     2.2,
      0,
-     -5.2,
-     1.05,
      0,
-     -3,
-     62
+     40
     ]
-   ]
-  },
-  {
-   "id": "D5c",
-   "duration": 0.8,
-   "hour": 22.5,
-   "weather": "clear",
-   "traffic": 0,
-   "note": "Triplet 3/3: same path, night with headlights",
-   "cars": [
-    {
-     "take": "d2-bridge",
-     "model": "model-y",
-     "color": "white",
-     "t0": 2.2,
-     "lights": 1
-    }
    ],
-   "follow": {
-    "car": 0,
-    "frame": "heading",
-    "smooth": 0.1
-   },
-   "ease": "linear",
-   "keys": [
+   "target": [
     [
-     0,
-     -5.6,
-     1.15,
-     0,
-     -4,
-     60
+     1.8,
+     0.9,
+     0.4
     ],
     [
-     0,
-     -5.2,
-     1.05,
-     0,
-     -3,
-     62
+     1.8,
+     0.9,
+     0.4
     ]
    ]
   },
@@ -513,7 +369,282 @@
      1,
      42
     ]
+   ],
+   "sceneryRadius": 2000
+  },
+  {
+   "id": "T1a",
+   "duration": 2.1,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "note": "Tori donuts from the cobbles: wide lens low on the paving, one car circles past the lens, five more behind, Orthodox church beyond",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 5.0
+    },
+    {
+     "take": "tori-1",
+     "model": "octavia-rs-2020",
+     "color": "white",
+     "t0": 5.0
+    },
+    {
+     "take": "tori-2",
+     "model": "e30",
+     "color": "silver",
+     "t0": 5.0
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "blue",
+     "t0": 5.0
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 5.0
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "beige",
+     "t0": 5.0
+    }
+   ],
+   "ease": "linear",
+   "keys": [
+    [
+     23459657.6,
+     6704585.6,
+     5.95,
+     352,
+     5,
+     78
+    ],
+    [
+     23459656.4,
+     6704585.9,
+     5.95,
+     342,
+     5,
+     78
+    ]
    ]
+  },
+  {
+   "id": "T1b",
+   "duration": 3.5,
+   "hour": 17.8,
+   "weather": "clear",
+   "traffic": 0,
+   "sceneryRadius": 2000,
+   "note": "Tori donuts: six real-physics donuts, oblique orbiting drone at 25 m, Orthodox church at the top",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 7.1
+    },
+    {
+     "take": "tori-1",
+     "model": "octavia-rs-2020",
+     "color": "white",
+     "t0": 7.1
+    },
+    {
+     "take": "tori-2",
+     "model": "e30",
+     "color": "silver",
+     "t0": 7.1
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "blue",
+     "t0": 7.1
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 7.1
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "beige",
+     "t0": 7.1
+    }
+   ],
+   "ease": "linear",
+   "keys": [
+    [
+     23459673.5,
+     6704574.8,
+     25,
+     0,
+     0,
+     52
+    ],
+    [
+     23459683.8,
+     6704580.4,
+     25,
+     0,
+     0,
+     52
+    ],
+    [
+     23459692.6,
+     6704588.2,
+     24.5,
+     0,
+     0,
+     52
+    ]
+   ],
+   "target": [
+    [
+     23459654,
+     6704621,
+     6
+    ],
+    [
+     23459654,
+     6704621,
+     6
+    ],
+    [
+     23459654,
+     6704621,
+     6
+    ]
+   ]
+  },
+  {
+   "id": "C1",
+   "duration": 8.4,
+   "hour": 17.8,
+   "hourKeys": [
+    [
+     0,
+     17.8
+    ],
+    [
+     0.096,
+     17.8
+    ],
+    [
+     0.327,
+     19.3
+    ],
+    [
+     0.481,
+     20.2
+    ],
+    [
+     0.615,
+     21.4
+    ],
+    [
+     0.75,
+     22.0
+    ],
+    [
+     1,
+     22.0
+    ]
+   ],
+   "weather": "clear",
+   "traffic": 40,
+   "scenery": true,
+   "note": "Pull-back from directly above the Tori donuts to the whole city, golden hour through sunset to night: 1 s handle, 5.4 s move (hour 17.8 at the cut, 21.4 at its end), 1 s handle, then 3 s of slow night drift (hour 22.0) for the end card; clip 10.4 s. View distance 8 km. The frame top stays about 13 degrees below the horizon.",
+   "cars": [
+    {
+     "take": "tori-0",
+     "model": "golf7",
+     "color": "red",
+     "t0": 10.6
+    },
+    {
+     "take": "tori-1",
+     "model": "octavia-rs-2020",
+     "color": "white",
+     "t0": 10.6
+    },
+    {
+     "take": "tori-2",
+     "model": "e30",
+     "color": "silver",
+     "t0": 10.6
+    },
+    {
+     "take": "tori-3",
+     "model": "carla-ford-mustang",
+     "color": "blue",
+     "t0": 10.6
+    },
+    {
+     "take": "tori-6",
+     "model": "v60",
+     "color": "black",
+     "t0": 10.6
+    },
+    {
+     "take": "tori-7",
+     "model": "carla-mini-cooper-s-2021",
+     "color": "beige",
+     "t0": 10.6
+    }
+   ],
+   "drift": [
+    0.635,
+    0.93,
+    0.35
+   ],
+   "keys": [
+    [
+     23459660.2,
+     6704627.4,
+     78,
+     252,
+     -84,
+     50
+    ],
+    [
+     23459722,
+     6704651.2,
+     150,
+     246,
+     -62,
+     50
+    ],
+    [
+     23459898.2,
+     6704761.2,
+     330,
+     239,
+     -47,
+     50
+    ],
+    [
+     23460243.6,
+     6705051.9,
+     620,
+     234,
+     -38,
+     50
+    ]
+   ],
+   "draftPartial": true
   }
  ]
 }

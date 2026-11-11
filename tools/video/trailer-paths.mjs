@@ -7,6 +7,11 @@ const EASE={
  in:t=>t*t,
  out:t=>1-(1-t)*(1-t),
 };
+// A move that reaches path fraction b at clip fraction a (start slope s0) and then drifts on at constant speed.
+function settleDrift(u,[a,b,s0]){
+ const v=(1-b)/(1-a);if(u>=a)return b+(u-a)*v;
+ const x=u/a,x2=x*x,x3=x2*x;return (x3-2*x2+x)*a*s0+(-2*x3+3*x2)*b+(x3-x2)*a*v;
+}
 function spline(points,k,t,wrap){
  const n=points.length;if(n===1)return points[0][k]??0;
  const values=points.map(p=>p[k]??0);
@@ -20,13 +25,14 @@ export function keysOf(shot){return shot.keys??[shot.from,...(shot.via??[]),shot
 // With an anchor (a followed car: {E,N,H,heading}) the keys and targets are offsets from it: [right, forward, up]
 // in the anchor's heading frame (follow.frame 'heading', yaw relative to the heading) or [dE, dN, dH] ('world').
 export function poseAt(shot,u,anchor){
- const t=(EASE[shot.ease??'cruise']??EASE.cruise)(Math.max(0,Math.min(1,u))),keys=keysOf(shot);
+ const c01=Math.max(0,Math.min(1,u)),t=shot.drift?settleDrift(c01,shot.drift):(EASE[shot.ease??'cruise']??EASE.cruise)(c01),keys=keysOf(shot);
  const pose={E:spline(keys,0,t),N:spline(keys,1,t),H:spline(keys,2,t),yaw:spline(keys,3,t,true),pitch:spline(keys,4,t),fov:spline(keys,5,t)||60,roll:spline(keys,6,t)};
  let aim=shot.target?{E:spline(shot.target,0,t),N:spline(shot.target,1,t),H:spline(shot.target,2,t)}:null;
  if(anchor){
   const world=shot.follow?.frame==='world',h=anchor.heading*Math.PI/180,c=Math.cos(h),s=Math.sin(h);
   const place=p=>world?{E:anchor.E+p.E,N:anchor.N+p.N,H:anchor.H+p.H}:{E:anchor.E+p.E*c+p.N*s,N:anchor.N-p.E*s+p.N*c,H:anchor.H+p.H};
-  Object.assign(pose,place(pose));if(!world)pose.yaw+=anchor.heading;
+  // follow.aimOnly: the camera keeps its absolute path and only the look-at target rides on the car.
+  if(!shot.follow?.aimOnly){Object.assign(pose,place(pose));if(!world)pose.yaw+=anchor.heading;}
   if(aim)aim=place(aim);
  }
  if(aim){
@@ -35,7 +41,12 @@ export function poseAt(shot,u,anchor){
  }
  return pose;
 }
-export function hourAt(shot,u){const a=shot.hour??12;return shot.hourTo==null?a:a+(shot.hourTo-a)*Math.max(0,Math.min(1,u));}
+// Hour of day along the clip: constant, a linear sweep to `hourTo`, or piecewise linear `hourKeys` [[u,hour],...].
+export function hourAt(shot,u){
+ const a=shot.hour??12,c=Math.max(0,Math.min(1,u)),k=shot.hourKeys;
+ if(k){if(c<=k[0][0])return k[0][1];for(let i=1;i<k.length;i++)if(c<=k[i][0])return k[i-1][1]+(k[i][1]-k[i-1][1])*(c-k[i-1][0])/(k[i][0]-k[i-1][0]);return k.at(-1)[1];}
+ return shot.hourTo==null?a:a+(shot.hourTo-a)*c;
+}
 export function tilesAlong(shot,n=64){
  const tiles=new Set();
  for(let k=0;k<=n;k++){const p=poseAt(shot,k/n),i=Math.floor((p.E-23459500)/250),j=Math.floor((6704500-p.N)/250);

@@ -33,7 +33,7 @@ const selected=opt('--only','').split(',').filter(Boolean),version=opt('--versio
 const handles=Number(opt('--handles',config.handles??1));
 const cdp=process.env.BROWSER_CDP;if(!cdp)throw Error('BROWSER_CDP is not set: run through host-lease/session.py');
 const log=m=>console.log(new Date().toISOString().slice(11,19),m);
-const touch=()=>spawnSync('python3',[path.join(os.homedir(),'turku3d/tools/host-lease/lease.py'),'touch',leaseName],{encoding:'utf8'}).status;
+const touch=()=>leaseName==='none'?0:spawnSync('python3',[path.join(os.homedir(),'turku3d/tools/host-lease/lease.py'),'touch',leaseName],{encoding:'utf8'}).status;
 const iso=(shot,hour)=>{const h=((hour%24)+24)%24,total=Math.round(h*3600),p=n=>String(n).padStart(2,'0');
  return `${shot.date??config.date??'2026-09-08'}T${p(Math.floor(total/3600))}:${p(Math.floor(total%3600/60))}:${p(total%60)}+03:00`;};
 const browser=await chromium.connectOverCDP(cdp),ctx=browser.contexts()[0];
@@ -102,6 +102,21 @@ async function installCars(shot){
 }
 // The static OCI host marks some full products stale and never rebuilds them: accept them, and report them.
 async function acceptStale(){
+ // The static host has no product for some cells at the edge of the generated world (`missing`): they can never
+ // load, so the rule is that none of them lies inside the camera frustum (nothing missing in frame).
+ await page.evaluate(async()=>{
+  const {sceneryBounds}=await import('/src/world/sceneryView.ts');
+  window.__trailerScenery=()=>{
+   const s=window.__game.scenery,p=s?.progress;if(!p)return{ok:true,missing:0,inFrame:0};
+   const cam=window.__render.camera;cam.updateMatrixWorld();const m=cam.projectionMatrix.clone().multiply(cam.matrixWorldInverse).elements;
+   const outside=id=>{const b=sceneryBounds(id),c=[];
+    for(const x of [b.x,b.x+b.size])for(const z of [b.z,b.z+b.size])for(const y of [-30,160])c.push([m[0]*x+m[4]*y+m[8]*z+m[12],m[1]*x+m[5]*y+m[9]*z+m[13],m[3]*x+m[7]*y+m[11]*z+m[15]]);
+    return c.every(q=>q[2]<=0)||c.every(q=>q[0]<-q[2])||c.every(q=>q[0]>q[2])||c.every(q=>q[1]<-q[2])||c.every(q=>q[1]>q[2]);};
+   const missing=s.footprint.filter(id=>s.unavailable.has(id)&&!s.detailed(id)),inFrame=missing.filter(id=>!outside(id));
+   const committed=s.wanted.every(id=>s.entries.get(id)?.model?.visible);
+   return{ok:p.ready||(committed&&!p.batching&&!p.partial&&!p.pending&&!p.errors&&!p.cataloguePending&&p.loaded===p.total&&!inFrame.length),missing:missing.length,inFrame:inFrame.length};
+  };
+ });
  await page.evaluate(()=>{
   const s=window.__game.scenery;if(!s||s.__acceptStale||new URLSearchParams(location.search).has('acceptStale'))return;
   const request=s.request.bind(s);s.__acceptStale=true;
@@ -126,17 +141,17 @@ async function settle(shot,u,label){
    const full=id=>{const e=c.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
    return{ready:window.__qaReady,error:window.__qaError,view:v.ready,near:v.near.length,notReady:v.near.filter(e=>!full(e.id)).map(e=>e.id),
     staleNear:v.near.filter(e=>c.entries.get(e.id)?.stale).map(e=>e.id),
-    scenery:sc.ready,sceneryLoaded:`${sc.loaded}/${sc.total}`,vegetation:g.vegetation?.pending?.size??0,
+    scenery:window.__trailerScenery().ok,missing:window.__trailerScenery().missing,missingInFrame:window.__trailerScenery().inFrame,sceneryLoaded:`${sc.loaded}/${sc.total}`,vegetation:g.vegetation?.pending?.size??0,
     queue:(gr?.waiting??[]).reduce((a,b)=>a+b,0)+(gr?.actors?.waiting??[]).reduce((a,b)=>a+b,0)+(gr?.active?1:0)+(gr?.actors?.active?1:0),
     stream:(st?.pending??0)+(st?.installing??0)+(st?.previews??0)};});
   if(state.error?.startsWith('timeout'))await page.evaluate(pose=>window.__qaMove(pose),pose);
   else if(state.error)throw Error(`${shot.id}: ${state.error}`);
   // Jonni 2026-11-11: the whole visible world resident before any frame: near tiles full, scenery complete,
   // vegetation placed, the graphics (program build) queues and the tile stream idle, no asset request in flight.
-  const idle=draft?(shot.allowPartial||(state.ready&&!state.notReady.length))&&!state.vegetation&&!inflight.size&&(shot.scenery?state.scenery:true)
+  const idle=draft?(shot.allowPartial||shot.draftPartial||(state.ready&&!state.notReady.length))&&!state.vegetation&&!inflight.size&&(shot.scenery?state.scenery||state.sceneryLoaded.split('/')[0]===state.sceneryLoaded.split('/')[1]:true)
    :state.ready&&!state.notReady.length&&state.scenery&&!state.vegetation&&!state.queue&&!state.stream&&!inflight.size;
   quiet=idle?quiet+1:0;if(quiet>=3)break;
-  if((Date.now()-start)%20000<750)log(`  waiting ${shot.id}@${u}: near ${state.near-state.notReady.length}/${state.near} scenery ${state.sceneryLoaded} queue ${state.queue} stream ${state.stream} veg ${state.vegetation} inflight ${inflight.size}`);
+  if((Date.now()-start)%20000<750)log(`  waiting ${shot.id}@${u}: ready ${state.ready} near ${state.near-state.notReady.length}/${state.near} scenery ${state.sceneryLoaded} missing ${state.missing} (in frame ${state.missingInFrame}) queue ${state.queue} stream ${state.stream} veg ${state.vegetation} inflight ${inflight.size}`);
   await page.waitForTimeout(700);
  }
  if(quiet<3){if(!flag('--lenient')&&!draft)throw Error(`settle timeout ${shot.id}@${u}: ${JSON.stringify(state)} inflight=${inflight.size}`);log(`WARN ${shot.id}@${u} not settled: ${JSON.stringify(state).slice(0,300)}`);}
@@ -146,7 +161,7 @@ async function settle(shot,u,label){
 }
 // One exact frame at shot time t (seconds from clip start, may be negative during warm-up).
 async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
- const pose=poseAt(shot,u,clip),time=shot.hourTo==null?null:iso(shot,hourAt(shot,u)),cars=shot.cars?.length||shot.walker?carsAt(shot,clip):null,walk=walkAt(shot,clip);
+ const pose=poseAt(shot,u,clip),time=shot.hourTo==null&&!shot.hourKeys?null:iso(shot,hourAt(shot,u)),cars=shot.cars?.length||shot.walker?carsAt(shot,clip):null,walk=walkAt(shot,clip);
  return page.evaluate(({pose,seconds,time,hold,cars,dt,walk})=>new Promise((resolve,reject)=>{
   const r=window.__render,g=window.__game;
   if(time)r.setTime(time);
@@ -158,7 +173,10 @@ async function frame(shot,u,seconds,hold,clip=clipSeconds(shot,u)){
   r.afterFrame=()=>{r.beforeFrame=()=>false;r.afterFrame=undefined;clearTimeout(timer);
    const c=r.camera.position,v=hold?null:g.coarse.viewStatus(c.x,c.z),k=g.coarse;
    const full=id=>{const e=k.entries.get(id);return e?.state==='none'||(!!e?.model&&!e.preview&&e.pass==='full');};
-   resolve({sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(v.scenery.ready||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null});};
+   // Camera height above the streamed ground, and above the wheels' ground of every replayed car nearby.
+   let clear=c.y-k.groundBelow(c.x,c.z);if(!Number.isFinite(clear))clear=null;
+   for(const s of cars??[])if(Math.hypot(s.pos.x-c.x,s.pos.z-c.z)<30){const d=c.y-(s.pos.y-.62);clear=clear==null?d:Math.min(clear,d);}
+   resolve({clear,sim:g.clock.simSeconds,ready:v?v.near.every(e=>full(e.id))&&(window.__trailerScenery().ok||!!window.__trailerDraft):true,scenery:v?`${v.scenery.loaded}/${v.scenery.total}`:null,missingInFrame:v?window.__trailerScenery().inFrame:0,missing:v?window.__trailerScenery().missing:0});};
  }),{pose,seconds,time,hold,cars,walk,dt:1/fps/Math.max(1,sub)});
 }
 const shot1=async()=>Buffer.from((await session.send('Page.captureScreenshot',{format:'jpeg',quality:still?95:draft?90:98,captureBeyondViewport:false})).data,'base64');
@@ -211,7 +229,7 @@ try{
   const encoder=spawn('ffmpeg',['-hide_banner','-loglevel','error','-y','-f','image2pipe','-vcodec','mjpeg','-framerate',String(fps),'-i','pipe:0','-an',...vf,
    '-c:v','libx264','-preset',draft?'veryfast':'slow','-crf',String(opt('--crf',draft?'18':'10')),'-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-movflags','+faststart',file],{stdio:['pipe','inherit','inherit']});
   const closed=once(encoder,'close');encoder.stdin.on('error',()=>{});
-  const receipts=[];let resettled=0,duplicates=0,lastHash='';
+  const receipts=[];let resettled=0,duplicates=0,lastHash='',minClear=Infinity,maxMissing=0;
   for(let f=0;f<count;f++){
    const u=count>1?f/(count-1):0,t=t0+f/fps;
    let bytes;
@@ -228,7 +246,11 @@ try{
     let state=await frame(shot,u,t,false);
     if(!state.ready&&!shot.allowPartial&&!draft){resettled++;await settle(shot,u);state=await frame(shot,u,t,false);}
     bytes=await shot1();
+    if(state.clear!=null)minClear=Math.min(minClear,state.clear);
+    // Never ship a frame from under the ground (Jonni 2026-11-11).
+    if(state.clear!=null&&state.clear<(shot.minClear??.2)){const m=`${shot.id}: camera ${state.clear.toFixed(2)} m above ground at frame ${f}`;if(!draft)throw Error(m);if(f%30===0)log(`WARN ${m}`);}
     if(f%60===0)receipts.push({frame:f,u,...state});
+    maxMissing=Math.max(maxMissing,state.missing??0);
    }
    const hash=createHash('md5').update(bytes).digest('hex');if(hash===lastHash)duplicates++;lastHash=hash;
    if(f===Math.floor(count/2))fs.writeFileSync(path.join(dir,`${v}-mid.jpg`),bytes);
@@ -243,10 +265,10 @@ try{
   const kept=(dec.stderr.match(/Parsed_showinfo.*pts_time/g)??[]).length;
   const freeze=spawnSync('ffmpeg',['-hide_banner','-i',file,'-vf','freezedetect=n=-70dB:d=0.03','-f','null','-'],{encoding:'utf8',maxBuffer:1<<28});
   const cadence={stream:JSON.parse(probe.stdout||'{}').streams?.[0],expectedFrames:count,exactDuplicateCaptures:duplicates,mpdecimateDropped:count-kept,freezes:(freeze.stderr.match(/freeze_start/g)??[]).length};
-  const pass=resettled===0&&duplicates===0&&cadence.freezes===0&&Number(cadence.stream?.nb_read_frames)===count;
+  const pass=resettled===0&&duplicates===0&&cadence.freezes===0&&minClear>=(shot.minClear??.2)&&Number(cadence.stream?.nb_read_frames)===count;
   fs.writeFileSync(path.join(dir,`${v}.json`),JSON.stringify({tier,pass:draft?null:pass,size:`${width}x${height}`,shot,file,fps,frames:count,handles,scale,sub,preset:shot.quality??quality,overrides:{motion:1,hud:0,traffic:loadedKey.split('|')[0],walkers:loadedKey.split('|')[1],...(config.params??{}),...(shot.params??{})},base,wallSeconds:wall,readySeconds:readyWall,frameSeconds:frameWall,sceneryRadius:shot.sceneryRadius??(draft?'preset':8000),
-   readiness:{rule:'qaReady, near tiles full/non-preview/non-stale, scenery.ready, vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
-  log(`${shot.id} ${v} checks: pass=${pass} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
+   unavailableCellsOutsideFrame:maxMissing,minCameraClearance:Number.isFinite(minClear)?+minClear.toFixed(2):null,readiness:{rule:'qaReady, near tiles full/non-preview, far scenery complete (every wanted cell loaded, visible and full; cells the host marks stale are accepted; cells the host has no product for must lie outside the camera frustum), vegetation pending 0, graphics queues idle, stream idle, no asset request in flight; asserted at path stations before frame 0 and per captured frame (viewStatus.ready)',framesResettled:resettled},cadence,receipts,errors:failures.splice(0)},null,1));
+  log(`${shot.id} ${v} checks: pass=${pass} minClear=${Number.isFinite(minClear)?minClear.toFixed(2):'n/a'} resettled=${resettled} exactDup=${duplicates} mpdecimateDropped=${cadence.mpdecimateDropped} freezes=${cadence.freezes} frames=${cadence.stream?.nb_read_frames}/${count}`);
   // Contact sheet: 8 frames across the clip.
   spawnSync('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',file,'-vf',`select='not(mod(n\\,${Math.max(1,Math.floor(count/8))}))',scale=640:-1,tile=4x2`,'-frames:v','1','-q:v','3',path.join(dir,`${v}-contact.jpg`)]);
   log(`captured ${shot.id} ${v}: ${count} frames in ${wall.toFixed(0)}s total; frames only ${frameWall.toFixed(0)}s = ${(frameWall/duration).toFixed(1)} s per clip second; ready after ${readyWall.toFixed(0)}s`);
