@@ -1,6 +1,6 @@
 # The published game at https://city.madekivi.fi, served by OCI (ubuntu@82.70.50.61) alone: nothing at runtime
-# reaches osgallery-dev, which only seeds files (export-oci.mjs, tools/share/deploy.sh).
-#   /srv/turku3d/citylab/www          the game (deploy.sh) and the exported tiles, scenery and navigation
+# reaches osgallery-dev. Frozen since 2026-11-12 at 63b0b015; no further seeding or uploads.
+#   /srv/turku3d/citylab/www          the frozen game and exported tiles, scenery and navigation
 #   127.0.0.1:7782 citylab-mp         multiplayer: WebSocket upgrades, /live.json, /scores/
 #   127.0.0.1:7783 citylab-api        the distant-scenery catalogues (/coarse/scenery?tiles=, /cities/<name>/coarse/...)
 # Other cities live at /cities/<name>/coarse/ (game/src/core/city.ts), exported with export-oci.mjs --mount; a city's
@@ -9,7 +9,7 @@
 # want 404: the game asks again once a minute), and a tile that was not exported is unbuildable (422), so the game
 # draws nothing there and never asks again. Headers mirror tools/dev/serve-dist.mjs --public.
 # city.lab.madekivi.fi still points at osgallery-dev; its block here (tls internal) is for --resolve tests only.
-# deploy.sh installs it as /srv/turku3d/citylab/oci/Caddyfile; citylab-web.service runs it (own caddy copy, admin
+# Frozen installed copy: /srv/turku3d/citylab/oci/Caddyfile; citylab-web.service runs it (own caddy copy, admin
 # localhost:2020) and citylab-web-reload.path reloads it on change. Units: tools/share/oci/units (installed by hand).
 {
 	admin localhost:2020

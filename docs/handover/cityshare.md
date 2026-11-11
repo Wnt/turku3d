@@ -5,6 +5,30 @@ It runs entirely on osgallery-dev as systemd user units (linger), so the Mac can
 browser check in Chrome on 2026-11-04 passed: WebGPU, cross-origin isolation, 920 tile responses, multiplayer
 connected, no console errors.
 
+## Frozen city.madekivi.fi release (2026-11-12)
+
+Only **city.lab.madekivi.fi** receives development releases. **city.madekivi.fi** stays
+at `63b0b01569582716bdcff059f12918d47ab8d523`, together with the tiles, scenery,
+navigation, assets and server sources already on OCI at the freeze. Its world is a
+static export: the client's historical `follow: train` metadata does not make it
+follow new farm versions. Unexported areas stay unavailable. Multiplayer sessions
+and scores continue normally; they are gameplay state, not release updates.
+
+The OCI `citylab-export.timer` and `citylab-export.service` are stopped and masked;
+the osgallery-dev `citylab-oci-tunnel.service` is stopped and masked. Dedicated
+OCI upload/tunnel SSH access is revoked, protecting against older deploy scripts.
+The old soundboard publisher is retired too. Keep `citylab-web`, `citylab-api` and
+`citylab-mp` running. Do not copy new files to `/srv/turku3d/citylab/` or restart
+exports. Existing runtime sources remain under `tools/share/oci/` for reference,
+not as deploy inputs for that host. The earlier Pages/OCI release stays frozen too.
+
+Check the split after a deployment:
+
+```sh
+curl -fsS https://city.madekivi.fi/version.json       # must remain 63b0b015...
+curl -fsS https://city.lab.madekivi.fi/version.json   # current integration release
+```
+
 ## Update the share
 
 From the Mac:

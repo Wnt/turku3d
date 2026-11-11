@@ -9,7 +9,7 @@
 # one flock on osgallery-dev (~/turku3d-local/city/deploy.lock), so concurrent deploys queue instead of colliding.
 # --local-build: build on this Mac instead (when osgallery-dev cannot build) and rsync the dist; same publish step.
 #
-# The build uses VITE_SHARE_HOSTS=city.lab.madekivi.fi,city.madekivi.fi (same-origin tiles, point cloud and multiplayer;
+# The build uses VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
 # game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
 # and the server sources to osgallery-dev ~/turku3d-local/city/releases/<sha>, pins the tile proxy to the local game's
 # tile version (~/turku3d/loops/integrator/tile-service.json), switches `current`, installs the units, restarts what
@@ -35,13 +35,9 @@
 # city-web and city-tiles listen on city-web.socket / city-tiles.socket (socket activation, tools/dev/systemdListen.mjs):
 # a restart drains the requests in flight and new ones wait in the held socket, so a deploy answers nobody 502.
 # The farm, scenery and COPC services the share reads run as shared-tiles, local-horizon and lidar-copc user units.
-#   citylab-oci-tunnel  reverse SSH tunnel OCI 127.0.0.1:7790 -> city-web, only for seeding OCI (export-oci.mjs)
-#
-# Published copy: https://city.madekivi.fi on OCI (ubuntu@82.70.50.61) serves the same build ALONE at runtime
-# (tools/share/oci/Caddyfile: the game, exported tiles, navigation and distant scenery from disk, its own multiplayer
-# server and scenery catalogue). After the switch this script pushes the dist, tools/share/oci and the multiplayer
-# server there (key ~/.ssh/citylab_oci_rsync, rrsync-confined to /srv/turku3d/citylab); OCI's citylab-export.timer
-# seeds newly finished tiles and scenery through the tunnel every 20 minutes. Without the key the push is skipped.
+# city.madekivi.fi is frozen at release 63b0b015 (2026-11-12). It serves its existing exported world on OCI.
+# This script deploys only city.lab.madekivi.fi; it must never upload to OCI or restart its export tunnel.
+# See docs/handover/cityshare.md for the freeze record.
 #
 # Env overrides: TURKU3D_SHARE_REPO, TURKU3D_SHARE_SSH (osgallery-dev), TURKU3D_SHARE_PIN (a tile-service.json),
 # TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir, --local-build only), TURKU3D_SHARE_FOLLOW (alias
@@ -57,8 +53,7 @@ WORK=${TURKU3D_SHARE_WORK:-$HOME/turku3d/loops/cityshare/work}
 FOLLOW=${TURKU3D_SHARE_FOLLOW-train}
 EXCLUDE=${TURKU3D_SHARE_EXCLUDE:-}
 PUBLIC_HOST=city.lab.madekivi.fi
-OCI_HOST=city.madekivi.fi
-SHARE_HOSTS=$PUBLIC_HOST,$OCI_HOST
+SHARE_HOSTS=$PUBLIC_HOST
 LOCAL_BUILD=0
 if [ "${1:-}" = "--local-build" ]; then LOCAL_BUILD=1; shift; fi
 REV=${1:-local/loop-integration}
@@ -218,24 +213,6 @@ else
   echo 'city-tiles and city-web keep running (same code; the new game is served from current/dist)'
 fi
 if [[ " $changed " == *' city-forwarder '* ]]; then systemctl --user restart city-forwarder; else systemctl --user start city-forwarder; fi
-if [ -f "$HOME/.ssh/citylab_oci_tunnel" ]; then
-  systemctl --user enable -q citylab-oci-tunnel
-  if [[ " $changed " == *' citylab-oci-tunnel '* ]]; then systemctl --user restart citylab-oci-tunnel; else systemctl --user start citylab-oci-tunnel; fi
-fi
-# The published copy on OCI (city.madekivi.fi): assets first and the page last, so a page never names a file OCI lacks;
-# earlier builds' assets stay (no --delete). A changed Caddyfile, citylab-api.mjs or server.tree restarts what reads it
-# there (path units in tools/share/oci/units). Checksums keep an unchanged server.tree from restarting citylab-mp.
-if [ -f "$HOME/.ssh/citylab_oci_rsync" ]; then
-  E="ssh -i $HOME/.ssh/citylab_oci_rsync -o IdentitiesOnly=yes -o UserKnownHostsFile=$HOME/.ssh/citylab_oci_known_hosts -o StrictHostKeyChecking=yes -o ConnectTimeout=10"
-  O=ubuntu@82.70.50.61 D=$C/current/dist
-  # Not fatal here: city.lab is switched already; the summary below warns when OCI serves another build.
-  { rsync -a -e "$E" --exclude /index.html --exclude /index.html.br "$D/" "$O:www/" \
-    && rsync -a -e "$E" "$D"/index.html* "$O:www/" \
-    && rsync -rlc --delete -e "$E" "$C/current/src/tools/share/oci/" "$O:oci/" \
-    && rsync -rlc --delete --exclude /tests -e "$E" "$C/mp/src/server/" "$O:mp/server/" \
-    && rsync -c -e "$E" "$C/mp/src/server.tree" "$O:mp/server.tree"; } \
-    && echo 'published to OCI (city.madekivi.fi)' || echo 'WARNING: publishing to OCI failed'
-fi
 keep="$(readlink "$C/current") $(readlink "$C/mp") $(readlink "$C/web")"
 ls -1dt "$C"/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
   case " $keep " in *" releases/$(basename "$old") "*) ;; *) rm -rf "$old";; esac
@@ -250,6 +227,4 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "$live" = "$SHA" ] || { say "FAILED: https://$PUBLIC_HOST/version.json serves '${live:-nothing}'"; exit 1; }
 health=$(curl -fsS -m 5 "https://$PUBLIC_HOST/coarse/health" || true)
-oci=$(curl -fsS -m 5 "https://$OCI_HOST/version.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' 2>/dev/null || true)
-[ "$oci" = "$SHA" ] && say "published at https://$OCI_HOST/" || say "WARNING: https://$OCI_HOST/version.json serves '${oci:-nothing}'"
 say "live at https://$PUBLIC_HOST/ (tiles ${FOLLOW:+newest finished $FOLLOW<N>, else }$VERSION, /coarse/health $health)"

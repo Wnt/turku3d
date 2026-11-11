@@ -29,6 +29,7 @@ Use English for code, comments, documentation, commits, progress updates and fin
        Windows.
      - Forward only: make at most one fix, then report to the coordinator.
   5. No rollbacks.
+- `city.madekivi.fi` is frozen at release `63b0b015` from 2026-11-12: no client/server uploads, tile/scenery exports or soundboard publication. Only `city.lab.madekivi.fi` receives next-generation experiments. Do not re-enable OCI export units or its retired deployment/tunnel credentials.
 - The published Pages game and its OCI tiles stay frozen. Never merge into `main`, never push, never run
   `codex-task finish` or `land`, and never deploy to Pages or OCI. Work on your own `local/*` branch; kept work is
   merged into `local/loop-integration` (by you or the integrator).

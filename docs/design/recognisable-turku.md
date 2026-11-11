@@ -311,8 +311,9 @@ For every slice:
    one hard 30-second budget. Commit with the project coauthor trailer.
 3. Merge the selected commits into the actual live `local/loop-integration` using
    `~/turku3d/tools/codex-loop/merge.py`, then immediately package/upload using
-   `tools/share/deploy.sh` through the existing coordination wrapper. This also mirrors
-   the existing city.madekivi.fi copy; the old Pages/turku.lab deployment stays untouched.
+   `tools/share/deploy.sh` through the existing coordination wrapper. Deploy only to
+   city.lab.madekivi.fi. city.madekivi.fi is frozen at 63b0b015, including its exported
+   world and server; the old Pages/turku.lab release remains frozen too.
    Register generator changes against the existing base/rebuild history with
    `scripts/dev/tile-migrate`, retaining on-demand content-addressed products.
 4. Curl smoke within five seconds; inspect rolling pass failures/cancellations/latency.

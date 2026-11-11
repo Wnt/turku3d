@@ -1,9 +1,0 @@
-[Unit]
-Description=Seed city.madekivi.fi every 20 minutes
-
-[Timer]
-OnBootSec=5min
-OnUnitInactiveSec=20min
-
-[Install]
-WantedBy=timers.target

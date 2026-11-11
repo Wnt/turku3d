@@ -1,5 +1,5 @@
 [Unit]
-Description=city.madekivi.fi multiplayer server (server/index.js, deployed by tools/share/deploy.sh) on 127.0.0.1:7782
+Description=city.madekivi.fi multiplayer server (frozen server/index.js at 63b0b015) on 127.0.0.1:7782
 After=network-online.target
 
 [Service]
