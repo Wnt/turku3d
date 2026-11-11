@@ -825,7 +825,7 @@ async function runQa() {
   let settleStart = clock.simSeconds;
   window.__qaMove = pose => {
     Object.assign(q, { E: pose.E, N: pose.N, H: pose.H, yawDeg: pose.yaw,
-      pitchDeg: pose.pitch, fovDeg: pose.fov });
+      pitchDeg: pose.pitch, fovDeg: pose.fov, rollDeg: (pose as { roll?: number }).roll ?? q.rollDeg });
     applyQaCamera();
     window.__qaPose = { ...pose, roll: q.rollDeg };
     env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
