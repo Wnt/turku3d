@@ -13,28 +13,31 @@
   "T1b",
   "T1a",
   "H1",
+  "W1",
   "D1",
   "D2",
   "D4"
  ],
  "variants": [
   "H1-slow",
-  "H1-low",
   "C1-low",
   "T1b-14m",
   "T1a-high",
-  "H1-high",
+  "H1-low",
   "P1-11m",
+  "W1-back",
   "C1-late",
-  "T1b-rev",
   "T1a-track",
-  "D1-front",
+  "H1-high",
+  "T1b-rev",
   "D2-front",
+  "D1-front",
   "D4-front",
   "P1-dawn",
   "C1-low-late",
   "P1-11m-dawn"
  ],
  "extra": [],
- "note": "rev 3 = after the canvas-grab fix (earlier server frames were black); W1, W1-back and D3 wait for their drafts"
+ "note": "rev 3 = after the canvas-grab fix (earlier server frames were black); D3 waits for its draft; W1 is captured either way (parked E30 on the quay is the fallback composition)",
+ "W1": 3
 }
