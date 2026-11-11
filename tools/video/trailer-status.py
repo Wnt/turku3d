@@ -6,6 +6,8 @@ import json, os, re, sys, time
 
 ROOT = os.path.expanduser('~/turku3d/video/2026-11-11-trailer')
 SHOTS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trailer-shots.json')))['shots']
+# Shots that exist only in the recapture list (2026-11-11 afternoon) follow the storyboard ones.
+SHOTS += [s for s in json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'trailer-recapture.json')))['shots'] if s['id'] not in {x['id'] for x in SHOTS}]
 ORDER = [s['id'] for s in SHOTS]
 VARIANT = {s['id']: s.get('variant') for s in SHOTS}
 notes = json.load(open(sys.argv[1])) if len(sys.argv) > 1 else {}
@@ -38,6 +40,11 @@ def cell(found):
             verdict += ', strict pass' if s.get('pass') else f', {again} frames re-settled before capture'
         text += f", {verdict}, grab {s.get('grab')}"
     text += f", {c.get('stream', {}).get('nb_read_frames')}/{c.get('expectedFrames')} frames, {c.get('exactDuplicateCaptures')} dup, {c.get('freezes')} freezes"
+    m = s.get('motion')
+    if m:
+        text += f", motion {'pass' if m.get('pass') else 'FAIL'} ({m.get('subject')}: rendered {(m.get('rendered') or {}).get('rms')} px rms, pixels median {(m.get('pixels') or {}).get('median')} px)"
+    elif s.get('shot', {}).get('cars'):
+        text += ', no motion check (replayed on the recorded time stamps)'
     if s.get('minCameraClearance') is not None:
         text += f", camera {s['minCameraClearance']} m above ground"
     if s.get('tier') == 'final':
