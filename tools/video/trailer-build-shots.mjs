@@ -107,7 +107,7 @@ add('H1-high',1,{...H1,minClear:.2,keys:h1High,variant:'three-quarter view from 
 
 // ---- D1 launch ----
 const launch={take:'rantakatu-launch',...HERO,t0:4.2};
-const D1={duration:1.6,hour:18.2,...common,cars:[launch],follow:{car:0,frame:'heading',smooth:.1},keys:[[1.5,-3.8,-.27,-8,4,80],[1.5,-3.4,-.27,-9,4,80]],
+const D1={duration:1.6,hour:18.2,...common,cars:[launch],follow:{car:0,frame:'heading',smooth:.1},keys:[[1.5,-3.8,-.27,-8,9,80],[1.5,-3.4,-.27,-9,9,80]],
  note:'Launch at full throttle on Lantinen Rantakatu (76-95 km/h): lens 0.35 m above the paving, 1.5 m right of the car axis, 80 degree lens'};
 add('D1',0,D1);
 add('D1-front',1,{...D1,keys:[[-1.4,5.5,-.2,168,3,70],[-1.4,4.6,-.2,168,3,70]],variant:'low front three-quarter, lens ahead of the car looking back'});
