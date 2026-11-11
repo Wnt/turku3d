@@ -31,7 +31,12 @@ def cell(found):
     c = s.get('cadence', {})
     text = f"`{name}.mp4` {s.get('size')} {s.get('preset')}"
     if s.get('tier') == 'final' or name.startswith('s'):
-        text += f", {'PASS' if s.get('pass') else 'FAIL'}, grab {s.get('grab')}"
+        clean = c.get('exactDuplicateCaptures') == 0 and c.get('freezes') == 0 and str(c.get('stream', {}).get('nb_read_frames')) == str(c.get('expectedFrames'))
+        again = (s.get('readiness') or {}).get('framesResettled') if isinstance(s.get('readiness'), dict) else None
+        verdict = 'cadence clean' if clean else 'CADENCE FAULT'
+        if s.get('tier') == 'final':
+            verdict += ', strict pass' if s.get('pass') else f', {again} frames re-settled before capture'
+        text += f", {verdict}, grab {s.get('grab')}"
     text += f", {c.get('stream', {}).get('nb_read_frames')}/{c.get('expectedFrames')} frames, {c.get('exactDuplicateCaptures')} dup, {c.get('freezes')} freezes"
     if s.get('minCameraClearance') is not None:
         text += f", camera {s['minCameraClearance']} m above ground"
