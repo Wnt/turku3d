@@ -5,6 +5,8 @@ import { expect, it } from 'vitest';
 import { readPreparedScene, buildPreparedModel } from '../../src/world/preparedScene';
 import { GroundIndex } from '../../src/world/groundIndex';
 import { readCol } from '../../src/physics/colTile';
+import { prepareLighting } from '../../src/render/lights/preparedLighting';
+import { poolLamp } from '../../src/render/lights/pools';
 
 it('installs the shipped prepared release with matching collider identities and bounded material draws', async () => {
   const path = resolve(process.env.PREPARED_SCENE_PATH ?? 'public/scenes/office.scene.json');
@@ -49,6 +51,19 @@ it('installs the shipped prepared release with matching collider identities and 
     const height = ground.ground(x, y + 1, z, 2);
     expect(height, 'compiled spawn must stand on its collision support').not.toBeNull();
     expect(Math.abs(height! - y)).toBeLessThan(.35);
+  }
+  const lighting = prepareLighting(scene);
+  expect(lighting.lamps).toHaveLength(scene.emitters.length);
+  for (const emitter of scene.emitters) {
+    const lamp = lighting.lamps.find(l => l.key === emitter.id)!;
+    const fixture = scene.fixtures.find(f => f.id === emitter.fixtureId)!;
+    expect(lamp.post).toBe(false);
+    expect(lamp.photometry).toEqual({ color: emitter.color, intensity: emitter.intensity, range: emitter.range, base: fixture.position[1] });
+    if (emitter.intensity > 0) expect(poolLamp(lamp)).toMatchObject({ intensity: emitter.intensity, range: emitter.range,
+      r: emitter.color[0], g: emitter.color[1], b: emitter.color[2] });
+    const [x, y, z] = fixture.position, support = ground.ground(x, y + .15, z, .3);
+    expect(support, `mapped emitter fixture ${fixture.id} needs physical support`).not.toBeNull();
+    expect(Math.abs(support! - y)).toBeLessThan(.1);
   }
   expect(triangles).toBeGreaterThan(0);
   expect(scene.meshes.filter(m => m.collision === 'solid').length).toBeGreaterThan(0);
