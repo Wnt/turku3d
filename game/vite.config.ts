@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { gameDist, port, preparedAssets, tileDist, workRoot } from '../tools/dev/environment.mjs';
+import { gameDist, port, preparedAssets, tileDist, workRoot, worldStore } from '../tools/dev/environment.mjs';
 import fs from 'node:fs';
 import { localhostGame } from '../tools/dev/localhost/vitePlugin.mjs';
 import path from 'node:path';
@@ -52,6 +52,43 @@ export default defineConfig({
         if (!/^[a-f0-9]{64}\.[a-z0-9]+$/.test(name) || !fs.existsSync(file)) return next();
         res.writeHead(200, { 'Content-Type': types[name.split('.').pop()!] ?? 'application/octet-stream',
           'Cache-Control': 'public, max-age=31536000, immutable', 'Cross-Origin-Resource-Policy': 'same-origin' });
+        fs.createReadStream(file).pipe(res);
+      });
+    },
+  }, {
+    // Dev server only: the output store of the world pipeline at /world/ (immutable objects, the mutable location
+    // manifests) and /world/events/NAME, which announces each new revision of a manifest to the page drawing it.
+    name: 'world-store',
+    configureServer(server) {
+      const types: Record<string, string> = { glb: 'model/gltf-binary', json: 'application/json', bin: 'application/octet-stream', ktx2: 'image/ktx2', png: 'image/png' };
+      const locations = path.join(worldStore, 'locations');
+      const listeners = new Map<string, Set<(revision: number) => void>>();
+      const revision = (name: string) => { try { return JSON.parse(fs.readFileSync(path.join(locations, `${name}.json`), 'utf8')).revision as number; } catch { return null; } };
+      fs.mkdirSync(locations, { recursive: true });
+      // Manifests are replaced by rename: one event per write, read once the file is whole.
+      const watcher = fs.watch(locations, (_event, file) => {
+        const name = /^([a-z0-9-]+)\.json$/.exec(file ?? '')?.[1], current = name ? revision(name) : null;
+        if (name && current !== null) for (const tell of listeners.get(name) ?? []) tell(current);
+      });
+      server.httpServer?.on('close', () => watcher.close());
+      server.middlewares.use('/world', (req, res, next) => {
+        const name = (req.url ?? '').split('?')[0].replace(/^\//, '');
+        const events = /^events\/([a-z0-9-]+)$/.exec(name)?.[1];
+        if (events) {
+          res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'Cross-Origin-Resource-Policy': 'same-origin' });
+          const tell = (current: number) => res.write(`data: ${JSON.stringify({ name: events, revision: current })}\n\n`);
+          const set = listeners.get(events) ?? new Set();
+          listeners.set(events, set.add(tell));
+          req.on('close', () => set.delete(tell));
+          const current = revision(events);
+          if (current !== null) tell(current);
+          return;
+        }
+        const immutable = /^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.[a-z0-9]+$/.test(name);
+        const file = path.join(worldStore, name);
+        if ((!immutable && !/^locations\/[a-z0-9-]+\.json$/.test(name)) || !fs.existsSync(file)) return next();
+        res.writeHead(200, { 'Content-Type': types[name.split('.').pop()!] ?? 'application/octet-stream',
+          'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-store', 'Cross-Origin-Resource-Policy': 'same-origin' });
         fs.createReadStream(file).pipe(res);
       });
     },

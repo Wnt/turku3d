@@ -7,6 +7,8 @@ const dataRoot = path.resolve(process.env.TURKU3D_DATA ?? path.join(os.homedir()
 export const workRoot = path.resolve(process.env.TURKU3D_WORK ?? dataRoot);
 /** The canonical content-addressed prepared scene objects (also packaged by tools/share/deploy.sh). */
 export const preparedAssets = path.resolve(process.env.TURKU3D_PREPARED_ASSETS ?? path.join(dataRoot, 'prepared-assets/shared'));
+/** The output store of the world pipeline: content-addressed objects and location manifests (docs/design/world-pipeline.md). */
+export const worldStore = path.resolve(process.env.TURKU3D_WORLD_STORE ?? path.join(workRoot, 'world'));
 export const gameDist = path.join(workRoot, 'build/game');
 export const checkGameDist = path.join(workRoot, 'build/check-game');
 export const tileDist = process.env.TILE_DIST ?? path.join(workRoot, 'dist/tiles');

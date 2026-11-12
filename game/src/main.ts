@@ -60,7 +60,9 @@ import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './cor
 import { cityTitle, showTransition, travelProgress } from './gameplay/travel';
 import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
-import { PreparedWorld } from './world/preparedWorld';
+import { PreparedWorld, type PreparedWorldHost } from './world/preparedWorld';
+import { LocationWorld } from './world/location/locationWorld';
+import { watchLocation, type WorldDev } from './dev/worldDev';
 import type { CoarseHost } from './world/coarseContracts';
 import { memoryCensus } from './world/memoryCensus';
 import { readCol, readColSync } from './physics/colTile';
@@ -113,6 +115,8 @@ declare global {
       pause: (paused: boolean) => void; bench?: (id: string, at: string) => void;
       /** Appearance-only experiments on the loaded prepared scene: physics, collision and the camera stay. */
       scene?: SceneDev;
+      /** The drawn location of the world pipeline (`?world=NAME`): refresh changed entities, inspect them. */
+      world?: WorldDev;
       /** Holds the render scale (0.25..1) for matched captures; null returns to adaptive resolution. */
       fixResolution?: (scale: number | null) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
@@ -725,7 +729,7 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
 
 async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, signal?: AbortSignal) {
-  const coarse = await PreparedWorld.start({ scene, renderer, manifest, ...collision,
+  const host: PreparedWorldHost = { scene, renderer, manifest, ...collision,
     style: m => materials?.applyAsync(m),
     prepareAsset: async (m, recipe) => { if (recipe === 'vegetation') await vegetation?.addAsync(m); },
     releaseAsset: (m, recipe) => { if (recipe === 'vegetation') vegetation?.remove(m); },
@@ -733,7 +737,15 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
     trackModel: (m, id) => { tiles.trackModel(m, id); rain?.exposure.add(m); },
     untrackModel: (m, id) => { rain?.exposure.remove(m); tiles.untrackModel(m, id); },
     retire: release => graphics.retire(release),
-    prepareGraphics: async m => { await tiles.prepareModelAsync(m); await prepareGraphics(m, signal); } });
+    prepareGraphics: async m => { await tiles.prepareModelAsync(m); await prepareGraphics(m, signal); } };
+  let coarse: PreparedWorld;
+  if (params.world) {
+    // The location loader of the world pipeline stands where the prepared scene does until it replaces it: it
+    // offers the same surface except the prepared scene's appearance patches (world/location/locationWorld.ts).
+    const location = await LocationWorld.start(host, params.world);
+    window.__dev!.world = watchLocation(location);
+    coarse = location as unknown as PreparedWorld;
+  } else coarse = await PreparedWorld.start(host);
   adoptCoarse(coarse);
   if (!idPass) {
     distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : WORLD_TIERS[params.quality].scenery);
@@ -875,7 +887,7 @@ async function runQa() {
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-    scene: sceneDev(() => censusSources.coarse), fixResolution: scale => fixResolution(scale),
+    scene: sceneDev(() => censusSources.coarse), fixResolution: scale => fixResolution(scale), world: window.__dev?.world,
     ...(bench ? { bench: (id: string, at: string) => {
       const pose = benchPose(id, at);
       bench.restart(pose);

@@ -50,13 +50,18 @@ def instance_rows(store: Store, output: Output, entity: str) -> tuple[list[dict]
     for item in output.instances:
         if not len(item.transforms):
             continue
+        transforms = np.asarray(item.transforms, dtype=float).reshape(-1, 7)
         if isinstance(item.asset, str):
-            asset, count = item.asset, 0
+            asset, count, radius = item.asset, 0, 1.0
+            row = {"asset": asset}
         else:
             data, stats = pack(item.asset, "asset")
             asset, count = store.put(data, "glb")["url"], stats["triangles"]
-        transforms = np.asarray(item.transforms, dtype=float).reshape(-1, 7)
-        row = {"asset": asset, "lod": item.lod, "transforms": np.round(transforms, 4).tolist()}
+            points = np.concatenate([np.asarray(part.positions, dtype=float).reshape(-1, 3) for part in item.asset])
+            radius = float(np.linalg.norm(points, axis=1).max())
+            # The asset's own box: with a transform it bounds one object, so a hierarchy can cull single instances.
+            row = {"asset": asset, "bounds": [round(float(v), 3) for v in (*points.min(axis=0), *points.max(axis=0))]}
+        row.update(lod=item.lod, transforms=np.round(transforms, 4).tolist())
         if item.ids is not None:
             if len(item.ids) != len(transforms):
                 raise ValueError(f"{entity}: {len(item.ids)} instance ids for {len(transforms)} transforms")
@@ -69,8 +74,10 @@ def instance_rows(store: Store, output: Output, entity: str) -> tuple[list[dict]
             if item.collision.get("shape") not in SHAPES:
                 raise ValueError(f"{entity}: unknown collision shape {item.collision!r}")
             row["collision"] = item.collision
+        if item.mass is not None:
+            row["mass"] = float(item.mass)
         rows.append(row)
-        extent = np.abs(transforms[:, 4:7]).max(axis=1, keepdims=True)
+        extent = np.abs(transforms[:, 4:7]).max(axis=1, keepdims=True) * radius
         reach += [transforms[:, :3] - extent, transforms[:, :3] + extent]
         triangles += count * len(transforms)
     return rows, reach, triangles

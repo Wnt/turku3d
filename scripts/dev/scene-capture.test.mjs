@@ -38,6 +38,10 @@ test('session URLs: solo only where asked, scene and quality from the view set',
   assert.equal(url.searchParams.get('region'), 'port-arthur');
   assert.equal(url.searchParams.get('quality'), 'medium');
   assert.equal(sessionUrl('https://city.lab.madekivi.fi/', { scene: 'office' }, 'multiplayer').searchParams.has('solo'), false);
+  // A location of the world pipeline replaces the prepared scene of the view set.
+  const world = sessionUrl('http://localhost:5690/', { scene: 'port-arthur' }, 'solo', 'portsa');
+  assert.equal(world.searchParams.get('world'), 'portsa');
+  assert.equal(world.searchParams.has('region'), false);
 });
 
 test('a surveyed pose becomes the camera the QA mode applies (Euler YXZ, vertical fov, city origin)', async () => {

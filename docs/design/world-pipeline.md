@@ -10,9 +10,9 @@ The old tile generator (`pipeline/turku3d/coarse`), its caches and the prepared-
 
 ## 1. The model in one paragraph
 
-A **source reader** reads city data for an area. A **kind** (building, terrain, ground, trees, …) turns source
-records into **entities**: each has a stable id, a **description** (measured facts, stored as data) and a
-**compiled output** (meshes and material references, content-addressed). A **location** is a query, `--at E,N
+A **source reader** reads city data for an area. A **kind** (building, ground, trees, signpost, fence, …) turns
+source records into **entities**: each has a stable id, a **description** (measured facts, stored as data) and a
+**compiled output** (meshes, instance lists and material references, content-addressed). A **location** is a query, `--at E,N
 --radius R`: the driver finds the entities that intersect it, compiles those whose inputs changed and writes a
 **manifest** that the client loads. Nothing in an entity depends on the query that found it, so two locations that
 overlap share entities and a city-wide index can later serve the same store.
@@ -26,7 +26,7 @@ overlap share entities and a city-wide index can later serve the same store.
 - **Compiled output** uses engine axes (x = E − 23459500, y = H, z = −(N − 6704500); right-handed, Y up) in metres,
   **relative to the entity's `origin`** (engine metres, double precision in JSON) so float32 vertices keep
   sub-millimetre precision. Front faces are counter-clockwise; normals point out of solids and up from ground.
-- **Areal kinds** (terrain, ground) cut the world on the origin-aligned grid of `config.py`: cell `(i, j)` covers
+- **Areal kinds** (ground, trees, planting) cut the world on the origin-aligned grid of `config.py`: cell `(i, j)` covers
   x ∈ [i·S, (i+1)·S), z ∈ [j·S, (j+1)·S), `i` east, `j` south. S is 62.5 m unless the kind's owner documents another
   power-of-two multiple. Never cut on the query circle.
 - Conversions come from `turku3d.world.frame` (which re-exports `turku3d.config`); do not write the origin elsewhere.
@@ -35,7 +35,7 @@ overlap share entities and a city-wide index can later serve the same store.
 
 ### 3.1 Identifier
 
-`<kind>/<key>`, for example `building/103456789A`, `terrain/c_-6_-4`, `trees/c_-6_-4`. `kind` is `[a-z][a-z0-9-]*`;
+`<kind>/<key>`, for example `building/103456789A`, `ground/c_-6_-4`, `signpost/<register id>`. `kind` is `[a-z][a-z0-9-]*`;
 `key` is `[A-Za-z0-9._-]+`. The id is a relative file path and a URL path, unchanged.
 
 - A discrete object uses the permanent identifier of its authoritative source. A building is one LoD2 building
@@ -71,10 +71,16 @@ Every description has this envelope; the rest belongs to the kind's schema:
 
 A description is produced in two steps, both owned by the kind:
 
-1. `describe(stub, sources, stored)` builds the **effective description** from source records plus the **stored
-   description** when one exists. With no stored description this is the automatic fit.
-2. The stored description is what observation and review wrote for that entity (section 4.2). How stored facts
-   override automatic ones (per wall, per field) is the kind's rule, written in its schema.
+1. `discover(area, sources)` reads the sources once per area and returns each entity as a **stub** that carries its
+   **source facts** as JSON (a building: its LoD2 rings, register row, terrain line and touching neighbours; a
+   ground cell: its height grid and surface polygons). The driver saves them (`facts/`, section 4.1).
+2. `describe(stub, stored)` is pure: it builds the **effective description** from the stub's facts plus the
+   **stored description** when one exists (what observation and review wrote for that entity, section 4.2). With
+   no stored description this is the automatic fit. How stored facts override automatic ones (per wall, per field)
+   is the kind's rule, written in its schema.
+
+So rebuilding one entity after its stored description or its generator changed reads no source data: saved facts →
+`describe` → `compile`.
 
 ### 3.3 Compiled output
 
@@ -95,7 +101,19 @@ One entity compiles to GLB meshes and instance lists.
   knows it and gets the fallback.
 - **Instances:** `{ "asset": <url>, "transforms": [[x, y, z, yaw, sx, sy, sz], …] }`, positions relative to
   `origin`, yaw in radians about +Y (0 = asset's +Z pointing south, positive turns towards east). `asset` is a GLB:
-  a store object or a path under `game/public/assets/`. Use instances for trees, furniture and repeated kit parts.
+  a store object (a generator hands over parts and the driver packs them; identical assets hash to the same
+  object, so the client batches by url) or a path under `game/public/assets/`. The asset's origin is the object's
+  **base** (y = 0 is where it meets the ground). Use instances for trees, furniture and repeated kit parts.
+- **Objects a player can hit** (fence panels, sign and signal posts, lamps, bollards, benches, trees) are never
+  mesh parts of a ground or building entity. Each is one instance row (or its own entity with one row), and the
+  list carries what the game needs later, unchanged from generator to manifest:
+  - `ids`: one stable id per transform (the register key);
+  - `behaviour`: `fixed`, `knock-over` or `breakable` (absent: scenery nothing collides with);
+  - `collision`: `{ "shape": "box" | "capsule" | "cylinder", "size": […] }` in metres, asset-local, base at y = 0;
+  - `mass`: kilograms of one object, optional;
+  - `bounds`: the asset's own box, written by the driver for packed assets.
+
+  Stills only draw them; nothing else reads these fields yet.
 - **Levels of detail:** `lod` 0 is street-level detail. `lod` 1 is the cheap far representation (a building: its
   shell, at most a few hundred triangles). A kind must emit `lod` 0; if it emits no `lod` 1 the driver uses the
   `lod` 0 file. The manifest lists one chosen level per entity; a streaming client can later choose by distance.
@@ -118,7 +136,8 @@ Written by the driver per compiled entity (`turku-entity/1`), immutable, stored 
   "output": {
     "lods": [{ "lod": 0, "url": "objects/3f/3f…9a.glb", "sha256": "3f…9a", "bytes": 48211, "triangles": 1532 }],
     "instances": [],
-    "families": ["plaster", "roof-metal", "flat"]
+    "families": ["plaster", "roof-metal", "flat"],
+    "instanceTriangles": 0
   },
   "hash": "<sha256 of the canonical JSON of origin, bounds and output>",
   "timings": { "describeMs": 4, "compileMs": 310, "packMs": 6 }
@@ -129,7 +148,13 @@ Written by the driver per compiled entity (`turku-entity/1`), immutable, stored 
   shared packer, so editing a generator rebuilds its entities and nobody maintains version strings.
 - `hash` is the **content hash**: it changes exactly when what the client draws changes. The client swaps an entity
   when its `hash` changes and at no other time.
-- `bounds` are `[minX, minY, minZ, maxX, maxY, maxZ]` relative to `origin`.
+- `bounds` are `[minX, minY, minZ, maxX, maxY, maxZ]` relative to `origin`, instances included.
+- **The record and its `lod` 0 mesh are the source of truth of an entity's geometry**: indexed, one primitive per
+  material, normals, metric UVs and the material table, as the generator emitted them (a part without normals gets
+  flat ones, which splits its vertices: supply normals to keep a welded mesh). Whatever a renderer needs beyond
+  that (batched buffers, cluster pages, distance fields, a surface cache) is derived from the store and can be
+  regenerated; nothing is authored in a derived form. `w2-render` writes the rules in
+  `docs/design/render-readiness.md`.
 
 ## 4. Store
 
@@ -140,7 +165,8 @@ Two roots, both plain directories.
 ```
 objects/<aa>/<sha256>.<ext>   immutable blobs: .glb meshes, .json descriptions and records, .bin, .png/.ktx2
 builds/<key>.json             entity record by build key (immutable)
-locations/<name>.json         location manifests (the only mutable files)
+facts/<kind>/<key>.json       source facts of an entity from its last discovery (replaced when the sources change)
+locations/<name>.json         location manifests (mutable)
 ```
 
 - Every blob is named by the SHA-256 of its bytes; `<aa>` is its first two hex digits. Writes are
@@ -148,7 +174,8 @@ locations/<name>.json         location manifests (the only mutable files)
   `rsync -a --ignore-existing`, and a stage can run on any host and ship its results back.
 - It is per sandbox by default because generator code differs between sandboxes. It is scratch: delete it freely;
   `python -m turku3d.world gc` drops objects that no manifest in `locations/` references.
-- The dev server serves it at `/world/…` (`/world/objects/…` immutable, `/world/locations/…` no-cache).
+- The dev server serves it at `/world/…` (`/world/objects/…` immutable, `/world/locations/…` no-store,
+  `/world/events/<name>` the update notices of section 8).
 
 ### 4.2 Shared data: `$TURKU3D_WORLD_DATA` (default `$TURKU3D_DATA/world`)
 
@@ -189,10 +216,19 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
       "hash": "…", "origin": [-346.5, 12.1, -242.8], "bounds": [-12.0, -0.4, -9.5, 12.0, 21.3, 9.5],
       "lod": 0, "url": "objects/3f/3f…9a.glb", "bytes": 48211, "triangles": 1532,
       "instances": []
+    },
+    {
+      "id": "signpost/LM-20417", "kind": "signpost", "tier": "auto", "role": "scene",
+      "hash": "…", "origin": [-352.1, 12.4, -238.0], "bounds": [-0.4, 0.0, -0.4, 0.4, 3.2, 0.4],
+      "instances": [{
+        "asset": "objects/a1/a1…07.glb", "bounds": [-0.35, 0.0, -0.05, 0.35, 3.2, 0.05],
+        "transforms": [[0, 0, 0, 1.571, 1, 1, 1]], "ids": ["LM-20417"],
+        "behaviour": "knock-over", "collision": { "shape": "cylinder", "size": [0.03, 3.2] }, "mass": 18
+      }]
     }
   ],
-  "stats": { "entities": 214, "triangles": 412000, "bytes": 9100000, "byKind": { "building": 61 } },
-  "timings": { "sourcesMs": 800, "discoverMs": 120, "describeMs": 900, "compileMs": 5200, "manifestMs": 15 }
+  "stats": { "entities": 214, "triangles": 412000, "bytes": 9100000, "instances": 96, "byKind": { "building": 61 } },
+  "timings": { "sourcesMs": 800, "discoverMs": 920, "describeMs": 300, "compileMs": 5200, "totalMs": 6500 }
 }
 ```
 
@@ -200,6 +236,8 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
 - `role` is `scene` (inside `radius`, `lod` 0) or `background` (between `radius` and `background`, cheap level of
   detail). The client treats them alike.
 - `focus` is the query centre on the ground in engine metres: where an interactive session starts.
+- Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
+  the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB
   and instance assets. Time of day, weather, quality and camera belong to the session or the capture, not here.
 - City scale later: the same entity rows served by a spatial index instead of one file. Do not put anything in an
@@ -215,11 +253,12 @@ class Kind(Protocol):
     name: str                                    # "building"
 
     def discover(self, area: Area, sources: Sources) -> list[Stub]:
-        """The entities of this kind that intersect the area: id, bounds, source references.
-        Must not depend on the area beyond selection: the same entity from any query."""
+        """The entities of this kind that touch the area: id, survey box, source references and the source
+        facts their description needs, as JSON values. All source reading happens here. An entity's stub must
+        not depend on the area beyond its selection: the same entity from any query."""
 
-    def describe(self, stub: Stub, sources: Sources, stored: dict | None) -> dict:
-        """The effective description (section 3.2): source facts merged with the stored description."""
+    def describe(self, stub: Stub, stored: dict | None) -> dict:
+        """The effective description (section 3.2): the stub's facts merged with the stored description. Pure."""
 
     def compile(self, description: dict) -> Output:
         """Description in; mesh parts, material references and instances out. Pure and deterministic:
@@ -228,12 +267,20 @@ class Kind(Protocol):
 
 ```python
 @dataclass
+class Stub:
+    id: str                           # "building/103456789A"
+    box: tuple[float, float, float, float]   # survey bounds e0, n0, e1, n1
+    sources: list[dict]               # [{"source": "turku-lod2", "key": "…"}]
+    facts: dict                       # JSON: everything describe() needs
+
+@dataclass
 class Material:
     family: str                       # "plaster"; resolved by the client, section 3.3
     params: dict                      # JSON; the family's parameters
     color: tuple[float, float, float] = (0.6, 0.6, 0.6)   # fallback base colour, linear RGB
     roughness: float = 0.9
     metalness: float = 0.0
+    double_sided: bool = False
 
 @dataclass
 class Part:
@@ -249,9 +296,13 @@ class Part:
 
 @dataclass
 class Instances:
-    asset: str                        # store URL or /assets/… path of a GLB
+    asset: str | list[Part]           # a GLB url (/assets/… or store), or parts the driver packs into one
     transforms: np.ndarray            # (n, 7): x, y, z, yaw, sx, sy, sz relative to Output.origin
     lod: int = 0
+    ids: list[str] | None = None      # one stable id per transform
+    behaviour: str | None = None      # "fixed" | "knock-over" | "breakable"
+    collision: dict | None = None     # {"shape": "box" | "capsule" | "cylinder", "size": […]}, base at y = 0
+    mass: float | None = None         # kilograms of one object
 
 @dataclass
 class Output:
@@ -262,16 +313,22 @@ class Output:
 
 - The driver packs `parts` into GLB (`turku3d.world.glb`), hashes, stores and writes the record. A generator never
   writes files or touches the store.
-- `Sources` gives area reads of the source readers under `pipeline/turku3d/world/sources/` (LoD2 buildings and
-  register attributes, terrain heights, surface polygons, OSM, tree register, and panorama coverage), each record
-  with its source reference. A reader fetches what is missing for the area on demand (section 4.2).
-- Budget: `compile` of one entity in about a second or less; `describe` of one entity in tens of milliseconds once
-  the area's sources are loaded. Slow one-off measurement (vision reads, panorama rectification) is not a
+- `Sources` (`pipeline/turku3d/world/sources/`) gives area reads: `sources.wfs.features(layer, box)` for any city
+  WFS layer (LoD2 buildings, registers, surface polygons) and `sources.terrain.heights(e, n)` for lidar ground
+  heights. A reader looks in `$TURKU3D_DATA/raw` first and fetches what is missing for the area into
+  `$TURKU3D_WORLD_DATA/sources/` (section 4.2). A track may keep further readers in its own package; they follow
+  the same rule and time themselves with `sources.timed(name)` so `build` prints them.
+- Budget: `compile` of one entity in about a second or less; `describe` of one entity in milliseconds. Slow one-off measurement (vision reads, panorama rectification) is not a
   generator step: it runs in `w2-observe`'s chain and writes stored descriptions.
 - A kind owns its description schema version. Bump `<n>` in `turku-description/<kind>/<n>` on an incompatible
   change and keep `describe` able to read the stored descriptions already written, or migrate them.
-- The stand-in kinds of the walking skeleton (`building`, `terrain`, `ground`, `trees`) are replaced in place by
-  their owners (`w2-buildings`: `building`; `w2-street`: the others and any new kinds). Delete what you replace.
+- The stand-in kinds of the walking skeleton are replaced in place by their owners, who delete what they replace:
+  `building` (`kinds/building_shell.py`: LoD2 shell, register colour) by `w2-buildings`, whose kind keeps using
+  `building_shell.discover` for the shell and register facts; `ground` (`kinds/ground.py`: lidar relief with the
+  city's surface polygons) by `w2-street`; `trees` (`kinds/trees.py`) by `w2-green`. New kinds (`w2-objects`:
+  `signpost`, `signal`, `lamp`, `pole`, `fence`, `furniture`; `w2-green`: `planting`) add a row to `KINDS`.
+- The build key hashes the kind's module or package plus the shared mesh code. A kind that compiles with code
+  outside its package lists those paths in a `code` attribute.
 
 ## 7. Commands
 
@@ -280,26 +337,37 @@ source ../sandbox.env
 bash pipeline/env/run.sh python -m turku3d.world build --area humalistonkatu        # a pilot area, from its views
 bash pipeline/env/run.sh python -m turku3d.world build --at 23459140,6704730 --radius 150
 bash pipeline/env/run.sh python -m turku3d.world entity building/103456789A --location humalistonkatu
+bash pipeline/env/run.sh python -m turku3d.world refresh --location humalistonkatu  # after a generator change
 bash pipeline/env/run.sh python -m turku3d.world watch --location humalistonkatu    # rebuild on description change
-scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --views scripts/dev/views/pilot-locations.json \
-  --area humalistonkatu --out "$TURKU3D_WORK/captures/humalistonkatu"
+bash pipeline/env/run.sh python -m turku3d.world describe building/103456789A       # its effective description
+bash pipeline/env/run.sh python -m turku3d.world gc                                 # drop unreferenced meshes
+node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area humalistonkatu \
+  --views scripts/dev/views/pilot-locations.json --out "$TURKU3D_WORK/captures/humalistonkatu"
 ```
 
-- `build` prints per-stage timings and entity counts per kind and writes `locations/<name>.json`. `--area NAME`
-  derives the query from the cameras of that area's reference views (`qa/views/views.jsonl`); `--at` works anywhere
-  in built-up Turku and fetches missing source data.
-- The game opens a location at `/?world=<name>` (with `solo=1` for play, `cam=…` for a still): the same client and
-  renderer, with the location loader in place of the prepared scene. `scene-capture.mjs --world NAME` adds the
-  parameter; `--area NAME` keeps only the views of that area.
-- In-process, for a workbench: `turku3d.world.driver.compile_entity(kind, description) -> EntityRecord`.
+- `build` prints per-source and per-kind timings and entity counts and writes `locations/<name>.json`. `--area
+  NAME` derives the query from the cameras of that area's reference views (`qa/views/views.jsonl`) and what they
+  look at; `--at` works anywhere in built-up Turku and fetches missing source data. `--background M` (default 400)
+  is how far the cheap surroundings reach.
+- `entity`, `refresh` and `watch` rebuild from the saved facts (section 3.2) and rewrite the manifest only when
+  something a client draws changed.
+- The game draws a location at `/?world=<name>&cam=E,N,H,yaw,pitch,fov` (render mode): the same client and
+  renderer, with the location loader (`game/src/world/location/`) in place of the prepared scene. Play in a
+  location waits for collision. `scene-capture.mjs --world NAME` adds the parameter and records the manifest
+  revision, the build timings and the drawn entities per kind in the capture manifest; `--area NAME` keeps only
+  the views of that area; the comparison sheet shows the reference photo beside the still.
+- In-process, for a workbench: `turku3d.world.driver.compile_entity(store, kind, description)` returns the
+  record's origin, bounds, output and hash.
 
 ## 8. Live update of one entity
 
 1. A stored description changes (observation, review, the workbench), or a kind's code changes.
-2. `world entity <id> --location <name>` (or the running `world watch`) re-describes and recompiles that entity
+2. `world entity <id> --location <name>` (or the running `world watch`, which polls the stored descriptions of the
+   location's entities and restarts itself when pipeline code changes) re-describes and recompiles that entity
    only, writes its new objects and record, and replaces `locations/<name>.json` atomically with `revision + 1`.
    Target: about one second.
-3. The dev server watches `locations/` and sends the Vite custom event `turku:world` `{ name, revision }`.
+3. The dev server watches `locations/` and sends `{ name, revision }` to the pages that listen on the
+   server-sent event stream `/world/events/<name>` (the repository runs Vite without its hot-update socket).
 4. The client's location loader re-fetches the manifest and diffs it against what is drawn, by entity `id` and
    `hash`: it loads the new files of changed entities first, then swaps them in one frame, adds new entities and
    removes missing ones. Camera, lighting, time and every unchanged entity stay as they are. No page reload.
@@ -307,12 +375,17 @@ scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --views scrip
    once the swapped entities are drawn. `scene-capture.mjs` calls it before a capture, so a still never races an
    update.
 
-`__dev.world` also has `manifest()`, `entity(id)` (its record and three.js object), `stats()` (entities,
-triangles, geometry and texture bytes) and `focus(id)`.
+`__dev.world` also has `manifest()`, `entity(id)` (its manifest row and three.js object), `stats()` (drawn
+entities, triangles, instances and mesh bytes by kind) and `last` (the report of the last automatic refresh).
 
 ## 9. Not in these contracts yet
 
 Stills only for now: collision, physics, streaming and multiplayer are not built, and nothing here prevents them
-(collision can be a further output per entity; streaming is a spatial index over entity rows; a multiplayer room
-pins a set of content hashes). Frame time, triangles and texture memory are recorded per location by the capture,
-without a limit.
+(collision can be a further output per entity, and hittable objects already carry their behaviour and shape;
+streaming is a spatial index over entity rows; a multiplayer room pins a set of content hashes). Frame time,
+triangles and texture memory are recorded per location by the capture, without a limit.
+
+The client draws every entity as its own object for now: simple to swap, about a thousand draws per location.
+Batching by material family, a hierarchy of levels of detail and virtualised geometry are renderer products
+derived from the same records (`docs/design/render-readiness.md`); the only runtime target is Chrome on an
+Apple-silicon Mac with WebGPU.

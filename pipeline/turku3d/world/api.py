@@ -90,6 +90,7 @@ class Instances:
     ids: list[str] | None = None  # one stable id per transform (a register key), for objects the game addresses
     behaviour: str | None = None  # "fixed" | "knock-over" | "breakable"; None: scenery the player passes through
     collision: dict | None = None  # {"shape": "box" | "capsule" | "cylinder", "size": [...]} asset-local, base at y = 0
+    mass: float | None = None  # kilograms of one object, when it can be moved
 
 
 @dataclass

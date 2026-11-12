@@ -1,5 +1,6 @@
 export const workRoot: string;
 export const preparedAssets: string;
+export const worldStore: string;
 export const gameDist: string;
 export const tileDist: string;
 export const reportsRoot: string;

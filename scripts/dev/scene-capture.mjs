@@ -6,7 +6,7 @@
 //   scripts/dev/scene-capture.mjs --views scripts/dev/views/riverside-office.json --out "$TURKU3D_WORK/captures/NAME"
 //     [--base http://localhost:$PORT/] [--cdp http://127.0.0.1:PORT] [--mode play|render] [--entry solo|multiplayer] [--reload]
 //     [--variant NAME=patch.json]... [--baseline DIR]... [--clip SECONDS|0] [--checks errors,camera,resolution,player,scene]
-//     [--expect-release SHA] [--settle-ms 6000] [--label TEXT]
+//     [--expect-release SHA] [--settle-ms 6000] [--label TEXT] [--world NAME] [--area NAME]
 //   (The preview browser runs muted: a capture never plays the game's audio.)
 //
 // A view is a world camera {position, quaternion, fov} in engine metres, a surveyed pose {E, N, H, yaw, pitch, roll, fov}
@@ -16,6 +16,10 @@
 // per group and per aim.
 // The set's `scene` is the prepared scene to load (default office); `scene: null` is the whole city of a client without
 // prepared scenes, the frozen Gen 1 city (views/pilot-locations.json).
+// --world NAME draws that location of the world pipeline instead (`python -m turku3d.world build`, docs/design/
+// world-pipeline.md): the page follows the latest manifest, and the capture records its revision and what is drawn.
+// --area NAME keeps the reference views of one area (the `area` of qa/views/views.jsonl), and the comparison then
+// shows each reference photo beside its render.
 //
 // --mode render draws the prepared scene alone and still: the game's QA camera mode (?cam=, game/src/main.ts runQa)
 // with the same renderer, materials, vegetation, sky and post-processing, but no player, physics, audio, traffic,
@@ -75,6 +79,7 @@ export function readViews(file) {
       const row = registry.get(v.reference);
       if (!row) throw new Error(`${file}: view ${v.id}: reference ${v.reference} is not in ${views.references ?? 'a references registry'}`);
       v.pose = row.pose;
+      v.area = row.area ?? null;
       v.photo = { id: row.id, image: row.image, kind: row.source.kind, date: row.capture_date, poseConfidence: row.pose_confidence?.level ?? null };
     }
     if (v.pose) v.camera = poseCamera(v.pose, views.city);
@@ -97,8 +102,9 @@ export function comparable(a, b) {
   return { controlled: !reasons.length, reasons };
 }
 
-export function sessionUrl(base, views, entry) {
+export function sessionUrl(base, views, entry, world = null) {
   const url = new URL(base);
+  if (world) url.searchParams.set('world', world);
   if (entry === 'render') {
     // The QA camera mode starts at the first view; later views move it (__qaMove), so `cam` is not a startup difference.
     const p = views.views[0].pose ?? cameraPose(views.views[0].camera, views.city);
@@ -108,7 +114,7 @@ export function sessionUrl(base, views, entry) {
   if (entry === 'solo') url.searchParams.set('solo', '1');
   if (views.quality) url.searchParams.set('quality', views.quality);
   if (entry !== 'render') { url.searchParams.set('hud', '0'); url.searchParams.set('governor', '0'); }
-  if (views.scene && views.scene !== 'office') url.searchParams.set('region', views.scene);
+  if (!world && views.scene && views.scene !== 'office') url.searchParams.set('region', views.scene);
   return url;
 }
 
@@ -116,6 +122,12 @@ const ms = since => Math.round(performance.now() - since);
 
 async function main() {
   const views = readViews(opt('--views', path.join(repo, 'scripts/dev/views/riverside-office.json')));
+  const world = opt('--world', null), area = opt('--area', null);
+  if (world !== null && !/^[a-z0-9-]+$/.test(world)) throw new Error(`--world wants a location name: ${world}`);
+  if (area) {
+    views.views = views.views.filter(v => v.area === area);
+    if (!views.views.length) throw new Error(`--area ${area}: no reference view of that area in the set`);
+  }
   const out = path.resolve(opt('--out', path.join(process.env.TURKU3D_WORK ?? '.', 'captures', new Date().toISOString().replace(/[:.]/g, '-'))));
   const base = opt('--base', `http://localhost:${port()}/`);
   const mode = opt('--mode', 'play');
@@ -144,7 +156,7 @@ async function main() {
   const write = () => fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1) + '\n');
 
   const browser = await chromium.connectOverCDP(cdp);
-  const url = sessionUrl(base, views, entry);
+  const url = sessionUrl(base, views, entry, world);
   const context = browser.contexts()[0] ?? await browser.newContext();
   // Another origin (city.lab, the frozen city) gets its own tab, closed afterwards: the local session stays as it is.
   let page = context.pages().find(p => p.url().startsWith(url.origin)) ?? null;
@@ -178,6 +190,19 @@ async function main() {
       await page.waitForFunction(() => { const s = window.__game.state(); return !s.startScreen && !s.loading; }, null, { timeout: 240000 });
     }
     timings.loadMs = ms(t);
+    if (world) {
+      // A reused page draws the manifest it loaded: bring it to the latest revision before anything is captured.
+      t = performance.now();
+      manifest.world = await page.evaluate(async () => {
+        const dev = window.__dev?.world;
+        if (!dev) return null;
+        const refresh = await dev.refresh(), built = dev.manifest();
+        return { name: built.name, revision: built.revision, built: built.built, query: built.query, refresh: { changed: refresh.changed.length, added: refresh.added.length, removed: refresh.removed.length, ms: refresh.ms },
+          drawn: dev.stats(), buildTimings: built.timings };
+      });
+      if (!manifest.world) throw new Error(`--world ${world}: the page has no location loader (window.__dev.world)`);
+      timings.worldRefreshMs = ms(t);
+    }
     manifest.source = await page.evaluate(async () => {
       const read = async url => { try { const r = await fetch(url, { cache: 'no-store' }); return r.ok && /json/.test(r.headers.get('content-type') ?? '') ? await r.json() : null; } catch { return null; } };
       const scene = window.__game?.coarse?.data;
@@ -352,8 +377,9 @@ async function main() {
     if (checks.has('scene')) {
       // `scene: null` asks for the whole-city client (the frozen Gen 1 city): no prepared scene may be loaded.
       const scene = manifest.source.scene, want = opt('--expect-release'), whole = views.scene === null;
-      manifest.checks.scene = { ok: whole ? !scene : !!scene && (!views.scene || scene.id === views.scene) && (!want || scene.release.startsWith(want)),
-        scene, expected: { id: whole ? 'none (whole city)' : views.scene ?? null, release: want ?? null } };
+      manifest.checks.scene = world ? { ok: manifest.world?.name === world, scene, expected: { id: `world:${world}`, release: null } }
+        : { ok: whole ? !scene : !!scene && (!views.scene || scene.id === views.scene) && (!want || scene.release.startsWith(want)),
+          scene, expected: { id: whole ? 'none (whole city)' : views.scene ?? null, release: want ?? null } };
     }
   } catch (error) {
     manifest.failure = String(error?.stack ?? error);
@@ -380,7 +406,9 @@ async function main() {
 /** compare.html: one row per view, columns for every baseline, this capture and its variants (plus the clips);
  *  compare.jpg: the same grid as one image when ffmpeg is available. */
 function compare(out, manifest) {
-  const columns = [...manifest.baselines.map(b => {
+  // Reference photos live beside the data root (qa/views/views.jsonl: `image` is relative to its parent).
+  const photos = Object.fromEntries(manifest.views.filter(v => v.photo?.image).map(v => [v.id, path.resolve(process.env.TURKU3D_DATA ?? path.join(process.env.HOME ?? '', 'turku3d/data'), '..', v.photo.image)]));
+  const columns = [...(Object.keys(photos).length ? [{ title: 'reference photo', files: photos, clip: null }] : []), ...manifest.baselines.map(b => {
     const other = JSON.parse(fs.readFileSync(path.join(b.dir, 'manifest.json'), 'utf8'));
     return { title: `${b.label ?? path.basename(b.dir)}${b.controlled ? '' : ' (not controlled: ' + b.reasons.join(', ') + ')'}`,
       files: Object.fromEntries(other.views.map(v => [v.id, path.join(b.dir, v.file)])), clip: other.clip?.file ? path.join(b.dir, other.clip.file) : null };

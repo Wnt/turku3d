@@ -52,6 +52,8 @@ interface Params {
   motion: boolean;
   /** `?preview=1`: the generation preview (a free-fly QA camera above the spawn, qa/preview.ts). */
   preview: boolean;
+  /** `?world=NAME`: draw that location manifest of the world pipeline (world/location) instead of a prepared scene. */
+  world: string | null;
 }
 
 /** Fixed clear autumn afternoon; never depend on the machine's wall clock for rendering. */
@@ -97,6 +99,8 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     qa = bench.qa;
     }
   }
+  const world = p.get('world');
+  if (world !== null && !/^[a-z0-9-]+$/.test(world)) throw new Error(`bad ?world= (a location name): ${world}`);
   const passStr = (p.get('pass') ?? 'color').toLowerCase();
   if (passStr !== 'color' && passStr !== 'id') throw new Error(`bad ?pass= (color|id): ${passStr}`);
   const timeStr = p.get('time');
@@ -150,5 +154,6 @@ export function parseParams(search: string, device = { userAgent: '', maxTouchPo
     preview,
     // The lab measures play's cadences (river reflection, water clock), not the frozen screenshot contract.
     motion: !!qa && (preview || p.get('motion') === '1' || (lab !== null && p.get('motion') !== '0')),
+    world,
   };
 }
