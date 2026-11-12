@@ -61,12 +61,12 @@ class LanternFamilyTests(unittest.TestCase):
                 if m['collision']=='solid':self.assertGreater(volume(m),0)
 
     def test_distinct_office_lamp_families(self):
-        for family,height in ((flat_canopy_lamp,5.6),(crook_lamp,5.28)):
+        for family,height in ((flat_canopy_lamp,5.6),(crook_lamp,10.60)):
             meshes=family((0,0,0))
             ys=[y for m in meshes for y in m['positions'][1::3]]
             self.assertAlmostEqual(min(ys),0)
             self.assertLess(abs(max(ys)-height),0.02)
-            self.assertLess(sum(len(m['indices'])//3 for m in meshes),1000)
+            self.assertLess(sum(len(m['indices'])//3 for m in meshes),1600)
             self.assertEqual(len([m for m in meshes if m['collision']=='solid']),1)
             with self.assertRaises(ValueError):family((0,math.inf,0))
 

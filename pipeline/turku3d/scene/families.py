@@ -209,18 +209,21 @@ def litter_bin(position: tuple, yaw: float = 0) -> list[dict]:
 FLAT_CANOPY_LAMP = {
     "family": "turku-flat-canopy-lamp-v1",
     "dimensions": [1.2, 5.6, 0.84],
+    "supportRadiusM": 0.10,
     "emitterOffset": [0, 4.85, 0],
     "source": "Google panoramas hOH16IE5o9B6ar0x7Cm-9w and 9YcdVIRiQEgvodxtjAX71A, 2019-06; private observations",
     "dimensionConfidence": "inferred prior; broad rectangular reflector visible, dimensions not surveyed",
     "heightUncertaintyM": 0.8,
 }
 CROOK_LAMP = {
-    "family": "turku-crook-lamp-v1",
-    "dimensions": [0.70, 5.28, 0.32],
-    "emitterOffset": [-0.413, 4.55, 0],
+    "family": "turku-crook-lamp-v2",
+    "dimensions": [1.16, 10.60, 0.42],
+    "supportRadiusM": 0.105,
+    "emitterOffset": [-0.72, 9.18, 0],
     "source": FLAT_CANOPY_LAMP["source"],
-    "dimensionConfidence": "inferred prior; crook and suspended bell visible, dimensions not surveyed",
-    "heightUncertaintyM": 0.8,
+    "dimensionConfidence": "two calibrated panorama views: spiral absoluteH12.4-13.1m; lidar support around2.13m; inferred family height, not surveyed fixture dimensions",
+    "heightUncertaintyM": 1.0,
+    "registration": "CityFurniture_19460502 matched in two views;19460503 partial silhouette; other positions require independent association",
 }
 
 
@@ -255,16 +258,27 @@ def crook_lamp(position: tuple, yaw: float = 0) -> list[dict]:
     _check_attachment(position,yaw)
     post, head, glass = _Geometry(), _Geometry(), _Geometry()
     post.taper(0,0.12,0.105,0.105,12)
-    post.taper(0.12,0.60,0.085,0.06,12)
-    post.taper(0.60,5.00,0.06,0.025,12)
-    for y in (0.60,4.76,4.86):head.taper(y,y+0.035,0.05,0.05,12)
-    curve=[(-0.26+0.26*math.cos(i*1.3*math.pi/24),5.0+0.26*math.sin(i*1.3*math.pi/24),0) for i in range(25)]
-    for a,b in zip(curve,curve[1:]):head.beam(a,b,0.018,6)
-    x,y,_=curve[-1]
-    head.beam((x,y,0),(x,4.72,0),0.018,8)
-    head.taper(4.60,4.72,0.13,0.04,12,cx=x)
-    head.taper(4.57,4.60,0.16,0.16,12,cx=x)
-    glass.taper(4.54,4.57,0.11,0.13,12,cx=x)
+    post.taper(0.12,0.60,0.105,0.085,12)
+    post.taper(0.60,9.90,0.085,0.036,12)
+    for y in (0.60,9.48,9.62):head.taper(y,y+0.045,0.065,0.065,12)
+    # The large scroll curls inward above a separately suspended bell. The first
+    # draft's small hook/5.28m height was disproved before any office placement.
+    curve=[]
+    for i in range(37):
+        angle=i*2.35*math.pi/36
+        scale=max(.25,1-.75*max(0,angle-1.05*math.pi)/(1.30*math.pi))
+        curve.append((-.45+.45*scale*math.cos(angle),9.90+.68*scale*math.sin(angle),0))
+    for a,b in zip(curve,curve[1:]):head.beam(a,b,.018,6)
+    # Small counter-scroll on the pole's opposite side is visible in the second
+    # panorama. Keep it slender and open, without filling the scroll silhouette.
+    counter=[(.105-.105*math.cos(i*1.6*math.pi/12),9.72+.105*math.sin(i*1.6*math.pi/12),0) for i in range(13)]
+    for a,b in zip(counter,counter[1:]):head.beam(a,b,.012,5)
+    x=-.72
+    attach=min(curve,key=lambda p:(p[0]-x)**2+(p[1]-9.47)**2)
+    head.beam(attach,(x,9.47,0),.015,6)
+    head.taper(9.32,9.47,.18,.045,12,cx=x)
+    head.taper(9.29,9.32,.21,.21,12,cx=x)
+    glass.taper(9.18,9.29,.15,.18,12,cx=x)
     return [post.record("crook-post","iron","solid",position,yaw),
             head.record("crook-head","iron","passable",position,yaw),
             glass.record("crook-source","glass","passable",position,yaw)]
