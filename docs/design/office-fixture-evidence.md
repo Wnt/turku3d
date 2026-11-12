@@ -34,3 +34,20 @@ The imported WFS geometry is only a named Point; its elevation is not explicitly
 labelled a pole-base attribute. Final terrain support and measured ground remain
 the authority for attachment. `supportRadiusM` describes the actual contact disc
 (0.105 m crook, 0.10 m canopy), independently of the elevated head's wider bounds.
+
+## Reflected canopy aperture
+
+The authored canopy has a rectangular reflector underside at local Y5.56m,
+1.20m along X by 0.84m along Z. Its continuous pole intersects the middle with
+radius0.046m; the raw uplight top remains at Y4.85m. An isotropic point placed
+at that raw source therefore starts inside the post. The effective reflected
+source is explicitly a downward Lambertian approximation over the underside,
+with a circular pole cutout. These dimensions inherit the photograph-informed
+family priors and ±0.8m height uncertainty; no photometric survey is claimed.
+
+`FLAT_CANOPY_LAMP.reflectedAperture` records the local rectangle, downward
+normal and X tangent. The producer transforms these once into world space and
+moves the optical sampling plane 0.005m along its normal, outside the reflector.
+That epsilon is numerical separation, not a measured physical offset. Static
+quadrature omits the cutout and still tests the actual pole as an occluder.
+The original emitter offset remains available for the visible uplight corona.

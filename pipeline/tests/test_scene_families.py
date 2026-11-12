@@ -1,7 +1,7 @@
 """Furniture contact, winding and transform regressions, no renderer required."""
 import math
 import unittest
-from turku3d.scene.families import _Geometry, HERITAGE_LANTERN, heritage_lantern, promenade_bench, litter_bin, flat_canopy_lamp, crook_lamp
+from turku3d.scene.families import _Geometry, HERITAGE_LANTERN, FLAT_CANOPY_LAMP, heritage_lantern, promenade_bench, litter_bin, flat_canopy_lamp, crook_lamp
 
 
 def volume(mesh):
@@ -69,6 +69,20 @@ class LanternFamilyTests(unittest.TestCase):
             self.assertLess(sum(len(m['indices'])//3 for m in meshes),1600)
             self.assertEqual(len([m for m in meshes if m['collision']=='solid']),1)
             with self.assertRaises(ValueError):family((0,math.inf,0))
+
+    def test_canopy_aperture_matches_reflector_and_excludes_pole(self):
+        aperture=FLAT_CANOPY_LAMP['reflectedAperture']
+        meshes=flat_canopy_lamp((0,0,0))
+        reflector=next(m for m in meshes if m['id']=='canopy-reflector')
+        points=list(zip(*[iter(reflector['positions'])]*3))
+        underside=[p for p in points if abs(p[1]-aperture['position'][1])<1e-8]
+        self.assertGreaterEqual(len(underside),4)
+        for axis,width in zip((0,2),aperture['size']):
+            self.assertAlmostEqual(max(p[axis] for p in underside)-min(p[axis] for p in underside),width)
+        post=next(m for m in meshes if m['id']=='canopy-post')
+        top=[p for p in zip(*[iter(post['positions'])]*3) if abs(p[1]-5.56)<1e-8]
+        self.assertAlmostEqual(max(math.hypot(p[0],p[2]) for p in top),aperture['cutoutRadius'])
+        self.assertLess(aperture['position'][1]-aperture['opticalEpsilonM'],min(p[1] for p in underside))
 
     def test_reject_nonfinite_attachment(self):
         for p,yaw in (((0,math.nan,0),0),((0,0,0),math.inf)):
