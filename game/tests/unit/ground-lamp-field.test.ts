@@ -40,6 +40,9 @@ describe('mapped lamp ground irradiance', () => {
     field.setLamps([source]); settle(field);
     expect(value(1, 1)).toBeGreaterThan(expected * 2);
     expect(value(17, 1)).toBeGreaterThan(0);
+    source.photometry = { ...source.photometry, color: [.1, 1, .2] };
+    field.setLamps([source]); settle(field);
+    expect(value(1, 1) / value(1, 1, 1)).toBeCloseTo(.1, 3);
     field.dispose();
   });
 

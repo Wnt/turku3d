@@ -131,14 +131,16 @@ export class GroundLampField {
   private inputs(ox: number, oz: number, footprints: readonly Footprint[]) {
     const R = Math.max(LAMP_FIELD.radius, ...this.lamps.map(l => l.photometry?.range ?? 0)), x0 = ox - R, z0 = oz - R, x1 = ox + SPAN + R, z1 = oz + SPAN + R;
     let n = 0, sum = 0;
+    const prepared: unknown[] = [];
     for (const lamp of this.lamps) {
       const head = fieldLamp(lamp);
       if (!head || head.x < x0 || head.x > x1 || head.z < z0 || head.z > z1) continue;
+      if (lamp.photometry) prepared.push([lamp.key, head.x, head.y, head.z, lamp.photometry]);
       n++; sum = (sum + Math.imul(Math.round(head.x * 10) ^ Math.imul(Math.round(head.z * 10), 73856093), 19349663)
         + Math.round((head.y + head.base) * 10) + Math.round((lamp.light.r + lamp.light.g * 3 + lamp.light.b * 7) * 100) + Math.round((lamp.photometry?.range ?? 0) * 100) + Math.round((lamp.photometry?.intensity ?? 0) * 100)) | 0;
     }
     const grids = footprints.filter(f => f.x1 > x0 && f.x0 < x1 && f.z1 > z0 && f.z0 < z1);
-    return `${ox},${oz}:${n}:${sum}:${grids.length}:${grids.map(f => `${f.x0},${f.z0},${f.revision ?? ""}`).join(';')}`;
+    return `${ox},${oz}:${n}:${sum}:${JSON.stringify(prepared)}:${grids.length}:${grids.map(f => `${f.x0},${f.z0},${f.revision ?? ""}`).join(';')}`;
   }
   private *rasterize(ox: number, oz: number, lamps: readonly Lamp[], footprints: Footprint[]): Generator<void> {
     this.count = 0;
