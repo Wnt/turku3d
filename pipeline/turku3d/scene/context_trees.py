@@ -21,7 +21,7 @@ from turku3d.vegetation.visual import prototypes
 
 def compile_context_trees(records, output, *, occupied_ids, bounds, water):
     meshes, batches, occupied = [], [], set(occupied_ids)
-    points, identities = [], []
+    points, identities, groups = [], [], []
     for data in records:
         if data.get("version") != 1 or not isinstance(data.get("nodes"), list):
             raise ValueError("Context tree placements are not ready")
@@ -48,6 +48,8 @@ def compile_context_trees(records, output, *, occupied_ids, bounds, water):
                 continue
             selected = {key: [node[key][i] for i in keep] for key in ("positions", "scales", "rotations", "ids", "species")}
             selected["matrix"] = node["matrix"]
+            selected["group"] = len(groups)
+            groups.append(selected)
             for prototype in prototypes(node["variant"]):
                 mesh = copy.deepcopy(prototype)
                 mesh.extras.update(variant=node["variant"], instance_object_ids=selected["ids"],
@@ -60,7 +62,18 @@ def compile_context_trees(records, output, *, occupied_ids, bounds, water):
         return None, []
     document, binary = read_glb(build_glb(meshes, root_name="context-vegetation"))
     blob = bytearray(binary)
-    for node, batch in zip(document["nodes"][1:], batches, strict=True):
+    prototype_nodes = list(document["nodes"][1:])
+    document["nodes"][0]["children"] = []
+    wrappers = []
+    # The consumer deduplicates bark/crown primitives by parent and variant.
+    # Preserve each source placement group's parent so another cell of the same
+    # species cannot be mistaken for a second primitive of the first cell.
+    for index, group in enumerate(groups):
+        wrapper = dict(name=f"context-tree-group:{index}", matrix=group["matrix"], children=[])
+        wrappers.append(wrapper)
+        document["nodes"][0]["children"].append(len(document["nodes"]))
+        document["nodes"].append(wrapper)
+    for index, (node, batch) in enumerate(zip(prototype_nodes, batches, strict=True), 1):
         attrs = {}
         for semantic, key, kind in (("TRANSLATION", "positions", "VEC3"), ("SCALE", "scales", "VEC3"), ("ROTATION", "rotations", "VEC4")):
             values = np.asarray(batch[key], dtype="<f4")
@@ -71,7 +84,7 @@ def compile_context_trees(records, output, *, occupied_ids, bounds, water):
             document["accessors"].append(dict(bufferView=len(document["bufferViews"])-1,
                 componentType=5126, count=len(values), type=kind))
             attrs[semantic] = len(document["accessors"])-1
-        node["matrix"] = batch["matrix"]
+        wrappers[batch["group"]]["children"].append(index)
         node["extensions"] = {"EXT_mesh_gpu_instancing": {"attributes": attrs}}
     document["extensionsUsed"] = document["extensionsRequired"] = ["EXT_mesh_gpu_instancing"]
     document["buffers"][0]["byteLength"] = len(blob)
