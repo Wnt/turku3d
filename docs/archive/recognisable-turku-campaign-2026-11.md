@@ -1,3 +1,7 @@
+> **Archived 2026-11-12.** The ten-hour campaign plan and its ~20-iteration schedule were replaced by
+> [docs/design/visual-brief.md](../design/visual-brief.md) after the campaign review: iteration counts are no longer a
+> success metric. The reference study, reconstruction notes and rendering lessons below remain useful background.
+
 # Recognisable Turku: implementation and evidence plan
 
 2026-11-12. Owner: realism-20261112. Target: https://city.lab.madekivi.fi/.

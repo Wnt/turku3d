@@ -1,6 +1,7 @@
 # Focused verification and direct delivery
 
-The normative flow is [AGENTS.md](../../AGENTS.md). Agents select only affected
+The rules are in [AGENTS.md](../../AGENTS.md) and the current merge, deploy and smoke flow is in
+[docs/DEVELOPING.md](../../docs/DEVELOPING.md#agent-flow); `codex-task finish` below is retired. Agents select only affected
 commands, including grep filters. Finish runs them in parallel under one hard
 30-second deadline after rebase. There is no compulsory full fast/deep gate.
 New quick tests need a strong reason; delivery boundaries justify the small tests

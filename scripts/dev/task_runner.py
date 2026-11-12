@@ -1,4 +1,5 @@
-"""Headless Codex tasks with durable logs; a DONE turn lands its branch (landing.py)."""
+"""Headless Codex tasks with durable logs. A DONE turn only records its result: the agent merges its own slices
+into local/loop-integration (AGENTS.md); nothing lands into main automatically."""
 
 from __future__ import annotations
 
@@ -132,13 +133,10 @@ def launch(
             if not (s.root() / name / "sandbox.env").exists():
                 s.new(name, ref)
             home = s.sandbox(name)
-            common = (home / "repo/docs/briefs/COMMON.md").read_text()
             prompt = (
                 f"You are Codex agent '{name}'. Work only in {home / 'repo'}. "
-                "The exported TURKU3D_* variables define your sandbox. Use codex-task finish to "
-                "merge into main and deploy each completed slice.\n\n"
-                + common
-                + "\n\n"
+                "The exported TURKU3D_* variables define your sandbox. AGENTS.md is the single "
+                "current policy; read it first.\n\n"
                 + coord.PROMPT
                 + "\n"
                 + prompt_brief
@@ -331,29 +329,6 @@ def worker(name):
     import active_agents
 
     active_agents.refresh()
-    if meta["state"] == "done" and landing.result_done(path):
-        land_at_turn_end(name, path)
-
-
-# Compatibility runner envelope covers package/upload; selected checks have their own hard deadlines.
-LAND_TIMEOUT_SECONDS = 1800
-
-
-def land_at_turn_end(name, path):
-    """Compatibility call for DONE turns; explicit finish uses the same direct delivery.
-
-    The recorded selection must cover the current change. Conflicts or failed selected
-    checks leave main unchanged; upload/async failures are forward only.
-    """
-    os.chdir(path)
-    result = s.run_group(
-        [sys.executable, str(s.REPO / "scripts/dev/codex-task"), "land", name],
-        cwd=path,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-        log=path / "land.log",
-        timeout=LAND_TIMEOUT_SECONDS,
-    )
-    print(f"{name}: turn-end landing exited {result.returncode}; see {path / 'land.log'}")
 
 
 def status(name):

@@ -1,3 +1,8 @@
+> **Archived 2026-11-12.** Historical orchestration briefs of Waves 0–2 (including the per-facade texture-generation
+> and visual-QA scoring briefs). They are not read automatically or prepended to new briefs. Current policy:
+> [AGENTS.md](../../../AGENTS.md); current visual brief: [docs/design/visual-brief.md](../../design/visual-brief.md);
+> the coordinate contract now lives in [docs/specs/coordinates.md](../../specs/coordinates.md).
+
 # Codex briefs: waves and dependencies
 
 The orchestrator (one Claude session) launches each brief as a Codex task (gpt-6-astra, high effort) in its own

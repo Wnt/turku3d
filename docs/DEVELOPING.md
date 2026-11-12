@@ -24,7 +24,7 @@ make game-test    # Vitest unit tests
 make game-build   # TypeScript check and production bundle
 ```
 
-For affected browser checks, see [game/README.md](../game/README.md), [Playwright configuration](../game/playwright.config.ts), and [the project test/deployment policy](../AGENTS.md). Do not treat an unrun full browser suite as passing.
+For affected browser checks, see [game/README.md](../game/README.md), [Playwright configuration](../game/playwright.config.ts), and [the agent flow](#agent-flow). Do not treat an unrun full browser suite as passing.
 
 ## Multiplayer server
 
@@ -44,6 +44,131 @@ The real-data tooling includes Python 3.12/`uv` and native geospatial dependenci
 
 Generated tile content is requested on demand in production. Pages does **not** ship a fixed, full-city tile bundle. Consult the linked runbooks before publishing, warming, or operating remote services.
 
+## Appearance loop
+
+Visual work on a prepared scene (`office`, `port-arthur`) runs in one long-lived local session. A material or asset
+change does not restart the game: the camera, physics, collision, ground, lighting and unchanged GPU objects stay.
+The current goal is in the [visual brief](design/visual-brief.md).
+
+1. **Start once.** `source ../sandbox.env`, run Vite (`cd game && npx vite`; it serves `scenes/shared/<sha256>.*`
+   straight from the prepared asset store, `$TURKU3D_DATA/prepared-assets/shared` or `TURKU3D_PREPARED_ASSETS`), then
+   `scripts/dev/preview-session.mjs start`. The session opens `/?solo=1`: the real game and renderer without the
+   multiplayer bootstrap, straight into the scene (local hosts only; public builds keep the Multiplayer start).
+2. **Try live** in the page (CDP or DevTools):
+   ```js
+   const road = __dev.scene.material('road');
+   await __dev.scene.patch({ schema: 'turku-scene-appearance/1', scene: 'office',
+     materials: [{ material: { ...road, roughness: 0.55 } }],
+     assets: [/* { entityId, url: 'shared/<sha256>.glb', sha256 } */] });
+   await __dev.scene.restore();   // back to the published appearance
+   ```
+   A patch replaces complete material records (same ids) and asset models by entity id; textures and models already
+   loaded are reused. It refuses geometry, collision or lighting changes, and `uvScale` (publish that instead).
+3. **Compare** alternatives in the same session: `scripts/dev/scene-capture.mjs --variant NAME=patch.json ...
+   --baseline DIR`. Each variant is applied, captured in every view and restored; the manifest records how long each
+   took to become visible.
+4. **Publish to the scene** files:
+   `bash pipeline/env/run.sh python -m turku3d.scene.appearance --scene game/public/scenes/office.scene.json --recipe pipeline/turku3d/scene/recipes/office.json --patch patch.json`
+   updates the scene JSON, its recipe rows and the region catalog in place (`uvScale` allowed; only that material's
+   UVs change) and checks that nothing else changed. `__dev.scene.reload()` then shows the published file in the
+   running session. A geometry or lighting change needs the full compile (`python -m turku3d.scene`, which prints
+   per-stage timings) and a page reload.
+5. **Score** the iteration: `scripts/dev/scene-judge.mjs run --label "what changed"`. This captures the gameplay
+   views and the reference-photo views with the scene alone (`scene-capture.mjs --mode render`: the QA camera mode
+   with the game's renderer but no player, physics, audio, traffic or multiplayer), and has the Fable 5.2 visual judge score them blind in six categories
+   (identity, buildings, materials, lighting, street, defects), twice. The overall 0–100 and the categories go into
+   the shared history; `scene-judge.mjs report` shows the change per iteration. Rubric:
+   [scripts/dev/judge/JUDGE.md](../scripts/dev/judge/JUDGE.md).
+6. **Ship:** commit, merge ([agent flow](#agent-flow)), then `tools/share/deploy.sh --scenes-only` when the renderer is
+   unchanged (a full deploy otherwise). Capture city.lab with `scene-capture.mjs --base https://city.lab.madekivi.fi/`
+   and play the public Multiplayer entry once, since the solo session skips it.
+
+Measured on 2026-11-12 (M1 Max, `office`, 160 MB scene JSON):
+
+| Step | Time |
+| --- | --- |
+| Live material patch until visible in a fixed view | 2.2–2.5 s (apply 1.8–2.1 s, 24 quiet frames 0.4 s) |
+| Restore to the published appearance | 2.0 s |
+| `__dev.scene.reload()` with nothing changed | 0.6 s |
+| Solo session boot until playable (once) | 36 s |
+| Capture: 3 views, 1 variant × 3 views, 4 s walk, compare sheet (live session) | 14 s |
+| Same capture of city.lab (`d3e2021d`, no readiness signal: fixed 6 s settle per view) | 38 s |
+| One-material publication (`turku3d.scene.appearance`, scratch copy) | 8.2 s (read and seal check 5.1, apply 0.2, write 2.9) |
+| Full office compile, cold | ≈208 s (ground 135, bakes 26, finishes 13, collision 13) |
+
+`deploy.sh --scenes-only` prints its phase timings; it has not run against osgallery-dev yet.
+
+## Agent flow
+
+The rules are in [AGENTS.md](../AGENTS.md); this is how agents carry them out.
+
+**Sandbox.** Create isolated work with `scripts/dev/wt new NAME --from local/loop-integration` and source
+`../sandbox.env` before tools:
+- `TURKU3D_DATA` is shared input;
+- `TURKU3D_WORK` holds your writable products;
+- `TURKU3D_BROWSER_DIR` holds your browser files;
+- `TURKU3D_PORT_BASE` reserves ten ports: dev +0, dist +1, QA +2, probes +3..+9.
+
+The preview session's CDP port is assigned by the OS. Commands are in
+[scripts/dev/README.md](../scripts/dev/README.md).
+
+**Slice: merge, deploy, smoke, one run.**
+
+1. **Merge** as soon as the tests you selected for the changed area pass. They run in parallel under one hard
+   30-second budget; a failure or timeout leaves integration unchanged:
+   ```sh
+   python3 ~/turku3d/tools/codex-loop/merge.py AREA SHA... --what TEXT (--test CMD ... | --no-tests-reason TEXT)
+   ```
+   Examples of `--test`:
+   - `'cd game && npx vitest run tests/unit/<file>.test.ts'`
+   - `'python3 scripts/dev/tests/run.py <file>.py'`
+   - `'bash pipeline/env/run.sh python -m pytest -q <file>'`
+
+   Slower runs go in `--async-test CMD --async-reason TEXT`; they start after the merge and never block it.
+2. **Deploy** right after the merge, package and upload only:
+   ```sh
+   python3 ~/turku3d/loops/night-coord/coord.py run --by NAME deploy -- ~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh
+   ```
+   A scene or material change with an unchanged renderer uses `deploy.sh --scenes-only` (no build, no restarts).
+3. **Smoke** with curl only, in at most five seconds, reading the reported health rather than only HTTP 200:
+   `python3 ~/turku3d/wt/loop-integration/repo/tools/share/smoke.py SHA`. A red smoke is fixed forward.
+4. **One selective run** of your own on the deployed system, a hard ten minutes including lease waits. Read
+   `~/turku3d/loops/board.md` first for what others ran, then exercise what the change affects:
+   - **a generator change:** build its real tiles and check outcomes, timings and counts against the source;
+   - **a client change:** exercise the feature on the Air or Windows;
+   - **a visual change:** run `scripts/dev/scene-judge.mjs run --base https://city.lab.madekivi.fi/` (capture plus
+     the blind Fable 5.2 judge, score per iteration), and play it in the public Multiplayer entry.
+
+   At most one forward fix, then report to the coordinator.
+5. **No rollbacks.**
+   - Commit often.
+   - While something works, merge and publish at least every 30 minutes, bundling related visible changes. No
+     finished work waits unmerged.
+   - Write one line per merge and deploy to `~/turku3d/loops/board.md`.
+   - There is no agent register, heads-up or acknowledgement ceremony.
+
+**Evidence:**
+- Use the lightest relevant evidence and select the affected tests yourself, with grep or name filters. Never run a
+  suite blindly or treat a generic suite as evidence for a change it does not exercise.
+- Stills, drives, tile builds and judge runs are never pre-merge gates.
+- Visual evidence comes from the one capture command, `scripts/dev/scene-capture.mjs`: view sets, live variants,
+  baselines, the walking clip, checks and timings. Extend it instead of writing per-feature capture, check or probe
+  scripts.
+- Make one comparison and walking clip per integrated visual milestone. Keep narrow diagnostics private unless they
+  explain a problem.
+- Visual progress is scored with `scripts/dev/scene-judge.mjs`. Its shared history shows the score per iteration,
+  and a gain within the judge's repeat spread is not a gain.
+- Require byte identity only for components intentionally outside an edit.
+- Use content hashes per generator stage, tile and scene, so that only affected parts rebuild, on demand where
+  possible.
+
+**Browser:** see [scripts/dev/browser.md](../scripts/dev/browser.md):
+- Chrome for Testing through `tools/dev/chrome-args.mjs`;
+- one preview session per agent, patched at runtime (`window.__game`, `window.__dev`, `__dev.scene`) instead of
+  reloaded, with URL parameters only for what the initial load needs;
+- `?solo=1` for local appearance work;
+- an exclusive `host_slots.py` lease and a fresh launch for performance evidence.
+
 ## Source and deployment boundaries
 
 | Path | Responsibility |
@@ -56,6 +181,6 @@ Generated tile content is requested on demand in production. Pages does **not** 
 | `docs/specs/` | Data and coordinate contracts |
 | `docs/reports/` | Dated test and research findings |
 
-The public client is hosted at [wnt.github.io/turku-game](https://wnt.github.io/turku-game/) from the deploy-only [Wnt/turku-game](https://github.com/Wnt/turku-game) repository. Its `game/` files are build outputs. Change the source here; project deployment tooling handles publication after integration. A PR does **not** publish to Pages.
+The released client at [wnt.github.io/turku-game](https://wnt.github.io/turku-game/) (deploy-only [Wnt/turku-game](https://github.com/Wnt/turku-game) repository) and city.madekivi.fi are frozen. Next-generation work is published only to city.lab.madekivi.fi with `tools/share/deploy.sh` after it is merged into `local/loop-integration`. A PR does **not** publish anything.
 
-For small changes, run only relevant tests and explain what you did and did not verify. The project's automated task orchestration and merge/deploy rules are described in [AGENTS.md](../AGENTS.md); that workflow assumes the owner's configured data, machines and credentials.
+For small changes, run only relevant tests and explain what you did and did not verify. The project's rules are in [AGENTS.md](../AGENTS.md) and the merge and deploy flow is in [Agent flow](#agent-flow); that workflow assumes the owner's configured data, machines and credentials.

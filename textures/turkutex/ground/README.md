@@ -24,7 +24,7 @@ bash pipeline/env/run.sh python -m turkutex.ground.seams "$TURKU3D_WORK/textures
 make ground-qa ground-acceptance
 ```
 
-`GROUND_LAYER` contains `c_i_j.col.npz` arrays defined by COMMON.md: `positions` float64 world-local,
+`GROUND_LAYER` contains `c_i_j.col.npz` arrays defined by docs/specs/layers.md: `positions` float64 world-local,
 `indices` uint32 triangles, `material` uint8 per triangle. All neighbouring collision tiles that
 intersect the texture gutter are read. Vertical faces are ignored by the planar splat; curb tops
 keep their material. Unsupported classes (water/building/unknown triangles) fail validation.

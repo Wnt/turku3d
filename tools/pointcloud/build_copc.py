@@ -32,7 +32,7 @@ REPO = Path(__file__).resolve().parents[2]
 TILES_CSV = REPO / 'data-manifests/laz-tiles.csv'
 # Bump when the output changes for the same source; every tile then rebuilds.
 RECIPE_VERSION = 'copc@2'
-SRS = 'EPSG:3877+3900'  # ETRS-GK23 + N2000, the engine frame (docs/briefs/COMMON.md)
+SRS = 'EPSG:3877+3900'  # ETRS-GK23 + N2000, the engine frame (docs/specs/coordinates.md)
 SCALE = 0.01  # 1 cm: the survey's ~11 cm point spacing needs no millimetres; ~10 % smaller on the wire
 # The survey's own RGB is a late-October flight (dull, leafless crowns). Points also carry the 2022 true ortho's colour
 # (summer, as opaskartta shows them) in three extra bytes; 0,0,0 means no ortho there.

@@ -165,6 +165,12 @@ Rules:
 - **Back-mapping:** issue bboxes → object-ID render → building/tile/material IDs, so each issue becomes a ticket in `qa/issues.jsonl` with a pointer to the asset to fix.
 - **Use:** (1) fix-list generation after each texture/geometry pass; (2) regression: the same view set is re-run per commit and the score must not drop; (3) acceptance gate for Phase 1–3 tiles.
 - Not a pixel metric: the goal is "recognisably the same place", in line with the not-1:1 principle. Same quota guard as D7.
+- **Score per iteration** (user decision, 2026-11-12): `scripts/dev/scene-judge.mjs`.
+  - It captures the scene alone (QA camera mode) at the reference poses and gameplay views.
+  - A blind Fable 5.2 judge (`.claude/agents/visual-judge.md`, rubric `scripts/dev/judge/JUDGE.md`) scores six
+    weighted categories, 0–100 overall, twice.
+  - The history is shared in `~/turku3d/loops/judge/`.
+  - The Astra judge above remains the issue-list and back-mapping tool.
 
 ---
 
@@ -222,7 +228,7 @@ heads-up when needed, rebases, runs agent-selected affected tests under a hard 3
 wall deadline and merges into main. It immediately packages/uploads the game to Pages,
 without a deploy lock, queue, verified-only release, integration batch or rollback path.
 Five-second curl smoke follows; one agent-owned selective async test run has a hard
-ten-minute budget and permits at most one forward fix. See AGENTS.md and scripts/dev/README.md.
+ten-minute budget and permits at most one forward fix. See docs/DEVELOPING.md (agent flow) and scripts/dev/README.md.
 The world is generated on demand by the latest coarse generator; Pages contains only the
 game. AI facade descriptions, facade-kit results and the texture library remain available
 to the generated world. Full-tile build stages and data integration batches are retired.

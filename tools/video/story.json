@@ -106,7 +106,7 @@
     ],
     "text": "The detailed blocks combine separate ground, structure, and building layers. Visual meshes describe what you see. Collision meshes describe what stops you. Both use the source data, with separate checks for mesh integrity and collision behaviour.",
     "sources": [
-      "docs/briefs/COMMON.md",
+      "docs/specs/coordinates.md",
       "pipeline/turku3d/package/README.md"
     ]
   },

@@ -17,6 +17,70 @@ ditto -x -k "$TURKU3D_WORK/cache/chrome-mac-arm64.zip" "$HOME/turku3d/browsers/1
 [Override, launch contract and verification](browser.md).
 The fast gate rejects desktop Chrome launch paths and channels.
 
+## Preview session and scene capture
+
+```bash
+source ../sandbox.env
+scripts/dev/preview-session.mjs start                 # CfT, own profile, OS-assigned CDP port, ?solo=1 game
+scripts/dev/scene-capture.mjs --out "$TURKU3D_WORK/captures/try1" \
+  --variant warm=patch.json --baseline "$TURKU3D_WORK/captures/lab"   # views, variants, clip, checks, compare
+scripts/dev/scene-capture.mjs --base https://city.lab.madekivi.fi/ --out "$TURKU3D_WORK/captures/lab"
+scripts/dev/preview-session.mjs status | touch | stop
+```
+
+The preview session is the agent's long-lived browser for looking, live patching and capturing; its watchdog
+closes it after the idle limit (`--idle-minutes`, default 45, at most 120). `scene-capture.mjs` is the one capture
+command: a view set (`scripts/dev/views/*.json`), appearance variants applied in the same session, matched
+settings, explicit readiness, a walking clip, checks, timings and `compare.html`/`compare.jpg` against earlier
+captures. Extend it instead of writing per-feature capture scripts. Workflow: [docs/DEVELOPING.md](../../docs/DEVELOPING.md#appearance-loop).
+
+```bash
+scripts/dev/scene-judge.mjs run --label "warmer facades"     # capture, blind packet, Fable 5.2 judge ×2, history
+scripts/dev/scene-judge.mjs run --label "lab abc123" --base https://city.lab.madekivi.fi/
+scripts/dev/scene-judge.mjs report                            # scores per iteration (table + HTML)
+```
+
+`scene-judge.mjs` scores an iteration. It captures the gameplay views and the views from the reference photos'
+cameras (`riverside-office-refs.json`) with the scene alone: `scene-capture.mjs --mode render` uses the game's QA
+camera mode (`?cam=`), with the same renderer, materials, vegetation, sky and post-processing, but no player, physics,
+audio, traffic or multiplayer, and readiness from `__qaReady` (8 s load and under 1 s per view locally, against 36 s
+for the game). It then gives the visual judge (`.claude/agents/visual-judge.md`, Fable 5.2,
+read-only) a blind packet of photos, renders and the rubric ([judge/JUDGE.md](judge/JUDGE.md)). The judge scores
+every view 0–10 in six categories and names its main issues. The history
+`~/turku3d/loops/judge/riverside-office.jsonl` is shared, and `riverside-office.html` beside it shows the overall score
+(0–100) and every category per iteration, with the spread between the judge's repeats. In a Claude session the
+`visual-judge` subagent can judge a `prepare`d packet, followed by `record`. A changed rubric warns that scores are no
+longer comparable. A judge run is evidence, never a merge gate.
+
+**Requirements:**
+- A running preview session (`preview-session.mjs start`, or `--cdp URL`).
+- For a local build, your dev server on `TURKU3D_PORT_BASE`.
+- `ffmpeg`.
+- The `claude` CLI, logged in on the host. The judge runs `claude -p` with the rubric as system prompt, only the Read
+  tool, no MCP servers, settings or session, and a JSON schema for the answer. It needs no API key; `--bare` does not
+  work without one.
+- The reference crops, found in `$QA_DATA`, `$TURKU3D_WORK/qa`, `$TURKU3D_DATA/qa` or `~/turku3d/data/qa`. They are
+  in `~/turku3d/data/qa/refs` and never go into Git. [qa/README.md](../../qa/README.md) shows how to remake them.
+
+**Time and cost:** one iteration with two repeats takes about 2 minutes, plus about 30 s of capture. That is roughly
+$1.6 of notional usage. The baseline on 2026-11-12 (city.lab `d3e2021d`) was 45.7 ± 2.5; a visually identical local
+build scored 45.8. So the judge reproduces within its spread, but its sensitivity to a real change is still unmeasured.
+
+**Usage notes:**
+- For trial runs, pass `--history` with a scratch file, so that the shared history holds only real iterations.
+- To score another corridor:
+  - make a gameplay views file and a reference views file (`"references": "qa/views/views.jsonl"`, with
+    `{ "id", "reference" }` entries naming posed rows of the registry);
+  - pass both files with `--views`.
+
+  The history is then `~/turku3d/loops/judge/<first file>.jsonl`.
+- A changed rubric or schema (`judge/JUDGE.md`, `judge/scores.schema.json`) is recorded by its hash. A real change
+  starts a new history file rather than mixing scales.
+- **Two QA tools, two jobs:**
+  - `qa/` (Codex Astra, [qa/README.md](../../qa/README.md)) lists issues per photo pair, with back-mapping to
+    assets;
+  - `scene-judge.mjs` (Fable 5.2) is the score per iteration.
+
 ## Worktrees
 
 Run from any checkout (the commands resolve their own repository):
@@ -85,7 +149,7 @@ Names are lowercase letters, digits, hyphens and underscores; `main` is reserved
 ## Tasks (orchestrator)
 
 ```bash
-scripts/dev/codex-task run stairs --brief docs/briefs/W1-02-structures.md --from main --effort high
+scripts/dev/codex-task run frontage --brief ~/turku3d/briefs/frontage.md --from local/loop-integration --effort high
 scripts/dev/codex-task ls                    # running first, then ten recent stopped tasks
 scripts/dev/codex-task ls --running          # live tasks only (PID/start identity checked)
 scripts/dev/codex-task ls --all              # every task, still compact
@@ -94,14 +158,14 @@ scripts/dev/codex-task log stairs 30
 scripts/dev/codex-task result stairs
 scripts/dev/codex-task resume stairs --reason unblock 'Fix the failing seam test and rerun the gate.'
 scripts/dev/codex-task stop stairs
-scripts/dev/codex-task land stairs          # land a recorded DONE result again (same as finish)
 scripts/dev/codex-task adopt ext --brief ~/turku3d/briefs/ext.md   # a non-Codex worker's sandbox
-scripts/dev/codex-task finish ext --result result.md [--keep-sandbox] [--note "..."]   # lands
 ```
 
-Use an actual brief path from `docs/briefs/`. `run` creates the sandbox if absent, exports its environment and
+A brief states the visible outcome, reference locations, scope, time budget and stop criterion
+(`docs/design/visual-brief.md` is the current one); the 2026-10 wave briefs are archived in `docs/archive/briefs-2026-10/`.
+`run` creates the sandbox if absent, exports its environment and
 starts `codex exec -m gpt-6-astra --sandbox danger-full-access -C <repo>` in a new process group. It returns
-immediately. The prompt contains COMMON plus the brief. `resume` uses the recorded `thread.started` session ID,
+immediately. The prompt contains the runner preamble, the coordination block and the brief; AGENTS.md is read by the agent itself. `resume` uses the recorded `thread.started` session ID,
 not the most recent global session. The model and effort remain the same. Codex is responsible for committing work.
 `run` reports free disk and shared streetlevel cache size, and refuses to create a sandbox
 below 30 GiB free on the sandbox filesystem. Check with
@@ -127,64 +191,19 @@ unlanded tasks whose sandbox still exists. This attributes the 27.2 h between tu
 `runner.log`, follow-up prompts, and `gate.log` after landing. `status` detects interrupted processes and reports
 elapsed time, last event and commit. `stop` verifies the supervisor process identity before signalling its group:
 TERM, a three-second grace period, then KILL if necessary. No global process-name matching is used.
-`stop` also reaps sandbox Chrome profiles; landing reaps them before verification and cleanup.
+`stop` also reaps sandbox Chrome profiles (a running preview session included).
 
 The quota guard reuses `textures/turkutex/codex/usage.py` (`codex app-server` JSON-RPC, no model call).
 It refuses when any usage window reaches 100%, or usage is unknown. `run/resume --force` bypasses a known 100%
 reading only. Tests use a fake `codex` on PATH and synthetic repositories; no real calls occur in `tooling-test`.
 
-### Merge into main and deploy (`codex-task finish`)
+### Merge, deploy and verify
 
-Use `codex-task agents` for the single active-agent/branch register. Commit often;
-git contains the details. Give a short high-level heads-up for a shared format,
-data structure or code another active agent is changing. There is no overlap planner.
-
-```sh
-source ../sandbox.env
-scripts/dev/codex-task agents
-scripts/dev/codex-task checks --last 10
-scripts/dev/codex-task finish NAME --result "$TURKU3D_WORK/reports/result.md" \
-  --keep-sandbox \
-  --test 'python3 scripts/dev/tests/run.py test_delivery.py test_pages.py' \
-  --async-test 'python3 scripts/dev/tests/run.py test_tooling.py test_caches.py' \
-  --async-reason 'Delivery changed; these broader cases were not covered recently'
-```
-
-These are examples for delivery changes; pick affected commands and grep filters for
-your change. All `--test` commands share a hard 30-second wall deadline, in parallel with the
-mandatory uncached repository-wide `policy` and `chrome-launch-policy` stages.
-These two stages also run when `--no-tests-reason` is selected.
-Use `--no-tests-reason TEXT` when there are no affected quick tests. `--heads-up TEXT`
-sends the shared-interface note before rebase. The quick suite stays tiny; new tests
-need a strong reason.
-
-Finish rebases, runs the selected checks, merges into main, announces the merge,
-then packages/uploads the game to Pages immediately. No test or tile build runs in
-deployment, and there is no deploy lock, queue, batch, bisection or rollback. Public
-source publication follows Pages rather than delaying it. A git push race is reported
-without an automatic publication retry. Pages already has its hosting configuration.
-
-After deployment, curl smoke probes have a five-second total wall budget, no browser.
-Read the health response: recent full-pass failures/cancellations or excessive latency
-make smoke red even when HTTP is 200. `/coarse/health` and `checks` expose rolling
-15-minute per-pass outcomes, p50/p90 and error kinds; the sentinel watches this signal.
-One agent-owned selective async run starts from frozen deployed source; it has ten
-minutes including bulk-slot waits. `checks` shows recent commands and outcomes so the
-agent can avoid repeating other agents' evidence. Choose evidence for the actual deployed
-change: generator work builds representative real tiles on OCI, first and full, checks
-outcomes/timing and compares counts with source inputs; client work exercises its feature.
-The agent selects commands, tiles, timing budgets and count expectations. Generic suites
-are no substitute. `scripts/dev/probe_drafts.py --commit SHA --tile TILE --first-budget N
---full-budget N` is an optional real-build probe, never a deployment gate. A failing run permits one forward
-fix through `finish --fix-for JOB`; later failures go to the orchestrator. Results
-live under the task's `checks/` directory and survive sandbox removal.
-
-The register is `wt/.registry/agents.json`, refreshed by `codex-task agents` and lifecycle
-changes. Merge events retain the historical `landed.jsonl` filename for current
-clients; deployments and test outcomes are in `deployments.jsonl` and `checks.jsonl`.
-There is no integrator process or verified-only release selection. The game world is
-generated on demand; facade assets and generator source are published independently
-of the game bundle. Details: [AGENTS.md](../../AGENTS.md), [verification.md](verification.md).
+The current slice flow (merge into `local/loop-integration`, deploy to city.lab, five-second smoke, one selective
+run) is in [docs/DEVELOPING.md](../../docs/DEVELOPING.md#agent-flow). Scene/material-only changes publish without a renderer build:
+`tools/share/deploy.sh --scenes-only [REV]`. The appearance loop (local preview, live patches, capture,
+publication) is in [docs/DEVELOPING.md](../../docs/DEVELOPING.md#appearance-loop). The retired Pages/OCI
+`codex-task finish` delivery is archived in [docs/archive/2026-11-pages-oci-delivery.md](../../docs/archive/2026-11-pages-oci-delivery.md).
 
 ### Long commands (agents)
 
@@ -192,7 +211,7 @@ Run anything that can take longer than 30 s as one blocking call instead of poll
 
 ```bash
 scripts/dev/codex-task wait-cmd -- scripts/dev/gate
-scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/codex-task finish ext --result result.md
+scripts/dev/codex-task wait-cmd --tail 80 -- scripts/dev/scene-capture.mjs --base https://city.lab.madekivi.fi/ --out "$TURKU3D_WORK/captures/lab"
 scripts/dev/codex-task wait-cmd --timeout 1800 -- make tile-build T='t0_0_0'
 scripts/dev/codex-task wait-cmd -- make game-e2e
 ```
@@ -227,15 +246,18 @@ read-only guarantees, token/unread count limits and storage overrides.
 
 ### Coordination (agents and orchestrator)
 
+Optional messaging for orchestrated Codex tasks. The shared record of merges and deploys is one line each in
+`~/turku3d/loops/board.md` (AGENTS.md); there is no heads-up or acknowledgement requirement.
+
 ```bash
 # In a sandbox, the sender and default inbox come from TURKU3D_SANDBOX.
 scripts/dev/codex-task inbox --unread
 scripts/dev/codex-task inbox stairs --json
 scripts/dev/codex-task msg stairs --kind request --subject "Stair layer API" \
-  --ref docs/briefs/COMMON.md 'Please preserve world-local metres in the layer output.'
+  --ref docs/specs/coordinates.md 'Please preserve world-local metres in the layer output.'
 scripts/dev/codex-task ack <message-id> --note 'Updated the exporter and verified its output.'
 scripts/dev/codex-task msg all --kind interface --subject "Layer API ready" \
-  --ref <commit> --ref docs/briefs/COMMON.md 'The layer output contract is ready to use.'
+  --ref <commit> --ref docs/specs/layers.md 'The layer output contract is ready to use.'
 scripts/dev/codex-task board
 scripts/dev/codex-task board --since 1792886400 --json
 scripts/dev/codex-task ls
@@ -244,8 +266,7 @@ scripts/dev/codex-task status stairs
 
 `run` and `resume` attach `scripts/dev/inbox_hook.py` to Codex. Tool calls reveal requests and warnings
 in full (repeated after 15 minutes), notes and interfaces by subject, and landings with a rebase reminder.
-Stop blocks once for unread urgent messages; hook errors are logged. Check the board after commits and
-before finishing; acknowledge messages you act on. Manual inbox checks remain available. Before changing another area's interface, send its running owner a `request`, or post to `all` when no owner is running. Announce schemas,
+Stop blocks once for unread urgent messages; hook errors are logged. Manual inbox checks remain available. Before changing another area's interface, send its running owner a `request`, or post to `all` when no owner is running. Announce schemas,
 file layouts and module APIs that others depend on with an `interface` message and commit ref.
 
 `msg` accepts `note`, `request`, `interface`, or `warning`; it prints the new message ID. `--ref`
@@ -275,7 +296,6 @@ the tasks root also isolates the board. No board records are copied into individ
 `ls` and `status` show inbox unread counts; finished/interrupted tasks with unread messages have
 an `UNACKNOWLEDGED` marker. A `request` or `warning` sent after a task finishes also creates
 "recipient finished; addressed by orchestrator" notices in the orchestrator and sender inboxes.
-No message holds a landing: `finish`/`land` list open requests and warnings and the worker decides.
 
 ## Verification
 
@@ -301,30 +321,6 @@ unread counts and run/resume prompts.
 `game-dev-tools-test` starts two dist servers simultaneously with distinct environment ports and output roots.
 To check complete game stacks, create two worktrees from the tooling commit, source each environment in separate
 shells, and run `make game-e2e` concurrently. Each installs its own npm dependencies on first use.
-
-## Wave 0 integration
-
-The branch includes W0-C's native local pipeline, W1-06's controller/character work, W1-07's vehicle and W1-11's visual QA. `mk/tile.mk` keeps
-its ordered local build chain and serves `$(GAME_DIST)` (`work/build/game`) for `tile-show` and `tile-qa`.
-`raw_dir()` reads shared inputs; `work_root()` / `build_dir()` / cache/dist helpers use sandbox outputs.
-Remote and sync commands are removed. Controller and vehicle screenshots use the sandbox report root.
-QA retains its parallel judge, manifest provenance, immutable runs, calibration and regression checks.
-`QA_DATA` overrides the sandbox QA root; the local stub defaults to port base +2 and keeps `--port` overrides.
-The English-language policy from COMMON now lives in AGENTS.md. The gate maps tooling changes to
-`tooling-tests` and gate changes to `gate-tests`. Changes to `tools/dev/environment.*` also select
-game typechecks, browser/QA tests and dist-server tests. Landing calls `gate --base <main-sha>`.
-
-Initial acceptance before the integration rebase (macOS, 2026-10-25): two new worktrees from implementation commit `1f9b1d9`, ports
-5260–5269 and 5270–5279, ran `make game-e2e` concurrently: **10/10 each**, 83.01 s and 84.09 s including
-first npm installs and builds. The real `gpt-6-astra` runner smoke call finished in 13.2 s with the correct
-sandbox environment and `## Result: DONE`. Synthetic tests verified a trivial fast-forward to their own
-main branch, red-gate/result/dirty-tree refusals, and a concurrent-main-change refusal; the project main
-branch was not landed. Temporary acceptance worktrees were removed after retaining logs in
-`~/turku3d/wt/w0-tooling/work/reports/` and the real task record in `~/turku3d/tasks/w0-verify-a/`.
-
-Pre-rebase area checks: 119 passed, 2 optional texture tests skipped (KTX2 npm dependencies and DeepBump are not
-installed in this sandbox). Tooling tests: 9.87 s; foundation: 0.57 s; game units: 1.77 s; dist server: 0.39 s;
-QA Python: 0.97 s; QA render: 12.56 s; texture tests: 5.28 s. `here`: 0.16 s in main, 0.33 s in the sandbox.
 
 ## Quality gate (W0-B)
 
@@ -514,15 +510,7 @@ See [measured results](../../docs/reports/fix-gate-speed.md) for host-load limit
 
 See [verification.md](verification.md) for focused checks, host slots, budgets,
 environment sync and stage caches. Normal integration runs no Chrome or deep gate;
-`finish --async-test COMMAND` selects a bounded investigation.
-
-### Direct delivery receipts
-
-`codex-task finish` records selected command results, merge time, package/upload
-metrics, five-second smoke and the async job path. It accepts a running agent's own
-slice and keeps that checkout active. A DONE turn-end compatibility call uses the
-recorded selection; a new change requires a new explicit selection. Rebase conflicts
-and quick-test failures leave main unchanged; failures after merge are forward only.
+`merge.py --async-test COMMAND` (AGENTS.md) selects a bounded investigation.
 
 ## Codex token ledger
 
@@ -561,8 +549,8 @@ rebase, verification or finish-only work; ordinary resumes retain their previous
 The resolved model, effort and route are persisted in task metadata and each ledger turn.
 
 ```sh
-scripts/dev/codex-task run example --brief docs/briefs/example.md --route task
-scripts/dev/codex-task resume example "Rebase, verify and finish" --route task_rebase
+scripts/dev/codex-task run example --brief ~/turku3d/briefs/example.md --route task
+scripts/dev/codex-task resume example "Rebase, verify and merge" --route task_rebase
 scripts/dev/codex-task resume example "Verify only" --route light --model gpt-6-sol --effort low
 ```
 

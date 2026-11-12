@@ -40,3 +40,21 @@ checking the CDP command line and sampling the system clone directory every 50 m
 including while Chrome is running. It writes `reports/chrome-clone/verification.json`
 under `$TURKU3D_WORK`. Unrelated unprotected Chrome launches share that directory and fail the probe. Existing clones are only listed.
 
+## Preview session and measurements
+
+Two kinds of browser use, with different rules:
+
+- **Looking, live patching and capturing** use the agent's preview session (`scripts/dev/preview-session.mjs`):
+  one Chrome for Testing per sandbox with its own profile under `$TURKU3D_BROWSER_DIR/preview` and an
+  OS-assigned CDP port on 127.0.0.1 (recorded in `$TURKU3D_WORK/preview/session.json`; every sandbox port already has
+  a test owner), kept alive during active work and closed by its watchdog after the idle limit
+  (default 45 min, at most 120). Connect over CDP (`scripts/dev/scene-capture.mjs`, Playwright `connectOverCDP`)
+  and change options or code at runtime instead of reloading. It is not debited from the browser-minute budget,
+  which applies to `host_slots.py browser` suite runs.
+- **Performance measurements** that are meant as evidence take an exclusive lease
+  (`python3 scripts/dev/host_slots.py browser -- …`) and a fresh launch; a preview session running alongside
+  other work is not a measurement.
+
+Never use a personal Chrome profile or Jonni's ports (5171, 5175). `wt reap` and `codex-task stop` remove a
+sandbox's Chrome profiles, a preview session included.
+

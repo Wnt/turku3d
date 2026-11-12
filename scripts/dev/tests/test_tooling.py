@@ -52,8 +52,6 @@ class Fixture(unittest.TestCase):
             dest = self.repo / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SOURCE / name, dest)
-        (self.repo / "docs/briefs").mkdir(parents=True)
-        (self.repo / "docs/briefs/COMMON.md").write_text("Common test policy.\n")
         (self.repo / "brief.md").write_text("Tiny fake test brief.\n")
         (self.repo / ".gitignore").write_text("__pycache__/\n.cache/\n")
         self.bin = self.base / "bin"
@@ -88,8 +86,7 @@ class Fixture(unittest.TestCase):
             "TURKU3D_COORD_ROOT": str(self.base / "coord"),
             # Launch integration tests use a synthetic filesystem independent of host disk pressure.
             "TURKU3D_TEST_DISK_FREE_BYTES": str(40 * 1024**3),
-            # A DONE Codex turn lands its branch; fake turns report BLOCKED unless a test
-            # exercises that landing (FAKE_RESULT=DONE).
+            # Fake turns report BLOCKED unless a test sets FAKE_RESULT=DONE.
             "FAKE_RESULT": "BLOCKED",
             "PYTHONPATH": str(self.python_support) + os.pathsep + os.environ.get("PYTHONPATH", ""),
         }
@@ -208,6 +205,24 @@ class ToolingTests(Fixture):
         self.assertEqual(rows["manual"]["port"], old)
         self.assertNotEqual(rows["next"]["port"], old)
 
+    def test_done_turn_records_without_landing(self):
+        # main and Pages are frozen: a DONE turn records its result and never merges or deploys by itself.
+        self.env["FAKE_RESULT"] = "DONE"
+        self.start()
+        pid = int((self.base / "tasks/demo/pid").read_text())
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.02)
+        self.assertIn("## Result: DONE", self.cli("codex-task", "result", "demo").stdout)
+        self.assertFalse((self.base / "tasks/demo/land.log").exists())
+        meta = json.loads((self.base / "tasks/demo/meta.json").read_text())
+        self.assertNotIn("merged", meta)
+        self.assertNotIn("landed", meta)
+
     def test_run_resume_and_logs(self):
         self.start()
         prompt = (self.base / "tasks/demo/prompt.md").read_text()
@@ -216,6 +231,10 @@ class ToolingTests(Fixture):
         self.assertIn("scripts/dev/codex-task board", prompt)
         self.assertIn("scripts/dev/codex-task wait-cmd -- <command>", prompt)
         self.assertIn("Tiny fake test brief.", prompt)
+        self.assertIn("AGENTS.md is the single current policy", prompt)
+        self.assertNotIn("codex-task finish to", prompt)
+        self.assertIn("Never merge into main", prompt)
+        self.assertIn("local/loop-integration", prompt)
         self.assertIn("## Result: BLOCKED", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("done", self.cli("codex-task", "status", "demo").stdout)
         self.assertRegex(self.cli("codex-task", "ls").stdout, r"demo: done, .*, idle 0 min")
@@ -231,7 +250,7 @@ class ToolingTests(Fixture):
         self.assertTrue(all("time" in e for e in events if e["type"] == "turn.completed"))
         resume = next((self.base / "tasks/demo").glob("resume-*.md")).read_text()
         self.assertIn("## Coordination", resume)
-        self.assertIn("scripts/dev/codex-task ack <id>", resume)
+        self.assertIn("local/loop-integration", resume)
         self.assertTrue(resume.endswith("Follow-up with $literal."))
         self.assertIn("Follow-up", self.cli("codex-task", "result", "demo").stdout)
         self.assertIn("turn.completed", self.cli("codex-task", "log", "demo", "1").stdout)

@@ -18,15 +18,14 @@ LANDED = "landed"
 LANDED_PATHS = 20
 RESUME_REASONS = ("unblock", "review", "main-moved", "quota", "follow-up", "other")
 PROMPT = """## Coordination
-Use codex-task agents for the one active-agent/branch register and git for details.
-Commit often. Give a short high-level shared-change heads-up when needed. Finish
-rebases, runs your selected affected tests within 30 seconds, merges into main and
-deploys Pages immediately; five-second curl smoke and your selective ten-minute
-async run follow. No deployment queue or rollback. See AGENTS.md for exact commands.
-Runner hooks announce new inbox messages. Handle requests/warnings and acknowledge
-them with scripts/dev/codex-task ack <id>. Check scripts/dev/codex-task board
-after commits and before finishing. Run long commands through
-scripts/dev/codex-task wait-cmd -- <command> or poll at 30-second intervals. A merge notice means rebase before selected checks.
+Commit often on your branch; git holds the details. Merge each working slice into
+local/loop-integration with merge.py (selected tests, 30-second budget), deploy it to
+city.lab, smoke it and run one selective check of your own (docs/DEVELOPING.md#agent-flow has the commands).
+Never merge into main, push, run codex-task finish/land, or deploy Pages or OCI.
+Add one line per merge and deploy to ~/turku3d/loops/board.md.
+Runner hooks announce new inbox messages; scripts/dev/codex-task board shows the shared
+board when you need context. Run long commands through
+scripts/dev/codex-task wait-cmd -- <command> or poll at 30-second intervals.
 """
 
 

@@ -2,6 +2,7 @@
 
 Binding formats shared between the pipeline (Python), the game (TypeScript) and the validator (Node).
 
+- [coordinates.md](coordinates.md): EPSG:3877 + N2000 world frame, engine axes, tile grids
 - [col-format.md](col-format.md): `.col` collision tile binary v1.0
 - [materials.md](materials.md): uint8 surface material table v1 (append-only)
 - [facades.md](facades.md): buildings → facade texturing metadata, ordering and metre UVs

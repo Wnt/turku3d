@@ -35,7 +35,14 @@ From the Mac:
 
 ```sh
 ~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh [--local-build] [REV]   # default: local/loop-integration
+~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh --scenes-only [REV]     # scenes into the running renderer
 ```
+
+`--scenes-only` publishes REV's prepared scenes (scene JSON, collision cells, region catalog) and their new immutable
+objects without a build or restart: it hard-links the current release's renderer into a new release, adds REV's
+scenes, records `scenes`/`scenesSubject` in `version.json` (the renderer `sha` stays) and switches `current`. It
+refuses a renderer that cannot read `turku-scene/1`. `smoke.py REV` accepts the `scenes` field. The full mode below
+publishes renderer and scenes together.
 
 The script:
 

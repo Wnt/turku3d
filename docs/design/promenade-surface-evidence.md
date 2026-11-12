@@ -50,12 +50,8 @@ Selected helper tests:
 PYTHONPATH=pipeline ~/turku3d/envs/pipeline/bin/python -m unittest discover -s pipeline/tests -p test_surface_inlays.py -v
 ```
 
-Private reproducible application:
-
-```sh
-PYTHONPATH=pipeline python3 scripts/dev/host_slots.py build -- ~/turku3d/envs/pipeline/bin/python -m turku3d.scene.promenade_finish INPUT/office.scene.json OUTPUT
-```
-
-The output scene, copied immutable collision files and `finish-audit.json` remain
-outside Git. The audit reports clipped area, interpolation residual and optical
-lift separately from the zero change to canonical support heights.
+`compile_scene` applies the finish whenever the office asset is present, so an
+ordinary recipe build reproduces it. The former post-hoc `promenade_finish`
+publication command was removed: it added geometry to an already compiled scene,
+which is not an appearance-only change. Finish geometry changes go through a
+recipe build; material-only changes go through `python -m turku3d.scene.appearance`.
