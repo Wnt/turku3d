@@ -24,6 +24,8 @@ MIN_WALL_M = 2.5  # shorter walls get no crop of their own; they show in their n
 COLUMN_M = 1.0
 TARGET_PX_PER_M = 30.0  # enough to count panes; beyond it more resolution earns nothing
 VIEWS_PER_WALL = 3
+SECOND_OPINION_APART_M = 6.0
+CROPS_PER_BUILDING = 10  # wall crops in one reading
 
 
 @dataclass
@@ -134,7 +136,8 @@ def measure(scene: Scene, building: Building, wall: Wall, pano: Pano) -> WallVie
 
 
 def choose(candidates: list[WallView], count: int = VIEWS_PER_WALL) -> list[WallView]:
-    """Views that together cover the wall, then second opinions: another provider, another year, another side."""
+    """Views that together cover the wall, best first; then one second opinion when a different one exists:
+    another provider or year, or a camera far enough along the street to see past what stands in front."""
     if not candidates:
         return []
     wall = candidates[0].wall
@@ -144,26 +147,45 @@ def choose(candidates: list[WallView], count: int = VIEWS_PER_WALL) -> list[Wall
     def span(v):
         return slice(max(0, int(v.x0 / COLUMN_M)), max(1, math.ceil(v.x1 / COLUMN_M)))
 
+    def new_share(v):
+        return float((~covered[span(v)]).sum()) / len(covered)
+
     pool = sorted(candidates, key=lambda v: -v.quality)
     while pool and len(chosen) < count:
-        def gain(v):
-            new = (~covered[span(v)]).sum() * COLUMN_M
-            other = 0.0
-            if chosen:
-                other += 0.15 if all(c.pano.source != v.pano.source for c in chosen) else 0.0
-                other += 0.1 if all(c.pano.date[:4] != v.pano.date[:4] for c in chosen) else 0.0
-                # the same lamp post or tree hides something else from 5 m further along
-                apart = min(float(np.linalg.norm(c.pano.position[:2] - v.pano.position[:2])) for c in chosen)
-                other += 0.15 * min(1.0, apart / 8.0) - (0.5 if apart < 2.0 else 0.0)
-            return v.quality * (new / max(wall.length, 1e-6) + 0.25 + other)
-
-        best = max(pool, key=gain)
-        if chosen and gain(best) <= 0.05:
+        best = max(pool, key=lambda v: v.quality * (new_share(v) + 0.05))
+        if chosen and new_share(best) < 0.15:
             break
         chosen.append(best)
         covered[span(best)] = True
         pool.remove(best)
+    if len(chosen) < count:
+        def opinion(v):
+            apart = min(float(np.linalg.norm(c.pano.position[:2] - v.pano.position[:2])) for c in chosen)
+            different = (all(c.pano.source != v.pano.source for c in chosen)
+                         or all(c.pano.date[:4] != v.pano.date[:4] for c in chosen))
+            if apart < SECOND_OPINION_APART_M and not different:
+                return 0.0
+            return v.quality * v.seen_fraction * (1.25 if different else 1.0) * min(1.0, apart / SECOND_OPINION_APART_M)
+
+        second = max(pool, key=opinion, default=None)
+        if second is not None and opinion(second) > 0.25:
+            chosen.append(second)
     return chosen
+
+
+def budget(views: dict, limit: int = CROPS_PER_BUILDING) -> dict:
+    """At most `limit` views for the building: every seen wall keeps its best view while there is room, larger
+    walls first; further views go to the larger walls."""
+    area = {wid: max(v.x1 - v.x0 for v in vs) * (vs[0].wall.top - vs[0].wall.base) for wid, vs in views.items()}
+    order = sorted(views, key=lambda wid: -area[wid])
+    kept: dict = {}
+    left = limit
+    for rank in range(max((len(v) for v in views.values()), default=0)):
+        for wid in order:
+            if left and rank < len(views[wid]):
+                kept.setdefault(wid, []).append(views[wid][rank])
+                left -= 1
+    return kept
 
 
 def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wall: int = VIEWS_PER_WALL,
@@ -217,7 +239,11 @@ def building_views(scene: Scene, building: Building, panos: Panoramas, *, per_wa
         else:
             unseen.append({"wall": wall.id, "reason": "no panorama has a free line of sight" if not rough
                            else "panoramas nearby, none resolved to a usable view"})
-    return {"views": views, "unseen": unseen, "candidates": counts, "contexts": contexts(building, every)}
+    kept = budget(views)
+    for wid in views:
+        if wid not in kept:
+            unseen.append({"wall": wid, "reason": "seen, but left out of the reading: larger walls used the budget"})
+    return {"views": kept, "unseen": unseen, "candidates": counts, "contexts": contexts(building, every)}
 
 
 def contexts(building: Building, found: list[WallView], count: int = 2) -> list[Pano]:

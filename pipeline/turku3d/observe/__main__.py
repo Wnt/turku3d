@@ -84,6 +84,7 @@ def main(argv=None) -> int:
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
     ap.add_argument("--effort", default=reader.EFFORT)
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
+    ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     a = ap.parse_args(argv)
     if a.building and a.near:
@@ -94,7 +95,7 @@ def main(argv=None) -> int:
         scene, buildings, why = select(a)
     root = a.out or config.work_root() / "observe"
     panos = Panoramas(root / "panoramas")
-    summary = []
+    lines, jobs = {}, []
     for b in buildings:
         started = time.time()
         packet = root / "buildings" / b.id
@@ -105,28 +106,52 @@ def main(argv=None) -> int:
                 "seen": sum(w["seen"] for w in record["walls"]), "crops": len(record["crops"]),
                 "unseen": [f"{u['wall'].split(':')[-1]} ({u['reason']})" for u in record["unseen"]],
                 "views_s": round(time.time() - started, 1)}
+        lines[b.id] = line
         target = root / "descriptions/building" / f"{b.id}.json"
-        if a.command == "describe" and record["crops"] and (a.force or not target.exists()):
-            from turku3d.world.kinds.building import description as fmt
-
-            try:
-                reading, meta = reader.read(record, packet, effort=a.effort)
-            except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
-                line["error"] = str(error)[:300]
-            else:
-                (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
-                                                                ensure_ascii=False))
-                doc = reader.assemble(record, reading, meta)
-                problems = fmt.errors(doc)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                (target if not problems else packet / "invalid-description.json").write_text(
-                    json.dumps(doc, indent=1, ensure_ascii=False))
-                line.update(read_s=meta["seconds"], cost_usd=meta["cost_usd"], invalid=problems[:5] or None,
-                            description=str(target) if not problems else None)
-        elif a.command == "describe" and not record["crops"]:
+        if a.command != "describe":
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+        elif not record["crops"]:
             line["skipped"] = "no panorama sees any wall"
-        summary.append(line)
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+        elif target.exists() and not a.force:
+            line["description"] = str(target)
+            line["skipped"] = "already described (--force reads again)"
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+        else:
+            jobs.append((b.id, record, packet, target))
+
+    def describe(job):
+        from turku3d.world.kinds.building import description as fmt
+
+        key, record, packet, target = job
+        line = lines[key]
+        try:
+            reading, meta = reader.read(record, packet, effort=a.effort)
+        except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
+            line["error"] = str(error)[:300]
+        else:
+            (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
+                                                            ensure_ascii=False))
+            doc = reader.assemble(record, reading, meta)
+            problems = fmt.errors(doc)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (target if not problems else packet / "invalid-description.json").write_text(
+                json.dumps(doc, indent=1, ensure_ascii=False))
+            line.update(read_s=meta["seconds"], cost_usd=meta["cost_usd"], invalid=problems[:5] or None,
+                        description=str(target) if not problems else None)
         print(json.dumps(line, ensure_ascii=False), flush=True)
+
+    if jobs:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+            list(pool.map(describe, jobs))
+    summary = list(lines.values())
+    read = [x for x in summary if x.get("cost_usd") is not None]
+    if read:
+        print(json.dumps({"described": len(read), "failed": sum("error" in x for x in summary),
+                          "cost_usd": round(sum(x["cost_usd"] for x in read), 2),
+                          "mean_read_s": round(sum(x["read_s"] for x in read) / len(read), 1)}), flush=True)
     (root / "last-run.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
     return 0
 
