@@ -1517,7 +1517,8 @@
           "sha256": "bed2b538d1f38e053f9a66664a4656f0a47d4d4c56502746fe5efe59e8e70b0c",
           "wrap": "repeat"
         },
-        "surface": "asphalt"
+        "surface": "asphalt",
+        "normalScale": 0.25
       },
       "uvScale": [
         0.5,
