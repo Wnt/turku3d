@@ -6,6 +6,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 import numpy as np
+import shapely
 from turku3d.package.gltf import GlbMesh,build_glb
 
 
@@ -20,8 +21,13 @@ def clip_polygon(vertices,axis,edge,sign):
     return np.array(out)
 
 
-def outside_mesh(row,bounds):
+def outside_mesh(row,bounds,occupied_buildings=()):
     p=np.asarray(row['positions']);ix=np.asarray(row['indices']).reshape(-1,3);color=np.asarray(row['colors'])
+    if occupied_buildings and row['layer'] in ('buildings','buildings-lod-glazed'):
+        ownership=shapely.union_all(occupied_buildings).buffer(.3)
+        centres=p[ix].mean(axis=1)
+        ix=ix[~shapely.intersects_xy(ownership,centres[:,0],centres[:,2])]
+    if not len(ix):return None
     data=np.c_[p,color];out=[]
     xmin,zmin,xmax,zmax=bounds
     planes=[[(0,xmin,-1)],[(0,xmax,1)],[(0,xmin,1),(0,xmax,-1),(2,zmin,-1)],[(0,xmin,1),(0,xmax,-1),(2,zmax,1)]]
@@ -42,7 +48,7 @@ def outside_mesh(row,bounds):
     return GlbMesh(row['name'],vertices[:,:3],faces[keep],colors=vertices[:,3:],color=(1,1,1,1),extras=dict(layer=row['layer'],scenery=True))
 
 
-def import_context(catalogue,output,scratch,bounds,*,occupied_tree_ids,water):
+def import_context(catalogue,output,scratch,bounds,*,occupied_tree_ids,water,occupied_buildings=()):
     output,scratch=Path(output),Path(scratch);scratch.mkdir(parents=True,exist_ok=True);shared=output/'shared';shared.mkdir(parents=True,exist_ok=True)
     assets=[];tree_records=[];tree_sources=[]
     for source in catalogue['tiles']:
@@ -66,7 +72,7 @@ def import_context(catalogue,output,scratch,bounds,*,occupied_tree_ids,water):
         meshes=[]
         for row in json.loads(decoded.read_text()):
             if row['layer'] in ('night-architecture','vegetation'):continue
-            mesh=outside_mesh(row,bounds)
+            mesh=outside_mesh(row,bounds,occupied_buildings)
             if mesh is not None:meshes.append(mesh)
         data=build_glb(meshes);sha=hashlib.sha256(data).hexdigest();(shared/(sha+'.glb')).write_bytes(data)
         positions=np.concatenate([m.positions for m in meshes]);assets.append(dict(id='context:'+source['tile'],entityId='context:'+source['tile'],url='shared/'+sha+'.glb',sha256=sha,position=[0,0,0],recipe='context',bounds=dict(min=positions.min(axis=0).tolist(),max=positions.max(axis=0).tolist())))

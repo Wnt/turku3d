@@ -35,6 +35,14 @@ class SceneAssetTests(unittest.TestCase):
             self.assertEqual(struct.unpack_from('<fff',binary,view['byteOffset']),(2.,4.,3.))
             self.assertLess(asset['bounds']['min'][0],252);self.assertGreater(asset['bounds']['max'][2],253)
 
+    def test_complete_approved_building_owns_context_beyond_playable_edge(self):
+        from turku3d.scene.context import outside_mesh
+        row=dict(name='buildings',layer='buildings',positions=[[11,5,0],[13,5,0],[11,5,2],[20,5,0],[22,5,0],[20,5,2]],indices=[0,1,2,3,4,5],colors=[[1,1,1]]*6)
+        mesh=outside_mesh(row,[0,0,10,10],[shapely.box(10,-1,14,3)])
+        self.assertEqual(len(mesh.indices),1);self.assertGreaterEqual(mesh.positions[:,0].min(),20)
+        row['layer']='ground'
+        self.assertEqual(len(outside_mesh(row,[0,0,10,10],[shapely.box(10,-1,14,3)]).indices),2)
+
     def test_parent_rotation_and_scale_compose_before_child_translation(self):
         doc=dict(nodes=[dict(translation=[250,0,0],rotation=[0,0,2**-.5,2**-.5],scale=[2,2,2],children=[1]),dict(translation=[1,0,0])])
         np.testing.assert_allclose(node_world_matrices(doc)[1][:3,3],[250,2,0],atol=1e-12)
