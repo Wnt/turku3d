@@ -197,8 +197,8 @@
     {
       "id": "103295888D",
       "entityId": "103295888D",
-      "url": "shared/634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c.glb",
-      "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
+      "url": "shared/616208546c072f3339ab907babb2cdc5c7ddb7e253c36b755d819075ea2f5ab2.glb",
+      "sha256": "616208546c072f3339ab907babb2cdc5c7ddb7e253c36b755d819075ea2f5ab2",
       "position": [
         194.05513001906664,
         0.0,
@@ -213,7 +213,7 @@
         ],
         "max": [
           210.481002821801,
-          12.790535926818848,
+          13.976,
           240.93800371397793
         ]
       }
@@ -17128,7 +17128,7 @@
     },
     {
       "id": "building:103295888D:frontage",
-      "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
+      "sha256": "616208546c072f3339ab907babb2cdc5c7ddb7e253c36b755d819075ea2f5ab2",
       "kind": "registered-frontage-appearance",
       "uncertaintyM": 0.05
     },
@@ -17143,6 +17143,12 @@
       "sha256": "9fb468897c90de03a0786e1cea65cb66f6f1f46190fa9627ed9d43492b52f388",
       "kind": "derived-building-appearance",
       "uncertaintyM": 0.0
+    },
+    {
+      "id": "building:103295888D:roof-detail",
+      "sha256": "25a0d336403045da9b4a0e8d6066f1f58462b40a72562533152945c405129132",
+      "kind": "registered-roof-detail",
+      "uncertaintyM": 0.15
     }
   ],
   "fixtureBindings": {

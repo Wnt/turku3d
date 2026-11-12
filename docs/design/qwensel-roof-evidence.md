@@ -49,3 +49,18 @@ Private production:
 PYTHONPATH=pipeline ~/turku3d/envs/pipeline/bin/python -m turku3d.scene.qwensel_roof_surface "$TURKU3D_WORK/qwensel-roof/maps"
 node pipeline/turku3d/scene/qwensel_roof.mjs 634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c.glb "$TURKU3D_WORK/qwensel-roof/maps/maps.json" "$TURKU3D_WORK/qwensel-roof/qwensel-roof.glb"
 ```
+
+The `qwensel_roof_release` appearance stage updates an exact pinned scene and
+its recipe without rebuilding unaffected terrain or lighting. It checks the
+approved binary prefix and roof evidence hashes, preserves every native mesh,
+support, fixture, emitter and collision file, and changes only the single asset,
+its qualified bounds and source records. The original authored frontage pin and
+registered-frontage role remain intact, so ordinary recipe compilation still
+emits the accepted windows, shutters and supported stairs.
+
+```sh
+python -m turku3d.scene.qwensel_roof_release \
+  --scene PINNED/office.scene.json --recipe PINNED/office.recipe.json \
+  --asset CANONICAL/shared/616208546c072f3339ab907babb2cdc5c7ddb7e253c36b755d819075ea2f5ab2.glb \
+  --output OWN_OUTPUT --output-recipe OWN_OUTPUT.recipe.json
+```

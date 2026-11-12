@@ -338,3 +338,53 @@ files = ["hall-crossing.png", "aurakatu-crossing.png", "hall-north-crossing.png"
 source = "Turku3D native1440x960 normal public gameplay24e3b4c1, sourcef6d884bb"
 licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Explicit centre crossings, supported signs, corrected facade repeat and documented promenade finish"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/hedge-before-24e3b4c1/"
+files = ["bench-close.png", "quay.png"]
+source = "Turku3D native1440x960 normal gameplay; matched24e3b4c1 andc1213324 daytime cameras, separately labelled after-only night demonstration"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Measured hedge foliage and physical contact; no species or wind claim"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-12-c1213324/"
+files = ["bench-close.png", "quay.png", "night-bench.png", "hedge-contact.png", "hedge-walk-3s.mp4", "hedge-contact-3s.mp4"]
+source = "Turku3D native1440x960 normal gameplay; matched24e3b4c1 andc1213324 daytime cameras, separately labelled after-only night demonstration"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Measured hedge foliage and physical contact; no species or wind claim"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/4a1617cedaf98d1461006e301f02eb868cc4abff9b6b9a1d91c266060194375c.ktx2"
+source = "Original analytic clay albedo material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/b3f07ed035ed87bcc20b10d7bdf5a8ea9c220f3f94deaf736be02c6889212cfc.ktx2"
+source = "Original analytic clay normal material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/b2513e31590cdf7305284ae4911cb05db0d6787be673549dca1f866adbee0d73.ktx2"
+source = "Original analytic clay orm material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/6f25061044338aad1f7da7ceb540f0cb6422f393daf540a90cf2fcc8cfa0d8ef.ktx2"
+source = "Original analytic brick albedo material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/0e0bc906cb55d8a8b24adccc115da066dcd0cea9e9284e0f73513f7e6c8aa2a4.ktx2"
+source = "Original analytic brick normal material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/e3b56dd85638154f4177526e94ba06871d9ed1503810da5ec6abe661f070c5cb.ktx2"
+source = "Original analytic brick orm material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
+licence = "MIT (this repository)"
+reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
