@@ -4,9 +4,9 @@
   "regions": [
     {
       "id": "office",
-      "label": "Riverfront, City Hall and Market Hall",
+      "label": "Office, Qwensel and Auransilta",
       "url": "/scenes/office.scene.json",
-      "release": "4bbf3a31687945b0ab5538a39ac2c08c1a10e203d19cd010cc721f275a9b9650",
+      "release": "f6d884bbffa7dbd2400737b72fe5198e494fb38211dabfc72edf07f374c916d6",
       "bounds": [
         62.5,
         62.5,
@@ -32,7 +32,7 @@
     },
     {
       "id": "port-arthur",
-      "label": "Port Arthur",
+      "label": "Port Arthur timber block",
       "url": "/scenes/port-arthur.scene.json",
       "release": "2cae1f9d9743debe77ca6851b2331b06accb43ce49662b5bf21e1632dea5631a",
       "bounds": [
