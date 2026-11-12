@@ -184,6 +184,18 @@ export function prepare(captureDirs, out, only = null) {
     jpeg(k.render, path.join(packet, `${k.id}-render.jpg`));
     if (k.photo) jpeg(photoFile(k.photo.image), path.join(packet, `${k.id}-photo.jpg`));
   }
+  // Review sheets beside the packet, never in it: photo left, render right, three views per sheet in packet order
+  // (key.json names them). They are for checking that every render shows the building of its photo.
+  const pairs = path.join(out, 'pairs'), posed = key.filter(k => k.photo);
+  fs.rmSync(pairs, { recursive: true, force: true });
+  fs.mkdirSync(pairs, { recursive: true });
+  for (let i = 0; i < posed.length; i += 3) {
+    const rows = posed.slice(i, i + 3), files = rows.flatMap(k => [`${k.id}-photo.jpg`, `${k.id}-render.jpg`]);
+    const graph = files.map((_, n) => `[${n}:v]scale=960:720[s${n}]`).join(';') + ';' + rows.map((_, r) => `[s${2 * r}][s${2 * r + 1}]hstack[r${r}]`).join(';')
+      + (rows.length > 1 ? `;${rows.map((_, r) => `[r${r}]`).join('')}vstack=inputs=${rows.length}[o]` : ';[r0]null[o]');
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...files.flatMap(f => ['-i', path.join(packet, f)]), '-filter_complex', graph, '-map', '[o]', '-q:v', '3',
+      path.join(pairs, `${rows[0].id}-${rows.at(-1).id}.jpg`)]);
+  }
   fs.copyFileSync(RUBRIC, path.join(packet, 'JUDGE.md'));
   fs.writeFileSync(path.join(packet, 'items.json'), JSON.stringify(items, null, 1) + '\n');
   // The key stays outside the packet: it names the captures (and so the build) the judge must not know.
