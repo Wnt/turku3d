@@ -24,6 +24,10 @@ EFFORT = "low"
 TIMEOUT_S = 20 * 60
 # Fields the pipeline writes itself, never the reader.
 ENVELOPE = ("schema", "id", "tier", "register", "shell", "provenance", "src", "site", "components")
+END_REACH_M = 2.5  # a facade end the reader places this close to the wall's end is that end
+END_SEEN_M = 0.5  # and the crop's free line of sight must reach this close to it
+SCALE_REACH = 0.06  # a facade read this much longer or shorter than the wall is still the same facade
+U_FIELDS = ("u_m", "u_from_m", "u_to_m", "first_m")
 
 INSTRUCTIONS = """\
 You measure one real building in Turku, Finland from street photographs, so that a 3D generator can rebuild it and \
@@ -41,7 +45,10 @@ off the rulers. The red bars mark where the city model puts the wall; the photog
 by a metre or two, so trust the picture for where this building's facade really starts and ends, and report that \
 as `facade_u_m` for each crop. Things in front of the wall plane (vehicles, trees, poles) and behind it (roof \
 slopes, recessed balconies, side walls) are displaced or stretched by the rectification: do not measure them, and \
-do not mistake a neighbour's facade for part of this wall.
+do not mistake a neighbour's facade for part of this wall. Measure each wall on one crop, the clearest and most \
+complete one: name that file in the wall's `measured_on` and write every `u` and `v` of the wall as read off that \
+crop's rulers, uncorrected (the pipeline moves them onto the wall with your `facade_u_m`). Use the wall's other \
+crops to confirm counts and colours and to see what is hidden in the first.
 4. Count on the clearest storey and check the count on a second one. Bays are window axes: give each bay's centre \
 `u_m` when the rhythm is irregular, a grid when it is regular. Storeys go bottom to top; `height_m` is floor to \
 floor, which you get from the spacing of successive sill lines. A storey whose openings differ from bay to bay \
@@ -53,8 +60,8 @@ camera's white balance by comparing sunlit and shaded parts and the different ph
 7. Give `identity_cues`: the few things that make this building recognisable from the street.
 8. Write one `walls` entry for every wall id listed in the task that has a crop, using exactly that id, without \
 `frame`. When two walls are alike, describe one fully and give the other `like` plus what differs. Put what an \
-unphotographed wall of this building most probably looks like in `wall_defaults` (bay grid, storeys, material), \
-with confidence 0.2-0.4.
+unphotographed wall of this building most probably looks like in `wall_defaults` (a bay grid with `pitch_m` \
+alone, so that it fits walls of any length; storeys; material), with confidence 0.2-0.4.
 9. Confidence: every object you write carries `conf` with at least `"*"`. 0.9 measured on a clear frontal crop and \
 confirmed in a second view; 0.6-0.8 read from one clear view; 0.3-0.5 oblique, distant or partly hidden; leave a \
 field out when you cannot see it. Never write `src`.
@@ -73,6 +80,8 @@ def reading_schema() -> dict:
     description["required"] = ["style", "identity_cues", "materials", "opening_types", "walls", "roof"]
     defs = copy.deepcopy(schema["$defs"])
     defs["wall"]["properties"].pop("frame", None)
+    defs["wall"]["properties"]["measured_on"] = {"type": "string", "description": "File name of the crop whose rulers this wall's u and v follow."}
+    defs["wall"]["required"] = sorted({*defs["wall"].get("required", []), "id", "measured_on"})
     return {
         "type": "object",
         "additionalProperties": False,
@@ -176,6 +185,37 @@ def _strip(node, drop=("src",)):
     return node
 
 
+def registration(length: float, crop: dict, facade) -> tuple[float, float]:
+    """(offset, scale) with wall u = (ruler u - offset) * scale, from where the reader saw the facade's ends.
+
+    A panorama's pose is off by a metre or two, which shifts the picture along the wall. An end counts when the
+    crop's line of sight reaches the wall's end and the reader places the facade's end near it."""
+    if not facade or len(facade) != 2 or facade[1] - facade[0] < 1.0:
+        return 0.0, 1.0
+    f0, f1 = float(facade[0]), float(facade[1])
+    left = crop["x0_m"] <= END_SEEN_M and abs(f0) <= END_REACH_M
+    right = crop["x1_m"] >= length - END_SEEN_M and abs(f1 - length) <= END_REACH_M
+    if left and right:
+        scale = length / (f1 - f0)
+        return (f0, scale) if abs(scale - 1.0) <= SCALE_REACH else (0.0, 1.0)
+    if left:
+        return f0, 1.0
+    if right:
+        return f1 - length, 1.0
+    return 0.0, 1.0
+
+
+def _register(node, offset: float, scale: float):
+    """The wall's fields with every position along the wall moved from the crop's ruler onto the wall."""
+    if isinstance(node, dict):
+        return {k: (round((v - offset) * scale, 2) if k in U_FIELDS and isinstance(v, (int, float))
+                    else round(v * scale, 3) if k == "pitch_m" and isinstance(v, (int, float))
+                    else _register(v, offset, scale)) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_register(v, offset, scale) for v in node]
+    return node
+
+
 def assemble(record: dict, reading: dict, meta: dict) -> dict:
     """The stored description: the reading in its envelope, with frames, what was seen and where it came from."""
     key = record["building"]
@@ -194,7 +234,7 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
             pano_key[k] = True
             provenance.append({"source": "panorama", "key": k, "at": p["date"], "by": p["provider"]})
     by_id = {w["id"].split(":")[-1]: w for w in record["walls"]}
-    walls = []
+    walls, registered = [], []
     for wall in body.get("walls", []):
         geometry = by_id.get(wall.get("id"))
         if geometry is None:
@@ -202,10 +242,19 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         crops = [c for c in record["crops"] if c["wall"] == geometry["id"]]
         usable = [c for c in crops if report.get(Path(c["file"]).name, {}).get("usable", True)] or crops
         length = geometry["length_m"]
+        ruler = next((c for c in crops if Path(c["file"]).name == wall.get("measured_on")), None)
+        offset, scale = registration(length, ruler, report.get(Path(ruler["file"]).name, {}).get("facade_u_m")) \
+            if ruler else (0.0, 1.0)
+        if (offset, scale) != (0.0, 1.0):
+            registered.append(f"{wall['id']} {-offset:+.2f} m x{scale:.3f}")
         free = max((c["x1_m"] - c["x0_m"] for c in usable), default=0.0) / max(length, 1e-6)
         hidden_share = min((report.get(Path(c["file"]).name, {}).get("hidden_share", 0.0) for c in usable), default=0.0)
         best = min(usable, key=lambda c: report.get(Path(c["file"]).name, {}).get("hidden_share", 0.0), default=None)
         hidden = report.get(Path(best["file"]).name, {}).get("hidden_m", []) if best else []
+        if best is not None:  # hidden rectangles follow the ruler of the crop they were seen in
+            off, k = registration(length, best, report.get(Path(best["file"]).name, {}).get("facade_u_m"))
+            hidden = [[round((r[0] - off) * k, 2), r[1], round((r[2] - off) * k, 2), r[3]] for r in hidden]
+        wall = _register({k: v for k, v in wall.items() if k != "measured_on"}, offset, scale)
         wall = {
             "id": wall["id"],
             "frame": {"p0": geometry["a"], "p1": geometry["b"], "base_h": geometry["base_h"],
@@ -221,6 +270,11 @@ def assemble(record: dict, reading: dict, meta: dict) -> dict:
         if wall.get("like") not in ids:
             wall.pop("like", None)
     body["walls"] = walls
+    grid = body.get("wall_defaults", {}).get("bays")
+    if isinstance(grid, dict):  # a default grid has to fit walls of any length: its pitch alone
+        body["wall_defaults"]["bays"] = {k: v for k, v in grid.items() if k not in ("count", "first_m")}
+    if registered:
+        provenance[0]["note"] += "; moved onto the wall: " + ", ".join(registered)
     doc = {"schema": "turku-description/building/1", "id": f"building/{key}", "tier": "observed",
            "provenance": provenance, **body, "src": run_key}
     return doc

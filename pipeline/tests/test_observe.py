@@ -85,13 +85,17 @@ def test_assembled_description_is_valid_and_framed():
             "style": {"type": "stone_apartment"}, "identity_cues": ["red plaster"],
             "materials": {"wall": {"family": "plaster", "colour": "#a8564f"}},
             "opening_types": {"w": {"kind": "window", "w_m": 1.1, "h_m": 1.5}},
-            "walls": [{"id": "w00", "material": "wall", "bays": {"count": 5, "pitch_m": 3.6, "first_m": 2.0},
+            "wall_defaults": {"material": "wall", "bays": {"count": 4, "pitch_m": 3.6}},
+            "walls": [{"id": "w00", "measured_on": "w00-1.jpg", "material": "wall",
+                       "bays": {"count": 5, "pitch_m": 3.6, "first_m": 2.0},
                        "storeys": [{"kind": "upper", "count": 3, "height_m": 3.1, "window": "w", "src": "invented"}],
                        "conf": {"*": 0.7}},
                       {"id": "w77", "like": "w00"}],
             "roof": {"material": {"family": "sheet_metal", "colour": "#444444"}},
         },
-        "views": [{"file": "w00-1.jpg", "usable": True, "hidden_share": 0.25}],
+        # The picture lies a metre to the left of the wall on the ruler: the facade is seen from u -1 to 19.
+        "views": [{"file": "w00-1.jpg", "usable": True, "hidden_share": 0.25, "facade_u_m": [-1.0, 19.0],
+                   "hidden_m": [[3.0, 0.0, 5.0, 2.0]]}],
     }
     meta = {"model": "m", "effort": "low", "seconds": 1.0, "cost_usd": 0.1, "images": 1, "at": "2026-11-12T22:00:00Z"}
     doc = reader.assemble(record, reading, meta)
@@ -101,4 +105,17 @@ def test_assembled_description_is_valid_and_framed():
     only = doc["walls"][0]
     assert only["frame"]["p0"] == [0.0, 0.0] and only["frame"]["p1"] == [20.0, 0.0]
     assert only["observed"]["visible_share"] == 0.75
+    assert only["bays"]["first_m"] == 3.0 and only["observed"]["hidden_m"] == [[4.0, 0.0, 6.0, 2.0]]
+    assert "measured_on" not in only and "w00 +1.00 m" in doc["provenance"][0]["note"]
+    assert doc["wall_defaults"]["bays"] == {"pitch_m": 3.6}  # a default grid fits walls of any length
     assert "google:abc" in only["src"] and "src" not in only["storeys"][0]
+
+
+def test_registration_trusts_only_the_ends_a_crop_sees():
+    whole = {"x0_m": 0.0, "x1_m": 20.0}
+    assert reader.registration(20.0, whole, [-1.0, 19.4]) == (-1.0, 20.0 / 20.4)  # both ends: shift and scale
+    assert reader.registration(20.0, whole, [-1.0, 26.0]) == (-1.0, 1.0)  # the right end is a neighbour's: shift
+    assert reader.registration(20.0, whole, [-2.0, 21.5]) == (0.0, 1.0)  # a facade 18 % too long: untouched
+    right = {"x0_m": 9.0, "x1_m": 20.0}
+    assert reader.registration(20.0, right, [1.0, 20.5]) == (0.5, 1.0)  # the left end is out of sight
+    assert reader.registration(20.0, right, None) == (0.0, 1.0)
