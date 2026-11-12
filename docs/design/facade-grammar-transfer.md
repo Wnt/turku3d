@@ -126,3 +126,13 @@ plausibility rule:
 ```sh
 PYTHONPATH=pipeline ~/turku3d/envs/pipeline/bin/python -m unittest discover -s pipeline/tests -p 'test_facade_eave_slivers.py' -v
 ```
+
+The bounded live repair uses `scene.facade_layout_rebind`: each old instruction
+must match exactly one corrected instruction by every nonvertical style/material
+field. Only storey, ground, upper and extent-height values change; vertex ranges
+and the original visual binary remain exact. The two resolved one-storey grids
+are4.8501m and4.6549m, derived from supported lower wall envelopes. The normal
+producer's regenerated trim was deliberately excluded from this repair. Packed
+triangle POSITION/NORMAL/UV/COLOR0/COLOR1 signatures match exactly, as do all KTX
+bindings. Immutable input/output records are in `port_arthur_eave_repairs.json`;
+all referenced GLBs remain in the external prepared-asset store.

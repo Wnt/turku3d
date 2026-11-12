@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "reason": "Sub-millimetre clipping sliver assigned ground as ring eave, collapsing qualified one-storey grids to0.1m",
+  "policy": "Preserve original meshes/materials/UVs/ambient, all12other qualified assets and all prepared collision/support; only existing grid dimensions rebound",
+  "confidence": "Eaves and register one-storey count are source-supported; window positions/style/paint remain existing architectural priors",
+  "records": [
+    {
+      "buildingId": "103329716M",
+      "oldPackedSha256": "7cc7a4d5c864ac2d8608018872e0d191627ad2a1354ec19d6cdc31b861e8077f",
+      "newPackedSha256": "e226748bed025f64a74b66f528f218f3b4f7204fe447dd4ff20cf4d507f3bec8",
+      "sourceVisuals": {
+        "originalVisual": {
+          "sha256": "9ef4ea14e8260ed7c714014c6744da6781deccf9ace1980a82f2da7f334a0f74",
+          "bytes": 44424
+        },
+        "correctedCandidateVisual": {
+          "sha256": "3fe17854f897a7fd62f3a565bff43bff19f46115118740725d47c09466eb9eee",
+          "bytes": 52608
+        },
+        "reboundVisual": {
+          "sha256": "6b32732da1c30f8fa598dea7ae25d3907180573aa1fb83b78c486df10008d064",
+          "bytes": 46832
+        }
+      },
+      "changedInstructions": 48,
+      "triangles": 239,
+      "triangleAttributesSha256": "0f41e64b78bcf47ca0602546a4c248c84dcd6a1f6ed0a7cbbde2923db37fec1c",
+      "preservedAttributes": [
+        "POSITION",
+        "NORMAL",
+        "TEXCOORD_0",
+        "COLOR_0",
+        "COLOR_1"
+      ],
+      "images": "identical original KTX bindings",
+      "verticalLayoutM": 4.850057712182782
+    },
+    {
+      "buildingId": "103329720S",
+      "oldPackedSha256": "2cd9bb75a360dba2c01a14055707b2f367db7230df3676e9b10fcbb9dcb64363",
+      "newPackedSha256": "f433ca2f8e7749bd24f2d696bce90660a7a7b8a7fe254401d96b3ea4e7cda076",
+      "sourceVisuals": {
+        "originalVisual": {
+          "sha256": "ab262990ec0447ba249c397c36ec10667a903f51874293388aa0c3e238055f83",
+          "bytes": 90420
+        },
+        "correctedCandidateVisual": {
+          "sha256": "1c07ab616b226fbf49be5229e78ea338fe76e8e68e70bf3a3c91be46144be327",
+          "bytes": 113108
+        },
+        "reboundVisual": {
+          "sha256": "6bb2d69dd3b2d731d3ced4c370707dd768a4f43eee53213c8523c6549e79568b",
+          "bytes": 95340
+        }
+      },
+      "changedInstructions": 100,
+      "triangles": 525,
+      "triangleAttributesSha256": "e37b93ca5672858c2e12a2bc4b5a5851c1e92b3fdbcff8ff991af0dd2591ed46",
+      "preservedAttributes": [
+        "POSITION",
+        "NORMAL",
+        "TEXCOORD_0",
+        "COLOR_0",
+        "COLOR_1"
+      ],
+      "images": "identical original KTX bindings",
+      "verticalLayoutM": 4.654918933044602
+    }
+  ]
+}
