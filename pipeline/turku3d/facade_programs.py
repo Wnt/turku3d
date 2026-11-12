@@ -87,6 +87,27 @@ def program_hash(key):
     ).encode() + digest(key)
 
 
+def storey_layout_height(geometry, current, attributes):
+    """A tower's registered floors must not be squeezed into its low podium.
+
+    Reuse the existing 2.2–5.5 m storey plausibility interval, but select an
+    actual wall envelope rather than modifying the municipal floor count.
+    Without a compatible surveyed envelope, keep the unresolved source prior.
+    """
+    levels=attributes.get('levels')
+    if (attributes.get('levels_source')!='register' or not isinstance(levels,(int,float))
+            or not np.isfinite(levels) or levels<=0 or 2.2<=current/levels<=5.5):
+        return current
+    compatible=sorted((g['height_m'],g['fragment_width_m']) for g in geometry
+                      if 2.2<=g['height_m']/levels<=5.5 and g['fragment_width_m']>.01)
+    if not compatible:return current
+    half=sum(width for _,width in compatible)/2;accumulated=0.
+    for height,width in compatible:
+        accumulated+=width
+        if accumulated>=half:return height
+    return current
+
+
 def field(section, key, default=None):
     item = section.get(key, {})
     result = item.get("value") if isinstance(item, dict) else item
@@ -360,14 +381,14 @@ def resolve(building, vertices, eaves, *, layout_height=None):
             if accumulated >= half:
                 layout_height = height
                 break
-    for g in geometry:
-        g["layout_height_m"] = layout_height
-
     record = evidence(building.facade_key)
     attrs = dict(building.attributes)
     for key, item in record.get("building", {}).items():
         if supported(item):
             attrs[key] = item["value"]
+    layout_height=storey_layout_height(geometry,layout_height,attrs)
+    for g in geometry:
+        g['layout_height_m']=layout_height
     d = read_description(building.facade_key)
     if d and not d.get("wall_visible", True):
         d = None
