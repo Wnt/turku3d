@@ -34,7 +34,7 @@
       "id": "port-arthur",
       "label": "Port Arthur",
       "url": "/scenes/port-arthur.scene.json",
-      "release": "b8925587ad3e57848d697150c93d48eaf3ba1d1f38489904f62a6b20ff28de99",
+      "release": "2cae1f9d9743debe77ca6851b2331b06accb43ce49662b5bf21e1632dea5631a",
       "bounds": [
         -1000,
         250,
@@ -50,11 +50,11 @@
         "headingDeg": 0.0,
         "vehicle": {
           "position": [
-            -945.2121828249643,
-            9.205485396875808,
-            305.39888299082475
+            -957.212,
+            9.171111794243847,
+            312.399
           ],
-          "yaw": 0.0
+          "yaw": 0.605
         }
       }
     }
