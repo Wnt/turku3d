@@ -74,7 +74,7 @@ def brick_chimney(position: tuple, yaw: float, *, height: float) -> list[dict]:
                 elif side==1:points=[(w/2+.003,y0,-a),(w/2+.003,y0,-b),(w/2+.003,y1,-b),(w/2+.003,y1,-a)]
                 elif side==2:points=[(-a,y0,-d/2-.003),(-b,y0,-d/2-.003),(-b,y1,-d/2-.003),(-a,y1,-d/2-.003)]
                 else:points=[(-w/2-.003,y0,a),(-w/2-.003,y0,b),(-w/2-.003,y1,b),(-w/2-.003,y1,a)]
-                bricks[(row*7+col*3+side)%3].face(points)
+                bricks[(row*7+col*5+side)%3].face(points)
     # Brick oversailing courses and a visibly separated metal rain hood.
     for offset,extra in ((.18,.07),(.12,.14),(.055,.18)):
         bricks[0].box((0,top-offset,0),(w+extra,.055,d+extra))
