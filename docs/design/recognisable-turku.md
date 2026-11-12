@@ -314,10 +314,13 @@ camera blur or chromatic aberration. Historical GTA road captures show coherent 
 wear, patching and curb/crossing transitions. Those images are local evidence, not
 assets or a new performance measurement.
 
-The Windows GTA bridge was reachable, but a bounded new launch failed before starting
-the game because its `capture-high` preset parser could not find `ReflectionQuality`
-in `lowest.xml`. No new gameplay capture or disassembly is claimed for this slice;
-repair the research preset separately if a fresh controlled comparison is needed.
+The initial Windows GTA launch was blocked by a preset parser that expected one
+`ReflectionQuality` element although the XML also contained a `Presets` section.
+The research harness now scopes the edit to `graphics`, preserves the original
+configuration, and passes its targeted checks. A fresh bounded story-mode run
+captured three lighting views and a five-second clip; the owned game process was
+then closed. Those captures remain private research evidence. No new disassembly
+or transfer of proprietary assets is claimed.
 
 ## Immediate repair and next-generation iteration schedule
 

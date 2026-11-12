@@ -130,3 +130,21 @@ read-only shared raw data (use the host admission wrapper for lidar decoding):
 python -m turku3d.scene.survey_retaining \
   --bounds 140 240 215 285 --output "$TURKU3D_WORK/evidence/retaining.pkl"
 ```
+
+## Prepared context vegetation
+
+Context imports retain mapped tree sidecars as explicit instancing transforms,
+stable IDs, species and near-water labels. Their CC0 source prototypes feed the
+same vegetation LOD library as playable trees. The compiler excludes trees
+inside the prepared gameplay bounds and identities already owned by the retained
+vegetation asset; it does not assign distant trees unsupported collision. Five
+frozen sidecars contribute 2,242 unique context trees to the office release.
+Their content hashes are recorded in `sources`. All five corresponding skyline
+cone layers are removed from the compiled context geometry.
+
+Context uses its own scenery material recipe before graphics preparation. It
+retains the distant facade shader and avoids adding distant geometry to the near
+shadow batches. Playable-boundary guidance appears only near the player and
+requires an actual dry support sample; physical boundary collision remains.
+These changes repair regressions found in matched normal-gameplay captures of
+`b5dc631c`; they require a fresh visual comparison before acceptance.
