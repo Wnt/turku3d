@@ -83,21 +83,31 @@ def import_materials(glb_path, base_url, output):
     return records
 
 
-def import_vegetation(glb_path, base_url, output, water, support_scene=None):
+def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, asset_id):
     """Keep explicit prepared tree instances and material attributes from one source tile."""
     import copy
     import struct
     import subprocess
     import shapely
+    import numpy as np
+    import tempfile
+    from .asset_buffers import embedded_buffers, encode_glb, node_world_matrices
     document,binary=read_glb(Path(glb_path).read_bytes())
-    transforms=json.loads(subprocess.check_output(['node',str(Path(__file__).with_name('decode_instances.mjs')),str(glb_path)]))
+    document,binary=embedded_buffers(document,binary,base_url)
+    worlds=node_world_matrices(document)
+    with tempfile.NamedTemporaryFile(suffix='.glb') as prepared:
+        prepared.write(encode_glb(document,binary));prepared.flush()
+        transforms=json.loads(subprocess.check_output(['node',str(Path(__file__).with_name('decode_instances.mjs')),prepared.name]))
     selected=[i for i,n in enumerate(document['nodes']) if n.get('extras',{}).get('layer')=='vegetation']
     result=copy.deepcopy(document)
     result['nodes']=[copy.deepcopy(document['nodes'][i]) for i in selected]
     result['scenes']=[dict(nodes=list(range(len(selected))))];result['scene']=0
     mesh_ids=sorted({n['mesh'] for n in result['nodes']});mesh_map={old:new for new,old in enumerate(mesh_ids)}
     result['meshes']=[copy.deepcopy(document['meshes'][i]) for i in mesh_ids]
-    for node in result['nodes']:node['mesh']=mesh_map[node['mesh']]
+    for original,node in zip(selected,result['nodes'],strict=True):
+        node['mesh']=mesh_map[node['mesh']]
+        for field in ('translation','rotation','scale','children'):node.pop(field,None)
+        node['matrix']=worlds[original].T.ravel().tolist()
     material_ids=sorted({p['material'] for m in result['meshes'] for p in m['primitives']})
     material_map={old:new for new,old in enumerate(material_ids)}
     result['materials']=[copy.deepcopy(document['materials'][i]) for i in material_ids]
@@ -132,10 +142,12 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None):
     for original,node in zip(selected,result['nodes'],strict=True):
         values=transforms.get(str(original))
         if not values:continue
-        positions=values['TRANSLATION'];extras=node['extras']
-        for position in positions:
+        positions=np.asarray(values['TRANSLATION'],float);extras=node['extras']
+        world=(np.c_[positions,np.ones(len(positions))]@worlds[original].T)[:,:3]
+        for position in world:
             support=query(position[0],position[2])
             if support is not None:position[1]=support[1]
+        positions=(np.c_[world,np.ones(len(world))]@np.linalg.inv(worlds[original]).T)[:,:3]
         # Replace only the authored translations with supported prepared values;
         # every mesh, crown, rotation and scale remains the approved source data.
         import numpy as np
@@ -145,10 +157,10 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None):
         ai=len(result['accessors']);result['accessors'].append(dict(bufferView=vi,componentType=5126,count=len(positions),type='VEC3'))
         node['extensions']['EXT_mesh_gpu_instancing']['attributes']['TRANSLATION']=ai
         result['buffers'][0]['byteLength']=len(binary)
-        extras['instance_near_water']=[shapely.Point(p[0],p[2]).distance(water)<25 for p in positions]
+        extras['instance_near_water']=[shapely.Point(p[0],p[2]).distance(water)<25 for p in world]
         identities=extras['instance_object_ids']
-        for k,(identity,position) in enumerate(zip(identities,positions,strict=True)):
-            scale=values.get('SCALE',[[1,1,1]]*len(positions))[k]
+        for k,(identity,position) in enumerate(zip(identities,world.tolist(),strict=True)):
+            scale=(np.asarray(values.get('SCALE',[[1,1,1]]*len(positions))[k])*np.linalg.norm(worlds[original][:3,:3],axis=0)).tolist()
             trees.setdefault(identity,dict(id=identity,position=position,scale=scale))
     shared=Path(output)/'shared';shared.mkdir(parents=True,exist_ok=True)
     for image in result['images']:
@@ -162,5 +174,16 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None):
     encoded=json.dumps(result,separators=(',',':')).encode();encoded+=b' '*((-len(encoded))%4)
     data=struct.pack('<III',0x46546c67,2,12+8+len(encoded)+8+len(binary))+struct.pack('<II',len(encoded),0x4e4f534a)+encoded+struct.pack('<II',len(binary),0x004e4942)+binary
     sha=hashlib.sha256(data).hexdigest();(shared/(sha+'.glb')).write_bytes(data)
-    asset=dict(id='office-vegetation',entityId='office-vegetation',url='shared/'+sha+'.glb',sha256=sha,position=[0,0,0],recipe='vegetation',bounds=dict(min=[-20,-3,-20],max=[270,45,270]))
+    # Instance envelope includes each original prototype's scaled bounding box.
+    lows=[];highs=[]
+    for original,node in zip(selected,result['nodes'],strict=True):
+        values=transforms[str(original)];matrix=worlds[original]
+        mesh=result['meshes'][node['mesh']]
+        for primitive in mesh['primitives']:
+            accessor=result['accessors'][primitive['attributes']['POSITION']]
+            lo=np.asarray(accessor['min']);hi=np.asarray(accessor['max'])
+            radius=float(np.linalg.norm(np.maximum(abs(lo),abs(hi))))
+            for identity in node['extras']['instance_object_ids']:
+                tree=trees[identity];reach=radius*max(tree['scale']);position=np.asarray(tree['position']);lows.append(position-reach);highs.append(position+reach)
+    asset=dict(id=asset_id,entityId=asset_id,url='shared/'+sha+'.glb',sha256=sha,position=[0,0,0],recipe='vegetation',bounds=dict(min=np.min(lows,axis=0).tolist(),max=np.max(highs,axis=0).tolist()))
     return asset,list(trees.values())
