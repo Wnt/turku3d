@@ -186,7 +186,7 @@ test('daylight IBL omits the solar disc and restores the visible sky even when a
 test.each([false, true])('13:00 and 23:30 keep every cache key, idle or lit slots (WebGL=%s)', webgl => {
   const { env, meshes, at, keys, shaders, lamps } = world(webgl, 'medium');
   expect(meshes.map(m => m.name)).toEqual(['kit-v3', 'kit-v4', 'kit-v6', 'draft-facade', 'ground-slabs', 'prop-car',
-    'draft_asphalt_worn', 'draft_grass', 'water', 'night_bridge_rail', 'night_bridge_soffit', 'night_boat_cabin', 'night_boat_bulb', 'night_landmark_wall', 'far-night-architecture', 'far-buildings-night-mapped', 'far-buildings-program-v6', 'sky']);
+    'draft_asphalt_worn', 'draft_grass', 'water', 'night_bridge_rail', 'night_bridge_soffit', 'night_boat_cabin', 'night_boat_bulb', 'night_landmark_wall', 'far-night-architecture', 'far-buildings-night-mapped', 'far-buildings-program-v6', 'prepared-street-receiver', 'sky']);
   // Window light is part of each wall's one graph; non-wall surfaces carry none.
   for (const name of ['kit-v3', 'kit-v4', 'kit-v6', 'draft-facade']) {
     expect((meshes.find(m => m.name === name)!.material as THREE.MeshStandardNodeMaterial).emissiveNode, name).toBeTruthy();
@@ -413,7 +413,7 @@ test('facade and night programs fit 16 WebGPU varyings in the single-pass beauty
     new THREE.BufferAttribute(new Uint8Array(mesh.geometry.getAttribute('position').count * 4).fill(200), 4, true));
   const programs = w.shaders();
   for (const [name, program] of Object.entries(programs)) {
-    if (!(name.startsWith('kit-') || name.startsWith('night_') || name.startsWith('far-') || name === 'draft-facade')) continue;
+    if (!(name.startsWith('kit-') || name.startsWith('night_') || name.startsWith('far-') || name === 'draft-facade' || name === 'prepared-street-receiver')) continue;
     const varyings = program.vertex.slice(program.vertex.indexOf('struct VaryingsStruct'));
     const locations = [...varyings.slice(0, varyings.indexOf('}')).matchAll(/@location\(\s*(\d+)\s*\)/g)].map(m => Number(m[1]));
     expect(Math.max(-1, ...locations), `${name} WebGPU varying locations`).toBeLessThanOrEqual(15);
@@ -421,6 +421,8 @@ test('facade and night programs fit 16 WebGPU varyings in the single-pass beauty
     expect(program.vertex, name).not.toMatch(/positionPrevious/);
   }
   expect(programs['kit-v6'].fragment).toMatch(/color_1|nodeVarying/);
+  expect(programs['prepared-street-receiver'].vertex).toContain('color_1');
+  expect(programs['prepared-street-receiver'].vertex).toContain('_night_irradiance');
   post.dispose(); target.dispose();
 });
 
