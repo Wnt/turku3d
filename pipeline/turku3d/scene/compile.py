@@ -382,8 +382,9 @@ def write_products(scene, output):
                 if m["collision"] not in ("solid", "sensor"):
                     continue
                 pos = np.asarray(m["positions"]).reshape(-1, 3)
-                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "sign-C1": "street_furniture", "sign-E2": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
+                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
                 if name.startswith('bridge:'):name=name.split(':')[1]
+                if name.startswith('sign-'):name='street_furniture'
                 if name=='hedge':name='vegetation_low'
                 from .street_sections import PHYSICS
                 name=PHYSICS.get(name,name)

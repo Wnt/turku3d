@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import io
+import math
 from pathlib import Path
 
 import numpy as np
@@ -9,9 +10,28 @@ from PIL import Image, ImageDraw
 
 from turku3d.props.models import model, COLORS
 
+PRIMARY_CODES = frozenset(('C1','E2','E1','B5','B6','C37','C38','D3.1'))
+MOUNT_AMBIGUITY_M = .6
+
+
+def qualified_signs(props):
+    """Keep mapped primary plates; unresolved shared mounts need source evidence.
+
+    Right-hand-traffic yaw is an existing source-adapter inference, not a survey
+    heading. Do not turn a centreline default into an asserted orientation.
+    """
+    signs=[p for p in props if p.source=='GIS_Liikennemerkit']
+    for prop in signs:
+        if prop.code not in PRIMARY_CODES:continue
+        if prop.code not in ('C1','E2'):
+            if prop.orientation!='right_hand_traffic':continue
+            if any(q.object_id!=prop.object_id and math.hypot(q.x-prop.x,q.z-prop.z)<MOUNT_AMBIGUITY_M for q in signs):
+                continue
+        yield prop
+
 
 def prototype(code):
-    if code == 'E2':
+    if code in PRIMARY_CODES-{'C1'}:
         return model('sign',code)
     if code != 'C1':
         raise ValueError('No prepared sign face for '+code)
@@ -34,22 +54,25 @@ def place_signs(scene, props):
     query=support_query(scene)
     sources=[row['id'] for row in scene['sources'] if row['kind']=='poles']
     materials={m['id'] for m in scene['materials']}
-    for prop in props:
-        if prop.source!='GIS_Liikennemerkit' or prop.code not in ('C1','E2'):
-            continue
+    for prop in qualified_signs(props):
         hit=query(prop.x,prop.z)
         if hit is None:
             continue
         support,y=hit
-        # Both source rows' headings agree with the surveyed carriageway's
-        # right-hand approach. The C1 row was formerly downgraded to a bare post.
+        # Preserve the source adapter's inferred right-hand approach. Plate
+        # dimensions and mounting height remain the existing family priors.
         shape=prototype(prop.code);yaw=prop.yaw;c,s=np.cos(yaw),np.sin(yaw)
         p=shape.positions.copy();x,z=p[:,0].copy(),p[:,2].copy()
         p[:,0]=prop.x+c*x+s*z;p[:,2]=prop.z-s*x+c*z;p[:,1]+=y
+        contact=True
         for index in np.flatnonzero(np.isclose(shape.positions[:,1],0)):
             point=query(p[index,0],p[index,2])
-            if point is None or abs(point[1]-y)>.03:raise ValueError('Unsupported sign post contact')
+            if point is None or abs(point[1]-y)>.03:
+                contact=False;break
             p[index,1]=point[1]
+        if not contact:
+            if prop.code in ('C1','E2'):raise ValueError('Unsupported sign post contact')
+            continue
         material='sign-'+prop.code
         if material not in materials:
             sha=hashlib.sha256(shape.image).hexdigest()
@@ -66,7 +89,7 @@ def place_signs(scene, props):
 
 def write_textures(scene, output):
     for material in scene['materials']:
-        if material['id'] not in ('sign-C1','sign-E2'):
+        if material['id'] not in {'sign-'+code for code in PRIMARY_CODES}:
             continue
         shape=prototype(material['id'][5:]);record=material['baseColorTexture']
         if hashlib.sha256(shape.image).hexdigest()!=record['sha256']:
