@@ -2,7 +2,9 @@
 """Run a pipeline command of this sandbox on another home-lab machine and bring the results back.
 
   scripts/dev/on-host HOST [--data REL]... [--pull REL]... [--pull-data REL]... [--jobs N] -- COMMAND...
-  scripts/dev/on-host HOST --setup        install what the host lacks (pipeline environment, Node, Chrome for Testing)
+  scripts/dev/on-host HOST --setup        install what the host lacks: on the Air the pipeline environment, Node and
+                                          Chrome for Testing; on both the Python packages this Mac's environment
+                                          has and the host's lacks (same versions; not the torch stack)
   scripts/dev/on-host HOST --check        what the host has: cores, memory, free disk, tools
 
 HOST is `osg` (osgallery-dev: 16 cores, 48 GB, Linux x86-64, no GPU) or `air` (M1 Air: 8 cores, 8 GB, macOS arm64).
@@ -113,6 +115,31 @@ fi
 '''
 
 
+# Not copied to the hosts: the editable installs (PYTHONPATH does that), tools, and the torch stack (gigabytes; the
+# models that need it run on the Mac).
+NOT_ON_HOSTS = {'turku3d', 'turkutex', 'ruff', 'pip', 'setuptools', 'wheel', 'torch', 'torchvision', 'transformers', 'tokenizers',
+                'safetensors', 'huggingface-hub', 'hf-xet', 'sympy', 'mpmath', 'fsspec', 'filelock', 'regex'}
+
+
+def python_packages(host, repo):
+    """Install the packages this Mac's pipeline environment has and the host's lacks, at the Mac's versions. Nothing
+    the host already has is changed (osgallery-dev's environment also serves the city.lab tile services)."""
+    def frozen(text):
+        rows = (line.split('==') for line in text.splitlines() if '==' in line)
+        return {name.lower().replace('_', '-'): (name, version) for name, version in rows}
+    freeze = '. ~/turku3d/envs/pipeline.env; python -m pip list --format=freeze 2>/dev/null'
+    mine = frozen(sh(['bash', str(repo / 'pipeline/env/run.sh'), 'python', '-m', 'pip', 'list', '--format=freeze'],
+                     capture_output=True, text=True, check=True).stdout)
+    theirs = frozen(remote(host, freeze, capture=True).stdout)
+    missing = [f'{name}=={version}' for key, (name, version) in sorted(mine.items()) if key not in theirs and key not in NOT_ON_HOSTS]
+    if not missing:
+        print('python packages: nothing missing')
+        return 0
+    print('python packages to install:', ' '.join(missing))
+    return remote(host, '. ~/turku3d/envs/pipeline.env; python -m pip install --disable-pip-version-check -q --no-deps '
+                  + ' '.join(shlex.quote(m) for m in missing), check=False).returncode
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('host', choices=sorted(HOSTS))
@@ -129,11 +156,11 @@ def main():
     if a.check:
         return remote(a.host, CHECK, check=False).returncode
     if a.setup:
-        if a.host != 'air':
-            raise SystemExit('osgallery-dev already has the pipeline environment (~/turku3d/envs/pipeline); nothing to set up')
-        push('air', repo / 'pipeline/env', 'turku3d-w2/_setup/repo/pipeline/env')
-        code = remote('air', SETUP_AIR, check=False).returncode
-        return code or remote('air', CHECK, check=False).returncode
+        code = 0
+        if a.host == 'air':     # osgallery-dev has its environment, Node and tools already
+            push('air', repo / 'pipeline/env', 'turku3d-w2/_setup/repo/pipeline/env')
+            code = remote('air', SETUP_AIR, check=False).returncode
+        return code or python_packages(a.host, repo) or remote(a.host, CHECK, check=False).returncode
     sandbox = os.environ.get('TURKU3D_SANDBOX')
     work = os.environ.get('TURKU3D_WORK')
     if not sandbox or not work:
