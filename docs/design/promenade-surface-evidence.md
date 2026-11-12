@@ -13,8 +13,13 @@ corroborate the permanent asphalt/sett/drain arrangement. The office was under
 facade restoration in 2019; that temporary wall appearance is not reproduced.
 Reference images stay private and are not used as textures.
 
-`promenade_finish.LAYOUT` records only one approximately 6.4 m cross-band and the
-approximately 4.7 m drain segment visible in the registered close view. Manual
+`promenade_finish.LAYOUT` records the approximately 6.4 m cross-band segment and
+approximately 4.7 m drain segment visible in the registered close view. The
+cross-band continues to the mapped hedge-front intersection at engine
+[177.8979, 264.0565], producing an approximately 11 m run. The drain continues
+along the retained office facade endpoints for approximately 39 m. These
+continuations are explicitly inferred; the originally observed segments remain
+separate fields. No new repeated cross-bands are added. Manual
 pixel rays were intersected with the current supported ground, then aligned to
 the retained facade direction. The camera-to-map fit is approximate, with
 0.8 m positional uncertainty; it is not a survey. A second viewpoint supports
@@ -36,8 +41,8 @@ from being placed on a bridge above it. Polygon holes are respected.
 The reusable helper also accepts explicit source road-marking polygons. The
 promenade adapter deliberately does not synthesize a complete band grid or claim
 that every street has this finish. Its initial private build on A3 retains all
-6,369 existing meshes and 20 collision files and adds 17 passable meshes containing
-1,672 triangles. Visual acceptance requires matched ordinary gameplay captures.
+6,369 existing meshes and 20 collision files and adds 19 passable meshes containing
+5,791 triangles. Visual acceptance requires matched ordinary gameplay captures.
 
 Selected helper tests:
 

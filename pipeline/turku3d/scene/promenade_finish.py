@@ -15,15 +15,15 @@ from .schema import validate_scene
 # permanent asphalt/sett/drain arrangement corroborated in 2023/2024 photographs.
 # Widths, individual joints and colour are construction/lookdev priors.
 LAYOUT={
-    'version':'promenade-finish/1',
+    'version':'promenade-finish/2',
     'id':'office-promenade-observed-finish',
     'uncertaintyM':.8,
     'referenceHeightM':3.7,
     'heightToleranceM':.35,
-    'drain':{'endpoints':[[169.84,256.04],[173.91,253.76]],'surroundWidthM':.60,'gratingWidthM':.10},
-    'crossBand':{'endpoints':[[172.55,254.52],[175.70,260.14]],'widthM':.60},
-    'observed':'One cross-band and the bounded visible drain segment; main asphalt retained.',
-    'inferred':'Map registration +/-0.8m; widths +/-0.15m; 0.12m staggered setts,0.012m joints,0.04m grate pitch and restrained rose-grey palette are priors. No periodic band repetition.',
+    'drain':{'endpoints':[[151.72,266.21],[185.68,247.16]],'observedSegment':[[169.84,256.04],[173.91,253.76]],'surroundWidthM':.60,'gratingWidthM':.10},
+    'crossBand':{'endpoints':[[172.55,254.52],[177.94,264.13]],'observedSegment':[[172.55,254.52],[175.70,260.14]],'mappedBoundary':'osm:way:1049978299:0','boundaryIntersectionXZ':[177.89787706602306,264.05650061671184],'widthM':.60},
+    'observed':'One cross-band direction/width and a bounded visible drain segment; main asphalt retained.',
+    'inferred':'Cross-band continues to the mapped hedge front edge (0.08m visual overlap); drain continues to retained office facade endpoints. These continuations are inferred, not newly observed endpoints. Map registration +/-0.8m; widths +/-0.15m; 0.12m staggered setts,0.012m joints,0.04m grate pitch and restrained rose-grey palette are priors. No periodic band repetition.',
 }
 
 
