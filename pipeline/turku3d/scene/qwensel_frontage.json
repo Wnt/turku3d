@@ -2,8 +2,25 @@
   "version": 1,
   "buildingId": "103295888D",
   "authoredGlbSha256": "07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4",
-  "buildingPosition": [194.05513001906664, 0, 227.01720541228116],
-  "frontLocalPath": [[-3.1971282958984375, 13.909796714782715], [7.977874755859375, 7.591788291931152], [16.425872802734375, 2.9107882976531982]],
+  "buildingPosition": [
+    194.05513001906664,
+    0,
+    227.01720541228116
+  ],
+  "frontLocalPath": [
+    [
+      -3.1971282958984375,
+      13.909796714782715
+    ],
+    [
+      7.977874755859375,
+      7.591788291931152
+    ],
+    [
+      16.425872802734375,
+      2.9107882976531982
+    ]
+  ],
   "baseHeight": 3.746999979019165,
   "elevationHeight": 5.26,
   "source": {
@@ -16,19 +33,162 @@
   },
   "descriptionParameters": {
     "wall_material": "wood",
-    "brick": {"colour": [132,48,39], "size_m": [0.27,0.075], "mortar_m": 0.014, "mortar_colour": [174,166,151], "bond": "running", "variation": 0.22},
-    "stone": {"colour": [139,132,119], "size_m": [0.58,0.34], "mortar_m": 0.035, "mortar_colour": [166,157,141]},
-    "trim_colour": [205,210,207],
+    "brick": {
+      "colour": [
+        132,
+        48,
+        39
+      ],
+      "size_m": [
+        0.27,
+        0.075
+      ],
+      "mortar_m": 0.014,
+      "mortar_colour": [
+        174,
+        166,
+        151
+      ],
+      "bond": "running",
+      "variation": 0.22
+    },
+    "stone": {
+      "colour": [
+        139,
+        132,
+        119
+      ],
+      "size_m": [
+        0.58,
+        0.34
+      ],
+      "mortar_m": 0.035,
+      "mortar_colour": [
+        166,
+        157,
+        141
+      ]
+    },
+    "trim_colour": [
+      205,
+      210,
+      207
+    ],
     "weathering": 0.38
   },
   "windows": [
-    {"id":"window-1", "along":2.44, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
-    {"id":"window-2", "along":6.40, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
-    {"id":"window-3", "along":9.28, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
-    {"id":"window-4", "along":13.34, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
-    {"id":"window-5", "along":16.89, "sill":2.40, "width":1.15, "height":1.45, "columns":2, "rows":3, "shutters":false},
-    {"id":"window-6", "along":21.02, "sill":2.35, "width":1.15, "height":1.50, "columns":2, "rows":3, "shutters":false}
+    {
+      "id": "window-1",
+      "along": 2.44,
+      "sill": 2.45,
+      "width": 1.1,
+      "height": 1.4,
+      "columns": 4,
+      "rows": 4,
+      "shutters": true
+    },
+    {
+      "id": "window-2",
+      "along": 6.4,
+      "sill": 2.45,
+      "width": 1.1,
+      "height": 1.4,
+      "columns": 4,
+      "rows": 4,
+      "shutters": true
+    },
+    {
+      "id": "window-3",
+      "along": 9.28,
+      "sill": 2.45,
+      "width": 1.1,
+      "height": 1.4,
+      "columns": 4,
+      "rows": 4,
+      "shutters": true
+    },
+    {
+      "id": "window-4",
+      "along": 13.34,
+      "sill": 2.45,
+      "width": 1.1,
+      "height": 1.4,
+      "columns": 4,
+      "rows": 4,
+      "shutters": true
+    },
+    {
+      "id": "window-5",
+      "along": 16.89,
+      "sill": 2.4,
+      "width": 1.15,
+      "height": 1.45,
+      "columns": 2,
+      "rows": 3,
+      "shutters": false
+    },
+    {
+      "id": "window-6",
+      "along": 21.02,
+      "sill": 2.35,
+      "width": 1.15,
+      "height": 1.5,
+      "columns": 2,
+      "rows": 3,
+      "shutters": false
+    }
   ],
-  "door": {"id":"entrance", "along":18.87, "sill":1.65, "width":1.40, "height":2.20, "placementConfidence":"photo/model proportion prior; threshold awaiting raw landing survey before supported stairs are installed"},
-  "plinthHeight": 0.70
+  "door": {
+    "id": "entrance",
+    "along": 19.12,
+    "sill": 1.45300002,
+    "width": 1.4,
+    "height": 2.2,
+    "placementConfidence": "Class6 last returns identify opposed stair flights and central landingH5.19; authored threshold5.20 +/-0.05m, centre corrected by0.25m along retained wall"
+  },
+  "plinthHeight": 0.7,
+  "entrance": {
+    "landingHeight": 5.2,
+    "landingWidth": 1.2,
+    "flightRun": 1.6,
+    "backOffset": 0.15,
+    "depth": 0.9,
+    "stepsPerFlight": 7,
+    "footGroundHeights": [
+      3.82,
+      3.82
+    ],
+    "postGroundHeights": [
+      3.83,
+      3.8
+    ],
+    "evidence": {
+      "source": "Municipal LAZ23459500_6704500, private bounded last-return survey",
+      "landingClass": 6,
+      "landingCount": 12,
+      "landingHeightRange": [
+        5.169,
+        5.227
+      ],
+      "landingConfidence": "Compact horizontal strip connected to descending opposed-flight returns; medium-high elevation confidence +/-0.05m; plane RMS0.009m is not total uncertainty",
+      "groundClass": 2,
+      "toeSampleCounts": [
+        6,
+        6
+      ],
+      "toePlaneRmsM": [
+        0.0063,
+        0.0012
+      ],
+      "postSampleCounts": [
+        10,
+        9
+      ],
+      "postPlaneRmsM": [
+        0.0118,
+        0.0145
+      ],
+      "dimensionConfidence": "Seven steps,1.2m platform width,1.6m runs and0.9m depth are reference/profile priors; narrow deck scan strip does not survey full depth. Contact heights rounded to0.01m; ground uncertainty +/-0.03m."
+    }
+  }
 }

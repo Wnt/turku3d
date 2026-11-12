@@ -1,7 +1,7 @@
 """Reviewed Qwensel frontage topology, anchors and generated map checks."""
 import math
 import unittest
-from turku3d.scene.qwensel_details import QWENSEL_FRONTAGE as D, frontage_anchor, frontage_length, qwensel_window_details, timber_shutter_pair
+from turku3d.scene.qwensel_details import QWENSEL_FRONTAGE as D, frontage_anchor, frontage_length, qwensel_window_details, timber_shutter_pair, qwensel_entrance_details, opposed_timber_stair
 from turku3d.scene.qwensel_maps import frontage_maps
 
 
@@ -47,6 +47,23 @@ class QwenselDetailsTests(unittest.TestCase):
         for m in meshes:
             self.assertTrue(all(abs(x)>.54 for x in m['positions'][::3]))
         with self.assertRaises(ValueError):timber_shutter_pair((0,0,0),width=math.nan,height=1.4)
+
+    def test_entrance_has_measured_threshold_and_bounded_steps(self):
+        entry=D['entrance'];meshes=qwensel_entrance_details()
+        self.assertEqual(len(meshes),4)
+        self.assertEqual(len([m for m in meshes if m['collision']=='solid']),3)
+        tread=meshes[0];ys=tread['positions'][1::3]
+        self.assertAlmostEqual(max(ys),entry['landingHeight'])
+        for ground in entry['footGroundHeights']:
+            self.assertLessEqual((entry['landingHeight']-ground)/entry['stepsPerFlight'],.22)
+        self.assertGreaterEqual(entry['flightRun']/(entry['stepsPerFlight']-1),.20)
+        self.assertLess(sum(len(m['indices'])//3 for m in meshes),1200)
+        self.assertAlmostEqual(D['baseHeight']+D['door']['sill'],entry['landingHeight'],places=6)
+        for m in meshes:
+            self.assertTrue(all(math.isfinite(x) for x in m['positions']))
+            self.assertGreaterEqual(min(m['positions'][1::3]),3.79)
+        with self.assertRaises(ValueError):
+            opposed_timber_stair((0,5.2,0),landing_width=1.2,flight_run=1.6,depth=.9,back_offset=.15,steps=7,foot_ground_heights=[0,0],post_ground_heights=[0,0])
 
     def test_generated_maps_are_finite_and_same_size(self):
         images=frontage_maps()

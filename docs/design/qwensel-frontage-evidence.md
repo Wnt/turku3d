@@ -4,7 +4,7 @@ The existing landmark description for building103295888D already records six
 irregular windows and a raised double doorway between the fifth and sixth.
 Four southwest windows have open pale diagonal-board shutters and fine glazing
 bars; the two nearest the entrance have six larger panes. Its generic spacing
-parameters were rendered as seven evenly spaced openings, losing those observed
+parameters were rendered as eight evenly spaced openings, losing those observed
 relationships. The correction makes this existing evidence explicit.
 
 The main source is [Qwenselin talo — apteekkimuseo — Turku01](https://commons.wikimedia.org/wiki/File:Qwenselin_talo_-_apteekkimuseo_-Turku_01.jpg),
@@ -38,10 +38,29 @@ These are passable ornament meshes; the retained building collider owns the wall
 The shutter thickness0.035m, board pitch0.14m and shallow open pose are construction
 priors. Attachment follows each actual wall segment, not a single guessed plane.
 
-The raised door remains a qualified layout prior. Supported entrance stair
-placement requires a separate ground/landing check: the old AI sill estimate and
-photographic registration differ, and the current promenade surface is being
-refined independently. Do not infer walkable stair support from this texture.
+The raised entrance is now constrained by a bounded private point-cloud study.
+Classes1,2,12 were requested and class6 retained as a supplementary building/deck
+check. The local selection contains class2 ground and class6 structure, with no
+class1/12 returns. Twelve class6 last returns form a compact platform strip at
+H5.169–5.227m N2000, connected to descending flights on both sides. Sparse higher
+rail points are distinct from that profile. The platform is authored at H5.20m
+with approximately±0.05m uncertainty. The9mm plane residual over a narrow strip
+is not the total survey/registration uncertainty or evidence of full deck depth.
+
+The threshold shifts0.25m along the retained wall relative to the initial photo
+prior. Independent class2 ground fits near the two flight toes use six returns
+each within0.4m, giving H3.823/3.816m (RMS6.3/1.2mm). Two post regions use10/9
+returns, giving H3.827/3.803m. Ground contacts are rounded to0.01m with±0.03m
+source uncertainty. Seven risers per flight (six treads plus the landing),1.2m platform width,1.6m runs and0.9m
+depth remain construction/profile priors; the small point strip does not measure
+every tread or the full platform outline. Resulting risers are about0.197m.
+
+`qwensel_entrance_details()` adds closed treads, risers, stringers, supporting
+posts and crossed rails as solid meshes; door mouldings are passable ornaments.
+`qwensel_entrance_contacts()` exposes four actual toe/post contact centres and
+footprints for the producer to compare against its current terrain. The source
+survey does not itself prove agreement with a subsequently compiled ground mesh;
+that remains an integration and deployed foot-contact check.
 
 Generate the owned asset without reference images:
 
@@ -52,5 +71,8 @@ node pipeline/turku3d/scene/qwensel_appearance.mjs ORIGINAL.glb WORK/qwensel/map
 
 The producer imports the adaptedGLB and three immutable map files, keeps the
 original approved source hash in provenance, and batches `qwensel_window_details()`
-with `QWENSEL_MATERIALS`. A dedicated normal-gameplay before capture must precede
-activation; input generation and unit checks alone are not a visible milestone.
+with `QWENSEL_MATERIALS`; add `qwensel_entrance_details()` and audit its explicit
+contacts against current ground before activation. Dedicated normal-gameplay before views were captured on207e6a88 at720×480
+internal resolution, with fixed world transforms recorded for the after pair.
+The wide view is partly tree-occluded; oblique and close views show the frontage.
+Activation follows this baseline; input generation and unit checks alone are not a visible milestone.
