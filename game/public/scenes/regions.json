@@ -6,7 +6,7 @@
       "id": "office",
       "label": "City centre: riverfront and Market Hall",
       "url": "/scenes/office.scene.json",
-      "release": "86958fa3a191d6baad193f0489c5a0a88e3c1ee15d5c4ab8950e2dacf17b3613",
+      "release": "a38f3225023bf5ca9f39c1a0965e05572081dd665c252acdac0277198e98ad9b",
       "bounds": [
         62.5,
         62.5,
@@ -34,7 +34,7 @@
       "id": "port-arthur",
       "label": "Port Arthur timber block",
       "url": "/scenes/port-arthur.scene.json",
-      "release": "2cae1f9d9743debe77ca6851b2331b06accb43ce49662b5bf21e1632dea5631a",
+      "release": "4c89d81acc55c1b81cbe92f6b7126246c59f4938e69a7c978a7af9d25a1878b3",
       "bounds": [
         -1000,
         250,

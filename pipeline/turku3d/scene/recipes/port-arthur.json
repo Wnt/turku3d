@@ -277,8 +277,8 @@
     {
       "id": "103329716M",
       "entityId": "103329716M",
-      "url": "shared/7cc7a4d5c864ac2d8608018872e0d191627ad2a1354ec19d6cdc31b861e8077f.glb",
-      "sha256": "7cc7a4d5c864ac2d8608018872e0d191627ad2a1354ec19d6cdc31b861e8077f",
+      "url": "shared/e226748bed025f64a74b66f528f218f3b4f7204fe447dd4ff20cf4d507f3bec8.glb",
+      "sha256": "e226748bed025f64a74b66f528f218f3b4f7204fe447dd4ff20cf4d507f3bec8",
       "position": [
         -937.095110053792,
         0.0,
@@ -373,8 +373,8 @@
     {
       "id": "103329720S",
       "entityId": "103329720S",
-      "url": "shared/2cd9bb75a360dba2c01a14055707b2f367db7230df3676e9b10fcbb9dcb64363.glb",
-      "sha256": "2cd9bb75a360dba2c01a14055707b2f367db7230df3676e9b10fcbb9dcb64363",
+      "url": "shared/f433ca2f8e7749bd24f2d696bce90660a7a7b8a7fe254401d96b3ea4e7cda076.glb",
+      "sha256": "f433ca2f8e7749bd24f2d696bce90660a7a7b8a7fe254401d96b3ea4e7cda076",
       "position": [
         -977.5984296043925,
         0.0,
@@ -7530,7 +7530,7 @@
     },
     {
       "id": "building:103329716M:qualified-appearance",
-      "sha256": "7cc7a4d5c864ac2d8608018872e0d191627ad2a1354ec19d6cdc31b861e8077f",
+      "sha256": "e226748bed025f64a74b66f528f218f3b4f7204fe447dd4ff20cf4d507f3bec8",
       "kind": "qualified-building-appearance",
       "uncertaintyM": 0.3
     },
@@ -7554,7 +7554,7 @@
     },
     {
       "id": "building:103329720S:qualified-appearance",
-      "sha256": "2cd9bb75a360dba2c01a14055707b2f367db7230df3676e9b10fcbb9dcb64363",
+      "sha256": "f433ca2f8e7749bd24f2d696bce90660a7a7b8a7fe254401d96b3ea4e7cda076",
       "kind": "qualified-building-appearance",
       "uncertaintyM": 0.3
     },
@@ -7592,6 +7592,12 @@
       "id": "t0_-4_0:retained-context",
       "sha256": "a1f42c4db787e37a5cf46b161e587358552d9fab2de80b57454a7717d5226b9f",
       "kind": "retained-building-and-tree-context",
+      "uncertaintyM": 0.15
+    },
+    {
+      "id": "port-arthur:qualified-eave-repairs",
+      "sha256": "3326c23904eb3d2ee49a338818d9644a4d7152deb33b25f2c41ae3cec026ce94",
+      "kind": "source-qualified-facade-regularity",
       "uncertaintyM": 0.15
     }
   ],

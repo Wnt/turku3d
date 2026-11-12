@@ -392,3 +392,17 @@ url = "https://city.lab.madekivi.fi/scenes/shared/1dae677aa139713487a0ce9ae198ef
 source = "Built-in OpenAI image_gen repair of the existing generated asphalt_worn library; exact prompt and source hashes in pipeline/turku3d/scene/asphalt_material_source.json. No city reference-image pixels used. GPU size conversion and sRGB encoding only."
 licence = "Generated output under applicable OpenAI terms; not CC0"
 reason = "Reference-qualified binder-dominant centre asphalt at the retained two-metre scale"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/roof-before-c1213324/"
+files = ["roof-riverfront.png", "roof-oblique.png"]
+source = "Turku3D native1440x960 live c1213324 and dc538443 at identical qualified Qwensel roof cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Qualified chimney silhouette and metric clay tile rows; no motion or performance claim"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-13-dc538443/"
+files = ["roof-riverfront.png", "roof-oblique.png"]
+source = "Turku3D native1440x960 live c1213324 and dc538443 at identical qualified Qwensel roof cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Qualified chimney silhouette and metric clay tile rows; no motion or performance claim"

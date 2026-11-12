@@ -17,6 +17,10 @@
       "sha256": "26a2b232511a72d676df48d2cb801feb28ae22633238ca2082d3a2b0e5e9cbdd"
     },
     {
+      "path": "quay-lighting.json",
+      "sha256": "d5970c8a9b8071530957bce44c8ad7fc5f7bd63b488e9a9c32ed16c1a4484094"
+    },
+    {
       "path": "retaining.pkl",
       "sha256": "1b91eaa94562512c6173e1bf560889c4f5bf8217761c8ebb61fb9c9bd4aa90e7"
     },
