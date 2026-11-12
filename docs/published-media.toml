@@ -324,3 +324,17 @@ url = "https://city.lab.madekivi.fi/scenes/shared/9f80b7f396fd615e87fb1b2ddad8a3
 source = "Unchanged compressed nature_foliage atlas extracted from the retained nature.glb; hedge cell uses ambientCG LeafSet002 as documented by the existing nature asset library"
 licence = "CC0-1.0"
 reason = "Terrain-warped foliage on measured hedge volumes; no source photography or generated texture replacement"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/centre-before-bc8cf707/"
+files = ["hall-crossing.png", "aurakatu-crossing.png", "hall-north-crossing.png", "paving.png"]
+source = "Turku3D native1440x960 bc8cf707 renderer and pinned4bbf3a31 office source; historical captures and a fixed-renderer local replay"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Explicit centre crossings, supported signs, corrected facade repeat and documented promenade finish"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-11-24e3b4c1/"
+files = ["hall-crossing.png", "aurakatu-crossing.png", "hall-north-crossing.png", "paving.png", "inlay-walk-3s.mp4", "crossing-walk-3s.mp4"]
+source = "Turku3D native1440x960 normal public gameplay24e3b4c1, sourcef6d884bb"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Explicit centre crossings, supported signs, corrected facade repeat and documented promenade finish"

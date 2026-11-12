@@ -4,9 +4,9 @@
   "regions": [
     {
       "id": "office",
-      "label": "Office, Qwensel and Auransilta",
+      "label": "City centre: riverfront and Market Hall",
       "url": "/scenes/office.scene.json",
-      "release": "f6d884bbffa7dbd2400737b72fe5198e494fb38211dabfc72edf07f374c916d6",
+      "release": "ed5d1a7c69de54d1bbb0572930e8cdde189f59df8e03a5bac8619e81c21443a1",
       "bounds": [
         62.5,
         62.5,
