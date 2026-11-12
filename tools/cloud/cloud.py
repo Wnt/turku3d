@@ -342,7 +342,7 @@ def destroy(api, uuid, ledger, by, now=None, wait=150, sleep=time.sleep):
         raise
     lease = lease_of(server)
     storages = [d['storage'] for d in server.get('storage_devices', {}).get('storage_device', []) if d['storage'] in api._storages]
-    deadline = time.monotonic() + wait
+    deadline, found = time.monotonic() + wait, server['state']
     while server['state'] != 'stopped':
         if server['state'] == 'started':
             with contextlib.suppress(ApiError):
@@ -379,8 +379,8 @@ def destroy(api, uuid, ledger, by, now=None, wait=150, sleep=time.sleep):
     return ledger.append('delete', now, uuid=uuid, name=lease['name'], owner=lease['owner'], by=by, plan=lease['plan'],
                          price_c_h=lease['price_c_h'], created=created, expires=lease['expires'],
                          minutes=round((now - created) / 60, 1), hours_billed=hours,
-                         cost_eur=round(hours * lease['price_c_h'] / 100, 4), storages_deleted=storages,
-                         storages_left=left)
+                         cost_eur=round(hours * lease['price_c_h'] / 100, 4), state_found=found,
+                         storages_deleted=storages, storages_left=left)
 
 
 def reap(api, ledger, now=None, dry_run=False, sleep=time.sleep, can_delete=True, budget=BUDGET_EUR):
@@ -798,7 +798,7 @@ def cmd_reaper(a, api, ledger):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = p.add_subparsers(dest='command', required=True)
+    sub = p.add_subparsers(dest='verb', required=True)
     up = sub.add_parser('up')
     up.add_argument('--plan', required=True)
     up.add_argument('--owner', required=True, help='your agent name')
@@ -824,10 +824,10 @@ def main(argv=None):
     sub.add_parser('inventory')
     sub.add_parser('reaper').add_argument('action', choices=('install', 'status'))
     a = p.parse_args(argv)
-    if ROLE == 'reaper' and a.command not in ('reap', 'status', 'inventory', 'plans'):
-        raise SystemExit(f'{a.command} runs on the Mac; this host only reaps')
+    if ROLE == 'reaper' and a.verb not in ('reap', 'status', 'inventory', 'plans'):
+        raise SystemExit(f'{a.verb} runs on the Mac; this host only reaps')
     handler = dict(up=cmd_up, renew=cmd_renew, down=cmd_down, status=cmd_status, reap=cmd_reap, ssh=cmd_ssh,
-                   plans=cmd_plans, inventory=cmd_inventory, reaper=cmd_reaper)[a.command]
+                   plans=cmd_plans, inventory=cmd_inventory, reaper=cmd_reaper)[a.verb]
     return handler(a, Api(), Ledger(HOME / 'ledger.jsonl'))
 
 
