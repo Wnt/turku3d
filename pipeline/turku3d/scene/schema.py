@@ -7,7 +7,7 @@ SCHEMA = "turku-scene/1"
 FIELDS = {
     "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn assets lightOccluders",
     "source": "id sha256 kind uncertaintyM",
-    "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
+    "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture alphaTest doubleSided",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
     "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility nightIrradiance",
@@ -57,7 +57,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category","aperture")}
+            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided"),"emitter":("category","aperture")}
             fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
@@ -80,6 +80,12 @@ def validate_scene(scene):
         if source["uncertaintyM"] < 0:
             raise ValueError("Negative uncertainty")
     for material in scene["materials"]:
+        if 'alphaTest' in material:
+            vector([material['alphaTest']], 1, 'material alpha cutoff')
+            if not 0 <= material['alphaTest'] <= 1:
+                raise ValueError('Material alpha cutoff outside [0,1]')
+        if 'doubleSided' in material and type(material['doubleSided']) is not bool:
+            raise ValueError('Material doubleSided must be boolean')
         if "water" in material:
             water=material["water"]
             if set(water)!={"point","normal","band"}:

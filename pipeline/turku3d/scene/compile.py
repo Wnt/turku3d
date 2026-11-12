@@ -276,6 +276,11 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
     if trees:
         from .fixtures import place_trunks
         place_trunks(scene, trees)
+    from .hedge_survey import load as load_hedges
+    from .hedges import append as append_hedges
+    hedges, hedge_sources = load_hedges(cache, bounds)
+    scene['sources'].extend(hedge_sources)
+    append_hedges(scene, hedges)
     office=next((a for a in assets if a['entityId']=='103295893K'),None)
     anchors=json.loads(Path(__file__).with_name('office_detail_anchors.json').read_text())
     authored = office and (office['sha256']==anchors['authoredGlbSha256'] or any(
@@ -328,6 +333,8 @@ def write_products(scene, output):
     write_textures(scene,output)
     from .structures import write_textures as write_structure_textures
     write_structure_textures(scene,output)
+    from .hedges import write_texture
+    write_texture(scene,output)
     xmin, zmin, xmax, zmax = scene["bounds"]
     for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
         for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):
@@ -340,6 +347,7 @@ def write_products(scene, output):
                 pos = np.asarray(m["positions"]).reshape(-1, 3)
                 name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "sign-C1": "street_furniture", "sign-E2": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
                 if name.startswith('bridge:'):name=name.split(':')[1]
+                if name=='hedge':name='vegetation_low'
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
                 clipped = clip_mesh(source, bbox)
                 if clipped is None:
