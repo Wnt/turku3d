@@ -1,5 +1,5 @@
 {
-  "version": "turku-scene-recipe/1",
+  "version": "turku-scene-recipe/2",
   "id": "office",
   "bounds": [
     125,
@@ -15906,5 +15906,21 @@
   "fixtureBindings": {
     "path": "office_fixture_bindings.json",
     "sha256": "0abdef6c09c12d7f7134c65e38da0c59c136701789c8705acd72be8af4f76b31"
+  },
+  "spawn": {
+    "position": [
+      175.55,
+      3.8202054642004057,
+      260.14
+    ],
+    "headingDeg": 65.0,
+    "vehicle": {
+      "position": [
+        164.0,
+        3.8149560368531388,
+        265.0
+      ],
+      "yaw": 1.05
+    }
   }
 }

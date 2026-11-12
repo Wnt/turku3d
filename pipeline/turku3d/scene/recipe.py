@@ -8,11 +8,11 @@ import shutil
 
 from turku3d.package.gltf import read_glb
 from .compile import compile_scene, load_evidence, write_products
-from .schema import vector
+from .schema import vector,validate_spawn
 from .asset_store import resolve_asset
 
-VERSION='turku-scene-recipe/1'
-FIELDS={'version','id','bounds','inputs','assets','materialRecipes','trees','assetSources','fixtureBindings'}
+VERSION='turku-scene-recipe/2'
+FIELDS={'version','id','bounds','spawn','inputs','assets','materialRecipes','trees','assetSources','fixtureBindings'}
 
 
 def source_pins(cache, bounds):
@@ -29,13 +29,13 @@ def source_pins(cache, bounds):
     return sorted(pins,key=lambda row:row['path'])
 
 
-def create_recipe(identity, bounds, cache, *, assets, material_recipes, trees, asset_sources, fixture_bindings):
+def create_recipe(identity, bounds, cache, *, spawn, assets, material_recipes, trees, asset_sources, fixture_bindings):
     binding=None
     if fixture_bindings:
         file=Path(fixture_bindings).resolve()
         relative=file.relative_to(Path(__file__).parent.resolve())
         binding=dict(path=relative.as_posix(),sha256=hashlib.sha256(file.read_bytes()).hexdigest())
-    return dict(version=VERSION,id=identity,bounds=list(bounds),inputs=source_pins(cache,bounds),
+    return dict(version=VERSION,id=identity,bounds=list(bounds),spawn=spawn,inputs=source_pins(cache,bounds),
                 assets=assets,materialRecipes=material_recipes,trees=trees,assetSources=asset_sources,fixtureBindings=binding)
 
 
@@ -45,6 +45,7 @@ def validate_recipe(recipe):
     vector(recipe['bounds'],4,'recipe bounds')
     x,z,X,Z=recipe['bounds']
     if not x<X or not z<Z:raise ValueError('Empty recipe bounds')
+    validate_spawn(recipe['spawn'],recipe['bounds'])
     if not isinstance(recipe['id'],str) or not recipe['id']:raise ValueError('Recipe requires an identity')
     for key in ('inputs','assets','materialRecipes','trees','assetSources'):
         if not isinstance(recipe[key],list):raise ValueError('Recipe '+key+' must be an array')
@@ -95,7 +96,7 @@ def build_recipe(recipe_path, cache, asset_root, output):
         raise ValueError('Fixture associations differ from pinned scene recipe')
     copy_assets(recipe,asset_root,output)
     provenance=recipe['assetSources']+[dict(id=recipe['id']+':recipe',sha256=hashlib.sha256(raw).hexdigest(),kind='scene-recipe',uncertaintyM=0.)]
-    scene=compile_scene(cache,bounds=recipe['bounds'],scene_id=recipe['id'],assets=recipe['assets'],
+    scene=compile_scene(cache,bounds=recipe['bounds'],scene_id=recipe['id'],spawn=recipe['spawn'],assets=recipe['assets'],
                         material_recipes=recipe['materialRecipes'],trees=recipe['trees'],asset_sources=provenance,
                         fixture_bindings=path)
     return write_products(scene,output)
@@ -111,7 +112,7 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();scene=json.loads(args.scene.read_text())
     generated={'ground','wfs','poles','walkable','roads','stairs','raw-ground-survey','hedge-survey','retaining-survey','measured-street-sections','registered-reference-association','scene-recipe','compiled-ambient-visibility','compiled-street-irradiance'}
-    recipe=create_recipe(scene['id'],scene['bounds'],args.cache,assets=scene['assets'],
+    recipe=create_recipe(scene['id'],scene['bounds'],args.cache,spawn=scene['spawn'],assets=scene['assets'],
                          material_recipes=json.loads(args.materials.read_text()),trees=json.loads(args.trees.read_text()),
                          asset_sources=[s for s in scene['sources'] if s['kind'] not in generated],fixture_bindings=args.fixture_bindings)
     validate_recipe(recipe);args.output.parent.mkdir(parents=True,exist_ok=True)

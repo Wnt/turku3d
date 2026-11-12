@@ -38,6 +38,18 @@ def vector(value, size, name):
         raise ValueError(f"{name} must contain {size} finite numbers")
 
 
+def validate_spawn(spawn,bounds):
+    fields(spawn,'spawn');vector(spawn['position'],3,'spawn')
+    vector([spawn['headingDeg']],1,'heading')
+    fields(spawn['vehicle'],'vehicle');vector(spawn['vehicle']['position'],3,'vehicle position')
+    vector([spawn['vehicle']['yaw']],1,'vehicle yaw')
+    for location in (spawn,spawn['vehicle']):
+        x,_,z=location['position']
+        if not bounds[0]<=x<bounds[2] or not bounds[1]<=z<bounds[3]:
+            raise ValueError('Spawn must lie inside its prepared region')
+    return spawn
+
+
 def validate_scene(scene):
     fields(scene, "scene")
     if scene["schema"] != SCHEMA:
@@ -183,12 +195,7 @@ def validate_scene(scene):
     fields(scene["coverage"], "coverage")
     if scene["coverage"]["mode"] != "replace" or scene["coverage"]["bounds"] != scene["bounds"]:
         raise ValueError("Coverage must replace exactly the scene bounds")
-    fields(scene["spawn"], "spawn")
-    vector(scene["spawn"]["position"], 3, "spawn")
-    vector([scene["spawn"]["headingDeg"]], 1, "heading")
-    fields(scene["spawn"]["vehicle"], "vehicle")
-    vector(scene["spawn"]["vehicle"]["position"], 3, "vehicle position")
-    vector([scene["spawn"]["vehicle"]["yaw"]], 1, "vehicle yaw")
+    validate_spawn(scene['spawn'],scene['bounds'])
     if not isinstance(scene["collision"], dict):
         raise ValueError("collision must be a cell-ID map")
     for record in scene["collision"].values():

@@ -7,18 +7,20 @@ import struct
 import tempfile
 import unittest
 
-from turku3d.scene.compile import release_hash
+from turku3d.scene.compile import release_hash, resolve_spawn
 from turku3d.scene.recipe import VERSION, copy_assets, validate_recipe
 
 
 class SceneRecipeTests(unittest.TestCase):
     def recipe(self):
         return dict(version=VERSION,id='pilot',bounds=[0.,0.,10.,10.],inputs=[],assets=[],materialRecipes=[],
-                    trees=[],assetSources=[],fixtureBindings=None)
+                    trees=[],assetSources=[],fixtureBindings=None,
+                    spawn=dict(position=[1.,1.,1.],headingDeg=0.,vehicle=dict(position=[2.,1.,2.],yaw=0.)))
 
     def test_required_inputs_and_safe_relative_paths(self):
         recipe=self.recipe();validate_recipe(recipe)
-        for mutate in (lambda r:r.pop('trees'),lambda r:r.update(version='old-scene'),
+        for mutate in (lambda r:r.pop('trees'),lambda r:r.pop('spawn'),
+                       lambda r:r['spawn'].update(position=[10.,1.,1.]),lambda r:r.update(version='old-scene'),
                        lambda r:r['inputs'].append(dict(path='../raw.pkl',sha256='0'*64)),
                        lambda r:r.update(bounds=[0.,0.,0.,10.])):
             broken=copy.deepcopy(recipe);mutate(broken)
@@ -52,6 +54,18 @@ class SceneRecipeTests(unittest.TestCase):
         scene['collision']['c_0_0']['sha256']='a'*64
         scene['sources'].append(dict(id='approved-building',sha256='c'*64))
         self.assertNotEqual(release_hash(scene),original)
+
+    def test_authored_spawn_height_selects_the_supported_level(self):
+        scene=dict(bounds=[0.,0.,10.,10.],spawn=self.recipe()['spawn'],meshes=[],supports=[])
+        for name,height in [('lower',1.),('deck',6.)]:
+            scene['meshes'].append(dict(id=name,positions=[0.,height,0.,0.,height,10.,10.,height,0.],indices=[0,1,2]))
+            scene['supports'].append(dict(id=name,meshId=name))
+        scene['spawn']['position']=[1.,5.8,1.]
+        resolve_spawn(scene)
+        self.assertEqual(scene['spawn']['position'],[1.,6.15,1.])
+        self.assertEqual(scene['spawn']['vehicle']['position'],[2.,1.15,2.])
+        scene['spawn']['position']=[9.,1.,9.]
+        with self.assertRaisesRegex(ValueError,'lacks prepared support'):resolve_spawn(scene)
 
 
 if __name__=='__main__':unittest.main()

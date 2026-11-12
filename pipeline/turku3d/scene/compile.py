@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import pickle
+from copy import deepcopy
 
 import numpy as np
 import shapely
@@ -241,7 +242,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     return height
 
 
-def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=(), asset_sources=(), fixture_bindings=None):
+def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes=(), trees=(), asset_sources=(), fixture_bindings=None):
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     sources.extend(asset_sources)
@@ -259,7 +260,7 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                  materials=[dict(id=k, color=c, roughness=r, metalness=m) for k, (c, r, m) in PALETTE.items()],
                  boundaries=[], supports=[], meshes=[], fixtures=[], emitters=[], assets=list(assets), lightOccluders=[],
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
-                 spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
+                 spawn=deepcopy(spawn))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
     if sections:
         scene['materials'].extend(dict(id=k,color=c,roughness=r,metalness=m) for k,(c,r,m) in street_sections.PALETTE.items())
@@ -319,9 +320,7 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
             scene['meshes'].append(mesh_record(piece['id'],'103295893K',piece['materialId'],np.array(piece['positions']).reshape(-1,3),np.array(piece['indices']).reshape(-1,3),'passable'))
     from .qwensel_compile import append_qwensel
     append_qwensel(scene)
-    for location in [scene["spawn"], scene["spawn"]["vehicle"]]:
-        p = location["position"]
-        p[1] = float(height([[p[0], p[2]]])[0]) + .15
+    resolve_spawn(scene)
     scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]} | {a["entityId"] for a in assets})
     for recipe in material_recipes:
         material=recipe["material"]
@@ -334,6 +333,18 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
     from .night_lighting import bake_scene as bake_street_irradiance
     bake_street_irradiance(scene)
     return scene
+
+
+def resolve_spawn(scene):
+    """Use the authored height hint to choose an explicit support level."""
+    from .schema import validate_spawn
+    from .fixtures import support_query
+    validate_spawn(scene['spawn'],scene['bounds'])
+    query=support_query(scene)
+    for location in (scene['spawn'],scene['spawn']['vehicle']):
+        p=location['position'];hit=query(p[0],p[2],reference_y=p[1])
+        if hit is None:raise ValueError('Authored spawn lacks prepared support')
+        p[1]=hit[1]+.15
 
 
 def release_hash(scene):

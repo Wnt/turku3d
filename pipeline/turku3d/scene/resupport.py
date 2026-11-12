@@ -19,7 +19,7 @@ def resupport_recipe(recipe_path,cache,asset_root,output,recipe_output):
     if binding and hashlib.sha256(binding_path.read_bytes()).hexdigest()!=binding['sha256']:
         raise ValueError('Fixture binding changed independently of the pinned recipe')
     recipe['inputs']=source_pins(cache,recipe['bounds'])
-    support_scene=compile_scene(cache,bounds=recipe['bounds'],scene_id=recipe['id'],assets=recipe['assets'],
+    support_scene=compile_scene(cache,bounds=recipe['bounds'],scene_id=recipe['id'],spawn=recipe['spawn'],assets=recipe['assets'],
                                 material_recipes=recipe['materialRecipes'],trees=[],asset_sources=recipe['assetSources'],
                                 fixture_bindings=binding_path)
     water=shapely.union_all(load_evidence(cache,recipe['bounds'])[3])
