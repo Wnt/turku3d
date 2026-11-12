@@ -67,6 +67,7 @@ def append_finish(scene,layout=LAYOUT):
     add('drain-ribs',shapely.union_all(bars),'promenade-drain-rib',axes,.0045)
     raw=json.dumps(layout,sort_keys=True,separators=(',',':')).encode()
     scene['sources'].append(dict(id=layout['id'],sha256=hashlib.sha256(raw).hexdigest(),kind='reference-registered-surface-layout',uncertaintyM=layout['uncertaintyM']))
+    scene['sources'].append(dict(id=layout['id']+':producer',sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),kind='surface-finish-producer',uncertaintyM=layout['uncertaintyM']))
     scene['coverage']['entityIds']=sorted(set(scene['coverage']['entityIds'])|{m['entityId'] for m in scene['meshes'] if m['entityId'].startswith(layout['id'])})
     scene['release']=release_hash(scene);validate_scene(scene)
     return dict(layout=layout,receipts=receipts,sourceRelease=scene['release'])

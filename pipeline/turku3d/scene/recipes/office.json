@@ -29,6 +29,10 @@
       "sha256": "16e87a160b325b9cdbe8c26724bdbe160b30dab5756eb40a1bc44ade36a0e0fe"
     },
     {
+      "path": "t0_0_0/markings.50effcd45cd9b21a5cf4fa61.pkl",
+      "sha256": "1edfa41e032a8f0f9b6148a7eea85064c76305ed966c475248a1b187763b383c"
+    },
+    {
       "path": "t0_0_0/poles.dfd29892365a9142a6ef078c.pkl",
       "sha256": "576a4da255e27352777aef56ea27b373cbed28147e0398f9d6d013f891316a06"
     },
@@ -45,6 +49,10 @@
       "sha256": "6016f811318ea6243b3cf1ac2382b29eecf5d72b83a239a6c9f95431aedb2885"
     },
     {
+      "path": "t0_0_1/markings.50effcd45cd9b21a5cf4fa61.pkl",
+      "sha256": "eba3f427f330de0a79cec28a897bb38e70729059b2bedac8f4d385b5b6861aa7"
+    },
+    {
       "path": "t0_0_1/poles.dfd29892365a9142a6ef078c.pkl",
       "sha256": "2cb27da063c94f9137f0ec03fda7b186305b1582f4c8a2559483f7b3d60f8338"
     },
@@ -59,6 +67,10 @@
     {
       "path": "t0_1_0/ground.9843ee9499cece1a8e142167.pkl",
       "sha256": "3984c18346a61678a06c002c13d49d1402d3d00241e7fd69aba911407792631b"
+    },
+    {
+      "path": "t0_1_0/markings.50effcd45cd9b21a5cf4fa61.pkl",
+      "sha256": "b37f0c1df6855a409f808388ae7c4cce818c995b390b3c71244e4d3f3cea3830"
     },
     {
       "path": "t0_1_0/poles.dfd29892365a9142a6ef078c.pkl",
@@ -83,6 +95,10 @@
     {
       "path": "t0_1_1/ground.9dfda914917a82d4341d495c.pkl",
       "sha256": "d35387b403ad1880ec1f05a7ed9bd9c6a1f219f6c7d81b856a15d09afae856c2"
+    },
+    {
+      "path": "t0_1_1/markings.50effcd45cd9b21a5cf4fa61.pkl",
+      "sha256": "2ceabb87f33db7e4a7654be3018f2b40f55ce955d834add69bfbaf15829b9af6"
     },
     {
       "path": "t0_1_1/poles.dfd29892365a9142a6ef078c.pkl",
@@ -1093,8 +1109,8 @@
     {
       "id": "103304667L",
       "entityId": "103304667L",
-      "url": "shared/0d71100a5dcaec9f75aba3e6f72928810a80ccbdce210f1d18869a7deac45449.glb",
-      "sha256": "0d71100a5dcaec9f75aba3e6f72928810a80ccbdce210f1d18869a7deac45449",
+      "url": "shared/9fb468897c90de03a0786e1cea65cb66f6f1f46190fa9627ed9d43492b52f388.glb",
+      "sha256": "9fb468897c90de03a0786e1cea65cb66f6f1f46190fa9627ed9d43492b52f388",
       "position": [
         152.7400552787706,
         0.0,
@@ -17115,6 +17131,18 @@
       "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
       "kind": "registered-frontage-appearance",
       "uncertaintyM": 0.05
+    },
+    {
+      "id": "building:103304667L:storey-layout",
+      "sha256": "4dbed64f388082ae494cd5c6edcc9f85d030825a623cb9f6940453c0c642397d",
+      "kind": "source-qualified-facade-regularity",
+      "uncertaintyM": 0.0
+    },
+    {
+      "id": "building:103304667L:storey-appearance",
+      "sha256": "9fb468897c90de03a0786e1cea65cb66f6f1f46190fa9627ed9d43492b52f388",
+      "kind": "derived-building-appearance",
+      "uncertaintyM": 0.0
     }
   ],
   "fixtureBindings": {

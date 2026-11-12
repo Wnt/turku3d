@@ -342,6 +342,9 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     paint,paint_sources=load_markings(cache,bounds)
     scene['sources'].extend(paint_sources)
     append_markings(scene,paint)
+    if any(asset['entityId']=='103295893K' for asset in assets):
+        from .promenade_finish import append_finish
+        append_finish(scene)
     scene['coverage']['entityIds']=sorted(set(scene['coverage']['entityIds']) | {m['entityId'] for m in scene['meshes']})
     return scene
 
