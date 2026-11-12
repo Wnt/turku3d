@@ -6,6 +6,7 @@ import { sharedKtx } from './loadingKtx';
 import { textureUploads } from '../render/textureUploads';
 import { modelGpuBytes, rendererResidency } from './gpuBytes';
 import { disposeDraw } from '../render/sharedMaterials';
+import { styleScenery } from '../render/sceneryMaterial';
 import { releaseGeometry } from './modelGeometry';
 import { releaseModelTextures } from './sharedAssets';
 import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, type PreparedScene } from './preparedScene';
@@ -90,6 +91,12 @@ export class PreparedWorld {
           root.name = `asset:${asset.id}`; root.position.fromArray(asset.position);
           root.userData.entityId = asset.entityId; root.userData.layer = asset.recipe === 'building' ? 'buildings' : asset.recipe === 'vegetation' ? 'vegetation' : 'structures';
           root.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true; });
+          if (asset.recipe === 'context') {
+            // Context retains the producer's explicit scenery layers. Their facade and canopy recipes
+            // are different from near building materials; raw GLB pigment is only their input.
+            root.traverse(o => { o.userData.scenery = true; });
+            styleScenery(root);
+          }
           model.add(root);
         }));
         const error = results.find(result => result.status === 'rejected');

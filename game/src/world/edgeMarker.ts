@@ -32,6 +32,14 @@ export function edgeLine(i: number, j: number, side: number, n: number = BAND.sa
   return out;
 }
 
+/** Boundary guidance is local to the approaching player, never a stripe across the distant city. */
+export function nearbyEdge(edge: readonly [number, number, number], player: Pick<V3, 'x' | 'z'>, reach = 12) {
+  const [a, b] = edgeLine(...edge, 2);
+  const x = Math.max(Math.min(a.x, b.x), Math.min(Math.max(a.x, b.x), player.x));
+  const z = Math.max(Math.min(a.z, b.z), Math.min(Math.max(a.z, b.z), player.z));
+  return Math.hypot(player.x - x, player.z - z) < reach;
+}
+
 export class EdgeMarker {
   readonly group = new THREE.Group();
   private bands = new Map<string, THREE.Mesh | null>();
@@ -88,13 +96,13 @@ export class EdgeMarker {
     const ground = await Promise.all(line.map(async p =>
       (await this.rays.raycast({ x: p.sx, y: top, z: p.sz }, { x: 0, y: -1, z: 0 }, top - lo + 50))?.point.y ?? null));
     if (!this.bands.has(key) || this.bands.get(key)) return; // gone (or built) meanwhile
-    let last = ground.find(g => g !== null) ?? lo;
     const pos: number[] = [], uvs: number[] = [], idx: number[] = [];
     line.forEach((p, k) => {
-      const y = last = ground[k] ?? last;
+      const y = ground[k] ?? lo;
       pos.push(p.x, y - BAND.below, p.z, p.x, y + BAND.height, p.z);
       uvs.push(k / (line.length - 1), 0, k / (line.length - 1), 1);
-      if (k) idx.push(2 * k - 2, 2 * k - 1, 2 * k, 2 * k, 2 * k - 1, 2 * k + 1);
+      // Missing support (including open water) is not a continuation of the last road height.
+      if (k && ground[k] !== null && ground[k - 1] !== null) idx.push(2 * k - 2, 2 * k - 1, 2 * k, 2 * k, 2 * k - 1, 2 * k + 1);
     });
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));

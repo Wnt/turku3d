@@ -2,7 +2,7 @@
 // and the striped band along the true edges (world/edgeMarker.ts, CollisionStreamer.trueEdges).
 import { test, expect } from 'vitest';
 import * as THREE from 'three/webgpu';
-import { EdgeMarker, edgeLine } from '../../src/world/edgeMarker';
+import { EdgeMarker, edgeLine, nearbyEdge } from '../../src/world/edgeMarker';
 import { CollisionStreamer } from '../../src/world/collisionStreaming';
 
 test('true edges are the sides of loaded tiles with no collision in any source', () => {
@@ -38,12 +38,13 @@ test('the marker band follows the ground along each true edge and leaves with it
   expect(Object.keys(band.geometry.attributes)).toEqual(Object.keys(warmup.geometry.attributes));
   expect(band.geometry.index!.array.constructor).toBe(warmup.geometry.index!.array.constructor);
   const pos = band.geometry.getAttribute('position');
-  // Bottom 0.3 m under the ground, top 1.1 m above it; past z 40 the rays miss and the last height carries on.
+  // Bottom 0.3 m under the ground, top 1.1 m above it; missing support has no drawn segments.
   expect(pos.getX(0)).toBe(125);
   expect(pos.getY(0)).toBeCloseTo(1.7, 5);
   expect(pos.getY(1)).toBeCloseTo(3.1, 5);
   const lastTop = pos.getY(pos.count - 1);
   expect(lastTop).toBeCloseTo(pos.getY(pos.count - 3), 5);
+  for (const index of band.geometry.index!.array) expect(pos.getZ(index)).toBeLessThanOrEqual(40);
   edges = [[1, 0, 3]];
   marker.update(() => edges, 100); // throttled: nothing changes within 250 ms
   expect(marker.count).toBe(2);
@@ -51,4 +52,10 @@ test('the marker band follows the ground along each true edge and leaves with it
   expect(marker.count).toBe(1);
   expect(band.parent).toBeNull();
   marker.dispose();
+});
+
+test('boundary guidance only marks edges near the approaching player', () => {
+  expect(nearbyEdge([1, 0, 0], { x: 120, z: 30 })).toBe(true);
+  expect(nearbyEdge([1, 0, 0], { x: 100, z: 30 })).toBe(false);
+  expect(nearbyEdge([1, 0, 0], { x: 125, z: 80 })).toBe(false);
 });

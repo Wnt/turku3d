@@ -97,7 +97,7 @@ function* batchSteps(model: THREE.Object3D): Generator<void> {
       geometryUsers.set(mesh.geometry, (geometryUsers.get(mesh.geometry) ?? 0) + 1);
       if (++seen % SCAN_SLICE === 0) yield;
     }
-    if (!mesh.isMesh || !mesh.visible || mesh.children.length || !mesh.parent || Array.isArray(mesh.material)
+    if (!mesh.isMesh || !mesh.visible || mesh.userData.scenery || mesh.children.length || !mesh.parent || Array.isArray(mesh.material)
       || (mesh as THREE.InstancedMesh).isInstancedMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh
       || mesh.material.transparent || mesh.geometry.groups.length || Object.keys(mesh.geometry.morphAttributes).length
       || mesh.geometry.drawRange.start !== 0 || mesh.geometry.drawRange.count !== Infinity

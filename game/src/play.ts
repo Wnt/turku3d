@@ -82,7 +82,7 @@ import { RearSteerControl } from './vehicle/rearSteerControl';
 import { RearSteerTag } from './ui/rearSteerTag';
 import { DamageHud } from './ui/damageHud';
 import { drvOf, type Drv } from './net/drv';
-import { EdgeMarker } from './world/edgeMarker';
+import { EdgeMarker, nearbyEdge } from './world/edgeMarker';
 import { preloadStarts, retainStarts } from './world/preloadStarts';
 import { streamWhileLoading } from './world/preload';
 import { insideCar, openView, startPairs, streetViews } from './world/startGround';
@@ -1137,7 +1137,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     parkedVehicles.setNight(parkedNight(world.sharedNow(), multiplayerPlaying ? undefined : utc => world.dayClock.hourAt(utc)), world.sharedNow());
     parkedVehicles.update(streamAt.x, streamAt.z, drivenId, now);
     streamer.update(streamAt.x, streamAt.z, false, vel.x, vel.z);
-    edgeMarker.update(() => streamer.trueEdges());
+    edgeMarker.update(() => streamer.trueEdges().filter(edge => nearbyEdge(edge, feet)));
     env.follow(feet);
     // Give the first driving window's road/collision requests three seconds before the 25 MB crowd download.
     if (!walkersStarted && !startScreen.active && !saveGame.loading) {

@@ -39,7 +39,7 @@ function* shadowBatchSteps(model: THREE.Object3D): Generator<void, THREE.Mesh | 
   let vertexCount = 0, indexCount = 0;
   model.traverse(object => {
     const mesh = object as THREE.Mesh;
-    if (!mesh.isMesh || mesh.userData.facadeModules) return;
+    if (!mesh.isMesh || mesh.userData.facadeModules || mesh.userData.scenery) return;
     mesh.frustumCulled = true;
     if (mesh.userData.prop_type === 'sign' || mesh.userData.prop_type === 'bus_stop'
       || (Array.isArray(mesh.userData.objects) && mesh.userData.objects.some((e: Record<string, unknown>) =>

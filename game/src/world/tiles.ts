@@ -28,7 +28,7 @@ export class VisualTiles {
     if (scene.userData.scenery) { this.prepared.add(scene); return; }
     scene.traverse(object => {
       const mesh = object as THREE.Mesh;
-      if (mesh.isMesh) { mesh.castShadow = !mesh.userData.waterSurface; mesh.receiveShadow = true; }
+      if (mesh.isMesh) { mesh.castShadow = !mesh.userData.waterSurface && !mesh.userData.scenery; mesh.receiveShadow = !mesh.userData.scenery; }
     });
     if (!this.idPass) {
       for (const step of staticBatchSteps(scene)) void step;
@@ -44,7 +44,7 @@ export class VisualTiles {
     if (scene.userData.scenery) { this.prepared.add(scene); return; }
     scene.traverse(object => {
       const mesh = object as THREE.Mesh;
-      if (mesh.isMesh) { mesh.castShadow = !mesh.userData.waterSurface; mesh.receiveShadow = true; }
+      if (mesh.isMesh) { mesh.castShadow = !mesh.userData.waterSurface && !mesh.userData.scenery; mesh.receiveShadow = !mesh.userData.scenery; }
     });
     if (!this.idPass) {
       const started = streamTrace.on ? performance.now() : 0;

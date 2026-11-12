@@ -83,3 +83,12 @@ test('prepared water surfaces never become opaque shadow casters during model pr
   expect(water.castShadow).toBe(false);
   expect(water.receiveShadow).toBe(true);
 });
+
+test('prepared context preserves scenery shadow policy inside a mixed scene', () => {
+  const tiles = new VisualTiles(), model = new THREE.Group();
+  const context = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+  context.userData.scenery = true; context.userData.layer = 'buildings'; model.add(context);
+  tiles.prepareModel(model);
+  expect(context.castShadow).toBe(false); expect(context.receiveShadow).toBe(false);
+  expect(model.children.some(child => child.userData.shadowBatch)).toBe(false);
+});

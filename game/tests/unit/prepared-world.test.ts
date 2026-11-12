@@ -52,6 +52,28 @@ test('corrupt prepared collision never publishes a model or collision entry', as
   expect(host.retainCollision).not.toHaveBeenCalled();
 });
 
+test('prepared context receives the authored scenery recipe before generic styling', async () => {
+  const { host, scene } = fixture(), asset = new THREE.Group();
+  for (const layer of ['vegetation', 'buildings-lod-glazed']) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    mesh.userData.layer = layer; asset.add(mesh);
+  }
+  const bytes = new Uint8Array([1, 2, 3]);
+  scene.assets.push({ id: 'context', entityId: 'context', recipe: 'context', url: 'context.glb', position: [0, 0, 0], sha256: createHash('sha256').update(bytes).digest('hex') });
+  const fetcher = host.fetch!;
+  host.fetch = (async input => String(input).endsWith('.glb') ? new Response(bytes) : fetcher(input)) as typeof fetch;
+  host.loadModel = async () => asset;
+  host.style = async () => {
+    for (const child of asset.children) {
+      const mesh = child as THREE.Mesh;
+      expect((mesh.material as THREE.Material).name).toBe(`distant-city-${mesh.userData.layer}`);
+      expect(mesh.userData.scenery).toBe(true);
+      expect(mesh.castShadow || mesh.receiveShadow).toBe(false);
+    }
+  };
+  const world = await PreparedWorld.start(host); world.leaveCity();
+});
+
 test('partial startup releases successfully loaded assets and untracked preparation resources', async () => {
   const { host, scene } = fixture(), asset = new THREE.Group();
   const geometry = new THREE.BoxGeometry(), material = new THREE.MeshStandardMaterial();
