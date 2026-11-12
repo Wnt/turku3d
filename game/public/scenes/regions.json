@@ -1,0 +1,34 @@
+{
+  "schema": "turku-prepared-regions/1",
+  "defaultRegion": "office",
+  "regions": [
+    {
+      "id": "office",
+      "label": "Riverfront, City Hall and Market Hall",
+      "url": "/scenes/office.scene.json",
+      "release": "4bbf3a31687945b0ab5538a39ac2c08c1a10e203d19cd010cc721f275a9b9650",
+      "bounds": [
+        62.5,
+        62.5,
+        375,
+        312.5
+      ],
+      "spawn": {
+        "position": [
+          175.55,
+          3.820177263467408,
+          260.14
+        ],
+        "headingDeg": 65.0,
+        "vehicle": {
+          "position": [
+            164.0,
+            3.814133333986588,
+            265.0
+          ],
+          "yaw": 1.05
+        }
+      }
+    }
+  ]
+}

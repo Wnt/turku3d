@@ -85,3 +85,22 @@ This evidence proves source consistency and bounded gameplay routes. Matched
 normal-game views, final tree/hedge contact checks and native M1 performance still
 belong to the final integrated release; these source results alone are not a
 claimed visible iteration.
+
+## Final prepared release
+
+Release `4bbf3a31687945b0ab5538a39ac2c08c1a10e203d19cd010cc721f275a9b9650`
+incorporates the accepted measured hedge producer and metric timber bench finish.
+It retains every preceding building asset unchanged, including the office and
+corrected Qwensel frontage. Its 57 assets comprise 48 buildings, four vegetation
+products and five context products. The 6,369 meshes include 5,411 explicit
+supports; 231 fixtures include 143 supported solid tree trunks. The eight mapped
+office lamps and their photometry remain intact.
+
+The final canonical audit repeats all 36,583 support samples and the same
+0.000288 m maximum contact error and 0.008775 m² dry support gap. All 302 external
+image bindings are hash checked. Twenty collision cells contain 213,911 triangles;
+the largest cell is 387,264 bytes. The scene is 123,302,008 bytes before transfer
+compression. The strict version-two recipe pins 24 source files, every asset,
+material recipe, tree anchor and the explicit supported office spawn. The initial
+region catalog contains only this complete office/City Hall/Market Hall scene.
+Native M1 performance and matched normal-game views remain deployment evidence.
