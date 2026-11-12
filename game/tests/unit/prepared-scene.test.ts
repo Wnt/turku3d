@@ -30,6 +30,12 @@ describe('prepared scene contract', () => {
     const s = scene(); s.collision.c_0_0.sha256 = ''; expect(() => readPreparedScene(s)).toThrow('collision');
     const p = scene(); p.spawn.vehicle.position[0] = 10; expect(() => readPreparedScene(p)).toThrow('spawn outside');
   });
+  it('validates explicit shared edges on vertical faces without requiring a walkable support', () => {
+    const s = scene(); s.meshes[0].supportId = null; s.meshes[0].boundaryIds = ['edge'];
+    expect(readPreparedScene(s).meshes[0].boundaryIds).toEqual(['edge']);
+    s.meshes[0].boundaryIds = ['missing'];
+    expect(() => readPreparedScene(s)).toThrow('mesh boundaries paving');
+  });
   it('uploads material batches with original indices, UV scale, normals, color and entity ownership', () => {
     const s = scene(); s.meshes.push({ ...s.meshes[0], id: 'paving2', entityId: 'street2' }); s.coverage.entityIds.push('street2');
     const root = buildPreparedModel(readPreparedScene(s));

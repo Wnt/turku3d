@@ -11,6 +11,8 @@ export interface PreparedMaterial {
 export interface PreparedMesh {
   id: string; entityId: string; materialId: string; positions: number[]; indices: number[];
   render?: boolean; normals?: number[]; uv?: number[]; collision: 'solid' | 'passable' | 'sensor' | 'dynamic'; supportId: string | null;
+  /** Authored edges shared with adjacent support surfaces, including vertical retaining faces. */
+  boundaryIds?: string[];
 }
 /** Current compiled scene. Positions and normals already use engine axes; no gameplay semantics are recovered from triangles. */
 export interface PreparedScene {
@@ -70,6 +72,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
       || !m.indices.every((i: unknown) => finite(i) && Number.isInteger(i) && i >= 0 && i < m.positions.length / 3)
       || !['solid', 'passable', 'sensor', 'dynamic'].includes(m.collision) || !(m.supportId === null || supports.has(m.supportId))) fail(`mesh ${m.id}`);
     if (m.render !== undefined && typeof m.render !== 'boolean') fail(`render ${m.id}`);
+    if (m.boundaryIds !== undefined && !refs(m.boundaryIds, boundaries)) fail(`mesh boundaries ${m.id}`);
     if (m.normals !== undefined && (!vector(m.normals, m.positions.length))) fail(`normals ${m.id}`);
     if (m.uv !== undefined && !vector(m.uv, m.positions.length / 3 * 2)) fail(`uv ${m.id}`);
     entities.add(m.entityId);
