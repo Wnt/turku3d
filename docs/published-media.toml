@@ -157,3 +157,17 @@ files = ["a2-bridge-approach.png", "a2-city-hall-bank.png", "a2-quay-overlook.pn
 source = "Turku3D normal Windows gameplay, release 2af7d554; matched recorded cameras and render settings"
 licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Connected upper/lower routes, recovered bench and finite-aperture receiver evidence; remaining night edge disclosed"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/qwensel-before-207e6a88/"
+files = ["qwensel-frontage.png", "qwensel-oblique.png", "qwensel-shutters.png"]
+source = "Turku3D normal Windows gameplay, release207e6a88; matched dedicated Qwensel cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Qwensel window/shutter/raised-entrance comparison; intervening context changes explicitly disclosed"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-05-cc6ed6a7/"
+files = ["qwensel-frontage.png", "qwensel-oblique.png", "qwensel-shutters.png", "left-stairs.mp4", "right-stairs.mp4", "left-landing.png", "right-landing.png"]
+source = "Turku3D normal Windows gameplay, releasecc6ed6a7; matched dedicated Qwensel cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Qwensel window/shutter/raised-entrance comparison; intervening context changes explicitly disclosed"
