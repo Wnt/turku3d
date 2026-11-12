@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "buildingId": "103295888D",
+  "authoredGlbSha256": "07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4",
+  "buildingPosition": [194.05513001906664, 0, 227.01720541228116],
+  "frontLocalPath": [[-3.1971282958984375, 13.909796714782715], [7.977874755859375, 7.591788291931152], [16.425872802734375, 2.9107882976531982]],
+  "baseHeight": 3.746999979019165,
+  "elevationHeight": 5.26,
+  "source": {
+    "url": "https://commons.wikimedia.org/wiki/File:Qwenselin_talo_-_apteekkimuseo_-Turku_01.jpg",
+    "photographer": "VaittinenTimo",
+    "photographed": "2024-07-10",
+    "method": "six irregular windows and door verified against existing landmark AI observations and second opposite-oblique Commons reference62757339; manually rectified frontage proportions attached to retained authored wall",
+    "confidence": "opening count and shutter/pane pattern high; opening centres and dimensions inferred +/-0.4m; source wall shape retained, no survey or calibrated colour claim",
+    "pixelsPublished": false
+  },
+  "descriptionParameters": {
+    "wall_material": "wood",
+    "brick": {"colour": [132,48,39], "size_m": [0.27,0.075], "mortar_m": 0.014, "mortar_colour": [174,166,151], "bond": "running", "variation": 0.22},
+    "stone": {"colour": [139,132,119], "size_m": [0.58,0.34], "mortar_m": 0.035, "mortar_colour": [166,157,141]},
+    "trim_colour": [205,210,207],
+    "weathering": 0.38
+  },
+  "windows": [
+    {"id":"window-1", "along":2.44, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
+    {"id":"window-2", "along":6.40, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
+    {"id":"window-3", "along":9.28, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
+    {"id":"window-4", "along":13.34, "sill":2.45, "width":1.10, "height":1.40, "columns":4, "rows":4, "shutters":true},
+    {"id":"window-5", "along":16.89, "sill":2.40, "width":1.15, "height":1.45, "columns":2, "rows":3, "shutters":false},
+    {"id":"window-6", "along":21.02, "sill":2.35, "width":1.15, "height":1.50, "columns":2, "rows":3, "shutters":false}
+  ],
+  "door": {"id":"entrance", "along":18.87, "sill":1.65, "width":1.40, "height":2.20, "placementConfidence":"photo/model proportion prior; threshold awaiting raw landing survey before supported stairs are installed"},
+  "plinthHeight": 0.70
+}
