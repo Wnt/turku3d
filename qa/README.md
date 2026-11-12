@@ -59,6 +59,10 @@ qa/.venv/bin/python qa/views/prepare.py \
   --mapillary-cache "$TURKU3D_WORK/qa/mapillary"
 ```
 
+Without `--mapillary-cache` the four Mapillary views are skipped, so the other 16 need no network. The crops used by
+`scripts/dev/scene-judge.mjs` are in the shared `~/turku3d/data/qa/refs` (made this way on 2026-11-12, with the
+`--registry` output sent to a scratch file so `views/views.jsonl` stays unchanged).
+
 Street View/Look Around use the consolidated `$TURKU3D_DATA/raw/streetview` cache.
 The separate `--photo-cache` path above still holds the Phase 0 tour/photosphere downloads
 on this Mac; override it if those files move. `prepare.py` reads both caches without modifying them.
@@ -142,6 +146,10 @@ spatial lookup: background ground is retained in `overlapping_objects[]`, never 
 presented as the missing building's ID.
 
 ## Judge, calibration and regression
+
+This Astra judge produces issue lists per photo pair. The score per iteration of the appearance loop comes from
+`scripts/dev/scene-judge.mjs` (Fable 5.2; see [scripts/dev/README.md](../scripts/dev/README.md)), which uses the
+reference crops made above.
 
 Every call/retry checks the highest reported Codex quota window and refuses unknown usage
 or usage >= cap (default 100). The bounded scheduler stops new submissions after a quota

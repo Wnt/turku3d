@@ -1,0 +1,51 @@
+{
+  "title": "turku-judge-scores/1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["views", "summary"],
+  "properties": {
+    "views": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scores", "issues", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity", "buildings", "materials", "lighting", "street", "defects"],
+            "properties": {
+              "identity": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "buildings": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "materials": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "lighting": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "street": { "type": "integer", "minimum": 0, "maximum": 10 },
+              "defects": { "type": "integer", "minimum": 0, "maximum": 10 }
+            }
+          },
+          "issues": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["category", "severity", "what", "where", "fix"],
+              "properties": {
+                "category": { "enum": ["identity", "buildings", "materials", "lighting", "street", "defects"] },
+                "severity": { "type": "integer", "minimum": 1, "maximum": 5 },
+                "what": { "type": "string" },
+                "where": { "type": "string" },
+                "fix": { "type": "string" }
+              }
+            }
+          },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string" }
+  }
+}

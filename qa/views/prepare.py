@@ -34,7 +34,11 @@ def main():
         required=True,
         help="directory containing gmaps_spheres and 360tour",
     )
-    ap.add_argument("--mapillary-cache", type=Path, required=True)
+    ap.add_argument(
+        "--mapillary-cache",
+        type=Path,
+        help="cached Mapillary images and metadata; without it the four Mapillary views are skipped",
+    )
     ap.add_argument("--registry", type=Path, default=registry.default_registry())
     a = ap.parse_args()
     out = data_dir() / "refs"
@@ -233,7 +237,8 @@ def main():
             note="Two-landmark heading fit; drone GPS altitude not N2000 verified",
         ),
     )
-    for ident in ["773201984101318", "611404776950262", "1553002508431099", "4652560791426523"]:
+    mapillary = ["773201984101318", "611404776950262", "1553002508431099", "4652560791426523"]
+    for ident in mapillary if a.mapillary_cache else []:
         m = json.loads((a.mapillary_cache / f"{ident}.json").read_text())
         im = np.array(Image.open(a.mapillary_cache / f"{ident}.jpg").convert("RGB"))
         h, w = im.shape[:2]
