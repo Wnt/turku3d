@@ -96,6 +96,7 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - `riverside-office-2026-11-12-v1.jsonl` holds the first set. It judged the wooden house against Street View 2019-06,
     which shows it bare during a facade renovation.
   - The current set uses Look Around 2026-06 (`la-05`, `la-06`) instead.
+  - Every reference crop is straightened: its panorama's tilt is measured from vertical lines (qa/README.md).
 - **A photo that shows the wrong state** (renovation, hoarding, scaffolding, a missing neighbour): fetch newer
   panoramas and swap the reference (see [qa/README.md — Newer imagery](../../qa/README.md#the-23-reference-views)).
   Do not drop the building from scoring.

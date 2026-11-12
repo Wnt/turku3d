@@ -256,6 +256,11 @@ Production pose pipeline (recommended):
    - Option A: match SuperPoint+LightGlue features from the pano's cube faces against an orthophoto-textured lidar render.
    - Option B: COLMAP/hloc rig bundle adjustment across all panos of a street, with lidar-rendered depth priors and GPS priors. Better: it gives globally consistent poses.
 4. Add **pitch/roll refinement** using vertical facade edges (vanishing-point check) once yaw and XY are fixed.
+   - **Done for reference crops** (2026-11-12): `qa/qalib/upright.py`, measured from the image and checked against the
+     metadata tilt.
+   - Line and metadata tilt magnitudes agree within about 0.7 deg on 14 of 16 panoramas.
+   - Backpack Look Around leans 11-13 deg.
+   - Heading and XY are still unregistered.
 
 ---
 

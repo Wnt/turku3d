@@ -27,7 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image  # noqa: E402
-from qalib import geo, registry  # noqa: E402
+from qalib import geo, registry, upright  # noqa: E402
 from qalib.pano import perspective  # noqa: E402
 from qalib.paths import data_dir, rel, resolve  # noqa: E402
 
@@ -154,7 +154,7 @@ def make_view(
             "pano_id": meta.id,
             "pano_heading": round(heading, 3),
             "url": f"https://www.google.com/maps/@?api=1&map_action=pano&pano={meta.id}",
-            "note": f"pano tilt pitch={_sdeg(meta.pitch):.2f} roll={_sdeg(meta.roll):.2f} deg ignored; zoom {zoom}",
+            "note": f"pano tilt pitch={_sdeg(meta.pitch):.2f} roll={_sdeg(meta.roll):.2f} deg; zoom {zoom}",
         }
         conf = {
             "level": "medium",
@@ -211,7 +211,9 @@ def make_view(
     out_dir.mkdir(parents=True, exist_ok=True)
     img_path = out_dir / f"{view_id}.jpg"
     # pano headings are TRUE azimuths; pose yaw and pixel_rays are grid bearings (qalib/geo.py)
-    perspective(eq, geo.true_to_grid_bearing(e, n, heading), pose, w, h).save(img_path, quality=93)
+    grid_heading = geo.true_to_grid_bearing(e, n, heading)
+    src["straightening"] = upright.estimate_up(eq, grid_heading, upright.metadata_tilt(meta.pitch, meta.roll))
+    perspective(eq, grid_heading, pose, w, h, up=src["straightening"]["up"]).save(img_path, quality=93)
     view = {
         "id": view_id,
         "image": rel(img_path),
@@ -270,7 +272,10 @@ def cmd_refetch(a):
         heading = geo.true_to_grid_bearing(
             v["pose"]["E"], v["pose"]["N"], s.get("pano_heading", math.degrees(meta.heading))
         )
-        perspective(eq, heading, v["pose"], v["width"], v["height"]).save(out, quality=93)
+        up = s.get("straightening", {}).get("up")  # the registry's own straightening, else measured now
+        if up is None:
+            up = upright.estimate_up(eq, heading, upright.metadata_tilt(meta.pitch, meta.roll))["up"]
+        perspective(eq, heading, v["pose"], v["width"], v["height"], up=up).save(out, quality=93)
         print(f"refetched {v['id']} -> {v['image']}")
 
 

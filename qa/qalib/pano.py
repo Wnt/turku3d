@@ -3,7 +3,7 @@
 Equirect convention (Google Street View, verified in docs/research/streetview.md):
   column u -> azimuth = heading + (u/W - 0.5) * 360  (clockwise from north; image centre = heading)
   row v    -> elevation = (0.5 - v/H) * 180
-The pano's own pitch/roll tilt (typically < 2 deg) is ignored; record that in pose_confidence.
+The pano's own tilt is removed when `up` (world up in the pano's frame, qalib/upright.py) is given.
 """
 
 from __future__ import annotations
@@ -15,13 +15,17 @@ from .camera import pixel_rays
 
 
 def perspective(
-    eq: Image.Image | np.ndarray, pano_heading: float, pose: dict, w: int, h: int
+    eq: Image.Image | np.ndarray, pano_heading: float, pose: dict, w: int, h: int, up=None
 ) -> Image.Image:
     src = np.asarray(
         eq.convert("RGB") if isinstance(eq, Image.Image) else eq
     )  # uint8, no full float copy
     H, W = src.shape[:2]
     d = pixel_rays(pose, w, h)
+    if up is not None:
+        from .upright import to_pano
+
+        d = d @ to_pano(up).T
     az = np.degrees(np.arctan2(d[..., 0], d[..., 1]))
     el = np.degrees(np.arcsin(np.clip(d[..., 2], -1, 1)))
     u = (((az - pano_heading) / 360.0 + 0.5) % 1.0) * W - 0.5

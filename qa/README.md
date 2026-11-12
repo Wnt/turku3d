@@ -49,6 +49,22 @@ three headings from one co-located camera. la_04–la_06 (2026-06) see the woode
 sv_01, sv_02 and sv_04 spots after its facade renovation, which those photos show bare behind hoarding. They are views, not 20 independently surveyed
 camera stations. Source dates and explicit pose uncertainty are preserved in each row.
 
+**Straightened.** Panoramas are not level, so every panorama crop is made level before use (`qalib/upright.py`):
+- **Measurement:** world up is fitted to the vertical line segments (OpenCV LSD) of eight level crops around the
+  horizon.
+- **Sanity limits** (`upright.LIMITS`):
+  - at most 20 deg of tilt;
+  - at least 2000 px of inlier line length;
+  - stable within 1 deg when any one crop is left out;
+  - within 1.5 deg of the panorama's own pitch/roll tilt, when it has one.
+- **Outside the limits** the crop stays as the panorama is, and `source.straightening.check` says why.
+  - On 2026-11-12 that was sv_09 (its fit disagrees with the metadata), boat_01 (too few lines) and drone_01.
+  - The metadata tilt is only a check: its axis conventions are unverified, and photospheres have none.
+- **Accuracy:** on renders with exact poses the fit reads roll and pitch within 0.1 deg.
+- **Before and after:**
+  - Look Around backpack crops (la_04–la_06): 11–13 deg of lean down to 0.2 deg.
+  - Other straightened crops: up to 2.7 deg down to at most 1.5 deg.
+
 Reproduce the set from the existing read-only caches:
 
 ```sh

@@ -104,6 +104,35 @@ def test_perspective_wraps_seam():
     assert out[:, 30:34].mean() > 200 and out[:, :10].mean() < 10
 
 
+def test_upright_recovers_and_removes_a_known_tilt():
+    from qalib import upright
+
+    W, H = 2048, 1024
+    rng = np.random.default_rng(1)
+    edges = np.sort(rng.choice(W, 90, replace=False))
+    shade = (np.searchsorted(edges, np.arange(W)) % 2) * 150 + 50 + rng.integers(0, 40, W)
+    level = np.repeat(np.repeat(shade[None, :, None], H, 0), 3, 2).astype(np.uint8)
+    level[: H // 8], level[-H // 8 :] = 128, 128  # world verticals: equirect columns between +-67.5 deg
+    a, t = math.radians(30), math.radians(8)  # tilt the panorama 8 deg about a horizontal axis
+    k = np.array([math.cos(a), math.sin(a), 0.0])
+    K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    R = np.eye(3) + math.sin(t) * K + (1 - math.cos(t)) * K @ K  # world -> pano
+    u, v = np.meshgrid((np.arange(W) + 0.5) / W, (np.arange(H) + 0.5) / H)
+    az, el = (u - 0.5) * 2 * math.pi, (0.5 - v) * math.pi
+    d = np.stack([np.cos(el) * np.sin(az), np.cos(el) * np.cos(az), np.sin(el)], -1) @ R  # pano ray -> world
+    wa, we = np.arctan2(d[..., 0], d[..., 1]), np.arcsin(np.clip(d[..., 2], -1, 1))
+    cols = ((wa / (2 * math.pi) + 0.5) * W).astype(int) % W
+    rows = np.clip(((0.5 - we / math.pi) * H).astype(int), 0, H - 1)
+    tilted = level[rows, cols]
+    est = upright.estimate_up(tilted, 0.0, size=512)
+    assert math.degrees(math.acos(np.clip(np.dot(est["up"], R[:, 2]), -1, 1))) < 0.3
+    assert abs(est["tilt_deg"] - 8) < 0.3
+    for up, expect_level in [(None, False), (est["up"], True)]:
+        crop = np.asarray(perspective(tilted, 0.0, {**POSE, "yaw": 100, "pitch": 10, "fov": 65}, 480, 360, up=up))
+        r, p, _ = upright.fit_vertical(upright.segments(crop), 480, 360, 65, pitch=10)
+        assert (abs(r) < 0.3 and abs(p - 10) < 0.3) == expect_level
+
+
 # ---------------------------------------------------------------- registry
 def _view(i="v1", **kw):
     v = {

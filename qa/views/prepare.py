@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import cv2
 import numpy as np
 from PIL import Image
-from qalib import geo, registry
+from qalib import geo, registry, upright
 from qalib.pano import perspective
 from qalib.paths import data_dir, rel
 
@@ -65,9 +65,18 @@ def main():
         rows.append(view)
         registry.validate(view)
 
+    tilts = {}
+
     def pano_view(
-        ident, eq, heading, e, n, h, yaw, pitch, fov, source, date, confidence, w=960, hh=720
+        ident, eq, heading, e, n, h, yaw, pitch, fov, source, date, confidence, w=960, hh=720, meta=None
     ):
+        # Straightened: the pano's own tilt, measured from its vertical lines within upright.LIMITS (checked
+        # against the metadata tilt when there is one), is taken out of the crop.
+        if source["pano_id"] not in tilts:
+            m_tilt = upright.metadata_tilt(meta["pitch_rad"], meta["roll_rad"]) if meta else None
+            tilts[source["pano_id"]] = upright.estimate_up(eq, heading, m_tilt)
+        tilt = tilts[source["pano_id"]]
+        source = {**source, "straightening": tilt}
         pose = dict(
             E=round(e, 3),
             N=round(n, 3),
@@ -87,7 +96,7 @@ def main():
             capture_date=date,
             pose_confidence=confidence,
         )
-        add(v, perspective(eq, heading, pose, w, hh))
+        add(v, perspective(eq, heading, pose, w, hh, up=tilt["up"]))
 
     sv_ids = [
         "hOH16IE5o9B6ar0x7Cm-9w",
@@ -122,7 +131,7 @@ def main():
                 pano_id=ident,
                 pano_heading=math.degrees(m["heading_rad"]),
                 url=f"https://www.google.com/maps/@?api=1&map_action=pano&pano={ident}",
-                note="Cached zoom 5; pano tilt ignored",
+                note="Cached zoom 5",
             ),
             m["date"],
             dict(
@@ -132,6 +141,7 @@ def main():
                 angle_deg=2.0,
                 note="Metadata pose; not yet lidar registered",
             ),
+            meta=m,
         )
     folder = street("lookaround", "17922395357700297309")
     m = json.loads((folder / "meta.json").read_text())
@@ -163,6 +173,7 @@ def main():
                 angle_deg=10.0,
                 note="Camera metadata and side-face stitch; orientation needs lidar registration",
             ),
+            meta=m,
         )
     # The wooden house on Läntinen Rantakatu from the sv_01, sv_02 and sv_04 spots, after the facade renovation
     # those 2019 photos show (bare boards, hoarding). Fetched with python -m turkutex.streetview.panos.
@@ -195,6 +206,7 @@ def main():
                 angle_deg=10.0,
                 note="Camera metadata and side-face stitch; orientation needs lidar registration",
             ),
+            meta=m,
         )
     spheres = json.loads((a.photo_cache / "gmaps_spheres/photospheres.json").read_text())
     for i, ident in enumerate(["CIHM0ogKEICAgIDJgurEqwE", "CIHM0ogKEICAgIDJguqm6wE"]):
