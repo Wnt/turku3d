@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from test_scene_assets import fixture
 
 
 SHARE = Path(__file__).resolve().parent
@@ -33,10 +34,10 @@ elif name == 'curl':
     else:
         print('{"state":"ready"}')
 elif name == 'rsync':
-    # All permitted copies inside the remote release are local. Never invoke
-    # rsync's remote transport, including if a future deploy adds another host.
     if ':' in args[-1]:
-        sys.exit('test forbids remote rsync')
+        if args[-1] != 'osgallery-dev:turku3d-local/city/scene-assets/shared/':
+            sys.exit('test forbids unexpected remote rsync')
+        args[-1] = str(pathlib.Path(os.environ['DEPLOY_TEST_REMOTE']) / args[-1].split(':', 1)[1])
     sys.exit(subprocess.call([os.environ['DEPLOY_TEST_RSYNC'], *args]))
 elif name == 'flock':
     sys.exit(subprocess.call(args[3:]))  # -w SECONDS LOCKFILE COMMAND...
@@ -83,6 +84,12 @@ class ShareDeploymentTests(unittest.TestCase):
                 target.write_text(content)
             shutil.copytree(SHARE / 'units', repo / 'tools/share/units')
             shutil.copy2(SHARE / 'deploy.sh', repo / 'tools/share/deploy.sh')
+            shutil.copy2(SHARE / 'scene_assets.py', repo / 'tools/share/scene_assets.py')
+            store = work / 'asset-store'
+            store.mkdir()
+            scene, image_name = fixture(store)
+            (repo / 'game/public/scenes').mkdir(parents=True)
+            (repo / 'game/public/scenes/office.scene.json').write_text(json.dumps(scene))
             (repo / 'tools/share/precompress.mjs').write_text('// build fixture')
             # An old deployment can copy this directory; preserve it in the
             # fixture so the regression fails on the attempted publication.
@@ -109,6 +116,7 @@ class ShareDeploymentTests(unittest.TestCase):
                 PATH=str(bin_dir) + os.pathsep + os.environ['PATH'],
                 TURKU3D_SHARE_REPO=str(repo), TURKU3D_SHARE_PIN=str(pin),
                 TURKU3D_SHARE_SSH='osgallery-dev',
+                TURKU3D_PREPARED_ASSETS=str(store),
                 DEPLOY_TEST_LOG=str(log), DEPLOY_TEST_REMOTE=str(remote),
                 DEPLOY_TEST_SHA=sha, DEPLOY_TEST_RSYNC=shutil.which('rsync'),
             )
@@ -118,7 +126,9 @@ class ShareDeploymentTests(unittest.TestCase):
             commands = [json.loads(line) for line in log.read_text().splitlines()]
             remote_copies = [row['args'] for row in commands
                             if row['command'] == 'rsync' and ':' in row['args'][-1]]
-            self.assertEqual(remote_copies, [], 'deployment attempted an external rsync publication')
+            self.assertEqual(len(remote_copies), 1)
+            self.assertEqual(remote_copies[0][-1], 'osgallery-dev:turku3d-local/city/scene-assets/shared/')
+            self.assertIn('--ignore-existing', remote_copies[0])
             services = [arg for row in commands if row['command'] == 'systemctl' for arg in row['args']]
             self.assertIn('city-forwarder', services)
             self.assertFalse(any(arg.removesuffix('.service') == 'citylab-oci-tunnel' for arg in services))
@@ -135,6 +145,27 @@ class ShareDeploymentTests(unittest.TestCase):
             published = remote / 'turku3d-local/city/current/dist'
             self.assertTrue((published / 'index.html').is_file())
             self.assertEqual(json.loads((published / 'version.json').read_text())['sha'], sha)
+            self.assertEqual((remote / 'turku3d-local/city/scene-assets/shared' / image_name).read_bytes(), b'fixture image')
+            self.assertEqual(len(json.loads((published.parent / 'scene-assets.json').read_text())['files']), 2)
+            verify = next(i for i, row in enumerate(commands) if row['command'] == 'ssh' and 'sha256sum --status' in row['args'][1])
+            publish = next(i for i, row in enumerate(commands) if row['command'] == 'flock')
+            self.assertLess(verify, publish, 'immutable asset closure must be healthy before release switch')
+            # A changed local product fails during packaging, before any network or release operation.
+            log.write_text('')
+            (store / image_name).write_bytes(b'corrupt')
+            broken = subprocess.run(['bash', str(repo / 'tools/share/deploy.sh'), sha], env=env,
+                                    capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(broken.returncode, 0)
+            self.assertIn('hash mismatch', broken.stderr)
+            self.assertEqual(log.read_text(), '')
+            (store / image_name).write_bytes(b'fixture image')
+            (remote / 'turku3d-local/city/scene-assets/shared' / image_name).write_bytes(b'corrupt remote')
+            broken = subprocess.run(['bash', str(repo / 'tools/share/deploy.sh'), sha], env=env,
+                                    capture_output=True, text=True, timeout=5)
+            self.assertNotEqual(broken.returncode, 0)
+            commands = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertFalse(any(row['command'] == 'flock' for row in commands),
+                             'corrupt persistent assets must stop before release publication')
 
 
 if __name__ == '__main__':

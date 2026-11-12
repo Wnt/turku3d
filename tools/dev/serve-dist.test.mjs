@@ -20,7 +20,7 @@ fs.writeFileSync(path.join(tiles, 'collision', 'c_0_0.col'), big);
 const PORT = port(3);
 let srv;
 before(async () => {
-  srv = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(PORT), '--mount', `/tiles=${tiles}`, '--candidates', tiles]);
+  srv = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', String(PORT), '--mount', `/tiles=${tiles}`, '--mount', `/scenes/shared=${tiles}`, '--candidates', tiles]);
   await new Promise((res, reject) => {
     srv.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
     srv.stdout.on('data', (d) => /serve-dist/.test(d) && res());
@@ -114,6 +114,17 @@ test("Vite's hashed build output is immutable for a year; the page and public as
   assert.equal(await cache('/'), 'no-cache');
   assert.equal(await cache('/assets/LICENSES.md'), 'public, max-age=60');
   assert.equal(await cache('/assets/cars/model-12345678.glb'), 'public, max-age=60'); // public files keep their names
+});
+test('persistent prepared scene assets keep immutable URLs outside the release directory', async () => {
+  const bytes = Buffer.from('prepared asset');
+  const name = crypto.createHash('sha256').update(bytes).digest('hex')+'.glb';
+  fs.writeFileSync(path.join(tiles, name), bytes);
+  const r = await fetch(url('/scenes/shared/'+name));
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+  assert.deepEqual(Buffer.from(await r.arrayBuffer()), bytes);
+  assert.equal((await fetch(url('/scenes/shared/'+name), {method:'HEAD'})).status, 200);
+  assert.equal((await fetch(url('/scenes/shared/'+name), {method:'POST'})).status, 405);
 });
 test('wasm mime + etag 304', async () => {
   fs.writeFileSync(path.join(dir, 'a.wasm'), Buffer.from([0, 97, 115, 109]));
@@ -261,7 +272,7 @@ test('--public serves only the game and its services: no uploads, internals or d
   fs.writeFileSync(path.join(dir, 'version.json'), '{"sha":"abc"}');
   const child = spawn(process.execPath, [new URL('./serve-dist.mjs', import.meta.url).pathname, '--root', dir, '--port', '0',
     '--public', '--coarse', `http://127.0.0.1:${coarse.address().port}`, '--mp', `http://127.0.0.1:${mp.address().port}`,
-    '--restart-wait-ms', '400']);
+    '--mount', `/scenes/shared=${tiles}`, '--restart-wait-ms', '400']);
   try {
     const base = await new Promise((resolve, reject) => {
       child.once('exit', (code) => reject(new Error(`server exited: ${code}`)));
@@ -275,6 +286,11 @@ test('--public serves only the game and its services: no uploads, internals or d
     fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'assets', 'city-BqGuNPKr.js'), 'x');
     assert.equal((await get('/assets/city-BqGuNPKr.js')).headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    const object = crypto.createHash('sha256').update('public prepared asset').digest('hex')+'.glb';
+    fs.writeFileSync(path.join(tiles, object), 'public prepared asset');
+    const prepared = await get('/scenes/shared/'+object);
+    assert.equal(prepared.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+    assert.equal(await prepared.text(), 'public prepared asset');
     assert.deepEqual(await (await get('/version.json')).json(), { sha: 'abc' });
     assert.equal((await get('/telemetry', { method: 'POST', body: '{"t":1}\n' })).status, 405);
     assert.equal((await get('/__capture/frame', { method: 'POST', body: 'x' })).status, 405);

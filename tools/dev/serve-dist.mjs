@@ -124,7 +124,7 @@ function resolvePath(urlPath) {
  *  subdirectories or keep their own names), never changes under its name: browsers keep it a year without asking
  *  again. index.html stays no-cache, so a deploy's new names reach every player at once. A warm city.lab load
  *  revalidated each of its ~30 scripts and workers after a minute (loadspeed 2026-11-09). */
-const HASHED = /^\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/;
+const HASHED = /^(?:\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+|\/scenes\/shared\/[a-f0-9]{64}\.[a-z0-9]+)$/;
 const cacheFor = (pathname) => (HASHED.test(pathname) ? 'public, max-age=31536000, immutable' : undefined);
 
 const capture = captureMiddleware();

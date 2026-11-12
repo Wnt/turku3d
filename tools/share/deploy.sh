@@ -41,7 +41,7 @@
 #
 # Env overrides: TURKU3D_SHARE_REPO, TURKU3D_SHARE_SSH (osgallery-dev), TURKU3D_SHARE_PIN (a tile-service.json),
 # TURKU3D_SHARE_SCENERY (http://127.0.0.1:7947), TURKU3D_SHARE_WORK (Mac build dir, --local-build only), TURKU3D_SHARE_FOLLOW (alias
-# family followed per tile, default train; empty for the pin only), TURKU3D_SHARE_EXCLUDE (space-separated aliases of
+# family followed per tile, default train; empty for the pin only), TURKU3D_PREPARED_ASSETS (canonical shared/ asset directory), TURKU3D_SHARE_EXCLUDE (space-separated aliases of
 # that family never served, e.g. a train Jonni has not accepted).
 set -euo pipefail
 
@@ -50,6 +50,7 @@ SSH_HOST=${TURKU3D_SHARE_SSH:-osgallery-dev}
 PIN=${TURKU3D_SHARE_PIN:-$HOME/turku3d/loops/integrator/tile-service.json}
 SCENERY=${TURKU3D_SHARE_SCENERY:-http://127.0.0.1:7947}
 WORK=${TURKU3D_SHARE_WORK:-$HOME/turku3d/loops/cityshare/work}
+PREPARED_ASSETS=${TURKU3D_PREPARED_ASSETS:-$HOME/turku3d/data/prepared-assets/shared}
 FOLLOW=${TURKU3D_SHARE_FOLLOW-train}
 EXCLUDE=${TURKU3D_SHARE_EXCLUDE:-}
 PUBLIC_HOST=city.lab.madekivi.fi
@@ -74,6 +75,10 @@ PY
 SUBJECT=$(git -C "$REPO" log -1 --format=%s "$SHA")
 META=$(mktemp -d)
 trap 'rm -rf "$META"' EXIT
+# Package the exact committed scene closure from the persistent local asset store. This verifies bytes only;
+# it never generates assets or runs tests, and fails before changing the remote release.
+git -C "$REPO" show "$SHA:tools/share/scene_assets.py" > "$META/scene_assets.py"
+python3 "$META/scene_assets.py" --repo "$REPO" --revision "$SHA" --store "$PREPARED_ASSETS" --output "$META/scene-assets"
 python3 - "$META/version.json" "$SHA" "$SUBJECT" "$VERSION" "$FOLLOW" "$EXCLUDE" <<'PY'
 import json, sys, time
 path, sha, subject, tiles, follow, exclude = sys.argv[1:]
@@ -92,10 +97,15 @@ PY
 # 1. Ship the committed tree (plus version.json and tiles.json at its root) to a stage dir on osgallery-dev.
 C=turku3d-local/city
 STAGE="$C/stage/$SHORT-$$"
-ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps && rm -rf ~/$STAGE && mkdir -p ~/$STAGE
+ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps ~/$C/scene-assets/shared && rm -rf ~/$STAGE && mkdir -p ~/$STAGE
   [ -f ~/$C/cities.json ] || echo '{}' > ~/$C/cities.json"
 git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
   game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
+# Content addresses are immutable and old releases retain their dependencies. rsync writes new files atomically;
+# existing names are not overwritten. Verify the complete required closure remotely before switching current.
+rsync -a --ignore-existing --files-from="$META/scene-assets/files.txt" "$META/scene-assets/shared/" "$SSH_HOST:$C/scene-assets/shared/"
+tar -C "$META/scene-assets" -cf - required.sha256 inventory.json | ssh "$SSH_HOST" "mkdir -p ~/$STAGE/scene-assets && tar -x -C ~/$STAGE/scene-assets"
+ssh "$SSH_HOST" "cd ~/$C/scene-assets && if [ -s ~/$STAGE/scene-assets/required.sha256 ]; then sha256sum --status -c ~/$STAGE/scene-assets/required.sha256; fi"
 
 if [ "$LOCAL_BUILD" = 1 ]; then
   # Mac build in a detached worktree (vite.config.ts stamps the commit from git), dist uploaded into the stage.
@@ -149,6 +159,7 @@ fi
 nice -n 10 node "$STAGE/tools/share/precompress.mjs" "$STAGE/dist"
 mkdir -p "$R/dist" "$R/src"
 rsync -a --delete "$STAGE/dist/" "$R/dist/"
+cp "$STAGE/scene-assets/inventory.json" "$R/scene-assets.json"
 # Earlier builds' assets stay served for ASSET_HOURS: a page loaded before this deploy (or still loading across it)
 # fetches its lazy chunks and workers by their old content-hashed names. Each release carries the files of the kept
 # releases that this build lacks, hard-linked (they were written by their own build; that mtime ages them out).

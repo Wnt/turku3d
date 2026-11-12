@@ -15,7 +15,7 @@ Type=simple
 # The release whose code it runs (deploy.sh moves `web` only when that code changes).
 WorkingDirectory=%h/turku3d-local/city/web/src
 Environment=NODE_ENV=production TURKU3D_WORK=%h/turku3d-local/city/work
-ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc --mount /progress-evidence=%h/turku3d-local/city/progress --cities %h/turku3d-local/city/cities.json
+ExecStart=/usr/bin/node tools/dev/serve-dist.mjs --public --host 127.0.0.1 --port 7780 --root %h/turku3d-local/city/current/dist --coarse http://127.0.0.1:7781 --mp http://127.0.0.1:7782 --mount /pointcloud=/bulk/turku3d/lidarpc/copc --mount /progress-evidence=%h/turku3d-local/city/progress --mount /scenes/shared=%h/turku3d-local/city/scene-assets/shared --cities %h/turku3d-local/city/cities.json
 Restart=always
 RestartSec=3
 # SIGTERM drains the requests in flight (at most 4 s, tools/dev/systemdListen.mjs) before the process exits.
