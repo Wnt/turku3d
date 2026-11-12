@@ -66,8 +66,8 @@ console.log(JSON.stringify(output));
 def packed_poles(out, manifest):
     visual = out / manifest["visual"][manifest["tile"]]["url"]
     # First-pass GLBs need no decoder if their metadata contains no pole candidates.
-    document, _ = read_glb(visual.read_bytes())
     if manifest["pass_kind"] == "first":
+        document, _ = read_glb(visual.read_bytes())
         for node in document.get("nodes", []):
             extras = node.get("extras", {})
             assert not extras.get("pole_id")
