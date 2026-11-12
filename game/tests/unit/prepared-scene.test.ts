@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey, type PreparedScene } from '../../src/world/preparedScene';
 
 function scene(): PreparedScene {
-  return { schema: 'turku-scene/1', release: 'release-1', id: 'office', origin: [23459500, 6704500, 0], bounds: [0, 0, 10, 10],
+  return { schema: 'turku-scene/1', lightOccluders: [], release: 'release-1', id: 'office', origin: [23459500, 6704500, 0], bounds: [0, 0, 10, 10],
     sources: [], assets: [], materials: [{ id: 'stone', color: [.2, .3, .4], roughness: .9, metalness: 0 }],
     boundaries: [{ id: 'edge', positions: [[0, 0, 0], [10, 0, 0]] }],
     supports: [{ id: 'ground', kind: 'footway', boundaryIds: ['edge'], meshId: 'paving' }],
@@ -19,6 +19,8 @@ describe('prepared scene contract', () => {
     const s = scene(); expect(readPreparedScene(s)).toBe(s);
     expect(() => readPreparedScene({ ...s, emitters: undefined })).toThrow('emitters');
     expect(() => readPreparedScene({ ...s, schema: 'turku-scene/0' })).toThrow('schema');
+    expect(() => readPreparedScene({ ...s, lightOccluders: undefined })).toThrow('lightOccluders');
+    expect(() => readPreparedScene({ ...s, lightOccluders: [{ id: 'bad', positions: [[0, 0], [1, 0], [1, 1]], minY: 5, maxY: 2 }] })).toThrow('light occluder');
   });
   it('rejects broken support/material references and invalid geometry before upload', () => {
     for (const patch of [{ supportId: 'missing' }, { materialId: 'missing' }, { indices: [0, 1, 3] }, { positions: [NaN, 0, 0] }]) {

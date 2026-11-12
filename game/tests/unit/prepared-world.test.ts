@@ -12,7 +12,7 @@ function fixture() {
   const positions = [0, 2, 0, 0, 2, 62.5, 62.5, 4, 0];
   const bytes = writeCol({ i: 0, j: 0, positions: new Float32Array(positions), indices: new Uint32Array([0, 1, 2]),
     materials: new Uint8Array([MAT.road]), prims: [], flags: 1, meta: {} });
-  const scene: PreparedScene = { schema: 'turku-scene/1', id: 'test', release: 'test', origin: [23459500, 6704500, 0], bounds: [0, 0, 62.5, 62.5],
+  const scene: PreparedScene = { schema: 'turku-scene/1', lightOccluders: [], id: 'test', release: 'test', origin: [23459500, 6704500, 0], bounds: [0, 0, 62.5, 62.5],
     sources: [], assets: [], materials: [{ id: 'road', color: [.2, .2, .2], roughness: 1, metalness: 0 }], boundaries: [],
     supports: [{ id: 'road', kind: 'road', boundaryIds: [], meshId: 'ground' }],
     meshes: [{ id: 'ground', entityId: 'ground', materialId: 'road', positions, indices: [0, 1, 2], collision: 'solid', supportId: 'road' }],

@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { DataUtils } from 'three/webgpu';
-import { GroundLampField, LAMP_FIELD, batwing, groundLampField, lampIntensity } from '../../src/render/lights/groundField';
+import { GroundLampField, LAMP_FIELD, batwing, groundLampField, lampIntensity, sphericalWindow } from '../../src/render/lights/groundField';
 import { Footprint } from '../../src/render/lights/tileScan';
 import type { Lamp } from '../../src/render/lights/lampField';
 
@@ -26,6 +26,23 @@ const groundAt = (height: number, r2: number) => {
   return lampIntensity(height) * batwing(c) * c / d2 * (1 - (r2 / LAMP_FIELD.radius ** 2) ** 2) ** 2;
 };
 describe('mapped lamp ground irradiance', () => {
+  test('prepared photometry controls spherical range, linear color and intensity at the authored support height', () => {
+    const source = lamp(0); source.post = false;
+    source.photometry = { color: [1, .78, .52], intensity: 45, range: 18, base: 4 };
+    const field = new GroundLampField(() => []);
+    field.setLamps([source]); settle(field);
+    const d2 = 8 * 8 + 2, expected = 45 * (8 / Math.sqrt(d2)) / d2 * sphericalWindow(d2, 18 * 18);
+    expect(value(1, 1)).toBeCloseTo(expected, 3);
+    expect(value(1, 1, 1) / value(1, 1)).toBeCloseTo(.78, 3);
+    expect(value(1, 1, 3)).toBe(4);
+    expect(value(17, 1)).toBe(0); // Inside horizontal radius, outside the spherical cutoff.
+    source.photometry = { ...source.photometry, intensity: 90, range: 28 };
+    field.setLamps([source]); settle(field);
+    expect(value(1, 1)).toBeGreaterThan(expected * 2);
+    expect(value(17, 1)).toBeGreaterThan(0);
+    field.dispose();
+  });
+
   test('near and 300m-away lamps keep equal pools as the camera travels', () => {
     const field = new GroundLampField(() => []);
     field.setLamps([lamp(0), lamp(300)]); settle(field);

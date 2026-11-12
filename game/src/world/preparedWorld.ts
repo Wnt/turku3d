@@ -15,7 +15,7 @@ import { decoderReady, readColSync } from '../physics/colTile';
 import type { CoarseHost, Entry } from './coarseContracts';
 import { StreamStats } from './streamStats';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
-import type { TileLightsField } from '../render/lights/tileLights';
+import { prepareLighting, type PreparedLighting } from '../render/lights/preparedLighting';
 
 export interface PreparedWorldHost extends CoarseHost {
   prepareAsset?: (root: THREE.Object3D, recipe: 'building' | 'vegetation' | 'context') => void | Promise<void>;
@@ -37,6 +37,7 @@ export class PreparedWorld {
   readonly entries = new Map<string, Entry>();
   readonly screenshotScenery = new PreparedContext();
   readonly stats = new StreamStats();
+  readonly lighting: PreparedLighting;
   onMapChange: (() => void) | null = null;
   retainedStarts: readonly { x: number; z: number }[] = [];
   scheduling = true;
@@ -48,7 +49,7 @@ export class PreparedWorld {
   private assets: { root: THREE.Object3D; recipe: 'building' | 'vegetation' | 'context' }[] = [];
   private ground = new GroundIndex();
   private top = 100;
-  private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) {}
+  private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) { this.lighting = prepareLighting(data); }
 
   static async start(host: PreparedWorldHost): Promise<PreparedWorld> {
     const page = host.pageUrl ?? location.href;
@@ -108,7 +109,7 @@ export class PreparedWorld {
       const id = `t0_${Math.floor(data.spawn.position[0] / 250)}_${Math.floor(data.spawn.position[2] / 250)}`;
       const collision = new Map(cells.map(c => [c.id, c.entry]));
       const h = [Math.min(...cells.map(c => c.entry.h[0])), Math.max(...cells.map(c => c.entry.h[1]))] as [number, number];
-      world.entries.set(id, { state: 'draft', model, collision, nextPoll: Infinity, pass: 'full', visualHash: data.release, h, lights: preparedLights(data) });
+      world.entries.set(id, { state: 'draft', model, collision, nextPoll: Infinity, pass: 'full', visualHash: data.release, h });
       await decoderReady;
       world.top = h[1] + 10;
       for (const c of cells) world.ground.addLazy(c.id, c.buffer, readColSync);
@@ -192,16 +193,4 @@ export class PreparedWorld {
     };
     if (this.host.retire) this.host.retire(release); else release();
   }
-}
-
-function preparedLights(scene: PreparedScene): TileLightsField {
-  const bytes = new Uint8Array(scene.emitters.length * 16), view = new DataView(bytes.buffer);
-  scene.emitters.forEach((e, i) => {
-    const at = i * 16;
-    e.position.forEach((n, axis) => view.setFloat32(at + axis * 4, n, true));
-    e.color.forEach((n, axis) => view.setUint8(at + 12 + axis, Math.round(Math.min(1, n * e.intensity / 8) * 255)));
-    view.setUint8(at + 15, 128);
-  });
-  return { format: 'turku3d-lights', version: 1, count: scene.emitters.length, posts: 0, street: scene.emitters.length,
-    data: btoa(Array.from(bytes, b => String.fromCharCode(b)).join('')) };
 }

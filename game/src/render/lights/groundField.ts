@@ -51,6 +51,7 @@ export const groundLampField = {
 /** Where a lamp's light comes from and the ground it stands on (engine metres), or null for lamps that light no field. */
 export function fieldLamp(lamp: Lamp): { x: number; y: number; z: number; base: number; gain: number } | null {
   const head = lamp.light;
+  if (lamp.photometry) return { x: head.x, y: head.y, z: head.z, base: lamp.photometry.base, gain: 1 };
   if (lamp.kind === 'bridge') return { x: head.x, y: head.y, z: head.z, base: head.y - LAMP_FIELD.bridge.height, gain: LAMP_FIELD.bridge.gain };
   if (lamp.kind !== 'street') return null;
   // A post stands on its base; a lamp hung over the street (span wire, register "hung") carries no ground height.
@@ -68,6 +69,11 @@ export function batwing(c: number) {
 /** Peak intensity of a lamp `height` metres above its ground: its nadir irradiance times height squared. */
 export function lampIntensity(height: number, gain = 1) {
   return LAMP_FIELD.nadir * gain * Math.min(1.15, Math.max(0.7, height / 8)) * height * height;
+}
+
+/** Same finite spherical cutoff as the existing physical point-light slots. */
+export function sphericalWindow(distanceSquared: number, rangeSquared: number) {
+  return Math.max(0, 1 - (distanceSquared / rangeSquared) ** 2) ** 2;
 }
 
 export class GroundLampField {
@@ -123,30 +129,31 @@ export class GroundLampField {
     if (!this.work) this.lastBuildMs = this.buildMs;
   }
   private inputs(ox: number, oz: number, footprints: readonly Footprint[]) {
-    const R = LAMP_FIELD.radius, x0 = ox - R, z0 = oz - R, x1 = ox + SPAN + R, z1 = oz + SPAN + R;
+    const R = Math.max(LAMP_FIELD.radius, ...this.lamps.map(l => l.photometry?.range ?? 0)), x0 = ox - R, z0 = oz - R, x1 = ox + SPAN + R, z1 = oz + SPAN + R;
     let n = 0, sum = 0;
     for (const lamp of this.lamps) {
       const head = fieldLamp(lamp);
       if (!head || head.x < x0 || head.x > x1 || head.z < z0 || head.z > z1) continue;
       n++; sum = (sum + Math.imul(Math.round(head.x * 10) ^ Math.imul(Math.round(head.z * 10), 73856093), 19349663)
-        + Math.round((head.y + head.base) * 10) + Math.round((lamp.light.r + lamp.light.g * 3 + lamp.light.b * 7) * 100)) | 0;
+        + Math.round((head.y + head.base) * 10) + Math.round((lamp.light.r + lamp.light.g * 3 + lamp.light.b * 7) * 100) + Math.round((lamp.photometry?.range ?? 0) * 100) + Math.round((lamp.photometry?.intensity ?? 0) * 100)) | 0;
     }
     const grids = footprints.filter(f => f.x1 > x0 && f.x0 < x1 && f.z1 > z0 && f.z0 < z1);
-    return `${ox},${oz}:${n}:${sum}:${grids.length}:${grids.map(f => `${f.x0},${f.z0}`).join(';')}`;
+    return `${ox},${oz}:${n}:${sum}:${grids.length}:${grids.map(f => `${f.x0},${f.z0},${f.revision ?? ""}`).join(';')}`;
   }
   private *rasterize(ox: number, oz: number, lamps: readonly Lamp[], footprints: Footprint[]): Generator<void> {
     this.count = 0;
-    const linear = this.linear, strongest = this.strongest, R = LAMP_FIELD.radius, R2 = R * R;
+    const linear = this.linear, strongest = this.strongest;
     linear.fill(0); strongest.fill(0);
     yield;
     let visited = 0;
     for (const lamp of lamps) {
       const head = fieldLamp(lamp);
       if (!head) continue;
+      const physical = lamp.photometry, R = physical?.range ?? LAMP_FIELD.radius, R2 = R * R;
       const peak = Math.max(lamp.light.r, lamp.light.g, lamp.light.b, .001);
-      const cr = lamp.light.r / peak, cg = lamp.light.g / peak, cb = lamp.light.b / peak;
-      const height = Math.max(3, head.y - head.base);
-      const intensity = lampIntensity(height, head.gain);
+      const [cr, cg, cb] = physical?.color ?? [lamp.light.r / peak, lamp.light.g / peak, lamp.light.b / peak];
+      const height = Math.max(physical ? .05 : 3, head.y - head.base);
+      const intensity = physical?.intensity ?? lampIntensity(height, head.gain);
       const wallDrop = Math.max(.5, height - LAMP_FIELD.wallHeight);
       const x0 = Math.max(0, Math.floor((head.x - R - ox) / CELL));
       const x1 = Math.min(SIZE - 1, Math.ceil((head.x + R - ox) / CELL));
@@ -162,14 +169,14 @@ export class GroundLampField {
         if ((++visited & 63) === 0) yield;
         const wx = ox + (i + .5) * CELL, wz = oz + (j + .5) * CELL;
         const dx = head.x - wx, dz = head.z - wz, r2 = dx * dx + dz * dz;
-        if (r2 >= R2 || (local.length && sightBlocked(local, head.x, head.z, wx, wz))) continue;
+        if (r2 >= R2 || (local.length && sightBlocked(local, head.x, head.z, wx, wz, head.y, head.base))) continue;
         const window = (1 - (r2 / R2) ** 2) ** 2;
         // Ground: E = I(theta) cos(theta) / d^2 on a horizontal surface at the lamp's ground.
         const d2 = r2 + height * height, c = height / Math.sqrt(d2);
-        const ground = intensity * batwing(c) * c / d2 * window;
+        const ground = intensity * (physical ? 1 : batwing(c)) * c / d2 * (physical ? sphericalWindow(d2, R2) : window);
         // Wall: the horizontal component at a ground-floor facade, as a vector toward the lamp.
         const w2 = r2 + wallDrop * wallDrop, w = Math.sqrt(w2), r = Math.sqrt(r2);
-        const wall = r > 1e-3 ? intensity * batwing(wallDrop / w) * (r / w) / w2 * window * LAMP_FIELD.wall : 0;
+        const wall = r > 1e-3 ? intensity * (physical ? 1 : batwing(wallDrop / w)) * (r / w) / w2 * (physical ? sphericalWindow(w2, R2) : window) * LAMP_FIELD.wall : 0;
         const texel = j * SIZE + i, at = (j * WIDTH + i) * 4, wat = at + SIZE * 4;
         linear[at] += ground * cr;
         linear[at + 1] += ground * cg;

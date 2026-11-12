@@ -36,10 +36,14 @@ export const POOL = {
 export const POOL_INTENSITY: Partial<Record<LampKind, number>> = { street: 16, bridge: 13 };
 
 /** One lamp that can light a pool: its light point, linear colour and peak intensity (candela-like, r186 units). */
-export interface PoolLamp { key: string; x: number; y: number; z: number; r: number; g: number; b: number; intensity: number }
+export interface PoolLamp { key: string; x: number; y: number; z: number; r: number; g: number; b: number; intensity: number; range?: number }
 
 /** The pool record of a lamp, or null for kinds that light no pool. Colour is the corona's, normalised. */
 export function poolLamp(lamp: Lamp): PoolLamp | null {
+  if (lamp.photometry) {
+    const p = lamp.photometry, { x, y, z } = lamp.light;
+    return p.intensity > 0 ? { key: lamp.key, x, y, z, r: p.color[0], g: p.color[1], b: p.color[2], intensity: p.intensity, range: p.range } : null;
+  }
   const intensity = POOL_INTENSITY[lamp.kind];
   if (!intensity) return null;
   const { x, y, z, r, g, b } = lamp.light;
@@ -77,20 +81,20 @@ export function poolWeights(ranked: readonly { item: PoolLamp; d: number }[], co
 }
 
 /** True when the ground segment from (ax, az) to (bx, bz) crosses a building footprint, ignoring its free ends. */
-export type SightTest = (ax: number, az: number, bx: number, bz: number) => boolean;
+export type SightTest = (ax: number, az: number, bx: number, bz: number, ay?: number, by?: number) => boolean;
 
 /** A sight test over footprint grids (tileScan.ts). The first and last `sightEnds` metres are not tested: a camera
  *  pressed against a wall, a lamp head reaching over a kerb. */
-export function footprintSight(grids: () => Iterable<{ covers(x: number, z: number): boolean }>): SightTest {
-  return (ax, az, bx, bz) => sightBlocked([...grids()], ax, az, bx, bz);
+export function footprintSight(grids: () => Iterable<{ covers(x: number, z: number, y?: number): boolean }>): SightTest {
+  return (ax, az, bx, bz, ay, by) => sightBlocked([...grids()], ax, az, bx, bz, ay, by);
 }
 /** footprintSight's test over a fixed list of grids. */
-export function sightBlocked(grids: readonly { covers(x: number, z: number): boolean }[], ax: number, az: number, bx: number, bz: number) {
+export function sightBlocked(grids: readonly { covers(x: number, z: number, y?: number): boolean }[], ax: number, az: number, bx: number, bz: number, ay?: number, by?: number) {
   if (!grids.length) return false;
   const length = Math.hypot(bx - ax, bz - az);
   for (let d = POOL.sightEnds; d < length - POOL.sightEnds; d += POOL.sightStep) {
     const x = ax + (bx - ax) * d / length, z = az + (bz - az) * d / length;
-    for (let g = 0; g < grids.length; g++) if (grids[g].covers(x, z)) return true;
+    for (let g = 0; g < grids.length; g++) if (grids[g].covers(x, z, ay !== undefined && by !== undefined ? ay + (by - ay) * d / length : undefined)) return true;
   }
   return false;
 }
@@ -122,13 +126,13 @@ export class LampPools {
    * Per frame. `x`/`z` is the camera, `fx`/`fz` its view direction (any length), `night` the shared night level.
    * Lamps are re-ranked every POOL.pickMs; a slot changes lamp only once it has faded out.
    */
-  update(x: number, z: number, fx: number, fz: number, night: number, now = performance.now()) {
+  update(x: number, z: number, fx: number, fz: number, night: number, now = performance.now(), cameraY?: number) {
     if (!this.slots.length) return;
     const dt = Number.isFinite(this.last) ? Math.min(0.25, Math.max(0, (now - this.last) / 1000)) : 0;
     this.last = now;
     if (now >= this.nextPick) {
       this.nextPick = now + POOL.pickMs;
-      this.pick(x, z, fx, fz);
+      this.pick(x, z, fx, fz, cameraY);
     }
     const step = dt / POOL.fade;
     for (const slot of this.slots) {
@@ -145,10 +149,14 @@ export class LampPools {
       const slot = this.slots.find(s => !s.lamp);
       if (!slot) break;
       slot.lamp = lamp; slot.level = 0;
-      slot.light.position.set(lamp.x, lamp.y, lamp.z);
-      slot.light.color.setRGB(lamp.r, lamp.g, lamp.b);
+
     }
     for (const slot of this.slots) {
+      if (slot.lamp) {
+        const lamp = slot.lamp;
+        slot.light.position.set(lamp.x, lamp.y, lamp.z); slot.light.color.setRGB(lamp.r, lamp.g, lamp.b);
+        slot.light.distance = lamp.range ?? POOL.distance;
+      }
       const level = slot.lamp ? slot.level * slot.level * (3 - 2 * slot.level) : 0;
       const intensity = (slot.lamp?.intensity ?? 0) * level * night;
       // Only slots above 0 enter the shader loop (lighting.ts): by day there is no per-fragment cost.
@@ -156,12 +164,12 @@ export class LampPools {
     }
   }
 
-  private pick(x: number, z: number, fx: number, fz: number) {
+  private pick(x: number, z: number, fx: number, fz: number, cameraY?: number) {
     const h = Math.hypot(fx, fz);
     const ax = h > 1e-6 ? x + fx / h * POOL.lookAhead : x, az = h > 1e-6 ? z + fz / h * POOL.lookAhead : z;
     const count = this.slots.length;
     const ranked = nearest(this.lamps, l => (l.x - ax) ** 2 + (l.z - az) ** 2, count + POOL.spare)
-      .filter(({ item }) => !this.blocked(x, z, item.x, item.z));
+      .filter(({ item }) => !this.blocked(x, z, item.x, item.z, cameraY, item.y));
     this.weights = poolWeights(ranked, count);
   }
 

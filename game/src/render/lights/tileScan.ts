@@ -17,6 +17,8 @@ export class Footprint {
   static readonly CELL = 2;
   readonly nx: number; readonly nz: number;
   readonly cells: Uint8Array;
+  revision?: string;
+  heightRanges?: { min: Float32Array; max: Float32Array };
   constructor(readonly x0: number, readonly z0: number, x1: number, z1: number) {
     this.nx = Math.ceil((x1 - x0) / Footprint.CELL); this.nz = Math.ceil((z1 - z0) / Footprint.CELL);
     this.cells = new Uint8Array(this.nx * this.nz);
@@ -24,9 +26,11 @@ export class Footprint {
   get x1() { return this.x0 + this.nx * Footprint.CELL; }
   get z1() { return this.z0 + this.nz * Footprint.CELL; }
   /** True inside a covered cell; false outside the grid. */
-  covers(x: number, z: number) {
+  covers(x: number, z: number, y?: number) {
     const i = Math.floor((x - this.x0) / Footprint.CELL), k = Math.floor((z - this.z0) / Footprint.CELL);
-    return i >= 0 && k >= 0 && i < this.nx && k < this.nz && this.cells[k * this.nx + i] === 1;
+    if (i < 0 || k < 0 || i >= this.nx || k >= this.nz) return false;
+    const at = k * this.nx + i;
+    return this.cells[at] === 1 && (y === undefined || !this.heightRanges || (y >= this.heightRanges.min[at] && y <= this.heightRanges.max[at]));
   }
   /** Whether any covered cell meets the box [x0, x1] x [z0, z1]: covers() is false everywhere in it otherwise. */
   coversAny(x0: number, z0: number, x1: number, z1: number) {

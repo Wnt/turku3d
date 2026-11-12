@@ -154,7 +154,7 @@ describe('sprites and fades', () => {
     }
     const lights = new StreetLights(new THREE.Scene(), 'mobile');
     const lamps = decodeTileLights(FIXTURE);
-    lights.field.onTile?.('t0_0_0', lamps, null);
+    lights.attach({ lighting: { id: 'test', lamps, footprint: null } });
     lights.sprites.update(new THREE.PerspectiveCamera(), new THREE.Vector2(1280, 720), 1);
     const profiles = lights.sprites.mesh.geometry.getAttribute('lightProfile');
     expect(lamps.map((_, i) => profiles.getX(i))).toEqual([24, 24, 24, 48]);

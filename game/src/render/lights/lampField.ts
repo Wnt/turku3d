@@ -18,6 +18,8 @@ export interface Lamp {
   /** Street light (post or hung over the street), generator bridge or tunnel lamp, a facade light or a venue floodlight head. */
   kind: LampKind;
   light: SpriteLight;
+  /** Prepared point source: full linear pigment, candela and spherical cutoff metres. No post is synthesized. */
+  photometry?: { color: readonly [number, number, number]; intensity: number; range: number; base: number };
 }
 
 export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall' | 'flood';

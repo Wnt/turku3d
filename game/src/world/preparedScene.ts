@@ -24,7 +24,9 @@ export interface PreparedScene {
   meshes: PreparedMesh[];
   assets: { id: string; entityId: string; url: string; sha256: string; position: Vec3; recipe: 'building' | 'vegetation' | 'context' }[];
   fixtures: { id: string; family: string; supportId: string; position: Vec3; yaw: number; dimensions: Vec3; meshIds: string[]; emitterIds: string[] }[];
-  emitters: { id: string; fixtureId: string; position: Vec3; color: Vec3; intensity: number; range: number }[];
+  /** Linear RGB, intensity in candela, spherical cutoff range in metres; fixture position is the supported base. */
+  emitters: { id: string; fixtureId: string; position: Vec3; color: Vec3; intensity: number; range: number; category?: 'street' | 'path' | 'wall' }[];
+  lightOccluders: { id: string; positions: [number, number][]; minY: number; maxY: number }[];
   coverage: { mode: 'replace'; bounds: [number, number, number, number]; entityIds: string[] };
   collision: Record<string, ManifestEntry>;
   spawn: NonNullable<Manifest['spawn']>;
@@ -43,7 +45,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
   if (!object(value) || value.schema !== 'turku-scene/1') fail('schema');
   const s = value as Record<string, any>;
   if (!name(s.release) || !name(s.id) || !vector(s.origin) || !bounds(s.bounds)) fail('identity or bounds');
-  for (const key of ['sources', 'materials', 'boundaries', 'supports', 'meshes', 'assets', 'fixtures', 'emitters'])
+  for (const key of ['sources', 'materials', 'boundaries', 'supports', 'meshes', 'assets', 'fixtures', 'emitters', 'lightOccluders'])
     if (!Array.isArray(s[key])) fail(`${key} must be present`);
   const ids = (key: string) => {
     const out = new Set<string>();
@@ -85,6 +87,13 @@ export function readPreparedScene(value: unknown): PreparedScene {
     || !vector(f.dimensions) || !f.dimensions.every((n: number) => n > 0) || !refs(f.meshIds, meshes) || !refs(f.emitterIds, emitters)) fail(`fixture ${f.id}`);
   for (const e of s.emitters) if (!fixtures.has(e.fixtureId) || !vector(e.position) || !vector(e.color) || !e.color.every(unit)
     || !finite(e.intensity) || e.intensity < 0 || !finite(e.range) || e.range <= 0) fail(`emitter ${e.id}`);
+  for (const e of s.emitters) if (e.category !== undefined && !['street', 'path', 'wall'].includes(e.category)) fail(`emitter category ${e.id}`);
+  if (s.lightOccluders !== undefined) {
+    if (!Array.isArray(s.lightOccluders)) fail('lightOccluders');
+    ids('lightOccluders');
+    for (const o of s.lightOccluders) if (!Array.isArray(o.positions) || o.positions.length < 3 || !o.positions.every((p: unknown) => vector(p, 2))
+      || !finite(o.minY) || !finite(o.maxY) || o.minY >= o.maxY) fail(`light occluder ${o.id}`);
+  }
   if (!object(s.coverage) || s.coverage.mode !== 'replace' || !bounds(s.coverage.bounds) || !refs(s.coverage.entityIds, entities)) fail('coverage');
   if (!object(s.collision) || !Object.keys(s.collision).length) fail('collision');
   for (const [id, entry] of Object.entries(s.collision)) {
