@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "convention": "pos = engine metres [x, y, z] (docs/briefs/COMMON.md: x = E - 23459500, y = H N2000, z = -(N - 6704500)); yaw_deg = grid bearing clockwise from grid north (engine -z), pitch_deg positive up, fov = vertical degrees, all as the ?cam=E,N,H,yaw,pitch,fov QA pose (qa/README.md section 2, game/src/core/params.ts); cam is that pose ready to paste. Street cameras stand on the OSM centreline at ground + 1.7 m, ground read from the published tile ground mesh (scripts/dev/richness_scorecard.py --ground X Z). street.polyline (engine x, z) is the block the camera looks along, between its cross streets; the scorecard counts both sides within half_width_m of it. Each camera is used at both times and both quality tiers listed.",
+  "convention": "pos = engine metres [x, y, z] (docs/specs/coordinates.md: x = E - 23459500, y = H N2000, z = -(N - 6704500)); yaw_deg = grid bearing clockwise from grid north (engine -z), pitch_deg positive up, fov = vertical degrees, all as the ?cam=E,N,H,yaw,pitch,fov QA pose (qa/README.md section 2, game/src/core/params.ts); cam is that pose ready to paste. Street cameras stand on the OSM centreline at ground + 1.7 m, ground read from the published tile ground mesh (scripts/dev/richness_scorecard.py --ground X Z). street.polyline (engine x, z) is the block the camera looks along, between its cross streets; the scorecard counts both sides within half_width_m of it. Each camera is used at both times and both quality tiers listed.",
   "cameras": [
     {
       "id": "riverside",

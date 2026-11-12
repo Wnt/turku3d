@@ -82,6 +82,8 @@ class TextureUploads {
     guardReleasedTextures(renderer as unknown as Parameters<typeof guardReleasedTextures>[0]);
   }
   uploadedAt(texture: THREE.Texture) { return this.uploaded.get(texture); }
+  /** Uploads queued and not yet run (window.__render.quiet). */
+  get pending() { return this.budget.pending; }
   private init(texture: THREE.Texture) {
     this.renderer.initTexture(texture);
     this.uploaded.set(texture, texture.version);

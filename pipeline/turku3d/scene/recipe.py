@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 from turku3d.package.gltf import read_glb
-from .compile import compile_scene, load_evidence, write_products
+from .compile import compile_scene, load_evidence, stage_clock, write_products
 from .schema import vector,validate_spawn
 from .asset_store import resolve_asset
 
@@ -64,17 +64,20 @@ def validate_recipe(recipe):
 
 
 def copy_assets(recipe, asset_root, output):
-    root,output=Path(asset_root).expanduser().resolve(),Path(output).expanduser().resolve()
+    """Verify the recipe's complete hashed asset closure; copy it into output unless output is None."""
+    root=Path(asset_root).expanduser().resolve()
+    output=Path(output).expanduser().resolve() if output is not None else None
     copied=set()
     def copy(url,sha):
-        source=(root/url).resolve();target=(output/url).resolve()
-        if not source.is_relative_to(root) or not target.is_relative_to(output):raise ValueError('Asset dependency escapes release')
+        source=(root/url).resolve();target=((output or root)/url).resolve()
+        if not source.is_relative_to(root) or not target.is_relative_to(output or root):raise ValueError('Asset dependency escapes release')
         source=resolve_asset(source)
         raw=source.read_bytes()
         if hashlib.sha256(raw).hexdigest()!=sha:raise ValueError('Pinned asset dependency hash mismatch: '+url)
         if target not in copied:
-            target.parent.mkdir(parents=True,exist_ok=True)
-            if source!=target:shutil.copyfile(source,target)
+            if output is not None:
+                target.parent.mkdir(parents=True,exist_ok=True)
+                if source!=target:shutil.copyfile(source,target)
             copied.add(target)
         return raw
     for asset in recipe['assets']:
@@ -90,7 +93,8 @@ def copy_assets(recipe, asset_root, output):
     return len(copied)
 
 
-def build_recipe(recipe_path, cache, asset_root, output):
+def build_recipe(recipe_path, cache, asset_root, output, timings=None):
+    mark=stage_clock(timings)
     raw=Path(recipe_path).read_bytes();recipe=validate_recipe(json.loads(raw))
     if source_pins(cache,recipe['bounds'])!=sorted(recipe['inputs'],key=lambda row:row['path']):
         raise ValueError('Cached evidence differs from pinned scene recipe')
@@ -99,11 +103,12 @@ def build_recipe(recipe_path, cache, asset_root, output):
     if binding and hashlib.sha256(path.read_bytes()).hexdigest()!=binding['sha256']:
         raise ValueError('Fixture associations differ from pinned scene recipe')
     copy_assets(recipe,asset_root,output)
+    mark('inputs')
     provenance=recipe['assetSources']+[dict(id=recipe['id']+':recipe',sha256=hashlib.sha256(raw).hexdigest(),kind='scene-recipe',uncertaintyM=0.)]
     scene=compile_scene(cache,bounds=recipe['bounds'],scene_id=recipe['id'],spawn=recipe['spawn'],assets=recipe['assets'],
                         material_recipes=recipe['materialRecipes'],trees=recipe['trees'],asset_sources=provenance,
-                        fixture_bindings=path)
-    return write_products(scene,output)
+                        fixture_bindings=path,timings=timings)
+    return write_products(scene,output,timings)
 
 
 if __name__=='__main__':

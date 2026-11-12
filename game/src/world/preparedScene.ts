@@ -215,6 +215,13 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
 
 /** Texture coordinates arrive in glTF convention (top-left image origin), with physical scale already compiled. */
 export const textureKey = (t: PreparedTexture, color: boolean) => `${t.sha256}/${t.wrap}/${color ? 'srgb' : 'linear'}`;
+/** Texture keys a scene's materials draw with. */
+export function sceneTextureKeys(scene: PreparedScene) {
+  const keys = new Set<string>();
+  for (const m of scene.materials) for (const [descriptor, color] of [[m.baseColorTexture, true], [m.normalTexture, false], [m.ormTexture, false]] as const)
+    if (descriptor) keys.add(textureKey(descriptor, color));
+  return keys;
+}
 
 export function closePreparedImages(textures: Iterable<THREE.Texture>) {
   const images = new Set<ImageBitmap>();
@@ -227,13 +234,14 @@ export function disposePreparedTextures(textures: Iterable<THREE.Texture>) {
   closePreparedImages(unique);
 }
 
-/** Decode bounded batches before publication; albedo is sRGB, normal/ORM channels remain linear. */
+/** Decode bounded batches before publication; albedo is sRGB, normal/ORM channels remain linear.
+ *  Keys already in `loaded` are not fetched again (an appearance update reuses the textures it keeps). */
 export async function loadPreparedTextures(scene: PreparedScene, base: string, fetcher: typeof fetch = fetch,
   decode: (blob: Blob) => Promise<ImageBitmap> = blob => createImageBitmap(blob, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }),
-  decodeCompressed?: (bytes: ArrayBuffer) => Promise<THREE.Texture>) {
+  decodeCompressed?: (bytes: ArrayBuffer) => Promise<THREE.Texture>, loaded: ReadonlyMap<string, THREE.Texture> = new Map()) {
   const wanted = new Map<string, { descriptor: PreparedTexture; color: boolean }>();
   for (const m of scene.materials) for (const [descriptor, color] of [[m.baseColorTexture, true], [m.normalTexture, false], [m.ormTexture, false]] as const)
-    if (descriptor) wanted.set(textureKey(descriptor, color), { descriptor, color });
+    if (descriptor && !loaded.has(textureKey(descriptor, color))) wanted.set(textureKey(descriptor, color), { descriptor, color });
   const out = new Map<string, THREE.Texture>(), jobs = [...wanted];
   try {
     for (let i = 0; i < jobs.length; i += 4) {

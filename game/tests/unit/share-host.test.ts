@@ -1,7 +1,7 @@
 // Share-host origin logic (core/localOnly.ts isShareHost): a VITE_SHARE_HOSTS page uses its own origin's tiles,
 // point cloud and multiplayer socket like a local page, but none of the local-only features, like Pages.
 import { afterEach, expect, test, vi } from 'vitest';
-import { devToolsEnabled, isLocalHost, isShareHost, localFeature, sameOriginServices } from '../../src/core/localOnly';
+import { devToolsEnabled, isLocalHost, isShareHost, localFeature, sameOriginServices, soloSession } from '../../src/core/localOnly';
 import { draftsUrl, multiplayerUrl, scoresUrl } from '../../src/net/config';
 import { pointCloudSources } from '../../src/render/pointCloud/sources';
 import { telemetryEnabled } from '../../src/telemetry/guard';
@@ -51,4 +51,12 @@ test('a share host runs no local-only features unless asked, like Pages; ?dev=1 
   expect(devToolsEnabled(share)).toBe(false);
   expect(devToolsEnabled({ ...share, search: '?dev=1' })).toBe(true);
   expect(localFeature({ hostname: 'localhost', search: '' }, 'telemetry')).toBe(true);
+});
+
+test('a solo appearance session is local-only and never bypasses the public Multiplayer start', () => {
+  expect(soloSession({ hostname: 'localhost', search: '?solo=1' })).toBe(true);
+  expect(soloSession({ hostname: 'localhost', search: '' })).toBe(false);
+  expect(soloSession({ hostname: 'localhost', search: '?solo=0' })).toBe(false);
+  vi.stubEnv('VITE_SHARE_HOSTS', share.hostname);
+  expect(soloSession({ hostname: share.hostname, search: '?solo=1' })).toBe(false);
 });

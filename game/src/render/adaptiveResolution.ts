@@ -1,6 +1,8 @@
 /** Frame-delivery feedback; capped mobile play also reserves headroom from measured CPU/GPU cost. */
 export class AdaptiveResolution {
   scale = 1;
+  /** A fixed scale for matched captures (window.__dev.fixResolution); null adapts to frame delivery. */
+  fixed: number | null = null;
   private intervals: number[] = [];
   private previous: number | null = null;
   private changedAt = -Infinity;
@@ -11,6 +13,7 @@ export class AdaptiveResolution {
   constructor(private targetFps = 60) {}
 
   update(now: number, workMs?: number): number {
+    if (this.fixed !== null) return this.scale = this.fixed;
     const elapsed = this.previous === null ? 0 : now - this.previous;
     this.previous = now;
     const target = 1000 / this.targetFps;

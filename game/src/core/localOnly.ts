@@ -38,3 +38,9 @@ export function localFeature(location: { hostname: string; search: string }, par
  *  other local features, ?dev=1 also opens them on GitHub Pages; such a session sends no scoreboard deliveries. */
 export const devToolsEnabled = (location: { hostname: string; search: string }) =>
   new URLSearchParams(location.search).get('dev') === '1' || localFeature(location, 'dev');
+
+/** ?solo=1 on a local origin: the game starts playing at the scene's start at once, alone. No start menu and no
+ *  multiplayer connection, so appearance experiments and captures run in the real renderer without the room's
+ *  bootstrap. Public builds keep their Multiplayer-only start; public play is verified there separately. */
+export const soloSession = (location: { hostname: string; search: string }) =>
+  new URLSearchParams(location.search).get('solo') === '1' && isLocalHost(location.hostname);

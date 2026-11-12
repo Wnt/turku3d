@@ -197,6 +197,8 @@ export function asyncFirstUseBuilds(renderer: THREE.WebGPURenderer, active: () =
     ready,
     /** Draws deferred so far (each built after its frame instead of inside it). */
     get deferred() { return deferred; },
+    /** Builds asked for and not finished (window.__render.quiet). */
+    get queued() { return pending.size; },
     /** Resolves once every deferred build so far is done. */
     settled: async () => { while (pending.size) await Promise.all([...pending.values()]); },
     /** Milliseconds per frame gap shader builds may use while a visible build waits (0 when none waits); re-read at

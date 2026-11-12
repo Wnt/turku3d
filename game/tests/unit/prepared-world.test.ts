@@ -7,6 +7,7 @@ import { MAT } from '../../src/shared/col/materials';
 import { PreparedWorld, type PreparedWorldHost } from '../../src/world/preparedWorld';
 import { draftManifest } from '../../src/world/manifest';
 import type { PreparedScene } from '../../src/world/preparedScene';
+import { appearanceChanges, patchScene, readAppearancePatch } from '../../src/world/preparedAppearance';
 
 function fixture() {
   const positions = [0, 2, 0, 0, 2, 62.5, 62.5, 4, 0];
@@ -110,4 +111,56 @@ test('partial startup releases successfully loaded assets and untracked preparat
   expect(host.unstyle).toHaveBeenCalledOnce(); expect(host.releaseAsset).toHaveBeenCalledWith(asset, 'building');
   expect(geometryDispose).toHaveBeenCalledOnce(); expect(materialDispose).toHaveBeenCalledOnce(); expect(drawDispose).toHaveBeenCalledOnce();
   expect(host.scene.children).toHaveLength(0); expect(host.manifest.collision).toEqual({});
+});
+
+test('appearance update replaces materials and one asset while physics, collision and kept assets stay', async () => {
+  const { host, scene } = fixture(), kept = new THREE.Group(), replaced = new THREE.Group(), next = new THREE.Group();
+  const bytes = { kept: new Uint8Array([1]), old: new Uint8Array([2]), next: new Uint8Array([3]) };
+  const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex');
+  scene.assets.push({ id: 'kept', entityId: 'kept', recipe: 'building', url: 'kept.glb', position: [0, 0, 0], sha256: sha(bytes.kept) },
+    { id: 'roof', entityId: 'roof', recipe: 'building', url: 'old.glb', position: [1, 0, 0], sha256: sha(bytes.old) });
+  const fetcher = host.fetch!, models: Record<string, THREE.Group> = { kept, old: replaced, next };
+  const fetches: string[] = [];
+  host.fetch = (async input => {
+    const name = String(input).split('/').pop()!.replace('.glb', '');
+    if (String(input).endsWith('.glb')) { fetches.push(name); return new Response(bytes[name as keyof typeof bytes]); }
+    return fetcher(input);
+  }) as typeof fetch;
+  host.loadModel = async url => models[url.split('/').pop()!.replace('.glb', '')];
+  host.releaseAsset = vi.fn(); host.unstyle = vi.fn(); host.trackModel = vi.fn(); host.untrackModel = vi.fn();
+  const world = await PreparedWorld.start(host), first = host.scene.children[0];
+  expect(fetches).toEqual(['kept', 'old']);
+  host.prepareGraphics = vi.fn(async () => {}); // Startup's check that collision follows GPU preparation is not this contract.
+  const patch = readAppearancePatch({ schema: 'turku-scene-appearance/1', scene: 'test',
+    materials: [{ material: { id: 'road', color: [.5, .4, .3], roughness: .6, metalness: 0 } }],
+    assets: [{ entityId: 'roof', url: 'next.glb', sha256: sha(bytes.next) }] });
+  const report = await world.applyAppearance(patchScene(world.data, patch));
+  expect(report).toMatchObject({ materials: ['road'], assets: ['roof'], uvMeshes: 0, reusedAssets: 1, loadedAssets: 1 });
+  expect(fetches).toEqual(['kept', 'old', 'next']);
+  expect(host.scene.children).toHaveLength(1); expect(host.scene.children[0]).not.toBe(first);
+  expect(kept.parent).toBe(host.scene.children[0]); expect(next.parent).toBe(host.scene.children[0]); expect(replaced.parent).toBe(first); expect(first.parent).toBeNull();
+  const road = host.scene.children[0].getObjectByName('prepared:road') as THREE.Mesh;
+  expect((road.material as THREE.MeshStandardMaterial).roughness).toBe(.6);
+  expect(host.untrackModel).toHaveBeenCalledWith(first, expect.any(String));
+  expect(host.retainCollision).toHaveBeenCalledTimes(1); expect(host.unloadCollision).not.toHaveBeenCalled();
+  expect(Object.keys(host.manifest.collision)).toEqual(['c_0_0']); expect(world.groundBelow(30, 10)).toBeCloseTo(2.96);
+  expect(host.manifest.code).toBe(world.data.release); expect(world.entries.values().next().value!.model).toBe(host.scene.children[0]);
+  // The same appearance again (a reload of what is drawn) keeps every GPU object.
+  const drawn = host.scene.children[0];
+  expect(await world.applyAppearance(world.data)).toMatchObject({ materials: [], assets: [], loadedAssets: 0, reusedAssets: 2 });
+  expect(host.scene.children[0]).toBe(drawn); expect(fetches).toEqual(['kept', 'old', 'next']);
+  world.leaveCity();
+});
+
+test('appearance update refuses geometry changes and pipeline-only UV rescaling', async () => {
+  const { host } = fixture(), world = await PreparedWorld.start(host);
+  const moved = { ...world.data, meshes: world.data.meshes.map(m => ({ ...m, positions: m.positions.map((v, i) => i === 1 ? v + 1 : v) })) };
+  expect(() => appearanceChanges(world.data, moved)).toThrow('mesh ground differs');
+  await expect(world.applyAppearance(moved)).rejects.toThrow('Not an appearance change');
+  expect(() => patchScene(world.data, readAppearancePatch({ schema: 'turku-scene-appearance/1', scene: 'test',
+    materials: [{ material: world.data.materials[0], uvScale: [.5, .5] }] }))).toThrow('python -m turku3d.scene.appearance');
+  expect(() => patchScene(world.data, readAppearancePatch({ schema: 'turku-scene-appearance/1', scene: 'other' }))).toThrow('cannot change');
+  expect(() => patchScene(world.data, readAppearancePatch({ schema: 'turku-scene-appearance/1', scene: 'test',
+    materials: [{ material: { ...world.data.materials[0], id: 'marble' } }] }))).toThrow('unknown material');
+  world.leaveCity();
 });

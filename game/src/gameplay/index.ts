@@ -1,6 +1,6 @@
 // Gameplay entry for main.ts: the street router and the delivery address pool handed to the mission system, and
 // the minimap.
-import { sameOriginServices } from '../core/localOnly';
+import { sameOriginServices, isLocalHost } from '../core/localOnly';
 import type { PreparedWorld } from '../world/preparedWorld';
 import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
@@ -75,7 +75,9 @@ class StreetMap {
 export async function loadGameplayData(manifest: GameplayManifest) {
   const endpoint = draftsUrl();
   const navigation = endpoint ? await fetch(new URL('navigation.json', new URL(endpoint, location.href))).then(async res => {
-    if (res.status === 404 && sameOriginServices(location.hostname)) {
+    // 503 on a local origin is the dev server's answer for a coarse service that is not running (vite.config.ts):
+    // a prepared scene session (?solo=1 appearance work) needs no tile service.
+    if ((res.status === 404 || (res.status === 503 && isLocalHost(location.hostname))) && sameOriginServices(location.hostname)) {
       // Synthetic dev service or the shared local tile farm (also behind a share host): resident street tiles only.
       console.warn('[gameplay] no /coarse/navigation.json: resident street graph, landmark fallbacks for long jobs');
       return null;

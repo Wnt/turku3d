@@ -4,10 +4,13 @@ import { multiplayerStart } from '../gameplay/startPoints';
 /** Resolve the assigned/retained position before enabling Multiplayer in the menu. */
 /** `socket`: the previous city's open connection, moved to this city's room instead of a new one (an in-place switch).
  *  `arrival`: this page arrived from another city (a travel ticket): the room frees seats left behind here. */
-export function prepareMultiplayer(start?: { x: number; y: number; z: number; yaw: number }, socket?: WebSocket | null, arrival = false, region: string | null = null) {
+/** `offline`: a solo session (core/localOnly.ts soloSession) never connects; Multiplayer stays unavailable. */
+export function prepareMultiplayer(start?: { x: number; y: number; z: number; yaw: number }, socket?: WebSocket | null, arrival = false, region: string | null = null,
+  offline = false) {
   const client = new MultiplayerClient(undefined, undefined, region);
   client.arrival = arrival;
   let position: ReturnType<typeof multiplayerStart> | null | undefined;
+  if (offline) return { client, ready: Promise.resolve(null), get position() { return null; } };
   const ready = new Promise<ReturnType<typeof multiplayerStart> | null>(resolve => {
     const timer = setTimeout(() => { client.disconnect(); position = null; resolve(null); }, 10000);
     client.addEventListener('welcome', () => {

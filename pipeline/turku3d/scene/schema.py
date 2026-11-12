@@ -50,6 +50,64 @@ def validate_spawn(spawn,bounds):
     return spawn
 
 
+OPTIONAL={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance","lightOcclusion"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface","nightEmission","normalScale"),"emitter":("category","aperture")}
+
+
+def validate_asset(asset):
+    fields(asset, "asset")
+    vector(asset["position"], 3, "asset position")
+    vector(asset["bounds"]["min"], 3, "asset bounds min")
+    vector(asset["bounds"]["max"], 3, "asset bounds max")
+    if asset["recipe"] not in ("building", "vegetation", "context") or len(asset["sha256"]) != 64:
+        raise ValueError("Invalid building asset")
+    return asset
+
+
+def validate_source(source):
+    fields(source, "source")
+    if len(source["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in source["sha256"]):
+        raise ValueError("Source requires SHA-256")
+    vector([source["uncertaintyM"]], 1, "source uncertainty")
+    if source["uncertaintyM"] < 0:
+        raise ValueError("Negative uncertainty")
+    return source
+
+
+def validate_material(material):
+    fields(material, "material", OPTIONAL["material"])
+    if 'nightEmission' in material:
+        vector(material['nightEmission'],3,'night emission')
+        if any(v < 0 for v in material['nightEmission']):
+            raise ValueError('Negative night emission')
+    if 'surface' in material and material['surface'] not in ('asphalt', 'granite', 'cobblestone', 'stone', 'grass'):
+        raise ValueError('Unknown prepared surface response')
+    if 'alphaTest' in material:
+        vector([material['alphaTest']], 1, 'material alpha cutoff')
+        if not 0 <= material['alphaTest'] <= 1:
+            raise ValueError('Material alpha cutoff outside [0,1]')
+    if 'doubleSided' in material and type(material['doubleSided']) is not bool:
+        raise ValueError('Material doubleSided must be boolean')
+    if "water" in material:
+        water=material["water"]
+        if set(water)!={"point","normal","band"}:
+            raise ValueError("Invalid explicit water recipe")
+        vector(water["point"],3,"water plane point")
+        vector(water["normal"],3,"water plane normal")
+    for name in ("baseColorTexture","normalTexture","ormTexture"):
+        if name in material:
+            texture=material[name]
+            if set(texture)!={"url","sha256","wrap"} or texture["wrap"] not in ("clamp","repeat") or len(texture["sha256"])!=64:
+                raise ValueError("Invalid material texture")
+    if "normalScale" in material:
+        vector([material["normalScale"]],1,"normalScale")
+        if material["normalScale"]<0:raise ValueError("Negative material normalScale")
+    vector(material["color"], 3, "linear color")
+    vector([material["roughness"], material["metalness"]], 2, "material")
+    if any(x < 0 or x > 1 for x in material["color"] + [material["roughness"], material["metalness"]]):
+        raise ValueError("Material values outside [0,1]")
+    return material
+
+
 def validate_scene(scene):
     fields(scene, "scene")
     if scene["schema"] != SCHEMA:
@@ -69,8 +127,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance","lightOcclusion"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface","nightEmission","normalScale"),"emitter":("category","aperture")}
-            fields(row, kind, optional.get(kind,()))
+            fields(row, kind, OPTIONAL.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
                 raise ValueError(f"Invalid or duplicate {plural} ID {key}")
@@ -80,48 +137,11 @@ def validate_scene(scene):
         if key not in tables[table]:
             raise ValueError(f"Unknown {table} reference: {key}")
     for asset in scene["assets"]:
-        vector(asset["position"], 3, "asset position")
-        vector(asset["bounds"]["min"], 3, "asset bounds min")
-        vector(asset["bounds"]["max"], 3, "asset bounds max")
-        if asset["recipe"] not in ("building", "vegetation", "context") or len(asset["sha256"]) != 64:
-            raise ValueError("Invalid building asset")
+        validate_asset(asset)
     for source in scene["sources"]:
-        if len(source["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in source["sha256"]):
-            raise ValueError("Source requires SHA-256")
-        vector([source["uncertaintyM"]], 1, "source uncertainty")
-        if source["uncertaintyM"] < 0:
-            raise ValueError("Negative uncertainty")
+        validate_source(source)
     for material in scene["materials"]:
-        if 'nightEmission' in material:
-            vector(material['nightEmission'],3,'night emission')
-            if any(v < 0 for v in material['nightEmission']):
-                raise ValueError('Negative night emission')
-        if 'surface' in material and material['surface'] not in ('asphalt', 'granite', 'cobblestone', 'stone', 'grass'):
-            raise ValueError('Unknown prepared surface response')
-        if 'alphaTest' in material:
-            vector([material['alphaTest']], 1, 'material alpha cutoff')
-            if not 0 <= material['alphaTest'] <= 1:
-                raise ValueError('Material alpha cutoff outside [0,1]')
-        if 'doubleSided' in material and type(material['doubleSided']) is not bool:
-            raise ValueError('Material doubleSided must be boolean')
-        if "water" in material:
-            water=material["water"]
-            if set(water)!={"point","normal","band"}:
-                raise ValueError("Invalid explicit water recipe")
-            vector(water["point"],3,"water plane point")
-            vector(water["normal"],3,"water plane normal")
-        for name in ("baseColorTexture","normalTexture","ormTexture"):
-            if name in material:
-                texture=material[name]
-                if set(texture)!={"url","sha256","wrap"} or texture["wrap"] not in ("clamp","repeat") or len(texture["sha256"])!=64:
-                    raise ValueError("Invalid material texture")
-        if "normalScale" in material:
-            vector([material["normalScale"]],1,"normalScale")
-            if material["normalScale"]<0:raise ValueError("Negative material normalScale")
-        vector(material["color"], 3, "linear color")
-        vector([material["roughness"], material["metalness"]], 2, "material")
-        if any(x < 0 or x > 1 for x in material["color"] + [material["roughness"], material["metalness"]]):
-            raise ValueError("Material values outside [0,1]")
+        validate_material(material)
     for boundary in scene["boundaries"]:
         if len(boundary["positions"]) < 2:
             raise ValueError("Boundary must have at least two vertices")

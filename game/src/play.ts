@@ -19,7 +19,7 @@ import { parkedNight } from './world/parkedOccupancy';
 // Localhost hot updates dispose this session and restore it via gameplay/hotState.ts.
 import * as THREE from 'three/webgpu';
 import { engineToEN, enToEngine, collisionTileAt, yawToHeading, type V3 } from './core/origin';
-import { devToolsEnabled } from './core/localOnly';
+import { devToolsEnabled, soloSession } from './core/localOnly';
 import { carDamageConsole } from './dev/carDamage';
 import { cycleHour } from './core/dayCycle';
 import { Input, type Action } from './input';
@@ -309,6 +309,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const carQuat = new THREE.Quaternion();
   const audioForward = new THREE.Vector3(), audioUp = new THREE.Vector3();
   let snapChase = false;
+  /** window.__game.holdCamera: a matched capture's exact world camera, applied after the follow cameras each frame
+   *  (play, physics and rendering continue). null returns the camera to the player. */
+  let heldCamera: { position: number[]; quaternion: number[]; fov: number } | null = null;
   const recovery = new SafeReset(area, manifest, physics, streamer, new RecoveryHud(document.body), (resetMode, heading) => {
     if (resetMode === 'car') snapChase = true;
     else { orbit.yaw = heading - Math.PI; orbit.pitch = -0.12; }
@@ -513,7 +516,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // the room's slot positions only number the players). This pose only marks a start as fresh and is where the menu
   // preloads; SaveGameController resolves the start itself (the page's for the first placement, then the city's).
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
-  const multiplayerStartState = prepareMultiplayer(spawn, kept?.socket, !!ticket, coarse?.sessionScope);
+  const solo = !hot && !ticket && soloSession(location);
+  const multiplayerStartState = prepareMultiplayer(spawn, kept?.socket, !!ticket, coarse?.sessionScope, solo);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
@@ -655,7 +659,12 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   Object.assign(window.__game!, { damage: damageConsole, vehicleSignals, vehicleBeams, enterVehicle: (id: string) => { enterVehicle(id); physics.driveVehicle(id); physics.setCharacterEnabled(false); }, input, haptics, state, physics, rapier, audio, voice, parkedVisuals, traffic, walkers, missions, router, minimap, zones, recovery, autopilot, driveMeThere: (options?: GoToOptions) => driveMeThere.start(options),
     shopMenu, pauseMenu, saves, orbit, telemetry, coarse, devLayers, portals: portalMarkers, city: CITY.name, timePanel, streets, edgeMarker, streamer, materials, multiplayerClient: () => multiplayer, viewClearance, saveGame,
     // Tool hook: the start pairs at this page's start, as the players of a room take them by slot.
-    startPairs: () => roomPairs({ spawn: world.spawn, car: world.car, at: world.startAt }), ready: true });
+    startPairs: () => roomPairs({ spawn: world.spawn, car: world.car, at: world.startAt }),
+    holdCamera: (pose: typeof heldCamera) => {
+      if (pose && (pose.position.length !== 3 || pose.quaternion.length !== 4 || ![...pose.position, ...pose.quaternion, pose.fov].every(Number.isFinite)))
+        throw new Error('holdCamera wants { position: [x,y,z], quaternion: [x,y,z,w], fov }');
+      heldCamera = pose && { position: [...pose.position], quaternion: [...pose.quaternion], fov: pose.fov };
+    }, ready: true });
 
   // Tests and the trip bench leave through a portal as its trigger does (the ticket, the ride, the money).
   window.__game!.depart = (to: CityName, portalId?: string) => depart(to, portalList.find(p => p.id === portalId) ?? null);
@@ -732,6 +741,10 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     }).catch(fail);
   };
   if (hot?.save) startScreen.afterBrowserWarning(() => startScreen.close());
+  else if (solo) startScreen.afterBrowserWarning(() => {
+    startScreen.close();
+    void saveGame.playAt({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, fresh: true }).catch(fail);
+  });
   else if (ticket) startScreen.afterBrowserWarning(() => arrive(ticket));
   else if (graphicsReload === 'multiplayer') startScreen.afterBrowserWarning(() => joinRoom());
   else if (resume ?? (graphicsReload === 'solo' ? saves.get('auto') : null)) startScreen.afterBrowserWarning(() => saveGame.hooks.play(resume ?? saves.get('auto')));
@@ -1094,6 +1107,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       snapChase = false;
     }
     else if (mode === 'foot') orbit.update(dt, focus);
+    if (heldCamera) {
+      camera.position.fromArray(heldCamera.position); camera.quaternion.fromArray(heldCamera.quaternion);
+      if (camera.fov !== heldCamera.fov) { camera.fov = heldCamera.fov; camera.updateProjectionMatrix(); }
+      camera.updateMatrixWorld(true);
+    }
     // camera collision: async ray from the focus towards the camera (result applies next frame)
     if (mode === 'foot' && !camRayBusy) {
       camRayBusy = true;

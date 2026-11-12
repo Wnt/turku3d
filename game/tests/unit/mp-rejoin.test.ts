@@ -212,3 +212,11 @@ test('an arrival seated in a ride parked away from its placement streams collisi
   expect(h.save.streamPoint({ x: 1100, y: 4, z: 800 })).toMatchObject({ x: 1100, z: 800 });
   h.save.dispose();
 });
+
+test('an offline solo session never opens a socket and offers no multiplayer start', async () => {
+  setup('car', false);
+  const before = Socket.current;
+  const prepared = prepareMultiplayer(undefined, null, false, null, true);
+  expect(prepared.position).toBeNull(); await expect(prepared.ready).resolves.toBeNull();
+  expect(prepared.client.state.connected).toBe(false); expect(Socket.current).toBe(before);
+});

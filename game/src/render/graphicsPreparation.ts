@@ -73,6 +73,8 @@ export class GraphicsPreparation {
   private slowest: JobStats[] = [];
   /** The last RECENT jobs that ran (diagnostics). */
   private recent: JobStats[] = [];
+  /** Jobs queued or running (window.__render.quiet). */
+  get pending() { return this.waiting[0] + this.waiting[1] + this.waiting[2] + (this.activeSince === null ? 0 : 1); }
   stats() {
     const m = this.activeModel;
     return { waiting: [...this.waiting], finished: this.finished, dropped: this.dropped,

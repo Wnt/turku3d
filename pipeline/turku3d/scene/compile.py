@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import pickle
+import time
 from copy import deepcopy
 
 import numpy as np
@@ -33,6 +34,17 @@ PALETTE = {
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def stage_clock(timings):
+    """Record wall milliseconds since the previous mark into `timings` (a plain dict, or None)."""
+    last = [time.perf_counter()]
+    def mark(name):
+        now = time.perf_counter()
+        if timings is not None:
+            timings[name + 'Ms'] = round((now - last[0]) * 1000)
+        last[0] = now
+    return mark
 
 
 def mesh_record(key, entity, material, positions, indices, policy="solid", support=None, uv=None):
@@ -257,8 +269,9 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     return height
 
 
-def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes=(), trees=(), asset_sources=(), fixture_bindings=None):
+def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes=(), trees=(), asset_sources=(), fixture_bindings=None, timings=None):
     from turku3d.coarse.extrusion import extrude
+    mark = stage_clock(timings)
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     sources.extend(asset_sources)
     from . import street_sections
@@ -285,9 +298,11 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     from . import structures
     decks,tunnel_meshes,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
     scene['sources'].extend(structure_sources)
+    mark('evidence')
     shoreline=[]
     height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes,sections,shoreline)
     structures.append(scene,decks,tunnel_meshes)
+    mark('ground')
     window = shapely.box(*bounds)
     for b in buildings:
         if b.footprint.intersects(window.buffer(30)):
@@ -351,11 +366,13 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     from .quay_lighting import append as append_quay_lights, apply_wash
     quay_washes=append_quay_lights(scene,shoreline,walks,quay_corridors)
     scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]} | {a["entityId"] for a in assets})
+    mark('objects')
     from .visibility import bake_scene
     bake_scene(scene, points, buildings, waters)
     from .night_lighting import bake_scene as bake_street_irradiance
     bake_street_irradiance(scene)
     apply_wash(scene,quay_washes)
+    mark('bakes')
     from .road_markings import load as load_markings, append as append_markings
     paint,paint_sources=load_markings(cache,bounds)
     scene['sources'].extend(paint_sources)
@@ -364,6 +381,7 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
         from .promenade_finish import append_finish
         append_finish(scene)
     scene['coverage']['entityIds']=sorted(set(scene['coverage']['entityIds']) | {m['entityId'] for m in scene['meshes']})
+    mark('finishes')
     return scene
 
 
@@ -384,13 +402,14 @@ def release_hash(scene):
     return digest(json.dumps({k:v for k,v in scene.items() if k!='release'},sort_keys=True,separators=(',',':')).encode())
 
 
-def write_products(scene, output):
+def write_products(scene, output, timings=None):
     from turku3d.coarse.geometry import clip_mesh
     from turku3d.col import ColTile, write_col
     from turku3d.coarse.collision import compact_collision
     from turku3d.col.materials import mat_id
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
+    mark = stage_clock(timings)
     scene['collision']={}
     from .signs import write_textures
     write_textures(scene,output)
@@ -400,6 +419,7 @@ def write_products(scene, output):
     write_texture(scene,output)
     from .hedge_foliage import write_texture as write_foliage_texture
     write_foliage_texture(scene,output)
+    mark('textures')
     xmin, zmin, xmax, zmax = scene["bounds"]
     for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
         for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):
@@ -435,7 +455,9 @@ def write_products(scene, output):
             name = f"{col.id}.{digest(raw)[:16]}.col"
             (output / name).write_bytes(raw)
             scene["collision"][col.id] = dict(url=name, sha256=digest(raw), bytes=len(raw), tris=len(col.indices), h=[float(col.positions[:, 1].min()), float(col.positions[:, 1].max())])
+    mark('collision')
     scene['release']=release_hash(scene)
     validate_scene(scene)
     (output / f"{scene['id']}.scene.json").write_text(json.dumps(scene, separators=(",", ":")) + "\n")
+    mark('seal')
     return scene

@@ -88,6 +88,9 @@ import { applyLodOverrides, lodSettings } from './qa/lab/overrides';
 import { applyWaterSwitches } from './render/waterSwitches';
 import { BenchLab } from './qa/lab/lab';
 import { saveLabResult, startLabRecording } from './qa/lab/record';
+import { sceneDev, type SceneDev } from './dev/sceneDev';
+import { QuietFrames, type QuietSnapshot } from './render/quiet';
+import { textureUploads } from './render/textureUploads';
 
 declare global {
   interface Window {
@@ -107,7 +110,11 @@ declare global {
       landmark: (buildingId: string, url: string | null) => Promise<unknown>;
       geometryState: () => Promise<unknown>;
       coplanarDebug: (report: { findings: { kind: string; mesh: string; other_mesh?: string }[] } | null) => Promise<unknown>;
-      pause: (paused: boolean) => void; bench?: (id: string, at: string) => void };
+      pause: (paused: boolean) => void; bench?: (id: string, at: string) => void;
+      /** Appearance-only experiments on the loaded prepared scene: physics, collision and the camera stay. */
+      scene?: SceneDev;
+      /** Holds the render scale (0.25..1) for matched captures; null returns to adaptive resolution. */
+      fixResolution?: (scale: number | null) => void };
     __render?: { camera: THREE.PerspectiveCamera; environment: Environment; renderer: THREE.WebGPURenderer;
       perf: PerformanceMonitor; post: PostProcessing | null; setTime: (iso: string) => void; setHour: (hour: number) => void;
       beforeFrame?: () => boolean; afterFrame?: () => void; visibility?: typeof placementVisibility;
@@ -116,7 +123,9 @@ declare global {
       /** One frame's uniform-buffer writes by pass, object family, group and uniform (render/census.ts). */
       uniforms?: () => Promise<unknown>;
       /** Retained bytes by category: geometry, texture data, streaming caches, collision cells (world/memoryCensus.ts). */
-      memory?: () => Promise<unknown> };
+      memory?: () => Promise<unknown>;
+      /** Explicit readiness for tools (scripts/dev/scene-capture.mjs): outstanding work and frames drawn since none. */
+      quiet?: () => QuietSnapshot };
     /** Tile streaming on demand: the loaded tile ids (the HUD shows only their count). */
     __tiles?: { loaded: () => string[] };
   }
@@ -240,7 +249,8 @@ let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 600
 let birds = idPass ? null : new Birds(scene, params.quality === 'low' ? 160 : 384);
 window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, get birds() { return birds; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
-  setWeather: (name, seconds) => weather.setWeather(name, seconds), weather };
+  setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
+  scene: sceneDev(() => censusSources.coarse), fixResolution: scale => fixResolution(scale) };
 if (!idPass) env.updateIBL();
 const lights = idPass || params.lab?.off.has('lights') ? null : new StreetLights(scene, params.quality, params.lights, env.lamps.point);
 const weatherOverlay = rain ? { overlay: (r: THREE.WebGPURenderer, c: THREE.Camera, depth: THREE.Texture) => {
@@ -259,7 +269,7 @@ let post = idPass || params.lab?.off.has('post') ? null : new PostProcessing(ren
 Object.defineProperty(window, '__perf', { get: () => ({ stream: censusSources.coarse?.streamSnapshot() ?? null,
   builds: renderer instanceof GameRenderer ? renderer.asyncBuilds?.stats() ?? null : null, allowance: streamingAllowance.stats(),
   ...perf.snapshot() }) });
-window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility,
+window.__render = { camera, environment: env, renderer, perf, post, visibility: placementVisibility, quiet: () => quiet.snapshot(),
   census: () => {
     let previous: (() => void) | undefined;
     return drawCensus(renderer, {
@@ -287,6 +297,13 @@ let vegetation = natureLibrary ? new VegetationLod(params.quality, natureLibrary
 if (vegetation) vegetation.casters = () => env.casterVolumes();
 const furniture = idPass || params.lab?.off.has('props') ? null : new PropLod();
 const graphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
+const quiet = new QuietFrames(() => ({ preparing: graphics.pending, uploads: textureUploads(renderer).pending,
+  builds: renderer instanceof GameRenderer ? renderer.asyncBuilds?.queued ?? 0 : 0 }));
+/** window.__dev.fixResolution: a matched capture's render scale stays put (null: adaptive again). */
+function fixResolution(scale: number | null) {
+  if (scale !== null && !(scale >= .25 && scale <= 1)) throw new Error('Render scale must be 0.25..1 or null');
+  resolution.fixed = scale; quiet.touch();
+}
 // Actors (car batches, keepers) have a queue of their own: a single slow program build in the shared queue (on the
 // Air a building's facade program took 24 s, a pine LOD 14 s) no longer keeps the cars from drawing.
 const actorGraphics = new GraphicsPreparation(scene, model => post?.prepare(model), release => retireAfterFrame(renderer, release));
@@ -480,6 +497,7 @@ if (import.meta.hot) import.meta.hot.accept('./render/weather/rain', next => {
   rain = replacement;
 });
 const renderFrame = () => {
+  quiet.tick();
   if ((liveDrive || (!params.qa && worldLoad.snapshot().phase === 'ready')) && document.visibilityState === 'visible') {
     // Ultra draws the native drawing buffer whatever the frame rate.
     if (params.quality === 'ultra') resolution.scale = 1;
@@ -849,6 +867,7 @@ async function runQa() {
     setPose: window.__qaMove,
     setHour: hour => { dayClock.setHour(hour); window.__qaMove!(window.__qaPose!); },
     pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
+    scene: sceneDev(() => censusSources.coarse), fixResolution: scale => fixResolution(scale),
     ...(bench ? { bench: (id: string, at: string) => {
       const pose = benchPose(id, at);
       bench.restart(pose);

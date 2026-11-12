@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
-import { gameDist, port, tileDist, workRoot } from '../tools/dev/environment.mjs';
+import { gameDist, port, preparedAssets, tileDist, workRoot } from '../tools/dev/environment.mjs';
+import fs from 'node:fs';
 import { localhostGame } from '../tools/dev/localhost/vitePlugin.mjs';
 import path from 'node:path';
 import wasm from 'vite-plugin-wasm';
@@ -39,6 +40,21 @@ export default defineConfig({
       } catch { /* keep the server's start commit */ }
       return [{ tag: 'meta', attrs: { name: 'turku3d-build', content }, injectTo: 'head' }];
     } },
+  }, {
+    // Dev server only: /scenes/shared/<sha256>.<ext> from the canonical content store, as city.lab serves it, so a
+    // worktree needs no copied asset directory. Unknown names fall through (404 or a local public/scenes/shared).
+    name: 'prepared-scene-assets',
+    configureServer(server) {
+      const types: Record<string, string> = { glb: 'model/gltf-binary', ktx2: 'image/ktx2', png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
+      server.middlewares.use('/scenes/shared', (req, res, next) => {
+        const name = (req.url ?? '').split('?')[0].replace(/^\//, '');
+        const file = path.join(preparedAssets, name);
+        if (!/^[a-f0-9]{64}\.[a-z0-9]+$/.test(name) || !fs.existsSync(file)) return next();
+        res.writeHead(200, { 'Content-Type': types[name.split('.').pop()!] ?? 'application/octet-stream',
+          'Cache-Control': 'public, max-age=31536000, immutable', 'Cross-Origin-Resource-Policy': 'same-origin' });
+        fs.createReadStream(file).pipe(res);
+      });
+    },
   }, {
     name: 'preload-game-entry',
     transformIndexHtml: { order: 'post', handler(_html, context) {

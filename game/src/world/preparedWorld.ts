@@ -9,7 +9,8 @@ import { disposeDraw } from '../render/sharedMaterials';
 import { styleScenery } from '../render/sceneryMaterial';
 import { releaseGeometry } from './modelGeometry';
 import { releaseModelTextures } from './sharedAssets';
-import { buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, type PreparedScene } from './preparedScene';
+import { buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, sceneTextureKeys, type PreparedScene } from './preparedScene';
+import { appearanceChanges } from './preparedAppearance';
 import { loadPreparedRegion, type PreparedRegion } from './preparedRegions';
 import { GroundIndex } from './groundIndex';
 import { decoderReady, readColSync } from '../physics/colTile';
@@ -33,7 +34,34 @@ class PreparedContext {
   setView(_view: unknown, _now: number) {}
 }
 
-/** A complete compiled release, installed before gameplay starts. This bounded pilot has no background generator. */
+type AssetRow = PreparedScene['assets'][number];
+interface LoadedAsset { row: AssetRow; root: THREE.Object3D; recipe: AssetRow['recipe'] }
+const digest = async (bytes: ArrayBuffer) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+const sameAsset = (a: AssetRow, b: AssetRow) => a.id === b.id && a.entityId === b.entityId && a.sha256 === b.sha256
+  && a.recipe === b.recipe && a.position.every((n, i) => n === b.position[i]);
+
+/** Disposes a released visual subtree's draws, geometries and materials, and its textures except `keep`. */
+function disposeVisual(root: THREE.Object3D, assetRoots: Iterable<THREE.Object3D>, native: Iterable<THREE.Texture>, keep: ReadonlySet<THREE.Texture> = new Set()) {
+  const textures = new Set([...native].filter(t => !keep.has(t))), geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
+  root.traverse(o => {
+    if (!(o instanceof THREE.Mesh)) return;
+    disposeDraw(o); geometries.add(o.geometry);
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      materials.add(m);
+      for (const value of Object.values(m)) if (value instanceof THREE.Texture && !keep.has(value)) textures.add(value);
+    }
+  });
+  for (const geometry of geometries) releaseGeometry(geometry);
+  for (const material of materials) material.dispose();
+  // GLTF roots own shared KTX leases. Releasing a scene must not dispose another live owner's texture.
+  for (const asset of assetRoots) releaseModelTextures(asset, new Set());
+  releaseModelTextures(root, textures);
+  closePreparedImages(textures);
+}
+
+/** A complete compiled release, installed before gameplay starts. This bounded pilot has no background generator.
+ *  Appearance (materials, textures, building assets) can be replaced in place by applyAppearance. */
 export class PreparedWorld {
   readonly entries = new Map<string, Entry>();
   readonly screenshotScenery = new PreparedContext();
@@ -47,12 +75,19 @@ export class PreparedWorld {
   readonly releasedBytes = 0;
   status = '';
   private disposed = false;
-  private assets: { root: THREE.Object3D; recipe: 'building' | 'vegetation' | 'context' }[] = [];
+  private assets: LoadedAsset[] = [];
+  private loader: GLTFLoader | null = null;
   private ground = new GroundIndex();
   private top = 100;
   private bottom = -100;
-  private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, readonly region: PreparedRegion, readonly sessionScope: string | null,
-    private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) { this.lighting = prepareLighting(data); }
+  private updating: Promise<unknown> = Promise.resolve();
+  /** The published document (startup or the last reloadAppearance): restoreAppearance returns to it. */
+  private published: PreparedScene;
+  /** `data` is the scene drawn now: an appearance update replaces it (geometry and collision never change). */
+  private constructor(private host: PreparedWorldHost, public data: PreparedScene, readonly region: PreparedRegion, readonly sessionScope: string | null,
+    private url: string, private model: THREE.Group, private textures: Map<string, THREE.Texture>) {
+    this.lighting = prepareLighting(data); this.published = data;
+  }
 
   static async start(host: PreparedWorldHost): Promise<PreparedWorld> {
     const page = host.pageUrl ?? location.href;
@@ -64,8 +99,7 @@ export class PreparedWorld {
       if (!cell.ok) throw new Error(`Prepared collision ${id}: HTTP ${cell.status}`);
       const buffer = await cell.arrayBuffer();
       if (buffer.byteLength !== entry.bytes) throw new Error(`Prepared collision ${id}: wrong byte count`);
-      const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)), b => b.toString(16).padStart(2, '0')).join('');
-      if (digest !== entry.sha256) throw new Error(`Prepared collision ${id}: hash mismatch`);
+      if (await digest(buffer) !== entry.sha256) throw new Error(`Prepared collision ${id}: hash mismatch`);
       await host.checkCollision(buffer.slice(0));
       return { id, entry: { ...entry, url: new URL(entry.url, url).href }, buffer };
     }));
@@ -74,39 +108,14 @@ export class PreparedWorld {
     let model: THREE.Group;
     try { model = buildPreparedModel(data, textures); }
     catch (error) { disposePreparedTextures(textures.values()); throw error; }
-    const world = new PreparedWorld(host, data, region, sessionScope, url, model, new Set(textures.values()));
+    const world = new PreparedWorld(host, data, region, sessionScope, url, model, textures);
     try {
-      const loader = data.assets.length && !host.loadModel ? new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
-        .setKTX2Loader(sharedKtx(host.renderer)).setMeshoptDecoder(MeshoptDecoder) : null;
-      if (loader) MeshoptDecoder.useWorkers(2);
-      for (let i = 0; i < data.assets.length; i += 4) {
-        const results = await Promise.allSettled(data.assets.slice(i, i + 4).map(async asset => {
-          const assetUrl = new URL(asset.url, url).href;
-          const response = await fetcher(assetUrl, { signal: AbortSignal.timeout(15000) });
-          if (!response.ok) throw new Error(`Prepared asset ${asset.id}: HTTP ${response.status}`);
-          const bytes = await response.arrayBuffer();
-          const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
-          if (digest !== asset.sha256) throw new Error(`Prepared asset ${asset.id}: hash mismatch`);
-          const root = host.loadModel ? await host.loadModel(assetUrl) : (await loadGlb(loader!, assetUrl, undefined, bytes)).scene;
-          world.assets.push({ root, recipe: asset.recipe });
-          root.name = `asset:${asset.id}`; root.position.fromArray(asset.position);
-          root.userData.entityId = asset.entityId; root.userData.layer = asset.recipe === 'building' ? 'buildings' : asset.recipe === 'vegetation' ? 'vegetation' : 'structures';
-          root.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true; });
-          if (asset.recipe === 'context') {
-            // Context retains the producer's explicit scenery layers. Their facade and canopy recipes
-            // are different from near building materials; raw GLB pigment is only their input.
-            root.traverse(o => { o.userData.scenery = true; });
-            styleScenery(root);
-          }
-          model.add(root);
-        }));
-        const error = results.find(result => result.status === 'rejected');
-        if (error?.status === 'rejected') throw error.reason;
-      }
+      // Loaded roots join the model at once, so a failure part-way releases them with it (leaveCity).
+      await world.loadAssets(data.assets, world.assets, model);
       await host.style?.(model);
       for (const asset of world.assets) await host.prepareAsset?.(asset.root, asset.recipe);
       await host.prepareGraphics?.(model);
-      const id = `t0_${Math.floor(data.spawn.position[0] / 250)}_${Math.floor(data.spawn.position[2] / 250)}`;
+      const id = world.entryId();
       const collision = new Map(cells.map(c => [c.id, c.entry]));
       const h = [Math.min(...cells.map(c => c.entry.h[0])), Math.max(...cells.map(c => c.entry.h[1]))] as [number, number];
       world.entries.set(id, { state: 'draft', model, collision, nextPoll: Infinity, pass: 'full', visualHash: data.release, h });
@@ -120,6 +129,122 @@ export class PreparedWorld {
       world.status = `${data.id} · ${data.meshes.length} prepared meshes`;
       return world;
     } catch (error) { world.leaveCity(); throw error; }
+  }
+
+  private entryId() {
+    return `t0_${Math.floor(this.data.spawn.position[0] / 250)}_${Math.floor(this.data.spawn.position[2] / 250)}`;
+  }
+
+  /** Fetches, verifies and decodes asset models in bounded batches; each root is pushed to `into` (and added to
+   *  `parent`) as soon as it loads, so the caller can release a partial result. */
+  private async loadAssets(rows: readonly AssetRow[], into: LoadedAsset[], parent: THREE.Object3D) {
+    const host = this.host, fetcher = host.fetch ?? fetch;
+    if (rows.length && !host.loadModel && !this.loader) {
+      this.loader = new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
+        .setKTX2Loader(sharedKtx(host.renderer)).setMeshoptDecoder(MeshoptDecoder);
+      MeshoptDecoder.useWorkers(2);
+    }
+    for (let i = 0; i < rows.length; i += 4) {
+      const results = await Promise.allSettled(rows.slice(i, i + 4).map(async asset => {
+        const assetUrl = new URL(asset.url, this.url).href;
+        const response = await fetcher(assetUrl, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) throw new Error(`Prepared asset ${asset.id}: HTTP ${response.status}`);
+        const bytes = await response.arrayBuffer();
+        if (await digest(bytes) !== asset.sha256) throw new Error(`Prepared asset ${asset.id}: hash mismatch`);
+        const root = host.loadModel ? await host.loadModel(assetUrl) : (await loadGlb(this.loader!, assetUrl, undefined, bytes)).scene;
+        into.push({ row: asset, root, recipe: asset.recipe });
+        root.name = `asset:${asset.id}`; root.position.fromArray(asset.position);
+        root.userData.entityId = asset.entityId; root.userData.layer = asset.recipe === 'building' ? 'buildings' : asset.recipe === 'vegetation' ? 'vegetation' : 'structures';
+        root.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true; });
+        if (asset.recipe === 'context') {
+          // Context retains the producer's explicit scenery layers. Their facade and canopy recipes
+          // are different from near building materials; raw GLB pigment is only their input.
+          root.traverse(o => { o.userData.scenery = true; });
+          styleScenery(root);
+        }
+        parent.add(root);
+      }));
+      const error = results.find(result => result.status === 'rejected');
+      if (error?.status === 'rejected') throw error.reason;
+    }
+  }
+
+  /** Re-reads this region's published scene (after `python -m turku3d.scene.appearance`) and applies it. */
+  async reloadAppearance() {
+    const { region, data } = await loadPreparedRegion(this.host.pageUrl ?? location.href, this.host.fetch ?? fetch);
+    if (region.id !== this.region.id) throw new Error(`Published region ${region.id} is not the loaded ${this.region.id}`);
+    const report = await this.applyAppearance(data);
+    this.published = data;
+    return report;
+  }
+
+  /** Returns to the published appearance after live patches, without fetching anything. */
+  restoreAppearance() { return this.applyAppearance(this.published); }
+
+  /**
+   * Replaces materials, textures and asset models without touching physics, collision cells, ground queries,
+   * lighting data or the camera. Rejects any other difference (appearanceChanges). Unchanged asset roots and
+   * textures are reused, not fetched or decoded again; the prepared material batches are rebuilt from `next`.
+   * New inputs load before the drawn model is released, so a failed download leaves the old appearance in place.
+   */
+  applyAppearance(next: PreparedScene) {
+    const run = this.updating.then(() => this.replaceAppearance(next));
+    this.updating = run.catch(() => {});
+    return run;
+  }
+
+  private async replaceAppearance(next: PreparedScene) {
+    if (this.disposed) throw new Error('The prepared scene has been released');
+    const started = performance.now(), host = this.host;
+    const changes = appearanceChanges(this.data, next);
+    if (!changes.materials.length && !changes.assets.length && !changes.uvMeshes && next.release === this.data.release) {
+      // Nothing visible changed (a reload of the scene already drawn, a restore without patches): keep every GPU object.
+      this.data = next;
+      return { ...changes, release: next.release, reusedAssets: this.assets.length, loadedAssets: 0, loadedTextures: 0, loadMs: 0,
+        totalMs: Math.round(performance.now() - started) };
+    }
+    const fresh = await loadPreparedTextures(next, this.url, host.fetch ?? fetch, undefined,
+      bytes => new Promise((resolve, reject) => sharedKtx(host.renderer).parse(bytes, resolve, reject)), this.textures);
+    const kept: LoadedAsset[] = [], loaded: LoadedAsset[] = [], staging = new THREE.Group();
+    for (const row of next.assets) {
+      const old = this.assets.find(asset => sameAsset(asset.row, row));
+      if (old) kept.push({ ...old, row });
+    }
+    const textures = new Map([...this.textures, ...fresh]), used = sceneTextureKeys(next);
+    let model: THREE.Group;
+    try {
+      await this.loadAssets(next.assets.filter(row => !kept.some(asset => asset.row === row)), loaded, staging);
+      model = buildPreparedModel(next, textures);
+    } catch (error) {
+      disposeVisual(staging, loaded.map(asset => asset.root), fresh.values());
+      throw error;
+    }
+    const loadedMs = performance.now() - started;
+    // Release the drawn appearance: styling, static batches and preparation records return their source meshes.
+    const id = this.entryId(), old = this.model, entry = this.entries.get(id)!;
+    host.untrackModel?.(old, id);
+    for (const asset of this.assets) host.releaseAsset?.(asset.root, asset.recipe);
+    host.unstyle?.(old);
+    old.removeFromParent();
+    const dropped = this.assets.filter(asset => !kept.some(k => k.root === asset.root));
+    for (const asset of [...kept, ...loaded]) model.add(asset.root);
+    this.assets = [...kept, ...loaded];
+    this.model = model; this.data = next;
+    const keep = new Set([...textures].filter(([key]) => used.has(key)).map(([, texture]) => texture));
+    const unused = [...textures].filter(([key]) => !used.has(key)).map(([, texture]) => texture);
+    this.textures = new Map([...textures].filter(([key]) => used.has(key)));
+    const release = () => disposeVisual(old, dropped.map(asset => asset.root), unused, keep);
+    if (host.retire) host.retire(release); else release();
+    // Same order as start(): styling, asset recipes, then GPU preparation before the model is drawn.
+    await host.style?.(model);
+    for (const asset of this.assets) await host.prepareAsset?.(asset.root, asset.recipe);
+    await host.prepareGraphics?.(model);
+    entry.model = model; entry.visualHash = next.release;
+    host.manifest.code = next.release;
+    host.scene.add(model); host.trackModel?.(model, id);
+    this.status = `${next.id} · ${next.meshes.length} prepared meshes · appearance ${next.release.slice(0, 12)}`;
+    return { ...changes, release: next.release, reusedAssets: kept.length, loadedAssets: loaded.length,
+      loadedTextures: fresh.size, loadMs: Math.round(loadedMs), totalMs: Math.round(performance.now() - started) };
   }
 
   preload(_points: readonly { x: number; z: number }[], _radius: number, _boot = false, _view?: unknown) { return () => {}; }
@@ -175,24 +300,8 @@ export class PreparedWorld {
     this.entries.clear();
     for (const asset of this.assets) this.host.releaseAsset?.(asset.root, asset.recipe);
     this.host.unstyle?.(this.model);
-    const release = () => {
-      const textures = new Set(this.nativeTextures), geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
-      this.model.traverse(o => {
-        if (!(o instanceof THREE.Mesh)) return;
-        disposeDraw(o); geometries.add(o.geometry);
-        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-          materials.add(m);
-          for (const value of Object.values(m)) if (value instanceof THREE.Texture) textures.add(value);
-        }
-      });
-      for (const geometry of geometries) releaseGeometry(geometry);
-      for (const material of materials) material.dispose();
-      // GLTF roots own shared KTX leases. Releasing a scene must not dispose another live owner's texture.
-      for (const asset of this.assets) releaseModelTextures(asset.root, new Set());
-      releaseModelTextures(this.model, textures);
-      closePreparedImages(this.nativeTextures);
-      this.assets.length = 0; this.nativeTextures.clear();
-    };
+    const model = this.model, roots = this.assets.map(asset => asset.root), textures = [...this.textures.values()];
+    const release = () => { disposeVisual(model, roots, textures); this.assets.length = 0; this.textures.clear(); };
     if (this.host.retire) this.host.retire(release); else release();
   }
 }

@@ -4,7 +4,7 @@ import { parseParams } from '../../src/core/params';
 import streetCameras from '../../src/qa/street-cameras.json';
 
 describe('street camera bench pose', () => {
-  it('converts every listed camera to its QA pose with the COMMON.md transform', () => {
+  it('converts every listed camera to its QA pose with the docs/specs/coordinates.md transform', () => {
     for (const c of streetCameras.cameras) {
       const pose = benchPose(c.id, null);
       expect(pose.qa.E).toBeCloseTo(c.pos[0] + 23459500, 6);

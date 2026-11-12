@@ -1,6 +1,5 @@
 """Small reference-registered promenade finish; no repeating invented street grid."""
 from __future__ import annotations
-import argparse
 from copy import deepcopy
 import hashlib
 import json
@@ -8,8 +7,6 @@ from pathlib import Path
 import numpy as np
 import shapely
 from .surface_inlays import drape
-from .compile import release_hash
-from .schema import validate_scene
 
 # Positions are authored estimates from two registered 2019 views, with the
 # permanent asphalt/sett/drain arrangement corroborated in 2023/2024 photographs.
@@ -69,23 +66,6 @@ def append_finish(scene,layout=LAYOUT):
     scene['sources'].append(dict(id=layout['id'],sha256=hashlib.sha256(raw).hexdigest(),kind='reference-registered-surface-layout',uncertaintyM=layout['uncertaintyM']))
     scene['sources'].append(dict(id=layout['id']+':producer',sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),kind='surface-finish-producer',uncertaintyM=layout['uncertaintyM']))
     scene['coverage']['entityIds']=sorted(set(scene['coverage']['entityIds'])|{m['entityId'] for m in scene['meshes'] if m['entityId'].startswith(layout['id'])})
-    scene['release']=release_hash(scene);validate_scene(scene)
-    return dict(layout=layout,receipts=receipts,sourceRelease=scene['release'])
+    # compile_scene seals and validates the complete scene after its remaining stages.
+    return dict(layout=layout,receipts=receipts)
 
-
-def main():
-    p=argparse.ArgumentParser();p.add_argument('scene',type=Path);p.add_argument('output',type=Path);args=p.parse_args()
-    scene=json.loads(args.scene.read_text());before=deepcopy(scene);receipt=append_finish(scene)
-    for name in ('supports','boundaries','collision','fixtures','emitters','assets','spawn','lightOccluders'):
-        if scene[name]!=before[name]:raise AssertionError('Changed canonical '+name)
-    if scene['meshes'][:len(before['meshes'])]!=before['meshes']:raise AssertionError('Changed original mesh/light fields')
-    args.output.mkdir(parents=True,exist_ok=True)
-    for row in scene['collision'].values():
-        raw=(args.scene.parent/row['url']).read_bytes()
-        if hashlib.sha256(raw).hexdigest()!=row['sha256']:raise ValueError('Source collision hash mismatch')
-        (args.output/row['url']).write_bytes(raw)
-    (args.output/(scene['id']+'.scene.json')).write_text(json.dumps(scene,separators=(',',':'))+'\n')
-    receipt.update(inputRelease=before['release'],preservedMeshCount=len(before['meshes']),addedMeshes=len(scene['meshes'])-len(before['meshes']),collisionFiles=len(scene['collision']))
-    (args.output/'finish-audit.json').write_text(json.dumps(receipt,indent=2));print(json.dumps({k:receipt[k] for k in ('sourceRelease','inputRelease','preservedMeshCount','addedMeshes','collisionFiles')}))
-
-if __name__=='__main__':main()
