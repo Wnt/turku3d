@@ -5,6 +5,18 @@
 # (Google Street View, Apple Look Around, Mapillary, Bing Streetside) can never be listed.
 
 [[images]]
+path = "game/public/scenes/shared/a65d4930f3119fde336f3e9b0dc29b194c800e3e8237ddfaf8f89c1cc457c2df.png"
+source = "Original procedural C1 sign atlas from pipeline/turku3d/scene/signs.py; proportions follow published Traficom C1 dimensions, no source pixels"
+licence = "CC0-1.0 (original generated drawing)"
+reason = "Registered C1 plate on prepared sign geometry"
+
+[[images]]
+path = "game/public/scenes/shared/2d41a1b49c8d08935ce74e99580e47dacf5ae9c4782c6bf034310f5ad3fd80fe.png"
+source = "Existing original procedural E2 sign atlas from pipeline/turku3d/props/models.py"
+licence = "CC0-1.0 (original generated drawing)"
+reason = "Retained registered E2 sign face"
+
+[[images]]
 path = "docs/reports/lidar-relief-map.jpg"
 source = "City of Turku 2021 lidar relief over the 2022 true orthophoto"
 licence = "CC BY 4.0, © City of Turku"
