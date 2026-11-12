@@ -59,8 +59,8 @@ record mapped placement provenance; family dimensions remain inferred priors.
 
 The current pilot retains 17 published building assets and the published asphalt,
 slab and quay PBR maps. Furniture is emitted only with a resolved support and
-whole-base height checks. The upper retaining wall, fixture family association,
-vegetation and distant context are tracked separately from these completed inputs.
+whole-base height checks. Fixture family associations retain their evidence
+confidence; mapped position alone does not establish a family.
 
 ```
 source ../sandbox.env
@@ -97,4 +97,36 @@ not a substitute for the deployed walking and driving playtest.
 ```
 bash pipeline/env/run.sh python -m turku3d.scene.audit \
   game/public/scenes/office.scene.json --cache "$TURKU3D_WORK/evidence"
+```
+
+## Measured upper retaining walls
+
+Optional mesh `boundaryIds` names explicit edges used by the mesh. A vertical
+retaining face has `supportId:null`, solid collision, and the same two boundary
+IDs referenced by its upper and lower support polygons. Boundary identities
+include elevation: the two levels at one plan edge remain distinct.
+
+The small office survey reads WFS `kanta_Rakenne` code 66634 and raw last-return
+lidar classes 2/12. Three measured runs cover the western wall, its adjoining
+ramped wall and the next eastern ledge. The sustained western section has lower
+levels around 1.23 m and upper levels around 3.61 m N2000. Its two-metre aprons
+meet the unchanged terrain at shared rails. The final station of each supported
+run closes to existing terrain; this terminal transition is inferred, rather than
+a surveyed wall endpoint. No wall, barrier or height is added outside the source
+run. Near the eastern ledge, two missing lower-walk knots use the independent
+wall's measured lower level. Unsupported knots elsewhere remain unsupported.
+
+The continuous riverside strip owns its paving where an access connector's wider
+survey captured an upper landing. This prevents isolated upper-height triangles
+from punching through the lower walkway. Actual ramps along the riverside strip
+retain their measured longitudinal slope. Three of the four collision cells
+change; the fourth remains byte-identical. The bounded audit additionally checks
+all 115 retaining faces against both shared support edges.
+
+The source survey can be reproduced with owned work/cache directories and
+read-only shared raw data (use the host admission wrapper for lidar decoding):
+
+```
+python -m turku3d.scene.survey_retaining \
+  --bounds 140 240 215 285 --output "$TURKU3D_WORK/evidence/retaining.pkl"
 ```

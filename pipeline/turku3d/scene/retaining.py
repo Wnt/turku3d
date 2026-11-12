@@ -9,6 +9,36 @@ import numpy as np
 import shapely
 
 
+def shore_walks(walks, water, records):
+    """Only the measured riverside strip owns the continuous lower paving.
+
+    Crossing access ways can carry upper-landing fits. Their wider survey windows
+    must not punch those heights through an otherwise supported lower quay.
+    Missing strip knots are filled only by a nearby independent raw wall survey.
+    """
+    result = []
+    for patch in walks:
+        if np.nanmedian(patch["heights"][:,3]) >= 2:
+            continue
+        knots = shapely.line_interpolate_point(patch["line"], patch["knots"])
+        if not water.is_empty and np.median(shapely.distance(knots, water)) > 2:
+            continue
+        patch = dict(patch, heights=patch["heights"].copy())
+        for index in np.flatnonzero(~np.isfinite(patch["heights"][:,3])):
+            candidates = [(line.distance(knots[index]), line, tags["_survey"]) for line,tags,_ in records]
+            if not candidates:
+                continue
+            distance, line, profile = min(candidates, key=lambda item:item[0])
+            if distance > 3:
+                continue
+            centres=np.asarray(profile["centres"])
+            station=np.r_[0,np.cumsum(np.linalg.norm(np.diff(centres,axis=0),axis=1))]
+            level=np.interp(line.project(knots[index]),station,np.min(profile["heights"],axis=1))
+            patch["heights"][index,2:5]=level
+        result.append(patch)
+    return result
+
+
 class RetainingField:
     def __init__(self, records, sample, dry):
         self.planes = []
@@ -44,6 +74,7 @@ class RetainingField:
                             continue
                         coefficient = np.linalg.solve(np.c_[vertices, np.ones(3)], y[ids])
                         self.planes.append((polygon, coefficient))
+        self.tree = shapely.STRtree([polygon for polygon,_ in self.planes])
 
     @property
     def boundaries(self):
@@ -51,7 +82,8 @@ class RetainingField:
 
     def owner(self, polygon):
         point = polygon.representative_point()
-        return next((coefficient for region, coefficient in self.planes if region.covers(point)), None)
+        hits = self.tree.query(point, predicate="intersects")
+        return self.planes[int(min(hits))][1] if len(hits) else None
 
     def height(self, xz, base, owner=None):
         xz = np.asarray(xz, float)
@@ -61,11 +93,12 @@ class RetainingField:
         y = np.array(base, copy=True)
         # Also constrain neighbouring ground vertices on the apron rails. This
         # is essential: sampling the old terrain independently would reopen seams.
-        assigned = np.zeros(len(xz), bool)
-        for region, coefficient in self.planes:
-            take = ~assigned & shapely.intersects_xy(region.buffer(2e-5), xz[:,0], xz[:,1])
-            y[take] = xy1[take] @ coefficient
-            assigned |= take
+        points, polygons = self.tree.query(shapely.points(xz), predicate="dwithin", distance=2e-5)
+        # Stable source order resolves the two sides only for a free query exactly
+        # on a vertical edge. Owned support polygons always select their own side.
+        for index in np.argsort(polygons)[::-1]:
+            point, polygon = int(points[index]), int(polygons[index])
+            y[point] = xy1[point] @ self.planes[polygon][1]
         return y
 
     def wall_meshes(self, boundaries):

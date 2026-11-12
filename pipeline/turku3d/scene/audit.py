@@ -54,9 +54,24 @@ def audit(path,cache=None):
             if mesh['collision']!='solid' or mesh.get('render',True):raise ValueError('Trunk collider policy mismatch')
             point=np.asarray(fixture['position']);hit=query([point[[0,2]]],reference=[point[1]])[0]
             if abs(hit-point[1])>.002:raise ValueError('Unsupported trunk base')
+    boundaries={b['id']:b for b in s['boundaries']}
+    support_edges={key for support in s['supports'] for key in support['boundaryIds']}
+    retaining_faces=0
+    for mesh in s['meshes']:
+        if not mesh['id'].startswith('retaining:'):
+            continue
+        retaining_faces+=1
+        edges=mesh.get('boundaryIds',[])
+        if len(edges)!=2 or not set(edges)<=support_edges or mesh['collision']!='solid':
+            raise ValueError('Retaining face does not own both solid support edges')
+        vertices=np.asarray(mesh['positions']).reshape(-1,3)
+        for key in edges:
+            for point in boundaries[key]['positions']:
+                if np.min(np.linalg.norm(vertices-point,axis=1))>1e-7:
+                    raise ValueError('Retaining face separates from its shared boundary')
     report=dict(release=s['release'],supportSamples=len(samples),maxContactErrorM=float(errors.max()),
                 assets=len(s['assets']),imageDependencies=dependency_count,fixtures=len(s['fixtures']),
-                solidTreeTrunks=trunk_count,collisionTriangles=len(collision.indices))
+                solidTreeTrunks=trunk_count,collisionTriangles=len(collision.indices),retainingFaces=retaining_faces)
     if cache:
         from .compile import load_evidence
         _,buildings,_,water,*_=load_evidence(Path(cache),s['bounds'])

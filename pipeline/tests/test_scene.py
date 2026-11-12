@@ -94,6 +94,30 @@ class SemanticSceneTests(unittest.TestCase):
         broken=copy.deepcopy(s);broken['meshes'][0]['boundaryIds']=['missing']
         with self.assertRaises(ValueError):validate_scene(broken)
 
+    def test_upper_connector_does_not_punch_through_lower_quay(self):
+        from turku3d.scene.fixtures import support_query
+        s=self.scene()
+        for material in ('quay','quay-wall','water'):
+            s['materials'].append(dict(id=material,color=[.3,.3,.3],roughness=.9,metalness=0))
+        points=np.array([[x,3.6,z] for x in range(-1,12) for z in range(-1,12)])
+        lower=dict(key='lower',line=shapely.LineString([[0,7],[10,7]]),width=2.,knots=np.array([0.,10.]),
+                   cross=np.array([-7.,-4.,-1.,0.,1.,4.,7.]),heights=np.full((2,7),1.2))
+        connector=dict(lower,key='connector',line=shapely.LineString([[5,3],[5,7]]),knots=np.array([0.,4.]),heights=np.full((2,7),3.6))
+        ground_scene(s,points,[],[],[shapely.box(0,8,10,10)],[lower,connector])
+        query=support_query(s)
+        for z in (6.1,6.5,6.9,7.5):self.assertAlmostEqual(query(5,z)[1],1.2,6)
+
+    def test_missing_quay_knot_requires_independent_wall_support(self):
+        from turku3d.scene.retaining import shore_walks
+        centres=np.array([[0.,5.],[5.,5.],[10.,5.]])
+        heights=np.full((3,7),1.2);heights[1,2:5]=np.nan
+        walk=dict(key='quay',line=shapely.LineString(centres+[0,1]),width=2.,knots=np.array([0.,5.,10.]),heights=heights)
+        wall=(shapely.LineString(centres),dict(_survey=dict(centres=centres,heights=np.tile([1.25,3.6],(3,1)))),False)
+        water=shapely.box(-1,7,11,12)
+        self.assertTrue(np.isnan(shore_walks([walk],water,[])[0]['heights'][1,3]))
+        self.assertEqual(shore_walks([walk],water,[wall])[0]['heights'][1,3],1.25)
+        self.assertTrue(np.isnan(walk['heights'][1,3]))
+
 
 class ContextClipTests(unittest.TestCase):
     def test_context_excludes_playable_ground_and_interpolates_baked_color(self):
