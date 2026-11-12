@@ -95,8 +95,9 @@ export function aggregate(runs, items, groups = [], aims = []) {
     .map(([k, l]) => [k, overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(l, c)])))]));
   // Means per group (a location, an area type) and per aim (building-targeted or along-street views).
   const by = labels => Object.fromEntries([...new Set(labels)].filter(g => g != null).map(g => {
-    const list = views.filter((_, i) => labels[i] === g), m = Object.fromEntries(CATEGORIES.map(c => [c, round(meanOver(list, c))]));
-    return [g, { views: list.length, overall: overallOf(m), means: m }];
+    const pick = l => l.filter((_, i) => labels[i] === g), list = pick(views), m = Object.fromEntries(CATEGORIES.map(c => [c, round(meanOver(list, c))]));
+    const per = runs.map(r => overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(pick(r.views), c)]))));
+    return [g, { views: list.length, overall: overallOf(m), spread: round(Math.max(...per) - Math.min(...per), 1), repeats: per, means: m }];
   }));
   return { views, means, overall: overallOf(means), byKind: kinds, byGroup: by(groups), byAim: by(aims), repeats: each, spread: round(Math.max(...each) - Math.min(...each), 1),
     summaries: runs.map(r => r.summary) };
@@ -117,8 +118,8 @@ export function groupText(rows, field = 'byGroup') {
   const names = Object.keys(last?.[field] ?? {});
   if (names.length < 2) return '';
   const lines = names.map(g => { const a = last[field][g], b = before?.[field]?.[g];
-    return [g, String(a.views), a.overall.toFixed(1), b ? (a.overall - b.overall >= 0 ? '+' : '') + (a.overall - b.overall).toFixed(1) : '', ...CATEGORIES.map(c => a.means[c].toFixed(1))]; });
-  const head = [`#${last.iteration} by ${field.slice(2).toLowerCase()}`, 'views', 'overall', 'Δ', ...CATEGORIES.map(c => c.slice(0, 5))];
+    return [g, String(a.views), a.overall.toFixed(1), a.spread?.toFixed(1) ?? '', b ? (a.overall - b.overall >= 0 ? '+' : '') + (a.overall - b.overall).toFixed(1) : '', ...CATEGORIES.map(c => a.means[c].toFixed(1))]; });
+  const head = [`#${last.iteration} by ${field.slice(2).toLowerCase()}`, 'views', 'overall', '±', 'Δ', ...CATEGORIES.map(c => c.slice(0, 5))];
   const width = head.map((h, k) => Math.max(h.length, ...lines.map(l => l[k].length)));
   return [head, ...lines].map(l => l.map((x, k) => k ? x.padStart(width[k]) : x.padEnd(width[k])).join('  ')).join('\n');
 }
@@ -142,8 +143,8 @@ export function reportHtml(rows, title) {
 <table><tr><th>#</th><th class="l">date</th><th class="l">label</th><th>overall</th><th>±</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}<th class="l">build</th></tr>
 ${rows.map(r => `<tr><td>${r.iteration}</td><td class="l">${esc(r.at.slice(0, 16).replace('T', ' '))}</td><td class="l">${esc(r.label)}</td><td><b>${r.overall.toFixed(1)}</b></td><td>${r.spread.toFixed(1)}</td>${CATEGORIES.map(c => `<td>${r.means[c].toFixed(1)}</td>`).join('')}<td class="l">${esc(`${r.git.sha.slice(0, 8)}${r.git.dirty ? '+' : ''} ${r.captures.map(c => c.release ?? '').filter(Boolean)[0]?.slice(0, 8) ?? ''}`)}</td></tr>`).join('\n')}</table>
 ${last ? `<h2>Latest: #${last.iteration} ${esc(last.label)}</h2><p>${last.summaries.map(esc).join('</p><p>')}</p>
-${['byAim', 'byGroup'].filter(f => Object.keys(last[f] ?? {}).length > 1).map(f => `<table><tr><th class="l">${f.slice(2).toLowerCase()}</th><th>views</th><th>overall</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}</tr>
-${Object.entries(last[f]).map(([g, a]) => `<tr><td class="l">${esc(g)}</td><td>${a.views}</td><td><b>${a.overall.toFixed(1)}</b></td>${CATEGORIES.map(c => `<td>${a.means[c].toFixed(1)}</td>`).join('')}</tr>`).join('\n')}</table>`).join('\n')}
+${['byAim', 'byGroup'].filter(f => Object.keys(last[f] ?? {}).length > 1).map(f => `<table><tr><th class="l">${f.slice(2).toLowerCase()}</th><th>views</th><th>overall</th><th>±</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}</tr>
+${Object.entries(last[f]).map(([g, a]) => `<tr><td class="l">${esc(g)}</td><td>${a.views}</td><td><b>${a.overall.toFixed(1)}</b></td><td>${a.spread?.toFixed(1) ?? ''}</td>${CATEGORIES.map(c => `<td>${a.means[c].toFixed(1)}</td>`).join('')}</tr>`).join('\n')}</table>`).join('\n')}
 <table><tr><th class="l">view</th><th class="l">category</th><th>sev</th><th class="l">what</th><th class="l">fix</th></tr>
 ${issues.map(i => `<tr><td class="l">${esc(i.view)}</td><td class="l">${esc(i.category)}</td><td>${i.severity}</td><td class="l">${esc(i.what)} (${esc(i.where)})</td><td class="l">${esc(i.fix)}</td></tr>`).join('\n')}</table>` : ''}\n`;
 }

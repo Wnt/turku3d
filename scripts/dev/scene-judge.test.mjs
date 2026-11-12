@@ -90,7 +90,7 @@ test('a large set is judged in equal packets, and views carry their aim', async 
   const set = [{ dir: '/c/dev', manifest: { mode: 'render', views: [{ ...view('dev-01-b', 'dev_01'), group: 'houses', aim: 'building' },
     { ...view('dev-01-s', 'dev_01_street'), group: 'houses', aim: 'street' }] } }];
   const { items, key } = buildItems(set);
-  const result = aggregate([answer(items, i => i.id === 'p01' ? 2 : 6)], items, key.map(k => k.group), key.map(k => k.aim));
-  assert.deepEqual(Object.fromEntries(Object.entries(result.byAim).map(([k, v]) => [k, v.overall])), { building: 20, street: 60 });
+  const result = aggregate([answer(items, i => i.id === 'p01' ? 2 : 6), answer(items, i => i.id === 'p01' ? 4 : 6)], items, key.map(k => k.group), key.map(k => k.aim));
+  assert.deepEqual(Object.fromEntries(Object.entries(result.byAim).map(([k, v]) => [k, [v.overall, v.spread]])), { building: [30, 20], street: [60, 0] });
   assert.deepEqual(Object.keys(result.byGroup), ['houses']);
 });

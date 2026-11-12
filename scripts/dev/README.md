@@ -106,8 +106,8 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - `record --run DIR --views SUBSET.json --label TEXT` scores the subset from a finished run of the larger set
     without judging again (the row says `judgedWith`). The subset's baseline row was made this way.
   - `--capture DIR` without `--views` takes the view set, and so the history, from the capture.
-- **Per group and per aim:** `report` also prints the latest iteration per group and per aim, with the change from
-  the one before.
+- **Per group and per aim:** `report` also prints the latest iteration per group and per aim, with the spread
+  between the repeats and the change from the one before.
   - A view's group is its `group` in the views file (the area type of a random street set), else its id without the
     number (a pilot location).
   - Its `aim` is `building` or `street`: what the camera was pointed at.
