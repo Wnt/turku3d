@@ -5,8 +5,10 @@ import { loadGlb } from './loadGlb';
 import { sharedKtx } from './loadingKtx';
 import { textureUploads } from '../render/textureUploads';
 import { modelGpuBytes, rendererResidency } from './gpuBytes';
+import { disposeDraw } from '../render/sharedMaterials';
+import { releaseGeometry } from './modelGeometry';
 import { releaseModelTextures } from './sharedAssets';
-import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, type PreparedScene } from './preparedScene';
+import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, type PreparedScene } from './preparedScene';
 import { GroundIndex } from './groundIndex';
 import { decoderReady, readColSync } from '../physics/colTile';
 import type { CoarseHost, Entry } from './coarseContracts';
@@ -67,9 +69,12 @@ export class PreparedWorld {
     }));
     const textures = await loadPreparedTextures(data, url, fetcher, undefined,
       bytes => new Promise((resolve, reject) => sharedKtx(host.renderer).parse(bytes, resolve, reject)));
-    const model = buildPreparedModel(data, textures), world = new PreparedWorld(host, data, url, model, new Set(textures.values()));
+    let model: THREE.Group;
+    try { model = buildPreparedModel(data, textures); }
+    catch (error) { disposePreparedTextures(textures.values()); throw error; }
+    const world = new PreparedWorld(host, data, url, model, new Set(textures.values()));
     try {
-      const loader = data.assets.length ? new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
+      const loader = data.assets.length && !host.loadModel ? new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
         .setKTX2Loader(sharedKtx(host.renderer)).setMeshoptDecoder(MeshoptDecoder) : null;
       if (loader) MeshoptDecoder.useWorkers(2);
       for (let i = 0; i < data.assets.length; i += 4) {
@@ -161,19 +166,22 @@ export class PreparedWorld {
     for (const asset of this.assets) this.host.releaseAsset?.(asset.root, asset.recipe);
     this.host.unstyle?.(this.model);
     const release = () => {
-      const textures = new Set<THREE.Texture>();
+      const textures = new Set(this.nativeTextures), geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
       this.model.traverse(o => {
-      if (!(o instanceof THREE.Mesh)) return;
-      o.geometry.dispose();
-      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
-        for (const value of Object.values(m)) if (value instanceof THREE.Texture) textures.add(value);
-        m.dispose();
-      }
+        if (!(o instanceof THREE.Mesh)) return;
+        disposeDraw(o); geometries.add(o.geometry);
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          materials.add(m);
+          for (const value of Object.values(m)) if (value instanceof THREE.Texture) textures.add(value);
+        }
       });
-      // Asset texture ownership was registered by the shared GLTF uploader. Native image maps are owned here.
+      for (const geometry of geometries) releaseGeometry(geometry);
+      for (const material of materials) material.dispose();
+      // GLTF roots own shared KTX leases. Releasing a scene must not dispose another live owner's texture.
       for (const asset of this.assets) releaseModelTextures(asset.root, new Set());
-      releaseModelTextures(this.model, new Set([...textures].filter(texture => !this.nativeTextures.has(texture))));
-      disposePreparedTextures(this.nativeTextures);
+      releaseModelTextures(this.model, textures);
+      closePreparedImages(this.nativeTextures);
+      this.assets.length = 0; this.nativeTextures.clear();
     };
     if (this.host.retire) this.host.retire(release); else release();
   }

@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import type Node from 'three/src/nodes/core/Node.js';
 import type { GLTFLoaderPlugin } from 'three/addons/loaders/GLTFLoader.js';
 import { UploadBudget } from './uploadBudget';
-import { shareModelTextures } from '../world/sharedAssets';
+import { releaseModelTextures, shareModelTextures } from '../world/sharedAssets';
 import { guardReleasedTextures } from '../world/loadingKtx';
 import { afterStreamingTurn } from './preparationBudget';
 import { streamTrace } from '../telemetry/streamTrace';
@@ -130,7 +130,21 @@ class TextureUploads {
     return { name: 'TURKU_texture_upload_budget', afterRoot: async result => {
       shareModelTextures(result.scene);
       const started = streamTrace.on ? performance.now() : 0, textures = [...modelTextures(result.scene)];
-      await Promise.all(textures.map(texture => this.enqueue(texture)));
+      // A failed upload must wait for its siblings before disposing their source resources.
+      const results = await Promise.allSettled(textures.map(texture => this.enqueue(texture)));
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure?.status === 'rejected') {
+        const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>();
+        result.scene.traverse(o => {
+          if (!(o instanceof THREE.Mesh)) return;
+          geometries.add(o.geometry);
+          for (const material of Array.isArray(o.material) ? o.material : [o.material]) materials.add(material);
+        });
+        for (const geometry of geometries) geometry.dispose();
+        for (const material of materials) material.dispose();
+        releaseModelTextures(result.scene, new Set(textures));
+        throw failure.reason;
+      }
       // Install traces split a model read into decode/parse and this budgeted texture upload wait.
       if (streamTrace.on) result.scene.userData.textureUpload = { ms: performance.now() - started, textures: textures.length };
     } };

@@ -389,7 +389,10 @@ async function prepareObjects(model: THREE.Object3D, objects: readonly THREE.Obj
 const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: PreparationPriority = 'tile', order?: PreparationOrder) => {
   const parts = preparationParts(model);
   if (parts.length === 1) return queueGraphics(model, () => prepareObjects(model, [model], signal), signal, priority, order);
-  return Promise.all(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority, order))).then(() => {});
+  return Promise.allSettled(parts.map(part => queueGraphics(part[0], () => prepareObjects(model, part, signal), signal, priority, order))).then(results => {
+    const error = results.find(result => result.status === 'rejected');
+    if (error?.status === 'rejected') throw error.reason;
+  });
 };
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
@@ -704,7 +707,7 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
     style: m => materials?.applyAsync(m),
     prepareAsset: async (m, recipe) => { if (recipe === 'vegetation') await vegetation?.addAsync(m); },
     releaseAsset: (m, recipe) => { if (recipe === 'vegetation') vegetation?.remove(m); },
-    unstyle: m => materials?.release(m),
+    unstyle: m => { graphics.forget(m); tiles.releasePreparedModel(m); materials?.release(m); },
     trackModel: (m, id) => { tiles.trackModel(m, id); rain?.exposure.add(m); },
     untrackModel: (m, id) => { rain?.exposure.remove(m); tiles.untrackModel(m, id); },
     retire: release => graphics.retire(release),

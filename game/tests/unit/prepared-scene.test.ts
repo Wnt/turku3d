@@ -28,7 +28,7 @@ describe('prepared scene contract', () => {
   });
   it('rejects missing collision integrity and spawns outside the owned bounds', () => {
     const s = scene(); s.collision.c_0_0.sha256 = ''; expect(() => readPreparedScene(s)).toThrow('collision');
-    const p = scene(); p.spawn.vehicle.position[0] = 11; expect(() => readPreparedScene(p)).toThrow('spawn outside');
+    const p = scene(); p.spawn.vehicle.position[0] = 10; expect(() => readPreparedScene(p)).toThrow('spawn outside');
   });
   it('uploads material batches with original indices, UV scale, normals, color and entity ownership', () => {
     const s = scene(); s.meshes.push({ ...s.meshes[0], id: 'paving2', entityId: 'street2' }); s.coverage.entityIds.push('street2');

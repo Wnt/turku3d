@@ -51,3 +51,22 @@ test('corrupt prepared collision never publishes a model or collision entry', as
   expect(host.scene.children).toHaveLength(0); expect(host.manifest.collision).toEqual({});
   expect(host.retainCollision).not.toHaveBeenCalled();
 });
+
+test('partial startup releases successfully loaded assets and untracked preparation resources', async () => {
+  const { host, scene } = fixture(), asset = new THREE.Group();
+  const geometry = new THREE.BoxGeometry(), material = new THREE.MeshStandardMaterial();
+  asset.add(new THREE.Mesh(geometry, material), new THREE.Mesh(geometry, material));
+  const geometryDispose = vi.fn(), materialDispose = vi.fn(), drawDispose = vi.fn();
+  geometry.addEventListener('dispose', geometryDispose); material.addEventListener('dispose', materialDispose);
+  asset.children[0].addEventListener('dispose' as never, drawDispose);
+  const bytes = new Uint8Array([1, 2, 3]);
+  scene.assets.push({ id: 'asset', entityId: 'asset', recipe: 'building', url: 'building.glb', position: [0, 0, 0], sha256: createHash('sha256').update(bytes).digest('hex') });
+  const fetcher = host.fetch!;
+  host.fetch = (async input => String(input).endsWith('.glb') ? new Response(bytes) : fetcher(input)) as typeof fetch;
+  host.loadModel = async () => asset; host.prepareGraphics = async () => { throw new Error('GPU preparation failed'); };
+  host.unstyle = vi.fn(); host.releaseAsset = vi.fn();
+  await expect(PreparedWorld.start(host)).rejects.toThrow('GPU preparation failed');
+  expect(host.unstyle).toHaveBeenCalledOnce(); expect(host.releaseAsset).toHaveBeenCalledWith(asset, 'building');
+  expect(geometryDispose).toHaveBeenCalledOnce(); expect(materialDispose).toHaveBeenCalledOnce(); expect(drawDispose).toHaveBeenCalledOnce();
+  expect(host.scene.children).toHaveLength(0); expect(host.manifest.collision).toEqual({});
+});

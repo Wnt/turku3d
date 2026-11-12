@@ -108,6 +108,16 @@ export class GraphicsPreparation {
     return Promise.race([done, abort.promise]).finally(abort.off);
   }
 
+  /** A failed or released model must not stay alive through startup backfill callbacks. */
+  forget(model: THREE.Object3D) {
+    for (const object of this.skipped.keys()) {
+      for (let parent: THREE.Object3D | null = object; parent; parent = parent.parent) {
+        if (parent !== model) continue;
+        this.skipped.delete(object); break;
+      }
+    }
+  }
+
   /** The next job: an aborted or dropped job first (it leaves at once), then a job that has gone behind higher lanes
    *  for MAX_DEFER_MS (never two in a row), else the lowest rank of the highest lane, ties in arrival order. */
   private take(): Queued | undefined {

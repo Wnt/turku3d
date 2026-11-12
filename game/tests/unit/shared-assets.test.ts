@@ -216,3 +216,15 @@ test('an encoded fetch failure is retryable and a synchronous parser failure rej
     expect(fetch).toHaveBeenCalledTimes(2); // successful source fetch remains reusable after a parse failure
   } finally { fetch.mockRestore(); parse.mockRestore(); }
 });
+
+test('prepared scene KTX and external buffers reuse content identities across asset roots', async () => {
+  const key = `${'7'.repeat(64)}.ktx2`, root = `https://city.lab.madekivi.fi/scenes/shared/${key}`;
+  expect(sharedAssetKey(root)).toBe(key);
+  expect(sharedAssetKey(root.replace('.ktx2', '.bin'))).toBe(key.replace('.ktx2', '.bin'));
+  expect(sharedAssetKey('/scenes/shared/mutable.ktx2')).toBeUndefined();
+  const template = new THREE.CompressedTexture([{ data: new Uint8Array(8), width: 4, height: 4 }], 4, 4), load = mockKtx(template);
+  try {
+    const loader = new LoadingKtx(), [a, b] = await Promise.all([loader.loadAsync(root), loader.loadAsync(root.replace('/shared/', '/buildings/../shared/'))]);
+    expect(load).toHaveBeenCalledOnce(); expect(a.source).toBe(b.source);
+  } finally { load.mockRestore(); }
+});

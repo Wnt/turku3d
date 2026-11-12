@@ -267,3 +267,12 @@ test('aged lower-lane jobs take every other turn, never all of them before the t
     expect(events).toEqual(['head', 'scenery-0', 'tile-0', 'scenery-1', 'tile-1', 'scenery-2', 'tile-2']);
   } finally { vi.restoreAllMocks(); }
 });
+
+test('a failed prepared root drops deferred callbacks for itself and its detached children', async () => {
+  const scene = new THREE.Scene(), root = new THREE.Group(), child = new THREE.Group(), live = new THREE.Group();
+  root.add(child); scene.add(root, live);
+  const queue = new GraphicsPreparation(scene, () => {}, () => {}, async () => {}), failed = vi.fn(), kept = vi.fn();
+  queue.defer(root, failed); queue.defer(child, failed); queue.defer(live, kept);
+  root.removeFromParent(); queue.forget(root); queue.flush(() => {});
+  await turn(); expect(failed).not.toHaveBeenCalled(); expect(kept).toHaveBeenCalledOnce();
+});

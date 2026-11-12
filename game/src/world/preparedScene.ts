@@ -90,7 +90,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
   }
   const p = s.spawn;
   if (!object(p) || !vector(p.position) || !finite(p.headingDeg) || !object(p.vehicle) || !vector(p.vehicle.position) || !finite(p.vehicle.yaw)) fail('spawn');
-  for (const pos of [p.position, p.vehicle.position]) if (pos[0] < s.bounds[0] || pos[0] > s.bounds[2] || pos[2] < s.bounds[1] || pos[2] > s.bounds[3]) fail('spawn outside bounds');
+  for (const pos of [p.position, p.vehicle.position]) if (pos[0] < s.bounds[0] || pos[0] >= s.bounds[2] || pos[2] < s.bounds[1] || pos[2] >= s.bounds[3]) fail('spawn outside bounds');
   return s as PreparedScene;
 }
 
@@ -141,10 +141,15 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
 /** Texture coordinates arrive in glTF convention (top-left image origin), with physical scale already compiled. */
 export const textureKey = (t: PreparedTexture, color: boolean) => `${t.sha256}/${t.wrap}/${color ? 'srgb' : 'linear'}`;
 
-export function disposePreparedTextures(textures: Iterable<THREE.Texture>) {
+export function closePreparedImages(textures: Iterable<THREE.Texture>) {
   const images = new Set<ImageBitmap>();
-  for (const texture of new Set(textures)) { texture.dispose(); if ((texture.image as ImageBitmap | undefined)?.close) images.add(texture.image as ImageBitmap); }
+  for (const texture of textures) if ((texture.image as ImageBitmap | undefined)?.close) images.add(texture.image as ImageBitmap);
   for (const image of images) image.close();
+}
+export function disposePreparedTextures(textures: Iterable<THREE.Texture>) {
+  const unique = new Set(textures);
+  for (const texture of unique) texture.dispose();
+  closePreparedImages(unique);
 }
 
 /** Decode bounded batches before publication; albedo is sRGB, normal/ORM channels remain linear. */
