@@ -1,0 +1,208 @@
+{
+  "buildingId": "103295893K",
+  "authoredGlbSha256": "fa908a02de1d0b7265c9b470ab56c9c6584a05534bb08225a7aee2cdaadcd7d2",
+  "coordinateSystem": "engine metres; E-23459500, N2000 height, 6704500-N",
+  "confidence": "Roof plane/eave spans derived from existing authored GLB. Chimney authoring centres and tops rounded from compact LiDAR peaks (+/-0.25m); morphology visual prior. Dormers triangulated approximate panorama poses (+/-0.4m); no reference pixels or raw point samples.",
+  "cornices": [
+    {
+      "id": "office-eave-34",
+      "position": [
+        179.9225,
+        10.6778,
+        247.021
+      ],
+      "width": 7.2323,
+      "yaw": 0.5051505
+    },
+    {
+      "id": "office-eave-36",
+      "position": [
+        171.977,
+        10.6432,
+        251.537
+      ],
+      "width": 11.033,
+      "yaw": 0.5083306
+    },
+    {
+      "id": "office-eave-38",
+      "position": [
+        163.9755,
+        10.6935,
+        255.901
+      ],
+      "width": 7.1841,
+      "yaw": 0.4993254
+    }
+  ],
+  "roof": {
+    "polygon": [
+      [
+        180.886,
+        239.978
+      ],
+      [
+        147.168,
+        258.916
+      ],
+      [
+        148.92,
+        261.431
+      ],
+      [
+        149.149,
+        261.337
+      ],
+      [
+        150.252,
+        263.393
+      ],
+      [
+        159.656,
+        258.126
+      ],
+      [
+        159.771,
+        258.3
+      ],
+      [
+        160.86,
+        257.693
+      ],
+      [
+        160.822,
+        257.621
+      ],
+      [
+        167.129,
+        254.181
+      ],
+      [
+        167.158,
+        254.222
+      ],
+      [
+        176.796,
+        248.852
+      ],
+      [
+        176.758,
+        248.771
+      ],
+      [
+        183.087,
+        245.271
+      ],
+      [
+        183.116,
+        245.302
+      ],
+      [
+        184.215,
+        244.705
+      ],
+      [
+        183.895,
+        244.117
+      ],
+      [
+        183.825,
+        244.155
+      ],
+      [
+        180.886,
+        239.978
+      ]
+    ],
+    "normal": [
+      0.2285729010198346,
+      0.8834827447867707,
+      0.4089164567285238
+    ],
+    "d": 151.5699738057781
+  },
+  "chimneys": [
+    {
+      "id": "office-chimney-1",
+      "centerXZ": [
+        177.60000000000002,
+        241.85000000000002
+      ],
+      "topH": 15.75,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    },
+    {
+      "id": "office-chimney-2",
+      "centerXZ": [
+        174.10000000000002,
+        244.35000000000002
+      ],
+      "topH": 15.65,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    },
+    {
+      "id": "office-chimney-3",
+      "centerXZ": [
+        165.60000000000002,
+        248.5
+      ],
+      "topH": 15.65,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    },
+    {
+      "id": "office-chimney-4",
+      "centerXZ": [
+        160.35000000000002,
+        251.65
+      ],
+      "topH": 15.700000000000001,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    },
+    {
+      "id": "office-chimney-5",
+      "centerXZ": [
+        151.65,
+        255.3
+      ],
+      "topH": 15.3,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    },
+    {
+      "id": "office-chimney-6",
+      "centerXZ": [
+        153.35,
+        256.8
+      ],
+      "topH": 15.15,
+      "yaw": 0.50833,
+      "confidence": "compact measured roof peak; brick/metal morphology from two building views, rear pair less directly visible"
+    }
+  ],
+  "dormers": [
+    {
+      "id": "northeast",
+      "position": [
+        175.68,
+        11.03,
+        248.72
+      ],
+      "apexH": 12.6,
+      "yaw": 0.50833
+    },
+    {
+      "id": "southwest",
+      "position": [
+        168.91,
+        11.04,
+        252.46
+      ],
+      "apexH": 12.6,
+      "yaw": 0.50833
+    }
+  ]
+}
