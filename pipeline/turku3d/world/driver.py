@@ -17,6 +17,7 @@ from .frame import ORIGIN, to_engine
 from .glb import pack
 from .kinds import KINDS, code_hash
 from .sources import Sources
+from .sources.ortho import DEFAULT as ORTHO_LAYER
 from .store import Store, canonical, read_description, sha256
 
 FORMAT = 2  # the record and GLB layout; a change rebuilds everything
@@ -171,6 +172,36 @@ def stats_of(rows: list[dict]) -> dict:
             "byKind": by_kind}
 
 
+def source_cover(area: Area, sources: Sources, log=print) -> dict:
+    """Makes sure the sources no kind has asked for yet exist around the location too (OpenStreetMap, orthophoto,
+    panorama coverage), fetching what is missing, and says what is there. A source that fails is reported, not
+    fatal: the kinds that need it will say so."""
+    box = area.bbox()
+    cover: dict[str, dict] = {}
+
+    def attempt(name: str, read) -> None:
+        try:
+            cover[name] = read()
+        except Exception as error:  # noqa: BLE001 - one source's outage must not stop a build that does not use it
+            cover[name] = {"error": f"{type(error).__name__}: {error}"[:200]}
+            log(f"  source {name} failed: {cover[name]['error']}")
+
+    def ortho():
+        image = sources.ortho.image(box)
+        return {"layer": ORTHO_LAYER, "px_m": image.px_m, "valid": round(float(image.valid.mean()), 3)}
+
+    def panoramas():
+        started = time.perf_counter()
+        spots = sources.panoramas.spots(box)
+        sources.timings["panoramas"] = sources.timings.get("panoramas", 0.0) + time.perf_counter() - started
+        return {provider: sum(1 for spot in spots if spot["provider"] == provider) for provider in ("lookaround", "google")}
+
+    attempt("osm", lambda: {"features": len(sources.osm.features(box))})
+    attempt("ortho", ortho)
+    attempt("panoramas", panoramas)
+    return cover
+
+
 def build(name: str, area: Area, background: float, store: Store, log=print) -> dict:
     """Discovers and compiles a location; writes and returns its manifest."""
     started = time.perf_counter()
@@ -183,6 +214,7 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         found = kind.discover(wide, sources)
         timings[f"discover:{kind.name}"] = time.perf_counter() - t0
         stubs += found
+    cover = source_cover(area, sources, log)
     discovered = time.perf_counter()
     rows, work = [], {}
     for stub in sorted(stubs, key=lambda s: s.id):
@@ -198,7 +230,7 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
         "query": {"crs": "EPSG:3877", "at": [area.e, area.n], "radius": area.radius, "background": wide.radius},
         "origin": list(ORIGIN),
         "focus": [round(float(v), 3) for v in to_engine(area.e, area.n, float(ground) if np.isfinite(ground) else 0.0)],
-        "entities": rows, "stats": stats_of(rows),
+        "entities": rows, "stats": stats_of(rows), "sources": cover,
         "timings": {
             "sourcesMs": round(sum(sources.timings.values()) * 1000),
             "discoverMs": round((discovered - started) * 1000),
@@ -213,6 +245,7 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
     log(f"  sources   {sum(sources.timings.values()):7.2f} s  " + ", ".join(f"{k} {v:.2f}" for k, v in sorted(sources.timings.items())))
     if sources.wfs.fetched:
         log(f"            fetched {len(sources.wfs.fetched)} WFS blocks")
+    log("            " + ", ".join(f"{key} {json.dumps(value, separators=(',', ':'))}" for key, value in cover.items()))
     for kind in KINDS.values():
         w = work.get(kind.name, {})
         count = sum(1 for r in rows if r["kind"] == kind.name)

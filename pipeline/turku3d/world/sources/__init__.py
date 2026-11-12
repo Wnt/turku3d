@@ -6,7 +6,11 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from functools import cached_property
+
 from ..store import data_root
+from .ortho import Ortho
+from .osm import Osm
 from .terrain import Terrain
 from .wfs import Wfs
 
@@ -18,6 +22,16 @@ class Sources:
         self.timings: dict[str, float] = {}
         self.wfs = Wfs(self.cache / "wfs", self)
         self.terrain = Terrain(self.cache, self)
+        self.osm = Osm(self.cache / "osm", self)
+        self.ortho = Ortho(self.cache / "ortho", self)
+
+    @cached_property
+    def panoramas(self):
+        """Street panoramas of both providers around a place: `spots(box)` lists them, fetching the coverage
+        that is missing (the observation chain's reader, turku3d.observe.panoramas)."""
+        from ...observe.panoramas import Panoramas
+
+        return Panoramas()
 
     @contextmanager
     def timed(self, name: str):

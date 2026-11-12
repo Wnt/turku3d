@@ -205,8 +205,8 @@ sources/<source>/…                     source data fetched on demand, by the s
 - Trying a description without publishing it: put it in a private root and set
   `TURKU3D_WORLD_DESCRIPTIONS=/private/root:$TURKU3D_WORLD_DATA/descriptions`; the first root that has the file
   wins for reads, and writes go to the first root.
-- `sources/` is a cache of public source data (WFS responses, lidar tiles, orthophoto tiles, panorama coverage
-  indexes). `$TURKU3D_DATA/raw` stays read-only; readers look there first and fetch into `sources/` only what is
+- `sources/` is a cache of public source data (`wfs/`, `laz/` and `dem/`, `osm/`, `ortho/`; panorama coverage
+  stays in the shared panorama cache). `$TURKU3D_DATA/raw` stays read-only; readers look there first and fetch into `sources/` only what is
   missing. Reference imagery itself stays where `qa/README.md` puts it.
 
 ## 5. Location manifest
@@ -241,6 +241,8 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
     }
   ],
   "stats": { "entities": 214, "triangles": 412000, "bytes": 9100000, "instances": 96, "byKind": { "building": 61 } },
+  "sources": { "osm": { "features": 154 }, "ortho": { "layer": "ortho2022to", "px_m": 0.2, "valid": 1.0 },
+               "panoramas": { "lookaround": 298, "google": 89 } },
   "timings": { "sourcesMs": 800, "discoverMs": 920, "describeMs": 300, "compileMs": 5200, "totalMs": 6500 }
 }
 ```
@@ -249,6 +251,9 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
 - `role` is `scene` (inside `radius`, `lod` 0) or `background` (between `radius` and `background`, cheap level of
   detail). The client treats them alike.
 - `focus` is the query centre on the ground in engine metres: where an interactive session starts.
+- `sources` says what exists around the query in the sources that kinds and the observation chain read besides
+  the registers: `build` fetches them for the area even when no registered kind uses them yet, and a source that
+  fails is reported there (`{"error": …}`) without stopping the build.
 - Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
   the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB
@@ -336,11 +341,23 @@ class Output:
 
 - The driver packs `parts` into GLB (`turku3d.world.glb`), hashes, stores and writes the record. A generator never
   writes files or touches the store.
-- `Sources` (`pipeline/turku3d/world/sources/`) gives area reads: `sources.wfs.features(layer, box)` for any city
-  WFS layer (LoD2 buildings, registers, surface polygons) and `sources.terrain.heights(e, n)` for lidar ground
-  heights. A reader looks in `$TURKU3D_DATA/raw` first and fetches what is missing for the area into
-  `$TURKU3D_WORLD_DATA/sources/` (section 4.2). A track may keep further readers in its own package; they follow
-  the same rule and time themselves with `sources.timed(name)` so `build` prints them.
+- `Sources` (`pipeline/turku3d/world/sources/`) gives area reads anywhere in the city. A reader looks in
+  `$TURKU3D_DATA/raw` first and fetches what is missing for the area into `$TURKU3D_WORLD_DATA/sources/`
+  (section 4.2):
+
+  | Read | Source | Missing data |
+  | --- | --- | --- |
+  | `sources.wfs.features(layer, box)` | any city WFS layer: LoD2 buildings, registers, surface polygons | 500 m blocks, fetched concurrently |
+  | `sources.terrain.heights(e, n)` | lidar ground key points as a 1 m grid | 500 m LAZ tiles |
+  | `sources.osm.features(box)` | OpenStreetMap points, lines and areas with tags, in the survey frame | one city-wide table, cut once from the national extract (about three minutes) |
+  | `sources.ortho.image(box, px_m)` | orthophoto pixels at 0.05 to 0.8 m | 1024-pixel chunks from the city's WMS |
+  | `sources.panoramas.spots(box)` | Street View and Look Around panoramas (`turku3d.observe.panoramas`) | coverage tiles |
+
+  A track may keep further readers in its own package; they follow the same rule and time themselves with
+  `sources.timed(name)` so `build` prints them.
+- A building is a LoD2 building, or a register footprint (`kanta:Rakennus`, building and outbuilding classes) that
+  no LoD2 building covers, raised to a flat-roofed box by its storeys: `shell.source` says which
+  (`turku-lod2`, `turku-kanta-footprint`). New buildings and most outbuildings come this way.
 - Budget: `compile` of one entity in about a second or less; `describe` of one entity in milliseconds. Slow one-off measurement (vision reads, panorama rectification) is not a
   generator step: it runs in `w2-observe`'s chain and writes stored descriptions.
 - A kind owns its description schema version. Bump `<n>` in `turku-description/<kind>/<n>` on an incompatible

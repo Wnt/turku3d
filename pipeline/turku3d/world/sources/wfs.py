@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -118,16 +119,10 @@ class Wfs:
     def features(self, layer: str, box: tuple[float, float, float, float]) -> list[Feature]:
         """Whole features of a layer that intersect the survey box (e0, n0, e1, n1), each once."""
         with self.sources.timed(f"wfs:{layer}"):
-            paths: list[Path] = []
-            x = np.floor(box[0] / BLOCK) * BLOCK
-            while x < box[2]:
-                y = np.floor(box[1] / BLOCK) * BLOCK
-                while y < box[3]:
-                    path = self.block_path(layer, float(x), float(y))
-                    if path not in paths:
-                        paths.append(path)
-                    y += BLOCK
-                x += BLOCK
+            blocks = [(float(x), float(y)) for x in np.arange(np.floor(box[0] / BLOCK) * BLOCK, box[2], BLOCK)
+                      for y in np.arange(np.floor(box[1] / BLOCK) * BLOCK, box[3], BLOCK)]
+            with ThreadPoolExecutor(max_workers=8) as pool:  # missing blocks wait on the server, not on this machine
+                paths = list(dict.fromkeys(pool.map(lambda block: self.block_path(layer, *block), blocks)))
             query = shapely.box(*box)
             out: dict[str, Feature] = {}
             for path in paths:

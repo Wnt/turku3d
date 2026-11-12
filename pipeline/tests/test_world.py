@@ -97,3 +97,31 @@ def test_refresh_rewrites_the_manifest_only_when_an_entity_changed(posts):
     assert driver.refresh("t", store, ["posts/p1"], log=lambda *_: None)["changed"] == ["posts/p1"]
     after = store.location("t")
     assert after["revision"] == 2 and after["entities"][0]["hash"] != row["hash"] and after["entities"][0]["tier"] == "reviewed"
+
+
+def test_osm_table_has_one_row_per_point_line_and_area(tmp_path):
+    import geopandas as gpd
+    import osmium
+    from osmium.osm.mutable import Node, Way
+
+    from turku3d import config
+    from turku3d.world.sources import osm
+
+    corners = [(22.2600, 60.4500), (22.2604, 60.4500), (22.2604, 60.4502), (22.2600, 60.4502)]
+    extract = tmp_path / "town.osm.pbf"
+    with osmium.SimpleWriter(str(extract)) as writer:
+        for index, (lon, lat) in enumerate(corners, start=1):
+            writer.add_node(Node(id=index, location=(lon, lat), tags={"natural": "tree"} if index == 1 else {}))
+        writer.add_way(Way(id=10, nodes=[1, 2, 3, 4, 1], tags={"building": "yes"}))
+        writer.add_way(Way(id=11, nodes=[1, 2, 3, 4, 1], tags={"barrier": "fence"}))
+        writer.add_way(Way(id=12, nodes=[1, 3], tags={"highway": "residential", "surface": "asphalt"}))
+    osm.table(extract, tmp_path / "town.parquet", config.CRS_HORIZONTAL, log=lambda *_: None)
+    rows = gpd.read_parquet(tmp_path / "town.parquet")
+    found = {(row.osm_type, row.osm_id): row for row in rows.itertuples()}
+    # A closed way is an area unless it is a linear thing; untagged nodes are only vertices.
+    assert {key: row.geometry.geom_type for key, row in found.items()} == {
+        ("node", 1): "Point", ("way", 10): "MultiPolygon", ("way", 11): "LineString", ("way", 12): "LineString"}
+    assert found["way", 12].surface == "asphalt" and json.loads(found["way", 12].tags)["highway"] == "residential"
+    # 0.0004 degrees of longitude at this latitude is 22 m, in the survey frame.
+    building = found["way", 10]
+    assert building.e1 - building.e0 == pytest.approx(22.0, abs=0.5) and 23_450_000 < building.e0 < 23_470_000
