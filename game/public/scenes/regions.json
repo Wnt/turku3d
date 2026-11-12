@@ -29,6 +29,34 @@
           "yaw": 1.05
         }
       }
+    },
+    {
+      "id": "port-arthur",
+      "label": "Port Arthur",
+      "url": "/scenes/port-arthur.scene.json",
+      "release": "b8925587ad3e57848d697150c93d48eaf3ba1d1f38489904f62a6b20ff28de99",
+      "bounds": [
+        -1000,
+        250,
+        -875,
+        375
+      ],
+      "spawn": {
+        "position": [
+          -947.2121828249643,
+          9.185741763183712,
+          305.39888299082475
+        ],
+        "headingDeg": 0.0,
+        "vehicle": {
+          "position": [
+            -945.2121828249643,
+            9.205485396875808,
+            305.39888299082475
+          ],
+          "yaw": 0.0
+        }
+      }
     }
   ]
 }

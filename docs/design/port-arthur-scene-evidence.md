@@ -46,3 +46,10 @@ the default; Port Arthur is an explicit content selection. The source writer
 recomputes each scene hash before writing the catalog. Normal-game visual and
 native performance evidence remain required after deployment; these source and
 physics checks do not claim visual acceptance.
+
+The final candidate `b8925587ad3e57848d697150c93d48eaf3ba1d1f38489904f62a6b20ff28de99`
+refreshes the recipe with the accepted timber material library. All four collision
+files remain byte-identical to the traversed `35a01349` candidate, so the same
+physical route proof applies. The final audit verifies 93 image bindings. The
+default office descriptor remains pinned to the complete A3 release; the added
+Port Arthur entry is selected explicitly with `?region=port-arthur`.
