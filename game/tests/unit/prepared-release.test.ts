@@ -14,7 +14,7 @@ function releaseFile(scenePath: string, url: string) {
   const local = resolve(dirname(scenePath), url);
   if (existsSync(local)) return local;
   if (!/^shared\/[a-f0-9]{64}\.(?:glb|ktx2|png|jpg|webp)$/.test(url)) return local;
-  return resolve(process.env.TURKU3D_PREPARED_ASSETS ?? `${homedir()}/turku3d/data/prepared-assets`, url);
+  return resolve(process.env.TURKU3D_PREPARED_ASSETS ?? `${process.env.TURKU3D_DATA ?? `${homedir()}/turku3d/data`}/prepared-assets/shared`, basename(url));
 }
 
 it('installs the shipped prepared release with matching collider identities and bounded material draws', async () => {
