@@ -49,6 +49,8 @@ export class PostProcessing {
   private dimSaturation: THREE.UniformNode<'float', number>;
   private daySaturation: number;
   readonly puddles: PuddleReflections | null;
+  /** r186's TRAA node; restartTemporal reaches its private jitter and history. */
+  private temporal: { _jitterIndex: number; _historyRenderTarget: THREE.RenderTarget } | null = null;
   /** The camera of the frame TRAA's history holds (render/waterHistory.ts). */
   private historyCamera: { view: THREE.Matrix4; projection: THREE.Matrix4 } | null = null;
 
@@ -142,6 +144,7 @@ export class PostProcessing {
       .add(puddleLight.rgb), beauty.a), null, null, { depthBuffer: false }) : null;
     const temporal = taa ? traa(reflected ?? beauty, geometry.getTextureNode('depth'), geometry.getTextureNode('velocity'), camera) : null;
     if (temporal) temporal.useSubpixelCorrection = q.temporalSubpixel;
+    this.temporal = temporal as unknown as typeof this.temporal;
     // River pixels read the previous frame from TRAA's history (render/waterHistory.ts); r186 keeps it private.
     const history = temporal ? (temporal as unknown as { _historyRenderTarget: THREE.RenderTarget })._historyRenderTarget : null;
     WATER_HISTORY.depth = history?.depthTexture ?? null;
@@ -206,6 +209,14 @@ export class PostProcessing {
   }
 
   /** The prepass and scene-pass render targets, so the bench probe (qa/bench.ts) can attribute draws to passes. */
+  /** Restarts TRAA at its first jitter offset with the next frame's own colour as history (r186 restarts on a size
+   *  change). A QA still renders one full jitter cycle after this, so a settled view resolves to the same image. */
+  restartTemporal() {
+    if (!this.temporal) return;
+    this.temporal._jitterIndex = 0;
+    this.temporal._historyRenderTarget.setSize(1, 1);
+  }
+
   get passTargets() { return { prepass: this.pre?.renderTarget, beauty: this.beauty.renderTarget }; }
   /** Night grading through uniforms (no new pipeline): dim-light saturation, and bloom stronger with a lower
    *  threshold. Mobile has no bloom pass; its night relies on emissive light alone. */

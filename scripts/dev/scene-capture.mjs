@@ -13,8 +13,9 @@
 // (grid bearing and vertical fov in degrees, as qa/views/views.jsonl), or `reference: ID` from the set's `references`
 // registry: the render then matches that photo's camera, and the player stands 4 m behind it, out of view.
 //
-// --mode render draws the prepared scene alone: the game's QA camera mode (?cam=, game/src/main.ts runQa) with the same
-// renderer, materials, vegetation, sky and post-processing, but no player, physics, audio, traffic, HUD or multiplayer,
+// --mode render draws the prepared scene alone and still: the game's QA camera mode (?cam=, game/src/main.ts runQa)
+// with the same renderer, materials, vegetation, sky and post-processing, but no player, physics, audio, traffic,
+// walkers, birds, HUD or multiplayer, and the water and wind frozen at time 0 (it refuses a client that is not still),
 // at the full viewport resolution and with its own readiness (__qaReady). Judge captures use it (scene-judge.mjs).
 // --mode play (the default) is the game itself, for the walking clip and gameplay evidence.
 //
@@ -176,6 +177,13 @@ async function main() {
       return { version: await read('/version.json'), build: await read('/__build'), three: window.__game?.three ?? null,
         scene: scene ? { id: scene.id, release: scene.release } : null, backend: window.__game?.backend ?? null };
     });
+    if (mode === 'render') {
+      // Judged and compared images come from a still scene: nothing that moves between two captures of one view.
+      manifest.still = await page.evaluate(() => ({ birds: !!window.__dev?.birds, population: !!window.__game?.population,
+        motion: new URLSearchParams(location.search).get('motion') === '1' }));
+      const moving = Object.entries(manifest.still).filter(([, on]) => on).map(([k]) => k);
+      if (moving.length) throw new Error(`render mode is not a still scene: ${moving.join(', ')} (an older client?)`);
+    }
     manifest.readiness = mode === 'render' ? 'qa-ready (32 stable frames, everything loaded)'
       : await page.evaluate(() => typeof window.__render?.quiet === 'function') ? 'quiet-frames' : `fixed ${settleMs} ms (no __render.quiet in this build)`;
 

@@ -46,7 +46,8 @@ interface Params {
   trafficDensity: number;
   /** `?walkers=N`: ambient walker cap override (0 disables them); null keeps the quality tier's cap. */
   walkers: number | null;
-  /** `?motion=1` with `?cam=`: the QA camera keeps the play-mode water clock and reflection cadence (video capture). */
+  /** `?motion=1` with `?cam=`: the QA camera keeps the play-mode water clock, reflection cadence and birds (video
+   *  capture). Without it a QA view is a still: water and wind at time 0, no birds. */
   motion: boolean;
   /** `?preview=1`: the generation preview (a free-fly QA camera above the spawn, qa/preview.ts). */
   preview: boolean;

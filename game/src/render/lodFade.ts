@@ -8,7 +8,7 @@
 // materials ever gain a discard, and only while a fade runs. The dither offset changes every frame,
 // so TRAA resolves it into a smooth cross-fade (GTA V's LOD-pair dither, without touching HD shaders).
 import * as THREE from 'three/webgpu';
-import { bool, dot, float, floor, fract, frameId, screenCoordinate, uniform, vec2 } from 'three/tsl';
+import { bool, dot, floor, fract, screenCoordinate, uniform, vec2 } from 'three/tsl';
 
 /** Seconds a band hand-over takes to dissolve in or out (Jonni: seamless blending). 0.6 s won the blind judge over
  *  0, 0.15, 0.3 and 1.0 s on forced block swaps (docs/handover/lodfade.md): GTA V swaps in a frame because its LODs
@@ -42,11 +42,16 @@ function bayer2(a: THREE.Node<'vec2'>) {
   const cell = floor(a);
   return fract(dot(cell, vec2(.5, cell.y.mul(.75))));
 }
+let ditherFrames = 0;
+/** The dither's frame index: it counts rendered frames like TSL's frameId (mod 1024), but a QA still restarts it
+ *  together with TRAA (main.ts runQa), so a settled view resolves the same pattern every time. */
+const ditherFrame = uniform(0).onFrameUpdate(() => (ditherFrames = (ditherFrames + 1) % 1024));
+export const restartDither = () => { ditherFrames = 0; };
 export function ditherThreshold() {
   const pixel = screenCoordinate.xy;
   const ordered = bayer2(pixel.mul(.5)).mul(.25).add(bayer2(pixel));
   // A golden-ratio offset per frame visits every threshold; TRAA averages the pattern into coverage.
-  return fract(ordered.add(float(frameId).mod(1024).mul(.61803398875)));
+  return fract(ordered.add(ditherFrame.mul(.61803398875)));
 }
 
 /** One mask and one shadow mask for every twin: the screen-door test against the drawn object's own coverage, so a

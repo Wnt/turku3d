@@ -42,10 +42,17 @@ scripts/dev/scene-judge.mjs report                            # scores per itera
 
 `scene-judge.mjs` scores a visual milestone. Run it only then, in the background (about 2 minutes), never for each
 edit or merge, and never for a change with no visible difference. It captures the gameplay views and the views from the reference photos'
-cameras (`riverside-office-refs.json`) with the scene alone: `scene-capture.mjs --mode render` uses the game's QA
-camera mode (`?cam=`), with the same renderer, materials, vegetation, sky and post-processing, but no player, physics,
-audio, traffic or multiplayer, and readiness from `__qaReady` (8 s load and under 1 s per view locally, against 36 s
-for the game). It then gives the visual judge (`.claude/agents/visual-judge.md`, Fable 5.2,
+cameras (`riverside-office-refs.json`) as stills of the scene alone: `scene-capture.mjs --mode render` uses the
+game's QA camera mode (`?cam=`), with the same renderer, materials, vegetation, sky and post-processing.
+- **What is left out:** the player, physics, audio, traffic, walkers, birds and multiplayer. The water and wind stay
+  at time 0, so nothing moves between two captures of a view.
+- **Readiness** comes from `__qaReady`: an 8 s load and under 1 s per view locally, against 36 s for the game.
+- **Same image every time:**
+  - Once everything has loaded, TRAA and the LOD cross-fade dither restart.
+  - One 32-frame jitter cycle renders, and that frame is held until the next view.
+  - Two fresh captures of the eight reference views (2026-11-12): three were byte-identical, and the rest differed in
+    at most 0.05 % of pixels. The residue is one tree at a LOD band, whose cross-fade width settles in real time.
+- **Refusal:** the capture refuses a client whose QA view is not still. `?motion=1` is only for video. It then gives the visual judge (`.claude/agents/visual-judge.md`, Fable 5.2,
 read-only) a blind packet of photos, renders and the rubric ([judge/JUDGE.md](judge/JUDGE.md)). The judge scores
 every view 0–10 in six categories and names its main issues. The history
 `~/turku3d/loops/judge/riverside-office.jsonl` is shared, and `riverside-office.html` beside it shows the overall score

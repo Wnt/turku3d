@@ -79,7 +79,8 @@ The current goal is in the [visual brief](design/visual-brief.md).
    - **How:** start it in the background and carry on. It takes about 2 minutes. Never wait for it or gate anything
      on it.
    - **What it does:** it captures the gameplay views and the reference-photo views with the scene alone
-     (`scene-capture.mjs --mode render`). The Fable 5.2 visual judge then scores them blind in six categories, twice
+     (`scene-capture.mjs --mode render`): a still, with no birds, walkers or traffic and with the water and wind
+     frozen. The Fable 5.2 visual judge then scores them blind in six categories, twice
      in parallel. The overall score goes into the shared history, and `scene-judge.mjs report` shows the change per
      milestone. Rubric: [scripts/dev/judge/JUDGE.md](../scripts/dev/judge/JUDGE.md).
 6. **Ship:** commit, merge ([agent flow](#agent-flow)), then `tools/share/deploy.sh --scenes-only` when the renderer is

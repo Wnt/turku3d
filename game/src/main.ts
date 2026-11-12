@@ -48,7 +48,7 @@ import { guardFrame } from './render/frameGuard';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
 import { GraphicsPreparation, type PreparationOrder, type PreparationPriority } from './render/graphicsPreparation';
-import { precompileDissolve } from './render/lodFade';
+import { precompileDissolve, restartDither } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
 import { VisualTiles } from './world/tiles';
 import { findInitialGround } from './world/startGround';
@@ -246,7 +246,9 @@ const dayClock = new DayClock(env, clockMode, !params.qa, () => params.qa ? cloc
 const weather = new WeatherClock(() => dayClock.sharedNow(), undefined, params.qa ? 'partly cloudy' : undefined);
 let rain = idPass ? null : new Rain(scene, params.quality === 'low' ? 2500 : 6000);
 // Gulls, jackdaws, pigeons and the rest (world/birds/flocks.ts): placed by the shared clock, the same for every player.
-let birds = idPass ? null : new Birds(scene, params.quality === 'low' ? 160 : 384);
+// A QA still (?cam= without ?motion=1) has none: with the water and wind clocks at 0 and no traffic or walkers, nothing
+// in a judged or compared image moves.
+let birds = idPass || (params.qa && !params.motion) ? null : new Birds(scene, params.quality === 'low' ? 160 : 384);
 window.__dev = { geometryState: () => import('./qa/geometryDebug').then(m => m.geometryState(scene)), coplanarDebug: report => import('./qa/geometryDebug').then(m => m.coplanarDebug(scene, report)), landmark: (buildingId, url) => import('./qa/landmarkPreview').then(m => m.previewLandmark(scene, buildingId, url)), get rainEffects() { return rain; }, get birds() { return birds; }, setPose: pose => window.__qaMove?.(pose), setHour: hour => dayClock.setHour(hour),
   pause: paused => { window.__render!.beforeFrame = paused ? () => false : undefined; },
   setWeather: (name, seconds) => weather.setWeather(name, seconds), weather,
@@ -842,6 +844,10 @@ async function runQa() {
   let stable = 0;
   let t0 = performance.now();
   let settleStart = clock.simSeconds;
+  // A still (no ?motion=1, no bench): once everything has loaded, TRAA restarts at its first jitter offset, one full
+  // jitter cycle renders and that frame is held until the next move, so a settled view is the same image every time.
+  const still = !params.motion && !bench && !initialDrive;
+  let stillFrames = -1, held = false;
   window.__qaMove = pose => {
     Object.assign(q, { E: pose.E, N: pose.N, H: pose.H, yawDeg: pose.yaw,
       pitchDeg: pose.pitch, fovDeg: pose.fov });
@@ -850,7 +856,7 @@ async function runQa() {
     env.follow(camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(40)));
     window.__qaReady = false;
     window.__qaError = undefined;
-    stable = 0;
+    stable = 0; stillFrames = -1; held = false;
     t0 = performance.now();
     settleStart = clock.simSeconds;
     perf.reset();
@@ -904,7 +910,7 @@ async function runQa() {
     await driveBench.load(initialDrive!);
   }
   renderer.setAnimationLoop(() => {
-    if (window.__render?.beforeFrame?.() === false) return;
+    if (window.__render?.beforeFrame?.() === false || held) return;
     driveBench?.before();
     const now = performance.now();
     clock.tick(now);
@@ -922,8 +928,14 @@ async function runQa() {
     if (materials?.ground?.errors.length) { window.__qaError = materials.ground.errors[0]; return; }
     stable = progress.total > 0 && progress.loaded === progress.total && coarse.detailedAt(camera.position.x, camera.position.z)
       && !materials?.ground?.pending ? stable + 1 : 0;
+    if (!stable) stillFrames = -1;
     // Allow temporal colour history to converge after textures finish uploading (QA contract: >= 2 frames).
     if (stable >= 32) {
+      if (still) {
+        if (stillFrames < 0) { post?.restartTemporal(); restartDither(); stillFrames = 0; return; }
+        if (++stillFrames < 32) return;
+        held = true;
+      }
       window.__qaReady = true;
       window.__game!.qa = { loadMs: Math.round(performance.now() - t0), visTris: tiles.residentTris, models: tiles.residentModels, sunElevation: env.sunElevation, sunAzimuth: env.sunAzimuth };
     }
