@@ -578,3 +578,24 @@ path = "game/public/assets/walkers/wardrobe.png"
 source = "Pinned CharacterCreator MakeHuman body, clothing, hair and textures; shared Turku3D wardrobe atlas"
 licence = "CC0 1.0 source assets, as recorded in game/public/assets/LICENSES.md and walkers/README.md"
 reason = "Existing game-owned walker texture atlas; provenance recorded during next-generation delivery audit"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/a2-before-207e6a88/"
+files = ["a2-bridge-approach.png", "a2-city-hall-bank.png", "a2-quay-overlook.png"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched bridge extension starting views"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/paired-before-207e6a88/"
+files = ["office-frontage.png", "night-office-frontage.png", "night-quay.png"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched bench and night receiver comparison starting views"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-04-2af7d554/"
+files = ["a2-bridge-approach.png", "a2-city-hall-bank.png", "a2-quay-overlook.png", "office-frontage.png", "night-office-frontage.png", "night-quay.png", "bridge-deck-5s.mp4", "north-lower-3s.mp4", "night-walk-3s.mp4"]
+source = "Turku3D normal Windows gameplay, release 2af7d554; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Connected upper/lower routes, recovered bench and finite-aperture receiver evidence; remaining night edge disclosed"
