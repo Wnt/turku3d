@@ -6,6 +6,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import {createRequire} from 'node:module';
 import {pathToFileURL,fileURLToPath} from 'node:url';
+import {resolvePreparedAsset} from './asset_store.mjs';
 const require=createRequire(path.join(process.env.TURKU3D_GLTF_TOOLS??path.join(os.homedir(),'turku3d/tools/npm'),'package.json'));
 const {MeshoptDecoder}=await import(pathToFileURL(require.resolve('meshoptimizer')).href);await MeshoptDecoder.ready;
 const frontageBytes=fs.readFileSync(new URL('./qwensel_frontage.json',import.meta.url));
@@ -79,5 +80,5 @@ export function adaptQwensel(bytes,maps,expectedSha=frontage.authoredGlbSha256){
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const [input,mapPath,output]=process.argv.slice(2);if(!input||!mapPath||!output)throw Error('Usage: qwensel_appearance.mjs INPUT.glb MAPS.json OUTPUT.glb');
  const maps=JSON.parse(fs.readFileSync(mapPath));for(const m of Object.values(maps.maps))if(sha(fs.readFileSync(m.path))!==m.sha256)throw Error('Map hash differs');
- const result=adaptQwensel(fs.readFileSync(input),maps);fs.writeFileSync(output,result.bytes);console.log(JSON.stringify(result.report));
+ const result=adaptQwensel(fs.readFileSync(resolvePreparedAsset(input)),maps);fs.writeFileSync(output,result.bytes);console.log(JSON.stringify(result.report));
 }

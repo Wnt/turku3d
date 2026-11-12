@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
+import {resolvePreparedAsset} from '../turku3d/scene/asset_store.mjs';
 import {adaptQwensel} from '../turku3d/scene/qwensel_appearance.mjs';
-const source=fs.readFileSync(new URL('../../game/public/scenes/shared/07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4.glb',import.meta.url));
+const source=fs.readFileSync(resolvePreparedAsset('07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4.glb'));
 const parse=b=>{const n=b.readUInt32LE(12);return {json:JSON.parse(b.subarray(20,20+n)),binary:b.subarray(28+n)};};
 const maps={sourceGlbSha256:'07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4',frontageDataSha256:createHash('sha256').update(fs.readFileSync(new URL('../turku3d/scene/qwensel_frontage.json',import.meta.url))).digest('hex'),maps:Object.fromEntries(['albedo','normal','orm'].map((slot,i)=>[slot,{sha256:String(i+1).repeat(64),uri:`../shared/${String(i+1).repeat(64)}.ktx2`}] ))};
 test('only two river-wall triangles pairs change material; every original binary byte and other material remains',()=>{
