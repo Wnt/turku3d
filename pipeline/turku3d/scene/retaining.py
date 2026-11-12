@@ -101,7 +101,7 @@ class RetainingField:
             y[point] = xy1[point] @ self.planes[polygon][1]
         return y
 
-    def wall_meshes(self, boundaries):
+    def wall_meshes(self, boundaries, additional_owners=()):
         from .compile import digest, mesh_record
         from turku3d.structures.geometry import Faces
         pairs = {}
@@ -119,9 +119,9 @@ class RetainingField:
             if np.max(b[:,1]-a[:,1]) < .01:
                 continue
             midpoint = shapely.Point(np.mean(a[:,[0,2]], axis=0))
-            source, distance = min(((source, line.distance(midpoint)) for source,line in self.lines), key=lambda x:x[1])
+            source, distance = min(((source, line.distance(midpoint)) for source,line in [*self.lines,*additional_owners]), key=lambda x:x[1])
             if distance > 3e-5:
-                raise ValueError("Discontinuous ground edge has no measured retaining owner")
+                raise ValueError(f"Discontinuous ground edge at {midpoint.wkt} has no explicit retaining or approach owner (distance {distance})")
             faces = Faces()
             face = np.array([a[0], a[1], b[1], b[0]])
             faces.face(face)

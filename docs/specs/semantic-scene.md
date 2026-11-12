@@ -226,3 +226,26 @@ stays at its declared surface level. This affects indirect light through the
 existing ambient context; it does not alter pigment, direct sun or collision.
 The approximation is 2.5D and does not yet model porous tree crowns or bridge
 underpasses. Imported approved building assets retain their existing visibility.
+### Connected surveyed structures
+
+The bounded producer reads pinned `roads` and `stairs` source snapshots when
+present. Existing bridge production supplies complete source-defined deck,
+sidewalk, body, pier and rail meshes; it does not infer their roles from triangles.
+Deck and raised sidewalk tops each own a support ID and canonical exterior
+boundary IDs. Lower quay ground remains a separate support at the same X/Z.
+Mapped approach profiles partition the ground before triangulation, and their
+protected lower corridors stay excluded from the upper approach. An explicit
+approach boundary may own the vertical closure between those levels, just as a
+surveyed retaining line owns a quay wall. Every closure references both support
+edges and participates in collision.
+
+Bridge surface materials preserve metre UVs and use the existing generated PBR
+map producer. Source structural thickness and ornamental dimensions remain
+inferred priors where the registered deck survey did not measure them. Auransilta
+526219736 has a measured 17-station deck profile and mapped outline; the first
+connected extension uses that source instead of a manually drawn span.
+
+Offline fixture/vegetation queries can specify a reference height to select the
+nearest supported level. This prevents a lower-quay trunk from attaching to an
+upper deck solely because the upper support was emitted first. Runtime physics
+continues to select support by its own downward ray from the player height.

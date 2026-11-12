@@ -90,7 +90,7 @@ def load_evidence(cache, bounds):
     return points, list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=()):
+def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=()):
     window = shapely.box(*scene["bounds"])
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
@@ -133,12 +133,16 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     field = RetainingField(retaining, base_height, dry)
     def height(xz, owner=None):
         return field.height(xz, base_height(xz), owner)
-    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions], *field.boundaries], grid_size=1e-5)
+    from .structures import approach_boundaries, approach_owners, grade_approach
+    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions], *field.boundaries, *approach_boundaries(decks)], grid_size=1e-5)
     patches = [g for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(network)))
                if dry.covers(g.representative_point()) and g.area > 2e-6]
     for poly in sorted(patches, key=lambda g: g.wkb):
         poly = shapely.set_precision(poly, 1e-5)
         owner = field.owner(poly)
+        approaches = approach_owners(decks, poly)
+        def patch_height(xz):
+            return grade_approach(xz,height(xz,owner),approaches)
         key = "surface:" + digest(poly.wkb)[:16]
         kind = "ground"
         for region, candidate in regions:
@@ -158,7 +162,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                 holes.append(list(shapely.Polygon(r).representative_point().coords)[0])
             for a, b in zip(r, np.roll(r, -1, axis=0), strict=True):
                 endpoints = np.array(sorted([tuple(a), tuple(b)]))
-                positions = np.c_[endpoints[:, 0], height(endpoints, owner), endpoints[:, 1]]
+                positions = np.c_[endpoints[:, 0], patch_height(endpoints), endpoints[:, 1]]
                 # Vertical walls have two different, explicitly owned boundaries
                 # at the same plan edge. Equal 3-D edges still share one identity.
                 positions = np.round(positions, 7)
@@ -173,7 +177,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
             data["holes"] = holes
         out = triangle.triangulate(data, "pQ")
         xz = out["vertices"]
-        p = np.c_[xz[:, 0], height(xz, owner), xz[:, 1]]
+        p = np.c_[xz[:, 0], patch_height(xz), xz[:, 1]]
         ix = out["triangles"][:, [0, 2, 1]]
         finish = "road" if kind=="footway" else kind
         for source_polygon, source_material in streets:
@@ -185,7 +189,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
         scene["meshes"].append(mesh)
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
     scene["boundaries"] = list(boundary_cache.values())
-    scene["meshes"].extend(field.wall_meshes(scene["boundaries"]))
+    scene["meshes"].extend(field.wall_meshes(scene["boundaries"], [("bridge:"+str(d.way["id"]),p["area"].boundary) for d in decks for p in d.aprons]))
     if lower_walks and not water.is_empty:
         from turku3d.structures.geometry import Faces
         shore = water.boundary.intersection(window.buffer(-.001))
@@ -240,7 +244,11 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
                  spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
-    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining)
+    from . import structures
+    decks,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
+    scene['sources'].extend(structure_sources)
+    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks)
+    structures.append(scene,decks)
     window = shapely.box(*bounds)
     for b in buildings:
         if b.footprint.intersects(window.buffer(30)):
@@ -315,6 +323,8 @@ def write_products(scene, output):
     scene['collision']={}
     from .signs import write_textures
     write_textures(scene,output)
+    from .structures import write_textures as write_structure_textures
+    write_structure_textures(scene,output)
     xmin, zmin, xmax, zmax = scene["bounds"]
     for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
         for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):
@@ -326,6 +336,7 @@ def write_products(scene, output):
                     continue
                 pos = np.asarray(m["positions"]).reshape(-1, 3)
                 name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "sign-C1": "street_furniture", "sign-E2": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
+                if name.startswith('bridge:'):name=name.split(':')[1]
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
                 clipped = clip_mesh(source, bbox)
                 if clipped is None:

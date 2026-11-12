@@ -16,6 +16,8 @@ FIELDS={'version','id','bounds','inputs','assets','materialRecipes','trees','ass
 
 def source_pins(cache, bounds):
     sources=load_evidence(Path(cache),bounds)[4]
+    from .structures import source_records
+    sources.extend(source for source,_ in source_records(cache,bounds))
     pins=[dict(path=row['id'],sha256=row['sha256']) for row in sources]
     retaining=Path(cache)/'retaining.pkl'
     if retaining.exists():pins.append(dict(path='retaining.pkl',sha256=hashlib.sha256(retaining.read_bytes()).hexdigest()))
@@ -102,7 +104,7 @@ if __name__=='__main__':
     parser.add_argument('--fixture-bindings',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();scene=json.loads(args.scene.read_text())
-    generated={'ground','wfs','poles','walkable','raw-ground-survey','retaining-survey','registered-reference-association','scene-recipe','compiled-ambient-visibility'}
+    generated={'ground','wfs','poles','walkable','roads','stairs','raw-ground-survey','retaining-survey','registered-reference-association','scene-recipe','compiled-ambient-visibility'}
     recipe=create_recipe(scene['id'],scene['bounds'],args.cache,assets=scene['assets'],
                          material_recipes=json.loads(args.materials.read_text()),trees=json.loads(args.trees.read_text()),
                          asset_sources=[s for s in scene['sources'] if s['kind'] not in generated],fixture_bindings=args.fixture_bindings)

@@ -137,7 +137,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
         for extension in texture.get('extensions',{}).values():
             if 'source' in extension:extension['source']=image_map[extension['source']]
     from .fixtures import support_query
-    query=support_query(support_scene) if support_scene else lambda x,z:None
+    query=support_query(support_scene) if support_scene else lambda x,z,reference_y=None:None
     trees={}
     for original,node in zip(selected,result['nodes'],strict=True):
         values=transforms.get(str(original))
@@ -145,7 +145,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
         positions=np.asarray(values['TRANSLATION'],float);extras=node['extras']
         world=(np.c_[positions,np.ones(len(positions))]@worlds[original].T)[:,:3]
         for position in world:
-            support=query(position[0],position[2])
+            support=query(position[0],position[2],reference_y=position[1])
             if support is not None:position[1]=support[1]
         positions=(np.c_[world,np.ones(len(world))]@np.linalg.inv(worlds[original]).T)[:,:3]
         # Replace only the authored translations with supported prepared values;

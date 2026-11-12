@@ -15,7 +15,8 @@ def support_query(scene):
         xy = p[ix][:,:,[0,2]]
         polygons = shapely.polygons(xy)
         surfaces.append((support, p[ix], polygons))
-    def support_at(x,z):
+    def support_at(x,z,reference_y=None):
+        hits=[]
         for support,tris,polygons in surfaces:
             selected=np.flatnonzero(shapely.intersects_xy(polygons,x,z))
             if len(selected):
@@ -24,8 +25,9 @@ def support_query(scene):
                 if abs(normal[1])<1e-8:
                     continue
                 y=a[1]-(normal[0]*(x-a[0])+normal[2]*(z-a[2]))/normal[1]
-                return support,float(y)
-        return None
+                if reference_y is None:return support,float(y)
+                hits.append((support,float(y)))
+        return min(hits,key=lambda hit:abs(hit[1]-reference_y)) if hits else None
     return support_at
 
 
@@ -73,7 +75,7 @@ def place_trunks(scene, trees):
     for tree in trees:
         if tree['id'].startswith('bush:'):
             continue
-        x,y,z=tree['position'];hit=support_at(x,z)
+        x,y,z=tree['position'];hit=support_at(x,z,reference_y=y)
         if hit is None:
             continue
         support,base=hit
