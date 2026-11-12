@@ -1,0 +1,159 @@
+# Lab-only generated scene assets and game captures; no private reference imagery.
+# Indexed by docs/published-images.toml.
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/a65d4930f3119fde336f3e9b0dc29b194c800e3e8237ddfaf8f89c1cc457c2df.png"
+source = "Original procedural C1 sign atlas from pipeline/turku3d/scene/signs.py; proportions follow published Traficom C1 dimensions, no source pixels"
+licence = "CC0-1.0 (original generated drawing)"
+reason = "Registered C1 plate on prepared sign geometry"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/2d41a1b49c8d08935ce74e99580e47dacf5ae9c4782c6bf034310f5ad3fd80fe.png"
+source = "Existing original procedural E2 sign atlas from pipeline/turku3d/props/models.py"
+licence = "CC0-1.0 (original generated drawing)"
+reason = "Retained registered E2 sign face"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/baseline-ea922fb2/"
+files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4"]
+source = "Turku3D normal gameplay captured on Windows; release ea922fb2"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched starting point for the next-generation campaign"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-01-bf303013/"
+files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4", "night-office-frontage.png", "night-quay.png"]
+source = "Turku3D normal gameplay captured on Windows; release bf303013, exact camera and render settings match baseline"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office crown, furniture and immediate quay evidence with wider context limitations disclosed"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-02-56262bd6/"
+files = ["office-frontage.png", "night-office-frontage.png", "night-quay.png", "walk-5s.mp4", "night-walk-3s.mp4"]
+source = "Turku3D normal Windows gameplay, release 56262bd6; cameras and day/night settings match bf303013"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Mapped lamp-family and local night-lighting comparison with photometry and terrain-transport limitations"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/hero-before-dfdccafa/"
+files = ["roof-frontage.png", "roof-oblique.png", "cornice-oblique.png"]
+source = "Turku3D normal Windows gameplay, release dfdccafa; recorded dedicated office roof cameras"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office roofline starting point; this historical release also predates lamp and context repairs"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-03-207e6a88/"
+files = ["roof-frontage.png", "roof-oblique.png", "cornice-oblique.png", "office-frontage.png", "walk-5s.mp4"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; exact dedicated roof cameras match dfdccafa"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office chimney/dormer/cornice/paint evidence; motion clip ends at parked-car collision"
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/0da1bb83146830fc49916a16b5373e89f3432ab6f3419fa42cdf22a3242db09c.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/17c4ac771ae8340da96543bb39c0e97c20b41f97c71a4ddc444f5e9f332f3860.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/19d1f48c02fb443fdf3b7be9de60a58d945e88543cac96d5eba89c58b2996bff.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/208a577b51410b0ad01f898f0f9c7552fe60b87159bdb8ad49f4b1a756487a49.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/2446f5e4f2a1750770293a5633b0e1f4d09e1784d8441e0f9b5f599987d6e25a.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/2eb61fdd3264f000db750f18785dfdfe3ac0f1bad59895faba1743a71dc33154.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/387449bcae3b29d8cb1adefa9e47932a39676be77a711d592f43dbc0f98e3c8b.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/50a8c63e1ee7ad8d866907df891ea5b9028b90635307e81bc16219166f232504.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/525187b5cf7792f056d396d5fb80158e1b3248405cc7483b35b1036f63cbabbf.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/608d4d77a075db6131314a17416754ec6b2a598fa70a1cb87fad63a3ee9d525c.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/7f4122a57df4a5a01fc0cce2750e422b60fa3ac2a36357ac9fe5ea9ea764d518.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/8716c110156d84dbb8f89e215f7c751cd86f39f645e902a7411cd73a970a7189.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/ab5cac6c3d5299b7a6910f8982d91f0e5617da44a3bc4574d7e55511672d49d1.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/b10e706ca7e4d8bdc18ef448fa974a3e40891a84d2f17587a4db78d93d7e6383.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/d2245bf4b4afcdfedad3ada97b98119a3ffe134e52a04bb38ecab92c1aec67dd.png"
+source = "Original deterministic bridge PBR synthesis in pipeline/turku3d/coarse/bridge_materials.py; no reference-image pixels"
+licence = "MIT (this repository)"
+reason = "Prepared Auransilta material map, content-addressed output"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/a2-before-207e6a88/"
+files = ["a2-bridge-approach.png", "a2-city-hall-bank.png", "a2-quay-overlook.png"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched bridge extension starting views"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/paired-before-207e6a88/"
+files = ["office-frontage.png", "night-office-frontage.png", "night-quay.png"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched bench and night receiver comparison starting views"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-04-2af7d554/"
+files = ["a2-bridge-approach.png", "a2-city-hall-bank.png", "a2-quay-overlook.png", "office-frontage.png", "night-office-frontage.png", "night-quay.png", "bridge-deck-5s.mp4", "north-lower-3s.mp4", "night-walk-3s.mp4"]
+source = "Turku3D normal Windows gameplay, release 2af7d554; matched recorded cameras and render settings"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Connected upper/lower routes, recovered bench and finite-aperture receiver evidence; remaining night edge disclosed"
