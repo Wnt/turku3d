@@ -230,3 +230,77 @@ files = ["bench-close.png", "bench-walk-3s.mp4"]
 source = "Turku3D native1440x960 M1Max normal gameplay, release ed8c7dde; exact immediate150266c0 camera pair"
 licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Subtle metric timber material detail only; no major visual quality claim"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/a3-before-76988338/"
+files = ["a3-aurakatu-edge.png", "a3-linnankatu-edge.png"]
+source = "Turku3D native1440x960 M1Max normal gameplay, release 76988338; exact registered A3 cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Connected Market Hall streets and retained approved facade assets; no overall photorealism claim"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-09-bc8cf707/"
+files = ["a3-aurakatu-edge.png", "a3-linnankatu-edge.png", "linnankatu-walk-3s.mp4", "bridge-preservation-3s.mp4"]
+source = "Turku3D native1440x960 M1Max normal gameplay, release bc8cf707; exact registered A3 cameras"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Connected Market Hall streets and retained approved facade assets; no overall photorealism claim"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/12d9b2268614499c88b16254042477527982bfd7e5895814890ba5f4b6db26dc.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/231c7dba94a2a9f03cee54c462bf853814b95b46a6c7cab0cbe88fd34f4239c0.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/2badf0ff1dfaf427b94b6f9dfe8bb1397ae7bdaeabf4832217e7105de427d2bd.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/486eafa8421d0b223791ec0f7379fa2e6c3821110fb510d38e9b0f416804a8b6.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/5342f74d8be4cdedfc9ba48cfaf61e07e29223f3bd53a840e4f43ce9754f0794.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/918cdc11ffb8526ee9ea2ceb8545006fd9fe93e579432ea6bb00070a1fd458fc.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/c80b6529634bd91abd4b2260606ffd40a2720e6d96c129e1ce3f2669275cd453.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/cac420a659c92f8ec23af99c93bdff16cc0093f207e05bbb8a4326dda94263e4.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/d4a870ddb66d8961284cd92fbc34007792fdaeb9441b490d70bdb36ddcc4439b.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/e48cb0bfa9d34a51d5ade06eefaa9ee25ed3d09aefc786affa875664d0dc550a.ktx2"
+source = "Original deterministic facade/roof material synthesis through the retained facade producer; qualified register and outline attributes, no photo pixels or per-building vision"
+licence = "MIT (this repository)"
+reason = "Reusable appearance grammar trial on the independent Port Arthur block; exact opening/ornament choices remain procedural priors"
