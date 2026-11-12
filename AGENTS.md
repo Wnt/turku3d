@@ -10,17 +10,21 @@ code, comments, documentation, commits and reports in English.
 - Vite;
 - an Xbox Elite Series 2 controller.
 
-Visual fidelity at street level comes first ([visual brief](docs/design/visual-brief.md)). No backward compatibility
-is needed: fix things at the layer where it makes most sense.
+Visual fidelity at street level comes first: game stills must be recognisable as the real Turku
+([visual brief](docs/design/visual-brief.md)). The world is being rewritten as one pipeline of entities, a
+content-addressed store and location manifests ([world pipeline](docs/design/world-pipeline.md)); its tracks are
+`w2-core`, `w2-buildings`, `w2-observe`, `w2-street`, `w2-look` and `w2-eval`. No backward compatibility is needed:
+fix things at the layer where it makes most sense.
 
 ## Where to look
 
 | When you… | Read |
 | --- | --- |
-| start: system, state, world frame, formats | `docs/ARCHITECTURE.md`, `docs/STATUS.md`, `docs/specs/coordinates.md`, `docs/specs/`; Gen 2 target `~/turku3d/plans/gen2-architecture.md` |
+| start: system, state, world frame, formats | `docs/ARCHITECTURE.md`, `docs/STATUS.md`, `docs/specs/coordinates.md`, `docs/specs/` |
+| work on the world: entities, descriptions, store, manifest, generators, live update | [docs/design/world-pipeline.md](docs/design/world-pipeline.md); buildings: `docs/specs/building-description.md` |
 | set up a sandbox, worktree or ports, or look for a command | [scripts/dev/README.md](scripts/dev/README.md) |
-| merge, deploy, smoke, run on city.lab, choose evidence | [docs/DEVELOPING.md — Agent flow](docs/DEVELOPING.md#agent-flow) |
-| change appearance, capture or score visuals | [docs/DEVELOPING.md — Appearance loop](docs/DEVELOPING.md#appearance-loop) |
+| merge, choose evidence, publish to city.lab | [docs/DEVELOPING.md — Agent flow](docs/DEVELOPING.md#agent-flow) |
+| capture or score visuals | [docs/DEVELOPING.md — Appearance loop](docs/DEVELOPING.md#appearance-loop), `scripts/dev/scene-capture.mjs` |
 | launch or drive a browser | [scripts/dev/browser.md](scripts/dev/browser.md) |
 | add or publish an asset or image | `game/public/assets/LICENSES.md`, `docs/published-images.toml` |
 
@@ -46,6 +50,10 @@ is needed: fix things at the layer where it makes most sense.
 - **Blender:** only through the Blender MCP tools.
 - **Feature flags:** none, except measured A/B alternatives in `docs/flags.toml` with an owner, a reason and removal
   within ten merges. Delete code you replace.
+- **The old world:** never build on the Gen 1 tile generator (`pipeline/turku3d/coarse`), its caches or the
+  prepared-scene compiler (`pipeline/turku3d/scene`). Reuse source-data readers and copy good algorithms.
+- **One-off code:** no building ids or coordinates in code. Everything specific to a building is data in its stored
+  description, and the same commands work at every location.
 - **Tests:**
   - Never weaken an assertion to make a test pass.
   - Never spend time on slow checks:
@@ -57,15 +65,19 @@ is needed: fix things at the layer where it makes most sense.
 ## Always
 
 - **Your own branch.** Work on your own `local/*` branch in your own worktree.
-- **Merge and publish.**
-  - When the tests you selected pass, commit and merge into `local/loop-integration`, then deploy, smoke and make
-    one run.
+- **Merge.**
+  - When the tests you selected pass, commit and merge into `local/loop-integration`.
+  - Milestones are stills: deploy to city.lab, smoke and make the post-deploy run only when you changed the deployed
+    client in a way city.lab needs.
   - Never ask whether to commit or merge.
   - Fix forward; no rollbacks.
-  - Merge at least every 30 minutes while something works.
+  - Merge at least every 45 minutes while something works.
+- **Stills first.**
+  - A milestone is judged on stills from `scene-capture.mjs --mode render`. Collision, physics, streaming and
+    multiplayer work is not required for one; do not design them out.
+  - Performance is tracked, not enforced: the capture records frame time on Jonni's M1 Max at medium quality,
+    triangles and texture memory per location. The 30 FPS average is the target they are read against.
 - **Hard limits.**
-  - Average 30 FPS on Jonni's M1 Max at medium quality.
-  - Keep collision geometry and shared world data multiplayer-compatible.
   - Keep at least 25 GiB free on osgallery-dev, and delete your own scratch, builds and caches.
 - **Keep what was learned.**
   - Preserve measurements, authored observations, AI facade descriptions, facade-kit results, the texture library
@@ -75,7 +87,8 @@ is needed: fix things at the layer where it makes most sense.
 - **Reference imagery.** When a reference photo is missing, old or shows the wrong state, fetch newer panoramas with
   `python -m turkutex.streetview.panos` ([qa/README.md](qa/README.md#the-reference-views)). It takes a minute or
   two.
-- **Commit trailer.** Codex commits end with `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`.
+- **Commit trailer.** Claude commits end with `Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>`; Codex
+  commits end with `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`.
 
 ## Reports
 

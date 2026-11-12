@@ -9,7 +9,7 @@ Choose the entry point for what you want to do:
 | **Player:** How do I play? What are the controls? | [Playing Turku3D](PLAYING.md) |
 | **Developer:** How do I run the browser game or tests? | [Development guide](DEVELOPING.md), [game README](../game/README.md) |
 | **Server developer:** How does multiplayer work? | [Server README](../server/README.md), [protocol](../server/PROTOCOL.md) |
-| **World/pipeline developer:** Where are the data and rendering contracts? | [Architecture](ARCHITECTURE.md), [formats](specs/), [data sources](../data-manifests/sources.yaml) |
+| **World/pipeline developer:** Where are the data and rendering contracts? | [World pipeline contracts](design/world-pipeline.md), [architecture](ARCHITECTURE.md), [formats](specs/), [data sources](../data-manifests/sources.yaml) |
 | **Game designer:** What is the mission/economy design? | [Story and missions](design/story.md) |
 | **Visual work:** What is the current visual goal and loop? | [Visual brief](design/visual-brief.md), [appearance loop](DEVELOPING.md#appearance-loop) |
 | **Maintainer:** How do worktrees, releases and remote services work? | [Agent/project policy](../AGENTS.md), [developer tools](../scripts/dev/README.md) |

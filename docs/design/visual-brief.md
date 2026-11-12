@@ -1,140 +1,118 @@
-# Visual brief: contrasting pilot locations
+# Visual brief: recognisable Turku through a new world pipeline (W2)
 
-2026-11-12. Replaces the ten-hour campaign plan (archived in
-[docs/archive/recognisable-turku-campaign-2026-11.md](../archive/recognisable-turku-campaign-2026-11.md)) after the
-campaign review: 14 accepted increments had too little combined visual impact, small defensible details and
-deployment counts stood in for whole-scene improvement, and dominant problems stayed visible. The objective is more
-visible improvement per hour: complete street scenes that someone who knows Turku finds substantially more
-convincing. A 10× gain in impact per hour is a target, not a measured or promised speedup.
+2026-11-12. Replaces the riverside-corridor brief of the same day. The prepared scenes (`office`, `port-arthur`)
+improved single corridors by hand; the blind judge still scored the eight pilot locations 39.3 / 100 overall and
+3.7 / 10 for identity. The campaign writes a new world pipeline so that game stills become recognisable as the real
+Turku, at the pilot locations and on streets nobody tuned by hand. Its contracts are in
+[world-pipeline.md](world-pipeline.md).
 
-## The brief
+## Goal and measure
 
-> Make one 100–150 m riverside corridor visibly superior to the frozen city in three fixed, normal gameplay views and
-> a short walking clip. Complete everything visible from that corridor. Use reusable families, with selected landmark
-> exceptions. Maintain the existing average 30 FPS target on the M1 Max at medium quality.
+1. **Pilot views.** Raise the blind visual judge's scores on the 24 pilot views
+   (`scripts/dev/views/pilot-locations.json`): overall (fidelity) from 39.3 / 100, identity (recognisability) from
+   3.7 / 10.
+2. **Random streets.** Raise the mean overall score of a hidden set of 24 random on-street locations in built-up
+   Turku by at least 25 % relative to that set's own frozen-city baseline.
 
-The first corridor is Läntinen Rantakatu along the office block and quay (prepared scene `office`). Its views and walk
-are [scripts/dev/views/riverside-office.json](../../scripts/dev/views/riverside-office.json): `office-frontage`, `quay`
-and `along-frontage` at the normal 4.5 m orbit distance, 15 June 14:00, clear weather, medium quality, 1440×960 at
-render scale 0.5, with a forward walk from the player's position. Change a set only deliberately, and recapture the
-baselines when you do.
+Baseline by location (overall / identity):
 
-## Pilot locations
+| Location | Baseline | What it proves |
+| --- | --- | --- |
+| Portsa (Port Arthur) | 44.8 / 4.2 | wooden houses, cobbles, courtyards |
+| Humalistonkatu | 44.0 / 4.3 | apartment-block street with street trees and shopfronts |
+| Jokiranta (Läntinen Rantakatu) | 41.2 / 4.0 | quay, river and water, bridges, stone frontage |
+| Kauppatori | 40.8 / 4.0 | open square, mixed historic and modern frontage, market furniture |
+| Nummi | 38.8 / 3.8 | detached-house area: gardens, hedges, low-rise roofs |
+| Puolalanpuisto | 38.1 / 3.3 | park terrain, stairs and slopes, mature trees |
+| Kupittaa | 34.4 / 2.8 | new office and campus blocks, railway, park edges |
+| Rettigin palatsi | 32.4 / 3.2 | landmark facade and its riverside setting |
 
-Effort concentrates on a few contrasting places in Turku before anything is generated city-wide (project owner,
-2026-11-12). Each one gets the same treatment as the first corridor: a compact playable area, a view set of three
-fixed gameplay views plus a walk in `scripts/dev/views/`, and baselines from the frozen city and the lab.
+Judge weights: identity 0.30, buildings 0.20, materials 0.15, street 0.15, lighting 0.10, defects 0.10. Identity,
+buildings and materials are 65 % of the score and all start near 3 / 10: **facades decide**. The judge's noise is
+about 5 points; a smaller change is not a gain.
 
-| Location | What it proves |
+**Recognisability is the bar.** Someone who knows Turku must recognise each building in a view as the real
+building: its massing and roofline, storeys, bay rhythm and openings, colour and material, ground floor, ornament
+and landmark features. A plausible generic building in the right place is a failure, however rich it looks.
+
+## Decisions (project owner, 2026-11-12)
+
+- **Clean rewrite of the world pipeline, pilot locations first.** New data model, generators, formats and loader.
+  Source-data readers and measured data (facade programs, surveys, the texture library) carry over. The old tile
+  generator, its caches and the prepared-scene compiler are not built upon.
+- **Same game client.** The three.js renderer stays; its lighting and materials are improved where the judge shows
+  gaps.
+- **Two contrasting locations first:** Humalistonkatu (stone-built apartment street) and Portsa (wooden houses).
+  Then the other six, then random streets.
+- **Measure, then generate.** Vision models read panoramas into per-building programs. Geometry and textures are
+  procedural. No photo pixels in the game and no AI-painted textures.
+- **Tiered authoring, all stored as data.** Every building gets an automatic fit. Salient buildings (ranked
+  automatically, plus those in pilot views) get a reviewed program from several panoramas. Landmark parts come from
+  parametric components. No building ids or coordinates in code.
+- **Stills only for now.** No gameplay, collision, streaming or deployment work is required for a milestone, and
+  none of them is designed out. Frame time, triangles and texture memory are recorded per location; they do not
+  hold work back.
+
+## Design constraints
+
+1. **The unit of work is one entity.** A building, a street surface, a tree group: each has a stable identifier, a
+   measured description stored as data, and a compiled, content-addressed output. Changing one building rebuilds
+   one building in about a second and shows it in the running client without a reload.
+2. **A location is a query.** One command builds any street in Turku (`--at E,N --radius R`) with no hand steps and
+   yields a manifest the client loads. City scale later means a spatial index and levels of detail over the same
+   store.
+3. **Descriptions become real geometry.** Openings are recessed, with frames, sills and surrounds. Plinths,
+   cornices, balconies, dormers, chimneys and porches are geometry from Turku-specific kits. Materials are
+   procedural PBR families.
+4. **Observation is automatic.** Panoramas → rectified wall crops → a structured reading by a vision model → render
+   and compare against the photo → stored with provenance and confidence. A wall nobody photographed falls back to
+   register, LoD2, lidar and orthophoto priors.
+5. **The same commands at every location.** Anything that works at only one location is a defect, unless it is a
+   named landmark component.
+
+## Phases
+
+| Phase | Content | Exit |
+| --- | --- | --- |
+| P0 | Contracts, walking skeleton, hidden and dev random sets with baselines | Skeleton stills of both first locations through the game client |
+| P1 | Humalistonkatu and Portsa (6 views) | Both at least 10 points above their baselines, built by the same commands |
+| P2 | The other six pilot locations, landmark components | Full 24-view judge run |
+| P3 | Random streets: on-demand build at any point; dev set, then the hidden set | Hidden-set mean ≥ 1.25 × baseline |
+| P4 | Depth | Work goes where weight × deficit is largest |
+
+P3 starts as soon as P1 exits, beside P2: generality is cheaper to keep than to retrofit.
+
+## Tracks
+
+| Track | Owns |
 | --- | --- |
-| Jokiranta (Läntinen Rantakatu, the first corridor) | quay, river and water, bridges, stone frontage |
-| Kauppatori | open square, mixed historic and modern frontage, market furniture |
-| Puolalanpuisto | park terrain, stairs and slopes, mature trees |
-| Rettigin palatsi | landmark facade and its riverside setting |
-| Humalistonkatu | apartment-block street with street trees and shopfronts |
-| Kupittaa | new office and campus blocks, railway, park edges |
-| Portsa (Port Arthur, prepared scene `port-arthur`) | wooden houses, cobbles, courtyards |
-| Nummi | detached-house area: gardens, hedges, low-rise roofs |
+| `w2-core` | Data model, store, location driver, client loader, capture integration, performance tracking, background completeness |
+| `w2-buildings` | Building description schema ([building-description.md](../specs/building-description.md)), workbench, program → geometry and materials, roofs, part kits |
+| `w2-observe` | Panorama selection, rectification, vision reading, render-and-compare, tiers, stored descriptions |
+| `w2-street` | Terrain and ground surfaces, kerbs, markings, furniture, trees, hedges and fences, water |
+| `w2-look` | Lighting, shading and material response in the renderer |
+| `w2-eval` | Random sets, baselines, milestone judging. Never develops generators |
 
-Each location has two to four reference-photo views of contrasting buildings, from 2026 street panoramas (`qa/README.md`,
-"The pilot locations"; judged set `scripts/dev/views/pilot-locations.json`).
+## Measurement and acceptance
 
-Families (materials, facade programs, vegetation, furniture) are judged across these places: a family that only works
-in one of them is a landmark exception, not a family. City-scale generation starts once the families win at the
-pilot locations.
-
-A small playable boundary is acceptable. Obvious empty surroundings, missing street walls or a white void at the end
-of the street are not acceptable in a completed milestone. Reuse the existing context as input while improving the
-new scene.
-
-## Priorities: what covers most of the image
-
-The final campaign images still showed broad uniform grey surfaces, weak facade shading, uniformly dark windows,
-unconvincing tree crowns, repetitive water and incomplete surroundings. These come before decorative details.
-
-1. **Lighting and materials:** coherent daylight, facade contact and shadow depth, believable window response, ground
-   variation and a consistent material scale.
-2. **Buildings and frontage:** convincing nearby entrances and windows, plinths, sills, cornices, shopfront details
-   and recognisable landmark features.
-3. **Vegetation and surroundings:** mature tree volumes, a complete opposite bank and background, appropriate street
-   furniture and a convincing river.
-
-Use measured placement where it exists and documented visual priors elsewhere. Do not require a new vision
-characterisation or a generated texture for every building: use reusable material and facade families, with
-selected landmark exceptions.
-
-## Organisation
-
-- **Worker 1:** lighting and materials across the corridor.
-- **Worker 2:** buildings and near-field frontage in the same corridor.
-- **Worker 3:** vegetation and surroundings in the same corridor.
-- **Coordinator:** visual direction, integration and whole-scene comparison.
-
-Every worker uses the shared appearance loop and capture command ([DEVELOPING.md](../DEVELOPING.md#appearance-loop));
-routine evidence production is not anyone's whole role. A worker brief states the visible outcome, reference
-locations, scope, time budget and stop criterion, and nothing about unrelated historical process. Commit often;
-publish related visible changes together about every 30 minutes; the coordinator does not repeat a worker's
-acceptance work.
-
-## Acceptance and stop rules
-
-- **Recognisability is the bar.** Someone who knows Turku's buildings must easily recognise each building in the
-  views as the real building: its massing and roofline, storeys, bay rhythm and openings, colour and material,
-  ground floor, ornament and landmark features. A plausible generic building in the right place is a failure, however
-  rich it looks; generic kits are only the vocabulary that a building's fitted program draws from. How studios and
-  research reach this, and which models and code we may use, are in
-  [procedural-buildings-streets.md](../research/procedural-buildings-streets.md) (§7, §7.1).
-
-- Compare against both the frozen city release `63b0b015` (city.madekivi.fi) and the previous lab version
-  (city.lab.madekivi.fi), with the three views and the walking clip at matched camera, FOV, time, weather, quality and
-  resolution (`scene-capture.mjs --baseline`; the manifest says whether a comparison is controlled). Lost context or
-  recognisability is a regression.
-- A milestone is obviously better at normal gameplay distance. If its benefit needs zooming in or an explanation of
-  where to look, bundle it into larger work instead of counting it.
-- Check collision and movement when geometry changes (the walking clip, plus cheap affected tests). Check
-  performance for the changed feature with a representative measurement under an exclusive lease.
-- Stop or redirect an experiment after an early comparison if the expected visible gain is absent.
-- Do not scale beyond the pilot locations until they win overall against the frozen baseline; a new pilot location
-  joins the set only deliberately.
-- `city.madekivi.fi` and the earlier Pages release stay frozen. Experiments are published only to city.lab.
-
-## What is measured
-
-Not iteration or merge counts. Track:
-
-- **Major visible defects eliminated** in the corridor views (for example: uniform grey ground, flat facades, dark
-  uniform windows, tree crowns, water, white void), each named with its before/after capture.
-- **Complete scenes improved:** views and clip that win against both baselines.
-- **Judge score per visual milestone:** the blind visual judge's overall score (0–100) and its six categories for the
-  corridor's gameplay and reference-photo views. The score comes from `scripts/dev/scene-judge.mjs`, run in the
-  background and never for each merge. It is compared with the previous milestone
-  and with the judge's measured noise. A gain within that noise is not a gain.
-
-  The same scene (release `a38f3225`) was judged three times on 2026-11-12:
-
-  | Build | Score |
-  | --- | --- |
-  | city.lab `d3e2021d` | 45.7 |
-  | a local build | 45.8 |
-  | city.lab `4c835aca` | 49.3 |
-
-  The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is noise.
-
-  History: `~/turku3d/loops/judge/riverside-office.jsonl`.
-- **Iteration latency:** edit to visible (live patch), publish, capture and deploy, from the timings the commands
-  print. Report an unmet visual goal plainly; deployment alone is not success.
-
-## First trial
-
-1. Keep the policy and capture-path cleanup to 20–30 minutes; defer tooling that does not block the trial.
-2. Run a 60-minute visual proof on the first corridor (jokiranta) and its three views.
-3. At minute 30, look at the whole scene and redirect if the improvement is not already obvious.
-4. At minute 60, integrate the strongest coherent result, capture the comparisons and walking clip, and publish to
-   city.lab.
-5. Judge visible impact and measured iteration latency before extending the campaign.
+- **Judge:** fixed rubric (`scripts/dev/judge/JUDGE.md`), two repeats, only at visual milestones, in the
+  background. Stills come from `scripts/dev/scene-capture.mjs --mode render` at the cameras of the reference photos
+  (`qa/views/views.jsonl`, tag `pilot`).
+- **Look before you claim.** Read your own render beside the photo. A milestone is obviously better at normal view
+  distance; a benefit that needs zooming is bundled into larger work. Stop or redirect an experiment when an early
+  comparison shows no visible gain.
+- **Hidden set:** 24 random street points, one building-targeted view each, made like the pilot views. Only
+  `w2-eval` and the coordinator read it; workers get the aggregate and generic themes, never locations.
+- **Dev set:** 12 other random points, open to all workers.
+- **Imagery:** the pipeline may read any panorama, including those the judge's photos come from, because that is
+  how the product works. The hidden set tests that the automatic pipeline works on streets nobody tuned by hand.
+- **Tracked without a limit:** frame time on the M1 Max at medium quality, triangles and texture memory per
+  location, recorded in the capture manifest.
+- `city.madekivi.fi` and the earlier Pages release stay frozen.
 
 ## Background
 
-The archived campaign plan keeps the reference study, the reconstruction notes and the rendering lessons. Campaign
-evidence of the previous run is under `~/turku3d/wt/realism-20261112/work` and
-[city.lab.madekivi.fi/progress](https://city.lab.madekivi.fi/progress/).
+The riverside-corridor brief this replaces and the campaign before it are in Git history and
+[docs/archive/recognisable-turku-campaign-2026-11.md](../archive/recognisable-turku-campaign-2026-11.md). How
+studios and research reach recognisable buildings, and which models and code we may use, are in
+[procedural-buildings-streets.md](../research/procedural-buildings-streets.md) (§5, §7, §7.1).

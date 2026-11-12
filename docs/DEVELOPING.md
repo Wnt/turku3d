@@ -116,7 +116,9 @@ The rules are in [AGENTS.md](../AGENTS.md); this is how agents carry them out.
 The preview session's CDP port is assigned by the OS. Commands are in
 [scripts/dev/README.md](../scripts/dev/README.md).
 
-**Slice: merge, deploy, smoke, one run.**
+**Slice: merge; then deploy, smoke and one run when the deployed client changed.** Milestones are stills
+([visual brief](design/visual-brief.md)): a pipeline, generator or description change ends at step 1, and steps 2–4
+apply only to a client change that city.lab needs.
 
 1. **Merge** as soon as the tests you selected for the changed area pass. They run in parallel under one hard
    30-second budget; a failure or timeout leaves integration unchanged:
@@ -151,8 +153,8 @@ The preview session's CDP port is assigned by the OS. Commands are in
    documentation. At most one forward fix, then report to the coordinator.
 5. **No rollbacks.**
    - Commit often.
-   - While something works, merge and publish at least every 30 minutes, bundling related visible changes. No
-     finished work waits unmerged.
+   - While something works, merge at least every 45 minutes, bundling related visible changes. No finished work
+     waits unmerged.
    - Write one line per merge and deploy to `~/turku3d/loops/board.md`.
    - There is no agent register, heads-up or acknowledgement ceremony.
 
