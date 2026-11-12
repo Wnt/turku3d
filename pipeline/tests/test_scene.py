@@ -67,8 +67,32 @@ class SemanticSceneTests(unittest.TestCase):
             np.testing.assert_allclose(pos[:,1],1.2,atol=1e-8)
         validate_scene(s)
 
-
-if __name__=='__main__':unittest.main()
+    def test_retaining_face_reuses_both_support_edges(self):
+        s=self.scene()
+        s['materials'].append(dict(id='quay-wall',color=[.3,.3,.3],roughness=.9,metalness=0))
+        points=np.array([[x,2.4,z] for x in range(-3,14) for z in range(-1,12)])
+        centres=np.array([[-2.,5.],[2.,5.],[6.,5.],[10.,5.],[12.,5.]])
+        profile=dict(centres=centres,left=centres+[0,2.5],right=centres-[0,2.5],heights=np.tile([1.2,3.6],(5,1)))
+        records=[(shapely.LineString(centres),dict(source='survey-wall',_survey=profile),False)]
+        ground_scene(s,points,[],[],[],retaining=records)
+        validate_scene(s)
+        walls=[m for m in s['meshes'] if m['entityId']=='survey-wall']
+        self.assertTrue(walls)
+        boundaries={b['id']:b for b in s['boundaries']}
+        supports={b for support in s['supports'] for b in support['boundaryIds']}
+        for wall in walls:
+            self.assertEqual(wall['collision'],'solid')
+            self.assertIsNone(wall['supportId'])
+            self.assertEqual(len(wall['boundaryIds']),2)
+            self.assertTrue(set(wall['boundaryIds'])<=supports)
+            vertices=np.array(wall['positions']).reshape(-1,3)
+            for key in wall['boundaryIds']:
+                for point in boundaries[key]['positions']:
+                    self.assertLess(np.linalg.norm(vertices-point,axis=1).min(),1e-8)
+        levels={round(p[1],4) for m in walls for p in np.array(m['positions']).reshape(-1,3) if 2<=p[0]<=10}
+        self.assertEqual(levels,{1.2,3.6})
+        broken=copy.deepcopy(s);broken['meshes'][0]['boundaryIds']=['missing']
+        with self.assertRaises(ValueError):validate_scene(broken)
 
 
 class ContextClipTests(unittest.TestCase):
@@ -84,3 +108,6 @@ class ContextClipTests(unittest.TestCase):
         self.assertAlmostEqual(shapely.union_all(polygons).intersection(shapely.box(0,0,10,10)).area,0)
         np.testing.assert_allclose(mesh.colors[:,0],(mesh.positions[:,0]+5)/20)
         np.testing.assert_allclose(mesh.colors[:,1],(mesh.positions[:,2]+5)/20)
+
+
+if __name__=='__main__':unittest.main()

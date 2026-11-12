@@ -10,7 +10,7 @@ FIELDS = {
     "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
-    "mesh": "id entityId materialId positions indices collision supportId normals uv render",
+    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds",
     "asset": "id entityId url sha256 position recipe bounds",
     "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
     "emitter": "id fixtureId position color intensity range",
@@ -55,7 +55,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            fields(row, kind, ("normals", "uv", "render") if kind == "mesh" else (("water", "baseColorTexture", "normalTexture", "ormTexture") if kind == "material" else ()))
+            fields(row, kind, ("normals", "uv", "render", "boundaryIds") if kind == "mesh" else (("water", "baseColorTexture", "normalTexture", "ormTexture") if kind == "material" else ()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
                 raise ValueError(f"Invalid or duplicate {plural} ID {key}")
@@ -113,6 +113,11 @@ def validate_scene(scene):
         ref("materials", mesh["materialId"])
         if mesh["supportId"] is not None:
             ref("supports", mesh["supportId"])
+        if "boundaryIds" in mesh:
+            if not isinstance(mesh["boundaryIds"], list) or any(not isinstance(k,str) for k in mesh["boundaryIds"]):
+                raise ValueError("mesh boundaryIds must be an array of IDs")
+            for key in mesh["boundaryIds"]:
+                ref("boundaries", key)
         if mesh["collision"] not in ("solid", "passable", "dynamic", "sensor"):
             raise ValueError("Unknown collision policy")
         for name, size in (("normals", len(p)), ("uv", len(p) // 3 * 2)):

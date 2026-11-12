@@ -78,7 +78,7 @@ def load_evidence(cache, bounds):
     return np.unique(np.concatenate(points), axis=0), list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters, walks=()):
+def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=()):
     window = shapely.box(*scene["bounds"])
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
@@ -91,13 +91,10 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
         if not band.is_empty:
             regions.append((band, "quay" if np.nanmedian(p["heights"][:, 3]) < 2. else "footway"))
     regions = [(shapely.set_precision(g, 1e-5), kind) for g, kind in regions]
-    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions]], grid_size=1e-5)
-    patches = [g for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(network)))
-               if dry.covers(g.representative_point()) and g.area > 2e-6]
     linear = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])
     nearest = NearestNDInterpolator(points[:, [0, 2]], points[:, 1])
     height_cache, boundary_cache = {}, {}
-    def height(xz):
+    def base_height(xz):
         from turku3d.coarse.walkable import grade
         from turku3d.coarse.banks import quay_crest
         xz = np.round(np.asarray(xz), 7)
@@ -114,8 +111,16 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
                 p = quay_crest(p, lower_walks, water, masonry)
             height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))
         return np.array([height_cache[tuple(row)] for row in xz])
+    from .retaining import RetainingField
+    field = RetainingField(retaining, base_height, dry)
+    def height(xz, owner=None):
+        return field.height(xz, base_height(xz), owner)
+    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions], *field.boundaries], grid_size=1e-5)
+    patches = [g for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(network)))
+               if dry.covers(g.representative_point()) and g.area > 2e-6]
     for poly in sorted(patches, key=lambda g: g.wkb):
         poly = shapely.set_precision(poly, 1e-5)
+        owner = field.owner(poly)
         key = "surface:" + digest(poly.wkb)[:16]
         kind = "ground"
         for region, candidate in regions:
@@ -135,9 +140,13 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
                 holes.append(list(shapely.Polygon(r).representative_point().coords)[0])
             for a, b in zip(r, np.roll(r, -1, axis=0), strict=True):
                 endpoints = np.array(sorted([tuple(a), tuple(b)]))
-                bid = "edge:" + digest(np.round(endpoints, 7).tobytes())[:16]
+                positions = np.c_[endpoints[:, 0], height(endpoints, owner), endpoints[:, 1]]
+                # Vertical walls have two different, explicitly owned boundaries
+                # at the same plan edge. Equal 3-D edges still share one identity.
+                positions = np.round(positions, 7)
+                bid = "edge:" + digest(positions.tobytes())[:16]
                 if bid not in boundary_cache:
-                    boundary_cache[bid] = dict(id=bid, positions=np.c_[endpoints[:, 0], height(endpoints), endpoints[:, 1]].tolist())
+                    boundary_cache[bid] = dict(id=bid, positions=positions.tolist())
                 ids.append(bid)
         # Reuse measured ground samples inside the patch, with vector boundaries fixed.
         local = points[shapely.contains_xy(poly.buffer(-1e-4), points[:, 0], points[:, 2])][:, [0, 2]]
@@ -146,7 +155,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
             data["holes"] = holes
         out = triangle.triangulate(data, "pQ")
         xz = out["vertices"]
-        p = np.c_[xz[:, 0], height(xz), xz[:, 1]]
+        p = np.c_[xz[:, 0], height(xz, owner), xz[:, 1]]
         ix = out["triangles"][:, [0, 2, 1]]
         finish = "road" if kind=="footway" else kind
         for source_polygon, source_material in streets:
@@ -158,6 +167,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
         scene["meshes"].append(mesh)
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
     scene["boundaries"] = list(boundary_cache.values())
+    scene["meshes"].extend(field.wall_meshes(scene["boundaries"]))
     if lower_walks and not water.is_empty:
         from turku3d.structures.geometry import Faces
         shore = water.boundary.intersection(window.buffer(-.001))
@@ -198,6 +208,12 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
 def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=()):
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
+    retaining_path = Path(cache) / "retaining.pkl"
+    retaining = []
+    if retaining_path.exists():
+        raw = retaining_path.read_bytes()
+        retaining = pickle.loads(raw)["value"]
+        sources.append(dict(id="raw-lidar/retaining.pkl",sha256=digest(raw),kind="retaining-survey",uncertaintyM=.15))
     scene = dict(schema=SCHEMA, release="pending", id=scene_id,
                  origin=[C.ORIGIN_E, C.ORIGIN_N, 0], bounds=list(bounds), sources=sources,
                  materials=[dict(id=k, color=c, roughness=r, metalness=m) for k, (c, r, m) in PALETTE.items()],
@@ -205,7 +221,7 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
                  spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
-    height = ground_scene(scene, points, buildings, streets, waters, walks)
+    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining)
     window = shapely.box(*bounds)
     for b in buildings:
         if not b.footprint.intersects(window):
