@@ -6,27 +6,24 @@ from .compile import mesh_record
 
 
 def support_query(scene):
-    surfaces = []
-    by_id = {m['id']:m for m in scene['meshes']}
+    triangles,owners=[],[]
+    by_id={m['id']:m for m in scene['meshes']}
     for support in scene['supports']:
-        mesh = by_id[support['meshId']]
-        p = np.asarray(mesh['positions']).reshape(-1,3)
-        ix = np.asarray(mesh['indices']).reshape(-1,3)
-        xy = p[ix][:,:,[0,2]]
-        polygons = shapely.polygons(xy)
-        surfaces.append((support, p[ix], polygons))
+        mesh=by_id[support['meshId']]
+        p=np.asarray(mesh['positions']).reshape(-1,3);ix=np.asarray(mesh['indices']).reshape(-1,3)
+        triangles.extend(p[ix]);owners.extend([support]*len(ix))
+    triangles=np.asarray(triangles).reshape(-1,3,3)
+    tree=shapely.STRtree(shapely.polygons(triangles[:,:,[0,2]]))
     def support_at(x,z,reference_y=None):
         hits=[]
-        for support,tris,polygons in surfaces:
-            selected=np.flatnonzero(shapely.intersects_xy(polygons,x,z))
-            if len(selected):
-                a,b,c=tris[selected[0]]
-                normal=np.cross(b-a,c-a)
-                if abs(normal[1])<1e-8:
-                    continue
-                y=a[1]-(normal[0]*(x-a[0])+normal[2]*(z-a[2]))/normal[1]
-                if reference_y is None:return support,float(y)
-                hits.append((support,float(y)))
+        # Preserve declared support/triangle order for equal-level shared edges.
+        for index in sorted(tree.query(shapely.Point(x,z),predicate='intersects')):
+            a,b,c=triangles[index];normal=np.cross(b-a,c-a)
+            if abs(normal[1])<1e-8:continue
+            y=a[1]-(normal[0]*(x-a[0])+normal[2]*(z-a[2]))/normal[1]
+            hit=(owners[index],float(y))
+            if reference_y is None:return hit
+            hits.append(hit)
         return min(hits,key=lambda hit:abs(hit[1]-reference_y)) if hits else None
     return support_at
 

@@ -152,12 +152,14 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
         # Replace only the authored translations with supported prepared values;
         # every mesh, crown, rotation and scale remains the approved source data.
         import numpy as np
-        raw=np.asarray(positions,dtype='<f4').tobytes()
-        offset=len(binary);binary+=raw
-        vi=len(result['bufferViews']);result['bufferViews'].append(dict(buffer=0,byteOffset=offset,byteLength=len(raw)))
-        ai=len(result['accessors']);result['accessors'].append(dict(bufferView=vi,componentType=5126,count=len(positions),type='VEC3'))
-        node['extensions']['EXT_mesh_gpu_instancing']['attributes']['TRANSLATION']=ai
-        result['buffers'][0]['byteLength']=len(binary)
+        prepared=np.asarray(positions,dtype='<f4')
+        if not np.array_equal(prepared,np.asarray(values['TRANSLATION'],dtype='<f4')):
+            raw=prepared.tobytes()
+            offset=len(binary);binary+=raw
+            vi=len(result['bufferViews']);result['bufferViews'].append(dict(buffer=0,byteOffset=offset,byteLength=len(raw)))
+            ai=len(result['accessors']);result['accessors'].append(dict(bufferView=vi,componentType=5126,count=len(positions),type='VEC3'))
+            node['extensions']['EXT_mesh_gpu_instancing']['attributes']['TRANSLATION']=ai
+            result['buffers'][0]['byteLength']=len(binary)
         extras['instance_near_water']=[shapely.Point(p[0],p[2]).distance(water)<25 for p in world]
         identities=extras['instance_object_ids']
         for k,(identity,position) in enumerate(zip(identities,world.tolist(),strict=True)):

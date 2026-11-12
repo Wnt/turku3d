@@ -34,6 +34,8 @@ class SceneAssetTests(unittest.TestCase):
             index=node['extensions']['EXT_mesh_gpu_instancing']['attributes']['TRANSLATION'];accessor=prepared['accessors'][index];view=prepared['bufferViews'][accessor['bufferView']]
             self.assertEqual(struct.unpack_from('<fff',binary,view['byteOffset']),(2.,4.,3.))
             self.assertLess(asset['bounds']['min'][0],252);self.assertGreater(asset['bounds']['max'][2],253)
+            again,again_trees=import_vegetation(root/'output'/asset['url'],(root/'output'/asset['url']).as_uri(),root/'second',shapely.Polygon(),scene,asset_id=asset['id'])
+            self.assertEqual(again,asset);self.assertEqual(again_trees,trees)
 
     def test_complete_approved_building_owns_context_beyond_playable_edge(self):
         from turku3d.scene.context import outside_mesh

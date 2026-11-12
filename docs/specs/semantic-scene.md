@@ -249,3 +249,27 @@ Offline fixture/vegetation queries can specify a reference height to select the
 nearest supported level. This prevents a lower-quay trunk from attaching to an
 upper deck solely because the upper support was emitted first. Runtime physics
 continues to select support by its own downward ray from the player height.
+
+### Refreshing supports without manual tree edits
+
+After replacing a bounded ground snapshot, use the pinned prepared vegetation
+assets themselves to reattach their instances. The source adapter preserves each
+instance ID, rotation, scale, species, crown and ancestor transform, and selects
+the support nearest its previous elevation. All external buffers and image bytes
+are verified before use. A scene with unchanged supports retains identical asset,
+recipe and final release hashes; translation accessors are appended only when
+actual float32 instance coordinates change.
+
+```sh
+bash pipeline/env/run.sh python -m turku3d.scene.resupport \
+  --recipe pipeline/turku3d/scene/recipes/office.json \
+  --cache "$TURKU3D_WORK/a2-evidence" \
+  --asset-root game/public/scenes \
+  --output "$TURKU3D_WORK/resupported-scene" \
+  --recipe-output "$TURKU3D_WORK/resupported-scene.recipe.json"
+```
+
+This explicitly refreshes the input pins from the supplied private cache, rebuilds
+canonical supports, updates only vegetation assets that own pinned tree anchors,
+and writes the complete final scene. Missing or duplicate instance identities
+fail the operation. Context-only vegetation remains unchanged.
