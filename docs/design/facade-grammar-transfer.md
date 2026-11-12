@@ -35,6 +35,16 @@ and facade-program resolver then create appearances from those qualified inputs.
 Unknown cladding stays unknown even when the existing grammar samples a visual
 material prior. No new description or reviewed program is written.
 
+The external `scene.facade_appearances` CLI accepts the pinned WFS and ground
+pickles, private inventory, tile identity, output directory and existing texture
+library. KTX tools must already be on `PATH`. It includes selected crossing
+buildings from `wall_context`, resolves exposed walls against neighbouring source
+shells, and uses the normal facade kit, roof-material fallback, ambient visibility
+and immutable per-building packaging. No orthophoto or street-reference pixels
+enter this transfer. `assets.json` and `provenance.json` remain external products;
+the latter records input hashes, unknowns, conflicts and retained-description
+counts. Consumers must pair these appearances with the same source shell geometry.
+
 ## Three central pilot areas
 
 The first office block and Auransilta extension already preserve their approved
