@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { DoubleSide, FrontSide, Texture, WebGPURenderer, type Mesh, type MeshStandardMaterial, type MeshStandardNodeMaterial } from 'three/webgpu';
 import { MaterialStyler } from '../../src/render/materials';
+import { nightUniforms } from '../../src/render/nightLights';
 import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey, type PreparedScene } from '../../src/world/preparedScene';
 
 function scene(): PreparedScene {
@@ -17,6 +18,26 @@ function scene(): PreparedScene {
 }
 
 describe('prepared scene contract', () => {
+  it('binds explicit night emission to the shared timecycle without creating lights', () => {
+    const s = scene(); s.materials[0].nightEmission = [8, 5.92, 3.52];
+    const model = buildPreparedModel(readPreparedScene(s));
+    const material = (model.children[0] as Mesh).material as MeshStandardNodeMaterial;
+    const emission = material.emissiveNode!;
+    const nodes: unknown[] = []; emission.traverse(node => nodes.push(node));
+    expect(material.isMeshStandardNodeMaterial).toBe(true);
+    expect(nodes).toContain(nightUniforms.night);
+    expect(model.children).toHaveLength(1);
+    expect(model.children.some(o => (o as unknown as { isLight?: boolean }).isLight)).toBe(false);
+    const before = nightUniforms.night.value;
+    try {
+      nightUniforms.night.value = 1; expect(material.emissiveNode).toBe(emission);
+      nightUniforms.night.value = 0; expect(material.emissiveNode).toBe(emission);
+    } finally { nightUniforms.night.value = before; }
+    for (const invalid of [[-1,0,0], [Infinity,0,0], [0,0], [true,0,0]]) {
+      (s.materials[0] as unknown as { nightEmission: unknown }).nightEmission = invalid;
+      expect(() => readPreparedScene(s)).toThrow('material nightEmission');
+    }
+  });
   it('requires explicit collections and current schema', () => {
     const s = scene(); expect(readPreparedScene(s)).toBe(s);
     expect(() => readPreparedScene({ ...s, emitters: undefined })).toThrow('emitters');

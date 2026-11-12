@@ -57,6 +57,13 @@ are sRGB, the others linear. Optional `water:{point,normal,band}` declares the
 reflection plane explicitly. Required fixture `sourceIds` and `uncertaintyM`
 record mapped placement provenance; family dimensions remain inferred priors.
 
+Optional material `nightEmission:[r,g,b]` is finite nonnegative linear emitted
+radiance at full night, in renderer-relative units. The shared timecycle scales
+it to zero by day without changing the shader graph. It describes a visible
+emissive surface, not a point light: no light, range, geometry or collision is
+created by the runtime. Receiver illumination remains explicitly baked or comes
+from the scene's emitter records.
+
 The current pilot retains 17 published building assets and the published asphalt,
 slab and quay PBR maps. Furniture is emitted only with a resolved support and
 whole-base height checks. Fixture family associations retain their evidence

@@ -1,4 +1,6 @@
 import * as THREE from 'three/webgpu';
+import { vec3 } from 'three/tsl';
+import { nightUniforms } from '../render/nightLights';
 import type { ManifestEntry, Manifest } from './manifest';
 
 export type Vec3 = [number, number, number];
@@ -9,6 +11,8 @@ export interface PreparedMaterial {
   surface?: 'asphalt' | 'granite' | 'cobblestone' | 'stone' | 'grass';
   /** Explicit cutout and face policy for prepared foliage/fences; opaque front faces remain the default. */
   alphaTest?: number; doubleSided?: boolean;
+  /** Full-night emitted linear RGB, renderer-relative radiance prior; no new light or inferred geometry. */
+  nightEmission?: Vec3;
   water?: { point: Vec3; normal: Vec3; band: string };
   baseColorTexture?: PreparedTexture; normalTexture?: PreparedTexture; ormTexture?: PreparedTexture;
 }
@@ -73,6 +77,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
     if (!vector(m.color) || !m.color.every(unit) || !unit(m.roughness) || !unit(m.metalness)) fail(`material ${m.id}`);
     if (m.alphaTest !== undefined && !unit(m.alphaTest)) fail(`material alphaTest ${m.id}`);
     if (m.doubleSided !== undefined && typeof m.doubleSided !== 'boolean') fail(`material doubleSided ${m.id}`);
+    if (m.nightEmission !== undefined && (!vector(m.nightEmission) || !m.nightEmission.every((v: number) => v >= 0))) fail(`material nightEmission ${m.id}`);
     if (m.surface !== undefined && !['asphalt', 'granite', 'cobblestone', 'stone', 'grass'].includes(m.surface)) fail(`material surface ${m.id}`);
     if (m.water !== undefined && (!object(m.water) || !vector(m.water.point) || !vector(m.water.normal)
       || Math.abs(Math.hypot(...m.water.normal) - 1) > .001 || !name(m.water.band))) fail(`water ${m.id}`);
@@ -176,9 +181,12 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     }
     if (parts.every(p => p.normals)) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3)); else geometry.computeVertexNormals();
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const drawMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace),
+    const parameters = { color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace),
       roughness: material.roughness, metalness: material.metalness, alphaTest: material.alphaTest ?? 0,
-      side: material.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
+      side: material.doubleSided ? THREE.DoubleSide : THREE.FrontSide };
+    const drawMaterial = material.nightEmission ? new THREE.MeshStandardNodeMaterial(parameters) : new THREE.MeshStandardMaterial(parameters);
+    if (material.nightEmission) (drawMaterial as THREE.MeshStandardNodeMaterial).emissiveNode =
+      vec3(...material.nightEmission).mul(nightUniforms.night);
     if (material.baseColorTexture) drawMaterial.map = textures.get(textureKey(material.baseColorTexture, true)) ?? null;
     if (material.normalTexture) drawMaterial.normalMap = textures.get(textureKey(material.normalTexture, false)) ?? null;
     if (material.ormTexture) {

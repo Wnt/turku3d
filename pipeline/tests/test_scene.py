@@ -49,6 +49,13 @@ class SemanticSceneTests(unittest.TestCase):
             m['nightIrradiance']=values
             with self.assertRaises(ValueError):validate_scene(s)
 
+    def test_night_emission_is_nonnegative_finite_linear_rgb(self):
+        s=self.compiled();material=s['materials'][0]
+        material['nightEmission']=[8.,5.92,3.52];validate_scene(s)
+        for values in ([-1.,0.,0.],[float('inf'),0.,0.],[1.,1.],[True,0.,0.]):
+            material['nightEmission']=values
+            with self.assertRaises(ValueError):validate_scene(s)
+
     def test_hole_is_not_triangulated(self):
         s=self.scene();p=np.array([[x,0,z] for x in range(-1,12) for z in range(-1,12)])
         building=type('Building',(),{'footprint':shapely.box(3,3,7,7)})()
