@@ -36,7 +36,10 @@ def audit(path,cache=None):
     for identity,entry in s['collision'].items():
         raw=checked(entry['url'],entry['sha256']);col=read_col(raw)
         if col.id!=identity or len(col.indices)!=entry['tris']:raise ValueError('Collision identity mismatch')
-        positions.append(col.positions+col.origin);indices.append(col.indices+offset);materials.append(col.materials);offset+=len(col.positions)
+        # Physics keeps tile-local Float32 vertices. Promote before translating
+        # for the world-space audit; a Float32 world sum can erase narrow curb
+        # triangles that remain valid in their actual collision cell.
+        positions.append(col.positions.astype(np.float64)+col.origin);indices.append(col.indices+offset);materials.append(col.materials);offset+=len(col.positions)
     collision=Mesh(np.concatenate(positions),np.concatenate(indices),np.concatenate(materials))
     faces=collision.positions[collision.indices]
     planar=np.abs(np.cross(faces[:,1]-faces[:,0],faces[:,2]-faces[:,0])[:,1])>1e-10

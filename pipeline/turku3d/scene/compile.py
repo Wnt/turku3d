@@ -17,6 +17,10 @@ import triangle
 from turku3d import config as C
 from .schema import SCHEMA, validate_scene
 
+# One tenth of a millimetre keeps shared planar junctions representable after
+# tile-local Float32 collision encoding; survey uncertainty is centimetres.
+PLANAR_GRID_M = 1e-4
+
 PALETTE = {
     "cobblestone": ([.35,.33,.30],.9,0), "tree-trunk": ([.12,.08,.04],.95,0), "quay-wall": ([.34,.32,.29],.9,0), "quay": ([.34,.32,.29],.9,0), "wood": ([.18,.09,.035],.8,0),
     "ground": ([.23, .22, .19], .95, 0), "road": ([.12, .13, .14], .94, 0),
@@ -90,12 +94,14 @@ def load_evidence(cache, bounds):
     return points, list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=(), tunnel_meshes=()):
+def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=(), tunnel_meshes=(), street_sections=None):
+    from . import street_sections as sections
+    street_sections=street_sections or {}
     window = shapely.box(*scene["bounds"])
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
     from .structures import passage_area
-    dry = shapely.set_precision(window.difference(water).difference(building_area).difference(passage_area(tunnel_meshes)), 1e-5)
+    dry = shapely.set_precision(window.difference(water).difference(building_area).difference(passage_area(tunnel_meshes)), PLANAR_GRID_M)
     regions = [(g.intersection(dry), "footway" if m in (2,3,4,7,8) else ("road" if m in (1,5,6) else "ground"))
                for g, m in streets if g.intersects(dry)]
     from .retaining import shore_walks
@@ -107,7 +113,9 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
         band = p["line"].buffer(p["width"]/2, cap_style="flat", join_style="mitre").intersection(dry)
         if not band.is_empty:
             regions.append((band, "quay" if np.nanmedian(p["heights"][:, 3]) < 2. else "footway"))
-    regions = [(shapely.set_precision(g, 1e-5), kind) for g, kind in regions]
+    regions = [(shapely.set_precision(g, PLANAR_GRID_M), kind) for g, kind in regions]
+    finishes=sections.regions(street_sections,dry)
+    regions.extend((g,kind) for g,kind,_ in finishes)
     linear = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])
     nearest = NearestNDInterpolator(points[:, [0, 2]], points[:, 1])
     height_cache, boundary_cache = {}, {}
@@ -128,6 +136,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                 p[on_quay] = grade(p[on_quay], lower_terraces)
                 masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
                 p = quay_crest(p, lower_walks, water, masonry)
+            p[:,1]=sections.height(street_sections,xy,p[:,1])
             height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))
         return np.array([height_cache[tuple(row)] for row in xz])
     from .retaining import RetainingField
@@ -135,11 +144,13 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     def height(xz, owner=None):
         return field.height(xz, base_height(xz), owner)
     from .structures import approach_boundaries, approach_owners, grade_approach
-    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions], *field.boundaries, *approach_boundaries(decks)], grid_size=1e-5)
+    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions], *field.boundaries, *approach_boundaries(decks), *sections.boundaries(street_sections,dry)], grid_size=PLANAR_GRID_M)
     patches = [g for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(network)))
                if dry.covers(g.representative_point()) and g.area > 2e-6]
     for poly in sorted(patches, key=lambda g: g.wkb):
-        poly = shapely.set_precision(poly, 1e-5)
+        poly = shapely.set_precision(poly, PLANAR_GRID_M)
+        if poly.is_empty:
+            continue
         owner = field.owner(poly)
         approaches = approach_owners(decks, poly)
         def patch_height(xz):
@@ -186,6 +197,8 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                 if source_material in (1,5,6):finish="road"
                 elif source_material==7:finish="cobblestone"
                 elif source_material==8:finish="footway"
+        for source_polygon,_,source_finish in finishes:
+            if source_polygon.covers(poly.representative_point()):finish=source_finish
         mesh = mesh_record(key + ":mesh", key, finish, p, ix, support=key)
         scene["meshes"].append(mesh)
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
@@ -232,6 +245,9 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     sources.extend(asset_sources)
+    from . import street_sections
+    sections,section_sources=street_sections.load(cache,bounds)
+    sources.extend(section_sources)
     retaining_path = Path(cache) / "retaining.pkl"
     retaining = []
     if retaining_path.exists():
@@ -245,10 +261,12 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
                  spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
+    if sections:
+        scene['materials'].extend(dict(id=k,color=c,roughness=r,metalness=m) for k,(c,r,m) in street_sections.PALETTE.items())
     from . import structures
     decks,tunnel_meshes,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
     scene['sources'].extend(structure_sources)
-    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes)
+    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes,sections)
     structures.append(scene,decks,tunnel_meshes)
     window = shapely.box(*bounds)
     for b in buildings:
@@ -350,6 +368,8 @@ def write_products(scene, output):
                 name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "sign-C1": "street_furniture", "sign-E2": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
                 if name.startswith('bridge:'):name=name.split(':')[1]
                 if name=='hedge':name='vegetation_low'
+                from .street_sections import PHYSICS
+                name=PHYSICS.get(name,name)
                 if name in ('qwensel-tread','qwensel-trim'):name='wood_deck'
                 if m['id']=='qwensel-entrance-stair-rails':name='railing'
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
