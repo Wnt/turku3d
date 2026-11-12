@@ -34,14 +34,28 @@ def prepare(cache,bounds,points,buildings,water,walks):
                 if way.get('outline',way['line']).intersects(window):ways[str(way['id'])]=way
         else:
             for row in value[0]:stairs[hashlib.sha256(pickle.dumps(row)).hexdigest()]=row
-    if not ways:return [],[s for s,_ in records]
+    if not ways:return [],[],[s for s,_ in records]
     inputs=SimpleNamespace(points=points,buildings=buildings,water=water,walkable=walks,
                            roads={'bridge_ways':list(ways.values())},stairs=(list(stairs.values()),()))
     # The adapter compiles the whole bounded scene, never clips a deck at its old
     # source tile edge. All measured upper/lower levels remain distinct products.
     tile=SimpleNamespace(size=250.,bbox=C.BBoxLocal(*bounds))
     decks=produce(tile,points.copy(),inputs)
-    return decks,[s for s,_ in records]
+    from turku3d.coarse import tunnels
+    from turku3d.coarse.bridge_join import terrain_sampler
+    from turku3d.coarse.walkable import sampler
+    from turku3d.coarse.extrusion import extrude
+    ground=terrain_sampler(points);surface=sampler(ground,walks)
+    passages={key:(key,line,tags) for deck in decks for key,line,tags in deck.way.get('quay_passages',[])}
+    products=tunnels.produce(tile,list(passages.values()),np.empty((0,3)),np.empty((0,3),dtype=np.uint32),[],extrude,ground,surface_sample=surface,walks=walks)
+    tunnel_meshes=[m for m in products.meshes if not m.metadata.get('lamp')]
+    for mesh in tunnel_meshes:mesh.metadata['surface']=tunnels.tunnel_surface(mesh)
+    return decks,tunnel_meshes,[s for s,_ in records]
+
+
+def passage_area(meshes):
+    floors=[m.positions[m.indices][:,:,[0,2]] for m in meshes if m.object_id.endswith(':floor')]
+    return shapely.union_all(shapely.polygons(np.concatenate(floors))) if floors else shapely.Polygon()
 
 
 def approach_boundaries(decks):
@@ -68,11 +82,13 @@ def grade_approach(xz,y,patches):
     return grade(np.c_[xz[:,0],y,xz[:,1]],prepared,edges=False)[:,1]
 
 
-def append(scene,decks):
+def append(scene,decks,tunnel_meshes=()):
     from .compile import mesh_record
     from turku3d.coarse.bridge_materials import maps,METRES
     materials={m['id'] for m in scene['materials']}
-    for deck in decks:
+    products=[*decks]
+    if tunnel_meshes:products.append(SimpleNamespace(way={'id':'quay-passages'},meshes=tunnel_meshes))
+    for deck in products:
         for mesh in deck.meshes:
             surface=mesh.metadata.get('surface','concrete')
             if surface=='night_rail':surface='paint'
@@ -85,7 +101,7 @@ def append(scene,decks):
                 scene['materials'].append(descriptor);materials.add(material)
             # Producer material identifies the traversable top explicitly. Body,
             # rail, pier and decoration meshes never become support surfaces.
-            supported=mesh.material in ('road','sidewalk','gravel')
+            supported=mesh.material in ('road','sidewalk','gravel','paving_slab')
             sid=mesh.object_id+':support' if supported else None
             record=mesh_record(mesh.object_id,'bridge:'+str(deck.way['id']),material,mesh.positions,mesh.indices,
                                'solid' if mesh.metadata.get('collision',True) else 'passable',sid,mesh.uvs/METRES)
@@ -103,7 +119,7 @@ def append(scene,decks):
                     pos=vertices[edge];bid='edge:'+hashlib.sha256(pos.tobytes()).hexdigest()[:16]
                     if bid not in known:scene['boundaries'].append(dict(id=bid,positions=pos.tolist()));known.add(bid)
                     bids.append(bid)
-                scene['supports'].append(dict(id=sid,kind='road' if mesh.material=='road' else 'footway',boundaryIds=bids,meshId=record['id']))
+                scene['supports'].append(dict(id=sid,kind='road' if mesh.material=='road' else ('quay' if mesh.material=='paving_slab' else 'footway'),boundaryIds=bids,meshId=record['id']))
 
 
 def write_textures(scene,output):

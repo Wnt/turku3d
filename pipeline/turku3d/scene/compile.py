@@ -90,11 +90,12 @@ def load_evidence(cache, bounds):
     return points, list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=()):
+def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=(), tunnel_meshes=()):
     window = shapely.box(*scene["bounds"])
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
-    dry = shapely.set_precision(window.difference(water).difference(building_area), 1e-5)
+    from .structures import passage_area
+    dry = shapely.set_precision(window.difference(water).difference(building_area).difference(passage_area(tunnel_meshes)), 1e-5)
     regions = [(g.intersection(dry), "footway" if m in (2,3,4,7,8) else ("road" if m in (1,5,6) else "ground"))
                for g, m in streets if g.intersects(dry)]
     from .retaining import shore_walks
@@ -245,10 +246,10 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                  spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
     from . import structures
-    decks,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
+    decks,tunnel_meshes,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
     scene['sources'].extend(structure_sources)
-    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks)
-    structures.append(scene,decks)
+    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes)
+    structures.append(scene,decks,tunnel_meshes)
     window = shapely.box(*bounds)
     for b in buildings:
         if b.footprint.intersects(window.buffer(30)):
