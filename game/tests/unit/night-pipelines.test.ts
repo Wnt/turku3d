@@ -51,7 +51,7 @@ function canonical(code: string) {
   });
 }
 
-function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new GameLighting(QUALITY[tier].lights)) {
+function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new GameLighting(QUALITY[tier].lights), preparedSurface = 'asphalt') {
   const renderer = new GameRenderer({ forceWebGL: webgl, canvas: { width: 1, height: 1, style: {} } as HTMLCanvasElement });
   renderer.hasFeature = () => false;
   Object.assign(renderer.backend, { capabilities: { getUniformBufferLimit: () => 65536 } });
@@ -107,7 +107,7 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   const receiver = wall({ _night_irradiance: [.1,.08,.05] });
   receiver.userData.preparedStreetLighting = true;
   const prepared = new THREE.Mesh(receiver, new THREE.MeshStandardMaterial({ map:atlas(), normalMap:atlas(), roughnessMap:atlas() }));
-  prepared.userData.material_key = 'prepared_asphalt';
+  prepared.userData.material_key = `prepared_${preparedSurface}`;
   const preparedGroup = new THREE.Group(); preparedGroup.add(prepared); styler.apply(preparedGroup);
   add('prepared-street-receiver', prepared);
   add('sky', env.sky);
@@ -465,9 +465,9 @@ test('far-band dissolve twins build on both backends in the beauty MRT, rigid an
 });
 
 
-test('prepared receivers replace field and point diffuse while preserving specular and the day clock', () => {
+test.each(['asphalt', 'stone', 'granite', 'cobblestone'])('prepared receivers preserve direct-light ownership and dry/wet programs for %s', surface => {
   for (const webgl of [false, true]) {
-    const w = world(webgl, 'medium');
+    const w = world(webgl, 'medium', undefined, surface);
     weatherUniforms.wetness.value = 0;
     w.at(13);
     const day = w.shaders(['prepared-street-receiver'])['prepared-street-receiver'];
