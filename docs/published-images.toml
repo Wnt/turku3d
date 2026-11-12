@@ -447,3 +447,18 @@ path = "game/public/assets/ui/officer-open.svg"
 source = "Original project SVG, drawn by Codex for the police notice"
 licence = "MIT (this repository)"
 reason = "Police officer notice portrait, open mouth frame"
+
+# Gallery media is served outside Git. These are rendered game captures only.
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/baseline-ea922fb2/"
+files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4"]
+source = "Turku3D normal gameplay captured on Windows; release ea922fb2"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Matched starting point for the next-generation campaign"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-01-bf303013/"
+files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4"]
+source = "Turku3D normal gameplay captured on Windows; release bf303013, exact camera and render settings match baseline"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office crown, furniture and immediate quay evidence with wider context limitations disclosed"

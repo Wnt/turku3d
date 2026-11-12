@@ -212,3 +212,17 @@ the first import. The corrected GLB retains all 2,242 unique placements under th
 actual consumer grouping rule. The office release also imports the complete
 `103295899S` facade from its adjacent frozen source tile: entities crossing the
 pilot boundary must not fall back to a plain collision proxy.
+
+## Compiled indirect visibility
+
+Opaque native meshes carry `bakedVisibility` as UINT8 RGB triples: local ambient
+visibility, sky visibility and coverage, each 0–255. The consumer packs these
+into normalized `color_1` RGBA8 with alpha255. An unbaked part in a mixed material
+batch uses [255,255,0], so other parts do not darken it accidentally.
+
+The producer reuses the existing one-metre horizon bake against final support
+triangles and source roof planes, with a 42m source-ground halo. Mapped water
+stays at its declared surface level. This affects indirect light through the
+existing ambient context; it does not alter pigment, direct sun or collision.
+The approximation is 2.5D and does not yet model porous tree crowns or bridge
+underpasses. Imported approved building assets retain their existing visibility.

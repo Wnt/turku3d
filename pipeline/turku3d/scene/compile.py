@@ -272,6 +272,8 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
         for mesh in scene["meshes"]:
             if mesh["materialId"]==material["id"]:
                 mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
+    from .visibility import bake_scene
+    bake_scene(scene, points, buildings, waters)
     return scene
 
 

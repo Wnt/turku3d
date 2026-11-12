@@ -10,7 +10,7 @@ FIELDS = {
     "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
-    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds",
+    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility",
     "asset": "id entityId url sha256 position recipe bounds",
     "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
     "emitter": "id fixtureId position color intensity range category",
@@ -56,7 +56,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category",)}
+            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category",)}
             fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
@@ -125,6 +125,10 @@ def validate_scene(scene):
         for name, size in (("normals", len(p)), ("uv", len(p) // 3 * 2)):
             if name in mesh:
                 vector(mesh[name], size, name)
+        if 'bakedVisibility' in mesh:
+            values=mesh['bakedVisibility']
+            if not isinstance(values,list) or len(values)!=len(p) or any(type(v) is not int or not 0<=v<=255 for v in values):
+                raise ValueError('bakedVisibility must contain one UINT8 RGB triple per vertex')
     for fixture in scene["fixtures"]:
         ref("supports", fixture["supportId"])
         for key in fixture["sourceIds"]:

@@ -102,7 +102,7 @@ if __name__=='__main__':
     parser.add_argument('--fixture-bindings',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();scene=json.loads(args.scene.read_text())
-    generated={'ground','wfs','poles','walkable','retaining-survey','registered-reference-association','scene-recipe'}
+    generated={'ground','wfs','poles','walkable','retaining-survey','registered-reference-association','scene-recipe','compiled-ambient-visibility'}
     recipe=create_recipe(scene['id'],scene['bounds'],args.cache,assets=scene['assets'],
                          material_recipes=json.loads(args.materials.read_text()),trees=json.loads(args.trees.read_text()),
                          asset_sources=[s for s in scene['sources'] if s['kind'] not in generated],fixture_bindings=args.fixture_bindings)
