@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""City.lab smoke after a deploy (AGENTS.md flow step 3): curl-level, no browser, 5 s total, health-aware.
+"""City.lab smoke after a deploy (docs/DEVELOPING.md agent flow, step 3): curl-level, no browser, 5 s total, health-aware.
 
   python3 tools/share/smoke.py [SHA]     # exit 0 green, 1 red; one line per check
 
@@ -55,10 +55,16 @@ def version_relation(sha, want, repo):
 
 def version():
     status, page = get(f"{SITE}/")
-    sha = json.loads(get(f"{SITE}/version.json")[1])["sha"]
+    deployed = json.loads(get(f"{SITE}/version.json")[1])
+    sha, scenes = deployed["sha"], deployed.get("scenes")
     want = sys.argv[1] if len(sys.argv) > 1 else ""
     matches, relation = version_relation(sha, want, REPO)
-    return status == 200 and matches, f"page {status}, deployed {str(sha)[:12]}" + (f", {relation}" if relation else "")
+    if not matches and want and isinstance(scenes, str) and scenes != sha:
+        # deploy.sh --scenes-only publishes scenes into the running renderer: `scenes` names that revision.
+        matches, relation = version_relation(scenes, want, REPO)
+        relation = "scenes " + relation
+    published = f", scenes {scenes[:12]}" if isinstance(scenes, str) and scenes != sha else ""
+    return status == 200 and matches, f"page {status}, deployed {str(sha)[:12]}{published}" + (f", {relation}" if relation else "")
 
 
 def manifest(prefix):

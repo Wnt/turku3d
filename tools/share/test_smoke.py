@@ -81,6 +81,17 @@ class SmokeRevisionTests(unittest.TestCase):
              patch.object(smoke, "get", side_effect=[(503, b"offline"), (200, json.dumps({"sha": self.newer}).encode())]):
             self.assertFalse(smoke.version()[0])
 
+    def test_scenes_only_publication_names_its_scene_revision(self):
+        def version(scenes):
+            return [(200, b"page"), (200, json.dumps({"sha": self.unrelated, "scenes": scenes}).encode())]
+        with patch.object(smoke, "REPO", self.repo), patch.object(smoke.sys, "argv", ["smoke.py", self.requested]):
+            with patch.object(smoke, "get", side_effect=version(self.requested)):
+                ok, detail = smoke.version()
+            self.assertTrue(ok, detail)
+            self.assertIn("scenes", detail)
+            with patch.object(smoke, "get", side_effect=version(self.unrelated)):
+                self.assertFalse(smoke.version()[0])
+
     def test_main_still_checks_farm_outcomes_when_a_newer_release_contains_the_slice(self):
         for failures, expected in [([], 0), ([{"error": "failed build"}], 1)]:
             def get(url):

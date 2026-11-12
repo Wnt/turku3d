@@ -30,7 +30,7 @@ if name == 'ssh':
 elif name == 'curl':
     url = args[-1]
     if url.endswith('/version.json'):
-        print(json.dumps({'sha': os.environ['DEPLOY_TEST_SHA']}))
+        print(os.environ.get('DEPLOY_TEST_VERSION') or json.dumps({'sha': os.environ['DEPLOY_TEST_SHA']}))
     else:
         print('{"state":"ready"}')
 elif name == 'rsync':
@@ -51,9 +51,12 @@ elif name == 'nice':
     command = args[2:]  # -n PRIORITY COMMAND...
     if command[0].endswith('/vite'):
         out = pathlib.Path(command[command.index('--outDir') + 1])
-        (out / 'assets').mkdir(parents=True)
+        if pathlib.Path('public').is_dir():  # vite copies public/ (including the prepared scenes) into the dist
+            import shutil
+            shutil.copytree('public', out)
+        (out / 'assets').mkdir(parents=True, exist_ok=True)
         (out / 'index.html').write_text('<!doctype html><title>deployment fixture</title>')
-        (out / 'assets' / 'fixture.js').write_text('fixture')
+        (out / 'assets' / 'fixture.js').write_text('fixture reads turku-scene/1')
     else:
         sys.exit(subprocess.call(command))
 elif name not in ('node', 'systemctl'):
@@ -62,8 +65,9 @@ elif name not in ('node', 'systemctl'):
 
 
 class ShareDeploymentTests(unittest.TestCase):
-    def test_deploy_publishes_only_lab_even_when_oci_credentials_exist(self):
-        with tempfile.TemporaryDirectory(prefix='share-deploy-') as temp:
+    def deployment(self, temp):
+        """A committed fixture repository, asset store, fake remote home and mocked transport."""
+        if True:
             work = Path(temp)
             repo, remote, bin_dir = (work / part for part in ('repo', 'remote', 'bin'))
             for directory in (repo, remote, bin_dir, remote / '.config/systemd/user', remote / '.ssh'):
@@ -76,6 +80,7 @@ class ShareDeploymentTests(unittest.TestCase):
                 'server/package.json': '{}',
                 'server/package-lock.json': '{}',
                 'tools/dev/serve-dist.mjs': '// fixture',
+                'tools/dev/http.mjs': '// fixture',
                 'scripts/dev/shared-tile-proxy.mjs': '// fixture',
                 'pipeline/turku3d/night_lighting.json': '{}',
             }.items():
@@ -120,6 +125,11 @@ class ShareDeploymentTests(unittest.TestCase):
                 DEPLOY_TEST_LOG=str(log), DEPLOY_TEST_REMOTE=str(remote),
                 DEPLOY_TEST_SHA=sha, DEPLOY_TEST_RSYNC=shutil.which('rsync'),
             )
+            return work, repo, remote, store, image_name, env, git, sha, log
+
+    def test_deploy_publishes_only_lab_even_when_oci_credentials_exist(self):
+        with tempfile.TemporaryDirectory(prefix='share-deploy-') as temp:
+            work, repo, remote, store, image_name, env, git, sha, log = self.deployment(temp)
             run = subprocess.run(['bash', str(repo / 'tools/share/deploy.sh'), sha],
                                  env=env, capture_output=True, text=True, timeout=15)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
@@ -145,6 +155,7 @@ class ShareDeploymentTests(unittest.TestCase):
             published = remote / 'turku3d-local/city/current/dist'
             self.assertTrue((published / 'index.html').is_file())
             self.assertEqual(json.loads((published / 'version.json').read_text())['sha'], sha)
+            self.assertEqual(json.loads((published / 'version.json').read_text())['scenes'], sha)
             self.assertEqual((remote / 'turku3d-local/city/scene-assets/shared' / image_name).read_bytes(), b'fixture image')
             self.assertEqual(len(json.loads((published.parent / 'scene-assets.json').read_text())['files']), 2)
             verify = next(i for i, row in enumerate(commands) if row['command'] == 'ssh' and 'sha256sum --status' in row['args'][1])
@@ -166,6 +177,55 @@ class ShareDeploymentTests(unittest.TestCase):
             commands = [json.loads(line) for line in log.read_text().splitlines()]
             self.assertFalse(any(row['command'] == 'flock' for row in commands),
                              'corrupt persistent assets must stop before release publication')
+
+
+    def test_scenes_only_reuses_the_running_renderer_and_switches_atomically(self):
+        with tempfile.TemporaryDirectory(prefix='share-scenes-') as temp:
+            work, repo, remote, store, image_name, env, git, renderer, log = self.deployment(temp)
+            deploy = repo / 'tools/share/deploy.sh'
+            run = subprocess.run(['bash', str(deploy), renderer], env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            city = remote / 'turku3d-local/city'
+            first = city / os.readlink(city / 'current')
+            scene_path = repo / 'game/public/scenes/office.scene.json'
+            scene = json.loads(scene_path.read_text())
+            scene['release'] = 'appearance-change'
+            scene_path.write_text(json.dumps(scene))
+            git('add', '.')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '-qm', 'appearance-only scene change')
+            scenes = git('rev-parse', 'HEAD')
+            log.write_text('')
+            env = dict(env, DEPLOY_TEST_VERSION=json.dumps({'sha': renderer, 'scenes': scenes}))
+            run = subprocess.run(['bash', str(deploy), '--scenes-only', scenes], env=env, capture_output=True, text=True, timeout=15)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertIn('published scenes:', run.stdout)
+            commands = [json.loads(line) for line in log.read_text().splitlines()]
+            self.assertFalse([row for row in commands if row['command'] in ('npm', 'systemctl')
+                              or (row['command'] == 'nice' and any(a.endswith('/vite') for a in row['args']))],
+                             'scenes-only publication must not build or restart anything')
+            current = city / os.readlink(city / 'current')
+            self.assertEqual(current.name, f'{renderer[:8]}-scenes-{scenes[:8]}')
+            version = json.loads((current / 'dist/version.json').read_text())
+            self.assertEqual((version['sha'], version['scenes']), (renderer, scenes))
+            self.assertEqual((current / 'dist/index.html').stat().st_ino, (first / 'dist/index.html').stat().st_ino)
+            self.assertEqual(json.loads((current / 'dist/scenes/office.scene.json').read_text())['release'], 'appearance-change')
+            self.assertNotEqual(json.loads((first / 'dist/scenes/office.scene.json').read_text())['release'], 'appearance-change')
+            self.assertEqual(json.loads((first / 'dist/version.json').read_text())['scenes'], renderer)
+            self.assertTrue((current / 'src').is_dir())
+            # A renderer that cannot read the scene schema is never handed new scenes.
+            (current / 'dist/assets/fixture.js').unlink()
+            (current / 'dist/assets/fixture.js').write_text('legacy renderer')
+            scene['release'] = 'second-change'
+            scene_path.write_text(json.dumps(scene))
+            git('add', '.')
+            git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '-qm', 'second scene change')
+            refused = subprocess.run(['bash', str(deploy), '--scenes-only', git('rev-parse', 'HEAD')], env=env,
+                                     capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn('does not read turku-scene/1', refused.stderr)
+            self.assertEqual(city / os.readlink(city / 'current'), current)
 
 
 if __name__ == '__main__':

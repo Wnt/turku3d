@@ -2,12 +2,21 @@
 # Public share of the local next-gen game at https://city.lab.madekivi.fi, served from osgallery-dev without the Mac.
 #
 #   tools/share/deploy.sh [--local-build] [REV]    # default: local/loop-integration of ~/turku3d/wt/loop-integration/repo
+#   tools/share/deploy.sh --scenes-only [REV]      # publish REV's prepared scenes into the running renderer release
 #
 # Default: streams a `git archive` of REV (game, tools/dev, tools/share, server, the tile proxy: ~70 MB) to osgallery-dev
 # and builds it THERE (nice 10, deps cached by game/package-lock.json hash in ~/turku3d-local/city/deps/<hash>), so a
 # deploy costs the Mac only the archive and a few ssh calls. The build, release install and unit restarts run under
 # one flock on osgallery-dev (~/turku3d-local/city/deploy.lock), so concurrent deploys queue instead of colliding.
 # --local-build: build on this Mac instead (when osgallery-dev cannot build) and rsync the dist; same publish step.
+# --scenes-only: scene/material publication without a renderer build. Ships only REV's game/public/scenes (scene
+# JSON, collision cells, regions.json catalog) and uploads new immutable scene objects to the shared asset store,
+# then, under the same lock, hard-links the CURRENT release's renderer dist and server sources into a new release
+# releases/<renderer8>-scenes-<rev8> with REV's scenes/, merges `scenes`/`scenesSubject` into its version.json
+# (the renderer `sha` stays) and switches `current`. No npm, vite, tile pin change or unit restart. It refuses when
+# the running renderer bundle does not read the turku-scene/1 schema. Use it after `python -m turku3d.scene.appearance`
+# or a scene recompile when the client code is unchanged; a full deploy publishes renderer and scenes together.
+# Both modes print phase timings (package, upload, publish, verify).
 #
 # The build uses VITE_SHARE_HOSTS=city.lab.madekivi.fi (same-origin tiles, point cloud and multiplayer;
 # game/src/core/localOnly.ts) and VITE_PUBLIC_RELEASE=1 (the Pages start menu, no capture; ?editor=1 keeps edits in the browser), copies the dist
@@ -56,7 +65,11 @@ EXCLUDE=${TURKU3D_SHARE_EXCLUDE:-}
 PUBLIC_HOST=city.lab.madekivi.fi
 SHARE_HOSTS=$PUBLIC_HOST
 LOCAL_BUILD=0
-if [ "${1:-}" = "--local-build" ]; then LOCAL_BUILD=1; shift; fi
+SCENES_ONLY=0
+case "${1:-}" in
+  --local-build) LOCAL_BUILD=1; shift ;;
+  --scenes-only) SCENES_ONLY=1; shift ;;
+esac
 REV=${1:-local/loop-integration}
 KEEP=3
 
@@ -66,12 +79,10 @@ SERVER_TREE=$(git -C "$REPO" rev-parse "$SHA:server")
 # The code city-web and city-tiles run: a deploy that leaves it unchanged does not restart them (see below).
 WEB_TREE=$(git -C "$REPO" rev-parse "$SHA:tools/dev")-$(git -C "$REPO" rev-parse "$SHA:scripts/dev/shared-tile-proxy.mjs")
 say() { printf 'deploy %s: %s\n' "$SHORT" "$*"; }
+PHASE=$(date +%s)
+# Wall seconds since the previous phase mark: package, upload, publish, verify.
+phase() { local now; now=$(date +%s); say "$1: $((now - PHASE)) s"; PHASE=$now; }
 
-VERSION=$(python3 - "$PIN" <<'PY'
-import json, sys
-print(json.load(open(sys.argv[1]))['version'])
-PY
-)
 SUBJECT=$(git -C "$REPO" log -1 --format=%s "$SHA")
 META=$(mktemp -d)
 trap 'rm -rf "$META"' EXIT
@@ -79,10 +90,24 @@ trap 'rm -rf "$META"' EXIT
 # it never generates assets or runs tests, and fails before changing the remote release.
 git -C "$REPO" show "$SHA:tools/share/scene_assets.py" > "$META/scene_assets.py"
 python3 "$META/scene_assets.py" --repo "$REPO" --revision "$SHA" --store "$PREPARED_ASSETS" --output "$META/scene-assets"
+if [ "$SCENES_ONLY" = 1 ]; then
+  # Merged into the running renderer's version.json on the remote; its `sha` keeps naming the renderer.
+  python3 - "$META/scenes.json" "$SHA" "$SUBJECT" <<'PY'
+import json, sys, time
+path, sha, subject = sys.argv[1:]
+json.dump(dict(scenes=sha, scenesSubject=subject, scenesPublished=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())),
+          open(path, 'w'), indent=1)
+PY
+else
+VERSION=$(python3 - "$PIN" <<'PY'
+import json, sys
+print(json.load(open(sys.argv[1]))['version'])
+PY
+)
 python3 - "$META/version.json" "$SHA" "$SUBJECT" "$VERSION" "$FOLLOW" "$EXCLUDE" <<'PY'
 import json, sys, time
 path, sha, subject, tiles, follow, exclude = sys.argv[1:]
-json.dump(dict(sha=sha, subject=subject, tiles=tiles, follow=follow, exclude=exclude.split(),
+json.dump(dict(sha=sha, subject=subject, scenes=sha, tiles=tiles, follow=follow, exclude=exclude.split(),
                built=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())), open(path, 'w'), indent=1)
 PY
 # Tile pin (hot-read by city-tiles): the local game's version on the same farm, the alias family followed per
@@ -93,21 +118,79 @@ pin = json.load(open(sys.argv[1]))
 print(json.dumps(dict(service=pin['service'], version=pin['version'], scenery=sys.argv[2],
                       **(dict(follow=sys.argv[3], exclude=sys.argv[4].split()) if sys.argv[3] else {}))))
 PY
+fi
+phase 'packaged scene closure'
 
 # 1. Ship the committed tree (plus version.json and tiles.json at its root) to a stage dir on osgallery-dev.
 C=turku3d-local/city
 STAGE="$C/stage/$SHORT-$$"
 ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C/deps ~/$C/scene-assets/shared && rm -rf ~/$STAGE && mkdir -p ~/$STAGE
   [ -f ~/$C/cities.json ] || echo '{}' > ~/$C/cities.json"
-git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
-  game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
-# The first external mount must retain previous release-local objects, including ones the new scene no longer uses.
-ssh "$SSH_HOST" "python3 ~/$STAGE/tools/share/scene_assets.py --retain-releases ~/$C/releases --store ~/$C/scene-assets/shared"
+if [ "$SCENES_ONLY" = 1 ]; then
+  git -C "$REPO" archive --add-file="$META/scenes.json" "$SHA" game/public/scenes tools/share tools/dev/http.mjs \
+    | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
+else
+  git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
+    game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
+  # The first external mount must retain previous release-local objects, including ones the new scene no longer uses.
+  ssh "$SSH_HOST" "python3 ~/$STAGE/tools/share/scene_assets.py --retain-releases ~/$C/releases --store ~/$C/scene-assets/shared"
+fi
 # Content addresses are immutable and old releases retain their dependencies. rsync writes new files atomically;
 # existing names are not overwritten. Verify the complete required closure remotely before switching current.
 rsync -a --ignore-existing --files-from="$META/scene-assets/files.txt" "$META/scene-assets/shared/" "$SSH_HOST:$C/scene-assets/shared/"
 tar -C "$META/scene-assets" -cf - required.sha256 inventory.json | ssh "$SSH_HOST" "mkdir -p ~/$STAGE/scene-assets && tar -x -C ~/$STAGE/scene-assets"
 ssh "$SSH_HOST" "cd ~/$C/scene-assets && if [ -s ~/$STAGE/scene-assets/required.sha256 ]; then sha256sum --status -c ~/$STAGE/scene-assets/required.sha256; fi"
+phase 'uploaded and verified scene objects'
+
+if [ "$SCENES_ONLY" = 1 ]; then
+  say 'publishing scenes into the running renderer release (no build, no restarts)'
+  ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $STAGE $KEEP" <<'REMOTE'
+set -euo pipefail
+SHA=$1 STAGE=$HOME/$2 KEEP=$3
+C=$HOME/turku3d-local/city
+trap 'rm -rf "$STAGE"' EXIT
+CUR=$(readlink "$C/current" || true)
+[ -n "$CUR" ] && [ -f "$C/$CUR/dist/version.json" ] || { echo 'no current renderer release to publish scenes into' >&2; exit 1; }
+# The renderer validates one scene schema; never hand it scenes it cannot read.
+grep -qs 'turku-scene/1' "$C/$CUR"/dist/assets/*.js || { echo "current renderer $CUR does not read turku-scene/1" >&2; exit 1; }
+RENDERER=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$C/$CUR/dist/version.json")
+NAME=${RENDERER:0:8}-scenes-${SHA:0:8}
+if [ "$CUR" = "releases/$NAME" ]; then echo "scenes ${SHA:0:8} are already current"; exit 0; fi
+R=$C/releases/$NAME
+rm -rf "$R"; mkdir -p "$R"
+# Hard links share the unchanged renderer and server bytes; scenes/ and version.json are new files, so the
+# previous release (still serving pages that loaded it) is never modified.
+rsync -a --link-dest="$C/$CUR/dist/" --exclude /scenes/ --exclude /version.json "$C/$CUR/dist/" "$R/dist/"
+if [ -d "$C/$CUR/src" ]; then rsync -a --link-dest="$C/$CUR/src/" "$C/$CUR/src/" "$R/src/"; fi
+cp -R "$STAGE/game/public/scenes" "$R/dist/scenes"
+python3 - "$C/$CUR/dist/version.json" "$STAGE/scenes.json" "$R/dist/version.json" <<'PY'
+import json, sys
+current, scenes, target = sys.argv[1:]
+version = json.load(open(current))
+version.update(json.load(open(scenes)))
+json.dump(version, open(target, 'w'), indent=1)
+PY
+cp "$STAGE/scene-assets/inventory.json" "$R/scene-assets.json"
+nice -n 10 node "$STAGE/tools/share/precompress.mjs" "$R/dist/scenes"
+ln -sfn "releases/$NAME" "$C/current.new" && mv -T "$C/current.new" "$C/current"
+keep="$(readlink "$C/current") $(readlink "$C/mp" || true) $(readlink "$C/web" || true)"
+ls -1dt "$C"/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
+  case " $keep " in *" releases/$(basename "$old") "*) ;; *) rm -rf "$old";; esac
+done
+echo "current: releases/$NAME (renderer ${RENDERER:0:8}, scenes ${SHA:0:8})"
+REMOTE
+  phase 'published scenes'
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    live=$(curl -fsS -m 5 "https://$PUBLIC_HOST/version.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("scenes",""))' 2>/dev/null || true)
+    [ "$live" = "$SHA" ] && break
+    sleep 2
+  done
+  [ "$live" = "$SHA" ] || { say "FAILED: https://$PUBLIC_HOST/version.json serves scenes '${live:-nothing}'"; exit 1; }
+  health=$(curl -fsS -m 5 "https://$PUBLIC_HOST/coarse/health" || true)
+  phase 'verified public scenes'
+  say "scenes live at https://$PUBLIC_HOST/ with the unchanged renderer (/coarse/health $health)"
+  exit 0
+fi
 
 if [ "$LOCAL_BUILD" = 1 ]; then
   # Mac build in a detached worktree (vite.config.ts stamps the commit from git), dist uploaded into the stage.
@@ -131,6 +214,7 @@ if [ "$LOCAL_BUILD" = 1 ]; then
   find "$WORK/builds" -mindepth 1 -maxdepth 1 -type d ! -name "$SHA" -mtime +2 -exec rm -rf {} + 2>/dev/null || true
 fi
 
+phase 'staged the dist'
 # 2. On osgallery-dev, under the deploy lock: build (unless --local-build), install the release, switch, restart, prune.
 say "publishing from osgallery-dev$([ "$LOCAL_BUILD" = 1 ] || echo ' (remote build)')"
 ssh "$SSH_HOST" "flock -w 1800 ~/$C/deploy.lock bash -s -- $SHA $SERVER_TREE $STAGE $LOCAL_BUILD $SHARE_HOSTS $KEEP $WEB_TREE" <<'REMOTE'
@@ -232,6 +316,7 @@ ls -1dt "$C"/releases/*/ | tail -n +$((KEEP + 1)) | while read -r old; do
 done
 REMOTE
 
+phase 'published the release'
 # 5. The public URL serves this commit and healthy tiles.
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   live=$(curl -fsS -m 5 "https://$PUBLIC_HOST/version.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' 2>/dev/null || true)
@@ -240,4 +325,5 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 [ "$live" = "$SHA" ] || { say "FAILED: https://$PUBLIC_HOST/version.json serves '${live:-nothing}'"; exit 1; }
 health=$(curl -fsS -m 5 "https://$PUBLIC_HOST/coarse/health" || true)
+phase 'verified the public release'
 say "live at https://$PUBLIC_HOST/ (tiles ${FOLLOW:+newest finished $FOLLOW<N>, else }$VERSION, /coarse/health $health)"
