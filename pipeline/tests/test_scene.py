@@ -43,6 +43,12 @@ class SemanticSceneTests(unittest.TestCase):
             s=self.compiled();mutate(s)
             with self.assertRaises(ValueError):validate_scene(s)
 
+    def test_material_normal_strength_is_finite_and_nonnegative(self):
+        s=self.compiled();s['materials'][0]['normalScale']=.25;validate_scene(s)
+        for value in (-.1,float('nan'),float('inf'),True):
+            s['materials'][0]['normalScale']=value
+            with self.assertRaises(ValueError):validate_scene(s)
+
     def test_night_irradiance_is_explicit_hdr_rgb_per_vertex(self):
         s=self.compiled();m=s['meshes'][0];m['nightIrradiance']=[2.5]*len(m['positions']);validate_scene(s)
         for values in ([-1.]*len(m['positions']),[float('nan')]*len(m['positions']),[0.]):

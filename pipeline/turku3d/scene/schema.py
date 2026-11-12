@@ -7,7 +7,7 @@ SCHEMA = "turku-scene/1"
 FIELDS = {
     "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn assets lightOccluders",
     "source": "id sha256 kind uncertaintyM",
-    "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture alphaTest doubleSided surface nightEmission",
+    "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture alphaTest doubleSided surface nightEmission normalScale",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
     "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility nightIrradiance lightOcclusion",
@@ -69,7 +69,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance","lightOcclusion"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface","nightEmission"),"emitter":("category","aperture")}
+            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance","lightOcclusion"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface","nightEmission","normalScale"),"emitter":("category","aperture")}
             fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
@@ -115,6 +115,9 @@ def validate_scene(scene):
                 texture=material[name]
                 if set(texture)!={"url","sha256","wrap"} or texture["wrap"] not in ("clamp","repeat") or len(texture["sha256"])!=64:
                     raise ValueError("Invalid material texture")
+        if "normalScale" in material:
+            vector([material["normalScale"]],1,"normalScale")
+            if material["normalScale"]<0:raise ValueError("Negative material normalScale")
         vector(material["color"], 3, "linear color")
         vector([material["roughness"], material["metalness"]], 2, "material")
         if any(x < 0 or x > 1 for x in material["color"] + [material["roughness"], material["metalness"]]):

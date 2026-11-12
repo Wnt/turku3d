@@ -7,6 +7,8 @@ export type Vec3 = [number, number, number];
 export interface PreparedTexture { url: string; sha256: string; wrap: 'repeat' | 'clamp' }
 export interface PreparedMaterial {
   id: string; color: Vec3; roughness: number; metalness: number;
+  /** Explicit tangent-space relief multiplier, matching glTF normalTexture.scale. */
+  normalScale?: number;
   /** Source-assigned response recipe; maps and metric UVs remain authoritative. */
   surface?: 'asphalt' | 'granite' | 'cobblestone' | 'stone' | 'grass';
   /** Explicit cutout and face policy for prepared foliage/fences; opaque front faces remain the default. */
@@ -75,6 +77,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
   const refs = (v: unknown, known: Set<string>) => Array.isArray(v) && v.every(id => typeof id === 'string' && known.has(id));
   for (const m of s.materials) {
     if (!vector(m.color) || !m.color.every(unit) || !unit(m.roughness) || !unit(m.metalness)) fail(`material ${m.id}`);
+    if (m.normalScale !== undefined && (!finite(m.normalScale) || m.normalScale < 0)) fail(`material normalScale ${m.id}`);
     if (m.alphaTest !== undefined && !unit(m.alphaTest)) fail(`material alphaTest ${m.id}`);
     if (m.doubleSided !== undefined && typeof m.doubleSided !== 'boolean') fail(`material doubleSided ${m.id}`);
     if (m.nightEmission !== undefined && (!vector(m.nightEmission) || !m.nightEmission.every((v: number) => v >= 0))) fail(`material nightEmission ${m.id}`);
@@ -188,6 +191,7 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     if (material.nightEmission) (drawMaterial as THREE.MeshStandardNodeMaterial).emissiveNode =
       vec3(...material.nightEmission).mul(nightUniforms.night);
     if (material.baseColorTexture) drawMaterial.map = textures.get(textureKey(material.baseColorTexture, true)) ?? null;
+    drawMaterial.normalScale.setScalar(material.normalScale ?? 1);
     if (material.normalTexture) drawMaterial.normalMap = textures.get(textureKey(material.normalTexture, false)) ?? null;
     if (material.ormTexture) {
       const orm = textures.get(textureKey(material.ormTexture, false)) ?? null;

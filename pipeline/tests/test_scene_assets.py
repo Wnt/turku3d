@@ -19,7 +19,7 @@ class SceneAssetTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); raw=b'authored-texture-bytes'
             info=dict(index=0,extensions={'KHR_texture_transform':{'scale':[.5,.5]}})
-            materials=[dict(extras=dict(library_material_key=key),pbrMetallicRoughness=dict(baseColorFactor=[.7,.8,.9,1],roughnessFactor=.87,metallicFactor=.1,baseColorTexture=info,metallicRoughnessTexture=info),normalTexture=info)
+            materials=[dict(extras=dict(library_material_key=key),pbrMetallicRoughness=dict(baseColorFactor=[.7,.8,.9,1],roughnessFactor=.87,metallicFactor=.1,baseColorTexture=info,metallicRoughnessTexture=info),normalTexture={**info,"scale":.35})
                        for key in ('draft_asphalt_worn','draft_concrete_slabs','draft_quay_stone','draft_cobblestone')]
             document=dict(asset=dict(version='2.0'),materials=materials,textures=[dict(source=0)],images=[dict(bufferView=0,mimeType='image/ktx2')],buffers=[dict(byteLength=len(raw))],bufferViews=[dict(buffer=0,byteLength=len(raw))])
             source=root/'source.glb';source.write_bytes(encode_glb(document,raw))
@@ -28,7 +28,7 @@ class SceneAssetTests(unittest.TestCase):
             for row in rows:
                 material=row['material'];self.assertEqual(material['surface'],expected[material['id']])
                 self.assertEqual(material['color'],[.7,.8,.9]);self.assertEqual(material['roughness'],.87);self.assertEqual(material['metalness'],.1)
-                self.assertEqual(row['uvScale'],[.5,.5])
+                self.assertEqual(row['uvScale'],[.5,.5]);self.assertEqual(material['normalScale'],.35)
                 for key in ('baseColorTexture','normalTexture','ormTexture'):
                     self.assertEqual((root/'output'/material[key]['url']).read_bytes(),raw)
                     self.assertEqual(material[key]['sha256'],hashlib.sha256(raw).hexdigest())

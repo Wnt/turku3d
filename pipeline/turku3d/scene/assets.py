@@ -74,6 +74,7 @@ def import_materials(glb_path, base_url, output, *, aliases=None):
         material=next(m for m in document['materials'] if m.get('extras',{}).get('library_material_key')==library)
         pbr=material['pbrMetallicRoughness']
         row=dict(id=identity,color=pbr.get('baseColorFactor',[1,1,1,1])[:3],roughness=pbr.get('roughnessFactor',1),metalness=pbr.get('metallicFactor',1))
+        if "scale" in material.get("normalTexture",{}):row["normalScale"]=material["normalTexture"]["scale"]
         if library in LIBRARY_SURFACES:row["surface"]=LIBRARY_SURFACES[library]
         scales=[]
         for name,info in [('baseColorTexture',pbr.get('baseColorTexture')),('normalTexture',material.get('normalTexture')),('ormTexture',pbr.get('metallicRoughnessTexture'))]:

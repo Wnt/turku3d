@@ -71,9 +71,20 @@ describe('prepared scene contract', () => {
     (s.materials[0] as unknown as { doubleSided: unknown }).doubleSided = 1;
     expect(() => readPreparedScene(s)).toThrow('material doubleSided');
   });
+  it('validates and constructs explicit normal strength', () => {
+    const s = scene();
+    const material = () => (buildPreparedModel(readPreparedScene(s)).children[0] as Mesh).material as MeshStandardMaterial;
+    expect(material().normalScale.toArray()).toEqual([1,1]);
+    s.materials[0].normalScale = .25;
+    expect(material().normalScale.toArray()).toEqual([.25,.25]);
+    for (const value of [-1,NaN,Infinity,true]) {
+      (s.materials[0] as unknown as {normalScale:unknown}).normalScale = value;
+      expect(() => readPreparedScene(s)).toThrow('material normalScale');
+    }
+  });
   it('dispatches only explicit surface recipes and retains maps, UVs and baked receiver geometry through styling', () => {
     const s = scene(), descriptor = { url:'shared/paving.ktx2',sha256:'a'.repeat(64),wrap:'repeat' as const };
-    s.materials[0].baseColorTexture = descriptor; s.materials[0].normalTexture = descriptor; s.materials[0].ormTexture = descriptor;
+    s.materials[0].baseColorTexture = descriptor; s.materials[0].normalTexture = descriptor; s.materials[0].ormTexture = descriptor; s.materials[0].normalScale = .35;
     s.meshes[0].nightIrradiance = Array(9).fill(.25);
     const albedo = new Texture(), channels = new Texture(); albedo.repeat.set(2,3); channels.offset.set(.1,.2);
     const textures = new Map([[textureKey(descriptor,true),albedo],[textureKey(descriptor,false),channels]]);
@@ -88,7 +99,7 @@ describe('prepared scene contract', () => {
       const styled = mesh.material as MeshStandardNodeMaterial;
       expect(styled.isMeshStandardNodeMaterial).toBe(true);
       expect(styled.userData.weatherWetness === true).toBe(surface !== 'grass');
-      expect(styled.map).toBe(albedo); expect(styled.normalMap).toBe(channels);
+      expect(styled.map).toBe(albedo); expect(styled.normalMap).toBe(channels); expect(styled.normalScale.toArray()).toEqual([.35,.35]);
       expect(styled.roughnessMap).toBe(channels); expect(styled.metalnessMap).toBe(channels); expect(styled.aoMap).toBe(channels);
       expect(styled.map!.repeat.toArray()).toEqual([2,3]); expect(styled.normalMap!.offset.toArray()).toEqual([.1,.2]);
       expect(mesh.geometry).toBe(geometry); expect(mesh.geometry.getAttribute('_night_irradiance')).toBe(night);
