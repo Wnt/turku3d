@@ -87,7 +87,9 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                for g, m in streets if g.intersects(dry)]
     from .retaining import shore_walks
     lower_walks = shore_walks(walks, water, retaining)
-    lower_paving = shapely.union_all([p["line"].buffer(p["width"]/2,cap_style="flat",join_style="mitre") for p in lower_walks])
+    shore_keys = {p["key"] for p in lower_walks}
+    lower_terraces = [p for p in walks if np.nanmedian(p["heights"][:,3])<2 and p["key"] not in shore_keys] + lower_walks
+    lower_paving = shapely.union_all([p["line"].buffer(p["width"]/2,cap_style="flat",join_style="mitre") for p in lower_terraces])
     for p in walks:
         band = p["line"].buffer(p["width"]/2, cap_style="flat", join_style="mitre").intersection(dry)
         if not band.is_empty:
@@ -110,7 +112,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
             p = grade(p, walks)
             if lower_walks:
                 on_quay = shapely.intersects_xy(lower_paving,xy[:,0],xy[:,1])
-                p[on_quay] = grade(p[on_quay], lower_walks)
+                p[on_quay] = grade(p[on_quay], lower_terraces)
                 masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
                 p = quay_crest(p, lower_walks, water, masonry)
             height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))

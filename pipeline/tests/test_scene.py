@@ -107,6 +107,22 @@ class SemanticSceneTests(unittest.TestCase):
         query=support_query(s)
         for z in (6.1,6.5,6.9,7.5):self.assertAlmostEqual(query(5,z)[1],1.2,6)
 
+    def test_upper_connector_cannot_spike_wide_lower_terrace(self):
+        from turku3d.scene.fixtures import support_query
+        s=self.scene()
+        for material in ('quay','quay-wall','water'):
+            s['materials'].append(dict(id=material,color=[.3,.3,.3],roughness=.9,metalness=0))
+        points=np.array([[x,1.2,z] for x in range(-1,12) for z in range(-1,12)])
+        def walk(key,z,width,height):
+            half=width/2
+            return dict(key=key,line=shapely.LineString([[0,z],[10,z]]),width=width,knots=np.array([0.,10.]),
+                        cross=np.array([-half-6,-half-3,-half,0,half,half+3,half+6]),heights=np.full((2,7),height))
+        terrace=walk('wide-terrace',5.,6.,1.2)
+        shore=walk('shore',7.,2.,1.2)
+        upper=walk('connector',3.,2.,3.6)
+        ground_scene(s,points,[],[],[shapely.box(0,8,10,10)],[terrace,shore,upper])
+        self.assertAlmostEqual(support_query(s)(5,3)[1],1.2,6)
+
     def test_missing_quay_knot_requires_independent_wall_support(self):
         from turku3d.scene.retaining import shore_walks
         centres=np.array([[0.,5.],[5.,5.],[10.,5.]])
