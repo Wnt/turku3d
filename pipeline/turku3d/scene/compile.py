@@ -101,7 +101,7 @@ def load_evidence(cache, bounds):
     return points, list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=(), tunnel_meshes=(), street_sections=None):
+def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=(), decks=(), tunnel_meshes=(), street_sections=None, shoreline=None):
     from . import street_sections as sections
     street_sections=street_sections or {}
     window = shapely.box(*scene["bounds"])
@@ -232,7 +232,9 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                     face=face[::-1]
                 faces.face(face)
             if faces.indices:
-                scene["meshes"].append(mesh_record(f"quay-face:{i}",f"quay-face:{i}","quay-wall",faces.positions,faces.indices,uv=faces.uvs))
+                wall=mesh_record(f"quay-face:{i}",f"quay-face:{i}","quay-wall",faces.positions,faces.indices,uv=faces.uvs)
+                scene["meshes"].append(wall)
+                if shoreline is not None:shoreline.append(wall)
     if not water.is_empty:
         import mapbox_earcut
         for i, poly in enumerate(shapely.get_parts(shapely.union_all(waters).intersection(window.buffer(500)))):
@@ -255,6 +257,9 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     from . import street_sections
     sections,section_sources=street_sections.load(cache,bounds)
     sources.extend(section_sources)
+    from .quay_light_source import load as load_quay_lights
+    quay_corridors,quay_sources=load_quay_lights(cache,bounds)
+    sources.extend(quay_sources)
     retaining_path = Path(cache) / "retaining.pkl"
     retaining = []
     if retaining_path.exists():
@@ -273,7 +278,8 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     from . import structures
     decks,tunnel_meshes,structure_sources=structures.prepare(cache,bounds,points,buildings,waters,walks)
     scene['sources'].extend(structure_sources)
-    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes,sections)
+    shoreline=[]
+    height = ground_scene(scene, points, buildings, streets, waters, walks, retaining, decks, tunnel_meshes,sections,shoreline)
     structures.append(scene,decks,tunnel_meshes)
     window = shapely.box(*bounds)
     for b in buildings:
@@ -327,7 +333,6 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     from .qwensel_compile import append_qwensel
     append_qwensel(scene)
     resolve_spawn(scene)
-    scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]} | {a["entityId"] for a in assets})
     for recipe in material_recipes:
         material=recipe["material"]
         scene["materials"]=[m for m in scene["materials"] if m["id"]!=material["id"]]+[material]
@@ -336,10 +341,14 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
                 mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
     from .hedge_foliage import append as append_foliage
     append_foliage(scene)
+    from .quay_lighting import append as append_quay_lights, apply_wash
+    quay_washes=append_quay_lights(scene,shoreline,walks,quay_corridors)
+    scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]} | {a["entityId"] for a in assets})
     from .visibility import bake_scene
     bake_scene(scene, points, buildings, waters)
     from .night_lighting import bake_scene as bake_street_irradiance
     bake_street_irradiance(scene)
+    apply_wash(scene,quay_washes)
     from .road_markings import load as load_markings, append as append_markings
     paint,paint_sources=load_markings(cache,bounds)
     scene['sources'].extend(paint_sources)

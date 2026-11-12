@@ -25,6 +25,8 @@ def source_pins(cache, bounds):
     sources.extend(load_streets(cache,bounds)[1])
     from .road_markings import load as load_markings
     sources.extend(load_markings(cache,bounds)[1])
+    from .quay_light_source import load as load_quay_lights
+    sources.extend(load_quay_lights(cache,bounds)[1])
     pins=[dict(path=row['id'],sha256=row['sha256']) for row in sources]
     retaining=Path(cache)/'retaining.pkl'
     if retaining.exists():pins.append(dict(path='retaining.pkl',sha256=hashlib.sha256(retaining.read_bytes()).hexdigest()))
@@ -113,7 +115,7 @@ if __name__=='__main__':
     parser.add_argument('--fixture-bindings',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();scene=json.loads(args.scene.read_text())
-    generated={'ground','wfs','poles','walkable','roads','stairs','raw-ground-survey','hedge-survey','retaining-survey','measured-street-sections','mapped-road-paint','registered-reference-association','scene-recipe','compiled-ambient-visibility','compiled-street-irradiance'}
+    generated={'ground','wfs','poles','walkable','roads','stairs','raw-ground-survey','hedge-survey','retaining-survey','measured-street-sections','mapped-road-paint','registered-reference-association','scene-recipe','compiled-ambient-visibility','compiled-street-irradiance','quay-lighting-corridors','compiled-quay-lighting'}
     recipe=create_recipe(scene['id'],scene['bounds'],args.cache,spawn=scene['spawn'],assets=scene['assets'],
                          material_recipes=json.loads(args.materials.read_text()),trees=json.loads(args.trees.read_text()),
                          asset_sources=[s for s in scene['sources'] if s['kind'] not in generated],fixture_bindings=args.fixture_bindings)

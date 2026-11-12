@@ -92,7 +92,14 @@ def prepare(tile, paths):
     return result
 
 
-def visuals(tile, bank, walks, corridors, water_level):
+def eligibility(walks, corridors):
+    """One explicit mapped/observed eligibility area, reusable across prepared faces."""
+    policy = json.loads(OBSERVATIONS.read_text())
+    measured = shapely.union_all([p["line"].buffer(p["width"] / 2 + policy["walk_margin_m"]) for p in walks])
+    return shapely.union_all(corridors).intersection(measured)
+
+
+def visuals(tile, bank, walks, corridors, water_level, *, eligible=None):
     """Replace eligible wall faces with the same stone plus a baked night irradiance.
 
     No new lights or collision. ``night_irradiance`` (the shared _NIGHT_IRRADIANCE
@@ -102,10 +109,9 @@ def visuals(tile, bank, walks, corridors, water_level):
     """
     from . import surfaces
 
-    allowed = shapely.union_all(corridors)
     policy = json.loads(OBSERVATIONS.read_text())
-    measured = shapely.union_all([p["line"].buffer(p["width"] / 2 + policy["walk_margin_m"]) for p in walks])
-    eligible = allowed.intersection(measured)
+    if eligible is None:
+        eligible = eligibility(walks, corridors)
     keep = np.ones(len(bank.indices), bool)
     wall_p, wall_i, masks, bar_p, bar_i = [], [], [], [], []
     depth = policy["wash_depth_m"]

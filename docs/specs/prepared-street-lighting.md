@@ -49,3 +49,26 @@ from genuine multi-level occlusion. Intensities, optical positions, aperture
 quadrature, geometry, visibility rays and ambient illumination are unchanged.
 The change requires matched night-image review; it is not a claim of measured
 street illuminance or elimination of true shadows.
+
+## Observed under-crest quay lights
+
+`scene/quay_light_source.py` freezes the existing `coarse/quay_lighting.py`
+eligibility: named Aurajoki bridge reach, mapped pedestrian corridors, measured
+walks, water-facing lower shoreline faces and crests 0.4–3 m above water. Its
+OSM/policy hashes become one recipe input. An absent corridor source produces
+no bars. Fixture inventories and exact optical output remain inferred; the
+private Vastavalo 399195/554993 references establish the visible cue, not lux.
+
+The adapter retains each original solid wall as collision authority. Qualified
+visible faces are subdivided in place with the exact original metric UV map.
+The existing observed product supplies 45 mm tall bars, 25 mm outward clearance,
+35 mm distance below the crest and a quadratic masonry wash limited to 0.9 m
+below it. Bar materials use explicit `nightEmission`; the wall-only wash adds
+to that wall's prepared receiver array after the street bake. Both use the
+shared night factor and existing renderer-relative source intensities.
+
+There are no new point lights, gameplay passes or changes to road receivers.
+This restores an omitted night cue. It does not brighten the lower road, remove
+real retaining-wall shadows or add general multibounce illumination. Original
+collision hashes, unrelated receiver arrays and same-pose day/night imagery
+are the acceptance checks.
