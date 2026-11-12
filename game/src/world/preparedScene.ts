@@ -20,7 +20,7 @@ export interface PreparedScene {
   boundaries: { id: string; positions: Vec3[] }[];
   supports: { id: string; kind: 'road' | 'footway' | 'quay' | 'ground'; boundaryIds: string[]; meshId: string }[];
   meshes: PreparedMesh[];
-  assets: { id: string; entityId: string; url: string; sha256: string; position: Vec3; recipe: 'building' }[];
+  assets: { id: string; entityId: string; url: string; sha256: string; position: Vec3; recipe: 'building' | 'vegetation' | 'context' }[];
   fixtures: { id: string; family: string; supportId: string; position: Vec3; yaw: number; dimensions: Vec3; meshIds: string[]; emitterIds: string[] }[];
   emitters: { id: string; fixtureId: string; position: Vec3; color: Vec3; intensity: number; range: number }[];
   coverage: { mode: 'replace'; bounds: [number, number, number, number]; entityIds: string[] };
@@ -75,7 +75,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
     entities.add(m.entityId);
   }
   for (const a of s.assets) {
-    if (!name(a.entityId) || !name(a.url) || !/^[a-f0-9]{64}$/.test(a.sha256) || !vector(a.position) || a.recipe !== 'building') fail(`asset ${a.id}`);
+    if (!name(a.entityId) || !name(a.url) || !/^[a-f0-9]{64}$/.test(a.sha256) || !vector(a.position) || !['building', 'vegetation', 'context'].includes(a.recipe)) fail(`asset ${a.id}`);
     entities.add(a.entityId);
   }
   for (const f of s.fixtures) if (!name(f.family) || !supports.has(f.supportId) || !vector(f.position) || !finite(f.yaw)
