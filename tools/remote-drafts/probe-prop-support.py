@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import struct
 import subprocess
 import time
 from pathlib import Path
@@ -14,7 +15,6 @@ import shapely
 from turku3d import config as C
 from turku3d.col.format import read_col
 from turku3d.col.materials import table
-from turku3d.package.gltf import read_glb
 
 # Match extractPoles' object ranges and lowest-vertex base, using the actual codec
 # output. The client creates dynamic bodies from these IDs/bases, not .col poles.
@@ -63,11 +63,20 @@ console.log(JSON.stringify(output));
 """
 
 
+def glb_document(data):
+    """Inspect the JSON chunk independently; a GLB need not embed a BIN chunk."""
+    assert len(data) >= 20, "Truncated GLB"
+    magic, version, length, size, kind = struct.unpack_from("<5I", data)
+    assert (magic, version, length) == (0x46546C67, 2, len(data)), "Invalid GLB header"
+    assert kind == 0x4E4F534A and size % 4 == 0 and 20 + size <= length, "Invalid JSON chunk"
+    return json.loads(data[20 : 20 + size])
+
+
 def packed_poles(out, manifest):
     visual = out / manifest["visual"][manifest["tile"]]["url"]
     # First-pass GLBs need no decoder if their metadata contains no pole candidates.
     if manifest["pass_kind"] == "first":
-        document, _ = read_glb(visual.read_bytes())
+        document = glb_document(visual.read_bytes())
         for node in document.get("nodes", []):
             extras = node.get("extras", {})
             assert not extras.get("pole_id")
@@ -226,7 +235,7 @@ def public_payloads(base, tile, manifest, generation, revision):
         return data
 
     visual = fetch(served["visual"][tile], manifest["visual"][tile])
-    document, _ = read_glb(visual)
+    document = glb_document(visual)
     # Migration geometry is often in external content-addressed buffers.
     for buffer in document.get("buffers", []):
         uri = buffer.get("uri")

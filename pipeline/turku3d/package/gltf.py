@@ -251,15 +251,35 @@ def write_glb(meshes: list[GlbMesh], path: str | Path, **kw) -> bytes:
 
 
 def read_glb(data: bytes) -> tuple[dict, bytes]:
-    """Parse a GLB into (json, bin chunk). For tests."""
+    """Read GLB v2, including an omitted BIN chunk when buffers are external."""
+    if len(data) < 20:
+        raise ValueError("truncated GLB header")
     magic, version, length = struct.unpack_from("<III", data, 0)
     if magic != 0x46546C67 or version != 2 or length != len(data):
         raise ValueError("not a GLB v2")
-    jl, jt = struct.unpack_from("<II", data, 12)
-    js = json.loads(data[20 : 20 + jl])
-    off = 20 + jl
-    bl, bt = struct.unpack_from("<II", data, off)
-    return js, data[off + 8 : off + 8 + bl]
+    document, binary, offset, chunk = None, b"", 12, 0
+    while offset < length:
+        if offset + 8 > length:
+            raise ValueError("truncated GLB chunk header")
+        size, kind = struct.unpack_from("<II", data, offset)
+        start, end = offset + 8, offset + 8 + size
+        if size % 4 or end > length:
+            raise ValueError("invalid GLB chunk length")
+        if chunk == 0:
+            if kind != 0x4E4F534A:
+                raise ValueError("GLB must start with JSON")
+            document = json.loads(data[start:end])
+            if not isinstance(document, dict):
+                raise ValueError("GLB JSON must be an object")
+        elif kind == 0x4E4F534A:
+            raise ValueError("duplicate GLB JSON chunk")
+        elif kind == 0x004E4942:
+            if chunk != 1:
+                raise ValueError("GLB BIN must be the second chunk")
+            binary = data[start:end]
+        # Unknown extension chunks are ignored, as required by glTF 2.0.
+        offset, chunk = end, chunk + 1
+    return document, binary
 
 
 def accessor_array(js: dict, binc: bytes, i: int) -> np.ndarray:
