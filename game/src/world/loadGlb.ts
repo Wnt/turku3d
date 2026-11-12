@@ -205,11 +205,11 @@ export async function fetchGlb(url: string, load: () => Promise<ArrayBuffer>, re
   console.warn(`[glb] ${url}: ${first.byteLength} cached bytes of ${completeGlb(again) ? again.byteLength : '?'}; refetched past the HTTP cache`);
   return again;
 }
-export async function loadGlb(loader: GLTFLoader, url: string, rank?: ParseRank): Promise<GLTF> {
+export async function loadGlb(loader: GLTFLoader, url: string, rank?: ParseRank, verifiedBytes?: ArrayBuffer): Promise<GLTF> {
   const started = streamTrace.on ? performance.now() : 0;
   const load = () => fetchGlb(url, async () => await new FileLoader(loader.manager).setResponseType('arraybuffer').loadAsync(url) as ArrayBuffer);
   const key = /\/coarse\/.*\.([a-f0-9]{64})\.glb(?:[?#].*)?$/.exec(url)?.[1];
-  const buffer = key ? await visualBuffers.get(key, load) : await load();
+  const buffer = verifiedBytes ?? (key ? await visualBuffers.get(key, load) : await load());
   const fetched = started ? performance.now() : 0, bytes = buffer.byteLength;
   // The worker owns and detaches its input; keep cached originals intact across revisits.
   const decoded = await decode(key ? buffer.slice(0) : buffer);

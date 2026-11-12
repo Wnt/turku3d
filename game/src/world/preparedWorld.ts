@@ -1,4 +1,11 @@
 import * as THREE from 'three/webgpu';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { loadGlb } from './loadGlb';
+import { sharedKtx } from './loadingKtx';
+import { textureUploads } from '../render/textureUploads';
+import { modelGpuBytes, rendererResidency } from './gpuBytes';
+import { releaseModelTextures } from './sharedAssets';
 import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, type PreparedScene } from './preparedScene';
 import type { CoarseHost, Entry } from './coarseContracts';
 import { StreamStats } from './streamStats';
@@ -28,7 +35,8 @@ export class PreparedWorld {
   readonly releasedBytes = 0;
   status = '';
   private disposed = false;
-  private constructor(private host: CoarseHost, readonly data: PreparedScene, private url: string, private model: THREE.Group) {}
+  private assets: THREE.Object3D[] = [];
+  private constructor(private host: CoarseHost, readonly data: PreparedScene, private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) {}
 
   static async start(host: CoarseHost): Promise<PreparedWorld> {
     const page = host.pageUrl ?? location.href;
@@ -48,9 +56,32 @@ export class PreparedWorld {
       await host.checkCollision(buffer.slice(0));
       return { id, entry: { ...entry, url: new URL(entry.url, url).href }, buffer };
     }));
-    const textures = await loadPreparedTextures(data, url, fetcher);
-    const model = buildPreparedModel(data, textures), world = new PreparedWorld(host, data, url, model);
+    const textures = await loadPreparedTextures(data, url, fetcher, undefined,
+      bytes => new Promise((resolve, reject) => sharedKtx(host.renderer).parse(bytes, resolve, reject)));
+    const model = buildPreparedModel(data, textures), world = new PreparedWorld(host, data, url, model, new Set(textures.values()));
     try {
+      const loader = data.assets.length ? new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
+        .setKTX2Loader(sharedKtx(host.renderer)).setMeshoptDecoder(MeshoptDecoder) : null;
+      if (loader) MeshoptDecoder.useWorkers(2);
+      for (let i = 0; i < data.assets.length; i += 4) {
+        const results = await Promise.allSettled(data.assets.slice(i, i + 4).map(async asset => {
+          const assetUrl = new URL(asset.url, url).href;
+          const response = await fetcher(assetUrl, { signal: AbortSignal.timeout(15000) });
+          if (!response.ok) throw new Error(`Prepared asset ${asset.id}: HTTP ${response.status}`);
+          const bytes = await response.arrayBuffer();
+          const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), b => b.toString(16).padStart(2, '0')).join('');
+          if (digest !== asset.sha256) throw new Error(`Prepared asset ${asset.id}: hash mismatch`);
+          const root = host.loadModel ? await host.loadModel(assetUrl) : (await loadGlb(loader!, assetUrl, undefined, bytes)).scene;
+          world.assets.push(root);
+          root.name = `asset:${asset.id}`; root.position.fromArray(asset.position);
+          root.userData.entityId = asset.entityId; root.userData.layer = 'buildings';
+          root.traverse(o => { if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true; });
+          model.add(root);
+        }));
+        const error = results.find(result => result.status === 'rejected');
+        if (error?.status === 'rejected') throw error.reason;
+      }
+      await host.style?.(model);
       await host.prepareGraphics?.(model);
       const id = `t0_${Math.floor(data.spawn.position[0] / 250)}_${Math.floor(data.spawn.position[2] / 250)}`;
       const collision = new Map(cells.map(c => [c.id, c.entry]));
@@ -94,7 +125,7 @@ export class PreparedWorld {
   }
   memoryParts() {
     return { full: this.disposed ? [] : [this.model], cached: [], previews: [], previewFragments: 0, roads: 0,
-      releasedBytes: 0, releases: 0, gpuResidency: { measuredMiB: 0, limitMiB: null, over: false },
+      releasedBytes: 0, releases: 0, gpuResidency: { measuredMiB: Math.round(modelGpuBytes(this.model, rendererResidency(this.host.renderer)) / 2 ** 20), limitMiB: null, over: false },
       previewJsonBytes: () => 0, roadsJsonBytes: () => 0, fragmentCache: { bytes: 0, count: 0 }, buildingTemplates: async () => [] };
   }
   leaveCity() {
@@ -105,6 +136,7 @@ export class PreparedWorld {
       for (const cell of e.collision.keys()) { delete this.host.manifest.collision[cell]; this.host.unloadCollision(cell); }
     }
     this.entries.clear();
+    this.host.unstyle?.(this.model);
     const release = () => {
       const textures = new Set<THREE.Texture>();
       this.model.traverse(o => {
@@ -115,7 +147,10 @@ export class PreparedWorld {
         m.dispose();
       }
       });
-      disposePreparedTextures(textures);
+      // Asset texture ownership was registered by the shared GLTF uploader. Native image maps are owned here.
+      for (const asset of this.assets) releaseModelTextures(asset, new Set());
+      releaseModelTextures(this.model, new Set([...textures].filter(texture => !this.nativeTextures.has(texture))));
+      disposePreparedTextures(this.nativeTextures);
     };
     if (this.host.retire) this.host.retire(release); else release();
   }

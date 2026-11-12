@@ -74,3 +74,12 @@ test('streaming shadow preparation yields before publication and retains its der
   expect(proxy.parent).toBeNull();
   vi.unstubAllGlobals();
 });
+
+test('prepared water surfaces never become opaque shadow casters during model preparation', () => {
+  const tiles = new VisualTiles(true);
+  const model = new THREE.Group(), water = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshStandardMaterial());
+  water.userData.waterSurface = { point: [0, 0, 0], normal: [0, 1, 0] };
+  model.add(water); tiles.prepareModel(model);
+  expect(water.castShadow).toBe(false);
+  expect(water.receiveShadow).toBe(true);
+});

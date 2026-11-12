@@ -159,12 +159,9 @@ export class MaterialStyler {
           mesh.layers.disable(REFLECTION_LAYER);
           mesh.updateWorldMatrix(true, false);
           // Sample the mirror plane now: the reach's reflector may move onto this mesh after its arrays are released.
-          waterSurface(mesh);
-          const normal = new THREE.Vector3(0, 1, 0);
-          const attribute = mesh.geometry.getAttribute('normal');
-          if (attribute) normal.fromBufferAttribute(attribute, 0);
-          normal.transformDirection(mesh.matrixWorld);
-          const point = new THREE.Vector3().fromBufferAttribute(mesh.geometry.getAttribute('position'), 0).applyMatrix4(mesh.matrixWorld);
+          const sample = waterSurface(mesh);
+          const normal = sample.normal.transformDirection(mesh.matrixWorld);
+          const point = sample.point.applyMatrix4(mesh.matrixWorld);
           const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, point);
           // Measured inland surfaces carry their reach key: one mirror per reach, not per tile.
           const band = mesh.userData.water_band;

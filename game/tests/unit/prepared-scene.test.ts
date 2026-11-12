@@ -4,7 +4,7 @@ import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey
 
 function scene(): PreparedScene {
   return { schema: 'turku-scene/1', release: 'release-1', id: 'office', origin: [23459500, 6704500, 0], bounds: [0, 0, 10, 10],
-    sources: [], materials: [{ id: 'stone', color: [.2, .3, .4], roughness: .9, metalness: 0 }],
+    sources: [], assets: [], materials: [{ id: 'stone', color: [.2, .3, .4], roughness: .9, metalness: 0 }],
     boundaries: [{ id: 'edge', positions: [[0, 0, 0], [10, 0, 0]] }],
     supports: [{ id: 'ground', kind: 'footway', boundaryIds: ['edge'], meshId: 'paving' }],
     meshes: [{ id: 'paving', entityId: 'street', materialId: 'stone', positions: [0, 0, 0, 0, 0, 10, 10, 0, 0], indices: [0, 1, 2],
@@ -65,4 +65,12 @@ it('rejects corrupt texture bytes before image decode', async () => {
   const decode = vi.fn();
   await expect(loadPreparedTextures(s, 'https://city.test/scene.json', (async () => new Response(new Uint8Array([1]))) as typeof fetch, decode)).rejects.toThrow('hash mismatch');
   expect(decode).not.toHaveBeenCalled();
+});
+
+it('keeps collision-only proxy meshes out of the visible scene and preserves prepared water planes', () => {
+  const s = scene(); s.meshes[0].render = false; expect(buildPreparedModel(readPreparedScene(s)).children).toHaveLength(0);
+  s.meshes[0].render = true; s.materials[0].water = { point: [0, 3, 0], normal: [0, 1, 0], band: 'aura' };
+  const mesh = buildPreparedModel(readPreparedScene(s)).children[0] as import('three/webgpu').Mesh;
+  expect(mesh.userData.waterSurface).toEqual({ point: [0, 3, 0], normal: [0, 1, 0] });
+  expect(mesh.castShadow).toBe(false);
 });
