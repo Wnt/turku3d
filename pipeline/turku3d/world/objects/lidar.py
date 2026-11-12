@@ -21,7 +21,7 @@ import numpy as np
 
 from ... import config
 
-VERSION = "3"
+VERSION = "4"
 TILE = 500.0
 CELL = 1.0
 SIDE = int(TILE / CELL)
@@ -95,12 +95,17 @@ def build_tile(name: str) -> dict | None:
     order = np.argsort(cell[keep], kind="stable")
     cells = cell[keep][order]
     starts = np.searchsorted(cells, np.arange(SIDE * SIDE + 1)).astype(np.uint32)
+    centimetres = lambda values: np.clip(np.round(values[keep][order] * 100.0), 0, 65535).astype(np.uint16)  # noqa: E731
     return {
-        "x": x[keep][order].astype(np.float32), "y": y[keep][order].astype(np.float32), "hag": hag[keep][order].astype(np.float32),
-        "cls": cls[keep][order].astype(np.uint8), "intensity": np.asarray(las.intensity)[keep][order].astype(np.uint16),
+        "x": centimetres(x), "y": centimetres(y), "hag": centimetres(hag), "cls": cls[keep][order].astype(np.uint8),
         "rgb": (np.column_stack([np.asarray(las.red), np.asarray(las.green), np.asarray(las.blue)])[keep][order] >> 8).astype(np.uint8),
         "starts": starts, "ground": ground.astype(np.float32), "roof": maximum_filter(roof, 3),
     }
+
+
+def _metres(tile: dict) -> dict:
+    """A stored tile (centimetres as uint16) as the arrays the queries use."""
+    return {**tile, **{key: tile[key].astype(np.float32) * 0.01 for key in ("x", "y", "hag")}}
 
 
 class ObjectLidar:
@@ -117,7 +122,7 @@ class ObjectLidar:
         if name not in self.tiles:
             path = self.cache / f"{name}.npz"
             if path.exists():
-                self.tiles[name] = dict(np.load(path))
+                self.tiles[name] = _metres(dict(np.load(path)))
             elif path.with_suffix(".missing").exists() or (not self.fetch and laz_path(name, fetch=False) is None):
                 self.tiles[name] = None
             else:
@@ -127,10 +132,10 @@ class ObjectLidar:
                     path.with_suffix(".missing").write_text("no lidar\n")
                 else:
                     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp.npz")
-                    np.savez(tmp, **built)
+                    np.savez_compressed(tmp, **built)
                     tmp.replace(path)
                     self.log(f"  object lidar tile {name}: {len(built['x'])} returns above ground")
-                self.tiles[name] = built
+                self.tiles[name] = built and _metres(built)
         return self.tiles[name]
 
     def box(self, e0: float, n0: float, e1: float, n1: float, rgb: bool = False) -> np.ndarray:
