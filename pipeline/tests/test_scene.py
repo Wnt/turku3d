@@ -177,6 +177,16 @@ class SemanticSceneTests(unittest.TestCase):
         image=Image.open(io.BytesIO(prototype('C1').image))
         self.assertEqual(image.getpixel((192,64)),(255,218,54))
         self.assertEqual(image.getpixel((245,64)),(217,32,44))
+        from turku3d.scene.compile import write_products
+        from turku3d.col import read_col
+        from turku3d.col.materials import mat_id
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            write_products(s,directory)
+            record=next(iter(s['collision'].values()))
+            collision=read_col((Path(directory)/record['url']).read_bytes())
+            self.assertIn(mat_id('street_furniture'),collision.materials)
 
     def test_light_blocker_height_is_explicit_and_nonempty(self):
         s=self.compiled();s['lightOccluders']=[dict(id='wall',positions=[[1,1],[2,1],[2,2],[1,1]],minY=0.,maxY=8.)]

@@ -69,9 +69,24 @@ def audit(path,cache=None):
             for point in boundaries[key]['positions']:
                 if np.min(np.linalg.norm(vertices-point,axis=1))>1e-7:
                     raise ValueError('Retaining face separates from its shared boundary')
+    from .fixtures import support_query
+    support_at=support_query(s)
+    solid_lamps=0
+    for fixture in s['fixtures']:
+        if not fixture['family'].startswith(('turku-crook-lamp','turku-flat-canopy-lamp')):
+            continue
+        post=[meshes[key] for key in fixture['meshIds'] if meshes[key]['collision']=='solid']
+        if len(post)!=1 or len(fixture['emitterIds'])!=1:raise ValueError('Lamp must own one solid post and one emitter')
+        vertices=np.asarray(post[0]['positions']).reshape(-1,3)
+        foot=vertices[vertices[:,1]<fixture['position'][1]+.061]
+        for x,y,z in foot:
+            hit=support_at(x,z)
+            if hit is None or abs(hit[1]-y)>.002:raise ValueError('Lamp contact disc separates from support')
+        solid_lamps+=1
     report=dict(release=s['release'],supportSamples=len(samples),maxContactErrorM=float(errors.max()),
                 assets=len(s['assets']),imageDependencies=dependency_count,fixtures=len(s['fixtures']),
-                solidTreeTrunks=trunk_count,collisionTriangles=len(collision.indices),retainingFaces=retaining_faces)
+                solidTreeTrunks=trunk_count,collisionTriangles=len(collision.indices),retainingFaces=retaining_faces,
+                solidLamps=solid_lamps,emitters=len(s['emitters']),lightOccluders=len(s['lightOccluders']))
     if cache:
         from .compile import load_evidence
         _,buildings,_,water,*_=load_evidence(Path(cache),s['bounds'])
