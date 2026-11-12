@@ -5,6 +5,8 @@ export type Vec3 = [number, number, number];
 export interface PreparedTexture { url: string; sha256: string; wrap: 'repeat' | 'clamp' }
 export interface PreparedMaterial {
   id: string; color: Vec3; roughness: number; metalness: number;
+  /** Explicit cutout and face policy for prepared foliage/fences; opaque front faces remain the default. */
+  alphaTest?: number; doubleSided?: boolean;
   water?: { point: Vec3; normal: Vec3; band: string };
   baseColorTexture?: PreparedTexture; normalTexture?: PreparedTexture; ormTexture?: PreparedTexture;
 }
@@ -65,6 +67,8 @@ export function readPreparedScene(value: unknown): PreparedScene {
   const refs = (v: unknown, known: Set<string>) => Array.isArray(v) && v.every(id => typeof id === 'string' && known.has(id));
   for (const m of s.materials) {
     if (!vector(m.color) || !m.color.every(unit) || !unit(m.roughness) || !unit(m.metalness)) fail(`material ${m.id}`);
+    if (m.alphaTest !== undefined && !unit(m.alphaTest)) fail(`material alphaTest ${m.id}`);
+    if (m.doubleSided !== undefined && typeof m.doubleSided !== 'boolean') fail(`material doubleSided ${m.id}`);
     if (m.water !== undefined && (!object(m.water) || !vector(m.water.point) || !vector(m.water.normal)
       || Math.abs(Math.hypot(...m.water.normal) - 1) > .001 || !name(m.water.band))) fail(`water ${m.id}`);
     for (const key of ['baseColorTexture', 'normalTexture', 'ormTexture']) {
@@ -166,7 +170,9 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     }
     if (parts.every(p => p.normals)) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3)); else geometry.computeVertexNormals();
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
-    const drawMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace), roughness: material.roughness, metalness: material.metalness });
+    const drawMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace),
+      roughness: material.roughness, metalness: material.metalness, alphaTest: material.alphaTest ?? 0,
+      side: material.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
     if (material.baseColorTexture) drawMaterial.map = textures.get(textureKey(material.baseColorTexture, true)) ?? null;
     if (material.normalTexture) drawMaterial.normalMap = textures.get(textureKey(material.normalTexture, false)) ?? null;
     if (material.ormTexture) {

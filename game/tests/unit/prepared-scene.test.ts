@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { DoubleSide, FrontSide, type Mesh, type MeshStandardMaterial } from 'three/webgpu';
 import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey, type PreparedScene } from '../../src/world/preparedScene';
 
 function scene(): PreparedScene {
@@ -31,6 +32,22 @@ describe('prepared scene contract', () => {
   it('rejects missing collision integrity and spawns outside the owned bounds', () => {
     const s = scene(); s.collision.c_0_0.sha256 = ''; expect(() => readPreparedScene(s)).toThrow('collision');
     const p = scene(); p.spawn.vehicle.position[0] = 10; expect(() => readPreparedScene(p)).toThrow('spawn outside');
+  });
+  it('binds explicit alpha cutouts and double-sided foliage while preserving opaque defaults', () => {
+    const s = scene();
+    const material = () => (buildPreparedModel(readPreparedScene(s)).children[0] as Mesh).material as MeshStandardMaterial;
+    expect(material()).toMatchObject({ alphaTest: 0, side: FrontSide, transparent: false });
+    s.materials[0].alphaTest = .5; s.materials[0].doubleSided = true;
+    expect(material()).toMatchObject({ alphaTest: .5, side: DoubleSide, transparent: false });
+    s.materials[0].doubleSided = false;
+    expect(material().side).toBe(FrontSide);
+    for (const invalid of [-.01, 1.01, NaN, '0.5']) {
+      (s.materials[0] as unknown as { alphaTest: unknown }).alphaTest = invalid;
+      expect(() => readPreparedScene(s)).toThrow('material alphaTest');
+    }
+    s.materials[0].alphaTest = .5;
+    (s.materials[0] as unknown as { doubleSided: unknown }).doubleSided = 1;
+    expect(() => readPreparedScene(s)).toThrow('material doubleSided');
   });
   it('validates explicit shared edges on vertical faces without requiring a walkable support', () => {
     const s = scene(); s.meshes[0].supportId = null; s.meshes[0].boundaryIds = ['edge'];
