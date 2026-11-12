@@ -71,6 +71,31 @@ describe('species mapping', () => {
 });
 
 describe('vegetation LOD', () => {
+  it('keeps same-variant placements from two prepared cell groups while deduplicating their crown and trunk parts', () => {
+    const model = new THREE.Group(), sources = new Set<THREE.Object3D>();
+    for (const [cell, x] of [['west', -8], ['east', 8]] as const) {
+      const group = new THREE.Group(); group.position.x = x;
+      for (const part of ['trunk', 'crown']) {
+        const { mesh } = tile(2, 'tree_detailed_fall', i => new THREE.Vector3(i * 2, 0, -20));
+        mesh.name = part; mesh.userData.instance_object_ids = [`${cell}:0`, `${cell}:1`];
+        mesh.userData.instance_species = ['Tilia cordata', 'Tilia cordata'];
+        group.add(mesh); sources.add(mesh);
+      }
+      model.add(group);
+    }
+    const scene = new THREE.Scene(); scene.add(model); model.updateMatrixWorld(true);
+    const lod = new VegetationLod('medium', library); lod.add(model);
+    lod.update(new THREE.PerspectiveCamera(65, 1, .1, 1000));
+    const ids: string[] = [];
+    model.traverse(o => {
+      const mesh = o as THREE.InstancedMesh;
+      if (mesh.isInstancedMesh && !sources.has(mesh) && mesh.visible && !mesh.userData.shadowProxy && base(mesh) !== library.materials.bark)
+        ids.push(...mesh.userData.instance_object_ids.slice(0, mesh.count));
+    });
+    expect(ids.sort()).toEqual(['east:0', 'east:1', 'west:0', 'west:1']);
+    lod.dispose();
+  });
+
   it('a full near budget moves the near boundary in until the trees draw their reduced mesh: never impostors, never dropped', () => {
     const { model, mesh } = tile(900, 'tree_detailed_fall', () => new THREE.Vector3(0, 0, -10));
     mesh.userData.instance_species = Array(900).fill('Tilia cordata');
