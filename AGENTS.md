@@ -72,6 +72,9 @@ is needed: fix things at the layer where it makes most sense.
     and reusable assets.
   - Write what a vision model learns about a facade back into the building data.
   - Replace a weak generated asset, texture or description when the new one is better.
+- **Reference imagery.** When a reference photo is missing, old or shows the wrong state, fetch newer panoramas with
+  `python -m turkutex.streetview.panos` ([qa/README.md](qa/README.md#the-23-reference-views)). It takes a minute or
+  two.
 - **Commit trailer.** Codex commits end with `Co-Authored-By: Codex (gpt-6-astra) <noreply@openai.com>`.
 
 ## Reports

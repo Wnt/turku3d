@@ -27,7 +27,13 @@ Image.MAX_IMAGE_PIXELS = None
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--street-cache", type=Path, required=True)
+    ap.add_argument(
+        "--street-cache",
+        type=Path,
+        action="append",
+        required=True,
+        help="Street View/Look Around cache; repeat it, the first one holding a panorama wins",
+    )
     ap.add_argument(
         "--photo-cache",
         type=Path,
@@ -41,6 +47,12 @@ def main():
     )
     ap.add_argument("--registry", type=Path, default=registry.default_registry())
     a = ap.parse_args()
+    def street(kind, ident):
+        return next(
+            (c / kind / ident for c in a.street_cache if (c / kind / ident / "meta.json").is_file()),
+            a.street_cache[0] / kind / ident,
+        )
+
     out = data_dir() / "refs"
     out.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -90,7 +102,7 @@ def main():
         "YpJel-Jkzb-h1gkunsP7og",
     ]
     for i, ident in enumerate(sv_ids):
-        folder = a.street_cache / "google" / ident
+        folder = street("google", ident)
         m = json.loads((folder / "meta.json").read_text())
         e, n = m["E"], m["N"]
         heading = geo.true_to_grid_bearing(e, n, math.degrees(m["heading_rad"]))
@@ -121,7 +133,7 @@ def main():
                 note="Metadata pose; not yet lidar registered",
             ),
         )
-    folder = a.street_cache / "lookaround/17922395357700297309"
+    folder = street("lookaround", "17922395357700297309")
     m = json.loads((folder / "meta.json").read_text())
     e, n = m["E"], m["N"]
     # This cache stitches camera centre faces inverse travel; Apple headings are CCW.
@@ -137,6 +149,38 @@ def main():
             yaw,
             8.0,
             55.0,
+            dict(
+                kind="apple_lookaround",
+                pano_id=m["id"],
+                pano_heading=heading,
+                note="Side-face cache: centre = inverse travel, heading CCW converted to grid; visually checked, unregistered",
+            ),
+            m["date"],
+            dict(
+                level="low",
+                xy_m=2.0,
+                h_m=1.0,
+                angle_deg=10.0,
+                note="Camera metadata and side-face stitch; orientation needs lidar registration",
+            ),
+        )
+    # The wooden house on Läntinen Rantakatu from the sv_01, sv_02 and sv_04 spots, after the facade renovation
+    # those 2019 photos show (bare boards, hoarding). Fetched with python -m turkutex.streetview.panos.
+    for i, ident in enumerate(["569620272538101503", "569620272538107502", "569620272538094503"]):
+        folder = street("lookaround", ident)
+        m = json.loads((folder / "meta.json").read_text())
+        e, n = m["E"], m["N"]
+        heading = geo.true_to_grid_bearing(e, n, -math.degrees(m["heading_rad"]) + 180)
+        pano_view(
+            f"la_{i + 4:02}",
+            Image.open(folder / "equi_z2.jpg"),
+            heading,
+            e,
+            n,
+            m["elevation"],
+            geo.bearing(e, n, geo.OFFICE_E, geo.OFFICE_N),
+            10.0,
+            65.0,
             dict(
                 kind="apple_lookaround",
                 pano_id=m["id"],

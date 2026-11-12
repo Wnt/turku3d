@@ -91,15 +91,14 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - pass both files with `--views`.
 
   The history is then `~/turku3d/loops/judge/<first file>.jsonl`.
-- **Leaving things out of scoring.** A view's `"judge": false` leaves the view out of scoring; it is still captured.
-  `"judge": { "ignore": "TEXT" }` tells the judge what in the render not to score.
-  - **Use it for:** a building whose only photos show it in an unrepresentative state (renovation, wrapping,
-    scaffolding).
-  - **Riverside office:** the wooden house on Läntinen Rantakatu is left out this way. Its only street-level photos
-    (Street View 2019-06) show the facade bare during a renovation.
-  - **To bring it back:** find a newer posed photo, add it to `qa/views/views.jsonl`, and remove the exclusion.
-- A changed rubric or schema (`judge/JUDGE.md`, `judge/scores.schema.json`) is recorded by its hash. A real change
-  starts a new history file rather than mixing scales.
+- A changed rubric or schema (`judge/JUDGE.md`, `judge/scores.schema.json`) is recorded by its hash. A real change,
+  or a changed reference set, starts a new history file rather than mixing scales.
+  - `riverside-office-2026-11-12-v1.jsonl` holds the first set. It judged the wooden house against Street View 2019-06,
+    which shows it bare during a facade renovation.
+  - The current set uses Look Around 2026-06 (`la-05`, `la-06`) instead.
+- **A photo that shows the wrong state** (renovation, hoarding, scaffolding, a missing neighbour): fetch newer
+  panoramas and swap the reference (see [qa/README.md — Newer imagery](../../qa/README.md#the-23-reference-views)).
+  Do not drop the building from scoring.
 - **Two QA tools, two jobs:**
   - `qa/` (Codex Astra, [qa/README.md](../../qa/README.md)) lists issues per photo pair, with back-mapping to
     assets;

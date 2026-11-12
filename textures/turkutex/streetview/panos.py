@@ -215,12 +215,13 @@ class PanoCache:
 
     # ------------------------------ Google ------------------------------
     @synchronized
-    def google_coverage(self, lat: float, lon: float) -> list[dict]:
+    def google_coverage(self, lat: float, lon: float, refresh: bool = False) -> list[dict]:
+        """`refresh` refetches the tile, so imagery newer than the cached tile shows up."""
         from .sl import streetview
 
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"google_z17_{x}_{y}.json"
-        cached = self.read_json(f.relative_to(self.root))
+        cached = None if refresh else self.read_json(f.relative_to(self.root))
         if cached is not None:
             return cached
         panos = streetview.get_coverage_tile(x, y)
@@ -358,12 +359,13 @@ class PanoCache:
 
     # ------------------------------ Look Around ------------------------------
     @synchronized
-    def lookaround_coverage(self, lat: float, lon: float) -> list[PanoMeta]:
+    def lookaround_coverage(self, lat: float, lon: float, refresh: bool = False) -> list[PanoMeta]:
+        """`refresh` refetches the tile, so imagery newer than the cached tile shows up."""
         from .sl import lookaround
 
         x, y = z17_tile(lat, lon)
         f = self.root / "coverage" / f"lookaround_z17_{x}_{y}.json"
-        cached = self.read_json(f.relative_to(self.root))
+        cached = None if refresh else self.read_json(f.relative_to(self.root))
         if cached is not None:
             return [PanoMeta.from_dict(d) for d in cached]
         tile = lookaround.get_coverage_tile_by_latlon(lat, lon)
@@ -467,3 +469,39 @@ class PanoCache:
             with atomic_target(f, self.root) as temp:
                 st.save(temp, quality=93)
         return f
+
+
+def main(argv=None):
+    """List the Google Street View, photosphere and Apple Look Around panoramas near a point, newest first.
+    Coverage tiles are refetched, so new imagery shows up; --fetch also caches each listed equirect. A few
+    seconds to a minute. Example (EPSG:3877):
+    python -m turkutex.streetview.panos 23459672 6704244 --radius 15 --fetch"""
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="python -m turkutex.streetview.panos", description=main.__doc__)
+    ap.add_argument("E", type=float)
+    ap.add_argument("N", type=float)
+    ap.add_argument("--radius", type=float, default=25.0, help="metres (default 25)")
+    ap.add_argument("--fetch", action="store_true", help="cache the equirects (Google zoom 5, Look Around zoom 2)")
+    a = ap.parse_args(argv)
+    lat, lon = config.en_to_wgs84(a.E, a.N)
+    c = PanoCache()
+
+    def dist(m):
+        return math.hypot(m.E - a.E, m.N - a.N)
+
+    found = list(c.lookaround_coverage(lat, lon, refresh=True)) + c.photosphere_coverage(lat, lon)
+    for p in c.google_coverage(lat, lon, refresh=True):
+        E, N = config.wgs84_to_en(p["lat"], p["lon"])
+        if math.hypot(E - a.E, N - a.N) <= a.radius and (m := c.google_newest(p["id"])) is not None:
+            found.append(m)
+    near = {m.id: m for m in found if dist(m) <= a.radius}.values()
+    for m in sorted(near, key=lambda m: (m.date or "", -dist(m)), reverse=True):
+        path = ""
+        if a.fetch:
+            path = c.lookaround_equirect(m, zoom=2) if m.source == "lookaround" else c.google_image(m.id)
+        print(f"{m.date or '?':10}  {m.source:10}  {dist(m):5.1f} m  {m.id}  {path}")
+
+
+if __name__ == "__main__":
+    main()

@@ -18,9 +18,6 @@ All files are in this packet directory.
 - A **gameplay** view has only a `render`, from the game's normal third-person camera. Judge it against how the place
   looks in all the photos of this packet.
 
-An item may have `ignore`, which names something in its render that is not scored. Leave it out of every category
-and every issue, as if it were not there, and judge the rest of the view.
-
 First read every photo, to learn the place. Then read each render and score it. Read every image named in
 `items.json`; do not score a view you have not seen.
 

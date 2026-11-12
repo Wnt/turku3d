@@ -4,8 +4,7 @@ import { CATEGORIES, aggregate, buildItems, reportHtml, reportText, validateScor
 
 const view = (id, photo) => ({ id, file: `current/${id}.png`, ...(photo ? { photo: { id: photo, image: `data/qa/refs/${photo}.jpg`, date: '2019-06', poseConfidence: 'medium' } } : {}) });
 const captures = [
-  { dir: '/c/gameplay', manifest: { mode: 'render', views: [view('office-frontage'), { ...view('quay'), judge: { ignore: 'the house' } },
-    { ...view('along-frontage'), judge: false }] } },
+  { dir: '/c/gameplay', manifest: { mode: 'render', views: [view('office-frontage'), view('quay')] } },
   { dir: '/c/refs', manifest: { mode: 'render', views: [view('sv-02', 'sv_02'), view('boat-01', 'boat_01')] } },
 ];
 const answer = (items, score) => ({ summary: 's', views: items.map(i => ({ id: i.id, note: 'n', issues: [],
@@ -14,8 +13,6 @@ const answer = (items, score) => ({ summary: 's', views: items.map(i => ({ id: i
 test('packet items are blind: posed views first, neutral ids, the key keeps the capture names', () => {
   const { items, key } = buildItems(captures);
   assert.deepEqual(items.map(i => [i.id, i.kind]), [['p01', 'posed'], ['p02', 'posed'], ['g01', 'gameplay'], ['g02', 'gameplay']]);
-  assert.equal(items.find(i => i.id === 'g02').ignore, 'the house');
-  assert.ok(!('ignore' in items.find(i => i.id === 'g01')));
   assert.ok(!JSON.stringify(items).match(/sv_02|office|\/c\//), 'nothing in the packet names a view, capture or photo source');
   assert.equal(key[0].view, 'sv-02');
   assert.throws(() => buildItems([{ dir: '/x', manifest: { failure: 'Error: boom', views: [] } }]), /capture failed/);

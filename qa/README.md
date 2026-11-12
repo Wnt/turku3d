@@ -40,12 +40,13 @@ model, browser resolver hash/override, backend and package manifest hash/content
 missing IDs, missing photos, judge errors and quota stops exit nonzero. A no-judge run
 is never a regression baseline.
 
-## The 20 reference views
+## The 23 reference views
 
-`views/views.jsonl`: 10 Street View crops, 3 Look Around crops, 4 Mapillary perspective
+`views/views.jsonl`: 10 Street View crops (2019), 6 Look Around crops, 4 Mapillary perspective
 images, 2 boat-level Google photospheres (2023), 1 drone panorama (2016).
-The Street View crops cover multiple positions along the frontage; Look Around uses
-three headings from one co-located camera. They are views, not 20 independently surveyed
+The Street View crops cover multiple positions along the frontage. Look Around la_01–la_03 are
+three headings from one co-located camera. la_04–la_06 (2026-06) see the wooden house on Läntinen Rantakatu from the
+sv_01, sv_02 and sv_04 spots after its facade renovation, which those photos show bare behind hoarding. They are views, not 20 independently surveyed
 camera stations. Source dates and explicit pose uncertainty are preserved in each row.
 
 Reproduce the set from the existing read-only caches:
@@ -55,15 +56,29 @@ qa/.venv/bin/python qa/views/mapillary.py \
   --ids 773201984101318,611404776950262,1553002508431099,4652560791426523
 qa/.venv/bin/python qa/views/prepare.py \
   --street-cache "$TURKU3D_DATA/raw/streetview" \
+  --street-cache "$TURKU3D_DATA/cache/streetlevel" \
   --photo-cache /Users/wnt/Documents/game-test/data/refs \
   --mapillary-cache "$TURKU3D_WORK/qa/mapillary"
 ```
 
-Without `--mapillary-cache` the four Mapillary views are skipped, so the other 16 need no network. The crops used by
+Without `--mapillary-cache` the four Mapillary views are skipped, so the other 19 need no network. The crops used by
 `scripts/dev/scene-judge.mjs` are in the shared `~/turku3d/data/qa/refs` (made this way on 2026-11-12, with the
 `--registry` output sent to a scratch file so `views/views.jsonl` stays unchanged).
 
-Street View/Look Around use the consolidated `$TURKU3D_DATA/raw/streetview` cache.
+Street View/Look Around use the consolidated, read-only `$TURKU3D_DATA/raw/streetview` cache and the shared
+`$TURKU3D_DATA/cache/streetlevel`, where new downloads go.
+
+**Newer imagery.** When a reference is missing, old, or shows a building in the wrong state (renovation, hoarding,
+scaffolding), fetch more panoramas. The cached coverage tiles are years old, and Apple and Google keep adding imagery:
+in 2026-11 the cache had 2019 Street View of the wooden house, while Look Around had 2026-06. This lists the panoramas
+near a point, newest first, and `--fetch` caches their equirects (seconds to a minute):
+
+```sh
+cd textures && bash ../pipeline/env/run.sh python -m turkutex.streetview.panos E N --radius 15 --fetch
+```
+
+Then add the panorama to `prepare.py` beside its source kind, and run it with `--registry` pointing to a scratch file.
+Copy the new rows into `views/views.jsonl` and the new crops into `~/turku3d/data/qa/refs`.
 The separate `--photo-cache` path above still holds the Phase 0 tour/photosphere downloads
 on this Mac; override it if those files move. `prepare.py` reads both caches without modifying them.
 Only derived reference crops go into the sandbox. Mapillary uses the existing token at

@@ -273,8 +273,7 @@ async function main() {
         quaternion: 1 - Math.abs(view.camera.quaternion.reduce((sum, x, i) => sum + x * actual.camera.quaternion[i], 0)),
         fov: Math.abs(view.camera.fov - actual.camera.fov) };
       return { id: view.id, file, requested: view.camera, actual: actual.camera, residual, internal: actual.internal, quiet: actual.quiet,
-        settleMs, captureMs: ms(t0), ...(view.pose ? { pose: view.pose, photo: view.photo ?? null, player: view.player } : {}),
-        ...(view.judge !== undefined ? { judge: view.judge } : {}) };
+        settleMs, captureMs: ms(t0), ...(view.pose ? { pose: view.pose, photo: view.photo ?? null, player: view.player } : {}) };
     };
 
     t = performance.now();
