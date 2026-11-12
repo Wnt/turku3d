@@ -306,6 +306,8 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                 mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
     from .visibility import bake_scene
     bake_scene(scene, points, buildings, waters)
+    from .night_lighting import bake_scene as bake_street_irradiance
+    bake_street_irradiance(scene)
     return scene
 
 
