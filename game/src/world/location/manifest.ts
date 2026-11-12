@@ -5,6 +5,8 @@ export interface LocationInstances {
   asset: string;
   /** The asset's own box (minX, minY, minZ, maxX, maxY, maxZ) when the pipeline packed it; one object's bounds with its transform. */
   bounds?: number[];
+  /** Triangles of one copy of a packed asset. */
+  triangles?: number;
   /** x, y, z, yaw, sx, sy, sz per object, relative to the entity's origin; the asset's origin is the object's base. */
   transforms: number[][];
   /** One stable id per transform, for objects the game addresses. */
@@ -32,6 +34,10 @@ export interface LocationEntity {
   url?: string;
   bytes?: number;
   triangles?: number;
+  /** Largest deviation of the listed level from the description, metres. */
+  error_m?: number;
+  /** A ground entity's height raster: float32 rows from north to south, `size` = columns, rows; engine metres. */
+  heightfield?: { url: string; format: 'f32le'; size: [number, number]; origin: [number, number]; spacing: number };
   instances: LocationInstances[];
 }
 

@@ -91,9 +91,13 @@ One entity compiles to GLB meshes and instance lists.
     the wall, v up from the wall base; ground and roofs: engine x, z in absolute metres) so procedural materials
     tile at world scale and continue across entities; optional `COLOR_0` and custom `_NAME` attributes.
   - One glTF node per **part** (`walls`, `roof`, `plinth`, …), `node.extras = {"entity": id, "part": name}`.
-  - One primitive per material. `material.extras.turku = {"family": "plaster", "params": {…}}` is the **material
-    reference**; `pbrMetallicRoughness` (`baseColorFactor` linear, `roughnessFactor`, `metallicFactor`) is the
-    fallback every material carries, so an unknown family still renders.
+  - One primitive per material. `material.extras.turku = {"family": "plaster", "params": {…}, "surface":
+    "opaque"}` is the **material reference**; `pbrMetallicRoughness` (`baseColorFactor` linear, `roughnessFactor`,
+    `metallicFactor`) is the fallback every material carries, so an unknown family still renders. The fallback is
+    the family's true mean response for those parameters. `surface` says how it is drawn: `opaque`, `masked`,
+    `blend` or `decal` (glTF `alphaMode` follows); a surface that emits light is its own primitive with
+    `emissiveFactor`.
+  - Positions are snapped to 0.1 mm, so equal points are bit-identical. Nothing is quantised, compressed or merged.
   - No embedded textures. A family that needs maps names them in `params` (library ids or store URLs).
 - **Material families** are resolved in the client (`game/src/world/location/materials.ts`, one registered
   function per family: `params → three material`). `flat` (`color`, `roughness`, `metalness`) always exists.
@@ -134,10 +138,12 @@ Written by the driver per compiled entity (`turku-entity/1`), immutable, stored 
   "origin": [-346.5, 12.1, -242.8],
   "bounds": [-12.0, -0.4, -9.5, 12.0, 21.3, 9.5],
   "output": {
-    "lods": [{ "lod": 0, "url": "objects/3f/3f…9a.glb", "sha256": "3f…9a", "bytes": 48211, "triangles": 1532 }],
+    "lods": [{ "lod": 0, "url": "objects/3f/3f…9a.glb", "sha256": "3f…9a", "bytes": 48211, "triangles": 1532,
+               "error_m": 0.01 }],
     "instances": [],
     "families": ["plaster", "roof-metal", "flat"],
-    "instanceTriangles": 0
+    "instanceTriangles": 0,
+    "derived": {}
   },
   "hash": "<sha256 of the canonical JSON of origin, bounds and output>",
   "timings": { "describeMs": 4, "compileMs": 310, "packMs": 6 }
@@ -153,8 +159,15 @@ Written by the driver per compiled entity (`turku-entity/1`), immutable, stored 
   material, normals, metric UVs and the material table, as the generator emitted them (a part without normals gets
   flat ones, which splits its vertices: supply normals to keep a welded mesh). Whatever a renderer needs beyond
   that (batched buffers, cluster pages, distance fields, a surface cache) is derived from the store and can be
-  regenerated; nothing is authored in a derived form. `w2-render` writes the rules in
-  `docs/design/render-readiness.md`.
+  regenerated; nothing is authored in a derived form. Such products are listed under `output.derived` (name →
+  object) by the tool that builds them and never replace `output.lods`. The rules are in
+  [render-readiness.md](render-readiness.md) (`w2-render`).
+- `output.lods[].error_m` is the largest deviation of that level from the description (0.01 for `lod` 0; a kind
+  states it for a proxy level in `Output.error_m`, 0.5 when it does not).
+- `output.instances[]` rows carry the asset's `bounds` and `triangles` when the driver packed it.
+- A ground entity also has `output.heightfield`: `{ "url": "objects/…​.bin", "format": "f32le", "size": [columns,
+  rows], "origin": [x, z], "spacing": 2.5 }`, the raster its mesh was triangulated from (`Output.heightfield`;
+  row 0 is the north edge, engine metres absolute, heights in N2000). The manifest row repeats it.
 
 ## 4. Store
 
@@ -214,14 +227,14 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
     {
       "id": "building/103456789A", "kind": "building", "tier": "auto", "role": "scene",
       "hash": "…", "origin": [-346.5, 12.1, -242.8], "bounds": [-12.0, -0.4, -9.5, 12.0, 21.3, 9.5],
-      "lod": 0, "url": "objects/3f/3f…9a.glb", "bytes": 48211, "triangles": 1532,
+      "lod": 0, "url": "objects/3f/3f…9a.glb", "bytes": 48211, "triangles": 1532, "error_m": 0.01,
       "instances": []
     },
     {
       "id": "signpost/LM-20417", "kind": "signpost", "tier": "auto", "role": "scene",
       "hash": "…", "origin": [-352.1, 12.4, -238.0], "bounds": [-0.4, 0.0, -0.4, 0.4, 3.2, 0.4],
       "instances": [{
-        "asset": "objects/a1/a1…07.glb", "bounds": [-0.35, 0.0, -0.05, 0.35, 3.2, 0.05],
+        "asset": "objects/a1/a1…07.glb", "bounds": [-0.35, 0.0, -0.05, 0.35, 3.2, 0.05], "triangles": 148,
         "transforms": [[0, 0, 0, 1.571, 1, 1, 1]], "ids": ["LM-20417"],
         "behaviour": "knock-over", "collision": { "shape": "cylinder", "size": [0.03, 3.2] }, "mass": 18
       }]
@@ -281,6 +294,8 @@ class Material:
     roughness: float = 0.9
     metalness: float = 0.0
     double_sided: bool = False
+    surface: str = "opaque"           # "opaque" | "masked" | "blend" | "decal"
+    emissive: tuple[float, float, float] | None = None    # linear RGB of a surface that emits
 
 @dataclass
 class Part:
@@ -305,10 +320,18 @@ class Instances:
     mass: float | None = None         # kilograms of one object
 
 @dataclass
+class Heightfield:                    # ground only: the raster the mesh was triangulated from
+    origin: tuple[float, float]       # engine x, z of heights[0, 0], absolute
+    spacing: float                    # metres between lattice points
+    heights: np.ndarray               # (rows, columns), N2000 metres; row 0 is the north edge
+
+@dataclass
 class Output:
     origin: tuple[float, float, float]            # engine metres, absolute
     parts: list[Part]
     instances: list[Instances] = field(default_factory=list)
+    heightfield: Heightfield | None = None
+    error_m: dict[int, float] = field(default_factory=dict)   # largest deviation from the description, by lod
 ```
 
 - The driver packs `parts` into GLB (`turku3d.world.glb`), hashes, stores and writes the record. A generator never
@@ -387,5 +410,5 @@ triangles and texture memory are recorded per location by the capture, without a
 
 The client draws every entity as its own object for now: simple to swap, about a thousand draws per location.
 Batching by material family, a hierarchy of levels of detail and virtualised geometry are renderer products
-derived from the same records (`docs/design/render-readiness.md`); the only runtime target is Chrome on an
-Apple-silicon Mac with WebGPU.
+derived from the same records ([render-readiness.md](render-readiness.md)); the only runtime target is Chrome on
+an Apple-silicon Mac with WebGPU.

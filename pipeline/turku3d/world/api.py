@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 ENVELOPE = ("schema", "id", "tier", "provenance")
 TIERS = ("auto", "observed", "reviewed")
 BEHAVIOURS = ("fixed", "knock-over", "breakable")
+SURFACES = ("opaque", "masked", "blend", "decal")
 SHAPES = ("box", "capsule", "cylinder")
 
 
@@ -64,6 +65,8 @@ class Material:
     roughness: float = 0.9
     metalness: float = 0.0
     double_sided: bool = False
+    surface: str = "opaque"  # how it is drawn: "opaque" | "masked" | "blend" | "decal"
+    emissive: tuple[float, float, float] | None = None  # linear RGB of a surface that emits light
 
 
 @dataclass
@@ -94,10 +97,24 @@ class Instances:
 
 
 @dataclass
+class Heightfield:
+    """The raster a ground entity's mesh was triangulated from: heights[row, column] in metres above N2000 at
+    x = origin[0] + column * spacing, z = origin[1] + row * spacing (engine metres, absolute)."""
+
+    origin: tuple[float, float]
+    spacing: float
+    heights: np.ndarray
+
+
+@dataclass
 class Output:
     origin: tuple[float, float, float]  # engine metres, absolute
     parts: list[Part]
     instances: list[Instances] = field(default_factory=list)
+    heightfield: Heightfield | None = None
+    # Largest deviation of a level from the description, metres, by lod; the driver assumes 0.01 for lod 0 and 0.5
+    # for a proxy level that does not say.
+    error_m: dict[int, float] = field(default_factory=dict)
 
 
 class Kind(Protocol):

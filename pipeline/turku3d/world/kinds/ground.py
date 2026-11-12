@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import shapely
 
-from ..api import Area, Material, Output, Part, Stub, envelope
+from ..api import Area, Heightfield, Material, Output, Part, Stub, envelope
 from ..frame import CELL, ORIGIN_E, ORIGIN_N, cell_at, cell_box_en, cell_from_key, cell_key
 from ..geometry import earcut
 
@@ -161,4 +161,4 @@ class Ground:
             positions = np.column_stack([points[:, 0], height(points, grid) - base, points[:, 1]])
             uvs = np.column_stack([points[:, 0] + i * CELL, points[:, 1] + j * CELL])
             parts.append(Part(family, positions, index.reshape(-1, 3), material, normals=normals, uvs=uvs))
-        return Output((i * CELL, base, j * CELL), parts)
+        return Output((i * CELL, base, j * CELL), parts, heightfield=Heightfield((i * CELL, j * CELL), STEP, grid[1:-1, 1:-1]))

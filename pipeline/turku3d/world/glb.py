@@ -7,7 +7,7 @@ import struct
 
 import numpy as np
 
-from .api import Material, Part
+from .api import SURFACES, Material, Part
 
 FLOAT, UINT = 5126, 5125
 ARRAY, ELEMENTS = 34962, 34963
@@ -23,7 +23,12 @@ def flat_normals(positions: np.ndarray, triangles: np.ndarray) -> tuple[np.ndarr
     return corners.reshape(-1, 3), np.repeat(normal, 3, axis=0), index
 
 
+ALPHA_MODES = {"masked": "MASK", "blend": "BLEND", "decal": "BLEND"}
+
+
 def material_json(material: Material) -> dict:
+    if material.surface not in SURFACES:
+        raise ValueError(f"material {material.family}: unknown surface {material.surface!r}")
     out = {
         "name": material.family,
         "pbrMetallicRoughness": {
@@ -31,8 +36,12 @@ def material_json(material: Material) -> dict:
             "roughnessFactor": round(float(material.roughness), 4),
             "metallicFactor": round(float(material.metalness), 4),
         },
-        "extras": {"turku": {"family": material.family, "params": material.params}},
+        "extras": {"turku": {"family": material.family, "params": material.params, "surface": material.surface}},
     }
+    if material.surface in ALPHA_MODES:
+        out["alphaMode"] = ALPHA_MODES[material.surface]
+    if material.emissive is not None:
+        out["emissiveFactor"] = [round(float(c), 4) for c in material.emissive]
     if material.double_sided:
         out["doubleSided"] = True
     return out
@@ -40,7 +49,8 @@ def material_json(material: Material) -> dict:
 
 def pack(parts: list[Part], entity: str) -> tuple[bytes, dict]:
     """GLB bytes and {triangles, vertices, families} for parts that share one origin. One node per part name, one
-    primitive per part."""
+    primitive per part. This is the lossless encoding of what a kind compiled: positions are snapped to 0.1 mm so
+    that equal points are bit-identical, and nothing else changes (docs/design/render-readiness.md, S1 and G3)."""
     blob = bytearray()
     views: list[dict] = []
     accessors: list[dict] = []
@@ -62,7 +72,7 @@ def pack(parts: list[Part], entity: str) -> tuple[bytes, dict]:
         return len(accessors) - 1
 
     for part in parts:
-        positions = np.asarray(part.positions, dtype=np.float64).reshape(-1, 3)
+        positions = np.round(np.asarray(part.positions, dtype=np.float64).reshape(-1, 3), 4)
         faces = np.asarray(part.triangles, dtype=np.int64).reshape(-1, 3)
         if not len(faces):
             continue

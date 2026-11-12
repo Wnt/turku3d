@@ -19,7 +19,7 @@ from .kinds import KINDS, code_hash
 from .sources import Sources
 from .store import Store, canonical, read_description, sha256
 
-FORMAT = 1  # the record and GLB layout; a change rebuilds everything
+FORMAT = 2  # the record and GLB layout; a change rebuilds everything
 VIEWS = Path(__file__).resolve().parents[3] / "qa/views/views.jsonl"
 
 
@@ -60,7 +60,8 @@ def instance_rows(store: Store, output: Output, entity: str) -> tuple[list[dict]
             points = np.concatenate([np.asarray(part.positions, dtype=float).reshape(-1, 3) for part in item.asset])
             radius = float(np.linalg.norm(points, axis=1).max())
             # The asset's own box: with a transform it bounds one object, so a hierarchy can cull single instances.
-            row = {"asset": asset, "bounds": [round(float(v), 3) for v in (*points.min(axis=0), *points.max(axis=0))]}
+            row = {"asset": asset, "bounds": [round(float(v), 3) for v in (*points.min(axis=0), *points.max(axis=0))],
+                   "triangles": count}
         row.update(lod=item.lod, transforms=np.round(transforms, 4).tolist())
         if item.ids is not None:
             if len(item.ids) != len(transforms):
@@ -93,7 +94,8 @@ def compile_entity(store: Store, kind_name: str, description: dict) -> dict:
     for lod in sorted({part.lod for part in output.parts}):
         data, stats = pack([part for part in output.parts if part.lod == lod], description["id"])
         if stats["triangles"]:
-            lods.append({"lod": lod, **store.put(data, "glb"), "triangles": stats["triangles"]})
+            error = float(output.error_m.get(lod, 0.01 if lod == 0 else 0.5))
+            lods.append({"lod": lod, **store.put(data, "glb"), "triangles": stats["triangles"], "error_m": error})
             families.update(stats["families"])
     reach += [np.asarray(part.positions, dtype=float).reshape(-1, 3) for part in output.parts if len(part.positions)]
     instances, instance_reach, instance_triangles = instance_rows(store, output, description["id"])
@@ -101,8 +103,16 @@ def compile_entity(store: Store, kind_name: str, description: dict) -> dict:
     body = {
         "origin": [round(float(v), 4) for v in output.origin],
         "bounds": [round(float(v), 3) for v in (*reach.min(axis=0), *reach.max(axis=0))],
-        "output": {"lods": lods, "instances": instances, "families": sorted(families), "instanceTriangles": instance_triangles},
+        # `derived` lists what tools build from the lod 0 source for a renderer (render-readiness S1); none yet.
+        "output": {"lods": lods, "instances": instances, "families": sorted(families), "instanceTriangles": instance_triangles,
+                   "derived": {}},
     }
+    if output.heightfield is not None:
+        field = output.heightfield
+        heights = np.ascontiguousarray(field.heights, dtype="<f4")
+        body["output"]["heightfield"] = {
+            **store.put(heights.tobytes(), "bin"), "format": "f32le", "size": [heights.shape[1], heights.shape[0]],
+            "origin": [round(float(v), 4) for v in field.origin], "spacing": float(field.spacing)}
     body["hash"] = sha256(canonical(body))
     body["timings"] = {"compileMs": round((compiled - started) * 1000, 1), "packMs": round((time.perf_counter() - compiled) * 1000, 1)}
     return body
@@ -145,7 +155,9 @@ def manifest_row(record: dict, role: str) -> dict:
     row = {"id": record["id"], "kind": record["kind"], "tier": record["description"]["tier"], "role": role,
            "hash": record["hash"], "origin": record["origin"], "bounds": record["bounds"]}
     if mesh:
-        row.update(lod=mesh["lod"], url=mesh["url"], bytes=mesh["bytes"], triangles=mesh["triangles"])
+        row.update(lod=mesh["lod"], url=mesh["url"], bytes=mesh["bytes"], triangles=mesh["triangles"], error_m=mesh["error_m"])
+    if "heightfield" in record["output"]:
+        row["heightfield"] = {k: v for k, v in record["output"]["heightfield"].items() if k not in ("sha256", "bytes")}
     row["instances"] = [{k: v for k, v in item.items() if k != "lod"} for item in instances if item["lod"] == level]
     return row
 

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from turku3d.world import driver, store as world_store
-from turku3d.world.api import Instances, Material, Output, Part, Stub, envelope
+from turku3d.world.api import Heightfield, Instances, Material, Output, Part, Stub, envelope
 from turku3d.world.kinds import KINDS, _hashes
 from turku3d.world.store import Store
 
@@ -28,10 +28,11 @@ class Posts:
         slab = Part("slab", np.array([[0, 0, 0], [side, 0, 0], [side, 0, side], [0, 0, side]], float),
                     np.array([[0, 2, 1], [0, 3, 2]]), Material("asphalt", {"wear": 0.3}))
         post = Part("post", np.array([[0, 0, 0], [0.1, 0, 0], [0, description["height"], 0]], float),
-                    np.array([[0, 1, 2]]), Material("metal-painted", double_sided=True))
+                    np.array([[0, 1, 2]]), Material("metal-painted", double_sided=True, surface="masked", emissive=(1.0, 0.5, 0.0)))
         places = np.array([[1, 0, 1, 0, 1, 1, 1], [3, 0, 1, 1.5, 1, 1, 1]], float)
         return Output((10.0, 5.0, -20.0), [slab], [Instances([post], places, ids=["a", "b"], behaviour="knock-over",
-                                                               collision={"shape": "cylinder", "size": [0.05, 2.0]}, mass=12)])
+                                                               collision={"shape": "cylinder", "size": [0.05, 2.0]}, mass=12)],
+                      heightfield=Heightfield((10.0, -20.0), side, np.full((2, 2), 5.0)))
 
 
 @pytest.fixture
@@ -60,16 +61,21 @@ def test_entity_compiles_to_content_addressed_output_and_a_manifest_row(posts):
     # Bounds cover the slab and the placed posts, relative to the origin.
     assert record["bounds"][:3] == pytest.approx([-1.0, -2.0, -1.0], abs=0.01) and record["bounds"][3:] == pytest.approx([5.0, 2.0, 4.0], abs=0.01)
     mesh = record["output"]["lods"][0]
-    assert mesh["url"] == f"objects/{mesh['sha256'][:2]}/{mesh['sha256']}.glb" and mesh["triangles"] == 2
+    assert mesh["url"] == f"objects/{mesh['sha256'][:2]}/{mesh['sha256']}.glb" and mesh["triangles"] == 2 and mesh["error_m"] == 0.01
     document = glb_json(store.root / mesh["url"])
     assert document["nodes"][0]["extras"] == {"entity": "posts/p1", "part": "slab"}
-    assert document["materials"][0]["extras"]["turku"] == {"family": "asphalt", "params": {"wear": 0.3}}
+    assert document["materials"][0]["extras"]["turku"] == {"family": "asphalt", "params": {"wear": 0.3}, "surface": "opaque"}
+    raster = record["output"]["heightfield"]
+    assert (raster["size"], raster["origin"], raster["spacing"]) == ([2, 2], [10.0, -20.0], 4.0)
+    assert np.frombuffer((store.root / raster["url"]).read_bytes(), "<f4").tolist() == [5.0] * 4
     # A hittable object is its own instance row: stable id, behaviour, collision shape and mass reach the manifest.
     row = driver.manifest_row(record, "scene")
     (instances,) = row["instances"]
     assert instances["ids"] == ["a", "b"] and instances["behaviour"] == "knock-over" and instances["mass"] == 12.0
     assert instances["collision"] == {"shape": "cylinder", "size": [0.05, 2.0]} and instances["bounds"][4] == 2.0
-    assert glb_json(store.root / instances["asset"])["materials"][0]["doubleSided"] is True
+    assert instances["triangles"] == 1 and row["heightfield"]["url"] == raster["url"] and row["error_m"] == 0.01
+    post = glb_json(store.root / instances["asset"])["materials"][0]
+    assert (post["doubleSided"], post["alphaMode"], post["emissiveFactor"]) == (True, "MASK", [1.0, 0.5, 0.0])
     # The same description and code reuse the record; a stored description changes the output and its hash.
     assert driver.entity_record(store, stub) == record
     world_store.write_description({"schema": "turku-description/posts/1", "id": "posts/p1", "tier": "observed", "provenance": [], "height": 3.0}, by="test")
