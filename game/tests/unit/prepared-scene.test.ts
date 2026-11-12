@@ -50,6 +50,23 @@ describe('prepared scene contract', () => {
     expect(mesh.userData.preparedEntities.map((p: { entityId: string }) => p.entityId)).toEqual(['street', 'street2']);
     expect(mesh.castShadow && mesh.receiveShadow).toBe(true);
   });
+  it('packs prepared ambient bytes unchanged and leaves unbaked parts uncovered inside the same material batch', () => {
+    const s = scene();
+    expect((buildPreparedModel(s).children[0] as import('three/webgpu').Mesh).geometry.hasAttribute('color_1')).toBe(false);
+    s.meshes.push({ ...s.meshes[0], id: 'unbaked' });
+    s.meshes[0].bakedVisibility = [255, 128, 255, 32, 64, 200, 100, 200, 0];
+    const mesh = buildPreparedModel(readPreparedScene(s)).children[0] as import('three/webgpu').Mesh;
+    const baked = mesh.geometry.getAttribute('color_1');
+    expect(baked.itemSize).toBe(4); expect(baked.normalized).toBe(true);
+    expect(baked.array).toBeInstanceOf(Uint8Array);
+    expect([...baked.array]).toEqual([255, 128, 255, 255, 32, 64, 200, 255, 100, 200, 0, 255,
+      255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255]);
+    expect(baked.getY(0)).toBeCloseTo(128 / 255);
+    for (const bad of [[255, 128], [255, -1, 255], [255, .5, 255], [255, 256, 255]]) {
+      s.meshes[0].bakedVisibility = bad.length === 3 ? [...bad, ...bad, ...bad] : bad;
+      expect(() => readPreparedScene(s)).toThrow('baked visibility');
+    }
+  });
 });
 
 it('loads shared hashed texture channels with correct color space and compiled UV orientation', async () => {

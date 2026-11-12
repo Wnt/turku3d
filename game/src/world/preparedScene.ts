@@ -13,6 +13,8 @@ export interface PreparedMesh {
   render?: boolean; normals?: number[]; uv?: number[]; collision: 'solid' | 'passable' | 'sensor' | 'dynamic'; supportId: string | null;
   /** Authored edges shared with adjacent support surfaces, including vertical retaining faces. */
   boundaryIds?: string[];
+  /** UINT8 RGB per vertex: local ambient visibility, sky visibility, and bake coverage. */
+  bakedVisibility?: number[];
 }
 /** Current compiled scene. Positions and normals already use engine axes; no gameplay semantics are recovered from triangles. */
 export interface PreparedScene {
@@ -77,6 +79,8 @@ export function readPreparedScene(value: unknown): PreparedScene {
     if (m.boundaryIds !== undefined && !refs(m.boundaryIds, boundaries)) fail(`mesh boundaries ${m.id}`);
     if (m.normals !== undefined && (!vector(m.normals, m.positions.length))) fail(`normals ${m.id}`);
     if (m.uv !== undefined && !vector(m.uv, m.positions.length / 3 * 2)) fail(`uv ${m.id}`);
+    if (m.bakedVisibility !== undefined && (!vector(m.bakedVisibility, m.positions.length)
+      || !m.bakedVisibility.every((v: number) => Number.isInteger(v) && v >= 0 && v <= 255))) fail(`baked visibility ${m.id}`);
     entities.add(m.entityId);
   }
   for (const a of s.assets) {
@@ -115,12 +119,20 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     if (!parts.length) continue;
     const vertices = parts.reduce((n, m) => n + m.positions.length / 3, 0), triangles = parts.reduce((n, m) => n + m.indices.length, 0);
     const positions = new Float32Array(vertices * 3), normals = new Float32Array(vertices * 3), uv = new Float32Array(vertices * 2), indices = new Uint32Array(triangles);
+    const baked = parts.some(p => p.bakedVisibility) ? new Uint8Array(vertices * 4) : null;
     let vertex = 0, index = 0;
     const ranges: { id: string; entityId: string; start: number; count: number }[] = [];
     for (const part of parts) {
       positions.set(part.positions, vertex * 3);
       if (part.normals) normals.set(part.normals, vertex * 3);
       if (part.uv) uv.set(part.uv, vertex * 2);
+      if (baked) for (let v = 0; v < part.positions.length / 3; v++) {
+        const at = (vertex + v) * 4, source = part.bakedVisibility;
+        baked[at] = source?.[v * 3] ?? 255;
+        baked[at + 1] = source?.[v * 3 + 1] ?? 255;
+        baked[at + 2] = source?.[v * 3 + 2] ?? 0;
+        baked[at + 3] = 255;
+      }
       for (const i of part.indices) indices[index++] = vertex + i;
       ranges.push({ id: part.id, entityId: part.entityId, start: index - part.indices.length, count: part.indices.length });
       vertex += part.positions.length / 3;
@@ -128,6 +140,7 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    if (baked) geometry.setAttribute('color_1', new THREE.BufferAttribute(baked, 4, true));
     if (parts.every(p => p.normals)) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3)); else geometry.computeVertexNormals();
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     const drawMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace), roughness: material.roughness, metalness: material.metalness });
