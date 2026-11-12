@@ -140,12 +140,12 @@ class SemanticSceneTests(unittest.TestCase):
         from turku3d.scene.fixtures import support_query
         s=self.scene()
         points=np.array([[x,.6 if z>=7 else 2.8,z] for x in range(-1,12) for z in range(-1,12)])
-        walk=dict(key='opposite-bank',line=shapely.LineString([[0,4.5],[10,4.5]]),width=3.,
+        walk=dict(key='opposite-bank',line=shapely.LineString([[0,4.2],[10,4.2]]),width=3.,
                   knots=np.array([0.,10.]),cross=np.array([-7.5,-4.5,-1.5,0,1.5,4.5,7.5]),
                   heights=np.full((2,7),2.8))
         water=shapely.box(0,8,10,10)
         height=ground_scene(s,points,[],[],[water],[walk])
-        # The walk is above the former 2 m cutoff and its centre is 3.5 m
+        # The walk is above the former 2 m cutoff and its centre is 3.8 m
         # inland, but the measured paving edge supports this narrow masonry cap.
         np.testing.assert_allclose(height([[3,8],[7,8]]),2.8)
         query=support_query(s)
@@ -155,7 +155,7 @@ class SemanticSceneTests(unittest.TestCase):
         crest=np.concatenate([np.array(m['positions']).reshape(-1,3) for m in walls])
         np.testing.assert_allclose(crest[crest[:,1]>0,1],2.8)
         # Outside the bounded shore apron, the approved source paving is exact.
-        self.assertAlmostEqual(query(5,4.5)[1],2.8,6)
+        self.assertAlmostEqual(query(5,4.2)[1],2.8,6)
         # A missing survey interval is not bridged by the crest correction.
         walk['heights'][0,2:5]=np.nan
         unqualified=self.scene()

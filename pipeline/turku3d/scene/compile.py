@@ -117,7 +117,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     # elevation class. Opposite-bank walks above 2 m still support a masonry
     # crest; excluding them leaves the shoreline cut interpolated into wet TIN.
     # quay_crest rejects gaps and clamps to measured paving edges.
-    masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in walks])
+    masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2.5) for w in walks])
     lower_masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
     shore_keys = {p["key"] for p in lower_walks}
     lower_terraces = [p for p in walks if np.nanmedian(p["heights"][:,3])<2 and p["key"] not in shore_keys] + lower_walks

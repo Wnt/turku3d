@@ -75,7 +75,7 @@ The first private view exposed a separate canonical crest defect: the opposite
 bank's measured walk at 2.5–3 m was excluded by a lower-paving height cutoff.
 Its wall therefore followed wet-side TIN dips. Ground compilation now extends
 all finite measured paving edges to a nearby masonry crest using the existing
-bounded `quay_crest` rule (within 2 m of the paving edge, within 3 m of water,
+bounded `quay_crest` rule (within 2.5 m of the paving edge, within 3 m of water,
 no extrapolation through missing survey knots). The existing lower-paving and
 filled lower-crest ownership is applied afterward, preserving separate levels
 at crossing approaches. This changes the affected canonical ground, wall and
