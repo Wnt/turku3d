@@ -13,6 +13,10 @@
       "sha256": "eca55e8a0d0c9764027e69dd63fad2e52e41e34b613e279b33bbb2cfdc32aa18"
     },
     {
+      "path": "hedge-survey.json",
+      "sha256": "26a2b232511a72d676df48d2cb801feb28ae22633238ca2082d3a2b0e5e9cbdd"
+    },
+    {
       "path": "retaining.pkl",
       "sha256": "1b91eaa94562512c6173e1bf560889c4f5bf8217761c8ebb61fb9c9bd4aa90e7"
     },
@@ -15860,6 +15864,12 @@
       "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
       "kind": "registered-frontage-appearance",
       "uncertaintyM": 0.05
+    },
+    {
+      "id": "material:draft_hedge:approved",
+      "sha256": "8c50377a99a03f7845db639e3b9fd9753526c22fbfad28e6532b05ac7aab2d7c",
+      "kind": "approved-procedural-material",
+      "uncertaintyM": 0.0
     }
   ],
   "fixtureBindings": {
