@@ -87,3 +87,52 @@ def place_trunks(scene, trees):
         m=mesh_record(key,tree['id'],'tree-trunk',p,np.array(g.indices).reshape(-1,3),support=support['id']);m['render']=False
         scene['meshes'].append(m)
         scene['fixtures'].append(dict(id=tree['id'],family='published-tree-trunk',supportId=support['id'],position=[x,y,z],yaw=0.,dimensions=[radius*2,height,radius*2],meshIds=[key],emitterIds=[],sourceIds=source_ids,uncertaintyM=.15))
+
+
+def place_lamps(scene, props):
+    """Compile only explicitly associated source poles; never classify by proximity."""
+    import hashlib
+    import json
+    from pathlib import Path
+    from .families import flat_canopy_lamp, crook_lamp, FLAT_CANOPY_LAMP, CROOK_LAMP
+    raw=Path(__file__).with_name('office_fixture_bindings.json').read_bytes()
+    bindings=json.loads(raw)
+    source_id='office-fixture-family-bindings'
+    scene['sources'].append(dict(id=source_id,sha256=hashlib.sha256(raw).hexdigest(),kind='registered-reference-association',uncertaintyM=1.))
+    sources=[s['id'] for s in scene['sources'] if s['kind']=='poles']+[source_id]
+    associations={row['sourceId']:row for row in bindings['lamps']}
+    families={'flat_canopy':(flat_canopy_lamp,FLAT_CANOPY_LAMP),'crook':(crook_lamp,CROOK_LAMP)}
+    support_at=support_query(scene)
+    for prop in props:
+        binding=associations.get(prop.object_id.split(':')[-1])
+        if prop.kind!='lamp' or binding is None:
+            continue
+        hit=support_at(prop.x,prop.z)
+        if hit is None:
+            continue
+        support,y=hit
+        make,family=families[binding['family']]
+        radius=family['supportRadiusM']
+        foot=[support_at(prop.x+radius*np.cos(a),prop.z+radius*np.sin(a)) for a in np.linspace(0,2*np.pi,8,endpoint=False)]
+        if any(p is None for p in foot) or max(abs(p[1]-y) for p in foot)>.06:
+            raise ValueError(f"Lamp {prop.object_id} has no coherent measured contact footprint")
+        recipe=bindings['families'][binding['family']];yaw=recipe['yaw']
+        position=[prop.x,y,prop.z];ids=[]
+        for piece in make(position,yaw):
+            key=prop.object_id+':'+piece['id']
+            vertices=np.array(piece['positions']).reshape(-1,3)
+            # The declared contact disc meets the actual support plane. Only its
+            # bottom ring changes; shaft, head and emitter remain rigid and upright.
+            contact=np.isclose(vertices[:,1],y,atol=1e-7,rtol=0)
+            for index in np.flatnonzero(contact):
+                vertices[index,1]=support_at(vertices[index,0],vertices[index,2])[1]
+            record=mesh_record(key,prop.object_id,piece['materialId'],vertices,
+                               np.array(piece['indices']).reshape(-1,3),piece['collision'],support['id'])
+            scene['meshes'].append(record);ids.append(key)
+        x,h,z=family['emitterOffset'];c,s=np.cos(yaw),np.sin(yaw)
+        emitter_id=prop.object_id+':light'
+        scene['emitters'].append(dict(id=emitter_id,fixtureId=prop.object_id,position=[prop.x+c*x+s*z,y+h,prop.z-s*x+c*z],
+                                      color=recipe['color'],intensity=recipe['intensity'],range=recipe['range'],category=recipe['category']))
+        scene['fixtures'].append(dict(id=prop.object_id,family=family['family'],supportId=support['id'],position=position,
+                                      yaw=yaw,dimensions=family['dimensions'],meshIds=ids,emitterIds=[emitter_id],
+                                      sourceIds=sources,uncertaintyM=family['heightUncertaintyM']))

@@ -11,7 +11,7 @@ class SemanticSceneTests(unittest.TestCase):
     def scene(self):
         return dict(schema="turku-scene/1", release="fixture", id="fixture", origin=[0,0,0], bounds=[0,0,10,10], sources=[],
                     materials=[dict(id=k,color=[.2,.2,.2],roughness=.8,metalness=0) for k in ("ground","road","footway")],
-                    boundaries=[],supports=[],meshes=[],fixtures=[],emitters=[],collision={},assets=[],
+                    boundaries=[],supports=[],meshes=[],fixtures=[],emitters=[],collision={},assets=[],lightOccluders=[],
                     coverage=dict(mode="replace",bounds=[0,0,10,10],entityIds=[]),
                     spawn=dict(position=[2,1,2],headingDeg=0,vehicle=dict(position=[3,1,3],yaw=0)))
 
@@ -133,6 +133,57 @@ class SemanticSceneTests(unittest.TestCase):
         self.assertTrue(np.isnan(shore_walks([walk],water,[])[0]['heights'][1,3]))
         self.assertEqual(shore_walks([walk],water,[wall])[0]['heights'][1,3],1.25)
         self.assertTrue(np.isnan(walk['heights'][1,3]))
+
+    def test_mapped_lamps_have_rigid_heads_and_exact_sloping_foot_contact(self):
+        from types import SimpleNamespace
+        from turku3d.scene.fixtures import place_lamps
+        s=self.scene()
+        for material in ('iron','glass'):
+            s['materials'].append(dict(id=material,color=[.3,.3,.3],roughness=.9,metalness=0))
+        points=np.array([[x,.3*x,z] for x in range(-1,12) for z in range(-1,12)])
+        ground_scene(s,points,[],[],[])
+        props=[SimpleNamespace(object_id='frn_CityFurniture_LOD2:CityFurniture_'+key,kind='lamp',x=x,z=5)
+               for key,x in [('56200764',2.),('19460502',7.),('unassociated',4.)]]
+        place_lamps(s,props);validate_scene(s)
+        self.assertEqual(len(s['fixtures']),2);self.assertEqual(len(s['emitters']),2)
+        for fixture in s['fixtures']:
+            self.assertAlmostEqual(fixture['position'][1],.3*fixture['position'][0])
+            post=next(m for m in s['meshes'] if m['id'] in fixture['meshIds'] and m['collision']=='solid')
+            p=np.array(post['positions']).reshape(-1,3)
+            foot=p[p[:,1]<fixture['position'][1]+.04]
+            np.testing.assert_allclose(foot[:,1],.3*foot[:,0],atol=1e-8)
+            light=next(e for e in s['emitters'] if e['id']==fixture['emitterIds'][0])
+            if 'crook' in fixture['family']:
+                self.assertAlmostEqual(light['position'][1]-fixture['position'][1],9.18)
+                self.assertEqual(light['intensity'],90.)
+                self.assertEqual(light['range'],28.)
+                self.assertGreater(light['position'][0],fixture['position'][0])
+                self.assertGreater(light['position'][2],fixture['position'][2])
+        s['emitters'][0]['category']='inferred-from-triangles'
+        with self.assertRaises(ValueError):validate_scene(s)
+
+    def test_c1_register_row_is_a_sign_even_when_old_adapter_called_it_post(self):
+        from types import SimpleNamespace
+        from turku3d.scene.signs import place_signs,prototype
+        s=self.scene();points=np.array([[x,0,z] for x in range(-1,12) for z in range(-1,12)])
+        ground_scene(s,points,[],[],[])
+        prop=SimpleNamespace(source='GIS_Liikennemerkit',object_id='registered-C1',kind='post',code='C1',x=5.,z=5.,yaw=.8)
+        place_signs(s,[prop]);validate_scene(s)
+        self.assertEqual(s['fixtures'][0]['family'],'fi-sign-C1-v1')
+        self.assertEqual(s['meshes'][-1]['collision'],'solid')
+        self.assertAlmostEqual(s['fixtures'][0]['dimensions'][0],.64)
+        from PIL import Image
+        import io
+        image=Image.open(io.BytesIO(prototype('C1').image))
+        self.assertEqual(image.getpixel((192,64)),(255,218,54))
+        self.assertEqual(image.getpixel((245,64)),(217,32,44))
+
+    def test_light_blocker_height_is_explicit_and_nonempty(self):
+        s=self.compiled();s['lightOccluders']=[dict(id='wall',positions=[[1,1],[2,1],[2,2],[1,1]],minY=0.,maxY=8.)]
+        validate_scene(s)
+        s['lightOccluders'][0]['maxY']=0
+        with self.assertRaises(ValueError):validate_scene(s)
+
 
 
 class ContextClipTests(unittest.TestCase):

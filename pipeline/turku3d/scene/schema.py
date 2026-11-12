@@ -5,7 +5,7 @@ import math
 
 SCHEMA = "turku-scene/1"
 FIELDS = {
-    "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn assets",
+    "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn assets lightOccluders",
     "source": "id sha256 kind uncertaintyM",
     "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
     "boundary": "id positions",
@@ -13,7 +13,8 @@ FIELDS = {
     "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds",
     "asset": "id entityId url sha256 position recipe bounds",
     "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
-    "emitter": "id fixtureId position color intensity range",
+    "emitter": "id fixtureId position color intensity range category",
+    "lightOccluder": "id positions minY maxY",
     "coverage": "mode bounds entityIds",
     "collision": "url sha256 bytes tris h",
     "spawn": "position headingDeg vehicle",
@@ -50,12 +51,13 @@ def validate_scene(scene):
     tables = {}
     for plural, kind in (("sources", "source"), ("materials", "material"), ("boundaries", "boundary"),
                          ("supports", "support"), ("meshes", "mesh"), ("fixtures", "fixture"),
-                         ("emitters", "emitter"), ("assets", "asset")):
+                         ("emitters", "emitter"), ("assets", "asset"), ("lightOccluders", "lightOccluder")):
         if not isinstance(scene[plural], list):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            fields(row, kind, ("normals", "uv", "render", "boundaryIds") if kind == "mesh" else (("water", "baseColorTexture", "normalTexture", "ormTexture") if kind == "material" else ()))
+            optional={"mesh":("normals","uv","render","boundaryIds"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category",)}
+            fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
                 raise ValueError(f"Invalid or duplicate {plural} ID {key}")
@@ -142,6 +144,16 @@ def validate_scene(scene):
         vector(emitter["position"], 3, "emitter position")
         vector(emitter["color"], 3, "emitter color")
         vector([emitter["intensity"], emitter["range"]], 2, "emitter photometry")
+        if emitter['intensity']<0 or emitter['range']<=0 or any(c<0 or c>1 for c in emitter['color']):
+            raise ValueError('Invalid physical emitter values')
+        if 'category' in emitter and emitter['category'] not in ('street','path','wall'):
+            raise ValueError('Invalid emitter category')
+    for occluder in scene['lightOccluders']:
+        if len(occluder['positions'])<3:
+            raise ValueError('Light occluder needs a polygon')
+        for point in occluder['positions']:vector(point,2,'light occluder position')
+        vector([occluder['minY'],occluder['maxY']],2,'light occluder height')
+        if occluder['minY']>=occluder['maxY']:raise ValueError('Empty light occluder height')
     fields(scene["coverage"], "coverage")
     if scene["coverage"]["mode"] != "replace" or scene["coverage"]["bounds"] != scene["bounds"]:
         raise ValueError("Coverage must replace exactly the scene bounds")

@@ -211,9 +211,10 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     return height
 
 
-def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=()):
+def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=(), asset_sources=()):
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
+    sources.extend(asset_sources)
     retaining_path = Path(cache) / "retaining.pkl"
     retaining = []
     if retaining_path.exists():
@@ -223,13 +224,17 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
     scene = dict(schema=SCHEMA, release="pending", id=scene_id,
                  origin=[C.ORIGIN_E, C.ORIGIN_N, 0], bounds=list(bounds), sources=sources,
                  materials=[dict(id=k, color=c, roughness=r, metalness=m) for k, (c, r, m) in PALETTE.items()],
-                 boundaries=[], supports=[], meshes=[], fixtures=[], emitters=[], assets=list(assets),
+                 boundaries=[], supports=[], meshes=[], fixtures=[], emitters=[], assets=list(assets), lightOccluders=[],
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
                  spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
     next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
     height = ground_scene(scene, points, buildings, streets, waters, walks, retaining)
     window = shapely.box(*bounds)
     for b in buildings:
+        if b.footprint.intersects(window.buffer(30)):
+            for i,poly in enumerate(shapely.get_parts(b.footprint)):
+                if poly.geom_type=='Polygon':
+                    scene['lightOccluders'].append(dict(id=f'{b.facade_key}:{i}',positions=np.asarray(poly.exterior.coords)[:,:2].tolist(),minY=b.base,maxY=b.top))
         if not b.footprint.intersects(window):
             continue
         # Complete building entities preserve footprint and roof-plane identity.
@@ -242,6 +247,10 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                 scene["meshes"].append(record)
     from .fixtures import place_furniture
     place_furniture(scene, props)
+    from .fixtures import place_lamps
+    place_lamps(scene, props)
+    from .signs import place_signs
+    place_signs(scene, props)
     if trees:
         from .fixtures import place_trunks
         place_trunks(scene, trees)
@@ -273,6 +282,8 @@ def write_products(scene, output):
     from turku3d.col.materials import mat_id
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
+    from .signs import write_textures
+    write_textures(scene,output)
     xmin, zmin, xmax, zmax = scene["bounds"]
     for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
         for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):

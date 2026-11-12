@@ -131,6 +131,36 @@ python -m turku3d.scene.survey_retaining \
   --bounds 140 240 215 285 --output "$TURKU3D_WORK/evidence/retaining.pkl"
 ```
 
+## Explicit lamps, signs and light blockers
+
+`lightOccluders` is a required array, including when empty. Each record contains
+`{id,positions:[[x,z],...],minY,maxY}` from a source building footprint and height
+range. Lighting consumes these records without recovering buildings from render
+triangles. `--asset-sources` preserves separate context-asset provenance when
+recompiling a pilot with retained assets.
+
+Emitter intensity is in candela in the renderer, range is a spherical cutoff in
+metres, and color is linear RGB. Optional `category` is `street`, `path`, or
+`wall`; every mapped office pole emits `street`. Fixture position is its supported
+base, not its centre. The producer transforms each declared emitter offset once.
+The first canopy and crook settings (45 cd / 18 m and 90 cd / 28 m) are spherical
+visual priors for the existing exposure, not measured photometry or proof of a
+particular lamp technology. Night comparisons must assess those priors.
+
+`office_fixture_bindings.json` records exact registry associations and confidence.
+The compiler installs only those associated poles. The actual contact disc is
+checked against the final support; its bottom ring follows that plane while the
+shaft, head and emitter remain rigid. Posts are solid and elevated fixture detail
+is passable. See the calibrated [fixture evidence](../design/office-fixture-evidence.md).
+
+The pilot's two registered signs retain E2 and C1. The old source adapter's bare
+post fallback for C1 does not erase its code in the semantic producer. Their
+heading agrees with the mapped carriageway's right-hand approach; it remains an
+orientation inference, not a photographic match. C1's original procedural face
+uses the published 640 mm normal diameter, red ring and yellow field from
+[Traficom's C-sign drawings](https://www.finlex.fi/api/media/authority-regulation/535793/media/LIITE%2004%20Tieliikennelain%20merkkiryhm%C3%A4n%20C%20liikennemerkkien%20mitoitus.pdf).
+No official drawing pixels or street-reference images are included.
+
 ## Prepared context vegetation
 
 Context imports retain mapped tree sidecars as explicit instancing transforms,

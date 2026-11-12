@@ -1,0 +1,21 @@
+{
+  "evidence": "docs/design/office-fixture-evidence.md",
+  "referencePanoramas": ["hOH16IE5o9B6ar0x7Cm-9w", "9YcdVIRiQEgvodxtjAX71A"],
+  "referenceDate": "2019-06",
+  "orientationUncertaintyRad": 0.15,
+  "photometry": "Spherical visual priors in candela and metres, not measured lamp ratings; linear warm-white palette retained from existing authored lighting.",
+  "families": {
+    "flat_canopy": {"yaw": 0.52, "intensity": 45.0, "range": 18.0, "color": [1.0, 0.78, 0.52], "category": "street"},
+    "crook": {"yaw": 2.094, "intensity": 90.0, "range": 28.0, "color": [1.0, 0.78, 0.52], "category": "street"}
+  },
+  "lamps": [
+    {"sourceId": "CityFurniture_56200762", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
+    {"sourceId": "CityFurniture_56200763", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
+    {"sourceId": "CityFurniture_56200764", "family": "flat_canopy", "association": "matched in two calibrated views"},
+    {"sourceId": "CityFurniture_56200765", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
+    {"sourceId": "CityFurniture_56200766", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
+    {"sourceId": "CityFurniture_56200767", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
+    {"sourceId": "CityFurniture_19460502", "family": "crook", "association": "matched in two calibrated views"},
+    {"sourceId": "CityFurniture_19460503", "family": "crook", "association": "partially occluded, consistent silhouette"}
+  ]
+}
