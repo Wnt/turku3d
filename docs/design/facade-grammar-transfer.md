@@ -98,3 +98,31 @@ The tests exercise ambiguous outline rejection, duplicate identity handling,
 conflicting source records, source-authority preservation, fractional floor cues,
 unknown material and transfer into the established timber family. A source adapter
 passing these checks is not itself a completed visible iteration.
+
+## Held-out clipping-sliver correction
+
+The first Port Arthur appearance batch exposed a specific source-processing defect
+on103329716M and103329720S: both qualified one-storey timber programs had a0.10m
+layout height and5–6cm-high windows. Their visible source walls are several metres
+high. Exposed-wall subtraction retained micrometre-wide quads with one upper
+endpoint at the building base. The whole-ring minimum admitted that degenerate
+endpoint and collapsed the eave measurement for the valid surrounding facade.
+
+`stored_facades.ring_eaves` excludes spans shorter than one millimetre only from
+the eave measurement. It retains every input geometry point and index. Real short
+returns still participate. The normal registered-storey plausibility resolver
+continues to choose an actual supported wall envelope; the roof peak is not used
+as a replacement facade height, and the register floor count is not changed.
+Existing approved facade fields keep their ordinary resolver precedence.
+
+Only the two affected appearance assets are regenerated for the bounded repair;
+the other12 qualified assets, source shell geometry and prepared collision remain
+unchanged. This fixes a reusable layout defect, not evidence of each actual window
+position or paint colour. The previous Port cross-street camera is the relevant
+visual before. Selected regressions exercise a sliver touching the base, a real
+short lower return, an ordinary pitched roof and the retained registered-storey
+plausibility rule:
+
+```sh
+PYTHONPATH=pipeline ~/turku3d/envs/pipeline/bin/python -m unittest discover -s pipeline/tests -p 'test_facade_eave_slivers.py' -v
+```

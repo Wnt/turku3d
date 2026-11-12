@@ -414,6 +414,28 @@ def base_course(vertices, wall, style):
     return [(lower, wall, course)] + ([(upper, wall, style)] if upper is not None else [])
 
 
+def ring_eaves(walls):
+    """Measure closed roof-part eaves without admitting clipping sliver endpoints.
+
+    Exposed-wall subtraction can retain micrometre-wide quads with one top at
+    the building base. Those have no meaningful facade span and must not set
+    the paint grid for the entire ring. Geometry is retained unchanged; only
+    this layout measurement excludes spans shorter than one millimetre.
+    """
+    eaves = {}
+    ring_start = 0
+    for end in range(0, len(walls), 4):
+        if np.linalg.norm(walls[end + 1, [0, 2]] - walls[ring_start, [0, 2]]) < 1e-6:
+            quads = walls[ring_start:end + 4].reshape(-1, 4, 3)
+            widths = np.linalg.norm(quads[:, 1][:, [0, 2]] - quads[:, 0][:, [0, 2]], axis=1)
+            measured = quads[widths >= .001]
+            if len(measured):
+                eave = float(measured[:, 2:, 1].min())
+                eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
+            ring_start = end + 4
+    return eaves
+
+
 def wall_meshes(b, walls, origin, layout=None):
     if not len(walls):
         return []
@@ -430,13 +452,7 @@ def wall_meshes(b, walls, origin, layout=None):
     meshes = []
     # Each extrusion ring closes before the next roof part starts. Its lowest top
     # is the eave, including when a gable side has several collinear segments.
-    eaves = {}
-    ring_start = 0
-    for end in range(0, len(walls), 4):
-        if np.linalg.norm(walls[end + 1, [0, 2]] - walls[ring_start, [0, 2]]) < 1e-6:
-            eave = float(walls[ring_start : end + 4].reshape(-1, 4, 3)[:, 2:, 1].min())
-            eaves.update((i, eave) for i in range(ring_start, end + 4, 4))
-            ring_start = end + 4
+    eaves = ring_eaves(walls)
     owner, height = layout if layout is not None else (b, None)
     program = resolve(owner, walls, eaves, layout_height=height)
     from turku3d.facade_slab import is_slab, slab_wall, storey_pitch
