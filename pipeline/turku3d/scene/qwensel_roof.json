@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "buildingId": "Building_822852",
+  "sourceGlbSha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
+  "worldPosition": [194.05513001906664, 0, 227.01720541228116],
+  "roofMaterialKey": "landmark_roof_tile",
+  "tileRepeatM": [0.92, 1.32],
+  "tileCount": [4, 4],
+  "chimneyYaw": 0.510650027,
+  "chimneys": [
+    {"id": "east", "centreXZ": [198.691, 231.5075], "topM": 13.976, "capSizeM": [0.72, 0.90], "shaftInsetM": 0.055, "sampleCount": 22},
+    {"id": "west", "centreXZ": [192.768, 234.738], "topM": 13.972, "capSizeM": [0.84, 0.76], "shaftInsetM": 0.055, "sampleCount": 19}
+  ],
+  "evidence": {
+    "views": ["Wikimedia Commons file152575891, VaittinenTimo, photographed2024-07-10", "Wikimedia Commons file62757339, opposite oblique view"],
+    "observed": "Two brick chimneys and profiled clay roof tiles agree in both views. Existing roof planes and accepted frontage are preserved.",
+    "survey": "Private raw last-return class1/6 points from23459500_6704500.laz; two compact clusters above12.9m match the photo chimneys. Top clusters contain22/19points.",
+    "surveyUncertaintyM": {"centreXZ": 0.15, "top": 0.08, "capWidth": 0.12},
+    "priors": "Tile width0.23m/exposed row0.33m,14mm S-profile amplitude,8mm row lap, brick0.24x0.075m, cap overhang/course/flashing construction and all colours are material/construction priors; photographs are not photometric calibration.",
+    "excluded": "Two other elevated clusters over the rear wing are unlabelled and are not instantiated. No source pixels are used. No plane or collision height is altered."
+  }
+}
