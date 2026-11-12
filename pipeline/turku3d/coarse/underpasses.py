@@ -195,7 +195,7 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
     # One straight bearing surface between the two abutment ends avoids
     # reproducing a lidar trough above the covered passage.
     top = np.maximum(top, np.linspace(top[0], top[-1], len(top)))
-    faces = Faces()
+    faces, top_faces = Faces(), Faces()
     for side_index, side in enumerate(sides):
         for i in range(len(centres) - 1):
             j = i + 1
@@ -217,6 +217,7 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
         # Height-based facade V collapses on horizontal caps. World-metre UVs
         # retain the stone pattern and agree across clipped tile boundaries.
         faces.face(roof, planar_uv(roof))
+        top_faces.face(roof, planar_uv(roof))
     for k in (0, len(centres) - 1):
         angles = np.linspace(0, np.pi, 17)
         across = np.cos(angles) * radius
@@ -233,4 +234,7 @@ def enclosure(key, centres, offsets, floors, width, clearance, sample):
             faces.face(cap if k else cap[::-1])
     mesh = faces.mesh(f"tunnel:{key}:masonry", "wall")
     mesh.metadata["vault"] = True
+    # Explicit upper support product for multilevel scene consumers. The same
+    # roof faces already belong to the visible/solid enclosure.
+    mesh.metadata["support_top"] = dict(positions=top_faces.positions,indices=top_faces.indices,uvs=top_faces.uvs)
     return mesh

@@ -49,7 +49,14 @@ def prepare(cache,bounds,points,buildings,water,walks):
     passages={key:(key,line,tags) for deck in decks for key,line,tags in deck.way.get('quay_passages',[])}
     products=tunnels.produce(tile,list(passages.values()),np.empty((0,3)),np.empty((0,3),dtype=np.uint32),[],extrude,ground,surface_sample=surface,walks=walks)
     tunnel_meshes=[m for m in products.meshes if not m.metadata.get('lamp')]
-    for mesh in tunnel_meshes:mesh.metadata['surface']=tunnels.tunnel_surface(mesh)
+    from turku3d.structures.geometry import Mesh
+    upper=[]
+    for mesh in tunnel_meshes:
+        mesh.metadata['surface']=tunnels.tunnel_surface(mesh)
+        if 'support_top' in mesh.metadata:
+            top=mesh.metadata['support_top']
+            upper.append(Mesh(mesh.object_id+':upper-support','paving_slab',top['positions'],top['indices'],top['uvs'],False,dict(surface=mesh.metadata['surface'],collision=False)))
+    tunnel_meshes.extend(upper)
     return decks,tunnel_meshes,[s for s,_ in records]
 
 

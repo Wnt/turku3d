@@ -34,6 +34,14 @@ class SceneStructureTests(unittest.TestCase):
         self.assertEqual(result[0]['entityId'],'bridge:source')
         with self.assertRaises(ValueError):field.wall_meshes(boundaries,[('wrong',shapely.LineString([(0,1),(1,1)]))])
 
+    def test_vault_explicit_top_support_reuses_solid_enclosure_faces(self):
+        from turku3d.coarse.underpasses import enclosure
+        mesh=enclosure('mapped',np.array([[0.,0.],[10.,0.]]),np.array([[0.,1.],[0.,1.]]),np.array([1.2,1.2]),2.4,2.7,lambda x,z:5.9)
+        top=mesh.metadata['support_top'];vertices=np.asarray(top['positions'])
+        self.assertTrue(np.allclose(vertices[:,1],5.9))
+        for point in vertices:self.assertLess(np.min(np.linalg.norm(mesh.positions-point,axis=1)),1e-12)
+        self.assertGreater(len(top['indices']),0)
+
     def test_lower_corridor_stays_excluded_from_approach_grading(self):
         line=shapely.LineString([(0,0),(10,0)]);lower=shapely.box(3,-2,5,2)
         patch=dict(line=line,knots=np.array([0,10]),heights=np.array([6,3]),width=4,lateral=2,feather=2,blocked=lower,area=line.buffer(4).difference(lower))
