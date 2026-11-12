@@ -140,7 +140,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
             height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))
         return np.array([height_cache[tuple(row)] for row in xz])
     from .retaining import RetainingField
-    field = RetainingField(retaining, base_height, dry)
+    field = RetainingField(retaining, base_height, dry,coordinate_tolerance=PLANAR_GRID_M*2)
     def height(xz, owner=None):
         return field.height(xz, base_height(xz), owner)
     from .structures import approach_boundaries, approach_owners, grade_approach

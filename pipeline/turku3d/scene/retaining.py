@@ -40,7 +40,8 @@ def shore_walks(walks, water, records):
 
 
 class RetainingField:
-    def __init__(self, records, sample, dry):
+    def __init__(self, records, sample, dry, *, coordinate_tolerance=2e-5):
+        self.coordinate_tolerance=coordinate_tolerance
         self.planes = []
         self.lines = []
         claimed = shapely.Polygon()
@@ -93,7 +94,7 @@ class RetainingField:
         y = np.array(base, copy=True)
         # Also constrain neighbouring ground vertices on the apron rails. This
         # is essential: sampling the old terrain independently would reopen seams.
-        points, polygons = self.tree.query(shapely.points(xz), predicate="dwithin", distance=2e-5)
+        points, polygons = self.tree.query(shapely.points(xz), predicate="dwithin", distance=self.coordinate_tolerance)
         # Stable source order resolves the two sides only for a free query exactly
         # on a vertical edge. Owned support polygons always select their own side.
         for index in np.argsort(polygons)[::-1]:
@@ -120,7 +121,7 @@ class RetainingField:
                 continue
             midpoint = shapely.Point(np.mean(a[:,[0,2]], axis=0))
             source, distance = min(((source, line.distance(midpoint)) for source,line in [*self.lines,*additional_owners]), key=lambda x:x[1])
-            if distance > 3e-5:
+            if distance > self.coordinate_tolerance*1.5:
                 raise ValueError(f"Discontinuous ground edge at {midpoint.wkt} has no explicit retaining or approach owner (distance {distance})")
             faces = Faces()
             face = np.array([a[0], a[1], b[1], b[0]])

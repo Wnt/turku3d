@@ -42,3 +42,13 @@ class StreetSectionTests(unittest.TestCase):
             with self.assertRaises(ValueError):sections.load(tmp,[0,0,9,6])
             value['profiles'][0]['heights'][:,1]=1.9;path.write_bytes(pickle.dumps(value))
             with self.assertRaises(ValueError):sections.load(tmp,value['bounds'])
+
+    def test_retaining_outer_rail_follows_the_declared_planar_quantization(self):
+        from turku3d.scene.retaining import RetainingField
+        from turku3d.scene.compile import PLANAR_GRID_M
+        centres=np.array([[0.,0.],[4.,0.],[8.,0.]])
+        profile=dict(centres=centres,left=centres+[0,1],right=centres-[0,1],heights=np.tile([3.,1.],(3,1)))
+        records=[(shapely.LineString(centres),dict(source='measured-wall',_survey=profile),None)]
+        field=RetainingField(records,lambda x:np.full(len(x),2.),shapely.box(-1,-3,9,3),coordinate_tolerance=PLANAR_GRID_M*2)
+        sampled=field.height(np.array([[4.,2.+PLANAR_GRID_M*.4]]),np.array([0.]))
+        self.assertAlmostEqual(sampled[0],2.,places=4)
