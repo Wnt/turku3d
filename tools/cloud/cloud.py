@@ -556,7 +556,11 @@ def cmd_up(a, api, ledger, now=None, state=None):
             login_user=dict(username='root', create_password='no',
                             ssh_keys=dict(ssh_key=[k for k in local_keys() + [state.get('key')] if k])),
             user_data=DEADMAN.replace('__EXPIRES__', str(int(expires)))))
-        server = api.call('POST', '/server', body)['server']
+        try:
+            server = api.call('POST', '/server', body)['server']
+        except ApiError as error:      # nothing was created: no capacity, a quota, a plan the zone does not have
+            print(json.dumps(dict(plan, refused=f'UpCloud did not create it: {error.error}'), indent=1))
+            return 6
         uuid = server['uuid']
         ledger.append('create', now, uuid=uuid, name=name, owner=a.owner, purpose=purpose, plan=a.plan, zone=zone, disk_gb=disk,
                       tier=tier, created=round(now, 1), expires=round(expires, 1), lease_minutes=lease_s // 60,
@@ -783,9 +787,10 @@ def cmd_reaper(a, api, ledger):
         staging.mkdir(parents=True, exist_ok=True)
         (staging / 'w2cloud-reaper.service').write_text(SERVICE)
         (staging / 'w2cloud-reaper.timer').write_text(TIMER)
-        subprocess.run(['ssh', REAPER_HOST, f'mkdir -p {REAPER_DIR} .config/systemd/user'], check=True)
-        subprocess.run(['scp', '-q', str(Path(__file__).resolve()), f'{REAPER_HOST}:{REAPER_DIR}/cloud.py'], check=True)
-        subprocess.run(['scp', '-q', str(staging / 'w2cloud-reaper.service'), str(staging / 'w2cloud-reaper.timer'),
+        batch = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8']
+        subprocess.run(['ssh', *batch, REAPER_HOST, f'mkdir -p {REAPER_DIR} .config/systemd/user'], check=True)
+        subprocess.run(['scp', '-q', *batch, str(Path(__file__).resolve()), f'{REAPER_HOST}:{REAPER_DIR}/cloud.py'], check=True)
+        subprocess.run(['scp', '-q', *batch, str(staging / 'w2cloud-reaper.service'), str(staging / 'w2cloud-reaper.timer'),
                         f'{REAPER_HOST}:.config/systemd/user/'], check=True)
         out = ssh_run(REAPER_HOST, 'systemctl --user daemon-reload && systemctl --user enable -q --now w2cloud-reaper.timer && '
                       'systemctl --user start w2cloud-reaper.service; loginctl show-user $USER -p Linger', timeout=320)

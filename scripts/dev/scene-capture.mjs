@@ -23,7 +23,8 @@
 // at the full viewport resolution and with its own readiness (__qaReady). Judge captures use it (scene-judge.mjs).
 // --mode play (the default) is the game itself, for the walking clip and gameplay evidence.
 //
-// The browser is the preview session (scripts/dev/preview-session.mjs) unless --cdp names another one. A page that
+// The browser is the preview session (scripts/dev/preview-session.mjs) unless --cdp or BROWSER_CDP names another one
+// (a leased browser on another machine: ~/turku3d/loops/w2/hosts.md). A page that
 // already shows the requested game is reused as it is: no reload, so variants compare without restarting the game.
 // Readiness is explicit (window.__render.quiet); builds without it (the frozen city, older lab releases) fall back
 // to --settle-ms and the manifest says so. Images, clips and comparisons stay outside Git.
@@ -129,9 +130,11 @@ async function main() {
     return { name, file: path.resolve(file), patch: JSON.parse(fs.readFileSync(file, 'utf8')) };
   });
   const session = previewState();
-  const cdp = opt('--cdp', session?.cdp);
+  // BROWSER_CDP is what host-lease/session.py gives its command: a leased browser on the Mac, the Air or Windows.
+  const leased = opt('--cdp', process.env.BROWSER_CDP);
+  const cdp = leased ?? session?.cdp;
   if (!cdp) throw new Error('No browser: start scripts/dev/preview-session.mjs start, or pass --cdp');
-  if (!opt('--cdp')) touchPreview();
+  if (!leased) touchPreview();
   fs.mkdirSync(out, { recursive: true });
   const started = performance.now(), timings = {};
   const manifest = { schema: 'turku-capture/1', label: opt('--label', null), started: new Date().toISOString(), base, mode, entry,
