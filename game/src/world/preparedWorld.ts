@@ -49,6 +49,7 @@ export class PreparedWorld {
   private assets: { root: THREE.Object3D; recipe: 'building' | 'vegetation' | 'context' }[] = [];
   private ground = new GroundIndex();
   private top = 100;
+  private bottom = -100;
   private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) { this.lighting = prepareLighting(data); }
 
   static async start(host: PreparedWorldHost): Promise<PreparedWorld> {
@@ -112,6 +113,7 @@ export class PreparedWorld {
       world.entries.set(id, { state: 'draft', model, collision, nextPoll: Infinity, pass: 'full', visualHash: data.release, h });
       await decoderReady;
       world.top = h[1] + 10;
+      world.bottom = h[0] - 1;
       for (const c of cells) world.ground.addLazy(c.id, c.buffer, readColSync);
       for (const c of cells) { host.manifest.collision[c.id] = c.entry; host.retainCollision?.(c.id, c.entry, c.buffer); }
       host.manifest.spawn = data.spawn; host.manifest.code = data.release;
@@ -141,8 +143,9 @@ export class PreparedWorld {
   drawn() { return this.loadedTiles(); }
   roadGraphs(): RoadGraphJson[] { return []; }
   manifestUrl(_id: string) { return this.url; }
-  groundBelow(x: number, z: number) {
-    return this.contains(x, z) ? this.ground.ground(x, this.top, z, this.top + 100) ?? NaN : NaN;
+  groundBelow(x: number, z: number, referenceY = this.top) {
+    return this.contains(x, z) && Number.isFinite(referenceY) && referenceY >= this.bottom
+      ? this.ground.ground(x, referenceY, z, referenceY - this.bottom) ?? NaN : NaN;
   }
   viewStatus(x: number, z: number) {
     const ready = this.contains(x, z);

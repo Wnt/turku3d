@@ -52,6 +52,22 @@ test('corrupt prepared collision never publishes a model or collision entry', as
   expect(host.retainCollision).not.toHaveBeenCalled();
 });
 
+test('explicit reference height selects a lower passage independently of its bridge deck', async () => {
+  const { host, scene } = fixture(), lower = scene.meshes[0];
+  const upper = { ...lower, id: 'bridge', entityId: 'bridge', supportId: null,
+    positions: lower.positions.map((v, i) => i % 3 === 1 ? 8 : v) };
+  scene.meshes.push(upper); scene.coverage.entityIds.push('bridge');
+  const bytes = writeCol({ i: 0, j: 0, positions: new Float32Array([...lower.positions, ...upper.positions]), indices: new Uint32Array([0, 1, 2, 3, 4, 5]),
+    materials: new Uint8Array([MAT.road, MAT.road]), prims: [], flags: 1, meta: {} });
+  Object.assign(scene.collision.c_0_0, { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), tris: 2, h: [2, 8] });
+  host.fetch = (async input => String(input).endsWith('.json') ? Response.json(scene) : new Response(new Uint8Array(bytes))) as typeof fetch;
+  const world = await PreparedWorld.start(host);
+  expect(world.groundBelow(10, 10)).toBeCloseTo(8);
+  expect(world.groundBelow(10, 10, 4)).toBeCloseTo(2.32);
+  expect(world.groundBelow(10, 10, 2)).toBeNaN();
+  world.leaveCity();
+});
+
 test('prepared context receives the authored scenery recipe before generic styling', async () => {
   const { host, scene } = fixture(), asset = new THREE.Group();
   for (const layer of ['vegetation', 'buildings-lod-glazed']) {
