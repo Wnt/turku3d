@@ -1,0 +1,116 @@
+"""python -m turku3d.world: build a location, rebuild entities, watch descriptions (docs/design/world-pipeline.md)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+from .api import Area, Stub
+from .store import Store, description_roots, read_description
+
+
+def location_name(args) -> tuple[str, Area]:
+    from .driver import area_of_views
+
+    if args.area:
+        area = area_of_views(args.area)
+        if args.radius:
+            area = area.grown(args.radius)
+        return args.name or args.area, area
+    e, n = (float(v) for v in args.at.split(","))
+    area = Area(e, n, args.radius or 150.0)
+    return args.name or f"at-{round(e)}-{round(n)}-r{round(area.radius)}", area
+
+
+def watch(name: str, store: Store) -> None:
+    """Rebuilds entities whose stored description changed; restarts itself when the pipeline's code changes."""
+    from .driver import refresh
+
+    code = Path(__file__).parent
+
+    def code_state():
+        return max(p.stat().st_mtime for p in code.rglob("*.py"))
+
+    def description_state(ids):
+        state = {}
+        for root in description_roots():
+            for entity in ids:
+                path = root / f"{entity}.json"
+                if path.exists():
+                    state[entity] = max(state.get(entity, 0.0), path.stat().st_mtime)
+        return state
+
+    refresh(name, store)
+    ids = [row["id"] for row in store.location(name)["entities"]]
+    code_seen, seen = code_state(), description_state(ids)
+    print(f"watching {len(ids)} entities of {name}; descriptions in {', '.join(map(str, description_roots()))}", flush=True)
+    while True:
+        time.sleep(0.2)
+        if code_state() != code_seen:
+            print("code changed: restarting", flush=True)
+            os.execv(sys.executable, [sys.executable, "-m", "turku3d.world", *sys.argv[1:]])
+        state = description_state(ids)
+        changed = [entity for entity in set(state) | set(seen) if state.get(entity) != seen.get(entity)]
+        if changed:
+            seen = state
+            try:
+                refresh(name, store, changed)
+            except Exception as error:  # a half-written or invalid description: report and keep watching
+                print(f"  {type(error).__name__}: {error}", flush=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="python -m turku3d.world", description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    build = commands.add_parser("build", help="discover and compile a location; prints per-stage timings")
+    where = build.add_mutually_exclusive_group(required=True)
+    where.add_argument("--area", help="a pilot area: the query comes from its reference views (qa/views/views.jsonl)")
+    where.add_argument("--at", metavar="E,N", help="any point in EPSG:3877")
+    build.add_argument("--radius", type=float, help="metres of full detail around the point (default 150)")
+    build.add_argument("--background", type=float, default=400.0, help="metres to which cheap surroundings are built")
+    build.add_argument("--name", help="location name (default: the area, or at-E-N-rR)")
+    for name, text in (("entity", "recompile entities of a built location from cached source facts"),
+                       ("refresh", "recompile every entity of a built location whose description or generator changed"),
+                       ("watch", "refresh, then rebuild entities as their stored descriptions change")):
+        command = commands.add_parser(name, help=text)
+        if name == "entity":
+            command.add_argument("ids", nargs="+", metavar="ID")
+        command.add_argument("--location", required=True)
+    describe = commands.add_parser("describe", help="print the effective description of an entity of a built location")
+    describe.add_argument("id")
+    commands.add_parser("gc", help="delete objects that no location manifest of this store references")
+    args = parser.parse_args()
+    store = Store()
+    if args.command == "build":
+        from .driver import build as run
+
+        name, area = location_name(args)
+        run(name, area, args.background, store)
+    elif args.command in ("entity", "refresh"):
+        from .driver import refresh
+
+        refresh(args.location, store, getattr(args, "ids", None))
+    elif args.command == "watch":
+        watch(args.location, store)
+    elif args.command == "describe":
+        from .kinds import KINDS
+
+        saved = store.facts(args.id)
+        stub = Stub(saved["id"], tuple(saved["box"]), saved["sources"], saved["facts"])
+        json.dump(KINDS[stub.kind].describe(stub, read_description(stub.id)), sys.stdout, indent=1, ensure_ascii=False)
+    elif args.command == "gc":
+        keep, dropped, freed = store.referenced(), 0, 0
+        for path in (store.root / "objects").glob("*/*"):
+            if path.suffix in (".glb",) and f"objects/{path.parent.name}/{path.name}" not in keep:
+                freed += path.stat().st_size
+                path.unlink()
+                dropped += 1
+        print(f"dropped {dropped} unreferenced meshes, {freed / 1e6:.1f} MB")
+
+
+if __name__ == "__main__":
+    main()
