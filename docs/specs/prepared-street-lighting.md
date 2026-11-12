@@ -36,3 +36,16 @@ ambient/GTAO, vehicle lights and point specular remain independent. Original
 uplight corona positions remain unchanged; nearby point slots use the effective
 aperture centre. Their specular and illumination on moving/unbaked objects are
 still unshadowed approximations with the existing fixed slot budget.
+
+The office recipe uses 45 cd / 27 m for flat canopies and 90 cd / 42 m for
+crooks. These remain inferred visual priors. The cutoff radii were increased
+by one common factor of 1.5 after tracing the fixed night-quay receivers on
+release `462a6331`: at `[153.538, 1.232, 280.236]` all sixteen nearest
+canopy aperture samples were visible, but its original 18 m cutoff removed
+82% of that lamp's uncut contribution. At `[157.430, 1.581, 275.913]`, actual
+retaining walls blocked both nearby canopies; a visible crook's original
+28 m cutoff removed 89% of its contribution. These separate cutoff effects
+from genuine multi-level occlusion. Intensities, optical positions, aperture
+quadrature, geometry, visibility rays and ambient illumination are unchanged.
+The change requires matched night-image review; it is not a claim of measured
+street illuminance or elimination of true shadows.

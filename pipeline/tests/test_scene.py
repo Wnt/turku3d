@@ -164,10 +164,12 @@ class SemanticSceneTests(unittest.TestCase):
             if 'crook' in fixture['family']:
                 self.assertAlmostEqual(light['position'][1]-fixture['position'][1],9.18)
                 self.assertEqual(light['intensity'],90.)
-                self.assertEqual(light['range'],28.)
+                self.assertEqual(light['range'],42.)
                 self.assertGreater(light['position'][0],fixture['position'][0])
                 self.assertGreater(light['position'][2],fixture['position'][2])
         canopy=next(e for e in s['emitters'] if 'aperture' in e)
+        self.assertEqual(canopy['range'],27.)
+        self.assertEqual(canopy['intensity'],45.)
         fixture=next(f for f in s['fixtures'] if f['id']==canopy['fixtureId'])
         self.assertAlmostEqual(canopy['aperture']['position'][1]-fixture['position'][1],5.555)
         self.assertAlmostEqual(canopy['position'][1]-fixture['position'][1],4.85)

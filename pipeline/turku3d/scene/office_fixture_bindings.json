@@ -3,10 +3,10 @@
   "referencePanoramas": ["hOH16IE5o9B6ar0x7Cm-9w", "9YcdVIRiQEgvodxtjAX71A"],
   "referenceDate": "2019-06",
   "orientationUncertaintyRad": 0.15,
-  "photometry": "Spherical visual priors in candela and metres, not measured lamp ratings; linear warm-white palette retained from existing authored lighting.",
+  "photometry": "Visual intensity and spherical cutoff priors in candela and metres, not measured lamp ratings. Cutoffs are 1.5 times the initial range prior after fixed-receiver visibility analysis; intensity and the authored linear warm-white palette are unchanged.",
   "families": {
-    "flat_canopy": {"yaw": 0.52, "intensity": 45.0, "range": 18.0, "color": [1.0, 0.78, 0.52], "category": "street"},
-    "crook": {"yaw": 2.094, "intensity": 90.0, "range": 28.0, "color": [1.0, 0.78, 0.52], "category": "street"}
+    "flat_canopy": {"yaw": 0.52, "intensity": 45.0, "range": 27.0, "color": [1.0, 0.78, 0.52], "category": "street"},
+    "crook": {"yaw": 2.094, "intensity": 90.0, "range": 42.0, "color": [1.0, 0.78, 0.52], "category": "street"}
   },
   "lamps": [
     {"sourceId": "CityFurniture_56200762", "family": "flat_canopy", "association": "inferred repetition along mapped facade row"},
