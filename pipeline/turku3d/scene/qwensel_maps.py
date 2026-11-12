@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import io
 import json
+import math
+import struct
 import shutil
 import subprocess
 from pathlib import Path
@@ -41,7 +43,11 @@ def frontage_maps(data=QWENSEL_FRONTAGE):
             rect=((x+.09)*sx,(height-door['sill']-low-h)*sy,
                   (x+door['width']/2-.09)*sx,(height-door['sill']-low)*sy)
             draw.rectangle(rect,fill=(184,191,186),outline=(224,228,222),width=2)
-    return generated
+    # Basis transcoding selects block-compressed GPU formats. WebGPU requires
+    # the base extent to align to 4x4 blocks; power-of-two extents also give a
+    # conventional full mip chain. Resampling retains the same metric UV domain.
+    size=tuple(2**math.ceil(math.log2(max(4,n))) for n in generated[0].size)
+    return [image.resize(size,Image.Resampling.LANCZOS) for image in generated]
 
 
 def write_maps(directory,data=QWENSEL_FRONTAGE):
@@ -55,8 +61,11 @@ def write_maps(directory,data=QWENSEL_FRONTAGE):
                  '--assign_primaries','bt709' if name=='albedo' else 'none','--encode','etc1s' if name=='albedo' else 'uastc']
         options+=['--qlevel','180','--clevel','1'] if name=='albedo' else ['--uastc_quality','2','--zcmp','18']
         subprocess.run([tool,*options,str(temporary),str(png)],check=True,capture_output=True)
-        digest=hashlib.sha256(temporary.read_bytes()).hexdigest();target=directory/f'{digest}.ktx2'
-        temporary.replace(target);records[name]={'sha256':digest,'path':str(target.resolve()),'uri':f'../shared/{digest}.ktx2'}
+        encoded=temporary.read_bytes();encoded_size=struct.unpack_from('<II',encoded,20)
+        if encoded_size!=image.size or any(n%4 for n in encoded_size):
+            raise ValueError('Qwensel compressed texture extent is not GPU block-aligned')
+        digest=hashlib.sha256(encoded).hexdigest();target=directory/f'{digest}.ktx2'
+        temporary.replace(target);records[name]={'sha256':digest,'path':str(target.resolve()),'uri':f'../shared/{digest}.ktx2','width':image.width,'height':image.height}
     metadata={'sourceGlbSha256':data['authoredGlbSha256'],'frontageDataSha256':hashlib.sha256(Path(__file__).with_name('qwensel_frontage.json').read_bytes()).hexdigest(),'maps':records}
     (directory/'maps.json').write_text(json.dumps(metadata,indent=2));return metadata
 

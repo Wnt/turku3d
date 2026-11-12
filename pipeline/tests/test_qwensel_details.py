@@ -94,6 +94,10 @@ class QwenselDetailsTests(unittest.TestCase):
         self.assertGreater(images[0].width,850)
         self.assertGreater(images[0].height,200)
         self.assertEqual(images[0].mode,'RGB')
+        self.assertEqual(images[0].size,(1024,256))
+        for image in images:
+            self.assertEqual(image.width%4,0)
+            self.assertEqual(image.height%4,0)
 
 
 if __name__=='__main__':unittest.main()
