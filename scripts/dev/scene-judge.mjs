@@ -6,12 +6,17 @@
 //
 //   scripts/dev/scene-judge.mjs run --label TEXT [--base URL] [--views FILE]... [--capture DIR]... [--repeats 2]
 //       [--history FILE] [--out DIR]
-//   scripts/dev/scene-judge.mjs prepare --capture DIR... --out DIR        packet only (an in-session subagent judges it)
-//   scripts/dev/scene-judge.mjs record --run DIR --label TEXT [--history FILE]     after DIR/scores/judge-*.json exist
-//   scripts/dev/scene-judge.mjs report [--history FILE]
+//   scripts/dev/scene-judge.mjs prepare --capture DIR... [--views FILE]... --out DIR   packet only (an in-session subagent judges it)
+//   scripts/dev/scene-judge.mjs record --run DIR --label TEXT [--views FILE]... [--history FILE]   after DIR/scores/judge-*.json exist
+//   scripts/dev/scene-judge.mjs report [--views FILE | --history FILE]
 //
 // The default views are scripts/dev/views/riverside-office.json and riverside-office-refs.json; the default history is
-// ~/turku3d/loops/judge/<first view set>.jsonl, shared by everyone working on that corridor, with an HTML report beside it.
+// ~/turku3d/loops/judge/<first view set>.jsonl, shared by everyone working on that corridor, with an HTML report beside it
+// (a view set kept outside the repo names its own with `"history": "FILE"`, relative to itself).
+// A view set is any turku-capture-views/1 file, also a subset of another one (views/pilot-humalistonkatu-portsa.json)
+// or one outside the repo. --views with --capture judges only that file's views of the captures, whatever made them
+// (the frozen city, city.lab, a local build); with `record --run` it scores that subset of a finished run without
+// judging again. --capture without --views takes the view set, and so the history, from the first capture.
 // Photos, renders and packets stay outside Git. A judge run is evidence, never a merge gate.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,24 +36,29 @@ const DEFAULT_VIEWS = ['scripts/dev/views/riverside-office.json', 'scripts/dev/v
 const sha = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const round = (x, n = 2) => Math.round(x * 10 ** n) / 10 ** n;
 
+/** A view's group for the per-group means: the view set's `group` (an area type), else the id without its number (a location). */
+export const groupOf = view => view.group ?? view.id.replace(/-\d+$/, '').replace(/-(?:la|sv)$/, '');
+
 /** Packet items from capture manifests: posed views (photo + render) first, then gameplay renders, neutral ids. */
-export function buildItems(captures) {
+export function buildItems(captures, only = null) {
   const posed = [], gameplay = [];
   for (const { dir, manifest } of captures) {
     if (manifest.failure) throw new Error(`${dir}: the capture failed (${manifest.failure.split('\n')[0]})`);
     if (manifest.mode !== 'render') throw new Error(`${dir}: judged captures show the scene alone (scene-capture.mjs --mode render), not the game`);
-    for (const view of manifest.views) (view.photo ? posed : gameplay).push({ dir, view });
+    for (const view of manifest.views) if (!only || only.has(view.id)) (view.photo ? posed : gameplay).push({ dir, view });
   }
+  const missing = [...only ?? []].filter(id => ![...posed, ...gameplay].some(x => x.view.id === id));
+  if (missing.length) throw new Error(`the captures lack the views ${missing.join(', ')} of the view set`);
   const items = [], key = [];
   posed.forEach(({ dir, view }, i) => {
     const id = `p${String(i + 1).padStart(2, '0')}`;
     items.push({ id, kind: 'posed', photo: `${id}-photo.jpg`, render: `${id}-render.jpg`, photoDate: view.photo.date, poseConfidence: view.photo.poseConfidence });
-    key.push({ id, capture: dir, view: view.id, render: path.join(dir, view.file), photo: view.photo });
+    key.push({ id, capture: dir, view: view.id, group: groupOf(view), render: path.join(dir, view.file), photo: view.photo });
   });
   gameplay.forEach(({ dir, view }, i) => {
     const id = `g${String(i + 1).padStart(2, '0')}`;
     items.push({ id, kind: 'gameplay', render: `${id}-render.jpg` });
-    key.push({ id, capture: dir, view: view.id, render: path.join(dir, view.file), photo: null });
+    key.push({ id, capture: dir, view: view.id, group: groupOf(view), render: path.join(dir, view.file), photo: null });
   });
   return { items, key };
 }
@@ -68,7 +78,7 @@ export function validateScores(scores, items) {
 const overallOf = means => round(CATEGORIES.reduce((sum, c) => sum + WEIGHTS[c] * means[c], 0) * 10, 1);
 
 /** Per view: mean over repeats; per category: mean over views; overall 0–100; spread: the repeats' overall range. */
-export function aggregate(runs, items) {
+export function aggregate(runs, items, groups = []) {
   const views = items.map((item, i) => ({ id: item.id, kind: item.kind,
     scores: Object.fromEntries(CATEGORIES.map(c => [c, round(runs.reduce((s, r) => s + r.views[i].scores[c], 0) / runs.length)])),
     issues: runs[0].views[i].issues, notes: runs.map(r => r.views[i].note) }));
@@ -77,7 +87,12 @@ export function aggregate(runs, items) {
   const each = runs.map(r => overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(r.views, c)]))));
   const kinds = Object.fromEntries(['posed', 'gameplay'].map(k => [k, views.filter(v => v.kind === k)]).filter(([, l]) => l.length)
     .map(([k, l]) => [k, overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(l, c)])))]));
-  return { views, means, overall: overallOf(means), byKind: kinds, repeats: each, spread: round(Math.max(...each) - Math.min(...each), 1),
+  const byGroup = {};
+  for (const g of new Set(groups)) {
+    const list = views.filter((_, i) => groups[i] === g), m = Object.fromEntries(CATEGORIES.map(c => [c, round(meanOver(list, c))]));
+    byGroup[g] = { views: list.length, overall: overallOf(m), means: m };
+  }
+  return { views, means, overall: overallOf(means), byKind: kinds, byGroup, repeats: each, spread: round(Math.max(...each) - Math.min(...each), 1),
     summaries: runs.map(r => r.summary) };
 }
 
@@ -88,6 +103,18 @@ export function reportText(rows) {
     ...CATEGORIES.map(c => r.means[c].toFixed(1)), r.byKind.posed?.toFixed(1) ?? '', r.byKind.gameplay?.toFixed(1) ?? ''].map(String));
   const width = head.map((h, k) => Math.max(h.length, ...lines.map(l => l[k].length)));
   return [head, ...lines].map(l => l.map((x, k) => k === 2 ? x.padEnd(width[k]) : x.padStart(width[k])).join('  ')).join('\n');
+}
+
+/** The latest iteration per group (location or area type), with the change from the iteration before. */
+export function groupText(rows) {
+  const last = rows.at(-1), before = rows.at(-2);
+  const names = Object.keys(last?.byGroup ?? {});
+  if (names.length < 2) return '';
+  const lines = names.map(g => { const a = last.byGroup[g], b = before?.byGroup?.[g];
+    return [g, String(a.views), a.overall.toFixed(1), b ? (a.overall - b.overall >= 0 ? '+' : '') + (a.overall - b.overall).toFixed(1) : '', ...CATEGORIES.map(c => a.means[c].toFixed(1))]; });
+  const head = [`#${last.iteration} by group`, 'views', 'overall', 'Δ', ...CATEGORIES.map(c => c.slice(0, 5))];
+  const width = head.map((h, k) => Math.max(h.length, ...lines.map(l => l[k].length)));
+  return [head, ...lines].map(l => l.map((x, k) => k ? x.padStart(width[k]) : x.padEnd(width[k])).join('  ')).join('\n');
 }
 
 export function reportHtml(rows, title) {
@@ -109,6 +136,8 @@ export function reportHtml(rows, title) {
 <table><tr><th>#</th><th class="l">date</th><th class="l">label</th><th>overall</th><th>±</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}<th class="l">build</th></tr>
 ${rows.map(r => `<tr><td>${r.iteration}</td><td class="l">${esc(r.at.slice(0, 16).replace('T', ' '))}</td><td class="l">${esc(r.label)}</td><td><b>${r.overall.toFixed(1)}</b></td><td>${r.spread.toFixed(1)}</td>${CATEGORIES.map(c => `<td>${r.means[c].toFixed(1)}</td>`).join('')}<td class="l">${esc(`${r.git.sha.slice(0, 8)}${r.git.dirty ? '+' : ''} ${r.captures.map(c => c.release ?? '').filter(Boolean)[0]?.slice(0, 8) ?? ''}`)}</td></tr>`).join('\n')}</table>
 ${last ? `<h2>Latest: #${last.iteration} ${esc(last.label)}</h2><p>${last.summaries.map(esc).join('</p><p>')}</p>
+${Object.keys(last.byGroup ?? {}).length > 1 ? `<table><tr><th class="l">group</th><th>views</th><th>overall</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}</tr>
+${Object.entries(last.byGroup).map(([g, a]) => `<tr><td class="l">${esc(g)}</td><td>${a.views}</td><td><b>${a.overall.toFixed(1)}</b></td>${CATEGORIES.map(c => `<td>${a.means[c].toFixed(1)}</td>`).join('')}</tr>`).join('\n')}</table>` : ''}
 <table><tr><th class="l">view</th><th class="l">category</th><th>sev</th><th class="l">what</th><th class="l">fix</th></tr>
 ${issues.map(i => `<tr><td class="l">${esc(i.view)}</td><td class="l">${esc(i.category)}</td><td>${i.severity}</td><td class="l">${esc(i.what)} (${esc(i.where)})</td><td class="l">${esc(i.fix)}</td></tr>`).join('\n')}</table>` : ''}\n`;
 }
@@ -121,10 +150,16 @@ function writeReport(history) {
   const html = history.replace(/\.jsonl$/, '') + '.html';
   fs.writeFileSync(html, reportHtml(rows, `Visual judge: ${path.basename(history, '.jsonl')}`));
   console.log(reportText(rows));
+  if (groupText(rows)) console.log(`\n${groupText(rows)}`);
   console.log(`report: ${html}`);
 }
 
 function photoFile(image) {
+  // A registry outside the repo (a random street set) names its crops by absolute path.
+  if (path.isAbsolute(image)) {
+    if (!fs.existsSync(image)) throw new Error(`reference photo ${image} not found`);
+    return image;
+  }
   // Registry paths start with data/qa/ (qa/README.md): QA_DATA, the sandbox, then the shared data tree.
   const rest = image.replace(/^data\/qa\//, '');
   const roots = [process.env.QA_DATA, process.env.TURKU3D_WORK && path.join(process.env.TURKU3D_WORK, 'qa'),
@@ -136,9 +171,12 @@ function photoFile(image) {
 
 const jpeg = (from, to) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', from, '-vf', "scale='min(1280,iw)':-2", '-q:v', '2', to]);
 
-export function prepare(captureDirs, out) {
+/** The ids of the views in view-set files. */
+export const viewIds = files => new Set(files.flatMap(f => JSON.parse(fs.readFileSync(f, 'utf8')).views.map(v => v.id)));
+
+export function prepare(captureDirs, out, only = null) {
   const captures = captureDirs.map(dir => ({ dir: path.resolve(dir), manifest: JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) }));
-  const { items, key } = buildItems(captures);
+  const { items, key } = buildItems(captures, only);
   const packet = path.join(out, 'packet');
   fs.rmSync(packet, { recursive: true, force: true });
   fs.mkdirSync(packet, { recursive: true });
@@ -197,41 +235,65 @@ function gitInfo() {
   return { sha: git('rev-parse', 'HEAD'), branch: git('rev-parse', '--abbrev-ref', 'HEAD'), dirty: git('status', '--porcelain').length > 0 };
 }
 
-export function record(out, label, history) {
+export function record(out, label, history, only = null) {
   const keyFile = JSON.parse(fs.readFileSync(path.join(out, 'key.json'), 'utf8'));
   const files = fs.readdirSync(path.join(out, 'scores')).filter(f => /^judge-\d+\.json$/.test(f)).sort();
   if (!files.length) throw new Error(`${out}/scores has no judge-N.json`);
-  const runs = files.map(f => validateScores(JSON.parse(fs.readFileSync(path.join(out, 'scores', f), 'utf8')), keyFile.items));
-  const result = aggregate(runs, keyFile.items);
+  let runs = files.map(f => validateScores(JSON.parse(fs.readFileSync(path.join(out, 'scores', f), 'utf8')), keyFile.items));
+  const judged = keyFile.key.length;
+  if (only) {
+    // A subset of a finished run: the same scores, aggregated over the view set's views alone.
+    const keep = keyFile.key.map(k => only.has(k.view));
+    const missing = [...only].filter(id => !keyFile.key.some(k => k.view === id));
+    if (missing.length) throw new Error(`${out} did not judge the views ${missing.join(', ')} of the view set`);
+    runs = runs.map(r => ({ ...r, views: r.views.filter((_, i) => keep[i]) }));
+    keyFile.items = keyFile.items.filter((_, i) => keep[i]);
+    keyFile.key = keyFile.key.filter((_, i) => keep[i]);
+  }
+  const result = aggregate(runs, keyFile.items, keyFile.key.map(k => k.group ?? groupOf({ id: k.view })));
   const rows = readHistory(history);
   const row = { schema: 'turku-judge/1', iteration: rows.length + 1, at: new Date().toISOString(), label, run: path.resolve(out),
+    ...(keyFile.key.length < judged ? { judgedWith: judged } : {}),
     git: gitInfo(), captures: keyFile.captures,
     judge: { agent: path.relative(repo, AGENT), rubricSha: sha(RUBRIC).slice(0, 16), schemaSha: sha(SCHEMA).slice(0, 16), weights: WEIGHTS,
       runs: runs.map(r => r.meta ?? { model: 'in-session subagent' }) },
     ...result, views: result.views.map((v, i) => ({ ...v, view: keyFile.key[i].view, photo: keyFile.key[i].photo?.id ?? null })) };
   const changed = rows.length && rows.at(-1).judge.rubricSha !== row.judge.rubricSha;
   if (changed) console.warn('The rubric changed since the previous iteration: scores before and after are not comparable.');
+  const ids = r => JSON.stringify(r.views.map(v => v.view).sort());
+  if (rows.length && ids(rows.at(-1)) !== ids(row)) console.warn('The views differ from the previous iteration: this history mixes view sets, give each its own (--views or --history).');
   fs.mkdirSync(path.dirname(history), { recursive: true });
   fs.appendFileSync(history, JSON.stringify(row) + '\n');
   return row;
+}
+
+/** A view set's history: its own `history` (a path beside the file, for sets kept outside the repo), else
+ *  ~/turku3d/loops/judge/<file name>.jsonl. */
+export function defaultHistory(viewsFile) {
+  const own = fs.existsSync(viewsFile) ? JSON.parse(fs.readFileSync(viewsFile, 'utf8')).history : null;
+  return own ? path.resolve(path.dirname(viewsFile), own) : path.join(os.homedir(), 'turku3d/loops/judge', `${path.basename(viewsFile, '.json')}.jsonl`);
 }
 
 async function main() {
   const [command, ...argv] = process.argv.slice(2);
   const opt = (name, fallback) => argv.includes(name) ? argv[argv.indexOf(name) + 1] : fallback;
   const many = name => argv.flatMap((a, i) => a === name ? [argv[i + 1]] : []);
-  const viewsFiles = many('--views').length ? many('--views') : DEFAULT_VIEWS;
-  const corridor = path.basename(viewsFiles[0], '.json');
-  const history = path.resolve(opt('--history', path.join(os.homedir(), 'turku3d/loops/judge', `${corridor}.jsonl`)));
+  // The view set: --views, else the one the first capture (or the recorded run's first capture) was made from.
+  const given = many('--views'), run = opt('--run') && path.resolve(opt('--run'));
+  const captured = many('--capture').length ? JSON.parse(fs.readFileSync(path.join(many('--capture')[0], 'manifest.json'), 'utf8')).viewsFile
+    : run ? JSON.parse(fs.readFileSync(path.join(run, 'key.json'), 'utf8')).captures[0]?.viewsFile : null;
+  const viewsFiles = given.length ? given.map(f => path.resolve(f)) : (captured ? [captured] : DEFAULT_VIEWS).map(f => path.resolve(repo, f));
+  const only = given.length && (many('--capture').length || run) ? viewIds(viewsFiles) : null;
+  const history = path.resolve(opt('--history', defaultHistory(viewsFiles[0])));
   if (command === 'report') return writeReport(history);
   const label = opt('--label');
   if (command === 'record') {
     if (!label) throw new Error('record needs --label');
-    record(path.resolve(opt('--run')), label, history);
+    record(run, label, history, only);
     return writeReport(history);
   }
   if (command === 'prepare') {
-    const { packet, items } = prepare(many('--capture'), path.resolve(opt('--out')));
+    const { packet, items } = prepare(many('--capture'), path.resolve(opt('--out')), only);
     return console.log(JSON.stringify({ packet, items: items.length }));
   }
   if (command !== 'run') throw new Error('usage: scene-judge.mjs run|prepare|record|report (see the header)');
@@ -252,7 +314,7 @@ async function main() {
     timings.captureMs = Math.round(performance.now() - t0);
   }
   let t = performance.now();
-  prepare(captures, out);
+  prepare(captures, out, only);
   timings.prepareMs = Math.round(performance.now() - t);
   t = performance.now();
   const repeats = Number(opt('--repeats', '2'));

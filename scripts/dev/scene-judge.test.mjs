@@ -48,3 +48,35 @@ test('the report shows each iteration and its change from the previous one', () 
   assert.match(text, /it 2 +60\.0 +0\.0 +\+20\.0/);
   assert.match(reportHtml(rows, 'Visual judge'), /<polyline/);
 });
+
+test('a subset view set: only its views of a capture are judged, and a finished run is rescored without judging again', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const { record, groupOf, groupText } = await import('./scene-judge.mjs');
+  const pilot = [{ dir: '/c/pilot', manifest: { mode: 'render', viewsFile: 'scripts/dev/views/pilot-locations.json',
+    views: [view('portsa-01', 'portsa_01'), view('portsa-02', 'portsa_02'), view('nummi-01', 'nummi_01'), { ...view('dev-01', 'dev_01'), group: 'houses' }] } }];
+  const { items, key } = buildItems(pilot, new Set(['portsa-02', 'nummi-01']));
+  assert.deepEqual(key.map(k => [k.id, k.view, k.group]), [['p01', 'portsa-02', 'portsa'], ['p02', 'nummi-01', 'nummi']]);
+  assert.equal(items.length, 2);
+  assert.throws(() => buildItems(pilot, new Set(['portsa-02', 'rettig-01'])), /lack the views rettig-01/);
+  assert.equal(groupOf(pilot[0].manifest.views[3]), 'houses');
+  assert.equal(groupOf({ id: 'jokiranta-sv-05' }), 'jokiranta');
+
+  // A full run of four views, then its two Portsa views recorded into their own history.
+  const all = buildItems(pilot), out = fs.mkdtempSync(path.join(os.tmpdir(), 'judge-subset-'));
+  fs.mkdirSync(path.join(out, 'scores'));
+  fs.writeFileSync(path.join(out, 'key.json'), JSON.stringify({ items: all.items, key: all.key, captures: [] }));
+  const byView = { 'portsa-01': 2, 'portsa-02': 4, 'nummi-01': 8, 'dev-01': 6 };
+  for (const [n, plus] of [[1, 0], [2, 2]]) fs.writeFileSync(path.join(out, 'scores', `judge-${n}.json`),
+    JSON.stringify(answer(all.items, i => byView[all.key.find(k => k.id === i.id).view] + plus)));
+  const full = record(out, 'full', path.join(out, 'full.jsonl'));
+  assert.equal(full.overall, 60); // views 3, 5, 9, 7 after both repeats
+  assert.deepEqual(Object.fromEntries(Object.entries(full.byGroup).map(([g, v]) => [g, v.overall])), { portsa: 40, nummi: 90, houses: 70 });
+  const subset = record(out, 'portsa', path.join(out, 'portsa.jsonl'), new Set(['portsa-01', 'portsa-02']));
+  assert.equal(subset.overall, 40);
+  assert.deepEqual(subset.repeats, [30, 50]);
+  assert.equal(subset.judgedWith, 4);
+  assert.deepEqual(subset.views.map(v => v.view), ['portsa-01', 'portsa-02']);
+  assert.match(groupText([full]), /nummi +1 +90\.0/);
+  assert.throws(() => record(out, 'x', path.join(out, 'x.jsonl'), new Set(['rettig-01'])), /did not judge the views rettig-01/);
+  fs.rmSync(out, { recursive: true, force: true });
+});

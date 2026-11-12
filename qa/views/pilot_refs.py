@@ -75,6 +75,79 @@ def candidates(cache, E, N, lo, hi, refreshed):
     return [m for m in found.values() if lo <= math.hypot(m.E - E, m.N - N) <= hi]
 
 
+def reference_view(t, vid, area, polys, tree, cache, refreshed, out, tags=(), min_date=None, label="pilot"):
+    """The view row of one target (its crop is written to out/<vid>.jpg) and a one-line summary, or (None, why not).
+    `min_date` ("YYYY" or "YYYY-MM") keeps only panoramas from then on."""
+    tE, tN = t["look_at"]
+    here = Point(tE, tN)
+    near = [polys[j] for j in tree.query(here.buffer(10))]
+    if not near:
+        return None, f"no footprint at {tE},{tN}"
+    foot = min(near, key=lambda g: g.distance(here))
+    ideal = t.get("ideal", min(35.0, max(14.0, 1.1 * t["height"])))
+
+    def seen(m):
+        """Facade distance when the footprint is in the requested direction and unobstructed, else None."""
+        cam = Point(m.E, m.N)
+        if foot.contains(cam):
+            return None
+        if "from" in t:
+            off = (geo.bearing(tE, tN, m.E, m.N) - t["from"] + 180) % 360 - 180
+            if abs(off) > 35:
+                return None
+        ray = LineString([cam, foot.exterior.interpolate(foot.exterior.project(cam)) if foot.geom_type == "Polygon"
+                          else foot.boundary.interpolate(foot.boundary.project(cam))])
+        ray = LineString([ray.coords[0], ray.interpolate(ray.length - 0.5).coords[0]])
+        if any(polys[j] is not foot and polys[j].intersects(ray) for j in tree.query(ray)):
+            return None
+        return foot.distance(cam)
+
+    lo, hi = t.get("distance", (8.0, max(40.0, 1.8 * t["height"])))
+    found = [m for m in candidates(cache, tE, tN, 0, hi + 30, refreshed) if m.source == "lookaround" or len(m.id) == 22]
+    ground = sorted(m.elevation - camera_height(m.source, m.date) for m in found)
+    ground = ground[len(ground) // 2] if ground else 0.0
+    # Street-level only: no user photospheres (indoor, rooftops) and nothing below the street (car parks).
+    pool = [(m, fd) for m in found
+            if abs(m.elevation - camera_height(m.source, m.date) - ground) < 3 and (fd := seen(m)) is not None and lo <= fd <= hi
+            and (min_date is None or (m.date or "") >= min_date)]
+    if not pool:
+        return None, f"no panorama{f' since {min_date}' if min_date else ''} sees {t['what']}"
+    # Newest first, then the facade distance; a panorama is used only once it is straightened.
+    for m, fd in sorted(pool, key=lambda p: (p[0].date or "", -abs(p[1] - ideal)), reverse=True)[:5]:
+        if m.source == "lookaround":
+            eq, heading = cache.lookaround_equirect(m, zoom=2), geo.true_to_grid_bearing(m.E, m.N, -math.degrees(m.heading_rad) + 180)
+        else:
+            eq, heading = cache.google_image(m.id, zoom=4), geo.true_to_grid_bearing(m.E, m.N, math.degrees(m.heading_rad))
+        eq = Image.open(eq)
+        straight = upright.estimate_up(eq, heading, upright.metadata_up(m.source, heading, m.pitch_rad, m.roll_rad))
+        if straight["straightened"]:
+            break
+    else:
+        return None, f"no level panorama sees {t['what']}"
+    d = fd
+    cam = camera_height(m.source, m.date)
+    top = math.degrees(math.atan2(t["height"] + 1 - cam, d))  # roof line, 1 m above the register height
+    base = math.degrees(math.atan2(-cam, d))  # foot of the facade
+    pitch = max(0.0, min(25.0, (top + base) / 2))
+    fov = max(55.0, min(85.0, top - base + 8))
+    pose = dict(E=round(m.E, 3), N=round(m.N, 3), H=round(m.elevation, 3), yaw=round(geo.bearing(m.E, m.N, tE, tN) % 360, 3),
+                pitch=round(pitch, 1), roll=0.0, fov=round(fov, 1))
+    target = out / f"{vid}.jpg"
+    out.mkdir(parents=True, exist_ok=True)
+    perspective(eq, heading, pose, W, H, up=straight["up"]).save(target, quality=93)
+    google = m.source == "google"
+    view = dict(
+        id=vid, image=rel(target), width=W, height=H, pose=pose, time=None,
+        source=dict(kind="google_streetview" if google else "apple_lookaround", pano_id=m.id, pano_heading=round(heading, 3),
+                    note=f"{label} target: {t['what']}; {d:.0f} m away", straightening=straight),
+        capture_date=m.date,
+        pose_confidence=dict(level="medium" if google else "low", xy_m=1.5 if google else 2.0, h_m=1.0, angle_deg=3.0,
+                             note="Metadata pose, straightened by vertical lines; heading and position not lidar registered"),
+        area=area, tags=list(tags),
+    )
+    return view, f"{m.source} {m.date} {d:.0f} m, pitch {pitch:.0f} fov {fov:.0f}, up from {straight['method']} -> {t['what']}"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--targets", type=Path, default=Path(__file__).with_name("pilot-targets.json"))
@@ -83,7 +156,6 @@ def main():
     a = ap.parse_args()
     only = set(a.only.split(",")) if a.only else None
     cache, refreshed, out = PanoCache(), set(), data_dir() / "refs"
-    out.mkdir(parents=True, exist_ok=True)
     locations = json.loads(a.targets.read_text())["locations"]
     polys = footprints([t["look_at"] for loc in locations for t in loc.get("targets", [])])
     tree = STRtree(polys)
@@ -91,77 +163,11 @@ def main():
         if only and loc["id"] not in only:
             continue
         for i, t in enumerate(loc.get("targets", []), 1):
-            tE, tN = t["look_at"]
-            here = Point(tE, tN)
-            near = [polys[j] for j in tree.query(here.buffer(10))]
-            if not near:
-                print(f"{loc['id']}_{i:02}: no footprint at {tE},{tN}")
-                continue
-            foot = min(near, key=lambda g: g.distance(here))
-            ideal = t.get("ideal", min(35.0, max(14.0, 1.1 * t["height"])))
-
-            def seen(m):
-                """Facade distance when the footprint is in the requested direction and unobstructed, else None."""
-                cam = Point(m.E, m.N)
-                if foot.contains(cam):
-                    return None
-                if "from" in t:
-                    off = (geo.bearing(tE, tN, m.E, m.N) - t["from"] + 180) % 360 - 180
-                    if abs(off) > 35:
-                        return None
-                ray = LineString([cam, foot.exterior.interpolate(foot.exterior.project(cam)) if foot.geom_type == "Polygon"
-                                  else foot.boundary.interpolate(foot.boundary.project(cam))])
-                ray = LineString([ray.coords[0], ray.interpolate(ray.length - 0.5).coords[0]])
-                if any(polys[j] is not foot and polys[j].intersects(ray) for j in tree.query(ray)):
-                    return None
-                return foot.distance(cam)
-
-            lo, hi = t.get("distance", (8.0, max(40.0, 1.8 * t["height"])))
-            found = [m for m in candidates(cache, tE, tN, 0, hi + 30, refreshed) if m.source == "lookaround" or len(m.id) == 22]
-            ground = sorted(m.elevation - camera_height(m.source, m.date) for m in found)
-            ground = ground[len(ground) // 2] if ground else 0.0
-            # Street-level only: no user photospheres (indoor, rooftops) and nothing below the street (car parks).
-            pool = [(m, fd) for m in found
-                    if abs(m.elevation - camera_height(m.source, m.date) - ground) < 3 and (fd := seen(m)) is not None and lo <= fd <= hi]
-            if not pool:
-                print(f"{loc['id']}_{i:02}: no panorama sees {t['what']}")
-                continue
-            # Newest first, then the facade distance; a panorama is used only once it is straightened.
-            for m, fd in sorted(pool, key=lambda p: (p[0].date or "", -abs(p[1] - ideal)), reverse=True)[:5]:
-                if m.source == "lookaround":
-                    eq, heading = cache.lookaround_equirect(m, zoom=2), geo.true_to_grid_bearing(m.E, m.N, -math.degrees(m.heading_rad) + 180)
-                else:
-                    eq, heading = cache.google_image(m.id, zoom=4), geo.true_to_grid_bearing(m.E, m.N, math.degrees(m.heading_rad))
-                eq = Image.open(eq)
-                straight = upright.estimate_up(eq, heading, upright.metadata_up(m.source, heading, m.pitch_rad, m.roll_rad))
-                if straight["straightened"]:
-                    break
-            else:
-                print(f"{loc['id']}_{i:02}: no level panorama sees {t['what']}")
-                continue
-            d = fd
-            cam = camera_height(m.source, m.date)
-            top = math.degrees(math.atan2(t["height"] + 1 - cam, d))  # roof line, 1 m above the register height
-            base = math.degrees(math.atan2(-cam, d))  # foot of the facade
-            pitch = max(0.0, min(25.0, (top + base) / 2))
-            fov = max(55.0, min(85.0, top - base + 8))
-            pose = dict(E=round(m.E, 3), N=round(m.N, 3), H=round(m.elevation, 3), yaw=round(geo.bearing(m.E, m.N, tE, tN) % 360, 3),
-                        pitch=round(pitch, 1), roll=0.0, fov=round(fov, 1))
             vid = f"{loc['id']}_{i:02}"
-            target = out / f"{vid}.jpg"
-            perspective(eq, heading, pose, W, H, up=straight["up"]).save(target, quality=93)
-            google = m.source == "google"
-            view = dict(
-                id=vid, image=rel(target), width=W, height=H, pose=pose, time=None,
-                source=dict(kind="google_streetview" if google else "apple_lookaround", pano_id=m.id, pano_heading=round(heading, 3),
-                            note=f"pilot target: {t['what']}; {d:.0f} m away", straightening=straight),
-                capture_date=m.date,
-                pose_confidence=dict(level="medium" if google else "low", xy_m=1.5 if google else 2.0, h_m=1.0, angle_deg=3.0,
-                                     note="Metadata pose, straightened by vertical lines; heading and position not lidar registered"),
-                area=loc["id"], tags=["pilot", loc["id"]],
-            )
-            registry.upsert(view, a.registry)
-            print(f"{vid}: {m.source} {m.date} {d:.0f} m, pitch {pitch:.0f} fov {fov:.0f}, up from {straight['method']} -> {t['what']}")
+            view, said = reference_view(t, vid, loc["id"], polys, tree, cache, refreshed, out, tags=["pilot", loc["id"]])
+            if view:
+                registry.upsert(view, a.registry)
+            print(f"{vid}: {said}")
 
 
 if __name__ == "__main__":

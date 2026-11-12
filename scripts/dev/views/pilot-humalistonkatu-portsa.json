@@ -1,0 +1,22 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "The first two W2 locations, Humalistonkatu (stone-built apartment street) and Portsa (wooden houses): six views of scripts/dev/views/pilot-locations.json, with the same cameras, photos and settings, judged as a set of their own (history ~/turku3d/loops/judge/pilot-humalistonkatu-portsa.jsonl). Its first row is the frozen city's scores for these views, taken from the 24-view baseline run.",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    { "id": "humalistonkatu-01", "reference": "humalistonkatu_01" },
+    { "id": "humalistonkatu-02", "reference": "humalistonkatu_02" },
+    { "id": "humalistonkatu-03", "reference": "humalistonkatu_03" },
+    { "id": "portsa-01", "reference": "portsa_01" },
+    { "id": "portsa-02", "reference": "portsa_02" },
+    { "id": "portsa-03", "reference": "portsa_03" }
+  ]
+}

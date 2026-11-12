@@ -98,6 +98,22 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - pass both files with `--views`.
 
   The history is then `~/turku3d/loops/judge/<first file>.jsonl`.
+- **A subset of a view set** is a views file of its own, with its own history:
+  `views/pilot-humalistonkatu-portsa.json` holds six of the 24 pilot views.
+  - `run --views SUBSET.json --base URL` captures and judges only those views, from any client (the frozen city,
+    city.lab, a local build with whatever loader its URL selects).
+  - `run --views SUBSET.json --capture DIR` judges those views of an existing capture of the larger set.
+  - `record --run DIR --views SUBSET.json --label TEXT` scores the subset from a finished run of the larger set
+    without judging again (the row says `judgedWith`). The subset's baseline row was made this way.
+  - `--capture DIR` without `--views` takes the view set, and so the history, from the capture.
+- **Per group:** `report` also prints the latest iteration per group, with the change from the one before. A view's
+  group is its `group` in the views file (the area type of a random street set), else its id without the number (a
+  pilot location).
+- **A view set outside the repo** (the random street sets of [qa/README.md](../../qa/README.md#random-street-sets))
+  names its registry by absolute path in `references`, its crops by absolute path in the registry, and its history
+  with `"history": "FILE"` beside itself. `run --views /path/views.json --out /path/judge/NAME` then keeps everything
+  in that directory.
+- A history holds one view set: `record` warns when the views differ from the previous iteration.
 - A changed rubric or schema (`judge/JUDGE.md`, `judge/scores.schema.json`) is recorded by its hash. A real change,
   or a changed reference set, starts a new history file rather than mixing scales.
   - `riverside-office-2026-11-12-v1.jsonl` holds the first set. It judged the wooden house against Street View 2019-06,

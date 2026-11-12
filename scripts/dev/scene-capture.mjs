@@ -12,6 +12,7 @@
 // A view is a world camera {position, quaternion, fov} in engine metres, a surveyed pose {E, N, H, yaw, pitch, roll, fov}
 // (grid bearing and vertical fov in degrees, as qa/views/views.jsonl), or `reference: ID` from the set's `references`
 // registry: the render then matches that photo's camera, and the player stands 4 m behind it, out of view.
+// A view's optional `group` (an area type, a location) is kept for the judge's per-group means.
 // The set's `scene` is the prepared scene to load (default office); `scene: null` is the whole city of a client without
 // prepared scenes, the frozen Gen 1 city (views/pilot-locations.json).
 //
@@ -280,7 +281,7 @@ async function main() {
         quaternion: 1 - Math.abs(view.camera.quaternion.reduce((sum, x, i) => sum + x * actual.camera.quaternion[i], 0)),
         fov: Math.abs(view.camera.fov - actual.camera.fov) };
       return { id: view.id, file, requested: view.camera, actual: actual.camera, residual, internal: actual.internal, quiet: actual.quiet,
-        settleMs, captureMs: ms(t0), ...(view.pose ? { pose: view.pose, photo: view.photo ?? null, player: view.player } : {}) };
+        settleMs, captureMs: ms(t0), ...(view.group ? { group: view.group } : {}), ...(view.pose ? { pose: view.pose, photo: view.photo ?? null, player: view.player } : {}) };
     };
 
     t = performance.now();

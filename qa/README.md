@@ -64,6 +64,35 @@ sv_10.
 bash pipeline/env/run.sh python qa/views/pilot_refs.py [--only nummi,rettig]   # about 1 minute for all
 ```
 
+### Random street sets
+
+`views/random_streets.py` draws a fixed set of random on-street points in built-up Turku and makes one view per point
+exactly like a pilot view: the target is the LoD2 building nearest the point. The sets measure streets nobody tuned by
+hand.
+- **Draw:** points along the OSM street network inside the municipality, weighted by street length, from a recorded
+  seed and taken in that order.
+- **A point qualifies** when:
+  - an LoD2 building of at least 50 m2 stands within 30 m (fetched from the city's WFS per candidate);
+  - a panorama from 2024 on sees it (`pilot_refs.reference_view` with `min_date`);
+  - it is over 300 m from every pilot target and 400 m from every other point, also of the sets given with `--avoid`.
+- **Area types** come from the floor area by use of the LoD2 buildings within 150 m: `centre`, `apartments`, `houses`
+  and `work` (industry, trade, campuses). No type gets more than half of a set, and each gets at least one point.
+- **Output**, all in `--out` and none of it in Git: `draw.json`, `targets.json`, `views.jsonl`, `refs/`, `views.json`
+  (the capture view set, with each view's area type as its `group`) and `cache/`.
+- **Unusable renders:** capture the set from the frozen city, look at every render beside its photo, and replace a
+  point whose view is unusable (empty render, another building in frame, a photo of a hoarding) by running the same
+  command again with `--reject INDEX=REASON`. It continues the same candidate sequence and keeps the rejections in
+  `draw.json`.
+
+```sh
+bash pipeline/env/run.sh python qa/views/random_streets.py --set dev --count 12 --seed SEED --out DIR [--avoid OTHER/draw.json]
+node scripts/dev/scene-capture.mjs --views DIR/views.json --base https://city.madekivi.fi/ --mode render --out DIR/captures/NAME
+node scripts/dev/scene-judge.mjs run --views DIR/views.json --capture DIR/captures/NAME --out DIR/judge/NAME --label TEXT
+```
+
+The W2 campaign's open set is `~/turku3d/loops/w2/devset/` (12 points). Its hidden set of 24 is kept apart and only
+its mean scores are reported.
+
 ### The riverside-office views
 
 10 Street View crops (2019), 6 Look Around crops, 4 Mapillary perspective
