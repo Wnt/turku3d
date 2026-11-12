@@ -4,7 +4,7 @@
 import { draftsUrl } from '../../net/config';
 import { roadHash } from '../../traffic/gate';
 import { readStreamingJson } from '../../world/streamingJson';
-import type { CoarseTiles } from '../../world/coarseTiles';
+import type { PreparedWorld } from '../../world/preparedWorld';
 import type { RoadGraphJson } from '../roadGraph';
 import { Autopilot, type AutopilotWorld } from './autopilot';
 import { LaneRouter, type TileRoads } from './lanes';
@@ -16,7 +16,7 @@ export type { Obstacle } from './follow';
 export { LaneRouter } from './lanes';
 
 /** One tile's road graph: the resident entry's (what traffic holds), else its manifest's roads.json. */
-export function coarseRoads(coarse: CoarseTiles | null): (tile: string) => Promise<TileRoads | null> {
+export function coarseRoads(coarse: PreparedWorld | null): (tile: string) => Promise<TileRoads | null> {
   const cache = new Map<string, Promise<TileRoads | null>>();
   return tile => {
     const e = coarse?.entries.get(tile);
@@ -50,6 +50,6 @@ export function autopilotParam(search = globalThis.location?.search ?? ''): { x:
   return { x: +x, z: +z, ...(mode === 'walk' || mode === 'drive' ? { mode } : {}), ...(kmh && Number.isFinite(+kmh) ? { speed: +kmh / 3.6 } : {}) };
 }
 
-export function createAutopilot(world: Omit<AutopilotWorld, 'lanes'>, coarse: CoarseTiles | null): Autopilot {
+export function createAutopilot(world: Omit<AutopilotWorld, 'lanes'>, coarse: PreparedWorld | null): Autopilot {
   return new Autopilot({ ...world, lanes: new LaneRouter(coarseRoads(coarse)) });
 }

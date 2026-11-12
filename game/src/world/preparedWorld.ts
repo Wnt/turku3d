@@ -16,6 +16,7 @@ import type { TileLightsField } from '../render/lights/tileLights';
 
 export interface PreparedWorldHost extends CoarseHost {
   prepareAsset?: (root: THREE.Object3D, recipe: 'building' | 'vegetation' | 'context') => void | Promise<void>;
+  releaseAsset?: (root: THREE.Object3D, recipe: 'building' | 'vegetation' | 'context') => void;
 }
 
 /** Prepared context is part of this release, already resident with its pilot. No scenery service or second world is consulted. */
@@ -157,6 +158,7 @@ export class PreparedWorld {
       for (const cell of e.collision.keys()) { delete this.host.manifest.collision[cell]; this.ground.remove(cell); this.host.unloadCollision(cell); }
     }
     this.entries.clear();
+    for (const asset of this.assets) this.host.releaseAsset?.(asset.root, asset.recipe);
     this.host.unstyle?.(this.model);
     const release = () => {
       const textures = new Set<THREE.Texture>();

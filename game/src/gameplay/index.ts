@@ -1,7 +1,7 @@
 // Gameplay entry for main.ts: the street router and the delivery address pool handed to the mission system, and
 // the minimap.
 import { sameOriginServices } from '../core/localOnly';
-import type { CoarseTiles } from '../world/coarseTiles';
+import type { PreparedWorld } from '../world/preparedWorld';
 import type { Manifest } from '../world/manifest';
 import { draftsUrl } from '../net/config';
 import { parseAddressPool, type AddressJson, loadAddressPool } from './content/addresses';
@@ -36,13 +36,13 @@ class StreetMap {
   }
 
   /** Keep resident tile fragments connected across streamed replacements. */
-  connectDrafts(coarse: CoarseTiles | null) {
+  connectDrafts(coarse: PreparedWorld | null) {
     if (!coarse) return;
     coarse.onMapChange = () => void this.update(coarse.roadGraphs());
     if (coarse.roadGraphs().length) coarse.onMapChange();
   }
 
-  /** Re-merges with these draft graphs (CoarseTiles.roadGraphs). */
+  /** Re-merges with these draft graphs (PreparedWorld.roadGraphs). */
   update(drafts: readonly RoadGraphJson[]): Promise<void> {
     // A city graph is complete before tiles load; resident clipped fragments must never replace its topology.
     if (this.cityWide) return Promise.resolve();

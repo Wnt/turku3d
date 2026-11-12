@@ -10,7 +10,7 @@ import type { VisualTiles } from '../../world/tiles';
 import type { VegetationLod } from '../../world/vegetationLod';
 import type { StreetLights } from '../../render/lights';
 import type { TrafficSignals } from '../../traffic/signals';
-import type { CoarseTiles } from '../../world/coarseTiles';
+import type { PreparedWorld } from '../../world/preparedWorld';
 import type { RayHit as PhysicsHit, RayFilter } from '../../physics/protocol';
 import { EditableCatalog, type Editable, type V3 } from './catalog';
 import { CandidateCycle, pickCandidates } from './pick';
@@ -37,7 +37,7 @@ export interface EditorHosts {
   /** Drawn traffic-signal heads (TrafficClient.signals). */
   signals?: () => TrafficSignals | null;
   physics: { raycast(origin: V3, dir: V3, far: number, filter?: RayFilter): Promise<PhysicsHit | null> };
-  coarse: CoarseTiles | null;
+  coarse: PreparedWorld | null;
   /** Ambient facts for session.json (backend, viewport…). */
   device?: () => Record<string, unknown>;
   /** The multiplayer player while in a multiplayer session (session.json `player`, the summary header). */

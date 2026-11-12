@@ -175,7 +175,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const voice = new VoicePlayer(audio.voiceOutput());
   const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
-  const saves = new SaveStore(browserStorage(), missionSummary);
+  const saves = new SaveStore(browserStorage(), missionSummary, `turku3d.prepared.${coarse?.data.id ?? 'scene'}.saves`);
   const multiplayerProgress = new MultiplayerProgress(sessionStore());
   for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
@@ -453,10 +453,9 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     },
     enterVehicle: id => { enterVehicle(id); snapChase = true; },
     spawn, car: world.car, startAt: world.startAt, cityStart: world.cityStart,
-    // The start's street may be in the next tile (Turku's office stands 4 m from a tile edge): every tile in reach
-    // is drawn in full, with its street graph, and the collision there is loaded.
+    // A prepared release owns its bounds; readiness needs the actual start support and its published collision cells.
     startStreamed: (x, z) => streamer.missingNear(x, z, START_STREAM_M).length === 0 && (!coarse
-      || [-START_STREAM_M, 0, START_STREAM_M].every(dx => [-START_STREAM_M, 0, START_STREAM_M].every(dz => coarse.streetsAt(x + dx, z + dz)))),
+      || coarse.streetsAt(x, z)),
     view: () => ({ mode, drivenId, feet, cameraYaw: orbit.yaw }), leaveCar: () => leaveCar(null),
     placed: (at, yaw) => { feet.set(at.x, at.y, at.z); desiredVelocity.set(0, 0); orbit.yaw = yaw; },
     face: (at, yaw) => openView(at, yaw, (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi),

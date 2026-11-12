@@ -7,7 +7,7 @@ import type { LoadingScreen } from './ui/loadingScreen';
 import type { PhysicsClient } from './physics/client';
 import type { TrafficClock } from './physics/protocol';
 import type { Manifest } from './world/manifest';
-import type { CoarseTiles } from './world/coarseTiles';
+import type { PreparedWorld } from './world/preparedWorld';
 import type { VisualTiles } from './world/tiles';
 import type { Telemetry } from './telemetry';
 import type { Environment } from './render/environment';
@@ -37,7 +37,7 @@ export interface PlayWorld {
   rapier: string;
   manifest: Manifest;
   streamer: CollisionStreamer;
-  coarse: CoarseTiles | null;
+  coarse: PreparedWorld | null;
   telemetry: Telemetry | null;
   /** Rendered frames and simulated seconds (tests/e2e/waits.ts). */
   clock: { frames: number; simSeconds: number };

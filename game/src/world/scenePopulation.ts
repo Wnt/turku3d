@@ -14,7 +14,7 @@ import { inView, mayCreate, mustRemove } from '../traffic/ring';
 import { TrafficSignals } from '../traffic/signals';
 import { tileBounds } from '../render/lights/tileLights';
 import type { QualityTier } from '../render/quality';
-import type { CoarseTiles } from './coarseTiles';
+import type { PreparedWorld } from './preparedWorld';
 import type { Manifest } from './manifest';
 import { Walkers, walkerCap } from './walkers';
 import { populationFocus } from './populationFocus';
@@ -30,7 +30,7 @@ export class ScenePopulation {
   private flow = new TrafficFlow(this.network);
   private signals: TrafficSignals;
   private graphKey = '';
-  private graphs: ReturnType<CoarseTiles['roadGraphs']> = [];
+  private graphs: ReturnType<PreparedWorld['roadGraphs']> = [];
   private seconds = 0;
   private pedestriansAt = -Infinity;
   private origin = 120;
@@ -46,7 +46,7 @@ export class ScenePopulation {
 
   /** `ground` indexes the collision cells this mode decodes (there is no physics worker): wheels, lane fallbacks and
    *  walkers sample it with a grid lookup, never the visual meshes. */
-  constructor(scene: THREE.Scene, private source: CoarseTiles, private camera: THREE.PerspectiveCamera,
+  constructor(scene: THREE.Scene, private source: PreparedWorld, private camera: THREE.PerspectiveCamera,
     private manifest: Manifest, private ground: GroundIndex, private options: { quality: QualityTier; traffic: number | null; walkers: number | null;
       density: number; hour: () => number; night: () => number; prepare?: (model: THREE.Object3D) => Promise<void> }) {
     this.root.name = 'scene-population'; scene.add(this.root);

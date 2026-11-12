@@ -12,7 +12,6 @@ import { WeatherClock, type WeatherName } from './render/weather/schedule';
 import { Rain } from './render/weather/rain';
 import { Birds } from './render/birds';
 import { weatherUniforms } from './render/weather/surfaces';
-import { collisionPreview } from './world/collisionPreview';
 // Turku3D game skeleton entry. Modes:
 //   play (default): third-person player + car, physics worker, collision streaming, debug HUD
 //   QA (?cam=E,N,H,yaw,pitch,fov[&roll=R]&time=ISO[&pass=id]): the qa/README.md §2 render contract; exact camera
@@ -43,13 +42,11 @@ import { setReflectionTier } from './render/water';
 import { browserStorage } from './core/storage';
 import { gpuProbe } from './render/gpuProbe';
 import { SettingGovernor } from './render/settingGovernor';
-import { addTreePlacements } from './world/treePlacements';
 import { VegetationLod } from './world/vegetationLod';
 import { loadNatureLibrary } from './world/nature/library';
 import { guardFrame } from './render/frameGuard';
 import { PropLod } from './world/propLod';
 import { MaterialStyler } from './render/materials';
-import { modelTextures, textureUploads } from './render/textureUploads';
 import { GraphicsPreparation, type PreparationOrder, type PreparationPriority } from './render/graphicsPreparation';
 import { precompileDissolve } from './render/lodFade';
 import { blockLodRoots } from './world/buildingPlacements';
@@ -63,7 +60,8 @@ import { CITIES, CITY, cityPageUrl, isHome, setCity, type CityName } from './cor
 import { cityTitle, showTransition, travelProgress } from './gameplay/travel';
 import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
-import { CoarseTiles, type CoarseHost } from './world/coarseTiles';
+import { PreparedWorld } from './world/preparedWorld';
+import type { CoarseHost } from './world/coarseContracts';
 import { memoryCensus } from './world/memoryCensus';
 import { readCol, readColSync } from './physics/colTile';
 import { PhysicsClient } from './physics/client';
@@ -101,7 +99,7 @@ declare global {
     __qaProject?: (E: number, N: number, H: number) => [number, number] | null;
     __qaMove?: (pose: { E: number; N: number; H: number; yaw: number; pitch: number; fov: number }) => void;
     __game?: Record<string, unknown>;
-    __perf?: PerfSnapshot & { stream: ReturnType<CoarseTiles['streamSnapshot']> | null;
+    __perf?: PerfSnapshot & { stream: ReturnType<PreparedWorld['streamSnapshot']> | null;
       builds: ReturnType<NonNullable<GameRenderer['asyncBuilds']>['stats']> | null; allowance: ReturnType<typeof streamingAllowance.stats> };
     __bench?: Record<string, unknown>;
     __dev?: { setPose: NonNullable<Window['__qaMove']>; setHour: (hour: number) => void;
@@ -395,12 +393,6 @@ const prepareGraphics = (model: THREE.Object3D, signal?: AbortSignal, priority: 
 };
 /** Car batches and keepers (actors/fleet/visuals.ts) take the actor lane ahead of queued tile preparations. */
 const prepareActorGraphics = (model: THREE.Object3D) => prepareGraphics(model, undefined, 'actor');
-// Distant scenery is excluded from river-reflection layers; warm only its actual main-view passes.
-const prepareSceneryGraphics = (model: THREE.Object3D, signal?: AbortSignal) => queueGraphics(model, async () => {
-  await Promise.all([...modelTextures(model)].map(map => textureUploads(renderer).enqueue(map)));
-  const tiers = model.userData.dissolveTiers as number[] | undefined;
-  if (tiers && post) await precompileDissolve([model], tiers, root => post!.prepare(root));
-}, signal, 'scenery');
 // ?resolutionTarget=40: desktop AdaptiveResolution aims at the 40 FPS goal instead of 60, so it lowers resolution only
 // when frames miss the goal (at 60 every desktop sits at the 0.5 floor). A/B, owner winperf: decided by M1 Max and
 // Radeon 560X ?view=live replays; the losing path goes within ten merges.
@@ -455,7 +447,7 @@ paceYields(() => !params.qa || benchSettled(), () => !params.qa && worldLoad.sna
 // Streaming budgets take long windows while the world loads behind the loading screen (render/preparationBudget.ts
 // LOADING_MS); QA, bench and lab runs keep the play-time windows they measure.
 streamingAllowance.loading = () => !params.qa && !params.lab && worldLoad.phase !== 'ready';
-let distantCity: CoarseTiles['screenshotScenery'] | null = null;
+let distantCity: PreparedWorld['screenshotScenery'] | null = null;
 let lastWeatherIBL = -Infinity, lastWeatherCover = -1, lastWeatherOvercast = -1;
 function refreshWeatherIBL(sample: { cloudCover: number; overcast: number }) {
   if (idPass) return;
@@ -588,16 +580,10 @@ function applyQaCamera() {
   camera.updateMatrixWorld();
 }
 
-/** `?gpuBudget=GiB` as bytes; undefined (the tier's budget) when absent or not a number. */
-function gpuBudgetParam(value: string | null) {
-  const gib = value === null || value.trim() === '' ? NaN : Number(value);
-  return Number.isFinite(gib) && gib >= 0 ? gib * 2 ** 30 : undefined;
-}
-
 /** What `__render.memory()` reads once the world exists. */
-const censusSources: { coarse: CoarseTiles | null; collision: CollisionStreamer | null; ground: GroundIndex | null } = { coarse: null, collision: null, ground: null };
+const censusSources: { coarse: PreparedWorld | null; collision: CollisionStreamer | null; ground: GroundIndex | null } = { coarse: null, collision: null, ground: null };
 
-async function draftWorld() {
+async function preparedWorld() {
   const physics = new PhysicsClient();
   physics.onError = e => fail(`physics: ${e}`);
   const rapier = await physics.ready;
@@ -606,7 +592,7 @@ async function draftWorld() {
 }
 
 /** A city's own world: its manifest, collision streamer and tile streamer. */
-interface CityWorld { name: CityName; manifest: Manifest; streamer: CollisionStreamer; coarse: CoarseTiles;
+interface CityWorld { name: CityName; manifest: Manifest; streamer: CollisionStreamer; coarse: PreparedWorld;
   /** Aborted when the city is released: its queued graphics preparations (tiles, scenery cells, trees) are dropped
    *  instead of holding the shared preparation queue, and the released city, until they reach the front. */
   life: AbortController }
@@ -616,11 +602,15 @@ async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
   const manifest = draftManifest(location.href);
   const life = new AbortController();
   const holder = { streamer: new CollisionStreamer(manifest, physics, params.collisionRadius) };
-  const coarse = await draftVisuals(manifest, {
+  const coarse = await preparedVisuals(manifest, {
     unloadCollision: id => physics.unloadTile(id), refreshCollision: ids => holder.streamer.refresh(ids),
     checkCollision: buffer => physics.checkTile(buffer),
     retainCollision: (id, entry, buffer) => holder.streamer.retain(id, entry, buffer),
   }, life.signal);
+  if (!params.spawnGiven && manifest.spawn) {
+    const [x, , z] = manifest.spawn.position;
+    params.spawn = { E: manifest.origin_en[0] + x, N: manifest.origin_en[1] - z, headingDeg: manifest.spawn.headingDeg };
+  }
   censusSources.coarse = coarse; censusSources.collision = holder.streamer;
   holder.streamer.expected = cid => coarse.collisionComing(cid);
   window.__tiles = { loaded: () => coarse.loadedTiles() };
@@ -629,7 +619,7 @@ async function cityWorld(physics: PhysicsClient): Promise<CityWorld> {
 
 /** Supported ground for the player and the own car at `requested`, viewed along `startYaw` (world/startGround.ts), from
  *  the collision and street graphs loaded there now; null while no start is found in them. */
-function findStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest,
+function findStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: PreparedWorld, manifest: Manifest,
   requested: { x: number; z: number }, startYaw: number) {
   const models = [...coarse.entries.values()].flatMap(e => e.model ? [e.model] : []);
   return findInitialGround(requested, coarse.roadGraphs(),
@@ -643,20 +633,32 @@ function findStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: 
       ray: (origin, dir, maxToi) => physics.raycast(origin, dir, maxToi) });
 }
 
+/** The compiler's player/car pair is checked against the same colliders gameplay will use. */
+async function authoredStart(physics: PhysicsClient, authored: NonNullable<Manifest['spawn']>) {
+  const ground = await Promise.all([authored.position, authored.vehicle.position].map(async ([x, y, z]) => {
+    const hit = await physics.raycast({ x, y: y + 1, z }, { x: 0, y: -1, z: 0 }, 2);
+    if (!hit || Math.abs(hit.point.y - y) > .35) throw new Error('Prepared spawn disagrees with its collision support');
+    return { x, y: hit.point.y, z };
+  }));
+  return { spawn: { ...ground[0], yaw: headingToYaw(authored.headingDeg) },
+    car: { ...ground[1], yaw: authored.vehicle.yaw }, at: { x: authored.position[0], z: authored.position[2] } };
+}
+
 /** How long (ms) a session waits for the city's own start to stream in and be found from a `?spawn=` page. */
 const CITY_START_MS = 90_000;
 
 /** The city's own start (CITY.spawn) for a session whose page started elsewhere (`?spawn=`: a portal exit, a tool's
  *  URL): respawn at the start, a round start, reset progress and a new game go there, never to the `?spawn=` pose.
  *  `stream` streams the surroundings of a point in (SaveGameController, the world paused). */
-async function cityStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest,
+async function cityStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: PreparedWorld, manifest: Manifest,
   stream: (x: number, z: number) => Promise<void>) {
-  const requested = enToEngine(CITY.spawn.E, CITY.spawn.N, 0), startYaw = headingToYaw(CITY.spawn.headingDeg);
+  const authored = manifest.spawn!;
+  const requested = { x: authored.position[0], z: authored.position[2] };
   const t0 = performance.now();
   for (;;) {
     await stream(requested.x, requested.z);
-    const placed = streamer.supports(requested.x, requested.z) ? await findStart(physics, streamer, coarse, manifest, requested, startYaw) : null;
-    if (placed) return { ...placed, at: { x: requested.x, z: requested.z } };
+    if (streamer.supports(requested.x, requested.z) && streamer.supports(authored.vehicle.position[0], authored.vehicle.position[2], 2))
+      return authoredStart(physics, authored);
     if (performance.now() - t0 > CITY_START_MS) throw new Error(`No supported street start at the city's start: ${coarse.status}`);
     await new Promise(r => setTimeout(r, 100));
   }
@@ -664,10 +666,11 @@ async function cityStart(physics: PhysicsClient, streamer: CollisionStreamer, co
 
 /** Streams the page's start (params.spawn) and finds supported ground for the player and the own car there
  *  (world/startGround.ts); the collision radius stays at the startup radius until the session releases its starts. */
-async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: CoarseTiles, manifest: Manifest) {
+async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, coarse: PreparedWorld, manifest: Manifest) {
   // spawn: wait for the collision tile under the spawn point, then drop onto the ground
   const requested = enToEngine(params.spawn.E, params.spawn.N, 0);
-  // Limit demand before the first update: otherwise the full 3x3 window is already in flight.
+  if (!coarse.contains(requested.x, requested.z)) throw new Error('Requested spawn is outside the prepared scene');
+  // Install the bounded scene cells around the compiled start before enabling actors.
   streamer.radius = Math.min(params.collisionRadius, STARTUP_COLLISION_RADIUS);
   // The start's view wedge loads full detail with its ground: the player never starts looking at scenery cells.
   const startYaw = headingToYaw(params.spawn.headingDeg);
@@ -683,34 +686,29 @@ async function placeStart(physics: PhysicsClient, streamer: CollisionStreamer, c
     loadingScreen.update(false, coarse.status);
     if (streamer.supports(requested.x, requested.z)) {
       physics.step(1 / 60, { vx: 0, vz: 0, jump: false }, null);
-      placed = await findStart(physics, streamer, coarse, manifest, requested, startYaw);
+      if (!params.spawnGiven && manifest.spawn) {
+        const authored = manifest.spawn, [cx, , cz] = authored.vehicle.position;
+        if (streamer.supports(cx, cz, 2)) {
+          return authoredStart(physics, authored);
+        }
+      } else placed = await findStart(physics, streamer, coarse, manifest, requested, startYaw);
     }
     if (!placed) await new Promise(r => setTimeout(r, 100));
   }
   return { ...placed, at: { x: requested.x, z: requested.z } };
 }
 
-async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
+async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick<CoarseHost,
   'unloadCollision' | 'refreshCollision' | 'checkCollision' | 'retainCollision'>, signal?: AbortSignal) {
-  const coarse = await CoarseTiles.start({ scene, renderer, manifest,
-    detailRadius: params.mobile ? 80 : undefined,
-    // Read per use: the pause menu can switch the preset in a running session.
-    get vegetationDistance() { return QUALITY[params.quality].vegetation.mid; },
-    prepareVegetation: async (m, data, order) => { addTreePlacements(m,data); await vegetation?.addAsync(m); await prepareGraphics(m, signal, 'tile', order); },
-    previewCollision: collisionPreview, preparePreview: (m, order) => prepareGraphics(m, signal, 'tile', order),
-    // A/B (stream2, until the Air and M1 Max memory runs compare): ?keepArrays keeps CPU copies of uploaded geometry.
-    keepArrays: !!idPass || new URLSearchParams(location.search).has('keepArrays'),
-    // Measurement (stream2, Air vs 560X budgets): ?gpuBudget=GiB replaces the tier's GPU residency budget, 0 for none.
-    gpuBudget: gpuBudgetParam(new URLSearchParams(location.search).get('gpuBudget')),
-    // ?memBudget=GiB: the Apple reduced tier's heap + GPU total (default 2.5).
-    memoryBudget: gpuBudgetParam(new URLSearchParams(location.search).get('memBudget')),
-    ...collision,
-    trackModel: (m, id) => tiles.trackModel(m, id), untrackModel: (m, id) => tiles.untrackModel(m, id),
+  const coarse = await PreparedWorld.start({ scene, renderer, manifest, ...collision,
+    style: m => materials?.applyAsync(m),
+    prepareAsset: async (m, recipe) => { if (recipe === 'vegetation') await vegetation?.addAsync(m); },
+    releaseAsset: (m, recipe) => { if (recipe === 'vegetation') vegetation?.remove(m); },
+    unstyle: m => materials?.release(m),
+    trackModel: (m, id) => { tiles.trackModel(m, id); rain?.exposure.add(m); },
+    untrackModel: (m, id) => { rain?.exposure.remove(m); tiles.untrackModel(m, id); },
     retire: release => graphics.retire(release),
-    prepareGraphics: m => prepareSceneryGraphics(m, signal),
-    style: async m => { await materials?.applyAsync(m); rain?.exposure.add(m); }, unstyle: m => { rain?.exposure.remove(m); vegetation?.remove(m); furniture?.remove(m); tiles.releasePreparedModel(m); materials?.release(m); },
-    styled: async (m, order) => { await tiles.prepareModelAsync(m); await vegetation?.addAsync(m); furniture?.add(m); await prepareGraphics(m, signal, 'tile', order); } });
-  if (!coarse) throw new Error('World generation service is unavailable');
+    prepareGraphics: async m => { await tiles.prepareModelAsync(m); await prepareGraphics(m, signal); } });
   adoptCoarse(coarse);
   if (!idPass) {
     distantCity!.setRadius(params.lab?.off.has('scenery') ? 0 : WORLD_TIERS[params.quality].scenery);
@@ -722,7 +720,7 @@ async function draftVisuals(manifest: CoarseHost['manifest'], collision: Pick<Co
 }
 
 /** The world-level consumers of the active city's tile streamer (ground queries, street lights, distant scenery). */
-function adoptCoarse(coarse: CoarseTiles) {
+function adoptCoarse(coarse: PreparedWorld) {
   groundBelow = (x, z) => coarse.groundBelow(x, z);
   lights?.attach(coarse);
   if (!idPass) { distantCity = coarse.screenshotScenery; window.__game!.scenery = distantCity; }
@@ -736,7 +734,7 @@ async function runQa() {
   const qaManifest = draftManifest(location.href);
   // The decoded collision cells also give ambient cars and walkers their ground (world/groundIndex.ts).
   const ground = new GroundIndex();
-  const coarse = await draftVisuals(qaManifest, {
+  const coarse = await preparedVisuals(qaManifest, {
     unloadCollision: id => ground.remove(id), refreshCollision: () => {},
     checkCollision: async buffer => {
       const col = await readCol(buffer);
@@ -924,7 +922,7 @@ async function runLab() {
   // installs its tiles through the streamer's own preview and detail paths (qa/lab/lab.ts).
   const labManifest = draftManifest(location.href);
   const ground = new GroundIndex();
-  const coarse = await draftVisuals(labManifest, {
+  const coarse = await preparedVisuals(labManifest, {
     unloadCollision: id => ground.remove(id), refreshCollision: () => {},
     checkCollision: async buffer => {
       const col = await readCol(buffer);
@@ -1009,7 +1007,7 @@ async function runPlay() {
   }
   // The session's fleet assets fetch and bake while the start streams, not after it is placed (fleet/visuals.ts).
   void prefetchFleet((params.traffic ?? TRAFFIC_CAPS[params.quality]) > 0);
-  const { physics, rapier, manifest, streamer, coarse, city: booted } = await draftWorld();
+  const { physics, rapier, manifest, streamer, coarse, city: booted } = await preparedWorld();
   let current: CityWorld = booted;
   // Keep startup's live worker/streaming diagnostics available before the play session is ready.
   Object.assign(window.__game!, { physics, coarse, streamer });

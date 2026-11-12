@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { devToolsEnabled } from '../core/localOnly';
 import type { Input } from '../input';
-import type { CoarseTiles } from '../world/coarseTiles';
+import type { PreparedWorld } from '../world/preparedWorld';
 import { DevLayerRanges } from './devLayerRanges';
 import { retireAfterFrame } from '../render/retirement';
 
@@ -82,7 +82,7 @@ export class DevLayers {
     this.sceneDirty = true;
   };
 
-  constructor(private scene: THREE.Scene, private coarse: CoarseTiles | null, private renderer?: THREE.WebGPURenderer,
+  constructor(private scene: THREE.Scene, private coarse: PreparedWorld | null, private renderer?: THREE.WebGPURenderer,
     private setViewDistance?: (radius: number) => void, private camera?: THREE.PerspectiveCamera) {
     if (!this.enabled) return;
     this.observe(scene);
