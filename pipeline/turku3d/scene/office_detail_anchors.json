@@ -1,0 +1,142 @@
+{
+  "buildingId": "103295893K",
+  "coordinateSystem": "engine metres, E-23459500 / height / 6704500-N",
+  "positionSource": "authored office facade-kit-v6 GLB UV and program grid; not surveyed openings",
+  "appearanceSource": "Petrelius restored oblique + opposite-river view; jalkipeli.net/petreliuksen-talo-on-taynna-hienoja-yksityiskohtia/",
+  "confidence": "placement exact relative to existing authored grid; ornament dimensions inferred +/-0.1m; no reference pixels",
+  "excludedWall": "42 southwest grey four-bay wing: lacks this rich crown pattern",
+  "anchors": [
+    {
+      "id": "office-window-34-0",
+      "position": [
+        182.03217,
+        8.37532,
+        245.854329
+      ],
+      "yaw": 0.50515053,
+      "openingWidth": 1.17525,
+      "pediment": false,
+      "wallId": 34,
+      "bay": 0
+    },
+    {
+      "id": "office-window-34-1",
+      "position": [
+        179.9225,
+        8.37532,
+        247.020996
+      ],
+      "yaw": 0.50515053,
+      "openingWidth": 1.17525,
+      "pediment": false,
+      "wallId": 34,
+      "bay": 1
+    },
+    {
+      "id": "office-window-34-2",
+      "position": [
+        177.812831,
+        8.37532,
+        248.187663
+      ],
+      "yaw": 0.50515053,
+      "openingWidth": 1.17525,
+      "pediment": false,
+      "wallId": 34,
+      "bay": 2
+    },
+    {
+      "id": "office-window-36-0",
+      "position": [
+        175.591255,
+        8.37532,
+        249.523254
+      ],
+      "yaw": 0.50833056,
+      "openingWidth": 1.344652,
+      "pediment": true,
+      "wallId": 36,
+      "bay": 0
+    },
+    {
+      "id": "office-window-36-1",
+      "position": [
+        173.181755,
+        8.37532,
+        250.865753
+      ],
+      "yaw": 0.50833056,
+      "openingWidth": 1.344652,
+      "pediment": true,
+      "wallId": 36,
+      "bay": 1
+    },
+    {
+      "id": "office-window-36-2",
+      "position": [
+        170.772255,
+        8.37532,
+        252.208252
+      ],
+      "yaw": 0.50833056,
+      "openingWidth": 1.344652,
+      "pediment": true,
+      "wallId": 36,
+      "bay": 2
+    },
+    {
+      "id": "office-window-36-3",
+      "position": [
+        168.362755,
+        8.37532,
+        253.550751
+      ],
+      "yaw": 0.50833056,
+      "openingWidth": 1.344652,
+      "pediment": true,
+      "wallId": 36,
+      "bay": 3
+    },
+    {
+      "id": "office-window-38-0",
+      "position": [
+        166.077832,
+        8.37532,
+        254.754333
+      ],
+      "yaw": 0.49932537,
+      "openingWidth": 1.167423,
+      "pediment": false,
+      "wallId": 38,
+      "bay": 0
+    },
+    {
+      "id": "office-window-38-1",
+      "position": [
+        163.975502,
+        8.37532,
+        255.901001
+      ],
+      "yaw": 0.49932537,
+      "openingWidth": 1.167423,
+      "pediment": false,
+      "wallId": 38,
+      "bay": 1
+    },
+    {
+      "id": "office-window-38-2",
+      "position": [
+        161.873171,
+        8.37532,
+        257.047669
+      ],
+      "yaw": 0.49932537,
+      "openingWidth": 1.167423,
+      "pediment": false,
+      "wallId": 38,
+      "bay": 2
+    }
+  ],
+  "authoredGlbSha256": "fa908a02de1d0b7265c9b470ab56c9c6584a05534bb08225a7aee2cdaadcd7d2",
+  "uvFitMaxResidualM": 1.14e-14
+}
