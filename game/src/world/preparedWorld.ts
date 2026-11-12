@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { readPreparedScene, buildPreparedModel, type PreparedScene } from './preparedScene';
+import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, type PreparedScene } from './preparedScene';
 import type { CoarseHost, Entry } from './coarseContracts';
 import { StreamStats } from './streamStats';
 import type { RoadGraphJson } from '../gameplay/roadGraph';
@@ -48,7 +48,8 @@ export class PreparedWorld {
       await host.checkCollision(buffer.slice(0));
       return { id, entry: { ...entry, url: new URL(entry.url, url).href }, buffer };
     }));
-    const model = buildPreparedModel(data), world = new PreparedWorld(host, data, url, model);
+    const textures = await loadPreparedTextures(data, url, fetcher);
+    const model = buildPreparedModel(data, textures), world = new PreparedWorld(host, data, url, model);
     try {
       await host.prepareGraphics?.(model);
       const id = `t0_${Math.floor(data.spawn.position[0] / 250)}_${Math.floor(data.spawn.position[2] / 250)}`;
@@ -104,11 +105,18 @@ export class PreparedWorld {
       for (const cell of e.collision.keys()) { delete this.host.manifest.collision[cell]; this.host.unloadCollision(cell); }
     }
     this.entries.clear();
-    const release = () => this.model.traverse(o => {
+    const release = () => {
+      const textures = new Set<THREE.Texture>();
+      this.model.traverse(o => {
       if (!(o instanceof THREE.Mesh)) return;
       o.geometry.dispose();
-      for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
-    });
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        for (const value of Object.values(m)) if (value instanceof THREE.Texture) textures.add(value);
+        m.dispose();
+      }
+      });
+      disposePreparedTextures(textures);
+    };
     if (this.host.retire) this.host.retire(release); else release();
   }
 }

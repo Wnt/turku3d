@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { buildPreparedModel, readPreparedScene, type PreparedScene } from '../../src/world/preparedScene';
+import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey, type PreparedScene } from '../../src/world/preparedScene';
 
 function scene(): PreparedScene {
   return { schema: 'turku-scene/1', release: 'release-1', id: 'office', origin: [23459500, 6704500, 0], bounds: [0, 0, 10, 10],
@@ -41,4 +42,27 @@ describe('prepared scene contract', () => {
     expect(mesh.userData.preparedEntities.map((p: { entityId: string }) => p.entityId)).toEqual(['street', 'street2']);
     expect(mesh.castShadow && mesh.receiveShadow).toBe(true);
   });
+});
+
+it('loads shared hashed texture channels with correct color space and compiled UV orientation', async () => {
+  const s = scene(), bytes = new Uint8Array([1, 2, 3]);
+  const descriptor = { url: 'paving.png', sha256: createHash('sha256').update(bytes).digest('hex'), wrap: 'repeat' as const };
+  s.materials[0].baseColorTexture = descriptor; s.materials[0].normalTexture = descriptor; s.materials[0].ormTexture = descriptor;
+  const fetcher = vi.fn(async () => new Response(bytes)), close = vi.fn();
+  const decode = vi.fn(async () => ({ width: 2, height: 2, close }) as ImageBitmap);
+  const textures = await loadPreparedTextures(s, 'https://city.test/scenes/office.json', fetcher as typeof fetch, decode);
+  expect(fetcher).toHaveBeenCalledTimes(2); // One sRGB resource and one shared linear normal/ORM resource.
+  expect(textures.get(textureKey(descriptor, true))!.colorSpace).toBe('srgb');
+  expect(textures.get(textureKey(descriptor, false))!.colorSpace).toBe('');
+  expect([...textures.values()].every(t => !t.flipY)).toBe(true);
+  const material = (buildPreparedModel(s, textures).children[0] as import('three/webgpu').Mesh).material as import('three/webgpu').MeshStandardMaterial;
+  expect(material.map).not.toBe(material.normalMap);
+  expect(material.normalMap).toBe(material.roughnessMap); expect(material.aoMap).toBe(material.metalnessMap);
+});
+
+it('rejects corrupt texture bytes before image decode', async () => {
+  const s = scene(); s.materials[0].baseColorTexture = { url: 'corrupt.png', sha256: 'a'.repeat(64), wrap: 'clamp' };
+  const decode = vi.fn();
+  await expect(loadPreparedTextures(s, 'https://city.test/scene.json', (async () => new Response(new Uint8Array([1]))) as typeof fetch, decode)).rejects.toThrow('hash mismatch');
+  expect(decode).not.toHaveBeenCalled();
 });

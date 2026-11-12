@@ -10,6 +10,11 @@ it('installs the shipped prepared release with matching collider identities and 
   const scene = readPreparedScene(JSON.parse(readFileSync(path, 'utf8')));
   const model = buildPreparedModel(scene);
   expect(model.children.length).toBeLessThanOrEqual(scene.materials.length);
+  for (const material of scene.materials) for (const texture of [material.baseColorTexture, material.normalTexture, material.ormTexture]) {
+    if (!texture) continue;
+    const bytes = readFileSync(resolve(dirname(path), texture.url));
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(texture.sha256);
+  }
   let triangles = 0;
   for (const [id, entry] of Object.entries(scene.collision)) {
     const bytes = readFileSync(resolve(dirname(path), entry.url));
