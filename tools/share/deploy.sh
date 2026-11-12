@@ -101,6 +101,8 @@ ssh "$SSH_HOST" "mkdir -p ~/$C/stage ~/$C/releases ~/$C/mp-scores ~/$C/work ~/$C
   [ -f ~/$C/cities.json ] || echo '{}' > ~/$C/cities.json"
 git -C "$REPO" archive --add-file="$META/version.json" --add-file="$META/tiles.json" "$SHA" \
   game tools/dev tools/share scripts/dev/shared-tile-proxy.mjs server pipeline/turku3d/night_lighting.json | ssh "$SSH_HOST" "tar -x -C ~/$STAGE"
+# The first external mount must retain previous release-local objects, including ones the new scene no longer uses.
+ssh "$SSH_HOST" "python3 ~/$STAGE/tools/share/scene_assets.py --retain-releases ~/$C/releases --store ~/$C/scene-assets/shared"
 # Content addresses are immutable and old releases retain their dependencies. rsync writes new files atomically;
 # existing names are not overwritten. Verify the complete required closure remotely before switching current.
 rsync -a --ignore-existing --files-from="$META/scene-assets/files.txt" "$META/scene-assets/shared/" "$SSH_HOST:$C/scene-assets/shared/"

@@ -24,6 +24,20 @@ def fixture(store):
 
 
 class SceneAssetTests(unittest.TestCase):
+    def test_mount_migration_keeps_old_content_addresses_without_replacing_existing_objects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            previous = root/'releases/old/dist/scenes/shared'
+            previous.mkdir(parents=True)
+            _, image = fixture(previous)
+            store = root/'persistent'
+            self.assertEqual(assets.retain_releases(root/'releases', store), 2)
+            self.assertEqual(assets.retain_releases(root/'releases', store), 0)
+            self.assertEqual((store/image).read_bytes(), b'fixture image')
+            (store/image).write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'Corrupt persistent'):
+                assets.retain_releases(root/'releases', store)
+
     def test_glb_closure_and_content_addresses(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp)

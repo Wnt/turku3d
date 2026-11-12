@@ -13,6 +13,8 @@ import re
 import shutil
 import struct
 import subprocess
+import os
+import tempfile
 from urllib.parse import urlsplit
 
 NAME = re.compile(r'([a-f0-9]{64})\.[a-z0-9]+')
@@ -90,10 +92,46 @@ def package(repo, revision, store, output):
     return inventory
 
 
+def retain_releases(releases, store):
+    """First-mount migration: old pages may still fetch a previous release's scene objects."""
+    store = Path(store)
+    store.mkdir(parents=True, exist_ok=True)
+    retained = 0
+    for source in Path(releases).glob('*/dist/scenes/shared/*'):
+        if not source.is_file() or not (match := NAME.fullmatch(source.name)):
+            continue
+        target = store/source.name
+        if target.exists():
+            if hashlib.sha256(target.read_bytes()).hexdigest() != match[1]:
+                raise ValueError(f'Corrupt persistent asset: {target}')
+            continue
+        data = source.read_bytes()
+        if hashlib.sha256(data).hexdigest() != match[1]:
+            raise ValueError(f'Corrupt retained release asset: {source}')
+        with tempfile.NamedTemporaryFile(dir=store, prefix='.retain-', delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(data)
+        try:
+            try:
+                os.link(temporary, target)  # Atomic publication, never replace an existing content address.
+                retained += 1
+            except FileExistsError:
+                if hashlib.sha256(target.read_bytes()).hexdigest() != match[1]:
+                    raise ValueError(f'Corrupt concurrent asset: {target}')
+        finally:
+            temporary.unlink()
+    return retained
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    for key in ('repo', 'revision', 'store', 'output'):
-        parser.add_argument('--'+key, required=True)
+    for key in ('repo', 'revision', 'store', 'output', 'retain-releases'):
+        parser.add_argument('--'+key, required=key == 'store')
     args = parser.parse_args()
-    result = package(args.repo, args.revision, args.store, args.output)
-    print(f"Prepared asset package: {len(result['files'])} verified files, {sum(r['bytes'] for r in result['files'])} bytes")
+    if args.retain_releases:
+        print(f'Retained {retain_releases(args.retain_releases, args.store)} existing release assets')
+    else:
+        if not all((args.repo, args.revision, args.output)):
+            parser.error('--repo, --revision and --output are required for packaging')
+        result = package(args.repo, args.revision, args.store, args.output)
+        print(f"Prepared asset package: {len(result['files'])} verified files, {sum(r['bytes'] for r in result['files'])} bytes")
