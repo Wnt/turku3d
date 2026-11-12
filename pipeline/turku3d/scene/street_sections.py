@@ -29,7 +29,7 @@ PALETTE = {
 PHYSICS = {'concrete-pavers':'paving_slab','brick-paving':'paving_slab','fieldstone':'cobblestone'}
 
 
-def freeze(output,bounds,*,exclude_bounds=()):
+def freeze(output,bounds,*,exclude_bounds=(),street_source=None):
     """Freeze register finishes and raw-return fits in an owned evidence cache.
 
     Exclusion rectangles preserve an already accepted pilot while adjoining
@@ -42,7 +42,7 @@ def freeze(output,bounds,*,exclude_bounds=()):
     from turku3d.coarse.street_survey import shared_lines,measure
     bounds=list(bounds);window=shapely.box(*bounds)
     extension=window.difference(shapely.union_all([shapely.box(*b) for b in exclude_bounds]))
-    path=C.raw_dir('wfs')/'work-3x3/GIS_Katualueet.parquet'
+    path=Path(street_source) if street_source else C.raw_dir('wfs')/'work-3x3/GIS_Katualueet.parquet'
     frame=gpd.read_parquet(path);frame=frame[frame.geometry_local.intersects(extension.buffer(8))]
     rows=[(shapely.force_2d(shapely.make_valid(r.geometry_local)),r) for _,r in frame.iterrows()]
     lines=shared_lines(rows,extension);box=C.BBoxLocal(*bounds).buffered(12)
@@ -133,5 +133,6 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--bounds',type=float,nargs=4,required=True)
     parser.add_argument('--exclude-bounds',type=float,nargs=4,action='append',default=[])
+    parser.add_argument('--streets',type=Path,help='Frozen municipal street-part parquet for this region')
     args=parser.parse_args()
-    print(json.dumps(freeze(args.output,args.bounds,exclude_bounds=args.exclude_bounds),indent=2))
+    print(json.dumps(freeze(args.output,args.bounds,exclude_bounds=args.exclude_bounds,street_source=args.streets),indent=2))

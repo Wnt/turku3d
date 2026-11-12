@@ -51,6 +51,7 @@ def mesh_record(key, entity, material, positions, indices, policy="solid", suppo
 
 def load_evidence(cache, bounds):
     points, buildings, streets, waters, sources, props, walks = [], {}, {}, {}, [], {}, {}
+    context_buildings = {}
     xmin, zmin, xmax, zmax = bounds
     for i in range(int(xmin // 250), int(np.ceil(xmax / 250))):
         for j in range(int(zmin // 250), int(np.ceil(zmax / 250))):
@@ -72,6 +73,7 @@ def load_evidence(cache, bounds):
                     points.append(value["points"])
                 elif dataset == "wfs":
                     buildings.update((str(b.key), b) for b in value["buildings"])
+                    context_buildings.update((str(b.key), b) for b in value.get("wall_context", []))
                     streets.update((g.wkb, (g, m)) for g, m in value["streets"])
                     waters.update((g.wkb, g) for g in value["water"])
                 elif dataset == "poles":
@@ -80,6 +82,10 @@ def load_evidence(cache, bounds):
                     for patch in value:
                         identity = str(patch["key"]) + ":" + digest(patch["knots"].tobytes())[:12]
                         walks[identity] = patch
+    window = shapely.box(*bounds)
+    for key, building in context_buildings.items():
+        if key not in buildings and building.footprint.intersects(window):
+            buildings[key] = building
     points = np.unique(np.concatenate(points), axis=0)
     survey_path = cache / 'ground-survey.npz'
     if survey_path.exists():
