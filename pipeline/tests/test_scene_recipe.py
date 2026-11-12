@@ -28,7 +28,8 @@ class SceneRecipeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)/'source';out=Path(directory)/'output';root.mkdir()
             texture=b'generated-map-bytes';sha=hashlib.sha256(texture).hexdigest();name=sha+'.ktx2'
-            document=json.dumps(dict(asset=dict(version='2.0'),images=[dict(uri=name)])).encode()
+            buffer=b'externally-addressed-buffer';buffer_sha=hashlib.sha256(buffer).hexdigest();buffer_name=buffer_sha+'.bin'
+            document=json.dumps(dict(asset=dict(version='2.0'),images=[dict(uri=name)],buffers=[dict(uri=buffer_name,byteLength=len(buffer))])).encode()
             document+=b' '*((-len(document))%4)
             glb=struct.pack('<III',0x46546c67,2,20+len(document))+struct.pack('<II',len(document),0x4e4f534a)+document
             (root/'source.glb').write_bytes(glb)
@@ -37,7 +38,10 @@ class SceneRecipeTests(unittest.TestCase):
             (root/name).write_bytes(b'wrong content')
             with self.assertRaises(ValueError):copy_assets(recipe,root,out)
             (root/name).write_bytes(texture)
-            self.assertEqual(copy_assets(recipe,root,out),2)
+            with self.assertRaises(FileNotFoundError):copy_assets(recipe,root,out)
+            (root/buffer_name).write_bytes(buffer)
+            self.assertEqual(copy_assets(recipe,root,out),3)
+            self.assertEqual((out/buffer_name).read_bytes(),buffer)
             self.assertEqual((out/name).read_bytes(),texture)
 
     def test_release_identity_includes_collision_and_asset_provenance(self):

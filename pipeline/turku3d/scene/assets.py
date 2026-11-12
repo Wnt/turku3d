@@ -8,7 +8,6 @@ import hashlib
 import json
 from pathlib import Path
 import urllib.parse
-import urllib.request
 
 from turku3d.package.gltf import read_glb
 from .asset_store import resolve_asset, read_asset_url

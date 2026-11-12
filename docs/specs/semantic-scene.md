@@ -66,7 +66,7 @@ confidence; mapped position alone does not establish a family.
 source ../sandbox.env
 bash pipeline/env/run.sh python -m turku3d.scene \
   --recipe pipeline/turku3d/scene/recipes/office.json \
-  --cache "$TURKU3D_WORK/evidence" --asset-root game/public/scenes \
+  --cache "$TURKU3D_WORK/evidence" --asset-root "$TURKU3D_DATA/prepared-assets" \
   --output "$TURKU3D_WORK/scenes"
 bash pipeline/env/run.sh python -m unittest discover -s pipeline/tests -p test_scene.py
 ```
@@ -264,7 +264,7 @@ actual float32 instance coordinates change.
 bash pipeline/env/run.sh python -m turku3d.scene.resupport \
   --recipe pipeline/turku3d/scene/recipes/office.json \
   --cache "$TURKU3D_WORK/a2-evidence" \
-  --asset-root game/public/scenes \
+  --asset-root "$TURKU3D_DATA/prepared-assets" \
   --output "$TURKU3D_WORK/resupported-scene" \
   --recipe-output "$TURKU3D_WORK/resupported-scene.recipe.json"
 ```

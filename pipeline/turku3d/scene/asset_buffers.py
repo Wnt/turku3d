@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import struct
 import urllib.parse
-import urllib.request
 import numpy as np
 
 

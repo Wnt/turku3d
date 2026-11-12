@@ -72,10 +72,10 @@ def copy_assets(recipe, asset_root, output):
         return raw
     for asset in recipe['assets']:
         raw=copy(asset['url'],asset['sha256']);document,_=read_glb(raw)
-        for image in document.get('images',[]):
-            if 'uri' in image:
-                relative=str(Path(asset['url']).parent/image['uri'])
-                copy(relative,Path(image['uri']).stem)
+        for dependency in [*document.get('images',[]),*document.get('buffers',[])]:
+            if 'uri' in dependency:
+                relative=str(Path(asset['url']).parent/dependency['uri'])
+                copy(relative,Path(dependency['uri']).stem)
     for row in recipe['materialRecipes']:
         for key in ('baseColorTexture','normalTexture','ormTexture'):
             if key in row['material']:
