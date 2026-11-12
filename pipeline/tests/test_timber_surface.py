@@ -1,7 +1,8 @@
 import math
 import unittest
+from types import SimpleNamespace
 import numpy as np
-from turku3d.scene.families import promenade_bench
+from turku3d.scene.families import promenade_bench,litter_bin
 from turku3d.scene.timber_surface import timber_maps,bench_uvs,SIZE
 
 
@@ -25,6 +26,31 @@ class TimberSurfaceTest(unittest.TestCase):
         self.assertTrue(np.allclose(a,b,atol=1e-10));self.assertEqual(moved['positions'],before)
         self.assertTrue(all(math.isfinite(v) for v in b));self.assertEqual(len(b),len(moved['positions'])//3*2)
         self.assertAlmostEqual(max(a[::2])-min(a[::2]),.9)
+
+    def test_production_furniture_adapter_changes_only_wood_uvs(self):
+        from turku3d.scene.compile import mesh_record
+        from turku3d.scene.fixtures import place_furniture
+        ground=mesh_record('ground','ground','footway',[[170,3.6,250],[190,3.6,250],
+                           [190,3.6,270],[170,3.6,270]],[[0,2,1],[0,3,2]],support='walk')
+        scene={'meshes':[ground],'supports':[{'id':'walk','meshId':'ground'}],
+               'sources':[{'id':'mapped-poles','kind':'poles'}],'fixtures':[]}
+        props=[SimpleNamespace(kind='bench',object_id='mapped:bench',x=178.,z=260.,yaw=.1),
+               SimpleNamespace(kind='bin',object_id='mapped:bin',x=182.,z=261.,yaw=.7)]
+        place_furniture(scene,props)
+        rows={m['id']:m for m in scene['meshes']};changed=0
+        for fixture,make in zip(scene['fixtures'],(promenade_bench,litter_bin)):
+            for piece in make(fixture['position'],fixture['yaw']):
+                key=fixture['id']+':'+piece['id'];actual=rows[key]
+                prior=mesh_record(key,fixture['id'],piece['materialId'],
+                    np.asarray(piece['positions']).reshape(-1,3),np.asarray(piece['indices']).reshape(-1,3),
+                    piece['collision'],'walk')
+                for field in prior:
+                    if field!='uv':self.assertEqual(actual[field],prior[field],(key,field))
+                if piece['materialId']=='wood':
+                    self.assertNotEqual(actual['uv'],prior['uv']);changed+=1
+                    self.assertEqual(len(actual['uv']),len(actual['positions'])//3*2)
+                else:self.assertEqual(actual['uv'],prior['uv'])
+        self.assertGreater(changed,0)
 
 
 if __name__=='__main__':unittest.main()

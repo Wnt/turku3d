@@ -1015,6 +1015,37 @@
         0.5,
         0.5
       ]
+    },
+    {
+      "material": {
+        "id": "wood",
+        "color": [
+          1,
+          1,
+          1
+        ],
+        "roughness": 1,
+        "metalness": 0,
+        "baseColorTexture": {
+          "url": "shared/86d3e93926971c43ca75effa13095ea20a7901196fc329219c2384c33431fde7.ktx2",
+          "sha256": "86d3e93926971c43ca75effa13095ea20a7901196fc329219c2384c33431fde7",
+          "wrap": "repeat"
+        },
+        "normalTexture": {
+          "url": "shared/72e79846628eefd80f5f73ed822d58b2c96c896c40d99ff87b68377d19d4bef7.ktx2",
+          "sha256": "72e79846628eefd80f5f73ed822d58b2c96c896c40d99ff87b68377d19d4bef7",
+          "wrap": "repeat"
+        },
+        "ormTexture": {
+          "url": "shared/2794fb4815f810bd403d9c4030946195b7a56bbe27b1d903a6c4e376fb1ac13f.ktx2",
+          "sha256": "2794fb4815f810bd403d9c4030946195b7a56bbe27b1d903a6c4e376fb1ac13f",
+          "wrap": "repeat"
+        }
+      },
+      "uvScale": [
+        1,
+        1
+      ]
     }
   ],
   "trees": [

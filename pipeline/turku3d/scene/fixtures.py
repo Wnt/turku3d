@@ -3,6 +3,7 @@ import numpy as np
 import shapely
 from .families import promenade_bench, litter_bin, PROMENADE_BENCH, LITTER_BIN
 from .compile import mesh_record
+from .timber_surface import bench_uvs
 
 
 def support_query(scene):
@@ -57,8 +58,10 @@ def place_furniture(scene, props):
         ids=[]
         for piece in pieces:
             key=f"{prop.object_id}:{piece['id']}"
+            # Use the fixture frame so fibres follow slats at any mapped yaw.
+            uv=np.asarray(bench_uvs(piece,position,yaw)).reshape(-1,2) if piece['materialId']=='wood' else None
             record=mesh_record(key,prop.object_id,piece['materialId'],np.array(piece['positions']).reshape(-1,3),
-                               np.array(piece['indices']).reshape(-1,3),piece['collision'],support['id'])
+                               np.array(piece['indices']).reshape(-1,3),piece['collision'],support['id'],uv=uv)
             scene['meshes'].append(record);ids.append(key)
         scene['fixtures'].append(dict(id=prop.object_id,family=family['family']+(':backless' if backless else ''),
                                       supportId=support['id'],position=position,yaw=yaw,dimensions=dimensions,
