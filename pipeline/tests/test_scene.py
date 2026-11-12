@@ -144,7 +144,9 @@ class SemanticSceneTests(unittest.TestCase):
         ground_scene(s,points,[],[],[])
         props=[SimpleNamespace(object_id='frn_CityFurniture_LOD2:CityFurniture_'+key,kind='lamp',x=x,z=5)
                for key,x in [('56200764',2.),('19460502',7.),('unassociated',4.)]]
-        place_lamps(s,props);validate_scene(s)
+        from pathlib import Path
+        import turku3d.scene.fixtures as fixtures
+        place_lamps(s,props,Path(fixtures.__file__).with_name('office_fixture_bindings.json'));validate_scene(s)
         self.assertEqual(len(s['fixtures']),2);self.assertEqual(len(s['emitters']),2)
         for fixture in s['fixtures']:
             self.assertAlmostEqual(fixture['position'][1],.3*fixture['position'][0])

@@ -65,7 +65,9 @@ confidence; mapped position alone does not establish a family.
 ```
 source ../sandbox.env
 bash pipeline/env/run.sh python -m turku3d.scene \
-  --cache "$TURKU3D_DATA/coarse/.inputs" --output "$TURKU3D_WORK/scenes"
+  --recipe pipeline/turku3d/scene/recipes/office.json \
+  --cache "$TURKU3D_WORK/evidence" --asset-root game/public/scenes \
+  --output "$TURKU3D_WORK/scenes"
 bash pipeline/env/run.sh python -m unittest discover -s pipeline/tests -p test_scene.py
 ```
 
@@ -136,7 +138,7 @@ python -m turku3d.scene.survey_retaining \
 `lightOccluders` is a required array, including when empty. Each record contains
 `{id,positions:[[x,z],...],minY,maxY}` from a source building footprint and height
 range. Lighting consumes these records without recovering buildings from render
-triangles. `--asset-sources` preserves separate context-asset provenance when
+triangles. The producer recipe preserves separate context-asset provenance when
 recompiling a pilot with retained assets.
 
 Emitter intensity is in candela in the renderer, range is a spherical cutoff in
@@ -160,6 +162,30 @@ orientation inference, not a photographic match. C1's original procedural face
 uses the published 640 mm normal diameter, red ring and yellow field from
 [Traficom's C-sign drawings](https://www.finlex.fi/api/media/authority-regulation/535793/media/LIITE%2004%20Tieliikennelain%20merkkiryhm%C3%A4n%20C%20liikennemerkkien%20mitoitus.pdf).
 No official drawing pixels or street-reference images are included.
+
+## Reproducible producer recipe
+
+`pipeline/turku3d/scene/recipes/office.json` is the complete pinned office input:
+scene bounds, nine evidence-file hashes, the approved asset list, material recipes
+and metric UV scales, explicit tree anchors, external provenance, and the fixture
+association file hash. It contains derived records, never raw reference pixels or
+point clouds. A changed input fails before compilation rather than silently
+selecting a newer cached revision. The compiler copies and verifies every asset,
+external GLB image and material map before writing the prepared scene. In
+particular, a GLB with missing external textures is not a complete recipe input.
+
+The CLI accepts this recipe as its only producer-input format. A new bounded
+pilot gets a separate recipe through `scene.recipe.create_recipe`, using its own
+source snapshot and approved assets; it does not mutate the office manifest.
+The `python -m turku3d.scene.recipe` command can freeze an approved scene together
+with its original material/UV recipes and tree-anchor product. Later source
+adapters update the recipe inputs explicitly; no post-compilation JSON patching
+is needed to preserve context or provenance.
+
+The final release hash covers the complete canonical manifest except the hash
+field itself, including all collision hashes, asset hashes and provenance. It is
+sealed after collision products have been written. The audit recomputes that hash
+and rejects a manifest changed after sealing.
 
 ## Prepared context vegetation
 

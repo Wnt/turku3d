@@ -13,6 +13,8 @@ from .schema import validate_scene
 
 def audit(path,cache=None):
     path=Path(path);root=path.parent;s=validate_scene(json.loads(path.read_text()))
+    from .compile import release_hash
+    if s['release']!=release_hash(s):raise ValueError('Scene release does not identify the complete final manifest')
     def checked(url,sha):
         file=(root/url).resolve()
         if not file.is_relative_to(root.resolve()):raise ValueError('Scene dependency escapes release')

@@ -211,7 +211,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
     return height
 
 
-def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=(), asset_sources=()):
+def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=(), asset_sources=(), fixture_bindings=None):
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     sources.extend(asset_sources)
@@ -248,7 +248,8 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
     from .fixtures import place_furniture
     place_furniture(scene, props)
     from .fixtures import place_lamps
-    place_lamps(scene, props)
+    if fixture_bindings:
+        place_lamps(scene, props, fixture_bindings)
     from .signs import place_signs
     place_signs(scene, props)
     if trees:
@@ -271,8 +272,12 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
         for mesh in scene["meshes"]:
             if mesh["materialId"]==material["id"]:
                 mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
-    scene["release"] = digest(json.dumps(scene, sort_keys=True, separators=(",", ":")).encode())
     return scene
+
+
+def release_hash(scene):
+    """Identity of the complete prepared manifest, including collision products."""
+    return digest(json.dumps({k:v for k,v in scene.items() if k!='release'},sort_keys=True,separators=(',',':')).encode())
 
 
 def write_products(scene, output):
@@ -282,6 +287,7 @@ def write_products(scene, output):
     from turku3d.col.materials import mat_id
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
+    scene['collision']={}
     from .signs import write_textures
     write_textures(scene,output)
     xmin, zmin, xmax, zmax = scene["bounds"]
@@ -312,6 +318,7 @@ def write_products(scene, output):
             name = f"{col.id}.{digest(raw)[:16]}.col"
             (output / name).write_bytes(raw)
             scene["collision"][col.id] = dict(url=name, sha256=digest(raw), bytes=len(raw), tris=len(col.indices), h=[float(col.positions[:, 1].min()), float(col.positions[:, 1].max())])
+    scene['release']=release_hash(scene)
     validate_scene(scene)
     (output / f"{scene['id']}.scene.json").write_text(json.dumps(scene, separators=(",", ":")) + "\n")
     return scene

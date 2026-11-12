@@ -89,15 +89,15 @@ def place_trunks(scene, trees):
         scene['fixtures'].append(dict(id=tree['id'],family='published-tree-trunk',supportId=support['id'],position=[x,y,z],yaw=0.,dimensions=[radius*2,height,radius*2],meshIds=[key],emitterIds=[],sourceIds=source_ids,uncertaintyM=.15))
 
 
-def place_lamps(scene, props):
+def place_lamps(scene, props, bindings_path):
     """Compile only explicitly associated source poles; never classify by proximity."""
     import hashlib
     import json
     from pathlib import Path
     from .families import flat_canopy_lamp, crook_lamp, FLAT_CANOPY_LAMP, CROOK_LAMP
-    raw=Path(__file__).with_name('office_fixture_bindings.json').read_bytes()
+    raw=Path(bindings_path).read_bytes()
     bindings=json.loads(raw)
-    source_id='office-fixture-family-bindings'
+    source_id=scene['id']+':fixture-family-bindings'
     scene['sources'].append(dict(id=source_id,sha256=hashlib.sha256(raw).hexdigest(),kind='registered-reference-association',uncertaintyM=1.))
     sources=[s['id'] for s in scene['sources'] if s['kind']=='poles']+[source_id]
     associations={row['sourceId']:row for row in bindings['lamps']}
