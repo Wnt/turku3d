@@ -265,13 +265,19 @@ def check_policy(root, files, config):
         if limit is None:
             continue
         lines = len(data.splitlines())
-        if lines > limit and not exceptions.get(path, "").strip():
+        exception = exceptions.get(path, "").strip()
+        ceiling = re.match(r"max_lines=(\d+);\s*\S", exception)
+        if ceiling:
+            limit = int(ceiling[1])
+        if lines > limit and (not exception or ceiling):
             errors.append(
                 f"{path}: {lines} lines exceeds {limit}; split the file or document a budget exception"
             )
     for path, reason in exceptions.items():
         if path not in files or not reason.strip():
             errors.append(f"budget exception {path}: missing file or reason")
+        if reason.startswith('max_lines=') and not re.match(r'max_lines=[1-9]\d*;\s*\S', reason):
+            errors.append(f"budget exception {path}: invalid no-growth ceiling")
     errors.extend(check_flags(root, files, config))
     errors.extend(check_published_images(root, files))
     return errors

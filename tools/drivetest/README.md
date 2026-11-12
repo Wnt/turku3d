@@ -74,3 +74,10 @@ Chrome. The base URL must be `localhost`, because the server accepts only localh
    - leave and join propagation;
    - car contacts near another player;
    - trip outcomes and frame times.
+
+## Remote browser sessions
+
+Use `python3 ~/turku3d/tools/host-lease/session.py run win TASK --kind func --slots 1 -- COMMAND`
+for bounded Windows browser work. The session manager owns the automation browser,
+profile, lease and tunnel, supplies `BROWSER_CDP` to the command, and closes them on exit.
+The obsolete standalone `win-chrome.sh` launcher has been removed.

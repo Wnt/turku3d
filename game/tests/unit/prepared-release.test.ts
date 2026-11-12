@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { resolve, dirname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
@@ -8,6 +9,14 @@ import { readCol } from '../../src/physics/colTile';
 import { prepareLighting } from '../../src/render/lights/preparedLighting';
 import { poolLamp } from '../../src/render/lights/pools';
 
+/** Generated shared assets are immutable host-store products, outside the source tree. */
+function releaseFile(scenePath: string, url: string) {
+  const local = resolve(dirname(scenePath), url);
+  if (existsSync(local)) return local;
+  if (!/^shared\/[a-f0-9]{64}\.(?:glb|ktx2|png|jpg|webp)$/.test(url)) return local;
+  return resolve(process.env.TURKU3D_PREPARED_ASSETS ?? `${homedir()}/turku3d/data/prepared-assets`, url);
+}
+
 it('installs the shipped prepared release with matching collider identities and bounded material draws', async () => {
   const path = resolve(process.env.PREPARED_SCENE_PATH ?? 'public/scenes/office.scene.json');
   const scene = readPreparedScene(JSON.parse(readFileSync(path, 'utf8')));
@@ -15,12 +24,13 @@ it('installs the shipped prepared release with matching collider identities and 
   expect(model.children.length).toBeLessThanOrEqual(scene.materials.length * 2);
   for (const material of scene.materials) for (const texture of [material.baseColorTexture, material.normalTexture, material.ormTexture]) {
     if (!texture) continue;
-    const bytes = readFileSync(resolve(dirname(path), texture.url));
+    const bytes = readFileSync(releaseFile(path, texture.url));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(texture.sha256);
   }
   const checkedDependencies = new Set<string>();
   for (const asset of scene.assets) {
-    const bytes = readFileSync(resolve(dirname(path), asset.url));
+    const assetPath = releaseFile(path, asset.url);
+    const bytes = readFileSync(assetPath);
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
     expect(bytes.readUInt32LE(0)).toBe(0x46546c67);
     expect(bytes.readUInt32LE(8)).toBe(bytes.length);
@@ -30,7 +40,7 @@ it('installs the shipped prepared release with matching collider identities and 
     const document = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString('utf8'));
     for (const image of document.images ?? []) {
       if (!image.uri) continue;
-      const dependency = resolve(dirname(path), dirname(asset.url), image.uri);
+      const dependency = resolve(dirname(assetPath), image.uri);
       if (checkedDependencies.has(dependency)) continue;
       checkedDependencies.add(dependency);
       const imageBytes = readFileSync(dependency);

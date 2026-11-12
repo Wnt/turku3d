@@ -50,3 +50,6 @@ screenshots/
 .cache/
 *.tsbuildinfo
 .eslintcache
+
+# Generated semantic-scene assets live in the immutable host content store.
+/game/public/scenes/shared/

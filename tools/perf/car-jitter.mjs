@@ -17,7 +17,7 @@ const [label, url = 'https://city.lab.madekivi.fi/', seconds = '30'] = process.a
 if (!label || !(process.env.CDP || process.env.PROFILE)) throw new Error('Usage: CDP=http://127.0.0.1:PORT|PROFILE=DIR node tools/perf/car-jitter.mjs LABEL [URL] [SECONDS]');
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const { chromium } = await import(pathToFileURL(path.join(repo, 'game/node_modules/@playwright/test/index.mjs')).href);
-const { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } = await import(pathToFileURL(path.join(repo, 'tools/dev/chrome-args.mjs')).href);
+import { chromeArgs, chromeIgnoreDefaultArgs, chromeExecutable } from '../dev/chrome-args.mjs';
 const browser = process.env.CDP ? await chromium.connectOverCDP(process.env.CDP) : null;
 const context = browser ? browser.contexts()[0] ?? await browser.newContext() : await chromium.launchPersistentContext(process.env.PROFILE, {
   executablePath: chromeExecutable(), ignoreDefaultArgs: chromeIgnoreDefaultArgs, headless: true, viewport: { width: 1280, height: 720 },

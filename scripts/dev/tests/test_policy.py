@@ -54,6 +54,13 @@ class PolicyTest(unittest.TestCase):
         self.assertIn(
             "exceeds 5", "\n".join(check_policy(fixture.root, ["pipeline/example.py"], config))
         )
+        fixture.write('docs/flags.toml', '')
+        config['budgets']['exceptions'] = {'pipeline/example.py': 'max_lines=6; Existing baseline; no further growth'}
+        self.assertEqual(check_policy(fixture.root, ['pipeline/example.py'], config), [])
+        fixture.write('pipeline/example.py', '# grows beyond its explicit ceiling\n' * 7)
+        self.assertIn('exceeds 6', '\n'.join(check_policy(fixture.root, ['pipeline/example.py'], config)))
+        config['budgets']['exceptions']['pipeline/example.py'] = 'max_lines=invalid; Missing bound'
+        self.assertIn('invalid no-growth', '\n'.join(check_policy(fixture.root, ['pipeline/example.py'], config)))
 
 
 class PublishedImageTest(unittest.TestCase):
