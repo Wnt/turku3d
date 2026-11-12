@@ -75,7 +75,19 @@ def load_evidence(cache, bounds):
                     for patch in value:
                         identity = str(patch["key"]) + ":" + digest(patch["knots"].tobytes())[:12]
                         walks[identity] = patch
-    return np.unique(np.concatenate(points), axis=0), list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
+    points = np.unique(np.concatenate(points), axis=0)
+    survey_path = cache / 'ground-survey.npz'
+    if survey_path.exists():
+        from .ground_survey import load
+        surveyed, provenance = load(survey_path, bounds)
+        x, z, X, Z = provenance['sourceBounds']
+        outside = (points[:, 0] < x) | (points[:, 0] > X) | (points[:, 2] < z) | (points[:, 2] > Z)
+        # Coarse source points outside the bounded survey remain useful for the
+        # surrounding roof/ambient context. Inside it, only the raw survey wins.
+        points = np.unique(np.r_[points[outside], surveyed], axis=0)
+        sources.append(dict(id=survey_path.name, sha256=digest(survey_path.read_bytes()),
+                            kind='raw-ground-survey', uncertaintyM=.15))
+    return points, list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
 def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=()):
