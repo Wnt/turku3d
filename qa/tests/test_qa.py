@@ -133,6 +133,17 @@ def test_upright_recovers_and_removes_a_known_tilt():
         assert (abs(r) < 0.3 and abs(p - 10) < 0.3) == expect_level
 
 
+def test_upright_falls_back_to_metadata_without_lines():
+    from qalib import upright
+
+    blank = np.full((256, 512, 3), 128, np.uint8)  # a sky or a hedge: no vertical lines to fit
+    meta = upright.metadata_up("google", 90.0, math.radians(2), math.radians(-1))
+    est = upright.estimate_up(blank, 90.0, meta, size=128)
+    assert est["method"] == "metadata" and est["up"] == meta and est["straightened"]
+    assert abs(est["metadata_tilt_deg"] - math.degrees(math.acos(math.cos(math.radians(2)) * math.cos(math.radians(1))))) < 0.01
+    assert upright.estimate_up(blank, 90.0, None, size=128)["method"] == "none"
+
+
 # ---------------------------------------------------------------- registry
 def _view(i="v1", **kw):
     v = {

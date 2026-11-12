@@ -515,8 +515,10 @@ const renderFrame = () => {
   env.setWeather(weatherSample);
   weatherUniforms.wetness.value = weatherSample.wetness;
   weatherUniforms.rain.value = weatherSample.rain;
-  weatherUniforms.seconds.value = (dayClock.sharedNow() / 1000) % 4096;
-  rain?.update(camera, weatherSample, dayClock.sharedNow() / 1000, env.nightFactor);
+  // A QA still holds the weather's own motion too (rain drops, ripples on wet ground): its preset is fixed by setWeather.
+  const weatherSeconds = params.qa && !params.motion ? 0 : dayClock.sharedNow() / 1000;
+  weatherUniforms.seconds.value = weatherSeconds % 4096;
+  rain?.update(camera, weatherSample, weatherSeconds, env.nightFactor);
   birds?.update(camera, dayClock.sharedNow() / 1000, env.sunElevation, weatherSample.rain);
   refreshWeatherIBL(weatherSample);
   if (params.qa || worldLoad.snapshot().phase === 'ready') distantCity?.follow(camera);

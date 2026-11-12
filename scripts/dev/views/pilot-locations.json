@@ -1,0 +1,40 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "The eight pilot locations of docs/design/visual-brief.md, three to four contrasting buildings each, from the cameras of their reference photos (qa/views/views.jsonl, tag pilot; made by qa/views/pilot_refs.py from qa/views/pilot-targets.json; crops in $TURKU3D_DATA/qa/refs). Jokiranta reuses three riverside-office rows. Only the frozen whole city (Gen 1, https://city.madekivi.fi/, read-only) covers all of them until Gen 2 does: capture with --base https://city.madekivi.fi/ --mode render. Judged with scripts/dev/scene-judge.mjs; the photos stay outside Git.",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    { "id": "jokiranta-la-05", "reference": "la_05" },
+    { "id": "jokiranta-sv-05", "reference": "sv_05" },
+    { "id": "jokiranta-sv-10", "reference": "sv_10" },
+    { "id": "kauppatori-01", "reference": "kauppatori_01" },
+    { "id": "kauppatori-02", "reference": "kauppatori_02" },
+    { "id": "kauppatori-03", "reference": "kauppatori_03" },
+    { "id": "puolalanpuisto-01", "reference": "puolalanpuisto_01" },
+    { "id": "puolalanpuisto-02", "reference": "puolalanpuisto_02" },
+    { "id": "puolalanpuisto-03", "reference": "puolalanpuisto_03" },
+    { "id": "humalistonkatu-01", "reference": "humalistonkatu_01" },
+    { "id": "humalistonkatu-02", "reference": "humalistonkatu_02" },
+    { "id": "humalistonkatu-03", "reference": "humalistonkatu_03" },
+    { "id": "kupittaa-01", "reference": "kupittaa_01" },
+    { "id": "kupittaa-02", "reference": "kupittaa_02" },
+    { "id": "kupittaa-03", "reference": "kupittaa_03" },
+    { "id": "portsa-01", "reference": "portsa_01" },
+    { "id": "portsa-02", "reference": "portsa_02" },
+    { "id": "portsa-03", "reference": "portsa_03" },
+    { "id": "nummi-01", "reference": "nummi_01" },
+    { "id": "nummi-02", "reference": "nummi_02" },
+    { "id": "nummi-03", "reference": "nummi_03" },
+    { "id": "rettig-01", "reference": "rettig_01" },
+    { "id": "rettig-02", "reference": "rettig_02" },
+    { "id": "rettig-03", "reference": "rettig_03" }
+  ]
+}

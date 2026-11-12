@@ -212,7 +212,7 @@ def make_view(
     img_path = out_dir / f"{view_id}.jpg"
     # pano headings are TRUE azimuths; pose yaw and pixel_rays are grid bearings (qalib/geo.py)
     grid_heading = geo.true_to_grid_bearing(e, n, heading)
-    src["straightening"] = upright.estimate_up(eq, grid_heading, upright.metadata_tilt(meta.pitch, meta.roll))
+    src["straightening"] = upright.estimate_up(eq, grid_heading, upright.metadata_up(provider, grid_heading, meta.pitch, meta.roll))
     perspective(eq, grid_heading, pose, w, h, up=src["straightening"]["up"]).save(img_path, quality=93)
     view = {
         "id": view_id,
@@ -274,7 +274,7 @@ def cmd_refetch(a):
         )
         up = s.get("straightening", {}).get("up")  # the registry's own straightening, else measured now
         if up is None:
-            up = upright.estimate_up(eq, heading, upright.metadata_tilt(meta.pitch, meta.roll))["up"]
+            up = upright.estimate_up(eq, heading, upright.metadata_up("google", heading, meta.pitch, meta.roll))["up"]
         perspective(eq, heading, v["pose"], v["width"], v["height"], up=up).save(out, quality=93)
         print(f"refetched {v['id']} -> {v['image']}")
 

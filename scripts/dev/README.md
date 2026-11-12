@@ -42,10 +42,17 @@ scripts/dev/scene-judge.mjs report                            # scores per itera
 
 `scene-judge.mjs` scores a visual milestone. Run it only then, in the background (about 2 minutes), never for each
 edit or merge, and never for a change with no visible difference. It captures the gameplay views and the views from the reference photos'
-cameras (`riverside-office-refs.json`) as stills of the scene alone: `scene-capture.mjs --mode render` uses the
+cameras (`riverside-office-refs.json`) as stills of the scene alone. `--views scripts/dev/views/pilot-locations.json
+--base https://city.madekivi.fi/` judges the eight pilot locations instead, in the frozen whole city (`"scene": null`),
+with its own history. The still capture is: `scene-capture.mjs --mode render` uses the
 game's QA camera mode (`?cam=`), with the same renderer, materials, vegetation, sky and post-processing.
-- **What is left out:** the player, physics, audio, traffic, walkers, birds and multiplayer. The water and wind stay
-  at time 0, so nothing moves between two captures of a view.
+- **What is left out:** the player, physics, audio, traffic, walkers, birds and multiplayer.
+- **What is held:**
+  - The water, wind and cloud drift stay at time 0.
+  - The weather is the views file's preset, with no transition and no live schedule.
+  - Its rain drops and wet-ground ripples are at time 0 as well.
+  - The sun is fixed at the views file's date and time.
+  - Nothing moves between two captures of a view.
 - **Readiness** comes from `__qaReady`: an 8 s load and under 1 s per view locally, against 36 s for the game.
 - **Same image every time:**
   - Once everything has loaded, TRAA and the LOD cross-fade dither restart.
@@ -98,7 +105,7 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - The current set uses Look Around 2026-06 (`la-05`, `la-06`) instead.
   - Every reference crop is straightened: its panorama's tilt is measured from vertical lines (qa/README.md).
 - **A photo that shows the wrong state** (renovation, hoarding, scaffolding, a missing neighbour): fetch newer
-  panoramas and swap the reference (see [qa/README.md — Newer imagery](../../qa/README.md#the-23-reference-views)).
+  panoramas and swap the reference (see [qa/README.md — Newer imagery](../../qa/README.md#the-reference-views)).
   Do not drop the building from scoring.
 - **Two QA tools, two jobs:**
   - `qa/` (Codex Astra, [qa/README.md](../../qa/README.md)) lists issues per photo pair, with back-mapping to

@@ -40,9 +40,33 @@ model, browser resolver hash/override, backend and package manifest hash/content
 missing IDs, missing photos, judge errors and quota stops exit nonzero. A no-judge run
 is never a regression baseline.
 
-## The 23 reference views
+## The reference views
 
-`views/views.jsonl`: 10 Street View crops (2019), 6 Look Around crops, 4 Mapillary perspective
+`views/views.jsonl` holds 44 rows: the 23 riverside-office views below and 21 views of the pilot locations.
+
+### The pilot locations
+
+The 21 pilot rows (tag `pilot`, `area` = location id) are 2–3 contrasting buildings at each of the seven pilot
+locations of [the visual brief](../docs/design/visual-brief.md) beyond Jokiranta, which reuses la_05, sv_05 and
+sv_10.
+- **Targets:** `views/pilot-targets.json` names each building. Its coordinates and height come from the building
+  register; it can also ask for a side (`from`) and a distance.
+- **Making the views:** `views/pilot_refs.py` takes, for each target, the newest street-level Look Around or Street
+  View panorama:
+  - it sees the register footprint unobstructed by other footprints, from a distance that fits the height;
+  - indoor, rooftop and car-park panoramas are excluded.
+- **Crops:** the script fetches the panorama, straightens it, and crops it from the facade's foot to the roof line.
+  All are from 2026-06 to 2026-08, except Nummi's Uudenpellonkatu house (2023-05).
+- **Judged set:** `scripts/dev/views/pilot-locations.json`, 24 views. Until Gen 2 covers these places, only the
+  frozen whole city renders them (`--base https://city.madekivi.fi/ --mode render`, read-only).
+
+```sh
+bash pipeline/env/run.sh python qa/views/pilot_refs.py [--only nummi,rettig]   # about 1 minute for all
+```
+
+### The riverside-office views
+
+10 Street View crops (2019), 6 Look Around crops, 4 Mapillary perspective
 images, 2 boat-level Google photospheres (2023), 1 drone panorama (2016).
 The Street View crops cover multiple positions along the frontage. Look Around la_01–la_03 are
 three headings from one co-located camera. la_04–la_06 (2026-06) see the wooden house on Läntinen Rantakatu from the
@@ -56,10 +80,14 @@ camera stations. Source dates and explicit pose uncertainty are preserved in eac
   - at most 20 deg of tilt;
   - at least 2000 px of inlier line length;
   - stable within 1 deg when any one crop is left out;
-  - within 1.5 deg of the panorama's own pitch/roll tilt, when it has one.
-- **Outside the limits** the crop stays as the panorama is, and `source.straightening.check` says why.
-  - On 2026-11-12 that was sv_09 (its fit disagrees with the metadata), boat_01 (too few lines) and drone_01.
-  - The metadata tilt is only a check: its axis conventions are unverified, and photospheres have none.
+  - within 1.5 deg of the world up that the panorama's own pitch and roll give (`upright.metadata_up`), when it has
+    them.
+- **Outside the limits** the panorama's pitch and roll straighten the crop instead (`source.straightening.method`
+  is `metadata`; `check` says which limit the lines failed). This happens in parks, behind hedges and at single
+  facades.
+  - The providers' sign conventions were fitted to the line fits of 38 panoramas (2026-11-12). Against those fits,
+    Look Around comes within 0.18 deg (median; max 0.57), and Street View within 0.37 deg (max 1.3).
+  - Without pitch and roll (photospheres, drone_01) the crop stays as the panorama is (`method` is `none`).
 - **Accuracy:** on renders with exact poses the fit reads roll and pitch within 0.1 deg.
 - **Before and after:**
   - Look Around backpack crops (la_04–la_06): 11–13 deg of lean down to 0.2 deg.

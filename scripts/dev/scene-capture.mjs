@@ -12,6 +12,8 @@
 // A view is a world camera {position, quaternion, fov} in engine metres, a surveyed pose {E, N, H, yaw, pitch, roll, fov}
 // (grid bearing and vertical fov in degrees, as qa/views/views.jsonl), or `reference: ID` from the set's `references`
 // registry: the render then matches that photo's camera, and the player stands 4 m behind it, out of view.
+// The set's `scene` is the prepared scene to load (default office); `scene: null` is the whole city of a client without
+// prepared scenes, the frozen Gen 1 city (views/pilot-locations.json).
 //
 // --mode render draws the prepared scene alone and still: the game's QA camera mode (?cam=, game/src/main.ts runQa)
 // with the same renderer, materials, vegetation, sky and post-processing, but no player, physics, audio, traffic,
@@ -179,8 +181,13 @@ async function main() {
     });
     if (mode === 'render') {
       // Judged and compared images come from a still scene: nothing that moves between two captures of one view.
-      manifest.still = await page.evaluate(() => ({ birds: !!window.__dev?.birds, population: !!window.__game?.population,
-        motion: new URLSearchParams(location.search).get('motion') === '1' }));
+      // The frozen whole-city build (Gen 1, every pilot location) still flies birds in its QA view: they are hidden here.
+      manifest.still = await page.evaluate(() => {
+        const birds = window.__dev?.birds;
+        if (birds?.mesh) birds.mesh.visible = false;
+        return { birds: !!birds && birds.mesh?.visible !== false, population: !!window.__game?.population,
+          motion: new URLSearchParams(location.search).get('motion') === '1' };
+      });
       const moving = Object.entries(manifest.still).filter(([, on]) => on).map(([k]) => k);
       if (moving.length) throw new Error(`render mode is not a still scene: ${moving.join(', ')} (an older client?)`);
     }
@@ -338,8 +345,10 @@ async function main() {
     if (checks.has('resolution')) manifest.checks.resolution = { ok: shots.every(s => Math.abs(s.internal[0] - expected[0]) <= 1 && Math.abs(s.internal[1] - expected[1]) <= 1), expected };
     if (checks.has('player') && views.player && mode === 'play') manifest.checks.player = { ok: (manifest.player?.offsetM ?? Infinity) < 0.5, offsetM: manifest.player?.offsetM ?? null };
     if (checks.has('scene')) {
-      const scene = manifest.source.scene, want = opt('--expect-release');
-      manifest.checks.scene = { ok: !!scene && (!views.scene || scene.id === views.scene) && (!want || scene.release.startsWith(want)), scene, expected: { id: views.scene ?? null, release: want ?? null } };
+      // `scene: null` asks for the whole-city client (the frozen Gen 1 city): no prepared scene may be loaded.
+      const scene = manifest.source.scene, want = opt('--expect-release'), whole = views.scene === null;
+      manifest.checks.scene = { ok: whole ? !scene : !!scene && (!views.scene || scene.id === views.scene) && (!want || scene.release.startsWith(want)),
+        scene, expected: { id: whole ? 'none (whole city)' : views.scene ?? null, release: want ?? null } };
     }
   } catch (error) {
     manifest.failure = String(error?.stack ?? error);

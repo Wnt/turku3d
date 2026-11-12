@@ -70,11 +70,11 @@ def main():
     def pano_view(
         ident, eq, heading, e, n, h, yaw, pitch, fov, source, date, confidence, w=960, hh=720, meta=None
     ):
-        # Straightened: the pano's own tilt, measured from its vertical lines within upright.LIMITS (checked
-        # against the metadata tilt when there is one), is taken out of the crop.
+        # Straightened: the pano's own tilt, measured from its vertical lines within upright.LIMITS (else taken
+        # from its pitch and roll), is taken out of the crop.
         if source["pano_id"] not in tilts:
-            m_tilt = upright.metadata_tilt(meta["pitch_rad"], meta["roll_rad"]) if meta else None
-            tilts[source["pano_id"]] = upright.estimate_up(eq, heading, m_tilt)
+            m_up = upright.metadata_up(source["kind"], heading, meta["pitch_rad"], meta["roll_rad"]) if meta else None
+            tilts[source["pano_id"]] = upright.estimate_up(eq, heading, m_up)
         tilt = tilts[source["pano_id"]]
         source = {**source, "straightening": tilt}
         pose = dict(

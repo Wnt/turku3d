@@ -1,0 +1,244 @@
+{
+  "schema": "turku-pilot-targets/1",
+  "note": "Judged buildings of the pilot locations (docs/design/visual-brief.md), three contrasting ones each, seen from the street. look_at and height come from the building register (raw/wfs bldg_Building_LOD2: address, year, measuredHeight) or OSM. qa/views/pilot_refs.py turns each into a posed reference photo from the newest panorama that sees it; `from` asks for a side (compass bearing from the building, within 35 deg), `distance` [min, max] and `ideal` set the facade distance in metres. Jokiranta's three are older rows of views.jsonl (prepare.py).",
+  "locations": [
+    {
+      "id": "jokiranta",
+      "label": "Jokiranta (Läntinen Rantakatu)",
+      "existing": [
+        "la_05",
+        "sv_05",
+        "sv_10"
+      ]
+    },
+    {
+      "id": "kauppatori",
+      "label": "Kauppatori",
+      "targets": [
+        {
+          "what": "Kauppiaskatu 6, new block on the square (2021, 10 storeys)",
+          "look_at": [
+            23459735,
+            6704552
+          ],
+          "height": 34.8
+        },
+        {
+          "what": "Aurakatu 5, stone block on the square's south side (1926, 6 storeys)",
+          "look_at": [
+            23459683,
+            6704494
+          ],
+          "height": 29.4
+        },
+        {
+          "what": "Orthodox church of St Alexandra (1846) on the square's north-west corner",
+          "look_at": [
+            23459603,
+            6704690
+          ],
+          "height": 22
+        }
+      ]
+    },
+    {
+      "id": "puolalanpuisto",
+      "label": "Puolalanpuisto",
+      "targets": [
+        {
+          "what": "Turku Art Museum, Aurakatu 26, the castle front up the cobbled path (1904)",
+          "look_at": [
+            23459382,
+            6704891
+          ],
+          "height": 22.5,
+          "from": 200
+        },
+        {
+          "what": "Turku Art Museum's glass annex above the park lawn",
+          "look_at": [
+            23459382,
+            6704891
+          ],
+          "height": 22.5,
+          "from": 310
+        },
+        {
+          "what": "Puolalanpuisto 2b, wooden park-side house (1908)",
+          "look_at": [
+            23459369,
+            6704966
+          ],
+          "height": 14.2
+        }
+      ]
+    },
+    {
+      "id": "rettig",
+      "label": "Rettigin palatsi",
+      "targets": [
+        {
+          "what": "Rettig Palace, Itäinen Rantakatu 4: garden wall, hedge and roofs from the riverside promenade",
+          "look_at": [
+            23460025,
+            6704382
+          ],
+          "height": 19.8,
+          "from": 290,
+          "distance": [
+            25,
+            75
+          ],
+          "ideal": 45
+        },
+        {
+          "what": "Rettig Palace's museum corner (Aboa Vetus & Ars Nova) downstream",
+          "look_at": [
+            23460025,
+            6704382
+          ],
+          "height": 19.8,
+          "from": 320,
+          "distance": [
+            8,
+            40
+          ]
+        },
+        {
+          "what": "Rettig Palace's riverside setting from across the Aura: river wall, promenade, garden wall and roofs",
+          "look_at": [
+            23460025,
+            6704382
+          ],
+          "height": 19.8,
+          "from": 290,
+          "distance": [
+            60,
+            160
+          ],
+          "ideal": 100
+        }
+      ]
+    },
+    {
+      "id": "humalistonkatu",
+      "label": "Humalistonkatu",
+      "targets": [
+        {
+          "what": "Humalistonkatu 13, apartment block (1928, 5 storeys)",
+          "look_at": [
+            23459104,
+            6704733
+          ],
+          "height": 22.2
+        },
+        {
+          "what": "Humalistonkatu 11, apartment block (1983, 5 storeys)",
+          "look_at": [
+            23459129,
+            6704687
+          ],
+          "height": 23.3
+        },
+        {
+          "what": "Humalistonkatu 16, tower block (1957, 12 storeys)",
+          "look_at": [
+            23459047,
+            6704714
+          ],
+          "height": 39.5
+        }
+      ]
+    },
+    {
+      "id": "kupittaa",
+      "label": "Kupittaa",
+      "targets": [
+        {
+          "what": "Joukahaisenkatu 3, campus office block (2006)",
+          "look_at": [
+            23461229,
+            6704326
+          ],
+          "height": 30.8
+        },
+        {
+          "what": "Joukahaisenkatu 7, campus block (2018)",
+          "look_at": [
+            23461324,
+            6704251
+          ],
+          "height": 39.9
+        },
+        {
+          "what": "Joukahaisenkatu 6, tall block by the railway (2013)",
+          "look_at": [
+            23461223,
+            6704431
+          ],
+          "height": 45.2
+        }
+      ]
+    },
+    {
+      "id": "portsa",
+      "label": "Portsa (Port Arthur)",
+      "targets": [
+        {
+          "what": "Puutarhakatu 23, wooden house (1887)",
+          "look_at": [
+            23458543,
+            6704205
+          ],
+          "height": 8.4
+        },
+        {
+          "what": "Puutarhakatu 27, wooden house (1901)",
+          "look_at": [
+            23458433,
+            6704132
+          ],
+          "height": 9.7
+        },
+        {
+          "what": "Heikkilänkatu 6, wooden house (1901)",
+          "look_at": [
+            23458428,
+            6704163
+          ],
+          "height": 9.4
+        }
+      ]
+    },
+    {
+      "id": "nummi",
+      "label": "Nummi",
+      "targets": [
+        {
+          "what": "Vanha Hämeentie 44, wooden house (1927)",
+          "look_at": [
+            23461875,
+            6705049
+          ],
+          "height": 13.3
+        },
+        {
+          "what": "Peltokatu 20, detached wooden house (1920)",
+          "look_at": [
+            23461466,
+            6705192
+          ],
+          "height": 8.4
+        },
+        {
+          "what": "Uudenpellonkatu 9, post-war detached house behind a hedge (1950)",
+          "look_at": [
+            23462152,
+            6704967
+          ],
+          "height": 9.1
+        }
+      ]
+    }
+  ]
+}

@@ -36,6 +36,9 @@ fixed gameplay views plus a walk in `scripts/dev/views/`, and baselines from the
 | Portsa (Port Arthur, prepared scene `port-arthur`) | wooden houses, cobbles, courtyards |
 | Nummi | detached-house area: gardens, hedges, low-rise roofs |
 
+Each location has two to four reference-photo views of contrasting buildings, from 2026 street panoramas (`qa/README.md`,
+"The pilot locations"; judged set `scripts/dev/views/pilot-locations.json`).
+
 Families (materials, facade programs, vegetation, furniture) are judged across these places: a family that only works
 in one of them is a landmark exception, not a family. City-scale generation starts once the families win at the
 pilot locations.
