@@ -44,12 +44,19 @@ The held-out eastern Port Arthur block uses engine bounds
 It retains mixed-era context rather than selecting only attractive timber fronts.
 Fourteen municipal building footprints intersect the bounds. None occurs in the
 650 reviewed facade programs or the cached 2,299 facade-asset / 2,034 approval
-snapshot. Independent OSM outline matches have IoU 0.888–0.991. Four supply explicit
-wood cladding cues, one plaster, and nine have unknown cladding. Existing grammar
-assignment gives four timber, two 1960s slab, four historicist, three Jugend and one
-postwar plaster prior; the seven historic-period assignments do **not** establish
-masonry cladding or actual ornament.
+snapshot. Independent OSM outline matches have IoU 0.888–0.991. The initial cached
+register snapshot lacked cladding, so OSM alone supplied four timber and one plaster
+cue, leaving nine unknown.
 
+A bounded read-only municipal `kanta:Rakennus` and `GIS:Rakennukset` metadata query
+on 2026-11-12 recovered the stable-ID records without building the area or collecting
+new photographs. Qualified inputs now contain eight explicit timber claddings, one
+brick and one concrete; OSM supplies one additional plaster cue. Three remain
+unknown. Duplicate `muu materiaali` (other material) records do not erase explicit
+known cladding. Years and storeys agree with the existing LoD2 inputs for all fourteen.
+The unchanged grammar consequently assigns eight timber, two 1960s slab, two Jugend,
+one historicist and one postwar plaster prior. Period-family assignments still do
+not establish actual ornament or opening counts.
 The cached municipal LoD2 and OSM extracts cover the block, as does the private
 23458500_6704500 LAZ tile. Raw extracts, coordinates, photos and derived inspection
 manifests stay outside Git. The private inventory records each exact identity,
