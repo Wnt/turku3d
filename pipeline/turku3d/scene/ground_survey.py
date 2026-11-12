@@ -23,8 +23,38 @@ def ground_returns(points, classes):
     overlap = points[classes == 12]
     if not len(ground) or not len(overlap):
         return ground
-    distance, owner = cKDTree(ground[:, [0, 2]]).query(overlap[:, [0, 2]])
-    keep = (distance < 1) & (abs(overlap[:, 1] - ground[owner, 1]) < .2 + .5 * distance)
+    # Overlap is a flight-strip label, not a ground classification. A generous
+    # distance-scaled height gate admits parked-car skirts on sparse roads.
+    # Accept only agreement with a locally planar class-2 neighbourhood; near
+    # discontinuities retain the conservative nearest-return alternative.
+    tree = cKDTree(ground[:, [0, 2]])
+    keep = np.zeros(len(overlap), dtype=bool)
+    k = min(12, len(ground))
+    for start in range(0, len(overlap), 32768):
+        part = overlap[start:start + 32768]
+        distance, owner = tree.query(part[:, [0, 2]], k=k)
+        distance, owner = distance.reshape(len(part), k), owner.reshape(len(part), k)
+        neighbours = ground[owner]
+        nearest_delta = abs(part[:, 1] - neighbours[:, 0, 1])
+        accepted = (distance[:, 0] < .3) & (nearest_delta < .08)
+        if k >= 6:
+            local = neighbours[:, :, [0, 2]] - part[:, None, [0, 2]]
+            design = np.concatenate([local, np.ones((*local.shape[:2], 1))], axis=2)
+            weights = (distance < 1.5).astype(float)
+            lhs = np.einsum('nki,nk,nkj->nij', design, weights, design)
+            rhs = np.einsum('nki,nk,nk->ni', design, weights, neighbours[:, :, 1])
+            # Tiny diagonal regularisation handles collinear/sparse candidates;
+            # geometric rank below still rejects those fits explicitly.
+            coefficients = np.linalg.solve(lhs + np.eye(3) * 1e-10, rhs[..., None])[..., 0]
+            residual = np.einsum('nki,ni->nk', design, coefficients) - neighbours[:, :, 1]
+            count = weights.sum(axis=1)
+            rms = np.sqrt((weights * residual**2).sum(axis=1) / np.maximum(count, 1))
+            rank = np.linalg.eigvalsh(lhs)[:, 0]
+            planar = ((count >= 6) & (rank > .01) & (rms < .04)
+                      & (np.linalg.norm(coefficients[:, :2], axis=1) < 1.)
+                      & (distance[:, 0] < 1.))
+            accepted |= planar & (abs(part[:, 1] - coefficients[:, 2]) < .08)
+        keep[start:start + len(part)] = accepted
     return np.concatenate([ground, overlap[keep]])
 
 
@@ -82,6 +112,9 @@ def freeze(output, bounds, spacing=1., halo=8.):
     provenance = dict(version=VERSION, bounds=bounds.tolist(), sourceBounds=source_bounds.tolist(),
                       spacingM=spacing, haloM=halo, heightDatum='N2000', classes=[2, 12],
                       rawReturns=len(points), acceptedReturns=len(ground), samples=len(samples),
+                      overlapQualification='class2-local-plane-8cm/1',
+                      class2Returns=int(np.count_nonzero(classes == 2)),
+                      rejectedOverlapReturns=int(len(points) - len(ground)),
                       sources=[dict(name=p.name, sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in paths])
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
