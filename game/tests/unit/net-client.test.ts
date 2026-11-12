@@ -5,6 +5,21 @@ import { shouldSendPose, type NetPose } from '../../src/net/client';
 const pose: NetPose = { t: 0, E: 168, N: -246, H: 3, yaw: 0, vE: 0, vN: 0, vH: 0,
   mode: 'foot', vehicle: null, carrying: false };
 
+test('prepared region sessions retain their own token and preserve the default region key', async () => {
+  const { MultiplayerClient } = await import('../../src/net/client');
+  const data = new Map([['turku3d.mp.session.v1', 'a'.repeat(64)], ['turku3d.mp.session.v1.region.port-arthur', 'b'.repeat(64)]]);
+  const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value),
+    removeItem: (key: string) => data.delete(key) } as unknown as Storage;
+  const office = new MultiplayerClient('ws://localhost:5403/', storage);
+  const held = new MultiplayerClient('ws://localhost:5403/', storage, 'port-arthur');
+  const fresh = new MultiplayerClient('ws://localhost:5403/', storage, 'new-region');
+  expect(office.session).toBe('a'.repeat(64)); expect(held.session).toBe('b'.repeat(64)); expect(fresh.session).toBeNull();
+  expect(await held.resetProgress()).toBe(false);
+  expect(data.get('turku3d.mp.reset.v1.region.port-arthur')).toBe('1');
+  expect(data.has('turku3d.mp.reset.v1')).toBe(false);
+  office.disconnect(); held.disconnect(); fresh.disconnect();
+});
+
 test('endpoint selection uses localhost for local pages and permits a WebSocket override', () => {
   expect(multiplayerUrl({ hostname: 'localhost', search: '' })).toBe('ws://127.0.0.1:7700/');
   expect(multiplayerUrl({ hostname: 'wnt.github.io', search: '' })).toBe('wss://turku.lab.madekivi.fi/');

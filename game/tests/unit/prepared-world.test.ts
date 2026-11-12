@@ -12,7 +12,7 @@ function fixture() {
   const positions = [0, 2, 0, 0, 2, 62.5, 62.5, 4, 0];
   const bytes = writeCol({ i: 0, j: 0, positions: new Float32Array(positions), indices: new Uint32Array([0, 1, 2]),
     materials: new Uint8Array([MAT.road]), prims: [], flags: 1, meta: {} });
-  const scene: PreparedScene = { schema: 'turku-scene/1', lightOccluders: [], id: 'test', release: 'test', origin: [23459500, 6704500, 0], bounds: [0, 0, 62.5, 62.5],
+  const scene: PreparedScene = { schema: 'turku-scene/1', lightOccluders: [], id: 'test', release: 'a'.repeat(64), origin: [23459500, 6704500, 0], bounds: [0, 0, 62.5, 62.5],
     sources: [], assets: [], materials: [{ id: 'road', color: [.2, .2, .2], roughness: 1, metalness: 0 }], boundaries: [],
     supports: [{ id: 'road', kind: 'road', boundaryIds: [], meshId: 'ground' }],
     meshes: [{ id: 'ground', entityId: 'ground', materialId: 'road', positions, indices: [0, 1, 2], collision: 'solid', supportId: 'road' }],
@@ -21,7 +21,9 @@ function fixture() {
     spawn: { position: [2, 2.064, 2], headingDeg: 0, vehicle: { position: [4, 2.128, 4], yaw: 0 } } };
   const manifest = draftManifest('https://city.test/');
   const host: PreparedWorldHost = { manifest, scene: new THREE.Scene(), renderer: {} as THREE.WebGPURenderer, pageUrl: 'https://city.test/',
-    fetch: vi.fn(async input => new URL(String(input)).pathname.endsWith('.json') ? Response.json(scene) : new Response(new Uint8Array(bytes))),
+    fetch: vi.fn(async input => String(input).endsWith('/regions.json') ? Response.json({ schema: 'turku-prepared-regions/1',
+      defaultRegion: scene.id, regions: [{ id: scene.id, label: 'Test region', url: '/scenes/test.scene.json', release: scene.release, bounds: scene.bounds, spawn: scene.spawn }] })
+      : new URL(String(input)).pathname.endsWith('.json') ? Response.json(scene) : new Response(new Uint8Array(bytes))),
     unloadCollision: vi.fn(), refreshCollision: vi.fn(), checkCollision: readCol, retainCollision: vi.fn(),
     prepareGraphics: async () => { expect(Object.keys(manifest.collision)).toHaveLength(0); } };
   return { scene, host };
@@ -60,7 +62,8 @@ test('explicit reference height selects a lower passage independently of its bri
   const bytes = writeCol({ i: 0, j: 0, positions: new Float32Array([...lower.positions, ...upper.positions]), indices: new Uint32Array([0, 1, 2, 3, 4, 5]),
     materials: new Uint8Array([MAT.road, MAT.road]), prims: [], flags: 1, meta: {} });
   Object.assign(scene.collision.c_0_0, { bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), tris: 2, h: [2, 8] });
-  host.fetch = (async input => String(input).endsWith('.json') ? Response.json(scene) : new Response(new Uint8Array(bytes))) as typeof fetch;
+  const fetcher = host.fetch!;
+  host.fetch = (async input => String(input).endsWith('.json') ? fetcher(input) : new Response(new Uint8Array(bytes))) as typeof fetch;
   const world = await PreparedWorld.start(host);
   expect(world.groundBelow(10, 10)).toBeCloseTo(8);
   expect(world.groundBelow(10, 10, 4)).toBeCloseTo(2.32);

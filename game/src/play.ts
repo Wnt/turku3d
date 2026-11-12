@@ -176,7 +176,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const voicePreload = audioPreload.then(() => voice.preload());
   addEventListener('pagehide', () => { voice.dispose(); audio.dispose(); }, { once: true, signal: listeners.signal });
   const saves = new SaveStore(browserStorage(), missionSummary, `turku3d.prepared.${coarse?.data.id ?? 'scene'}.saves`);
-  const multiplayerProgress = new MultiplayerProgress(sessionStore());
+  const multiplayerProgress = new MultiplayerProgress(sessionStore(), coarse?.sessionScope);
   for (const id of SLOT_IDS) keepSavedVehicle(manifest, saves.get(id)?.lastVehicle);
   // A controlled reload after a landing (localhost dev server) continues from the autosave it just wrote.
   const resume = !hot && import.meta.hot && takeResume(sessionStore()) ? saves.get('auto') : null;
@@ -395,6 +395,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   const forgetProgress = async (): Promise<boolean> => {
     autopilot.cancel('progress reset'); fly?.set(false);
     saves.clear(); clearProgress(browserStorage(), sessionStore());
+    multiplayerProgress.clear(multiplayer?.session ?? null);
     missions.restore(null);
     // The new game's start car is a fresh one: its body damage goes with the progress.
     physics.setVehicleDamage(OWN_VEHICLE_ID, null);
@@ -513,7 +514,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // preloads; SaveGameController resolves the start itself (the page's for the first placement, then the city's).
   const roomStart = world.spawn;
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
-  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket);
+  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket, coarse?.sessionScope);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);

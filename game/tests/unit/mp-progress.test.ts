@@ -14,6 +14,16 @@ function store(): KeyValueStore {
     removeItem: key => { data.delete(key); } };
 }
 
+test('prepared region progress does not overwrite the default region or resume its session', () => {
+  const storage = store(), office = new MultiplayerProgress(storage), held = new MultiplayerProgress(storage, 'port-arthur');
+  office.save(a, 'office mission');
+  expect(held.load(a)).toBeNull();
+  held.save(b, 'held-out mission');
+  expect(office.load(a)).toBe('office mission');
+  expect(new MultiplayerProgress(storage, 'port-arthur').load(b)).toBe('held-out mission');
+  held.clear(b); expect(held.load(b)).toBeNull(); expect(office.load(a)).toBe('office mission');
+});
+
 test('multiplayer mission snapshot survives tab reload for the same server session', () => {
   const storage = store(), progress = new MultiplayerProgress(storage);
   const mission = JSON.stringify({ ...freshSave(12), phase: 'at_pizzeria', money: 148, permit: 4,

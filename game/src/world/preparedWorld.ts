@@ -9,7 +9,8 @@ import { disposeDraw } from '../render/sharedMaterials';
 import { styleScenery } from '../render/sceneryMaterial';
 import { releaseGeometry } from './modelGeometry';
 import { releaseModelTextures } from './sharedAssets';
-import { readPreparedScene, buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, type PreparedScene } from './preparedScene';
+import { buildPreparedModel, loadPreparedTextures, disposePreparedTextures, closePreparedImages, type PreparedScene } from './preparedScene';
+import { loadPreparedRegion, type PreparedRegion } from './preparedRegions';
 import { GroundIndex } from './groundIndex';
 import { decoderReady, readColSync } from '../physics/colTile';
 import type { CoarseHost, Entry } from './coarseContracts';
@@ -50,15 +51,13 @@ export class PreparedWorld {
   private ground = new GroundIndex();
   private top = 100;
   private bottom = -100;
-  private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) { this.lighting = prepareLighting(data); }
+  private constructor(private host: PreparedWorldHost, readonly data: PreparedScene, readonly region: PreparedRegion, readonly sessionScope: string | null,
+    private url: string, private model: THREE.Group, private nativeTextures: Set<THREE.Texture>) { this.lighting = prepareLighting(data); }
 
   static async start(host: PreparedWorldHost): Promise<PreparedWorld> {
     const page = host.pageUrl ?? location.href;
-    const url = new URL(`${import.meta.env.BASE_URL}scenes/office.scene.json`, page).href;
     const fetcher = host.fetch ?? fetch;
-    const response = await fetcher(url, { signal: AbortSignal.timeout(15000) });
-    if (!response.ok) throw new Error(`Prepared scene: HTTP ${response.status}`);
-    const data = readPreparedScene(await response.json());
+    const { region, url, data, sessionScope } = await loadPreparedRegion(page, fetcher);
     if (data.origin.some((n, i) => n !== host.manifest.origin_en[i])) throw new Error('Prepared scene origin differs from the active world');
     const cells = await Promise.all(Object.entries(data.collision).map(async ([id, entry]) => {
       const cell = await fetcher(new URL(entry.url, url), { signal: AbortSignal.timeout(15000) });
@@ -75,7 +74,7 @@ export class PreparedWorld {
     let model: THREE.Group;
     try { model = buildPreparedModel(data, textures); }
     catch (error) { disposePreparedTextures(textures.values()); throw error; }
-    const world = new PreparedWorld(host, data, url, model, new Set(textures.values()));
+    const world = new PreparedWorld(host, data, region, sessionScope, url, model, new Set(textures.values()));
     try {
       const loader = data.assets.length && !host.loadModel ? new GLTFLoader().register(() => textureUploads(host.renderer).plugin())
         .setKTX2Loader(sharedKtx(host.renderer)).setMeshoptDecoder(MeshoptDecoder) : null;

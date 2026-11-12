@@ -123,12 +123,14 @@ export class MultiplayerClient extends EventTarget {
 
   constructor(url = multiplayerUrl(), private readonly storage: Storage | null = (() => {
     try { return window.sessionStorage; } catch { return null; }
-  })()) {
+  })(), region: string | null = null) {
     super();
     this.url = url;
     this.httpUrl = scoresUrl(url);
-    this.sessionKey = sessionKey();
-    this.resetKey = resetKey();
+    // Separate bounded region sessions cannot resume a retained pose/car outside their prepared coverage.
+    const suffix = region === null ? '' : `.region.${region}`;
+    this.sessionKey = sessionKey() + suffix;
+    this.resetKey = resetKey() + suffix;
     try { this.token = storage?.getItem(this.sessionKey) ?? null; } catch { /* storage may be disabled */ }
   }
   private readonly sessionKey: string;
