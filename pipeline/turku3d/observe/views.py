@@ -22,7 +22,7 @@ MAX_TOP_ELEVATION_DEG = 68.0  # nor a wall whose eaves are seen more steeply tha
 MIN_DISTANCE_M = 3.0
 MIN_WALL_M = 2.5  # shorter walls get no crop of their own; they show in their neighbours' margins
 COLUMN_M = 1.0
-TARGET_PX_PER_M = 30.0  # enough to count panes; beyond it more resolution earns nothing
+TARGET_PX_PER_M = 40.0  # enough to read glazing bars; beyond it more resolution earns nothing
 VIEWS_PER_WALL = 3
 SECOND_OPINION_APART_M = 6.0
 CROPS_PER_BUILDING = 10  # wall crops in one reading
@@ -165,7 +165,10 @@ def choose(candidates: list[WallView], count: int = VIEWS_PER_WALL) -> list[Wall
                          or all(c.pano.date[:4] != v.pano.date[:4] for c in chosen))
             if apart < SECOND_OPINION_APART_M and not different:
                 return 0.0
-            return v.quality * v.seen_fraction * (1.25 if different else 1.0) * min(1.0, apart / SECOND_OPINION_APART_M)
+            # A sharper look (a close panorama after a distant one) is worth more than a similar one.
+            sharper = float(np.clip((v.px_per_m / max(c.px_per_m for c in chosen)) ** 0.5, 0.7, 1.6))
+            return (v.quality * v.seen_fraction * (1.25 if different else 1.0) * sharper
+                    * min(1.0, apart / SECOND_OPINION_APART_M))
 
         second = max(pool, key=opinion, default=None)
         if second is not None and opinion(second) > 0.25:

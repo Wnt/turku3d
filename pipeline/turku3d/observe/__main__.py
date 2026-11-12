@@ -2,10 +2,12 @@
 
     python -m turku3d.observe views    (--building KEY... | --at E,N [--radius R] | --view ID...)
     python -m turku3d.observe describe (--building KEY... | --at E,N [--radius R] | --view ID...) [--effort low]
+    python -m turku3d.observe publish                 store every description of the work directory
 
 `views` writes the crops and views.json of each building under $TURKU3D_WORK/observe/buildings/<key>/ and reports
 the walls no panorama sees. `describe` also reads them and writes the description to
-$TURKU3D_WORK/observe/descriptions/building/<key>.json (the layout of a private descriptions root).
+$TURKU3D_WORK/observe/descriptions/building/<key>.json (the layout of a private descriptions root), and stores it
+through turku3d.world.store (docs/design/world-pipeline.md, section 4.2) when that is available.
 `--view` takes reference views of qa/views/views.jsonl and selects every building visible in them.
 """
 
@@ -26,6 +28,19 @@ from .panoramas import REPO, Panoramas
 from .prepare import prepare
 
 VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible in it
+
+
+def store(doc: dict) -> str | None:
+    """Store a description in the shared descriptions root; None when the world store is not there or refuses."""
+    try:
+        from turku3d.world import store as world_store
+    except ImportError:
+        return None
+    try:
+        return str(world_store.write_description(doc, by="w2-observe", note=doc["provenance"][0].get("note", "")))
+    except ValueError as error:  # a higher tier is stored already
+        print(f"observe: {doc['id']} not stored: {error}", file=sys.stderr)
+        return None
 
 
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0) -> dict:
@@ -75,7 +90,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe"])
+    ap.add_argument("command", choices=["views", "describe", "publish"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--everywhere", action="store_true", help="load the whole register to find --building keys")
@@ -87,6 +102,11 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
     a = ap.parse_args(argv)
+    if a.command == "publish":
+        root = a.out or config.work_root() / "observe"
+        for path in sorted((root / "descriptions/building").glob("*.json")):
+            print(json.dumps({"id": path.stem, "stored": store(json.loads(path.read_text()))}))
+        return 0
     if a.building and a.near:
         e, n = (float(x) for x in a.near.split(","))
         scene = lod2.scene_around(e, n, 400)
@@ -138,7 +158,8 @@ def main(argv=None) -> int:
             (target if not problems else packet / "invalid-description.json").write_text(
                 json.dumps(doc, indent=1, ensure_ascii=False))
             line.update(read_s=meta["seconds"], cost_usd=meta["cost_usd"], invalid=problems[:5] or None,
-                        description=str(target) if not problems else None)
+                        description=str(target) if not problems else None,
+                        stored=store(doc) if not problems else None)
         print(json.dumps(line, ensure_ascii=False), flush=True)
 
     if jobs:
