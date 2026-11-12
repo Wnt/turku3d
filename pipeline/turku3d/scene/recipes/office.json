@@ -173,8 +173,8 @@
     {
       "id": "103295888D",
       "entityId": "103295888D",
-      "url": "shared/f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710.glb",
-      "sha256": "f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710",
+      "url": "shared/634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c.glb",
+      "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
       "position": [
         194.05513001906664,
         0.0,
@@ -15851,7 +15851,7 @@
     },
     {
       "id": "building:103295888D:frontage",
-      "sha256": "f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710",
+      "sha256": "634429187e16cc204689ce3f21496bde5618d74d5b873fb7053202e0401a742c",
       "kind": "registered-frontage-appearance",
       "uncertaintyM": 0.05
     }
