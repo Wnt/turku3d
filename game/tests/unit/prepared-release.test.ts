@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { readPreparedScene, buildPreparedModel } from '../../src/world/preparedScene';
@@ -16,11 +16,24 @@ it('installs the shipped prepared release with matching collider identities and 
     const bytes = readFileSync(resolve(dirname(path), texture.url));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(texture.sha256);
   }
+  const checkedDependencies = new Set<string>();
   for (const asset of scene.assets) {
     const bytes = readFileSync(resolve(dirname(path), asset.url));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(asset.sha256);
     expect(bytes.readUInt32LE(0)).toBe(0x46546c67);
     expect(bytes.readUInt32LE(8)).toBe(bytes.length);
+    // A valid main GLB does not prove its external images were packaged. Missing
+    // KTX2 files previously passed this check and left an imported facade white.
+    expect(bytes.readUInt32LE(16)).toBe(0x4e4f534a);
+    const document = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString('utf8'));
+    for (const image of document.images ?? []) {
+      if (!image.uri) continue;
+      const dependency = resolve(dirname(path), dirname(asset.url), image.uri);
+      if (checkedDependencies.has(dependency)) continue;
+      checkedDependencies.add(dependency);
+      const imageBytes = readFileSync(dependency);
+      expect(createHash('sha256').update(imageBytes).digest('hex')).toBe(basename(dependency).split('.')[0]);
+    }
   }
   const ground = new GroundIndex();
   let triangles = 0;

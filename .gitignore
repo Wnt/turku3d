@@ -26,6 +26,7 @@ textures/out/
 textures/library/images/
 textures/run/out/
 *.ktx2
+!game/public/scenes/shared/*.ktx2
 *.exr
 qa/renders/
 game/test-results/
