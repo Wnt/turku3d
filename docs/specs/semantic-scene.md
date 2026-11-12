@@ -148,3 +148,11 @@ shadow batches. Playable-boundary guidance appears only near the player and
 requires an actual dry support sample; physical boundary collision remains.
 These changes repair regressions found in matched normal-gameplay captures of
 `b5dc631c`; they require a fresh visual comparison before acceptance.
+
+Placement groups preserve their original source parents. Multiple primitives of
+one species share a parent, while another cell's same species has a different
+parent; flattening those groups incorrectly removed 1,384 context instances in
+the first import. The corrected GLB retains all 2,242 unique placements under the
+actual consumer grouping rule. The office release also imports the complete
+`103295899S` facade from its adjacent frozen source tile: entities crossing the
+pilot boundary must not fall back to a plain collision proxy.
