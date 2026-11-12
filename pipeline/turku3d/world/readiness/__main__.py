@@ -1,7 +1,7 @@
 """check-readiness: how a compiled location, or any GLB, obeys docs/design/render-readiness.md.
 
-  python -m turku3d.world.readiness --location NAME [--store DIR] [--all] [--entity ID ...] [--json FILE]
-  python -m turku3d.world.readiness --glb FILE... [--kind building]
+  python -m turku3d.world check-readiness --location NAME [--store DIR] [--all] [--entity ID ...] [--json FILE]
+  python -m turku3d.world check-readiness --glb FILE... [--kind building]
 
 It reports per entity, per instanced asset and per location, and names the owning track of every finding. It never
 fails a build: the exit code is 0 unless the input cannot be read.
@@ -283,7 +283,7 @@ def run_files(paths: list[str], kind: str, rays: int, with_clusters: bool, log=p
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="check-readiness",
+        prog="python -m turku3d.world check-readiness",
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )

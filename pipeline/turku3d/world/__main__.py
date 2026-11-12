@@ -64,8 +64,13 @@ def watch(name: str, store: Store) -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["check-readiness"]:  # its own options: docs/design/render-readiness.md, section 9
+        from .readiness.__main__ import main as check_readiness
+
+        raise SystemExit(check_readiness(sys.argv[2:]))
     parser = argparse.ArgumentParser(prog="python -m turku3d.world", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("check-readiness", help="report how a built location obeys the render-readiness rules (--help)")
     build = commands.add_parser("build", help="discover and compile a location; prints per-stage timings")
     where = build.add_mutually_exclusive_group(required=True)
     where.add_argument("--area", help="a pilot area: the query comes from its reference views (qa/views/views.jsonl)")
