@@ -204,3 +204,67 @@ def litter_bin(position: tuple, yaw: float = 0) -> list[dict]:
         ribs.face((inner[1],inner[0],(inner[0][0],0.89,inner[0][2]),(inner[1][0],0.89,inner[1][2])))
     return [body.record("bin-body","iron","solid",position,yaw),
             ribs.record("bin-ribs","iron","passable",position,yaw)]
+
+
+FLAT_CANOPY_LAMP = {
+    "family": "turku-flat-canopy-lamp-v1",
+    "dimensions": [1.2, 5.6, 0.84],
+    "emitterOffset": [0, 4.85, 0],
+    "source": "Google panoramas hOH16IE5o9B6ar0x7Cm-9w and 9YcdVIRiQEgvodxtjAX71A, 2019-06; private observations",
+    "dimensionConfidence": "inferred prior; broad rectangular reflector visible, dimensions not surveyed",
+    "heightUncertaintyM": 0.8,
+}
+CROOK_LAMP = {
+    "family": "turku-crook-lamp-v1",
+    "dimensions": [0.70, 5.28, 0.32],
+    "emitterOffset": [-0.413, 4.55, 0],
+    "source": FLAT_CANOPY_LAMP["source"],
+    "dimensionConfidence": "inferred prior; crook and suspended bell visible, dimensions not surveyed",
+    "heightUncertaintyM": 0.8,
+}
+
+
+def flat_canopy_lamp(position: tuple, yaw: float = 0) -> list[dict]:
+    """Slender modern pole and broad rectangular reflector, not a T-arm lamp.
+
+    A short cylindrical uplight sits below the plate. The family declares its
+    source position; selecting a physical light direction is the emitter compiler's
+    responsibility. No glow is painted into the reflector's daytime material.
+    """
+    _check_attachment(position,yaw)
+    post, head, glass = _Geometry(), _Geometry(), _Geometry()
+    post.taper(0,0.08,0.10,0.10,12)
+    post.taper(0.08,5.56,0.075,0.046,12)
+    post.taper(0.70,0.77,0.082,0.082,12)
+    head.box((0,5.58,0),(1.2,0.04,0.84))
+    head.taper(4.37,4.67,0.085,0.085,12)
+    head.taper(4.67,4.81,0.085,0.11,12)
+    glass.taper(4.81,4.85,0.10,0.10,12)
+    return [post.record("canopy-post","iron","solid",position,yaw),
+            head.record("canopy-reflector","iron","passable",position,yaw),
+            glass.record("canopy-source","glass","passable",position,yaw)]
+
+
+def crook_lamp(position: tuple, yaw: float = 0) -> list[dict]:
+    """Riverfront scroll-crook lamp with a compact downward-facing bell.
+
+    The hook extends along local -X. This family is distinct from the four-pane
+    heritage lantern. The reference association is an observation, not proof that
+    every riverside municipal pole carries this fixture.
+    """
+    _check_attachment(position,yaw)
+    post, head, glass = _Geometry(), _Geometry(), _Geometry()
+    post.taper(0,0.12,0.105,0.105,12)
+    post.taper(0.12,0.60,0.085,0.06,12)
+    post.taper(0.60,5.00,0.06,0.025,12)
+    for y in (0.60,4.76,4.86):head.taper(y,y+0.035,0.05,0.05,12)
+    curve=[(-0.26+0.26*math.cos(i*1.3*math.pi/24),5.0+0.26*math.sin(i*1.3*math.pi/24),0) for i in range(25)]
+    for a,b in zip(curve,curve[1:]):head.beam(a,b,0.018,6)
+    x,y,_=curve[-1]
+    head.beam((x,y,0),(x,4.72,0),0.018,8)
+    head.taper(4.60,4.72,0.13,0.04,12,cx=x)
+    head.taper(4.57,4.60,0.16,0.16,12,cx=x)
+    glass.taper(4.54,4.57,0.11,0.13,12,cx=x)
+    return [post.record("crook-post","iron","solid",position,yaw),
+            head.record("crook-head","iron","passable",position,yaw),
+            glass.record("crook-source","glass","passable",position,yaw)]
