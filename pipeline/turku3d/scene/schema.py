@@ -5,13 +5,14 @@ import math
 
 SCHEMA = "turku-scene/1"
 FIELDS = {
-    "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn",
+    "scene": "schema release id origin bounds sources materials boundaries supports meshes fixtures emitters coverage collision spawn assets",
     "source": "id sha256 kind uncertaintyM",
-    "material": "id color roughness metalness",
+    "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
-    "mesh": "id entityId materialId positions indices collision supportId normals uv",
-    "fixture": "id family supportId position yaw dimensions meshIds emitterIds",
+    "mesh": "id entityId materialId positions indices collision supportId normals uv render",
+    "asset": "id entityId url sha256 position recipe bounds",
+    "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
     "emitter": "id fixtureId position color intensity range",
     "coverage": "mode bounds entityIds",
     "collision": "url sha256 bytes tris h",
@@ -49,12 +50,12 @@ def validate_scene(scene):
     tables = {}
     for plural, kind in (("sources", "source"), ("materials", "material"), ("boundaries", "boundary"),
                          ("supports", "support"), ("meshes", "mesh"), ("fixtures", "fixture"),
-                         ("emitters", "emitter")):
+                         ("emitters", "emitter"), ("assets", "asset")):
         if not isinstance(scene[plural], list):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            fields(row, kind, ("normals", "uv") if kind == "mesh" else ())
+            fields(row, kind, ("normals", "uv", "render") if kind == "mesh" else (("water", "baseColorTexture", "normalTexture", "ormTexture") if kind == "material" else ()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
                 raise ValueError(f"Invalid or duplicate {plural} ID {key}")
@@ -63,6 +64,12 @@ def validate_scene(scene):
     def ref(table, key):
         if key not in tables[table]:
             raise ValueError(f"Unknown {table} reference: {key}")
+    for asset in scene["assets"]:
+        vector(asset["position"], 3, "asset position")
+        vector(asset["bounds"]["min"], 3, "asset bounds min")
+        vector(asset["bounds"]["max"], 3, "asset bounds max")
+        if asset["recipe"] != "building" or len(asset["sha256"]) != 64:
+            raise ValueError("Invalid building asset")
     for source in scene["sources"]:
         if len(source["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in source["sha256"]):
             raise ValueError("Source requires SHA-256")
@@ -70,6 +77,17 @@ def validate_scene(scene):
         if source["uncertaintyM"] < 0:
             raise ValueError("Negative uncertainty")
     for material in scene["materials"]:
+        if "water" in material:
+            water=material["water"]
+            if set(water)!={"point","normal","band"}:
+                raise ValueError("Invalid explicit water recipe")
+            vector(water["point"],3,"water plane point")
+            vector(water["normal"],3,"water plane normal")
+        for name in ("baseColorTexture","normalTexture","ormTexture"):
+            if name in material:
+                texture=material[name]
+                if set(texture)!={"url","sha256","wrap"} or texture["wrap"] not in ("clamp","repeat") or len(texture["sha256"])!=64:
+                    raise ValueError("Invalid material texture")
         vector(material["color"], 3, "linear color")
         vector([material["roughness"], material["metalness"]], 2, "material")
         if any(x < 0 or x > 1 for x in material["color"] + [material["roughness"], material["metalness"]]):
@@ -102,6 +120,9 @@ def validate_scene(scene):
                 vector(mesh[name], size, name)
     for fixture in scene["fixtures"]:
         ref("supports", fixture["supportId"])
+        for key in fixture["sourceIds"]:
+            ref("sources", key)
+        vector([fixture["uncertaintyM"]], 1, "fixture uncertainty")
         vector(fixture["position"], 3, "fixture position")
         vector(fixture["dimensions"], 3, "fixture dimensions")
         vector([fixture["yaw"]], 1, "fixture yaw")

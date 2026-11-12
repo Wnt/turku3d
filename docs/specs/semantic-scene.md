@@ -22,8 +22,8 @@ explicit uncertainty in metres. A scene release identifies one frozen compilatio
 `coverage: {mode: "replace", bounds, entityIds}` replaces the complete bounded
 scene. `bounds` are [minX,minZ,maxX,maxZ]. The pilot is a standalone world, not a
 patch applied over old rendering/physics. Complete building entities may extend
-outside the walking bounds. Orange solid perimeter barriers make the temporary
-pilot limit visible. They are development geometry, not a city survey claim.
+outside the walking bounds. The terrain covers complete owned physics cells; there are no invented perimeter
+barriers. Evidence routes remain inside the declared prepared coverage.
 
 `collision` maps cell IDs to `{url,sha256,bytes,tris,h:[minY,maxY]}`. URLs are
 relative to the scene JSON. `spawn` contains `position`, `headingDeg`, and
@@ -33,17 +33,34 @@ pilot extent.
 
 ## First office source adapter
 
-The first adapter imports frozen trusted local prepared lidar/vector evidence,
-including complete building footprints and roof planes, into a 75 m square that
-covers about 50 m of frontage and its cross-section. It triangulates disjoint
-surface polygons with shared vector boundaries, retaining lidar ground samples,
-and emits collision in the same compilation. Cached `.pkl` data is local trusted
-input only. It must not be accepted from network requests.
+The adapter imports frozen trusted local prepared lidar/vector evidence, including
+complete building footprints and roof planes, into the four-cell envelope
+[125,187.5,250,312.5]. The central comparison remains about 50 m of frontage.
+It triangulates disjoint surface polygons with shared vector boundaries, retains
+lidar ground samples, fits mapped lower-quay paving and emits the shoreline wall
+and collision together. Overlay coordinates snap to a 10-micrometre grid to
+remove numerical returning edges before constrained triangulation; this is far
+below source uncertainty. Empty or unsupported observations do not become height
+measurements. Cached `.pkl` data is local trusted input only.
 
-This first producer proves scene loading and contact, not completed recognisable
-frontage: facade programs/textures, fixture inventories and separated lower-quay
-profiles are subsequent bounded changes. The existing evidence remains in its
-source library. No city-wide generation is performed.
+`assets` is a required collection of `{id,entityId,url,sha256,position,recipe,bounds}`.
+The first recipe is `building`; bounds contain world-local `min` and `max` vectors.
+The source adapter freezes existing approved content-addressed GLBs and dependencies,
+preserving facade-kit attributes, authored geometry, atlas bindings and roof maps.
+A semantic collision proxy has `render:false` when its visual product is an asset.
+This is a compiler decision; the runtime does not infer building identity.
+
+Materials may reference `baseColorTexture`, `normalTexture`, and `ormTexture` as
+`{url,sha256,wrap}` with wrap `repeat` or `clamp`. The compiler bakes all metric UV
+transforms into the mesh; no runtime transform guessing is needed. Base color maps
+are sRGB, the others linear. Optional `water:{point,normal,band}` declares the
+reflection plane explicitly. Required fixture `sourceIds` and `uncertaintyM`
+record mapped placement provenance; family dimensions remain inferred priors.
+
+The current pilot retains 17 published building assets and the published asphalt,
+slab and quay PBR maps. Furniture is emitted only with a resolved support and
+whole-base height checks. The upper retaining wall, fixture family association,
+vegetation and distant context are tracked separately from these completed inputs.
 
 ```
 source ../sandbox.env

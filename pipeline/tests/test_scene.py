@@ -11,7 +11,7 @@ class SemanticSceneTests(unittest.TestCase):
     def scene(self):
         return dict(schema="turku-scene/1", release="fixture", id="fixture", origin=[0,0,0], bounds=[0,0,10,10], sources=[],
                     materials=[dict(id=k,color=[.2,.2,.2],roughness=.8,metalness=0) for k in ("ground","road","footway")],
-                    boundaries=[],supports=[],meshes=[],fixtures=[],emitters=[],collision={},
+                    boundaries=[],supports=[],meshes=[],fixtures=[],emitters=[],collision={},assets=[],
                     coverage=dict(mode="replace",bounds=[0,0,10,10],entityIds=[]),
                     spawn=dict(position=[2,1,2],headingDeg=0,vehicle=dict(position=[3,1,3],yaw=0)))
 
@@ -50,6 +50,22 @@ class SemanticSceneTests(unittest.TestCase):
         m=s['meshes'][0];p=np.array(m['positions']).reshape(-1,3);ix=np.array(m['indices']).reshape(-1,3)
         tris=p[ix];area=np.abs(np.cross(tris[:,1]-tris[:,0],tris[:,2]-tris[:,0])[:,1]).sum()/2
         self.assertAlmostEqual(area,84)
+
+    def test_measured_lower_walk_remains_separate_from_upper_ground(self):
+        s=self.scene()
+        p=np.array([[x,3.6 if z<5 else 1.2,z] for x in range(-1,12) for z in range(-1,12)])
+        walk=dict(key='survey',line=shapely.LineString([[0,7],[10,7]]),width=2.,
+                  knots=np.array([0.,10.]),cross=np.array([-7.,-4.,-1.,0.,1.,4.,7.]),
+                  heights=np.tile([3.6,3.6,1.2,1.2,1.2,np.nan,np.nan],(2,1)))
+        s['materials'].append(dict(id='quay',color=[.3,.3,.3],roughness=.9,metalness=0))
+        ground_scene(s,p,[],[],[],[walk])
+        quays=[r for r in s['supports'] if r['kind']=='quay']
+        self.assertTrue(quays)
+        for support in quays:
+            m=next(m for m in s['meshes'] if m['id']==support['meshId'])
+            pos=np.array(m['positions']).reshape(-1,3)
+            np.testing.assert_allclose(pos[:,1],1.2,atol=1e-8)
+        validate_scene(s)
 
 
 if __name__=='__main__':unittest.main()

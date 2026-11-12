@@ -18,10 +18,10 @@ from turku3d import config as C
 from .schema import SCHEMA, validate_scene
 
 PALETTE = {
+    "quay-wall": ([.34,.32,.29],.9,0), "quay": ([.34,.32,.29],.9,0), "wood": ([.18,.09,.035],.8,0),
     "ground": ([.23, .22, .19], .95, 0), "road": ([.12, .13, .14], .94, 0),
     "footway": ([.39, .37, .33], .85, 0), "water": ([.025, .08, .09], .2, .1),
     "wall": ([.58, .43, .28], .9, 0), "roof": ([.15, .11, .09], .8, .1),
-    "barrier": ([.9, .48, .025], .7, 0),
     "iron": ([.025, .03, .035], .6, .7), "glass": ([.75, .58, .33], .2, .05),
 }
 
@@ -45,15 +45,15 @@ def mesh_record(key, entity, material, positions, indices, policy="solid", suppo
 
 
 def load_evidence(cache, bounds):
-    points, buildings, streets, waters, sources, props = [], {}, {}, {}, [], {}
+    points, buildings, streets, waters, sources, props, walks = [], {}, {}, {}, [], {}, {}
     xmin, zmin, xmax, zmax = bounds
-    for i in range(int(xmin // 250), int(xmax // 250) + 1):
-        for j in range(int(zmin // 250), int(zmax // 250) + 1):
+    for i in range(int(xmin // 250), int(np.ceil(xmax / 250))):
+        for j in range(int(zmin // 250), int(np.ceil(zmax / 250))):
             root = cache / f"t0_{i}_{j}"
-            for dataset in ("ground", "wfs", "poles"):
+            for dataset in ("ground", "wfs", "poles", "walkable"):
                 paths = sorted(root.glob(dataset + ".*.pkl"))
                 if not paths:
-                    if dataset == "poles":
+                    if dataset in ("poles", "walkable"):
                         continue
                     raise ValueError(f"Missing source dataset {root}/{dataset}")
                 # Multiple revisions require an explicit frozen input selection.
@@ -69,35 +69,53 @@ def load_evidence(cache, bounds):
                     buildings.update((str(b.key), b) for b in value["buildings"])
                     streets.update((g.wkb, (g, m)) for g, m in value["streets"])
                     waters.update((g.wkb, g) for g in value["water"])
-                else:
+                elif dataset == "poles":
                     props.update((p.object_id, p) for p in value)
-    return np.unique(np.concatenate(points), axis=0), list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values())
+                else:
+                    for patch in value:
+                        identity = str(patch["key"]) + ":" + digest(patch["knots"].tobytes())[:12]
+                        walks[identity] = patch
+    return np.unique(np.concatenate(points), axis=0), list(buildings.values()), list(streets.values()), list(waters.values()), sources, list(props.values()), list(walks.values())
 
 
-def ground_scene(scene, points, buildings, streets, waters):
+def ground_scene(scene, points, buildings, streets, waters, walks=()):
     window = shapely.box(*scene["bounds"])
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
-    dry = window.difference(water).difference(building_area)
+    dry = shapely.set_precision(window.difference(water).difference(building_area), 1e-5)
     regions = [(g.intersection(dry), "footway" if m in (2, 7, 8, 9) else "road")
                for g, m in streets if g.intersects(dry)]
-    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions]])
+    lower_walks = [p for p in walks if np.nanmedian(p["heights"][:, 3]) < 2.]
+    for p in walks:
+        band = p["line"].buffer(p["width"]/2, cap_style="flat", join_style="mitre").intersection(dry)
+        if not band.is_empty:
+            regions.append((band, "quay" if np.nanmedian(p["heights"][:, 3]) < 2. else "footway"))
+    regions = [(shapely.set_precision(g, 1e-5), kind) for g, kind in regions]
+    network = shapely.union_all([dry.boundary, *[g.boundary for g, _ in regions]], grid_size=1e-5)
     patches = [g for g in shapely.get_parts(shapely.polygonize(shapely.get_parts(network)))
-               if dry.covers(g.representative_point()) and g.area > .005]
+               if dry.covers(g.representative_point()) and g.area > 2e-6]
     linear = LinearNDInterpolator(points[:, [0, 2]], points[:, 1])
     nearest = NearestNDInterpolator(points[:, [0, 2]], points[:, 1])
     height_cache, boundary_cache = {}, {}
     def height(xz):
-        result = []
-        for x, z in np.round(xz, 7):
-            key = (float(x), float(z))
-            if key not in height_cache:
-                y = float(linear(x, z))
-                height_cache[key] = float(nearest(x, z)) if not np.isfinite(y) else y
-            result.append(height_cache[key])
-        return np.asarray(result)
+        from turku3d.coarse.walkable import grade
+        from turku3d.coarse.banks import quay_crest
+        xz = np.round(np.asarray(xz), 7)
+        missing = [tuple(row) for row in xz if tuple(row) not in height_cache]
+        if missing:
+            xy = np.array(missing)
+            y = linear(xy)
+            bad = ~np.isfinite(y)
+            y[bad] = nearest(xy[bad])
+            p = np.c_[xy[:,0], y, xy[:,1]]
+            p = grade(p, walks)
+            if lower_walks:
+                masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
+                p = quay_crest(p, lower_walks, water, masonry)
+            height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))
+        return np.array([height_cache[tuple(row)] for row in xz])
     for poly in sorted(patches, key=lambda g: g.wkb):
-        poly = shapely.segmentize(poly, 1.)
+        poly = shapely.set_precision(poly, 1e-5)
         key = "surface:" + digest(poly.wkb)[:16]
         kind = "ground"
         for region, candidate in regions:
@@ -105,7 +123,11 @@ def ground_scene(scene, points, buildings, streets, waters):
                 kind = candidate
         coords, segments, holes, ids = [], [], [], []
         for ring_no, ring in enumerate([poly.exterior, *poly.interiors]):
-            r = np.asarray(ring.coords)[:-1]
+            vertices = np.asarray(ring.coords)
+            # GEOS segmentize can erase a valid narrow polygon with a returning
+            # survey edge. Subdivide its ring directly, preserving every vertex.
+            r = np.concatenate([a + (b-a)*np.arange(max(1,int(np.ceil(np.linalg.norm(b-a)))) )[:,None]/max(1,int(np.ceil(np.linalg.norm(b-a))))
+                                for a,b in zip(vertices[:-1],vertices[1:],strict=True)])
             start = len(coords)
             coords.extend(r.tolist())
             segments.extend((start + k, start + (k + 1) % len(r)) for k in range(len(r)))
@@ -118,7 +140,7 @@ def ground_scene(scene, points, buildings, streets, waters):
                     boundary_cache[bid] = dict(id=bid, positions=np.c_[endpoints[:, 0], height(endpoints), endpoints[:, 1]].tolist())
                 ids.append(bid)
         # Reuse measured ground samples inside the patch, with vector boundaries fixed.
-        local = points[shapely.contains_xy(poly, points[:, 0], points[:, 2])][:, [0, 2]]
+        local = points[shapely.contains_xy(poly.buffer(-1e-4), points[:, 0], points[:, 2])][:, [0, 2]]
         data = dict(vertices=np.r_[np.asarray(coords), local], segments=np.asarray(segments))
         if holes:
             data["holes"] = holes
@@ -130,6 +152,28 @@ def ground_scene(scene, points, buildings, streets, waters):
         scene["meshes"].append(mesh)
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
     scene["boundaries"] = list(boundary_cache.values())
+    if lower_walks and not water.is_empty:
+        from turku3d.structures.geometry import Faces
+        shore = water.boundary.intersection(window.buffer(-.001))
+        for i,line in enumerate(shapely.get_parts(shore)):
+            if line.geom_type != "LineString":
+                continue
+            xz = np.asarray(shapely.segmentize(line,1.).coords)
+            p = np.c_[xz[:,0], height(xz), xz[:,1]]
+            faces=Faces()
+            for a,b in zip(p[:-1],p[1:],strict=True):
+                if min(a[1],b[1]) < .5:
+                    continue
+                # Visible wall continues below water. Depth is an explicit visual prior.
+                face=np.array([a,b,[b[0],-.5,b[2]],[a[0],-.5,a[2]]])
+                n=np.cross(face[1]-face[0],face[2]-face[0])[[0,2]]
+                n/=max(np.linalg.norm(n),1e-12)
+                midpoint=(a[[0,2]]+b[[0,2]])/2
+                if not water.covers(shapely.Point(midpoint+n*.01)):
+                    face=face[::-1]
+                faces.face(face)
+            if faces.indices:
+                scene["meshes"].append(mesh_record(f"quay-face:{i}",f"quay-face:{i}","quay-wall",faces.positions,faces.indices,uv=faces.uvs))
     if not water.is_empty:
         import mapbox_earcut
         for i, poly in enumerate(shapely.get_parts(water)):
@@ -145,16 +189,17 @@ def ground_scene(scene, points, buildings, streets, waters):
     return height
 
 
-def compile_scene(cache, bounds=(140., 220., 215., 295.), scene_id="office"):
+def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=()):
     from turku3d.coarse.extrusion import extrude
-    points, buildings, streets, waters, sources, props = load_evidence(Path(cache), bounds)
+    points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     scene = dict(schema=SCHEMA, release="pending", id=scene_id,
                  origin=[C.ORIGIN_E, C.ORIGIN_N, 0], bounds=list(bounds), sources=sources,
                  materials=[dict(id=k, color=c, roughness=r, metalness=m) for k, (c, r, m) in PALETTE.items()],
-                 boundaries=[], supports=[], meshes=[], fixtures=[], emitters=[],
+                 boundaries=[], supports=[], meshes=[], fixtures=[], emitters=[], assets=list(assets),
                  coverage=dict(mode="replace", bounds=list(bounds), entityIds=[]), collision={},
-                 spawn=dict(position=[184., 4., 265.], headingDeg=65., vehicle=dict(position=[177., 4., 271.], yaw=1.05)))
-    height = ground_scene(scene, points, buildings, streets, waters)
+                 spawn=dict(position=[175.55, 4., 260.14], headingDeg=65., vehicle=dict(position=[164., 4., 265.], yaw=1.05)))
+    next(m for m in scene["materials"] if m["id"]=="water")["water"] = dict(point=[0.,.05,0.],normal=[0.,1.,0.],band="aurajoki-office")
+    height = ground_scene(scene, points, buildings, streets, waters, walks)
     window = shapely.box(*bounds)
     for b in buildings:
         if not b.footprint.intersects(window):
@@ -163,36 +208,22 @@ def compile_scene(cache, bounds=(140., 220., 215., 295.), scene_id="office"):
         roof, ri, floor, fi, walls, uv, wi = extrude(b)
         for suffix, material, p, ix, tex in (("roof", "roof", roof, ri, None), ("wall", "wall", walls, wi, uv)):
             if len(ix):
-                scene["meshes"].append(mesh_record(f"{b.key}:{suffix}", str(b.key), material, p, ix, uv=tex))
+                record = mesh_record(f"{b.key}:{suffix}", str(b.facade_key), material, p, ix, uv=tex)
+                if any(a["entityId"] == str(b.facade_key) for a in assets):
+                    record["render"] = False
+                scene["meshes"].append(record)
+    from .fixtures import place_furniture
+    place_furniture(scene, props)
     for location in [scene["spawn"], scene["spawn"]["vehicle"]]:
         p = location["position"]
         p[1] = float(height([[p[0], p[2]]])[0]) + .15
-    # Explicit temporary pilot perimeter: visible orange solid barriers, never an invisible blocker.
-    xmin, zmin, xmax, zmax = bounds
-    from turku3d.structures.geometry import Faces
-    footprint_union = shapely.union_all([b.footprint for b in buildings])
-    for side, (a, b) in enumerate([((xmin,zmin),(xmax,zmin)), ((xmax,zmin),(xmax,zmax)),
-                                   ((xmax,zmax),(xmin,zmax)), ((xmin,zmax),(xmin,zmin))]):
-        a, b = np.asarray(a), np.asarray(b)
-        length = np.linalg.norm(b-a)
-        tangent = (b-a)/length
-        normal = np.array([-tangent[1],tangent[0]])*.12
-        for k in range(int(np.ceil(length/2))):
-            start, end = a+tangent*(k*2), a+tangent*min(length,(k+1)*2)
-            centre = (start+end)/2
-            if footprint_union.covers(shapely.Point(centre)):
-                continue
-            bottom = float(height([centre])[0])-.1
-            ring = np.array([start-normal,end-normal,end+normal,start+normal])
-            lo = np.c_[ring[:,0],np.full(4,bottom),ring[:,1]]
-            hi = lo.copy(); hi[:,1] += 1.3
-            f = Faces()
-            f.face(hi[::-1])
-            for j in range(4):
-                n=(j+1)%4
-                f.face([lo[j],hi[j],hi[n],lo[n]])
-            scene["meshes"].append(mesh_record(f"pilot-perimeter:{side}:{k}", "pilot-perimeter", "barrier", f.positions, f.indices))
-    scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]})
+    scene["coverage"]["entityIds"] = sorted({m["entityId"] for m in scene["meshes"]} | {a["entityId"] for a in assets})
+    for recipe in material_recipes:
+        material=recipe["material"]
+        scene["materials"]=[m for m in scene["materials"] if m["id"]!=material["id"]]+[material]
+        for mesh in scene["meshes"]:
+            if mesh["materialId"]==material["id"]:
+                mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
     scene["release"] = digest(json.dumps(scene, sort_keys=True, separators=(",", ":")).encode())
     return scene
 
@@ -205,8 +236,8 @@ def write_products(scene, output):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     xmin, zmin, xmax, zmax = scene["bounds"]
-    for i in range(int(xmin // 62.5), int(xmax // 62.5) + 1):
-        for j in range(int(zmin // 62.5), int(zmax // 62.5) + 1):
+    for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
+        for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):
             from turku3d.structures.geometry import Mesh
             p, ix, mats, count = [], [], [], 0
             bbox = C.BBoxLocal(i * 62.5, j * 62.5, (i + 1) * 62.5, (j + 1) * 62.5)
@@ -214,7 +245,7 @@ def write_products(scene, output):
                 if m["collision"] not in ("solid", "sensor"):
                     continue
                 pos = np.asarray(m["positions"]).reshape(-1, 3)
-                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "pole", "barrier": "fence"}.get(m["materialId"], m["materialId"])
+                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "quay-wall": "quay"}.get(m["materialId"], m["materialId"])
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
                 clipped = clip_mesh(source, bbox)
                 if clipped is None:
