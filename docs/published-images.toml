@@ -458,7 +458,28 @@ reason = "Matched starting point for the next-generation campaign"
 
 [[external_captures]]
 url = "https://city.lab.madekivi.fi/progress-evidence/iteration-01-bf303013/"
-files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4"]
+files = ["office-frontage.png", "quay.png", "paving.png", "along-frontage.png", "walk-5s.mp4", "night-office-frontage.png", "night-quay.png"]
 source = "Turku3D normal gameplay captured on Windows; release bf303013, exact camera and render settings match baseline"
 licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Office crown, furniture and immediate quay evidence with wider context limitations disclosed"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-02-56262bd6/"
+files = ["office-frontage.png", "night-office-frontage.png", "night-quay.png", "walk-5s.mp4", "night-walk-3s.mp4"]
+source = "Turku3D normal Windows gameplay, release 56262bd6; cameras and day/night settings match bf303013"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Mapped lamp-family and local night-lighting comparison with photometry and terrain-transport limitations"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/hero-before-dfdccafa/"
+files = ["roof-frontage.png", "roof-oblique.png", "cornice-oblique.png"]
+source = "Turku3D normal Windows gameplay, release dfdccafa; recorded dedicated office roof cameras"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office roofline starting point; this historical release also predates lamp and context repairs"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-03-207e6a88/"
+files = ["roof-frontage.png", "roof-oblique.png", "cornice-oblique.png", "office-frontage.png", "walk-5s.mp4"]
+source = "Turku3D normal Windows gameplay, release 207e6a88; exact dedicated roof cameras match dfdccafa"
+licence = "Original game captures; underlying city data and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Office chimney/dormer/cornice/paint evidence; motion clip ends at parked-car collision"
