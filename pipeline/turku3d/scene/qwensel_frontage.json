@@ -153,7 +153,7 @@
     "flightRun": 1.6,
     "backOffset": 0.15,
     "depth": 0.9,
-    "stepsPerFlight": 7,
+    "stepsPerFlight": 8,
     "footGroundHeights": [
       3.82,
       3.82
@@ -188,7 +188,7 @@
         0.0118,
         0.0145
       ],
-      "dimensionConfidence": "Seven steps,1.2m platform width,1.6m runs and0.9m depth are reference/profile priors; narrow deck scan strip does not survey full depth. Contact heights rounded to0.01m; ground uncertainty +/-0.03m."
+      "dimensionConfidence": "Eight risers (seven treads plus landing),1.2m platform width,1.6m runs and0.9m depth are construction/profile priors; eight risers preserve the0.20m gameplay step limit across measured toe crossfall. Narrow deck scan strip does not survey full depth. Raw contact heights rounded to0.01m; producer samples actual terrain per contact corner."
     }
   }
 }

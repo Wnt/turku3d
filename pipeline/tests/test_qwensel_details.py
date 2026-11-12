@@ -1,7 +1,7 @@
 """Reviewed Qwensel frontage topology, anchors and generated map checks."""
 import math
 import unittest
-from turku3d.scene.qwensel_details import QWENSEL_FRONTAGE as D, frontage_anchor, frontage_length, qwensel_window_details, timber_shutter_pair, qwensel_entrance_details, opposed_timber_stair
+from turku3d.scene.qwensel_details import QWENSEL_FRONTAGE as D, frontage_anchor, frontage_length, qwensel_window_details, timber_shutter_pair, qwensel_entrance_details, opposed_timber_stair, qwensel_entrance_supports
 from turku3d.scene.qwensel_maps import frontage_maps
 
 
@@ -55,7 +55,7 @@ class QwenselDetailsTests(unittest.TestCase):
         tread=meshes[0];ys=tread['positions'][1::3]
         self.assertAlmostEqual(max(ys),entry['landingHeight'])
         for ground in entry['footGroundHeights']:
-            self.assertLessEqual((entry['landingHeight']-ground)/entry['stepsPerFlight'],.22)
+            self.assertLessEqual((entry['landingHeight']-ground)/entry['stepsPerFlight'],.20)
         self.assertGreaterEqual(entry['flightRun']/(entry['stepsPerFlight']-1),.20)
         self.assertLess(sum(len(m['indices'])//3 for m in meshes),1200)
         self.assertAlmostEqual(D['baseHeight']+D['door']['sill'],entry['landingHeight'],places=6)
@@ -64,6 +64,29 @@ class QwenselDetailsTests(unittest.TestCase):
             self.assertGreaterEqual(min(m['positions'][1::3]),3.79)
         with self.assertRaises(ValueError):
             opposed_timber_stair((0,5.2,0),landing_width=1.2,flight_run=1.6,depth=.9,back_offset=.15,steps=7,foot_ground_heights=[0,0],post_ground_heights=[0,0])
+
+    def test_crossfall_contacts_and_exact_tread_supports(self):
+        position,yaw=frontage_anchor(D['door']['along'],D['entrance']['landingHeight']);c,s=math.cos(yaw),math.sin(yaw)
+        def ground(x,z):
+            outward=s*(x-position[0])+c*(z-position[2])
+            return 3.92-.13*outward
+        meshes=qwensel_entrance_details(support_height=ground)
+        supports=qwensel_entrance_supports(support_height=ground)
+        self.assertEqual(len(supports),15)
+        solid_vertices={tuple(round(v,7) for v in meshes[0]['positions'][i:i+3]) for i in range(0,len(meshes[0]['positions']),3)}
+        heights=[]
+        for support in supports:
+            self.assertFalse(support['render']);self.assertEqual(support['collision'],'passable')
+            points=[support['positions'][i:i+3] for i in range(0,len(support['positions']),3)]
+            self.assertLess(max(p[1] for p in points)-min(p[1] for p in points),1e-7)
+            self.assertTrue(all(tuple(round(v,7) for v in p) in solid_vertices for p in points))
+            heights.append(points[0][1])
+        for a,b in zip(sorted(set(round(h,7) for h in heights)),sorted(set(round(h,7) for h in heights))[1:]):self.assertLessEqual(b-a,.20)
+        frame=meshes[1];contact_vertices=[]
+        for i in range(0,len(frame['positions']),3):
+            x,y,z=frame['positions'][i:i+3]
+            if abs(y-ground(x,z))<1e-7:contact_vertices.append((x,y,z))
+        self.assertGreaterEqual(len(contact_vertices),16)
 
     def test_generated_maps_are_finite_and_same_size(self):
         images=frontage_maps()

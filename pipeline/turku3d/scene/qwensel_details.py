@@ -104,7 +104,7 @@ def qwensel_window_details(data=QWENSEL_FRONTAGE):
 
 
 def opposed_timber_stair(position,yaw=0,*,landing_width,flight_run,depth,back_offset,
-                          steps,foot_ground_heights,post_ground_heights):
+                          steps,foot_ground_heights,post_ground_heights,support_height=None,support_faces=None):
     """Opposed walkable flights attached to a threshold, with explicit contacts.
 
     Ground heights are absolute and supplied independently for both flight toes
@@ -117,18 +117,40 @@ def opposed_timber_stair(position,yaw=0,*,landing_width,flight_run,depth,back_of
     if not isinstance(steps,int) or not 4<=steps<=12 or not all(math.isfinite(v) and .5<=v<=3 for v in (landing_width,flight_run,depth)):
         raise ValueError('Bounded stair dimensions and integer step count required')
     if not math.isfinite(back_offset) or not 0<=back_offset<=.5:raise ValueError('Invalid wall clearance')
+    c,s=math.cos(yaw),math.sin(yaw)
+    def ground_at(x,z,fallback):
+        height=support_height(position[0]+c*x+s*z,position[2]-s*x+c*z) if support_height else fallback
+        if not math.isfinite(height) or not .7<=position[1]-height<=2.5:raise ValueError('Unsupported stair contact sample')
+        return height-position[1]
+    def supported_prism(g,x0,x1,z0,z1,top,fallback):
+        bottom=[(x,ground_at(x,z,fallback),z) for x,z in ((x0,z0),(x1,z0),(x1,z1),(x0,z1))]
+        if max(p[1] for p in bottom)>=top:raise ValueError('Terrain reaches above first stair tread')
+        upper=[(x,top,z) for x,_,z in bottom];g.face(bottom);g.face(tuple(reversed(upper)))
+        for i in range(4):
+            j=(i+1)%4;g.face((bottom[i],upper[i],upper[j],bottom[j]))
     tread,frame,rail=_Geometry(),_Geometry(),_Geometry();half=landing_width/2
     middle=back_offset+depth/2;front=back_offset+depth;edge=half+flight_run
+    def top_face(name,x0,x1,z0,z1,y):
+        if support_faces is None:return
+        g=_Geometry();g.face(((x0,y,z0),(x0,y,z1),(x1,y,z1),(x1,y,z0)))
+        record=g.record(name,'qwensel-tread','passable',position,yaw);record['render']=False;support_faces.append(record)
     tread.box((0,-.045,middle),(landing_width,.09,depth))
+    top_face('entrance-landing',-half,half,back_offset,front,0)
     for side,sign in enumerate((-1,1)):
-        low=foot_ground_heights[side]-position[1];rise=-low/steps;going=flight_run/(steps-1)
+        toe=sign*edge
+        low=min(ground_at(x,z,foot_ground_heights[side]) for x in (toe-.0175,toe+.0175) for z in (back_offset,front))
+        rise=-low/steps;going=flight_run/(steps-1)
+        if rise>.20:raise ValueError('Stair rise exceeds supported gameplay step height')
         for i in range(steps-1):
             top=low+(i+1)*rise;x=sign*(edge-(i+.5)*going)
             tread.box((x,top-.035,middle),(going+.015,.07,depth))
-            frame.box((sign*(edge-i*going),top-rise/2,middle),(.035,rise,depth))
+            top_face(f'entrance-{side}-tread-{i}',x-(going+.015)/2,x+(going+.015)/2,back_offset,front,top)
+            if i==0:supported_prism(frame,toe-.0175,toe+.0175,back_offset,front,top,foot_ground_heights[side])
+            else:frame.box((sign*(edge-i*going),top-rise/2,middle),(.035,rise,depth))
         frame.box((sign*half,-rise/2,middle),(.035,rise,depth))
         for z in (back_offset+.055,front-.055):
-            frame.beam((sign*edge,low+.05,z),(sign*half,-.10,z),.05,4)
+            stringer_ground=ground_at(sign*edge,z,foot_ground_heights[side])
+            frame.beam((sign*edge,stringer_ground+.04,z),(sign*half,-.10,z),.05,4)
             bottom=(sign*(edge-.10),low+rise,z);upper=(sign*half,0,z)
             for x,y,zz in (bottom,upper):frame.box((x,y+.46,zz),(.075,.92,.075))
             rail.beam((bottom[0],bottom[1]+.91,z),(upper[0],.91,z),.045,4)
@@ -136,8 +158,7 @@ def opposed_timber_stair(position,yaw=0,*,landing_width,flight_run,depth,back_of
             # centre unobstructed while giving the pale railing its silhouette.
             rail.beam((bottom[0],bottom[1]+.12,z),(upper[0],.79,z),.026,4)
             rail.beam((bottom[0],bottom[1]+.79,z),(upper[0],.12,z),.026,4)
-        post_low=post_ground_heights[side]-position[1]
-        frame.box((sign*half,post_low/2,front-.055),(.10,-post_low,.10))
+        supported_prism(frame,sign*half-.05,sign*half+.05,front-.105,front-.005,0,post_ground_heights[side])
     rail.beam((-half,.91,front-.055),(half,.91,front-.055),.045,4)
     rail.beam((-half,.12,front-.055),(half,.79,front-.055),.026,4)
     rail.beam((-half,.79,front-.055),(half,.12,front-.055),.026,4)
@@ -146,11 +167,11 @@ def opposed_timber_stair(position,yaw=0,*,landing_width,flight_run,depth,back_of
             rail.record('stair-rails','qwensel-trim','solid',position,yaw)]
 
 
-def qwensel_entrance_details(data=QWENSEL_FRONTAGE):
+def qwensel_entrance_details(data=QWENSEL_FRONTAGE,*,support_height=None):
     door,entry=data['door'],data['entrance'];position,yaw=frontage_anchor(door['along'],entry['landingHeight'],data)
     meshes=opposed_timber_stair(position,yaw,landing_width=entry['landingWidth'],flight_run=entry['flightRun'],
                                depth=entry['depth'],back_offset=entry['backOffset'],steps=entry['stepsPerFlight'],
-                               foot_ground_heights=entry['footGroundHeights'],post_ground_heights=entry['postGroundHeights'])
+                               foot_ground_heights=entry['footGroundHeights'],post_ground_heights=entry['postGroundHeights'],support_height=support_height)
     # Raised panelled double door and shallow moulded surround. The wall collider
     # remains authoritative; these trim strips do not imply an opening interior.
     g=_Geometry();width,height=door['width'],door['height']
@@ -169,7 +190,7 @@ def qwensel_entrance_details(data=QWENSEL_FRONTAGE):
     return meshes
 
 
-def qwensel_entrance_contacts(data=QWENSEL_FRONTAGE):
+def qwensel_entrance_contacts(data=QWENSEL_FRONTAGE,*,support_height=None):
     """Explicit authored contact centres for producer/source ground audits."""
     entry=data['entrance'];position,yaw=frontage_anchor(data['door']['along'],entry['landingHeight'],data)
     c,s=math.cos(yaw),math.sin(yaw);half=entry['landingWidth']/2;edge=half+entry['flightRun']
@@ -178,7 +199,24 @@ def qwensel_entrance_contacts(data=QWENSEL_FRONTAGE):
         for kind,x,z,height,size in [
             ('toe',sign*edge,entry['backOffset']+entry['depth']/2,entry['footGroundHeights'][i],[.035,entry['depth']]),
             ('post',sign*half,entry['backOffset']+entry['depth']-.055,entry['postGroundHeights'][i],[.10,.10])]:
+            world_x,world_z=position[0]+c*x+s*z,position[2]-s*x+c*z
+            if support_height:height=support_height(world_x,world_z)
             result.append({'id':f'{"left" if sign<0 else "right"}-{kind}',
                            'position':[position[0]+c*x+s*z,height,position[2]-s*x+c*z],
                            'footprintSize':size,'yaw':yaw,'sourceUncertaintyM':.03})
     return result
+
+
+def qwensel_entrance_supports(data=QWENSEL_FRONTAGE,*,support_height=None):
+    """Exact tread/landing top faces emitted during construction, no mesh scan.
+
+    These render:false/passable records are canonical support proxies only;
+    collision remains in the solid entrance meshes, so no collider is duplicated.
+    """
+    entry=data['entrance'];position,yaw=frontage_anchor(data['door']['along'],entry['landingHeight'],data)
+    supports=[]
+    opposed_timber_stair(position,yaw,landing_width=entry['landingWidth'],flight_run=entry['flightRun'],
+                         depth=entry['depth'],back_offset=entry['backOffset'],steps=entry['stepsPerFlight'],
+                         foot_ground_heights=entry['footGroundHeights'],post_ground_heights=entry['postGroundHeights'],
+                         support_height=support_height,support_faces=supports)
+    return supports

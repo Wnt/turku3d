@@ -51,16 +51,23 @@ The threshold shifts0.25m along the retained wall relative to the initial photo
 prior. Independent class2 ground fits near the two flight toes use six returns
 each within0.4m, giving H3.823/3.816m (RMS6.3/1.2mm). Two post regions use10/9
 returns, giving H3.827/3.803m. Ground contacts are rounded to0.01m with±0.03m
-source uncertainty. Seven risers per flight (six treads plus the landing),1.2m platform width,1.6m runs and0.9m
+source uncertainty. Eight risers per flight (seven treads plus the landing),1.2m platform width,1.6m runs and0.9m
 depth remain construction/profile priors; the small point strip does not measure
-every tread or the full platform outline. Resulting risers are about0.197m.
+every tread or the full platform outline. Resulting risers are about0.175–0.177m. Eight is an explicit construction
+prior chosen within the sparse profile evidence, preserving the existing0.20m
+player step limit across the compiled ground crossfall.
 
 `qwensel_entrance_details()` adds closed treads, risers, stringers, supporting
 posts and crossed rails as solid meshes; door mouldings are passable ornaments.
 `qwensel_entrance_contacts()` exposes four actual toe/post contact centres and
 footprints for the producer to compare against its current terrain. The source
 survey does not itself prove agreement with a subsequently compiled ground mesh;
-that remains an integration and deployed foot-contact check.
+that remains an integration and deployed foot-contact check. The producer passes
+`support_height(x,z)` to both entrance helpers. First-riser and platform-post
+bottom corners follow those actual samples; horizontal tread tops divide the
+rise from the lowest toe corner to the fixed landing into eight equal risers.
+The family rejects a rise above0.20m or a toe corner above its first tread.
+No terrain flattening, fixture-wide burial or relaxed player physics is used.
 
 Generate the owned asset without reference images:
 
@@ -76,3 +83,9 @@ contacts against current ground before activation. Dedicated normal-gameplay bef
 internal resolution, with fixed world transforms recorded for the after pair.
 The wide view is partly tree-occluded; oblique and close views show the frontage.
 Activation follows this baseline; input generation and unit checks alone are not a visible milestone.
+
+`qwensel_entrance_supports()` emits the fifteen horizontal tread/landing faces
+from the same construction coordinates, marked render:false/passable. The
+compiler can register these as canonical supports while keeping collision only
+in the solid stair geometry; it must not reconstruct support meaning from final
+triangles or add a second coincident collider.
