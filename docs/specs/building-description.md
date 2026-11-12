@@ -1,16 +1,28 @@
 # Building description
 
-What one building looks like, stored as measured data: `turku-building-description/1`.
+What one building looks like, stored as measured data: `turku-description/building/1`, the description of the
+`building` kind in the [world pipeline](../design/world-pipeline.md).
 Schema: [building-description.schema.json](building-description.schema.json).
 Owner: `w2-buildings` (generator). Filled by `w2-observe` (vision readings, priors). Stored by `w2-core`.
 
-One document describes one building entity. The generator turns a description plus the building's LoD2 shell into
-a mesh and material records. Nothing about a building lives in code: a part that only one building has is a named
+One document describes one building entity, `building/<permanent building id>`. The generator compiles it into a
+mesh and material records. Nothing about a building lives in code: a part that only one building has is a named
 [landmark component](#landmark-components) with parameters in its description.
 
 ```sh
-bash pipeline/env/run.sh python -m turku3d.buildgen.description FILE...   # validate, print what is missing
+bash pipeline/env/run.sh python -m turku3d.world.kinds.building.description FILE...   # validate, list what is left to priors
 ```
+
+## Stored and effective descriptions
+
+- The **stored description** is what observation and review wrote: any subset of the fields below, never `shell`.
+- The **effective description** is what `describe` hands to `compile`: the automatic fit from source data (`shell`,
+  `register`, a `style`, `wall_defaults` and a `roof` from priors) with the stored description laid over it.
+  - `shell` and `register` always come from the sources.
+  - `materials` and `opening_types` merge by name; `wall_defaults` merges field by field; stored values win.
+  - Every other top-level field of the stored description replaces the automatic one.
+- `shell` holds the LoD2 surfaces as rings of `[E, N, H]`, the terrain line around the footprint and the footprints
+  and heights of touching neighbours, so that `compile` needs nothing but the description.
 
 ## Rules
 
@@ -20,8 +32,8 @@ bash pipeline/env/run.sh python -m turku3d.buildgen.description FILE...   # vali
    Say `"kind": "none"` or an empty list to state that a part is absent. The generator fills absent fields from
    priors selected by `style` and `register`, and from `wall_defaults`.
 3. **Confidence per field.** Any object may carry `conf`, a map from its own field names to 0..1; `"*"` is the
-   default for the object's fields and for nested objects without their own `conf`. `src` names entries of the
-   top-level `provenance` map. Readers merge by taking, per field, the value with the highest confidence. The
+   default for the object's fields and for nested objects without their own `conf`. `src` gives the `key` of one or
+   more entries of the top-level `provenance` list. Readers merge by taking, per field, the value with the highest confidence. The
    generator ignores `conf`, except to decide what to drop when a wall does not fit its shell.
 
    | conf | Meaning |
@@ -29,11 +41,11 @@ bash pipeline/env/run.sh python -m turku3d.buildgen.description FILE...   # vali
    | 0.9–1.0 | measured on a rectified crop, or checked by a reviewer |
    | 0.6–0.8 | read from one clear view |
    | 0.3–0.5 | read from an oblique, distant or partly hidden view |
-   | 0.0–0.2 | a prior written down (state it with `src` of kind `prior`) |
+   | 0.0–0.2 | a prior written down (give it a provenance entry with `"source": "prior"`) |
 4. **References.** `materials` and `opening_types` are named dictionaries. A material field takes a name or an
    inline object. A storey's `window`, a `row` cell and a placed opening's `type` take an opening-type name.
-5. **Tiers.** `auto` (one automatic fit), `reviewed` (several panoramas, rendered and compared), `hand`
-   (written by an agent or a person from photos), `landmark` (uses components).
+5. **Tiers** are the envelope's: `auto` (fitted from registers, LoD2 and priors), `observed` (read from imagery by
+   the automatic chain), `reviewed` (checked against several panoramas, or written by hand from photos).
 
 ## Wall frame
 
@@ -140,7 +152,7 @@ described wall, that far behind its face). Its base follows the roof surface.
 ## Landmark components
 
 `components` lists named parts of the component kit, each with an anchor (`wall` + `u_m` + `v_m`, or `at`) and
-free `params`. The kit registry (`turku3d.buildgen.components`) documents each name and validates its parameters:
+free `params`. The kit registry (`turku3d.world.kinds.building.components`) documents each name and validates its parameters:
 `portico`, `dome`, `tower`, `spire`, `glazed_box`, `colonnade`, `arcade`, `clock_face`. A component may be used by
 any building.
 
@@ -152,16 +164,16 @@ between two wooden houses, a plot wall. `path` is a polyline in `[E, N]`; `gates
 ## Example
 
 A five-storey plastered apartment block, written by hand from one photo (shortened; the complete file is
-`pipeline/turku3d/buildgen/tests/fixtures/stone-apartment.json`, and a wooden house is beside it):
+`pipeline/turku3d/world/kinds/building/tests/fixtures/stone-apartment.json`, and a wooden house is beside it):
 
 ```json
 {
-  "schema": "turku-building-description/1",
-  "id": "example-stone",
-  "tier": "hand",
+  "schema": "turku-description/building/1",
+  "id": "building/example-stone",
+  "tier": "reviewed",
   "style": { "type": "classicist_apartment", "era": "1920-1939" },
   "identity_cues": ["dull red plaster", "cream window surrounds", "green columns under an entrance canopy"],
-  "provenance": { "p1": { "kind": "hand", "ref": "street photo 2026-07" } },
+  "provenance": [{ "source": "hand", "key": "street-photo-2026-07", "at": "2026-11-12T21:00:00Z", "by": "w2-buildings" }],
   "materials": {
     "wall": { "family": "plaster", "colour": "#a8564f", "finish": "fine" },
     "plinth": { "family": "granite", "colour": "#b9a58c", "finish": "ashlar", "scale_m": 0.45 }
@@ -194,7 +206,7 @@ A five-storey plastered apartment block, written by hand from one photo (shorten
         "supports": { "kind": "columns", "count": 2, "diameter_m": 0.35, "colour": "#3f5f52" }, "colour": "#e6d9a8" },
       { "kind": "downpipe", "u_m": 3.9, "colour": "#3a3a3a" }
     ],
-    "conf": { "*": 0.7 }, "src": "p1"
+    "conf": { "*": 0.7 }, "src": "street-photo-2026-07"
   }],
   "roof": { "material": { "family": "sheet_metal", "colour": "#4a4a48", "profile": "standing_seam", "scale_m": 0.6 },
             "eaves": { "overhang_m": 0.4, "soffit": "cornice" } }
@@ -204,7 +216,7 @@ A five-storey plastered apartment block, written by hand from one photo (shorten
 ## Earlier facade programs
 
 The 650 programs in `textures/library/facade-programs.json` (`facade-program-prototype-1`) convert with
-`python -m turku3d.buildgen.convert`. The converter keeps their measurements (window rectangles, colours, storey
+`python -m turku3d.world.kinds.building.convert`. The converter keeps their measurements (window rectangles, colours, storey
 splits, trim) and their `support` values as `conf`; nothing else reads the old format.
 
 ## Changes

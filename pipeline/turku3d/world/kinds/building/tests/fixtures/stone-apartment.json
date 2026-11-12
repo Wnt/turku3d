@@ -1,0 +1,275 @@
+{
+  "schema": "turku-description/building/1",
+  "id": "building/example-stone",
+  "tier": "reviewed",
+  "register": {
+    "year": 1928,
+    "storeys": 5
+  },
+  "style": {
+    "type": "classicist_apartment",
+    "era": "1920-1939"
+  },
+  "identity_cues": [
+    "dull red plaster",
+    "cream window surrounds",
+    "green columns under an entrance canopy"
+  ],
+  "provenance": [
+    {
+      "source": "hand",
+      "key": "street-photo-2026-07",
+      "at": "2026-11-12T21:00:00Z",
+      "by": "w2-buildings"
+    }
+  ],
+  "materials": {
+    "wall": {
+      "family": "plaster",
+      "colour": "#a8564f",
+      "finish": "fine"
+    },
+    "plinth": {
+      "family": "granite",
+      "colour": "#b9a58c",
+      "finish": "ashlar",
+      "scale_m": 0.45
+    },
+    "roof": {
+      "family": "sheet_metal",
+      "colour": "#4a4a48",
+      "profile": "standing_seam",
+      "scale_m": 0.6
+    }
+  },
+  "opening_types": {
+    "w": {
+      "kind": "window",
+      "w_m": 1.15,
+      "h_m": 1.55,
+      "recess_m": 0.12,
+      "lights": {
+        "pattern": "t_frame",
+        "transom_at": 0.7
+      },
+      "frame": {
+        "colour": "#ece6d4",
+        "width_m": 0.07
+      },
+      "surround": {
+        "kind": "flat",
+        "width_m": 0.12,
+        "projection_m": 0.03,
+        "colour": "#e6d9a8"
+      },
+      "sill": {
+        "kind": "plaster",
+        "projection_m": 0.06,
+        "height_m": 0.08,
+        "colour": "#e6d9a8"
+      },
+      "glass": {
+        "reflectivity": 0.5,
+        "curtains": 0.6,
+        "blinds": 0.2,
+        "interior": "dwelling"
+      },
+      "conf": {
+        "*": 0.7,
+        "recess_m": 0.3
+      }
+    },
+    "arch": {
+      "kind": "window",
+      "w_m": 1.6,
+      "h_m": 2.3,
+      "head": "round",
+      "recess_m": 0.2,
+      "lights": {
+        "pattern": "grid",
+        "cols": 3,
+        "rows": 4
+      },
+      "surround": {
+        "kind": "moulded",
+        "width_m": 0.14,
+        "projection_m": 0.04,
+        "colour": "#e6d9a8",
+        "apron": {
+          "kind": "panel",
+          "height_m": 0.8,
+          "colour": "#a8564f"
+        }
+      }
+    },
+    "door": {
+      "kind": "door",
+      "w_m": 1.5,
+      "h_m": 2.6,
+      "head": "round",
+      "recess_m": 0.4,
+      "leaf": {
+        "leaves": 2,
+        "style": "panelled",
+        "colour": "#6b4a36",
+        "fanlight": "round",
+        "steps": 3
+      }
+    },
+    "gate": {
+      "kind": "gateway",
+      "w_m": 2.6,
+      "h_m": 3.1,
+      "head": "flat",
+      "leaf": {
+        "leaves": 2,
+        "style": "bars",
+        "colour": "#2c2c2c"
+      },
+      "passage": {
+        "depth": "through",
+        "lining": "wall"
+      }
+    }
+  },
+  "walls": [
+    {
+      "id": "street",
+      "frame": {
+        "p0": [
+          23459120.0,
+          6704740.0
+        ],
+        "p1": [
+          23459135.0,
+          6704722.0
+        ]
+      },
+      "observed": {
+        "visible_share": 0.85,
+        "hidden_m": [
+          [
+            14.0,
+            0.0,
+            23.4,
+            1.6
+          ]
+        ]
+      },
+      "material": "wall",
+      "plinth": {
+        "height_m": 0.9,
+        "projection_m": 0.05,
+        "material": "plinth"
+      },
+      "bays": [
+        {
+          "u_m": 2.1
+        },
+        {
+          "u_m": 5.6
+        },
+        {
+          "u_m": 9.4
+        },
+        {
+          "u_m": 13.2
+        },
+        {
+          "u_m": 16.7
+        },
+        {
+          "u_m": 20.5
+        }
+      ],
+      "storeys": [
+        {
+          "kind": "ground",
+          "height_m": 3.8,
+          "sill_m": 0.5,
+          "row": [
+            "arch",
+            "door",
+            "arch",
+            "gate",
+            "arch",
+            "arch"
+          ]
+        },
+        {
+          "kind": "upper",
+          "count": 4,
+          "height_m": 3.1,
+          "sill_m": 0.95,
+          "window": "w"
+        }
+      ],
+      "bands": [
+        {
+          "kind": "eaves_cornice",
+          "at": {
+            "storey": -1,
+            "edge": "top",
+            "offset_m": -0.5
+          },
+          "height_m": 0.5,
+          "projection_m": 0.35,
+          "profile": "dentil",
+          "colour": "#e6d9a8"
+        }
+      ],
+      "attached": [
+        {
+          "kind": "canopy",
+          "type": "entablature",
+          "u_m": 5.6,
+          "v_m": 3.3,
+          "w_m": 3.0,
+          "h_m": 0.6,
+          "depth_m": 1.3,
+          "supports": {
+            "kind": "columns",
+            "count": 2,
+            "diameter_m": 0.35,
+            "colour": "#3f5f52"
+          },
+          "colour": "#e6d9a8"
+        },
+        {
+          "kind": "downpipe",
+          "u_m": 3.9,
+          "colour": "#3a3a3a"
+        }
+      ],
+      "conf": {
+        "*": 0.7
+      },
+      "src": "street-photo-2026-07"
+    }
+  ],
+  "roof": {
+    "form_hint": "hip",
+    "material": "roof",
+    "eaves": {
+      "overhang_m": 0.4,
+      "soffit": "cornice"
+    },
+    "chimneys": [
+      {
+        "anchor": {
+          "wall": "street",
+          "u_m": 6.0,
+          "setback_m": 5.0
+        },
+        "w_m": 1.2,
+        "d_m": 0.6,
+        "h_m": 1.4,
+        "material": {
+          "family": "plaster",
+          "colour": "#a8564f"
+        },
+        "cap": "slab"
+      }
+    ]
+  }
+}

@@ -1,0 +1,309 @@
+{
+  "schema": "turku-description/building/1",
+  "id": "building/example-wooden",
+  "tier": "reviewed",
+  "register": {
+    "year": 1887,
+    "storeys": 1
+  },
+  "style": {
+    "type": "wooden_house",
+    "era": "1850-1899"
+  },
+  "identity_cues": [
+    "grey-beige weatherboard with white trim",
+    "carved brackets under wide eaves",
+    "hexagonal attic vent"
+  ],
+  "provenance": [
+    {
+      "source": "hand",
+      "key": "street-photo-2026-08",
+      "at": "2026-11-12T21:00:00Z",
+      "by": "w2-buildings"
+    }
+  ],
+  "materials": {
+    "board": {
+      "family": "weatherboard",
+      "colour": "#a79882",
+      "orientation": "horizontal",
+      "profile": "bevel",
+      "scale_m": 0.13
+    },
+    "dado": {
+      "family": "weatherboard",
+      "colour": "#a79882",
+      "orientation": "vertical",
+      "profile": "beaded",
+      "scale_m": 0.1
+    },
+    "trim": {
+      "family": "painted_wood",
+      "colour": "#efece4"
+    },
+    "plinth": {
+      "family": "rubble",
+      "colour": "#7d776d",
+      "colour2": "#9a958a",
+      "scale_m": 0.5
+    },
+    "roof": {
+      "family": "sheet_metal",
+      "colour": "#55575a",
+      "profile": "standing_seam",
+      "scale_m": 0.55
+    }
+  },
+  "opening_types": {
+    "w": {
+      "kind": "window",
+      "w_m": 1.05,
+      "h_m": 1.75,
+      "recess_m": 0.03,
+      "lights": {
+        "pattern": "t_frame",
+        "transom_at": 0.68
+      },
+      "frame": {
+        "colour": "#efece4",
+        "width_m": 0.06
+      },
+      "surround": {
+        "kind": "eared",
+        "width_m": 0.14,
+        "projection_m": 0.03,
+        "colour": "#efece4",
+        "apron": {
+          "kind": "boarded",
+          "height_m": 0.25,
+          "colour": "#efece4"
+        }
+      },
+      "pediment": {
+        "kind": "cornice",
+        "height_m": 0.12,
+        "projection_m": 0.08,
+        "colour": "#efece4"
+      },
+      "sill": {
+        "kind": "wood",
+        "projection_m": 0.05,
+        "height_m": 0.05,
+        "colour": "#efece4"
+      },
+      "glass": {
+        "reflectivity": 0.6,
+        "curtains": 0.8,
+        "interior": "dwelling"
+      }
+    },
+    "attic_vent": {
+      "kind": "vent",
+      "w_m": 0.7,
+      "h_m": 0.7,
+      "surround": {
+        "kind": "moulded",
+        "width_m": 0.1,
+        "colour": "#efece4"
+      }
+    }
+  },
+  "walls": [
+    {
+      "id": "street",
+      "frame": {
+        "p0": [
+          23458560.0,
+          6704200.0
+        ],
+        "p1": [
+          23458572.0,
+          6704208.0
+        ]
+      },
+      "material": "board",
+      "plinth": {
+        "height_m": 0.8,
+        "projection_m": 0.04,
+        "material": "plinth"
+      },
+      "bays": {
+        "count": 5,
+        "pitch_m": 2.6
+      },
+      "storeys": [
+        {
+          "kind": "ground",
+          "height_m": 3.6,
+          "sill_m": 1.0,
+          "window": "w"
+        },
+        {
+          "kind": "attic",
+          "height_m": 1.1,
+          "sill_m": 0.2,
+          "row": [
+            null,
+            null,
+            "attic_vent",
+            null,
+            null
+          ]
+        }
+      ],
+      "zones": [
+        {
+          "name": "dado",
+          "from": {
+            "storey": 0,
+            "edge": "floor"
+          },
+          "to": {
+            "storey": 0,
+            "edge": "sill",
+            "offset_m": -0.1
+          },
+          "material": "dado"
+        }
+      ],
+      "bands": [
+        {
+          "kind": "trim_board",
+          "at": {
+            "storey": 0,
+            "edge": "floor"
+          },
+          "height_m": 0.18,
+          "projection_m": 0.03,
+          "material": "trim"
+        },
+        {
+          "kind": "sill_band",
+          "at": {
+            "storey": 0,
+            "edge": "sill",
+            "offset_m": -0.12
+          },
+          "height_m": 0.12,
+          "projection_m": 0.03,
+          "material": "trim"
+        },
+        {
+          "kind": "trim_board",
+          "at": {
+            "storey": 1,
+            "edge": "floor"
+          },
+          "height_m": 0.14,
+          "projection_m": 0.03,
+          "material": "trim"
+        }
+      ],
+      "verticals": [
+        {
+          "kind": "corner_board",
+          "where": "ends",
+          "width_m": 0.22,
+          "projection_m": 0.03,
+          "material": "trim"
+        },
+        {
+          "kind": "downpipe",
+          "where": "left",
+          "colour": "#efece4"
+        }
+      ],
+      "attached": [
+        {
+          "kind": "porch",
+          "type": "boarded",
+          "u_m": 10.5,
+          "v_m": 0.0,
+          "w_m": 2.2,
+          "h_m": 3.0,
+          "depth_m": 1.6,
+          "roof": "gable",
+          "material": "board",
+          "roof_material": "roof"
+        }
+      ],
+      "conf": {
+        "*": 0.7
+      },
+      "src": "street-photo-2026-08"
+    }
+  ],
+  "roof": {
+    "form_hint": "gable",
+    "material": "roof",
+    "eaves": {
+      "overhang_m": 0.55,
+      "fascia_m": 0.16,
+      "soffit": "open_rafters",
+      "brackets": {
+        "kind": "carved",
+        "spacing_m": 1.1,
+        "size_m": 0.45
+      },
+      "gutter": true,
+      "colour": "#efece4"
+    },
+    "verge": {
+      "overhang_m": 0.45,
+      "bargeboard": "plain",
+      "colour": "#efece4"
+    },
+    "chimneys": [
+      {
+        "anchor": {
+          "wall": "street",
+          "u_m": 4.0,
+          "setback_m": 3.5
+        },
+        "w_m": 0.9,
+        "d_m": 0.6,
+        "h_m": 1.2,
+        "material": {
+          "family": "brick",
+          "colour": "#8a4b3a",
+          "colour2": "#b9b2a6",
+          "bond": "stretcher"
+        },
+        "cap": "slab"
+      }
+    ]
+  },
+  "site": [
+    {
+      "kind": "board_fence",
+      "path": [
+        [
+          23458572.0,
+          6704208.0
+        ],
+        [
+          23458577.0,
+          6704211.3
+        ]
+      ],
+      "height_m": 2.0,
+      "material": {
+        "family": "weatherboard",
+        "colour": "#a79882",
+        "orientation": "vertical",
+        "profile": "tongue_groove",
+        "scale_m": 0.12
+      },
+      "gates": [
+        {
+          "s_m": 3.0,
+          "w_m": 2.8,
+          "h_m": 2.2,
+          "kind": "double_leaf",
+          "colour": "#a79882"
+        }
+      ]
+    }
+  ]
+}

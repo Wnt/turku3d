@@ -1,6 +1,6 @@
 """Read and check building descriptions (docs/specs/building-description.md).
 
-python -m turku3d.buildgen.description FILE...   validate, and list what each wall leaves to the priors
+python -m turku3d.world.kinds.building.description FILE...   validate, and list what each wall leaves to the priors
 """
 
 import json
@@ -8,8 +8,8 @@ import sys
 from functools import cache
 from pathlib import Path
 
-SCHEMA_ID = "turku-building-description/1"
-SCHEMA_PATH = Path(__file__).resolve().parents[3] / "docs/specs/building-description.schema.json"
+SCHEMA_ID = "turku-description/building/1"
+SCHEMA_PATH = Path(__file__).resolve().parents[5] / "docs/specs/building-description.schema.json"
 
 
 @cache
@@ -31,7 +31,7 @@ def errors(doc: dict) -> list[str]:
         return out
     types = doc.get("opening_types", {})
     materials = doc.get("materials", {})
-    provenance = doc.get("provenance", {})
+    provenance = {entry["key"] for entry in doc.get("provenance", [])}
     walls = [w for w in doc.get("walls", [])]
     ids = [w.get("id") for w in walls if w.get("id")]
     if len(ids) != len(set(ids)):
@@ -68,7 +68,7 @@ def errors(doc: dict) -> list[str]:
             for i, value in enumerate(node):
                 walk(value, f"{path}/{i}")
 
-    walk({k: v for k, v in doc.items() if k not in ("materials", "provenance")}, "")
+    walk({k: v for k, v in doc.items() if k not in ("materials", "provenance", "shell")}, "")
     for wall in [doc.get("wall_defaults", {}), *walls]:
         bays = wall.get("bays")
         count = (

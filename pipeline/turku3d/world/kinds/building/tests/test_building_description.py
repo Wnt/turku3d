@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
-from turku3d.buildgen import description
+from turku3d.world.kinds.building import description
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -14,7 +14,7 @@ def test_fixture_descriptions_are_valid(name):
 
 
 def test_minimal_description_is_valid_and_reports_priors():
-    doc = {"schema": description.SCHEMA_ID, "id": "b1"}
+    doc = {"schema": description.SCHEMA_ID, "id": "building/b1"}
     assert description.errors(doc) == []
     assert description.unobserved(doc)[0].startswith("no described wall")
 

@@ -1,62 +1,182 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "turku-building-description/1",
+  "$id": "turku-description/building/1",
   "title": "Turku3D building description",
   "description": "What one building looks like, as measured data. See docs/specs/building-description.md.",
   "type": "object",
-  "required": ["schema", "id"],
+  "required": [
+    "schema",
+    "id"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": { "const": "turku-building-description/1" },
-    "id": { "type": "string", "minLength": 1 },
-    "tier": { "enum": ["auto", "reviewed", "hand", "landmark"] },
-    "register": { "$ref": "#/$defs/register" },
-    "style": { "$ref": "#/$defs/style" },
-    "identity_cues": { "type": "array", "items": { "type": "string" }, "maxItems": 8 },
-    "provenance": { "type": "object", "additionalProperties": { "$ref": "#/$defs/provenance" } },
-    "materials": { "type": "object", "additionalProperties": { "$ref": "#/$defs/materialObject" } },
-    "opening_types": { "type": "object", "additionalProperties": { "$ref": "#/$defs/openingType" } },
-    "wall_defaults": { "$ref": "#/$defs/wall" },
-    "walls": { "type": "array", "items": { "$ref": "#/$defs/wall" } },
-    "roof": { "$ref": "#/$defs/roof" },
-    "components": { "type": "array", "items": { "$ref": "#/$defs/component" } },
-    "site": { "type": "array", "items": { "$ref": "#/$defs/sitePart" } },
-    "notes": { "type": "string" },
-    "conf": { "$ref": "#/$defs/conf" },
-    "src": { "$ref": "#/$defs/src" }
+    "schema": {
+      "const": "turku-description/building/1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^building/[A-Za-z0-9._-]+$"
+    },
+    "tier": {
+      "enum": [
+        "auto",
+        "observed",
+        "reviewed"
+      ]
+    },
+    "register": {
+      "$ref": "#/$defs/register"
+    },
+    "shell": {
+      "$ref": "#/$defs/shell"
+    },
+    "style": {
+      "$ref": "#/$defs/style"
+    },
+    "identity_cues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/provenance"
+      }
+    },
+    "materials": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/materialObject"
+      }
+    },
+    "opening_types": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/openingType"
+      }
+    },
+    "wall_defaults": {
+      "$ref": "#/$defs/wall"
+    },
+    "walls": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/wall"
+      }
+    },
+    "roof": {
+      "$ref": "#/$defs/roof"
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/component"
+      }
+    },
+    "site": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sitePart"
+      }
+    },
+    "notes": {
+      "type": "string"
+    },
+    "conf": {
+      "$ref": "#/$defs/conf"
+    },
+    "src": {
+      "$ref": "#/$defs/src"
+    }
   },
   "$defs": {
     "conf": {
       "description": "Confidence 0..1 per field of the object that carries it. Key \"*\" is the default for every field of the object and of nested objects without their own conf.",
       "type": "object",
-      "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 }
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
     },
     "src": {
-      "description": "Key or keys of the top-level provenance map.",
-      "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }]
+      "description": "`key` of one or more provenance entries.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
     },
-    "colour": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
-    "len": { "type": "number", "minimum": 0 },
-    "share": { "type": "number", "minimum": 0, "maximum": 1 },
+    "colour": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+    },
+    "len": {
+      "type": "number",
+      "minimum": 0
+    },
+    "share": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
     "en": {
       "description": "[E, N] in EPSG:3877.",
-      "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 2
     },
-    "typeRef": { "description": "Key of opening_types.", "type": "string" },
+    "typeRef": {
+      "description": "Key of opening_types.",
+      "type": "string"
+    },
     "cell": {
       "description": "One grid cell: an opening type, or null for plain wall.",
-      "oneOf": [{ "$ref": "#/$defs/typeRef" }, { "type": "null" }]
+      "oneOf": [
+        {
+          "$ref": "#/$defs/typeRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "provenance": {
+      "description": "The envelope's provenance entry (docs/design/world-pipeline.md). `key` is what `src` fields refer to.",
       "type": "object",
-      "required": ["kind"],
-      "additionalProperties": false,
+      "required": [
+        "source",
+        "key"
+      ],
       "properties": {
-        "kind": { "enum": ["hand", "panorama", "orthophoto", "lidar", "lod2", "register", "prior", "converted"] },
-        "ref": { "type": "string" },
-        "date": { "type": "string" },
-        "reader": { "type": "string" },
-        "note": { "type": "string" }
+        "source": {
+          "description": "turku-lod2, turku-register, panorama, orthophoto, lidar, hand, prior, facade-program",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
       }
     },
     "register": {
@@ -64,12 +184,25 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "address": { "type": "string" },
-        "year": { "type": "integer" },
-        "storeys": { "type": "integer", "minimum": 1 },
-        "use": { "type": "string" },
-        "material": { "type": "string" },
-        "height_m": { "$ref": "#/$defs/len" }
+        "address": {
+          "type": "string"
+        },
+        "year": {
+          "type": "integer"
+        },
+        "storeys": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "use": {
+          "type": "string"
+        },
+        "material": {
+          "type": "string"
+        },
+        "height_m": {
+          "$ref": "#/$defs/len"
+        }
       }
     },
     "style": {
@@ -79,192 +212,535 @@
       "properties": {
         "type": {
           "enum": [
-            "wooden_house", "wooden_villa", "stone_apartment", "classicist_apartment", "functionalist_apartment",
-            "slab_block", "tower_block", "modern_apartment", "office", "commercial", "industrial", "public",
-            "church", "detached_house", "outbuilding", "garage", "kiosk"
+            "wooden_house",
+            "wooden_villa",
+            "stone_apartment",
+            "classicist_apartment",
+            "functionalist_apartment",
+            "slab_block",
+            "tower_block",
+            "modern_apartment",
+            "office",
+            "commercial",
+            "industrial",
+            "public",
+            "church",
+            "detached_house",
+            "outbuilding",
+            "garage",
+            "kiosk"
           ]
         },
-        "era": { "enum": ["pre-1850", "1850-1899", "1900-1919", "1920-1939", "1940-1959", "1960-1979", "1980-1999", "2000-"] },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "era": {
+          "enum": [
+            "pre-1850",
+            "1850-1899",
+            "1900-1919",
+            "1920-1939",
+            "1940-1959",
+            "1960-1979",
+            "1980-1999",
+            "2000-"
+          ]
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "material": {
       "description": "A key of the top-level materials map, or an inline material.",
-      "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/materialObject" }]
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "$ref": "#/$defs/materialObject"
+        }
+      ]
     },
     "materialObject": {
       "type": "object",
-      "required": ["family"],
+      "required": [
+        "family"
+      ],
       "additionalProperties": false,
       "properties": {
         "family": {
           "enum": [
-            "plaster", "brick", "weatherboard", "log", "granite", "rubble", "stone", "concrete", "ceramic_tile",
-            "sheet_metal", "clay_tile", "concrete_tile", "felt", "slate", "glass", "painted_wood", "metal", "copper"
+            "plaster",
+            "brick",
+            "weatherboard",
+            "log",
+            "granite",
+            "rubble",
+            "stone",
+            "concrete",
+            "ceramic_tile",
+            "sheet_metal",
+            "clay_tile",
+            "concrete_tile",
+            "felt",
+            "slate",
+            "glass",
+            "painted_wood",
+            "metal",
+            "copper"
           ]
         },
-        "colour": { "$ref": "#/$defs/colour" },
-        "colour2": { "description": "Secondary colour: mortar, joints, battens, seams.", "$ref": "#/$defs/colour" },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "colour2": {
+          "description": "Secondary colour: mortar, joints, battens, seams.",
+          "$ref": "#/$defs/colour"
+        },
         "finish": {
           "enum": [
-            "smooth", "fine", "rough", "roughcast", "scored",
-            "facing", "painted", "slurried",
-            "ashlar", "rock_faced", "polished", "slab",
-            "cast", "board_marked", "washed", "panel",
-            "matt", "gloss", "weathered"
+            "smooth",
+            "fine",
+            "rough",
+            "roughcast",
+            "scored",
+            "facing",
+            "painted",
+            "slurried",
+            "ashlar",
+            "rock_faced",
+            "polished",
+            "slab",
+            "cast",
+            "board_marked",
+            "washed",
+            "panel",
+            "matt",
+            "gloss",
+            "weathered"
           ]
         },
-        "bond": { "enum": ["stretcher", "flemish", "english", "header", "stack"] },
-        "orientation": { "enum": ["horizontal", "vertical"] },
+        "bond": {
+          "enum": [
+            "stretcher",
+            "flemish",
+            "english",
+            "header",
+            "stack"
+          ]
+        },
+        "orientation": {
+          "enum": [
+            "horizontal",
+            "vertical"
+          ]
+        },
         "profile": {
           "enum": [
-            "bevel", "shiplap", "tongue_groove", "board_batten", "beaded",
-            "standing_seam", "flat_seam", "corrugated", "cassette",
-            "pantile", "flat_tile", "plain", "batten", "shingle"
+            "bevel",
+            "shiplap",
+            "tongue_groove",
+            "board_batten",
+            "beaded",
+            "standing_seam",
+            "flat_seam",
+            "corrugated",
+            "cassette",
+            "pantile",
+            "flat_tile",
+            "plain",
+            "batten",
+            "shingle"
           ]
         },
         "scale_m": {
           "description": "Module size: visible board width, brick length, course height of ashlar, seam spacing, tile width, panel width.",
-          "type": "number", "exclusiveMinimum": 0
+          "type": "number",
+          "exclusiveMinimum": 0
         },
-        "weathering": { "$ref": "#/$defs/share" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "weathering": {
+          "$ref": "#/$defs/share"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "openingType": {
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["window", "door", "gateway", "shopfront", "garage", "blind", "vent"] },
-        "w_m": { "$ref": "#/$defs/len" },
-        "h_m": { "$ref": "#/$defs/len" },
-        "head": { "enum": ["flat", "segmental", "round", "pointed", "basket", "shouldered"] },
-        "head_rise_m": { "$ref": "#/$defs/len" },
-        "recess_m": { "description": "Depth of the glass or leaf behind the wall face.", "$ref": "#/$defs/len" },
+        "kind": {
+          "enum": [
+            "window",
+            "door",
+            "gateway",
+            "shopfront",
+            "garage",
+            "blind",
+            "vent"
+          ]
+        },
+        "w_m": {
+          "$ref": "#/$defs/len"
+        },
+        "h_m": {
+          "$ref": "#/$defs/len"
+        },
+        "head": {
+          "enum": [
+            "flat",
+            "segmental",
+            "round",
+            "pointed",
+            "basket",
+            "shouldered"
+          ]
+        },
+        "head_rise_m": {
+          "$ref": "#/$defs/len"
+        },
+        "recess_m": {
+          "description": "Depth of the glass or leaf behind the wall face.",
+          "$ref": "#/$defs/len"
+        },
         "multiple": {
           "description": "Coupled openings sharing one cell, w_m each.",
-          "type": "object", "additionalProperties": false,
-          "properties": { "count": { "type": "integer", "minimum": 2, "maximum": 6 }, "gap_m": { "$ref": "#/$defs/len" } }
-        },
-        "lights": { "$ref": "#/$defs/lights" },
-        "frame": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "colour": { "$ref": "#/$defs/colour" },
-            "width_m": { "$ref": "#/$defs/len" },
-            "conf": { "$ref": "#/$defs/conf" }
+            "count": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 6
+            },
+            "gap_m": {
+              "$ref": "#/$defs/len"
+            }
+          }
+        },
+        "lights": {
+          "$ref": "#/$defs/lights"
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "width_m": {
+              "$ref": "#/$defs/len"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "sill": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "kind": { "enum": ["none", "stone", "sheet_metal", "wood", "brick", "plaster"] },
-            "projection_m": { "$ref": "#/$defs/len" },
-            "height_m": { "$ref": "#/$defs/len" },
-            "colour": { "$ref": "#/$defs/colour" },
-            "conf": { "$ref": "#/$defs/conf" }
+            "kind": {
+              "enum": [
+                "none",
+                "stone",
+                "sheet_metal",
+                "wood",
+                "brick",
+                "plaster"
+              ]
+            },
+            "projection_m": {
+              "$ref": "#/$defs/len"
+            },
+            "height_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "surround": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "kind": { "enum": ["none", "flat", "moulded", "eared", "carved", "rusticated", "brick_arch", "pilastered"] },
-            "width_m": { "$ref": "#/$defs/len" },
-            "projection_m": { "$ref": "#/$defs/len" },
-            "colour": { "$ref": "#/$defs/colour" },
-            "keystone": { "type": "boolean" },
+            "kind": {
+              "enum": [
+                "none",
+                "flat",
+                "moulded",
+                "eared",
+                "carved",
+                "rusticated",
+                "brick_arch",
+                "pilastered"
+              ]
+            },
+            "width_m": {
+              "$ref": "#/$defs/len"
+            },
+            "projection_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "keystone": {
+              "type": "boolean"
+            },
             "apron": {
               "description": "Panel under the sill.",
-              "type": "object", "additionalProperties": false,
+              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "kind": { "enum": ["plain", "panel", "carved", "boarded"] },
-                "height_m": { "$ref": "#/$defs/len" },
-                "colour": { "$ref": "#/$defs/colour" }
+                "kind": {
+                  "enum": [
+                    "plain",
+                    "panel",
+                    "carved",
+                    "boarded"
+                  ]
+                },
+                "height_m": {
+                  "$ref": "#/$defs/len"
+                },
+                "colour": {
+                  "$ref": "#/$defs/colour"
+                }
               }
             },
-            "conf": { "$ref": "#/$defs/conf" }
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "pediment": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "kind": { "enum": ["none", "cornice", "triangular", "segmental", "carved_crest", "hood", "ornament"] },
-            "height_m": { "$ref": "#/$defs/len" },
-            "projection_m": { "$ref": "#/$defs/len" },
-            "colour": { "$ref": "#/$defs/colour" },
-            "conf": { "$ref": "#/$defs/conf" }
+            "kind": {
+              "enum": [
+                "none",
+                "cornice",
+                "triangular",
+                "segmental",
+                "carved_crest",
+                "hood",
+                "ornament"
+              ]
+            },
+            "height_m": {
+              "$ref": "#/$defs/len"
+            },
+            "projection_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "glass": {
           "description": "What shows in the glass: reflection strength and what stands behind it.",
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "tint": { "$ref": "#/$defs/colour" },
-            "reflectivity": { "$ref": "#/$defs/share" },
-            "curtains": { "description": "Share of windows of this type with curtains.", "$ref": "#/$defs/share" },
-            "blinds": { "description": "Share with blinds, at varied heights.", "$ref": "#/$defs/share" },
-            "interior": { "enum": ["dwelling", "office", "shop", "stair", "dark", "frosted"] },
-            "conf": { "$ref": "#/$defs/conf" }
+            "tint": {
+              "$ref": "#/$defs/colour"
+            },
+            "reflectivity": {
+              "$ref": "#/$defs/share"
+            },
+            "curtains": {
+              "description": "Share of windows of this type with curtains.",
+              "$ref": "#/$defs/share"
+            },
+            "blinds": {
+              "description": "Share with blinds, at varied heights.",
+              "$ref": "#/$defs/share"
+            },
+            "interior": {
+              "enum": [
+                "dwelling",
+                "office",
+                "shop",
+                "stair",
+                "dark",
+                "frosted"
+              ]
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "leaf": {
           "description": "Door, garage or gate leaves.",
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "leaves": { "type": "integer", "minimum": 1, "maximum": 4 },
-            "style": { "enum": ["panelled", "glazed", "half_glazed", "flush", "boarded", "bars", "roller", "none"] },
-            "colour": { "$ref": "#/$defs/colour" },
-            "fanlight": { "enum": ["none", "rect", "round", "segmental"] },
-            "fanlight_h_m": { "$ref": "#/$defs/len" },
-            "sidelights": { "type": "boolean" },
-            "steps": { "type": "integer", "minimum": 0, "maximum": 12 },
-            "conf": { "$ref": "#/$defs/conf" }
+            "leaves": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4
+            },
+            "style": {
+              "enum": [
+                "panelled",
+                "glazed",
+                "half_glazed",
+                "flush",
+                "boarded",
+                "bars",
+                "roller",
+                "none"
+              ]
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "fanlight": {
+              "enum": [
+                "none",
+                "rect",
+                "round",
+                "segmental"
+              ]
+            },
+            "fanlight_h_m": {
+              "$ref": "#/$defs/len"
+            },
+            "sidelights": {
+              "type": "boolean"
+            },
+            "steps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "passage": {
           "description": "For a gateway: how deep it goes.",
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "depth": { "enum": ["through", "recess"] },
-            "depth_m": { "$ref": "#/$defs/len" },
-            "lining": { "$ref": "#/$defs/material" }
+            "depth": {
+              "enum": [
+                "through",
+                "recess"
+              ]
+            },
+            "depth_m": {
+              "$ref": "#/$defs/len"
+            },
+            "lining": {
+              "$ref": "#/$defs/material"
+            }
           }
         },
         "shopfront": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "panes": { "type": "integer", "minimum": 1, "maximum": 12 },
-            "stallriser_m": { "description": "Height of the solid base under the glass.", "$ref": "#/$defs/len" },
-            "stallriser": { "$ref": "#/$defs/material" },
-            "transom_h_m": { "description": "Height of a row of top lights; 0 for none.", "$ref": "#/$defs/len" },
-            "door": { "enum": ["none", "left", "centre", "right"] },
-            "door_recessed": { "type": "boolean" },
+            "panes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
+            "stallriser_m": {
+              "description": "Height of the solid base under the glass.",
+              "$ref": "#/$defs/len"
+            },
+            "stallriser": {
+              "$ref": "#/$defs/material"
+            },
+            "transom_h_m": {
+              "description": "Height of a row of top lights; 0 for none.",
+              "$ref": "#/$defs/len"
+            },
+            "door": {
+              "enum": [
+                "none",
+                "left",
+                "centre",
+                "right"
+              ]
+            },
+            "door_recessed": {
+              "type": "boolean"
+            },
             "fascia": {
-              "type": "object", "additionalProperties": false,
+              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "height_m": { "$ref": "#/$defs/len" },
-                "colour": { "$ref": "#/$defs/colour" },
-                "text": { "type": "string" },
-                "text_colour": { "$ref": "#/$defs/colour" }
+                "height_m": {
+                  "$ref": "#/$defs/len"
+                },
+                "colour": {
+                  "$ref": "#/$defs/colour"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "text_colour": {
+                  "$ref": "#/$defs/colour"
+                }
               }
             },
             "awning": {
-              "type": "object", "additionalProperties": false,
+              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "kind": { "enum": ["none", "fabric", "flat", "glazed"] },
-                "projection_m": { "$ref": "#/$defs/len" },
-                "colour": { "$ref": "#/$defs/colour" }
+                "kind": {
+                  "enum": [
+                    "none",
+                    "fabric",
+                    "flat",
+                    "glazed"
+                  ]
+                },
+                "projection_m": {
+                  "$ref": "#/$defs/len"
+                },
+                "colour": {
+                  "$ref": "#/$defs/colour"
+                }
               }
             },
-            "conf": { "$ref": "#/$defs/conf" }
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
-        "material": { "description": "Infill of a blind opening or a vent.", "$ref": "#/$defs/material" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "material": {
+          "description": "Infill of a blind opening or a vent.",
+          "$ref": "#/$defs/material"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "lights": {
@@ -273,302 +749,837 @@
       "additionalProperties": false,
       "properties": {
         "pattern": {
-          "enum": ["single", "two_leaf", "three_leaf", "t_frame", "cross", "grid", "side_vent", "top_vent", "ribbon"]
+          "enum": [
+            "single",
+            "two_leaf",
+            "three_leaf",
+            "t_frame",
+            "cross",
+            "grid",
+            "side_vent",
+            "top_vent",
+            "ribbon"
+          ]
         },
-        "cols": { "type": "integer", "minimum": 1, "maximum": 12 },
-        "rows": { "type": "integer", "minimum": 1, "maximum": 12 },
-        "transom_at": { "description": "Height of the transom as a share of the opening height, from the bottom.", "$ref": "#/$defs/share" },
-        "vent": { "enum": ["left", "right"] },
-        "vent_share": { "$ref": "#/$defs/share" },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "transom_at": {
+          "description": "Height of the transom as a share of the opening height, from the bottom.",
+          "$ref": "#/$defs/share"
+        },
+        "vent": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "vent_share": {
+          "$ref": "#/$defs/share"
+        },
         "bars": {
           "description": "Glazing bars inside each light.",
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "cols": { "type": "integer", "minimum": 1, "maximum": 8 },
-            "rows": { "type": "integer", "minimum": 1, "maximum": 8 }
+            "cols": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8
+            }
           }
         },
-        "conf": { "$ref": "#/$defs/conf" }
+        "conf": {
+          "$ref": "#/$defs/conf"
+        }
       }
     },
     "placedOpening": {
       "description": "An opening placed by measurement instead of by the bay grid. w_m and h_m override the type.",
       "type": "object",
-      "required": ["type", "u_m"],
+      "required": [
+        "type",
+        "u_m"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "$ref": "#/$defs/typeRef" },
-        "u_m": { "description": "Centre, from the wall's left end as seen from outside.", "type": "number" },
-        "v_m": { "description": "Bottom edge above the wall base. In a storey: omit to use the storey's sill_m.", "type": "number" },
-        "w_m": { "$ref": "#/$defs/len" },
-        "h_m": { "$ref": "#/$defs/len" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "type": {
+          "$ref": "#/$defs/typeRef"
+        },
+        "u_m": {
+          "description": "Centre, from the wall's left end as seen from outside.",
+          "type": "number"
+        },
+        "v_m": {
+          "description": "Bottom edge above the wall base. In a storey: omit to use the storey's sill_m.",
+          "type": "number"
+        },
+        "w_m": {
+          "$ref": "#/$defs/len"
+        },
+        "h_m": {
+          "$ref": "#/$defs/len"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "storey": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["basement", "ground", "upper", "mezzanine", "attic"] },
-        "count": { "description": "This many identical storeys.", "type": "integer", "minimum": 1, "maximum": 40 },
-        "height_m": { "description": "Floor to floor.", "type": "number", "exclusiveMinimum": 0 },
-        "sill_m": { "description": "Bottom of the grid openings above this storey's floor.", "type": "number" },
-        "window": { "description": "Opening type of every bay of this storey.", "$ref": "#/$defs/cell" },
+        "kind": {
+          "enum": [
+            "basement",
+            "ground",
+            "upper",
+            "mezzanine",
+            "attic"
+          ]
+        },
+        "count": {
+          "description": "This many identical storeys.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40
+        },
+        "height_m": {
+          "description": "Floor to floor.",
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "sill_m": {
+          "description": "Bottom of the grid openings above this storey's floor.",
+          "type": "number"
+        },
+        "window": {
+          "description": "Opening type of every bay of this storey.",
+          "$ref": "#/$defs/cell"
+        },
         "row": {
           "description": "Opening type per bay, left to right; replaces window. Length = number of bays.",
-          "type": "array", "items": { "$ref": "#/$defs/cell" }
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cell"
+          }
         },
-        "openings": { "type": "array", "items": { "$ref": "#/$defs/placedOpening" } },
-        "material": { "description": "Wall material of this storey's band.", "$ref": "#/$defs/material" },
-        "relief": { "$ref": "#/$defs/relief" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "openings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/placedOpening"
+          }
+        },
+        "material": {
+          "description": "Wall material of this storey's band.",
+          "$ref": "#/$defs/material"
+        },
+        "relief": {
+          "$ref": "#/$defs/relief"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "relief": {
       "description": "Surface relief of a wall zone.",
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["none", "banded", "ashlar", "v_joint", "panelled"] },
-        "course_m": { "$ref": "#/$defs/len" },
-        "depth_m": { "$ref": "#/$defs/len" }
+        "kind": {
+          "enum": [
+            "none",
+            "banded",
+            "ashlar",
+            "v_joint",
+            "panelled"
+          ]
+        },
+        "course_m": {
+          "$ref": "#/$defs/len"
+        },
+        "depth_m": {
+          "$ref": "#/$defs/len"
+        }
       }
     },
     "bayGrid": {
       "type": "object",
-      "required": ["count"],
+      "required": [
+        "count"
+      ],
       "additionalProperties": false,
       "properties": {
-        "count": { "type": "integer", "minimum": 0, "maximum": 200 },
-        "pitch_m": { "type": "number", "exclusiveMinimum": 0 },
-        "first_m": { "description": "Centre of the first bay; omit to centre the grid on the wall.", "type": "number" },
-        "conf": { "$ref": "#/$defs/conf" }
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200
+        },
+        "pitch_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "first_m": {
+          "description": "Centre of the first bay; omit to centre the grid on the wall.",
+          "type": "number"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        }
       }
     },
     "bay": {
       "type": "object",
-      "required": ["u_m"],
+      "required": [
+        "u_m"
+      ],
       "additionalProperties": false,
       "properties": {
-        "u_m": { "description": "Centre line of the bay.", "type": "number" },
-        "conf": { "$ref": "#/$defs/conf" }
+        "u_m": {
+          "description": "Centre line of the bay.",
+          "type": "number"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        }
       }
     },
     "vAnchor": {
       "description": "A height tied to the storey stack instead of a measured v_m.",
       "type": "object",
-      "required": ["storey", "edge"],
+      "required": [
+        "storey",
+        "edge"
+      ],
       "additionalProperties": false,
       "properties": {
-        "storey": { "description": "Index into the expanded storey list, bottom = 0; negative counts from the top.", "type": "integer" },
-        "edge": { "enum": ["floor", "sill", "head", "top"] },
-        "offset_m": { "type": "number" }
+        "storey": {
+          "description": "Index into the expanded storey list, bottom = 0; negative counts from the top.",
+          "type": "integer"
+        },
+        "edge": {
+          "enum": [
+            "floor",
+            "sill",
+            "head",
+            "top"
+          ]
+        },
+        "offset_m": {
+          "type": "number"
+        }
       }
     },
     "band": {
       "description": "A horizontal part running along the wall.",
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["cornice", "eaves_cornice", "string_course", "sill_band", "frieze", "plinth_cap", "trim_board", "fascia_band"] },
-        "v_m": { "description": "Bottom edge above the wall base.", "type": "number" },
-        "at": { "$ref": "#/$defs/vAnchor" },
-        "height_m": { "$ref": "#/$defs/len" },
-        "projection_m": { "$ref": "#/$defs/len" },
-        "profile": { "enum": ["flat", "stepped", "cove", "ogee", "dentil", "bracketed", "meander"] },
-        "u_from_m": { "type": "number" },
-        "u_to_m": { "type": "number" },
-        "material": { "$ref": "#/$defs/material" },
-        "colour": { "$ref": "#/$defs/colour" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "kind": {
+          "enum": [
+            "cornice",
+            "eaves_cornice",
+            "string_course",
+            "sill_band",
+            "frieze",
+            "plinth_cap",
+            "trim_board",
+            "fascia_band"
+          ]
+        },
+        "v_m": {
+          "description": "Bottom edge above the wall base.",
+          "type": "number"
+        },
+        "at": {
+          "$ref": "#/$defs/vAnchor"
+        },
+        "height_m": {
+          "$ref": "#/$defs/len"
+        },
+        "projection_m": {
+          "$ref": "#/$defs/len"
+        },
+        "profile": {
+          "enum": [
+            "flat",
+            "stepped",
+            "cove",
+            "ogee",
+            "dentil",
+            "bracketed",
+            "meander"
+          ]
+        },
+        "u_from_m": {
+          "type": "number"
+        },
+        "u_to_m": {
+          "type": "number"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "vertical": {
       "description": "A vertical part on the wall face.",
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["pilaster", "lesene", "corner_board", "quoins", "trim_board", "pier", "downpipe"] },
-        "u_m": { "description": "Centre line.", "type": "number" },
-        "where": { "description": "Placement by rule instead of u_m.", "enum": ["left", "right", "ends", "between_bays"] },
-        "width_m": { "$ref": "#/$defs/len" },
-        "projection_m": { "$ref": "#/$defs/len" },
-        "from_m": { "type": "number" },
-        "to_m": { "type": "number" },
-        "capital": { "enum": ["none", "plain", "doric", "ionic", "corinthian"] },
-        "material": { "$ref": "#/$defs/material" },
-        "colour": { "$ref": "#/$defs/colour" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "kind": {
+          "enum": [
+            "pilaster",
+            "lesene",
+            "corner_board",
+            "quoins",
+            "trim_board",
+            "pier",
+            "downpipe"
+          ]
+        },
+        "u_m": {
+          "description": "Centre line.",
+          "type": "number"
+        },
+        "where": {
+          "description": "Placement by rule instead of u_m.",
+          "enum": [
+            "left",
+            "right",
+            "ends",
+            "between_bays"
+          ]
+        },
+        "width_m": {
+          "$ref": "#/$defs/len"
+        },
+        "projection_m": {
+          "$ref": "#/$defs/len"
+        },
+        "from_m": {
+          "type": "number"
+        },
+        "to_m": {
+          "type": "number"
+        },
+        "capital": {
+          "enum": [
+            "none",
+            "plain",
+            "doric",
+            "ionic",
+            "corinthian"
+          ]
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "zone": {
       "description": "A rectangle of wall with its own material; later zones lie over earlier ones.",
       "type": "object",
-      "required": ["material"],
+      "required": [
+        "material"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "from_m": { "type": "number" },
-        "to_m": { "type": "number" },
-        "from": { "$ref": "#/$defs/vAnchor" },
-        "to": { "$ref": "#/$defs/vAnchor" },
-        "u_from_m": { "type": "number" },
-        "u_to_m": { "type": "number" },
-        "material": { "$ref": "#/$defs/material" },
-        "relief": { "$ref": "#/$defs/relief" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "name": {
+          "type": "string"
+        },
+        "from_m": {
+          "type": "number"
+        },
+        "to_m": {
+          "type": "number"
+        },
+        "from": {
+          "$ref": "#/$defs/vAnchor"
+        },
+        "to": {
+          "$ref": "#/$defs/vAnchor"
+        },
+        "u_from_m": {
+          "type": "number"
+        },
+        "u_to_m": {
+          "type": "number"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "relief": {
+          "$ref": "#/$defs/relief"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "railing": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["bars", "panel", "glass", "corrugated", "balusters", "mesh", "boards", "solid"] },
-        "height_m": { "$ref": "#/$defs/len" },
-        "colour": { "$ref": "#/$defs/colour" },
-        "material": { "$ref": "#/$defs/material" }
+        "kind": {
+          "enum": [
+            "bars",
+            "panel",
+            "glass",
+            "corrugated",
+            "balusters",
+            "mesh",
+            "boards",
+            "solid"
+          ]
+        },
+        "height_m": {
+          "$ref": "#/$defs/len"
+        },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        }
       }
     },
     "balcony": {
       "type": "object",
-      "required": ["type", "u_m"],
+      "required": [
+        "type",
+        "u_m"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["cantilever", "recessed", "french", "continuous", "corner", "glazed", "stacked_frame"] },
-        "u_m": { "description": "Centre line.", "type": "number" },
-        "w_m": { "$ref": "#/$defs/len" },
-        "depth_m": { "$ref": "#/$defs/len" },
-        "storeys": { "description": "Expanded storey indexes that have this balcony.", "type": "array", "items": { "type": "integer" } },
-        "v_m": { "description": "Slab top above the wall base, for a single balcony placed by measurement.", "type": "number" },
-        "railing": { "$ref": "#/$defs/railing" },
-        "slab": {
-          "type": "object", "additionalProperties": false,
-          "properties": { "thickness_m": { "$ref": "#/$defs/len" }, "colour": { "$ref": "#/$defs/colour" } }
+        "type": {
+          "enum": [
+            "cantilever",
+            "recessed",
+            "french",
+            "continuous",
+            "corner",
+            "glazed",
+            "stacked_frame"
+          ]
         },
-        "door": { "$ref": "#/$defs/typeRef" },
-        "side_walls": { "type": "boolean" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "u_m": {
+          "description": "Centre line.",
+          "type": "number"
+        },
+        "w_m": {
+          "$ref": "#/$defs/len"
+        },
+        "depth_m": {
+          "$ref": "#/$defs/len"
+        },
+        "storeys": {
+          "description": "Expanded storey indexes that have this balcony.",
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "v_m": {
+          "description": "Slab top above the wall base, for a single balcony placed by measurement.",
+          "type": "number"
+        },
+        "railing": {
+          "$ref": "#/$defs/railing"
+        },
+        "slab": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thickness_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            }
+          }
+        },
+        "door": {
+          "$ref": "#/$defs/typeRef"
+        },
+        "side_walls": {
+          "type": "boolean"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "bayWindow": {
       "type": "object",
-      "required": ["type", "u_m"],
+      "required": [
+        "type",
+        "u_m"
+      ],
       "additionalProperties": false,
       "properties": {
-        "type": { "enum": ["box", "canted", "bow", "corner_turret", "stair_tower"] },
-        "u_m": { "type": "number" },
-        "w_m": { "$ref": "#/$defs/len" },
-        "depth_m": { "$ref": "#/$defs/len" },
-        "from_storey": { "type": "integer" },
-        "to_storey": { "type": "integer" },
-        "window": { "$ref": "#/$defs/typeRef" },
-        "top": { "enum": ["flat", "hipped", "dome", "balcony", "gable"] },
-        "material": { "$ref": "#/$defs/material" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "type": {
+          "enum": [
+            "box",
+            "canted",
+            "bow",
+            "corner_turret",
+            "stair_tower"
+          ]
+        },
+        "u_m": {
+          "type": "number"
+        },
+        "w_m": {
+          "$ref": "#/$defs/len"
+        },
+        "depth_m": {
+          "$ref": "#/$defs/len"
+        },
+        "from_storey": {
+          "type": "integer"
+        },
+        "to_storey": {
+          "type": "integer"
+        },
+        "window": {
+          "$ref": "#/$defs/typeRef"
+        },
+        "top": {
+          "enum": [
+            "flat",
+            "hipped",
+            "dome",
+            "balcony",
+            "gable"
+          ]
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "attachment": {
       "description": "A part fixed to the wall.",
       "type": "object",
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "additionalProperties": false,
       "properties": {
         "kind": {
           "enum": [
-            "porch", "canopy", "steps", "downpipe", "sign", "lamp", "flagpole", "ladder", "vent_grille", "hatch",
-            "meter_box", "balcony_door_rail"
+            "porch",
+            "canopy",
+            "steps",
+            "downpipe",
+            "sign",
+            "lamp",
+            "flagpole",
+            "ladder",
+            "vent_grille",
+            "hatch",
+            "meter_box",
+            "balcony_door_rail"
           ]
         },
-        "u_m": { "description": "Centre line.", "type": "number" },
-        "v_m": { "description": "Bottom edge above the wall base.", "type": "number" },
-        "w_m": { "$ref": "#/$defs/len" },
-        "h_m": { "$ref": "#/$defs/len" },
-        "depth_m": { "$ref": "#/$defs/len" },
+        "u_m": {
+          "description": "Centre line.",
+          "type": "number"
+        },
+        "v_m": {
+          "description": "Bottom edge above the wall base.",
+          "type": "number"
+        },
+        "w_m": {
+          "$ref": "#/$defs/len"
+        },
+        "h_m": {
+          "$ref": "#/$defs/len"
+        },
+        "depth_m": {
+          "$ref": "#/$defs/len"
+        },
         "type": {
           "description": "Variant. porch: open, glazed, boarded. canopy: slab, glazed, pitched, hood, entablature. sign: fascia, projecting, letters, board, lightbox. steps: straight, side.",
           "type": "string"
         },
-        "roof": { "enum": ["flat", "shed", "gable", "hip"] },
+        "roof": {
+          "enum": [
+            "flat",
+            "shed",
+            "gable",
+            "hip"
+          ]
+        },
         "supports": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "kind": { "enum": ["none", "columns", "posts", "brackets", "rods"] },
-            "count": { "type": "integer", "minimum": 0, "maximum": 12 },
-            "diameter_m": { "$ref": "#/$defs/len" },
-            "colour": { "$ref": "#/$defs/colour" },
-            "material": { "$ref": "#/$defs/material" }
+            "kind": {
+              "enum": [
+                "none",
+                "columns",
+                "posts",
+                "brackets",
+                "rods"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 12
+            },
+            "diameter_m": {
+              "$ref": "#/$defs/len"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "material": {
+              "$ref": "#/$defs/material"
+            }
           }
         },
-        "door": { "$ref": "#/$defs/typeRef" },
-        "window": { "$ref": "#/$defs/typeRef" },
-        "text": { "type": "string" },
-        "material": { "$ref": "#/$defs/material" },
-        "roof_material": { "$ref": "#/$defs/material" },
-        "colour": { "$ref": "#/$defs/colour" },
-        "colour2": { "$ref": "#/$defs/colour" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "door": {
+          "$ref": "#/$defs/typeRef"
+        },
+        "window": {
+          "$ref": "#/$defs/typeRef"
+        },
+        "text": {
+          "type": "string"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "roof_material": {
+          "$ref": "#/$defs/material"
+        },
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "colour2": {
+          "$ref": "#/$defs/colour"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "wall": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": { "type": "string" },
+        "id": {
+          "type": "string"
+        },
         "frame": {
           "description": "Where the wall stands. u runs from p0 to p1, left to right as seen from outside; v runs up from base_h.",
           "type": "object",
-          "required": ["p0", "p1"],
+          "required": [
+            "p0",
+            "p1"
+          ],
           "additionalProperties": false,
           "properties": {
-            "p0": { "$ref": "#/$defs/en" },
-            "p1": { "$ref": "#/$defs/en" },
-            "base_h": { "description": "N2000 height of v = 0; omit for the lowest point of the shell wall.", "type": "number" },
-            "height_m": { "description": "Height of the wall face as observed, for the fit against the shell.", "$ref": "#/$defs/len" }
-          }
-        },
-        "like": { "description": "Id of the wall whose fields this wall inherits.", "type": "string" },
-        "observed": {
-          "type": "object", "additionalProperties": false,
-          "properties": {
-            "visible_share": { "$ref": "#/$defs/share" },
-            "hidden_m": {
-              "description": "Rectangles [u0, v0, u1, v1] nobody could see (trees, vehicles, hoardings).",
-              "type": "array",
-              "items": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }
+            "p0": {
+              "$ref": "#/$defs/en"
+            },
+            "p1": {
+              "$ref": "#/$defs/en"
+            },
+            "base_h": {
+              "description": "N2000 height of v = 0; omit for the lowest point of the shell wall.",
+              "type": "number"
+            },
+            "height_m": {
+              "description": "Height of the wall face as observed, for the fit against the shell.",
+              "$ref": "#/$defs/len"
             }
           }
         },
-        "material": { "$ref": "#/$defs/material" },
-        "plinth": {
-          "type": "object", "additionalProperties": false,
+        "like": {
+          "description": "Id of the wall whose fields this wall inherits.",
+          "type": "string"
+        },
+        "observed": {
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "height_m": { "$ref": "#/$defs/len" },
-            "projection_m": { "$ref": "#/$defs/len" },
-            "material": { "$ref": "#/$defs/material" },
-            "conf": { "$ref": "#/$defs/conf" },
-            "src": { "$ref": "#/$defs/src" }
+            "visible_share": {
+              "$ref": "#/$defs/share"
+            },
+            "hidden_m": {
+              "description": "Rectangles [u0, v0, u1, v1] nobody could see (trees, vehicles, hoardings).",
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            }
           }
         },
-        "ground_floor_m": { "description": "Height of the lowest storey's floor above the wall base; omit for the plinth height.", "type": "number" },
-        "storeys": { "description": "Bottom to top.", "type": "array", "items": { "$ref": "#/$defs/storey" }, "maxItems": 60 },
-        "bays": { "oneOf": [{ "$ref": "#/$defs/bayGrid" }, { "type": "array", "items": { "$ref": "#/$defs/bay" } }] },
-        "openings": { "description": "Openings outside the storey grid; v_m is required here.", "type": "array", "items": { "$ref": "#/$defs/placedOpening" } },
-        "zones": { "type": "array", "items": { "$ref": "#/$defs/zone" } },
-        "bands": { "type": "array", "items": { "$ref": "#/$defs/band" } },
-        "verticals": { "type": "array", "items": { "$ref": "#/$defs/vertical" } },
-        "balconies": { "type": "array", "items": { "$ref": "#/$defs/balcony" } },
-        "bay_windows": { "type": "array", "items": { "$ref": "#/$defs/bayWindow" } },
-        "attached": { "type": "array", "items": { "$ref": "#/$defs/attachment" } },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "material": {
+          "$ref": "#/$defs/material"
+        },
+        "plinth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "height_m": {
+              "$ref": "#/$defs/len"
+            },
+            "projection_m": {
+              "$ref": "#/$defs/len"
+            },
+            "material": {
+              "$ref": "#/$defs/material"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            },
+            "src": {
+              "$ref": "#/$defs/src"
+            }
+          }
+        },
+        "ground_floor_m": {
+          "description": "Height of the lowest storey's floor above the wall base; omit for the plinth height.",
+          "type": "number"
+        },
+        "storeys": {
+          "description": "Bottom to top.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/storey"
+          },
+          "maxItems": 60
+        },
+        "bays": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/bayGrid"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/bay"
+              }
+            }
+          ]
+        },
+        "openings": {
+          "description": "Openings outside the storey grid; v_m is required here.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/placedOpening"
+          }
+        },
+        "zones": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/zone"
+          }
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/band"
+          }
+        },
+        "verticals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/vertical"
+          }
+        },
+        "balconies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/balcony"
+          }
+        },
+        "bay_windows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bayWindow"
+          }
+        },
+        "attached": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/attachment"
+          }
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "roofAnchor": {
@@ -576,10 +1587,19 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "at": { "$ref": "#/$defs/en" },
-        "wall": { "type": "string" },
-        "u_m": { "type": "number" },
-        "setback_m": { "description": "Distance behind the wall face.", "type": "number" }
+        "at": {
+          "$ref": "#/$defs/en"
+        },
+        "wall": {
+          "type": "string"
+        },
+        "u_m": {
+          "type": "number"
+        },
+        "setback_m": {
+          "description": "Distance behind the wall face.",
+          "type": "number"
+        }
       }
     },
     "roof": {
@@ -587,60 +1607,148 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "form_hint": { "enum": ["flat", "shed", "gable", "hip", "half_hip", "mansard", "pyramid", "complex"] },
-        "material": { "$ref": "#/$defs/material" },
+        "form_hint": {
+          "enum": [
+            "flat",
+            "shed",
+            "gable",
+            "hip",
+            "half_hip",
+            "mansard",
+            "pyramid",
+            "complex"
+          ]
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
         "eaves": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "overhang_m": { "$ref": "#/$defs/len" },
-            "fascia_m": { "description": "Height of the eaves edge.", "$ref": "#/$defs/len" },
-            "soffit": { "enum": ["open_rafters", "boxed", "cornice"] },
+            "overhang_m": {
+              "$ref": "#/$defs/len"
+            },
+            "fascia_m": {
+              "description": "Height of the eaves edge.",
+              "$ref": "#/$defs/len"
+            },
+            "soffit": {
+              "enum": [
+                "open_rafters",
+                "boxed",
+                "cornice"
+              ]
+            },
             "brackets": {
-              "type": "object", "additionalProperties": false,
+              "type": "object",
+              "additionalProperties": false,
               "properties": {
-                "kind": { "enum": ["plain", "carved", "rafter_tails"] },
-                "spacing_m": { "$ref": "#/$defs/len" },
-                "size_m": { "$ref": "#/$defs/len" }
+                "kind": {
+                  "enum": [
+                    "plain",
+                    "carved",
+                    "rafter_tails"
+                  ]
+                },
+                "spacing_m": {
+                  "$ref": "#/$defs/len"
+                },
+                "size_m": {
+                  "$ref": "#/$defs/len"
+                }
               }
             },
-            "gutter": { "type": "boolean" },
-            "colour": { "$ref": "#/$defs/colour" },
-            "conf": { "$ref": "#/$defs/conf" }
+            "gutter": {
+              "type": "boolean"
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "verge": {
           "description": "The sloping edge at a gable.",
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "overhang_m": { "$ref": "#/$defs/len" },
-            "bargeboard": { "enum": ["none", "plain", "carved"] },
-            "colour": { "$ref": "#/$defs/colour" },
-            "conf": { "$ref": "#/$defs/conf" }
+            "overhang_m": {
+              "$ref": "#/$defs/len"
+            },
+            "bargeboard": {
+              "enum": [
+                "none",
+                "plain",
+                "carved"
+              ]
+            },
+            "colour": {
+              "$ref": "#/$defs/colour"
+            },
+            "conf": {
+              "$ref": "#/$defs/conf"
+            }
           }
         },
         "parapet": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "properties": {
-            "height_m": { "$ref": "#/$defs/len" },
-            "coping": { "$ref": "#/$defs/material" }
+            "height_m": {
+              "$ref": "#/$defs/len"
+            },
+            "coping": {
+              "$ref": "#/$defs/material"
+            }
           }
         },
         "dormers": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["type"],
+            "required": [
+              "type"
+            ],
             "additionalProperties": false,
             "properties": {
-              "type": { "enum": ["gable", "shed", "hip", "flat", "eyebrow", "wall_dormer", "arched"] },
-              "anchor": { "$ref": "#/$defs/roofAnchor" },
-              "w_m": { "$ref": "#/$defs/len" },
-              "h_m": { "$ref": "#/$defs/len" },
-              "window": { "$ref": "#/$defs/typeRef" },
-              "material": { "$ref": "#/$defs/material" },
-              "roof_material": { "$ref": "#/$defs/material" },
-              "conf": { "$ref": "#/$defs/conf" },
-              "src": { "$ref": "#/$defs/src" }
+              "type": {
+                "enum": [
+                  "gable",
+                  "shed",
+                  "hip",
+                  "flat",
+                  "eyebrow",
+                  "wall_dormer",
+                  "arched"
+                ]
+              },
+              "anchor": {
+                "$ref": "#/$defs/roofAnchor"
+              },
+              "w_m": {
+                "$ref": "#/$defs/len"
+              },
+              "h_m": {
+                "$ref": "#/$defs/len"
+              },
+              "window": {
+                "$ref": "#/$defs/typeRef"
+              },
+              "material": {
+                "$ref": "#/$defs/material"
+              },
+              "roof_material": {
+                "$ref": "#/$defs/material"
+              },
+              "conf": {
+                "$ref": "#/$defs/conf"
+              },
+              "src": {
+                "$ref": "#/$defs/src"
+              }
             }
           }
         },
@@ -650,14 +1758,37 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "anchor": { "$ref": "#/$defs/roofAnchor" },
-              "w_m": { "$ref": "#/$defs/len" },
-              "d_m": { "$ref": "#/$defs/len" },
-              "h_m": { "description": "Height above the roof surface at its upper side.", "$ref": "#/$defs/len" },
-              "material": { "$ref": "#/$defs/material" },
-              "cap": { "enum": ["none", "slab", "pots", "metal_hood", "corbelled"] },
-              "conf": { "$ref": "#/$defs/conf" },
-              "src": { "$ref": "#/$defs/src" }
+              "anchor": {
+                "$ref": "#/$defs/roofAnchor"
+              },
+              "w_m": {
+                "$ref": "#/$defs/len"
+              },
+              "d_m": {
+                "$ref": "#/$defs/len"
+              },
+              "h_m": {
+                "description": "Height above the roof surface at its upper side.",
+                "$ref": "#/$defs/len"
+              },
+              "material": {
+                "$ref": "#/$defs/material"
+              },
+              "cap": {
+                "enum": [
+                  "none",
+                  "slab",
+                  "pots",
+                  "metal_hood",
+                  "corbelled"
+                ]
+              },
+              "conf": {
+                "$ref": "#/$defs/conf"
+              },
+              "src": {
+                "$ref": "#/$defs/src"
+              }
             }
           }
         },
@@ -665,70 +1796,262 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["kind"],
+            "required": [
+              "kind"
+            ],
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["skylight", "hatch", "ladder", "snow_guard", "walkway", "vent", "ridge_crest", "finial", "antenna", "plant_room"] },
-              "anchor": { "$ref": "#/$defs/roofAnchor" },
-              "w_m": { "$ref": "#/$defs/len" },
-              "d_m": { "$ref": "#/$defs/len" },
-              "h_m": { "$ref": "#/$defs/len" },
-              "material": { "$ref": "#/$defs/material" },
-              "conf": { "$ref": "#/$defs/conf" }
+              "kind": {
+                "enum": [
+                  "skylight",
+                  "hatch",
+                  "ladder",
+                  "snow_guard",
+                  "walkway",
+                  "vent",
+                  "ridge_crest",
+                  "finial",
+                  "antenna",
+                  "plant_room"
+                ]
+              },
+              "anchor": {
+                "$ref": "#/$defs/roofAnchor"
+              },
+              "w_m": {
+                "$ref": "#/$defs/len"
+              },
+              "d_m": {
+                "$ref": "#/$defs/len"
+              },
+              "h_m": {
+                "$ref": "#/$defs/len"
+              },
+              "material": {
+                "$ref": "#/$defs/material"
+              },
+              "conf": {
+                "$ref": "#/$defs/conf"
+              }
             }
           }
         },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "component": {
       "description": "A named parametric landmark part from the component kit.",
       "type": "object",
-      "required": ["name"],
+      "required": [
+        "name"
+      ],
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "wall": { "type": "string" },
-        "u_m": { "type": "number" },
-        "v_m": { "type": "number" },
+        "name": {
+          "type": "string"
+        },
+        "wall": {
+          "type": "string"
+        },
+        "u_m": {
+          "type": "number"
+        },
+        "v_m": {
+          "type": "number"
+        },
         "at": {
           "description": "[E, N] or [E, N, H] for a part not tied to a wall.",
-          "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 3
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 3
         },
-        "rotate_deg": { "type": "number" },
-        "params": { "type": "object" },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "rotate_deg": {
+          "type": "number"
+        },
+        "params": {
+          "type": "object"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
       }
     },
     "sitePart": {
       "description": "A part of the plot that belongs to the building's street face: a board fence with its gateway, a plot wall.",
       "type": "object",
-      "required": ["kind", "path"],
+      "required": [
+        "kind",
+        "path"
+      ],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["board_fence", "picket_fence", "plot_wall", "railing_fence"] },
-        "path": { "type": "array", "items": { "$ref": "#/$defs/en" }, "minItems": 2 },
-        "height_m": { "$ref": "#/$defs/len" },
-        "material": { "$ref": "#/$defs/material" },
+        "kind": {
+          "enum": [
+            "board_fence",
+            "picket_fence",
+            "plot_wall",
+            "railing_fence"
+          ]
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/en"
+          },
+          "minItems": 2
+        },
+        "height_m": {
+          "$ref": "#/$defs/len"
+        },
+        "material": {
+          "$ref": "#/$defs/material"
+        },
         "gates": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["s_m"],
+            "required": [
+              "s_m"
+            ],
             "additionalProperties": false,
             "properties": {
-              "s_m": { "description": "Centre, as distance along the path.", "type": "number" },
-              "w_m": { "$ref": "#/$defs/len" },
-              "h_m": { "$ref": "#/$defs/len" },
-              "kind": { "enum": ["double_leaf", "single_leaf", "open", "roofed"] },
-              "colour": { "$ref": "#/$defs/colour" }
+              "s_m": {
+                "description": "Centre, as distance along the path.",
+                "type": "number"
+              },
+              "w_m": {
+                "$ref": "#/$defs/len"
+              },
+              "h_m": {
+                "$ref": "#/$defs/len"
+              },
+              "kind": {
+                "enum": [
+                  "double_leaf",
+                  "single_leaf",
+                  "open",
+                  "roofed"
+                ]
+              },
+              "colour": {
+                "$ref": "#/$defs/colour"
+              }
             }
           }
         },
-        "conf": { "$ref": "#/$defs/conf" },
-        "src": { "$ref": "#/$defs/src" }
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
+        }
+      }
+    },
+    "enh": {
+      "description": "[E, N, H]: EPSG:3877 and N2000.",
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "shell": {
+      "description": "The LoD2 geometry and its surroundings, written by describe() from source data; a stored description never carries it.",
+      "type": "object",
+      "required": [
+        "surfaces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "surfaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "rings"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "wall",
+                  "roof",
+                  "ground",
+                  "closure"
+                ]
+              },
+              "rings": {
+                "description": "Outer ring, then holes; counter-clockwise seen from outside; not closed.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "minItems": 3,
+                  "items": {
+                    "$ref": "#/$defs/enh"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "terrain": {
+          "description": "Ground heights around the footprint: polylines of [E, N, H].",
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/enh"
+            }
+          }
+        },
+        "neighbours": {
+          "description": "Buildings that touch this one: where a wall is a party wall, it gets no openings.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "footprint",
+              "top_h"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "footprint": {
+                "type": "array",
+                "minItems": 3,
+                "items": {
+                  "$ref": "#/$defs/en"
+                }
+              },
+              "base_h": {
+                "type": "number"
+              },
+              "top_h": {
+                "description": "Height of the neighbour's wall top.",
+                "type": "number"
+              }
+            }
+          }
+        }
       }
     }
   }
