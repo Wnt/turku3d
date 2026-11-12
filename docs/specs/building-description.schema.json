@@ -407,6 +407,18 @@
         "head_rise_m": {
           "$ref": "#/$defs/len"
         },
+        "shape": {
+          "description": "Outline other than a rectangle with a head: a round attic window, a hexagonal vent, a lunette.",
+          "enum": [
+            "rect",
+            "circle",
+            "oval",
+            "hexagon",
+            "octagon",
+            "diamond",
+            "lunette"
+          ]
+        },
         "recess_m": {
           "description": "Depth of the glass or leaf behind the wall face.",
           "$ref": "#/$defs/len"
@@ -924,9 +936,6 @@
     },
     "bayGrid": {
       "type": "object",
-      "required": [
-        "count"
-      ],
       "additionalProperties": false,
       "properties": {
         "count": {
@@ -945,7 +954,20 @@
         "conf": {
           "$ref": "#/$defs/conf"
         }
-      }
+      },
+      "description": "A regular rhythm. With count: that many bays. With pitch_m alone: as many as fit the wall, centred; this is how wall_defaults serves walls of any width.",
+      "anyOf": [
+        {
+          "required": [
+            "count"
+          ]
+        },
+        {
+          "required": [
+            "pitch_m"
+          ]
+        }
+      ]
     },
     "bay": {
       "type": "object",

@@ -52,8 +52,9 @@ bash pipeline/env/run.sh python -m turku3d.world.kinds.building.description FILE
 A wall is a street-facing or yard-facing facade plane of the shell. Its `frame` places it:
 
 - `p0` → `p1` runs **left to right as seen from outside**. `u_m` is the distance from `p0` along the wall.
-- `v_m` is the height above the wall base `base_h` (default: the lowest point of the shell wall). Storey floors are
-  level, so on a sloping street the plinth is taller at the low end and the terrain hides the rest.
+- `v_m` is the height above the wall base `base_h`. The default base is the ground at the wall's lowest point (the
+  shell's terrain line; without one, the lowest point of the shell wall). Storey floors are level, so on a sloping
+  street the plinth is taller at the low end.
 - An opening's `u_m` is its **centre line**; its `v_m` is its **bottom edge**. Bands and zones give bottom edges.
 
 The generator groups coplanar LoD2 wall polygons into facade planes and matches each described wall to the plane
@@ -74,7 +75,7 @@ its frame overlaps most (same direction within 15°, within 1.5 m). Planes witho
 | `plinth` | `height_m`, `projection_m`, `material` (granite ashlar, rubble, concrete, plaster). |
 | `storeys` | Bottom to top: `kind` (`basement`, `ground`, `upper`, `mezzanine`, `attic`), `height_m` floor to floor, `sill_m`, and the openings (below). `count` repeats identical storeys. A tall ground floor and a low attic band are storeys with their own heights. |
 | `ground_floor_m` | Height of the lowest storey's floor above the wall base (default: the plinth height). |
-| `bays` | Centre lines: a list `[{ "u_m": 1.9 }, ...]` for an irregular rhythm, or a grid `{ "count", "pitch_m", "first_m" }`. |
+| `bays` | Centre lines: a list `[{ "u_m": 1.9 }, ...]` for an irregular rhythm, or a grid `{ "count", "pitch_m", "first_m" }`. A grid with `pitch_m` alone takes as many bays as fit the wall, centred. |
 | `openings` | Openings placed by measurement outside the grid: stair windows between storeys, a gateway through two storeys. |
 | `zones` | Rectangles with their own material and `relief` (banded or ashlar rustication, panelling): a boarded dado under the sills, a brick field in a plastered wall, a rusticated ground floor. |
 | `bands` | Horizontal parts: `cornice`, `eaves_cornice`, `string_course`, `sill_band`, `frieze`, `plinth_cap`, `trim_board`, `fascia_band`, with `height_m`, `projection_m`, `profile`. Placed by `v_m` or by `at` (a storey edge). |
@@ -106,6 +107,7 @@ floor whatever `sill_m` says.
 | --- | --- |
 | `w_m`, `h_m` | Clear size of the hole in the wall. |
 | `head`, `head_rise_m` | `flat`, `segmental`, `round`, `pointed`, `basket`, `shouldered`. |
+| `shape` | An outline that is not a rectangle with a head: `circle`, `oval`, `hexagon`, `octagon`, `diamond`, `lunette`. |
 | `recess_m` | Depth of the glass behind the wall face (0.02 flush wooden house, 0.12–0.25 masonry). |
 | `multiple` | Coupled openings in one cell. |
 | `lights` | Subdivision. `pattern`: `single`, `two_leaf`, `three_leaf`, `t_frame` (a transom over two leaves), `cross` (transom and mullion), `grid` (`cols` × `rows` equal panes: a six-pane window is 2 × 3), `side_vent` (a wide fixed pane and a narrow vent leaf on `vent`), `top_vent`, `ribbon`. `bars` adds glazing bars inside each light. |
