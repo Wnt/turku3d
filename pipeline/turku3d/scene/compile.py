@@ -257,10 +257,21 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
         place_trunks(scene, trees)
     office=next((a for a in assets if a['entityId']=='103295893K'),None)
     anchors=json.loads(Path(__file__).with_name('office_detail_anchors.json').read_text())
-    if office and office['sha256']==anchors['authoredGlbSha256']:
+    authored = office and (office['sha256']==anchors['authoredGlbSha256'] or any(
+        source['id']=='building:103295893K:authored' and source['sha256']==anchors['authoredGlbSha256']
+        and source['kind']=='approved-building' for source in scene['sources']))
+    restored = office and any(source['id']=='building:103295893K:restored' and source['sha256']==office['sha256']
+        and source['kind']=='restored-building-appearance' for source in scene['sources'])
+    if authored:
         from .facade_details import office_window_details, OFFICE_ORNAMENT_MATERIAL
         scene['materials'].append(OFFICE_ORNAMENT_MATERIAL)
         for piece in office_window_details():
+            scene['meshes'].append(mesh_record(piece['id'],'103295893K',piece['materialId'],np.array(piece['positions']).reshape(-1,3),np.array(piece['indices']).reshape(-1,3),'passable'))
+    if authored and restored:
+        from .roof_details import office_roof_details, ROOF_DETAIL_MATERIALS, OFFICE_RESTORED_ORNAMENT_MATERIAL
+        scene['materials']=[m for m in scene['materials'] if m['id']!='office-ornament']
+        scene['materials'].extend([OFFICE_RESTORED_ORNAMENT_MATERIAL, *ROOF_DETAIL_MATERIALS])
+        for piece in office_roof_details():
             scene['meshes'].append(mesh_record(piece['id'],'103295893K',piece['materialId'],np.array(piece['positions']).reshape(-1,3),np.array(piece['indices']).reshape(-1,3),'passable'))
     for location in [scene["spawn"], scene["spawn"]["vehicle"]]:
         p = location["position"]

@@ -217,8 +217,8 @@
     {
       "id": "103295893K",
       "entityId": "103295893K",
-      "url": "shared/fa908a02de1d0b7265c9b470ab56c9c6584a05534bb08225a7aee2cdaadcd7d2.glb",
-      "sha256": "fa908a02de1d0b7265c9b470ab56c9c6584a05534bb08225a7aee2cdaadcd7d2",
+      "url": "shared/d9f0bb5d7239d81d04918d2fb3b49e391973a1a166d5cafa72c881f7e9fff4ea.glb",
+      "sha256": "d9f0bb5d7239d81d04918d2fb3b49e391973a1a166d5cafa72c881f7e9fff4ea",
       "position": [
         164.70577752805247,
         0.0,
@@ -3017,6 +3017,18 @@
       "id": "approved-building:103295899S",
       "sha256": "5f62569f2f76b1d3d4a9b28eb1d1b0b489945db6627e92a9c0c2828cddedf3f8",
       "kind": "approved-building",
+      "uncertaintyM": 0.3
+    },
+    {
+      "id": "building:103295893K:authored",
+      "sha256": "fa908a02de1d0b7265c9b470ab56c9c6584a05534bb08225a7aee2cdaadcd7d2",
+      "kind": "approved-building",
+      "uncertaintyM": 0.15
+    },
+    {
+      "id": "building:103295893K:restored",
+      "sha256": "d9f0bb5d7239d81d04918d2fb3b49e391973a1a166d5cafa72c881f7e9fff4ea",
+      "kind": "restored-building-appearance",
       "uncertaintyM": 0.3
     }
   ],
