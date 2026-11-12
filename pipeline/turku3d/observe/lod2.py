@@ -101,7 +101,7 @@ class Wall:
 
 @dataclass
 class Building:
-    id: str  # permanent building identifier of the register, else the LoD2 feature key
+    id: str  # the entity key: the register's permanent building id, else gml-<gml_id>
     feature_key: str
     footprint: Polygon
     walls: list
@@ -301,7 +301,7 @@ class Scene:
         files = lod2_files(self.bounds)
         self.fingerprint = hashlib.sha256(repr([(str(p), p.stat().st_size, p.stat().st_mtime_ns) for p in files]
                                                ).encode()).hexdigest()[:16]
-        columns = ["feature_key", "geom_index", "geometry", "geom_type", "surface_type", "pysyvarakennustunnus",
+        columns = ["feature_key", "gml_id", "geom_index", "geometry", "geom_type", "surface_type", "pysyvarakennustunnus",
                    "taydellinen_osoite_fi", "yearOfConstruction", "valmistunut", "storeysAboveGround", "kerrosluku",
                    "measuredHeight", "function", "kerrosala"]
         frames = [pd.read_parquet(p, columns=columns) for p in files]
@@ -326,7 +326,8 @@ class Scene:
                 continue
             row = group.iloc[0].to_dict()
             pid = str(row.get("pysyvarakennustunnus"))
-            building_id = pid if pid not in INVALID_IDS else str(key)
+            # The entity key of docs/design/world-pipeline.md: the permanent building id, else gml-<gml_id>.
+            building_id = pid if pid not in INVALID_IDS else f"gml-{row.get('gml_id') or key}"
             surfaces = [s for g in group.geom[group.surface_type == "WallSurface"] if (s := _surface(g))]
             tris = [_triangles([np.asarray(r.coords) for r in [g.exterior, *g.interiors]])
                     for g in group.geom[group.surface_type != "GroundSurface"]
