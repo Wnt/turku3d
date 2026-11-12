@@ -388,3 +388,7 @@ url = "https://city.lab.madekivi.fi/scenes/shared/e3b56dd85638154f4177526e94ba06
 source = "Original analytic brick orm material from pipeline/turku3d/scene/qwensel_roof_surface.py; construction priors, no photographic pixels"
 licence = "MIT (this repository)"
 reason = "Source-qualified Qwensel roof/chimney appearance;1024x1024 block-aligned KTX"
+url = "https://city.lab.madekivi.fi/scenes/shared/1dae677aa139713487a0ce9ae198ef3d6cd398ed6c16d2c0b79f2ef0edadfa63.ktx2"
+source = "Built-in OpenAI image_gen repair of the existing generated asphalt_worn library; exact prompt and source hashes in pipeline/turku3d/scene/asphalt_material_source.json. No city reference-image pixels used. GPU size conversion and sRGB encoding only."
+licence = "Generated output under applicable OpenAI terms; not CC0"
+reason = "Reference-qualified binder-dominant centre asphalt at the retained two-metre scale"

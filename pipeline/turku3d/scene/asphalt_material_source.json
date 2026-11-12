@@ -1,0 +1,36 @@
+{
+  "version": "asphalt-repair/1",
+  "generatedOn": "2026-11-12",
+  "tool": "built-in image_gen",
+  "editTargetSha256": "dac805be827bede1517d7bdf68870edb98bdb2fded3335a590546e348e731f84",
+  "sourceLibrary": {
+    "path": "textures/library/ground.json",
+    "key": "asphalt_worn",
+    "arraySha256": "9cda7c3054798daf5fe450931c03ac20e68333b65a667c64d39feace84ad7447",
+    "layer": 1,
+    "declaredMetres": 2
+  },
+  "output": {
+    "sourceSha256": "210ef8a9b9edf0dd789c13310165a60770eee168da0ec110a1621395b87ec19e",
+    "sourceFile": "210ef8a9b9edf0dd789c13310165a60770eee168da0ec110a1621395b87ec19e.png",
+    "sourceExtent": [
+      1254,
+      1254
+    ],
+    "encoded": {
+      "url": "shared/1dae677aa139713487a0ce9ae198ef3d6cd398ed6c16d2c0b79f2ef0edadfa63.ktx2",
+      "sha256": "1dae677aa139713487a0ce9ae198ef3d6cd398ed6c16d2c0b79f2ef0edadfa63",
+      "wrap": "repeat"
+    },
+    "gpuExtent": [
+      1024,
+      1024
+    ]
+  },
+  "prompt": "Use case: precise-object-edit. Asset type: seamless PBR game ground ALBEDO texture, square 1024x1024 or higher. Input image 1 is the EDIT TARGET: the existing generated asphalt_worn library patch, representing exactly 2 by 2 metres. Preserve that physical footprint, top-down orthographic projection, seamless opposite edges and medium neutral grey mean colour. Repair only its material character. It currently reads as loose bright gravel rather than aged compacted Finnish asphalt. Make continuous weathered bitumen binder dominate, with fine crushed aggregate embedded nearly flush into it; isolated muted granite grains remain but must not all have bright outlines or dark shadow rims. Real worn pedestrian asphalt looks mostly smooth and low-contrast from normal walking height, with subtle irregular fine grain. Keep aggregate scale physically plausible for an asphalt wearing course within the 2m square. No generalized blur: retain sharp fine material detail with subdued diffuse reflectance differences and subtle binder wear. Avoid a conspicuous repeating motif. Do not introduce cracks, repair seams, painted markings, slabs, pebbles, leaves, dirt piles, objects or local street details; those require separate source evidence. ALBEDO ONLY under uniform diffuse neutral illumination: absolutely no baked directional lighting, dark cavities, ambient occlusion, sun highlights, reflections, wet areas, vignetting, camera perspective or exposure gradient. No text, labels, border or watermark. Do not produce normal/roughness maps or a material-ball render. Entire output is the single seamless square surface.",
+  "referenceUse": "Textual material assessment from registered2019 office panoramas; no city reference image supplied to generation or included in output.",
+  "licence": "Generated output under applicable OpenAI terms; not a CC0 source asset",
+  "qualification": "Binder/aggregate appearance and color are optical priors, not a surveyed reflectance or height field.",
+  "encoding": "RGB conversion and1254 to1024 Lanczos size conversion; no colour/contrast adjustment; ETC1S sRGB. Existing normal and ORM maps retained; normalScale0.25.",
+  "generationRecord": "01a1cd03-37b0-7bb2-a1b5-489698b85cf6/exec-6269f57d-f760-4923-8a9a-fd8b4e50d9a3.png"
+}

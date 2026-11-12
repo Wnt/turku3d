@@ -1503,8 +1503,8 @@
         "roughness": 1,
         "metalness": 1,
         "baseColorTexture": {
-          "url": "shared/af281b16f366542a35e28566d7af14d802e1199db5ccf5deae515b5fabc71a6a.ktx2",
-          "sha256": "af281b16f366542a35e28566d7af14d802e1199db5ccf5deae515b5fabc71a6a",
+          "url": "shared/1dae677aa139713487a0ce9ae198ef3d6cd398ed6c16d2c0b79f2ef0edadfa63.ktx2",
+          "sha256": "1dae677aa139713487a0ce9ae198ef3d6cd398ed6c16d2c0b79f2ef0edadfa63",
           "wrap": "repeat"
         },
         "normalTexture": {
@@ -17150,6 +17150,12 @@
       "sha256": "25a0d336403045da9b4a0e8d6066f1f58462b40a72562533152945c405129132",
       "kind": "registered-roof-detail",
       "uncertaintyM": 0.15
+    },
+    {
+      "id": "material:road:asphalt-repair",
+      "kind": "reference-qualified-generated-material",
+      "sha256": "210ef8a9b9edf0dd789c13310165a60770eee168da0ec110a1621395b87ec19e",
+      "uncertaintyM": 0.0
     }
   ],
   "fixtureBindings": {
