@@ -42,11 +42,20 @@ def outside_mesh(row,bounds):
     return GlbMesh(row['name'],vertices[:,:3],faces[keep],colors=vertices[:,3:],color=(1,1,1,1),extras=dict(layer=row['layer'],scenery=True))
 
 
-def import_context(catalogue,output,scratch,bounds):
+def import_context(catalogue,output,scratch,bounds,*,occupied_tree_ids,water):
     output,scratch=Path(output),Path(scratch);scratch.mkdir(parents=True,exist_ok=True);shared=output/'shared';shared.mkdir(parents=True,exist_ok=True)
-    assets=[]
+    assets=[];tree_records=[];tree_sources=[]
     for source in catalogue['tiles']:
         if source['tile'].startswith('t2_'):continue
+        tree_path=scratch/(source['tile']+'.trees.json')
+        if not tree_path.exists():
+            raw=urllib.request.urlopen('https://city.lab.madekivi.fi/coarse/'+source['trees_url'],timeout=30).read()
+            tree_data=json.loads(raw)
+            if tree_data.get('version')!=1 or 'nodes' not in tree_data:
+                raise ValueError('Context tree source is still preparing; retry after its bounded source job')
+            tree_path.write_bytes(raw)
+        raw=tree_path.read_bytes();tree_records.append(json.loads(raw))
+        tree_sources.append(dict(id=source['trees_url'],sha256=hashlib.sha256(raw).hexdigest(),kind='mapped-context-trees',uncertaintyM=.3))
         url='https://city.lab.madekivi.fi/coarse/scenery/'+source['key']+'.json'
         manifest=json.loads(urllib.request.urlopen(url,timeout=30).read());record=manifest['visual'][source['tile']]
         url=urllib.parse.urljoin('https://city.lab.madekivi.fi/coarse/'+source['tile']+'/',record['url'])
@@ -56,9 +65,13 @@ def import_context(catalogue,output,scratch,bounds):
         subprocess.run(['node',str(Path(__file__).with_name('decode_context.mjs')),str(path),str(decoded)],check=True)
         meshes=[]
         for row in json.loads(decoded.read_text()):
-            if row['layer']=='night-architecture':continue
+            if row['layer'] in ('night-architecture','vegetation'):continue
             mesh=outside_mesh(row,bounds)
             if mesh is not None:meshes.append(mesh)
         data=build_glb(meshes);sha=hashlib.sha256(data).hexdigest();(shared/(sha+'.glb')).write_bytes(data)
         positions=np.concatenate([m.positions for m in meshes]);assets.append(dict(id='context:'+source['tile'],entityId='context:'+source['tile'],url='shared/'+sha+'.glb',sha256=sha,position=[0,0,0],recipe='context',bounds=dict(min=positions.min(axis=0).tolist(),max=positions.max(axis=0).tolist())))
+    from .context_trees import compile_context_trees
+    tree_asset,identities=compile_context_trees(tree_records,output,occupied_ids=occupied_tree_ids,bounds=bounds,water=water)
+    if tree_asset:assets.append(tree_asset)
+    (scratch/'tree-import.json').write_text(json.dumps(dict(sources=tree_sources,ids=identities),indent=2)+'\n')
     return assets
