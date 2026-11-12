@@ -1,0 +1,10 @@
+{
+  "buildingId": "103304667L",
+  "sourceSha256": "0d71100a5dcaec9f75aba3e6f72928810a80ccbdce210f1d18869a7deac45449",
+  "sourceStoreyM": 0.7373571428571429,
+  "correctedStoreyM": 2.5351428571428554,
+  "correctedEnvelopeM": 17.745999999999988,
+  "storeys": 7,
+  "authority": "Municipal registered storeys; weighted supported tall-wall envelope from unchanged WFS roof parts. The approved 3.3725 m ground split and explicit photographed openings remain unchanged.",
+  "confidence": "Fallback grid prior, not a new facade measurement. The original low podium dominated the building-wide height median."
+}
