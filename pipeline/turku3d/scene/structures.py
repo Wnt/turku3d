@@ -115,18 +115,21 @@ def append(scene,decks,tunnel_meshes=()):
             record['render']=mesh.visual
             scene['meshes'].append(record)
             if supported:
-                # Only exterior top edges define the canonical bridge boundary;
-                # source station cuts stay inside this one support surface.
-                p=np.asarray(record['positions']).reshape(-1,3);ix=np.asarray(record['indices']).reshape(-1,3)
-                rounded=np.round(p,7);vertices,inverse=np.unique(rounded,axis=0,return_inverse=True)
-                edges=np.sort(np.concatenate([inverse[ix[:,s]] for s in ([0,1],[1,2],[2,0])]),axis=1)
-                edges,count=np.unique(edges,axis=0,return_counts=True);bids=[]
-                known={b['id'] for b in scene['boundaries']}
-                for edge in edges[count==1]:
-                    pos=vertices[edge];bid='edge:'+hashlib.sha256(pos.tobytes()).hexdigest()[:16]
-                    if bid not in known:scene['boundaries'].append(dict(id=bid,positions=pos.tolist()));known.add(bid)
-                    bids.append(bid)
-                scene['supports'].append(dict(id=sid,kind='road' if mesh.material=='road' else ('quay' if mesh.material=='paving_slab' else 'footway'),boundaryIds=bids,meshId=record['id']))
+                add_support(scene,record,'road' if mesh.material=='road' else ('quay' if mesh.material=='paving_slab' else 'footway'))
+
+
+def add_support(scene,record,kind):
+    """Record the exterior boundaries of a declared source support mesh."""
+    p=np.asarray(record['positions']).reshape(-1,3);ix=np.asarray(record['indices']).reshape(-1,3)
+    rounded=np.round(p,7);vertices,inverse=np.unique(rounded,axis=0,return_inverse=True)
+    edges=np.sort(np.concatenate([inverse[ix[:,s]] for s in ([0,1],[1,2],[2,0])]),axis=1)
+    edges,count=np.unique(edges,axis=0,return_counts=True);bids=[]
+    known={b['id'] for b in scene['boundaries']}
+    for edge in edges[count==1]:
+        pos=vertices[edge];bid='edge:'+hashlib.sha256(pos.tobytes()).hexdigest()[:16]
+        if bid not in known:scene['boundaries'].append(dict(id=bid,positions=pos.tolist()));known.add(bid)
+        bids.append(bid)
+    scene['supports'].append(dict(id=record['supportId'],kind=kind,boundaryIds=bids,meshId=record['id']))
 
 
 def write_textures(scene,output):

@@ -299,6 +299,8 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
         scene['materials'].extend([OFFICE_RESTORED_ORNAMENT_MATERIAL, *ROOF_DETAIL_MATERIALS])
         for piece in office_roof_details():
             scene['meshes'].append(mesh_record(piece['id'],'103295893K',piece['materialId'],np.array(piece['positions']).reshape(-1,3),np.array(piece['indices']).reshape(-1,3),'passable'))
+    from .qwensel_compile import append_qwensel
+    append_qwensel(scene)
     for location in [scene["spawn"], scene["spawn"]["vehicle"]]:
         p = location["position"]
         p[1] = float(height([[p[0], p[2]]])[0]) + .15
@@ -348,6 +350,8 @@ def write_products(scene, output):
                 name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "sign-C1": "street_furniture", "sign-E2": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
                 if name.startswith('bridge:'):name=name.split(':')[1]
                 if name=='hedge':name='vegetation_low'
+                if name in ('qwensel-tread','qwensel-trim'):name='wood_deck'
+                if m['id']=='qwensel-entrance-stair-rails':name='railing'
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
                 clipped = clip_mesh(source, bbox)
                 if clipped is None:
