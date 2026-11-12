@@ -1,0 +1,32 @@
+{
+  "schema": "turku-capture-views/1",
+  "scene": null,
+  "note": "Along-street views of the eight pilot locations, two each: the street itself (ground, kerbs, markings, planting, fences, signs, lamps, furniture) from the newest panorama on the street nearest a pilot target, 25 m before it, level and looking along the street axis (qa/views/street_refs.py; rows tagged pilot-street in qa/views/views.jsonl; crops in $TURKU3D_DATA/qa/refs). The companion of scripts/dev/views/pilot-locations.json, whose 24 building-targeted views stay as they are; same settings, own history ~/turku3d/loops/judge/pilot-streets.jsonl. Capture with --base https://city.madekivi.fi/ --mode render until the new pipeline covers these places.",
+  "references": "qa/views/views.jsonl",
+  "quality": "medium",
+  "time": "2026-06-15T14:00:00+03:00",
+  "weather": "clear",
+  "viewport": [
+    960,
+    720
+  ],
+  "renderScale": 1,
+  "views": [
+    { "id": "jokiranta-street-01", "reference": "jokiranta_street_01", "group": "jokiranta", "aim": "street" },
+    { "id": "jokiranta-street-02", "reference": "jokiranta_street_02", "group": "jokiranta", "aim": "street" },
+    { "id": "kauppatori-street-01", "reference": "kauppatori_street_01", "group": "kauppatori", "aim": "street" },
+    { "id": "kauppatori-street-02", "reference": "kauppatori_street_02", "group": "kauppatori", "aim": "street" },
+    { "id": "puolalanpuisto-street-01", "reference": "puolalanpuisto_street_01", "group": "puolalanpuisto", "aim": "street" },
+    { "id": "puolalanpuisto-street-02", "reference": "puolalanpuisto_street_02", "group": "puolalanpuisto", "aim": "street" },
+    { "id": "rettig-street-01", "reference": "rettig_street_01", "group": "rettig", "aim": "street" },
+    { "id": "rettig-street-02", "reference": "rettig_street_02", "group": "rettig", "aim": "street" },
+    { "id": "humalistonkatu-street-01", "reference": "humalistonkatu_street_01", "group": "humalistonkatu", "aim": "street" },
+    { "id": "humalistonkatu-street-02", "reference": "humalistonkatu_street_02", "group": "humalistonkatu", "aim": "street" },
+    { "id": "kupittaa-street-01", "reference": "kupittaa_street_01", "group": "kupittaa", "aim": "street" },
+    { "id": "kupittaa-street-02", "reference": "kupittaa_street_02", "group": "kupittaa", "aim": "street" },
+    { "id": "portsa-street-01", "reference": "portsa_street_01", "group": "portsa", "aim": "street" },
+    { "id": "portsa-street-02", "reference": "portsa_street_02", "group": "portsa", "aim": "street" },
+    { "id": "nummi-street-01", "reference": "nummi_street_01", "group": "nummi", "aim": "street" },
+    { "id": "nummi-street-02", "reference": "nummi_street_02", "group": "nummi", "aim": "street" }
+  ]
+}

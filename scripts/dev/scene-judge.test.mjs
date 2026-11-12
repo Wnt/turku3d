@@ -80,3 +80,17 @@ test('a subset view set: only its views of a capture are judged, and a finished 
   assert.throws(() => record(out, 'x', path.join(out, 'x.jsonl'), new Set(['rettig-01'])), /did not judge the views rettig-01/);
   fs.rmSync(out, { recursive: true, force: true });
 });
+
+test('a large set is judged in equal packets, and views carry their aim', async () => {
+  const { packetsOf } = await import('./scene-judge.mjs');
+  const many = n => Array.from({ length: n }, (_, i) => ({ id: `p${i}` }));
+  assert.deepEqual(packetsOf(many(24), 24).map(p => p.length), [24]);
+  assert.deepEqual(packetsOf(many(48), 24).map(p => p.length), [24, 24]);
+  assert.deepEqual(packetsOf(many(30), 24).map(p => p.length), [15, 15]);
+  const set = [{ dir: '/c/dev', manifest: { mode: 'render', views: [{ ...view('dev-01-b', 'dev_01'), group: 'houses', aim: 'building' },
+    { ...view('dev-01-s', 'dev_01_street'), group: 'houses', aim: 'street' }] } }];
+  const { items, key } = buildItems(set);
+  const result = aggregate([answer(items, i => i.id === 'p01' ? 2 : 6)], items, key.map(k => k.group), key.map(k => k.aim));
+  assert.deepEqual(Object.fromEntries(Object.entries(result.byAim).map(([k, v]) => [k, v.overall])), { building: 20, street: 60 });
+  assert.deepEqual(Object.keys(result.byGroup), ['houses']);
+});

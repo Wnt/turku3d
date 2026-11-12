@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""A fixed set of random on-street locations in built-up Turku, each with one reference view of its nearest building.
+"""A fixed set of random on-street locations in built-up Turku, each with two reference views: its nearest building
+and the street itself.
 
 The set tests streets nobody tuned by hand. Candidate points are drawn along the street network (OSM streets inside
 the municipality, weighted by length) from a recorded seed, and taken in that order. A candidate joins the set when:
@@ -7,8 +8,12 @@ the municipality, weighted by length) from a recorded seed, and taken in that or
   (and from the points of the sets named with --avoid);
 - the city's LoD2 register has a building of at least 50 m2 within 30 m of it: the nearest one is the target;
 - its area type (below) is not yet half of the set, and every type can still get one point;
-- a street panorama from --min-date on sees the target: the view is made exactly like a pilot view
-  (pilot_refs.reference_view).
+- a street panorama from --min-date on sees the target: that view is made exactly like a pilot view
+  (pilot_refs.reference_view);
+- a panorama from --min-date on stands on the point's street within 30 m of it: the along-street view
+  (street_refs.street_view), looking the way in which the target lies ahead;
+- with --published URL, that city has published the visual tiles under the target and under both cameras (the frozen
+  city serves a fixed set of tiles and builds none on demand).
 A point whose render in the frozen city turns out unusable is listed with --reject INDEX=REASON (kept in the set's
 draw.json), and the same command then replaces it with the next candidates of the same sequence.
 
@@ -20,11 +25,13 @@ Area type, from the LoD2 buildings within 150 m (floor area by use):
 - houses: mostly housing of one or two storeys (detached and row houses).
 
 Everything goes into --out: draw.json (seed, parameters, points, rejections), targets.json (as pilot-targets.json),
-views.jsonl (the reference registry), refs/*.jpg (the photo crops), views.json (the capture view set for
-scripts/dev/scene-capture.mjs and scene-judge.mjs, whose history is judge.jsonl beside it) and cache/ (LoD2 pages and
-results per candidate, OSM extracts). None of it belongs in Git: the photos are private, and a hidden set stays hidden.
+views.jsonl (the reference registry: <set>_NN the building view, <set>_NN_street the street view, both with area
+<set>-NN since every point is a location of its own), refs/*.jpg (the photo crops), views.json (the capture view set
+for scripts/dev/scene-capture.mjs and scene-judge.mjs: views <set>-NN-b and <set>-NN-s with the area type as `group`
+and building or street as `aim`; its history is judge.jsonl beside it) and cache/ (LoD2 pages and results per
+candidate). None of it belongs in Git: the photos are private, and a hidden set stays hidden.
 
-Run from the repo root (about 20 s per candidate that reaches the panorama step):
+Run from the repo root (about 20 s per candidate that reaches the panorama steps):
     bash pipeline/env/run.sh python qa/views/random_streets.py --set dev --count 12 --seed 7 --out DIR [--avoid DIR2/draw.json]
 """
 
@@ -32,57 +39,29 @@ import argparse
 import json
 import math
 import random
-import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import numpy as np
-import shapely
 from shapely import STRtree, force_2d, unary_union
-from shapely.geometry import Point, shape
+from shapely.geometry import Point
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT / "qa"), str(ROOT / "textures"), str(ROOT / "qa/views")]
 from pilot_refs import reference_view  # noqa: E402
+from street_refs import STREETS, osm_layers, street_view  # noqa: E402
 from qalib import registry  # noqa: E402
 from turku3d import config  # noqa: E402
 from turku3d.fetch import wfs  # noqa: E402
 from turku3d.fetch.common import Registry  # noqa: E402
 from turkutex.streetview.panos import PanoCache  # noqa: E402
 
-STREETS = {"residential", "living_street", "unclassified", "tertiary", "secondary", "primary", "pedestrian"}
 TYPES = ("centre", "apartments", "houses", "work")
 PILOT_CLEAR_M, SPREAD_M, BUILDING_M, AREA_M, MIN_FOOTPRINT_M2, LOD2_HALF_M = 300.0, 400.0, 30.0, 150.0, 50.0, 200.0
 WORK_CLASSES_HEAVY = {"691", "692", "699", "613", "1160", "1150", "1100", "1120"}  # industry, storage, education, health
-
-
-def osm_layers(work: Path):
-    """Streets (EPSG:3877 lines with names), building polygons and the municipality polygon from the OSM snapshot."""
-    work.mkdir(parents=True, exist_ok=True)
-    seq, adm = work / "turku-sel.geojsonseq", work / "adm8.geojsonseq"
-    pbf = sorted((config.raw_dir("osm") / "geofabrik").glob("finland-*.osm.pbf"))[-1]
-    if not seq.exists() or not adm.exists():
-        run = lambda *a: subprocess.run(a, check=True)  # noqa: E731
-        run("osmium", "extract", "-b", "22.08,60.36,22.46,60.56", "--strategy", "smart", str(pbf), "-o", str(work / "turku.osm.pbf"), "--overwrite")
-        run("osmium", "tags-filter", str(work / "turku.osm.pbf"), "w/highway", "w/building", "-o", str(work / "turku-sel.osm.pbf"), "--overwrite")
-        run("osmium", "export", str(work / "turku-sel.osm.pbf"), "-f", "geojsonseq", "-o", str(seq), "--overwrite", "--geometry-types=linestring,polygon")
-        run("osmium", "tags-filter", str(pbf), "r/admin_level=8", "-o", str(work / "adm8.osm.pbf"), "--overwrite")
-        run("osmium", "export", str(work / "adm8.osm.pbf"), "-f", "geojsonseq", "-o", str(adm), "--overwrite", "--geometry-types=polygon")
-    from pyproj import Transformer
-
-    project = Transformer.from_crs("EPSG:4326", config.CRS_HORIZONTAL, always_xy=True).transform
-    to_en = lambda g: shapely.transform(g, lambda xy: np.column_stack(project(xy[:, 0], xy[:, 1])))  # noqa: E731
-    rows = lambda f: (json.loads(line.strip("\x1e\n")) for line in open(f) if line.strip("\x1e\n"))  # noqa: E731
-    city = next(to_en(shape(r["geometry"])) for r in rows(adm) if r["properties"].get("name") == "Turku")
-    streets, buildings = [], []
-    for r in rows(seq):
-        p, kind = r["properties"], r["geometry"]["type"]
-        if kind == "LineString" and p.get("highway") in STREETS and "tunnel" not in p and p.get("access") not in ("private", "no"):
-            streets.append((to_en(shape(r["geometry"])), p.get("name")))
-        elif kind != "LineString" and "building" in p:
-            buildings.append(to_en(shape(r["geometry"])))
-    return streets, buildings, city, pbf.name
 
 
 def lod2_buildings(E, N, cache_dir: Path):
@@ -104,6 +83,19 @@ def lod2_buildings(E, N, cache_dir: Path):
         out[key] = dict(key=key, foot=foot, cls=txt("class"), fn=txt("function"), height=num("measuredHeight"), storeys=num("storeysAboveGround"),
                         floor_area=num("kerrosala"), year=txt("yearOfConstruction"), address=txt("taydellinen_osoite_fi"))
     return list(out.values())
+
+
+def tile_published(base, E, N, known):
+    """Whether the city at `base` serves the level-0 visual tile under (E, N)."""
+    size = config.VISUAL_TILE_SIZE
+    tile = f"t0_{math.floor((E - config.ORIGIN_E) / size)}_{math.floor((config.ORIGIN_N - N) / size)}"
+    if tile not in known:
+        try:
+            with urllib.request.urlopen(f"{base.rstrip('/')}/coarse/{tile}/manifest.json", timeout=15) as r:
+                known[tile] = r.status == 200
+        except urllib.error.HTTPError:
+            known[tile] = False
+    return known[tile]
 
 
 def building_use(b):
@@ -155,6 +147,7 @@ def main():
     ap.add_argument("--avoid", type=Path, action="append", default=[], help="draw.json of another set: keep 400 m from its points")
     ap.add_argument("--reject", action="append", default=[], help="INDEX=REASON: a candidate whose render is unusable")
     ap.add_argument("--min-date", default="2024")
+    ap.add_argument("--published", help="base URL of a city that must have published the tiles under the target and the camera")
     ap.add_argument("--max-candidates", type=int, default=20000)
     a = ap.parse_args()
     out = a.out.expanduser().resolve()
@@ -169,9 +162,11 @@ def main():
         rejected[str(int(i))] = why or "unusable render"
     known_file = cache_dir / "candidates.json"  # index -> what the LoD2 and panorama steps found (they are not repeated)
     known = json.loads(known_file.read_text()) if known_file.exists() else {}
+    tiles_file = cache_dir / "tiles.json"
+    tiles = json.loads(tiles_file.read_text()) if tiles_file.exists() else {}
 
     t0 = time.time()
-    streets, osm_buildings, city, snapshot = osm_layers(cache_dir / "osm")
+    streets, osm_buildings, city, snapshot = osm_layers()
     lengths = np.array([s.length for s, _ in streets])
     cum = np.cumsum(lengths)
     osm_tree = STRtree(osm_buildings)
@@ -229,6 +224,9 @@ def main():
         if c["target"] is None:
             no("no LoD2 building within 30 m")
             continue
+        if a.published and not tile_published(a.published, *c["target"]["look_at"], tiles):
+            no("tile not published")
+            continue
         kind = c["type"]
         missing = [t for t in TYPES if counts[t] == 0]
         if counts[kind] >= cap:
@@ -250,9 +248,20 @@ def main():
             no("no panorama sees the target")
             print(f"  candidate {index}: {c['said']}", flush=True)
             continue
+        if "street" not in c:
+            c["street"], c["street_said"] = street_view(line, at, c["target"]["look_at"], f"cand_{index:05}_street", a.set, panos, refreshed,
+                                                        cache_dir / "crops", tags=["random", a.set, "street"], min_date=a.min_date, what=street or "an unnamed street")
+            known_file.write_text(json.dumps(known) + "\n")
+        if c["street"] is None:
+            no("no panorama along the street")
+            print(f"  candidate {index}: {c['street_said']}", flush=True)
+            continue
+        if a.published and not all(tile_published(a.published, v["pose"]["E"], v["pose"]["N"], tiles) for v in (c["view"], c["street"])):
+            no("tile not published")
+            continue
         counts[kind] += 1
         points.append(dict(id=vid, index=index, E=E, N=N, street=street, type=kind, target=c["target"], floor=c["floor"]))
-        print(f"{vid}: candidate {index}, {kind}, {c['said']} ({time.time() - t0:.0f} s)", flush=True)
+        print(f"{vid}: candidate {index}, {kind}, {c['said']}; {c['street_said']} ({time.time() - t0:.0f} s)", flush=True)
     else:
         print(f"only {len(points)} of {a.count} points after {a.max_candidates} candidates", flush=True)
 
@@ -260,26 +269,31 @@ def main():
     (out / "refs").mkdir(parents=True, exist_ok=True)
     reg = out / "views.jsonl"
     reg.unlink(missing_ok=True)
+    for old_crop in (out / "refs").glob("*.jpg"):
+        old_crop.unlink()
     for p in points:
-        view = dict(known[str(p["index"])]["view"])
-        crop = out / "refs" / f"{p['id']}.jpg"
-        crop.write_bytes((cache_dir / "crops" / f"cand_{p['index']:05}.jpg").read_bytes())
-        view.update(id=p["id"], image=str(crop))
-        registry.upsert(view, reg)
+        for key, suffix in (("view", ""), ("street", "_street")):
+            view = dict(known[str(p["index"])][key])
+            crop = out / "refs" / f"{p['id']}{suffix}.jpg"
+            crop.write_bytes((cache_dir / "crops" / f"cand_{p['index']:05}{suffix}.jpg").read_bytes())
+            view.update(id=p["id"] + suffix, image=str(crop), area=p["id"].replace("_", "-"))  # every point is a location of its own
+            registry.upsert(view, reg)
     (out / "targets.json").write_text(json.dumps({"schema": "turku-pilot-targets/1", "note": f"Random street set {a.set}: the building nearest each drawn point (qa/views/random_streets.py).",
                                                   "locations": [{"id": a.set, "label": f"Random streets ({a.set})",
                                                                  "targets": [dict(what=p["target"]["what"], look_at=p["target"]["look_at"], height=p["target"]["height"]) for p in points]}]}, indent=1) + "\n")
     (out / "views.json").write_text(json.dumps({
         "schema": "turku-capture-views/1", "scene": None,
-        "note": f"Random street set {a.set}: one view per drawn point, from the camera of its reference photo (qa/views/random_streets.py). Settings as scripts/dev/views/pilot-locations.json.",
+        "note": f"Random street set {a.set}: two views per drawn point, its nearest building (-b) and along its street (-s), from the cameras of their reference photos (qa/views/random_streets.py). Settings as scripts/dev/views/pilot-locations.json.",
         "references": str(reg), "history": "judge.jsonl", "quality": "medium", "time": "2026-06-15T14:00:00+03:00", "weather": "clear", "viewport": [960, 720], "renderScale": 1,
-        "views": [{"id": p["id"].replace("_", "-"), "reference": p["id"], "group": p["type"]} for p in points]}, indent=1) + "\n")
+        "views": [v for p in points for v in ({"id": p["id"].replace("_", "-") + "-b", "reference": p["id"], "group": p["type"], "aim": "building"},
+                                                {"id": p["id"].replace("_", "-") + "-s", "reference": p["id"] + "_street", "group": p["type"], "aim": "street"})]}, indent=1) + "\n")
     draw_file.write_text(json.dumps(dict(
         schema="turku-random-streets/1", set=a.set, seed=a.seed, count=a.count, min_date=a.min_date, osm=snapshot,
         rules=dict(streets=sorted(STREETS), pilot_clear_m=PILOT_CLEAR_M, spread_m=SPREAD_M, building_m=BUILDING_M, min_footprint_m2=MIN_FOOTPRINT_M2,
-                   area_m=AREA_M, type_cap=cap, avoid=[str(f) for f in a.avoid]),
+                   area_m=AREA_M, type_cap=cap, avoid=[str(f) for f in a.avoid], published=a.published),
         street_km=round(float(sum(s.length for s, _ in streets if city.contains(s.interpolate(0.5, normalized=True)))) / 1000, 1), skipped=tally, types=counts, points=points, rejected=rejected), indent=1) + "\n")
     known_file.write_text(json.dumps(known) + "\n")
+    tiles_file.write_text(json.dumps(tiles) + "\n")
     print(json.dumps(dict(points=len(points), types=counts, skipped=tally, seconds=round(time.time() - t0))))
 
 

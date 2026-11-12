@@ -5,7 +5,7 @@
 // categories, and appends the result to a history whose report shows the scores and their change per iteration.
 //
 //   scripts/dev/scene-judge.mjs run --label TEXT [--base URL] [--views FILE]... [--capture DIR]... [--repeats 2]
-//       [--history FILE] [--out DIR]
+//       [--history FILE] [--out DIR] [--packet-size 24]
 //   scripts/dev/scene-judge.mjs prepare --capture DIR... [--views FILE]... --out DIR   packet only (an in-session subagent judges it)
 //   scripts/dev/scene-judge.mjs record --run DIR --label TEXT [--views FILE]... [--history FILE]   after DIR/scores/judge-*.json exist
 //   scripts/dev/scene-judge.mjs report [--views FILE | --history FILE]
@@ -17,6 +17,8 @@
 // or one outside the repo. --views with --capture judges only that file's views of the captures, whatever made them
 // (the frozen city, city.lab, a local build); with `record --run` it scores that subset of a finished run without
 // judging again. --capture without --views takes the view set, and so the history, from the first capture.
+// A set of more than --packet-size views is judged in equal packets (48 views: two of 24), each by its own judge calls;
+// a call that fails leaves the others' answers in place, and the same command again judges only the missing ones.
 // Photos, renders and packets stay outside Git. A judge run is evidence, never a merge gate.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,11 +34,15 @@ export const WEIGHTS = { identity: 0.3, buildings: 0.2, materials: 0.15, lightin
 const AGENT = path.join(repo, '.claude/agents/visual-judge.md');
 const RUBRIC = path.join(repo, 'scripts/dev/judge/JUDGE.md');
 const SCHEMA = path.join(repo, 'scripts/dev/judge/scores.schema.json');
+/** Views per judge call. The pilot baseline was judged 24 views at a time; a larger set is split into equal packets
+ *  so that every call reads as much as that one did. */
+export const PACKET_SIZE = 24;
 const DEFAULT_VIEWS = ['scripts/dev/views/riverside-office.json', 'scripts/dev/views/riverside-office-refs.json'];
 const sha = file => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const round = (x, n = 2) => Math.round(x * 10 ** n) / 10 ** n;
 
-/** A view's group for the per-group means: the view set's `group` (an area type), else the id without its number (a location). */
+/** A view's group for the per-group means: the view set's `group` (an area type), else the id without its number (a
+ *  location). Its `aim` (building or street: what the camera was pointed at) gives the per-aim means. */
 export const groupOf = view => view.group ?? view.id.replace(/-\d+$/, '').replace(/-(?:la|sv)$/, '');
 
 /** Packet items from capture manifests: posed views (photo + render) first, then gameplay renders, neutral ids. */
@@ -53,12 +59,12 @@ export function buildItems(captures, only = null) {
   posed.forEach(({ dir, view }, i) => {
     const id = `p${String(i + 1).padStart(2, '0')}`;
     items.push({ id, kind: 'posed', photo: `${id}-photo.jpg`, render: `${id}-render.jpg`, photoDate: view.photo.date, poseConfidence: view.photo.poseConfidence });
-    key.push({ id, capture: dir, view: view.id, group: groupOf(view), render: path.join(dir, view.file), photo: view.photo });
+    key.push({ id, capture: dir, view: view.id, group: groupOf(view), aim: view.aim ?? null, render: path.join(dir, view.file), photo: view.photo });
   });
   gameplay.forEach(({ dir, view }, i) => {
     const id = `g${String(i + 1).padStart(2, '0')}`;
     items.push({ id, kind: 'gameplay', render: `${id}-render.jpg` });
-    key.push({ id, capture: dir, view: view.id, group: groupOf(view), render: path.join(dir, view.file), photo: null });
+    key.push({ id, capture: dir, view: view.id, group: groupOf(view), aim: view.aim ?? null, render: path.join(dir, view.file), photo: null });
   });
   return { items, key };
 }
@@ -78,7 +84,7 @@ export function validateScores(scores, items) {
 const overallOf = means => round(CATEGORIES.reduce((sum, c) => sum + WEIGHTS[c] * means[c], 0) * 10, 1);
 
 /** Per view: mean over repeats; per category: mean over views; overall 0–100; spread: the repeats' overall range. */
-export function aggregate(runs, items, groups = []) {
+export function aggregate(runs, items, groups = [], aims = []) {
   const views = items.map((item, i) => ({ id: item.id, kind: item.kind,
     scores: Object.fromEntries(CATEGORIES.map(c => [c, round(runs.reduce((s, r) => s + r.views[i].scores[c], 0) / runs.length)])),
     issues: runs[0].views[i].issues, notes: runs.map(r => r.views[i].note) }));
@@ -87,12 +93,12 @@ export function aggregate(runs, items, groups = []) {
   const each = runs.map(r => overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(r.views, c)]))));
   const kinds = Object.fromEntries(['posed', 'gameplay'].map(k => [k, views.filter(v => v.kind === k)]).filter(([, l]) => l.length)
     .map(([k, l]) => [k, overallOf(Object.fromEntries(CATEGORIES.map(c => [c, meanOver(l, c)])))]));
-  const byGroup = {};
-  for (const g of new Set(groups)) {
-    const list = views.filter((_, i) => groups[i] === g), m = Object.fromEntries(CATEGORIES.map(c => [c, round(meanOver(list, c))]));
-    byGroup[g] = { views: list.length, overall: overallOf(m), means: m };
-  }
-  return { views, means, overall: overallOf(means), byKind: kinds, byGroup, repeats: each, spread: round(Math.max(...each) - Math.min(...each), 1),
+  // Means per group (a location, an area type) and per aim (building-targeted or along-street views).
+  const by = labels => Object.fromEntries([...new Set(labels)].filter(g => g != null).map(g => {
+    const list = views.filter((_, i) => labels[i] === g), m = Object.fromEntries(CATEGORIES.map(c => [c, round(meanOver(list, c))]));
+    return [g, { views: list.length, overall: overallOf(m), means: m }];
+  }));
+  return { views, means, overall: overallOf(means), byKind: kinds, byGroup: by(groups), byAim: by(aims), repeats: each, spread: round(Math.max(...each) - Math.min(...each), 1),
     summaries: runs.map(r => r.summary) };
 }
 
@@ -105,14 +111,14 @@ export function reportText(rows) {
   return [head, ...lines].map(l => l.map((x, k) => k === 2 ? x.padEnd(width[k]) : x.padStart(width[k])).join('  ')).join('\n');
 }
 
-/** The latest iteration per group (location or area type), with the change from the iteration before. */
-export function groupText(rows) {
+/** The latest iteration per group (location or area type) or per aim, with the change from the iteration before. */
+export function groupText(rows, field = 'byGroup') {
   const last = rows.at(-1), before = rows.at(-2);
-  const names = Object.keys(last?.byGroup ?? {});
+  const names = Object.keys(last?.[field] ?? {});
   if (names.length < 2) return '';
-  const lines = names.map(g => { const a = last.byGroup[g], b = before?.byGroup?.[g];
+  const lines = names.map(g => { const a = last[field][g], b = before?.[field]?.[g];
     return [g, String(a.views), a.overall.toFixed(1), b ? (a.overall - b.overall >= 0 ? '+' : '') + (a.overall - b.overall).toFixed(1) : '', ...CATEGORIES.map(c => a.means[c].toFixed(1))]; });
-  const head = [`#${last.iteration} by group`, 'views', 'overall', 'Δ', ...CATEGORIES.map(c => c.slice(0, 5))];
+  const head = [`#${last.iteration} by ${field.slice(2).toLowerCase()}`, 'views', 'overall', 'Δ', ...CATEGORIES.map(c => c.slice(0, 5))];
   const width = head.map((h, k) => Math.max(h.length, ...lines.map(l => l[k].length)));
   return [head, ...lines].map(l => l.map((x, k) => k ? x.padStart(width[k]) : x.padEnd(width[k])).join('  ')).join('\n');
 }
@@ -136,8 +142,8 @@ export function reportHtml(rows, title) {
 <table><tr><th>#</th><th class="l">date</th><th class="l">label</th><th>overall</th><th>±</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}<th class="l">build</th></tr>
 ${rows.map(r => `<tr><td>${r.iteration}</td><td class="l">${esc(r.at.slice(0, 16).replace('T', ' '))}</td><td class="l">${esc(r.label)}</td><td><b>${r.overall.toFixed(1)}</b></td><td>${r.spread.toFixed(1)}</td>${CATEGORIES.map(c => `<td>${r.means[c].toFixed(1)}</td>`).join('')}<td class="l">${esc(`${r.git.sha.slice(0, 8)}${r.git.dirty ? '+' : ''} ${r.captures.map(c => c.release ?? '').filter(Boolean)[0]?.slice(0, 8) ?? ''}`)}</td></tr>`).join('\n')}</table>
 ${last ? `<h2>Latest: #${last.iteration} ${esc(last.label)}</h2><p>${last.summaries.map(esc).join('</p><p>')}</p>
-${Object.keys(last.byGroup ?? {}).length > 1 ? `<table><tr><th class="l">group</th><th>views</th><th>overall</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}</tr>
-${Object.entries(last.byGroup).map(([g, a]) => `<tr><td class="l">${esc(g)}</td><td>${a.views}</td><td><b>${a.overall.toFixed(1)}</b></td>${CATEGORIES.map(c => `<td>${a.means[c].toFixed(1)}</td>`).join('')}</tr>`).join('\n')}</table>` : ''}
+${['byAim', 'byGroup'].filter(f => Object.keys(last[f] ?? {}).length > 1).map(f => `<table><tr><th class="l">${f.slice(2).toLowerCase()}</th><th>views</th><th>overall</th>${CATEGORIES.map(c => `<th>${c}</th>`).join('')}</tr>
+${Object.entries(last[f]).map(([g, a]) => `<tr><td class="l">${esc(g)}</td><td>${a.views}</td><td><b>${a.overall.toFixed(1)}</b></td>${CATEGORIES.map(c => `<td>${a.means[c].toFixed(1)}</td>`).join('')}</tr>`).join('\n')}</table>`).join('\n')}
 <table><tr><th class="l">view</th><th class="l">category</th><th>sev</th><th class="l">what</th><th class="l">fix</th></tr>
 ${issues.map(i => `<tr><td class="l">${esc(i.view)}</td><td class="l">${esc(i.category)}</td><td>${i.severity}</td><td class="l">${esc(i.what)} (${esc(i.where)})</td><td class="l">${esc(i.fix)}</td></tr>`).join('\n')}</table>` : ''}\n`;
 }
@@ -150,7 +156,7 @@ function writeReport(history) {
   const html = history.replace(/\.jsonl$/, '') + '.html';
   fs.writeFileSync(html, reportHtml(rows, `Visual judge: ${path.basename(history, '.jsonl')}`));
   console.log(reportText(rows));
-  if (groupText(rows)) console.log(`\n${groupText(rows)}`);
+  for (const field of ['byAim', 'byGroup']) if (groupText(rows, field)) console.log(`\n${groupText(rows, field)}`);
   console.log(`report: ${html}`);
 }
 
@@ -174,15 +180,23 @@ const jpeg = (from, to) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '
 /** The ids of the views in view-set files. */
 export const viewIds = files => new Set(files.flatMap(f => JSON.parse(fs.readFileSync(f, 'utf8')).views.map(v => v.id)));
 
-export function prepare(captureDirs, out, only = null) {
+/** Items in packets of at most `size`, equal in size and in order: one judge call reads one packet. */
+export function packetsOf(items, size) {
+  const n = Math.ceil(items.length / size), per = Math.ceil(items.length / n);
+  return Array.from({ length: n }, (_, i) => items.slice(i * per, (i + 1) * per));
+}
+
+export function prepare(captureDirs, out, only = null, size = PACKET_SIZE) {
   const captures = captureDirs.map(dir => ({ dir: path.resolve(dir), manifest: JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) }));
   const { items, key } = buildItems(captures, only);
-  const packet = path.join(out, 'packet');
-  fs.rmSync(packet, { recursive: true, force: true });
-  fs.mkdirSync(packet, { recursive: true });
+  const chunks = packetsOf(items, size), names = chunks.map((_, i) => chunks.length === 1 ? 'packet' : `packet-${i + 1}`);
+  fs.mkdirSync(out, { recursive: true });
+  for (const stale of fs.readdirSync(out).filter(f => /^packet(-\d+)?$/.test(f))) fs.rmSync(path.join(out, stale), { recursive: true, force: true });
+  for (const name of names) fs.mkdirSync(path.join(out, name));
+  const home = Object.fromEntries(chunks.flatMap((c, i) => c.map(item => [item.id, path.join(out, names[i])])));
   for (const k of key) {
-    jpeg(k.render, path.join(packet, `${k.id}-render.jpg`));
-    if (k.photo) jpeg(photoFile(k.photo.image), path.join(packet, `${k.id}-photo.jpg`));
+    jpeg(k.render, path.join(home[k.id], `${k.id}-render.jpg`));
+    if (k.photo) jpeg(photoFile(k.photo.image), path.join(home[k.id], `${k.id}-photo.jpg`));
   }
   // Review sheets beside the packet, never in it: photo left, render right, three views per sheet in packet order
   // (key.json names them). They are for checking that every render shows the building of its photo.
@@ -190,20 +204,22 @@ export function prepare(captureDirs, out, only = null) {
   fs.rmSync(pairs, { recursive: true, force: true });
   fs.mkdirSync(pairs, { recursive: true });
   for (let i = 0; i < posed.length; i += 3) {
-    const rows = posed.slice(i, i + 3), files = rows.flatMap(k => [`${k.id}-photo.jpg`, `${k.id}-render.jpg`]);
+    const rows = posed.slice(i, i + 3), files = rows.flatMap(k => [path.join(home[k.id], `${k.id}-photo.jpg`), path.join(home[k.id], `${k.id}-render.jpg`)]);
     const graph = files.map((_, n) => `[${n}:v]scale=960:720[s${n}]`).join(';') + ';' + rows.map((_, r) => `[s${2 * r}][s${2 * r + 1}]hstack[r${r}]`).join(';')
       + (rows.length > 1 ? `;${rows.map((_, r) => `[r${r}]`).join('')}vstack=inputs=${rows.length}[o]` : ';[r0]null[o]');
-    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...files.flatMap(f => ['-i', path.join(packet, f)]), '-filter_complex', graph, '-map', '[o]', '-q:v', '3',
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...files.flatMap(f => ['-i', f]), '-filter_complex', graph, '-map', '[o]', '-q:v', '3',
       path.join(pairs, `${rows[0].id}-${rows.at(-1).id}.jpg`)]);
   }
-  fs.copyFileSync(RUBRIC, path.join(packet, 'JUDGE.md'));
-  fs.writeFileSync(path.join(packet, 'items.json'), JSON.stringify(items, null, 1) + '\n');
-  // The key stays outside the packet: it names the captures (and so the build) the judge must not know.
-  fs.writeFileSync(path.join(out, 'key.json'), JSON.stringify({ items, key, captures: captures.map(c => ({ dir: c.dir,
+  chunks.forEach((chunk, i) => {
+    fs.copyFileSync(RUBRIC, path.join(out, names[i], 'JUDGE.md'));
+    fs.writeFileSync(path.join(out, names[i], 'items.json'), JSON.stringify(chunk, null, 1) + '\n');
+  });
+  // The key stays outside the packets: it names the captures (and so the build) the judge must not know.
+  fs.writeFileSync(path.join(out, 'key.json'), JSON.stringify({ items, key, packets: chunks.map((c, i) => ({ dir: names[i], items: c.map(x => x.id) })), captures: captures.map(c => ({ dir: c.dir,
     viewsFile: c.manifest.viewsFile, label: c.manifest.label, base: c.manifest.base, release: c.manifest.source?.scene?.release ?? null,
     version: c.manifest.source?.version ?? null, readiness: c.manifest.readiness,
     failedChecks: Object.entries(c.manifest.checks ?? {}).filter(([, v]) => !v.ok).map(([k]) => k) })) }, null, 1) + '\n');
-  return { packet, items };
+  return { packet: path.join(out, names[0]), packets: names.map(n => path.join(out, n)), items };
 }
 
 function agentDefinition() {
@@ -212,9 +228,13 @@ function agentDefinition() {
   return { model: front.match(/^model:\s*(\S+)/m)[1], prompt: body.trim() };
 }
 
-/** One headless judge run: the agent's model and instructions, Read only, no MCP servers, settings or session. */
-function judgeOnce(out, n) {
-  const packet = path.join(out, 'packet'), agent = agentDefinition();
+const packetSha = packet => createHash('sha256').update(fs.readdirSync(packet).sort().map(f => `${f} ${sha(path.join(packet, f))}`).join('\n')).digest('hex');
+
+/** One headless judge run of one packet: the agent's model and instructions, Read only, no MCP servers, settings or
+ *  session. Its answer is kept in scores/parts/, and a rerun with the same packet does not judge it again. */
+function judgeOnce(out, n, packet, part) {
+  const agent = agentDefinition(), file = path.join(out, 'scores', 'parts', `judge-${n}.${part}.json`), digest = packetSha(packet);
+  try { const had = JSON.parse(fs.readFileSync(file, 'utf8')); if (had.meta.packetSha === digest) return Promise.resolve(had.meta); } catch { /* not judged yet */ }
   const args = ['-p', '--model', agent.model, '--system-prompt', agent.prompt, '--tools', 'Read', '--allowedTools', 'Read',
     '--add-dir', packet, '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence', '--setting-sources', '',
     '--json-schema', fs.readFileSync(SCHEMA, 'utf8'), '--output-format', 'json',
@@ -230,16 +250,30 @@ function judgeOnce(out, n) {
       clearTimeout(timer);
       try {
         const d = JSON.parse(stdout);
-        if (code || d.is_error) throw new Error(`judge ${n}: ${d.result ?? stderr.slice(0, 400)}`);
+        if (code || d.is_error) throw new Error(`judge ${n}, packet ${part}: ${d.result ?? stderr.slice(0, 400)}`);
         const scores = d.structured_output ?? JSON.parse(String(d.result).replace(/^```(?:json)?\s*|\s*```$/g, ''));
         const meta = { model: Object.keys(d.modelUsage ?? {})[0] ?? agent.model, durationMs: Math.round(performance.now() - started),
-          costUsd: d.total_cost_usd ?? null, turns: d.num_turns ?? null };
-        fs.mkdirSync(path.join(out, 'scores'), { recursive: true });
-        fs.writeFileSync(path.join(out, 'scores', `judge-${n}.json`), JSON.stringify({ ...scores, meta }, null, 1) + '\n');
+          costUsd: d.total_cost_usd ?? null, turns: d.num_turns ?? null, packetSha: digest };
+        validateScores(scores, JSON.parse(fs.readFileSync(path.join(packet, 'items.json'), 'utf8')));
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify({ ...scores, meta }, null, 1) + '\n');
         resolve(meta);
       } catch (error) { reject(new Error(`${error.message}${stdout ? '' : `\n${stderr.slice(0, 400)}`}`)); }
     });
   });
+}
+
+/** Every packet judged `repeats` times in parallel; scores/judge-N.json is repeat N over all packets. */
+async function judgeAll(out, packets, repeats) {
+  const jobs = Array.from({ length: repeats }, (_, i) => packets.map((packet, p) => judgeOnce(out, i + 1, packet, p + 1))).flat();
+  const failed = (await Promise.allSettled(jobs)).filter(j => j.status === 'rejected').map(j => j.reason.message);
+  if (failed.length) throw new Error(`${failed.join('\n')}\nThe finished packets are kept: run the same command again (same --out and --capture) to judge only the rest.`);
+  for (let n = 1; n <= repeats; n++) {
+    const parts = packets.map((_, p) => JSON.parse(fs.readFileSync(path.join(out, 'scores', 'parts', `judge-${n}.${p + 1}.json`), 'utf8')));
+    const meta = { model: parts[0].meta.model, durationMs: Math.max(...parts.map(x => x.meta.durationMs)), packets: parts.length,
+      costUsd: parts.some(x => x.meta.costUsd == null) ? null : round(parts.reduce((s, x) => s + x.meta.costUsd, 0), 4), turns: parts.reduce((s, x) => s + (x.meta.turns ?? 0), 0) };
+    fs.writeFileSync(path.join(out, 'scores', `judge-${n}.json`), JSON.stringify({ summary: parts.map(x => x.summary).join(' '), views: parts.flatMap(x => x.views), meta }, null, 1) + '\n');
+  }
 }
 
 function gitInfo() {
@@ -262,7 +296,7 @@ export function record(out, label, history, only = null) {
     keyFile.items = keyFile.items.filter((_, i) => keep[i]);
     keyFile.key = keyFile.key.filter((_, i) => keep[i]);
   }
-  const result = aggregate(runs, keyFile.items, keyFile.key.map(k => k.group ?? groupOf({ id: k.view })));
+  const result = aggregate(runs, keyFile.items, keyFile.key.map(k => k.group ?? groupOf({ id: k.view })), keyFile.key.map(k => k.aim ?? null));
   const rows = readHistory(history);
   const row = { schema: 'turku-judge/1', iteration: rows.length + 1, at: new Date().toISOString(), label, run: path.resolve(out),
     ...(keyFile.key.length < judged ? { judgedWith: judged } : {}),
@@ -305,8 +339,8 @@ async function main() {
     return writeReport(history);
   }
   if (command === 'prepare') {
-    const { packet, items } = prepare(many('--capture'), path.resolve(opt('--out')), only);
-    return console.log(JSON.stringify({ packet, items: items.length }));
+    const { packets, items } = prepare(many('--capture'), path.resolve(opt('--out')), only, Number(opt('--packet-size', String(PACKET_SIZE))));
+    return console.log(JSON.stringify({ packet: packets[0], packets, items: items.length }));
   }
   if (command !== 'run') throw new Error('usage: scene-judge.mjs run|prepare|record|report (see the header)');
   if (!label) throw new Error('run needs --label: what this iteration is');
@@ -326,11 +360,10 @@ async function main() {
     timings.captureMs = Math.round(performance.now() - t0);
   }
   let t = performance.now();
-  prepare(captures, out, only);
+  const { packets } = prepare(captures, out, only, Number(opt('--packet-size', String(PACKET_SIZE))));
   timings.prepareMs = Math.round(performance.now() - t);
   t = performance.now();
-  const repeats = Number(opt('--repeats', '2'));
-  await Promise.all(Array.from({ length: repeats }, (_, i) => judgeOnce(out, i + 1)));
+  await judgeAll(out, packets, Number(opt('--repeats', '2')));
   timings.judgeMs = Math.round(performance.now() - t);
   const row = record(out, label, history);
   writeReport(history);

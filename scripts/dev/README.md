@@ -106,9 +106,20 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - `record --run DIR --views SUBSET.json --label TEXT` scores the subset from a finished run of the larger set
     without judging again (the row says `judgedWith`). The subset's baseline row was made this way.
   - `--capture DIR` without `--views` takes the view set, and so the history, from the capture.
-- **Per group:** `report` also prints the latest iteration per group, with the change from the one before. A view's
-  group is its `group` in the views file (the area type of a random street set), else its id without the number (a
-  pilot location).
+- **Per group and per aim:** `report` also prints the latest iteration per group and per aim, with the change from
+  the one before.
+  - A view's group is its `group` in the views file (the area type of a random street set), else its id without the
+    number (a pilot location).
+  - Its `aim` is `building` or `street`: what the camera was pointed at.
+- **Along-street views** of the pilot locations are `views/pilot-streets.json` (16 views, history
+  `pilot-streets.jsonl`), beside the 24 building-targeted views of `views/pilot-locations.json`.
+- **Large sets** are judged in equal packets of at most 24 views (`--packet-size`), the size of the pilot baseline's
+  one packet: 48 views are two packets, each judged by its own calls, all in parallel.
+  - A failed call leaves the other answers in `scores/parts/`; the same command with the same `--out` and `--capture`
+    then judges only what is missing.
+- **Review sheets:** `prepare` and `run` write `pairs/*.jpg` beside the packet: photo left, render right, three views
+  per sheet in packet order (`key.json` names them). Look at them before trusting a new view set: every render must
+  show the place of its photo.
 - **A view set outside the repo** (the random street sets of [qa/README.md](../../qa/README.md#random-street-sets))
   names its registry by absolute path in `references`, its crops by absolute path in the registry, and its history
   with `"history": "FILE"` beside itself. `run --views /path/views.json --out /path/judge/NAME` then keeps everything

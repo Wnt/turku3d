@@ -42,7 +42,8 @@ is never a regression baseline.
 
 ## The reference views
 
-`views/views.jsonl` holds 44 rows: the 23 riverside-office views below and 21 views of the pilot locations.
+`views/views.jsonl` holds 60 rows: the 23 riverside-office views below, 21 building-targeted views of the pilot
+locations and 16 along-street views of them.
 
 ### The pilot locations
 
@@ -64,34 +65,59 @@ sv_10.
 bash pipeline/env/run.sh python qa/views/pilot_refs.py [--only nummi,rettig]   # about 1 minute for all
 ```
 
+### Along-street views
+
+A building-targeted crop barely shows the ground, kerbs, markings, planting, fences, signs, lamps and furniture, which
+count as much as the facades. `views/street_refs.py` makes the companion view of any point:
+- **Panorama:** the newest street-level one (2024 on) standing on the OSM street nearest the point, within 30 m of it.
+- **Camera:** along the street axis, in the direction in which the point's building lies ahead; level (pitch 0, roll
+  0), vertical field of view 60 degrees, 960x720, straightened like every crop.
+  - A Look Around panorama has no pixels at the bottom of that frame: the camera then looks up by 2 to 8 degrees, as
+    little as clears the gap, or the next panorama is taken.
+- **Pilot locations:** two views each (16 rows, tag `pilot-street`, ids `<location>_street_NN`), each on the street
+  nearest a pilot target and 25 m before it. Judged set: `scripts/dev/views/pilot-streets.json`, with its own history.
+- **Known weak photos:** `kauppatori_street_01` looks into a low sun. The method takes the newest panorama; it does
+  not look at the picture.
+
+```sh
+QA_DATA=~/turku3d/data/qa bash pipeline/env/run.sh python qa/views/street_refs.py [--only nummi,rettig]   # 1.5 minutes for all
+bash pipeline/env/run.sh python qa/views/street_refs.py --at E,N --id NAME [--ahead E,N] --registry FILE   # any point
+```
+
 ### Random street sets
 
-`views/random_streets.py` draws a fixed set of random on-street points in built-up Turku and makes one view per point
-exactly like a pilot view: the target is the LoD2 building nearest the point. The sets measure streets nobody tuned by
-hand.
+`views/random_streets.py` draws a fixed set of random on-street points in built-up Turku and makes two views per
+point: one exactly like a pilot view, whose target is the LoD2 building nearest the point, and one along the point's
+street (above). The sets measure streets nobody tuned by hand.
 - **Draw:** points along the OSM street network inside the municipality, weighted by street length, from a recorded
   seed and taken in that order.
 - **A point qualifies** when:
   - an LoD2 building of at least 50 m2 stands within 30 m (fetched from the city's WFS per candidate);
   - a panorama from 2024 on sees it (`pilot_refs.reference_view` with `min_date`);
+  - a panorama from 2024 on stands on its street within 30 m (`street_refs.street_view`);
+  - with `--published URL`, that city serves the tiles under the building and both cameras (the frozen city builds
+    none on demand);
   - it is over 300 m from every pilot target and 400 m from every other point, also of the sets given with `--avoid`.
 - **Area types** come from the floor area by use of the LoD2 buildings within 150 m: `centre`, `apartments`, `houses`
   and `work` (industry, trade, campuses). No type gets more than half of a set, and each gets at least one point.
 - **Output**, all in `--out` and none of it in Git: `draw.json`, `targets.json`, `views.jsonl`, `refs/`, `views.json`
-  (the capture view set, with each view's area type as its `group`) and `cache/`.
+  and `cache/`. `views.json` is the capture view set: views `<set>-NN-b` (building) and `<set>-NN-s` (street), each
+  with its area type as `group` and `building` or `street` as `aim`. In the registry both rows of a point have the
+  area `<set>-NN`: every point is a location of its own.
 - **Unusable renders:** capture the set from the frozen city, look at every render beside its photo, and replace a
   point whose view is unusable (empty render, another building in frame, a photo of a hoarding) by running the same
   command again with `--reject INDEX=REASON`. It continues the same candidate sequence and keeps the rejections in
   `draw.json`.
 
 ```sh
-bash pipeline/env/run.sh python qa/views/random_streets.py --set dev --count 12 --seed SEED --out DIR [--avoid OTHER/draw.json]
+bash pipeline/env/run.sh python qa/views/random_streets.py --set dev --count 12 --seed SEED --out DIR \
+  --published https://city.madekivi.fi/ [--avoid OTHER/draw.json]
 node scripts/dev/scene-capture.mjs --views DIR/views.json --base https://city.madekivi.fi/ --mode render --out DIR/captures/NAME
 node scripts/dev/scene-judge.mjs run --views DIR/views.json --capture DIR/captures/NAME --out DIR/judge/NAME --label TEXT
 ```
 
-The W2 campaign's open set is `~/turku3d/loops/w2/devset/` (12 points). Its hidden set of 24 is kept apart and only
-its mean scores are reported.
+The W2 campaign's open set is `~/turku3d/loops/w2/devset/` (12 points, 24 views). Its hidden set of 24 points is kept
+apart and only its mean scores are reported.
 
 ### The riverside-office views
 
