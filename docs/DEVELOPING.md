@@ -157,7 +157,8 @@ The preview session's CDP port is assigned by the OS. Commands are in
 - Make one comparison and walking clip per integrated visual milestone. Keep narrow diagnostics private unless they
   explain a problem.
 - Visual progress is scored with `scripts/dev/scene-judge.mjs`. Its shared history shows the score per iteration,
-  and a gain within the judge's repeat spread is not a gain.
+  and a gain within the judge's measured noise is not a gain: about 5 points with two repeats
+  ([scripts/dev/README.md](../scripts/dev/README.md)).
 - Require byte identity only for components intentionally outside an edit.
 - Use content hashes per generator stage, tile and scene, so that only affected parts rebuild, on demand where
   possible.

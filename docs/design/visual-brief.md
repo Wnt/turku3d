@@ -104,9 +104,20 @@ Not iteration or merge counts. Track:
 - **Complete scenes improved:** views and clip that win against both baselines.
 - **Judge score per iteration:** the blind visual judge's overall score (0–100) and its six categories for the
   corridor's gameplay and reference-photo views (`scripts/dev/scene-judge.mjs`), compared with the previous iteration
-  and with the spread between its repeats. A gain smaller than that spread is not a gain. The baseline on 2026-11-12
-  (city.lab `d3e2021d`) was 45.7 ± 2.5. A visually identical local build scored 45.8, so the judge reproduces within
-  its spread. History: `~/turku3d/loops/judge/riverside-office.jsonl`.
+  and with the judge's measured noise. A gain within that noise is not a gain.
+
+  The same scene (release `a38f3225`) was judged three times on 2026-11-12:
+
+  | Build | Score |
+  | --- | --- |
+  | city.lab `d3e2021d` | 45.7 |
+  | a local build | 45.8 |
+  | city.lab `4c835aca` | 49.3 |
+
+  The single repeats ranged from 44.5 to 51.8. With two repeats, a change under about 5 points is noise. For a close
+  call, use `--repeats 4`.
+
+  History: `~/turku3d/loops/judge/riverside-office.jsonl`.
 - **Iteration latency:** edit to visible (live patch), publish, capture and deploy, from the timings the commands
   print. Report an unmet visual goal plainly; deployment alone is not success.
 

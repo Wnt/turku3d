@@ -63,8 +63,18 @@ longer comparable. A judge run is evidence, never a merge gate.
   in `~/turku3d/data/qa/refs` and never go into Git. [qa/README.md](../../qa/README.md) shows how to remake them.
 
 **Time and cost:** one iteration with two repeats takes about 2 minutes, plus about 30 s of capture. That is roughly
-$1.6 of notional usage. The baseline on 2026-11-12 (city.lab `d3e2021d`) was 45.7 ± 2.5; a visually identical local
-build scored 45.8. So the judge reproduces within its spread, but its sensitivity to a real change is still unmeasured.
+$1.6 of notional usage.
+
+**Noise.** The same scene (release `a38f3225`) was judged three times on 2026-11-12:
+
+| Build | Score |
+| --- | --- |
+| city.lab `d3e2021d` | 45.7 |
+| a local build | 45.8 |
+| city.lab `4c835aca` | 49.3 |
+
+The single repeats ranged from 44.5 to 51.8. With two repeats, a change under about 5 points is noise. For a close
+call, use `--repeats 4`. The judge's sensitivity to a real change is still unmeasured.
 
 **Usage notes:**
 - For trial runs, pass `--history` with a scratch file, so that the shared history holds only real iterations.

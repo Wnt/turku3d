@@ -524,8 +524,8 @@ One building, end to end in a workbench:
   - a same-pose comparison with the current shell in the office views.
 - **Acceptance:**
   - a judgement against local reference photos by someone who knows the street;
-  - a `scripts/dev/scene-judge.mjs` gain larger than the repeat spread. The riverside-office baseline on 2026-11-12
-    was 45.7 ± 2.5 of 100 (city.lab `d3e2021d`). Its weakest categories were materials (3.7) and street (3.7).
+  - a `scripts/dev/scene-judge.mjs` gain larger than the judge's noise, which is about 5 points with two repeats. The
+    riverside-office baseline on 2026-11-12 was 45.7–49.3 of 100 over three judgements of the same scene. Its weakest categories were materials (3.7) and street (3.7).
 
 Repeat with a Humalistonkatu apartment block (shopfronts) and a Portsa wooden house (cladding, gables, porch) before
 any city-wide generation.
