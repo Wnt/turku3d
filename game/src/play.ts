@@ -489,7 +489,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       detail: `To the ${returnTarget(CITY.name, cameThrough(sessionStore())).place.split(',')[0]} portal`,
       run: () => depart(HOME_CITY, null) },
     resetProgress: { forget: forgetProgress,
-      at: () => multiplayerPlaying && multiplayer?.state.you ? multiplayerStart(multiplayer.state.you, undefined, undefined, roomStart) : null },
+      at: () => multiplayerPlaying && multiplayer?.state.you ? multiplayerStart(multiplayer.state.you, undefined, undefined, spawn) : null },
     scoreboardStart: () => { void scoreboard.open(startScreen, () => startScreen.show(saveGame.startFlow.start())); },
     scoreboardPause: () => { void scoreboard.open(pauseMenu, () => pauseMenu.show(saveGame.pausePage())); },
     developer: devFlow ? () => pauseMenu.show(devFlow.root()) : undefined,
@@ -504,7 +504,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       poles.setClient(client); scoreboard.setClient(client);
       void preparedMultiplayer.then(at => {
         // A late welcome can point outside the solo preload ring; let safe placement stream that area.
-        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id), undefined, roomStart), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
+        if (at) { releaseStarts(); multiplayerPlaying = true; return saveGame.playAt(multiplayerStart(client.state.you!, client.state.players.find(p => p.id === client.state.you?.id), undefined, spawn), () => sharedVehicles!.restore(), multiplayerProgress.load(client.session)); }
         startScreen.reopen(saveGame.startFlow.start());
         startScreen.showNotice('Multiplayer unavailable. Reload to reconnect.');
       }).catch(fail);
@@ -512,9 +512,8 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   // Every city's fresh join starts at its ground-checked start and takes its room slot's start pair there (in Turku too:
   // the room's slot positions only number the players). This pose only marks a start as fresh and is where the menu
   // preloads; SaveGameController resolves the start itself (the page's for the first placement, then the city's).
-  const roomStart = world.spawn;
   const ticket = hot ? null : takeTicket(sessionStore(), CITY.name, Date.now());
-  const multiplayerStartState = prepareMultiplayer(roomStart, kept?.socket, !!ticket, coarse?.sessionScope);
+  const multiplayerStartState = prepareMultiplayer(spawn, kept?.socket, !!ticket, coarse?.sessionScope);
   const { client, ready: preparedMultiplayer } = multiplayerStartState;
   multiplayer = client;
   sharedVehicles = new SharedVehicles(client, physics, manifest, parkedVehicles);
@@ -524,7 +523,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   bindRoundReset(client, () => multiplayerPlaying, sharedVehicles, physics, saveGame, () => {
     multiplayerProgress.clear(client.session);
     multiplayerRunId = crypto.randomUUID(); leaveCar(null); fly?.set(false); remotePlayers.dispose();
-  }, fail, roomStart);
+  }, fail, spawn);
   const syncClock = () => world.syncClock?.(client.state.serverTime);
   client.addEventListener('welcome', syncClock);
   // Traffic authority: another player's cars on the shared tiles it runs (server/roads.js).
