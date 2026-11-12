@@ -18,6 +18,10 @@ class SceneStructureTests(unittest.TestCase):
         lower=slab('lower-walk',outline,line,[0,10],[1.2,1.2],'sidewalk',lambda xz:np.full(len(xz),1.2),.1)
         scene=dict(materials=[],meshes=[],supports=[],boundaries=[])
         append(scene,[SimpleNamespace(way={'id':'source'},meshes=meshes+lower)])
+        for mesh in meshes+lower:
+            surface=mesh.metadata.get('surface','concrete')
+            material=next(m for m in scene['materials'] if m['id']=='bridge:'+mesh.material+':'+surface)
+            self.assertEqual(material.get('surface'),{'asphalt':'asphalt','concrete':'stone','stone':'stone','granite':'granite'}.get(mesh.metadata.get('surface')))
         self.assertEqual(len(scene['supports']),2)
         query=support_query(scene)
         self.assertAlmostEqual(query(5,0,reference_y=6)[1],6.02)

@@ -28,3 +28,25 @@ Native material batches keep their prepared ambient visibility and street
 irradiance attributes. They deliberately do not advertise the legacy ground
 layer used by the surface-array merger. This change does not add reflection
 eligibility, new textures, new weather algorithms or runtime material inference.
+
+The current office recipe records the following assignments from its approved
+library maps. They describe the rendering asset, not a new claim about the
+surveyed real-world substrate; later source classification may replace a map.
+
+| Prepared material | Explicit library source | Response |
+| --- | --- | --- |
+| road | draft_asphalt_worn | asphalt |
+| footway, quay | draft_concrete_slabs | stone |
+| quay-wall | draft_quay_stone | stone |
+| ground, cobblestone | draft_cobblestone | cobblestone |
+
+The source importer also maps explicitly selected `draft_concrete_pavers`,
+`draft_brick_paving` and `draft_fieldstone` to generic `stone`, and
+`draft_granite_curb` to `granite`. It leaves unlisted assets, including gravel,
+unassigned: the current mineral response includes standing puddles and is not
+a suitable claim of porous-surface behavior.
+
+Bridge descriptors use only their producer's explicit `surface` metadata:
+`asphalt` → `asphalt`, `concrete`/`stone` → `stone`, and `granite` → `granite`.
+An implicit default concrete map does not establish a response assignment.
+Steel, paint, wood and other bridge materials retain their existing PBR.

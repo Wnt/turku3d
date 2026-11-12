@@ -13,6 +13,17 @@ from turku3d.package.gltf import read_glb
 from .asset_store import resolve_asset, read_asset_url
 
 
+# Response follows the explicitly selected library asset, never a scene material ID.
+# Unlisted/porous finishes retain their authored PBR until a suitable response exists.
+LIBRARY_SURFACES = {
+    'draft_asphalt_worn': 'asphalt',
+    'draft_concrete_slabs': 'stone', 'draft_concrete_pavers': 'stone',
+    'draft_quay_stone': 'stone', 'draft_fieldstone': 'stone',
+    'draft_brick_paving': 'stone', 'draft_granite_curb': 'granite',
+    'draft_cobblestone': 'cobblestone',
+}
+
+
 def import_buildings(manifest, base_url, output, bounds):
     output = Path(output)
     shared = output / "shared"
@@ -63,6 +74,7 @@ def import_materials(glb_path, base_url, output):
         material=next(m for m in document['materials'] if m.get('extras',{}).get('library_material_key')==library)
         pbr=material['pbrMetallicRoughness']
         row=dict(id=identity,color=pbr.get('baseColorFactor',[1,1,1,1])[:3],roughness=pbr.get('roughnessFactor',1),metalness=pbr.get('metallicFactor',1))
+        if library in LIBRARY_SURFACES:row["surface"]=LIBRARY_SURFACES[library]
         scales=[]
         for name,info in [('baseColorTexture',pbr.get('baseColorTexture')),('normalTexture',material.get('normalTexture')),('ormTexture',pbr.get('metallicRoughnessTexture'))]:
             if info is None:continue

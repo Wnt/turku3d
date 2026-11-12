@@ -102,6 +102,8 @@ def append(scene,decks,tunnel_meshes=()):
             material='bridge:'+mesh.material+':'+surface
             if material not in materials:
                 descriptor=dict(id=material,color=[1.,1.,1.],roughness=1.,metalness=1.)
+                response={'asphalt':'asphalt','concrete':'stone','stone':'stone','granite':'granite'}.get(mesh.metadata.get('surface'))
+                if response:descriptor['surface']=response
                 for field,key in (('baseColorTexture','image'),('normalTexture','normal_image'),('ormTexture','orm_image')):
                     sha=hashlib.sha256(maps(surface)[key]).hexdigest()
                     descriptor[field]=dict(url='shared/'+sha+'.png',sha256=sha,wrap='repeat')

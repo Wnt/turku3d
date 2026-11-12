@@ -844,7 +844,8 @@
           "url": "shared/bed2b538d1f38e053f9a66664a4656f0a47d4d4c56502746fe5efe59e8e70b0c.ktx2",
           "sha256": "bed2b538d1f38e053f9a66664a4656f0a47d4d4c56502746fe5efe59e8e70b0c",
           "wrap": "repeat"
-        }
+        },
+        "surface": "asphalt"
       },
       "uvScale": [
         0.5,
@@ -875,7 +876,8 @@
           "url": "shared/6eab5376a26698f6f5ec4de6b00b4406f49ea3b1419a1e724464d74fc689f973.ktx2",
           "sha256": "6eab5376a26698f6f5ec4de6b00b4406f49ea3b1419a1e724464d74fc689f973",
           "wrap": "repeat"
-        }
+        },
+        "surface": "stone"
       },
       "uvScale": [
         0.5,
@@ -906,7 +908,8 @@
           "url": "shared/6eab5376a26698f6f5ec4de6b00b4406f49ea3b1419a1e724464d74fc689f973.ktx2",
           "sha256": "6eab5376a26698f6f5ec4de6b00b4406f49ea3b1419a1e724464d74fc689f973",
           "wrap": "repeat"
-        }
+        },
+        "surface": "stone"
       },
       "uvScale": [
         0.5,
@@ -937,7 +940,8 @@
           "url": "shared/f757748f010de55fc8200ec8c226e59f84ac7798f390a4156ad7cb4b62d7623e.ktx2",
           "sha256": "f757748f010de55fc8200ec8c226e59f84ac7798f390a4156ad7cb4b62d7623e",
           "wrap": "repeat"
-        }
+        },
+        "surface": "stone"
       },
       "uvScale": [
         0.5,
@@ -968,7 +972,8 @@
           "url": "shared/c8403305b4b9ae167ee9d6aa855321b80b050d9fcc172215eb9d77735234f804.ktx2",
           "sha256": "c8403305b4b9ae167ee9d6aa855321b80b050d9fcc172215eb9d77735234f804",
           "wrap": "repeat"
-        }
+        },
+        "surface": "cobblestone"
       },
       "uvScale": [
         0.5,
@@ -999,7 +1004,8 @@
           "url": "shared/c8403305b4b9ae167ee9d6aa855321b80b050d9fcc172215eb9d77735234f804.ktx2",
           "sha256": "c8403305b4b9ae167ee9d6aa855321b80b050d9fcc172215eb9d77735234f804",
           "wrap": "repeat"
-        }
+        },
+        "surface": "cobblestone"
       },
       "uvScale": [
         0.5,
