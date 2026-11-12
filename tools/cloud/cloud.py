@@ -722,11 +722,12 @@ def cmd_plans(a, api, ledger):
     print(f'{"plan":38s} {"zone":8s} {"cores":>5s} {"GB":>5s} {"GPU":28s} {"free":>4s} {"EUR/h":>8s} {"h/day in 20 EUR":>15s}  billed when off')
     for cents, name, spec, zone in sorted(rows):
         gpu = f'{spec.get("gpu_amount")} x {spec.get("gpu_model")}' if spec.get('gpu_amount') else ''
-        off = 'no (disk and IP only)' if name.startswith(('CLOUDNATIVE-', 'GPU-')) else 'yes'
+        off = 'no (disk and IP only)' if name.startswith('CLOUDNATIVE-') else 'not verified' if gpu else 'yes'
         free = str(available[name][zone]) if name in available else ''
         print(f'{name:38s} {zone:8s} {spec["core_number"]:5d} {spec["memory_amount"] // 1024:5d} {gpu:28s} {free:>4s} '
               f'{cents / 100:8.4f} {min(24.0, BUDGET_EUR / (cents / 100)):15.1f}  {off}')
-    print('Prices are the plan alone; a lease adds the disk beyond the plan (Standard 0.0118 c/GB/h) and 0.48 c/h for IPv4.')
+    print('Prices are the plan alone; a lease adds the disk beyond the plan (Standard 0.0118 c/GB/h) and 0.48 c/h for IPv4.\n'
+          'A lease is deleted at its end whatever the plan; "billed when off" matters only between the in-server poweroff and the reaper.')
     return 0
 
 
