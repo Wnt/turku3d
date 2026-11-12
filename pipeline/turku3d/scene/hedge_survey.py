@@ -11,11 +11,61 @@ import shapely
 VERSION = 'turku-hedge-survey/1'
 
 
+def coherent_crown(line, points, classes):
+    """Separate a continuous clipped crown from sparse overhanging tree returns.
+
+    A candidate layer must occupy at least 80% of 2.5m stations, each with six
+    vegetation returns. The lowest continuous layer above local ground owns a
+    mapped hedge; disconnected higher branches cannot lift it. A relative-height
+    profile handles slopes when no world-height layer has that coverage.
+    """
+    from scipy.spatial import cKDTree
+    from turku3d.coarse.hedges import dimensions
+    ground = points[classes == 2]
+    vegetation = points[classes != 2]
+    if len(ground) < 10 or len(vegetation) < 30 or line.length < 2:
+        return None, None
+    distance, owner = cKDTree(ground[:, [0, 2]]).query(vegetation[:, [0, 2]])
+    heights = vegetation[:, 1]-ground[owner, 1]
+    offset = shapely.distance(line, shapely.points(vegetation[:, [0, 2]]))
+    eligible = (distance < 4) & (offset < .9) & (heights > .45) & (heights < 4.5)
+    if eligible.sum() < 30:
+        return None, None
+    along = shapely.line_locate_point(line, shapely.points(vegetation[eligible][:, [0, 2]]))
+    bins = max(1, int(np.ceil(line.length/2.5)))
+    station = np.minimum((along/line.length*bins).astype(int), bins-1)
+    for mode, values in [('world-height', vegetation[:, 1]), ('above-ground', heights)]:
+        candidate = values[eligible];qualified = []
+        for centre in np.arange(np.floor(candidate.min()/.05)*.05, candidate.max()+.05, .05):
+            counts = np.bincount(station[abs(candidate-centre) < .25], minlength=bins)
+            coverage = int((counts >= 6).sum())
+            if coverage >= np.ceil(bins*.8):
+                qualified.append((float(centre), coverage, int(np.minimum(counts, 50).sum())))
+        if not qualified:
+            continue
+        # Adjacent successful bands describe one crown. Prefer the strongest
+        # band in its lowest connected population, not its lower edge.
+        first = [qualified[0]]
+        for row in qualified[1:]:
+            if row[0]-first[-1][0] > .075:
+                break
+            first.append(row)
+        centre, coverage, density = max(first, key=lambda row: (row[1], row[2], -row[0]))
+        selected = abs(values-centre) < .4
+        filtered = np.r_[ground, vegetation[selected]]
+        labels = np.r_[np.full(len(ground), 2), classes[classes != 2][selected]]
+        measured = dimensions(line, filtered, labels)
+        if measured is not None:
+            return measured, dict(mode=mode, centreM=round(centre, 3), coveredStations=coverage,
+                                  stations=bins, stationLengthM=2.5, densityScore=density)
+    return None, None
+
+
 def freeze(output, bounds, osm):
     from turku3d import config as C
     from turku3d.spatial import rows
     from turku3d.ground.inputs import laz_paths, read_returns
-    from turku3d.coarse.hedges import dimensions, crossing_mask
+    from turku3d.coarse.hedges import crossing_mask
 
     window = shapely.box(*bounds)
     mapped, paths = [], []
@@ -47,7 +97,7 @@ def freeze(output, bounds, osm):
     for identity, line in sorted(mapped, key=lambda item: item[0]):
         x, z, X, Z = line.buffer(2.2).bounds
         selected = (points[:, 0] >= x) & (points[:, 0] <= X) & (points[:, 2] >= z) & (points[:, 2] <= Z)
-        measured = dimensions(line, points[selected], classes[selected])
+        measured, profile = coherent_crown(line, points[selected], classes[selected])
         if measured is None:
             rejected.append(dict(id=identity, reason='insufficient coherent clipped-hedge returns'))
             continue
@@ -58,7 +108,7 @@ def freeze(output, bounds, osm):
         openings = crossing_mask(shifted, paths, network_bounds)
         records.append(dict(id=identity, line=shapely.to_geojson(shifted), openings=shapely.to_geojson(openings),
                             widthM=width, heightM=height, worldTopM=top, centreShiftM=shift,
-                            uncertaintyM=.15, returns=int(selected.sum())))
+                            uncertaintyM=.15, returns=int(selected.sum()), profile=profile))
     result = dict(version=VERSION, bounds=list(bounds), heightDatum='N2000', records=records, rejected=rejected,
                   sources=[dict(name=p.name, sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in [Path(osm), *sources]])
     output = Path(output);output.parent.mkdir(parents=True, exist_ok=True)

@@ -3,9 +3,33 @@ import unittest
 import numpy as np
 import shapely
 from turku3d.scene.hedges import segments, segment_geometry
+from turku3d.scene.hedge_survey import coherent_crown
 
 
 class HedgeTests(unittest.TestCase):
+    def test_continuous_low_crown_wins_over_disconnected_tree_branches(self):
+        line = shapely.LineString([(0, 0), (10, 0)])
+        ground = np.array([[x, 3., z] for x in np.arange(0, 10, .15) for z in [-.6, .6]])
+        hedge = np.array([[x, 4.+.03*np.sin(x), z] for x in np.arange(0, 10, .15) for z in np.arange(-.4, .5, .1)])
+        branches = np.array([[x, 6.5, z] for x in np.arange(3, 6, .05) for z in np.arange(-.6, .7, .1)])
+        p = np.r_[ground, hedge, branches];c = np.r_[np.full(len(ground), 2), np.full(len(hedge)+len(branches), 5)]
+        measured, profile = coherent_crown(line, p, c)
+        self.assertAlmostEqual(measured[2], 4., delta=.04)
+        self.assertEqual(profile['coveredStations'], profile['stations'])
+        self.assertEqual(profile['mode'], 'world-height')
+
+    def test_sloping_crown_uses_relative_height_and_sparse_bushes_are_rejected(self):
+        line = shapely.LineString([(0, 0), (10, 0)])
+        ground = np.array([[x, 3.+x*.3, z] for x in np.arange(0, 10, .15) for z in [-.6, .6]])
+        hedge = np.array([[x, 4.+x*.3, z] for x in np.arange(0, 10, .15) for z in np.arange(-.4, .5, .1)])
+        p = np.r_[ground, hedge];c = np.r_[np.full(len(ground), 2), np.full(len(hedge), 5)]
+        measured, profile = coherent_crown(line, p, c)
+        self.assertIsNone(measured[2])
+        self.assertEqual(profile['mode'], 'above-ground')
+        self.assertAlmostEqual(measured[0], 1., delta=.05)
+        sparse = (c == 2) | (p[:, 0] < 3)
+        self.assertEqual(coherent_crown(line, p[sparse], c[sparse]), (None, None))
+
     def test_four_contacts_follow_slope_without_raising_measured_top(self):
         def support(x, z, reference_y=None):
             return dict(id='ground'), 3.7 + .02*x + .03*z
