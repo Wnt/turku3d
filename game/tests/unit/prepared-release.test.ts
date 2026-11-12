@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { resolve, dirname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
+import { read as readKtx } from 'ktx-parse';
 import { readPreparedScene, buildPreparedModel } from '../../src/world/preparedScene';
 import { GroundIndex } from '../../src/world/groundIndex';
 import { readCol } from '../../src/physics/colTile';
@@ -17,6 +18,17 @@ function releaseFile(scenePath: string, url: string) {
   return resolve(process.env.TURKU3D_PREPARED_ASSETS ?? `${process.env.TURKU3D_DATA ?? `${homedir()}/turku3d/data`}/prepared-assets/shared`, basename(url));
 }
 
+/** Compressed GPU textures require a block-aligned base extent; mip tails may be smaller. */
+function checkTexture(bytes: Buffer, name: string) {
+  if (!name.endsWith('.ktx2') && !bytes.subarray(0, 12).equals(Buffer.from([171,75,84,88,32,50,48,187,13,10,26,10]))) return;
+  const texture = readKtx(bytes);
+  const block = texture.dataFormatDescriptor[0].texelBlockDimension;
+  const width = texture.pixelWidth, height = texture.pixelHeight;
+  if (width < 1 || height < 1 || width % (block[0] + 1) || height % (block[1] + 1)) {
+    throw Error(`GPU texture extent ${width}×${height} is not aligned to ${block[0] + 1}×${block[1] + 1} blocks: ${name}`);
+  }
+}
+
 it('installs the shipped prepared release with matching collider identities and bounded material draws', async () => {
   const path = resolve(process.env.PREPARED_SCENE_PATH ?? 'public/scenes/office.scene.json');
   const scene = readPreparedScene(JSON.parse(readFileSync(path, 'utf8')));
@@ -26,6 +38,7 @@ it('installs the shipped prepared release with matching collider identities and 
     if (!texture) continue;
     const bytes = readFileSync(releaseFile(path, texture.url));
     expect(createHash('sha256').update(bytes).digest('hex')).toBe(texture.sha256);
+    checkTexture(bytes, texture.url);
   }
   const checkedDependencies = new Set<string>();
   for (const asset of scene.assets) {
@@ -39,11 +52,19 @@ it('installs the shipped prepared release with matching collider identities and 
     expect(bytes.readUInt32LE(16)).toBe(0x4e4f534a);
     const document = JSON.parse(bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString('utf8'));
     for (const image of document.images ?? []) {
-      if (!image.uri) continue;
+      if (!image.uri) {
+        if (image.bufferView !== undefined) {
+          const view = document.bufferViews[image.bufferView];
+          const binaryStart = 20 + bytes.readUInt32LE(12) + 8;
+          checkTexture(bytes.subarray(binaryStart + (view.byteOffset ?? 0), binaryStart + (view.byteOffset ?? 0) + view.byteLength), `${asset.url} image bufferView ${image.bufferView}`);
+        }
+        continue;
+      }
       const dependency = resolve(dirname(assetPath), image.uri);
       if (checkedDependencies.has(dependency)) continue;
       checkedDependencies.add(dependency);
       const imageBytes = readFileSync(dependency);
+      checkTexture(imageBytes, dependency);
       expect(createHash('sha256').update(imageBytes).digest('hex')).toBe(basename(dependency).split('.')[0]);
     }
   }
@@ -91,4 +112,15 @@ it('installs the shipped prepared release with matching collider identities and 
   }
   expect(triangles).toBeGreaterThan(0);
   expect(scene.meshes.filter(m => m.collision === 'solid').length).toBeGreaterThan(0);
+});
+
+it('rejects the non-block-aligned compressed extent that invalidated the Qwensel GPU frame', () => {
+  const path = resolve(process.env.PREPARED_SCENE_PATH ?? 'public/scenes/office.scene.json');
+  const scene = readPreparedScene(JSON.parse(readFileSync(path, 'utf8')));
+  const texture = scene.materials.flatMap(m => [m.baseColorTexture, m.normalTexture, m.ormTexture]).find(t => t?.url.endsWith('.ktx2'))!;
+  const bytes = Buffer.from(readFileSync(releaseFile(path, texture.url)));
+  bytes.writeUInt32LE(900, 20); bytes.writeUInt32LE(210, 24);
+  expect(() => checkTexture(bytes, 'bad.ktx2')).toThrow('900×210 is not aligned to 4×4');
+  bytes.writeUInt32LE(1024, 20); bytes.writeUInt32LE(256, 24);
+  expect(() => checkTexture(bytes, 'aligned.ktx2')).not.toThrow();
 });
