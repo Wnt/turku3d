@@ -43,6 +43,12 @@ class SemanticSceneTests(unittest.TestCase):
             s=self.compiled();mutate(s)
             with self.assertRaises(ValueError):validate_scene(s)
 
+    def test_night_irradiance_is_explicit_hdr_rgb_per_vertex(self):
+        s=self.compiled();m=s['meshes'][0];m['nightIrradiance']=[2.5]*len(m['positions']);validate_scene(s)
+        for values in ([-1.]*len(m['positions']),[float('nan')]*len(m['positions']),[0.]):
+            m['nightIrradiance']=values
+            with self.assertRaises(ValueError):validate_scene(s)
+
     def test_hole_is_not_triangulated(self):
         s=self.scene();p=np.array([[x,0,z] for x in range(-1,12) for z in range(-1,12)])
         building=type('Building',(),{'footprint':shapely.box(3,3,7,7)})()
@@ -161,6 +167,14 @@ class SemanticSceneTests(unittest.TestCase):
                 self.assertEqual(light['range'],28.)
                 self.assertGreater(light['position'][0],fixture['position'][0])
                 self.assertGreater(light['position'][2],fixture['position'][2])
+        canopy=next(e for e in s['emitters'] if 'aperture' in e)
+        fixture=next(f for f in s['fixtures'] if f['id']==canopy['fixtureId'])
+        self.assertAlmostEqual(canopy['aperture']['position'][1]-fixture['position'][1],5.555)
+        self.assertAlmostEqual(canopy['position'][1]-fixture['position'][1],4.85)
+        self.assertEqual(canopy['aperture']['normal'],[0.,-1.,0.])
+        for change in (dict(axisU=[0,1,0]),dict(size=[0,.84]),dict(cutoutRadius=.5)):
+            broken=copy.deepcopy(s);next(e for e in broken['emitters'] if 'aperture' in e)['aperture'].update(change)
+            with self.assertRaises(ValueError):validate_scene(broken)
         s['emitters'][0]['category']='inferred-from-triangles'
         with self.assertRaises(ValueError):validate_scene(s)
 

@@ -135,6 +135,13 @@ def place_lamps(scene, props, bindings_path):
         emitter_id=prop.object_id+':light'
         scene['emitters'].append(dict(id=emitter_id,fixtureId=prop.object_id,position=[prop.x+c*x+s*z,y+h,prop.z-s*x+c*z],
                                       color=recipe['color'],intensity=recipe['intensity'],range=recipe['range'],category=recipe['category']))
+        if 'reflectedAperture' in family:
+            aperture=family['reflectedAperture']
+            rotate=lambda v:[c*v[0]+s*v[2],v[1],-s*v[0]+c*v[2]]
+            normal=rotate(aperture['normal']);centre=rotate(aperture['position'])
+            scene['emitters'][-1]['aperture']=dict(shape='rectangle',
+                position=[a+b+aperture['opticalEpsilonM']*n for a,b,n in zip(position,centre,normal,strict=True)],
+                normal=normal,axisU=rotate(aperture['axisU']),size=aperture['size'],cutoutRadius=aperture['cutoutRadius'])
         scene['fixtures'].append(dict(id=prop.object_id,family=family['family'],supportId=support['id'],position=position,
                                       yaw=yaw,dimensions=family['dimensions'],meshIds=ids,emitterIds=[emitter_id],
                                       sourceIds=sources,uncertaintyM=family['heightUncertaintyM']))

@@ -10,10 +10,11 @@ FIELDS = {
     "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
-    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility",
+    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility nightIrradiance",
     "asset": "id entityId url sha256 position recipe bounds",
     "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
-    "emitter": "id fixtureId position color intensity range category",
+    "emitter": "id fixtureId position color intensity range category aperture",
+    "aperture": "shape position normal axisU size cutoutRadius",
     "lightOccluder": "id positions minY maxY",
     "coverage": "mode bounds entityIds",
     "collision": "url sha256 bytes tris h",
@@ -56,7 +57,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category",)}
+            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance"),"material":("water","baseColorTexture","normalTexture","ormTexture"),"emitter":("category","aperture")}
             fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
@@ -129,6 +130,9 @@ def validate_scene(scene):
             values=mesh['bakedVisibility']
             if not isinstance(values,list) or len(values)!=len(p) or any(type(v) is not int or not 0<=v<=255 for v in values):
                 raise ValueError('bakedVisibility must contain one UINT8 RGB triple per vertex')
+        if 'nightIrradiance' in mesh:
+            vector(mesh['nightIrradiance'],len(p),'nightIrradiance')
+            if any(v<0 for v in mesh['nightIrradiance']):raise ValueError('nightIrradiance must be nonnegative HDR RGB')
     for fixture in scene["fixtures"]:
         ref("supports", fixture["supportId"])
         for key in fixture["sourceIds"]:
@@ -152,6 +156,16 @@ def validate_scene(scene):
             raise ValueError('Invalid physical emitter values')
         if 'category' in emitter and emitter['category'] not in ('street','path','wall'):
             raise ValueError('Invalid emitter category')
+        if 'aperture' in emitter:
+            aperture=emitter['aperture'];fields(aperture,'aperture')
+            if aperture['shape']!='rectangle':raise ValueError('Unsupported emitter aperture')
+            for key in ('position','normal','axisU'):vector(aperture[key],3,'aperture '+key)
+            vector(aperture['size'],2,'aperture size');vector([aperture['cutoutRadius']],1,'aperture cutout')
+            if any(v<=0 for v in aperture['size']) or not 0<=aperture['cutoutRadius']<min(aperture['size'])/2:
+                raise ValueError('Invalid aperture dimensions')
+            n,u=aperture['normal'],aperture['axisU']
+            if abs(sum(v*v for v in n)-1)>1e-6 or abs(sum(v*v for v in u)-1)>1e-6 or abs(sum(a*b for a,b in zip(n,u,strict=True)))>1e-6:
+                raise ValueError('Aperture axes must be orthonormal')
     for occluder in scene['lightOccluders']:
         if len(occluder['positions'])<3:
             raise ValueError('Light occluder needs a polygon')
