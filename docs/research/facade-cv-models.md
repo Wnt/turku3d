@@ -148,6 +148,18 @@ fields, then unmatched weight names. Those attempts were discarded, not scored a
 quality. Publisher code with Transformers 4.49.0, eager attention and local-only loading
 works. The exact separate-environment procedure is in the research scripts README.
 
+## Licences
+
+Checked on 2026-11-12 ([survey](procedural-buildings-streets.md#71-methods-availability-and-licences)):
+- **Grounding DINO** is Apache-2.0 for both code and weights.
+- **The two SegFormer checkpoints are research-only.** `Marco333/segformer-b0-facade-cmp` is tagged MIT, but it is
+  fine-tuned from NVIDIA's SegFormer, whose licence allows research or evaluation only.
+  `nvidia/segformer-b0-finetuned-ade-512-512` is NVIDIA's own checkpoint.
+- **The CMP training data** is CC BY-SA.
+
+Both checkpoints run only offline in the generator. Before any commercial use, replace them, for example with SAM 2
+(Apache-2.0) prompted from DINO boxes.
+
 ## Downloads and reproducibility
 
 Cache: `~/turku3d/tools/cv/cvr-models/`. Bytes include downloaded config/tokenizer files and
