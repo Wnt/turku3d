@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Run a pipeline command of this sandbox on another home-lab machine and bring the results back.
+
+  scripts/dev/on-host HOST [--data REL]... [--pull REL]... [--pull-data REL]... [--jobs N] -- COMMAND...
+  scripts/dev/on-host HOST --setup        install what the host lacks (pipeline environment, Node, Chrome for Testing)
+  scripts/dev/on-host HOST --check        what the host has: cores, memory, free disk, tools
+
+HOST is `osg` (osgallery-dev: 16 cores, 48 GB, Linux x86-64, no GPU) or `air` (M1 Air: 8 cores, 8 GB, macOS arm64).
+Source `../sandbox.env` first. One call does all of this:
+
+1. copies this worktree (without .git, node_modules and caches) to HOST:turku3d-w2/<sandbox>/repo;
+2. copies each `--data REL` from $TURKU3D_DATA/REL to HOST:turku3d-w2/data/REL (shared by all sandboxes on that
+   host, only what changed; `--data world` carries the stored descriptions and source caches);
+3. runs COMMAND in that checkout inside the pipeline environment, with TURKU3D_DATA=~/turku3d-w2/data,
+   TURKU3D_WORK=~/turku3d-w2/<sandbox>/work and PYTHONPATH on the checkout. On osgallery-dev it runs in
+   tilebuilds.slice (low CPU weight, the game servers stay responsive); on the Air under `caffeinate` (it sleeps
+   after a minute otherwise). Give the bare command, for example `python -m turku3d.world ...`, not `run.sh`;
+4. merges the host's world store into yours (`rsync -a --ignore-existing .../work/world/ $TURKU3D_WORLD_STORE/`:
+   the store is content-addressed), copies each `--pull REL` from the host's work directory to $TURKU3D_WORK/REL,
+   and each `--pull-data REL` from the host's data to $TURKU3D_DATA/REL without overwriting.
+
+The exit code is COMMAND's. osgallery-dev must keep 25 GiB free: a copy that would go below that is refused, and
+`--clean` removes this sandbox's directory on the host when you are done.
+"""
+import argparse
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import time
+
+HOSTS = {
+    'osg': dict(ssh='osgallery-dev', jobs=8, keep_free_gib=25,
+                wrap='systemd-run --user --slice=tilebuilds.slice --pipe --wait --collect --quiet -p KillMode=control-group bash -c {}'),
+    'air': dict(ssh='jonni@192.168.1.22', jobs=4, keep_free_gib=20, wrap='caffeinate -i bash -c {}'),
+}
+SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
+RSYNC = ['rsync', '-a', '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=10']
+EXCLUDE = ['.git', 'node_modules', '__pycache__', '.pytest_cache', 'game/dist', '.venv', '*.pyc']
+NODE = 'v24.11.1'
+CHROME = '156.0.8078.73'      # the pin of scripts/dev/browser.md
+
+
+def sh(args, **kw):
+    return subprocess.run(args, **kw)
+
+
+def remote(host, script, check=True, capture=False):
+    # bash explicitly: the Air's login shell is zsh
+    return sh(SSH + [HOSTS[host]['ssh'], 'bash -c ' + shlex.quote(script)], check=check, capture_output=capture, text=True)
+
+
+def free_gib(host):
+    out = remote(host, 'df -Pk "$HOME" | tail -1', capture=True).stdout.split()
+    return int(out[3]) / 1048576
+
+
+def push(host, source, target, delete=False, excludes=()):
+    """rsync a local directory to the host, refusing a copy that would leave the host below its free-space floor."""
+    size = int(sh(['du', '-sk', str(source)], capture_output=True, text=True).stdout.split()[0]) / 1048576
+    have = remote(host, f'du -sk {shlex.quote(target)} 2>/dev/null | cut -f1', capture=True).stdout.strip()
+    need = max(0.0, size - int(have or 0) / 1048576)
+    free = free_gib(host)
+    if free - need < HOSTS[host]['keep_free_gib']:
+        raise SystemExit(f'refused: {source} needs about {need:.1f} GiB on {host}, which has {free:.1f} GiB free and must '
+                         f'keep {HOSTS[host]["keep_free_gib"]} GiB')
+    remote(host, f'mkdir -p {shlex.quote(target)}')
+    sh(RSYNC + (['--delete'] if delete else []) + [f'--exclude={e}' for e in excludes]
+       + [f'{source}/', f'{HOSTS[host]["ssh"]}:{target}/'], check=True)
+
+
+def pull(host, source, target, keep_existing=False):
+    if remote(host, f'test -d {shlex.quote(source)}', check=False).returncode != 0:
+        return False
+    Path(target).mkdir(parents=True, exist_ok=True)
+    sh(RSYNC + (['--ignore-existing'] if keep_existing else []) + [f'{HOSTS[host]["ssh"]}:{source}/', f'{target}/'], check=True)
+    return True
+
+
+CHECK = r'''
+echo "host: $(hostname), $(uname -sm)"
+if [ "$(uname)" = Darwin ]; then echo "cores: $(sysctl -n hw.ncpu), memory: $(( $(sysctl -n hw.memsize) / 1073741824 )) GiB"
+else echo "cores: $(nproc), memory: $(free -g | awk 'NR==2{print $2}') GiB"; fi
+echo "free disk: $(df -Pk "$HOME" | awk 'NR==2{printf "%.0f", $4/1048576}') GiB"
+if [ -f ~/turku3d/envs/pipeline.env ]; then . ~/turku3d/envs/pipeline.env
+  echo "pipeline environment: $(python -c 'import sys, pdal, rasterio, shapely; print("Python", sys.version.split()[0], "pdal", pdal.__version__, "rasterio", rasterio.__version__, "shapely", shapely.__version__)' 2>&1 | tail -1)"
+else echo "pipeline environment: MISSING (on-host HOST --setup)"; fi
+echo "node: $(node --version 2>/dev/null || echo MISSING)"
+echo "gltf tools: $(command -v gltf-transform gltfpack toktx 2>/dev/null | wc -l | tr -d ' ') of 3"
+echo "Chrome for Testing: $(ls -d ~/turku3d/browsers/*/chrome-* 2>/dev/null | tr '\n' ' ')"
+echo "w2 checkouts: $(ls ~/turku3d-w2 2>/dev/null | grep -v -e '^data$' -e '^_setup$' | tr '\n' ' ')"
+echo "w2 data: $(du -sh ~/turku3d-w2/data 2>/dev/null | cut -f1)"
+'''
+
+# The Air has the Mac's architecture: the same bootstrap, Node from the official tarball (no Homebrew changes), and
+# the pinned Chrome for Testing in the place tools/dev/chrome-args.mjs looks for it.
+SETUP_AIR = f'''set -euo pipefail
+mkdir -p ~/turku3d/tools/bin ~/turku3d/envs ~/turku3d/browsers ~/turku3d-w2
+N=node-{NODE}-darwin-arm64
+if [ ! -x ~/turku3d/tools/$N/bin/node ]; then
+  curl -fsSL --retry 3 https://nodejs.org/dist/{NODE}/$N.tar.gz | tar xz -C ~/turku3d/tools
+fi
+for tool in node npm npx; do ln -sf ~/turku3d/tools/$N/bin/$tool ~/turku3d/tools/bin/$tool; done
+export PATH=~/turku3d/tools/bin:$PATH
+bash ~/turku3d-w2/_setup/repo/pipeline/env/bootstrap.sh
+C=~/turku3d/browsers/{CHROME}
+if [ ! -d "$C/chrome-mac-arm64" ]; then
+  mkdir -p "$C"
+  curl -fL --retry 2 -o "$C/chrome.zip" https://storage.googleapis.com/chrome-for-testing-public/{CHROME}/mac-arm64/chrome-mac-arm64.zip
+  ditto -x -k "$C/chrome.zip" "$C" && rm "$C/chrome.zip"
+fi
+'''
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument('host', choices=sorted(HOSTS))
+    p.add_argument('--setup', action='store_true')
+    p.add_argument('--check', action='store_true')
+    p.add_argument('--clean', action='store_true', help="remove this sandbox's checkout and work directory on the host")
+    p.add_argument('--data', action='append', default=[], metavar='REL', help='copy $TURKU3D_DATA/REL to the host first')
+    p.add_argument('--pull', action='append', default=[], metavar='REL', help="copy the host's work/REL back to $TURKU3D_WORK/REL")
+    p.add_argument('--pull-data', action='append', default=[], metavar='REL', help="copy the host's data/REL back without overwriting")
+    p.add_argument('--jobs', type=int)
+    p.add_argument('command', nargs='*', help='after --')
+    a = p.parse_args()
+    repo = Path(sh(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True).stdout.strip())
+    if a.check:
+        return remote(a.host, CHECK, check=False).returncode
+    if a.setup:
+        if a.host != 'air':
+            raise SystemExit('osgallery-dev already has the pipeline environment (~/turku3d/envs/pipeline); nothing to set up')
+        push('air', repo / 'pipeline/env', 'turku3d-w2/_setup/repo/pipeline/env')
+        code = remote('air', SETUP_AIR, check=False).returncode
+        return code or remote('air', CHECK, check=False).returncode
+    sandbox = os.environ.get('TURKU3D_SANDBOX')
+    work = os.environ.get('TURKU3D_WORK')
+    if not sandbox or not work:
+        raise SystemExit('source ../sandbox.env first (TURKU3D_SANDBOX and TURKU3D_WORK are not set)')
+    root = f'turku3d-w2/{sandbox}'
+    if a.clean:
+        # A fixed layout and a checked name: the only directory this removes is this sandbox's own.
+        if not sandbox.replace('-', '').replace('_', '').isalnum():
+            raise SystemExit(f'refusing to clean for sandbox name {sandbox!r}')
+        return remote(a.host, f'rm -rf ~/turku3d-w2/{sandbox}/repo ~/turku3d-w2/{sandbox}/work && rmdir ~/turku3d-w2/{sandbox} 2>/dev/null; '
+                              f'df -Pk "$HOME" | awk \'NR==2{{printf "free: %.0f GiB\\n", $4/1048576}}\'', check=False).returncode
+    command = a.command
+    if not command:
+        raise SystemExit('give a command after --')
+    times, start = {}, time.time()
+    push(a.host, repo, f'{root}/repo', delete=True, excludes=EXCLUDE)
+    data = Path(os.environ.get('TURKU3D_DATA', Path.home() / 'turku3d/data'))
+    for rel in a.data:
+        push(a.host, data / rel, f'turku3d-w2/data/{rel}')
+    times['push'] = time.time() - start
+    script = (f'set -e; cd ~/{root}/repo; mkdir -p ~/{root}/work ~/turku3d-w2/data; . ~/turku3d/envs/pipeline.env; '
+              f'export TURKU3D_DATA=$HOME/turku3d-w2/data TURKU3D_WORK=$HOME/{root}/work TURKU3D_SANDBOX={shlex.quote(sandbox)} '
+              f'TURKU3D_JOBS={a.jobs or HOSTS[a.host]["jobs"]} PYTHONPATH=$PWD/pipeline:$PWD/textures; '
+              f'export TURKU3D_WORLD_STORE=$TURKU3D_WORK/world; exec {" ".join(shlex.quote(c) for c in command)}')
+    start = time.time()
+    code = remote(a.host, HOSTS[a.host]['wrap'].format(shlex.quote(script)), check=False).returncode
+    times['run'] = time.time() - start
+    start = time.time()
+    store = os.environ.get('TURKU3D_WORLD_STORE', f'{work}/world')
+    merged = pull(a.host, f'{root}/work/world', store, keep_existing=True)
+    for rel in a.pull:
+        pull(a.host, f'{root}/work/{rel}', f'{work}/{rel}')
+    for rel in a.pull_data:
+        pull(a.host, f'turku3d-w2/data/{rel}', data / rel, keep_existing=True)
+    times['pull'] = time.time() - start
+    print(f'on-host {a.host}: exit {code}; push {times["push"]:.1f} s, run {times["run"]:.1f} s, pull {times["pull"]:.1f} s'
+          + (f'; world store merged into {store}' if merged else ''), file=sys.stderr)
+    return code
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

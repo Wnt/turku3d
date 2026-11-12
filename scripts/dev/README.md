@@ -139,6 +139,21 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
     assets;
   - `scene-judge.mjs` (Fable 5.2) is the score per visual milestone.
 
+## Other machines and rented servers
+
+The per-host guide (cores, memory, what each machine is good and bad at, capture commands) is
+`~/turku3d/loops/w2/hosts.md`.
+
+- **A pipeline command on osgallery-dev or the Air:** `scripts/dev/on-host osg|air [--data REL]... -- COMMAND`
+  copies this worktree there, runs the command in the pipeline environment and merges the world store back
+  (`--help` has the details; `--check` shows what a host has, `--setup` installs what the Air lacks).
+- **A browser on the Air or Windows:** `python3 ~/turku3d/tools/host-lease/session.py run air|win NAME --kind func
+  --headless --forward PORT -- CMD`. `--forward` makes this Mac's `127.0.0.1:PORT` (your dev server) the host's
+  `http://localhost:PORT`, a secure context, which WebGPU needs.
+- **An UpCloud server:** only through `python3 tools/cloud/cloud.py` (`up`, `renew`, `down`, `status`, `plans`).
+  Every server is a lease of at most 4 hours that is deleted with its disk when nobody renews it, and the tool
+  refuses what would pass 20 EUR in 24 hours. Never create, stop or delete UpCloud resources any other way.
+
 ## Worktrees
 
 Run from any checkout (the commands resolve their own repository):
