@@ -27,6 +27,14 @@ or promote an inferred period family into an observed opening count. Consumers u
 its derived attributes only for unobserved facade zones, following the existing
 `facade_inference` field-authority rules.
 
+`scene.facade_transfer.qualified_buildings(buildings, inventory)` is the bounded
+producer adapter. It returns copied buildings and authority receipts, fills only
+missing attributes, reports conflicting known fields, and preserves footprint,
+base, top and roof-part geometry. The ordinary `coarse.stages.building_visual`
+and facade-program resolver then create appearances from those qualified inputs.
+Unknown cladding stays unknown even when the existing grammar samples a visual
+material prior. No new description or reviewed program is written.
+
 ## Three central pilot areas
 
 The first office block and Auransilta extension already preserve their approved
