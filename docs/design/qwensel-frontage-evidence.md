@@ -89,3 +89,17 @@ from the same construction coordinates, marked render:false/passable. The
 compiler can register these as canonical supports while keeping collision only
 in the solid stair geometry; it must not reconstruct support meaning from final
 triangles or add a second coincident collider.
+
+Prepared integration `5f0df7f9` preserves all 1,566 preceding native mesh
+geometries and all 1,110 A1/A2 supports. It replaces only Qwensel's appearance
+asset, adds 22 frontage/entrance meshes and 15 support proxies, and changes only
+collision cell `c_3_3` (+720 triangles). All 30 asset dependencies and 162 image
+bindings are verified. The canonical contact audit covers 11,510 support samples
+with a maximum discrepancy of 0.000076 m; that is compilation consistency, not
+survey accuracy.
+
+Production tile-local `.col` geometry passed both stair flights in both directions
+with the normal Rapier capsule (radius 0.30 m, height 1.8 m, autostep 0.20 m,
+snap 0.30 m). All traversals finished grounded without stalls; maximum sampled
+rise is 0.1768 m and tested headroom is at least 2.03 m. This uses the ordinary
+autostep and does not depend on the additional gameplay stair-lift fallback.

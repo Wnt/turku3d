@@ -173,8 +173,8 @@
     {
       "id": "103295888D",
       "entityId": "103295888D",
-      "url": "shared/07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4.glb",
-      "sha256": "07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4",
+      "url": "shared/f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710.glb",
+      "sha256": "f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710",
       "position": [
         194.05513001906664,
         0.0,
@@ -15842,6 +15842,18 @@
       "sha256": "461ed9e6b4de4c16ec3e431f9204b01f4351646f051166d74bc56a6964ceb23d",
       "kind": "mapped-context-trees",
       "uncertaintyM": 0.3
+    },
+    {
+      "id": "building:103295888D:authored",
+      "sha256": "07db3032d1dc14cc4de898663ce5588685308e8643a074200b0ccf8443e20ab4",
+      "kind": "approved-building",
+      "uncertaintyM": 0.15
+    },
+    {
+      "id": "building:103295888D:frontage",
+      "sha256": "f56e13688fa029aef6b57251990aeebb27315ba043dccf62d1b5c6714d962710",
+      "kind": "registered-frontage-appearance",
+      "uncertaintyM": 0.05
     }
   ],
   "fixtureBindings": {
