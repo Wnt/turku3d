@@ -338,6 +338,11 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
     bake_scene(scene, points, buildings, waters)
     from .night_lighting import bake_scene as bake_street_irradiance
     bake_street_irradiance(scene)
+    from .road_markings import load as load_markings, append as append_markings
+    paint,paint_sources=load_markings(cache,bounds)
+    scene['sources'].extend(paint_sources)
+    append_markings(scene,paint)
+    scene['coverage']['entityIds']=sorted(set(scene['coverage']['entityIds']) | {m['entityId'] for m in scene['meshes']})
     return scene
 
 
