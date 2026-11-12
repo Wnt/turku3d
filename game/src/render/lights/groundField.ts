@@ -1,3 +1,4 @@
+import { preparedStreetDiffuse, preparedStreetReceiver } from './preparedReceiver';
 // Every resident street lamp lights the street through one shared irradiance field: the ground under and between
 // the lamps, and the walls beside them. It is a data node of the session's fixed light set (render/lighting.ts), so
 // every lit material receives it whatever its family: asphalt, pavers, grass, facades, posts, cars and people. The
@@ -51,7 +52,10 @@ export const groundLampField = {
 /** Where a lamp's light comes from and the ground it stands on (engine metres), or null for lamps that light no field. */
 export function fieldLamp(lamp: Lamp): { x: number; y: number; z: number; base: number; gain: number } | null {
   const head = lamp.light;
-  if (lamp.photometry) return { x: head.x, y: head.y, z: head.z, base: lamp.photometry.base, gain: 1 };
+  if (lamp.photometry) {
+    const [x, y, z] = lamp.photometry.aperture?.position ?? [head.x, head.y, head.z];
+    return { x, y, z, base: lamp.photometry.base, gain: 1 };
+  }
   if (lamp.kind === 'bridge') return { x: head.x, y: head.y, z: head.z, base: head.y - LAMP_FIELD.bridge.height, gain: LAMP_FIELD.bridge.gain };
   if (lamp.kind !== 'street') return null;
   // A post stands on its base; a lamp hung over the street (span wire, register "hung") carries no ground height.
@@ -249,6 +253,11 @@ export class LampFieldData extends THREE.Node {
   override setup(builder: THREE.NodeBuilder) {
     // Unlit-model materials (basic) take no light and ignore irradiance: no code for them.
     if ((builder.material as { isMeshBasicNodeMaterial?: boolean } | null)?.isMeshBasicNodeMaterial) return null;
+    if (preparedStreetReceiver(builder)) {
+      (builder.context as unknown as { reflectedLight: { directDiffuse: ReturnType<typeof vec3> } })
+        .reflectedLight.directDiffuse.addAssign(preparedStreetDiffuse());
+      return null;
+    }
     const context = builder.context as unknown as LightingContext;
     context.irradiance.addAssign(lampFieldIrradiance(context.positionView ?? positionView));
     return null;

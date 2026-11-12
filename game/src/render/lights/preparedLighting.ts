@@ -47,7 +47,7 @@ export function prepareLighting(scene: PreparedScene): PreparedLighting {
     return { key: e.id, x: fixture.position[0], y: fixture.position[1], z: fixture.position[2],
       yaw: fixture.yaw, scale: 1, post: false, kind: category === 'wall' ? 'wall' : 'street',
       light: { x, y, z, radius: CORONA_RADIUS[category], r: e.color[0] * corona, g: e.color[1] * corona, b: e.color[2] * corona, day: 0 },
-      photometry: { color: e.color, intensity: e.intensity, range: e.range, base: fixture.position[1] } };
+      photometry: { color: e.color, intensity: e.intensity, range: e.range, base: fixture.position[1], ...(e.aperture ? { aperture: e.aperture } : {}) } };
   });
   return { id: scene.id, lamps, footprint: footprint(scene) };
 }

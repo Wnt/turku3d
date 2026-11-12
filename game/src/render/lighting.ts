@@ -7,6 +7,8 @@ import type * as THREE from 'three/webgpu';
 import { DynamicLighting } from 'three/addons/lighting/DynamicLighting.js';
 import DynamicLightsNode from 'three/addons/tsl/lighting/DynamicLightsNode.js';
 import PointLightDataNode from 'three/addons/tsl/lighting/data/PointLightDataNode.js';
+import { vec3 } from 'three/tsl';
+import { preparedStreetReceiver } from './lights/preparedReceiver';
 
 export interface LightSlots { point: number }
 
@@ -30,7 +32,19 @@ function activeOnly(Base: DataNodeClass): DataNodeClass {
     }
   };
 }
-const ActivePointLights = activeOnly(PointLightDataNode);
+/** All point slots are street lamps. Their diffuse term is already integrated on prepared receivers;
+ * retain their view-dependent specular and the normal live-light path on moving/unbaked objects. */
+class ReceiverPointLights extends PointLightDataNode {
+  override setup(builder: THREE.NodeBuilder) {
+    if (!preparedStreetReceiver(builder)) return super.setup(builder);
+    const discarded = vec3(0).toVar('unusedStreetDiffuse');
+    const context = builder.context as unknown as { reflectedLight: { directDiffuse: typeof discarded } };
+    const reflected = context.reflectedLight;
+    context.reflectedLight = { ...reflected, directDiffuse: discarded };
+    try { return super.setup(builder); } finally { context.reflectedLight = reflected; }
+  }
+}
+const ActivePointLights = activeOnly(ReceiverPointLights);
 
 type Builder = THREE.NodeBuilder & { context: { materialLightings?: THREE.LightingNode[] } };
 type LightNodeClass = new (light: THREE.Light) => THREE.LightingNode;

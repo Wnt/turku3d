@@ -103,6 +103,9 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
     geometry.setAttribute('color', new THREE.Float32BufferAttribute([1,1,1,1,1,1,1,1,1], 3));
     add(`far-${layer}`, new THREE.Mesh(geometry, sceneryMaterial(layer, undefined, atlas())));
   }
+  const receiver = wall({ _night_irradiance: [.1,.08,.05] });
+  receiver.userData.preparedStreetLighting = true;
+  add('prepared-street-receiver', new THREE.Mesh(receiver, new THREE.MeshStandardNodeMaterial()));
   add('sky', env.sky);
 
   const lightSet = () => {
@@ -454,5 +457,24 @@ test('far-band dissolve twins build on both backends in the beauty MRT, rigid an
       expect(program.vertex, name).not.toMatch(/positionPrevious/);
     }
     post.dispose(); target.dispose();
+  }
+});
+
+
+test('prepared receivers replace field and point diffuse while preserving specular and the day clock', () => {
+  for (const webgl of [false, true]) {
+    const w = world(webgl, 'medium');
+    w.at(13);
+    const day = w.shaders(['prepared-street-receiver'])['prepared-street-receiver'];
+    w.at(23); w.lamps();
+    const night = w.shaders(['prepared-street-receiver'])['prepared-street-receiver'];
+    expect(night).toEqual(day);
+    expect(night.fragment).toContain('dynPointSpecular');
+    expect(night.fragment).toContain('unusedStreetDiffuse');
+    expect(night.fragment).not.toMatch(/directDiffuse\s*\+\s*dynPointDiffuse/);
+    expect(w.shaders(['prop-car'])['prop-car'].fragment).toMatch(/directDiffuse\s*\+\s*dynPointDiffuse/);
+    expect(night.vertex).toContain('_night_irradiance');
+    // The prepared draw has no street-field texture lookup or receiver-height gate.
+    expect(night.fragment).not.toContain('groundLamp');
   }
 });

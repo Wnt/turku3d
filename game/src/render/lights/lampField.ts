@@ -1,3 +1,4 @@
+import type { PreparedAperture } from '../../world/preparedScene';
 // Per-tile street lights: the generator's light list (tileLights.ts: register street-light posts, lights hung over
 // a carriageway, facade lights) plus the tunnel strips and bridge-deck lamps it builds as geometry (tileScan.ts).
 // Only the tile's own data is read, so every client places identical lights whatever the load order. Model scans
@@ -19,7 +20,7 @@ export interface Lamp {
   kind: LampKind;
   light: SpriteLight;
   /** Prepared point source: full linear pigment, candela and spherical cutoff metres. No post is synthesized. */
-  photometry?: { color: readonly [number, number, number]; intensity: number; range: number; base: number };
+  photometry?: { color: readonly [number, number, number]; intensity: number; range: number; base: number; aperture?: PreparedAperture };
 }
 
 export type LampKind = 'street' | 'bridge' | 'tunnel' | 'wall' | 'flood';

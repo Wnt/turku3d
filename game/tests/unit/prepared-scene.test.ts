@@ -67,6 +67,28 @@ describe('prepared scene contract', () => {
       expect(() => readPreparedScene(s)).toThrow('baked visibility');
     }
   });
+  it('keeps authoritative baked darkness separate from unbaked live receivers and preserves HDR values', () => {
+    const s = scene(); s.meshes.push({ ...s.meshes[0], id: 'unbaked' });
+    s.meshes[0].nightIrradiance = [0,0,0,2,.5,.25,0,0,0];
+    const draws = buildPreparedModel(readPreparedScene(s)).children as import('three/webgpu').Mesh[];
+    expect(draws).toHaveLength(2);
+    const baked = draws.find(m => m.geometry.userData.preparedStreetLighting)!;
+    expect([...baked.geometry.getAttribute('_night_irradiance').array]).toEqual(s.meshes[0].nightIrradiance);
+    expect(draws.find(m => m !== baked)!.geometry.hasAttribute('_night_irradiance')).toBe(false);
+    for (const bad of [[0], [-1,0,0], [Infinity,0,0]]) {
+      s.meshes[0].nightIrradiance = bad.length === 3 ? [...bad,...bad,...bad] : bad;
+      expect(() => readPreparedScene(s)).toThrow('night irradiance');
+    }
+  });
+  it('validates the optical rectangle basis without moving the raw corona centre', () => {
+    const s = scene();
+    s.fixtures.push({ id:'pole',family:'canopy',supportId:'ground',position:[2,0,2],yaw:0,dimensions:[1,6,1],meshIds:[],emitterIds:['lamp'] });
+    s.emitters.push({ id:'lamp',fixtureId:'pole',position:[2,4.85,2],color:[1,.78,.52],intensity:45,range:18,
+      aperture:{ shape:'rectangle',position:[2,5.555,2],normal:[0,-1,0],axisU:[1,0,0],size:[1.2,.84],cutoutRadius:.046 } });
+    expect(readPreparedScene(s).emitters[0].position[1]).toBe(4.85);
+    s.emitters[0].aperture!.axisU = [0,-1,0];
+    expect(() => readPreparedScene(s)).toThrow('emitter aperture');
+  });
 });
 
 it('loads shared hashed texture channels with correct color space and compiled UV orientation', async () => {

@@ -15,6 +15,11 @@ export interface PreparedMesh {
   boundaryIds?: string[];
   /** UINT8 RGB per vertex: local ambient visibility, sky visibility, and bake coverage. */
   bakedVisibility?: number[];
+  /** Full-night outgoing Lambert RGB per unit diffuse albedo, with solid-scene visibility baked. */
+  nightIrradiance?: number[];
+}
+export interface PreparedAperture {
+  shape: 'rectangle'; position: Vec3; normal: Vec3; axisU: Vec3; size: [number, number]; cutoutRadius: number;
 }
 /** Current compiled scene. Positions and normals already use engine axes; no gameplay semantics are recovered from triangles. */
 export interface PreparedScene {
@@ -27,7 +32,7 @@ export interface PreparedScene {
   assets: { id: string; entityId: string; url: string; sha256: string; position: Vec3; recipe: 'building' | 'vegetation' | 'context' }[];
   fixtures: { id: string; family: string; supportId: string; position: Vec3; yaw: number; dimensions: Vec3; meshIds: string[]; emitterIds: string[] }[];
   /** Linear RGB, intensity in candela, spherical cutoff range in metres; fixture position is the supported base. */
-  emitters: { id: string; fixtureId: string; position: Vec3; color: Vec3; intensity: number; range: number; category?: 'street' | 'path' | 'wall' }[];
+  emitters: { id: string; fixtureId: string; position: Vec3; color: Vec3; intensity: number; range: number; category?: 'street' | 'path' | 'wall'; aperture?: PreparedAperture }[];
   lightOccluders: { id: string; positions: [number, number][]; minY: number; maxY: number }[];
   coverage: { mode: 'replace'; bounds: [number, number, number, number]; entityIds: string[] };
   collision: Record<string, ManifestEntry>;
@@ -81,6 +86,8 @@ export function readPreparedScene(value: unknown): PreparedScene {
     if (m.uv !== undefined && !vector(m.uv, m.positions.length / 3 * 2)) fail(`uv ${m.id}`);
     if (m.bakedVisibility !== undefined && (!vector(m.bakedVisibility, m.positions.length)
       || !m.bakedVisibility.every((v: number) => Number.isInteger(v) && v >= 0 && v <= 255))) fail(`baked visibility ${m.id}`);
+    if (m.nightIrradiance !== undefined && (!vector(m.nightIrradiance, m.positions.length)
+      || !m.nightIrradiance.every((v: number) => v >= 0))) fail(`night irradiance ${m.id}`);
     entities.add(m.entityId);
   }
   for (const a of s.assets) {
@@ -92,6 +99,14 @@ export function readPreparedScene(value: unknown): PreparedScene {
   for (const e of s.emitters) if (!fixtures.has(e.fixtureId) || !vector(e.position) || !vector(e.color) || !e.color.every(unit)
     || !finite(e.intensity) || e.intensity < 0 || !finite(e.range) || e.range <= 0) fail(`emitter ${e.id}`);
   for (const e of s.emitters) if (e.category !== undefined && !['street', 'path', 'wall'].includes(e.category)) fail(`emitter category ${e.id}`);
+  for (const e of s.emitters) if (e.aperture !== undefined) {
+    const a = e.aperture;
+    if (!object(a) || a.shape !== 'rectangle' || !vector(a.position) || !vector(a.normal) || !vector(a.axisU)
+      || Math.abs(Math.hypot(...a.normal)-1) > .001 || Math.abs(Math.hypot(...a.axisU)-1) > .001
+      || Math.abs(a.normal.reduce((sum: number, n: number, i: number) => sum+n*a.axisU[i], 0)) > .001
+      || !vector(a.size, 2) || !a.size.every((v: number) => v > 0) || !finite(a.cutoutRadius)
+      || a.cutoutRadius < 0 || a.cutoutRadius >= Math.min(...a.size)/2) fail(`emitter aperture ${e.id}`);
+  }
   if (s.lightOccluders !== undefined) {
     if (!Array.isArray(s.lightOccluders)) fail('lightOccluders');
     ids('lightOccluders');
@@ -114,16 +129,20 @@ export function readPreparedScene(value: unknown): PreparedScene {
 export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<string, THREE.Texture> = new Map()): THREE.Group {
   const root = new THREE.Group(); root.name = `scene:${scene.id}`;
   root.userData.preparedScene = { id: scene.id, release: scene.release, bounds: scene.bounds, fixtures: scene.fixtures };
-  for (const material of scene.materials) {
-    const parts = scene.meshes.filter(mesh => mesh.render !== false && mesh.materialId === material.id);
+  for (const material of scene.materials) for (const hasNightBake of [false, true]) {
+    // A baked zero is authoritative darkness. Separate draws keep unbaked receivers on live lighting.
+    const parts = scene.meshes.filter(mesh => mesh.render !== false && mesh.materialId === material.id
+      && (mesh.nightIrradiance !== undefined) === hasNightBake);
     if (!parts.length) continue;
     const vertices = parts.reduce((n, m) => n + m.positions.length / 3, 0), triangles = parts.reduce((n, m) => n + m.indices.length, 0);
     const positions = new Float32Array(vertices * 3), normals = new Float32Array(vertices * 3), uv = new Float32Array(vertices * 2), indices = new Uint32Array(triangles);
     const baked = parts.some(p => p.bakedVisibility) ? new Uint8Array(vertices * 4) : null;
+    const night = hasNightBake ? new Float32Array(vertices * 3) : null;
     let vertex = 0, index = 0;
     const ranges: { id: string; entityId: string; start: number; count: number }[] = [];
     for (const part of parts) {
       positions.set(part.positions, vertex * 3);
+      if (night) night.set(part.nightIrradiance!, vertex * 3);
       if (part.normals) normals.set(part.normals, vertex * 3);
       if (part.uv) uv.set(part.uv, vertex * 2);
       if (baked) for (let v = 0; v < part.positions.length / 3; v++) {
@@ -141,6 +160,10 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.BufferAttribute(uv, 2)); geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     if (baked) geometry.setAttribute('color_1', new THREE.BufferAttribute(baked, 4, true));
+    if (night) {
+      geometry.setAttribute('_night_irradiance', new THREE.BufferAttribute(night, 3));
+      geometry.userData.preparedStreetLighting = true;
+    }
     if (parts.every(p => p.normals)) geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3)); else geometry.computeVertexNormals();
     geometry.computeBoundingBox(); geometry.computeBoundingSphere();
     const drawMaterial = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(...material.color, THREE.LinearSRGBColorSpace), roughness: material.roughness, metalness: material.metalness });

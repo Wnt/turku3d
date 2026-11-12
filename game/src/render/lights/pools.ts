@@ -41,7 +41,8 @@ export interface PoolLamp { key: string; x: number; y: number; z: number; r: num
 /** The pool record of a lamp, or null for kinds that light no pool. Colour is the corona's, normalised. */
 export function poolLamp(lamp: Lamp): PoolLamp | null {
   if (lamp.photometry) {
-    const p = lamp.photometry, { x, y, z } = lamp.light;
+    const p = lamp.photometry;
+    const [x, y, z] = p.aperture?.position ?? [lamp.light.x, lamp.light.y, lamp.light.z];
     return p.intensity > 0 ? { key: lamp.key, x, y, z, r: p.color[0], g: p.color[1], b: p.color[2], intensity: p.intensity, range: p.range } : null;
   }
   const intensity = POOL_INTENSITY[lamp.kind];

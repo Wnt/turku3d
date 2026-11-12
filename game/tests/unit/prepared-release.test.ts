@@ -12,7 +12,7 @@ it('installs the shipped prepared release with matching collider identities and 
   const path = resolve(process.env.PREPARED_SCENE_PATH ?? 'public/scenes/office.scene.json');
   const scene = readPreparedScene(JSON.parse(readFileSync(path, 'utf8')));
   const model = buildPreparedModel(scene);
-  expect(model.children.length).toBeLessThanOrEqual(scene.materials.length);
+  expect(model.children.length).toBeLessThanOrEqual(scene.materials.length * 2);
   for (const material of scene.materials) for (const texture of [material.baseColorTexture, material.normalTexture, material.ormTexture]) {
     if (!texture) continue;
     const bytes = readFileSync(resolve(dirname(path), texture.url));
@@ -58,12 +58,26 @@ it('installs the shipped prepared release with matching collider identities and 
     const lamp = lighting.lamps.find(l => l.key === emitter.id)!;
     const fixture = scene.fixtures.find(f => f.id === emitter.fixtureId)!;
     expect(lamp.post).toBe(false);
-    expect(lamp.photometry).toEqual({ color: emitter.color, intensity: emitter.intensity, range: emitter.range, base: fixture.position[1] });
+    expect(lamp.photometry).toEqual({ color: emitter.color, intensity: emitter.intensity, range: emitter.range, base: fixture.position[1],
+      ...(emitter.aperture ? { aperture: emitter.aperture } : {}) });
+    if (emitter.aperture) {
+      const pool = poolLamp(lamp)!;
+      expect([pool.x,pool.y,pool.z]).toEqual(emitter.aperture.position);
+      expect([lamp.light.x,lamp.light.y,lamp.light.z]).toEqual(emitter.position);
+    }
     if (emitter.intensity > 0) expect(poolLamp(lamp)).toMatchObject({ intensity: emitter.intensity, range: emitter.range,
       r: emitter.color[0], g: emitter.color[1], b: emitter.color[2] });
     const [x, y, z] = fixture.position, support = ground.ground(x, y + .15, z, .3);
     expect(support, `mapped emitter fixture ${fixture.id} needs physical support`).not.toBeNull();
     expect(Math.abs(support! - y)).toBeLessThan(.1);
+  }
+  for (const draw of model.children as import('three/webgpu').Mesh[]) {
+    const night = draw.geometry.getAttribute('_night_irradiance');
+    if (!night) continue;
+    expect(draw.geometry.userData.preparedStreetLighting).toBe(true);
+    const parts = scene.meshes.filter(m => m.render !== false && m.nightIrradiance !== undefined
+      && m.materialId === (draw.material as import('three/webgpu').Material).name);
+    expect(Array.from(night.array)).toEqual(Array.from(new Float32Array(parts.flatMap(m => m.nightIrradiance!))));
   }
   expect(triangles).toBeGreaterThan(0);
   expect(scene.meshes.filter(m => m.collision === 'solid').length).toBeGreaterThan(0);
