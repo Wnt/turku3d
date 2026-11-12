@@ -223,3 +223,10 @@ files = ["office-frontage.png", "paving.png", "hedge-contact.png", "bench-close.
 source = "Turku3D native1440x960 M1Max normal gameplay, release150266c0; exact matched clear-day cameras"
 licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Measured hedge placement and contact; simple box silhouette and unfinished foliage disclosed"
+
+[[external_captures]]
+url = "https://city.lab.madekivi.fi/progress-evidence/iteration-08-ed8c7dde/"
+files = ["bench-close.png", "bench-walk-3s.mp4"]
+source = "Turku3D native1440x960 M1Max normal gameplay, release ed8c7dde; exact immediate150266c0 camera pair"
+licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
+reason = "Subtle metric timber material detail only; no major visual quality claim"
