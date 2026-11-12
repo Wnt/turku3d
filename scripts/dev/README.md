@@ -91,6 +91,13 @@ The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is
   - pass both files with `--views`.
 
   The history is then `~/turku3d/loops/judge/<first file>.jsonl`.
+- **Leaving things out of scoring.** A view's `"judge": false` leaves the view out of scoring; it is still captured.
+  `"judge": { "ignore": "TEXT" }` tells the judge what in the render not to score.
+  - **Use it for:** a building whose only photos show it in an unrepresentative state (renovation, wrapping,
+    scaffolding).
+  - **Riverside office:** the wooden house on Läntinen Rantakatu is left out this way. Its only street-level photos
+    (Street View 2019-06) show the facade bare during a renovation.
+  - **To bring it back:** find a newer posed photo, add it to `qa/views/views.jsonl`, and remove the exclusion.
 - A changed rubric or schema (`judge/JUDGE.md`, `judge/scores.schema.json`) is recorded by its hash. A real change
   starts a new history file rather than mixing scales.
 - **Two QA tools, two jobs:**

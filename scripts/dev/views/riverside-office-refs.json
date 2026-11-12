@@ -1,7 +1,7 @@
 {
   "schema": "turku-capture-views/1",
   "scene": "office",
-  "note": "The riverside corridor from the cameras of its reference photos (qa/views/views.jsonl; crops in $TURKU3D_DATA/qa/refs, see qa/README.md). Wooden frontage, stone frontage and promenade, the bridge, and the quay seen from the river. Judged with scripts/dev/scene-judge.mjs; the photos stay outside Git.",
+  "note": "The riverside corridor from the cameras of its reference photos (qa/views/views.jsonl; crops in $TURKU3D_DATA/qa/refs, see qa/README.md). Stone frontage and promenade, the bridge, and the quay seen from the river. Judged with scripts/dev/scene-judge.mjs; the photos stay outside Git. The wooden house on Läntinen Rantakatu (sv_01-sv_04) is left out: its only street-level photos (Street View 2019-06) show the facade bare during a renovation, and no newer posed photo is cached.",
   "references": "qa/views/views.jsonl",
   "quality": "medium",
   "time": "2026-06-15T14:00:00+03:00",
@@ -9,8 +9,6 @@
   "viewport": [960, 720],
   "renderScale": 1,
   "views": [
-    { "id": "sv-02", "reference": "sv_02" },
-    { "id": "sv-04", "reference": "sv_04" },
     { "id": "sv-05", "reference": "sv_05" },
     { "id": "sv-06", "reference": "sv_06" },
     { "id": "sv-08", "reference": "sv_08" },

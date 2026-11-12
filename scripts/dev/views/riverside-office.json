@@ -1,7 +1,7 @@
 {
   "schema": "turku-capture-views/1",
   "scene": "office",
-  "note": "Läntinen Rantakatu office frontage and quay at normal gameplay distance (orbit 4.5 m behind the player). Same camera transforms as the November 2026 frozen/lab baseline captures, so old evidence stays comparable.",
+  "note": "Läntinen Rantakatu office frontage and quay at normal gameplay distance (orbit 4.5 m behind the player). Same camera transforms as the November 2026 frozen/lab baseline captures, so old evidence stays comparable. `judge` (scene-judge.mjs only): the wooden house is not scored, since its only street-level photos show a facade renovation; along-frontage shows little else.",
   "quality": "medium",
   "time": "2026-06-15T14:00:00+03:00",
   "weather": "clear",
@@ -9,9 +9,9 @@
   "renderScale": 0.5,
   "player": { "E": 23459677.20968628, "N": 6704239.794067383, "headingDeg": 230 },
   "views": [
-    { "id": "office-frontage", "camera": { "position": [173.10327822487568, 5.48704065667709, 261.965821785846], "quaternion": [-0.05006041667269635, -0.5495004219475177, -0.033009646402572944, 0.833338829172404], "fov": 60 } },
-    { "id": "quay", "camera": { "position": [181.27901396710203, 5.753968804293162, 258.4619350515351], "quaternion": [-0.049477333328210533, 0.8314622666011018, 0.0750343061050636, 0.5482630259397572], "fov": 60 } },
-    { "id": "along-frontage", "camera": { "position": [178.96957546111688, 5.48704065667709, 264.31234066596807], "quaternion": [-0.058739404894795455, 0.20070406407690855, 0.012056715376591363, 0.9778150114361843], "fov": 60 } }
+    { "id": "office-frontage", "judge": { "ignore": "the long one-storey building with dormers and tall pedimented windows at the left edge" }, "camera": { "position": [173.10327822487568, 5.48704065667709, 261.965821785846], "quaternion": [-0.05006041667269635, -0.5495004219475177, -0.033009646402572944, 0.833338829172404], "fov": 60 } },
+    { "id": "quay", "judge": { "ignore": "the long one-storey building with dormers and tall pedimented windows on the right" }, "camera": { "position": [181.27901396710203, 5.753968804293162, 258.4619350515351], "quaternion": [-0.049477333328210533, 0.8314622666011018, 0.0750343061050636, 0.5482630259397572], "fov": 60 } },
+    { "id": "along-frontage", "judge": false, "camera": { "position": [178.96957546111688, 5.48704065667709, 264.31234066596807], "quaternion": [-0.058739404894795455, 0.20070406407690855, 0.012056715376591363, 0.9778150114361843], "fov": 60 } }
   ],
   "walk": { "seconds": 6, "key": "w" }
 }

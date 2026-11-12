@@ -37,17 +37,19 @@ export function buildItems(captures) {
   for (const { dir, manifest } of captures) {
     if (manifest.failure) throw new Error(`${dir}: the capture failed (${manifest.failure.split('\n')[0]})`);
     if (manifest.mode !== 'render') throw new Error(`${dir}: judged captures show the scene alone (scene-capture.mjs --mode render), not the game`);
-    for (const view of manifest.views) (view.photo ? posed : gameplay).push({ dir, view });
+    // A view's `judge` (views file): false leaves it out of scoring; { ignore } names what the judge leaves out of it.
+    for (const view of manifest.views) if (view.judge !== false) (view.photo ? posed : gameplay).push({ dir, view });
   }
   const items = [], key = [];
   posed.forEach(({ dir, view }, i) => {
     const id = `p${String(i + 1).padStart(2, '0')}`;
-    items.push({ id, kind: 'posed', photo: `${id}-photo.jpg`, render: `${id}-render.jpg`, photoDate: view.photo.date, poseConfidence: view.photo.poseConfidence });
+    items.push({ id, kind: 'posed', photo: `${id}-photo.jpg`, render: `${id}-render.jpg`, photoDate: view.photo.date, poseConfidence: view.photo.poseConfidence,
+      ...(view.judge?.ignore ? { ignore: view.judge.ignore } : {}) });
     key.push({ id, capture: dir, view: view.id, render: path.join(dir, view.file), photo: view.photo });
   });
   gameplay.forEach(({ dir, view }, i) => {
     const id = `g${String(i + 1).padStart(2, '0')}`;
-    items.push({ id, kind: 'gameplay', render: `${id}-render.jpg` });
+    items.push({ id, kind: 'gameplay', render: `${id}-render.jpg`, ...(view.judge?.ignore ? { ignore: view.judge.ignore } : {}) });
     key.push({ id, capture: dir, view: view.id, render: path.join(dir, view.file), photo: null });
   });
   return { items, key };
