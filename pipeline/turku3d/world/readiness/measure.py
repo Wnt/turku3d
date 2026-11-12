@@ -133,7 +133,7 @@ def topology(positions: np.ndarray, triangles: np.ndarray) -> dict:
             "solids": [],
             "welded": (points, tri),
             "kept": kept,
-            "labels": np.zeros(0, int),
+            "triangle_border_m": np.zeros((0, 2)),
         }
     _, duplicate_counts = np.unique(np.sort(tri, axis=1), axis=0, return_counts=True)
     lo, hi, uses, forward, corner_edge = edges_of(tri, len(points))
@@ -206,7 +206,22 @@ def topology(positions: np.ndarray, triangles: np.ndarray) -> dict:
                 "inside_out": bool(closed and volume < 0),
             }
         )
-    return {**out, "solids": solids, "welded": (points, tri), "kept": kept, "labels": labels}
+    # Per kept triangle: the length of its border edges, and of those that are T-junction seams.
+    in_seam = np.zeros(len(uses), bool)
+    in_seam[border_index[carrying | lying]] = True
+    triangle_border = np.column_stack(
+        [
+            (border[corner_edge] * length[corner_edge]).sum(axis=1),
+            (in_seam[corner_edge] * length[corner_edge]).sum(axis=1),
+        ]
+    )
+    return {
+        **out,
+        "solids": solids,
+        "welded": (points, tri),
+        "kept": kept,
+        "triangle_border_m": triangle_border,
+    }
 
 
 def first_hits(

@@ -107,18 +107,24 @@ def check_mesh(
         return {**report, "triangles": 0, "flags": []}, None
     # Topology, solids and the field are judged on what is opaque: masked cards and blended slabs are not part of a
     # distance field or a surface cache, so a wall closed only by them is open (F2).
-    solid_positions, solid_triangles, _ = measure.assemble(primitives, ("opaque",))
+    solid_positions, solid_triangles, solid_owner = measure.assemble(primitives, ("opaque",))
     everything = measure.topology(positions, triangles)
     topology = (
-        measure.topology(solid_positions, solid_triangles) if len(solid_triangles) else everything
+        measure.topology(solid_positions, solid_triangles)
+        if len(solid_triangles)
+        else dict(everything)
     )
-    points, welded = everything.pop("welded")
-    topology.pop("welded", None)
-    for name in ("kept", "labels"):
-        everything.pop(name, None)
-        topology.pop(name, None)
-    solids = topology.pop("solids")
-    everything.pop("solids", None)
+    points, welded = everything["welded"]
+    solids = topology["solids"]
+    by_part: dict[str, list[float]] = {}
+    if len(solid_triangles):
+        for owner, (border_m, seam_m) in zip(
+            solid_owner[topology["kept"]], topology["triangle_border_m"], strict=True
+        ):
+            if border_m:
+                row = by_part.setdefault(primitives[owner].part, [0.0, 0.0])
+                row[0] += border_m
+                row[1] += seam_m
     closed = [s for s in solids if s["closed"]]
     area = topology["area_m2"] or 1.0
     thickness = [s["thickness_m"] for s in closed if s["thickness_m"] is not None]
@@ -135,7 +141,13 @@ def check_mesh(
             k: round(topology[k], 4)
             for k in ("border_m", "open_m", "tjunction_m", "nearmiss_m", "nonmanifold_m")
         }
-        | {"flipped_edges": topology["flipped_edges"], "triangles": topology["triangles"]},
+        | {"flipped_edges": topology["flipped_edges"], "triangles": topology["triangles"]}
+        | {
+            "border_by_part_m": {
+                part: [round(v, 2) for v in row]
+                for part, row in sorted(by_part.items(), key=lambda kv: -kv[1][0])
+            }
+        },
         solids={
             "count": len(solids),
             "closed": len(closed),
@@ -167,7 +179,7 @@ def check_mesh(
         report["ground"] = {
             k: round(v, 4) for k, v in field.plan_layers(positions, triangles).items()
         }
-        if report["ground"]["underside_share"] > 0.001:
+        if report["ground"]["underside_share"] > 0.01:
             flags.append(
                 f"F3 not a height field: {report['ground']['underside_share']:.1%} of the surface faces down"
             )
@@ -191,7 +203,8 @@ def check_mesh(
             flags.append(f"G2 {report['solids']['inside_out']} solids wound inside out")
         if opaque["flipped_edges"] > 0:
             flags.append(f"G2 {opaque['flipped_edges']} edges with inconsistent winding")
-        if not thin and (state != "sealed" or escape > 0.02):
+        # A mesh without borders always has a signed field; where the flood finds no inside it is only thin.
+        if opaque["border_m"] > 0.05 and not thin and (state != "sealed" or escape > 0.02):
             rule = "F1" if kind == "building" else "G2"
             sealed = report["field"]["sealed_voxel_m"]
             where = (
@@ -219,8 +232,12 @@ def check_mesh(
         flags.append(
             f"G3 {everything['zero_area']} zero-area and {everything['duplicates']} duplicate triangles"
         )
-    if everything["small_share"] > 0.2 and everything["triangles"] > 200:
-        flags.append(f"G4 {everything['small_share']:.0%} of triangles under 0.25 cm2")
+    dense = report["density_per_m2"] > 1000 and everything["triangles"] > 500
+    if dense or (everything["small_share"] > 0.2 and everything["triangles"] > 200):
+        flags.append(
+            f"G4 {report['density_per_m2']:.0f} triangles per m2 of surface, "
+            f"{everything['small_share']:.0%} of them under 0.25 cm2"
+        )
     report["repeats"]["repeated_share"] = round(measure.repeated_share(positions, triangles), 4)
     if (
         everything["triangles"] >= 2000
@@ -248,7 +265,9 @@ def check_mesh(
     share = materials["surface_share"]
     if share.get("masked", 0) > 0.05 and kind not in FOLIAGE and kind != "asset:foliage":
         flags.append(f"M3 masked surface {share['masked']:.0%}")
-    if report["uv"]["stretched_share"] > 0.05:
+    if (
+        report["uv"]["stretched_share"] > 0.05 and not height_field
+    ):  # ground UVs are plan metres by contract
         flags.append(
             f"M4 UVs off metric scale on {report['uv']['stretched_share']:.0%} of the surface"
         )

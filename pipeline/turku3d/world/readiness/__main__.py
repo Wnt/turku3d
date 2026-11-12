@@ -225,18 +225,21 @@ def print_report(result: dict, top: int, log=print) -> None:
         log(
             f"  {name:<28}{kind['entities']:>5}{kind['triangles']:>11,}{kind['flagged']:>9}{sealed:>9}{floor:>7}  {rules}"
         )
-    worst = sorted(
-        (item for item in [*result["entities"], *result["assets"]] if item["flags"]),
-        key=lambda item: (-len(item["flags"]), -item["triangles"]),
-    )
-    for item in worst[:top]:
-        name = (
-            item.get("id")
-            or f"asset {item['asset']} (x{item['copies']}, {', '.join(item['kinds'])})"
+    # The worst of each kind, so that every track sees its own entities.
+    flagged: dict[str, list[dict]] = {}
+    for item in [*result["entities"], *result["assets"]]:
+        if item["flags"]:
+            kind = item.get("kind") or "asset (" + ", ".join(item["kinds"]) + ")"
+            flagged.setdefault(kind, []).append(item)
+    for _, items in sorted(flagged.items()):
+        items.sort(
+            key=lambda item: (-len(item["flags"]), -item["triangles"] * item.get("copies", 1))
         )
-        log(f"  {name} [{item['owner']}] {item['triangles']:,} triangles")
-        for flag in item["flags"]:
-            log(f"      {flag}")
+        for item in items[:top]:
+            name = item.get("id") or f"asset {item['asset']} (x{item['copies']})"
+            log(f"  {name} [{item['owner']}] {item['triangles']:,} triangles")
+            for flag in item["flags"]:
+                log(f"      {flag}")
     for pair in result["borders"][:top]:
         log(
             f"  border {pair['cells'][0]} | {pair['cells'][1]}: {pair['vertices'][0]} against {pair['vertices'][1]} vertices, {pair['unmatched']} unmatched (F3)"
@@ -303,7 +306,9 @@ def main(argv: list[str] | None = None) -> int:
         "--json",
         help="write the full report here (default $TURKU3D_WORK/readiness/<location>.json)",
     )
-    parser.add_argument("--top", type=int, default=12, help="entities listed with their findings")
+    parser.add_argument(
+        "--top", type=int, default=3, help="entities listed with their findings, per kind"
+    )
     parser.add_argument("--rays", type=int, default=256, help="thickness samples per mesh")
     parser.add_argument("--jobs", type=int, default=int(os.environ.get("TURKU3D_JOBS", "3")))
     parser.add_argument(

@@ -51,6 +51,13 @@ section 11 will recommend the renderer path.
   building's shell) built from the same description. The level-of-detail graph is always derived from lod 0, so
   never thin lod 0 to save triangles. *Why: simplification cannot remove window holes or merge small solids, so far
   proxies must come from the description; near levels must come from the full mesh.*
+- **S3. One source, every fidelity.** The source is authored once, at the fidelity wanted on strong hardware (G4).
+  Every cheaper form is derived from it by a parameter of the renderer: the level drawn at a distance, how many
+  leaf cards of the prefix (T2), texture pixels per metre, the lighting tier. No description, kind or GLB names a
+  quality tier or is tuned to one machine's budget, and nothing a frame needs is known only after loading a whole
+  location: bounds, error and triangle counts are in the rows (I2). *Why: the long-run target is 40 frames per
+  second on the M1 Max with fidelity rising by itself on stronger hardware; that works only if cost sits behind
+  parameters of derived products, never inside authored data.*
 
 ## 4. Geometry for cluster hierarchies
 
@@ -74,10 +81,11 @@ section 11 will recommend the renderer path.
   one side is simplified.*
 - **G4. Density follows what a street camera resolves.** At 1080p a pixel is 5 mm at 5 m and 2 cm at 20 m. Model
   edges down to 1 cm, keep curve chord error under 5 mm (an arch 12 to 16 segments, a 10 cm post 8 sides, a pipe
-  6), and do not subdivide flat faces. Expected at lod 0: a facade 20 to 300 triangles per m² of wall with its
-  openings, ground 1 to 10 per m², a street object 100 to 3 000 in all, a tree 3 000 to 30 000. The check flags
-  triangles under 0.25 cm² and entities far outside these ranges. *Why: sub-pixel triangles cost most in every
-  rasteriser, and the hierarchy removes detail but cannot add it.*
+  6), and do not subdivide flat faces: a flat sign face is two triangles and its picture is a texture. Expected at
+  lod 0, per m² of mesh surface: a building 2 to 60 triangles with its openings, ground 0.3 to 10; in all, a
+  street object 100 to 3 000 and a tree 3 000 to 30 000. The check flags more than 1 000 triangles per m² and
+  meshes with a fifth of their triangles under 0.25 cm². *Why: sub-pixel triangles cost most in every rasteriser,
+  and the hierarchy removes detail but cannot add it.*
 
   | View distance | One pixel (1080p, 60° vertical) | Smallest feature worth geometry | Representation |
   | --- | --- | --- | --- |
@@ -105,7 +113,7 @@ section 11 will recommend the renderer path.
   slab at least 8 mm thick in its own part with `surface: "blend"`. *Why: blended surfaces are in neither the
   visibility buffer, the distance field nor the surface cache; a wall closed only by them is a wall full of holes.*
 - **F3. Ground is a height field.** A ground cell is a single-valued surface over (x, z): no overhangs, no
-  underside. Its height raster (lattice spacing, origin, heights) is stored beside the mesh and named in the record
+  underside (the buried bottoms of kerb stones are tolerated up to 1 % of the surface). Its height raster (lattice spacing, origin, heights) is stored beside the mesh and named in the record
   (`output.heightfield`); the mesh is any triangulation within 2 cm of it with kerb lines as edges. Vertices on a
   cell border are bit-identical in both cells: sample the same raster at the same lattice points and cut surface
   polygons at the same border points. Bridges, quay walls, retaining walls and steps are closed solids of their own
@@ -149,6 +157,8 @@ section 11 will recommend the renderer path.
 
 - **M1. A family is one function; a material is one row.** `params` is a flat record of numbers, booleans,
   `#rrggbb` colours, enum strings and texture-library ids: no nested objects, no free text, no per-entity texture.
+  Parameter names are spelled as in the building description (`colour`, `colour2`, `scale_m`); a colour that
+  varies per object (a fence's paint) is quantised to a palette, so that equal geometry stays one asset.
   Each family declares its parameters (name, type, default, enum values) in
   `pipeline/turku3d/world/families.json`; the check lists unknown families and parameters. In the client a family
   is one TSL function of a parameter block, surface position, metric UV and normal; numbers and colours enter as
@@ -192,21 +202,32 @@ section 11 will recommend the renderer path.
 
 ## 9. The readiness check
 
-`python -m turku3d.world check-readiness --location NAME` (arriving next; this section is updated when it merges)
-reports per entity, per instanced asset and per location:
+```sh
+source ../sandbox.env
+bash pipeline/env/run.sh python -m turku3d.world check-readiness --location humalistonkatu     # scene entities
+bash pipeline/env/run.sh python -m turku3d.world check-readiness --location portsa --all --top 5
+bash pipeline/env/run.sh python -m turku3d.world check-readiness --glb building.glb --kind building   # any GLB
+```
 
-- closed or open shells (boundary and non-manifold edge length), T-junctions, zero-area and duplicate triangles;
-- minimum and 5th-percentile thickness of each solid; the share of surface under 10 cm thick;
-- triangle counts, triangles per m², the share under 0.25 cm², against G4;
-- instance reuse (instanced triangles over drawn triangles, unique assets, repeated geometry left uninstanced);
-- families and materials per entity and per location, unknown families and parameters, masked and blend area share;
-- UV stretch against M4, fallback values against M2;
-- whether a meshlet and cluster hierarchy builds from lod 0 (meshoptimizer: levels, how far it simplifies, the
-  share of triangles stuck behind locked borders);
-- whether a signed distance field builds without leaks (voxelise at 0.2 m, flood from outside, compare with the
-  solid's volume).
+Code: `pipeline/turku3d/world/readiness/`. It reads what the store holds (the manifest, the lod 0 GLBs and the
+instanced assets), prints a summary per kind with the worst entities of each kind and the rule each misses, and
+writes everything to `$TURKU3D_WORK/readiness/<location>.json`. `--store DIR` reads another sandbox's store. It
+takes about 12 s for the 470 scene entities of Humalistonkatu and exits 0 whatever it finds.
 
-Findings are posted to the owning track on the board with the entity ids.
+| Measured | How | Flag |
+| --- | --- | --- |
+| Closed or open (G2) | Positions welded on the packer's 0.1 mm grid; border edges split into true openings, T-junction seams and near misses (closed by a 2 mm weld); pieces joined through edges, each closed or not; winding; per part | open border over 5 cm, inside-out solids |
+| T-junctions (G3) | A border edge that carries another border edge's midpoint; also zero-area and duplicate triangles | seams or near misses over 2 cm, any bad triangle |
+| Thickness (F5) | Per closed solid 2 × volume / area (a slab's thickness, half a rod's diameter); 256 rays along the inward normal | none: thin objects are listed, not faulted; double-sided opaque surface is |
+| Distance field (F1, F2) | Opaque triangles voxelised at the object's field resolution (extent / 96, 2 to 25 cm) and at 2× and 4×, flooded from outside; from just inside the surface, the share of axis directions that escape | a mesh with borders whose flood finds no inside, or that lets over 2 % of directions out |
+| Ground (F3, F4) | Share of surface facing down, share of plan under more than one layer, vertices on shared cell borders compared between neighbours | underside over 1 %, stacked over 2 %, any unmatched border |
+| Density (G4) | Triangles per m², share under 0.25 cm² | over 1 000 per m², or a fifth small |
+| Instances (I1) | Instanced share of drawn triangles, unique assets, reuse factor; inside a mesh, loose solids of equal shape and the share of triangles with two or more congruent parallel copies | over half the triangles of a mesh of 2 000 or more are repeats |
+| Materials (M1 to M3) | Rows and families per entity and location, against `pipeline/turku3d/world/families.json`; nested parameters; placeholder fallback; surface share opaque, masked, blend, decal | unknown family or parameter, placeholder, masked over 5 % outside foliage |
+| UVs (M4) | UV edge length against surface edge length, unless the material says `uv: "atlas"` | over 5 % of the surface off by more than 5 % |
+| Cluster hierarchy | meshoptimizer (`clusterlod.mjs`): meshlets of 128 triangles, groups of 8 simplified to half with shared vertices locked, repeated; the share of triangles still needed at an error of 2 cm, 8 cm and 30 cm (one pixel at 20, 80 and 300 m), with open borders locked and, at 30 cm, free | over 25 % still needed at 300 m in a mesh of 1 000 or more |
+
+First findings (2026-11-12, Humalistonkatu) are on the campaign board and in `~/turku3d/loops/w2/status/w2-render.md`.
 
 ## 10. Requests to the contract (`w2-core`)
 
