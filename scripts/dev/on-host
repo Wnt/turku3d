@@ -7,7 +7,9 @@
                                           has and the host's lacks (same versions; not the torch stack)
   scripts/dev/on-host HOST --check        what the host has: cores, memory, free disk, tools
 
-HOST is `osg` (osgallery-dev: 16 cores, 48 GB, Linux x86-64, no GPU) or `air` (M1 Air: 8 cores, 8 GB, macOS arm64).
+HOST is `osg` (osgallery-dev: 16 cores, 48 GB, Linux x86-64, no GPU), `air` (M1 Air: 8 cores, 8 GB, macOS arm64) or
+`cloud:NAME`, an UpCloud lease of tools/cloud/cloud.py (run `--setup` once per lease: it copies osgallery-dev's
+pipeline environment and tools there, about a minute; everything on it is gone when the lease ends).
 Source `../sandbox.env` first. One call does all of this:
 
 1. copies this worktree (without .git, node_modules and caches) to HOST:turku3d-w2/<sandbox>/repo;
@@ -25,6 +27,7 @@ The exit code is COMMAND's. osgallery-dev must keep 25 GiB free: a copy that wou
 `--clean` removes this sandbox's directory on the host when you are done.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import shlex
@@ -38,7 +41,7 @@ HOSTS = {
     'air': dict(ssh='jonni@192.168.1.22', jobs=4, keep_free_gib=20, wrap='caffeinate -i bash -c {}'),
 }
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
-RSYNC = ['rsync', '-a', '-e', 'ssh -o BatchMode=yes -o ConnectTimeout=10']
+CLOUD_HOME = '/home/wnt'      # osgallery-dev's environment is copied to a lease as it is, so the paths must match
 EXCLUDE = ['.git', 'node_modules', '__pycache__', '.pytest_cache', 'game/dist', '.venv', '*.pyc']
 NODE = 'v24.11.1'
 CHROME = '156.0.8078.73'      # the pin of scripts/dev/browser.md
@@ -48,9 +51,35 @@ def sh(args, **kw):
     return subprocess.run(args, **kw)
 
 
+def cloud(host, repo):
+    """Register `cloud:NAME` as a host: root on the lease's address, with the home osgallery-dev's environment expects."""
+    known = Path.home() / 'turku3d/loops/w2/cloud/known_hosts'
+    status = sh([sys.executable, str(repo / 'tools/cloud/cloud.py'), 'status', '--json'], capture_output=True, text=True, check=True)
+    lease = next((row for row in json.loads(status.stdout)['leases'] if row['name'] == host.split(':', 1)[1]), None)
+    if not lease or not lease.get('ip'):
+        raise SystemExit(f'no lease {host}: see `tools/cloud/cloud.py status`')
+    HOSTS[host] = dict(ssh=f'root@{lease["ip"]}', jobs='$(nproc)', keep_free_gib=2, wrap='bash -c {}', home=CLOUD_HOME,
+                       options=['-o', 'StrictHostKeyChecking=accept-new', '-o', f'UserKnownHostsFile={known}'])
+
+
+def ssh(host):
+    return SSH + HOSTS[host].get('options', [])
+
+
+def at(host, path):
+    """A path under the host's home, as rsync wants it."""
+    return f'{HOSTS[host]["ssh"]}:{HOSTS[host]["home"] + "/" if "home" in HOSTS[host] else ""}{path}'
+
+
 def remote(host, script, check=True, capture=False):
-    # bash explicitly: the Air's login shell is zsh
-    return sh(SSH + [HOSTS[host]['ssh'], 'bash -c ' + shlex.quote(script)], check=check, capture_output=capture, text=True)
+    # bash explicitly: the Air's login shell is zsh. On a lease, root works in the home the environment expects.
+    home = HOSTS[host].get('home')
+    script = (f'export HOME={home}; mkdir -p "$HOME"; cd "$HOME"; ' if home else '') + script
+    return sh(ssh(host) + [HOSTS[host]['ssh'], 'bash -c ' + shlex.quote(script)], check=check, capture_output=capture, text=True)
+
+
+def rsync(host):
+    return ['rsync', '-a', '-e', ' '.join(shlex.quote(part) for part in ssh(host))]
 
 
 def free_gib(host):
@@ -68,15 +97,15 @@ def push(host, source, target, delete=False, excludes=()):
         raise SystemExit(f'refused: {source} needs about {need:.1f} GiB on {host}, which has {free:.1f} GiB free and must '
                          f'keep {HOSTS[host]["keep_free_gib"]} GiB')
     remote(host, f'mkdir -p {shlex.quote(target)}')
-    sh(RSYNC + (['--delete'] if delete else []) + [f'--exclude={e}' for e in excludes]
-       + [f'{source}/', f'{HOSTS[host]["ssh"]}:{target}/'], check=True)
+    sh(rsync(host) + (['--delete'] if delete else []) + [f'--exclude={e}' for e in excludes]
+       + [f'{source}/', f'{at(host, target)}/'], check=True)
 
 
 def pull(host, source, target, keep_existing=False):
     if remote(host, f'test -d {shlex.quote(source)}', check=False).returncode != 0:
         return False
     Path(target).mkdir(parents=True, exist_ok=True)
-    sh(RSYNC + (['--ignore-existing'] if keep_existing else []) + [f'{HOSTS[host]["ssh"]}:{source}/', f'{target}/'], check=True)
+    sh(rsync(host) + (['--ignore-existing'] if keep_existing else []) + [f'{at(host, source)}/', f'{target}/'], check=True)
     return True
 
 
@@ -140,9 +169,22 @@ def python_packages(host, repo):
                   + ' '.join(shlex.quote(m) for m in missing), check=False).returncode
 
 
+def setup_cloud(host):
+    """A bare Ubuntu lease becomes a pipeline host: osgallery-dev's conda environment, tools and Node, copied from
+    osgallery-dev itself (same Ubuntu, same paths; its key is on every lease)."""
+    target = HOSTS[host]['ssh']
+    via = "rsync -a -e 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new'"
+    remote(host, 'mkdir -p ~/turku3d/envs ~/turku3d/tools ~/turku3d-w2; command -v rsync >/dev/null || '
+                 '(apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y rsync >/dev/null)')
+    return sh(SSH + [HOSTS['osg']['ssh'],
+                     f'{via} ~/turku3d/envs/pipeline ~/turku3d/envs/pipeline.env {target}:{CLOUD_HOME}/turku3d/envs/ && '
+                     f'{via} --exclude=mamba ~/turku3d/tools/ {target}:{CLOUD_HOME}/turku3d/tools/ && '
+                     f'{via} /usr/bin/node {target}:/usr/local/bin/node']).returncode
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('host', choices=sorted(HOSTS))
+    p.add_argument('host', help='osg, air or cloud:NAME')
     p.add_argument('--setup', action='store_true')
     p.add_argument('--check', action='store_true')
     p.add_argument('--clean', action='store_true', help="remove this sandbox's checkout and work directory on the host")
@@ -153,6 +195,10 @@ def main():
     p.add_argument('command', nargs='*', help='after --')
     a = p.parse_args()
     repo = Path(sh(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True).stdout.strip())
+    if a.host.startswith('cloud:'):
+        cloud(a.host, repo)
+    elif a.host not in HOSTS:
+        raise SystemExit(f'unknown host {a.host}: osg, air or cloud:NAME')
     if a.check:
         return remote(a.host, CHECK, check=False).returncode
     if a.setup:
@@ -160,6 +206,8 @@ def main():
         if a.host == 'air':     # osgallery-dev has its environment, Node and tools already
             push('air', repo / 'pipeline/env', 'turku3d-w2/_setup/repo/pipeline/env')
             code = remote('air', SETUP_AIR, check=False).returncode
+        elif a.host.startswith('cloud:'):
+            return setup_cloud(a.host) or remote(a.host, CHECK, check=False).returncode
         return code or python_packages(a.host, repo) or remote(a.host, CHECK, check=False).returncode
     sandbox = os.environ.get('TURKU3D_SANDBOX')
     work = os.environ.get('TURKU3D_WORK')
