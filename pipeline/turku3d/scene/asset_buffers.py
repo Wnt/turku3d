@@ -18,7 +18,9 @@ def encode_glb(document,binary):
 def embedded_buffers(document,binary,base_url,fetch=None):
     """Preserve meshopt fallback declarations while resolving every real buffer."""
     document=copy.deepcopy(document);chunks=[];offsets={};size=0;fallback={}
-    if fetch is None:fetch=lambda url:urllib.request.urlopen(url,timeout=30).read()
+    if fetch is None:
+        from .asset_store import read_asset_url
+        fetch=read_asset_url
     for i,buffer in enumerate(document.get('buffers',[])):
         if buffer.get('extensions',{}).get('EXT_meshopt_compression',{}).get('fallback'):
             fallback[i]=len(fallback)+1;continue

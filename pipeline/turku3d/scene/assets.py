@@ -11,6 +11,7 @@ import urllib.parse
 import urllib.request
 
 from turku3d.package.gltf import read_glb
+from .asset_store import resolve_asset, read_asset_url
 
 
 def import_buildings(manifest, base_url, output, bounds):
@@ -28,7 +29,7 @@ def import_buildings(manifest, base_url, output, bounds):
         if high[0] < bounds[0] or low[0] > bounds[2] or high[2] < bounds[1] or low[2] > bounds[3]:
             continue
         url = urllib.parse.urljoin(base_url, model["uri"])
-        data = urllib.request.urlopen(url, timeout=30).read()
+        data = read_asset_url(url)
         sha = hashlib.sha256(data).hexdigest()
         filename = sha + ".glb"
         (shared / filename).write_bytes(data)
@@ -43,7 +44,7 @@ def import_buildings(manifest, base_url, output, bounds):
                 raise ValueError("Asset dependency escapes scene root")
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
-                image_data = urllib.request.urlopen(urllib.parse.urljoin(url, uri), timeout=30).read()
+                image_data = read_asset_url(urllib.parse.urljoin(url, uri))
                 if Path(uri).stem != hashlib.sha256(image_data).hexdigest():
                     raise ValueError("Published image hash mismatch")
                 target.write_bytes(image_data)
@@ -54,7 +55,7 @@ def import_buildings(manifest, base_url, output, bounds):
 
 def import_materials(glb_path, base_url, output):
     """Reuse published neutral PBR maps, baking their metric transforms into UVs."""
-    document, binary = read_glb(Path(glb_path).read_bytes())
+    document, binary = read_glb(resolve_asset(glb_path).read_bytes())
     output=Path(output); shared=output/'shared'; shared.mkdir(parents=True,exist_ok=True)
     aliases={'road':'draft_asphalt_worn','footway':'draft_concrete_slabs','quay':'draft_concrete_slabs',
              'quay-wall':'draft_quay_stone','ground':'draft_cobblestone','cobblestone':'draft_cobblestone'}
@@ -69,7 +70,7 @@ def import_materials(glb_path, base_url, output):
             texture=document['textures'][info['index']]
             image=document['images'][texture.get('source',texture.get('extensions',{}).get('KHR_texture_basisu',{}).get('source'))]
             if 'uri' in image:
-                data=urllib.request.urlopen(urllib.parse.urljoin(base_url,image['uri']),timeout=30).read()
+                data=read_asset_url(urllib.parse.urljoin(base_url,image['uri']))
             else:
                 view=document['bufferViews'][image['bufferView']]
                 data=binary[view.get('byteOffset',0):view.get('byteOffset',0)+view['byteLength']]
@@ -92,7 +93,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
     import numpy as np
     import tempfile
     from .asset_buffers import embedded_buffers, encode_glb, node_world_matrices
-    document,binary=read_glb(Path(glb_path).read_bytes())
+    document,binary=read_glb(resolve_asset(glb_path).read_bytes())
     document,binary=embedded_buffers(document,binary,base_url)
     worlds=node_world_matrices(document)
     with tempfile.NamedTemporaryFile(suffix='.glb') as prepared:
@@ -168,7 +169,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
             target=(shared/image['uri']).resolve()
             if not target.is_relative_to(Path(output).resolve()):raise ValueError('Escaping vegetation image')
             if not target.exists():
-                raw=urllib.request.urlopen(urllib.parse.urljoin(base_url,image['uri']),timeout=30).read()
+                raw=read_asset_url(urllib.parse.urljoin(base_url,image['uri']))
                 if Path(image['uri']).stem!=hashlib.sha256(raw).hexdigest():raise ValueError('Vegetation image hash mismatch')
                 target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
     encoded=json.dumps(result,separators=(',',':')).encode();encoded+=b' '*((-len(encoded))%4)

@@ -1,6 +1,7 @@
 // Qualified Petrelius paint/metal appearance correction. Keep every original
 // geometry/UV/program-layout byte and external image dependency unchanged.
 import fs from 'node:fs';
+import {resolvePreparedAsset} from './asset_store.mjs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
@@ -69,6 +70,8 @@ export function adaptOffice(bytes,expectedSha=anchors.authoredGlbSha256){
  return {bytes:out,report:{sourceSha256:expectedSha,sha256:sha(out),changedVertices,externalImageUris:document.images.map(i=>i.uri).filter(Boolean),preservedBinaryPrefixBytes:binary.length}};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const [input,output]=process.argv.slice(2);if(!input||!output)throw Error('Usage: office_appearance.mjs INPUT.glb OUTPUT.glb');
- const result=adaptOffice(fs.readFileSync(input));fs.writeFileSync(output,result.bytes);console.log(JSON.stringify(result.report));
+ const args=process.argv.slice(2),index=args.indexOf('--asset-root');let assetRoot;
+ if(index>=0){assetRoot=args[index+1];args.splice(index,2);}
+ const [input,output]=args;if(!input||!output)throw Error('Usage: office_appearance.mjs INPUT.glb OUTPUT.glb [--asset-root ROOT]');
+ const result=adaptOffice(fs.readFileSync(resolvePreparedAsset(input,{assetRoot})));fs.writeFileSync(output,result.bytes);console.log(JSON.stringify(result.report));
 }

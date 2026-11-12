@@ -9,6 +9,7 @@ import shutil
 from turku3d.package.gltf import read_glb
 from .compile import compile_scene, load_evidence, write_products
 from .schema import vector
+from .asset_store import resolve_asset
 
 VERSION='turku-scene-recipe/1'
 FIELDS={'version','id','bounds','inputs','assets','materialRecipes','trees','assetSources','fixtureBindings'}
@@ -54,11 +55,12 @@ def validate_recipe(recipe):
 
 
 def copy_assets(recipe, asset_root, output):
-    root,output=Path(asset_root).resolve(),Path(output).resolve()
+    root,output=Path(asset_root).expanduser().resolve(),Path(output).expanduser().resolve()
     copied=set()
     def copy(url,sha):
         source=(root/url).resolve();target=(output/url).resolve()
         if not source.is_relative_to(root) or not target.is_relative_to(output):raise ValueError('Asset dependency escapes release')
+        source=resolve_asset(source)
         raw=source.read_bytes()
         if hashlib.sha256(raw).hexdigest()!=sha:raise ValueError('Pinned asset dependency hash mismatch: '+url)
         if target not in copied:
