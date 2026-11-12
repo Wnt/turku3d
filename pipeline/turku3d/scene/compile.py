@@ -113,6 +113,12 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
                for g, m in streets if g.intersects(dry)]
     from .retaining import shore_walks
     lower_walks = shore_walks(walks, water, retaining)
+    # Crest ownership follows measured horizontal proximity, not an absolute
+    # elevation class. Opposite-bank walks above 2 m still support a masonry
+    # crest; excluding them leaves the shoreline cut interpolated into wet TIN.
+    # quay_crest rejects gaps and clamps to measured paving edges.
+    masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in walks])
+    lower_masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
     shore_keys = {p["key"] for p in lower_walks}
     lower_terraces = [p for p in walks if np.nanmedian(p["heights"][:,3])<2 and p["key"] not in shore_keys] + lower_walks
     lower_paving = shapely.union_all([p["line"].buffer(p["width"]/2,cap_style="flat",join_style="mitre") for p in lower_terraces])
@@ -138,11 +144,12 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
             y[bad] = nearest(xy[bad])
             p = np.c_[xy[:,0], y, xy[:,1]]
             p = grade(p, walks)
+            if walks:
+                p = quay_crest(p, walks, water, masonry)
             if lower_walks:
                 on_quay = shapely.intersects_xy(lower_paving,xy[:,0],xy[:,1])
                 p[on_quay] = grade(p[on_quay], lower_terraces)
-                masonry = shapely.union_all([w["line"].buffer(w["width"]/2+2) for w in lower_walks])
-                p = quay_crest(p, lower_walks, water, masonry)
+                p = quay_crest(p, lower_walks, water, lower_masonry)
             p[:,1]=sections.height(street_sections,xy,p[:,1])
             height_cache.update((key,float(v)) for key,v in zip(missing,p[:,1],strict=True))
         return np.array([height_cache[tuple(row)] for row in xz])
@@ -211,7 +218,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=(), retaining=
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
     scene["boundaries"] = list(boundary_cache.values())
     scene["meshes"].extend(field.wall_meshes(scene["boundaries"], [("bridge:"+str(d.way["id"]),p["area"].boundary) for d in decks for p in d.aprons]))
-    if lower_walks and not water.is_empty:
+    if walks and not water.is_empty:
         from turku3d.structures.geometry import Faces
         shore = water.boundary.intersection(window.buffer(-.001))
         for i,line in enumerate(shapely.get_parts(shore)):

@@ -67,8 +67,20 @@ below it. Bar materials use explicit `nightEmission`; the wall-only wash adds
 to that wall's prepared receiver array after the street bake. Both use the
 shared night factor and existing renderer-relative source intensities.
 
-There are no new point lights, gameplay passes or changes to road receivers.
-This restores an omitted night cue. It does not brighten the lower road, remove
-real retaining-wall shadows or add general multibounce illumination. Original
-collision hashes, unrelated receiver arrays and same-pose day/night imagery
-are the acceptance checks.
+The lighting adapter adds no point lights or gameplay passes and does not
+illuminate road receivers. It restores an omitted night cue without adding
+multibounce illumination or compensating for real retaining-wall shadows.
+
+The first private view exposed a separate canonical crest defect: the opposite
+bank's measured walk at 2.5–3 m was excluded by a lower-paving height cutoff.
+Its wall therefore followed wet-side TIN dips. Ground compilation now extends
+all finite measured paving edges to a nearby masonry crest using the existing
+bounded `quay_crest` rule (within 2 m of the paving edge, within 3 m of water,
+no extrapolation through missing survey knots). The existing lower-paving and
+filled lower-crest ownership is applied afterward, preserving separate levels
+at crossing approaches. This changes the affected canonical ground, wall and
+collision together; the bar follows the corrected crest rather than floating
+above it. Independent streets and approved building assets remain unchanged.
+Acceptance checks cover dry support coverage, shared contact, actual upper/lower
+capsule routes, changed bounds and exact-pose day/night imagery. The lighting
+adapter itself retains the corrected collision and unrelated receiver arrays.
