@@ -52,6 +52,17 @@ def load(cache, bounds):
     return corridors,[dict(id=NAME,sha256=hashlib.sha256(raw).hexdigest(),kind='quay-lighting-corridors',uncertaintyM=.3)]
 
 
+def extend_recipe(recipe_path, cache, output):
+    """Pin the qualified input onto a current recipe, preserving every other field."""
+    from .recipe import source_pins,validate_recipe
+    recipe=validate_recipe(json.loads(Path(recipe_path).read_text()))
+    if not load(cache,recipe['bounds'])[1]:raise ValueError('Copy the frozen quay-light source into the current cache first')
+    recipe['inputs']=source_pins(cache,recipe['bounds'])
+    validate_recipe(recipe)
+    Path(output).write_text(json.dumps(recipe,indent=2)+'\n')
+    return recipe
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--osm',type=Path,required=True);p.add_argument('--bounds',nargs=4,type=float,required=True)
