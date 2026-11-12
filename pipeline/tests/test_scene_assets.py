@@ -1,5 +1,6 @@
 """Source assets preserve world placement and external-buffer identity."""
 import hashlib
+import copy
 import json
 from pathlib import Path
 import struct
@@ -55,6 +56,20 @@ class SceneAssetTests(unittest.TestCase):
             self.assertLess(asset['bounds']['min'][0],252);self.assertGreater(asset['bounds']['max'][2],253)
             again,again_trees=import_vegetation(root/'output'/asset['url'],(root/'output'/asset['url']).as_uri(),root/'second',shapely.Polygon(),scene,asset_id=asset['id'])
             self.assertEqual(again,asset);self.assertEqual(again_trees,trees)
+
+            # Two source placement groups of one species must not collapse into
+            # a single runtime parent/variant batch after support refresh.
+            second=copy.deepcopy(doc['nodes'][1]);second['extras']['instance_object_ids']=['tree:second']
+            doc['nodes'].extend([dict(translation=[255,0,250],children=[3]),second])
+            doc['scenes'][0]['nodes'].append(2);source.write_bytes(encode_glb(doc,b''))
+            grouped,group_trees=import_vegetation(source,source.as_uri(),root/'grouped',shapely.Polygon(),scene,asset_id='grouped')
+            prepared,_=read_glb((root/'grouped'/grouped['url']).read_bytes())
+            roots=prepared['scenes'][0]['nodes']
+            self.assertEqual(len(roots),2)
+            self.assertEqual([prepared['nodes'][i]['children'] for i in roots],[[0],[1]])
+            self.assertEqual({t['id'] for t in group_trees},{'tree:source','tree:second'})
+            again,_=import_vegetation(root/'grouped'/grouped['url'],(root/'grouped'/grouped['url']).as_uri(),root/'grouped-again',shapely.Polygon(),scene,asset_id='grouped')
+            self.assertEqual(again,grouped)
 
     def test_complete_approved_building_owns_context_beyond_playable_edge(self):
         from turku3d.scene.context import outside_mesh

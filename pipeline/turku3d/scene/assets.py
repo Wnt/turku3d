@@ -63,11 +63,11 @@ def import_buildings(manifest, base_url, output, bounds):
     return assets
 
 
-def import_materials(glb_path, base_url, output):
+def import_materials(glb_path, base_url, output, *, aliases=None):
     """Reuse published neutral PBR maps, baking their metric transforms into UVs."""
     document, binary = read_glb(resolve_asset(glb_path).read_bytes())
     output=Path(output); shared=output/'shared'; shared.mkdir(parents=True,exist_ok=True)
-    aliases={'road':'draft_asphalt_worn','footway':'draft_concrete_slabs','quay':'draft_concrete_slabs',
+    aliases=aliases or {'road':'draft_asphalt_worn','footway':'draft_concrete_slabs','quay':'draft_concrete_slabs',
              'quay-wall':'draft_quay_stone','ground':'draft_cobblestone','cobblestone':'draft_cobblestone'}
     records=[]
     for identity,library in aliases.items():
@@ -116,10 +116,22 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
     result['scenes']=[dict(nodes=list(range(len(selected))))];result['scene']=0
     mesh_ids=sorted({n['mesh'] for n in result['nodes']});mesh_map={old:new for new,old in enumerate(mesh_ids)}
     result['meshes']=[copy.deepcopy(document['meshes'][i]) for i in mesh_ids]
-    for original,node in zip(selected,result['nodes'],strict=True):
+    for original,node in zip(selected,result['nodes'][:len(selected)],strict=True):
         node['mesh']=mesh_map[node['mesh']]
         for field in ('translation','rotation','scale','children'):node.pop(field,None)
         node['matrix']=worlds[original].T.ravel().tolist()
+    # Bark/crown nodes share a source placement parent. The runtime deduplicates
+    # those parts by parent and variant; separate source cells must stay separate
+    # even after their transforms have been prepared in world space.
+    parents={child:parent for parent,node in enumerate(document['nodes']) for child in node.get('children',[])}
+    groups={}
+    for index,original in enumerate(selected):groups.setdefault(parents.get(original),[]).append(index)
+    if len(groups)>1:
+        roots=[]
+        for index,children in enumerate(groups.values()):
+            roots.append(len(result['nodes']))
+            result['nodes'].append(dict(name=f'prepared-placement-group:{index}',children=children))
+        result['scenes']=[dict(nodes=roots)]
     material_ids=sorted({p['material'] for m in result['meshes'] for p in m['primitives']})
     material_map={old:new for new,old in enumerate(material_ids)}
     result['materials']=[copy.deepcopy(document['materials'][i]) for i in material_ids]
@@ -151,7 +163,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
     from .fixtures import support_query
     query=support_query(support_scene) if support_scene else lambda x,z,reference_y=None:None
     trees={}
-    for original,node in zip(selected,result['nodes'],strict=True):
+    for original,node in zip(selected,result['nodes'][:len(selected)],strict=True):
         values=transforms.get(str(original))
         if not values:continue
         positions=np.asarray(values['TRANSLATION'],float);extras=node['extras']
@@ -190,7 +202,7 @@ def import_vegetation(glb_path, base_url, output, water, support_scene=None, *, 
     sha=hashlib.sha256(data).hexdigest();(shared/(sha+'.glb')).write_bytes(data)
     # Instance envelope includes each original prototype's scaled bounding box.
     lows=[];highs=[]
-    for original,node in zip(selected,result['nodes'],strict=True):
+    for original,node in zip(selected,result['nodes'][:len(selected)],strict=True):
         values=transforms[str(original)];matrix=worlds[original]
         mesh=result['meshes'][node['mesh']]
         for primitive in mesh['primitives']:
