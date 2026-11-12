@@ -165,7 +165,8 @@ Rules:
 - **Back-mapping:** issue bboxes → object-ID render → building/tile/material IDs, so each issue becomes a ticket in `qa/issues.jsonl` with a pointer to the asset to fix.
 - **Use:** (1) fix-list generation after each texture/geometry pass; (2) regression: the same view set is re-run per commit and the score must not drop; (3) acceptance gate for Phase 1–3 tiles.
 - Not a pixel metric: the goal is "recognisably the same place", in line with the not-1:1 principle. Same quota guard as D7.
-- **Score per iteration** (user decision, 2026-11-12): `scripts/dev/scene-judge.mjs`.
+- **Score per visual milestone** (user decision, 2026-11-12): `scripts/dev/scene-judge.mjs`, run in the background,
+  never per merge.
   - It captures the scene alone (QA camera mode) at the reference poses and gameplay views.
   - A blind Fable 5.2 judge (`.claude/agents/visual-judge.md`, rubric `scripts/dev/judge/JUDGE.md`) scores six
     weighted categories, 0–100 overall, twice.

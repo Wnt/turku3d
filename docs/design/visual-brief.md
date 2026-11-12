@@ -102,8 +102,9 @@ Not iteration or merge counts. Track:
 - **Major visible defects eliminated** in the corridor views (for example: uniform grey ground, flat facades, dark
   uniform windows, tree crowns, water, white void), each named with its before/after capture.
 - **Complete scenes improved:** views and clip that win against both baselines.
-- **Judge score per iteration:** the blind visual judge's overall score (0–100) and its six categories for the
-  corridor's gameplay and reference-photo views (`scripts/dev/scene-judge.mjs`), compared with the previous iteration
+- **Judge score per visual milestone:** the blind visual judge's overall score (0–100) and its six categories for the
+  corridor's gameplay and reference-photo views. The score comes from `scripts/dev/scene-judge.mjs`, run in the
+  background and never for each merge. It is compared with the previous milestone
   and with the judge's measured noise. A gain within that noise is not a gain.
 
   The same scene (release `a38f3225`) was judged three times on 2026-11-12:
@@ -114,8 +115,7 @@ Not iteration or merge counts. Track:
   | a local build | 45.8 |
   | city.lab `4c835aca` | 49.3 |
 
-  The single repeats ranged from 44.5 to 51.8. With two repeats, a change under about 5 points is noise. For a close
-  call, use `--repeats 4`.
+  The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is noise.
 
   History: `~/turku3d/loops/judge/riverside-office.jsonl`.
 - **Iteration latency:** edit to visible (live patch), publish, capture and deploy, from the timings the commands

@@ -46,7 +46,13 @@ is needed: fix things at the layer where it makes most sense.
 - **Blender:** only through the Blender MCP tools.
 - **Feature flags:** none, except measured A/B alternatives in `docs/flags.toml` with an owner, a reason and removal
   within ten merges. Delete code you replace.
-- **Tests:** never weaken an assertion to make a test pass.
+- **Tests:**
+  - Never weaken an assertion to make a test pass.
+  - Never spend time on slow checks:
+    - Select single test cases, not whole suites or modules.
+    - Do not run them yourself before `merge.py`, which runs them once.
+    - Anything slow goes to `--async-test`.
+    - A judge run is never part of a merge or deploy. It is only for a visual milestone, started in the background.
 
 ## Always
 

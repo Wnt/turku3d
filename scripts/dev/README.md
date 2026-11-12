@@ -40,7 +40,8 @@ scripts/dev/scene-judge.mjs run --label "lab abc123" --base https://city.lab.mad
 scripts/dev/scene-judge.mjs report                            # scores per iteration (table + HTML)
 ```
 
-`scene-judge.mjs` scores an iteration. It captures the gameplay views and the views from the reference photos'
+`scene-judge.mjs` scores a visual milestone. Run it only then, in the background (about 2 minutes), never for each
+edit or merge, and never for a change with no visible difference. It captures the gameplay views and the views from the reference photos'
 cameras (`riverside-office-refs.json`) with the scene alone: `scene-capture.mjs --mode render` uses the game's QA
 camera mode (`?cam=`), with the same renderer, materials, vegetation, sky and post-processing, but no player, physics,
 audio, traffic or multiplayer, and readiness from `__qaReady` (8 s load and under 1 s per view locally, against 36 s
@@ -73,8 +74,7 @@ $1.6 of notional usage.
 | a local build | 45.8 |
 | city.lab `4c835aca` | 49.3 |
 
-The single repeats ranged from 44.5 to 51.8. With two repeats, a change under about 5 points is noise. For a close
-call, use `--repeats 4`. The judge's sensitivity to a real change is still unmeasured.
+The single repeats ranged from 44.5 to 51.8, so a change under about 5 points is noise. The judge's sensitivity to a real change is still unmeasured.
 
 **Usage notes:**
 - For trial runs, pass `--history` with a scratch file, so that the shared history holds only real iterations.
@@ -89,7 +89,7 @@ call, use `--repeats 4`. The judge's sensitivity to a real change is still unmea
 - **Two QA tools, two jobs:**
   - `qa/` (Codex Astra, [qa/README.md](../../qa/README.md)) lists issues per photo pair, with back-mapping to
     assets;
-  - `scene-judge.mjs` (Fable 5.2) is the score per iteration.
+  - `scene-judge.mjs` (Fable 5.2) is the score per visual milestone.
 
 ## Worktrees
 

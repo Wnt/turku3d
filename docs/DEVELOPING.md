@@ -73,12 +73,15 @@ The current goal is in the [visual brief](design/visual-brief.md).
    UVs change) and checks that nothing else changed. `__dev.scene.reload()` then shows the published file in the
    running session. A geometry or lighting change needs the full compile (`python -m turku3d.scene`, which prints
    per-stage timings) and a page reload.
-5. **Score** the iteration: `scripts/dev/scene-judge.mjs run --label "what changed"`. This captures the gameplay
-   views and the reference-photo views with the scene alone (`scene-capture.mjs --mode render`: the QA camera mode
-   with the game's renderer but no player, physics, audio, traffic or multiplayer), and has the Fable 5.2 visual judge score them blind in six categories
-   (identity, buildings, materials, lighting, street, defects), twice. The overall 0–100 and the categories go into
-   the shared history; `scene-judge.mjs report` shows the change per iteration. Rubric:
-   [scripts/dev/judge/JUDGE.md](../scripts/dev/judge/JUDGE.md).
+5. **Score a visual milestone** with `scripts/dev/scene-judge.mjs run --label "what changed"`.
+   - **When:** only for a visual milestone. Never for every edit or merge, and never for a change with no visible
+     difference.
+   - **How:** start it in the background and carry on. It takes about 2 minutes. Never wait for it or gate anything
+     on it.
+   - **What it does:** it captures the gameplay views and the reference-photo views with the scene alone
+     (`scene-capture.mjs --mode render`). The Fable 5.2 visual judge then scores them blind in six categories, twice
+     in parallel. The overall score goes into the shared history, and `scene-judge.mjs report` shows the change per
+     milestone. Rubric: [scripts/dev/judge/JUDGE.md](../scripts/dev/judge/JUDGE.md).
 6. **Ship:** commit, merge ([agent flow](#agent-flow)), then `tools/share/deploy.sh --scenes-only` when the renderer is
    unchanged (a full deploy otherwise). Capture city.lab with `scene-capture.mjs --base https://city.lab.madekivi.fi/`
    and play the public Multiplayer entry once, since the solo session skips it.
@@ -124,7 +127,10 @@ The preview session's CDP port is assigned by the OS. Commands are in
    - `'python3 scripts/dev/tests/run.py <file>.py'`
    - `'bash pipeline/env/run.sh python -m pytest -q <file>'`
 
-   Slower runs go in `--async-test CMD --async-reason TEXT`; they start after the merge and never block it.
+   - `merge.py` runs the selection once. Do not run it yourself beforehand.
+   - Select single cases (a test name, `-k`, a grep filter), not whole modules.
+   - Anything that takes more than a few seconds goes in `--async-test CMD --async-reason TEXT`. Those start after the
+     merge and never block it.
 2. **Deploy** right after the merge, package and upload only:
    ```sh
    python3 ~/turku3d/loops/night-coord/coord.py run --by NAME deploy -- ~/turku3d/wt/loop-integration/repo/tools/share/deploy.sh
@@ -132,14 +138,16 @@ The preview session's CDP port is assigned by the OS. Commands are in
    A scene or material change with an unchanged renderer uses `deploy.sh --scenes-only` (no build, no restarts).
 3. **Smoke** with curl only, in at most five seconds, reading the reported health rather than only HTTP 200:
    `python3 ~/turku3d/wt/loop-integration/repo/tools/share/smoke.py SHA`. A red smoke is fixed forward.
-4. **One selective run** of your own on the deployed system, a hard ten minutes including lease waits. Read
-   `~/turku3d/loops/board.md` first for what others ran, then exercise what the change affects:
-   - **a generator change:** build its real tiles and check outcomes, timings and counts against the source;
+4. **One short selective run** of your own on the deployed system, started in the background, with a hard limit of
+   ten minutes including lease waits. Read `~/turku3d/loops/board.md` first for what others ran. Then run the
+   narrowest check of what the change affects:
+   - **a generator change:** build only its affected tiles and check outcomes, timings and counts against the source;
    - **a client change:** exercise the feature on the Air or Windows;
-   - **a visual change:** run `scripts/dev/scene-judge.mjs run --base https://city.lab.madekivi.fi/` (capture plus
-     the blind Fable 5.2 judge, score per iteration), and play it in the public Multiplayer entry.
+   - **a visual change:** one `scene-capture.mjs --base https://city.lab.madekivi.fi/` comparison (under a minute),
+     and one go at the public Multiplayer entry.
 
-   At most one forward fix, then report to the coordinator.
+   No judge runs and no suites. Skip this step for a change with nothing to exercise on the deployed system, such as
+   documentation. At most one forward fix, then report to the coordinator.
 5. **No rollbacks.**
    - Commit often.
    - While something works, merge and publish at least every 30 minutes, bundling related visible changes. No
@@ -156,8 +164,8 @@ The preview session's CDP port is assigned by the OS. Commands are in
   scripts.
 - Make one comparison and walking clip per integrated visual milestone. Keep narrow diagnostics private unless they
   explain a problem.
-- Visual progress is scored with `scripts/dev/scene-judge.mjs`. Its shared history shows the score per iteration,
-  and a gain within the judge's measured noise is not a gain: about 5 points with two repeats
+- Score visual progress with `scripts/dev/scene-judge.mjs`, only for a visual milestone and in the background. A
+  gain within the judge's measured noise, about 5 points, is not a gain
   ([scripts/dev/README.md](../scripts/dev/README.md)).
 - Require byte identity only for components intentionally outside an edit.
 - Use content hashes per generator stage, tile and scene, so that only affected parts rebuild, on demand where
