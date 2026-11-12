@@ -68,3 +68,33 @@ bash pipeline/env/run.sh python -m turku3d.scene \
   --cache "$TURKU3D_DATA/coarse/.inputs" --output "$TURKU3D_WORK/scenes"
 bash pipeline/env/run.sh python -m unittest discover -s pipeline/tests -p test_scene.py
 ```
+
+## Preserved visual context and contact audit
+
+Prepared assets also accept `vegetation` and `context` recipes. The vegetation
+adapter retains explicit source instance identities, crown data, rotation and
+scale, resolves base elevation against final supports, and writes prepared
+translations plus `instance_near_water` from source water polygons. Trunk
+collision uses the existing generator's explicit allometric radius/height rule;
+small shrub records do not gain tree-trunk colliders. Vegetation outside gameplay
+coverage remains visual context. The pilot retains 165 vegetation instances,
+including shrubs, with nine solid tree trunks inside its supported area.
+
+Five frozen distant-scenery cells preserve surrounding silhouettes and vegetation.
+Their prepared geometry and baked colors are clipped outside playable bounds in
+the compiler. Context assets never add collision or promise gameplay coverage.
+The river's visible extent follows the source water polygon beyond those bounds.
+
+Office window crowns are added only when the imported office asset matches the
+anchor source hash. The ten openings use the retained authored grid; dimensions
+of the new crowns remain explicit reference-informed priors.
+
+The bounded real-source audit verifies every dependent asset/image hash, checks
+2,192 support samples against decoded collision, checks tree contact and collider
+policy, and compares dry coverage to source polygons. This is geometric evidence,
+not a substitute for the deployed walking and driving playtest.
+
+```
+bash pipeline/env/run.sh python -m turku3d.scene.audit \
+  game/public/scenes/office.scene.json --cache "$TURKU3D_WORK/evidence"
+```

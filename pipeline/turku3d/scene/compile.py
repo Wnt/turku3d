@@ -18,7 +18,7 @@ from turku3d import config as C
 from .schema import SCHEMA, validate_scene
 
 PALETTE = {
-    "quay-wall": ([.34,.32,.29],.9,0), "quay": ([.34,.32,.29],.9,0), "wood": ([.18,.09,.035],.8,0),
+    "cobblestone": ([.35,.33,.30],.9,0), "tree-trunk": ([.12,.08,.04],.95,0), "quay-wall": ([.34,.32,.29],.9,0), "quay": ([.34,.32,.29],.9,0), "wood": ([.18,.09,.035],.8,0),
     "ground": ([.23, .22, .19], .95, 0), "road": ([.12, .13, .14], .94, 0),
     "footway": ([.39, .37, .33], .85, 0), "water": ([.025, .08, .09], .2, .1),
     "wall": ([.58, .43, .28], .9, 0), "roof": ([.15, .11, .09], .8, .1),
@@ -83,7 +83,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
     water = shapely.union_all(waters).intersection(window)
     building_area = shapely.union_all([b.footprint for b in buildings])
     dry = shapely.set_precision(window.difference(water).difference(building_area), 1e-5)
-    regions = [(g.intersection(dry), "footway" if m in (2, 7, 8, 9) else "road")
+    regions = [(g.intersection(dry), "footway" if m in (2,3,4,7,8) else ("road" if m in (1,5,6) else "ground"))
                for g, m in streets if g.intersects(dry)]
     lower_walks = [p for p in walks if np.nanmedian(p["heights"][:, 3]) < 2.]
     for p in walks:
@@ -148,7 +148,13 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
         xz = out["vertices"]
         p = np.c_[xz[:, 0], height(xz), xz[:, 1]]
         ix = out["triangles"][:, [0, 2, 1]]
-        mesh = mesh_record(key + ":mesh", key, kind, p, ix, support=key)
+        finish = "road" if kind=="footway" else kind
+        for source_polygon, source_material in streets:
+            if source_polygon.covers(poly.representative_point()):
+                if source_material in (1,5,6):finish="road"
+                elif source_material==7:finish="cobblestone"
+                elif source_material==8:finish="footway"
+        mesh = mesh_record(key + ":mesh", key, finish, p, ix, support=key)
         scene["meshes"].append(mesh)
         scene["supports"].append(dict(id=key, kind=kind, boundaryIds=sorted(set(ids)), meshId=mesh["id"]))
     scene["boundaries"] = list(boundary_cache.values())
@@ -176,7 +182,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
                 scene["meshes"].append(mesh_record(f"quay-face:{i}",f"quay-face:{i}","quay-wall",faces.positions,faces.indices,uv=faces.uvs))
     if not water.is_empty:
         import mapbox_earcut
-        for i, poly in enumerate(shapely.get_parts(water)):
+        for i, poly in enumerate(shapely.get_parts(shapely.union_all(waters).intersection(window.buffer(500)))):
             if poly.geom_type != "Polygon":
                 continue
             rings = [np.asarray(r.coords)[:-1] for r in [poly.exterior, *poly.interiors]]
@@ -189,7 +195,7 @@ def ground_scene(scene, points, buildings, streets, waters, walks=()):
     return height
 
 
-def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=()):
+def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", assets=(), material_recipes=(), trees=()):
     from turku3d.coarse.extrusion import extrude
     points, buildings, streets, waters, sources, props, walks = load_evidence(Path(cache), bounds)
     scene = dict(schema=SCHEMA, release="pending", id=scene_id,
@@ -214,6 +220,16 @@ def compile_scene(cache, bounds=(125., 187.5, 250., 312.5), scene_id="office", a
                 scene["meshes"].append(record)
     from .fixtures import place_furniture
     place_furniture(scene, props)
+    if trees:
+        from .fixtures import place_trunks
+        place_trunks(scene, trees)
+    office=next((a for a in assets if a['entityId']=='103295893K'),None)
+    anchors=json.loads(Path(__file__).with_name('office_detail_anchors.json').read_text())
+    if office and office['sha256']==anchors['authoredGlbSha256']:
+        from .facade_details import office_window_details, OFFICE_ORNAMENT_MATERIAL
+        scene['materials'].append(OFFICE_ORNAMENT_MATERIAL)
+        for piece in office_window_details():
+            scene['meshes'].append(mesh_record(piece['id'],'103295893K',piece['materialId'],np.array(piece['positions']).reshape(-1,3),np.array(piece['indices']).reshape(-1,3),'passable'))
     for location in [scene["spawn"], scene["spawn"]["vehicle"]]:
         p = location["position"]
         p[1] = float(height([[p[0], p[2]]])[0]) + .15
@@ -245,7 +261,7 @@ def write_products(scene, output):
                 if m["collision"] not in ("solid", "sensor"):
                     continue
                 pos = np.asarray(m["positions"]).reshape(-1, 3)
-                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "quay-wall": "quay"}.get(m["materialId"], m["materialId"])
+                name = {"footway": "sidewalk", "wall": "building", "ground": "gravel", "iron": "street_furniture", "wood": "street_furniture", "quay-wall": "quay", "tree-trunk": "tree_trunk"}.get(m["materialId"], m["materialId"])
                 source = Mesh(m["id"], name, pos, np.asarray(m["indices"]).reshape(-1, 3), np.asarray(m["uv"]).reshape(-1, 2))
                 clipped = clip_mesh(source, bbox)
                 if clipped is None:

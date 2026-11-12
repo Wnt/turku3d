@@ -5,7 +5,7 @@ from .families import promenade_bench, litter_bin, PROMENADE_BENCH, LITTER_BIN
 from .compile import mesh_record
 
 
-def place_furniture(scene, props):
+def support_query(scene):
     surfaces = []
     by_id = {m['id']:m for m in scene['meshes']}
     for support in scene['supports']:
@@ -15,7 +15,6 @@ def place_furniture(scene, props):
         xy = p[ix][:,:,[0,2]]
         polygons = shapely.polygons(xy)
         surfaces.append((support, p[ix], polygons))
-    source_ids = [s['id'] for s in scene['sources'] if s['kind']=='poles']
     def support_at(x,z):
         for support,tris,polygons in surfaces:
             selected=np.flatnonzero(shapely.intersects_xy(polygons,x,z))
@@ -27,6 +26,12 @@ def place_furniture(scene, props):
                 y=a[1]-(normal[0]*(x-a[0])+normal[2]*(z-a[2]))/normal[1]
                 return support,float(y)
         return None
+    return support_at
+
+
+def place_furniture(scene, props):
+    support_at = support_query(scene)
+    source_ids = [s['id'] for s in scene['sources'] if s['kind']=='poles']
     for prop in props:
         if prop.kind not in ('bench','bin'):
             continue
@@ -59,3 +64,26 @@ def place_furniture(scene, props):
         scene['fixtures'].append(dict(id=prop.object_id,family=family['family']+(':backless' if backless else ''),
                                       supportId=support['id'],position=position,yaw=yaw,dimensions=dimensions,
                                       meshIds=ids,emitterIds=[],sourceIds=source_ids,uncertaintyM=.3))
+
+
+def place_trunks(scene, trees):
+    from .families import _Geometry
+    support_at=support_query(scene)
+    source_ids=[s['id'] for s in scene['sources'] if s['kind']=='ground']
+    for tree in trees:
+        if tree['id'].startswith('bush:'):
+            continue
+        x,y,z=tree['position'];hit=support_at(x,z)
+        if hit is None:
+            continue
+        support,base=hit
+        if abs(y-base)>.002:
+            raise ValueError(f"Tree {tree['id']} was not attached to its final support")
+        height=min(tree['scale'][1]*.55,8.)
+        radius=float(np.clip(tree['scale'][1]*.018,.09,.55))
+        g=_Geometry();g.taper(0,height,radius,radius,12)
+        p=np.array(g.positions).reshape(-1,3)+[x,y,z]
+        key=tree['id']+':trunk'
+        m=mesh_record(key,tree['id'],'tree-trunk',p,np.array(g.indices).reshape(-1,3),support=support['id']);m['render']=False
+        scene['meshes'].append(m)
+        scene['fixtures'].append(dict(id=tree['id'],family='published-tree-trunk',supportId=support['id'],position=[x,y,z],yaw=0.,dimensions=[radius*2,height,radius*2],meshIds=[key],emitterIds=[],sourceIds=source_ids,uncertaintyM=.15))

@@ -69,3 +69,18 @@ class SemanticSceneTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class ContextClipTests(unittest.TestCase):
+    def test_context_excludes_playable_ground_and_interpolates_baked_color(self):
+        from turku3d.scene.context import outside_mesh
+        p=np.array([[-5,0,-5],[15,0,-5],[15,0,15],[-5,0,15]],float)
+        c=np.c_[(p[:,0]+5)/20,(p[:,2]+5)/20,np.ones(4)]
+        row=dict(name='ground',layer='ground',positions=p.tolist(),colors=c.tolist(),indices=[0,2,1,0,3,2])
+        mesh=outside_mesh(row,[0,0,10,10]);tri=mesh.positions[mesh.indices]
+        area=np.linalg.norm(np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0]),axis=1).sum()/2
+        self.assertAlmostEqual(area,300)
+        polygons=shapely.polygons(tri[:,:,[0,2]])
+        self.assertAlmostEqual(shapely.union_all(polygons).intersection(shapely.box(0,0,10,10)).area,0)
+        np.testing.assert_allclose(mesh.colors[:,0],(mesh.positions[:,0]+5)/20)
+        np.testing.assert_allclose(mesh.colors[:,1],(mesh.positions[:,2]+5)/20)

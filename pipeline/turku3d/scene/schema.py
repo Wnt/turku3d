@@ -68,7 +68,7 @@ def validate_scene(scene):
         vector(asset["position"], 3, "asset position")
         vector(asset["bounds"]["min"], 3, "asset bounds min")
         vector(asset["bounds"]["max"], 3, "asset bounds max")
-        if asset["recipe"] != "building" or len(asset["sha256"]) != 64:
+        if asset["recipe"] not in ("building", "vegetation", "context") or len(asset["sha256"]) != 64:
             raise ValueError("Invalid building asset")
     for source in scene["sources"]:
         if len(source["sha256"]) != 64 or any(c not in "0123456789abcdef" for c in source["sha256"]):
