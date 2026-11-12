@@ -1,5 +1,5 @@
 /** Offline direct street lighting on final prepared receivers. Run with --experimental-wasm-modules.
- * Rapier uses the same explicit solid meshes as gameplay; no inferred blockers or height masks.
+ * Rapier uses explicit solid meshes or qualified optical proxies; no inferred blockers or height masks.
  * RGB is outgoing Lambert radiance per unit diffuse albedo, including 1/pi, at full night.
  */
 import { registerHooks } from 'node:module';
@@ -38,7 +38,7 @@ export function bake(scene, { resolution = 4 } = {}) {
   const start = performance.now(), world = new R.World({ x: 0, y: 0, z: 0 });
   let triangles = 0, rays = 0, blocked = 0, vertices = 0, litVertices = 0;
   try {
-    for (const mesh of scene.meshes) if (mesh.collision === 'solid') {
+    for (const mesh of scene.meshes) if ((mesh.lightOcclusion ?? (mesh.collision === 'solid' ? 'solid' : 'none')) === 'solid') {
       // Preserve sub-centimetre edges before Float32 conversion, as gameplay's cell-local collision does.
       const origin = mesh.positions.slice(0,3);
       const positions = new Float32Array(mesh.positions.map((p,i) => p-origin[i%3]));

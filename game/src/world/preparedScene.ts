@@ -21,6 +21,8 @@ export interface PreparedMesh {
   bakedVisibility?: number[];
   /** Full-night outgoing Lambert RGB per unit diffuse albedo, with solid-scene visibility baked. */
   nightIrradiance?: number[];
+  /** Explicit optical blocker geometry when the walking collision hull is broader than the visible core. */
+  lightOcclusion?: 'solid' | 'none';
 }
 export interface PreparedAperture {
   shape: 'rectangle'; position: Vec3; normal: Vec3; axisU: Vec3; size: [number, number]; cutoutRadius: number;
@@ -88,6 +90,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
       || !m.indices.every((i: unknown) => finite(i) && Number.isInteger(i) && i >= 0 && i < m.positions.length / 3)
       || !['solid', 'passable', 'sensor', 'dynamic'].includes(m.collision) || !(m.supportId === null || supports.has(m.supportId))) fail(`mesh ${m.id}`);
     if (m.render !== undefined && typeof m.render !== 'boolean') fail(`render ${m.id}`);
+    if (m.lightOcclusion !== undefined && !['solid', 'none'].includes(m.lightOcclusion)) fail(`light occlusion ${m.id}`);
     if (m.boundaryIds !== undefined && !refs(m.boundaryIds, boundaries)) fail(`mesh boundaries ${m.id}`);
     if (m.normals !== undefined && (!vector(m.normals, m.positions.length))) fail(`normals ${m.id}`);
     if (m.uv !== undefined && !vector(m.uv, m.positions.length / 3 * 2)) fail(`uv ${m.id}`);

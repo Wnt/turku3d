@@ -318,3 +318,9 @@ files = ["cross-street.png", "timber-frontage.png", "diagonal-street-walk-3s.mp4
 source = "Turku3D native1440x960 gameplay captures of lab17f1924f"
 licence = "Original game captures; underlying city and asset licences remain as recorded in game/public/assets/LICENSES.md"
 reason = "Bounded Port Arthur terrain/context correction; frozen version remains more complete"
+
+[[external_scene_assets]]
+url = "https://city.lab.madekivi.fi/scenes/shared/9f80b7f396fd615e87fb1b2ddad8a3d644e5ba87e32291a49ce1c90f167541dc.ktx2"
+source = "Unchanged compressed nature_foliage atlas extracted from the retained nature.glb; hedge cell uses ambientCG LeafSet002 as documented by the existing nature asset library"
+licence = "CC0-1.0"
+reason = "Terrain-warped foliage on measured hedge volumes; no source photography or generated texture replacement"

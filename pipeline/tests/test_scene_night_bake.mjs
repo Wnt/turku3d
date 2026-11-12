@@ -20,6 +20,18 @@ test('point output matches Lambert/range/color and actual upper geometry blocks 
   close(blocked.values.upper[0],open.values.upper[0]);
 });
 
+test('explicit optical core replaces a broader walking hull without removing other blockers', () => {
+  const leaf=receiver('floor',[0,1,0]);
+  const hull={...floor('walking-hull',2),lightOcclusion:'none'};
+  const core={...floor('visible-core',.5),collision:'passable',lightOcclusion:'solid'};
+  const open=value(scene([leaf]));
+  close(value(scene([leaf,hull,core])),open);
+  assert.equal(value(scene([leaf,hull,core,floor('other-wall',3)])),0);
+  const behind=receiver('floor',[0,0,0]);
+  assert.equal(value(scene([behind,hull,core])),0);
+  assert.equal(bake(scene([leaf,hull,core])).audit.triangles,2);
+});
+
 test('finite aperture conserves its on-axis intensity as quadrature count changes and rejects upward emission', () => {
   const aperture={ shape:'rectangle',position:[0,4,0],normal:[0,-1,0],axisU:[1,0,0],size:[1.2,.84],cutoutRadius:.046 };
   const emitter={...point,aperture};

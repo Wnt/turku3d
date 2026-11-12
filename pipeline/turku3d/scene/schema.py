@@ -10,7 +10,7 @@ FIELDS = {
     "material": "id color roughness metalness water baseColorTexture normalTexture ormTexture alphaTest doubleSided surface",
     "boundary": "id positions",
     "support": "id kind boundaryIds meshId",
-    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility nightIrradiance",
+    "mesh": "id entityId materialId positions indices collision supportId normals uv render boundaryIds bakedVisibility nightIrradiance lightOcclusion",
     "asset": "id entityId url sha256 position recipe bounds",
     "fixture": "id family supportId position yaw dimensions meshIds emitterIds sourceIds uncertaintyM",
     "emitter": "id fixtureId position color intensity range category aperture",
@@ -69,7 +69,7 @@ def validate_scene(scene):
             raise ValueError(f"{plural} must be an array, including when empty")
         rows = {}
         for row in scene[plural]:
-            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface"),"emitter":("category","aperture")}
+            optional={"mesh":("normals","uv","render","boundaryIds","bakedVisibility","nightIrradiance","lightOcclusion"),"material":("water","baseColorTexture","normalTexture","ormTexture","alphaTest","doubleSided","surface"),"emitter":("category","aperture")}
             fields(row, kind, optional.get(kind,()))
             key = row["id"]
             if not isinstance(key, str) or not key or key in rows:
@@ -143,6 +143,8 @@ def validate_scene(scene):
                 ref("boundaries", key)
         if mesh["collision"] not in ("solid", "passable", "dynamic", "sensor"):
             raise ValueError("Unknown collision policy")
+        if 'lightOcclusion' in mesh and mesh['lightOcclusion'] not in ('solid', 'none'):
+            raise ValueError('Unknown light occlusion policy')
         for name, size in (("normals", len(p)), ("uv", len(p) // 3 * 2)):
             if name in mesh:
                 vector(mesh[name], size, name)

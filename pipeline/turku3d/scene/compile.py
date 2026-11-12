@@ -334,6 +334,8 @@ def compile_scene(cache, *, bounds, scene_id, spawn, assets=(), material_recipes
         for mesh in scene["meshes"]:
             if mesh["materialId"]==material["id"]:
                 mesh["uv"]=(np.asarray(mesh["uv"]).reshape(-1,2)*recipe["uvScale"]).ravel().tolist()
+    from .hedge_foliage import append as append_foliage
+    append_foliage(scene)
     from .visibility import bake_scene
     bake_scene(scene, points, buildings, waters)
     from .night_lighting import bake_scene as bake_street_irradiance
@@ -380,6 +382,8 @@ def write_products(scene, output):
     write_structure_textures(scene,output)
     from .hedges import write_texture
     write_texture(scene,output)
+    from .hedge_foliage import write_texture as write_foliage_texture
+    write_foliage_texture(scene,output)
     xmin, zmin, xmax, zmax = scene["bounds"]
     for i in range(int(xmin // 62.5), int(np.ceil(xmax / 62.5))):
         for j in range(int(zmin // 62.5), int(np.ceil(zmax / 62.5))):
