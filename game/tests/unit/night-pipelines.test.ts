@@ -18,6 +18,7 @@ import { sceneryMaterial } from '../../src/render/sceneryMaterial';
 import { PostProcessing } from '../../src/render/post';
 import { dissolveTwin } from '../../src/render/lodFade';
 import { VehicleLightData } from '../../src/render/vehicleLightData';
+import { weatherUniforms } from '../../src/render/weather/surfaces';
 
 type ShaderBuilder = NodeBuilder & { build(): void; vertexShader: string; fragmentShader: string };
 interface Nodes {
@@ -105,7 +106,10 @@ function world(webgl: boolean, tier: QualityTier, lighting: THREE.Lighting = new
   }
   const receiver = wall({ _night_irradiance: [.1,.08,.05] });
   receiver.userData.preparedStreetLighting = true;
-  add('prepared-street-receiver', new THREE.Mesh(receiver, new THREE.MeshStandardNodeMaterial()));
+  const prepared = new THREE.Mesh(receiver, new THREE.MeshStandardMaterial({ map:atlas(), normalMap:atlas(), roughnessMap:atlas() }));
+  prepared.userData.material_key = 'prepared_asphalt';
+  const preparedGroup = new THREE.Group(); preparedGroup.add(prepared); styler.apply(preparedGroup);
+  add('prepared-street-receiver', prepared);
   add('sky', env.sky);
 
   const lightSet = () => {
@@ -464,9 +468,10 @@ test('far-band dissolve twins build on both backends in the beauty MRT, rigid an
 test('prepared receivers replace field and point diffuse while preserving specular and the day clock', () => {
   for (const webgl of [false, true]) {
     const w = world(webgl, 'medium');
+    weatherUniforms.wetness.value = 0;
     w.at(13);
     const day = w.shaders(['prepared-street-receiver'])['prepared-street-receiver'];
-    w.at(23); w.lamps();
+    w.at(23); w.lamps(); weatherUniforms.wetness.value = 1;
     const night = w.shaders(['prepared-street-receiver'])['prepared-street-receiver'];
     expect(night).toEqual(day);
     expect(night.fragment).toContain('dynPointSpecular');
@@ -476,5 +481,6 @@ test('prepared receivers replace field and point diffuse while preserving specul
     expect(night.vertex).toContain('_night_irradiance');
     // The prepared draw has no street-field texture lookup or receiver-height gate.
     expect(night.fragment).not.toContain('groundLamp');
+    weatherUniforms.wetness.value = 0;
   }
 });

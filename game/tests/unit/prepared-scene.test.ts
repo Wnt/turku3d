@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { DoubleSide, FrontSide, type Mesh, type MeshStandardMaterial } from 'three/webgpu';
+import { DoubleSide, FrontSide, Texture, WebGPURenderer, type Mesh, type MeshStandardMaterial, type MeshStandardNodeMaterial } from 'three/webgpu';
+import { MaterialStyler } from '../../src/render/materials';
 import { buildPreparedModel, readPreparedScene, loadPreparedTextures, textureKey, type PreparedScene } from '../../src/world/preparedScene';
 
 function scene(): PreparedScene {
@@ -48,6 +49,36 @@ describe('prepared scene contract', () => {
     s.materials[0].alphaTest = .5;
     (s.materials[0] as unknown as { doubleSided: unknown }).doubleSided = 1;
     expect(() => readPreparedScene(s)).toThrow('material doubleSided');
+  });
+  it('dispatches only explicit surface recipes and retains maps, UVs and baked receiver geometry through styling', () => {
+    const s = scene(), descriptor = { url:'shared/paving.ktx2',sha256:'a'.repeat(64),wrap:'repeat' as const };
+    s.materials[0].baseColorTexture = descriptor; s.materials[0].normalTexture = descriptor; s.materials[0].ormTexture = descriptor;
+    s.meshes[0].nightIrradiance = Array(9).fill(.25);
+    const albedo = new Texture(), channels = new Texture(); albedo.repeat.set(2,3); channels.offset.set(.1,.2);
+    const textures = new Map([[textureKey(descriptor,true),albedo],[textureKey(descriptor,false),channels]]);
+    const renderer = new WebGPURenderer({canvas:{width:1,height:1,style:{}} as HTMLCanvasElement});
+    const styler = new MaterialStyler(renderer,{} as never,'medium',true);
+    for (const surface of ['asphalt','granite','cobblestone','stone','grass'] as const) {
+      s.materials[0].surface = surface;
+      const model = buildPreparedModel(readPreparedScene(s),textures),mesh = model.children[0] as Mesh;
+      const geometry = mesh.geometry, night = geometry.getAttribute('_night_irradiance');
+      expect(mesh.userData.material_key).toBe('prepared_'+surface);
+      styler.apply(model);
+      const styled = mesh.material as MeshStandardNodeMaterial;
+      expect(styled.isMeshStandardNodeMaterial).toBe(true);
+      expect(styled.userData.weatherWetness === true).toBe(surface !== 'grass');
+      expect(styled.map).toBe(albedo); expect(styled.normalMap).toBe(channels);
+      expect(styled.roughnessMap).toBe(channels); expect(styled.metalnessMap).toBe(channels); expect(styled.aoMap).toBe(channels);
+      expect(styled.map!.repeat.toArray()).toEqual([2,3]); expect(styled.normalMap!.offset.toArray()).toEqual([.1,.2]);
+      expect(mesh.geometry).toBe(geometry); expect(mesh.geometry.getAttribute('_night_irradiance')).toBe(night);
+      expect(mesh.geometry.userData.preparedStreetLighting).toBe(true);
+      expect(Array.from(mesh.geometry.getAttribute('uv').array)).toEqual([0,0,0,10,10,0]);
+      expect(mesh.userData.layer).toBeUndefined(); expect(model.children).toHaveLength(1);
+      styler.release(model); geometry.dispose(); (mesh.material as MeshStandardMaterial).dispose();
+    }
+    styler.dispose();
+    (s.materials[0] as unknown as {surface:string}).surface = 'guess_from_color';
+    expect(() => readPreparedScene(s)).toThrow('material surface');
   });
   it('validates explicit shared edges on vertical faces without requiring a walkable support', () => {
     const s = scene(); s.meshes[0].supportId = null; s.meshes[0].boundaryIds = ['edge'];

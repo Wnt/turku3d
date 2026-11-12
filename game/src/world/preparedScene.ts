@@ -5,6 +5,8 @@ export type Vec3 = [number, number, number];
 export interface PreparedTexture { url: string; sha256: string; wrap: 'repeat' | 'clamp' }
 export interface PreparedMaterial {
   id: string; color: Vec3; roughness: number; metalness: number;
+  /** Source-assigned response recipe; maps and metric UVs remain authoritative. */
+  surface?: 'asphalt' | 'granite' | 'cobblestone' | 'stone' | 'grass';
   /** Explicit cutout and face policy for prepared foliage/fences; opaque front faces remain the default. */
   alphaTest?: number; doubleSided?: boolean;
   water?: { point: Vec3; normal: Vec3; band: string };
@@ -69,6 +71,7 @@ export function readPreparedScene(value: unknown): PreparedScene {
     if (!vector(m.color) || !m.color.every(unit) || !unit(m.roughness) || !unit(m.metalness)) fail(`material ${m.id}`);
     if (m.alphaTest !== undefined && !unit(m.alphaTest)) fail(`material alphaTest ${m.id}`);
     if (m.doubleSided !== undefined && typeof m.doubleSided !== 'boolean') fail(`material doubleSided ${m.id}`);
+    if (m.surface !== undefined && !['asphalt', 'granite', 'cobblestone', 'stone', 'grass'].includes(m.surface)) fail(`material surface ${m.id}`);
     if (m.water !== undefined && (!object(m.water) || !vector(m.water.point) || !vector(m.water.normal)
       || Math.abs(Math.hypot(...m.water.normal) - 1) > .001 || !name(m.water.band))) fail(`water ${m.id}`);
     for (const key of ['baseColorTexture', 'normalTexture', 'ormTexture']) {
@@ -182,6 +185,9 @@ export function buildPreparedModel(scene: PreparedScene, textures: ReadonlyMap<s
     drawMaterial.name = material.id;
     const mesh = new THREE.Mesh(geometry, drawMaterial); mesh.name = `prepared:${material.id}`;
     mesh.castShadow = mesh.receiveShadow = true; mesh.userData.preparedEntities = ranges;
+    // MaterialStyler dispatches these explicit recipes. No layer='ground': native batches already retain their
+    // prepared ambient/night attributes; the legacy surface-array merger must not replace that geometry.
+    if (material.surface) mesh.userData.material_key = `prepared_${material.surface}`;
     if (material.water) {
       mesh.userData.material_key = 'water'; mesh.userData.water_band = material.water.band;
       mesh.userData.waterSurface = { point: material.water.point, normal: material.water.normal };
