@@ -263,8 +263,10 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
   the registers: `build` fetches them for the area even when no registered kind uses them yet, and a source that
   fails is reported there (`{"error": …}`) without stopping the build.
 - `failures` (`[{ "id", "error" }]`) names the entities whose generator raised: they are left out of `entities`,
-  `build` prints `FAILED <id>: <error>` for each, and the rest of the location is built. An empty list is the
-  normal case; a kind fixes its failures, the client never draws a half entity.
+  `build` prints `FAILED <id>: <error>` for each, and the rest of the location is built. A kind whose `discover`
+  raised (a source that could not be read at that place) is one row with the id `<kind>/*`: the location is built
+  without that kind. An empty list is the normal case; a kind fixes its failures, the client never draws a half
+  entity.
 - Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
   the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB

@@ -1,20 +1,22 @@
 #!/usr/bin/env node
-// Builds and captures a view set whose areas are their own locations (a random street set), point by point, and
-// leaves one capture directory a judge can read (docs/design/world-pipeline.md, section 7).
+// Builds and captures a view set whose areas are their own locations (a random street set) and leaves one capture
+// directory a judge can read (docs/design/world-pipeline.md, section 7).
 //
 //   node scripts/dev/world-set.mjs --views FILE --out DIR [--baseline DIR]... [--build-host local|air|osg]
-//     [--capture-host auto|mac|air] [--background 400] [--only AREA,AREA] [--skip-build] [--drop] [--label TEXT]
-//     [--ready-timeout 600] [--data REL]...
+//     [--jobs N] [--data REL]... [--capture-host auto|mac|air] [--background 400] [--only AREA,AREA]
+//     [--build-only | --skip-build] [--drop] [--label TEXT] [--ready-timeout 600]
 //
 // Every registry `area` of the set's views is one location: its query is the circle that covers the area's cameras
-// and what they look at (as `world build --area` does for a pilot area), built with `world build --at E,N --radius R
-// --name AREA` on the build host (`scripts/dev/on-host`: the store merges back) and captured with
-// `scene-capture.mjs --world AREA --area AREA` in a leased browser (`auto`: the Mac when a slot is free, else the
-// Air). --data REL names what the build host needs from $TURKU3D_DATA besides the stored descriptions (on-host
-// copies it once). --drop removes a point's manifest and its meshes from this store once it is captured, so only one point
-// lies on this machine at a time. DIR gets current/<view>.png, manifest.json (every view, and per location its
-// query, build and capture hosts, timings and failures), compare.jpg/html (photo | baselines | new world), and the
-// per-location captures and logs under locations/ and logs/.
+// and what they look at (as `world build --area` does for a pilot area). First every location is built with
+// `world build --at E,N --radius R --name AREA` on the build host, --jobs at a time (`scripts/dev/on-host`: the
+// store merges back; --data REL names what the host needs from $TURKU3D_DATA besides the stored descriptions).
+// Then each is captured with `scene-capture.mjs --world AREA --area AREA` in a leased browser (`auto`: the Mac
+// when a slot is free, else the Air). --build-only stops after the builds, so the points of one set can be built on
+// several hosts at once into the same DIR; --skip-build then captures what is built and reads the build logs
+// already in DIR. --drop removes the set's manifests and meshes from this store when everything is captured.
+// DIR gets current/<view>.png, manifest.json (every view, and per location its query, build and capture hosts,
+// timings and failures), compare.jpg/html (photo | baselines | new world), and the per-location captures and
+// logs under locations/ and logs/. A location that fails to build or load is reported; the rest continues.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -42,10 +44,21 @@ export function queryOf(views) {
   return { e, n, radius: Math.ceil((reach + 90) / 10) * 10 };
 }
 
+/** What a build log says: the host of its `on-host` line and the totals `world build` printed. */
+function buildOf(log, seconds = null, exit = null) {
+  if (!fs.existsSync(log)) return null;
+  const text = fs.readFileSync(log, 'utf8');
+  const total = /total\s+([\d.]+) s: (\d+) entities, (\d+) triangles/.exec(text);
+  const failed = [...text.matchAll(/^\s*FAILED (\S+): (.*)$/gm)].map(m => `${m[1]}: ${m[2]}`.slice(0, 200));
+  return { host: /^\$ scripts\/dev\/on-host (\S+)/m.exec(text)?.[1] ?? 'local', seconds, exit: exit ?? (total ? 0 : 1),
+    buildSeconds: total ? Number(total[1]) : null, entities: total ? Number(total[2]) : null, triangles: total ? Number(total[3]) : null, failed };
+}
+
 /** Runs a command with its output in a log file; resolves its exit code and wall seconds. */
 function run(command, args, log, options = {}) {
   return new Promise(resolve => {
-    const started = Date.now(), file = fs.openSync(log, 'a');
+    const started = Date.now(), file = fs.openSync(log, options.fresh ? 'w' : 'a');
+    delete options.fresh;
     fs.writeSync(file, `$ ${[command, ...args].join(' ')}\n`);
     const child = spawn(command, args, { cwd: repo, stdio: ['ignore', file, file], ...options });
     child.on('close', code => { fs.closeSync(file); resolve({ code: code ?? 1, seconds: Math.round((Date.now() - started) / 100) / 10 }); });
@@ -93,31 +106,47 @@ async function main() {
   const base = `http://localhost:${port()}/`, started = new Date();
   const manifest = { schema: 'turku-capture/1', label: opt('--label', `world set ${path.basename(path.dirname(viewsFile))}`), started: started.toISOString(),
     base, mode: 'render', entry: 'render', settings: null, viewsFile: path.relative(repo, viewsFile), views: [], variants: [], checks: {},
-    errors: [], consoleErrors: [], failedRequests: [], set: { buildHost, background, locations: [] }, source: null };
+    errors: [], consoleErrors: [], failedRequests: [], set: { background, locations: [] }, source: null };
   const write = () => fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 1) + '\n');
+  const rows = [...areas].map(([area, mine]) => ({ area, views: mine.map(v => v.id), query: queryOf(mine), build: null, capture: null, failure: null }));
+  manifest.set.locations = rows;
+  const buildLog = area => path.join(out, `logs/build-${area}.log`);
+  if (!argv.includes('--skip-build')) {
+    const data = ['world/descriptions', ...many('--data')].flatMap(rel => ['--data', rel]);
+    // One call first copies the checkout and the data, so the parallel calls after it find nothing left to copy.
+    if (buildHost !== 'local') await run('scripts/dev/on-host', [buildHost, ...data, '--', 'python', '-c', 'pass'], path.join(out, `logs/prime-${buildHost}.log`), { fresh: true });
+    const queue = [...rows];
+    await Promise.all(Array.from({ length: Math.max(1, Number(opt('--jobs', 1))) }, async () => {
+      for (let row = queue.shift(); row; row = queue.shift()) {
+        const { query, area } = row;
+        const build = ['python', '-m', 'turku3d.world', 'build', '--at', `${query.e},${query.n}`, '--radius', String(query.radius), '--background', String(background), '--name', area];
+        const done = buildHost === 'local' ? await run('bash', ['pipeline/env/run.sh', ...build], buildLog(area), { fresh: true })
+          : await run('scripts/dev/on-host', [buildHost, ...data, '--', ...build], buildLog(area), { fresh: true });
+        row.build = buildOf(buildLog(area), done.seconds, done.code);
+        console.error(`[world-set] built ${area} on ${buildHost}: exit ${done.code}, ${done.seconds} s`);
+      }
+    }));
+  }
+  if (argv.includes('--build-only')) {
+    console.log(JSON.stringify({ out, built: rows.map(row => ({ area: row.area, ...row.build })) }));
+    if (rows.some(row => row.build?.exit)) process.exitCode = 1;
+    return;
+  }
   const server = await devServer(base, path.join(out, 'logs/vite.log'));
   try {
-    for (const [area, mine] of areas) {
-      const query = queryOf(mine), row = { area, views: mine.map(v => v.id), query, build: null, capture: null, failure: null };
-      manifest.set.locations.push(row);
-      const build = ['python', '-m', 'turku3d.world', 'build', '--at', `${query.e},${query.n}`, '--radius', String(query.radius), '--background', String(background), '--name', area];
-      if (!argv.includes('--skip-build')) {
-        const log = path.join(out, `logs/build-${area}.log`);
-        const done = buildHost === 'local' ? await run('bash', ['pipeline/env/run.sh', ...build], log)
-          : await run('scripts/dev/on-host', [buildHost, ...['world/descriptions', ...many('--data')].flatMap(rel => ['--data', rel]), '--', ...build], log);
-        const total = /total\s+([\d.]+) s: (\d+) entities, (\d+) triangles/.exec(fs.readFileSync(log, 'utf8'));
-        row.build = { host: buildHost, seconds: done.seconds, exit: done.code, buildSeconds: total ? Number(total[1]) : null, entities: total ? Number(total[2]) : null, triangles: total ? Number(total[3]) : null };
-        if (done.code) { row.failure = `build exited ${done.code} (logs/build-${area}.log)`; write(); continue; }
-      }
+    for (const row of rows) {
+      const { area } = row;
+      row.build ??= buildOf(buildLog(area));
+      if (row.build?.exit) { row.failure = `build exited ${row.build.exit} (logs/build-${area}.log)`; write(); continue; }
       if (!fs.existsSync(path.join(worldStore, 'locations', `${area}.json`))) { row.failure = 'no manifest of the location in this store after the build'; write(); continue; }
       const host = wantedCapture === 'auto' ? captureHost() : wantedCapture, dir = path.join(out, 'locations', area);
       const session = ['run', host, host === 'mac' ? sandbox : `${sandbox}-${host}`, '--kind', 'func', '--window-size', '1920,1080', '--load-timeout', String(readyTimeout + 100),
         ...(host === 'mac' ? [] : ['--headless', '--forward', String(port())]), '--',
         'node', 'scripts/dev/scene-capture.mjs', '--mode', 'render', '--world', area, '--area', area, '--views', viewsFile, '--base', base,
         ...baselines.flatMap(b => ['--baseline', b]), '--ready-timeout', String(readyTimeout), '--out', dir, '--label', `${manifest.label}: ${area}`];
-      const shot = await run('python3', [path.join(LEASES, 'session.py'), ...session], path.join(out, `logs/capture-${area}.log`));
+      const shot = await run('python3', [path.join(LEASES, 'session.py'), ...session], path.join(out, `logs/capture-${area}.log`), { fresh: true });
       const part = fs.existsSync(path.join(dir, 'manifest.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) : null;
-      row.capture = { host, seconds: shot.seconds, exit: shot.code, loadMs: part?.timings?.loadMs ?? null, world: part?.world ? { revision: part.world.revision, drawn: part.world.drawn } : null };
+      row.capture = { host, seconds: shot.seconds, exit: shot.code, loadMs: part?.timings?.loadMs ?? null, world: part?.world ? { revision: part.world.revision, built: part.world.built, drawn: part.world.drawn } : null };
       if (!part || part.failure || !part.views?.length) row.failure = `capture failed: ${String(part?.failure ?? `exit ${shot.code}`).split('\n')[0]} (logs/capture-${area}.log)`;
       else {
         manifest.settings ??= part.settings; manifest.source ??= part.source;
@@ -127,12 +156,13 @@ async function main() {
         }
         for (const key of ['errors', 'consoleErrors', 'failedRequests']) manifest[key].push(...(part[key] ?? []));
       }
-      if (argv.includes('--drop')) {
-        // Only what a capture needs stays on this machine: the point is captured, its manifest and meshes go.
-        fs.rmSync(path.join(worldStore, 'locations', `${area}.json`), { force: true });
-        await run('bash', ['pipeline/env/run.sh', 'python', '-m', 'turku3d.world', 'gc'], path.join(out, `logs/build-${area}.log`));
-      }
+      console.error(`[world-set] captured ${area} on ${host}: ${row.failure ?? `${part.views.length} views, load ${part.timings?.loadMs} ms`}`);
       write();
+    }
+    if (argv.includes('--drop')) {
+      // Only what a capture needs stays on this machine: everything is captured, the set's manifests and meshes go.
+      for (const row of rows) fs.rmSync(path.join(worldStore, 'locations', `${row.area}.json`), { force: true });
+      await run('bash', ['pipeline/env/run.sh', 'python', '-m', 'turku3d.world', 'gc'], path.join(out, 'logs/drop.log'), { fresh: true });
     }
   } finally {
     server?.kill();
@@ -143,6 +173,7 @@ async function main() {
       const other = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
       return { dir, label: other.label, source: other.source, ...comparable(manifest, other) };
     });
+    manifest.views.sort((a, b) => views.views.findIndex(v => v.id === a.id) - views.views.findIndex(v => v.id === b.id));
     const failed = manifest.set.locations.filter(row => row.failure);
     if (failed.length) manifest.failure = `${failed.length} of ${manifest.set.locations.length} locations failed: ${failed.map(row => `${row.area}: ${row.failure}`).join('; ')}`;
     write();
