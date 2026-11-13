@@ -384,6 +384,8 @@ def main(argv=None) -> int:
                     help="colour --batch: the buildings a vision reading described (to check against)")
     ap.add_argument("--cells", type=int, default=None, help="colour --batch: stop after this many cells")
     ap.add_argument("--cell-workers", type=int, default=2, help="colour --batch: cells worked on at once")
+    ap.add_argument("--shard", metavar="I/N", help="colour --batch: every N-th cell from the I-th (several processes on "
+                                                   "one root: the views are Python-bound, one process uses about one core)")
     ap.add_argument("--progress", action="store_true", help="colour: counts and throughput of the batch under --out")
     ap.add_argument("--apply-batch", action="store_true",
                     help="colour: the batch results under --out as measured.wall lines (--lines FILE); stored for "
@@ -479,6 +481,9 @@ def main(argv=None) -> int:
             mapped = colour_batch.with_buildings()
             work = {cell: None for cell in ordered if mapped.get(cell)}
             print(json.dumps({"cells": len(work), "of": len(ordered), "osm_buildings": sum(mapped.get(c, 0) for c in work)}), flush=True)
+        if a.shard:
+            index, count = (int(v) for v in a.shard.split("/"))
+            work = {cell: only for k, (cell, only) in enumerate(work.items()) if k % count == index}
         report = colour_batch.run(root, work, tag=a.parts or colour_parts.TAG, jobs=a.prepare_jobs, limit=a.cells,
                                   cell_workers=a.cell_workers)
         print(json.dumps(report), flush=True)

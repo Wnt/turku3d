@@ -114,6 +114,9 @@ def cell_run(root: Path, cell, only: set | None, light: colour_light.Light, *, t
         if not hasattr(local, "panos"):
             local.panos = Panoramas(root / "panoramas", google_zoom=COLOUR_ZOOM, upright_from_lines=False)
         packet = root / "buildings" / b.id
+        if packet.is_dir():  # left by a cell that was stopped: its crops and label maps may not match new ones
+            for path in list(packet.iterdir()):
+                path.unlink()
         try:
             record = prepare_module.prepare(scene, b, local.panos, packet, per_wall=PER_WALL, limit=CROPS,
                                             light=light.of, contexts=keep)
@@ -168,7 +171,8 @@ def cell_run(root: Path, cell, only: set | None, light: colour_light.Light, *, t
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines))
     cache = Path(light.cache.root)
-    freed = 0 if keep or root.resolve() not in cache.resolve().parents else prune(cache)
+    freed = 0 if keep or root.resolve() not in cache.resolve().parents or os.environ.get("COLOUR_PRUNE", "1") == "0" \
+        else prune(cache)
     done = {"cell": name_of(cell), "buildings": len(inside), "measured": len(lines), "failed": failed, "crops": len(crops),
             "with_wall": sum("wall" in line["parts"] for line in lines),
             "seconds": {"scene": round(loaded - started, 1), "views": round(viewed - loaded, 1),

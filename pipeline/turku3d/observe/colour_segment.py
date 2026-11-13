@@ -112,6 +112,7 @@ class Relay:
         self.host, self.dir = remote.split(":", 1)
         self.mirror, self.tag = mirror, tag
         self.pushed: set = set()
+        self.versions: dict = {}  # packet: mtime of its views.json there when it was copied
         self.bytes_in = self.bytes_out = 0
         mirror.mkdir(parents=True, exist_ok=True)
 
@@ -122,13 +123,17 @@ class Relay:
     def pull(self) -> bool:
         """New packets in; packets gone there removed here. Returns whether the batch asked to stop."""
         d = shlex.quote(self.dir)
-        listing = self.ssh(f"cd {d} && for f in */views.json; do [ -e \"$f\" ] && echo \"$f\"; done; "
+        listing = self.ssh(f"cd {d} && for f in */views.json; do [ -e \"$f\" ] && echo \"$f:$(stat -c %Y \"$f\")\"; done; "
                            f"[ -e ../batch/stop ] && echo STOP; true").decode().split()
-        there = {line.split("/")[0] for line in listing if line.endswith("/views.json")}
-        for packet in [p for p in self.mirror.iterdir() if p.is_dir() and p.name not in there]:
-            shutil.rmtree(packet, ignore_errors=True)
-            self.pushed = {k for k in self.pushed if not k.startswith(packet.name + "/")}
+        there = {line.split("/")[0]: line.rsplit(":", 1)[1] for line in listing if "/views.json:" in line}
+        for packet in [p for p in self.mirror.iterdir() if p.is_dir()]:
+            if packet.name not in there or self.versions.get(packet.name, there[packet.name]) != there[packet.name]:
+                # gone there, or made again (a cell started over): its crops and maps here are stale
+                shutil.rmtree(packet, ignore_errors=True)
+                self.pushed = {k for k in self.pushed if not k.startswith(packet.name + "/")}
+                self.versions.pop(packet.name, None)
         new = sorted(p for p in there if not (self.mirror / p / "views.json").exists())
+        self.versions.update({p: there[p] for p in new})
         for start in range(0, len(new), 40):
             names = " ".join(shlex.quote(p) for p in new[start:start + 40])
             data = self.ssh(f"cd {d} && find {names} -maxdepth 1 \\( -name 'w*.jpg' -o -name views.json \\) -print0 "
