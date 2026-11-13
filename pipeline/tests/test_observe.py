@@ -214,7 +214,6 @@ def test_a_stalled_preparation_does_not_hold_the_run():
     import time
 
     import pytest
-
     from turku3d.observe.__main__ import within
 
     assert within(1.0, lambda: 3) == 3
