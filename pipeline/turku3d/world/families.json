@@ -13,7 +13,7 @@
     "brick": { "owner": "w2-buildings", "params": { "colour": "colour", "colour2": "colour", "bond": ["stretcher", "flemish", "english", "header", "stack"], "finish": ["facing", "painted", "slurried"], "course_m": "number" } },
     "weatherboard": { "owner": "w2-buildings", "params": { "colour": "colour", "orientation": ["horizontal", "vertical"], "profile": ["bevel", "shiplap", "tongue_groove", "board_batten", "beaded"], "scale_m": "number" } },
     "log": { "owner": "w2-buildings", "params": { "colour": "colour", "scale_m": "number" } },
-    "granite": { "owner": "w2-buildings", "params": { "colour": "colour", "colour2": "colour", "finish": ["ashlar", "rock_faced", "polished", "slab"], "scale_m": "number", "course_m": "number", "relief": "id" } },
+    "granite": { "owner": "w2-buildings", "params": { "colour": "colour", "colour2": "colour", "finish": ["ashlar", "rock_faced", "polished", "slab", "quay"], "scale_m": "number", "course_m": "number", "relief": "id" } },
     "stone": { "owner": "w2-buildings", "params": { "colour": "colour", "colour2": "colour", "finish": ["ashlar", "rock_faced", "polished", "slab"], "scale_m": "number", "course_m": "number", "relief": "id" } },
     "rubble": { "owner": "w2-buildings", "params": { "colour": "colour", "colour2": "colour", "scale_m": "number" } },
     "concrete": { "owner": "w2-buildings", "params": { "colour": "colour", "finish": ["cast", "board_marked", "washed", "panel"], "scale_m": "number" } },

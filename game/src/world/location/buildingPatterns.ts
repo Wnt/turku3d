@@ -173,9 +173,12 @@ function ashlar(finish: string, course: number, speckle: number): Field {
   const f = field(1024, [columns * length, rows * course]);
   const random = mulberry(53);
   const cuts = Array.from({ length: rows }, () => { const offset = random(); return Array.from({ length: columns }, (_, c) => (c + offset + (random() - 0.5) * 0.3) % columns).sort((a, b) => a - b); });
-  const tones = Array.from({ length: rows * columns }, () => (random() - 0.5) * 0.16);
-  const joint = finish === 'slab' || finish === 'polished' ? 0.006 : 0.012;
-  const bulge = finish === 'rock_faced' ? 0.03 : 0.0;
+  // `quay`: rock-faced blocks of a harbour or river wall, read from across the water: wide sunk joints and a strong
+  // tone per block (the 12 mm joints and 8 % tone steps of a facade vanish beyond 10 m).
+  const quay = finish === 'quay';
+  const tones = Array.from({ length: rows * columns }, () => (random() - 0.5) * (quay ? 0.5 : 0.16));
+  const joint = quay ? 0.035 : finish === 'slab' || finish === 'polished' ? 0.006 : 0.012;
+  const bulge = quay ? 0.05 : finish === 'rock_faced' ? 0.03 : 0.0;
   for (let j = 0; j < f.n; j++) {
     const y = (j / f.n) * rows, row = Math.floor(y), fy = y - row;
     for (let i = 0; i < f.n; i++) {
@@ -191,9 +194,9 @@ function ashlar(finish: string, course: number, speckle: number): Field {
       const dome = bulge * Math.min(1, edge / 0.06) * (0.6 + 0.8 * fbm(i / f.n, j / f.n, 24, 3, 41));
       f.joint[k] = inJoint ? 1 : 0;
       f.height[k] = inJoint ? -0.006 : dome + 0.0008 * (grain - 0.5);
-      f.tone[k] = inJoint ? 0.45 : 0.5 + tones[row * columns + index] + speckle * (grain - 0.5) + 0.1 * (blotch - 0.5);
+      f.tone[k] = inJoint ? (quay ? 0.25 : 0.45) : 0.5 + tones[row * columns + index] + speckle * (grain - 0.5) + 0.1 * (blotch - 0.5);
       f.rough[k] = inJoint ? 0.8 : finish === 'polished' ? 0.15 : 0.5 + 0.2 * (grain - 0.5);
-      f.occlusion[k] = inJoint ? 0.75 : 1;
+      f.occlusion[k] = inJoint ? (quay ? 0.5 : 0.75) : 1;
     }
   }
   return f;

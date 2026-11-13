@@ -29,11 +29,11 @@ MIN_HEIGHT = 0.8    # m of crest above the water for a wall to stand
 THICKNESS = 0.5     # m: the cap of the wall, on the land side of the outline
 ROOT = 1.2          # m under the water level
 # Quays: courses of reddish-grey granite about half a metre high under a pale cut-granite coping.
-MASONRY = {'family': 'granite', 'params': {'colour': '#6f5d53', 'colour2': '#3b302b', 'finish': 'rock_faced', 'relief': 'ashlar',
-                                           'scale_m': 0.5, 'course_m': 0.5, 'weathering': 0.7},
+MASONRY = {'family': 'granite', 'params': {'colour': '#6f5d53', 'colour2': '#3b302b', 'finish': 'quay', 'relief': 'ashlar',
+                                           'scale_m': 0.5, 'course_m': 0.5},
            'color': (0.2, 0.16, 0.14), 'roughness': 0.85}
 COPING = {'family': 'granite', 'params': {'colour': '#8c857d', 'colour2': '#6a645e', 'finish': 'ashlar', 'relief': 'ashlar',
-                                          'scale_m': 1.2, 'course_m': 0.25, 'weathering': 0.4},
+                                          'scale_m': 1.2, 'course_m': 0.25},
           'color': (0.3, 0.28, 0.26), 'roughness': 0.7}
 COPING_HEIGHT = 0.25   # m of cut stone on top of the courses
 COPING_OVERHANG = 0.06  # m proud of the water face
