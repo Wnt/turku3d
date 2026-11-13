@@ -251,8 +251,11 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
       addressId: drop.addressId, payout: drop.payout, tip: drop.tip, routeMeters: drop.routeMeters, job: drop.job });
   } });
   // The missions, shops and story are Turku content (core/city.ts): elsewhere their state waits, the wallet shows.
-  const storyCity = isHome();
-  minimap.setSource(storyCity ? missions : walletOnly(missions));
+  // A location of the world pipeline (?world=NAME) is a place to walk and drive in, not the story's Turku: no
+  // missions, shops, drop-off zones, wallet or city portals there.
+  const inLocation = !!params.world;
+  const storyCity = isHome() && !inLocation;
+  minimap.setSource(storyCity ? missions : inLocation ? null : walletOnly(missions));
   voice.attach(missions);
   const zoneRay = (x: number, z: number, top: number) => physics.raycast({ x, y: top, z }, { x: 0, y: -1, z: 0 }, top + 60);
   const dropoffs = new DropoffGuard(
@@ -278,7 +281,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
   };
   const poles = new PoleSession(tiles, physics, missions, voice, document.body);
   // City portals (gameplay/portals.ts): arches under the Turku bridges, the return arch in the other cities.
-  const portalList = portalsIn();
+  const portalList = inLocation ? [] : portalsIn();
   /** Ground under (x, z) from a downward ray at `top` (null: the sky), or null while its collision is not resident. */
   const groundBelow = async (x: number, z: number, top: number | null) => {
     const t = collisionTileAt(x, z);
@@ -407,7 +410,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     // the next hello carries the reset.
     await multiplayer?.resetProgress();
     for (const id of [SCOOTER_ID, TRUCK_ID]) physics.removeVehicle(id);
-    if (storyCity) return true;
+    if (storyCity || inLocation) return true;
     travelling = true;
     writeTicket(sessionStore(), { v: 1, from: CITY.name, to: HOME_CITY, portal: null, ride: null, mission: missions.serialize(),
       multiplayer: multiplayerPlaying, at: Date.now() });
@@ -490,7 +493,7 @@ export async function startPlay(world: PlayWorld, hot: HotPlay | null, kept?: { 
     onAutosave: mission => { if (multiplayerPlaying) multiplayerProgress.save(multiplayer?.session ?? null, mission); },
     onQuit: () => { sharedVehicles?.stop(drivenId); multiplayerPlaying = false; poles.clearClient(); remotePlayers.dispose();
       minimap.setRemotes([]); scoreboard.setClient(null); },
-    returnHome: storyCity ? undefined : {
+    returnHome: storyCity || inLocation ? undefined : {
       detail: `To the ${returnTarget(CITY.name, cameThrough(sessionStore())).place.split(',')[0]} portal`,
       run: () => depart(HOME_CITY, null) },
     resetProgress: { forget: forgetProgress,

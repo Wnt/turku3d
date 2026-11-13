@@ -87,9 +87,12 @@ export class Minimap {
     this.setState(EMPTY_HUD_STATE);
   }
 
-  setSource(source: MissionHudSource) {
+  /** `null`: a world without missions or a wallet shows neither. */
+  setSource(source: MissionHudSource | null) {
     this.unsubscribe();
-    this.unsubscribe = source.subscribe(state => this.setState(state));
+    this.unsubscribe = source ? source.subscribe(state => this.setState(state)) : () => {};
+    this.money.hidden = !source;
+    if (!source) this.setState(EMPTY_HUD_STATE);
   }
 
   /** Draws `graph` from now on (draft tiles' streets joined the map; gameplay/index.ts StreetMap). */
