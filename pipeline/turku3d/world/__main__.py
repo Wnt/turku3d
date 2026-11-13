@@ -247,8 +247,12 @@ def main() -> None:
             for p in profiles:
                 print(f"{p['unit']}: cpu {p['cpu']:.0f} s, wall {p['wall']} s, peak {p['peakMb']} MB: "
                       + ", ".join(f"{s['stage']} {s['cpu']:.0f}/{s['wall']:.0f}" for s in p["stages"] if s["wall"] >= 5))
-            result = regions.simulate(profiles, args.cores, args.memory_gb, args.speed)
-            print(json.dumps(result))
+            hour = regions.simulate(profiles, args.cores, args.memory_gb, args.speed)
+            print("one hour, units always queued:", json.dumps(hour))
+            # The same number of units as one job, run to its end: the tail of the last units is in the mean.
+            job = regions.simulate(profiles, args.cores, args.memory_gb, args.speed, units=hour["unitsDone"])
+            print("that many units as one job:", json.dumps({k: v for k, v in job.items() if k != "byMinute"}),
+                  "last 10 minutes:", job["byMinute"][-10:])
             return
         if args.action == "views":
             views = regions.border_views(store, args.name)

@@ -133,7 +133,9 @@ def _trees(roots: dict[int, str]) -> dict[str, tuple[float, float]]:
         except OSError:
             continue
         pid = int(entry.name)
-        parent[pid], ticks[pid], rss[pid] = int(fields[1]), int(fields[11]) + int(fields[12]), int(fields[21])
+        # utime + stime + cutime + cstime: a reaped worker's time moves to its parent's c-fields, so the sum over the
+        # live tree counts every CPU second once and never drops when compile workers exit.
+        parent[pid], ticks[pid], rss[pid] = int(fields[1]), sum(int(v) for v in fields[11:15]), int(fields[21])
     hz, page = os.sysconf("SC_CLK_TCK"), os.sysconf("SC_PAGE_SIZE")
     out = {}
     for root, uid in roots.items():
@@ -424,21 +426,33 @@ def unit_profiles(store: Store, name: str, jobs: int, slots: int) -> list[dict]:
         rest = manifest["timings"]["totalMs"] / 1000 - sum(s["wall"] for s in stages)
         if rest > 1:
             stages.append({"stage": "rest", "wall": rest, "cpu": rest, "width": 1, "mb": manifest["timings"].get("peakMb", 0)})
+        # Samples of a tree whose workers exited before they were reaped dip below zero (older samplers); the unit's
+        # own CPU total (wait4) is exact: what the stages miss of it went to the compile workers.
+        for stage in stages:
+            stage["cpu"] = max(0.0, stage["cpu"])
+        if run:
+            missing = run["cpu"] - sum(s["cpu"] for s in stages)
+            compile_stage = next((s for s in stages if s["stage"] == "compile"), None)
+            if compile_stage and missing > 0:
+                compile_stage["cpu"] += missing
         profiles.append({"unit": uid, "stages": stages, "peakMb": manifest["timings"].get("peakMb", 0),
                          "cpu": run["cpu"] if run else sum(s["cpu"] for s in stages), "wall": run["wall"] if run else None})
     return profiles
 
 
-def simulate(profiles: list[dict], cores: int, memory_gb: float, speed: float, hours: float = 1.0, step: float = 1.0) -> dict:
+def simulate(profiles: list[dict], cores: int, memory_gb: float, speed: float, hours: float = 1.0, step: float = 1.0,
+             units: int | None = None) -> dict:
     """Packs copies of the measured units onto a machine for `hours`: a unit starts when the memory of the running
     units' peaks leaves room for its peak; at every step the cores are shared out (each stage takes at most its
     width, the rest goes to others); a stage's CPU seconds shrink by `speed` (target core against the measuring
     host's). Returns the utilisation over time and the units finished."""
     budget = memory_gb * 1024 * 0.85
     queue = [p for _ in range(1000) for p in profiles]
+    if units is not None:  # a finite job: that many units, run to the end (the tail included)
+        queue, hours = queue[:units], 100.0
     running, done, trace, t = [], 0, [], 0.0
     horizon = hours * 3600
-    while t < horizon:
+    while t < horizon and (queue or running):
         while queue and sum(r["peakMb"] for r in running) + queue[0]["peakMb"] <= budget:
             p = queue.pop(0)
             running.append({"peakMb": p["peakMb"], "stages": [dict(s, left=s["cpu"] / speed) for s in p["stages"]]})
@@ -465,4 +479,5 @@ def simulate(profiles: list[dict], cores: int, memory_gb: float, speed: float, h
         t += step
     minutes = [round(sum(trace[i:i + 60]) / len(trace[i:i + 60]), 3) for i in range(0, len(trace), 60)]
     return {"cores": cores, "memoryGb": memory_gb, "speed": speed, "utilisation": round(sum(trace) / len(trace), 4),
-            "byMinute": minutes, "unitsDone": done, "km2": done * (UNIT / 1000) ** 2, "concurrent": len(running)}
+            "minutes": round(t / 60, 1), "byMinute": minutes, "unitsDone": done, "km2": done * (UNIT / 1000) ** 2,
+            "concurrent": len(running)}
