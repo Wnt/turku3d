@@ -231,7 +231,10 @@ def main() -> None:
             manifest["roads"] = location_roads(store, manifest["entities"], Sources())
             store.put_location(manifest)
     elif args.command == "region":
+        import math
+
         from . import region as regions
+        from .frame import to_engine
 
         if args.action == "unit":
             regions.build_unit(store, args.name, args.unit, args.margin)
@@ -258,6 +261,9 @@ def main() -> None:
         if args.only:
             units = [u for u in units if u in args.only.split(",")]
         todo = [u for u in units if args.rebuild or store.location(f"{args.name}/{u}") is None]
+        # Centre outward: the units nearest the region's centre first, so the middle is playable first.
+        cx, _, cz = to_engine(*plan["centre"])
+        todo.sort(key=lambda u: math.hypot((regions.unit_of(u)[0] + 0.5) * regions.UNIT - cx, (regions.unit_of(u)[1] + 0.5) * regions.UNIT - cz))
         print(f"region {args.name}: centre {plan['centre']}, {len(units)} units planned, {len(todo)} to build: {' '.join(todo)}")
         if args.action == "plan":
             return
