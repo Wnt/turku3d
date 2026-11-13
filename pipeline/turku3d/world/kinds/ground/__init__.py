@@ -35,6 +35,7 @@ DASH, GAP = 3.0, 5.0    # centre line in town
 UNMAPPED_RANK = 1_000_000  # orthophoto outlines lie under everything mapped
 CYCLE_LANE = 1.5        # width of a cycle lane on the carriageway when its tag says less or nothing
 CYCLE_DASH, CYCLE_GAP = 1.0, 2.0
+PARKING_LANE = 2.0      # width of a kerbside parking lane on the carriageway
 PARKING_CLEAR = 0.4     # a parking bay's outline is painted where it lies this far inside the carriageway
 SOLID = 1e6             # dash length of an unbroken line
 SIDE_STREET = 9.0       # half the width a joining street's mouth takes from a lane
@@ -196,6 +197,7 @@ def _strips(box, surfaces) -> tuple[list, list]:
     lines = mapped[mapped.geom_type == 'LineString']
     roads = lines[lines.highway.isin(ROADS)]
     junctions = _junctions(roads)
+    clear = junctions
 
     def sides_of(row) -> set:
         tags = _tags(row)
@@ -230,6 +232,22 @@ def _strips(box, surfaces) -> tuple[list, list]:
             for part in shapely.get_parts(shapely.line_merge(edge) if edge.geom_type == 'MultiLineString' else edge):
                 if part.geom_type == 'LineString' and part.length > 6.0:
                     edges.append((part, 0.0, key, CYCLE_DASH, CYCLE_GAP))
+
+    # Kerbside parking lanes (cars parked on the carriageway along the kerb): a strip of its own surface, which
+    # traffic does not polish; what it is paved with is the stored description's to say.
+    for row in roads.itertuples():
+        tags = _tags(row)
+        for side in ('left', 'right'):
+            if 'lane' not in (tags.get(f'parking:{side}'), tags.get('parking:both')):
+                continue
+            reach = CORRIDOR if side == 'left' else -CORRIDOR
+            corridor = row.geometry.buffer(reach, single_sided=True, cap_style='flat').difference(clear)
+            band = carriageway.difference(carriageway.buffer(-PARKING_LANE, join_style='mitre')).intersection(corridor)
+            key = f'osm:way/{row.osm_id}:parking-{side}'
+            for n, part in enumerate(_polygons(band)):
+                if part.area > 6.0:
+                    bands.append((part, {'key': f'{key}#{n}' if n else key, 'source': 'osm', 'level': 'low', 'use': 'parking-lane',
+                                         'surface': '', 'rank': -2}))
     return bands, edges
 
 
