@@ -240,7 +240,7 @@ def building_row(key: str, stored: dict, sources) -> dict | None:
         "lights_read": read_window and read_window.get("lights", {}).get("pattern"),
         "surround_auto": auto_window and auto_window["surround"].get("kind"),
         "surround_read": read_window and read_window["surround"].get("kind"),
-        "balconies_auto": 0, "balconies_read": len(balconies),
+        "balconies_auto": len(auto_wall.get("balconies", [])), "balconies_read": len(balconies),
         "balcony_type_read": collections.Counter(b.get("type") for b in balconies).most_common(1)[0][0] if balconies else None,
         "roof_form_shell": roof_form(auto), "roof_form_read": stored.get("roof", {}).get("form_hint"),
         "roof_form_read_class": None if not hint else "flat" if any(h in hint for h in FLAT_HINTS) else "pitched",
@@ -250,8 +250,8 @@ def building_row(key: str, stored: dict, sources) -> dict | None:
         "roof_register_colour": register.get("roof_colour"),
         "roof_conf": (read_roofing.get("conf") or stored.get("roof", {}).get("conf") or {}).get("*"),
         "eaves_m_auto": auto_roof.get("eaves", {}).get("overhang_m"), "eaves_m_read": read_roof.get("eaves", {}).get("overhang_m"),
-        "dormers_auto": 0, "dormers_read": len(stored.get("roof", {}).get("dormers", [])),
-        "chimneys_auto": 0, "chimneys_read": len(stored.get("roof", {}).get("chimneys", [])),
+        "dormers_auto": len(auto.get("roof", {}).get("dormers", [])), "dormers_read": len(stored.get("roof", {}).get("dormers", [])),
+        "chimneys_auto": len(auto.get("roof", {}).get("chimneys", [])), "chimneys_read": len(stored.get("roof", {}).get("chimneys", [])),
     }
     if row["wall_colour_auto"] and row["wall_colour_read"]:
         row.update({f"wall_{k}": v for k, v in colour_parts(row["wall_colour_auto"], row["wall_colour_read"]).items()})
