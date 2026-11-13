@@ -16,7 +16,7 @@ import shapely
 from ...api import Area, Output, Stub, envelope
 from ...frame import CELL, cell_at, cell_box_en, cell_key
 from ...street import lidar, osm, registers
-from . import aerial, covers
+from . import aerial, banks, covers
 from .mesh import compile_cell
 
 VERSION = 1
@@ -276,6 +276,7 @@ class Ground:
             centre = shape.representative_point()
             surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
+        _, quays = banks.quay_lines(box)
         with sources.timed('street:lidar'):
             window = lidar.Window(*box)
         tree = shapely.STRtree([shape for shape, _ in surfaces])
@@ -300,6 +301,8 @@ class Ground:
                     'cell': [i, j],
                     'relief': {'step': STEP, 'halo': HALO, 'side': side, 'heights_mm': np.rint(heights * 1000).astype(int).tolist()},
                     'surfaces': rows,
+                    'quays': [np.asarray(part.coords).tolist() for part in shapely.get_parts(quays.intersection(wide))
+                              if part.geom_type == 'LineString' and part.length > 0] if quays is not None else [],
                     'crossings': [{'key': key, 'line': np.asarray(line.coords).tolist(), 'width': CROSSING_WIDTH}
                                   for line, key in crossings if line.intersects(wide)],
                     'lanes': [{'key': key, 'line': np.asarray(part.coords).tolist(),

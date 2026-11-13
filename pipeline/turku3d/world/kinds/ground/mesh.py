@@ -17,6 +17,7 @@ from shapely.ops import substring
 
 from ...api import Heightfield, Material, Part, Output
 from ...frame import CELL
+from .banks import QUAY_REACH
 from .covers import NAMED
 
 KERB_WIDTH = 0.20        # top of a granite kerb stone
@@ -308,6 +309,20 @@ def stations(points: np.ndarray, kerb_lines, origin_xz) -> np.ndarray:
     return np.einsum('ij,ij->i', points + origin_xz, run)
 
 
+def hold_crest(relief: Relief, raster: np.ndarray, quays, wet) -> np.ndarray:
+    """The level raster with the ground behind a quay held at its crest: the scan smears the drop to the water over
+    the last metres, so nodes within QUAY_REACH of a quay line take the height of the nearest node farther inland."""
+    x, z = relief.x.ravel(), relief.z.ravel()
+    inside = shapely.contains_xy(wet, x, z).reshape(raster.shape)
+    near = (shapely.distance(shapely.points(x, z), quays) < QUAY_REACH).reshape(raster.shape) | inside
+    if not near.any() or near.all():
+        return raster
+    _, (row, column) = distance_transform_edt(near, return_indices=True)
+    held = np.where(near & ~inside, raster[row, column], raster)
+    # Neighbouring nodes copy different inland nodes: smooth the held strip, or it stands in steps.
+    return np.where(near & ~inside, gaussian_filter(held, 2.0, mode='nearest'), held)
+
+
 def kerb_solid(points, triangles, low_at, high_at, origin_xz, along) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """The closed prism over the kerb band: top at the pavement level, bottom below the carriageway, a wall on every
     rim edge. Returns positions (heights absolute), triangles, normals, uvs and the station along the kerb."""
@@ -371,6 +386,10 @@ def compile_cell(description: dict) -> Output:
     base = float(np.floor(relief.height.min()))
     pieces, low_area, kerb_lines, seams = partition(description, e0, n1)
     low, high = levels(relief, low_area, kerb_lines)
+    quays = [local_line(line, e0, n1) for line in description.get('quays', [])]
+    if quays:
+        wet = shapely.unary_union([piece for piece, _, role in pieces if role == 'bed'] or [shapely.Polygon()])
+        low, high = (hold_crest(relief, raster, shapely.unary_union(quays), wet) for raster in (low, high))
     points, triangles, owner = triangulate(pieces, seams)
 
     def sampler(raster):
