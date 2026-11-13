@@ -21,11 +21,11 @@ REGISTER = (
     # sampled register parts: "Betonikivi" is mostly red-brown block paving and "Betonilaatta" footways are small grey
     # pavers in running bond, not half-metre slabs; "Maatiili" is clay brick.
     ('maatiili', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.7, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffc4b0'},
-                  'color': (0.3, 0.17, 0.14), 'roughness': 0.86}),
-    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.125, 'size_y': 0.2, 'bond': 'running', 'tone': 0.62, 'joint_m': 0.005, 'stone': 'concrete'},
-                      'color': (0.28, 0.27, 0.26), 'roughness': 0.86}),
+                  'color': (0.275, 0.154, 0.121), 'roughness': 0.86}),
+    ('betonilaatta', {'family': 'paving', 'params': {'size_x': 0.125, 'size_y': 0.2, 'bond': 'running', 'tone': 0.88, 'joint_m': 0.005, 'stone': 'concrete'},
+                      'color': (0.315, 0.307, 0.292), 'roughness': 0.86}),
     ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.72, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffccba'},
-                    'color': (0.3, 0.19, 0.16), 'roughness': 0.86}),
+                    'color': (0.279, 0.171, 0.138), 'roughness': 0.86}),
     ('noppakivi', {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81}),
     ('nupukivi', {'family': 'setts', 'params': {'size_x': 0.14, 'size_y': 0.2, 'tone': 0.45}, 'color': (0.181, 0.158, 0.144), 'roughness': 0.78}),
     ('kenttäkivi', {'family': 'cobbles', 'params': {'size_m': 0.14}, 'color': (0.153, 0.134, 0.116), 'roughness': 0.8}),
@@ -72,7 +72,7 @@ NAMED = {
     'rock': {'family': 'bedrock', 'params': {}, 'color': (0.183, 0.174, 0.165), 'roughness': 0.85},
     'sand': {'family': 'sand', 'params': {}, 'color': (0.35, 0.292, 0.204), 'roughness': 0.96},
     # A cycle lane on the carriageway: Turku paints them red.
-    'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.35, 'tint': '#b97f72', 'grain': 0.6}, 'color': (0.197, 0.086, 0.068), 'roughness': 0.87},
+    'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.5, 'tint': '#92807a', 'grain': 0.6}, 'color': (0.156, 0.116, 0.106), 'roughness': 0.87},
     'gravel': {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.231, 0.205, 0.165), 'roughness': 0.95},
     'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.5}, 'color': (0.146, 0.143, 0.138), 'roughness': 0.88},
     'pavers-yard': {'family': 'paving', 'params': {'size_x': 0.14, 'size_y': 0.21, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.005, 'stone': 'concrete'}, 'color': (0.237, 0.231, 0.219), 'roughness': 0.86},

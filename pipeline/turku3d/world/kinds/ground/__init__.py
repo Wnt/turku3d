@@ -36,6 +36,7 @@ AERIAL_STEP = 0.2       # orthophoto resolution the cover of unmapped land is re
 UNMAPPED_RANK = 1_000_000  # orthophoto outlines lie under everything mapped
 CYCLE_LANE = 1.5        # width of a cycle lane on the carriageway when its tag says less or nothing
 CYCLE_DASH, CYCLE_GAP = 1.0, 2.0
+SIDE_STREET = 9.0       # half the width a joining street's mouth takes from a lane
 CORRIDOR = 14.0         # a street's carriageway lies within this distance of its mapped centre line
 
 
@@ -170,11 +171,20 @@ def _cycle_lanes(box, surfaces) -> tuple[list, list]:
     junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
                                     or [shapely.Polygon()])
     carriageway = shapely.unary_union(low)
+
+    def sides_of(row) -> set:
+        tags = _tags(row)
+        return {side for side in ('left', 'right') for key in ('cycleway', 'cycleway:both', f'cycleway:{side}')
+                if tags.get(key) == 'lane'}
+
+    # The mouths of streets without lanes stay plain: a lane follows its own street's kerb, not the corner's.
+    others = shapely.unary_union([row.geometry.buffer(SIDE_STREET, cap_style='flat') for row in roads.itertuples() if not sides_of(row)]
+                                 or [shapely.Polygon()])
+    junctions = shapely.unary_union([junctions, others])
     bands, edges = [], []
     for row in roads.itertuples():
         tags = _tags(row)
-        sides = {side for side in ('left', 'right') for key in ('cycleway', 'cycleway:both', f'cycleway:{side}')
-                 if tags.get(key) == 'lane'}
+        sides = sides_of(row)
         if not sides:
             continue
         try:
