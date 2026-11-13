@@ -28,6 +28,7 @@ GRID = 2.5               # relief resolution of the skin
 FAR_STEP = 2.5           # node spacing of the far level of detail
 ZEBRA_STRIPE, ZEBRA_PITCH = 0.5, 1.0
 DASH_WIDTH = 0.12
+NEAR = shapely.box(-0.5, -0.5, CELL + 0.5, CELL + 0.5)   # the cell and a little more, in its own frame
 FLUSH = 0.005          # a kerb stone whose top is this near the skin under it is flush: no solid
 
 
@@ -123,7 +124,8 @@ def dashes(line, start: float, dash: float, gap: float, low_area) -> list:
         if b - a < 0.3:
             continue
         bar = substring(line, a, b).buffer(DASH_WIDTH / 2, cap_style='flat')
-        if low_area.contains(bar):
+        # Judged near the cell only: the line and the carriageway both end at the halo, where a neighbour sees more.
+        if bar.intersection(NEAR).difference(low_area).area < 1e-4:
             bars.append(bar)
     return bars
 

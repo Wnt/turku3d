@@ -1,8 +1,9 @@
 """What covers the ground: the vocabulary of the ground kind and how the registers map onto it.
 
-A cover is a material family with flat, metric parameters, so the client synthesises it at one texel density
-(game/src/world/location/families/groundSynth.ts). `color` and `roughness` are the means of the synthesised maps for
-those parameters (linear albedo): what the far level of detail and any coarse lighting use.
+A cover is a material family with flat, metric parameters, which the client draws at one texel density from the
+photographic ground library or synthesises (game/src/world/location/families/ground.ts, groundSynth.ts). `color` and
+`roughness` are the means of those maps for the parameters (linear albedo): what the far level of detail and any
+coarse lighting use.
 
 Families: `asphalt`, `paving` (laid slabs and blocks: cast concrete, sawn granite, slate), `setts` (cut granite
 cubes), `cobbles` (rounded field stone), `gravel`, `grass`, `soil` (planting beds, forest floor), `sand`,
@@ -15,8 +16,8 @@ LOW_USES = ('ajorata', 'pyöräkaista')
 
 # Register surface text -> cover. The first word found wins; sizes are metres (across, along).
 REGISTER = (
-    ('punainen', {'family': 'asphalt', 'params': {'tone': 0.35, 'tint': '#b97f72', 'grain': 0.6}, 'color': (0.197, 0.086, 0.068), 'roughness': 0.87}),
-    ('asfaltti', {'family': 'asphalt', 'params': {'tone': 0.5, 'grain': 0.6}, 'color': (0.136, 0.134, 0.13), 'roughness': 0.87}),
+    ('punainen', {'family': 'asphalt', 'params': {'tone': 0.35, 'tint': '#b97f72'}, 'color': (0.211, 0.092, 0.073), 'roughness': 0.93}),
+    ('asfaltti', {'family': 'asphalt', 'params': {'tone': 0.72}, 'color': (0.176, 0.176, 0.176), 'roughness': 0.93}),
     # From the old generator's finish table (coarse/street_materials.py), which was set against street panoramas of
     # sampled register parts: "Betonikivi" is mostly red-brown block paving and "Betonilaatta" footways are small grey
     # pavers in running bond, not half-metre slabs; "Maatiili" is clay brick.
@@ -27,28 +28,28 @@ REGISTER = (
     ('betonikivi', {'family': 'paving', 'params': {'size_x': 0.1, 'size_y': 0.2, 'bond': 'running', 'tone': 0.72, 'joint_m': 0.004, 'stone': 'concrete', 'tint': '#ffccba'},
                     'color': (0.279, 0.171, 0.138), 'roughness': 0.86}),
     ('noppakivi', {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81}),
-    ('nupukivi', {'family': 'setts', 'params': {'size_x': 0.14, 'size_y': 0.2, 'tone': 0.45}, 'color': (0.181, 0.158, 0.144), 'roughness': 0.78}),
+    ('nupukivi', {'family': 'setts', 'params': {'size_x': 0.14, 'size_y': 0.2, 'tone': 0.45}, 'color': (0.238, 0.229, 0.218), 'roughness': 0.82}),
     ('kenttäkivi', {'family': 'cobbles', 'params': {'size_m': 0.14}, 'color': (0.153, 0.134, 0.116), 'roughness': 0.8}),
     ('liuskekivi', {'family': 'paving', 'params': {'size_x': 0.4, 'size_y': 0.6, 'bond': 'running', 'tone': 0.4, 'joint_m': 0.008, 'stone': 'slate'}, 'color': (0.104, 0.109, 0.117), 'roughness': 0.71}),
     ('graniitti', {'family': 'paving', 'params': {'size_x': 0.4, 'size_y': 1.0, 'bond': 'running', 'tone': 0.55, 'joint_m': 0.008, 'stone': 'granite'}, 'color': (0.232, 0.18, 0.162), 'roughness': 0.71}),
     ('luonnonkivi', {'family': 'paving', 'params': {'size_x': 0.3, 'size_y': 0.5, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.008, 'stone': 'granite'}, 'color': (0.218, 0.178, 0.163), 'roughness': 0.71}),
-    ('kivituhka', {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.231, 0.205, 0.165), 'roughness': 0.95}),
+    ('kivituhka', {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.273, 0.248, 0.21), 'roughness': 0.95}),
     ('kivi', {'family': 'paving', 'params': {'size_x': 0.3, 'size_y': 0.5, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.008, 'stone': 'granite'}, 'color': (0.218, 0.178, 0.163), 'roughness': 0.71}),
-    ('sora', {'family': 'gravel', 'params': {'grade': 'coarse'}, 'color': (0.258, 0.229, 0.188), 'roughness': 0.95}),
-    ('murske', {'family': 'gravel', 'params': {'grade': 'coarse'}, 'color': (0.258, 0.229, 0.188), 'roughness': 0.95}),
+    ('sora', {'family': 'gravel', 'params': {'grade': 'coarse'}, 'color': (0.304, 0.275, 0.233), 'roughness': 0.95}),
+    ('murske', {'family': 'gravel', 'params': {'grade': 'coarse'}, 'color': (0.304, 0.275, 0.233), 'roughness': 0.95}),
     ('hiekka', {'family': 'sand', 'params': {}, 'color': (0.35, 0.292, 0.204), 'roughness': 0.96}),
     ('betoni', {'family': 'paving', 'params': {'size_x': 1.2, 'size_y': 1.2, 'bond': 'stack', 'tone': 0.5, 'joint_m': 0.004, 'stone': 'concrete'}, 'color': (0.279, 0.272, 0.26), 'roughness': 0.85}),
-    ('nurmi', {'family': 'grass', 'params': {'mown': 1.0}, 'color': (0.065, 0.12, 0.026), 'roughness': 0.92}),
-    ('niitty', {'family': 'grass', 'params': {'mown': 0.2}, 'color': (0.065, 0.12, 0.027), 'roughness': 0.92}),
+    ('nurmi', {'family': 'grass', 'params': {'mown': 1.0}, 'color': (0.109, 0.165, 0.039), 'roughness': 0.96}),
+    ('niitty', {'family': 'grass', 'params': {'mown': 0.2}, 'color': (0.109, 0.165, 0.039), 'roughness': 0.96}),
     ('metsä', {'family': 'soil', 'params': {'kind': 'forest'}, 'color': (0.054, 0.045, 0.024), 'roughness': 0.95}),
     ('kasvillisuus', {'family': 'soil', 'params': {'kind': 'bed'}, 'color': (0.045, 0.035, 0.02), 'roughness': 0.95}),
     ('istutus', {'family': 'soil', 'params': {'kind': 'bed'}, 'color': (0.045, 0.035, 0.02), 'roughness': 0.95}),
 )
 # By use, when the surface text says nothing.
 BY_USE = {
-    'street-low': {'family': 'asphalt', 'params': {'tone': 0.45, 'grain': 0.8}, 'color': (0.129, 0.126, 0.122), 'roughness': 0.87},
-    'street-high': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.4}, 'color': (0.143, 0.14, 0.136), 'roughness': 0.88},
-    'green': {'family': 'grass', 'params': {'mown': 0.7}, 'color': (0.065, 0.12, 0.027), 'roughness': 0.92},
+    'street-low': {'family': 'asphalt', 'params': {'tone': 0.7}, 'color': (0.172, 0.172, 0.172), 'roughness': 0.93},
+    'street-high': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
+    'green': {'family': 'grass', 'params': {'mown': 0.7}, 'color': (0.109, 0.165, 0.039), 'roughness': 0.96},
 }
 # OpenStreetMap tags -> cover, for land the city's registers do not describe (yards, lots). First match wins.
 OSM = (
@@ -67,19 +68,19 @@ OSM = (
     (('amenity', ('parking',)), 'asphalt-yard'),
 )
 NAMED = {
-    'grass': {'family': 'grass', 'params': {'mown': 0.8}, 'color': (0.065, 0.12, 0.026), 'roughness': 0.92},
+    'grass': {'family': 'grass', 'params': {'mown': 0.8}, 'color': (0.109, 0.165, 0.039), 'roughness': 0.96},
     'planting': {'family': 'soil', 'params': {'kind': 'bed'}, 'color': (0.045, 0.035, 0.02), 'roughness': 0.95},
     'rock': {'family': 'bedrock', 'params': {}, 'color': (0.183, 0.174, 0.165), 'roughness': 0.85},
     'sand': {'family': 'sand', 'params': {}, 'color': (0.35, 0.292, 0.204), 'roughness': 0.96},
     # A cycle lane on the carriageway: Turku paints them red.
-    'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.5, 'tint': '#92807a', 'grain': 0.6}, 'color': (0.156, 0.116, 0.106), 'roughness': 0.87},
-    'gravel': {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.231, 0.205, 0.165), 'roughness': 0.95},
-    'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.5}, 'color': (0.146, 0.143, 0.138), 'roughness': 0.88},
+    'cycle-lane': {'family': 'asphalt', 'params': {'tone': 0.7, 'tint': '#92807a'}, 'color': (0.198, 0.149, 0.134), 'roughness': 0.93},
+    'gravel': {'family': 'gravel', 'params': {'grade': 'fine'}, 'color': (0.273, 0.248, 0.21), 'roughness': 0.95},
+    'asphalt-yard': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
     'pavers-yard': {'family': 'paving', 'params': {'size_x': 0.14, 'size_y': 0.21, 'bond': 'running', 'tone': 0.5, 'joint_m': 0.005, 'stone': 'concrete'}, 'color': (0.237, 0.231, 0.219), 'roughness': 0.86},
     'setts-yard': {'family': 'setts', 'params': {'size_x': 0.09, 'size_y': 0.09, 'tone': 0.5}, 'color': (0.171, 0.149, 0.135), 'roughness': 0.81},
     # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
-    'unmapped': {'family': 'asphalt', 'params': {'tone': 0.55, 'grain': 0.5}, 'color': (0.146, 0.143, 0.138), 'roughness': 0.88},
-    'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.273, 0.252, 0.241), 'roughness': 0.82},
+    'unmapped': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
+    'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.296, 0.261, 0.242), 'roughness': 0.81},
     'paint': {'family': 'road_paint', 'params': {'colour': '#eeeeea', 'wear': 0.35}, 'color': (0.729, 0.729, 0.681), 'roughness': 0.63},
 }
 

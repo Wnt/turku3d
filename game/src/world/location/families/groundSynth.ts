@@ -1,6 +1,7 @@
 // Procedural ground surfaces: albedo, normal with height, and occlusion/roughness maps synthesised from metric
-// parameters. No photographs and no stored textures: a cover named by the ground kind (`asphalt`, `paving`,
-// `setts`, ...) becomes maps here, at the reference texel density of docs/design/render-readiness.md (M4), on a
+// parameters, for the covers whose pattern is a parameter (`paving`, `setts`, `cobbles`, paint) or that the
+// photographic library lacks (`soil`, `sand`, `bedrock`); ground.ts draws the others from the library. A cover
+// becomes maps here at the reference texel density of docs/design/render-readiness.md (M4), on a
 // tile that is a whole number of pattern repeats so it wraps without a seam. The height map with `reliefM` is the
 // displacement a later geometry path can apply (G1). Pure functions on typed arrays: this also runs in Node.
 
@@ -258,38 +259,11 @@ const GRANITE: Array<[Rgb, number]> = [
 const FIELD_STONE: Array<[Rgb, number]> = [
   [[0.20, 0.19, 0.18], 0.4], [[0.16, 0.13, 0.10], 0.2], [[0.24, 0.17, 0.14], 0.15], [[0.11, 0.11, 0.115], 0.15], [[0.30, 0.28, 0.25], 0.1],
 ];
-const PEBBLE: Array<[Rgb, number]> = [
-  [[0.30, 0.27, 0.22], 0.4], [[0.22, 0.20, 0.17], 0.25], [[0.38, 0.35, 0.30], 0.2], [[0.24, 0.17, 0.13], 0.1], [[0.13, 0.13, 0.13], 0.05],
-];
 
 function pick(palette: Array<[Rgb, number]>, t: number): Rgb {
   let sum = 0;
   for (const [colour, weight] of palette) { sum += weight; if (t < sum) return colour; }
   return palette[palette.length - 1][0];
-}
-
-function asphalt(p: GroundParams): GroundMaps {
-  const tone = num(p.tone, 0.5), grain = num(p.grain, 0.6);
-  const tint = hex(p.tint);
-  const c = canvas(2.0, 2.0);
-  const stones = cells(c, mix(0.006, 0.012, grain), 11);
-  const mottle = fbm(c, 0.45, 4, 21), fine = fbm(c, 0.02, 3, 31), wearMap = fbm(c, 0.9, 3, 41);
-  // Old asphalt is pale: the binder wears off and the aggregate shows. New asphalt is black and closed.
-  const binder = mix(0.035, 0.175, tone);
-  for (let k = 0; k < c.r.length; k++) {
-    const worn = clamp01(0.15 + 0.75 * tone + (wearMap[k] - 0.5) * 0.5);
-    const inside = smooth(0.0004, 0.0022, stones.edge[k]);
-    const shows = stones.id[k] < worn ? inside : 0;
-    const stone = binder * mix(1.5, 3.6, stones.id2[k] * stones.id2[k]);
-    let value = mix(binder * mix(0.8, 1.05, fine[k]), stone, shows);
-    value *= 1 + (mottle[k] - 0.5) * 0.22;
-    const warm = stones.id2[k] > 0.7 ? 1.06 : 1.0;
-    if (tint) paint(c, k, [tint[0] * value * 4, tint[1] * value * 4, tint[2] * value * 4]);
-    else paint(c, k, [value * warm, value, value * (2 - warm) * 0.99]);
-    c.height[k] = shows * 0.0012 * mix(0.6, 1, stones.id[k]) + fine[k] * 0.0006 - (1 - inside) * 0.0006;
-    c.rough[k] = mix(0.93, 0.8, shows * 0.7) - (1 - tone) * 0.06;
-  }
-  return pack(c, 0.35);
 }
 
 function paving(p: GroundParams): GroundMaps {
@@ -378,68 +352,6 @@ function cobbles(p: GroundParams): GroundMaps {
   return pack(c, 0.8);
 }
 
-function gravel(p: GroundParams): GroundMaps {
-  const fine = p.grade !== 'coarse', packed = num(p.packed, 0);
-  const c = canvas(2.0, 2.0);
-  const stones = cells(c, fine ? 0.007 : 0.014, 201), big = cells(c, fine ? 0.02 : 0.035, 211);
-  const mottle = fbm(c, 0.5, 4, 221), dust = fbm(c, 0.02, 3, 231);
-  for (let k = 0; k < c.r.length; k++) {
-    const large = big.id[k] > mix(0.7, 0.9, packed) ? smooth(0.001, 0.004, big.edge[k]) : 0;
-    const top = Math.max(large, smooth(0.0004, 0.002, stones.edge[k]) * mix(1, 0.45, packed));
-    const stone = pick(PEBBLE, large > 0 ? big.id2[k] : stones.id[k]);
-    const shade = mix(0.75, 1.2, large > 0 ? big.id[k] : stones.id2[k]) * (1 + (mottle[k] - 0.5) * 0.3);
-    const sandTone = mix(0.7, 1.15, dust[k]) * (1 + (mottle[k] - 0.5) * 0.3);
-    const sand: Rgb = [0.2 * sandTone, 0.175 * sandTone, 0.135 * sandTone];
-    paint(c, k, [mix(sand[0], stone[0] * shade, top), mix(sand[1], stone[1] * shade, top), mix(sand[2], stone[2] * shade, top)]);
-    c.height[k] = top * (large > 0 ? 0.006 : 0.0025) + dust[k] * 0.001 + mottle[k] * 0.004;
-    c.rough[k] = 0.95;
-  }
-  return pack(c, 0.7);
-}
-
-function grass(p: GroundParams): GroundMaps {
-  const mown = num(p.mown, 0.8);
-  const c = canvas(2.0, 2.0);
-  const { w, h } = c;
-  // Blades: streaks in three directions laid over each other, each a noise stretched along its direction.
-  const along = noise(w, h, 21, 416, 241), across = noise(w, h, 416, 21, 251);
-  const tuft = fbm(c, 0.12, 4, 261), patch = fbm(c, 0.8, 3, 271), dry = fbm(c, 0.35, 3, 281), tiny = fbm(c, 0.008, 2, 291);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const k = y * w + x;
-    // The third direction reads the first two along a sheared path, which keeps it tileable.
-    const diagonal = along[((y + x) % h) * w + x] * 0.5 + across[y * w + (x + y) % w] * 0.5;
-    const blade = Math.max(along[k], across[k], diagonal);
-    const lush = clamp01(0.5 + (patch[k] - 0.5) * 1.6 + (tuft[k] - 0.5) * 0.8);
-    const light: Rgb = [0.105, 0.185, 0.04], dark: Rgb = [0.028, 0.062, 0.014], straw: Rgb = [0.21, 0.19, 0.075], soil: Rgb = [0.045, 0.035, 0.022];
-    const depth = smooth(0.35, 0.8, blade) * mix(0.7, 1, tiny[k]);
-    let r = mix(dark[0], light[0], depth * mix(0.6, 1, lush));
-    let g = mix(dark[1], light[1], depth * mix(0.6, 1, lush));
-    let b = mix(dark[2], light[2], depth * mix(0.6, 1, lush));
-    const dead = smooth(0.62, 0.8, dry[k]) * (1 - mown * 0.3) * smooth(0.5, 0.8, blade);
-    r = mix(r, straw[0], dead * 0.6); g = mix(g, straw[1], dead * 0.6); b = mix(b, straw[2], dead * 0.6);
-    const bare = smooth(0.72, 0.86, 1 - tuft[k]) * (1 - depth) * 0.7;
-    paint(c, k, [mix(r, soil[0], bare), mix(g, soil[1], bare), mix(b, soil[2], bare)]);
-    c.height[k] = depth * mix(0.05, 0.02, mown) * mix(0.5, 1, tuft[k]) + tuft[k] * 0.02;
-    c.rough[k] = 0.92;
-  }
-  return pack(c, 0.85);
-}
-
-function kerbstone(): GroundMaps {
-  const c = canvas(1.0, 1.0);
-  const crystal = cells(c, 0.0045, 341), stain = fbm(c, 0.4, 4, 351), pit = fbm(c, 0.006, 2, 361);
-  for (let k = 0; k < c.r.length; k++) {
-    // Grey granite, bush-hammered: pale, speckled with dark mica and a little red feldspar.
-    const t = crystal.id[k];
-    const body: Rgb = t < 0.2 ? [0.07, 0.07, 0.075] : t > 0.86 ? [0.36, 0.25, 0.21] : [0.33, 0.32, 0.31];
-    const shade = mix(0.85, 1.12, crystal.id2[k]) * (1 + (stain[k] - 0.5) * 0.3);
-    paint(c, k, [body[0] * shade, body[1] * shade, body[2] * shade]);
-    c.height[k] = pit[k] * 0.0012 + smooth(0, 0.001, crystal.edge[k]) * 0.0004;
-    c.rough[k] = 0.82;
-  }
-  return pack(c, 0.3);
-}
-
 function roadPaint(p: GroundParams): GroundMaps {
   const colour = hex(p.colour) ?? [0.82, 0.82, 0.8] as Rgb;
   const wear = num(p.wear, 0.35);
@@ -499,7 +411,7 @@ function bedrock(): GroundMaps {
 }
 
 const FAMILIES: Record<string, (params: GroundParams) => GroundMaps> = {
-  asphalt, paving, setts, cobbles, gravel, grass, soil, sand, bedrock, kerbstone, road_paint: roadPaint,
+  paving, setts, cobbles, soil, sand, bedrock, road_paint: roadPaint,
 };
 
 export const GROUND_FAMILIES = Object.keys(FAMILIES);
