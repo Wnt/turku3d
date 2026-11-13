@@ -699,7 +699,13 @@ def build(
     depth = spec.get("recess_m", 0.1)
     ring = np.asarray(mesh.orient(shape, 1.0).exterior.coords)[:-1]
     if kind != "gateway":
-        mesh.ring_walls(soup, "walls", wall_material, ring, -depth, 0.0, outward=False)
+        # The reveal is in the wall's shade: the deeper the opening sits, the less sky its sides see.
+        reveal = (
+            wall_material
+            if depth < 0.06
+            else palette.occluded(wall_material, 0.78 if depth < 0.18 else 0.62)
+        )
+        mesh.ring_walls(soup, "walls", reveal, ring, -depth, 0.0, outward=False)
     if kind in ("window", "vent"):
         frame = spec.get("frame", {})
         frame_width = frame.get("width_m", 0.07)

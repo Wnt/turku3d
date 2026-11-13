@@ -92,6 +92,15 @@ class Palette:
         params.update({k: v for k, v in overrides.items() if v is not None})
         return {"family": family, **params}
 
+    def occluded(self, key: str, factor: float) -> str:
+        """The material of a key, darker: a surface little sky reaches (a window reveal, a balcony recess). It
+        stands in for ambient occlusion until the renderer has it; then this is the one place to remove."""
+        record = dict(self.records[key])
+        for name in ("colour", "colour2"):
+            if name in record:
+                record[name] = shade(record[name], factor)
+        return self.key(record)
+
     def key(self, material=None, fallback=None, **overrides) -> str:
         record = self.record(material, fallback, **overrides)
         key = json.dumps(record, sort_keys=True)
