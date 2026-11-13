@@ -35,6 +35,7 @@ from .prepare import prepare
 VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible in it
 # Tiers by rule, from what the street sees of a building (prepare.street_presence):
 READ_AREA_M2 = 40.0  # less facade than this in sight: not read, the building stays at the automatic tier
+VIEW_SHARE = 0.02  # a building filling this much of an asked view is read however small its street front
 REVIEW_FRONTAGE_M = 8.0  # a street frontage at least this long is reviewed against its drawing after the reading
 
 
@@ -182,7 +183,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
     """The scene, the buildings asked for and why each was selected."""
     why: dict = {}
     if args.view:
-        rows = [json.loads(line) for line in (REPO / "qa/views/views.jsonl").read_text().splitlines() if line.strip()]
+        rows = [json.loads(line) for line in args.views_file.read_text().splitlines() if line.strip()]
         views = [r for r in rows if r["id"] in set(args.view)]
         missing = set(args.view) - {r["id"] for r in views}
         if missing:
@@ -218,6 +219,8 @@ def main(argv=None) -> int:
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
     ap.add_argument("--radius", type=float, default=0.0)
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
+    ap.add_argument("--views-file", type=Path, default=REPO / "qa/views/views.jsonl",
+                    help="the view set --view names come from (one JSON view per line)")
     ap.add_argument("--effort", default=reader.EFFORT)
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
@@ -293,7 +296,7 @@ def main(argv=None) -> int:
         target = root / "descriptions/building" / f"{b.id}.json"
         if a.command != "describe":
             print(json.dumps(line, ensure_ascii=False), flush=True)
-        elif record["street"]["area_m2"] < READ_AREA_M2:
+        elif record["street"]["area_m2"] < READ_AREA_M2 and max(why.get(b.id, {}).values(), default=0) < VIEW_SHARE:
             line["skipped"] = "the street sees too little of it: it stays at the automatic tier"
             print(json.dumps(line, ensure_ascii=False), flush=True)
         elif target.exists() and not a.force:
@@ -302,8 +305,9 @@ def main(argv=None) -> int:
             print(json.dumps(line, ensure_ascii=False), flush=True)
         else:
             jobs.append((b.id, record, packet))
-    # The buildings the street sees most of come first, so a budget ends on the least salient.
-    jobs.sort(key=lambda job: -job[1]["street"]["area_m2"])
+    # The buildings that fill most of the asked views, then those the street sees most of, come first, so a
+    # budget ends on the least salient.
+    jobs.sort(key=lambda job: (-sum(why.get(job[0], {}).values()), -job[1]["street"]["area_m2"]))
     spent = [0.0]
 
     def describe(job):
