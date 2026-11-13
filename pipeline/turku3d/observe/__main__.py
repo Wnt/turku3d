@@ -42,7 +42,7 @@ from turku3d import config
 
 from . import check, elevation, lod2, reader
 from .panoramas import REPO, Panoramas
-from .prepare import blocked_walls, other_views, prepare
+from .prepare import blocked_walls, other_views, prepare, street_presence
 
 VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible in it
 # Tiers by rule, from what the street sees of a building (prepare.street_presence):
@@ -448,7 +448,9 @@ def main(argv=None) -> int:
         described = (a.command == "describe" and not a.force and (packet / "views.json").exists()
                      and (root / "descriptions/building" / f"{b.id}.json").exists())
         if described:  # it will not be read again: its views are not prepared again either
-            return json.loads((packet / "views.json").read_text()), 0.0
+            record = json.loads((packet / "views.json").read_text())
+            record.setdefault("street", street_presence(b, record["crops"]))  # packets older than that measure
+            return record, 0.0
         if a.prepared and (packet / "views.json").exists():
             record = json.loads((packet / "views.json").read_text())
             if all((packet / Path(c["file"]).name).exists() for c in record["crops"] + record["contexts"]):
