@@ -16,7 +16,7 @@ from . import hedges, inventory, lidar, osm, tufts
 # Names the measuring method. Change it when a cell would be measured differently (lidar.py, inventory.py,
 # hedges.py, osm.py or this file): every location then re-measures, 20 to 60 s for a pilot location and minutes a
 # lidar tile on a loaded host, so an edit that measures the same must leave it alone.
-RECIPE = "20261113-beds-cover"
+RECIPE = "20261113-beds-paving-cover"
 
 
 PAVED = ("asfaltti", "betoni", "kivi", "laatta", "sora", "murske", "kiveys")  # Pintamateriaali of hard ground in both registers
@@ -62,15 +62,13 @@ def cell(i: int, j: int, features) -> dict:
             for part in getattr(shape, "geoms", [shape]) if part.geom_type == "Polygon"]
     result.update(hedges.measure(box, window, lines, result.pop("window_trees"), fences, public, beds, paved))
     # Unmown ground: the register's parts first, OpenStreetMap's where the city keeps no ground.
-    massed = {mass.get("bed") for mass in result["masses"]}
-    areas = [("m", bed["shape"]) for bed in beds if bed["key"] not in massed]
-    areas += [(kind, shape) for feature, shape in greens
+    areas = [(kind, shape) for feature, shape in greens
              if (kind := tufts.kind_of(str(feature.attrs.get("Viheralueosalaji", "")), str(feature.attrs.get("Kunnossapitoluokka_koodi", "")),
                                        str(feature.attrs.get("Pintamateriaali", ""))))]
     for row in mapped.get("rough", []):
         kind = "f" if any(row["tags"].get(key) in values for key, values in tufts.OSM_FOREST.items()) else "m"
         areas.append((kind, row["shape"].difference(public)))
-    bare = shapely.union_all([paved.buffer(0.2), *(bed["shape"] for bed in beds if bed["key"] in massed)])
+    bare = shapely.union_all([paved.buffer(0.2), *(bed["shape"] for bed in beds)])
     found = tufts.cover(box, window, areas, bare)
     if found:
         result["cover"] = found

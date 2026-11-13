@@ -24,9 +24,10 @@ MEADOW_CLASSES = ("A1", "A2", "A3", "A4", "A5", "EH")
 OSM_MEADOW = {"landuse": ("meadow",), "natural": ("grassland", "scrub", "heath")}
 OSM_FOREST = {"landuse": ("forest",), "natural": ("wood",)}
 # What grows on a square metre: (atlas cell, cards, metres across a card (low, high), (brightness, warmth)).
+# Many small tufts close to the ground's own green read as long grass; few large pale ones read as weeds on a lawn.
 PLANTS = {
-    "m": (("grass", 1.6, (0.55, 0.95), (0.95, 0.06)), ("meadow", 0.8, (0.8, 1.25), (1.0, 0.08))),
-    "f": (("grass", 0.45, (0.4, 0.7), (0.8, 0.02)), ("rowan", 0.3, (0.5, 0.9), (0.85, 0.0))),
+    "m": (("grass", 3.2, (0.35, 0.65), (0.8, 0.03)), ("meadow", 0.5, (0.7, 1.1), (0.9, 0.06))),
+    "f": (("grass", 1.2, (0.3, 0.5), (0.68, 0.0)), ("rowan", 0.2, (0.45, 0.8), (0.78, 0.0))),
 }
 FAR = (0.25, 1.5)  # the distant level: this share of the cards, this much larger
 

@@ -179,6 +179,10 @@ def measure_crown(e, n, h, cls, rgb, first, cells_e, cells_n, hits: float) -> di
     base = float(np.clip(base, 0.5, 0.75 * height))
     widest_at = float(np.clip((levels[widest] - base) / max(height - base, 0.5), 0.0, 1.0))
     upper = float(np.interp(base + 0.8 * (height - base), levels, radius)) / wide
+    # How much of the tree is its top: the share of the returns above the undergrowth that lie in the upper two
+    # fifths of its height (a pine carries its crown there, a spruce is green to the ground).
+    above = h > 2.0
+    high = float((h[above] > 0.6 * height).mean()) if above.sum() >= 8 else 0.0
 
     # The trunk: the stack of low returns nearest the crown axis.
     trunk = None
@@ -203,7 +207,7 @@ def measure_crown(e, n, h, cls, rgb, first, cells_e, cells_n, hits: float) -> di
     return {
         "height": round(height, 2), "width": round(2.0 * np.sqrt(area / np.pi), 2), "major": round(major, 2),
         "minor": round(minor, 2), "angle": round(angle, 1), "base": round(base, 2), "widestAt": round(widest_at, 2),
-        "upper": round(upper, 2), "centre": [round(ce, 2), round(cn, 2)], "trunk": trunk and [round(v, 2) for v in trunk],
+        "upper": round(upper, 2), "high": round(high, 2), "centre": [round(ce, 2), round(cn, 2)], "trunk": trunk and [round(v, 2) for v in trunk],
         "returns": int(len(h)), "through": round(float(hits) / max(firsts, 1), 3), "green": round(green, 3),
         "density": round(len(h) / area, 1),
     }

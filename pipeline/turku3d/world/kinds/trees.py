@@ -51,6 +51,7 @@ LEAF_MARGIN = 0.4  # metres added to a leaf-off broadleaf crown diameter: the fo
 ROAD_CLEAR = 4.5  # metres: the crown base of a tree whose crown reaches over a carriageway
 ROAD_TALL = 7.0  # metres: a lower tree cannot be pruned that high; its crown stops at the carriageway's edge
 ROAD_HALF = 2.5  # metres: half the carriageway of a street only OpenStreetMap draws
+WALK_CLEAR, WALK_TALL = 2.6, 5.0  # metres: the crown base over ground people walk on, of a tree at least this tall
 VERGE = 0.6  # metres from the carriageway's edge to a trunk moved off it
 # Garden conifers the scan shows green and no register names are thuja columns far more often than young spruces
 # (the photos of the detached-house dev points): a narrow column each, and a long or wide crown is a row or a clump.
@@ -121,9 +122,12 @@ def on_street(rows: list[dict], box: tuple[float, float, float, float]) -> dict[
 
 
 def carriageway(rows: list[dict], box: tuple[float, float, float, float]) -> dict[str, dict]:
-    """Trees at a carriageway: id -> {"d": metres from the trunk to the carriageway (negative: the trunk stands this
-    far inside it), "to": [e, n] the nearest ground VERGE off it, for a trunk inside}. Carriageways are the street
-    register's (GIS:Katualueet, Ajorata and Pyöräkaista) and, where it draws none, the mapped roads at ROAD_HALF."""
+    """Trees at a carriageway or at paving: id -> {"d": metres from the trunk to the carriageway (negative: the trunk
+    stands this far inside it), "to": [e, n] the nearest ground VERGE off it, for a trunk inside, "w": metres from
+    the trunk to ground people walk on (0 on it)}, each when within 15 m. Carriageways are the street register's
+    (GIS:Katualueet, Ajorata and Pyöräkaista) and, where it draws none, the mapped roads at ROAD_HALF; walked
+    ground is every hard-surfaced part of the street and green registers."""
+    from ..green.census import PAVED
     from ..street import osm
 
     if not rows:
@@ -131,27 +135,31 @@ def carriageway(rows: list[dict], box: tuple[float, float, float, float]) -> dic
     streets = registers.layer("GIS:Katualueet", box)
     low = [shapely.make_valid(shapely.force_2d(row.geometry)) for row in streets.itertuples()
            if row.geometry.geom_type == "Polygon" and str(getattr(row, "Katuosalaji", "")).lower() in ("ajorata", "pyöräkaista")]
+    walked = [shapely.make_valid(shapely.force_2d(row.geometry)) for layer in (streets, registers.layer("GIS:Viheralueet", box)) for row in layer.itertuples()
+              if row.geometry.geom_type == "Polygon" and any(word in str(getattr(row, "Pintamateriaali", "")).lower() for word in PAVED)]
     mapped = osm.features(box)
     if mapped is not None and len(mapped):
         roads = mapped[mapped.geom_type.isin(("LineString", "MultiLineString")) & mapped.highway.isin(ROADS)]
         low += [shape.buffer(ROAD_HALF, cap_style="flat") for shape in roads.geometry]
-    if not low:
-        return {}
-    area = shapely.union_all(low)
+    area = shapely.union_all(low) if low else None
+    paving = shapely.union_all(walked) if walked else None
     found = {}
     for row in rows:
         trunk = shapely.Point(row["e"], row["n"])
-        distance = float(area.distance(trunk))
-        if distance > 15.0:
-            continue
-        if distance > 0.0:
-            found[row["id"]] = {"d": round(distance, 2)}
-            continue
-        edge = area.boundary
-        inside = float(edge.distance(trunk))
-        at = edge.interpolate(edge.project(trunk))
-        out = np.array([at.x - trunk.x, at.y - trunk.y]) / max(inside, 1e-6)
-        found[row["id"]] = {"d": round(-inside, 2), "to": [round(float(at.x + out[0] * VERGE), 2), round(float(at.y + out[1] * VERGE), 2)]}
+        at = {}
+        if paving is not None and (walk := float(paving.distance(trunk))) <= 15.0:
+            at["w"] = round(walk, 2)
+        distance = float(area.distance(trunk)) if area is not None else 99.0
+        if 0.0 < distance <= 15.0:
+            at["d"] = round(distance, 2)
+        elif distance <= 0.0:
+            edge = area.boundary
+            inside = float(edge.distance(trunk))
+            to = edge.interpolate(edge.project(trunk))
+            out = np.array([to.x - trunk.x, to.y - trunk.y]) / max(inside, 1e-6)
+            at.update({"d": round(-inside, 2), "to": [round(float(to.x + out[0] * VERGE), 2), round(float(to.y + out[1] * VERGE), 2)]})
+        if at:
+            found[row["id"]] = at
     return found
 
 
@@ -347,7 +355,11 @@ def off_carriageway(tree: dict, at: dict | None) -> dict | None:
         return tree
     crown = dict(tree["crown"])
     reach = (crown["major"] + crown["minor"]) / 4
-    distance = at["d"]
+    if reach > at.get("w", 99.0) and tree["height"] >= WALK_TALL:
+        # Boughs over a footway, a square or a park path are cut to walking height: what the scan returns under
+        # such a crown is people, stalls and parked things.
+        crown["base"] = round(max(crown["base"], min(WALK_CLEAR, 0.5 * tree["height"])), 2)
+    distance = at.get("d", 99.0)
     if distance < 0:
         if tree["source"] != "lidar":
             distance = 0.0  # a surveyed trunk: the register's place is kept, its boughs are lifted

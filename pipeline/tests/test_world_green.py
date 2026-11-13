@@ -167,7 +167,8 @@ def test_a_register_bed_is_a_shrub_mass_and_nothing_grows_on_paving():
     found = hedges.measure((0.0, 0.0, 40.0, 40.0), window, [], beds=beds, paved=shapely.box(20.0, 0.0, 28.0, 40.0))
     lidar_only = [m for m in found["masses"] if "open" not in m]
     assert len(lidar_only) == 1 and 4.0 < np.mean(lidar_only[0]["ring"], axis=0)[0] < 9.0 and not found["shrubs"] and not found["hedges"]
-    bed, = [m for m in found["masses"] if "open" in m]  # the bed the scan shows nothing on is no mass
+    bed, unseen = sorted([m for m in found["masses"] if "open" in m], key=lambda m: m["bed"])
+    assert unseen["bed"] == "lawn" and unseen["height"] == hedges.BED_DEFAULT  # planted all the same: leafless twigs return little
     ring = np.array(bed["ring"])
     assert bed["bed"] == "bed" and 0.8 < bed["height"] < 1.0 and ring[:, 0].max() == 40.0  # cut at the cell's edge
     assert [bool(flag) for flag in bed["open"]] == [bool(e == 40.0) for e in ring[:, 0]]
@@ -197,5 +198,5 @@ def test_a_meadow_grows_grass_and_flowers_on_its_ground_but_not_on_the_path_thro
     assert not ((foot[:, 0] > 10.7) & (foot[:, 0] < 13.3)).any()  # the path is bare
     assert np.abs(foot[:, 1] - (10.0 + 0.1 * foot[:, 0])).max() < 0.2  # each card stands on the slope
     meadow, forest = (east < 30).sum() / 30, (east > 30).sum() / 32.5
-    assert meadow > 2.5 * forest and len(tufts.cards(cover, 3, far=True)["triangles"]) < 0.4 * len(grown["triangles"])
+    assert meadow > 1.8 * forest and len(tufts.cards(cover, 3, far=True)["triangles"]) < 0.4 * len(grown["triangles"])
     assert tufts.cover(box, FakeWindow((-16.0, -16.0, 78.5, 78.5), [], [], []), [("m", shapely.box(100, 100, 120, 120))], None) is None

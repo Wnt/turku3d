@@ -42,8 +42,9 @@ MAPPED_DEFAULT = (0.9, 1.4)  # width and height where the scan measures nothing 
 MAPPED_LEAST = (0.7, 0.8)  # a hedge somebody mapped is at least this wide and tall
 SAME_HEDGE = 1.5  # metres: a mapped line this near one already built is the same hedge drawn by the other map
 PAVED_EDGE = 0.3  # metres a plant may hang over the edge of paving
-BED_SEEN = 0.4  # share of a bed's cells the scan must show planted for the bed to be one mass
-BED_HEIGHT = (0.5, 2.0)
+BED_SEEN = 0.15  # share of a bed's cells the scan must show planted to give the bed's height
+BED_HEIGHT = (0.6, 2.0)
+BED_DEFAULT = 0.9  # metres in the scan's terms (the summer top is added as for a hedge): a bed the scan shows little of
 ROW_LINK = 1.25  # metres between the single returns of one row
 ROW_LENGTH = 8.0  # metres: the shortest row of single returns that is a hedge
 ROW_HALF = 0.6  # metres to either side of its centre line in which a row's returns lie
@@ -363,10 +364,11 @@ def simple(polygon, least: float = 4.0):
 
 
 def bed_masses(beds: list[dict], cell, grid: dict, box, window, hedged, used: np.ndarray) -> list[dict]:
-    """The register's planting beds the scan shows planted over BED_SEEN of their ground, as shrub masses of the
-    bed's outline at the scan's height, cut to the cell (`open` marks the vertices on the cut). A bed the scan shows
-    less of keeps what the scan finds on it (the dev points' photos show lawn or weeds on such beds as often as
-    shrubs); its ground is unmown. What a hedge already built covers is left out."""
+    """The register's planting beds as shrub masses of the bed's outline, cut to the cell (`open` marks the vertices
+    on the cut). The scan gives the height where it shows BED_SEEN of the bed planted. A bed it shows less of is
+    planted all the same (the dev points' photos show a bank of spiraea or a metre of weeds and saplings on such
+    beds: leafless twigs return little in April) and stands at BED_DEFAULT. What a hedge already built covers is
+    left out."""
     import shapely
 
     masses = []
@@ -380,11 +382,9 @@ def bed_masses(beds: list[dict], cell, grid: dict, box, window, hedged, used: np
             continue
         planted = grid["planted"][rs, cs] & inside
         seen = float(planted.sum()) / max(int(inside.sum()), 1)
-        if seen < BED_SEEN:
-            continue
         used[rs, cs] |= inside
-        height = float(np.clip(np.median(grid["top"][rs, cs][planted]), *BED_HEIGHT))
-        green = float(grid["green"][rs, cs][planted].mean())
+        height = float(np.clip(np.median(grid["top"][rs, cs][planted]), *BED_HEIGHT)) if seen >= BED_SEEN else BED_DEFAULT
+        green = float(grid["green"][rs, cs][planted].mean()) if planted.any() else 0.0
         for k, piece in enumerate(getattr(shape.intersection(cell), "geoms", [shape.intersection(cell)])):
             if piece.geom_type != "Polygon" or piece.area < 1.5:
                 continue
