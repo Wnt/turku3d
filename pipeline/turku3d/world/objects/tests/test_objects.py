@@ -315,3 +315,40 @@ def test_fence_panels_and_posts_carry_a_mass_for_falling():
                    "interaction": {"behaviour": "breakable", "collision": {"shape": "box", "size": [2.0, 1.0, 0.1]}, "mass": 6.0}}
     panels, posts = fence.Fence().compile(description).instances
     assert panels.mass == 6.0 and posts.mass == 6.0 and len(posts.ids) == len(panels.ids) + 1
+
+
+def test_a_lane_sign_hangs_from_the_wire_over_its_lane_without_a_post():
+    wire = {"a": [0.0, 0.0, 17.0], "b": [20.0, 0.0, 17.0], "sag": 0.4}
+    assert signpost._wire_over([wire], 10.0, 1.0) == pytest.approx(16.6)
+    assert signpost._wire_over([wire], 10.0, 4.0) is None  # beyond its reach
+    description = {"id": "signpost/t", "at": [23458500.0, 6704150.0, 10.0], "plates": [{"code": "D1.3"}], "facing": {"bearing": 0.0},
+                   "support": {"type": "span", "height": 6.6}, "interaction": {"behaviour": "fixed"}}
+    (plate,) = signpost.SignPost().compile(description).instances
+    height = signpost.plate_face("D1.3", "", "", False).size[1]
+    assert plate.ids == ["signpost/t#plate0"] and plate.collision is None and plate.behaviour == "fixed"
+    assert float(np.asarray(plate.transforms)[0, 1]) == pytest.approx(6.6 - height, abs=0.06)
+
+
+def test_a_turn_lane_left_of_a_straight_on_lane_turns_left():
+    from turku3d.world.api import Stub
+
+    def hung(e, code):  # faces look south: the driver comes north, the driver's right is east
+        return Stub(f"signpost/s{e}", (e, 0, e, 0), [], {"at": [e, 0.0, 0.0], "support": {"type": "span"}, "facing": {"bearing": 180.0},
+                                                        "plates": [{"code": code}]})
+
+    row = [hung(0.0, "D1.4"), hung(3.0, "D1.3"), hung(6.0, "D1.4")]
+    signpost._lane_rows(row)
+    assert [stub.facts["plates"][0]["code"] for stub in row] == ["D1.5", "D1.3", "D1.4"]
+
+
+def test_stop_signs_have_two_faces_the_diamond_hangs_under_a_prohibition_and_a_mast_is_drawn():
+    def row(ident, code):
+        return {"id": ident, "code": code, "label": "", "note": "", "e": 0.0, "n": 0.0}
+
+    assert [(p["code"], p.get("turn", 0)) for p in signpost._plates([row("1", "E6")])] == [("E6", 0), ("E6", 180)]
+    assert [p["code"] for p in signpost._plates([row("1", "B1"), row("2", "C37")])] == ["C37", "B1"]
+    assert [p["code"] for p in signpost._plates([row("1", "C38"), row("2", "B5")])] == ["B5", "C38"]
+    description = {"id": "signpost/t", "at": [23458500.0, 6704150.0, 10.0], "plates": [{"code": "E1"}], "facing": {"bearing": 0.0},
+                   "support": {"type": "host", "host": None, "radius": 0.08, "height": 10.1}}
+    post = signpost.SignPost().compile(description).instances[0]
+    assert post.ids == ["signpost/t#post"] and post.behaviour == "fixed" and post.collision["size"] == [0.08, 10.0]

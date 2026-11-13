@@ -47,6 +47,26 @@ colours, family `sign`, params `{code, uv: "atlas", width, height, text?, blue?}
 aluminium slab. A code with no drawing gets the generic face of its class (triangle, disc, blue square, plate) and
 `known: false`.
 
+### Lane signs over the carriageway, masts, stop signs, column order (rules since 2026-11-13 12:10Z)
+
+Found in the full-world stills of the dev set beside their photos (dev_04, dev_12, dev_05):
+- **`support.type: "span"`:** a sign whose register point lies 1 m or more inside the surveyed carriageway (its
+  islands removed), with no post in the scan and no traffic-divider plate (`D3`), hangs over its lane and has no
+  post. `support.height` is the height above the ground of the lowest span or utility wire within 2.5 m of it
+  (`signpost._wire_over`, accepted between 5.8 and 8.5 m), else 6.4 m with `guessed: ["support"]`; the top of the
+  plate column is there and its lowest edge never under 5.2 m. Rows are `fixed` and carry no collision shape. Within
+  90 m of the dev_04 camera this takes ten plates, all lane direction signs (`D1.3` to `D1.5`); before, each stood on
+  a post in its lane. The wire of a row where the scan found none is not drawn yet.
+- **A turn lane left of a straight-on lane turns left:** the register writes `D1.4` for both turn lanes of a row; in a
+  row of hung signs (18 m, faces within 25 degrees) a `D1.4` with a `D1.3` on the driver's right becomes `D1.5`
+  (`code_basis`, `guessed: ["plates"]`).
+- **A mast in no register:** plates whose scan pole is taller than 5.5 m and is no register lamp (`support.host:
+  null`) keep its measured `support.height`, and the entity draws that pole (`#post`, fixed, radius 0.08 m): nobody
+  else does.
+- **Stop signs (`E6`, `E7`) always have two faces**, back to back; `E6` is drawn as the yellow local-bus stop sign.
+- **Column order:** give way and stop first, then prohibitions, then the priority-road diamond (`B1`, `B2`), then the
+  other classes, additional plates last.
+
 ## `turku-description/lamp/1`
 
 | Field | Meaning |

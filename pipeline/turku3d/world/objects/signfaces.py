@@ -312,7 +312,12 @@ def main_face(code: str, label: str) -> tuple[object, list, bool] | None:
             outer, layers = panel(PLATE_W, 0.32)
             cars = shapely.union_all([rect(0.1, 0.2, (x, 0), 0.02) for x in (-0.18, 0.0, 0.18)])
             return outer, layers + [(WHITE, affinity.rotate(cars, -25 if code.endswith(".3") else 0, origin=(0, 0)))], True
-        if head in ("E6", "E7"):
+        if head == "E6":
+            # The stop sign of local buses is the yellow one (dev_05's stop is photographed so); the blue one marks
+            # a long-distance stop, which the register does not tell apart.
+            outer, layers = panel(SQUARE, SQUARE, colour=YELLOW, rim=BLACK)
+            return outer, layers + [(BLACK, place(bus(), 0.42))], True
+        if head == "E7":
             outer, layers = panel(SQUARE, SQUARE)
             return outer, layers + [(WHITE, rect(0.46, 0.46, corner=0.02)), (BLACK, place(bus(), 0.42))], True
         if head == "E8":

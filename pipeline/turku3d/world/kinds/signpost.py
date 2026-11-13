@@ -12,12 +12,13 @@ import math
 from pathlib import Path
 
 import numpy as np
+import shapely
 
 from functools import lru_cache
 
 from ..api import Area, Instances, Output, Stub
 from ..frame import to_engine
-from ..objects import registers, signfaces
+from ..objects import registers, signfaces, spans, wires
 from ..objects.common import ALUMINIUM, GALVANISED, SIGN_BACK, box_of, describe, interaction, sign_material, yaw_of_bearing, unique
 from ..objects.mesh import Mesh
 
@@ -26,6 +27,9 @@ SAME_POST = 0.5  # m: register plates this close share a support
 PLATE_REACH = 1.2  # m: an additional plate alone joins the nearest main sign this close
 TWIN = 0.35  # m: the same code this close is the other face of a two-sided sign, or the row twice
 GIVE_WAY = ("B5", "B6")  # give way, stop
+PRIORITY_ROAD = ("B1", "B2")
+STOP_SIGNS = ("E6", "E7")  # bus and tram stop: read from both directions along the pavement, always two faces
+MAST = 0.08  # m: radius of a tall pole that carries plates and is in no register
 TWO_SIDED = ("E1", "E6", "E24", "E25", "E26", "E27", "F24")
 HOST_REACH = 0.8  # m: a register lamp pole this close to the plates carries them
 POST_RADIUS = 0.03
@@ -34,6 +38,12 @@ GAP = 0.03
 PLATE_THICKNESS = 0.003
 STANDOFF = 0.02  # m between the post and the back of a plate: the clamp rail
 CLASS_ORDER = "BCDEAFG"
+OVER_LANE = 1.0  # m inside the carriageway edge: a sign there with no post in the scan hangs over its lane
+ISLAND_SIGNS = ("D3",)  # traffic dividers stand on an island even where the register draws none
+HANG = (5.2, 8.5)  # m: the lowest edge of a hung lane sign, and the highest wire it is hung from
+LANE_HEIGHT = 6.4  # m to the top of a hung lane sign where no wire was found over it (wires found over six: 6.3 to 6.6)
+WIRE_REACH = 2.5  # m in plan from a sign to the span wire it hangs on
+ROW = 18.0  # m: lane signs this near each other over one approach hang in one row
 
 
 def _group(rows: list[dict]) -> list[list[dict]]:
@@ -67,10 +77,18 @@ def _group(rows: list[dict]) -> list[list[dict]]:
     return list(groups.values())
 
 
+def _rank(code: str) -> int:
+    """Place in the column, top first: give way and stop, prohibitions, then the priority-road diamond (dev_12: the
+    diamond hangs under the no-stopping sign), the rest by class."""
+    if code.split(".")[0] in PRIORITY_ROAD:
+        return CLASS_ORDER.find("C") * 2 + 1
+    return CLASS_ORDER.find(code[:1]) % 99 * 2
+
+
 def _plates(members: list[dict]) -> list[dict]:
     """The plates of one support, top first: main signs by class, then the additional plates; a second row of a
     two-sided code becomes the back face."""
-    members = sorted(members, key=lambda r: (r["code"][:1] == "H", CLASS_ORDER.find(r["code"][:1]) % 99, r["code"], r["id"]))
+    members = sorted(members, key=lambda r: (r["code"][:1] == "H", _rank(r["code"]), r["code"], r["id"]))
     plates: list[dict] = []
     for row in members:
         twin = next((p for p in plates if p["code"] == row["code"] and math.hypot(p["e"] - row["e"], p["n"] - row["n"]) <= TWIN), None)
@@ -84,6 +102,9 @@ def _plates(members: list[dict]) -> list[dict]:
                 continue  # the same plate recorded twice
             plate["turn"] = 180
         plates.append(plate)
+    for plate in [p for p in plates if p["code"].split(".")[0] in STOP_SIGNS and not p.get("turn")]:
+        if not any(q is not plate and q["code"] == plate["code"] for q in plates):
+            plates.insert(plates.index(plate) + 1, {**plate, "turn": 180, "turn_basis": "rule: a stop sign has two faces"})
     # A crossing sign that shares its post with a give-way or stop sign is the far-side sign of the crossing at the
     # mouth of that street: it faces the junction, back to back with the sign for the street's own approach
     # (portsa_03: the photo shows the crossing sign's face and the triangle's back). A rule, so the turn is marked.
@@ -103,6 +124,45 @@ def _plates(members: list[dict]) -> list[dict]:
     return plates
 
 
+def _wire_over(overhead: list[dict], e: float, n: float) -> float | None:
+    """Height (N2000) of the lowest overhead wire that passes within WIRE_REACH of a point, at its nearest point."""
+    best = None
+    for wire in overhead:
+        a, b = np.array(wire["a"], dtype=float), np.array(wire["b"], dtype=float)
+        run = b[:2] - a[:2]
+        length2 = float(run @ run)
+        if length2 < 1.0:
+            continue
+        t = float(np.clip((np.array([e, n]) - a[:2]) @ run / length2, 0.0, 1.0))
+        foot = a[:2] + run * t
+        if math.hypot(foot[0] - e, foot[1] - n) > WIRE_REACH:
+            continue
+        height = float(a[2] + (b[2] - a[2]) * t - float(wire.get("sag", 0.0)) * 4 * t * (1 - t))
+        best = height if best is None else min(best, height)
+    return best
+
+
+def _lane_rows(stubs: list[Stub]) -> None:
+    """Lane signs hung in one row over an approach: the register writes D1.4 for a turn lane whichever way it turns
+    (dev_04: its leftmost lane sign is photographed as a left turn), and a turn lane left of a lane that goes
+    straight on turns left."""
+    hung = [stub.facts for stub in stubs if stub.facts["support"].get("type") == "span"]
+    for facts in hung:
+        plates = facts["plates"]
+        if len(plates) != 1 or plates[0]["code"] != "D1.4":
+            continue
+        aim = math.radians(facts["facing"]["bearing"])  # the face looks at the driver; the driver's right is the face's left
+        right = (-math.cos(aim), math.sin(aim))
+        for other in hung:
+            de, dn = other["at"][0] - facts["at"][0], other["at"][1] - facts["at"][1]
+            turned = abs((other["facing"]["bearing"] - facts["facing"]["bearing"] + 180) % 360 - 180)
+            if other is not facts and math.hypot(de, dn) <= ROW and turned <= 25 and de * right[0] + dn * right[1] > 1.0 \
+                    and any(plate["code"] == "D1.3" for plate in other["plates"]):
+                plates[0].update({"code": "D1.5", "code_basis": "rule: a turn lane left of a straight-on lane turns left (register: D1.4)"})
+                facts.setdefault("guessed", []).append("plates")
+                break
+
+
 class SignPost:
     name = "signpost"
     code = (Path(__file__).parent.parent / "objects",)
@@ -115,6 +175,11 @@ class SignPost:
         lidar = registers.lidar_of(sources)
         lamps = registers.lamp_posts(sources, area.bbox(6.0))
         streets = registers.Streets(sources, box)
+        from .signal import carriageway  # the surveyed carriageway less its islands
+
+        road = carriageway(sources, box)
+        lanes = road.buffer(-OVER_LANE) if not road.is_empty else road
+        overhead = None
         stubs = []
         for members in _group(rows):
             mains = [r for r in members if r["code"][:1] != "H"] or members
@@ -134,7 +199,7 @@ class SignPost:
                 e, n = host["e"], host["n"]
             elif measured and measured["top"] > 5.5:
                 # A tall pole the lamp register does not list (a signal mast, a wire pole): the plates hang on it.
-                support = {"type": "host", "host": None, "radius": 0.08}
+                support = {"type": "host", "host": None, "radius": MAST, "height": measured["top"]}
                 e, n = e + measured["offset"][0], n + measured["offset"][1]
             elif measured:
                 e, n = e + measured["offset"][0], n + measured["offset"][1]
@@ -146,18 +211,37 @@ class SignPost:
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue
+            guessed = []
+            if support["type"] == "post" and measured is None and not lanes.is_empty and lanes.covers(shapely.Point(e, n)) \
+                    and not any(plate["code"].split(".")[0] in ISLAND_SIGNS for plate in plates):
+                # No post stands in a traffic lane: a sign surveyed there with none in the scan hangs over the lane
+                # from a span wire (dev_04: four lane signs on one wire across the approach).
+                if overhead is None:
+                    overhead = wires.in_box(area.bbox(10.0), sources.log)[0] + spans.in_box(sources, area.bbox(10.0))[0]
+                wire = _wire_over(overhead, e, n)
+                hang = wire - ground if wire is not None else None
+                if hang is not None and HANG[0] + 0.6 <= hang <= HANG[1]:
+                    support = {"type": "span", "height": round(hang, 2), "basis": "lidar: the span wire over the sign"}
+                else:
+                    support = {"type": "span", "height": LANE_HEIGHT, "basis": "no wire found over the sign"}
+                    guessed.append("support")
             mass = 12.0 + 4.0 * len(plates)
-            behaviour = "fixed" if support["type"] == "host" else "knock-over"
+            behaviour = "knock-over" if support["type"] == "post" else "fixed"
             facts.update({
                 "at": [round(e, 2), round(n, 2), round(ground, 2)],
                 "support": support, "facing": facing, "plates": plates,
-                "placement": "register position" + (", post axis from lidar" if measured else ", post not found in lidar"),
+                "placement": "register position" + (", post axis from lidar" if measured else ", over a traffic lane" if support["type"] == "span" else ", post not found in lidar"),
                 "interaction": interaction(behaviour, "cylinder", [0.3, 3.2], mass,
                                            **({"attached_to": support["host"]} if support.get("host") else {})),
             })
+            if guessed:
+                facts["guessed"] = guessed
+            if support["type"] == "span":
+                facts["interaction"] = {"behaviour": "fixed"}
             key = min((p["register"] for p in plates), key=lambda v: (len(v), v))
             refs = [{"source": "turku-wfs:GIS:Liikennemerkit", "key": p["register"]} for p in plates]
             stubs.append(Stub(f"signpost/s{key}", box_of(e, n, 0.5), refs, facts))
+        _lane_rows(stubs)
         return unique(stubs)
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
@@ -168,7 +252,8 @@ class SignPost:
         in the whole city); the rows of one entity move as one body."""
         support = description.get("support") or {"type": "post", "radius": POST_RADIUS}
         radius = float(support.get("radius", POST_RADIUS))
-        hosted = support.get("type") == "host"
+        hung = support.get("type") == "span"  # over a lane, on a span wire: no post
+        hosted = support.get("type") == "host" or hung
         entity = description["id"]
         block = description.get("interaction") or {}
         behaviour, mass = block.get("behaviour"), block.get("mass")
@@ -192,6 +277,8 @@ class SignPost:
         top = float(support.get("height") or 0.0)
         if hosted or not 2.0 <= top <= 4.8 or top - 0.04 - tallest < 1.0:
             top = float(description.get("clear", CLEAR)) + tallest + 0.04
+        if hung:
+            top = max(float(support.get("height", LANE_HEIGHT)), HANG[0] + tallest) + 0.04
         top = round(top * 10) / 10
         bearing = float((description.get("facing") or {}).get("bearing", 0.0))
         e, n, h = description["at"]
@@ -199,19 +286,24 @@ class SignPost:
         if not hosted:
             items.append(Instances(post_asset(top, radius), np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), ids=[f"{entity}#post"],
                                    behaviour=behaviour, collision={"shape": "cylinder", "size": [round(radius, 3), top]}, mass=mass))
+        elif not hung and support.get("host") is None and support.get("height"):
+            # A tall pole in no register (a signal mast, a wire pole) that the scan measured: nobody else draws it.
+            mast = round(float(support["height"]) * 2) / 2
+            items.append(Instances(post_asset(mast, radius), np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), ids=[f"{entity}#post"],
+                                   behaviour="fixed", collision={"shape": "cylinder", "size": [round(radius, 3), mast]}))
         rows: dict[tuple, list] = {}
         y = top - 0.04
         for height, held in slots:
             y -= height
             for turn, (index, key) in sorted(held.items()):
                 yaw = yaw_of_bearing(bearing + turn)
-                out = np.array([math.sin(yaw), 0.0, math.cos(yaw)]) * (radius + STANDOFF)
+                out = np.array([math.sin(yaw), 0.0, math.cos(yaw)]) * (0.0 if hung else radius + STANDOFF)
                 rows.setdefault(key, []).append(([out[0], y, out[2], yaw, 1.0, 1.0, 1.0], f"{entity}#plate{index}"))
             y -= GAP
         for key, placed in rows.items():
             width, height = plate_face(*key).size
             items.append(Instances(plate_asset(*key), np.round(np.array([row for row, _ in placed]), 4), ids=[name for _, name in placed],
-                                   behaviour=behaviour, collision={"shape": "box", "size": [round(width, 3), round(height, 3), 0.03]},
+                                   behaviour=behaviour, collision=None if hung else {"shape": "box", "size": [round(width, 3), round(height, 3), 0.03]},
                                    mass=4.0 if mass is not None else None))
         images = {image.url: image for image in (plate_image(*key) for stack in stacks.values() for _, key in stack)}
         return Output(tuple(float(v) for v in to_engine(e, n, h)), [], items, images=list(images.values()))
