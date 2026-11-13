@@ -275,9 +275,15 @@ def compile_all(store: Store, stubs: list[Stub], meter: Meter, log=print) -> tup
     tasks = [(str(store.root), stub, description, key) for stub, description, key, _ in missing]
     with meter.stage("compile"):
         if jobs > 1 and len(tasks) >= 8 * jobs:
+            # Largest descriptions first, one at a time: a building of 500 KB took 10-15 minutes while the other
+            # workers stood idle behind it (Kauppatori, 2026-11-13); started first, it ends with the rest.
+            order = sorted(range(len(tasks)), key=lambda k: -len(canonical(tasks[k][2])))
             # Fresh processes: a forked worker would carry everything discover left in this one.
             with ProcessPoolExecutor(jobs, mp_context=get_context("spawn")) as pool:
-                done = list(pool.map(compile_job, tasks, chunksize=4))
+                results = list(pool.map(compile_job, [tasks[k] for k in order], chunksize=1))
+            done = [None] * len(tasks)
+            for k, result in zip(order, results):
+                done[k] = result
         else:
             done = [compile_job(task) for task in tasks]
     failures = []
