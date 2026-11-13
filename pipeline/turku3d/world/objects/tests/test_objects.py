@@ -2,7 +2,7 @@
 
 import pytest
 
-from turku3d.world.kinds import fence, lamp, signpost
+from turku3d.world.kinds import fence, lamp, signal, signpost
 from turku3d.world.objects import signfaces
 from turku3d.world.objects.mesh import open_edges
 
@@ -27,6 +27,9 @@ ASSETS = {
     "lamp street-arm": lambda: lamp_parts(family="street-arm", height=10.1, arm={"bearing": 40.0, "reach": 2.6}),
     "lamp street-top": lambda: lamp_parts(family="street-top", height=8.0),
     "lamp park": lambda: lamp_parts(family="park", height=4.6),
+    "signal post": signal.post_asset,
+    "signal vehicle head": lambda: signal.head_asset("vehicle"),
+    "signal pedestrian head": lambda: signal.head_asset("pedestrian"),
     "lamp span-pole": lambda: lamp_parts(family="span-pole", height=9.0),
     "board panel": lambda: fence.board_panel(1.8, "#8a8074").parts(),
     "picket panel": lambda: fence.picket_panel(1.1, "#8a8074").parts(),
@@ -96,3 +99,23 @@ def test_every_furniture_model_is_closed_and_register_labels_pick_models():
     assert furniture.classify(row) == ("bin", "green")
     assert furniture.classify({"kind": "bike-rack", "type": "", "species": "", "model": "", "places": "10"}) == ("bike-rack", "5")
     assert furniture.classify({"kind": None, "type": "Penkki", "species": "Leikkikaluste", "model": "", "places": ""})[0] is None
+
+
+def test_signal_posts_stand_right_of_the_approach_past_the_carriageway_edge():
+    import shapely
+
+    road = shapely.box(-4.0, -50.0, 4.0, 50.0)  # an 8 m carriageway along a northbound way
+    ways = [{"line": shapely.LineString([(0, -50), (0, 50)]), "oneway": False}]
+    source = {"source": "osm", "key": "node/1"}
+    stop = {"id": 1, "e": 0.0, "n": 0.0, "kind": "stop", "direction": "forward", "source": source}
+    (post,) = signal.posts_of([stop], ways, road)
+    assert (post["e"], post["n"]) == (4.35, 0.0) and post["heads"] == [{"type": "vehicle", "bearing": 180.0}]
+    crossing = {"id": 2, "e": 0.0, "n": 20.0, "kind": "crossing", "direction": "", "source": source}
+    posts = signal.posts_of([stop, crossing], ways, road)
+    assert [(p["e"], p["n"]) for p in posts] == [(4.35, 0.0), (4.35, 20.0), (-4.35, 20.0)]
+    assert posts[1]["heads"] == [{"type": "pedestrian", "bearing": 270.0}]  # the stop position owns the vehicle heads
+    alone = signal.posts_of([crossing], ways, road)
+    assert [h["type"] for h in alone[0]["heads"]] == ["vehicle", "pedestrian"] and alone[1]["heads"][0]["bearing"] == 0.0
+    output = signal.Signal().compile({"id": "signal/n2r", "at": [23459000.0, 6704000.0, 10.0], "heads": alone[0]["heads"],
+                                      "interaction": {"behaviour": "knock-over"}})
+    assert [len(item.transforms) for item in output.instances] == [1, 1, 1]

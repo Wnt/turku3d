@@ -107,6 +107,24 @@ before the scan is left out: an object in the wrong place is worse than a missin
 The register labels are read as the old game read them (`furniture.LABELS`); wall ash trays, rescue ladders,
 toilets, shelters and play equipment are not drawn. A city-bike station is drawn as its rack only.
 
+## `turku-description/signal/1`
+
+One entity per traffic-light post (`signal/n<OSM node><f|b|r|l>`: the post of a stop position's forward or backward
+direction, or the right or left kerb of a signalled crossing).
+
+| Field | Meaning |
+| --- | --- |
+| `at` | `[E, N, H]` of the post's base |
+| `height` | post height in metres (3.45) |
+| `heads` | `[{type: "vehicle" or "pedestrian", bearing}]`: the grid bearing each head's lenses look towards |
+| `basis`, `guessed` | always `["position"]` until a panorama reading stores the post: no register lists signal posts |
+
+Position: OpenStreetMap maps a signal on the way's centreline. The post stands to the right of the approach, 0.35 m
+past the surveyed carriageway edge (`GIS:Katualueet`, medians excluded), the old game's rule
+(`roads/signal_posts.py`); 3.85 m from the centreline where no carriageway is surveyed under the node. Posts nearer
+than 2 m are one post with the heads of both. A crossing with a stop position within 30 m carries pedestrian heads
+only. Compile: the post, vehicle heads and pedestrian heads are three shared assets; rows `#post` and `#head<k>`.
+
 ## Sources and what each is good for
 
 | Object | Position | Type | Orientation | Dimensions |
