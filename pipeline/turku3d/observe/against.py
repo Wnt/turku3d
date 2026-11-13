@@ -394,7 +394,7 @@ def read_buildings(store: Path) -> dict:
     found = {}
     for path in sorted((store / "building").glob("*.json")):
         doc = json.loads(path.read_text())
-        if any(p.get("source") == "panorama" for p in doc.get("provenance", [])):
+        if doc.get("tier") != "auto" and any(p.get("source") == "panorama" for p in doc.get("provenance", [])):
             found[path.stem] = doc
     return found
 

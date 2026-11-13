@@ -221,6 +221,11 @@ def description(key: str, block: dict, panoramas: list) -> dict:
             "measured": {"wall": block}}
 
 
+def only_measured(held: dict | None) -> bool:
+    """Whether a stored description is nothing but colour samples (or is not there at all): nobody has read it."""
+    return held is None or (held.get("tier") == "auto" and not set(held) - {"schema", "id", "tier", "provenance", "measured"})
+
+
 def apply(lines: list[dict]) -> dict:
     """Stores measured blocks for the buildings that have no stored description (a described material always wins,
     and the store never lowers a tier). A block the description schema refuses is not stored."""
@@ -234,8 +239,7 @@ def apply(lines: list[dict]) -> dict:
         if building_description.errors(description(line["building"], line["measured"], line.get("panoramas", []))):
             refused += 1
             continue
-        held = store.read_description(f"building/{line['building']}")
-        if held is not None and (held.get("tier") != "auto" or set(held) - {"schema", "id", "tier", "provenance", "measured"}):
+        if not only_measured(store.read_description(f"building/{line['building']}")):
             skipped += 1
             continue
         store.write_description(description(line["building"], line["measured"], line.get("panoramas", [])), BY, "wall colour sample")

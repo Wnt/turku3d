@@ -36,7 +36,7 @@ import numpy as np
 from turku3d import config
 from turku3d.world import store
 
-from . import lod2
+from . import colour, lod2
 from .against import colour_class, median_colour
 
 MODEL = "claude-fable-5-2"
@@ -415,10 +415,14 @@ def run(name: str, views: list[dict], root: Path, *, effort: str = EFFORT, write
     if write:
         store.write_description(doc, BY, f"light reading of {len(views)} photographs")
         for item in items:
-            if item["kind"] == "building" and "entity" in item and store.read_description(item["entity"]) is None:
+            held = store.read_description(item["entity"]) if item["kind"] == "building" and "entity" in item else None
+            if item["kind"] == "building" and "entity" in item and colour.only_measured(held):
                 description = building_description(item, {"source": "photo", "key": key, "at": now, "by": BY,
                                                           "note": f"a glance in judged view {item['view']}"})
                 if description:
+                    if held:  # its sampled colours stay beside what the glance read
+                        description["measured"] = held["measured"]
+                        description["provenance"] = held["provenance"] + description["provenance"]
                     store.write_description(description, BY, f"from the light reading of {name}")
                     small.append(item["entity"])
     out = root / "locations" / f"{name}.json"
