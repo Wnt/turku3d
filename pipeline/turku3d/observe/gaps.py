@@ -1199,6 +1199,7 @@ def report(out: Path) -> Path:
     state = json.loads((out / "prepared/prepared.json").read_text()) if (out / "prepared/prepared.json").exists() else {}
     s = data["summary"]
     b, st = s["buildings"], s["streets"]
+    read_since = bool(listing) and s["made"] > listing["summary"]["made"]  # strata measured after the list's readings
     lines = [
         "# Gaps in what is known: strata, coverage and the list of readings", "",
         f"Made {s['made']} by `python -m turku3d.observe gaps strata|pick|prepare` (no model call). "
@@ -1213,7 +1214,7 @@ def report(out: Path) -> Path:
         f"is the class (main, local, pedestrian), the area type, the age of the buildings along it (-1939, 1940-69, "
         f"1970-99, 2000-, open), trees (OSM's trees, 3 per 100 m) and the footway profile from the city's street "
         f"parts (paved, asphalt, gravel, none, unmapped): {st['strata']} strata.", "",
-        "## Coverage before the list", "",
+        "## Coverage now" if read_since else "## Coverage before the list", "",
         "| | strata | buildings or km | share |", "| --- | ---: | ---: | ---: |",
         f"| buildings: a stored reading in the stratum | {b['read']['strata']} | {b['read']['buildings']} | {b['read']['share']} % |",
         f"| buildings: known from the data (no reading in the stratum; the automatic tier draws its parent right) | "
@@ -1237,7 +1238,8 @@ def report(out: Path) -> Path:
     lines += ["", "| km | street stratum (class · area · age · trees · profile) |", "| ---: | --- |"]
     for r in [r for r in data["streets"] if r["status"] == "gap"][:20]:
         lines.append(f"| {r['length_m'] / 1000:.1f} | {_key(r['stratum'])} |")
-    prepared = prepared_coverage(out, data, listing, state) if listing and state else None
+    # the estimate from the prepared photos holds while the list's strata are still gaps, not once they are read
+    prepared = prepared_coverage(out, data, listing, state) if listing and state and not read_since else None
     if listing:
         m = listing["summary"]
         lines += ["", "## The list", "",
@@ -1253,7 +1255,10 @@ def report(out: Path) -> Path:
                   f"{m['coverage_after']['buildings_pct_full_readings_only']} %) | {m['coverage_after']['streets_pct']} % |",
                   *([f"| after the picks whose photos are ready ({prepared['ready']} of {m['readings']}), with the "
                      f"buildings each street view really shows | {prepared['buildings_pct']} % (full readings alone "
-                     f"{prepared['buildings_pct_full']} %) | {prepared['streets_pct']} % |"] if prepared else []), "",
+                     f"{prepared['buildings_pct_full']} %) | {prepared['streets_pct']} % |"] if prepared else []),
+                  *([f"| measured after the readings (strata of {s['made']}: read or known from the data) | "
+                     f"{round(b['read']['share'] + b['data']['share'], 2)} % (in read strata {b['read']['share']} %) | "
+                     f"{st['read']['share']} % |"] if read_since else []), "",
                   "| id | kind | value % | stratum | where | photo |", "| --- | --- | ---: | --- | --- | --- |"]
         for p in listing["picks"]:
             ready = state.get(p["id"], {})
