@@ -27,6 +27,7 @@ ASSETS = {
     "lamp street-arm": lambda: lamp_parts(family="street-arm", height=10.1, arm={"bearing": 40.0, "reach": 2.6}),
     "lamp street-top": lambda: lamp_parts(family="street-top", height=8.0),
     "lamp park": lambda: lamp_parts(family="park", height=4.6),
+    "lamp span-pole": lambda: lamp_parts(family="span-pole", height=9.0),
     "board panel": lambda: fence.board_panel(1.8, "#8a8074").parts(),
     "picket panel": lambda: fence.picket_panel(1.1, "#8a8074").parts(),
     "iron panel": lambda: fence.iron_panel(1.0).parts(),

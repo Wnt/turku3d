@@ -7,7 +7,7 @@ hidden under a crown) the family is a guess from the street beside it and is mar
 - `street-arm`  a tapered steel pole with a curved arm and a flat head over the carriageway
 - `street-top`  a tall pole with the head on its top
 - `park`        a 3 to 6 m post with a post-top lantern
-- `wire-hung`   a luminaire on a span wire across the street (discovered from the lidar, see `spans`)
+- `span-pole`   a plain pole that carries a lighting span wire (the hung lamps belong to the `wire` kind)
 
 Schema: docs/specs/street-objects.md.
 """
@@ -20,13 +20,15 @@ from pathlib import Path
 import numpy as np
 
 from ..api import Area, Output, Stub
-from ..objects import registers
+from ..objects import registers, wires
 from ..objects.common import BLACK_STEEL, DARK_PLASTIC, GALVANISED, LENS, box_of, describe, interaction, single, unique
 from ..objects.mesh import Mesh
 
 VERSION = 1
 STREET_MIN = 6.5  # m: a pole this tall lights a carriageway
 HEAD = 0.6  # m: length of a street-light head
+TALLEST = 13.0  # m: what the lidar shows taller at a register point is a tree or a facade, not the street lamp
+SPAN_REACH = 1.6  # m from a pole to the end of a span wire it carries
 
 
 def _family(measured: dict | None, street: dict | None) -> dict:
@@ -74,17 +76,24 @@ class Lamp:
             return []
         lidar = registers.lidar_of(sources)
         streets = registers.Streets(sources, area.bbox(6.0))
+        # Ends of the overhead wires: a register pole that a span wire hangs from carries the span, not an arm.
+        spans, _ = wires.in_box(area.bbox(8.0), sources.log)
+        ends = np.array([w[end][:2] for w in spans for end in ("a", "b")] or np.zeros((0, 2)))
         stubs = []
         for post in posts:
             e, n = post["e"], post["n"]
             if not area.touches(box_of(e, n, 0.5)):
                 continue
             measured = lidar.pole_top(e, n, search=1.2 if "digitoitu" in post["layer"] else 0.8)
-            if measured and measured["top"] >= 2.6:
+            if measured and 2.6 <= measured["top"] <= TALLEST:
                 e, n = e + measured["offset"][0], n + measured["offset"][1]
             else:
                 measured = None
             facts = _family(measured, streets.towards_street(e, n))
+            arm_measured = facts["family"] == "street-arm" and "arm" not in facts.get("guessed", [])
+            if len(ends) and facts["family"] != "park" and not arm_measured and float(np.hypot(*(ends - [e, n]).T).min()) <= SPAN_REACH:
+                facts = {"family": "span-pole", "height": facts["height"], "basis": facts["basis"].split(";")[0] + "; a span wire ends at it",
+                         "guessed": [name for name in facts.get("guessed", []) if name not in ("arm", "family")]}
             ground = registers.ground_height(sources, e, n)
             if not math.isfinite(ground):
                 continue
@@ -124,6 +133,8 @@ class Lamp:
                 radii.append(neck - 0.015 * k / 8)
             mesh.tube("pole", steel, path, radii, sides=10)
             street_head(mesh, np.array([0.0, height, run]), np.array([0.0, 0.0, 1.0]))
+        elif family == "span-pole":
+            mesh.tube("pole", steel, [[0, -0.3, 0], [0, 0, 0], [0, height + 0.3, 0]], [0.085, 0.085, 0.05], sides=10)
         elif family == "street-top":
             mesh.tube("pole", steel, [[0, -0.3, 0], [0, 0, 0], [0, height - 0.05, 0]], [0.085, 0.085, 0.04], sides=10)
             street_head(mesh, np.array([0.0, height, -HEAD / 2]), np.array([0.0, 0.0, 1.0]))
