@@ -100,7 +100,7 @@ the line is its luminaire; a span without one gets the centreline rule above (`g
 | --- | --- |
 | `at` | first joint of the run |
 | `type` | register class: `wood-fence`, `stone-fence`, `railing`, `gate-post` |
-| `family` | `board`, `picket`, `iron` (open bar fence), `stone-wall`, `railing`, `gate-post` (`mesh` and `gateway` are planned) |
+| `family` | `board`, `picket`, `iron` (open bar fence), `stone-wall`, `railing`, `gate-post` `mesh`, `none` (`gateway` is planned) |
 | `height` | metres above the ground at the joints |
 | `line` | joints `[[E, N, H], ...]`: one panel between each pair, one post per joint |
 | `colour` | `#rrggbb` of the paint, from a small palette: cream unless the scan's colours are clearly warm (a guess until observed) |
@@ -113,6 +113,17 @@ line is the planting behind it.
 
 A register line that the lidar does not confirm (coverage under the family's threshold) and that was surveyed
 before the scan is left out: an object in the wrong place is worse than a missing one.
+
+### What a wood-fence line means: `setting`
+
+`setting` is `old-town` when most dated register buildings (`kottovuosi`) within 50 m of the line are older than
+1940, else `garden`. In an old-town block the line is the closed board fence between houses on the street line
+(rules above). In a garden setting (detached and terraced houses, anything undated) a line that starts within 1 m
+of a building and is at most 8 m long is a board screen, 1.0 to 1.5 m, grey unless the scan's colours are clearly
+warm; every other line is a low grey `mesh` fence: the scan height when it is at most 1.3 m (0.6 to 1.2 m drawn),
+else 1.0 m marked guessed, because a taller scan height there is the planting. Basis: 14 panorama readings at two
+house points (railing 0.7 m, stone edging 0.4 m, mesh 1.2 m, grey boards 1.0 to 1.5 m, no fence) where the old
+rule drew cream board walls 1.5 to 2.6 m. A mapped `fence_type` still decides before this rule.
 
 ### Gates and mapped fence types
 

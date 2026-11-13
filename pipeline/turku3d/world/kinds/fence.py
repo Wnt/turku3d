@@ -45,6 +45,41 @@ MAPPED = 1.5  # m: a register line this near a mapped fence along its length is 
 GATE_REACH = 2.0  # m from a mapped gate to the fence line it stands in
 GATE_WIDTH = {"drive": 3.0, "walk": 1.0}  # m: a double gate across a driveway, a single leaf across a path
 DRIVES = ("service", "residential", "unclassified", "track", "living_street")
+# What the register's wood-fence line means depends on where it runs. In the wooden-house blocks built before the
+# war it is the closed board fence between houses on the street line. Elsewhere (detached and terraced houses) 14
+# panorama readings at two house points found a low railing, mesh, stone edging, a grey board fence under 1.5 m or
+# nothing, never the 1.5 to 2.6 m the scan measures there (that is the planting): so a short line that starts at a
+# house is a board screen and any other line a low mesh fence one sees through, which is the least wrong of them.
+OLD_TOWN = 1940  # most dated buildings around the line are older than this: a wooden-house block
+AROUND = 50.0  # m around the line in which buildings decide its setting
+SCREEN = (1.0, 8.0)  # m from a building to the line's end, and the longest line that is a screen between terraces
+SCREEN_HEIGHT = (1.0, 1.5)  # m: a screen's limits (three read 1.0 to 1.5 m where the scan measured 1.6 to 2.6 m)
+LOW = {"limits": (0.6, 1.2), "reliable": 1.3, "default": 1.0}  # m: a garden fence; a taller scan height is planting
+GREY_WOOD = "#b4b8b4"
+MESH_GREY = "#8f9492"
+
+
+def _buildings(sources, box) -> tuple[shapely.STRtree | None, list, np.ndarray]:
+    """Building footprints of the register with their year of completion (nan when it has none)."""
+    shapes, years = [], []
+    for feature in sources.wfs.features("kanta:Rakennus", box):
+        text = str(feature.attrs.get("kottovuosi") or "")[:4]
+        for geom in feature.geoms:
+            if geom.type == "Polygon":
+                shapes.append(shapely.force_2d(geom.shape))
+                years.append(float(text) if text.isdigit() else math.nan)
+    return (shapely.STRtree(shapes) if shapes else None), shapes, np.array(years)
+
+
+def setting(path, tree, shapes, years) -> tuple[str, float]:
+    """`old-town` or `garden` for a fence line, and the distance from its nearer end to a building."""
+    if tree is None:
+        return "garden", math.inf
+    dated = years[tree.query(path, predicate="dwithin", distance=AROUND)]
+    dated = dated[np.isfinite(dated)]
+    ends = [shapely.Point(path.coords[0]), shapely.Point(path.coords[-1])]
+    gap = min(float(shapes[tree.nearest(end)].distance(end)) for end in ends)
+    return ("old-town" if len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5 else "garden"), gap
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
@@ -202,6 +237,7 @@ class Fence:
         lines, posts = registers.barriers(sources, area.bbox(2.0))
         lidar = registers.lidar_of(sources)
         gates, mapped = registers.mapped_barriers(sources, area.bbox(GATE_REACH + 2.0))
+        tree, shapes, years = _buildings(sources, area.bbox(2.0 + AROUND))
         stubs = []
         built = []  # (line, facts) of the fences a gate can stand in
         for row in lines:
@@ -253,6 +289,18 @@ class Fence:
                     height = float(np.clip(np.percentile(low_returns, 70), 0.8, 1.3)) if len(low_returns) >= 5 else 1.0
                     if len(low_returns) < 5:
                         guessed.append("height")
+                where, gap = setting(path, tree, shapes, years)
+                if where == "garden" and "fence_type" not in tags:
+                    scan = float(np.percentile(standing, 60)) if len(standing) >= 2 and coverage >= PRESENT[kind] else None
+                    guessed = ["family"]
+                    if gap <= SCREEN[0] and path.length <= SCREEN[1]:
+                        family = "board"
+                        height = float(np.clip(scan, *SCREEN_HEIGHT)) if scan else SCREEN_HEIGHT[1]
+                        guessed += [] if scan and SCREEN_HEIGHT[0] <= scan <= SCREEN_HEIGHT[1] else ["height"]
+                    else:
+                        family = "mesh"
+                        height = float(np.clip(scan, *LOW["limits"])) if scan and scan <= LOW["reliable"] else LOW["default"]
+                        guessed += [] if scan and scan <= LOW["reliable"] else ["height"]
             joints = _joints(line, PANEL[family])
             ground = np.array([registers.ground_height(sources, e, n) for e, n in joints])
             if not np.isfinite(ground).all():
@@ -269,8 +317,15 @@ class Fence:
                 facts["osm"] = tags
             if kind == "wood-fence":
                 facts["measured"]["lidar"]["returns_per_m"] = round(float(density), 1)
+                facts["setting"] = where
                 if family == "iron":
                     facts["colour"] = IRON
+                elif family == "mesh":
+                    facts["colour"] = MESH_GREY
+                elif where == "garden":
+                    body = near[(near[:, 2] > 0.5) & (near[:, 2] < height + 0.2)]
+                    paint, warm = _paint(body[:, 4:7] if len(body) else None)
+                    facts["colour"] = paint if warm else GREY_WOOD
                 else:
                     body = near[(near[:, 2] > 0.5) & (near[:, 2] < height + 0.2)]
                     facts["colour"], _ = _paint(body[:, 4:7] if len(body) else None)

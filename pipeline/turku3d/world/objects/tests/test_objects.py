@@ -1,5 +1,8 @@
 """Street-object assets are closed solids, and every register sign code draws a face."""
 
+import math
+import numpy as np
+
 import pytest
 
 from turku3d.world.kinds import fence, lamp, signal, signpost
@@ -252,3 +255,16 @@ def test_a_fence_reading_replaces_the_guesses_and_an_unseen_fence_builds_nothing
     assert "height" not in gone
     output = fence.Fence().compile({**automatic, **gone})
     assert not output.parts and not output.instances
+
+
+def test_fence_setting_is_old_town_only_among_pre_war_buildings():
+    import shapely
+
+    old = [shapely.box(0, 2, 10, 12), shapely.box(14, 2, 24, 12), shapely.box(40, 2, 50, 12)]
+    tree = shapely.STRtree(old)
+    line = shapely.LineString([(10, 2), (14, 2)])
+    assert fence.setting(line, tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 0.0)
+    assert fence.setting(line, tree, old, np.array([1905.0, 1988.0, 1975.0]))[0] == "garden"
+    assert fence.setting(line, tree, old, np.array([np.nan, np.nan, np.nan]))[0] == "garden"
+    assert fence.setting(shapely.LineString([(0, -5), (30, -5)]), tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 7.0)
+    assert fence.setting(line, None, [], np.array([])) == ("garden", math.inf)
