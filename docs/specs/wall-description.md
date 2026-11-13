@@ -18,8 +18,8 @@ stairs, tree pits and bridge feet. Green land beside water is a natural bank: no
 
 Output: one closed solid per run (water face, land face, cap, underside, two ends), 0.5 m thick on the land side
 of the outline, from 1.2 m under the water to the crest, UVs in metres (along the wall, height). The ground kind
-reads the same lines as its fact `quays` and holds its skin at the crest level within 3 m of them
-(`mesh.hold_crest`), so the ground meets the cap instead of sliding into the water; the water kind's sheet ends at
+reads the same lines when it samples its relief: a node within 3 m of them takes the lidar height 3.5 m inland of
+its foot on the line (`kinds/ground/banks.py held`, a function of the place alone, so cells agree on borders), so the ground meets the cap instead of sliding into the water; the water kind's sheet ends at
 the water face.
 
 Not yet: retaining walls away from water (OpenStreetMap `barrier=retaining_wall`, the old `coarse/retaining.py`),

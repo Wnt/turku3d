@@ -276,7 +276,8 @@ class Ground:
             centre = shape.representative_point()
             surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
-        _, quays = banks.quay_lines(box)
+        wet, quays = banks.quay_lines(box)
+        quays = None if quays is None or quays.is_empty else quays
         with sources.timed('street:lidar'):
             window = lidar.Window(*box)
         tree = shapely.STRtree([shape for shape, _ in surfaces])
@@ -291,6 +292,8 @@ class Ground:
                     continue
                 east, north = np.meshgrid(cell[0] + offsets, cell[3] - offsets)
                 heights = window.sample('ground', east.ravel(), north.ravel())
+                if quays is not None:
+                    heights = banks.held(heights, east.ravel(), north.ravel(), wet, quays, window)
                 wide = shapely.box(cell[0] - MARGIN, cell[1] - MARGIN, cell[2] + MARGIN, cell[3] + MARGIN)
                 rows = []
                 for k in sorted(tree.query(wide, predicate='intersects')):
@@ -301,8 +304,6 @@ class Ground:
                     'cell': [i, j],
                     'relief': {'step': STEP, 'halo': HALO, 'side': side, 'heights_mm': np.rint(heights * 1000).astype(int).tolist()},
                     'surfaces': rows,
-                    'quays': [np.asarray(part.coords).tolist() for part in shapely.get_parts(quays.intersection(wide))
-                              if part.geom_type == 'LineString' and part.length > 0] if quays is not None else [],
                     'crossings': [{'key': key, 'line': np.asarray(line.coords).tolist(), 'width': CROSSING_WIDTH}
                                   for line, key in crossings if line.intersects(wide)],
                     'lanes': [{'key': key, 'line': np.asarray(part.coords).tolist(),
