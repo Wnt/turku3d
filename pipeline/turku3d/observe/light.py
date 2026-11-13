@@ -36,7 +36,7 @@ import numpy as np
 from turku3d import config
 from turku3d.world import store
 
-from . import colour, lod2
+from . import colour, lod2, transport
 from .against import colour_class, median_colour
 
 MODEL = "claude-fable-5-2"
@@ -205,6 +205,16 @@ def task_text(view: dict, buildings: list) -> str:
     return "\n".join(lines)
 
 
+def _cli_answer(done) -> dict:
+    try:
+        answer = json.loads(done.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"light reader: no JSON answer ({done.stderr[:300] or done.stdout[:300]})") from error
+    if done.returncode or answer.get("is_error"):
+        raise RuntimeError(f"light reader: {answer.get('result') or done.stderr[:300]}")
+    return answer
+
+
 def ask(view: dict, buildings: list, cache: Path, *, model: str = MODEL, effort: str = EFFORT) -> dict:
     """The reading of one photograph: from the cache when this image was read with these instructions before."""
     picture = image_path(view)
@@ -220,14 +230,14 @@ def ask(view: dict, buildings: list, cache: Path, *, model: str = MODEL, effort:
             "--disable-slash-commands", "--no-session-persistence", "--setting-sources", "",
             "--json-schema", json.dumps(SCHEMA), "--output-format", "json", task]
     started = time.time()
-    done = subprocess.run(args, cwd=picture.parent, capture_output=True, text=True, timeout=TIMEOUT_S,
-                          stdin=subprocess.DEVNULL, check=False)
-    try:
-        answer = json.loads(done.stdout)
-    except json.JSONDecodeError as error:
-        raise RuntimeError(f"light reader: no JSON answer ({done.stderr[:300] or done.stdout[:300]})") from error
-    if done.returncode or answer.get("is_error"):
-        raise RuntimeError(f"light reader: {answer.get('result') or done.stderr[:300]}")
+    if transport.wanted():  # the same call over the Messages API, the photograph inline
+        reading, used = transport.ask(INSTRUCTIONS, [picture], task, SCHEMA, model=model, effort=effort,
+                                      what=f"light {view.get('id', picture.name)}")
+        answer = {"structured_output": reading, "total_cost_usd": used["cost_usd"], "modelUsage": {used["model"]: {}}}
+    else:
+        done = subprocess.run(args, cwd=picture.parent, capture_output=True, text=True, timeout=TIMEOUT_S,
+                              stdin=subprocess.DEVNULL, check=False)
+        answer = _cli_answer(done)
     reading = answer.get("structured_output")
     if reading is None:
         reading = json.loads(str(answer.get("result", "")).strip().removeprefix("```json").removesuffix("```").strip())

@@ -3,7 +3,8 @@
 One call per building: the model gets the context views and the rectified wall crops (prepare.py) and answers in
 the building description format itself (docs/specs/building-description.md), restricted by a JSON schema derived
 from the format's own schema. The call goes through the `claude` CLI as scripts/dev/scene-judge.mjs does: Read tool
-only, no settings, no session. Time and notional cost of every call are recorded.
+only, no settings, no session; or, with TURKU3D_READER_TRANSPORT=api, over the Messages API (transport.py).
+Time and cost of every call are recorded.
 """
 
 from __future__ import annotations
@@ -17,7 +18,9 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[3]
+from turku3d.observe import transport
+
+REPO =Path(__file__).resolve().parents[3]
 SPEC = REPO / "docs/specs/building-description.md"
 SCHEMA = REPO / "docs/specs/building-description.schema.json"
 MODEL = "claude-fable-5-2"
@@ -246,11 +249,23 @@ def read(record: dict, packet: Path, *, effort: str = EFFORT, model: str = MODEL
     shutil.copyfile(SPEC, packet / "FORMAT.md")
     task = task_text(record, packet, feedback_text, first)
     (packet / "task.txt").write_text(task)
+    schema = reading_schema() if first is None else correction_schema()
     args = ["claude", "-p", "--model", model, "--effort", effort, "--system-prompt", INSTRUCTIONS,
             "--tools", "Read", "--allowedTools", "Read", "--add-dir", str(packet), "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence", "--setting-sources", "",
-            "--json-schema", json.dumps(reading_schema() if first is None else correction_schema()),
+            "--json-schema", json.dumps(schema),
             "--output-format", "json", task]
+    if transport.wanted():  # the same call over the Messages API: FORMAT.md and the images the task names inline
+        images = [packet / line[2:].split(": ", 1)[0] for line in task.splitlines()
+                  if line.startswith("- ") and ".jpg: " in line]
+        reading, used = transport.ask(INSTRUCTIONS, [packet / "FORMAT.md", *images], task, schema, model=model,
+                                      effort=effort, what=f"reader {record.get('building', packet.name)}")
+        if first is not None:
+            reading = corrected(first, reading)
+        return reading, {**{k: used[k] for k in ("model", "effort", "seconds", "cost_usd", "turns", "output_tokens", "at")},
+                         "transport": "api", "input_tokens": used["input_tokens"] + used["cache_read_input_tokens"]
+                         + used["cache_creation_input_tokens"], "cached_tokens": used["cache_read_input_tokens"],
+                         "images": len(images)}
     started = time.time()
     done = subprocess.run(args, cwd=packet, capture_output=True, text=True, timeout=TIMEOUT_S,
                           stdin=subprocess.DEVNULL, check=False)

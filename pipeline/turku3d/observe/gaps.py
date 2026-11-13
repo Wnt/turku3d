@@ -1103,6 +1103,16 @@ def run(out: Path, dry: bool, jobs: int, budget: float, only: set | None, log=pr
     spent = [0.0]
     import threading
 
+    usage_log = config.work_root() / "observe/api-usage.jsonl"  # the API transport's record of every call, failed ones too
+    usage_from = usage_log.stat().st_size if usage_log.exists() else 0
+
+    def api_spent() -> float | None:
+        if not usage_log.exists():
+            return None
+        with usage_log.open() as handle:
+            handle.seek(usage_from)
+            return sum(json.loads(line).get("cost_usd") or 0.0 for line in handle if line.strip())
+
     lock = threading.Lock()
 
     def one(r):
@@ -1127,7 +1137,8 @@ def run(out: Path, dry: bool, jobs: int, budget: float, only: set | None, log=pr
             if isinstance(found, dict):
                 cost = max(cost, float(found.get("cost_usd") or 0.0))
         with lock:
-            spent[0] += cost
+            billed = api_spent()  # over the API: the real cost of every call made so far, failed readings included
+            spent[0] = billed if billed is not None else spent[0] + cost
         line = {"id": r["id"], "kind": r["kind"], "exit": done.returncode, "cost_usd": round(cost, 3),
                 "seconds": round(time.time() - started), "spent_usd": round(spent[0], 2)}
         log(json.dumps(line))
