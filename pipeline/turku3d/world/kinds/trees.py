@@ -48,7 +48,7 @@ LEAF_MARGIN = 0.4  # metres added to a leaf-off crown diameter: the foliage beyo
 # scale (at most about a quarter either way), so a location draws a few dozen tree meshes however many trees it has.
 HEIGHTS = (4.0, 6.3, 10.0, 16.0, 25.0)
 SPREADS = (0.18, 0.3, 0.46)  # crown radius / height
-BASES = (0.2, 0.42)  # crown base / height
+BASES = (0.16, 0.28, 0.45)  # crown base / height
 VARIANTS = 2  # seeds, for the size classes a street repeats: the middle spread; the others have one
 
 # A reference photo is taken from the carriageway or the pavement; a tree whose trunk or foliage is this close to

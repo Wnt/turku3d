@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu';
 import {
   attribute, bool, cameraPosition, clamp, diffuseColor, dot, float, floor, Fn, fract, fwidth, instanceColor, log2, max, mod, modelWorldMatrix,
   normalize, normalViewGeometry, positionLocal, positionPrevious, positionWorld, pow, select, sin, smoothstep,
-  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance, normalWorldGeometry } from 'three/tsl';
+  renderGroup, texture, uniform, uv, vec2, vec3, vec4, vertexColor, mix, luminance, normalWorldGeometry, dFdx, dFdy } from 'three/tsl';
 import { cloneNodeMaterial, ditherThreshold } from '../../render/lodFade';
 import { FoliageMaterial } from '../../render/foliageMaterial';
 import { viewClearance } from '../../render/viewClearance';
@@ -287,7 +287,13 @@ export class NatureMaterials {
     this.bases.set(this.crownShadow, this.leaves);
     this.standingLeaves = cloneNodeMaterial(this.leaves);
     this.standingLeaves.name = 'nature-leaves@standing';
-    this.standingLeaves.colorNode = vec4(leafRgb, leafAlpha);
+    // A generated card says how many times it repeats its atlas cell across itself (`_wind`.w, treegen.py SPRAY):
+    // the leaves of a 1.5 m card are then life-size sprays, not one spray blown up. The gradients are the card's
+    // own, so the wrap between two repeats does not drop to the coarsest mip.
+    const sprays = max(attribute('_wind', 'vec4').w, 1), cells = uv().mul(4), inCell = fract(cells);
+    const spray = texture(leafMap, floor(cells).add(clamp(fract(inCell.mul(sprays)), 0.004, 0.996)).div(4))
+      .grad(dFdx(uv()).mul(sprays), dFdy(uv()).mul(sprays));
+    this.standingLeaves.colorNode = vec4(tone(spray.rgb).mul(pow(crownAo, this.crownLight.x)), spray.a.mul(mix(this.crownLight.z, float(1), shell)));
     // Sun comes through the leaves it reaches: the crown's sunward side and its rim. The side of a closed crown
     // turned away from the sun (its radial normal points from the sun) is lit by the sky alone, so a tree seen
     // against the sun is a dark mass with a bright edge, as in the street photos, not a glowing one.

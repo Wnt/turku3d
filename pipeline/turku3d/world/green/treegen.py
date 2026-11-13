@@ -14,7 +14,8 @@ Output conventions (units metres, +Y up, trunk base at the origin):
   the crown's radial direction so the canopy shades as a volume, COLOR_0 = (crown-depth ambient occlusion, leaf
   brightness, leaf warmth): the last two multiply the leaf albedo (1 = the atlas colour; warmth above 1 is
   yellower, below 1 bluer) and carry the family's tone and a variation from card to card;
-- `_WIND` (sway, flutter, phase, is-leaf) per vertex, as the library's materials expect.
+- `_WIND` (sway, flutter, phase, sprays) per vertex: the first three as the library's materials expect; `sprays` is
+  how many times a leaf card repeats its atlas cell across itself (1 on bark).
 """
 
 from __future__ import annotations
@@ -185,6 +186,7 @@ def child_dir(parent: np.ndarray, angle: np.ndarray, roll: np.ndarray, outward: 
 CARD_DENSITY = 1.4
 CARD_GROWTH = 1.3
 CARD_SPAN = (0.34, 0.2)  # a card is at most this share of the crown radius plus this many metres: a small crown has small sprays
+SPRAY = 0.75  # metres across the leaf spray an atlas cell shows at life size (a lime leaf is 8 cm, a cell eight leaves wide)
 CARD_TONE = (0.1, 0.035)  # brightness and warmth vary this much from card to card
 FAR_SHARE = 0.06  # the far level keeps this share of the cards (a prefix of the shuffled list), grown to cover
 
@@ -553,8 +555,11 @@ def cards(anchors: dict, sp: dict, crown, conifer_crown: bool, rng, fold: bool, 
     u0, u1, v0, v1 = cell_uv(sp["cell"])
     uv = np.tile(np.stack([u0 + (u1 - u0) * (grid[:, 0] + 0.5), v1 + (v0 - v1) * grid[:, 1]], axis=1), (n, 1))
     shade = ao(flat_positions)
+    # A card bigger than one spray of the atlas draws the spray several times across itself (`_WIND`.w, whole
+    # numbers), so that leaves keep their size on the wide cards of a big crown and of the far level.
+    sprays = np.clip(np.rint(size / SPRAY), 1, 4)
     wind = np.stack([np.repeat(np.minimum(1.0, anchors["sway"] + 0.12), k), np.tile(grid[:, 1], n),
-                     np.repeat(anchors["phase"], k), np.ones(n * k)], axis=1)
+                     np.repeat(anchors["phase"], k), np.repeat(sprays, k)], axis=1)
     quad = np.array([[0, 1, 3], [1, 4, 3], [1, 2, 4], [2, 5, 4]] if fold else [[0, 1, 2], [1, 3, 2]])
     faces = (quad[None] + (np.arange(n) * k)[:, None, None]).reshape(-1, 3)
     # Leaves of one spray share their light and age: each card is a little lighter or darker, yellower or bluer.

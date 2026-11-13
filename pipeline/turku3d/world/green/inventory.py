@@ -160,8 +160,22 @@ def measure_crown(e, n, h, cls, rgb, first, cells_e, cells_n, hits: float) -> di
     wide = float(radius[widest])
     if wide <= 0:
         return None
-    crown_levels = np.flatnonzero((radius >= 0.4 * wide) & (count >= max(3, 0.01 * len(h))))
-    base = float(levels[crown_levels[0]]) if len(crown_levels) else 0.4 * height
+    # The crown base: down from the widest level, the lowest level that is still wide and holds a fair share of the
+    # returns a level of this crown has. A fence, a hedge or parked cars under the tree are a separate, thinner
+    # layer (a gap or a few returns between them and the boughs), and the one or two lowest boughs of a leafless
+    # tree return little: neither is where the foliage ends in summer.
+    wide_enough = radius >= 0.4 * wide
+    typical = float(np.median(count[wide_enough & (count > 0)])) if (wide_enough & (count > 0)).any() else 0.0
+    crown = wide_enough & (count >= max(3, 0.01 * len(h), 0.35 * typical))
+    lowest, gap = widest, 0
+    for k in range(widest, -1, -1):
+        if crown[k]:
+            lowest, gap = k, 0
+        else:
+            gap += 1
+            if gap >= 2:
+                break
+    base = float(levels[lowest]) if crown.any() else 0.4 * height
     base = float(np.clip(base, 0.5, 0.75 * height))
     widest_at = float(np.clip((levels[widest] - base) / max(height - base, 0.5), 0.0, 1.0))
     upper = float(np.interp(base + 0.8 * (height - base), levels, radius)) / wide

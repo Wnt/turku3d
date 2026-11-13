@@ -16,7 +16,7 @@ from . import hedges, inventory, lidar, osm
 # Names the measuring method. Change it when a cell would be measured differently (lidar.py, inventory.py,
 # hedges.py, osm.py or this file): every location then re-measures, 20 to 60 s for a pilot location and minutes a
 # lidar tile on a loaded host, so an edit that measures the same must leave it alone.
-RECIPE = "7e944f8671b6"
+RECIPE = "20261113-crown-base"
 
 
 def path_of(i: int, j: int) -> Path:
