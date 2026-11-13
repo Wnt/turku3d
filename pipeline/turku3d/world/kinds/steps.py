@@ -210,10 +210,14 @@ class Steps:
         count = int(min(max(count, int(np.ceil(rise / MAX_RISE)), 1), 2000))
         # The ground under both cheeks, every STATION m.
         along = np.unique(np.r_[np.arange(0.0, line.length, STATION), line.length])
+        centre = shapely.get_coordinates(shapely.line_interpolate_point(line, along))
+        run = (shapely.get_coordinates(shapely.line_interpolate_point(line, np.minimum(along + 0.25, line.length)))
+               - shapely.get_coordinates(shapely.line_interpolate_point(line, np.maximum(along - 0.25, 0.0))))
+        run /= np.maximum(np.linalg.norm(run, axis=1, keepdims=True), 1e-9)
+        left = np.c_[-run[:, 1], run[:, 0]] * width / 2
         sides = []
         for sign in (-1.0, 1.0):  # survey right, left: engine left, right
-            edge = line.offset_curve(sign * width / 2, join_style="mitre", mitre_limit=2.0)
-            pts = shapely.get_coordinates(shapely.line_interpolate_point(edge, along / line.length, normalized=True))
+            pts = centre + sign * left
             sides.append(np.round(window.sample("ground", pts[:, 0], pts[:, 1]), 2).tolist())
         word = part[1] if part is not None else ""
         material = REGISTER.get(word) or SURFACE.get(str(tags.get("surface", "")))
