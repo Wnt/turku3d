@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -108,13 +109,20 @@ def main() -> None:
         stub = Stub(saved["id"], tuple(saved["box"]), saved["sources"], saved["facts"])
         json.dump(KINDS[stub.kind].describe(stub, read_description(stub.id)), sys.stdout, indent=1, ensure_ascii=False)
     elif args.command == "gc":
-        keep, dropped, freed = store.referenced(), 0, 0
+        keep, dropped, freed = store.referenced(), set(), 0
         for path in (store.root / "objects").glob("*/*"):
-            if path.suffix in (".glb",) and f"objects/{path.parent.name}/{path.name}" not in keep:
+            url = f"objects/{path.parent.name}/{path.name}"
+            if path.suffix in (".glb",) and url not in keep:
                 freed += path.stat().st_size
                 path.unlink()
-                dropped += 1
-        print(f"dropped {dropped} unreferenced meshes, {freed / 1e6:.1f} MB")
+                dropped.add(path.name)
+        # A build whose mesh is gone must compile again when its key comes back.
+        stale = 0
+        for path in (store.root / "builds").glob("*.json"):
+            if dropped.intersection(re.findall(r"[0-9a-f]{64}\.glb", path.read_text())):
+                path.unlink()
+                stale += 1
+        print(f"dropped {len(dropped)} unreferenced meshes, {freed / 1e6:.1f} MB, and {stale} builds that pointed at them")
 
 
 if __name__ == "__main__":

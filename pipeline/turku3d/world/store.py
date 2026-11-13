@@ -101,7 +101,8 @@ class Store:
         urls: set[str] = set()
         for path in (self.root / "locations").glob("*.json"):
             for row in json.loads(path.read_bytes())["entities"]:
-                urls.add(row["url"])
+                if row.get("url"):
+                    urls.add(row["url"])
                 urls.update(i["asset"] for i in row.get("instances", []))
         return urls
 
