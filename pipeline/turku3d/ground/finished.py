@@ -480,7 +480,8 @@ def _digest(window: C.VisualTile, evidence: Evidence) -> str:
             g = item[0] if isinstance(item, tuple) else item
             if g.intersects(box):
                 h.update(g.wkb)
-            h.update(b"|")
+                h.update(b"|")
+        h.update(b"/")  # a row outside the window changes nothing: every tile that reads it shares one solve
     for array in (evidence.spots, evidence.points):
         if len(array):
             x = array[:, 0]
