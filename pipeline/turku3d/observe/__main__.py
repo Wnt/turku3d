@@ -8,6 +8,8 @@
     python -m turku3d.observe roof --building KEY...       ask again about the dormers and chimneys of read buildings
     python -m turku3d.observe unblock --building KEY... --near E,N   other views for walls no crop showed
     python -m turku3d.observe against [--out DIR]     the automatic tier against the stored readings, per attribute
+    python -m turku3d.observe light --location NAME --view ID...   what stands in the judged photographs, by kind,
+                                                      and the area profile (light.py); one cheap call per photograph
 
 `describe` does what `unblock` does by itself: when the reader reports that no crop of a wall showed it (a quay
 wall, a fence or trees in the way, which LoD2 does not hold), the wall gets crops from panoramas on other paths
@@ -348,11 +350,14 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock", "against"])
+    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock", "against", "light", "colour"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
     ap.add_argument("--radius", type=float, default=0.0)
+    ap.add_argument("--check", action="store_true", help="colour: the sampler against the read colours")
+    ap.add_argument("--apply", type=Path, help="colour: store the lines of a run made elsewhere with --no-store")
+    ap.add_argument("--location", help="light: the name the views are stored under (location/NAME)")
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
     ap.add_argument("--views-file", type=Path, default=REPO / "qa/views/views.jsonl",
                     help="the view set --view names come from (one JSON view per line)")
@@ -384,6 +389,30 @@ def main(argv=None) -> int:
         from . import against
 
         print(json.dumps(against.run(a.out), ensure_ascii=False), flush=True)
+        return 0
+    if a.command == "colour" and (a.check or a.apply):
+        from turku3d.world.store import data_root
+
+        from . import against, colour
+
+        if a.apply:
+            print(json.dumps(colour.apply([json.loads(line) for line in a.apply.read_text().splitlines()
+                                           if line.startswith("{")])), flush=True)
+            return 0
+        read = against.read_buildings(data_root() / "descriptions")
+        result = colour.check(root, lambda key: against.read_wall_colour(read[key]) if key in read else None)
+        (root / "against").mkdir(parents=True, exist_ok=True)
+        (root / "against/colour-check.json").write_text(json.dumps(result, indent=1))
+        print(json.dumps({k: v for k, v in result.items() if k != "rows"}), flush=True)
+        return 0
+    if a.command == "light":
+        from . import light
+
+        rows = [json.loads(line) for line in a.views_file.read_text().splitlines() if line.strip()]
+        views = [r for r in rows if r["id"] in set(a.view or [])]
+        if not a.location or len(views) != len(set(a.view or [])) or not views:
+            sys.exit("light: give --location NAME and --view IDs that exist in the views file")
+        print(json.dumps(light.run(a.location, views, root, effort=a.effort, write=STORE), ensure_ascii=False), flush=True)
         return 0
     if a.command == "review":
         from concurrent.futures import ThreadPoolExecutor
@@ -459,6 +488,20 @@ def main(argv=None) -> int:
             local.panos = Panoramas(root / "panoramas")
         return local.panos
 
+    if a.command == "colour":  # wall colours from strips, no reader
+        from . import colour
+
+        lines = []
+        for b in buildings:
+            try:
+                line = within(PREPARE_TIMEOUT_S, lambda b=b: colour.measure(scene, b, panoramas(), root))
+            except Exception as error:  # noqa: BLE001 - one building must not stop the others
+                line = {"building": b.id, "error": f"{type(error).__name__}: {error}"[:200]}
+            lines.append(line)
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+        if STORE:
+            print(json.dumps(colour.apply(lines)), flush=True)
+        return 0
     if a.command == "unblock":  # read buildings: other views for walls whose crops did not show them
         for b in buildings:
             packet = root / "buildings" / b.id

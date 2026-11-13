@@ -375,6 +375,20 @@ def classes(rows: list, column: str) -> str:
     return ", ".join(f"{name} ×{n}" for name, n in collections.Counter(r.get(column) for r in rows).most_common())
 
 
+def read_wall_colour(stored: dict) -> str | None:
+    """The wall colour a reading gave the wall the street sees most of."""
+    frames = [w for w in stored.get("walls", []) if "frame" in w]
+    if not frames:
+        return None
+    by_id = {w.get("id"): w for w in stored.get("walls", [])}
+    wall = max(frames, key=lambda w: math.dist(w["frame"]["p0"], w["frame"]["p1"]) * w.get("observed", {}).get("visible_share", 0.5))
+    for _ in range(8):
+        if "material" in wall or wall.get("like") not in by_id:
+            break
+        wall = by_id[wall["like"]]
+    return material(stored, wall.get("material", stored.get("wall_defaults", {}).get("material"))).get("colour")
+
+
 def read_buildings(store: Path) -> dict:
     """Stored building descriptions that hold a vision reading of panoramas."""
     found = {}

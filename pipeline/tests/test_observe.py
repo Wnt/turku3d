@@ -241,3 +241,52 @@ def test_against_measures_agreement_per_attribute():
     assert rates["wall colour within dE 10"] == (1, 1)  # a row without both colours is not counted
     lines = against.table(rows, against.BUILDING_ATTRIBUTES, None)
     assert any("plaster drawn, brick read ×1" in line for line in lines)
+
+
+def test_light_reading_places_items_and_aggregates_the_area_profile():
+    from turku3d.observe import light
+    from turku3d.world import profile as area_profile
+
+    view = {"id": "v", "width": 960, "height": 720, "pose": {"E": 100.0, "N": 200.0, "H": 10.0, "yaw": 90.0, "fov": 55.0}}
+    east = light.placed(view, [0.4, 0.6], 20.0)  # the middle of a view looking east
+    assert abs(east[0] - 120.0) < 0.2 and abs(east[1] - 200.0) < 0.2
+    assert light.placed(view, [0.9, 1.0], 20.0)[1] < 195.0  # right of the view axis is south when looking east
+    saved = {"buildings": [{"label": "A", "key": "K1", "x": [0.1, 0.5], "share": 0.2, "distance_m": 12.0}],
+             "reading": {"character": "x", "buildings": [
+                 {"label": "A", "seen": True, "x": [0.1, 0.5], "conf": 0.8, "type": "detached_house", "storeys": 2,
+                  "wall": {"family": "plaster", "colour": "#e4e2da"}, "roof": {"form": "gable", "family": "clay_tile", "colour": "#b5553f"}},
+                 {"label": None, "seen": True, "x": [0.6, 0.7], "conf": 0.6, "type": "outbuilding", "distance_m": 8,
+                  "wall": {"family": "weatherboard", "colour": "#6b6d70"}}],
+                 "fences": [{"family": "board", "x": [0.8, 0.9], "conf": 0.5, "height_m": 1.2, "colour": "#6b6d70"}],
+                 "ground": [{"what": "footway", "surface": "paving_stone", "x": [0, 0.5], "conf": 0.8, "kerb": "concrete"}],
+                 "planting": [{"what": "tree", "species": "thuja", "form": "columnar", "count": 3, "x": [0.5, 1], "conf": 0.8},
+                              {"what": "hedge", "form": "clipped", "x": [0, 0.2], "conf": 0.6, "height_m": 1.5}],
+                 "objects": [{"what": "lamp", "type": "steel pole with arm", "x": [0.5, 0.6], "conf": 0.8, "count": 2}]}}
+    items = light.items_of(view, saved)
+    assert items[0]["entity"] == "building/K1" and "entity" not in items[1] and items[1]["at"]
+    got = light.profile(items)
+    assert got["building"]["types"] == {"detached_house": 0.5, "outbuilding": 0.5}
+    assert got["building"]["roof"][0]["family"] == "clay_tile" and got["fence"]["hedge"]["count"] == 1
+    assert got["ground"]["footway"]["surfaces"][0]["surface"] == "paving_stone"
+    assert got["planting"]["tree"][0] == {"species": "thuja", "form": "columnar", "share": 1.0}
+    small = light.building_description(items[0], {"source": "photo", "key": "k", "at": "t", "by": "b"})
+    assert small["materials"]["wall"]["colour"] == "#e4e2da" and small["style"]["type"] == "detached_house"
+    doc = {"id": "location/x", "at": [100.0, 200.0], "profile": got, "character": "c"}
+    assert area_profile.near(150.0, 200.0, known=[doc])["location"] == "location/x"
+    assert area_profile.near(900.0, 200.0, known=[doc]) is None
+
+
+def test_wall_colour_is_what_most_of_a_strip_shares():
+    import numpy as np
+    from turku3d.observe import against, colour
+
+    strip = np.zeros((60, 200, 3), np.uint8)
+    strip[:] = (201, 180, 140)  # ochre wall
+    strip[10:40, 20:50] = (30, 34, 40)  # windows
+    strip[10:40, 120:150] = (30, 34, 40)
+    strip[:, 170:] = (60, 120, 40)  # a tree in front
+    sample = colour.dominant(strip)
+    assert against.delta_e(colour.to_hex(sample["lab"]), "#c9b48c") < 1.0 and 0.6 < sample["share"] < 0.8
+    both = colour.combined([{**sample, "area_m2": 30.0}, {**sample, "area_m2": 10.0}])
+    assert both["strips"] == 2 and both["agreement"] == 0.0 and both["conf"] >= 0.7
+    assert colour.to_hex(colour.calibrated(sample["lab"], {"L": (1.0, 0.0), "a": (1.0, 0.0), "b": (1.0, 0.0)})) == colour.to_hex(sample["lab"])
