@@ -5,6 +5,7 @@ statement about buildings of a kind in Turku, never about one building.
 """
 
 import copy
+import zlib
 
 WOODEN = {"wooden_house", "wooden_villa", "outbuilding"}
 OLD_MASONRY = {"stone_apartment", "classicist_apartment", "public", "church"}
@@ -216,6 +217,10 @@ def style_type(doc: dict) -> str:
         register.get("storeys", 0),
         register.get("height_m", 0.0),
     )
+    if register.get("use") == "outbuilding":
+        return "outbuilding"
+    if register.get("material") == "puu" and storeys <= 2:
+        return "wooden_house"
     if year is None:
         return "detached_house" if height and height < 8 else "modern_apartment"
     if year < 1920:
@@ -227,6 +232,54 @@ def style_type(doc: dict) -> str:
     if year < 1980:
         return "tower_block" if storeys >= 8 else "slab_block"
     return "modern_apartment"
+
+
+# Wall material and colours by the register's facade material (julkisivumateriaali): what a street of such
+# buildings looks like in Turku, one colour per building picked by its id. sRGB, as in overcast daylight.
+REGISTER_WALLS = {
+    "puu": (
+        {
+            "family": "weatherboard",
+            "orientation": "horizontal",
+            "profile": "bevel",
+            "scale_m": 0.13,
+        },
+        ["#d2bd84", "#c98b6d", "#b3bca6", "#d6d1c0", "#a3b1bf", "#e3dcc2", "#bfa58a"],
+    ),
+    "tiili": (
+        {"family": "brick", "bond": "stretcher", "colour2": "#b9b2a5"},
+        ["#9c5a45", "#a8694f", "#8c4e3e", "#b99673"],
+    ),
+    "betoni": (
+        {"family": "concrete", "finish": "cast"},
+        ["#c4c2bc", "#cfc9bc", "#b8b8b6", "#d6d2c6"],
+    ),
+    "kivi": (
+        {"family": "plaster", "finish": "fine"},
+        ["#d3c4a2", "#cfb69e", "#ccc9bc", "#c4a58f", "#bfc2b5"],
+    ),
+    "metallilevy": (
+        {"family": "sheet_metal", "profile": "standing_seam", "scale_m": 0.4},
+        ["#9aa0a6", "#7c848c", "#b9bcbd"],
+    ),
+    "lasi": ({"family": "metal", "finish": "gloss"}, ["#50606b", "#5c6a70"]),
+}
+OLD_PLASTER = ["#d3c4a2", "#cfb69e", "#ccc9bc", "#c4a58f", "#bfc2b5", "#d9c9a8", "#c9b9a0"]
+NEW_PLASTER = ["#d3d0c7", "#ccc8b8", "#c6c0b1", "#dad6ca"]
+
+
+def register_wall(doc: dict) -> dict:
+    """The wall material an unobserved building gets: the register's facade material in one of its usual colours."""
+    register = doc.get("register", {})
+    pick = zlib.crc32(doc.get("id", "").encode())
+    material, colours = REGISTER_WALLS.get(register.get("material", ""), (None, None))
+    if material is None:
+        base = group(doc)["wall"]
+        if base["family"] != "plaster":
+            return dict(base)
+        material = {"family": "plaster", "finish": "fine"}
+        colours = OLD_PLASTER if register.get("year", 1960) < 1940 else NEW_PLASTER
+    return {**material, "colour": colours[pick % len(colours)]}
 
 
 def group(doc: dict) -> dict:
@@ -325,6 +378,15 @@ def resolve_wall(doc: dict, wall: dict | None) -> dict:
         out["storeys"] = base["storeys"]
         out.setdefault("bays", base["bays"])
     out.setdefault("bays", base["bays"])
+    return out
+
+
+def raised_wall(wall: dict, described: bool) -> dict:
+    """The wall of a facade that starts above a roof: no plinth; blank unless somebody described it."""
+    out = {k: v for k, v in wall.items() if k not in ("plinth", "ground_floor_m")}
+    if not described:
+        out["storeys"], out["bays"] = [], []
+        out.pop("verticals", None)
     return out
 
 

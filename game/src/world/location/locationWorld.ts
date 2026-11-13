@@ -16,6 +16,7 @@ import type { PreparedLighting } from '../../render/lights/preparedLighting';
 import { readLocation, type LocationEntity, type LocationManifest } from './manifest';
 import { familyMaterial } from './materials';
 import './families/ground';
+import './families/building';
 
 /** The store root as the dev server and a static host serve it. */
 const STORE = 'world/';

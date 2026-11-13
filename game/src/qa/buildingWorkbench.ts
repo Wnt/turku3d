@@ -65,7 +65,7 @@ scene.add(ground);
 const controls = query.get('orbit') === '1' ? new OrbitControls(camera, renderer.domElement) : null;
 const loader = new GLTFLoader();
 let building: THREE.Object3D | null = null;
-let drawn = 0, frames = 0, framesAtLoad = 0;
+let drawn = 0, frames = 0;
 
 function applyPose(pose: Pose) {
   const { E: E0, N: N0 } = CITIES.turku.origin, d = Math.PI / 180;
@@ -93,7 +93,7 @@ async function load(next: Meta) {
     building.traverse(object => (object as THREE.Mesh).geometry?.dispose());
   }
   building = model; scene.add(model);
-  meta = next; drawn = next.revision; framesAtLoad = frames;
+  meta = next; drawn = next.revision;
   if (next.view) applyPose(next.view.pose);
   else {
     const box = new THREE.Box3().setFromObject(model), centre = box.getCenter(new THREE.Vector3());
@@ -106,14 +106,39 @@ async function load(next: Meta) {
     + (next.report.length ? `\n${next.report.slice(0, 6).join('\n')}` : '');
 }
 
-/** Reload the building if its build changed; resolves once the new one has been drawn for a few frames. */
+const deferred = renderer as unknown as {
+  asyncBuilds?: { readonly queued: number; settled(): Promise<void> };
+  asyncPipelines?: { settled(): Promise<void> };
+};
+const after = (count: number) => new Promise<void>(resolve => {
+  const target = frames + count, wait = () => frames >= target ? resolve() : requestAnimationFrame(wait);
+  wait();
+});
+
+/** The game's renderer builds a draw's program and pipeline after the first frame that needs it and leaves the draw
+ *  out until then (render/asyncNodeBuilds.ts, render/asyncPipelines.ts): a new material arrives some frames late.
+ *  Resolves once nothing is queued and the number of draws has stopped growing. */
+async function everythingDrawn() {
+  let calm = 0, calls = -1;
+  for (let round = 0; round < 400 && calm < 3; round++) {
+    await deferred.asyncBuilds?.settled();
+    await deferred.asyncPipelines?.settled();
+    await after(4);
+    const now = renderer.info.render.drawCalls;
+    calm = (deferred.asyncBuilds?.queued ?? 0) === 0 && now === calls ? calm + 1 : 0;
+    calls = now;
+  }
+}
+
+/** Reload the building if its build changed; resolves once all of it is drawn and the image has settled. */
 async function refresh(settleFrames = 30) {
   const started = performance.now();
   const next = await fetchMeta();
   const changed = next.revision !== drawn;
   if (changed) await load(next);
-  await new Promise<void>(resolve => { const wait = () => frames - framesAtLoad >= settleFrames ? resolve() : requestAnimationFrame(wait); wait(); });
-  return { revision: drawn, changed, ms: Math.round(performance.now() - started) };
+  await everythingDrawn();
+  await after(settleFrames);
+  return { revision: drawn, changed, draws: renderer.info.render.drawCalls, ms: Math.round(performance.now() - started) };
 }
 
 await load(meta);

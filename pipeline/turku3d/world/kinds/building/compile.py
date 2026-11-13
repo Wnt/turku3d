@@ -112,6 +112,8 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     wall_family = "plaster"
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
+        if not facade.grounded:
+            wall = priors.raised_wall(wall, facade.index in described)
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]
         blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None

@@ -16,7 +16,7 @@ from shapely.ops import unary_union
 
 from . import mesh, openings, priors
 from .description import expand_storeys
-from .materials import Palette
+from .materials import Palette, shade
 
 FLOOR_KINDS = ("door", "gateway", "garage", "shopfront")
 
@@ -52,6 +52,11 @@ def eaves_height(outline, width: float) -> float:
     return float(np.percentile(tops, 20)) if tops else float(outline.bounds[3])
 
 
+def ground_v(facade, datum: float, u: float) -> float:
+    """The facade v of the ground at u: the shell's terrain line, or the wall base where it has none."""
+    return facade.ground_at(u) if len(facade.ground) else datum
+
+
 def u_mapping(facade, wall: dict):
     """Description u to facade u: the described frame may start elsewhere than the shell wall and differ in length."""
     frame = wall.get("frame")
@@ -85,9 +90,11 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
     ground_floor = wall.get("ground_floor_m", wall.get("plinth", {}).get("height_m", 0.0))
     heights = [s.get("height_m", 3.0) for s in storeys]
     available = eaves - datum - ground_floor
+    # A described wall was measured, so only a small misfit is stretched away; an automatic wall always fits.
+    tolerance = 0.12 if "frame" in wall else 0.4
     if len(heights) > 1 and available > heights[0] + 1.0:
         total = sum(heights)
-        if abs(total - available) / available < 0.12 and total - heights[0] > 0.5:
+        if abs(total - available) / available < tolerance and total - heights[0] > 0.5:
             factor = (available - heights[0]) / (total - heights[0])
             heights = [heights[0]] + [h * factor for h in heights[1:]]
         elif abs(total - available) > 0.3:
@@ -103,10 +110,10 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
     if isinstance(bays, dict):
         pitch = bays.get("pitch_m")
         count = bays.get("count")
-        if count is None:
-            count = max(0, int((facade.width - 1.6) / pitch) + 1) if pitch else 0
-            if facade.width < 2.2:
-                count = 0
+        fits = max(0, int((facade.width - 1.6) / pitch) + 1) if pitch else 0
+        count = fits if count is None else min(count, fits) if pitch else count
+        if facade.width < 2.2:
+            count = 0
         if count and pitch is None:
             pitch = facade.width / count
         first = bays.get("first_m")
@@ -127,22 +134,23 @@ def layout(facade, wall: dict, doc: dict, report: list) -> Layout:
         span = count * width + (count - 1) * gap
         for k in range(count):
             u0 = u_centre - span / 2 + k * (width + gap)
-            bottom = v_bottom
-            if bottom is None:
-                ground = (
-                    datum
-                    + facade.ground_at(u0 + width / 2)
-                    - (facade.ground[:, 1].min() if len(facade.ground) else 0.0)
-                )
+            bottom, placed_spec = v_bottom, spec
+            if spec["kind"] in FLOOR_KINDS:
+                # Doors, gateways and shopfronts stand on the ground at their place, whatever height was read.
+                ground = ground_v(facade, datum, u0 + width / 2)
+                level = spec["kind"] in ("gateway", "garage")
                 steps = spec.get("leaf", {}).get("steps", 0)
-                bottom = (
-                    ground
-                    + steps * openings.STEP_RISE
-                    + (0.0 if spec["kind"] in ("gateway", "garage") else 0.03)
-                )
+                stood = ground + steps * openings.STEP_RISE + (0.0 if level else 0.03)
+                if bottom is None or level:
+                    bottom = stood
+                else:
+                    bottom = max(bottom, ground + 0.03)
+                    if spec["kind"] == "door":
+                        steps = int(round((bottom - ground - 0.03) / openings.STEP_RISE))
+                        placed_spec = priors.merged(spec, {"leaf": {"steps": max(0, steps)}})
                 if spec["kind"] == "shopfront" and floor_v is not None:
                     bottom = max(ground + 0.05, min(bottom, floor_v))
-            out.placed.append(Placed(name, spec, u0, bottom, width, height, storey_index))
+            out.placed.append(Placed(name, placed_spec, u0, bottom, width, height, storey_index))
 
     for index, (floor_v, _height, storey) in enumerate(out.floors):
         sill = floor_v + storey.get("sill_m", 0.9)
@@ -229,6 +237,16 @@ def band_profile(kind: str, v: float, height: float, projection: float):
             for t in np.linspace(0, np.pi, 8)
         ]
         return [(0, v), (p * 0.2, v)] + curve[1:] + [(p, v + h), (0, v + h)]
+    if kind == "meander":
+        return [
+            (0, v),
+            (p * 0.1, v),
+            (p * 0.1, v + h * 0.6),
+            (p * 0.55, v + h * 0.7),
+            (p, v + h * 0.82),
+            (p, v + h),
+            (0, v + h),
+        ]
     if kind in ("dentil", "bracketed"):
         return [
             (0, v),
@@ -240,6 +258,77 @@ def band_profile(kind: str, v: float, height: float, projection: float):
             (0, v + h),
         ]
     return [(0, v), (p, v), (p, v + h), (0, v + h)]
+
+
+def meander(u0: float, u1: float, v0: float, v1: float):
+    """A Greek key as one shape: whole key units centred between u0 and u1, as tall as v0..v1."""
+    t = (v1 - v0) / 6
+    pitch = 7 * t
+    count = int((u1 - u0) / pitch)
+    if count < 1 or t <= 0:
+        return Polygon()
+    start = (u0 + u1) / 2 - count * pitch / 2
+    cells = [(0, 0, 7, 1), (0, 0, 1, 6), (0, 5, 5, 6), (4, 2, 5, 6), (2, 2, 5, 3), (2, 2, 3, 4)]
+    parts = [
+        rectangle(start + k * pitch + a * t, v0 + b * t, start + k * pitch + c * t, v0 + d * t)
+        for k in range(count)
+        for a, b, c, d in cells
+    ]
+    return unary_union(parts)
+
+
+def ornament(kind: str, u: float, v: float, w: float, h: float):
+    """A flat relief motif in the rectangle whose bottom centre is (u, v)."""
+
+    def disc(cx, cy, r, sides=12):
+        angles = np.linspace(0, 2 * np.pi, sides + 1)[:-1]
+        return Polygon([(cx + r * np.cos(a), cy + r * np.sin(a)) for a in angles])
+
+    if kind == "swag":
+        # A garland hung between two rosettes, with a short drop under each.
+        r = min(h * 0.22, w * 0.1)
+        s = np.linspace(-1, 1, 15)
+        x = u + s * (w / 2 - r)
+        top = v + h - r - (h - 2 * r) * 0.45 * (1 - s**2)
+        low = v + h - r - (h - 2 * r) * 0.95 * (1 - s**2) - r * 0.25
+        garland = Polygon(
+            list(zip(x, top, strict=True)) + list(zip(x[::-1], low[::-1], strict=True))
+        )
+        drops = [
+            Polygon([(cx - r * 0.5, v + h - r), (cx + r * 0.5, v + h - r), (cx, v + h * 0.2)])
+            for cx in (x[0], x[-1])
+        ]
+        return unary_union(
+            [garland.buffer(0), disc(x[0], v + h - r, r), disc(x[-1], v + h - r, r)] + drops
+        )
+    if kind == "crest":
+        # A palmette between two scrolls on a base bar.
+        r = min(w * 0.16, h * 0.3)
+        leaf = affinity.scale(disc(u, v + h * 0.6, r, 14), 0.7, 1.3)
+        scrolls = [disc(u + side * w * 0.33, v + h * 0.3, r * 0.75) for side in (-1, 1)]
+        arms = [
+            Polygon(
+                [
+                    (u, v + h * 0.12),
+                    (u + side * w * 0.5, v + h * 0.12),
+                    (u + side * w * 0.3, v + h * 0.42),
+                ]
+            )
+            for side in (-1, 1)
+        ]
+        bar = rectangle(u - w / 2, v, u + w / 2, v + h * 0.12)
+        return unary_union([leaf, bar] + scrolls + [a.buffer(0) for a in arms])
+    if kind in ("medallion", "rosette"):
+        r = min(w, h) / 2
+        return (
+            disc(u, v + h / 2, r, 16)
+            .difference(disc(u, v + h / 2, r * 0.55, 12))
+            .union(disc(u, v + h / 2, r * 0.3, 10))
+        )
+    # A plaque: a framed panel.
+    return rectangle(u - w / 2, v, u + w / 2, v + h).difference(
+        rectangle(u - w / 2 + 0.06, v + 0.06, u + w / 2 - 0.06, v + h - 0.06)
+    )
 
 
 def free_spans(u0: float, u1: float, v0: float, v1: float, placed: list, margin: float = 0.0):
@@ -282,24 +371,23 @@ def build(
 
     # Openings that fit: inside the wall, clear of a neighbour's party wall and of each other.
     inside = outline.buffer(-0.12)
-    kept, holes = [], []
+    kept, holes, misfits = [], [], []
     for p in plan.placed:
         shape = affinity.translate(openings.outline(p.spec, p.width, p.height), p.u0, p.v0)
         if not inside.contains(shape):
-            report.append(
-                f"facade {facade.index}: {p.name} at u {p.u0 + p.width / 2:.1f} m, v {p.v0 - datum:.1f} m does not fit the wall"
-            )
+            misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} v {p.v0 - datum:.1f}")
             continue
         if blocked is not None and blocked.intersects(shape):
             continue
         if any(shape.intersects(h) for h in holes):
-            report.append(
-                f"facade {facade.index}: {p.name} at u {p.u0 + p.width / 2:.1f} m overlaps another opening"
-            )
+            misfits.append(f"{p.name} at u {p.u0 + p.width / 2:.1f} (overlaps another opening)")
             continue
         p.shape = shape
         kept.append(p)
         holes.append(shape)
+    if misfits and "frame" in wall:
+        more = f" and {len(misfits) - 3} more" if len(misfits) > 3 else ""
+        report.append(f"facade {facade.index}: left out {', '.join(misfits[:3])}{more}")
     cut = unary_union(holes) if holes else None
 
     # Material regions, later ones over earlier ones.
@@ -360,7 +448,8 @@ def build(
             (key for shape, key in reversed(resolved) if shape.buffer(0.3).contains(centre)),
             wall_key,
         )
-        template_key = (p.name, round(p.width, 3), round(p.height, 3), around)
+        steps = p.spec.get("leaf", {}).get("steps", 0)
+        template_key = (p.name, round(p.width, 3), round(p.height, 3), around, steps)
         if template_key not in templates:
             templates[template_key] = openings.build(
                 p.spec, p.width, p.height, around, palette, trim
@@ -410,6 +499,28 @@ def _bands(soup, facade, wall, plan, kept, doc, palette, wall_record, trim):
             mesh.extrude_profile(
                 local, "trim", key, u0, u1, band_profile(profile_kind, v, height, projection)
             )
+            if profile_kind == "meander":
+                # The key stands out of a frieze in shadow: a darker ground behind a raised fret.
+                ground = palette.paint(shade(band.get("colour", trim), 0.62), wall_record)
+                mesh.box(
+                    local,
+                    "trim",
+                    ground,
+                    u0,
+                    v + height * 0.06,
+                    u1,
+                    v + height * 0.58,
+                    projection * 0.1,
+                    projection * 0.1 + 0.004,
+                )
+                mesh.prism(
+                    local,
+                    "trim",
+                    key,
+                    meander(u0 + 0.05, u1 - 0.05, v + height * 0.12, v + height * 0.52),
+                    projection * 0.1,
+                    projection * 0.1 + 0.035,
+                )
             if profile_kind in ("dentil", "bracketed"):
                 pitch, block = (0.26, 0.13) if profile_kind == "dentil" else (0.9, 0.16)
                 count = int((u1 - u0 - block) / pitch) + 1
@@ -481,7 +592,7 @@ def _verticals(soup, facade, wall, plan, kept, palette, wall_record, trim, plint
                     pipe,
                     u,
                     0.09,
-                    plan.datum + facade.ground_at(u) * 0.0,
+                    ground_v(facade, plan.datum, u),
                     high,
                     part_width / 2,
                     sides=8,
@@ -587,6 +698,7 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
         elif kind == "canopy":
             variant = part.get("type", "slab")
             if variant == "entablature":
+                frieze_top, cornice_top = v + h * 0.6, v + h * 0.84
                 mesh.box(
                     local,
                     "attached",
@@ -594,33 +706,52 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
                     u - w / 2,
                     v,
                     u + w / 2,
-                    v + h * 0.72,
+                    frieze_top,
                     0.0,
                     depth,
                     back=True,
                 )
-                profile = [
-                    (0.0, v + h * 0.72),
-                    (depth + 0.04, v + h * 0.72),
-                    (depth + 0.12, v + h * 0.9),
-                    (depth + 0.12, v + h),
-                    (0.0, v + h),
-                ]
+                lip = 0.14
                 mesh.extrude_profile(
-                    local, "attached", key, u - w / 2 - 0.12, u + w / 2 + 0.12, profile
+                    local,
+                    "attached",
+                    key,
+                    u - w / 2 - lip,
+                    u + w / 2 + lip,
+                    [
+                        (0.0, frieze_top),
+                        (depth + lip * 0.3, frieze_top),
+                        (depth + lip, frieze_top + (cornice_top - frieze_top) * 0.7),
+                        (depth + lip, cornice_top),
+                        (0.0, cornice_top),
+                    ],
+                )
+                roofing = palette.key(
+                    part.get("roof_material"),
+                    fallback={"family": "sheet_metal", "colour": "#4b4e4c", "profile": "flat_seam"},
+                )
+                mesh.extrude_profile(
+                    local,
+                    "attached",
+                    roofing,
+                    u - w / 2 - lip - 0.04,
+                    u + w / 2 + lip + 0.04,
+                    [
+                        (0.0, cornice_top),
+                        (depth + lip + 0.04, cornice_top),
+                        (depth + lip + 0.04, cornice_top + 0.03),
+                        (0.0, v + h),
+                    ],
                 )
                 if "colour2" in part:
-                    frieze = palette.paint(part["colour2"], wall_record)
-                    mesh.box(
+                    fret = palette.paint(part["colour2"], wall_record)
+                    mesh.prism(
                         local,
                         "attached",
-                        frieze,
-                        u - w / 2 + 0.05,
-                        v + h * 0.14,
-                        u + w / 2 - 0.05,
-                        v + h * 0.6,
+                        fret,
+                        meander(u - w / 2 + 0.08, u + w / 2 - 0.08, v + h * 0.12, v + h * 0.5),
                         depth,
-                        depth + 0.012,
+                        depth + 0.02,
                     )
             elif variant in ("hood", "pitched"):
                 mesh.extrude_profile(
@@ -677,9 +808,9 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
                     if count >= 2
                     else [u]
                 )
-                foot = plan.datum
                 for x in xs:
                     d = depth - radius - 0.06
+                    foot = ground_v(facade, plan.datum, x) + supports.get("base_m", 0.0)
                     if support_kind == "posts":
                         mesh.box(
                             local,
@@ -752,12 +883,21 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
                 )
         elif kind == "flagpole":
             metal = palette.key({"family": "metal", "colour": part.get("colour", "#d8d8d8")})
-            mesh.cylinder(local, "attached", metal, u, 0.25, v, v + h, 0.035, sides=6)
+            if part.get("type") == "angled":
+                # A pole in a wall socket, leaning out over the pavement.
+                mesh.tube(local, "attached", metal, (u, v, 0.0), (u, v + h * 0.82, h * 0.57), 0.03)
+            else:
+                mesh.cylinder(local, "attached", metal, u, 0.25, v, v + h, 0.035, sides=6)
+        elif kind == "ornament":
+            mesh.prism(
+                local, "trim", key, ornament(part.get("type", "plaque"), u, v, w, h), 0.0, 0.04
+            )
         elif kind == "lamp":
             metal = palette.key({"family": "metal", "colour": part.get("colour", "#2a2a2a")})
             mesh.box(local, "attached", metal, u - 0.1, v, u + 0.1, v + 0.3, 0.05, 0.3, back=True)
         elif kind == "vent_grille":
-            metal = palette.key({"family": "metal", "colour": part.get("colour", "#5a5a58")})
+            metal = palette.key({"family": "metal", "colour": part.get("colour", "#3c3c3b")})
+            w, h = part.get("w_m", 0.16), part.get("h_m", 0.16)
             mesh.box(local, "attached", metal, u - w / 2, v, u + w / 2, v + h, 0.0, 0.015)
     soup.place(local, facade)
 

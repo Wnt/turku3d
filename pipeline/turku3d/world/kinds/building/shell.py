@@ -45,6 +45,7 @@ class Facade:
     ground: np.ndarray = field(
         default_factory=lambda: np.zeros((0, 2))
     )  # (u, v) of the terrain line along it
+    grounded: bool = True  # False for a wall that starts above a roof: no plinth, no doors
 
     def point(self, u, v, d=0.0) -> np.ndarray:
         """Survey coordinates of wall coordinates; d is the distance out of the wall plane."""
@@ -188,6 +189,9 @@ def read(shell: dict) -> Shell:
         facade = Facade(len(facades), origin, u_dir, n, float(width), float(height), outline)
         facade.ground = _ground_line(facade, terrain)
         facades.append(facade)
+    lowest = min((float(f.origin[2]) for f in facades), default=0.0)
+    for facade in facades:
+        facade.grounded = len(facade.ground) > 0 or float(facade.origin[2]) - lowest < 2.0
     facades.sort(key=lambda f: -f.outline.area)
     for i, facade in enumerate(facades):
         facade.index = i

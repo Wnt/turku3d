@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 from ..api import Kind
-from . import building_shell, fence, ground, lamp, signpost, trees, wire
+from . import building, fence, ground, lamp, signpost, trees, wire
 
-KINDS: dict[str, Kind] = {kind.name: kind for kind in (ground.Ground(), building_shell.ShellBuilding(), trees.Trees(), signpost.SignPost(), lamp.Lamp(), fence.Fence(), wire.Wire())}
+KINDS: dict[str, Kind] = {kind.name: kind for kind in (ground.Ground(), building.Building(), trees.Trees(), signpost.SignPost(), lamp.Lamp(), fence.Fence(), wire.Wire())}
 
 HERE = Path(__file__).parent
 SHARED = (HERE.parent / "api.py", HERE.parent / "geometry.py", HERE.parent / "glb.py", HERE.parent / "frame.py")

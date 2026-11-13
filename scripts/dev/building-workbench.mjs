@@ -96,7 +96,7 @@ async function shot() {
     const out = path.resolve(opt('--out', path.join(workRoot, 'workbench', name, 'pair.jpg')));
     fs.mkdirSync(path.dirname(out), { recursive: true });
     await page.screenshot({ path: out, type: out.endsWith('.png') ? 'png' : 'jpeg', ...(out.endsWith('.png') ? {} : { quality: 90 }) });
-    console.log(JSON.stringify({ out, revision: refreshed.revision, changed: refreshed.changed, refreshMs: refreshed.ms, totalMs: Date.now() - started, errors: errors.slice(0, 5) }));
+    console.log(JSON.stringify({ out, revision: refreshed.revision, changed: refreshed.changed, draws: refreshed.draws, refreshMs: refreshed.ms, totalMs: Date.now() - started, errors: errors.slice(0, 5) }));
   } finally {
     await browser.close();
     if (!argv.includes('--keep')) release();

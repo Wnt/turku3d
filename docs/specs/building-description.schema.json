@@ -530,6 +530,10 @@
                 },
                 "colour": {
                   "$ref": "#/$defs/colour"
+                },
+                "colour2": {
+                  "$ref": "#/$defs/colour",
+                  "description": "Colour of a panel's inset field and roundel."
                 }
               }
             },
@@ -1357,7 +1361,8 @@
             "vent_grille",
             "hatch",
             "meter_box",
-            "balcony_door_rail"
+            "balcony_door_rail",
+            "ornament"
           ]
         },
         "u_m": {
@@ -1415,6 +1420,10 @@
             },
             "material": {
               "$ref": "#/$defs/material"
+            },
+            "base_m": {
+              "type": "number",
+              "description": "Height of the supports' feet above the ground: a step or podium they stand on."
             }
           }
         },

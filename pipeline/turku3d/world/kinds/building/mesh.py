@@ -352,3 +352,39 @@ def cylinder(soup: Soup, part, material, u, d, v0, v1, radius, sides=12, top_rad
     cap = np.vstack([[u, v1, d], high[:-1]])
     fan = np.column_stack([np.zeros(sides, np.int64), 1 + (index + 1) % sides, 1 + index])
     soup.add(part, material, cap, fan, cap[:, [0, 2]], np.tile([0.0, 1.0, 0.0], (len(cap), 1)))
+
+
+def tube(soup: Soup, part, material, a, b, radius, sides=6):
+    """A round rod (smooth-shaded) from a to b, both (u, v, d); its ends are open, so let them meet other parts."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    axis = b - a
+    length = np.linalg.norm(axis)
+    if length < 1e-6:
+        return
+    axis = axis / length
+    side = np.cross(axis, [0.0, 1.0, 0.0] if abs(axis[1]) < 0.9 else [1.0, 0.0, 0.0])
+    side /= np.linalg.norm(side)
+    other = np.cross(axis, side)
+    angles = np.arange(sides + 1) * 2 * np.pi / sides
+    normals = np.cos(angles)[:, None] * side + np.sin(angles)[:, None] * other
+    index = np.arange(sides)
+    triangles = np.concatenate(
+        [
+            np.column_stack([index, index + 1, index + sides + 1]),
+            np.column_stack([index + 1, index + sides + 2, index + sides + 1]),
+        ]
+    )
+    along = angles * radius
+    soup.add(
+        part,
+        material,
+        np.vstack([a + radius * normals, b + radius * normals]),
+        triangles,
+        np.vstack(
+            [
+                np.column_stack([along, np.zeros(sides + 1)]),
+                np.column_stack([along, np.full(sides + 1, length)]),
+            ]
+        ),
+        np.vstack([normals, normals]),
+    )

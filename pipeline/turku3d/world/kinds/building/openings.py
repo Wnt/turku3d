@@ -281,11 +281,32 @@ def _surround(
             apron_key = palette.paint(colour, wall_material)
         if a1 - a0 > 0.03:
             mesh.box(soup, "trim", apron_key, 0.0, a0, width, a1, 0.0, projection * 0.5)
+            if kind not in ("eared", "carved"):
+                # The surround runs down both sides of the apron: window and apron read as one tall recess.
+                for x0, x1 in ((-band, 0.0), (width, width + band)):
+                    mesh.box(soup, "trim", key, x0, a0, x1, 0.0, 0.0, projection)
             if apron.get("kind") == "panel":
-                rim = rectangle(0.0, a0, width, a1).difference(
-                    rectangle(0.07, a0 + 0.07, width - 0.07, a1 - 0.07)
-                )
+                inner = rectangle(0.12, a0 + 0.1, width - 0.12, a1 - 0.1)
+                rim = inner.buffer(0.05, join_style=2).difference(inner)
                 mesh.prism(soup, "trim", key, rim, projection * 0.5, projection)
+                if "colour2" in apron:
+                    fill = palette.paint(apron["colour2"], wall_material)
+                    mesh.face(soup, "trim", fill, inner, projection * 0.5 + 0.004)
+                    r = min(width, a1 - a0) * 0.2
+                    disc = Polygon(
+                        [
+                            (width / 2 + r * np.cos(t), (a0 + a1) / 2 + r * np.sin(t))
+                            for t in np.linspace(0, 2 * np.pi, 13)[:-1]
+                        ]
+                    )
+                    mesh.prism(
+                        soup,
+                        "trim",
+                        key,
+                        disc.difference(disc.buffer(-0.04)),
+                        projection * 0.5,
+                        projection,
+                    )
     return top
 
 
@@ -301,12 +322,33 @@ def _pediment(soup, spec, width, base, palette: Palette, wall_material, trim_col
     )
     u0, u1 = -band - 0.08, width + band + 0.08
     if kind == "cornice":
+        # A tall one is a frieze board under a cornice on two consoles: the hood of a wooden house's window.
+        frieze = height * 0.5 if height > 0.3 else 0.0
+        if frieze:
+            mesh.box(soup, "trim", key, -band, base, width + band, base + frieze, 0.0, 0.03)
+            for x in (-band, width + band - 0.09):
+                mesh.extrude_profile(
+                    soup,
+                    "trim",
+                    key,
+                    x,
+                    x + 0.09,
+                    [
+                        (0.0, base + frieze * 0.25),
+                        (projection * 0.35, base + frieze * 0.4),
+                        (projection * 0.8, base + frieze),
+                        (0.0, base + frieze),
+                    ],
+                )
+        low = base + frieze
+        tall = height - frieze
         profile = [
-            (0.0, base),
-            (projection * 0.55, base),
-            (projection, base + height * 0.6),
-            (projection, base + height),
-            (0.0, base + height),
+            (0.0, low),
+            (projection * 0.45, low),
+            (projection * 0.6, low + tall * 0.35),
+            (projection, low + tall * 0.7),
+            (projection, low + tall),
+            (0.0, low + tall),
         ]
         mesh.extrude_profile(soup, "trim", key, u0, u1, profile)
     elif kind == "hood":
@@ -473,7 +515,10 @@ def _gate(soup, spec, shape, width, height, depth, palette: Palette, wall_materi
     passage = spec.get("passage", {})
     leaf = spec.get("leaf", {})
     deep = passage.get("depth_m", 3.5 if passage.get("depth", "through") == "through" else 0.6)
-    lining = palette.key(passage.get("lining"), fallback=palette.records.get(wall_material))
+    # Little daylight reaches into a passage: unless somebody described its lining, it is the wall in deep shade.
+    wall_record = palette.records.get(wall_material, {})
+    shaded = {**wall_record, "colour": shade(wall_record.get("colour", "#8a857d"), 0.38)}
+    lining = palette.key(passage.get("lining"), fallback=shaded)
     ring = np.asarray(shape.exterior.coords)[:-1]
     mesh.ring_walls(soup, "walls", lining, ring, -deep, -depth, outward=False)
     end = palette.flat("#141414") if passage.get("depth", "through") == "through" else lining
