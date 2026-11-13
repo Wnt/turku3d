@@ -46,6 +46,11 @@ export function cascadeCovers(shadowCamera: THREE.OrthographicCamera, camera: TH
   return true;
 }
 
+/** Diffuse reflectance of streets, pavements and yards as the image-based light sees them (asphalt to pale paving). */
+const IBL_GROUND_ALBEDO = [0.22, 0.2, 0.17] as const;
+/** Share of the sky model's below-horizon light that the ground blocks (1 - reflectance). */
+const IBL_GROUND_COVER = 0.8;
+
 export class Environment {
   readonly sky = new AnalyticSky();
   readonly sun = new THREE.DirectionalLight(0xfff2e0, 3);
@@ -72,6 +77,10 @@ export class Environment {
   private pmrem: THREE.PMREMGenerator;
   private environmentTarget: THREE.RenderTarget | null = null;
   private skyScene = new THREE.Scene();
+  /** The ground as the image-based light sees it: without it the sky model repeats its bright horizon over the whole
+   *  lower half, and every wall is lit from below by blue-white sky instead of by the street. */
+  private iblGround = new THREE.Mesh(new THREE.CircleGeometry(5000, 48).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, fog: false, toneMapped: false }));
   private iblDirty = true;
   private iblElevation = Number.NaN;
   private state = '';
@@ -94,6 +103,8 @@ export class Environment {
     liveEnvironments.add(this);
     // Mesh.clone shares the sky material/uniforms; keep one IBL source mesh across time edits.
     this.skyScene.add(this.sky.clone());
+    this.iblGround.position.y = -1; this.iblGround.renderOrder = 1; this.iblGround.frustumCulled = false;
+    this.skyScene.add(this.iblGround);
     // The sky is a back-faced unit box scaled to a 2250 m half-extent (corners 3.9 km, inside the 6 km far plane).
     // Its colour depends only on the view direction, so it is centred on whichever camera draws it: it stays around
     // the player kilometres from the origin and looks the same at the origin.
@@ -234,6 +245,7 @@ export class Environment {
     // The directional light already supplies shadowed sunlight. The PMREM disc would add
     // it again as unshadowed light; retain the established twilight bake below 6 degrees.
     this.sky.showSunDisc.value = Number(visibleDisc) * (1 - THREE.MathUtils.smoothstep(this.sunElevation, 6, 12));
+    this.lightIblGround();
     try {
       this.environmentTarget = this.pmrem.fromScene(this.skyScene, 0, 0.1, 6000,
         { size: 128, renderTarget: this.environmentTarget });
@@ -242,6 +254,24 @@ export class Environment {
       this.atmosphere.skyBrightness.value = visibleBrightness;
       this.sky.showSunDisc.value = visibleDisc;
     }
+  }
+
+  /** Radiance of the ground in the environment map, by day: a street reflects a fifth of the light that falls on it,
+   *  so below the horizon the map holds a fifth of the horizon's sky light plus the sun's bounce, warm as the sun
+   *  and the paving are. Walls in shade then keep their own colour instead of turning sky-grey (measured on a
+   *  plaster wall, 2026-11-13). At night the sky model's own lower half stays, as the night lighting was tuned on it. */
+  private lightIblGround() {
+    const s = this.sample, day = 1 - s.night;
+    const cover = IBL_GROUND_COVER * day;
+    const material = this.iblGround.material;
+    material.opacity = cover;
+    this.iblGround.visible = cover > 0.001;
+    if (!this.iblGround.visible) return;
+    // Sun irradiance on level ground, reflected diffusely, in the map's units (the map is scaled by environmentIntensity).
+    const bounce = s.sunIntensity * Math.max(0, Math.sin(THREE.MathUtils.degToRad(this.sunElevation)))
+      / Math.PI / Math.max(0.02, s.environmentIntensity) / cover;
+    material.color.setRGB(IBL_GROUND_ALBEDO[0] * s.sunColor[0] * bounce, IBL_GROUND_ALBEDO[1] * s.sunColor[1] * bounce,
+      IBL_GROUND_ALBEDO[2] * s.sunColor[2] * bounce);
   }
 
   /** While the sun has no intensity its cascades are not re-rendered (3 passes on medium, 4 on high). Startup
