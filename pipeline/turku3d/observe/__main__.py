@@ -10,6 +10,8 @@
     python -m turku3d.observe against [--out DIR]     the automatic tier against the stored readings, per attribute
     python -m turku3d.observe light --location NAME --view ID...   what stands in the judged photographs, by kind,
                                                       and the area profile (light.py); one cheap call per photograph
+    python -m turku3d.observe gaps city|strata|pick|prepare|run   the readings that fill the gaps in what is known
+                                                      (gaps.py)
 
 `describe` does what `unblock` does by itself: when the reader reports that no crop of a wall showed it (a quay
 wall, a fence or trees in the way, which LoD2 does not hold), the wall gets crops from panoramas on other paths
@@ -348,6 +350,11 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["gaps"]:  # its own arguments: which readings fill the gaps in what is known (gaps.py)
+        from . import gaps
+
+        return gaps.main(argv[1:])
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof", "unblock", "against", "light", "colour"])
