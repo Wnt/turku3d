@@ -594,7 +594,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
         ]
         return out
     count = max(1, int(doc.get("register", {}).get("storeys") or 1))
-    knee = 0.0
+    knee = basement = 0.0
     if kind in SHEDS or (kind in HALLS and count <= 1 and "ground_window" not in g):
         count = 1  # one room to the eaves, however high
     elif kind in HOUSES and available < 5.4:
@@ -608,6 +608,19 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
         if lift > 0.05 and "plinth" in out:
             out["plinth"]["height_m"] = round(plinth + lift, 2)
             plinth, available = plinth + lift, available - lift
+    elif (
+        kind == "detached_house"
+        and 1940 <= archetypes.era_year(doc) < 1980
+        and available < 7.2
+        and count <= 2
+    ):
+        # A post-war house of the forties to seventies with eaves this high is one storey on a basement that
+        # stands out of the ground with small windows (as read: four of six such houses the register counts as
+        # two storeys; Myllymäentie 33, Uudenpellonkatu 7 and 9, Luutnantintie 21), the attic behind a knee wall.
+        count = 1
+        knee = 0.5
+        basement = available - g["ground_h"] - knee
+        available -= basement
     elif not 2.6 <= available / count <= 4.4:
         count = max(1, round(available / g["upper_h"]))
     each = (available - knee) / count
@@ -689,6 +702,14 @@ def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) 
             ]
     if knee > 0.05:
         out["storeys"].append({"kind": "attic", "height_m": round(knee, 2), "sill_m": 0.2, "window": None})
+    if basement > 0.05:
+        # The doors stay at the ground: in the basement storey, under the main storey's windows.
+        main = out["storeys"][0]
+        out["storeys"].insert(0, {
+            "kind": "basement", "height_m": round(basement, 2), "sill_m": round(max(0.3, basement - 0.95), 2),
+            "window": None if role.get("blank") or basement < 1.5 else "@attic",
+            **({"openings": main.pop("openings")} if "openings" in main else {}),
+        })  # fmt: skip
     if "gable" in role:
         # A gable high enough for a room under the roof has that room's window (it stands on the attic floor,
         # which a knee wall puts below the eaves); a lower one a small light.

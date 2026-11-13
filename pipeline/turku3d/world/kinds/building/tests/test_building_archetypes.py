@@ -85,3 +85,17 @@ def test_a_new_business_block_in_the_stone_town_is_clad_to_fit_and_one_elsewhere
     new_town = automatic({**register, "old_share": 0.1}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
     assert new_town["materials"]["wall"]["family"] in ("sheet_metal", "plaster", "concrete")
     assert "#c48a76" in archetypes.OFFICE_SHEET_NEW
+
+
+def test_a_sixties_house_with_high_eaves_is_one_storey_on_a_basement_and_an_old_house_of_other_material_is_wooden():
+    from turku3d.world.kinds.building import priors
+
+    doc = automatic({"use": "1000", "year": 1967, "storeys": 2, "material": "muu materiaali"}, eaves=6.2)
+    assert doc["style"]["type"] == "detached_house"
+    wall = priors.fitted_wall(doc, priors.resolve_wall(doc, None), 6.2, {"doors": [3.0]})
+    kinds = [s["kind"] for s in wall["storeys"]]
+    assert kinds[:2] == ["basement", "ground"], kinds
+    assert wall["storeys"][0].get("openings"), "the door stays on the ground, in the basement storey"
+    old = automatic({"use": "1000", "year": 1925, "storeys": 1, "material": "muu materiaali"})
+    assert old["style"]["type"] == "wooden_house"
+    assert old["materials"]["wall"]["family"] == "weatherboard"

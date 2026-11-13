@@ -39,7 +39,13 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   facing tile, render; upright windows since 2000), not in metal cassettes. Metal fronts since 2005 include
   terracotta and red-brown panels.
 - **Wall** in the register's facade material, in a colour such a building usually has by type and decade (brick
-  houses since 1975 are mostly buff or white, older ones red; post-war houses of "other material" are rendered).
+  houses since 1975 are mostly buff or white, older ones red; houses of "other material" are rendered until 1955,
+  boarded upright, red brick or rendered until 1965, mostly pale or yellow brick until 2000; a low house of
+  "other material" from before 1940 is an old wooden house; blocks of flats of "other material" from 1965 to 1979
+  outside the old town are concrete elements, some tiled or rendered).
+- **Storeys of a post-war house:** a detached house of 1940 to 1979 whose wall is under 7.2 m high is one storey
+  on a basement storey with small windows (doors stay at the ground) under a 0.5 m knee wall, whatever the register
+  counts.
   The palettes are populations: one colour is picked per building by its id.
 - **`measured`**, when stored, replaces the palette pick: `measured.wall.colour` is a robust sample of the wall in
   a street photograph, taken without reading the building (`spread`: CIELAB dE of the sample, `share`: how much

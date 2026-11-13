@@ -120,6 +120,9 @@ def infer(doc: dict) -> str:
     if used == "industrial":
         return "industrial"
     old_wood = material in ("puu", None, "") and (dated or register.get("year_near") or 1900) < 1940
+    # A low house of "other material" from before 1940 is wooden too: all six read so far were wooden houses
+    # (four boarded, two rendered), and the 1920s houses photographed in Itäharju, Kähäri and Raunistula are boarded.
+    old_house = old_wood or (material == "muu materiaali" and (dated or register.get("year_near") or 1900) < 1940)
     # Shops, offices and public buildings in a house older than 1940 look like the houses of their time (a town
     # house with shops, a wooden house turned into offices): only later ones are a type of their own. A public
     # building is one at any age unless it is a low wooden house.
@@ -130,9 +133,9 @@ def infer(doc: dict) -> str:
     if used == "public" and not (old_wood and material == "puu" and storeys <= 2):
         return "public"
     if use in SMALL_RESIDENTIAL and low:
-        return "wooden_house" if old_wood else "detached_house"
+        return "wooden_house" if old_house else "detached_house"
     if use in FLATS and low:
-        if old_wood:
+        if old_house:
             return "wooden_house"
         if year >= 1940:
             return "row_house"
@@ -177,8 +180,12 @@ WOOD_TRADITIONAL = [
     "#9c3b30", "#ae443d",
 ]  # fmt: skip
 WOOD_NEW = ["#e3e5e5", "#e3e4e0", "#e9e8e4", "#c9cbc8", "#d9cfb4", "#3a3c3f", "#8a8f92", "#b7a58a", "#e3e5e5"]
+# Upright boards of the sixties' houses: pale grey, grey-blue, white, a grey-green, a brown and a red one.
+WOOD_SIXTIES = ["#c9cfcf", "#b9c3c9", "#e3e4e0", "#d6d9d0", "#a3b1bf", "#b3bca6", "#6e5a4a", "#9c3b30"]
 WOOD_SHED = ["#7b3a2e", "#8a3b30", "#7b3a2e", "#3b2a20", "#4a3a2e", "#243a36", "#8d8f8c", "#e6e7e5", "#d9c48e"]
 CONCRETE_PANEL = ["#c4c2bc", "#cfc9bc", "#b8b8b6", "#d6d2c6", "#b3ab9c"]
+# Exposed-aggregate and brushed concrete of the element blocks, as photographed in overcast light.
+CONCRETE_AGGREGATE = ["#a9aba4", "#9fa29b", "#b3b2aa", "#a8a49a", "#bdbcb5", "#9a9c9a"]
 CONCRETE_LATE = ["#d9cdbb", "#dddddb", "#cfc2b0", "#d6d2c6", "#c9c3b4"]
 # Halls are mostly pale: white, light grey and beige sheet; a dark or strongly coloured one is the exception.
 SHEET_HALL = [
@@ -296,15 +303,29 @@ def wall(doc: dict, kind: str) -> dict | None:
             return {**PLASTER, "colour": pick(doc, "wall", RENDER_NEW if year >= 2000 else RENDER_VETERAN)}
         if material == "metallilevy":
             return {**SHEET, "colour": pick(doc, "wall", SHEET_HALL)}
-        # "muu materiaali" and no value: render on the post-war house and the new one, pale brick between.
-        if year < 1965:
+        # "muu materiaali" and no value: render on the post-war house; upright boards, red brick and render in the
+        # late fifties and sixties (as photographed and read: Varpusenkatu 3, Myllymäentie 33, Takalankatu 6 boarded,
+        # Kukervanrinne 8 and Luutnantintie 21 brick); pale and yellow brick, some render and boards in the
+        # seventies to nineties; render since.
+        if year < 1955:
             return {**PLASTER, "colour": pick(doc, "wall", RENDER_VETERAN)}
-        if year < 2000:
-            colour = pick(doc, "wall", BRICK_WHITE + BRICK_BUFF[:3] + RENDER_VETERAN[:3])
-            return {**(PLASTER if colour in RENDER_VETERAN else BRICK_PALE), "colour": colour}
+        if year < 1965:
+            clad = pick(doc, "clad", ["boards", "boards", "boards", "brick", "brick", "render"])
+        elif year < 2000:
+            clad = pick(doc, "clad", ["brick"] * 6 + ["render"] * 2 + ["boards"] * 2)
+        else:
+            return {**PLASTER, "colour": pick(doc, "wall", RENDER_NEW)}
+        if clad == "boards":
+            return {**BOARDS_UPRIGHT, "colour": pick(doc, "wall", WOOD_SIXTIES)}
+        if clad == "render":
+            return {**PLASTER, "colour": pick(doc, "wall", RENDER_VETERAN)}
+        if year < 1965:
+            return {**BRICK, "colour": pick(doc, "wall", BRICK_RED + BRICK_BROWN[:1])}
+        colour = pick(doc, "wall", BRICK_WHITE + BRICK_BUFF * 2 + BRICK_RED[:2])
+        return {**(BRICK_PALE if colour in BRICK_BUFF + BRICK_WHITE else BRICK), "colour": colour}
         return {**PLASTER, "colour": pick(doc, "wall", RENDER_NEW)}
     # Blocks of flats, offices and the rest: only what the readings correct in the register's own palette.
-    if kind in OLD_WOODEN and material in ("puu", None, ""):
+    if kind in OLD_WOODEN and material in ("puu", None, "", "muu materiaali"):
         return {**BOARDS, "colour": pick(doc, "wall", WOOD_OLD)}
     if material == "tiili" and year >= 1940:
         if year < 1970:
@@ -317,6 +338,13 @@ def wall(doc: dict, kind: str) -> dict | None:
         return {**(BRICK_PALE if colour in BRICK_BUFF + BRICK_WHITE else BRICK), "colour": colour}
     if material == "betoni" and year >= 1980:
         return {**PANELS, "colour": pick(doc, "wall", CONCRETE_LATE)}
+    if material in ("muu materiaali", None, "") and 1965 <= year < 1980 and kind in BLOCKS and not old_town(doc):
+        # The element blocks of the late sixties and seventies outside the old town: concrete sandwich elements,
+        # brushed or with exposed aggregate (photographed at Piinokankuja 4 and Stoltinkatu 14, read at Itäinen
+        # Pitkäkatu 15a and Kupittaankatu 23), some faced with tile or rendered.
+        clad = pick(doc, "clad", [ELEMENTS, ELEMENTS, ELEMENTS, ELEMENTS, TILED, PLASTER])
+        colours = {"concrete": CONCRETE_AGGREGATE, "ceramic_tile": OFFICE_TILE, "plaster": RENDER_BLOCK}[clad["family"]]
+        return {**clad, "colour": pick(doc, "wall", colours)}
     if material in ("muu materiaali", None, "") and year >= 1940:
         return {**PLASTER, "colour": pick(doc, "wall", RENDER_BLOCK)}
     if material == "betoni" and year < 1980 and kind in BLOCKS:
