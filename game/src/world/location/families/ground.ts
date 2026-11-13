@@ -8,7 +8,8 @@
 // larger scales (worn and damp patches, fading), so no two stretches of a street match; worn asphalt, grass and
 // gravel are scattered with the old game's stochastic tiling, and asphalt carries repairs and sealed cracks.
 import * as THREE from 'three/webgpu';
-import { attribute, cameraPosition, dot, float, floor, fract, mx_noise_float, normalMap, positionWorld, sin, smoothstep, texture, uv, vec2, vec3 } from 'three/tsl';
+import { attribute, cameraPosition, dot, float, floor, fract, mx_noise_float, normalMap, normalize, positionWorld, sin, smoothstep, texture, transformNormalToView, uniform, uv, vec2, vec3 } from 'three/tsl';
+import { riverClock, riverWaveOffsets, riverWavePixels } from '../../../render/riverWaves';
 import type { Node } from 'three/webgpu';
 import { registerFamily } from '../materials';
 import { GROUND_FAMILIES, synthesise, type GroundParams } from './groundSynth';
@@ -199,8 +200,22 @@ function far(): THREE.Material {
   return material;
 }
 
-/** Open water (the `water` kind's surface): the murky river as it reflects the sky. A first, plain version: no
- *  ripples, no depth, no flow. */
+/** Open water (the `water` kind's surface): the turbid river as it mirrors the sky, broken by ripples. Reused from the
+ *  old game's river (render/riverSurface.ts): its shared directional wave field sampled at the same two crossing
+ *  scales and drifting with the same clock (long swell and capillary ripples), and its measured clay-brown body
+ *  colour. Still without the old planar mirror, depth band and sun glint, which need the renderer's environment. */
+let waves: THREE.DataTexture | null = null;
+function waveField(): THREE.DataTexture {
+  if (waves) return waves;
+  const size = 128;
+  waves = new THREE.DataTexture(riverWavePixels(size), size, size);
+  waves.wrapS = waves.wrapT = THREE.RepeatWrapping;
+  waves.magFilter = THREE.LinearFilter; waves.minFilter = THREE.LinearMipmapLinearFilter;
+  waves.generateMipmaps = true; waves.needsUpdate = true;
+  waves.name = 'river wave slopes (location water)';
+  return waves;
+}
+
 function water(params: GroundParams = {}): THREE.Material {
   const key = `water:${JSON.stringify(params, Object.keys(params).sort())}`;
   let material = cache.get(key) as THREE.MeshStandardNodeMaterial | undefined;
@@ -208,10 +223,18 @@ function water(params: GroundParams = {}): THREE.Material {
     material = new THREE.MeshStandardNodeMaterial();
     material.name = 'ground-water';
     const place = positionWorld.xz;
+    const drift = uniform(new THREE.Vector4());
+    drift.onRenderUpdate(() => drift.value.fromArray(riverWaveOffsets(riverClock.seconds)));
+    const field = waveField();
+    // Slopes, not normals: the field stores them over +-0.4 (riverWaves.ts).
+    const swell = texture(field, place.mul(0.19).add(drift.xy)).rg.sub(0.5).mul(0.32);
+    const ripple = texture(field, place.yx.mul(0.6).add(drift.zw)).rg.sub(0.5).mul(0.24);
     // Wind lanes: stretches of rougher and of calmer water, tens of metres long.
     const lanes = mx_noise_float(vec3(place.mul(vec2(0.03, 0.09)), 2.2)).mul(0.5).add(0.5);
-    material.colorNode = params.body === 'pond' ? vec3(0.035, 0.05, 0.035) : vec3(0.05, 0.05, 0.036);
-    material.roughnessNode = float(0.1).add(lanes.mul(0.14));
+    const slope = swell.add(ripple.yx).mul(lanes.mul(0.8).add(0.6));
+    material.normalNode = transformNormalToView(normalize(vec3(slope.x, 1, slope.y)));
+    material.colorNode = params.body === 'pond' ? vec3(0.035, 0.05, 0.035) : vec3(0.075, 0.062, 0.035);
+    material.roughnessNode = float(0.06).add(lanes.mul(0.1));
     material.metalnessNode = float(0);
     cache.set(key, material);
   }

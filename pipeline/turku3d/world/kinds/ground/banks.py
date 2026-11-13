@@ -9,12 +9,19 @@ import shapely
 from ...street import osm, registers
 
 BUILT_REACH = 8.0   # m: built land this near the water outline makes the edge a quay (a planted strip may lie between)
+WALL_REACH = 4.0    # m: a mapped wall or quay this near the water outline is the quay wall of that stretch
 QUAY_REACH = 3.0    # m from the outline within which the lidar smears the drop; the crest is measured beyond it
+# OpenStreetMap ways that are a wall standing at the water where they follow its outline (the old generator's
+# `coarse/banks.py produce` masonry; along the Aura they are mapped as retaining walls on both banks).
+WALLS = {'barrier': {'retaining_wall', 'wall', 'city_wall'}, 'man_made': {'quay'}}
 
 
 def quay_lines(box):
-    """(mapped open water, its outline where a polygon of the street register lies within BUILT_REACH), survey frame;
-    (None, None) without water. Green land alone beside water is a natural bank."""
+    """(mapped open water, its outline where a quay stands), survey frame; (None, None) without water.
+
+    A quay stands where built land (a polygon of the street register) lies within BUILT_REACH of the outline, or a
+    mapped wall or quay (WALLS) within WALL_REACH, even when a grass embankment lies behind it. Green land alone
+    beside water is a natural bank; whether a quay is tall enough to stand is the lidar's (the `wall` kind)."""
     mapped = osm.features(box)
     if mapped is None:
         return None, None
@@ -25,7 +32,13 @@ def quay_lines(box):
     streets = registers.layer('GIS:Katualueet', box)
     built = shapely.unary_union([shapely.make_valid(shapely.force_2d(g)) for g in streets.geometry if g.geom_type == 'Polygon']
                                 or [shapely.Polygon()])
-    return wet, wet.boundary.intersection(built.buffer(BUILT_REACH))
+    walls = [shapely.make_valid(g) for key, values in WALLS.items() if key in mapped
+             for g in mapped.geometry[mapped[key].isin(values).values & ~mapped.geom_type.isin(('Point',)).values]]
+    hard = built.buffer(BUILT_REACH)
+    if walls:
+        lines = shapely.unary_union([g.boundary if g.geom_type in ('Polygon', 'MultiPolygon') else g for g in walls])
+        hard = hard.union(lines.buffer(WALL_REACH))
+    return wet, wet.boundary.intersection(hard)
 
 
 RING = np.array([[np.cos(turn), np.sin(turn)] for turn in np.arange(8) * np.pi / 4])
