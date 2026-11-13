@@ -169,7 +169,9 @@ def partition(description: dict, e0: float, n1: float):
     # (a verge, a lawn, a park): 22 of the 25 carriageways read from the dev points' photos have a kerb, grass
     # verges included. Unmapped land, yards and track beds get none: a street that runs on unmapped has no stone
     # across it.
-    kerbed = shapely.unary_union([shape for shape, s in surfaces if s['level'] == 'high'
+    # A verge the ground kind lays on unmapped land along a street (`_verges`) is no reason for one: most carriageways
+    # the register maps without footways read no kerb.
+    kerbed = shapely.unary_union([shape for shape, s in surfaces if s['level'] == 'high' and s.get('use') != 'verge'
                                   and (s['source'] in ('street', 'green') or s.get('cover', {}).get('family') in ('grass', 'soil'))])
     if low_area.is_empty or kerbed.is_empty:
         kerb_lines, band = shapely.LineString(), shapely.Polygon()

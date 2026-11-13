@@ -29,6 +29,8 @@ const LIBRARY: Record<string, { metres: number; scattered: boolean }> = {
 };
 /** Length of a kerb stone along the kerb. */
 const KERB_STONE_M = 1.0;
+/** Mean linear luminance of the library's kerb granite: what a cast concrete kerb's even grey is set against. */
+const CURB_MEAN = 0.267;
 /** Mean linear albedo of the library's worn asphalt: what an asphalt's tone is set against. */
 const ASPHALT_MEAN = 0.207;
 
@@ -37,7 +39,7 @@ export function asphaltMean(tone: number): number {
   return 1.295 * (0.035 + 0.14 * tone);
 }
 
-interface Photographic { key: string; tint: THREE.Color; relief: number; metres?: number }
+interface Photographic { key: string; tint: THREE.Color; relief: number; metres?: number; even?: number }
 
 /** The library surface a family's parameters are drawn from and how it is toned, or null for a synthesised one. */
 function photographic(family: string, params: GroundParams): Photographic | null {
@@ -63,6 +65,11 @@ function photographic(family: string, params: GroundParams): Photographic | null
   }
   // Kerb stone is paler than the library's map, but only a little paler than the footway beside it: at 1.3 it read
   // as a white line along every street of the dev points.
+  if (family === 'kerbstone' && params.stone === 'concrete') {
+    // Cast concrete kerb stones (outside the old centre): the granite map made grey and even, keeping a third of its
+    // grain, as pale as the ground kind's concrete kerb colour.
+    return { key: 'granite_curb', tint: new THREE.Color(0.37, 0.365, 0.345).multiplyScalar(1 / CURB_MEAN), relief: 0.25, even: 0.3 };
+  }
   if (family === 'kerbstone') return { key: 'granite_curb', tint: new THREE.Color(1.12, 1.1, 1.06), relief: 0.5 };
   if (family === 'setts' && number(params.size_y, 0.09) >= 0.18) return { key: 'cobblestone', tint: new THREE.Color(1, 1, 1), relief: 0.8 };
   return null;
@@ -164,7 +171,11 @@ export function groundMaterial(family: string, params: GroundParams = {}): THREE
       const stones = family === 'kerbstone' ? kerbStones() : null;
       const varied = float(1).add(patches.mul(look.patch));
       const tone = wear ? varied.mul(wear.tone) : stones ? varied.mul(stones.tone) : varied;
-      material.colorNode = read('albedo').mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b)).mul(tone);
+      const albedo = read('albedo');
+      // An even surface keeps only a share of the map's grain, in grey, around the map's mean.
+      const base = photo.even === undefined ? albedo
+        : vec3(dot(albedo, vec3(0.2126, 0.7152, 0.0722)).sub(CURB_MEAN).mul(photo.even).add(CURB_MEAN));
+      material.colorNode = base.mul(vec3(photo.tint.r, photo.tint.g, photo.tint.b)).mul(tone);
       material.normalNode = normalMap(read('normal'), vec2(photo.relief));
       const rough = orm.g.add(patches.mul(-0.05));
       material.roughnessNode = (wear ? rough.add(wear.sealed.mul(-0.12)) : rough).clamp(0.3, 1);

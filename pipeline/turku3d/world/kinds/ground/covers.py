@@ -80,6 +80,8 @@ OSM = (
 )
 NAMED = {
     'grass': {'family': 'grass', 'params': {'mown': 0.8}, 'color': (0.073, 0.128, 0.016), 'roughness': 0.96},
+    # A street's verge on land nobody mapped (ground's `_verges`): grass mown now and then.
+    'verge': {'family': 'grass', 'params': {'mown': 0.4}, 'color': (0.074, 0.125, 0.015), 'roughness': 0.96},
     # Woodland floor and scrub: what grows under the trees and shrubs the planting track sets there.
     'rough': {'family': 'grass', 'params': {'mown': 0.0}, 'color': (0.076, 0.122, 0.014), 'roughness': 0.96},
     # A railway's track bed (the `rail` kind lays the sleepers and rails on it): crushed grey granite.
@@ -100,6 +102,9 @@ NAMED = {
     # Land nobody mapped and the orthophoto shows neither green nor gravel: a yard's asphalt (the old generator's choice).
     'unmapped': {'family': 'asphalt', 'params': {'tone': 0.8}, 'color': (0.19, 0.19, 0.19), 'roughness': 0.93},
     'kerb': {'family': 'kerbstone', 'params': {}, 'color': (0.381, 0.336, 0.312), 'roughness': 0.81},
+    # Cast concrete kerb stones: pale, even grey, where the streets were built outside the old centre (ground's
+    # `kerb_stone`).
+    'kerb-concrete': {'family': 'kerbstone', 'params': {'stone': 'concrete'}, 'color': (0.37, 0.365, 0.345), 'roughness': 0.86},
     'paint': {'family': 'road_paint', 'params': {'colour': '#eeeeea', 'wear': 0.35}, 'color': (0.729, 0.729, 0.681), 'roughness': 0.63},
 }
 

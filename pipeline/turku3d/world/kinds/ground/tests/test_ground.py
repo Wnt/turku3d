@@ -209,3 +209,44 @@ def test_a_box_across_two_clips_keeps_each_closed_way_as_line_and_area_and_paves
     assert [row['key'] for _, row in floors] == ['osm:way/2:passage']
     shape, row = floors[0]
     assert row['use'] == 'asphalt-yard' and abs(shape.area - 3.5 * 12) < 0.5
+
+
+def test_outside_the_centre_kerbs_are_concrete_and_unmapped_streets_get_grass_verges():
+    import geopandas as gpd
+    import shapely
+
+    from turku3d.world.kinds import ground
+
+    centre = shapely.box(0.0, 0.0, 100.0, 100.0)
+    assert ground.kerb_stone((10.0, 10.0, 72.5, 72.5), centre) is None          # in the centre: granite
+    assert ground.kerb_stone((200.0, 0.0, 262.5, 62.5), centre) == 'concrete'   # outside every zone
+    assert ground.kerb_stone((200.0, 0.0, 262.5, 62.5), None) is None           # typing unknown: the default
+    from turku3d.world.api import Stub
+
+    described = ground.Ground().describe(Stub('ground/x', (0, 0, 1, 1), [], {'surfaces': [], 'kerb_stone': 'concrete'}), None)
+    assert described['kerb']['params'] == {'stone': 'concrete'}
+
+    street = shapely.LineString([(50.0, 50.0), (300.0, 50.0)])  # a residential street running out of the centre
+    drive = shapely.LineString([(220.0, 50.0), (220.0, 80.0)])
+    mapped = gpd.GeoDataFrame({'osm_type': ['way', 'way'], 'osm_id': [1, 2], 'highway': ['residential', 'service'],
+                               'building': [None, None], 'tags': ['{}', '{}']}, geometry=[street, drive])
+    verges = ground._verges(mapped, centre)
+    shape = shapely.unary_union([s for s, _ in verges])
+    assert all(row['use'] == 'verge' and row['rank'] > ground.UNMAPPED_RANK for _, row in verges)
+    assert shape.contains(shapely.Point(250.0, 50.0 + 2.25 + 1.5))        # beside the carriageway
+    assert not shape.contains(shapely.Point(250.0, 50.0))                  # not on it
+    assert not shape.contains(shapely.Point(220.0, 53.5))                  # not across the driveway
+    assert shape.intersection(centre).area < 1e-6                          # nothing in the centre
+
+
+def test_a_box_the_clips_do_not_cover_reads_the_city_wide_osm_table(monkeypatch):
+    from turku3d.world.street import osm
+
+    class City:
+        def features(self, box):
+            return ('city', box)
+
+    monkeypatch.setattr(osm, '_clips', lambda: (((-100, -100, 5, 100), 'a'),))
+    monkeypatch.setattr(osm, '_city', lambda: City())
+    assert osm.features((0, 0, 30, 30)) == ('city', (0, 0, 30, 30))       # half outside the only clip
+    assert osm.features((500, 500, 530, 530)) == ('city', (500, 500, 530, 530))  # far from every clip

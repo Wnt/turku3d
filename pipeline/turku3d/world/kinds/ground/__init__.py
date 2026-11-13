@@ -51,6 +51,82 @@ PARKING_CLEAR = 0.4     # a parking bay's outline is painted where it lies this 
 SOLID = 1e6             # dash length of an unbroken line
 SIDE_STREET = 9.0       # half the width a joining street's mouth takes from a lane
 CORRIDOR = 14.0         # a street's carriageway lies within this distance of its mapped centre line
+# Kerb stones are granite in the city's old centre and cast concrete in the streets built outside it. Of the
+# carriageway kerbs read in the street photos (descriptions/location: the dev and fresh points, the pilots and the
+# 57 gap street views of 2026-11-13), those inside a zone of the city's milieu typing of its centre are granite 31
+# times and concrete 4, those outside every zone concrete 28 times and granite 5 (w2-rules, 2026-11-13). Scope: the
+# zones of that typing (GIS:Turun_keskustan_miljootyypitys, any type) are the centre; a cell is the centre when
+# half of it lies in them.
+CENTRE_SHARE = 0.5
+
+
+def centre_zones(sources, box):
+    """The union of the city's centre typing zones over the box (empty where the box lies outside them), or None
+    where the typing cannot be read (another city, offline without the layer cached)."""
+    from ..building_shell import MILIEU_LAYER
+
+    try:
+        features = sources.wfs.features(MILIEU_LAYER, box)
+    except Exception:  # noqa: BLE001 - no typing: the kerbs keep the default stone
+        return None
+    polygons = [shapely.make_valid(shapely.force_2d(g.shape)) for f in features for g in f.geoms if g.type == 'Polygon']
+    return shapely.unary_union(polygons) if polygons else shapely.Polygon()
+
+
+def kerb_stone(cell, zones) -> str | None:
+    """'concrete' for a cell outside the city's centre typing, None (granite, the default) inside it or where the
+    typing is unknown."""
+    if zones is None:
+        return None
+    box = shapely.box(*cell)
+    return None if zones.intersection(box).area >= CENTRE_SHARE * box.area else 'concrete'
+
+
+# Grass verges along the streets nobody mapped. Where neither the street register nor the open map says what lies
+# beside a street and the orthophoto saw no lawn (shade, dry grass, cars), the ground was the unmapped base, yard
+# asphalt, from the carriageway to the fences. The street photos read grass there: of the verges read beside
+# streets outside the centre, 30 fell on that base (rural, work and house areas, streets the register maps without
+# footways or not at all; w2-rules, 2026-11-13, 57 gap street views and the dev and fresh points), against none in
+# the centre. So a strip of VERGE_M beyond the carriageway's assumed half width is a grass verge wherever nothing
+# else covers it, outside the zones of the city's centre typing. A verge is no kerb's reason: of the carriageways
+# the register maps without footways, 11 of 16 read no kerb.
+VERGE_M = 3.0
+VERGE_RANK = 2 * UNMAPPED_RANK  # under every mapped surface and every orthophoto outline: it replaces only the base
+ROAD_WIDTH = {'motorway': 10.0, 'trunk': 9.0, 'primary': 8.0, 'secondary': 7.5, 'tertiary': 6.5,
+              'unclassified': 4.5, 'residential': 4.5, 'living_street': 4.5}  # the gap views' read widths, by class
+LINK_WIDTH = 6.0
+CROSSING_WAYS = {'service': 1.75, 'track': 1.75, 'footway': 1.25, 'cycleway': 1.25, 'path': 1.25, 'pedestrian': 1.5}
+
+
+def _road_width(highway: str, tags: dict) -> float:
+    try:
+        return max(3.0, min(20.0, float(str(tags.get('width', '')).split()[0])))
+    except (ValueError, IndexError):
+        return ROAD_WIDTH.get(highway, LINK_WIDTH)
+
+
+def _verges(mapped, zones) -> list[tuple]:
+    """(shape, row) of the grass verges along the streets of the open map outside the centre typing."""
+    if mapped is None or zones is None:
+        return []
+    lines = mapped[(mapped.geom_type == 'LineString') & mapped.highway.notna()]
+    roads = lines[lines.highway.isin(ROADS)]
+    if roads.empty:
+        return []
+    across = [row.geometry.buffer(CROSSING_WAYS[row.highway], cap_style='flat')
+              for row in lines.itertuples() if row.highway in CROSSING_WAYS]
+    widths = [_road_width(row.highway, _tags(row)) / 2 for row in roads.itertuples()]
+    carriageways = shapely.unary_union([row.geometry.buffer(w, cap_style='flat') for row, w in zip(roads.itertuples(), widths)])
+    roofs = mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))]
+    taken = shapely.unary_union([carriageways, zones, *across, *roofs.geometry])
+    found = []
+    for row, w in zip(roads.itertuples(), widths):
+        strip = row.geometry.buffer(w + VERGE_M, cap_style='flat').difference(taken)
+        for n, part in enumerate(_polygons(strip)):
+            if part.area >= 1.0:
+                found.append((part, {'key': f'osm:way/{row.osm_id}:verge' + (f'-{n}' if n else ''), 'source': 'osm',
+                                     'level': 'high', 'use': 'verge', 'surface': '', 'rank': VERGE_RANK}))
+    return found
 
 
 def _tags(row) -> dict:
@@ -395,6 +471,8 @@ class Ground:
             centre = shape.representative_point()
             surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
+        zones = centre_zones(sources, box)
+        surfaces += _verges(mapped, zones)
         wet, quays = banks.quay_lines(box)
         quays = None if quays is None or quays.is_empty else quays
         with sources.timed('street:lidar'):
@@ -440,6 +518,9 @@ class Ground:
                               for line, start, key, dash, gap in lanes
                               for part in shapely.get_parts(line.intersection(wide)) if part.geom_type == 'LineString' and part.length > 0.5],
                 }
+                stone = kerb_stone(cell, zones)
+                if stone:  # only outside the old centre, so that no centre cell's description changes
+                    facts['kerb_stone'] = stone
                 refs = [{'source': 'turku-lidar:pistepilvi', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Katualueet', 'key': cell_key(i, j)},
                         {'source': 'turku-wfs:GIS:Viheralueet', 'key': cell_key(i, j)},
@@ -463,8 +544,9 @@ class Ground:
             else:
                 cover = covers.of_register(row['surface'], row['level'], row['source'] == 'green')
             surfaces.append({**row, 'cover': cover})
+        kerb = covers.NAMED['kerb-concrete' if stub.facts.get('kerb_stone') == 'concrete' else 'kerb']
         return {**envelope(self.name, VERSION, stub, stored, 'w2-street'), **stub.facts, 'surfaces': surfaces,
-                'base': stored.get('base', covers.NAMED['unmapped']), 'kerb': stored.get('kerb', covers.NAMED['kerb'])}
+                'base': stored.get('base', covers.NAMED['unmapped']), 'kerb': stored.get('kerb', kerb)}
 
     def compile(self, description: dict) -> Output:
         return compile_cell(description)
