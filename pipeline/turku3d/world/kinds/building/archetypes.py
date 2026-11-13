@@ -10,8 +10,10 @@ Nothing here knows one building. `priors` asks this module; this module asks nob
 
 import colorsys
 import functools
+import json
 import math
 import zlib
+from pathlib import Path
 
 from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import unary_union
@@ -34,6 +36,9 @@ INDUSTRIAL = {"1310", "1320", "1330", "1410", "1630", "1640", "1880"}
 RETAIL = {"1050", "1080", "1150", "1160", "1170", "1180", "1190", "1210", "1220", "1240", "1340"}
 OFFICE = {"1020", "1120", "1130", "1140", "1970"}
 UNKNOWN = {None, "", "0", "Ei arvoa"}
+# The milieu types that are the town (town-milieus.json, each with its reason): the centre's streets and the old
+# wooden quarters. Rules read from evidence photographed there apply there only (`in_town`).
+TOWN_MILIEUS = frozenset(json.loads(Path(__file__).with_name("town-milieus.json").read_text())["town"])
 
 
 def use_class(use) -> str | None:
@@ -114,10 +119,14 @@ def infer(doc: dict) -> str:
     single = storeys <= 1 and (not height or height < 6.5)
     if use == "outbuilding" or (single and area < 70 and (use in ANCILLARY or use in UNKNOWN or use == "1100")):
         return "garage" if area >= 15 and short >= 2.8 else "outbuilding"
-    # An ancillary building of the register from before 1940, not of brick and larger than a shed, is a house of its
-    # time used as a store or workshop: the 1807 town house at Linnankatu 29 (photographed: boarded, two street
-    # doors), the 1938 block at Puutarhakatu 9a (read: classicist, shopfronts). It is typed below as the houses are.
-    old_ancillary = (dated or 9999) < 1940 and material in ("puu", "muu materiaali", None, "") and area >= 70
+    # In the town, an ancillary building of the register from before 1940, not of brick and larger than a shed, is a
+    # house of its time used as a store or workshop: the 1807 town house at Linnankatu 29 (photographed: boarded,
+    # two street doors), the 1938 block at Puutarhakatu 9a (read: classicist, shopfronts). It is typed below as the
+    # houses are. Scope: the town only (both seen there); elsewhere such a building is the yard shed, barn or store
+    # the register says it is.
+    old_ancillary = (
+        (dated or 9999) < 1940 and material in ("puu", "muu materiaali", None, "") and area >= 70 and in_town(doc)
+    )
     if use in ANCILLARY and not old_ancillary:
         return "garage" if area < 150 and single else "industrial"
     used = use_class(use)
@@ -201,6 +210,8 @@ SHEET_HALL = [
 # concrete elements pale warm greys (as read at Kupittaa and in the centre).
 OFFICE_SHEET = ["#c6c9ca", "#d8d8d6", "#b9bbb8", "#a4a9a9", "#e2e2e0", "#cfd2d0", "#8e9498", "#b3b7bb", "#5a5c61", "#3a3b40"]
 # Since about 2005 a share of the panel fronts are terracotta and red-brown (Kupittaa, as read and photographed).
+# Scope: offices and business halls with metal fronts since 2005 wherever they stand: the kind is the business
+# park's own (in the old town such a building is clad in stone, tile or render instead, `old_town`).
 OFFICE_SHEET_NEW = OFFICE_SHEET + ["#b47a64", "#9a5a48", "#c48a76", "#8a4e3e"]
 # Stone slab fronts of new buildings in the stone town: pale limestone and sandstone, a grey granite.
 STONE_SLAB = ["#cfc8ba", "#d6d0c2", "#c9c1b0", "#ddd7ca", "#b8b4a9", "#9c9e9d"]
@@ -220,10 +231,19 @@ TILED = {"family": "ceramic_tile", "scale_m": 0.2}
 STONE = {"family": "stone", "finish": "slab", "scale_m": 0.6, "colour2": "#b9b2a4"}
 
 
+def in_town(doc: dict) -> bool:
+    """Whether a building stands in the town: a milieu zone of the city's centre typing that town-milieus.json
+    counts as the town (the business centre, historic Turku, the centre's open blocks and hill quarters, the
+    wooden town). False outside every zone and in cities without such a typing."""
+    return doc.get("register", {}).get("milieu") in TOWN_MILIEUS
+
+
 def old_town(doc: dict) -> bool:
-    """Whether the street round a building is mostly older than 1940 (`register.old_share`): the stone town and
-    the old wooden quarters, where a new building is clad to fit in."""
-    return (doc.get("register", {}).get("old_share") or 0.0) >= 0.5
+    """Whether the street round a building is mostly older than 1940 (`register.old_share`) in the town: the stone
+    town and the old wooden quarters, where a new building is clad to fit in. Scope: the town only, where the
+    evidence was read (Kauppiaskatu 6, Eerikinkatu 11, Humalistonkatu 11); an old village street elsewhere does not
+    make a new office stone."""
+    return (doc.get("register", {}).get("old_share") or 0.0) >= 0.5 and in_town(doc)
 
 
 def pick(doc: dict, salt: str, options: list):
@@ -945,16 +965,21 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
             width = min(part["w_m"], pitch - 0.3) if every == 1 else part["w_m"]
             roles[sunny["index"]]["balconies"] = [{**part, "w_m": round(width, 2), "u_m": round(u, 2)} for u in us]
     if kind in BLOCKS | OLD_MASONRY | HALLS | OLD_WOODEN:
+        town = in_town(doc)
         fronts = shop_walls(doc, kind, walls, longest)
         for w in fronts:
             count = len(bay_centres(w["width"], pitch))
-            if kind in OLD_WOODEN and "p0" in w:
-                # A cafe, restaurant or shop in an old wooden house keeps the house's windows: its front is a street
-                # door under a canopy with a name board over it (as photographed: Sergio's at Läntinen Rantakatu 27,
-                # the corner shop of Puutarhakatu 42a), one at the bay nearest each mapped premise.
+            if kind in OLD_WOODEN:
+                # In the town, a cafe, restaurant or shop in an old wooden house keeps the house's windows: its front
+                # is a street door under a canopy with a name board over it (as photographed: Sergio's at Läntinen
+                # Rantakatu 27, the corner shop of Puutarhakatu 42a), one at the bay nearest each mapped premise on
+                # the nearest open wall. Scope: the town only (both photographed there); elsewhere the house is drawn
+                # as a house.
+                if not town or "p0" not in w:
+                    continue
                 us = set()
                 for e, n in doc.get("register", {}).get("premises") or []:
-                    gap, t, nearest = min(_gap(e, n, x) for x in walls if "p0" in x and x["width"] >= 4.0)
+                    gap, t, nearest = min(_gap(e, n, x) for x in walls if _open_front(x))
                     if nearest == w["index"]:
                         us.add(round(nearest_bay(w["width"], pitch, t * w["width"]), 2))
                 if not us:
@@ -966,9 +991,11 @@ def wall_roles(doc: dict, kind: str, walls: list, pitch: float) -> dict:
             if count:
                 turn = zlib.crc32(f"{doc.get('id', '')}/shop/{w['index']}".encode()) % 3
                 roles[w["index"]]["shops"] = ["@shop_door" if k % 3 == turn else "@shop" for k in range(count)]
-                # A customer front is glass and doors with its sign band, never a garage or loading door.
-                roles[w["index"]].pop("loading", None)
-                roles[w["index"]].pop("garage", None)
+                if town:
+                    # A customer front in the town is glass and doors with its sign band, never a garage or
+                    # loading door (Jonni's review of Linnankatu 29). Scope: the town only.
+                    roles[w["index"]].pop("loading", None)
+                    roles[w["index"]].pop("garage", None)
     return roles
 
 
@@ -1008,6 +1035,12 @@ def balcony(doc: dict, kind: str) -> dict | None:
             "railing": rail, "slab": {"thickness_m": 0.22, "colour": "#d0cfc8"}}  # fmt: skip
 
 
+def _open_front(w: dict) -> bool:
+    """Whether a wall can carry a premise's front: its ground line known, 4 m or longer, and at most half of it a
+    party wall against a neighbour (`party_m`, where nothing opens)."""
+    return "p0" in w and w["width"] >= 4.0 and w.get("party_m", 0.0) <= 0.5 * w["width"]
+
+
 def _gap(e: float, n: float, w: dict) -> tuple[float, float, int]:
     """(distance, position along 0..1, index) of a point to a wall's ground line."""
     (ax, ay), (bx, by) = w["p0"], w["p1"]
@@ -1024,7 +1057,7 @@ def shop_walls(doc: dict, kind: str, walls: list, longest: dict) -> list:
     for e, n in premises:
         gaps = []
         for w in walls:
-            if "p0" not in w or w["width"] < 4.0:
+            if not _open_front(w):
                 continue
             (ax, ay), (bx, by) = w["p0"], w["p1"]
             t = max(0.0, min(1.0, ((e - ax) * (bx - ax) + (n - ay) * (by - ay)) / (w["width"] ** 2)))

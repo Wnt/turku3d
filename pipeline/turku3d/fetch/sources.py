@@ -94,6 +94,7 @@ WFS_LAYERS: tuple[WfsLayer, ...] = (
     _k("GIS:Pysakointiautomaatit", "parking meters"),
     _k("GIS:Lupapysakointipaikat", "permit parking kerb lines with payment zone"),
     _k("GIS:Follariasemat", "city bike stations"),
+    _k("GIS:Turun_keskustan_miljootyypitys", "milieu types of the centre (Tyyppi): business centre, wooden town, ..."),
     # CityGML 2.0
     _c("bldg:Building_LOD2", "CityGML LoD2 building solids (roofs vs lidar median +0.8 cm)"),
     _c("bldg:Building_LOD3", "CityGML LoD3 (finer roofs, no facade detail)"),

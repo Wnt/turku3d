@@ -120,15 +120,75 @@ STREET_AMENITIES = {"restaurant", "cafe", "bar", "pub", "fast_food", "bank", "ph
                     "post_office", "cinema", "bureau_de_change", "biergarten"}
 
 
-def street_premises(sources, box) -> np.ndarray:
-    """(E, N) of the open map's shops and street-front services in the box: one point a premise."""
+# The city's milieu typing of its centre: one type a zone (business centre, historic Turku, wooden town, ...).
+MILIEU_LAYER, MILIEU_FIELD = "GIS:Turun_keskustan_miljootyypitys", "Tyyppi"
+PREMISE_REACH_M = 1.5  # a premise mapped on the wall line or at the door, outside the footprint
+
+
+def street_premises(sources, box) -> tuple[np.ndarray, list[str]]:
+    """(E, N) of the open map's shops and street-front services in the box, one point a premise, and the street
+    of each (`addr:street`, "" where the map has none)."""
     try:
         frame = sources.osm.features(box)
     except Exception:  # no map table (offline): no building is known to hold a shop
-        return np.zeros((0, 2))
+        return np.zeros((0, 2)), []
     rows = frame[frame["shop"].notna() | frame["amenity"].isin(STREET_AMENITIES)]
     points = [shape if shape.geom_type == "Point" else shape.representative_point() for shape in rows.geometry]
-    return np.array([[point.x, point.y] for point in points]).reshape(-1, 2)
+    streets = rows["addr:street"].tolist() if "addr:street" in rows.columns else [None] * len(rows)
+    return (np.array([[point.x, point.y] for point in points]).reshape(-1, 2),
+            [street if isinstance(street, str) else "" for street in streets])
+
+
+def street_of(address: str | None) -> str:
+    """The street of an address ("Läntinen Rantakatu 27" -> "Läntinen Rantakatu")."""
+    return re.sub(r"\s+\d.*$", "", address or "").strip()
+
+
+def premise_owners(points: np.ndarray, streets: list[str], found: list[dict]) -> dict[int, list]:
+    """{index into found: the premise points it holds}. A point belongs to the building whose footprint holds it
+    (where two do, the one on the point's street, else the smaller); a point outside every footprint, mapped on
+    the wall line or at the door, to the nearest building within PREMISE_REACH_M, one on its own street first.
+    One building each: a point beside a party wall no longer goes to both neighbours."""
+    owners: dict[int, list] = {}
+    if not len(points) or not found:
+        return owners
+    outlines = [building["outline"] for building in found]
+    tree = shapely.STRtree(outlines)
+    for point, xy, street in zip(shapely.points(points), points, streets, strict=True):
+        holding = [int(j) for j in tree.query(point, predicate="within")]
+        if holding:
+            pick = min(holding, key=lambda j: (bool(street) and street_of(found[j]["address"]) != street, outlines[j].area))
+        else:
+            near = [int(j) for j in tree.query(point, predicate="dwithin", distance=PREMISE_REACH_M)]
+            if not near:
+                continue
+            pick = min(near, key=lambda j: (bool(street) and street_of(found[j]["address"]) != street,
+                                            shapely.distance(point, outlines[j])))
+        owners.setdefault(pick, []).append(xy)
+    return owners
+
+
+def milieus(sources, box) -> list[tuple]:
+    """(polygon, milieu type) of the city's milieu zones over the box; none where the city has no such typing."""
+    try:
+        features = sources.wfs.features(MILIEU_LAYER, box)
+    except Exception:  # another city, or offline without the layer cached: no milieu
+        return []
+    zones = []
+    for feature in features:
+        kind = feature.attrs.get(MILIEU_FIELD)
+        polygons = [shapely.make_valid(shapely.force_2d(g.shape)) for g in feature.geoms if g.type == "Polygon"]
+        if kind and polygons:
+            zones.append((shapely.unary_union(polygons), kind))
+    return zones
+
+
+def milieu_of(outline, zones: list[tuple]) -> str | None:
+    """The milieu type of the zone that holds a building's footprint (its representative point), the smallest
+    zone where several overlap."""
+    point = outline.representative_point()
+    holding = [(zone.area, kind) for zone, kind in zones if zone.covers(point)]
+    return min(holding)[1] if holding else None
 
 
 def discover(area: Area, sources) -> list[Stub]:
@@ -175,7 +235,8 @@ def discover(area: Area, sources) -> list[Stub]:
             "height": number(attrs.get("measuredHeight"))})
     modelled = {b["id"] for b in found}
     covered = shapely.unary_union([b["outline"] for b in found]) if found else shapely.Polygon()
-    premises = street_premises(sources, box)
+    premises, premise_streets = street_premises(sources, box)
+    zones = milieus(sources, box)
     seen = set()
     for feature in listed:
         attrs = feature.attrs
@@ -201,6 +262,7 @@ def discover(area: Area, sources) -> list[Stub]:
             "use": "outbuilding" if attrs.get("kplkoodi") == OUTBUILDING else None, "material": attrs.get("julkisivumateriaali"),
             "height": None})
     tree = shapely.STRtree([b["outline"] for b in found])
+    owners = premise_owners(premises, premise_streets, found)
     from .building import passages as passages_module  # the building package imports this module
 
     ways, parts = passages_module.ways_and_parts(sources, box)
@@ -258,7 +320,8 @@ def discover(area: Area, sources) -> list[Stub]:
                 "roof_colour": roof_colour(outline, aerial) if aerial is not None else None,
                 "year_near": year_near,
                 "old_share": old_share,
-                "premises": inside(premises, outline),
+                "premises": sorted(np.round(owners.get(index, []), 1).tolist())[:12],
+                "milieu": milieu_of(outline, zones),
             }.items() if value not in (None, "", [])},
         }
         # Ways the open map runs through or along the ground storey (building passages, arcades): only where there
@@ -268,18 +331,6 @@ def discover(area: Area, sources) -> list[Stub]:
             facts["shell"]["passages"] = opened
         stubs.append(Stub(building["id"], tuple(round(v, 3) for v in outline.bounds), building["refs"], facts))
     return stubs
-
-
-def inside(points: np.ndarray, outline) -> list:
-    """The points on or within 1.5 m of an outline, at most twelve, to the decimetre."""
-    if not len(points):
-        return []
-    low, high = np.array(outline.bounds[:2]) - 1.5, np.array(outline.bounds[2:]) + 1.5
-    near = points[((points >= low) & (points <= high)).all(axis=1)]
-    if not len(near):
-        return []
-    held = near[shapely.dwithin(shapely.points(near), outline, 1.5)]
-    return sorted(np.round(held, 1).tolist())[:12]
 
 
 class ShellBuilding:

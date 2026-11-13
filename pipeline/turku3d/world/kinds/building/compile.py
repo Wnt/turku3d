@@ -8,6 +8,7 @@ import copy
 from dataclasses import dataclass, field
 
 import numpy as np
+from shapely.geometry import box
 
 from . import archetypes, mesh, passages, priors, roofs
 from . import facade as facades_module
@@ -94,9 +95,16 @@ def wall_roles(doc: dict, shell) -> dict:
     """{facade index: role} of a building nobody described a wall of (archetypes.wall_roles): what
     `priors.fitted_wall` takes as its `role`. `doc` and `shell` (shell.read of its shell) are in one frame."""
     free = []
+    neighbours = doc["shell"].get("neighbours", [])
     for facade in shell.facades:
         if facade.grounded:
             eaves = facades_module.eaves_height(facade.outline, facade.width)
+            # How much of the wall's ground storey stands against a touching neighbour (a party wall: no door
+            # or shopfront opens there).
+            blocked = facades_module.blocked_region(facade, neighbours) if neighbours else None
+            party = 0.0
+            if blocked is not None:
+                party = float(blocked.intersection(box(0.0, 0.0, facade.width, 1.0)).area)
             corners = [c for part in mesh.polygons_of(facade.outline) for c in part.exterior.coords]
             if not corners:
                 continue
@@ -111,6 +119,7 @@ def wall_roles(doc: dict, shell) -> dict:
                     "p0": [float(v) for v in facade.p0],
                     "p1": [float(v) for v in facade.p1],
                     "normal": [float(v) for v in facade.normal[:2]],
+                    "party_m": round(party, 2),
                 }
             )
     return archetypes.wall_roles(doc, priors.style_type(doc), free, priors.group(doc)["pitch"])

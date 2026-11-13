@@ -1,0 +1,18 @@
+{
+  "about": "Which of the city's milieu types (register.milieu, from the city's milieu typing of its centre, GIS:Turun_keskustan_miljootyypitys, field Tyyppi) count as the town: the city centre's streets of town blocks and the old wooden quarters people have moved back into. The town-only rules of archetypes.py (in_town) apply there and nowhere else; a building outside every milieu zone is not in the town. Chosen 2026-11-13 by w2-buildings from where the evidence of those rules was photographed; for Jonni to confirm or change.",
+  "town": {
+    "Liikekeskusta": "business centre: shops, cafes and offices in the ground storeys of the grid (Kauppiaskatu 6, Aurakatu 1)",
+    "Historiallinen Turku": "historic Turku by the river and the cathedral: old town houses with restaurants (Sergio's, Läntinen Rantakatu 27)",
+    "Avokorttelimiljöö": "open blocks of the centre grid: old town houses among later blocks (Linnankatu 29)",
+    "Mäkipuistomiljöö": "the centre's hill quarters round the parks: old stone and wooden blocks (Puutarhakatu 9a)",
+    "Puukaupunkimiljöö": "wooden town: the old wooden quarters, renovated and lived in, with corner shops and cafes (Puutarhakatu 42a)"
+  },
+  "not_town": {
+    "Julkisten rakennusten miljöö": "public buildings: schools, hospitals, churches; their own types",
+    "Jälleenrakennuskauden kerrostalomiljöö": "post-war blocks of flats: no old ancillary houses, few shops",
+    "Muuttuva kaupunkiympäristö": "changing districts, former harbour and industry: old ancillary buildings there are stores and works",
+    "Teollisuusmenneisyyteen pohjautuva miljöö": "industrial past: old sheds and halls are what the register says",
+    "Saapumisen miljöö": "arrival routes and the harbour: halls and stations",
+    "Pienomakotitalomiljöö": "small detached houses: an old ancillary building there is a yard shed or a sauna"
+  }
+}

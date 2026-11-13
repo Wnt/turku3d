@@ -45,7 +45,10 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   `industrial`, `commercial`, `office`, old `wooden_house`, and blocks of flats by decade. A building the
   register has not dated takes the year of its dated neighbours within 60 m (`register.year_near`), else it is
   drawn as new. `register.old_share` is the share of the dated neighbours within 60 m built before 1940, by
-  count (none under three dated neighbours): how old the street round the building is. From 0.5 an office,
+  count (none under three dated neighbours): how old the street round the building is. `register.milieu` is the
+  type of the city's milieu zone (the centre's milieu typing) that holds the building; the town is the types
+  `town-milieus.json` lists (business centre, historic Turku, the centre's open blocks and hill quarters, the
+  wooden town), each with its reason. Rules read from evidence there apply in the town only. From 0.5 in the town an office,
   public building or business block built since 1960 of "other material" is clad like the stone town (stone slab,
   facing tile, render; upright windows since 2000), not in metal cassettes. Metal fronts since 2005 include
   terracotta and red-brown panels.
@@ -85,10 +88,15 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   south-west carries balconies on most blocks of three storeys or more: small cantilevers with sheet fronts
   after the war, recessed bays or cantilevers with concrete fronts in the sixties and seventies, glazed
   balconies since 1980 (glass fronts since 2000).
-- **Shop floors:** `register.premises` holds the points of the open map's shops, cafes, banks and the like inside
-  the footprint. The wall such a point lies at (and on a corner the next wall within 8 m) has a ground storey of
-  shopfronts (`@shop`, every third bay `@shop_door`) under a sign band; a building whose register use is trade
-  has one on its longest wall.
+- **Shop floors:** `register.premises` holds the points of the open map's shops, cafes, banks and the like that
+  belong to the building: those inside its footprint (where two footprints hold one, the one on the point's
+  `addr:street`), and those outside every footprint within 1.5 m of it (the nearest, one on its own street
+  first); each point belongs to one building. The open wall such a point lies at (at most half of it a party
+  wall; on a corner the next open wall within 8 m) has a ground storey of shopfronts (`@shop`, every third bay
+  `@shop_door`) under a sign band; a building whose register use is trade has one on its longest wall. In the
+  town an old wooden house keeps its windows and has a customer door under a canopy with a name board at the
+  bay nearest each premise, a hall has no loading or garage door on a shop wall, and an ancillary building
+  of the register from before 1940 of wood or other material and over 70 m² is typed as the houses of its time.
 - **Houses of a storey and a half:** a house whose eaves are under 5.4 m above its plinth is one storey whatever
   the register counts: the wall above the windows is the attic's knee wall (up to 1.4 m), what is left over
   raises the plinth (a basement on a sloping site), and the gable has the attic room's window.
@@ -319,6 +327,7 @@ tell become `observed.hidden_m`. Nothing else reads the old format.
 
 A change that readers must follow gets a line on the campaign board. Additive fields keep version 1.
 
+- 2026-11-13: `register.milieu`; premises belong to one building; town-only rules (`town-milieus.json`).
 - 2026-11-13: `shell.passages` (building passages and arcades from the open map and the street register).
 - 2026-11-13: `observed.hidden_m` is drawn with the automatic tier's openings; a guessed wall colour (confidence
   <= 0.2) gives way to `measured.wall`.

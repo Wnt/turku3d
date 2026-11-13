@@ -79,9 +79,12 @@ def test_a_measured_wall_colour_replaces_the_palette_pick_within_the_familys_lig
 
 def test_a_new_business_block_in_the_stone_town_is_clad_to_fit_and_one_elsewhere_may_be_metal():
     register = {"use": "1050", "year": 2021, "storeys": 8, "material": "muu materiaali", "height_m": 28.0}
-    old = automatic({**register, "old_share": 0.65}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
+    old = automatic({**register, "old_share": 0.65, "milieu": "Liikekeskusta"}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
     assert old["style"]["type"] == "commercial"
     assert old["materials"]["wall"]["family"] in ("stone", "ceramic_tile", "plaster")
+    # An old street outside the town (an old village) does not make a new business block stone.
+    village = automatic({**register, "old_share": 0.65}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
+    assert not archetypes.old_town(village) and archetypes.old_town(old)
     new_town = automatic({**register, "old_share": 0.1}, width=40.0, depth=20.0, eaves=26.0, ridge=0.5)
     assert new_town["materials"]["wall"]["family"] in ("sheet_metal", "plaster", "concrete")
     assert "#c48a76" in archetypes.OFFICE_SHEET_NEW
@@ -99,3 +102,39 @@ def test_a_sixties_house_with_high_eaves_is_one_storey_on_a_basement_and_an_old_
     old = automatic({"use": "1000", "year": 1925, "storeys": 1, "material": "muu materiaali"})
     assert old["style"]["type"] == "wooden_house"
     assert old["materials"]["wall"]["family"] == "weatherboard"
+
+
+def test_town_rules_hold_in_the_towns_milieus_only_and_a_customer_door_never_goes_in_a_party_wall():
+    # An 1807 house the register calls ancillary is a house in the town, a hall outside it.
+    store = {"use": "1360", "year": 1807, "storeys": 2, "material": "muu materiaali", "height_m": 7.9}
+    assert automatic({**store, "milieu": "Avokorttelimiljöö"}, width=20.0, depth=8.0)["style"]["type"] == "wooden_house"
+    assert automatic(store, width=20.0, depth=8.0)["style"]["type"] == "industrial"
+    assert automatic({**store, "milieu": "Teollisuusmenneisyyteen pohjautuva miljöö"}, width=20.0, depth=8.0)["style"]["type"] == "industrial"
+    # A restaurant mapped near the party wall of an old wooden house: its door goes in the open street wall.
+    house = {"use": "1010", "year": 1787, "storeys": 1, "material": "puu", "premises": [[11.6, 1.0]]}
+    walls = [{"index": 0, "width": 12.0, "rise": 0.0, "apex": 6.0, "height": 3.2, "p0": [0.0, 0.0], "p1": [12.0, 0.0],
+              "normal": [0.0, -1.0], "party_m": 0.0},
+             {"index": 1, "width": 8.0, "rise": 0.0, "apex": 4.0, "height": 3.2, "p0": [12.0, 0.0], "p1": [12.0, 8.0],
+              "normal": [1.0, 0.0], "party_m": 8.0}]
+    town = automatic({**house, "milieu": "Historiallinen Turku"}, width=12.0, depth=8.0)
+    roles = archetypes.wall_roles(town, "wooden_house", walls, 1.6)
+    assert roles[0].get("canopy") and roles[0].get("doors") and roles[0]["doors"] == roles[0]["signs"]
+    assert not roles[1]
+    elsewhere = archetypes.wall_roles(automatic(house, width=12.0, depth=8.0), "wooden_house", walls, 1.6)
+    assert not elsewhere[0] and not elsewhere[1]
+
+
+def test_a_mapped_premise_belongs_to_the_building_that_holds_it_or_the_nearest_on_its_street():
+    import numpy as np
+    import shapely
+
+    from turku3d.world.kinds import building_shell
+
+    found = [{"outline": shapely.box(0.0, 0.0, 10.0, 10.0), "address": "Linnankatu 29"},
+             {"outline": shapely.box(10.0, 0.0, 20.0, 10.0), "address": "Läntinen Rantakatu 27"}]
+    points = np.array([[10.4, 5.0], [10.0, 5.0], [5.0, -1.0], [5.0, -3.0]])
+    owners = building_shell.premise_owners(points, ["", "Läntinen Rantakatu", "", ""], found)
+    # Inside the second only (not both, though 0.4 m from the first); on the party line, the one on its street;
+    # mapped at the door outside, the nearest; 3 m out, nobody's.
+    assert {k: [list(p) for p in v] for k, v in owners.items()} == {1: [[10.4, 5.0], [10.0, 5.0]], 0: [[5.0, -1.0]]}
+    assert building_shell.street_of("Läntinen Rantakatu 27 a") == "Läntinen Rantakatu"
