@@ -205,6 +205,21 @@ def discover(area: Area, sources) -> list[Stub]:
                     neighbours.append({"id": near["id"], "footprint": np.round(np.asarray(largest.exterior.coords)[:-1], 3).tolist(),
                                        "base_h": round(near["base"], 3), "top_h": round(near["top"], 3)})
         storeys, height = building["storeys"], building["height"]
+        year_near = None
+        if not building["year"]:
+            # The old game's rule for an undated building: the years of its dated neighbours, nearer ones first
+            # (weight 1 / (5 + d)^2); 60 m is the margin read round the area, so the rim sees what the middle sees.
+            near = [(found[other]["year"], 1.0 / (5.0 + shapely.distance(outline, found[other]["outline"])) ** 2)
+                    for other in tree.query(outline, predicate="dwithin", distance=60.0)
+                    if other != index and found[other]["year"]]
+            if near:
+                near.sort()
+                half, run = sum(weight for _, weight in near) / 2, 0.0
+                for year, weight in near:
+                    run += weight
+                    if run >= half:
+                        year_near = int(year)
+                        break
         facts = {
             "shell": {"source": building["source"], "surfaces": building["surfaces"], "terrain": terrain,
                       "neighbours": sorted(neighbours, key=lambda n: n["id"])},
@@ -214,6 +229,7 @@ def discover(area: Area, sources) -> list[Stub]:
                 "use": building["use"], "material": building["material"],
                 "height_m": height if height and height > 0 else None,
                 "roof_colour": roof_colour(outline, aerial) if aerial is not None else None,
+                "year_near": year_near,
             }.items() if value not in (None, "")},
         }
         stubs.append(Stub(building["id"], tuple(round(v, 3) for v in outline.bounds), building["refs"], facts))

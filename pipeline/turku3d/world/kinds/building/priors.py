@@ -9,9 +9,11 @@ import copy
 import math
 import zlib
 
+from . import archetypes
+from .archetypes import HALLS, HOUSES, SHEDS
 from .description import expand_storeys
 
-WOODEN = {"wooden_house", "wooden_villa", "outbuilding"}
+WOODEN = {"wooden_house", "wooden_villa"}
 OLD_MASONRY = {"stone_apartment", "classicist_apartment", "public", "church"}
 
 GROUPS = {
@@ -212,30 +214,7 @@ OPENING_DEFAULTS = {
 
 def style_type(doc: dict) -> str:
     """The description's style, or one inferred from the register when nobody gave it."""
-    given = doc.get("style", {}).get("type")
-    if given:
-        return given
-    register = doc.get("register", {})
-    year, storeys, height = (
-        register.get("year"),
-        register.get("storeys", 0),
-        register.get("height_m", 0.0),
-    )
-    if register.get("use") == "outbuilding":
-        return "outbuilding"
-    if register.get("material") == "puu" and storeys <= 2:
-        return "wooden_house"
-    if year is None:
-        return "detached_house" if height and height < 8 else "modern_apartment"
-    if year < 1920:
-        return "wooden_house" if storeys <= 2 and (not height or height < 10) else "stone_apartment"
-    if year < 1940:
-        if storeys <= 2 and (not height or height < 9):
-            return "wooden_house"
-        return "classicist_apartment" if year < 1932 else "functionalist_apartment"
-    if year < 1980:
-        return "tower_block" if storeys >= 8 else "slab_block"
-    return "modern_apartment"
+    return doc.get("style", {}).get("type") or archetypes.infer(doc)
 
 
 # Wall material and colours by the register's facade material (julkisivumateriaali): what a street of such
@@ -274,23 +253,29 @@ NEW_PLASTER = ["#d3d0c7", "#ccc8b8", "#c6c0b1", "#dad6ca"]
 
 def register_wall(doc: dict) -> dict:
     """The wall material an unobserved building gets: the register's facade material in one of its usual colours."""
+    measured = doc.get("measured", {}).get("wall")
+    typed = archetypes.wall(doc, style_type(doc))
+    if typed is not None:
+        return archetypes.measured_colour(typed, measured)
     register = doc.get("register", {})
     pick = zlib.crc32(doc.get("id", "").encode())
     material, colours = REGISTER_WALLS.get(register.get("material", ""), (None, None))
     if material is None:
         base = group(doc)["wall"]
         if base["family"] != "plaster":
-            return dict(base)
+            return archetypes.measured_colour(dict(base), measured)
         material = {"family": "plaster", "finish": "fine"}
-        colours = OLD_PLASTER if register.get("year", 1960) < 1940 else NEW_PLASTER
-    return {**material, "colour": colours[pick % len(colours)]}
+        colours = OLD_PLASTER if archetypes.era_year(doc) < 1940 else NEW_PLASTER
+    return archetypes.measured_colour({**material, "colour": colours[pick % len(colours)]}, measured)
 
 
 def group(doc: dict) -> dict:
     kind = style_type(doc)
-    return GROUPS[
-        "wooden" if kind in WOODEN else "old_masonry" if kind in OLD_MASONRY else "modern"
-    ]
+    if kind in WOODEN:
+        return GROUPS["wooden"]
+    if kind in OLD_MASONRY:
+        return GROUPS["old_masonry"]
+    return archetypes.group(doc, kind) or GROUPS["modern"]
 
 
 # The foot of a wooden building that is not a house of the old quarters: cast concrete, low.
@@ -310,8 +295,6 @@ def old_quarter(doc: dict) -> bool:
 
 def default_plinth(doc: dict) -> dict:
     kind = style_type(doc)
-    if kind == "outbuilding":
-        return {**CAST_PLINTH, "height_m": 0.2}
     if kind in WOODEN and not old_quarter(doc):
         return CAST_PLINTH
     return group(doc)["plinth"]
@@ -348,6 +331,16 @@ def resolve_opening(doc: dict, name: str) -> dict:
     return out
 
 
+def usual_wall_family(doc: dict) -> str | None:
+    """The family of the building's usual wall material: the described one, else the register's."""
+    material = doc.get("wall_defaults", {}).get("material")
+    if isinstance(material, str):
+        material = doc.get("materials", {}).get(material)
+    if not isinstance(material, dict):
+        material = register_wall(doc)
+    return material.get("family")
+
+
 def default_wall(doc: dict) -> dict:
     """The automatic wall of a style: a regular grid sized from the register's storey count."""
     g = group(doc)
@@ -370,13 +363,15 @@ def default_wall(doc: dict) -> dict:
                 "window": "@default",
             }
         )
-    if style_type(doc) in WOODEN:
+    kind = style_type(doc)
+    boarded = kind in HOUSES | SHEDS and usual_wall_family(doc) == "weatherboard"
+    if kind in WOODEN or boarded:
         wall["verticals"] = [
             {
                 "kind": "corner_board",
                 "where": "ends",
-                "width_m": 0.2,
-                "projection_m": 0.03,
+                "width_m": 0.12 if boarded else 0.2,
+                "projection_m": 0.025 if boarded else 0.03,
                 "colour": g["trim"],
             }
         ]
@@ -394,8 +389,10 @@ ATTIC_WINDOW = {
 
 
 def automatic_openings(doc: dict) -> dict:
-    """Opening types of the automatic walls: what the windows of an unobserved building of the style look like."""
+    """Opening types of the automatic walls: what the windows and doors of an unobserved building of the style
+    look like."""
     g = group(doc)
+    kind = style_type(doc)
     out = {"@attic": ATTIC_WINDOW}
     if g is GROUPS["old_masonry"]:
         out["@default"] = {
@@ -416,16 +413,95 @@ def automatic_openings(doc: dict) -> dict:
         "h_m": 2.3,
         "leaf": {"leaves": 1, "style": "half_glazed", "fanlight": "rect", "steps": steps},
     }
+    if kind in HOUSES:
+        window = g["window"]
+        colours = ["#f0efe9", "#5a4334", "#2f3235", "#3f5a4a", "#7a2f28", "#e6e3d8"]
+        out["@door"] = {
+            "kind": "door",
+            "w_m": 1.0,
+            "h_m": 2.1,
+            "recess_m": 0.12,
+            "frame": {"colour": g["trim"], "width_m": 0.07},
+            "leaf": {
+                "leaves": 1,
+                "style": "half_glazed",
+                "colour": archetypes.pick(doc, "door", colours),
+                "fanlight": "none",
+                "steps": steps,
+            },
+        }
+        # The window of a gable: a storey's window where the attic is lived in, else a small light.
+        out["@gable"] = {
+            "kind": "window",
+            "w_m": min(1.0, window["w_m"]),
+            "h_m": min(1.2, window["h_m"]),
+        }
+        out["@gable_small"] = {
+            "kind": "window",
+            "w_m": 0.6,
+            "h_m": 0.6,
+            "lights": {"pattern": "single"},
+        }
+    elif kind in SHEDS:
+        out["@door"] = {
+            "kind": "door",
+            "w_m": 0.9,
+            "h_m": 2.0,
+            "recess_m": 0.04,
+            "frame": {"colour": g["trim"], "width_m": 0.07},
+            "leaf": {
+                "leaves": 1,
+                "style": "boarded",
+                "colour": register_wall(doc).get("colour", "#7b3a2e"),
+                "fanlight": "none",
+                "steps": 0,
+            },
+        }
+        colours = ["#e9e8e2", "#e9e8e2", "#8c8c88", "#5a4334", "#3a3c3f"]
+        out["@garage"] = {
+            "kind": "garage",
+            "w_m": 2.5,
+            "h_m": 2.1,
+            "recess_m": 0.06,
+            "frame": {"colour": g["trim"], "width_m": 0.07},
+            "leaf": {"leaves": 1, "style": "flush", "colour": archetypes.pick(doc, "garage", colours)},
+        }
+    elif kind in HALLS:
+        out["@door"] = {
+            "kind": "door",
+            "w_m": 1.0,
+            "h_m": 2.1,
+            "recess_m": 0.08,
+            "frame": {"colour": "#5c6064", "width_m": 0.06},
+            "leaf": {
+                "leaves": 1,
+                "style": "half_glazed",
+                "colour": "#5c6064",
+                "fanlight": "none",
+                "steps": 0,
+            },
+        }
+        colours = ["#c9cbc8", "#8c8c88", "#3f5a78", "#6c6c6a"]
+        out["@loading"] = {
+            "kind": "garage",
+            "w_m": 3.6,
+            "h_m": 3.6,
+            "recess_m": 0.1,
+            "frame": {"colour": "#6c6c6a", "width_m": 0.08},
+            "leaf": {"leaves": 1, "style": "flush", "colour": archetypes.pick(doc, "garage", colours)},
+        }
     return out
 
 
-def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.0) -> dict:
-    """An automatic wall made to fit the wall it stands on.
+def fitted_wall(doc: dict, wall: dict, height: float, role: dict | None = None) -> dict:
+    """An automatic wall made to fit the wall it stands on, `height` from its lowest ground to its eaves.
 
     The register's storey count is kept when it gives believable storeys; otherwise the storeys are counted from
     the height. A low wooden house is one tall storey under a knee wall with small attic windows on a high plinth,
-    which is what the wooden quarters of Turku are made of.
+    which is what the wooden quarters of Turku are made of. `role` (archetypes.wall_roles) says what this wall
+    carries besides its windows: street doors under a porch, garage or loading doors, a gable window, or nothing.
     """
+    role = role or {}
     out = copy.deepcopy(wall)
     if "storeys" in doc.get("wall_defaults", {}):
         # Somebody described the building's usual wall: a lower wing keeps as many of its storeys as fit.
@@ -436,13 +512,14 @@ def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.
         out["storeys"] = storeys
         return out
     g = group(doc)
+    kind = style_type(doc)
     plinth = out.get("plinth", {}).get("height_m", 0.0)
     available = height - plinth
-    if available < 2.3:
+    if available < (1.9 if kind in SHEDS else 2.3):
         out["storeys"] = []
         return out
     sill = g["sill"]
-    if (old_quarter(doc) or style_type(doc) == "outbuilding") and 4.9 <= height < 7.4:
+    if old_quarter(doc) and 4.9 <= height < 7.4:
         attic = 1.2
         main = min(4.2, available - attic)
         rest = available - attic - main
@@ -465,20 +542,41 @@ def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.
         ]
         return out
     count = max(1, int(doc.get("register", {}).get("storeys", 1)))
-    if not 2.6 <= available / count <= 4.4:
+    if kind in SHEDS or (kind in HALLS and count <= 1):
+        count = 1  # one room to the eaves, however high
+    elif not 2.6 <= available / count <= 4.4:
         count = max(1, round(available / g["upper_h"]))
     each = available / count
     ground = min(max(each, g["ground_h"]), each * 1.2) if count > 1 else each
     upper = (available - ground) / (count - 1) if count > 1 else 0.0
+    window = None if role.get("blank") else "@default"
     out["storeys"] = [
-        {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": "@default"}
+        {"kind": "ground", "height_m": round(ground, 2), "sill_m": sill, "window": window}
     ]
-    if entrance_width > 6.0:
-        # The street door of a block of flats: in the bay nearest the middle of the building's longest wall.
-        pitch = out.get("bays", {}).get("pitch_m", g["pitch"])
-        bays = max(0, int((entrance_width - 2.4) / pitch) + 1)
-        out["storeys"][0]["openings"] = [
-            {"type": "@door", "u_m": round(entrance_width / 2 + (0 if bays % 2 else pitch / 2), 2)}
+    openings = []
+    for name, key in (("@door", "doors"), ("@garage", "garage"), ("@loading", "loading")):
+        spec = resolve_opening(doc, name)
+        # A door is as high as the wall lets it be: a low garage has a low door.
+        fits = min(spec["h_m"], available - 0.2)
+        for u in role.get(key, []):
+            if fits >= 1.8:
+                placed = {"type": name, "u_m": round(u, 2)}
+                openings.append(placed if fits == spec["h_m"] else {**placed, "h_m": round(fits, 2)})
+    if openings:
+        out["storeys"][0]["openings"] = openings
+    if role.get("porch") and role.get("doors") and available >= 2.5:
+        out["attached"] = out.get("attached", []) + [
+            {
+                "kind": "porch",
+                "type": "open",
+                "roof": "shed",
+                "u_m": round(u, 2),
+                "w_m": 2.2,
+                "h_m": 2.3,
+                "depth_m": 1.5,
+                "supports": {"kind": "posts", "count": 2, "diameter_m": 0.1, "colour": g["trim"]},
+            }
+            for u in role["doors"]
         ]
     if count > 1:
         out["storeys"].append(
@@ -487,7 +585,7 @@ def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.
                 "count": count - 1,
                 "height_m": round(upper, 3),
                 "sill_m": sill,
-                "window": "@default",
+                "window": window,
             }
         )
         if g is GROUPS["old_masonry"] and "bands" not in out:
@@ -501,6 +599,14 @@ def fitted_wall(doc: dict, wall: dict, height: float, entrance_width: float = 0.
                     "colour": g["trim"],
                 }
             ]
+    if "gable" in role:
+        # A gable high enough for a room under the roof has that room's window; a lower one a small light.
+        apex, rise = role["gable"]
+        name = "@gable" if rise >= 2.6 else "@gable_small"
+        lift = 0.35 if rise >= 2.6 else rise * 0.3
+        out["openings"] = out.get("openings", []) + [
+            {"type": name, "u_m": round(apex, 2), "v_m": round(height + lift, 2)}
+        ]
     return out
 
 
@@ -564,9 +670,15 @@ def measured_roof(doc: dict) -> dict | None:
     A red pitched roof is clay tile on a small house from 1940 on and painted sheet metal on older and bigger
     buildings, a green one painted sheet metal; any other roof keeps the roofing of its style in the measured grey.
     Leaf green is tree crowns: such a roof keeps the colour of its style."""
-    colour = doc.get("register", {}).get("roof_colour")
+    colour = doc.get("measured", {}).get("roof", {}).get("colour") or doc.get(
+        "register", {}
+    ).get("roof_colour")
     if not colour:
         return None
+    if style_type(doc) in HOUSES:
+        return archetypes.house_roofing(
+            colour, archetypes.era_year(doc), roof_pitch_deg(doc)
+        )
     hue, saturation, value = colorsys.rgb_to_hsv(
         *(int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
     )

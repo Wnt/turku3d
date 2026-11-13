@@ -163,6 +163,12 @@ def build(
     )
     free = _edge_kinds(planes, shell.facades, shell.footprint)
     brackets = eaves.get("brackets")
+    # Gutters are painted with the roof: its colour, as sheet metal.
+    gutter_key = (
+        palette.key({"family": "metal", "colour": palette.record(roof.get("material")).get("colour", "#3c3f42")})
+        if eaves.get("gutter") and eave_out >= 0.15
+        else None
+    )
 
     for plane, plane_free in zip(planes, free, strict=True):
         ring = plane.ring
@@ -249,6 +255,10 @@ def build(
             normal = np.cross(board[1] - board[0], board[2] - board[0])
             order = [[0, 1, 2], [0, 2, 3]] if normal @ outward > 0 else [[0, 2, 1], [0, 3, 2]]
             soup.add("eaves", key, board, order, [[0, 0], [along, 0], [along, fascia], [0, fascia]])
+            if gutter_key and not is_verge and plane.normal[2] < 0.999:
+                # The gutter hangs on the eaves board, a hand's width below the roofing's edge.
+                hang = outward * 0.07 - np.array([0.0, 0.0, 0.07])
+                mesh.tube(soup, "eaves", gutter_key, outer_a + hang, outer_b + hang, 0.065, sides=6)
             if brackets and offsets[i] >= 0.25:
                 _brackets(
                     soup,

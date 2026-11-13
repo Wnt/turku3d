@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import archetypes, mesh, priors, roofs
 from . import facade as facades_module
-from . import mesh, priors, roofs
 from . import shell as shell_module
 from .materials import Palette, fallback
 
@@ -127,11 +127,29 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
     templates = {}
     neighbours = doc["shell"].get("neighbours", [])
     wall_family = "plaster"
-    # An unobserved block of flats has its street door on its longest wall that stands on the ground.
-    undescribed = [f for f in shell.facades if f.grounded and f.index not in described]
-    entrance = max(undescribed, key=lambda f: f.width, default=None)
-    if described or priors.style_type(doc) in priors.WOODEN:
-        entrance = None
+    # What each wall of a building nobody described carries besides its windows: the street door, garage doors,
+    # a gable window (archetypes.wall_roles). A building somebody described in part keeps plain automatic walls.
+    roles = {}
+    if not described:
+        free = []
+        for facade in shell.facades:
+            if facade.grounded:
+                eaves = facades_module.eaves_height(facade.outline, facade.width)
+                corners = [c for part in mesh.polygons_of(facade.outline) for c in part.exterior.coords]
+                if not corners:
+                    continue
+                apex = max(corners, key=lambda c: c[1])
+                free.append(
+                    {
+                        "index": facade.index,
+                        "width": facade.width,
+                        "rise": float(apex[1] - eaves),
+                        "apex": float(apex[0]),
+                    }
+                )
+        roles = archetypes.wall_roles(
+            doc, priors.style_type(doc), free, priors.group(doc)["pitch"]
+        )
     for facade in shell.facades:
         wall = priors.resolve_wall(doc, described.get(facade.index))
         if not facade.grounded:
@@ -142,7 +160,7 @@ def compile(description: dict) -> Output:  # noqa: A001 - the contract's name
                 doc,
                 wall,
                 facades_module.eaves_height(facade.outline, facade.width) - foot,
-                facade.width if facade is entrance else 0.0,
+                roles.get(facade.index),
             )
         if facade.index == 0 or facade.index in described:
             wall_family = palette.record(wall.get("material"))["family"]

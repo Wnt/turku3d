@@ -24,6 +24,33 @@ bash pipeline/env/run.sh python -m turku3d.world.kinds.building.description FILE
 - `shell` holds the LoD2 surfaces as rings of `[E, N, H]`, the terrain line around the footprint and the footprints
   and heights of touching neighbours, so that `compile` needs nothing but the description.
 
+### The automatic tier
+
+What a building looks like when nobody has read it (`describe.automatic`, rules in `archetypes.py` and `priors.py`):
+
+- **Type** from the LoD2 function code, storeys, height and footprint: `detached_house` (function 1000, up to two
+  storeys), `row_house` (other residential functions, up to two storeys, built since 1940), `garage` and
+  `outbuilding` (ancillary functions and unclassified pieces under 70 m²: a garage from 15 m² and 2.8 m wide),
+  `industrial`, `commercial`, `office`, old `wooden_house`, and blocks of flats by decade. A building the
+  register has not dated takes the year of its dated neighbours within 60 m (`register.year_near`), else it is
+  drawn as new.
+- **Wall** in the register's facade material, in a colour such a building usually has by type and decade (brick
+  houses since 1975 are mostly buff or white, older ones red; post-war houses of "other material" are rendered).
+  The palettes are populations: one colour is picked per building by its id.
+- **`measured`**, when stored, replaces the palette pick: `measured.wall.colour` is a robust sample of the wall in
+  a street photograph, taken without reading the building (`spread`: CIELAB dE of the sample, `share`: how much
+  of the strip was used, `conf`). The generator keeps its hue and chroma and holds its lightness inside the
+  family's range, because a photograph's pixels carry its exposure; under confidence 0.4 it is ignored.
+  `measured.roof.colour` takes the place of the orthophoto's roof colour. `measured.trim` and `measured.plinth`
+  are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A material
+  somebody described always wins over a measurement.
+- **Roofing** from the orthophoto's roof colour: on a house, warm red is tile, warm grey and brown dark concrete
+  tile, cold grey seamed sheet metal; deep boxed eaves with a gutter, a chimney below the ridge on houses built
+  before 2005.
+- **Walls by role:** the longest eaves-side wall of a house takes the door under a porch (a row house one door a
+  dwelling), a gable takes a gable window, a garage its door on the shortest wall that fits one (a row of garages
+  a door every 3 m), a shed a boarded door and no windows, a hall loading doors and ribbon windows.
+
 ## Rules
 
 1. **Units.** Lengths are metres (`*_m`). Colours are sRGB `#rrggbb` as the surface looks in overcast daylight: the
@@ -240,3 +267,7 @@ replaces a description somebody else stored. Nothing else reads the old format.
 ## Changes
 
 A change that readers must follow gets a line on the campaign board. Additive fields keep version 1.
+
+- 2026-11-13: `measured` (wall, trim, plinth, roof colours sampled without a reading); style type `row_house`;
+  the attachment kind `porch` is built (deck, steps, posts, roof `shed` / `gable` / `flat`; types `open`,
+  `boarded`, `glazed`).

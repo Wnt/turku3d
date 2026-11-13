@@ -40,6 +40,25 @@
       },
       "maxItems": 8
     },
+    "measured": {
+      "description": "Colours measured without anybody reading the building: a robust sample of its wall in the nearest street panorama, of its roof in the orthophoto. The automatic tier draws them in the material the register or a reading gives; a described material always wins.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wall": {
+          "$ref": "#/$defs/measuredColour"
+        },
+        "trim": {
+          "$ref": "#/$defs/measuredColour"
+        },
+        "plinth": {
+          "$ref": "#/$defs/measuredColour"
+        },
+        "roof": {
+          "$ref": "#/$defs/measuredColour"
+        }
+      }
+    },
     "provenance": {
       "type": "array",
       "items": {
@@ -226,6 +245,7 @@
             "public",
             "church",
             "detached_house",
+            "row_house",
             "outbuilding",
             "garage",
             "kiosk"
@@ -2091,6 +2111,34 @@
               }
             }
           }
+        }
+      }
+    },
+    "measuredColour": {
+      "description": "A colour sampled from photographs of one part of the building, with how sure the sample is.",
+      "type": "object",
+      "required": [
+        "colour"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "colour": {
+          "$ref": "#/$defs/colour"
+        },
+        "spread": {
+          "description": "CIELAB dE of the sampled pixels round their median.",
+          "type": "number",
+          "minimum": 0
+        },
+        "share": {
+          "description": "Share of the sampled strip that was used.",
+          "$ref": "#/$defs/share"
+        },
+        "conf": {
+          "$ref": "#/$defs/conf"
+        },
+        "src": {
+          "$ref": "#/$defs/src"
         }
       }
     }

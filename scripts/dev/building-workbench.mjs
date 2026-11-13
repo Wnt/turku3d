@@ -4,6 +4,9 @@
 //   scripts/dev/building-workbench.mjs serve                     start the workbench dev server (sandbox port +3)
 //   scripts/dev/building-workbench.mjs shot NAME [--out FILE.jpg] [--weather overcast] [--time 14:00] [--keep]
 //   scripts/dev/building-workbench.mjs release                   close the browser and give the host lease back
+//   scripts/dev/building-workbench.mjs shots NAME... [--out-dir DIR]   stills of several scenes on a leased browser:
+//     python3 ~/turku3d/tools/host-lease/session.py run air "$TURKU3D_SANDBOX" --kind func --headless \
+//       --window-size 1920,1080 --forward $((TURKU3D_PORT_BASE+3)) -- node scripts/dev/building-workbench.mjs shots A B
 //
 // `shot` shows $TURKU3D_WORK/workbench/NAME (built by `python -m turku3d.world.kinds.building.workbench build`) from
 // the camera of its reference view and saves photo and render side by side. It takes a short host lease
@@ -57,14 +60,37 @@ function release() {
   spawnSync('python3', [lease, 'release', holder, 'mac'], { stdio: 'inherit' });
 }
 
+/** One still of a built workbench scene on an open page: the photo and the render side by side. */
+async function still(page, name, out, started) {
+  const params = new URLSearchParams({ name, shot: '1' });
+  for (const key of ['weather', 'time', 'quality']) if (opt(`--${key}`)) params.set(key, opt(`--${key}`));
+  const url = `${base}/building-workbench.html?${params}`;
+  const meta = JSON.parse(fs.readFileSync(path.join(workRoot, 'workbench', name, 'meta.json'), 'utf8'));
+  const width = meta.view?.width ?? 960, height = meta.view?.height ?? 720;
+  await page.setViewportSize({ width: width * (meta.view ? 2 : 1), height });
+  const errors = [];
+  const onError = error => errors.push(String(error));
+  const onConsole = message => { if (message.type() === 'error') errors.push(message.text()); };
+  page.on('pageerror', onError); page.on('console', onConsole);
+  try {
+    if (page.url() !== url) {
+      await page.goto(url, { waitUntil: 'load' });
+      await page.waitForFunction(() => !!globalThis.__workbench, null, { timeout: 90000 }).catch(error => {
+        throw new Error(`the workbench page did not start: ${error.message}\n${errors.join('\n')}`);
+      });
+    }
+    const refreshed = await page.evaluate(frames => globalThis.__workbench.refresh(frames), Number(opt('--settle', '40')));
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    await page.screenshot({ path: out, type: out.endsWith('.png') ? 'png' : 'jpeg', ...(out.endsWith('.png') ? {} : { quality: 90 }) });
+    console.log(JSON.stringify({ out, revision: refreshed.revision, changed: refreshed.changed, draws: refreshed.draws, refreshMs: refreshed.ms, totalMs: Date.now() - started, errors: errors.slice(0, 5) }));
+  } finally { page.off('pageerror', onError); page.off('console', onConsole); }
+}
+
 async function shot() {
   const name = argv[1];
   if (!name || name.startsWith('--')) throw new Error('usage: building-workbench.mjs shot NAME [--out FILE.jpg]');
   const started = Date.now();
   await serve();
-  const params = new URLSearchParams({ name, shot: '1' });
-  for (const key of ['weather', 'time', 'quality']) if (opt(`--${key}`)) params.set(key, opt(`--${key}`));
-  const url = `${base}/building-workbench.html?${params}`;
   let state = previewState();
   const running = state && (() => { try { process.kill(state.pid, 0); return true; } catch { return false; } })();
   if (running) {
@@ -80,30 +106,33 @@ async function shot() {
   try {
     const context = browser.contexts()[0];
     const page = context.pages()[0] ?? await context.newPage();
-    const meta = JSON.parse(fs.readFileSync(path.join(workRoot, 'workbench', name, 'meta.json'), 'utf8'));
-    const width = meta.view?.width ?? 960, height = meta.view?.height ?? 720;
-    await page.setViewportSize({ width: width * (meta.view ? 2 : 1), height });
-    const errors = [];
-    page.on('pageerror', error => errors.push(String(error)));
-    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-    if (page.url() !== url) {
-      await page.goto(url, { waitUntil: 'load' });
-      await page.waitForFunction(() => !!globalThis.__workbench, null, { timeout: 90000 }).catch(error => {
-        throw new Error(`the workbench page did not start: ${error.message}\n${errors.join('\n')}`);
-      });
-    }
-    const refreshed = await page.evaluate(frames => globalThis.__workbench.refresh(frames), Number(opt('--settle', '40')));
-    const out = path.resolve(opt('--out', path.join(workRoot, 'workbench', name, 'pair.jpg')));
-    fs.mkdirSync(path.dirname(out), { recursive: true });
-    await page.screenshot({ path: out, type: out.endsWith('.png') ? 'png' : 'jpeg', ...(out.endsWith('.png') ? {} : { quality: 90 }) });
-    console.log(JSON.stringify({ out, revision: refreshed.revision, changed: refreshed.changed, draws: refreshed.draws, refreshMs: refreshed.ms, totalMs: Date.now() - started, errors: errors.slice(0, 5) }));
+    await still(page, name, path.resolve(opt('--out', path.join(workRoot, 'workbench', name, 'pair.jpg'))), started);
   } finally {
     await browser.close();
     if (!argv.includes('--keep')) release();
   }
 }
 
+/** Stills of several scenes on a browser somebody else leased and started (`session.py run HOST ... --forward PORT`
+ *  sets BROWSER_CDP): no lease is taken here, so any host of the lab serves when the Mac's two slots are busy. */
+async function shots() {
+  const names = argv.slice(1).filter((arg, k, all) => !arg.startsWith('--') && !(all[k - 1] ?? '').startsWith('--'));
+  if (!names.length || !process.env.BROWSER_CDP) throw new Error('usage: BROWSER_CDP=... building-workbench.mjs shots NAME... [--out-dir DIR]');
+  await serve();
+  const { chromium } = createRequire(path.join(repo, 'game/package.json'))('playwright');
+  const browser = await chromium.connectOverCDP(process.env.BROWSER_CDP);
+  try {
+    const context = browser.contexts()[0];
+    const page = context.pages()[0] ?? await context.newPage();
+    for (const name of names) {
+      const out = opt('--out-dir') ? path.join(path.resolve(opt('--out-dir')), `${name}.jpg`) : path.join(workRoot, 'workbench', name, 'pair.jpg');
+      await still(page, name, out, Date.now()).catch(error => console.log(JSON.stringify({ name, error: String(error).slice(0, 300) })));
+    }
+  } finally { await browser.close(); }
+}
+
 if (command === 'serve') { await serve(); console.log(`${base}/building-workbench.html?name=NAME`); }
 else if (command === 'shot') await shot();
+else if (command === 'shots') await shots();
 else if (command === 'release') release();
-else { console.error('usage: building-workbench.mjs serve | shot NAME [--out FILE] [--keep] | release'); process.exitCode = 2; }
+else { console.error('usage: building-workbench.mjs serve | shot NAME [--out FILE] [--keep] | shots NAME... [--out-dir DIR] | release'); process.exitCode = 2; }

@@ -5,12 +5,13 @@ sources; `materials` and `opening_types` merge by name; `wall_defaults` merges f
 top-level field of the stored description replaces the automatic one.
 """
 
-from . import priors
+from . import archetypes, priors
 from .description import SCHEMA_ID
 
 
-def automatic(key: str, shell: dict, register: dict) -> dict:
-    """What can be said of a building nobody has looked at: its shell, its register facts and a style."""
+def automatic(key: str, shell: dict, register: dict, measurements: dict | None = None) -> dict:
+    """What can be said of a building nobody has looked at: its shell, its register facts, a style, and what was
+    measured of it without anybody reading it (`measured`: wall and roof colours sampled from photographs)."""
     doc = {
         "schema": SCHEMA_ID,
         "id": f"building/{key}",
@@ -21,6 +22,8 @@ def automatic(key: str, shell: dict, register: dict) -> dict:
         "register": register,
         "shell": shell,
     }
+    if measurements:
+        doc["measured"] = measurements
     doc["style"] = {"type": priors.style_type(doc), "conf": {"*": 0.2}}
     doc["materials"] = {"wall": {**priors.register_wall(doc), "conf": {"*": 0.2}}}
     doc["wall_defaults"] = {"material": "wall"}
@@ -29,16 +32,22 @@ def automatic(key: str, shell: dict, register: dict) -> dict:
 
 
 def measured(doc: dict) -> dict:
-    """A roof nobody gave a material takes the roofing the orthophoto shows."""
-    if "material" not in doc.get("roof", {}):
+    """A roof nobody gave a material takes the roofing the orthophoto shows; a house nobody gave chimneys has
+    the one its kind and age usually have."""
+    roof = doc.get("roof", {})
+    if "material" not in roof:
         roofing = priors.measured_roof(doc)
         if roofing:
-            doc["roof"] = {**doc.get("roof", {}), "material": roofing}
+            doc["roof"] = roof = {**roof, "material": roofing}
+    if "chimneys" not in roof and doc.get("tier", "auto") == "auto":
+        chimney = archetypes.chimney(doc, priors.style_type(doc))
+        if chimney:
+            doc["roof"] = {**roof, "chimneys": [chimney]}
     return doc
 
 
 def effective(key: str, shell: dict, register: dict, stored: dict | None) -> dict:
-    doc = automatic(key, shell, register)
+    doc = automatic(key, shell, register, (stored or {}).get("measured"))
     if not stored:
         return doc
     doc.pop("roof", None)  # measured again below, on the style the stored description gives

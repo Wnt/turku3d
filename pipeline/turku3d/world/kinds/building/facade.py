@@ -973,6 +973,8 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
                         mesh.cylinder(
                             local, "attached", support_key, x, d, v - 0.16, v, radius * 1.2, sides=8
                         )
+        elif kind == "porch":
+            _porch(local, facade, wall, plan, part, u, doc, palette, wall_record, trim)
         elif kind == "sign":
             sign = palette.flat(part.get("colour", "#2b3a4a"), roughness=0.5)
             if part.get("type") == "projecting":
@@ -1024,6 +1026,124 @@ def _attached(soup, facade, wall, plan, doc, palette, wall_record, trim, templat
             mesh.box(local, "attached", metal, u - w / 2, v, u + w / 2, v + h, 0.0, 0.015)
     _balconies(local, facade, wall, plan, palette, to_u)
     soup.place(local, facade)
+
+
+def _porch(local, facade, wall, plan, part, u, doc, palette, wall_record, trim):
+    """A porch at a door: a deck at the threshold with steps down to the ground, posts and a roof of its own.
+
+    `open` is posts and a roof; `boarded` and `glazed` close the sides and the front beside the way in, to the
+    rail's height in the wall's material and above it in boards or glass. `h_m` is the clear height under the
+    roof's edge, `v_m` the deck above the wall base (else the threshold of the door it stands at)."""
+    w, depth, h = part.get("w_m", 2.2), part.get("depth_m", 1.5), part.get("h_m", 2.3)
+    variant, form = part.get("type", "open"), part.get("roof", "shed")
+    ground = ground_v(facade, plan.datum, u)
+    doors = [
+        p
+        for p in plan.placed
+        if p.spec.get("kind") == "door" and abs(p.u0 + p.width / 2 - u) <= w / 2
+    ]
+    if "v_m" in part:
+        deck = plan.datum + part["v_m"]
+    elif doors:
+        deck = min(doors, key=lambda p: abs(p.u0 + p.width / 2 - u)).v0 - 0.025
+    else:
+        deck = ground + 0.15
+    deck = max(deck, ground + 0.04)
+    head = deck + h
+    u0, u1 = u - w / 2, u + w / 2
+    trim_key = palette.key({"family": "painted_wood", "colour": part.get("colour", trim)})
+    deck_key = palette.key(
+        part.get("material") if variant == "open" else None,
+        fallback={"family": "concrete", "colour": "#9a9892", "finish": "cast"},
+    )
+    roofing = palette.key(
+        part.get("roof_material") or doc.get("roof", {}).get("material"),
+        fallback={"family": "felt", "colour": "#3d3d3f"},
+    )
+    mesh.box(local, "attached", deck_key, u0, ground - 0.3, u1, deck, 0.0, depth)
+    climb = deck - ground
+    count = int(np.ceil(climb / 0.18 - 0.2)) if climb > 0.1 else 0
+    tread = min(w - 0.3, 1.4)
+    for k in range(count):
+        top = deck - (k + 1) * climb / (count + 1)
+        mesh.box(
+            local,
+            "attached",
+            deck_key,
+            u - tread / 2,
+            ground - 0.3,
+            u + tread / 2,
+            top,
+            depth,
+            depth + 0.28 * (k + 1),
+        )
+    # The roof: a pitch falling away from the wall, a gable facing the street, or a flat slab.
+    out, thick = 0.2, 0.09
+    if form == "gable":
+        rise = (w / 2 + out) * 0.45
+        peak = head + rise
+        for a, b in (((u0 - out, head), (u, peak)), ((u, peak), (u1 + out, head))):
+            slab = Polygon([a, b, (b[0], b[1] + thick), (a[0], a[1] + thick)])
+            mesh.prism(local, "attached", roofing, slab, 0.0, depth + out, back=True)
+        mesh.prism(
+            local,
+            "attached",
+            trim_key,
+            Polygon([(u0, head), (u1, head), (u, head + (w / 2) * 0.45)]),
+            depth - 0.05,
+            depth,
+            back=True,
+        )
+    elif form == "flat":
+        mesh.box(
+            local, "attached", roofing, u0 - out, head, u1 + out, head + 0.14, 0.0, depth + out
+        )
+    else:
+        back = head + (depth + out) * 0.2
+        mesh.extrude_profile(
+            local,
+            "attached",
+            roofing,
+            u0 - out,
+            u1 + out,
+            [(0.0, back), (depth + out, head), (depth + out, head + thick), (0.0, back + thick)],
+        )
+    mesh.box(local, "attached", trim_key, u0, head - 0.14, u1, head, depth - 0.07, depth, back=True)
+    supports = part.get("supports", {})
+    side = supports.get("diameter_m", 0.1)
+    post_key = (
+        palette.key(supports["material"])
+        if "material" in supports
+        else palette.key({"family": "painted_wood", "colour": supports.get("colour", trim)})
+    )
+    for x in np.linspace(u0, u1 - side, max(2, min(supports.get("count", 2), 6))):
+        mesh.box(
+            local, "attached", post_key, x, deck, x + side, head - 0.14, depth - side, depth, back=True
+        )
+    rail = deck + 0.95
+    if variant in ("boarded", "glazed"):
+        body = palette.key(part.get("material") or wall.get("material"))
+        glass = palette.key({"family": "glass", "interior": "dwelling"})
+        gap = 0.55 if w > 1.6 else w / 2
+        fronts = [(u0, u - gap), (u + gap, u1)] if w > 1.6 else []
+        for a, b in fronts:
+            mesh.box(local, "attached", body, a, deck, b, rail, depth - 0.06, depth, back=True)
+            upper = glass if variant == "glazed" else body
+            mesh.box(
+                local, "attached", upper, a + 0.05, rail, b - 0.05, head - 0.14, depth - 0.05, depth - 0.02, back=True
+            )
+        for x in (u0, u1 - 0.06):
+            mesh.box(local, "attached", body, x, deck, x + 0.06, rail, 0.0, depth - 0.06, back=True)
+            upper = glass if variant == "glazed" else body
+            mesh.box(
+                local, "attached", upper, x + 0.015, rail, x + 0.045, head - 0.14, 0.0, depth - 0.06, back=True
+            )
+    elif climb > 0.5:
+        # An open porch high over the ground has a boarded rail on its sides.
+        for x in (u0, u1 - 0.04):
+            mesh.box(
+                local, "attached", trim_key, x, deck + 0.12, x + 0.04, rail, 0.0, depth - side, back=True
+            )
 
 
 RAILING_FAMILY = {
