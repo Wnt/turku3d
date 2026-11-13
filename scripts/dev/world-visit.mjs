@@ -75,9 +75,17 @@ try {
     await page.waitForFunction(() => window.__game?.state?.().mode && window.__game.state().mode !== 'loading' || !!document.querySelector('.fatal, #fatal'),
       null, { timeout, polling: 500 });
     report.loadSeconds = (Date.now() - t0) / 1000;
-    const state = () => page.evaluate(() => { const s = window.__game.state(); return { mode: s.mode, feet: s.feet, drivenId: s.drivenId, vehicle: s.vehicle && { speed: s.vehicle.speed ?? null }, E: s.E, N: s.N, H: s.H }; });
-    await page.mouse.click(400, 300);
-    await page.waitForTimeout(5000);
+    const state = () => page.evaluate(() => {
+      const s = window.__game.state(), cars = window.__game.physics?.latest?.vehicles ?? [];
+      return { mode: s.mode, feet: s.feet, drivenId: s.drivenId, vehicle: s.vehicle && { speed: s.vehicle.speed ?? null }, E: s.E, N: s.N, H: s.H,
+        fps: /(\d+) fps/.exec(document.body.innerText)?.[1] ?? null, car: JSON.stringify(cars[0] ?? null).slice(0, 240) };
+    });
+    // The start menu, as scene-capture.mjs passes it: New game, then wait for the session.
+    await page.waitForFunction(() => window.__game.state().startScreen !== undefined || window.__game.state().loading === false, null, { timeout: 30000 }).catch(() => {});
+    if (await page.evaluate(() => window.__game.state().startScreen)) { await page.getByText('New game', { exact: true }).click(); report.notes.push('start menu: New game'); }
+    await page.waitForFunction(() => { const s = window.__game.state(); return !s.startScreen && !s.loading; }, null, { timeout: 240000 });
+    report.session = await page.evaluate(() => { const { startScreen, loading, paused, mode, inputSource, tilesSettled } = window.__game.state(); return { startScreen, loading, paused, mode, inputSource, tilesSettled }; });
+    await page.waitForTimeout(3000);
     const a = await state();
     await still('play-1-start');
     await hold('KeyW', 3000);
