@@ -261,14 +261,17 @@ async function three(shared) {
     for (let i = 0; i < 6; i++) { renderer.render(scene, camera); await new Promise(resolve => setTimeout(resolve, 0)); }
     await renderer.backend.device.queue.onSubmittedWorkDone();
     const each = [];
+    let drawn = {};
     for (let i = 0; i < frames; i++) {
+      renderer.info.reset();   // three resets these in its own animation frame; count this frame's draws only
       const start = performance.now();
       renderer.render(scene, camera);
       each.push(performance.now() - start);
+      drawn = { draw_calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles };
       await new Promise(resolve => setTimeout(resolve, 0));
     }
     await renderer.backend.device.queue.onSubmittedWorkDone();
-    return { render_cpu_ms: round(median(each)), min_ms: round(Math.min(...each)), draw_calls: renderer.info.render.drawCalls, triangles: renderer.info.render.triangles };
+    return { render_cpu_ms: round(median(each)), min_ms: round(Math.min(...each)), ...drawn };
   };
   for (const n of [2000, 10000]) {
     stage(`three ${n} meshes`);

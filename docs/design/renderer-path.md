@@ -1,6 +1,6 @@
 # Renderer path: recommendation and feasibility
 
-Owner: `w2-render`. Written 2026-11-13 (the measured parts marked PENDING are being filled in the same day) for the decision on how Turku3D gets from today's renderer to virtualised
+Owner: `w2-render`. Written 2026-11-13 for the decision on how Turku3D gets from today's renderer to virtualised
 geometry (as in UE Nanite) and software global illumination (as in software Lumen). The only target is Chrome on an
 Apple-silicon Mac; the reference machine is the M1 Max (10 cores, 64 GB). Companion to
 [render-readiness.md](render-readiness.md), which holds the rules for assets. Nothing here is built yet: this is a
@@ -18,16 +18,27 @@ own. This is the third of the three paths (our own renderer, three.js where it e
 at a time beside the running game, never by a rewrite: the first slice already looks like the first path (stock
 three.js plus our passes). A fork is not recommended.
 
-**What carries it.** PENDING_LEAD The run on this M1 Max (section 11) is queued for a browser slot; until its
-numbers are in, the case rests on costs already recorded in the code and upstream:
+**The measurements on this M1 Max that carry it** (headless Chrome 156 on the Metal adapter, 2026-11-13; synthetic
+building blocks, not the game; best of several runs while other agents' browsers shared the GPU; sections 3 to 5):
 
-- In headless play on the M1 Max, three.js spent 57 % of the main thread refreshing draws (`staticRefresh.ts`), and
-  the ultra tier ran 115 to 160 ms frames at 19.7 M triangles (`preparationBudget.ts`): today's path cannot spend
-  stronger hardware on more geometry.
-- Upstream: 20,000 plain cubes run at about 15 FPS in `WebGPURenderer` on an M1 Pro, 60 in `WebGLRenderer` (three.js
-  issue 30560, open since r173).
-- 1,823 lines in 16 files, and about thirty patched r186 internals, exist only to make thousands of per-object
-  world draws bearable (section 2).
+1. **three.js costs CPU per object; a compute pass does not.** r186 spends 2.3 to 2.7 microseconds of CPU per mesh
+   in `render()` at its cheapest (one shared geometry, one shared unlit material, frozen matrices): about 5 ms for
+   2,000 meshes and 25 to 26 ms for 10,000, which is the whole 25 ms frame of 40 FPS. Its `BatchedMesh` costs 0.1 to
+   0.3 microseconds per instance (2.2 to 6.0 ms for 20,000). A compute pass culled 4,000,000 cluster records in
+   0.5 ms, and its CPU cost does not grow with the world.
+2. **The hardware rasteriser draws pixel-sized triangles fast enough, so no compute rasteriser is needed.** 8 M
+   triangles of a quarter pixel each, culled and drawn by one indirect draw into a 1920 x 1080 visibility buffer,
+   take 2.9 ms; 32 M take 13.6 ms (2.2 to 2.8 M triangles per ms). That matters because the compute rasteriser
+   Nanite uses for small triangles needs a 64-bit atomic that WebGPU will not have on the M1 family. For scale,
+   today's renderer on its ultra tier runs 115 to 160 ms frames at 19.7 M triangles on the same machine.
+3. **Distance-field tracing fits the frame, and three.js shares it.** One primary ray per pixel through a
+   four-level distance-field clipmap at 1080p takes 1.5 ms, and diffuse rays run at about 0.3 M per ms, so a
+   Lumen-style gather of a quarter ray per pixel is about 1.7 ms of tracing. Stock three.js r186 accepted a device
+   we created and shared targets both ways (it sampled a texture a raw pass wrote; a raw draw depth-tested against
+   its depth buffer): the two renderers coexist in one frame without a fork.
+
+Beside these: 1,823 lines in 16 files and about thirty patched r186 internals exist today only to make thousands of
+per-object world draws bearable (section 2).
 
 ## 1. The three paths
 
@@ -107,9 +118,53 @@ tiers below `medium` and the device special cases can go.
 
 Measured with `tools/render-spike/measure.mjs` in headless Chrome for Testing under a host lease on the M1 Max.
 
-PENDING_ADAPTER (features and limits of the adapter: the run is queued).
+Adapter: Apple, `metal-3`, not a fallback adapter; Chrome for Testing 156.0.8078.73. A device was created with
+every feature below enabled and every limit raised to the adapter's value, and three.js r186 ran on that device.
 
-**Absent, and the design must not need them:** mesh shaders; hardware ray tracing (proposals opened 2026-10, not
+Features (25): `bgra8unorm-storage`, `chromium-experimental-subgroup-matrix`, `clip-distances`,
+`core-features-and-limits`, `depth-clip-control`, `depth32float-stencil8`, `dual-source-blending`,
+`float32-blendable`, `float32-filterable`, `indirect-first-instance`, `primitive-index`, `rg11b10ufloat-renderable`,
+`shader-f16`, `subgroup-size-control`, `subgroups`, `texture-component-swizzle`, `texture-compression-astc`,
+`texture-compression-astc-sliced-3d`, `texture-compression-bc`, `texture-compression-bc-sliced-3d`,
+`texture-compression-etc2`, `texture-compression-unaligned`, `texture-formats-tier1`, `texture-formats-tier2`,
+`timestamp-query`. WGSL language features include `readonly_and_readwrite_storage_textures`,
+`pointer_composite_access`, `unrestricted_pointer_parameters`, `packed_4x8_integer_dot_product`, `subgroup_id`,
+`immediate_address_space`, `buffer_view` and `fragment_depth`.
+
+| Limit | This machine | WebGPU default |
+| --- | --- | --- |
+| `maxBufferSize` | 4 GiB | 256 MiB |
+| `maxStorageBufferBindingSize` | 4 GiB | 128 MiB |
+| `maxUniformBufferBindingSize` | 65,536 | 65,536 |
+| `maxStorageBuffersPerShaderStage` (vertex and fragment stages included) | 10 | 8 |
+| `maxStorageTexturesPerShaderStage` | 8 | 4 |
+| `maxSampledTexturesPerShaderStage` | 48 | 16 |
+| `maxUniformBuffersPerShaderStage` | 12 | 12 |
+| `maxTextureDimension2D` | 16,384 | 8,192 |
+| `maxTextureDimension3D` | 2,048 | 2,048 |
+| `maxTextureArrayLayers` | 2,048 | 256 |
+| `maxColorAttachments` | 8 | 8 |
+| `maxColorAttachmentBytesPerSample` | 128 | 32 |
+| `maxBindGroups` | 4 | 4 |
+| `maxInterStageShaderVariables` | 28 | 16 |
+| `maxComputeInvocationsPerWorkgroup` | 1,024 | 256 |
+| `maxComputeWorkgroupsPerDimension` | 65,535 | 65,535 |
+| `minStorageBufferOffsetAlignment` | 256 | 256 |
+
+**The design may rely on** (all must be asked for when the device is created; the defaults are far lower):
+
+- compute passes, storage buffers in every stage (10), indirect draws with `indirect-first-instance`: the whole
+  GPU-driven path;
+- buffers and bindings up to 4 GiB, so the cluster, instance and material tables are single buffers;
+- `timestamp-query`: per-pass GPU time for the governor (quantised to 0.1 ms by Chrome's default);
+- `texture-compression-bc` and `texture-compression-astc`: both present, pick one for shared array textures;
+  2,048 array layers and 16,384-pixel atlases;
+- `texture-formats-tier1` and `tier2`: 8- and 16-bit storage textures, read-write for `r8unorm` and `r16float`,
+  which composing a distance-field clipmap in place needs; `float32-filterable`; `rg11b10ufloat-renderable`;
+- `primitive-index`: the triangle id in the fragment stage without a per-vertex id;
+- `shader-f16`, `subgroups`, `dual-source-blending`, `clip-distances`: optimisations, never preconditions.
+
+**Absent from the list above, and the design must not need them:** multi-draw indirect; the 64-bit atomic; mesh shaders; hardware ray tracing (proposals opened 2026-10, not
 shipped); bindless textures (a resource-table proposal is in progress); 64-bit atomics. The new
 `atomic-vec2u-min-max` feature gives a 64-bit atomic maximum in storage buffers, but Dawn enables it on Apple GPU
 families 8 and 9 only, "so not the M1" (section 10). Multi-draw indirect is flag-gated in Chrome and emulated on
@@ -117,7 +172,15 @@ Metal; one indirect draw of instanced clusters makes it unnecessary.
 
 **Sharing the device and targets with three.js r186**, without touching its source:
 
-PENDING_SHARED (the run is queued).
+- `new WebGPURenderer({ device })` took a `GPUDevice` we created (`renderer.backend.device` was that device).
+- A raw render pass wrote a texture that belongs to a three.js `RenderTarget` (found with
+  `renderer.initRenderTarget(target)` and `renderer.backend.get(target.texture).texture`, format `rgba8unorm`);
+  three.js then sampled it as a material map and read back exactly the colour written (64, 128, 191).
+- three.js rendered a plane into a target with a `DepthTexture` (`depth24plus`); a raw draw into the same colour
+  and depth textures was hidden where three.js had drawn nearer and visible elsewhere.
+
+`backend.get()` is an internal accessor, but it is one line, and the game already depends on it. With our frame as
+owner even that goes away: three.js is handed targets we created.
 
 ## 4. Virtualised geometry on WebGPU
 
@@ -133,7 +196,53 @@ PENDING_SHARED (the run is queued).
 | Shadows | The same cluster draw, depth only, per cascade, with its own cull | not measured |
 | Streaming | Cluster pages by content address, fetched by distance and error; the instance table is resident for the neighbourhood, the far field is a few merged proxies per parent cell (section 7) | design only |
 
-PENDING_RASTER (cull, indirect draw, visibility buffer and resolve timings: the run is queued).
+**Measured: cull, one indirect draw, visibility buffer** (1920 x 1080, `r32uint` and `depth32float`; clusters of
+128 triangles from a pool of 16,384 different ones, 46 MB of indices and positions in storage buffers; twice as many
+cluster records tested as drawn; clusters scattered at random depth):
+
+| Triangles drawn | Pixels per triangle | Depth complexity | Cull and raster, ms | Triangles per ms | Resolve pass, ms |
+| --- | --- | --- | --- | --- | --- |
+| 1 M | 2 | 1 | 0.66 | 1.5 M | 0.07 |
+| 2 M | 1 | 1 | 1.08 | 1.9 M | 0.09 |
+| 4 M | 0.5 | 1 | 1.64 | 2.4 M | 0.16 |
+| 8 M | 0.25 | 1 | 2.91 | 2.8 M | 0.33 |
+| 16 M | 0.25 | 2 | 7.20 | 2.2 M | 0.57 |
+| 32 M | 0.06 | 1 | 13.6 | 2.4 M | 1.01 |
+| 4 M | 2 | 4 | 2.59 | 1.5 M | 0.17 |
+| 1 M | 8 | 4 | 1.51 | 0.7 M | 0.16 |
+| 1 M | 16 | 8 | 1.72 | 0.6 M | 0.12 |
+
+Times are wall time per frame with frames submitted back to back (the pass's own GPU timestamps agree within
+15 %). The resolve pass here only reads the id, the cluster and the triangle's three positions and writes a normal:
+it shows that the fetches are cheap (0.1 to 0.3 ms at 1080p), not what materials will cost. The vertex stage is
+simpler than a real one (no instance transform), so expect somewhat fewer triangles per ms in the game.
+
+Culling alone at the size of a city: 4,000,000 cluster records of 32 bytes tested in one compute pass, 250,000
+kept and appended to the draw's arguments: 0.48 ms (0.36 ms on the GPU's own clock).
+
+What it settles:
+
+- **Small triangles are not a problem on this GPU.** Throughput per triangle is highest when triangles are smaller
+  than a pixel; nothing collapses down to a sixteenth of a pixel. A compute rasteriser is not needed on the M1 Max.
+- **The triangle budget is generous.** At one triangle per pixel, a 1440p view with a depth complexity of 1.5 after
+  occlusion culling is about 5.5 M triangles: 2 to 3 ms. Three shadow cascades of the same order fit as well.
+- **Fill costs more than vertices.** A million 16-pixel triangles at depth complexity 8 cost more than four
+  million sub-pixel ones. Occlusion culling of clusters against last frame's depth is worth its pass.
+
+**Measured: three.js r186 on the same device**, `render()` CPU time, static scene, matrices frozen:
+
+| Drawn through three.js | Objects | Draw calls three.js reports | `render()` CPU, ms (two runs) | Per object |
+| --- | --- | --- | --- | --- |
+| `Mesh`, one shared box geometry and one shared `MeshBasicNodeMaterial` | 2,000 | 2,000 | 4.6, 5.3 | 2.3 to 2.7 us |
+| the same | 10,000 | 10,000 | 24.9, 26.2 | 2.5 to 2.6 us |
+| one `BatchedMesh`, per-instance frustum culling | 20,000 | 20,000 | 6.0, 6.1 | 0.3 us |
+| one `BatchedMesh`, no per-instance culling | 20,000 | 20,000 | 2.2, 2.2 | 0.1 us |
+
+This is the cheapest case three.js has: the game's draws carry lit node materials, shadows, a
+velocity target and per-object updates, and its own records show draws taking 57 % of the main thread. Upstream
+figures agree (2.4 us per mesh at 4,000 meshes on r183; 20,000 cubes at about 15 FPS on an M1 Pro; section 10).
+`BatchedMesh` is ten to twenty times cheaper per instance but still linear in instances on the CPU, has no
+hierarchy of detail, and on WebGPU issues one draw per instance.
 
 **What open implementations show.**
 
@@ -163,7 +272,29 @@ PENDING_RASTER (cull, indirect draw, visibility buffer and resolve timings: the 
 | Radiance cache | World probes on a sparse grid for far and rough lighting, updated a few per frame | design only |
 | Sky and sun | Sky visibility from the same traces; sun from shadow maps as today | - |
 
-PENDING_FIELD (distance-field tracing timings: the run is queued).
+**Measured: tracing a distance-field clipmap in a compute pass** (4 levels of 128 x 128 x 128 `r16float`, 16 MiB,
+voxels of 0.2, 0.4, 0.8 and 1.6 m, 205 m across; a street grid of box buildings; one primary ray per pixel of up to
+64 steps, then diffuse rays of up to 32 steps and 60 m from each hit; 89 % of pixels hit a surface):
+
+| Size | Diffuse rays per hit | ms per frame | Field samples per pixel | Field samples per ms |
+| --- | --- | --- | --- | --- |
+| 960 x 540 | 0 | 0.55 | 17 | 16 M |
+| 960 x 540 | 1 | 1.67 | 29 | 9 M |
+| 960 x 540 | 4 | 6.35 | 65 | 5 M |
+| 960 x 540 | 16 | 25.2 | 210 | 4 M |
+| 1920 x 1080 | 0 | 1.54 | 17 | 23 M |
+| 1920 x 1080 | 1 | 7.34 | 29 | 8 M |
+| 1920 x 1080 | 4 | 30.9 | 65 | 4 M |
+
+Diffuse rays cost about 3.2 ms per million (0.3 M rays per ms), about twelve field samples each. What it settles:
+
+- **One diffuse ray per pixel at full resolution does not fit; a probe gather does.** Lumen's final gather places
+  a probe every 16 pixels with 64 rays, a quarter ray per pixel: at 1080p that is 0.5 M rays, about 1.7 ms. A
+  probe every 8 pixels is 2 M rays, about 7 ms: a tier for stronger hardware.
+- **The field itself is small**: 16 MiB for four levels at 16 bits, a quarter of that at 8 bits.
+- Not measured, and the larger part of the work: composing the clipmap from asset fields and the height raster as
+  the camera moves, lighting the surface cache, filtering the gather over time. The real field has more detail than
+  boxes, so rays take more steps.
 
 **What open implementations show.** No open project runs a complete Lumen-like pipeline in WebGPU, and none of the
 partial ones publishes a frame cost: probe GI traced through a BVH for three.js WebGPU (`speedball-gi`), radiance
@@ -196,7 +327,8 @@ instances of shared assets. That holds only while rule I1 holds: flattening the 
 multiplies the building share by about sixteen.
 
 Resident on the GPU on the M1 Max, as a planning budget: geometry pages 0.5 GB, textures 1 GB, surface cache
-0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. PENDING_LIMITS
+0.3 GB, distance fields 0.1 GB, targets at 1440p 0.3 GB. The adapter's limits (4 GiB per buffer, 16,384-pixel textures, 2,048
+array layers) are far above every item; how much memory Chrome's GPU process may take in total was not measured.
 
 ## 7. Decisions in today's formats and partition that could put 40 FPS out of reach
 
@@ -234,15 +366,22 @@ hardware. The mechanism exists today (`settingGovernor.ts`, `adaptiveResolution.
 
 | Parameter | What it scales | M1 Max (expected) | Stronger hardware |
 | --- | --- | --- | --- |
-| Error threshold in pixels | cluster LOD cut: triangles on screen | PENDING_TRIANGLES | towards 1 px |
+| Error threshold in pixels | cluster LOD cut: triangles on screen | 1 to 2 px: 4 to 8 M triangles in view, 2 to 3 ms | towards 1 px |
 | Render scale with temporal upsampling | every per-pixel cost | 0.7 to 1.0 of 1440p | native, then 4K |
 | Texture pixels per metre | procedural detail octaves, array-texture mip bias, resident texture memory | 256 px/m near | 512 px/m reference and above |
 | Foliage card prefix | leaf cards kept per tree (rule T2) | a share by distance | all |
 | Shadow reach and resolution | cascades, cluster shadow draws | 2 to 3 cascades | more, further |
-| Lighting tier | 0: sky and sun with ambient occlusion (today). 1: screen-space GI. 2: half-resolution probes traced in the global field with a surface cache. 3: more rays, mesh fields near, reflections | PENDING_GI | 3 |
+| Lighting tier | 0: sky and sun with ambient occlusion (today). 1: screen-space GI. 2: half-resolution probes traced in the global field with a surface cache. 3: more rays, mesh fields near, reflections | 2, a probe every 16 px | 3 |
 | Instance draw distance | by projected size, not by kind | from the governor | further |
 
 No description, kind or GLB names a tier; the tiers are rows of numbers in the client.
+
+A 25 ms frame on the M1 Max, as a plan built on the measurements (the starred items are not measured): cluster
+culling 0.5 ms; visibility buffer at 1440p 3 ms; shadow cascades by the same draw 3 to 5 ms*; material evaluation
+and direct light 3 to 5 ms* (the fetches alone are 0.3 ms); GI tier 2 about 5 ms* (1.7 ms of it is tracing); the
+post chain and three.js's own objects as today. That is about 20 ms, so the M1 Max holds 40 FPS with little to
+spare at these settings, and the governor has real parameters to trade. Nothing in the path grows with the size of
+the city, only with what is on screen.
 
 ## 9. Decisions that are expensive to reverse
 
