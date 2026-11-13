@@ -107,7 +107,12 @@ def _surfaces(box) -> list[tuple]:
                 rows.append((shapely.make_valid(row.geometry), name, f'osm:{row.osm_type}/{row.osm_id}'))
         # Small areas lie inside large ones (a flowerbed in a lawn): the small one wins.
         for order, (shape, name, key) in enumerate(sorted(rows, key=lambda item: item[0].area)):
-            found.append((shape, {'key': key, 'source': 'osm', 'level': 'high', 'use': name, 'surface': '', 'rank': 3 + order}))
+            # Open water is the bed under it: the skin drops below the water level there (the `water` kind draws the surface).
+            # It wins over every other mapped area (a riverside park is drawn across the river), not over the registers
+            # (a bridge deck stays a street).
+            wet = name == 'water'
+            found.append((shape, {'key': key, 'source': 'osm', 'level': 'bed' if wet else 'high', 'use': name,
+                                  'surface': '', 'rank': 2.5 if wet else 3 + order}))
     return found
 
 
