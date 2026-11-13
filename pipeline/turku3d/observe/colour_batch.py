@@ -39,7 +39,7 @@ CROPS = 6  # a building: its larger walls first (the segmenter's 0.5 s a crop is
 COLOUR_ZOOM = 3
 MIN_FOOTPRINT_M2 = 12.0
 CACHE_CAP = int(float(os.environ.get("COLOUR_CACHE_GIB", "3")) * 2 ** 30)  # panorama bytes kept between cells
-MAPS_WAIT_S = (120.0, 4.0)  # for a cell's label maps: this long, plus this long a crop
+MAPS_STALL_S = 900.0  # no new label map anywhere for this long: the segmenter is away
 PRUNED = (".jpg", ".heic", ".npy")
 
 
@@ -127,12 +127,17 @@ def cell_run(root: Path, cell, only: set | None, light: colour_light.Light, *, t
         records = list(pool.map(prepared, inside))
     viewed = time.time()
     crops = [root / "buildings" / key / Path(c["file"]).name for key, record, _ in records if record for c in record["crops"]]
-    limit = time.time() + MAPS_WAIT_S[0] + MAPS_WAIT_S[1] * len(crops)
+    # The segmenter works through the crops of every cell in hand: the wait ends in failure only when no label
+    # map has come for any of them for MAPS_STALL_S (the segmenter or its relay is away).
+    seen, moved = -1, time.time()
     while any(not p.with_suffix(f".{tag}.png").exists() for p in crops):
-        if time.time() > limit:
-            raise TimeoutError(f"cell {name_of(cell)}: label maps of {len(crops)} crops did not come in time: is "
-                               f"colour_segment.py --watch --tag {tag} running on {root / 'buildings'}?")
-        time.sleep(1.0)
+        maps = sum(1 for _ in (root / "buildings").glob(f"*/*.{tag}.png"))
+        if maps != seen:
+            seen, moved = maps, time.time()
+        elif time.time() - moved > MAPS_STALL_S:
+            raise TimeoutError(f"cell {name_of(cell)}: no label map came for {MAPS_STALL_S:.0f} s: is colour_segment.py "
+                               f"--watch --tag {tag} (or its --remote relay) running on {root / 'buildings'}?")
+        time.sleep(3.0)
     mapped = time.time()
     failed = [{"building": key, "error": error} for key, record, error in records if record is None]
 
@@ -186,6 +191,22 @@ def cells_first(bounds, firsts: list, size: float = CELL_M) -> list[tuple[float,
     return found
 
 
+def with_buildings(size: float = CELL_M) -> dict:
+    """{cell corner: buildings OpenStreetMap maps there} for the city's extract: the cells worth loading (LoD2 is
+    read per cell; a cell of field, forest or water costs a scene load for nothing)."""
+    import pyarrow.parquet as pq
+
+    from turku3d.world.sources import Sources
+
+    table = pq.read_table(Sources(log=lambda *_: None).osm.path(), columns=["building", "e0", "n0"]).to_pandas()
+    table = table[table["building"].notna()]
+    found: dict = {}
+    for e, n in zip(table["e0"], table["n0"], strict=True):
+        key = (float(np.floor(e / size) * size), float(np.floor(n / size) * size))
+        found[key] = found.get(key, 0) + 1
+    return found
+
+
 def read_positions(store: Path) -> dict:
     """{building key: (E, N)} of the buildings a vision reading described (the ground truth to check against):
     the middle of their wall frames."""
@@ -211,24 +232,45 @@ def own_cache(root: Path) -> None:
         os.environ.setdefault("TURKUTEX_DEPTH", "0")  # colour needs no depth maps
 
 
-def run(root: Path, work: dict, *, tag: str = colour_parts.TAG, jobs: int = 4, keep: bool = False, limit: int | None = None) -> dict:
-    """`work`: {cell corner: None for every building of the cell, or the set of building keys wanted}, in order."""
+def run(root: Path, work: dict, *, tag: str = colour_parts.TAG, jobs: int = 4, keep: bool = False, limit: int | None = None,
+        cell_workers: int = 2) -> dict:
+    """`work`: {cell corner: None for every building of the cell, or the set of building keys wanted}, in order.
+
+    `cell_workers` cells are worked on at once, so the segmenter has crops of one cell while the views of the next
+    are fetched. A cell that fails (its label maps did not come: the segmenter is away) stops the run after the
+    cells in hand, with exit status 1: started again (by hand or by systemd) it goes on where it stopped."""
     own_cache(root)
+    import threading
+
     from turkutex.streetview.panos import PanoCache
 
     light = colour_light.Light(root / "batch/light.jsonl", PanoCache())
-    done = buildings = 0
-    for cell, only in work.items():
-        if (root / "batch/stop").exists() or (limit is not None and done >= limit):
-            break
-        if (root / "batch/done" / f"{name_of(cell)}.json").exists():
-            continue
-        line = cell_run(root, cell, only, light, tag=tag, jobs=jobs, keep=keep)
-        done += 1
-        buildings += line["measured"]
+    todo = [cell for cell in work if not (root / "batch/done" / f"{name_of(cell)}.json").exists()]
+    if limit is not None:
+        todo = todo[:limit]
+    state = {"done": 0, "buildings": 0, "failed": None}
+    guard = threading.Lock()
+
+    def one(cell):
+        if state["failed"] or (root / "batch/stop").exists():
+            return
+        try:
+            line = cell_run(root, cell, work[cell], light, tag=tag, jobs=jobs, keep=keep)
+        except Exception as error:  # noqa: BLE001 - recorded, and the run ends after the cells in hand
+            with guard:
+                state["failed"] = f"{name_of(cell)}: {type(error).__name__}: {error}"[:300]
+            print(json.dumps({"cell": name_of(cell), "error": state["failed"]}), flush=True)
+            return
+        with guard:
+            state["done"] += 1
+            state["buildings"] += line["measured"]
         print(json.dumps(line), flush=True)
+
+    with ThreadPoolExecutor(max_workers=max(1, cell_workers)) as pool:
+        list(pool.map(one, todo))
     left = sum(not (root / "batch/done" / f"{name_of(cell)}.json").exists() for cell in work)
-    return {"cells_done_now": done, "buildings_now": buildings, "cells_left": left, "cells": len(work)}
+    return {"cells_done_now": state["done"], "buildings_now": state["buildings"], "cells_left": left, "cells": len(work),
+            "failed": state["failed"]}
 
 
 def results(root: Path) -> list[dict]:

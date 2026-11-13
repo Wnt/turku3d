@@ -382,11 +382,14 @@ def main(argv=None) -> int:
     ap.add_argument("--read-buildings", action="store_true",
                     help="colour --batch: the buildings a vision reading described (to check against)")
     ap.add_argument("--cells", type=int, default=None, help="colour --batch: stop after this many cells")
+    ap.add_argument("--cell-workers", type=int, default=2, help="colour --batch: cells worked on at once")
     ap.add_argument("--progress", action="store_true", help="colour: counts and throughput of the batch under --out")
     ap.add_argument("--apply-batch", action="store_true",
                     help="colour: the batch results under --out as measured.wall lines (--lines FILE); stored for "
                          "buildings nobody read unless --no-store")
     ap.add_argument("--lines", type=Path, help="colour --apply-batch: where the measured lines go")
+    ap.add_argument("--store-lines", type=Path, metavar="FILE",
+                    help="colour: store the measured.wall of lines made by --apply-batch --no-store on another machine")
     ap.add_argument("--paint", default="white", choices=["white", "pixel"],
                     help="colour --apply-batch: paint colour by the visit's white point, or the pixel colour")
     ap.add_argument("--white-l", type=float, default=None, help="colour --apply-batch: lightness white paint is brought to")
@@ -429,8 +432,13 @@ def main(argv=None) -> int:
                         if line.get("measured")}
         print(json.dumps(against.run(a.out, measured=measured), ensure_ascii=False), flush=True)
         return 0
-    if a.command == "colour" and (a.batch or a.progress or a.apply_batch):
+    if a.command == "colour" and (a.batch or a.progress or a.apply_batch or a.store_lines):
         from . import colour_batch, colour_parts
+
+        if a.store_lines:
+            print(json.dumps(colour_batch.store([json.loads(line) for line in a.store_lines.read_text().splitlines()
+                                                 if line.startswith("{")])), flush=True)
+            return 0
 
         if a.progress:
             print(json.dumps(colour_batch.progress(root)), flush=True)
@@ -465,9 +473,14 @@ def main(argv=None) -> int:
                 bounds = (e - a.radius, n - a.radius, e + a.radius, n + a.radius)
             else:
                 sys.exit("colour --batch: give --read-buildings, --building with --near, --at E,N --radius R or --bounds")
-            work = {cell: None for cell in colour_batch.cells_first(bounds, firsts or ([tuple(float(v) for v in a.at.split(","))] if a.at else []))}
-        print(json.dumps(colour_batch.run(root, work, tag=a.parts or colour_parts.TAG, jobs=a.prepare_jobs, limit=a.cells)), flush=True)
-        return 0
+            ordered = colour_batch.cells_first(bounds, firsts or ([tuple(float(v) for v in a.at.split(","))] if a.at else []))
+            mapped = colour_batch.with_buildings()
+            work = {cell: None for cell in ordered if mapped.get(cell)}
+            print(json.dumps({"cells": len(work), "of": len(ordered), "osm_buildings": sum(mapped.get(c, 0) for c in work)}), flush=True)
+        report = colour_batch.run(root, work, tag=a.parts or colour_parts.TAG, jobs=a.prepare_jobs, limit=a.cells,
+                                  cell_workers=a.cell_workers)
+        print(json.dumps(report), flush=True)
+        return 1 if report["failed"] else 0
     if a.command == "colour" and a.light:
         from . import colour_light
 

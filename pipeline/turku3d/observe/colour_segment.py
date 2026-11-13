@@ -191,7 +191,7 @@ def main(argv=None) -> int:
                 if a.force or not path.with_suffix(f".{a.tag}.png").exists():
                     yield path
 
-    idle_since = time.time()
+    idle_since = pushed_at = time.time()
     stop = False
     while True:
         worked = False
@@ -220,6 +220,12 @@ def main(argv=None) -> int:
             seconds.append(time.time() - t)
             done += 1
             worked = True
+            if relay is not None and time.time() - pushed_at > 20.0:  # a batch waits for a whole cell's maps
+                try:
+                    relay.push()
+                except (subprocess.SubprocessError, OSError) as error:
+                    print(f"relay: push failed: {error}", flush=True)
+                pushed_at = time.time()
         if relay is not None:
             try:
                 relay.push()
