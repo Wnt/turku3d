@@ -53,4 +53,7 @@ def features(box):
     parts = [frame for frame in parts if len(frame)]
     if not parts:
         return None
-    return pd.concat(parts, ignore_index=True).drop_duplicates(['osm_type', 'osm_id']).reset_index(drop=True)
+    # A closed way is two rows of a clip, its line and its area: each object once per geometry type, or a stitched box
+    # keeps a building's or park's outline line and loses its area.
+    merged = pd.concat(parts, ignore_index=True)
+    return merged.loc[~merged.assign(_kind=merged.geom_type).duplicated(['osm_type', 'osm_id', '_kind'])].reset_index(drop=True)

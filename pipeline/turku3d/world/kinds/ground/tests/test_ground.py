@@ -183,3 +183,32 @@ def test_a_deck_is_a_second_sheet_over_the_water():
     assert panels.collision and panels.behaviour == 'fixed'
     assert set(np.round(panels.transforms[:, 0]).astype(int)) <= {26, 37}                              # the two sides
     assert panels.transforms[:, 2].min() > 19 and panels.transforms[:, 2].max() < 45                   # only over the water
+
+
+def test_a_box_across_two_clips_keeps_each_closed_way_as_line_and_area_and_paves_a_building_passage(monkeypatch):
+    import geopandas as gpd
+    import shapely
+
+    from turku3d.world.kinds import ground
+    from turku3d.world.street import osm
+
+    house = shapely.Polygon([(0, 0), (20, 0), (20, 12), (0, 12)])
+    rows = [
+        {'osm_type': 'way', 'osm_id': 1, 'building': 'apartments', 'highway': None, 'layer': None, 'tags': '{"building": "apartments"}',
+         'geometry': shapely.LineString(house.exterior.coords)},
+        {'osm_type': 'way', 'osm_id': 1, 'building': 'apartments', 'highway': None, 'layer': None, 'tags': '{"building": "apartments"}',
+         'geometry': shapely.MultiPolygon([house])},
+        {'osm_type': 'way', 'osm_id': 2, 'building': None, 'highway': 'service', 'layer': None,
+         'tags': '{"highway": "service", "tunnel": "building_passage", "surface": "asphalt"}',
+         'geometry': shapely.LineString([(10, -5), (10, 17)])},
+    ]
+    clip = gpd.GeoDataFrame(rows, geometry='geometry')
+    # The house lies in both clips (a 2 km clip's edge runs through the box): each clip carries all three rows.
+    monkeypatch.setattr(osm, '_clips', lambda: (((-100, -100, 5, 100), 'a'), ((5, -100, 100, 100), 'b')))
+    monkeypatch.setattr(osm, '_read', lambda path: clip)
+    mapped = osm.features((-10, -10, 30, 30))
+    assert sorted(mapped.geom_type) == ['LineString', 'LineString', 'MultiPolygon']
+    floors = ground._passage_floors(mapped)
+    assert [row['key'] for _, row in floors] == ['osm:way/2:passage']
+    shape, row = floors[0]
+    assert row['use'] == 'asphalt-yard' and abs(shape.area - 3.5 * 12) < 0.5
