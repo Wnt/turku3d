@@ -1,14 +1,15 @@
 # Street objects: descriptions and assets
 
 The fixed objects of the street in the world pipeline (`docs/design/world-pipeline.md`): sign posts, street lamps,
-fences, gate posts and railings today; traffic lights, other poles and furniture follow in the same shape. Code:
-`pipeline/turku3d/world/kinds/{signpost,lamp,fence}.py` with shared readers and geometry in
-`pipeline/turku3d/world/objects/`.
+overhead wires with their hung lamps, fences, gate posts, railings and street furniture today; traffic lights and
+other poles follow in the same shape. Code: `pipeline/turku3d/world/kinds/{signpost,lamp,wire,fence,furniture}.py`
+with shared readers and geometry in `pipeline/turku3d/world/objects/`.
 
 ## Rules common to every kind
 
-- **One entity per real object** (`signpost/s<register id>`, `lamp/<register id>`, `fence/r<E dm>_<N dm>_<length dm>`,
-  `fence/g<E dm>_<N dm>`). `at` is the base point `[E, N, H]` (EPSG:3877, N2000) and the entity origin.
+- **One entity per real object** (`signpost/s<register id>`, `lamp/<register id>`, `wire/w<E dm>_<N dm>_<length dm>`,
+  `fence/r<E dm>_<N dm>_<length dm>`, `fence/g<E dm>_<N dm>`, `furniture/<layer><register id>`). A register that
+  repeats a row gives one entity. `at` is the base point `[E, N, H]` (EPSG:3877, N2000) and the entity origin.
 - **Stored over automatic:** every top-level field of a stored description replaces the automatic one whole
   (`objects/common.py: describe`). A stored `{"plates": [...]}` replaces all plates; a stored `{"height": 1.1}` only
   the height. `tier` and `provenance` come from the envelope.
@@ -46,12 +47,32 @@ aluminium slab. A code with no drawing gets the generic face of its class (trian
 | Field | Meaning |
 | --- | --- |
 | `at` | base of the pole |
-| `family` | `street-arm`, `street-top`, `park`, `wire-hung` |
-| `height` | metres to the luminaire |
+| `family` | `street-arm`, `street-top`, `park`, `span-pole` (a plain pole a span wire ends at) |
+| `height` | metres to the luminaire (to the wire for a span pole) |
 | `arm` | `{bearing, reach}` for `street-arm` |
-| `span` | for `wire-hung`: `{ends: [[E, N, H], [E, N, H]], sag}`; `at` is then the point under the luminaire |
 | `finish` | `galvanised` or `black` |
 | `basis`, `guessed`, `measured.lidar`, `register` | as above |
+
+A measured top above 13 m is a tree or a facade at the register point, not the lamp: such a pole falls back to
+the street rule (9 m arm lamp within 9 m of a carriageway, else a 4.5 m park lantern) and says so in `guessed`.
+
+## `turku-description/wire/1`
+
+One entity per overhead wire the survey lidar shows (`objects/wires.py`, the old generator's stage: wire returns in
+free air, straight in plan and a parabola in profile, ends reached to a facade, a pole or another wire).
+
+| Field | Meaning |
+| --- | --- |
+| `at`, `a` | first end `[E, N, H]`, the entity origin (a wire is not a ground object) |
+| `b` | second end |
+| `sag` | metres the wire hangs below its chord at mid span |
+| `type` | `span` (lighting span between facades or carrying lamps), `utility`, `power` |
+| `ends` | what each end hangs from: `facade`, `pole`, `knot`, `free` |
+| `lamps` | hung luminaires: `{at: [E, N, H] on the wire, basis, guessed?}`; rows `<entity>#lamp<k>` of one shared asset |
+| `measured.lidar` | `{length, extended}`; `extended` when the wire was carried on to a guessed lamp |
+
+A lighting span on which the scan shows no lamp gets one over each carriageway centreline it crosses, at least
+7 m over the ground and 4 m from any other lamp (`guessed: true`): the old generator's rule.
 
 ## `turku-description/fence/1`
 
@@ -59,15 +80,32 @@ aluminium slab. A code with no drawing gets the generic face of its class (trian
 | --- | --- |
 | `at` | first joint of the run |
 | `type` | register class: `wood-fence`, `stone-fence`, `railing`, `gate-post` |
-| `family` | `board`, `picket`, `stone-wall`, `railing`, `gate-post` (`mesh`, `wrought-iron` and `gateway` are planned) |
+| `family` | `board`, `picket`, `iron` (open bar fence), `stone-wall`, `railing`, `gate-post` (`mesh` and `gateway` are planned) |
 | `height` | metres above the ground at the joints |
 | `line` | joints `[[E, N, H], ...]`: one panel between each pair, one post per joint |
-| `colour` | `#rrggbb` of the paint (a guess from the lidar colours unless observed) |
+| `colour` | `#rrggbb` of the paint, from a small palette: cream unless the scan's colours are clearly warm (a guess until observed) |
 | `break` | `panel` |
-| `measured.lidar` | `{coverage, steps, height_p60, rgb}`: the share of 1 m steps along the line with returns between 0.25 and 3.5 m, and their height |
+| `measured.lidar` | `{coverage, steps, height_p60, rgb, returns_per_m}`: the share of 1 m steps along the line with returns between 0.25 and 3.5 m, their height, and the returns per metre of fence |
+
+Boards return the scan all along (20 to 35 returns per metre); a wood-class register fence with under 4 is open
+bars (`iron`), and its height is read from the returns under 1.6 m only, because what stands higher over such a
+line is the planting behind it.
 
 A register line that the lidar does not confirm (coverage under the family's threshold) and that was surveyed
 before the scan is left out: an object in the wrong place is worse than a missing one.
+
+## `turku-description/furniture/1`
+
+| Field | Meaning |
+| --- | --- |
+| `at` | base point |
+| `model` | `bench`, `bin`, `waste-container`, `ashtray`, `table`, `info-board`, `info-pylon`, `guide-post`, `path-sign`, `lifebuoy`, `dispenser`, `charger`, `planter`, `bollard`, `bike-rack`, `bike-station`, `ticket-machine` |
+| `variant` | bin paint (`green`, `black`, empty: steel) or the number of stands of a rack (two bikes per stand) |
+| `bearing` | where the front looks (a rack's row runs a quarter turn from it); a rule, listed in `guessed` |
+| `register` | the row's layer, type, species, model, maker, places |
+
+The register labels are read as the old game read them (`furniture.LABELS`); wall ash trays, rescue ladders,
+toilets, shelters and play equipment are not drawn. A city-bike station is drawn as its rack only.
 
 ## Sources and what each is good for
 
