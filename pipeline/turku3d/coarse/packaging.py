@@ -95,6 +95,7 @@ PRODUCERS = (
     "extrusion",
     "roofs",
     "register",
+    "measured_walls",
     "stored_facades",
     "slope_buildings",
     "funicular",

@@ -5,7 +5,7 @@ Each entry runs at the end of every generator build and over existing farm produ
 from . import (bridge_ends, chain_record, finished_ground, floodlights, furniture, landmark_windows,
                monolith_walls, path_trees, racks, roadbed, shell_look, signals, signs, span_lamps,
                square_lights, stand_roofs, structure_materials, trees_lidar, wires, facade_reality,
-               forest_cover, centred_paint, pole_support)
+               forest_cover, centred_paint, pole_support, measured_walls)
 
 CHAIN = (
     chain_record.MIGRATION,
@@ -47,4 +47,6 @@ CHAIN = (
     centred_paint.MIGRATION,
     # Final sign bases must follow the ground after every preceding terrain edit.
     pole_support.MIGRATION,
+    # Spot rebuild of the tiles holding a building with a measured wall colour (farm source overlay).
+    measured_walls.MIGRATION,
 )

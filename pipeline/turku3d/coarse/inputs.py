@@ -480,7 +480,7 @@ def _save(path: Path, key: str, value) -> None:
 
 def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[str, list | None]:
     """Raw files per prepared dataset (None for an empty WFS layer); None while not on disk."""
-    from . import bridge_survey, street_survey, piers
+    from . import bridge_survey, measured_walls, street_survey, piers
     from .harbour import source_paths as harbour_sources
 
     laz, missing = sources.lidar_paths(tile)
@@ -552,9 +552,12 @@ def _sources(tile: C.VisualTile, sources: Sources, *, first_pass=False) -> dict[
             ],
         ],
         "register": [
-            p
-            for name in ("kanta:Rakennus", "GIS:Rakennukset")
-            if (p := sources.wfs_source(name, tile)[1])
+            *(
+                p
+                for name in ("kanta:Rakennus", "GIS:Rakennukset")
+                if (p := sources.wfs_source(name, tile)[1])
+            ),
+            *measured_walls.source_paths(),
         ],
         "playgrounds": [] if first_pass else playground_sources(),
         # Physical terrain: both passes use the same finished ground.

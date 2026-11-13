@@ -54,9 +54,12 @@ def attributes(row):
 def read_register(paths):
     import pyarrow.parquet as pq
 
+    from .measured_walls import read as read_measured_walls
+
     result = {}
+    tables = [p for p in paths if p.suffix == ".parquet"]
     # Kanta facade material takes precedence; GIS contributes missing year/levels.
-    for path in sorted(paths, key=lambda p: p.name):
+    for path in sorted(tables, key=lambda p: p.name):
         names = pq.read_schema(path).names
         columns = [
             k
@@ -78,6 +81,11 @@ def read_register(paths):
             result.setdefault(str(key), {}).update(
                 {k: v for k, v in attributes(row).items() if v is not None and v != "unknown"}
             )
+    # The city-wide measured wall colours join the register rows of this tile's buildings.
+    for path in (p for p in paths if p.suffix == ".json"):
+        for key, colour in read_measured_walls(path).items():
+            if key in result:
+                result[key]["measured_wall_colour"] = colour
     return result
 
 
@@ -325,6 +333,11 @@ def enrich(building, registered, osm):
             }
         )
     d.update(registered.get(building.facade_key, {}))
+    # A measured paint fills the palette fallback; a mapped OSM colour keeps priority.
+    measured = d.pop("measured_wall_colour", None)
+    if measured and not d.get("wall_colour"):
+        d["wall_colour"] = measured
+        d["wall_colour_source"] = "measured"
     if any(footprint.distance(point) <= 1 for point in osm.get("shops", [])):
         d["ground_floor"] = "shops"
     for point, evidence in osm.get("entrances", []):

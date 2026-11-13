@@ -434,7 +434,12 @@ def resolve(building, vertices, eaves, *, layout_height=None):
                 {**attrs, "material_class": material}, attrs["frontage_m"],
                 building.top - building.base,
             )["wall_colour"]
-        wall["wall"]["colour"].update(value=palettes[material], source="material palette")
+        wall["wall"]["colour"].update(
+            value=palettes[material],
+            source="measured wall colour"
+            if attrs.get("wall_colour_source") == "measured"
+            else "material palette",
+        )
         wall["base"]["colour"] = dict(wall["wall"]["colour"])
     from turku3d.facade_assets import description_row
 
