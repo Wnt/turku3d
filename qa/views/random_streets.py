@@ -14,8 +14,9 @@ the municipality, weighted by length) from a recorded seed, and taken in that or
   (street_refs.street_view), looking the way in which the target lies ahead;
 - with --published URL, that city has published the visual tiles under the target and under both cameras (the frozen
   city serves a fixed set of tiles and builds none on demand).
-With --focus TYPE=N the type rule is replaced: the first count-N points are taken as they come (plain random along
-the streets), and the last N only from area type TYPE (the type that scores lowest). Each point records its `draw`.
+With --focus TYPE=N[,TYPE=N] the type rule is replaced: the first points are taken as they come (plain random along
+the streets), and the last ones only from the named area types, N of each (the types that score lowest). Each point
+records its `draw`: `random` or the type whose share it fills.
 A point whose render in the frozen city turns out unusable is listed with --reject INDEX=REASON (kept in the set's
 draw.json), and the same command then replaces it with the next candidates of the same sequence.
 
@@ -151,7 +152,7 @@ def main():
     ap.add_argument("--min-date", default="2024")
     ap.add_argument("--published", help="base URL of a city that must have published the tiles under the target and the camera")
     ap.add_argument("--max-candidates", type=int, default=20000)
-    ap.add_argument("--focus", help="TYPE=N: N of the points come only from area type TYPE, the others without any type rule")
+    ap.add_argument("--focus", help="TYPE=N[,TYPE=N]: N of the points come only from area type TYPE, the others without any type rule")
     a = ap.parse_args()
     out = a.out.expanduser().resolve()
     cache_dir = out / "cache"
@@ -181,10 +182,10 @@ def main():
     rng = random.Random(a.seed)
     panos, refreshed = PanoCache(), set()
     cap = a.count // 2
-    focus_type, _, focus_n = (a.focus or "").partition("=")
-    if a.focus and (focus_type not in TYPES or not 0 < int(focus_n) <= a.count):
-        sys.exit("--focus takes TYPE=N with a known area type")
-    free = a.count - int(focus_n or 0)  # points taken as they come before the focus type's share
+    focus = {t: int(n) for t, _, n in (part.partition("=") for part in (a.focus or "").split(",") if part)}
+    if a.focus and (not focus or any(t not in TYPES or n <= 0 for t, n in focus.items()) or sum(focus.values()) > a.count):
+        sys.exit("--focus takes TYPE=N[,TYPE=N] with known area types")
+    free = a.count - sum(focus.values())  # points taken as they come before the focus types' shares
     points, counts, tally = [], dict.fromkeys(TYPES, 0), {}
 
     def no(why):
@@ -236,10 +237,10 @@ def main():
             continue
         kind = c["type"]
         missing = [t for t in TYPES if counts[t] == 0]
-        draw = "random" if not a.focus or len(points) < free else focus_type
+        draw = "random" if not a.focus or len(points) < free else kind
         if a.focus:
-            if draw != "random" and kind != focus_type:
-                no(f"focus share takes only {focus_type}")
+            if draw != "random" and sum(p["draw"] == kind for p in points) >= focus.get(kind, 0):
+                no(f"focus share takes only {', '.join(t for t, n in focus.items() if sum(p['draw'] == t for p in points) < n)}")
                 continue
         elif counts[kind] >= cap:
             no(f"type cap: {kind}")
