@@ -116,12 +116,17 @@ async function main() {
     // One call first copies the checkout and the data, so the parallel calls after it find nothing left to copy.
     if (buildHost !== 'local') await run('scripts/dev/on-host', [buildHost, ...data, '--', 'python', '-c', 'pass'], path.join(out, `logs/prime-${buildHost}.log`), { fresh: true });
     const queue = [...rows];
-    await Promise.all(Array.from({ length: Math.max(1, Number(opt('--jobs', 1))) }, async () => {
+    await Promise.all(Array.from({ length: Math.max(1, Number(opt('--jobs', 1))) }, async (_, worker) => {
+      // A dozen ssh connections opened in one instant are partly refused by the host: start the workers apart.
+      await new Promise(r => setTimeout(r, worker * 4000));
       for (let row = queue.shift(); row; row = queue.shift()) {
         const { query, area } = row;
         const build = ['python', '-m', 'turku3d.world', 'build', '--at', `${query.e},${query.n}`, '--radius', String(query.radius), '--background', String(background), '--name', area];
-        const done = buildHost === 'local' ? await run('bash', ['pipeline/env/run.sh', ...build], buildLog(area), { fresh: true })
-          : await run('scripts/dev/on-host', [buildHost, ...data, '--', ...build], buildLog(area), { fresh: true });
+        const once = () => buildHost === 'local' ? run('bash', ['pipeline/env/run.sh', ...build], buildLog(area), { fresh: true })
+          : run('scripts/dev/on-host', [buildHost, ...data, '--', ...build], buildLog(area), { fresh: true });
+        let done = await once();
+        // A call that fails at once did not reach the build (a refused connection): one more try.
+        if (done.code && done.seconds < 20) { await new Promise(r => setTimeout(r, 5000)); done = await once(); }
         row.build = buildOf(buildLog(area), done.seconds, done.code);
         console.error(`[world-set] built ${area} on ${buildHost}: exit ${done.code}, ${done.seconds} s`);
       }
