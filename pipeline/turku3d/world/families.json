@@ -41,8 +41,8 @@
     "road_paint": { "owner": "w2-street", "params": { "colour": "colour", "wear": "number" } },
     "ground_far": { "owner": "w2-street", "params": {} },
 
-    "foliage": { "owner": "w2-green", "params": null },
-    "bark": { "owner": "w2-green", "params": null },
-    "hedge": { "owner": "w2-green", "params": null }
+    "foliage": { "owner": "w2-green", "params": { "atlas": ["nature"], "cell": "id" } },
+    "bark": { "owner": "w2-green", "params": { "atlas": ["nature"], "slot": "id" } },
+    "hedge": { "owner": "w2-green", "params": {} }
   }
 }

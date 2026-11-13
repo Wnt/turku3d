@@ -28,7 +28,9 @@ import './families/building';
 /** The store root as the dev server and a static host serve it. */
 const STORE = 'world/';
 /** Renderer layers by kind: which batching, shadow and reflection rules apply (world/staticBatch.ts, shadowBatch.ts). */
-const LAYERS: Record<string, string> = { ground: 'ground', building: 'buildings' };
+// Trees and planting are vegetation: millions of instanced leaf-card triangles that must not be copied into an
+// entity's merged shadow batch (world/shadowBatch.ts skips the layer); they cast their own shadows instead.
+const LAYERS: Record<string, string> = { ground: 'ground', building: 'buildings', trees: 'vegetation', planting: 'vegetation' };
 const GROUND_BINS = 5;
 const LOADS = 8;
 /** The side of the square whose entities are prepared as one model, in metres. */
@@ -193,6 +195,7 @@ export class LocationWorld implements WorldSurface {
     root.updateMatrixWorld(true);
     await host.style?.(root);
     await host.prepareGraphics?.(root);
+    if (root.userData.layer === 'vegetation') root.traverse(node => { if ((node as THREE.Mesh).isMesh) node.castShadow = true; });
     this.group.add(root);
     host.trackModel?.(root, root.name);
     this.chunks.set(id, { id, root, members });

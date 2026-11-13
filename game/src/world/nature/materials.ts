@@ -156,6 +156,9 @@ export class NatureMaterials {
   readonly leafTone = uniform(new THREE.Vector4(1.09, 1, 0.82, 1.25)).setGroup(renderGroup);
   readonly bark: THREE.MeshStandardNodeMaterial;
   readonly leaves: THREE.MeshStandardNodeMaterial;
+  /** `leaves` for trees placed without a per-instance tint (the world pipeline's generated trees): the same leaf,
+   *  crown light, wind and sun through the outer leaves, without the measured openness an instance tint carries. */
+  readonly standingLeaves: THREE.MeshStandardNodeMaterial;
   /** The leaves of the trees' shadow proxies: `leaves` whose sun shadow opens at the crown gaps (CROWN_GAPS). */
   readonly crownShadow: THREE.MeshStandardNodeMaterial;
   readonly grass: THREE.MeshStandardNodeMaterial;
@@ -282,6 +285,9 @@ export class NatureMaterials {
       this.crownShadow.maskShadowNode = noise.greaterThanEqual(share.mul(c3).add(c2).mul(share).add(c1).mul(share).add(c0));
     }
     this.bases.set(this.crownShadow, this.leaves);
+    this.standingLeaves = cloneNodeMaterial(this.leaves);
+    this.standingLeaves.name = 'nature-leaves@standing';
+    this.standingLeaves.colorNode = vec4(leafRgb, leafAlpha);
 
     // Hemi-octahedral impostors (nature/impostor.ts): one camera-facing quad per tree blending the three baked views
     // nearest the view direction, each reprojected with its depth.
@@ -384,6 +390,6 @@ export class NatureMaterials {
   dispose() {
     for (const list of this.variants.values()) for (const m of list) m?.dispose();
     this.variants.clear();
-    for (const m of [this.bark, this.leaves, this.crownShadow, this.grass, this.grassBlade, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
+    for (const m of [this.bark, this.leaves, this.crownShadow, this.standingLeaves, this.grass, this.grassBlade, this.impostor, this.wood, this.metal, this.granite, this.chain]) m.dispose();
   }
 }

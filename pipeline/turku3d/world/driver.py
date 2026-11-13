@@ -173,10 +173,14 @@ def manifest_row(record: dict, role: str) -> dict:
     """What the client needs of one record: the level of detail chosen for its role, and its instances."""
     lods = record["output"]["lods"]
     want = 1 if role == "background" else 0
-    mesh = next((entry for entry in lods if entry["lod"] == want), lods[0] if lods else None)
+    mesh = next((entry for entry in lods if entry["lod"] == want), None)
     instances = record["output"]["instances"]
     levels = {row["lod"] for row in instances}
-    level = want if want in levels else min(levels, default=0)
+    level = want
+    if mesh is None and want not in levels:
+        # Nothing was made for this level: the entity draws its only one. A kind that made the level as a mesh, as
+        # instances or as both gets exactly that (trees: instance rows near, one merged mesh per cell far).
+        mesh, level = (lods[0] if lods else None), min(levels, default=0)
     row = {"id": record["id"], "kind": record["kind"], "tier": record["description"]["tier"], "role": role,
            "hash": record["hash"], "origin": record["origin"], "bounds": record["bounds"]}
     if mesh:

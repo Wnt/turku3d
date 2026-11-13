@@ -62,6 +62,7 @@ import { OWN_VEHICLE_ID } from './gameplay/missions/missions';
 import { CollisionStreamer, STARTUP_COLLISION_RADIUS } from './world/collisionStreaming';
 import { PreparedWorld, type PreparedWorldHost } from './world/preparedWorld';
 import { LocationWorld } from './world/location/locationWorld';
+import { registerGreenFamilies } from './world/location/families/green';
 import { watchLocation, type WorldDev } from './dev/worldDev';
 import type { CoarseHost } from './world/coarseContracts';
 import { memoryCensus } from './world/memoryCensus';
@@ -742,6 +743,7 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
   if (params.world) {
     // The location loader of the world pipeline stands where the prepared scene does until it replaces it: it
     // offers the same surface except the prepared scene's appearance patches (world/location/locationWorld.ts).
+    if (natureLibrary) registerGreenFamilies((await natureLibrary).materials);
     const location = await LocationWorld.start(host, params.world);
     window.__dev!.world = watchLocation(location);
     coarse = location as unknown as PreparedWorld;

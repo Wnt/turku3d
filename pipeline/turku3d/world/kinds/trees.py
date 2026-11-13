@@ -1,149 +1,281 @@
-"""Stand-in tree kind of the walking skeleton: the city's tree registers per 62.5 m cell, as instanced stand-in trees.
+"""Trees: every tree of a 62.5 m cell at its measured place and size, each its own instance.
 
-`w2-street` replaces this module (species models, lidar heights and crowns, trees outside the registers).
+discover  the cell's census (turku3d.world.green: lidar crowns joined with the tree register, the base map and
+          OSM; private gardens included), cached in the shared source cache.
+describe  per tree: the family (from the register species, else OSM, else the lidar's evergreen cue and the
+          crown's proportions), growth since the scan, an age class and a seed. These are the tree's generating
+          parameters; nothing else decides its geometry.
+compile   one instance row per tree of a procedural model grown to the measured height, crown width and crown
+          base (turku3d.world.green.treegen). Trees of nearly the same proportions share a model (their measured
+          size is the instance scale), so a street of limes is a handful of meshes and no two neighbours match.
+
+Description `turku-description/trees/1`:
+
+    cell     [i, j]
+    scan     {"date": "2021-04", "growthYears": 5}
+    trees    [{id, e, n, ground, source, family, age, seed, height, crown: {major, minor, angle, base},
+               measured: {the census row}, species?}]
+    absent   register trees the lidar does not show and no rule builds: [{e, n, layer, key, ...}]
+    cleared  ids of trees left out because they stand within 3 m of a reference camera (see CAMERA_CLEARANCE)
+
+A stored description overrides the automatic one per tree: `{"trees": {"<id>": {"family": "lime", "height": 14,
+"crown": {...}, "remove": true}}, "add": [{...a full tree row...}]}`. Observation writes there what panoramas show
+(a felled tree, a species, a tree planted after the scan).
+
+A tree is hit by cars in the game: behaviour `fixed`, collision = its trunk as a cylinder, pivot at the trunk base.
 """
 
 from __future__ import annotations
 
 import json
+import math
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
-from ..api import Area, Instances, Material, Output, Part, Stub, envelope
+from ..api import Area, Instances, Output, Stub, envelope
 from ..frame import CELL, cell_at, cell_box_en, cell_key, to_engine
-from ..geometry import seed
+from ..geometry import seed as seed_of
+from ..green import census, treegen
 
-LAYERS = (("GIS:Puut", "Kasvilaji"), ("kanta:Lehtipuu", "suku"), ("kanta:Havupuu", "suku"))
+GROWTH_YEARS = 5  # the scan is from April 2021; the reference photos are from summer 2026
+LEAF_MARGIN = 0.4  # metres added to a leaf-off crown diameter: the foliage beyond the twig tips
+# The tree library: family x size class x seed. A tree is an instance of the nearest model, fitted by its row's
+# scale (at most about a quarter either way), so a location draws a few dozen tree meshes however many trees it has.
+HEIGHTS = (4.0, 6.3, 10.0, 16.0, 25.0)
+SPREADS = (0.18, 0.3, 0.46)  # crown radius / height
+BASES = (0.2, 0.42)  # crown base / height
+VARIANTS = 2  # seeds, for the size classes a street repeats: the middle spread; the others have one
+
+# A reference photo is taken from the carriageway or the pavement; a tree whose trunk or foliage is this close to
+# the camera fills the still and hides what the view is of. The register places trees within a metre and the view
+# poses within a few, so such a tree is nearly always a pose error, not a tree in the lens: it is left out of
+# the description (listed under `cleared`) unless the stored description keeps it (`{"trees": {id: {"keep": true}}}`,
+# written when the photo shows it).
 VIEWS = Path(__file__).resolve().parents[4] / "qa/views/views.jsonl"
-# A stand-in crown beside a reference camera fills the still with one flat blob (milestone 1, eight of ten views
-# marked down for trees): until real trees replace this kind, no stand-in crown comes this close to a reference
-# camera, and a crown is about half as wide as the tree is high (it was as wide as high).
 CAMERA_CLEARANCE = 3.0
-CROWN = 0.45, 0.15
 
 
-def nominal_height(size: str, planted: str) -> float:
-    year = int(planted) if planted.isdigit() else 0
-    return SIZES.get(size) or (min(16.0, 4.0 + 0.35 * (2026 - year)) if year > 1900 else 12.0)
-
-
-def cameras(box: tuple[float, float, float, float], views: Path = VIEWS) -> list[tuple[float, float]]:
-    """Reference-view cameras inside a box, from the view registry."""
+def cameras(box: tuple[float, float, float, float], views: Path = VIEWS) -> list[list[float]]:
+    """Reference-view cameras inside a box [E, N, H], from the view registry."""
     found = []
     for line in views.read_text().splitlines() if views.exists() else []:
         pose = (json.loads(line) if line.strip() else {}).get("pose") or {}
         if "E" in pose and box[0] <= pose["E"] <= box[2] and box[1] <= pose["N"] <= box[3]:
-            found.append((pose["E"], pose["N"]))
-    return found
-SIZES = {"pieni": 6.0, "keskikokoinen": 11.0, "suuri": 17.0}
-BARK = Material("bark", {}, (0.07, 0.06, 0.05), 0.95)
-LEAVES = Material("foliage", {"season": "summer"}, (0.07, 0.13, 0.035), 0.9)
-NEEDLES = Material("foliage", {"season": "evergreen"}, (0.035, 0.075, 0.035), 0.9)
+            found.append([pose["E"], pose["N"], pose.get("H", 0.0)])
+    return sorted(found)
 
 
-def icosphere() -> tuple[np.ndarray, np.ndarray]:
-    t = (1 + 5 ** 0.5) / 2
-    v = np.array([[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
-                  [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]], dtype=float)
-    f = np.array([[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2],
-                  [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11],
-                  [6, 2, 10], [8, 6, 7], [9, 8, 1]])
-    v /= np.linalg.norm(v, axis=1, keepdims=True)
-    mid = {}
-    points, faces = list(v), []
-    for a, b, c in f:
-        ids = []
-        for p, q in ((a, b), (b, c), (c, a)):
-            key = (min(p, q), max(p, q))
-            if key not in mid:
-                m = points[p] + points[q]
-                mid[key] = len(points)
-                points.append(m / np.linalg.norm(m))
-            ids.append(mid[key])
-        faces += [[a, ids[0], ids[2]], [b, ids[1], ids[0]], [c, ids[2], ids[1]], ids]
-    return np.array(points), np.array(faces)
+def beside_camera(tree: dict, camera: list[float]) -> bool:
+    """True when the tree's trunk or crown comes within CAMERA_CLEARANCE of the camera."""
+    distance = math.hypot(tree["e"] - camera[0], tree["n"] - camera[1])
+    crown = tree["crown"]
+    side = max(0.0, distance - (crown["major"] + crown["minor"]) / 4)
+    above = max(0.0, tree["ground"] + crown["base"] - camera[2])
+    return distance < CAMERA_CLEARANCE or math.hypot(side, above) < CAMERA_CLEARANCE
 
 
-def tree_asset(variant: int, conifer: bool) -> list[Part]:
-    """A unit-height tree (1 m tall, base at the origin): a tapered trunk and a lumpy crown."""
-    rng = np.random.default_rng(1000 + variant + (50 if conifer else 0))
-    sides, trunk_top, radius = 6, 0.9 if conifer else 0.45, 0.02 if conifer else 0.025
-    angle = np.arange(sides) * 2 * np.pi / sides
-    ring = np.column_stack([np.cos(angle), np.zeros(sides), np.sin(angle)])
-    trunk = np.concatenate([ring * radius, ring * radius * 0.6 + [0, trunk_top, 0]])
-    quads = [[k, k + sides, (k + 1) % sides] for k in range(sides)] + [[(k + 1) % sides, k + sides, (k + 1) % sides + sides] for k in range(sides)]
-    sphere, faces = icosphere()
-    if conifer:
-        crown = sphere * [0.16, 0.42, 0.16] * (1 + 0.12 * rng.standard_normal((len(sphere), 1)))
-        crown[:, [0, 2]] *= np.clip(1.25 - (crown[:, [1]] + 0.42) / 0.84, 0.25, 1.2)
-        crown += [0, 0.57, 0]
-    else:
-        lumps = 1 + 0.16 * rng.standard_normal((len(sphere), 1))
-        crown = sphere * lumps * [0.30 + 0.05 * rng.random(), 0.29, 0.30 + 0.05 * rng.random()] + [0, 0.70, 0]
-    return [Part("trunk", trunk, np.array(quads), BARK), Part("crown", crown, faces, NEEDLES if conifer else LEAVES)]
+GENERA = {
+    "tilia": "lime", "acer": "maple", "ulmus": "elm", "quercus": "oak", "fraxinus": "ash", "betula": "birch",
+    "populus": "poplar", "sorbus": "rowan", "prunus": "fruit", "malus": "fruit", "pyrus": "fruit", "crataegus": "fruit",
+    "salix": "willow", "pinus": "pine", "larix": "pine", "picea": "spruce", "abies": "spruce", "pseudotsuga": "spruce",
+    "thuja": "thuja", "juniperus": "thuja", "taxus": "thuja", "fagus": "lime", "carpinus": "lime", "corylus": "lime",
+    "alnus": "birch", "aesculus": "maple", "syringa": "lilac", "amelanchier": "fruit", "juglans": "ash", "robinia": "ash",
+    # the base map's Finnish genus names
+    "lehmus": "lime", "vaahtera": "maple", "jalava": "elm", "tammi": "oak", "saarni": "ash", "koivu": "birch",
+    "poppeli": "poplar", "haapa": "poplar", "pihlaja": "rowan", "omenapuu": "fruit", "kirsikka": "fruit", "paju": "willow",
+    "mänty": "pine", "kuusi": "spruce", "lehtikuusi": "pine", "tuija": "thuja", "kataja": "thuja", "leppä": "birch",
+    "hevoskastanja": "maple", "pyökki": "lime", "tuomi": "fruit", "orapihlaja": "fruit", "syreeni": "lilac",
+}
+GARDEN_TALL = (("maple", 0.34), ("lime", 0.24), ("birch", 0.2), ("oak", 0.1), ("elm", 0.07), ("ash", 0.05))
+GARDEN_SMALL = (("rowan", 0.3), ("fruit", 0.3), ("maple", 0.2), ("birch", 0.2))
+
+
+def pick(options, fraction: float) -> str:
+    total = 0.0
+    for name, weight in options:
+        total += weight
+        if fraction < total:
+            return name
+    return options[-1][0]
+
+
+def family_of(tree: dict, seed: int) -> tuple[str, str]:
+    """(family, why) of a census row."""
+    register, mapped = tree.get("register", {}), tree.get("osm", {})
+    for text, why in ((register.get("species", ""), "register species"), (register.get("genus", ""), "base map genus"),
+                      (mapped.get("genus", "") or mapped.get("species", ""), "osm")):
+        word = text.strip().split(" ")[0].lower() if text else ""
+        if word in GENERA:
+            return GENERA[word], why
+    height, width, base = tree["height"], tree["width"], tree["base"]
+    spread = width / max(height, 1.0)
+    evergreen = tree.get("green", 0.0) >= 0.06 or (tree.get("green", 0.0) >= 0.045 and tree.get("through", 1.0) < 0.6)
+    conifer = register.get("conifer") or mapped.get("leaf_type") == "needleleaved"
+    broadleaf = (register and not register.get("conifer")) or mapped.get("leaf_type") == "broadleaved"
+    if conifer or (evergreen and not broadleaf):
+        why = "register conifer" if conifer else "lidar: green in a leaf-off scan"
+        if spread < 0.24 and height < 9:
+            return "thuja", why
+        return ("pine", why) if base / height > 0.4 and height > 8 else ("spruce", why)
+    fraction = (seed % 1000) / 1000.0
+    if height < 4.5 and base < 1.3:
+        return "lilac", "lidar: low crown to the ground"
+    if height < 7.5 and spread > 0.7:
+        return "fruit", "lidar: low and wide"
+    if height < 9:
+        return pick(GARDEN_SMALL, fraction), "lidar: small broadleaf"
+    if spread < 0.4 and height > 12:
+        return ("birch" if fraction < 0.7 else "poplar"), "lidar: tall and narrow"
+    return pick(GARDEN_TALL, fraction), "lidar: broadleaf"
+
+
+def grown(height: float) -> float:
+    """Height in the photo year from the height in the scan year."""
+    rate = 0.35 if height < 6 else 0.25 if height < 10 else 0.15 if height < 16 else 0.05
+    return height + rate * GROWTH_YEARS
+
+
+def tree_row(row: dict) -> dict:
+    seed = seed_of(row["id"])
+    family, why = family_of(row, seed)
+    height = grown(row["height"])
+    stretch = 1 + 0.6 * (height / row["height"] - 1)
+    major, minor = row["major"] * stretch + LEAF_MARGIN, row["minor"] * stretch + LEAF_MARGIN
+    mean = math.sqrt(major * minor)
+    major, minor = min(major, 1.3 * mean), max(minor, mean / 1.3)  # a model is stretched at most this far
+    register = row.get("register", {})
+    young = height < 7.5 and treegen.FAMILIES[family]["kind"] == "broadleaf" and family not in ("fruit", "rowan")
+    old = height >= 19 or mean >= 13
+    out = {
+        "id": row["id"], "e": row["e"], "n": row["n"], "ground": row["ground"], "source": row["source"],
+        "family": family, "familyFrom": why, "age": "young" if young else "old" if old else "mature", "seed": seed,
+        "height": round(height, 2),
+        "crown": {"major": round(major, 2), "minor": round(minor, 2), "angle": row["angle"],
+                  "base": round(min(row["base"] * (height / row["height"]), 0.7 * height), 2)},
+        "measured": {key: row[key] for key in ("height", "width", "major", "minor", "base", "widestAt", "returns", "through", "green", "top")},
+    }
+    species = register.get("species") or register.get("genus") or row.get("osm", {}).get("species")
+    if species:
+        out["species"] = species
+    if register.get("planted"):
+        out["planted"] = register["planted"]
+    return out
+
+
+def planted_since_scan(row: dict) -> dict | None:
+    """A register tree the lidar does not show, when the register says it was planted about or after the scan."""
+    year = row.get("planted") or (int(row["surveyed"][:4]) if row.get("surveyed", "")[:4].isdigit() and row["surveyed"] >= "2021-04" else 0)
+    if year < 2019:
+        return None
+    seed = seed_of(f"{row['layer']}-{row['key']}")
+    fake = {"id": f"{row['layer'].split(':')[1].lower()}-{row['key']}", "height": 4.0, "width": 1.5, "base": 1.9, "register": row}
+    family, why = family_of(fake, seed)
+    height = round(min(3.6 + 0.35 * (2026 - max(year, 2021)), 6.0), 2)
+    return {"id": fake["id"], "e": row["e"], "n": row["n"], "ground": row["ground"], "source": "register", "family": family,
+            "familyFrom": why, "age": "young", "seed": seed, "height": height,
+            "crown": {"major": round(0.42 * height, 2), "minor": round(0.38 * height, 2), "angle": 0.0, "base": round(0.42 * height, 2)},
+            "planted": year, **({"species": row["species"]} if row.get("species") else {})}
+
+
+def nearest(options: tuple, value: float) -> float:
+    return min(options, key=lambda option: abs(math.log(option / max(value, 1e-6))))
+
+
+def model_of(tree: dict) -> treegen.Shape:
+    """The shared model a tree is an instance of: its family and age at the nearest size class."""
+    height = nearest(HEIGHTS, tree["height"])
+    radius = math.sqrt(tree["crown"]["major"] * tree["crown"]["minor"]) / 2
+    spread = nearest(SPREADS, radius / tree["height"])
+    base = nearest(BASES, max(tree["crown"]["base"], 0.3) / tree["height"])
+    if treegen.FAMILIES[tree["family"]]["kind"] == "shrub":
+        base = 0.0
+    broadleaf = treegen.FAMILIES[tree["family"]]["kind"] == "broadleaf"
+    age = "young" if height <= 6.3 and broadleaf and tree["family"] not in ("fruit", "rowan") else "old" if height >= 25 else "mature"
+    variant = tree["seed"] % VARIANTS if spread == SPREADS[1] else 0
+    return treegen.Shape(tree["family"], height, round(spread * height, 3), round(base * height, 3), age, variant)
+
+
+@lru_cache(maxsize=512)
+def model_parts(shape: treegen.Shape, lod: int):
+    return treegen.build(shape, lod)
 
 
 class Trees:
     name = "trees"
+    code = (Path(__file__).parent.parent / "green" / "treegen.py",)
 
     def discover(self, area: Area, sources) -> list[Stub]:
-        box = area.bbox(CELL)
-        cells: dict[tuple[int, int], list[dict]] = {}
-        seen: list[tuple[float, float]] = []
-        clear = cameras(box)
-        for layer, species_field in LAYERS:
-            added = []
-            for feature in sources.wfs.features(layer, box):
-                for geom in feature.geoms:
-                    if geom.type != "Point":
-                        continue
-                    e, n = round(geom.shape.x, 2), round(geom.shape.y, 2)
-                    # The base map repeats many register trees; keep the first source's tree within 2 m.
-                    if any(abs(e - a) < 2 and abs(n - b) < 2 for a, b in seen):
-                        continue
-                    crown = 0.5 * 1.15 * sum(CROWN) * nominal_height(feature.attrs.get("pituus", ""), feature.attrs.get("Istutusvuosi", ""))
-                    if any((e - a) ** 2 + (n - b) ** 2 < (CAMERA_CLEARANCE + crown) ** 2 for a, b in clear):
-                        continue
-                    added.append((e, n))
-                    cells.setdefault(cell_at(e, n), []).append({
-                        "e": e, "n": n, "source": layer, "species": feature.attrs.get(species_field, ""),
-                        "size": feature.attrs.get("pituus", ""), "planted": feature.attrs.get("Istutusvuosi", ""),
-                        "conifer": layer == "kanta:Havupuu" or feature.attrs.get("Kasviryhma") == "Havupuu"})
-            seen += added
+        box = area.bbox()
+        (i0, j1), (i1, j0) = cell_at(box[0], box[1]), cell_at(box[2], box[3])
         stubs = []
-        for (i, j), trees in sorted(cells.items()):
-            cell = cell_box_en(i, j)
-            if not area.touches(cell):
-                continue
-            trees.sort(key=lambda t: (t["e"], t["n"]))
-            heights = sources.terrain.heights([t["e"] for t in trees], [t["n"] for t in trees])
-            trees = [{**t, "ground": round(float(h), 3)} for t, h in zip(trees, heights) if np.isfinite(h)]
-            if trees:
-                refs = [{"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer, _ in LAYERS]
-                stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, refs, {"cell": [i, j], "trees": trees}))
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                cell = cell_box_en(i, j)
+                if not area.touches(cell):
+                    continue
+                found = census.cell(i, j, sources.wfs.features)
+                if not found["trees"] and not found["absent"]:
+                    continue
+                refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.recipe()}"},
+                        *({"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer in ("GIS:Puut", "kanta:Lehtipuu", "kanta:Havupuu"))]
+                wide = (cell[0] - 20.0, cell[1] - 20.0, cell[2] + 20.0, cell[3] + 20.0)
+                stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, refs,
+                                  {"cell": [i, j], "trees": found["trees"], "absent": found["absent"], "cameras": cameras(wide)}))
         return stubs
 
     def describe(self, stub: Stub, stored: dict | None) -> dict:
-        description = {**envelope(self.name, 0, stub, stored, "w2-core stand-in"), **stub.facts}
-        for name, value in (stored or {}).items():
-            if name not in ("schema", "id", "tier", "provenance"):
-                description[name] = value
-        return description
+        stored = stored or {}
+        trees = [tree_row(row) for row in stub.facts["trees"]]
+        absent = []
+        for row in stub.facts["absent"]:
+            young = planted_since_scan(row)
+            if young:
+                trees.append(young)
+            else:
+                absent.append(row)
+        overrides = stored.get("trees", {})
+        kept, cleared = [], []
+        for tree in trees:
+            change = overrides.get(tree["id"], {})
+            if change.get("remove"):
+                continue
+            if not change.get("keep") and any(beside_camera(tree, camera) for camera in stub.facts.get("cameras", [])):
+                cleared.append(tree["id"])
+                continue
+            kept.append({**tree, **{k: v for k, v in change.items() if k != "crown"}, "crown": {**tree["crown"], **change.get("crown", {})}})
+        kept += stored.get("add", [])
+        kept.sort(key=lambda t: t["id"])
+        return {**envelope(self.name, 1, stub, stored, "w2-green"), "cell": stub.facts["cell"],
+                "scan": {"date": "2021-04", "growthYears": GROWTH_YEARS}, "trees": kept, "absent": absent, "cleared": cleared}
 
     def compile(self, description: dict) -> Output:
         i, j = description["cell"]
         trees = description["trees"]
-        origin = (i * CELL, float(np.floor(min(t["ground"] for t in trees))), j * CELL)
-        groups: dict[tuple[int, bool], list[list[float]]] = {}
+        if not trees:
+            return Output((i * CELL, 0.0, j * CELL), [])
+        origin = (i * CELL, float(math.floor(min(t["ground"] for t in trees))), j * CELL)
+        groups: dict[treegen.Shape, list[tuple[list[float], str]]] = {}
         for tree in trees:
-            pick = seed(f"{tree['e']:.2f},{tree['n']:.2f}")
-            rng = np.random.default_rng(pick)
-            height = nominal_height(tree["size"], tree["planted"]) * (0.85 + 0.3 * rng.random())
-            width = height * (CROWN[0] + CROWN[1] * rng.random())
+            shape = model_of(tree)
             x, y, z = to_engine(tree["e"], tree["n"], tree["ground"])
-            groups.setdefault((pick % 3, bool(tree["conifer"])), []).append(
-                [x - origin[0], y - origin[1], z - origin[2], rng.random() * 2 * np.pi, width, height, width])
-        instances = [Instances(tree_asset(variant, conifer), np.round(np.array(rows), 3))
-                     for (variant, conifer), rows in sorted(groups.items())]
-        return Output(origin, [], instances)
+            crown = tree["crown"]
+            round_crown = crown["major"] / crown["minor"] < 1.12
+            turn = (tree["seed"] >> 8) % 360
+            # The model's +X follows the crown's long axis (degrees east of north); a round crown turns freely.
+            yaw = math.radians(turn if round_crown else 90.0 - crown["angle"] + 180.0 * (turn % 2))
+            scale = (crown["major"] / 2 / shape.radius, tree["height"] / shape.height, crown["minor"] / 2 / shape.radius)
+            groups.setdefault(shape, []).append(([x - origin[0], y - origin[1] - 0.08, z - origin[2], yaw, *scale], tree["id"]))
+        # Near, every tree is its own instance row of its library model. Far, the cell's trees are one leaf mesh and
+        # one bark mesh made of the models' far level (the thinned card prefix): two draws for the cell.
+        instances, far = [], treegen.Meshes()
+        for shape in sorted(groups, key=lambda s: (s.family, s.height, s.radius, s.base, s.age, s.seed)):
+            rows = groups[shape]
+            transforms = np.round(np.array([row for row, _ in rows]), 4)
+            instances.append(Instances(model_parts(shape, 0), transforms, lod=0, ids=[tree_id for _, tree_id in rows], behaviour="fixed",
+                                       collision=treegen.trunk_collision(shape)))
+            for part in model_parts(shape, 1):
+                for row in transforms:
+                    far.add(part.material.family, 1, treegen.shared_material(part.material), treegen.placed(part, row))
+        return Output(origin, far.parts(), instances)
