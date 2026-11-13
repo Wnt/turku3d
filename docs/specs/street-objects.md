@@ -188,6 +188,15 @@ only. Compile: the post, vehicle heads and pedestrian heads are three shared ass
 | Traffic lights | no register: OSM `highway=traffic_signals` nodes plus lidar poles | | | |
 | Furniture | `GIS:Varusteet` (benches, bins), `GIS:Polkupyoraparkki`, `GIS:Pysakointiautomaatit`, OSM | model name | street direction | defaults |
 
+## Bus shelters
+
+`furniture/shelter<E dm>_<N dm>` (`model: "bus-shelter"`, `variant: "<length>x<depth>"`): a closed canopy outline of
+the base map (`kanta:Rakennus` 66606) the size of a shelter, 1.1 to 2.2 m by 3 to 8 m, within 1.5 m of a bus stop
+point (`kanta:Pysakki`). Place, size and long axis are the register's; the open long side is the one nearer the
+carriageway (`guessed: ["bearing", "model"]`). Drawn as a dark steel frame under a flat roof with panes on the back
+and both ends and a bench; the advertising panel of an end wall is not known. At the Kauppatori pilot area 12 shelters are found among 36
+stop points, at Portsa 1 among 4; a stop without such an outline keeps its sign post only.
+
 ## Fences read from panoramas (deliverable 4, first part)
 
 `python -m turku3d.world.objects.fenceread E,N,RADIUS [--limit N] [--dry]` reads the fences of an area that have no

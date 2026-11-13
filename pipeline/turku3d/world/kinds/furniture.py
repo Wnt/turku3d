@@ -52,6 +52,9 @@ ORANGE = Material("plastic", {"colour": "#e8641b"}, rgb_hex("#e8641b"), 0.6, 0.0
 CREAM = Material("plastic", {"colour": "#e9e4d2"}, rgb_hex("#e9e4d2"), 0.6, 0.0)
 SCREEN = Material("plastic", {"colour": "#15181c"}, rgb_hex("#15181c"), 0.3, 0.0)
 WOOD = painted_wood("#8a6a45", "weathered")
+SHELTER_STEEL = painted_metal("#2c3033")
+# The building family's glass with a frosted interior: a pale pane without a room behind it.
+SHELTER_PANE = Material("glass", {"colour": "#aebcc2", "finish": "gloss", "interior": "frosted"}, rgb_hex("#aebcc2"), 0.15, 0.0, double_sided=True)
 
 
 def classify(row: dict) -> tuple[str | None, str]:
@@ -148,6 +151,21 @@ def model_parts(model: str, variant: str = "") -> tuple:
         m.box("body", GREY, [0, 0.85, 0], [0.4, 1.7, 0.3])
         m.box("screen", SCREEN, [0, 1.3, 0.156], [0.27, 0.28, 0.012])
         m.box("sign", painted_metal("#0a4ea1"), [0, 1.6, 0.156], [0.3, 0.2, 0.012])
+    elif model == "bus-shelter":
+        # A city bus shelter on the register's footprint (variant "length x depth"): a dark steel frame under a flat
+        # roof, panes on the back and both ends, a bench along the back; the open long side is the front.
+        length, depth = (float(v) for v in variant.split("x"))
+        for x in (-length / 2 + 0.04, length / 2 - 0.04):
+            for z in (-depth / 2 + 0.04, depth / 2 - 0.04):
+                m.box("frame", SHELTER_STEEL, [x, 1.15, z], [0.07, 2.3, 0.07])
+        m.box("roof", SHELTER_STEEL, [0, 2.36, 0.1], [length + 0.2, 0.1, depth + 0.4])
+        m.box("rails", SHELTER_STEEL, [0, 0.18, -depth / 2 + 0.04], [length - 0.1, 0.05, 0.05])
+        m.box("panes", SHELTER_PANE, [0, 1.25, -depth / 2 + 0.04], [length - 0.15, 2.05, 0.012])
+        for x in (-length / 2 + 0.04, length / 2 - 0.04):
+            m.box("panes", SHELTER_PANE, [x, 1.25, 0], [0.012, 2.05, depth - 0.15])
+        m.box("bench", WOOD, [0, 0.46, -depth / 2 + 0.3], [min(length - 1.0, 2.4), 0.05, 0.36])
+        for x in (-0.8, 0.8):
+            m.box("bench-legs", SHELTER_STEEL, [x, 0.22, -depth / 2 + 0.3], [0.05, 0.44, 0.3])
     else:  # bollard
         _post(m, "post", BLACK_STEEL, 0, 0, 0.09, 0.95)
     return tuple(m.parts())
@@ -159,10 +177,28 @@ class Furniture:
 
     def discover(self, area: Area, sources) -> list[Stub]:
         rows = registers.furniture(sources, area.bbox(2.0))
-        if not rows:
+        shelters = registers.bus_shelters(sources, area.bbox(4.0))
+        if not rows and not shelters:
             return []
         streets = registers.Streets(sources, area.bbox(2.0))
         stubs = []
+        for row in shelters:
+            e, n = row["e"], row["n"]
+            ground = registers.ground_height(sources, e, n)
+            if not area.touches(box_of(e, n, 0.5)) or not math.isfinite(ground):
+                continue
+            # The open side is the long side nearer the carriageway (a guess: the registers do not say).
+            street = streets.towards_street(e, n, reach=25.0)
+            sides = ((row["axis"] + 90.0) % 360, (row["axis"] + 270.0) % 360)
+            bearing = min(sides, key=lambda side: abs((side - street["bearing"] + 180.0) % 360 - 180.0)) if street else sides[0]
+            facts = {
+                "at": [e, n, round(ground, 2)], "model": "bus-shelter", "variant": f"{row['length']}x{row['depth']}",
+                "bearing": round(bearing, 1), "basis": "canopy outline of the base map beside a bus stop point; open towards the carriageway",
+                "register": {"layer": "kanta:Rakennus", "type": "katos", "length": row["length"], "depth": row["depth"]},
+                "guessed": ["bearing", "model"],
+                "interaction": interaction("fixed", "box", [row["length"], 2.4, row["depth"]]),
+            }
+            stubs.append(Stub(f"furniture/{row['id']}", box_of(e, n, 4.0), [row["source"]], facts))
         for row in rows:
             e, n = row["e"], row["n"]
             if not area.touches(box_of(e, n, 0.5)):

@@ -104,6 +104,42 @@ def barriers(sources, box: Box) -> tuple[list[dict], list[dict]]:
     return lines, posts
 
 
+SHELTER = "66606"  # kanta:Rakennus canopy outline
+SHELTER_DEPTH, SHELTER_LENGTH, SHELTER_REACH = (1.1, 2.2), (3.0, 8.0), 1.5
+
+
+def bus_shelters(sources, box: Box) -> list[dict]:
+    """Bus shelters: a closed canopy outline of the base map (kanta:Rakennus 66606) the size of a shelter, 1.1 to
+    2.2 m by 3 to 8 m, that stands within 1.5 m of a bus stop point (kanta:Pysakki). The outline gives the place, the
+    size and the long axis; which long side is open is not in the registers."""
+    stops = [geom.shape for feature in sources.wfs.features("kanta:Pysakki", box) for geom in feature.geoms if geom.type == "Point"]
+    rows = []
+    if not stops:
+        return rows
+    for feature in sources.wfs.features("kanta:Rakennus", box):
+        if feature.attrs.get("kplkoodi") != SHELTER:
+            continue
+        for geom in feature.geoms:
+            shape = shapely.force_2d(geom.shape)
+            if geom.type == "LineString" and shape.is_ring:
+                shape = shapely.Polygon(shape.coords)
+            if shape.geom_type != "Polygon" or min(shape.distance(stop) for stop in stops) > SHELTER_REACH:
+                continue
+            corners = np.asarray(shape.minimum_rotated_rectangle.exterior.coords)[:4]
+            a, b = corners[1] - corners[0], corners[2] - corners[1]
+            long, short = (a, b) if np.hypot(*a) >= np.hypot(*b) else (b, a)
+            length, depth = float(np.hypot(*long)), float(np.hypot(*short))
+            if not (SHELTER_LENGTH[0] <= length <= SHELTER_LENGTH[1] and SHELTER_DEPTH[0] <= depth <= SHELTER_DEPTH[1]):
+                continue
+            centre = corners.mean(axis=0)
+            rows.append({"id": f"shelter{round(centre[0] * 10)}_{round(centre[1] * 10)}", "e": round(float(centre[0]), 2),
+                         "n": round(float(centre[1]), 2), "length": round(length, 1), "depth": round(depth, 1),
+                         "axis": round(math.degrees(math.atan2(long[0], long[1])) % 180, 1),
+                         "source": {"source": "turku-wfs:kanta:Rakennus", "key": feature.key}})
+    rows.sort(key=lambda row: row["id"])
+    return rows
+
+
 def furniture(sources, box: Box) -> list[dict]:
     """GIS:Varusteet rows (benches, bins, boards…), bike racks, ticket machines and city-bike stations."""
     rows = []

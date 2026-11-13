@@ -100,8 +100,8 @@ def test_repeated_register_rows_give_one_entity():
 def test_every_furniture_model_is_closed_and_register_labels_pick_models():
     from turku3d.world.kinds import furniture
 
-    for model in [*furniture.SIZE, "bike-rack"]:
-        bad, flipped, total = open_edges(list(furniture.model_parts(model, "4" if model == "bike-rack" else "")))
+    for model in [*furniture.SIZE, "bike-rack", "bus-shelter"]:
+        bad, flipped, total = open_edges(list(furniture.model_parts(model, {"bike-rack": "4", "bus-shelter": "4.8x1.4"}.get(model, ""))))
         assert total > 0 and bad == 0 and flipped == 0, model
     row = {"kind": None, "type": "Roskis", "species": "Roskakori", "model": "Vihreä 60 l", "places": ""}
     assert furniture.classify(row) == ("bin", "green")
