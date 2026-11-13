@@ -231,11 +231,66 @@ function agentDefinition() {
 
 const packetSha = packet => createHash('sha256').update(fs.readdirSync(packet).sort().map(f => `${f} ${sha(path.join(packet, f))}`).join('\n')).digest('hex');
 
+/** USD per million tokens (input, output) for the API transport's cost record. */
+const PRICES = { 'claude-fable-5-2': [8, 40], 'claude-opus-5-5': [4, 20] };
+
+/** The same judge over the Messages API (TURKU3D_JUDGE_TRANSPORT=api): the agent's instructions as the system prompt,
+ *  the packet's files (JUDGE.md, items.json and every image it names, each after its file name) as the user turn,
+ *  the scores schema as the structured output. Only the transport differs from the Claude Code run: no tools, the
+ *  files are in the message. TURKU3D_JUDGE_SDK names a directory holding node_modules/@anthropic-ai/sdk (kept
+ *  outside Git); the client takes the active `ant auth` profile, so ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN are cleared.
+ *  No server-side fallback: a refusal is a failed packet, tried once more. */
+async function judgeApi(agent, packet, model, effort) {
+  const sdk = path.join(process.env.TURKU3D_JUDGE_SDK, 'node_modules/@anthropic-ai/sdk');
+  const { default: Anthropic } = await import(path.join(sdk, 'index.mjs'));
+  const { jsonSchemaOutputFormat } = await import(path.join(sdk, 'helpers/json-schema.mjs'));
+  delete process.env.ANTHROPIC_API_KEY; delete process.env.ANTHROPIC_AUTH_TOKEN;
+  const client = new Anthropic({ maxRetries: 4, timeout: 20 * 60 * 1000 });
+  const items = JSON.parse(fs.readFileSync(path.join(packet, 'items.json'), 'utf8'));
+  const content = [{ type: 'text', text: `The packet directory is ${packet}. Its files follow, each after its file name: JUDGE.md, items.json and every image items.json names.` },
+    { type: 'text', text: `=== JUDGE.md ===\n${fs.readFileSync(path.join(packet, 'JUDGE.md'), 'utf8')}` },
+    { type: 'text', text: `=== items.json ===\n${fs.readFileSync(path.join(packet, 'items.json'), 'utf8')}` }];
+  for (const item of items) for (const f of [item.photo, item.render].filter(Boolean)) {
+    content.push({ type: 'text', text: `=== ${f} ===` },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: fs.readFileSync(path.join(packet, f)).toString('base64') } });
+  }
+  content.push({ type: 'text', text: `Read JUDGE.md above and follow it.` });
+  const [pin, pout] = PRICES[model] ?? [8, 40];
+  let usage = { input_tokens: 0, output_tokens: 0 }, last;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const stream = client.messages.stream({ model, max_tokens: 64000, system: agent.prompt, output_config: { effort, format: jsonSchemaOutputFormat(JSON.parse(fs.readFileSync(SCHEMA, 'utf8'))) },
+      messages: [{ role: 'user', content }] });
+    const msg = await stream.finalMessage();
+    usage = { input_tokens: usage.input_tokens + (msg.usage.input_tokens ?? 0) + (msg.usage.cache_creation_input_tokens ?? 0) + (msg.usage.cache_read_input_tokens ?? 0),
+      output_tokens: usage.output_tokens + (msg.usage.output_tokens ?? 0) };
+    last = msg;
+    if (msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens') continue;
+    const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const scores = msg.parsed_output ?? JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+    return { scores, model: msg.model, usage, costUsd: round((usage.input_tokens * pin + usage.output_tokens * pout) / 1e6, 4), attempts: attempt };
+  }
+  throw new Error(`stop ${last.stop_reason}${last.stop_details ? ` (${JSON.stringify(last.stop_details)})` : ''} twice; ${usage.input_tokens} in / ${usage.output_tokens} out tokens spent`);
+}
+
 /** One headless judge run of one packet: the agent's model and instructions, Read only, no MCP servers, settings or
- *  session. Its answer is kept in scores/parts/, and a rerun with the same packet does not judge it again. */
+ *  session. Its answer is kept in scores/parts/, and a rerun with the same packet does not judge it again.
+ *  TURKU3D_JUDGE_MODEL overrides the agent's pinned model (a run's choice, the shared definition stays as it is). */
 function judgeOnce(out, n, packet, part) {
   const agent = agentDefinition(), file = path.join(out, 'scores', 'parts', `judge-${n}.${part}.json`), digest = packetSha(packet);
+  if (process.env.TURKU3D_JUDGE_MODEL) agent.model = process.env.TURKU3D_JUDGE_MODEL;
   try { const had = JSON.parse(fs.readFileSync(file, 'utf8')); if (had.meta.packetSha === digest) return Promise.resolve(had.meta); } catch { /* not judged yet */ }
+  if (process.env.TURKU3D_JUDGE_TRANSPORT === 'api') {
+    const started = performance.now();
+    return judgeApi(agent, packet, agent.model, process.env.TURKU3D_JUDGE_EFFORT ?? 'high').then(r => {
+      validateScores(r.scores, JSON.parse(fs.readFileSync(path.join(packet, 'items.json'), 'utf8')));
+      const meta = { model: r.model, transport: 'api', effort: process.env.TURKU3D_JUDGE_EFFORT ?? 'high', durationMs: Math.round(performance.now() - started),
+        costUsd: r.costUsd, usage: r.usage, turns: r.attempts, packetSha: digest };
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ ...r.scores, meta }, null, 1) + '\n');
+      fs.appendFileSync(path.join(out, 'api-usage.jsonl'), JSON.stringify({ at: new Date().toISOString(), repeat: n, packet: part, ...meta }) + '\n');
+      return meta;
+    }, error => { throw new Error(`judge ${n}, packet ${part} (api): ${error.message}`); });
+  }
   const args = ['-p', '--model', agent.model, '--system-prompt', agent.prompt, '--tools', 'Read', '--allowedTools', 'Read',
     '--add-dir', packet, '--strict-mcp-config', '--disable-slash-commands', '--no-session-persistence', '--setting-sources', '',
     '--json-schema', fs.readFileSync(SCHEMA, 'utf8'), '--output-format', 'json',
