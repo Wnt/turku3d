@@ -269,7 +269,7 @@ def test_fence_setting_is_old_town_only_among_pre_war_buildings():
     assert fence.setting(shapely.LineString([(0, -5), (30, -5)]), tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 7.0)
     assert fence.setting(line, None, [], np.array([])) == ("garden", math.inf)
     sparse = [shapely.box(0, 2, 10, 12), shapely.box(14, 2, 24, 12)]  # two pre-war houses in gardens: no closed block
-    assert fence.setting(line, shapely.STRtree(sparse), sparse, np.array([1905.0, 1911.0]))[0] == "garden"
+    assert fence.setting(line, shapely.STRtree(sparse), sparse, np.array([1905.0, 1911.0]))[0] == "old-garden"
 
 
 def test_plates_facing_two_ways_stack_in_one_column_and_twins_share_a_height():

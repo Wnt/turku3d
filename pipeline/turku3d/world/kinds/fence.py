@@ -60,6 +60,7 @@ SCREEN = (1.0, 8.0)  # m from a building to the line's end, and the longest line
 SCREEN_HEIGHT = (1.0, 1.5)  # m: a screen's limits (three read 1.0 to 1.5 m where the scan measured 1.6 to 2.6 m)
 LOW = {"limits": (0.6, 1.2), "reliable": 1.3, "default": 1.0}  # m: a garden fence; a taller scan height is planting
 GREY_WOOD = "#b4b8b4"
+WHITE_WOOD = "#dcdcd4"
 UNDER_SHADE = 0.86  # the paint of the under boards of a board-on-board fence against the upper boards
 MESH_GREY = "#8f9492"
 
@@ -77,8 +78,8 @@ def _buildings(sources, box) -> tuple[shapely.STRtree | None, list, np.ndarray]:
 
 
 def setting(path, tree, shapes, years) -> tuple[str, float]:
-    """`old-town` (a closed pre-war wooden-house block) or `garden` for a fence line, and the distance from its
-    nearer end to a building."""
+    """`old-town` (a closed pre-war wooden-house block), `old-garden` (pre-war houses in gardens) or `garden` for
+    a fence line, and the distance from its nearer end to a building."""
     if tree is None:
         return "garden", math.inf
     around = path.buffer(AROUND)
@@ -88,7 +89,8 @@ def setting(path, tree, shapes, years) -> tuple[str, float]:
     built = sum(shapes[k].intersection(around).area for k in near if shapes[k].is_valid) / around.area
     ends = [shapely.Point(path.coords[0]), shapely.Point(path.coords[-1])]
     gap = min(float(shapes[tree.nearest(end)].distance(end)) for end in ends)
-    return ("old-town" if len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5 and built >= BLOCK else "garden"), gap
+    old = len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5
+    return ("old-town" if old and built >= BLOCK else "old-garden" if old else "garden"), gap
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:
@@ -314,7 +316,7 @@ class Fence:
                     if len(low_returns) < 5:
                         guessed.append("height")
                 where, gap = setting(path, tree, shapes, years)
-                if where == "garden" and "fence_type" not in tags:
+                if where != "old-town" and "fence_type" not in tags:
                     scan = float(np.percentile(standing, 60)) if len(standing) >= 2 and coverage >= PRESENT[kind] else None
                     guessed = ["family"]
                     if gap <= SCREEN[0] and path.length <= SCREEN[1]:
@@ -322,7 +324,9 @@ class Fence:
                         height = float(np.clip(scan, *SCREEN_HEIGHT)) if scan else SCREEN_HEIGHT[1]
                         guessed += [] if scan and SCREEN_HEIGHT[0] <= scan <= SCREEN_HEIGHT[1] else ["height"]
                     else:
-                        family = "mesh"
+                        # Among pre-war wooden houses in gardens the low fence is a painted picket fence (the three
+                        # Nummi reference photos: white and brown pickets, one dark rail fence, all about 1 m).
+                        family = "picket" if where == "old-garden" else "mesh"
                         height = float(np.clip(scan, *LOW["limits"])) if scan and scan <= LOW["reliable"] else LOW["default"]
                         guessed += [] if scan and scan <= LOW["reliable"] else ["height"]
             faces = None
@@ -360,10 +364,10 @@ class Fence:
                     facts["colour"] = IRON
                 elif family == "mesh":
                     facts["colour"] = MESH_GREY
-                elif where == "garden":
+                elif where != "old-town":
                     body = near[(near[:, 2] > 0.5) & (near[:, 2] < height + 0.2)]
                     paint, warm = _paint(body[:, 4:7] if len(body) else None)
-                    facts["colour"] = paint if warm else GREY_WOOD
+                    facts["colour"] = paint if warm else WHITE_WOOD if family == "picket" else GREY_WOOD
                 else:
                     body = near[(near[:, 2] > 0.5) & (near[:, 2] < height + 0.2)]
                     facts["colour"], _ = _paint(body[:, 4:7] if len(body) else None)

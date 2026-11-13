@@ -129,7 +129,9 @@ stand in the yard (`faces: "street"`); without a street in reach the register's 
 
 `setting` is `old-town` when most dated register buildings (`kottovuosi`) within 50 m of the line are older than
 1940 and buildings cover at least a fifth of the ground within those 50 m (a closed wooden-house block: Portsa 0.19
-to 0.34; the pre-war garden suburb Nummi 0.10 to 0.23 stays under it), else `garden`. In an old-town block the line is the closed board fence between houses on the street line
+to 0.34; the pre-war garden suburb Nummi 0.10 to 0.23 stays under it), `old-garden` when they are that old but
+sparser, else `garden`. In an old-garden setting the low fence is a `picket` fence (white unless the scan's colours
+are clearly warm) instead of mesh, with the same heights. In an old-town block the line is the closed board fence between houses on the street line
 (rules above). In a garden setting (detached and terraced houses, anything undated) a line that starts within 1 m
 of a building and is at most 8 m long is a board screen, 1.0 to 1.5 m, grey unless the scan's colours are clearly
 warm; every other line is a low grey `mesh` fence: the scan height when it is at most 1.3 m (0.6 to 1.2 m drawn),
