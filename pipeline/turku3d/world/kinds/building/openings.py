@@ -703,7 +703,7 @@ def build(
         reveal = (
             wall_material
             if depth < 0.06
-            else palette.occluded(wall_material, 0.78 if depth < 0.18 else 0.62)
+            else palette.occluded(wall_material, 0.88 if depth < 0.18 else 0.78)
         )
         mesh.ring_walls(soup, "walls", reveal, ring, -depth, 0.0, outward=False)
     if kind in ("window", "vent"):
