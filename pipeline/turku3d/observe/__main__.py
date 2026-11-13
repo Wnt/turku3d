@@ -96,7 +96,8 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
     (packet / "reading-first.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
                                                           ensure_ascii=False))
     total = {"seconds": round(meta["seconds"] + meta_again["seconds"], 1),
-             "cost_usd": (meta["cost_usd"] or 0) + (meta_again["cost_usd"] or 0)}
+             "cost_usd": (meta["cost_usd"] or 0) + (meta_again["cost_usd"] or 0),
+             **({"tier": meta["tier"]} if "tier" in meta else {})}  # a reviewed reading stays reviewed
     second = finish(record, again, {**meta_again, **total}, packet, root)
     note = f"{first['dropped_reader']} -> {second.get('dropped_reader')} parts the generator drops"
     if second.get("invalid") or second.get("dropped_reader", 1e9) >= first["dropped_reader"]:
