@@ -36,7 +36,7 @@ from ..store import data_root
 
 TILE = 500.0
 RING = 60.0  # metres of a tile's edge its neighbours' wire detection reads (objects.wires.SEARCH)
-RING_VERSION = "1"
+RING_VERSION = "2"
 GROUND, NOISE = 2, 7
 WIRE_CELL = 2.0  # the wire detection's ground grid
 WIRE_LOW = 0.8  # metres above that grid below which it uses no return
@@ -144,33 +144,36 @@ def keeping():
 # -------------------------------------------------------------------- what the wire detection reads
 
 
-def wire_returns(e, n, h, cls) -> np.ndarray:
-    """Which returns the wire detection (objects.wires.detect over turku3d.wire_points) can use, as a mask.
+def wire_returns(e, n, h, cls, corner: tuple[float, float]) -> np.ndarray:
+    """Which returns of a tile (south-west `corner`) the wire detection (objects.wires.detect over
+    turku3d.wire_points) can use, as a mask.
 
-    The detection reads ground returns only as the lowest per 2 m cell, and every other return only from 0.8 m
-    above that. Kept: the lowest ground return of each cell; every return of a cell without ground (its height
-    depends on how the gap is filled around it); and what stands 0.8 m or more above its cell's ground, noise
+    The detection reads ground returns only as the lowest height per 2 m cell, and every other return only from
+    0.8 m above that. Kept: the lowest ground returns of each cell; every return of a cell without ground (its
+    height depends on how the gap is filled around it); and what stands 0.8 m or more above its cell's ground, noise
     (class 7) left out: the detection uses it nowhere. The cells are the detection's own: east from an even metre,
-    north downwards from an even metre, so a return on a cell edge falls where the detection puts it.
+    north downwards from an even metre.
+
+    Nothing is dropped where a cell is not whole in what this call sees: in the cells along the tile's border, which
+    a neighbouring tile's returns on the border line share, and in the two rows of cells that a neighbour's
+    detection cuts at `RING` metres from the border. So the mask of a cell is the same for the whole tile, for
+    its ring alone and for any detection's crop.
     """
     col = np.floor(e / WIRE_CELL).astype(np.int64)
     row = np.floor(-n / WIRE_CELL).astype(np.int64)
     col -= col.min()
     row -= row.min()
-    width = int(col.max()) + 1
-    cell = row * width + col
+    cell = row * (int(col.max()) + 1) + col
+    del col, row
     ground = cls == GROUND
     lowest = np.full(int(cell.max()) + 1, np.inf)
     np.minimum.at(lowest, cell[ground], h[ground])
     base = lowest[cell]
-    # A return exactly on an even-metre northing lies on the edge of its cell, where a crop may cut the cell off
-    # from its other returns: all of those stay (one return in two thousand).
-    keep = ~np.isfinite(base) | ((cls != NOISE) & ((h - base >= WIRE_LOW) | (np.mod(n, WIRE_CELL) == 0)))
-    # One lowest ground return per cell (the first of equals).
-    at = np.flatnonzero(ground)
-    order = at[np.lexsort((h[at], cell[at]))]
-    first = np.r_[True, cell[order][1:] != cell[order][:-1]] if len(order) else np.zeros(0, bool)
-    keep[order[first]] = True
+    del cell
+    keep = ~np.isfinite(base) | ((cls != NOISE) & (h - base >= WIRE_LOW)) | (ground & (h == base))
+    de, dn = e - corner[0], n - corner[1]
+    keep |= (de < WIRE_CELL) | (de >= TILE - WIRE_CELL) | (dn <= WIRE_CELL) | (dn > TILE - WIRE_CELL)
+    keep |= ((dn > RING - WIRE_CELL) & (dn <= RING)) | ((dn > TILE - RING - WIRE_CELL) & (dn <= TILE - RING))
     return keep
 
 
@@ -187,7 +190,7 @@ def tile_wire_returns(name: str, box: tuple[float, float, float, float] | None =
             e, n, h, cls = e[inside], n[inside], h[inside], cls[inside]
     if not len(e):
         return np.zeros((0, 4))
-    keep = wire_returns(e, n, h, cls)
+    keep = wire_returns(e, n, h, cls, tile_corner(name))
     return np.column_stack([e[keep], n[keep], h[keep], cls[keep]])
 
 
@@ -212,16 +215,28 @@ def ring(name: str, fetch: bool = False) -> np.ndarray | None:
         return None
     las = read(source)
     e0, n0 = tile_corner(name)
-    e, n, h, cls = np.asarray(las.x), np.asarray(las.y), np.asarray(las.z), np.asarray(las.classification)
-    # The filter sees the whole tile, so that a cell's ground is the same whichever neighbour asks.
-    keep = wire_returns(e, n, h, cls)
-    keep &= (e < e0 + RING) | (e >= e0 + TILE - RING) | (n < n0 + RING) | (n >= n0 + TILE - RING)
+    e, n = np.asarray(las.x), np.asarray(las.y)
+    at = np.flatnonzero((e < e0 + RING) | (e >= e0 + TILE - RING) | (n < n0 + RING) | (n >= n0 + TILE - RING))
+    e, n, h, cls = e[at], n[at], np.asarray(las.z)[at], np.asarray(las.classification)[at]
+    if len(at):
+        keep = wire_returns(e, n, h, cls, (e0, n0))
+        at, e, n, h, cls = at[keep], e[keep], n[keep], h[keep], cls[keep]
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(f"{path.stem}.{os.getpid()}.part.npz")
-    np.savez_compressed(part, x=np.asarray(las.X)[keep], y=np.asarray(las.Y)[keep], z=np.asarray(las.Z)[keep],
-                        cls=cls[keep].astype(np.uint8), scale=np.asarray(las.header.scales), offset=np.asarray(las.header.offsets))
+    _save_fast(part, x=np.asarray(las.X)[at], y=np.asarray(las.Y)[at], z=np.asarray(las.Z)[at], cls=cls.astype(np.uint8),
+               scale=np.asarray(las.header.scales), offset=np.asarray(las.header.offsets))
     part.replace(path)
-    return np.column_stack([e[keep], n[keep], h[keep], cls[keep]])
+    return np.column_stack([e, n, h, cls])
+
+
+def _save_fast(path: Path, **arrays) -> None:
+    """An .npz with light compression: a third of the time of `np.savez_compressed` for a tenth more bytes."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+        for key, value in arrays.items():
+            with archive.open(f"{key}.npy", "w", force_zip64=True) as stream:
+                np.lib.format.write_array(stream, np.asanyarray(value), allow_pickle=False)
 
 
 # -------------------------------------------------------------------- every product of a box, made ahead
@@ -229,11 +244,11 @@ def ring(name: str, fetch: bool = False) -> np.ndarray | None:
 
 def slots() -> int:
     """How many tiles are decoded and reduced at once on this machine, over all builds. A dense tile's wire search
-    holds about 5 GB: one slot per 12 GB of memory and per four cores, three at most."""
+    holds 5 to 7 GB: one slot per 16 GB of memory and per four cores."""
     if os.environ.get("TURKU3D_LIDAR_SLOTS"):
         return max(1, int(os.environ["TURKU3D_LIDAR_SLOTS"]))
     memory_gb = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / 2**30
-    return max(1, min(3, (os.cpu_count() or 4) // 4, int(memory_gb // 12)))
+    return max(1, min((os.cpu_count() or 4) // 4, int(memory_gb // 16)))
 
 
 @contextmanager
@@ -345,11 +360,44 @@ def missing(tiles: list[str]) -> list[dict[str, tuple[str, ...]]]:
     return [{name: labels for name, labels in phase.items() if labels} for phase in (first, second)]
 
 
+def _send(sender, job) -> None:
+    try:
+        sender.send(_work(job))
+    except BaseException as error:  # the parent raises it; a traceback object does not travel
+        import traceback
+
+        sender.send(RuntimeError(f"lidar tile {job[0]}: {type(error).__name__}: {error}\n{traceback.format_exc()}"))
+    finally:
+        sender.close()
+
+
+def _in_process(job):
+    """`_work(job)` in a process of its own, which starts without this one's memory and ends with its own. (A
+    process pool that replaces its workers after some tasks stopped for good on Python 3.12.)"""
+    from multiprocessing import get_context
+
+    context = get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=_send, args=(sender, job))
+    process.start()
+    sender.close()
+    try:
+        outcome = receiver.recv()
+    except EOFError:
+        outcome = None
+    process.join()
+    if outcome is None:
+        raise RuntimeError(f"lidar tile {job[0]}: its process ended without a result (exit code {process.exitcode}; "
+                           f"killed for memory when negative)")
+    if isinstance(outcome, BaseException):
+        raise outcome
+    return outcome
+
+
 def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0) -> dict:
     """Makes every lidar product the tiles lack on this machine. Returns {tiles, made, s, peakMb}: how many tiles
     lacked something, how many products' worth of tiles were made, and the largest worker."""
-    from concurrent.futures import ProcessPoolExecutor
-    from multiprocessing import get_context
+    from concurrent.futures import ThreadPoolExecutor
 
     started = time.perf_counter()
     phases = missing(tiles)
@@ -357,16 +405,15 @@ def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0) -
     made, peak = 0, 0.0
     if count:
         workers = max(1, min(jobs or int(os.environ.get("TURKU3D_JOBS") or 1), slots(), max(len(phase) for phase in phases)))
-        log(f"  lidar: {len(phases[0])} tiles to reduce, {len(phases[1])} to search for wires and spans, in {workers} process(es) "
-            f"of this machine's {slots()} slots")
-        # Fresh processes that serve a few tiles each: they start without this one's memory and give theirs back.
-        with ProcessPoolExecutor(workers, mp_context=get_context("spawn"), max_tasks_per_child=4) as pool:
+        log(f"  lidar: {len(phases[0])} tiles to reduce, {len(phases[1])} to search for wires and spans, {workers} at a time "
+            f"(this machine has {slots()} slots)")
+        with ThreadPoolExecutor(workers) as pool:  # a thread waits for each tile's process
             for phase in phases:
-                for name, labels, seconds, worker_peak in pool.map(_work, [(name, labels, spare) for name, labels in phase.items()]):
+                for name, labels, seconds, worker_peak in pool.map(_in_process, [(name, labels, spare) for name, labels in phase.items()]):
                     peak = max(peak, worker_peak)
                     if labels:
                         made += 1
-                        log(f"  lidar tile {name}: {', '.join(labels)} in {seconds:.1f} s")
+                        log(f"  lidar tile {name}: {', '.join(labels)} in {seconds:.1f} s, {worker_peak:.0f} MB")
     return {"tiles": count, "made": made, "s": round(time.perf_counter() - started, 2), "peakMb": round(peak)}
 
 
