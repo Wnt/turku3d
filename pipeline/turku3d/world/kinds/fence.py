@@ -52,6 +52,10 @@ DRIVES = ("service", "residential", "unclassified", "track", "living_street")
 # house is a board screen and any other line a low mesh fence one sees through, which is the least wrong of them.
 OLD_TOWN = 1940  # most dated buildings around the line are older than this: a wooden-house block
 AROUND = 50.0  # m around the line in which buildings decide its setting
+# Buildings cover this share of the ground within AROUND of a fence in a closed wooden-house block (Portsa: 0.19 to
+# 0.34 between the 10th and 90th percentile of its fences); the pre-war garden suburbs of detached wooden houses, whose
+# fences are low pickets and rails, stay under it (Nummi: 0.10 to 0.23).
+BLOCK = 0.2
 SCREEN = (1.0, 8.0)  # m from a building to the line's end, and the longest line that is a screen between terraces
 SCREEN_HEIGHT = (1.0, 1.5)  # m: a screen's limits (three read 1.0 to 1.5 m where the scan measured 1.6 to 2.6 m)
 LOW = {"limits": (0.6, 1.2), "reliable": 1.3, "default": 1.0}  # m: a garden fence; a taller scan height is planting
@@ -73,14 +77,18 @@ def _buildings(sources, box) -> tuple[shapely.STRtree | None, list, np.ndarray]:
 
 
 def setting(path, tree, shapes, years) -> tuple[str, float]:
-    """`old-town` or `garden` for a fence line, and the distance from its nearer end to a building."""
+    """`old-town` (a closed pre-war wooden-house block) or `garden` for a fence line, and the distance from its
+    nearer end to a building."""
     if tree is None:
         return "garden", math.inf
-    dated = years[tree.query(path, predicate="dwithin", distance=AROUND)]
+    around = path.buffer(AROUND)
+    near = tree.query(path, predicate="dwithin", distance=AROUND)
+    dated = years[near]
     dated = dated[np.isfinite(dated)]
+    built = sum(shapes[k].intersection(around).area for k in near if shapes[k].is_valid) / around.area
     ends = [shapely.Point(path.coords[0]), shapely.Point(path.coords[-1])]
     gap = min(float(shapes[tree.nearest(end)].distance(end)) for end in ends)
-    return ("old-town" if len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5 else "garden"), gap
+    return ("old-town" if len(dated) and float(np.mean(dated < OLD_TOWN)) > 0.5 and built >= BLOCK else "garden"), gap
 
 
 def _paint(rgb: np.ndarray | None) -> tuple[str, bool]:

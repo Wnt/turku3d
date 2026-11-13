@@ -260,7 +260,7 @@ def test_a_fence_reading_replaces_the_guesses_and_an_unseen_fence_builds_nothing
 def test_fence_setting_is_old_town_only_among_pre_war_buildings():
     import shapely
 
-    old = [shapely.box(0, 2, 10, 12), shapely.box(14, 2, 24, 12), shapely.box(40, 2, 50, 12)]
+    old = [shapely.box(-20, 2, 10, 62), shapely.box(14, 2, 38, 62), shapely.box(40, 2, 50, 62)]
     tree = shapely.STRtree(old)
     line = shapely.LineString([(10, 2), (14, 2)])
     assert fence.setting(line, tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 0.0)
@@ -268,6 +268,8 @@ def test_fence_setting_is_old_town_only_among_pre_war_buildings():
     assert fence.setting(line, tree, old, np.array([np.nan, np.nan, np.nan]))[0] == "garden"
     assert fence.setting(shapely.LineString([(0, -5), (30, -5)]), tree, old, np.array([1905.0, 1911.0, 1975.0])) == ("old-town", 7.0)
     assert fence.setting(line, None, [], np.array([])) == ("garden", math.inf)
+    sparse = [shapely.box(0, 2, 10, 12), shapely.box(14, 2, 24, 12)]  # two pre-war houses in gardens: no closed block
+    assert fence.setting(line, shapely.STRtree(sparse), sparse, np.array([1905.0, 1911.0]))[0] == "garden"
 
 
 def test_plates_facing_two_ways_stack_in_one_column_and_twins_share_a_height():
