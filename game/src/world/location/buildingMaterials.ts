@@ -80,16 +80,18 @@ function glass(p: BuildingMaterialParams) {
   const g = attribute('_glass', 'vec4'), at = uv();
   const curtain = g.x, blind = g.y, tone = g.z, seed = g.w;
   const shop = p.interior === 'shop', office = p.interior === 'office';
-  const room = mix(vec3(0.012, 0.014, 0.017), shop ? vec3(0.16, 0.14, 0.11) : vec3(0.075, 0.07, 0.062), tone.mul(tone))
+  const room = mix(vec3(0.02, 0.022, 0.026), shop ? vec3(0.2, 0.18, 0.15) : vec3(0.1, 0.095, 0.085), tone.mul(tone))
     .mul(at.y.mul(0.5).add(0.6));
   const edge = at.x.min(float(1).sub(at.x));
   const width = curtain.mul(0.22).add(0.08);
   const inCurtain = step(edge, width).mul(step(0.001, curtain));
   const fold = sin(at.x.mul(seed.mul(60).add(70))).mul(0.16).add(0.84);
-  const cloth = mix(vec3(0.62, 0.6, 0.55), vec3(0.5, 0.42, 0.34), step(0.7, seed)).mul(fold).mul(0.5);
+  // Curtains and blinds hang right behind the pane in full daylight: white cloth reads nearly as light as a white
+  // window frame from the street (two passes through the glass take about a third).
+  const cloth = mix(vec3(0.86, 0.84, 0.79), vec3(0.66, 0.56, 0.44), step(0.7, seed)).mul(fold).mul(0.64);
   const inBlind = step(float(1).sub(blind), at.y).mul(step(0.001, blind));
   const slats = sin(at.y.mul(office ? 90 : 140)).mul(0.12).add(0.88);
-  const blindColour = vec3(0.6, 0.59, 0.56).mul(slats).mul(0.55);
+  const blindColour = vec3(0.84, 0.83, 0.8).mul(slats).mul(0.68);
   let inside = mix(room, cloth, inCurtain);
   inside = mix(inside, blindColour, inBlind);
   if (p.interior === 'frosted') inside = vec3(0.35, 0.37, 0.38);
@@ -97,8 +99,9 @@ function glass(p: BuildingMaterialParams) {
   material.colorNode = inside;
   material.roughnessNode = float(p.interior === 'frosted' ? 0.5 : 0.045);
   material.metalnessNode = float(0);
-  // Double and triple glazing reflects at every pane surface: stronger than a single dielectric interface.
-  material.ior = 1.5 + 0.9 * (p.reflectivity ?? 0.6);
+  // Double and triple glazing reflects at every pane surface: about a fifth of the sky at the default reflectivity,
+  // against a twenty-fifth for one dielectric interface.
+  material.ior = 1.5 + 1.85 * (p.reflectivity ?? 0.6);
   material.specularIntensity = 1;
   return material;
 }
