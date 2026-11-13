@@ -43,6 +43,10 @@ def _family(measured: dict | None, street: dict | None) -> dict:
         head = measured.get("head")
         if head and top < STREET_MIN <= head["top"] <= TALLEST and street and street["distance"] <= 14:
             # The scan lost the thin shaft and saw the head again metres higher: a street lamp of that height.
+            arm = head.get("arm")
+            if arm and arm["returns"] >= 5 and arm["reach"] >= 0.8 and abs(arm["height"] - head["top"]) < 1.5:
+                return {"family": "street-arm", "height": head["top"], "arm": {"bearing": arm["bearing"], "reach": round(min(arm["reach"], 3.25), 2)},
+                        "basis": "lidar: pole foot, head and arm"}
             return {"family": "street-arm", "height": head["top"], "arm": {"bearing": street["bearing"], "reach": 1.5},
                     "basis": "lidar: pole foot and head; arm towards the street is a guess", "guessed": ["arm"]}
         if top >= STREET_MIN:

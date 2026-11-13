@@ -297,6 +297,8 @@ def test_a_flat_head_over_a_lost_shaft_is_the_pole_and_a_crown_is_not():
     head = scan([[0.1 * k, 0.05, 8.1 + 0.02 * k, 5] for k in range(6)])
     assert head["top"] == pytest.approx(3.2) and head["head"]["top"] == pytest.approx(8.2)
     assert "head" not in scan([[0.1, 0.1, h, 5] for h in np.arange(7.0, 12.0, 0.5)])  # a crown is metres deep
+    bent = scan([[0.1 * k, 0.0, 8.4 + 0.2 * k, 5] for k in range(6)] + [[0.6 + 0.3 * k, 0.0, 9.5, 1] for k in range(6)])
+    assert bent["head"]["top"] == pytest.approx(9.5) and bent["head"]["arm"]["bearing"] == pytest.approx(90.0, abs=1.0)  # a curved top with its arm
     street = {"bearing": 90.0, "distance": 4.0}
     facts = lamp._family(head, street)
     assert facts["family"] == "street-arm" and facts["height"] == pytest.approx(8.2) and facts["guessed"] == ["arm"]

@@ -24,7 +24,7 @@ from ... import config
 VERSION = "4"
 TILE = 500.0
 CELL = 1.0
-HEAD_REACH, HEAD_TALLEST, HEAD_RETURNS, HEAD_FLAT = 0.6, 13.5, 5, 0.4  # a lamp head over a shaft the scan lost
+HEAD_REACH, HEAD_TALLEST, HEAD_RETURNS, HEAD_DEEP = 0.6, 13.5, 5, 1.6  # a lamp head over a shaft the scan lost
 SIDE = int(TILE / CELL)
 GROUND, BUILDING, NOISE = 2, 6, 7
 MIN_HAG, MAX_HAG = 0.25, 40.0
@@ -240,11 +240,15 @@ class ObjectLidar:
         arm = arm_at(top)
         if arm:
             result["arm"] = arm
-        # A thin pole can return nothing for metres while its head returns well: a flat cluster of returns over the
-        # axis, above an empty gap, is the head of the same pole (a crown over a low post is metres deep instead).
+        # A thin pole can return nothing for metres while its head returns well: a shallow cluster of returns over
+        # the axis, above an empty gap, is the top of the same pole (flat for a head on a straight pole, up to a
+        # metre and a half deep where the pole bends over into its arm; a crown over a low post is deeper).
         over = points[(d <= HEAD_REACH) & (points[:, 2] > top + 1.5) & (points[:, 2] < HEAD_TALLEST), 2]
-        if len(over) >= HEAD_RETURNS and float(np.percentile(over, 95) - np.percentile(over, 5)) <= HEAD_FLAT:
+        if len(over) >= HEAD_RETURNS and float(np.percentile(over, 95) - np.percentile(over, 5)) <= HEAD_DEEP:
             result["head"] = {"top": round(float(over.max()), 2), "returns": int(len(over))}
+            arm = arm_at(float(over.max()))
+            if arm:
+                result["head"]["arm"] = arm
         return result
 
     def profile(self, line: np.ndarray, step: float = 1.0, reach: float = 0.35, top: float = 3.5) -> np.ndarray:

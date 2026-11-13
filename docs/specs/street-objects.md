@@ -92,10 +92,13 @@ dev_01 beside its photo: an 8 m lamp was drawn as a 3.3 m lantern and its neighb
 - The neighbours that set a hidden top, an unmeasured height or a guessed arm are the fully measured lamps of the
   lamp's own street (`lamp._same_street`: centrelines within 20 degrees and the feet within 6 m across), and only
   when it has none the nearest of any street: one street is lit by one type, the crossing street's is often taller.
-- `measured.lidar.head`: a flat cluster (5 returns or more within 0.4 m of height, within 0.6 m of the axis) above
-  a gap of 1.5 m or more over the measured shaft is the head of a pole too thin to return in between (the scan
-  classes it as vegetation, so class is not used). A shaft under 6.5 m with such a head at 6.5 to 13 m beside a
-  street is a `street-arm` of the head's height, `guessed: ["arm"]`. A crown is metres deep and is not taken.
+- `measured.lidar.head`: a shallow cluster (5 returns or more within 1.6 m of height, within 0.6 m of the axis)
+  above a gap of 1.5 m or more over the measured shaft is the head of a pole too thin to return in between (the
+  scan classes it as vegetation, so class is not used). The depth lets in the top of a pole that bends over into
+  its arm (dev_11: a 9.7 m curved lamp was a 3.4 m lantern under the 0.4 m limit of the first rule); a crown is
+  metres deep and is not taken. `head.arm` is the arm measured from that top, as for a whole pole. A shaft under
+  6.5 m with such a head at 6.5 to 13 m beside a street is a `street-arm` of the head's height, with the measured
+  arm when it has 5 returns and 0.8 m of reach, else `guessed: ["arm"]`.
 
 ## `turku-description/wire/1`
 
