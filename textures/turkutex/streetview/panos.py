@@ -172,6 +172,8 @@ class PanoCache:
             if p
         ]
         self.sleep = sleep
+        # TURKUTEX_DEPTH=0: metadata without the depth map (its decoding is most of a metadata fetch's time)
+        self.depth = os.environ.get("TURKUTEX_DEPTH", "1") != "0"
         (self.root / "coverage").mkdir(parents=True, exist_ok=True)
         self._auth = None
 
@@ -267,7 +269,7 @@ class PanoCache:
         f = d / "meta.json"
         pano, depth_err = None, None
         try:
-            pano = streetview.find_panorama_by_id(pid, download_depth=True)
+            pano = streetview.find_panorama_by_id(pid, download_depth=self.depth)
         except Exception as e:  # noqa: BLE001 - depth decoder errors (empty bit string, index)
             depth_err = f"{type(e).__name__}: {e}"
             pano = streetview.find_panorama_by_id(pid, download_depth=False)

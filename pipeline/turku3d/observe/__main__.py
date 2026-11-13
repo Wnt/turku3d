@@ -372,6 +372,26 @@ def main(argv=None) -> int:
                     help="views --layers: K views from different panoramas of each visit (pairs inside one visit)")
     ap.add_argument("--parts", metavar="TAG", help="colour --sheet: parts from the label maps of colour_segment.py "
                                                    "written with this tag (wall zones, trim, frames, plinth, roof, door)")
+    ap.add_argument("--batch", action="store_true",
+                    help="colour: measure wall colours unattended and resumably in 250 m cells under --out (needs "
+                         "colour_segment.py --watch on the same root); area by --read-buildings, --building with "
+                         "--near, --at E,N --radius R or --bounds; cells nearest to --first points first")
+    ap.add_argument("--bounds", help="colour --batch: E0,N0,E1,N1")
+    ap.add_argument("--first", nargs="*", default=[], metavar="E,N",
+                    help="colour --batch: points whose cells are done first (built locations, the centre)")
+    ap.add_argument("--read-buildings", action="store_true",
+                    help="colour --batch: the buildings a vision reading described (to check against)")
+    ap.add_argument("--cells", type=int, default=None, help="colour --batch: stop after this many cells")
+    ap.add_argument("--progress", action="store_true", help="colour: counts and throughput of the batch under --out")
+    ap.add_argument("--apply-batch", action="store_true",
+                    help="colour: the batch results under --out as measured.wall lines (--lines FILE); stored for "
+                         "buildings nobody read unless --no-store")
+    ap.add_argument("--lines", type=Path, help="colour --apply-batch: where the measured lines go")
+    ap.add_argument("--paint", default="white", choices=["white", "pixel"],
+                    help="colour --apply-batch: paint colour by the visit's white point, or the pixel colour")
+    ap.add_argument("--white-l", type=float, default=None, help="colour --apply-batch: lightness white paint is brought to")
+    ap.add_argument("--measured", type=Path,
+                    help="against: measured lines (colour --apply-batch --lines) given to the automatic tier")
     ap.add_argument("--location", help="light: the name the views are stored under (location/NAME)")
     ap.add_argument("--view", nargs="*", help="reference view ids: every building visible in them")
     ap.add_argument("--views-file", type=Path, default=REPO / "qa/views/views.jsonl",
@@ -403,7 +423,50 @@ def main(argv=None) -> int:
     if a.command == "against":  # no model call: the automatic rules measured against every stored reading
         from . import against
 
-        print(json.dumps(against.run(a.out), ensure_ascii=False), flush=True)
+        measured = None
+        if a.measured:
+            measured = {line["building"]: line["measured"] for line in map(json.loads, a.measured.read_text().splitlines())
+                        if line.get("measured")}
+        print(json.dumps(against.run(a.out, measured=measured), ensure_ascii=False), flush=True)
+        return 0
+    if a.command == "colour" and (a.batch or a.progress or a.apply_batch):
+        from . import colour_batch, colour_parts
+
+        if a.progress:
+            print(json.dumps(colour_batch.progress(root)), flush=True)
+            return 0
+        if a.apply_batch:
+            lines = colour_batch.measured_lines(root, mode=a.paint, white_l=a.white_l or colour_parts.WHITE_L)
+            out = a.lines or root / "batch/measured.jsonl"
+            out.write_text("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines))
+            report = {"lines": len(lines), "with_wall": sum(bool(line["measured"]) for line in lines), "file": str(out)}
+            if STORE:
+                report.update(colour_batch.store(lines))
+            print(json.dumps(report), flush=True)
+            return 0
+        firsts = [tuple(float(v) for v in p.split(",")) for p in a.first]
+        if a.read_buildings or a.building:
+            from turku3d.world.store import data_root
+
+            if a.read_buildings:
+                points = colour_batch.read_positions(data_root() / "descriptions")
+            else:
+                e, n = (float(v) for v in a.near.split(","))
+                scene = lod2.scene_around(e, n, 400)
+                points = {k: tuple(scene.buildings[k].centre[:2]) for k in a.building if k in scene.buildings}
+            by_cell = colour_batch.cells_of(points)
+            order = sorted(by_cell, key=lambda c: min(((c[0] - f[0]) ** 2 + (c[1] - f[1]) ** 2 for f in firsts), default=0.0))
+            work = {cell: by_cell[cell] for cell in order}
+        else:
+            if a.bounds:
+                bounds = tuple(float(v) for v in a.bounds.split(","))
+            elif a.at:
+                e, n = (float(v) for v in a.at.split(","))
+                bounds = (e - a.radius, n - a.radius, e + a.radius, n + a.radius)
+            else:
+                sys.exit("colour --batch: give --read-buildings, --building with --near, --at E,N --radius R or --bounds")
+            work = {cell: None for cell in colour_batch.cells_first(bounds, firsts or ([tuple(float(v) for v in a.at.split(","))] if a.at else []))}
+        print(json.dumps(colour_batch.run(root, work, tag=a.parts or colour_parts.TAG, jobs=a.prepare_jobs, limit=a.cells)), flush=True)
         return 0
     if a.command == "colour" and a.light:
         from . import colour_light

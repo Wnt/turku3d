@@ -86,3 +86,23 @@ def test_a_strip_under_cloud_outranks_a_whole_wall_in_sun():
              "parts": {"wall": {"lab": [60.0, -2.0, -17.0], "px": 90000, "spread": 3.0, "share": 0.9}}}]
     wall = colour_parts.combine(rows)["wall"]
     assert wall["lab"] == [75.0, -1.0, -2.0] and wall["n"] == 1 and wall["from"]["id"] == "a"  # the sunny view does not vote
+
+
+def test_a_garage_door_is_not_the_wall():
+    picture, labels, crop, wall = synthetic()
+    labels[labels == LABELS.index("vegetation")] = LABELS.index("building")
+    labels[labels == LABELS.index("window")] = LABELS.index("building")
+    px = lambda x: int((x + 1.0) * PPM)  # noqa: E731
+    pz = lambda z: int((6.0 - z) * PPM)  # noqa: E731
+    picture[pz(4.0):pz(0.0), px(0):px(8)] = DARK  # black boards
+    picture[pz(2.4):pz(0.0), px(0.3):px(7.7)] = WHITE  # two garage doors side by side: more pixels than the boards
+    found = colour_parts.of_crop(picture, labels, crop, wall)
+    assert near(found["parts"]["wall"]["lab"], DARK)
+
+
+def test_the_paint_colour_of_a_pixel_by_its_visits_white():
+    grey_under_cloud = colour.to_lab(np.array([[150, 150, 150]], np.uint8))[0]
+    white_seen = colour.to_lab(np.array([[200, 200, 200]], np.uint8))[0]
+    painted = colour_parts.paint(list(grey_under_cloud), list(white_seen), white_l=93.0)
+    assert painted[0] > grey_under_cloud[0] + 8 and abs(painted[1]) < 1 and abs(painted[2]) < 1
+    assert np.allclose(colour_parts.paint(list(grey_under_cloud), None), grey_under_cloud)

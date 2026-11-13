@@ -43,7 +43,10 @@ What a building looks like when nobody has read it (`describe.automatic`, rules 
   family's range, because a photograph's pixels carry its exposure; under confidence 0.4 it is ignored.
   `measured.roof.colour` takes the place of the orthophoto's roof colour. `measured.trim` and `measured.plinth`
   are stored for later use. A stored description may consist of `measured` alone, with tier `auto`. A material
-  somebody described always wins over a measurement.
+  somebody described always wins over a measurement. A colour measured by the panorama batch
+  (`python -m turku3d.observe colour --batch`) also says where it comes from: `from {provider, id, date,
+  overcast}` (overcast 0 sunny .. 1 overcast), `visible` (share of the part free of trees, cars and fences),
+  `agreement` (CIELAB distance between the panoramas used) and `n` (panoramas used).
 - **Roofing** from the orthophoto's roof colour (`archetypes.roofing`), corrected against the readings: the photo is
   taken in full sun, and the same roof read from the street is about half as light, so a grey roof is drawn dark
   and pale only where a pitched roof is very bright and colourless in the photo. On a house, warm red is tile,
@@ -286,6 +289,7 @@ replaces a description somebody else stored. Nothing else reads the old format.
 
 A change that readers must follow gets a line on the campaign board. Additive fields keep version 1.
 
+- 2026-11-13: `measured.<part>` may carry `from`, `visible`, `agreement` and `n` (the panorama batch).
 - 2026-11-13: `measured` (wall, trim, plinth, roof colours sampled without a reading); style type `row_house`;
   the attachment kind `porch` is built (deck, steps, posts, roof `shed` / `gable` / `flat`; types `open`,
   `boarded`, `glazed`).

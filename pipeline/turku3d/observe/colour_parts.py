@@ -341,14 +341,14 @@ def visit_white(results: list[dict], least: int = 6) -> dict:
             for visit, found in by_visit.items() if len(found) >= least or visit == "*"}
 
 
-def paint(lab: list, white: list | None, balance: bool = True) -> np.ndarray:
+def paint(lab: list, white: list | None, balance: bool = True, white_l: float = WHITE_L) -> np.ndarray:
     """A pixel colour brought to the paint scale by its visit's white point: in linear light each channel is
     divided by the white's and multiplied by white paint's (exposure and, with `balance`, the colour of the
     light). Without a white point the pixel colour stands."""
     if not white:
         return np.array(lab, float)
     linear = lambda value: colour.to_linear(np.array(value, float))  # noqa: E731
-    reference = linear([WHITE_L, 0.0, 0.0])
+    reference = linear([white_l, 0.0, 0.0])
     seen = linear(white) if balance else linear([white[0], 0.0, 0.0])
     gain = np.clip(reference / np.maximum(seen, 1e-3), 0.8, 2.6)
     return colour.from_linear(np.clip(linear(lab) * gain, 0.0, 1.0))

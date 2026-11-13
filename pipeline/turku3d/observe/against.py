@@ -188,7 +188,9 @@ def roof_form(doc: dict) -> str:
 FLAT_HINTS = ("flat", "parapet", "low")
 
 
-def building_row(key: str, stored: dict, sources) -> dict | None:
+def building_row(key: str, stored: dict, sources, measured: dict | None = None) -> dict | None:
+    """`measured`: the `measured` block the automatic tier gets for this building (a colour measured from
+    panoramas, as a batch would store it for an unread building); None draws without one."""
     frames = [w for w in stored.get("walls", []) if "frame" in w]
     if not frames:
         return None
@@ -198,7 +200,7 @@ def building_row(key: str, stored: dict, sources) -> dict | None:
     if stub is None:
         return None
     shell, register = stub.facts["shell"], stub.facts["register"]
-    auto = describe.automatic(key, shell, register)
+    auto = describe.automatic(key, shell, register, measured)
     read = describe.effective(key, shell, register, stored)
 
     def weight(wall):
@@ -481,14 +483,18 @@ def write_csv(path: Path, rows: list):
         writer.writerows(rows)
 
 
-def run(out: Path | None = None, store: Path | None = None) -> dict:
+def run(out: Path | None = None, store: Path | None = None, measured: dict | None = None) -> dict:
+    """`measured`: {building key: measured block} given to the automatic tier of those buildings (`--measured
+    FILE`), so a measurement of read buildings is scored as it would draw where nobody has read."""
     out = out or config.work_root() / "observe/against"
     store = store or data_root() / "descriptions"
     out.mkdir(parents=True, exist_ok=True)
     sources = Sources(log=lambda *_: None)
     buildings, missing = [], []
     for key, stored in read_buildings(store).items():
-        row = building_row(key, stored, sources)
+        row = building_row(key, stored, sources, (measured or {}).get(key))
+        if row and measured is not None:
+            row["measured_wall"] = ((measured.get(key) or {}).get("wall") or {}).get("colour")
         (buildings if row else missing).append(row or key)
     fences = fence_rows(store, sources)
     light = light_rows(store, buildings)
@@ -497,6 +503,7 @@ def run(out: Path | None = None, store: Path | None = None) -> dict:
     write_csv(out / "fences.csv", fences)
     summary = {
         "buildings": len(buildings), "fences": len(fences), "not_found": missing,
+        **({"with_measured_wall": sum(bool(r.get("measured_wall")) for r in buildings)} if measured is not None else {}),
         "building_rates": {name: rate(buildings, agrees) for name, agrees, _ in BUILDING_ATTRIBUTES},
         "fence_rates": {name: rate(fences, agrees) for name, agrees, _ in FENCE_ATTRIBUTES},
     }

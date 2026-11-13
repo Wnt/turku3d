@@ -2139,6 +2139,41 @@
         },
         "src": {
           "$ref": "#/$defs/src"
+        },
+        "visible": {
+          "description": "Share of the part free of trees, vehicles and fences in the panoramas used.",
+          "$ref": "#/$defs/share"
+        },
+        "agreement": {
+          "description": "CIELAB distance between the panoramas used and the colour (lower: they agree).",
+          "type": "number",
+          "minimum": 0
+        },
+        "n": {
+          "description": "Different panoramas the colour was measured in.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "from": {
+          "description": "The panorama the colour mainly comes from: provider, id, capture date and how overcast its light was (0 sunny .. 1 overcast).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "overcast": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
         }
       }
     }

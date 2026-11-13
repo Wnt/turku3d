@@ -5,6 +5,12 @@ of our machines or a GPU server, beside the pipeline environment that has no tor
 
     python colour_segment.py --root WORK/observe/buildings [--model HF_ID] [--tag NAME] [--device mps|cuda|cpu]
                              [--only KEY...] [--ruler 30] [--max-side 1024] [--watch] [--walls-only]
+                             [--remote USER@HOST:DIR]
+
+With --remote the packets are on another machine (a batch fetching panoramas there, `colour --batch`): --root is a
+local mirror; each round copies the packets that have a views.json from DIR over ssh (crops and record only), labels
+them here, and puts the label maps back next to the crops (each one renamed into place, so the batch never reads
+half a file). Packets the batch has removed are removed from the mirror. It stops when DIR/../batch/stop exists.
 
 For every `w*.jpg` (rectified wall crop, rulers cut off) and `context-*.jpg` of each packet under --root it writes
 `<name>.<tag>.png`: one byte a pixel, the classes of LABELS below, the size of the picture without rulers. The
@@ -16,6 +22,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
+import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -96,6 +105,55 @@ class Segmenter:
         return np.asarray(Image.fromarray(ours).resize(size, Image.NEAREST))
 
 
+class Relay:
+    """Packets of a batch on another machine (USER@HOST:DIR of building packets), labelled in a local mirror."""
+
+    def __init__(self, remote: str, mirror: Path, tag: str):
+        self.host, self.dir = remote.split(":", 1)
+        self.mirror, self.tag = mirror, tag
+        self.pushed: set = set()
+        self.bytes_in = self.bytes_out = 0
+        mirror.mkdir(parents=True, exist_ok=True)
+
+    def ssh(self, command: str, data: bytes | None = None, timeout: float = 300.0) -> bytes:
+        return subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=30",
+                               self.host, command], input=data, capture_output=True, timeout=timeout, check=True).stdout
+
+    def pull(self) -> bool:
+        """New packets in; packets gone there removed here. Returns whether the batch asked to stop."""
+        d = shlex.quote(self.dir)
+        listing = self.ssh(f"cd {d} && for f in */views.json; do [ -e \"$f\" ] && echo \"$f\"; done; "
+                           f"[ -e ../batch/stop ] && echo STOP; true").decode().split()
+        there = {line.split("/")[0] for line in listing if line.endswith("/views.json")}
+        for packet in [p for p in self.mirror.iterdir() if p.is_dir() and p.name not in there]:
+            shutil.rmtree(packet, ignore_errors=True)
+            self.pushed = {k for k in self.pushed if not k.startswith(packet.name + "/")}
+        new = sorted(p for p in there if not (self.mirror / p / "views.json").exists())
+        for start in range(0, len(new), 40):
+            names = " ".join(shlex.quote(p) for p in new[start:start + 40])
+            data = self.ssh(f"cd {d} && find {names} -maxdepth 1 \\( -name 'w*.jpg' -o -name views.json \\) -print0 "
+                            f"| tar cf - --null -T -")
+            self.bytes_in += len(data)
+            subprocess.run(["tar", "xf", "-", "-C", str(self.mirror)], input=data, check=True, timeout=300)
+        return "STOP" in listing
+
+    def push(self) -> int:
+        """Label maps not yet sent go next to their crops there. Returns how many."""
+        maps = sorted(str(p.relative_to(self.mirror)) for p in self.mirror.glob(f"*/w*.{self.tag}.png"))
+        maps = [m for m in maps if m not in self.pushed]
+        if not maps:
+            return 0
+        data = subprocess.run(["tar", "cf", "-", "-C", str(self.mirror), *maps], capture_output=True, check=True,
+                              timeout=300).stdout
+        self.bytes_out += len(data)
+        d = shlex.quote(self.dir)
+        stage = shlex.quote(self.dir.rstrip("/") + "/../batch/relay-stage")
+        self.ssh(f"mkdir -p {stage} && tar xf - -C {stage} && cd {stage} && for f in */*.png; do "
+                 f"[ -d {d}/\"$(dirname \"$f\")\" ] && mv \"$f\" {d}/\"$f\"; done; cd / && rm -rf {stage}", data)
+        self.pushed.update(maps)
+        return len(maps)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", type=Path, required=True, help="directory of building packets")
@@ -111,7 +169,11 @@ def main(argv=None) -> int:
                          "or nothing came for --idle-exit seconds")
     ap.add_argument("--idle-exit", type=float, default=3600.0)
     ap.add_argument("--walls-only", action="store_true", help="wall crops only, no context pictures")
+    ap.add_argument("--remote", help="USER@HOST:DIR: the packets are there (see above); --root is the local mirror")
     a = ap.parse_args(argv)
+    if a.remote:
+        a.watch = a.walls_only = True
+    relay = Relay(a.remote, a.root, a.tag) if a.remote else None
     import torch
 
     device = a.device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
@@ -122,14 +184,24 @@ def main(argv=None) -> int:
 
     def pending():
         for packet in sorted(p for p in a.root.iterdir() if p.is_dir() and (not a.only or p.name in a.only)):
+            if a.watch and not (packet / "views.json").exists():
+                continue  # a batch writes views.json after the crops: until then a crop may be half written
             pictures = list(packet.glob("w*.jpg")) + ([] if a.walls_only else list(packet.glob("context-*.jpg")))
             for path in sorted(pictures):
                 if a.force or not path.with_suffix(f".{a.tag}.png").exists():
                     yield path
 
     idle_since = time.time()
+    stop = False
     while True:
         worked = False
+        if relay is not None:
+            try:
+                stop = relay.pull()
+            except (subprocess.SubprocessError, OSError) as error:  # the network or the host away for a while
+                print(f"relay: pull failed: {error}", flush=True)
+                time.sleep(30.0)
+                continue
         for path in pending():
             out = path.with_suffix(f".{a.tag}.png")
             try:
@@ -148,17 +220,27 @@ def main(argv=None) -> int:
             seconds.append(time.time() - t)
             done += 1
             worked = True
+        if relay is not None:
+            try:
+                relay.push()
+            except (subprocess.SubprocessError, OSError) as error:
+                print(f"relay: push failed: {error}", flush=True)
+            if done and done % 200 == 0 and worked:
+                print(json.dumps({"images": done, "median_s": round(float(np.median(seconds[-200:])), 2),
+                                  "in_mb": round(relay.bytes_in / 1e6), "out_mb": round(relay.bytes_out / 1e6),
+                                  "at": time.strftime("%H:%M:%SZ", time.gmtime())}), flush=True)
         if not a.watch:
             break
         if worked:
             idle_since = time.time()
-        elif (a.root.parent / "batch/stop").exists() or time.time() - idle_since > a.idle_exit:
+        elif stop or (relay is None and (a.root.parent / "batch/stop").exists()) or time.time() - idle_since > a.idle_exit:
             break
         else:
-            time.sleep(1.0)
+            time.sleep(1.0 if relay is None else 3.0)
     summary = {"model": a.model, "tag": a.tag, "device": device, "images": done, "load_s": round(loaded - started, 1),
                "median_s": round(float(np.median(seconds)), 2) if seconds else None,
-               "total_s": round(time.time() - started, 1), "labels": list(LABELS)}
+               "total_s": round(time.time() - started, 1), "labels": list(LABELS),
+               **({"in_mb": round(relay.bytes_in / 1e6, 1), "out_mb": round(relay.bytes_out / 1e6, 1)} if relay else {})}
     (a.root / f"segment-{a.tag}.json").write_text(json.dumps(summary))
     print(json.dumps(summary), flush=True)
     return 0

@@ -64,9 +64,12 @@ class Panoramas:
         with Panoramas._guard:
             return Panoramas._locks.setdefault((pano.source, pano.id), threading.RLock())
 
-    def __init__(self, cache_dir: Path | None = None, google_zoom: int = GOOGLE_ZOOM):
+    def __init__(self, cache_dir: Path | None = None, google_zoom: int = GOOGLE_ZOOM, upright_from_lines: bool = True):
         """`google_zoom`: 4 for reading a facade (23 px a degree), 3 where colour is all that is asked (a quarter
-        of the bytes)."""
+        of the bytes). `upright_from_lines`: False takes world up from the panorama's own pitch and roll only, which
+        is enough for colour and saves the line fit (2 to 4 s a panorama on an osgallery-dev core, most of the time
+        a building's views took)."""
+        self.upright_from_lines = upright_from_lines
         from turkutex.streetview.panos import PanoCache
 
         self.cache = PanoCache()
@@ -206,13 +209,17 @@ class Panoramas:
         """World up in the panorama's frame (measured once per panorama and kept beside our crops)."""
         from qalib import upright
 
-        path = self.own / f"{pano.source}-{pano.id}.upright.json"
+        path = self.own / f"{pano.source}-{pano.id}.upright{'' if self.upright_from_lines else '-meta'}.json"
         with self._lock(pano):
             if path.exists():
                 return json.loads(path.read_text())
             started = time.time()
             meta_up = upright.metadata_up(pano.source, pano.heading, pano.meta.pitch_rad, pano.meta.roll_rad)
-            result = upright.estimate_up(self.pixels(pano), pano.heading, meta_up)
+            if self.upright_from_lines:
+                result = upright.estimate_up(self.pixels(pano), pano.heading, meta_up)
+            else:
+                result = {"up": meta_up or [0.0, 0.0, 1.0], "straightened": meta_up is not None,
+                          "method": "metadata" if meta_up is not None else "none", "check": "lines not fitted"}
             path.write_text(json.dumps(result))
             self.timings["upright_s"] += time.time() - started
             return result
