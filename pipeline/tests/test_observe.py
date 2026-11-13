@@ -177,4 +177,11 @@ def test_a_second_look_asks_for_the_complained_walls_only_and_keeps_the_rest():
     assert sorted(merged["description"]["opening_types"]) == ["door", "win"]
     assert [v["hidden_share"] for v in merged["views"]] == [0.1, 0.3]
     assert first["description"]["walls"][1]["bays"]["count"] == 3  # the first reading itself is untouched
-    assert set(reader.correction_schema()["properties"]) == {"walls", "opening_types", "views", "notes"}
+    assert set(reader.correction_schema()["properties"]) == {"walls", "opening_types", "materials", "roof", "views",
+                                                             "notes"}
+    # A roof given in the answer replaces the roof; materials are laid over the first ones.
+    roofed = reader.corrected(first, {"walls": [], "views": [], "materials": {"tile": {"family": "roof_tile"}},
+                                      "roof": {"material": "tile", "dormers": [{"type": "gable"}]}})
+    assert roofed["description"]["roof"]["dormers"] == [{"type": "gable"}]
+    assert "tile" in roofed["description"]["materials"]
+    assert [w["bays"]["count"] for w in roofed["description"]["walls"]] == [4, 3]

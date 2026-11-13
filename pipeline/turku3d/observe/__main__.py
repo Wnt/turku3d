@@ -4,6 +4,7 @@
     python -m turku3d.observe describe (--building KEY... | --at E,N [--radius R] | --view ID...) [--effort low]
     python -m turku3d.observe assemble                descriptions again from the saved readings, no model call
     python -m turku3d.observe review [--building KEY...]   compare each wall with a drawing of what gets built
+    python -m turku3d.observe roof --building KEY...       ask again about the dormers and chimneys of read buildings
 
 Views can be prepared on another machine and read here: run `views` there (scripts/dev/on-host HOST --data
 raw/laz/maanpinta --pull observe/buildings -- python -m turku3d.observe views --view ID... --min-share 0.01), then
@@ -176,6 +177,41 @@ def review(packet: Path, root: Path, effort: str, force: bool = False) -> dict:
     return {**done, **line}
 
 
+def ask(packet: Path, root: Path, effort: str, text: str, about: str) -> dict:
+    """A question to the reader about a building already read (a reader.QUESTION text, answered as a correction).
+    The corrected reading replaces the saved one, at the tier it had, when it is valid and loses hardly more
+    parts; the reading before it is kept as reading-before-<about>.json."""
+    from turkutex.streetview.height import ground_height
+
+    from turku3d.world.kinds.building import description as fmt
+
+    record = json.loads((packet / "views.json").read_text())
+    saved = json.loads((packet / "reading.json").read_text())
+    reading, meta = saved["reading"], saved["meta"]
+    tier = meta.get("tier", "observed")
+    before = check.count(check.build_report(reader.assemble(record, reading, meta, ground=ground_height, tier=tier)),
+                         reader_only=True)
+    again, meta_again = reader.read(record, packet, effort=effort, feedback_text=text, first=reading)
+    total = {**meta_again, "seconds": round(meta["seconds"] + meta_again["seconds"], 1),
+             "cost_usd": (meta["cost_usd"] or 0) + (meta_again["cost_usd"] or 0),
+             **({"tier": meta["tier"]} if "tier" in meta else {})}
+    problems = fmt.errors(reader.assemble(record, again, total, ground=ground_height, tier=tier))
+    after = None if problems else check.count(check.build_report(
+        reader.assemble(record, again, total, ground=ground_height, tier=tier)), reader_only=True)
+    line = {"building": record["building"], "asked": about, "call_s": meta_again["seconds"],
+            "call_cost_usd": meta_again["cost_usd"], "invalid": problems[:5] or None,
+            "dropped_reader": f"{before} -> {after}", "changed": str(again.get("notes", ""))[:400]}
+    if problems or after > before + REVIEW_MAY_DROP:
+        return {**line, "kept": "the reading as it was (the answer was invalid or lost more parts)"}
+    (packet / f"reading-before-{about}.json").write_text(json.dumps(saved, indent=1, ensure_ascii=False))
+    (packet / "reading.json").write_text(json.dumps({"reading": again, "meta": total}, indent=1, ensure_ascii=False))
+    done = finish(record, again, total, packet, root)
+    roof = again["description"].get("roof", {})
+    return {**done, **line, "dormers": [[d.get("type"), d.get("anchor", {}).get("wall"), d.get("anchor", {}).get("u_m"),
+                                         d.get("w_m")] for d in roof.get("dormers", [])],
+            "chimneys": len(roof.get("chimneys", []))}
+
+
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0,
                     least: float = VISIBLE_SHARE) -> dict:
     """{building key: share of the view's pixels} from rays against the LoD2 scene."""
@@ -220,7 +256,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "assemble", "review"])
+    ap.add_argument("command", choices=["views", "describe", "assemble", "review", "roof"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--at", help="E,N (EPSG:3877): the nearest building, or all within --radius")
@@ -267,6 +303,19 @@ def main(argv=None) -> int:
             done = list(pool.map(one, packets))
         print(json.dumps({"reviewed": sum(bool(x.get("stored")) for x in done), "of": len(done),
                           "cost_usd": round(sum(x.get("cost_usd") or 0 for x in done), 2)}), flush=True)
+        return 0
+    if a.command == "roof":
+        cost = 0.0
+        for key in a.building or sys.exit("roof: name the buildings with --building"):
+            packet = root / "buildings" / key
+            try:
+                saved = json.loads((packet / "reading.json").read_text())
+                line = ask(packet, root, a.effort, reader.roof_text(saved["reading"]), "roof")
+            except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
+                line = {"building": key, "error": f"{type(error).__name__}: {error}"[:300]}
+            cost += line.get("call_cost_usd") or 0
+            print(json.dumps({k: v for k, v in line.items() if k != "description"}, ensure_ascii=False), flush=True)
+        print(json.dumps({"asked": len(a.building), "cost_usd": round(cost, 2)}), flush=True)
         return 0
     if a.command == "assemble":
         for packet in sorted((root / "buildings").iterdir()):

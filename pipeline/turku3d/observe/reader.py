@@ -32,6 +32,7 @@ U_FIELDS = ("u_m", "u_from_m", "u_to_m", "first_m")
 V_FIELDS = ("v_m", "from_m", "to_m", "ground_floor_m")  # heights above the wall base
 GROUND_REACH_M = 1.5  # a ground line read further than this from the surveyed ground is not that ground
 GROUND_OUT_M = 0.8  # the surveyed ground is taken this far in front of the wall
+QUESTION = "Question."  # a second look that asks its own question starts its text with this (task_text)
 
 INSTRUCTIONS = """\
 You measure one real building in Turku, Finland from street photographs, so that a 3D generator can rebuild it and \
@@ -132,7 +133,8 @@ def reading_schema() -> dict:
 
 
 def correction_schema() -> dict:
-    """What a second look answers with: the corrected walls, opening types that changed, and their images."""
+    """What a second look answers with: the corrected walls, the opening types and materials that changed, the
+    roof when it was asked about, and the images looked at."""
     whole = reading_schema()
     description = whole["properties"]["description"]["properties"]
     return {
@@ -140,17 +142,22 @@ def correction_schema() -> dict:
         "additionalProperties": False,
         "required": ["walls", "views"],
         "properties": {"walls": description["walls"], "opening_types": description["opening_types"],
+                       "materials": description["materials"], "roof": description["roof"],
                        "views": whole["properties"]["views"], "notes": {"type": "string"}},
         "$defs": whole["$defs"],
     }
 
 
 def corrected(reading: dict, correction: dict) -> dict:
-    """The first reading with a second look's walls, opening types and image reports laid over it."""
+    """The first reading with a second look's walls, opening types, materials, roof and image reports laid over
+    it. A roof given replaces the whole roof."""
     out = copy.deepcopy(reading)
     walls = {w.get("id"): w for w in correction.get("walls", [])}
     out["description"]["walls"] = [walls.get(w.get("id"), w) for w in out["description"].get("walls", [])]
     out["description"].setdefault("opening_types", {}).update(correction.get("opening_types") or {})
+    out["description"].setdefault("materials", {}).update(correction.get("materials") or {})
+    if correction.get("roof"):
+        out["description"]["roof"] = correction["roof"]
     views = {v["file"]: v for v in correction.get("views", [])}
     out["views"] = [views.pop(v["file"], v) for v in out.get("views", [])] + list(views.values())
     return out
@@ -177,7 +184,8 @@ def task_text(record: dict, packet: Path, feedback_text: str = "", first: dict |
         lines.append(f"- {short}: {w['length_m']:.1f} m long, faces {w['bearing_deg']:.0f} deg, eaves at v "
                      f"{w['eaves_h'] - w['base_h']:.1f} m, top at v {w['top_h'] - w['base_h']:.1f} m, {state}{extra}")
     lines += ["", "Images:"]
-    for c in record["contexts"][:1] if asked is not None else record["contexts"]:
+    question = feedback_text.startswith(QUESTION)  # its own question may be about the roof: every context view
+    for c in record["contexts"][:1] if asked is not None and not question else record["contexts"]:
         p = c["panorama"]
         lines.append(f"- {Path(c['file']).name}: context view, {p['provider']} {p['date']}, "
                      f"{c['distance_m']:.0f} m from the building, looking {c['pose']['yaw']:.0f} deg")
@@ -191,6 +199,13 @@ def task_text(record: dict, packet: Path, feedback_text: str = "", first: dict |
                      f"{c['x1_m']:.1f} m")
     if feedback_text.startswith("Review round."):
         lines += ["", feedback_text]
+    elif asked is not None and feedback_text.startswith(QUESTION):
+        mine = first["description"]
+        lines += ["", feedback_text, "", "Your first reading of what is asked about:",
+                  json.dumps({"walls": [w for w in mine.get("walls", []) if w.get("id") in asked],
+                              "roof": mine.get("roof", {}), "materials": mine.get("materials", {}),
+                              "opening_types": sorted(mine.get("opening_types", {}))}, ensure_ascii=False)]
+        return "\n".join(lines)
     elif asked is not None:
         mine = first["description"]
         lines += ["", "A first reading of this building was given to the generator, which could not build the "
@@ -378,6 +393,32 @@ def feedback(record: dict, reading: dict, complaints: dict, ground=None) -> str:
                 if "v_m" in item:
                     where += f", v {item['v_m'] + shift:.1f} m"
             lines.append(f"  - {item['what']}{where}: {item['why']}")
+    return "\n".join(lines)
+
+
+def roof_text(reading: dict) -> str:
+    """A question about what stands on the roof of a read building: its dormers and chimneys again, wall by wall."""
+    roof = reading["description"].get("roof", {})
+    walls = {w.get("id"): w for w in reading["description"].get("walls", [])}
+    under = sorted({part.get("anchor", {}).get("wall") for kind in ("dormers", "chimneys") for part in roof.get(kind, [])}
+                   & set(walls)) or sorted(walls)
+    lines = [QUESTION + " This is about the roof of a building you read before: the dormers and chimneys above the "
+             "walls below. Look at the context views and at each wall's crops above its eaves line."]
+    for wall in under:
+        have = [f"{d.get('type')} at u {d['anchor']['u_m']:.1f} m" for d in roof.get("dormers", [])
+                if d.get("anchor", {}).get("wall") == wall and "u_m" in d.get("anchor", {})]
+        lines.append(f"- wall {wall} (measured on {walls[wall].get('measured_on', '?')}): your reading has "
+                     + (", ".join(have) if have else "no dormers") + " above it.")
+    lines += ["Count the dormers again and name each one's type by rule 13 of your instructions (its own little "
+              "roof: a triangle is `gable`, one slope is `shed`; a face of the wall rising through the eaves is "
+              "`wall_dormer`). For each give the anchor (`wall`, `u_m` of its centre on the ruler of the crop that "
+              "wall was measured on, `setback_m` behind the wall face), `w_m`, `h_m` (its whole height over the "
+              "roof at its front), `rise_m` for a gable's triangle, its wall material, `roof_material` and its "
+              "`window` (an opening type). Leave out what the photographs do not show; a roof window lying in the "
+              "slope is a skylight under `details`, not a dormer.",
+              "Answer with `roof`: the whole roof entry again, corrected (it replaces the first one; keep its "
+              "covering, eaves and verge unless the photographs show otherwise), with `walls` as an empty list, "
+              "`opening_types` only for a dormer window type you add, and the report of the images you looked at."]
     return "\n".join(lines)
 
 
