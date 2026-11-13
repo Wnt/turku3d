@@ -111,7 +111,7 @@ class Planting:
                 found = census.cell(i, j, sources.wfs.features)
                 if not (found["hedges"] or found["masses"] or found["shrubs"]):
                     continue
-                refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.recipe()}"},
+                refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.RECIPE}"},
                         *({"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer in LAYERS),
                         {"source": "osm:barrier=hedge", "key": cell_key(i, j)}]
                 stubs.append(Stub(f"planting/{cell_key(i, j)}", cell, refs,

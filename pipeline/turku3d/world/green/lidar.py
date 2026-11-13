@@ -10,13 +10,16 @@ in the city, private gardens included. A reduction keeps what planting needs and
 - `hits`: the number of ground returns per 0.5 m cell (how much of the pulse reached the ground under a crown).
 
 The returns are sorted into 31.25 m blocks so that a window read touches only its own blocks. Files live in the
-shared source cache, `$TURKU3D_WORLD_DATA/sources/green/lidar-<recipe>/<tile>.npz`, and rebuild when this file
-changes. A tile is named by its north-west corner, as the city names it.
+shared source cache, `$TURKU3D_WORLD_DATA/sources/green/lidar-<RECIPE>/<tile>.npz`. A tile is named by its
+north-west corner, as the city names it.
+
+The survey ends at the city's edge: a tile the city's server does not have (HTTP 404) is unsurveyed, not an error.
+It is remembered as `<tile>.unsurveyed` beside the fetched tiles, holds no returns, and a window that reaches into
+it takes its ground from the nearest measured cells.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import subprocess
 from dataclasses import dataclass
@@ -35,15 +38,18 @@ BLOCKS = int(TILE / BLOCK)
 MIN_HEIGHT = 0.2
 MAX_HEIGHT = 45.0
 GROUND, LOW, MEDIUM, HIGH, BUILDING = 2, 3, 4, 5, 6
+# Names the reduction's content. Change it when `reduce` keeps something else; an edit that leaves the reduced
+# layers as they are must not re-read a city's worth of tiles.
+RECIPE = "fb10002f9940"
+
+
+class Unsurveyed(FileNotFoundError):
+    """The city's survey has no such tile."""
 
 
 def sources_root() -> Path:
     root = os.environ.get("TURKU3D_WORLD_DATA")
     return (Path(root).expanduser() if root else config.data_root() / "world") / "sources"
-
-
-def recipe() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
 
 
 def tile_name(e: float, n: float) -> str:
@@ -65,6 +71,9 @@ def laz_path(name: str) -> Path:
     for path in (config.raw_dir("laz") / "pistepilvi" / f"{name}.laz", config.raw_dir("laz-3x3") / f"{name}.laz", fetched):
         if path.exists():
             return path
+    missing = fetched.with_suffix(".unsurveyed")
+    if missing.exists():
+        raise Unsurveyed(name)
     fetched.parent.mkdir(parents=True, exist_ok=True)
     part = fetched.with_name(f"{fetched.name}.{os.getpid()}.part")
     url = config.LAZ_URL.format(dataset="pistepilvi", name=name)
@@ -72,6 +81,9 @@ def laz_path(name: str) -> Path:
                           capture_output=True, text=True, timeout=930)
     if done.returncode:
         part.unlink(missing_ok=True)
+        if "returned error: 404" in done.stderr:
+            missing.write_text(f"{url}\n{done.stderr.strip()}\n")
+            raise Unsurveyed(name)
         raise FileNotFoundError(f"No lidar tile {name}: {done.stderr.strip()}")
     part.replace(fetched)
     return fetched
@@ -139,12 +151,16 @@ def reduce(name: str) -> dict[str, np.ndarray]:
 
 
 @lru_cache(maxsize=12)
-def tile(name: str) -> dict[str, np.ndarray]:
-    path = sources_root() / "green" / f"lidar-{recipe()}" / f"{name}.npz"
+def tile(name: str) -> dict[str, np.ndarray] | None:
+    """The reduction of a tile, or None where the city was not surveyed."""
+    path = sources_root() / "green" / f"lidar-{RECIPE}" / f"{name}.npz"
     if path.exists():
         with np.load(path) as data:
             return {key: data[key] for key in data.files}
-    layers = reduce(name)
+    try:
+        layers = reduce(name)
+    except Unsurveyed:
+        return None
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(f"{path.stem}.{os.getpid()}.part.npz")
     np.savez_compressed(part, **layers)
@@ -176,15 +192,23 @@ class Window:
         self.ground = np.zeros((rows, cols), np.float32)
         self.roof = np.zeros((rows, cols), np.float32)
         self.hits = np.zeros((rows, cols), np.uint16)
-        parts = []
+        known = np.zeros((rows, cols), bool)
+        parts = [Returns(np.zeros(0), np.zeros(0), np.zeros(0, np.float32), np.zeros(0, np.uint8), np.zeros((0, 3), np.uint8),
+                         np.zeros(0, bool))]
         for te in range(int(np.floor(box[0] / TILE)), int(np.floor((box[2] - 1e-6) / TILE)) + 1):
             for tn in range(int(np.floor(box[1] / TILE)), int(np.floor((box[3] - 1e-6) / TILE)) + 1):
                 data = tile(f"{int(te * TILE)}_{int((tn + 1) * TILE)}")
+                if data is None:
+                    continue
                 c_from, r_from = te * SIDE - self.col0, tn * SIDE - self.row0
                 c0, c1, r0, r1 = max(c_from, 0), min(c_from + SIDE, cols), max(r_from, 0), min(r_from + SIDE, rows)
                 for key in ("ground", "roof", "hits"):
                     getattr(self, key)[r0:r1, c0:c1] = data[key][r0 - r_from:r1 - r_from, c0 - c_from:c1 - c_from]
+                known[r0:r1, c0:c1] = True
                 parts.append(self._returns(data, te * TILE, tn * TILE))
+        self.surveyed = bool(known.any())  # False: the whole box lies outside the survey
+        if self.surveyed and not known.all():
+            self.ground = fill(self.ground, known)
         self.returns = Returns(*(np.concatenate([getattr(p, key) for p in parts])
                                  for key in ("e", "n", "h", "cls", "rgb", "first")))
 

@@ -289,7 +289,7 @@ class Trees:
                 found = census.cell(i, j, sources.wfs.features)
                 if not found["trees"] and not found["absent"]:
                     continue
-                refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.recipe()}"},
+                refs = [{"source": "turku-lidar:pistepilvi", "key": f"{cell_key(i, j)}@{census.RECIPE}"},
                         *({"source": f"turku-wfs:{layer}", "key": cell_key(i, j)} for layer in ("GIS:Puut", "kanta:Lehtipuu", "kanta:Havupuu"))]
                 wide = (cell[0] - 20.0, cell[1] - 20.0, cell[2] + 20.0, cell[3] + 20.0)
                 stubs.append(Stub(f"trees/{cell_key(i, j)}", cell, [*refs, {"source": "turku-wfs:GIS:Katualueet", "key": cell_key(i, j)}],
