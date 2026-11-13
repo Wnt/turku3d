@@ -230,9 +230,16 @@ def test_outside_the_centre_kerbs_are_concrete_and_unmapped_streets_get_grass_ve
     drive = shapely.LineString([(220.0, 50.0), (220.0, 80.0)])
     mapped = gpd.GeoDataFrame({'osm_type': ['way', 'way'], 'osm_id': [1, 2], 'highway': ['residential', 'service'],
                                'building': [None, None], 'tags': ['{}', '{}']}, geometry=[street, drive])
-    verges = ground._verges(mapped, centre)
+    found = ground._verges(mapped, centre)
+    assert all(row['rank'] > ground.UNMAPPED_RANK for _, row in found)   # they only replace the unmapped base
+    verges = [(s, row) for s, row in found if row['use'] == 'verge']
     shape = shapely.unary_union([s for s, _ in verges])
-    assert all(row['use'] == 'verge' and row['rank'] > ground.UNMAPPED_RANK for _, row in verges)
+    road = shapely.unary_union([s for s, row in found if row['key'] == 'osm:way/1:carriageway'])
+    assert road.contains(shapely.Point(250.0, 50.0)) and road.intersection(centre).area < 1e-6
+    assert {row['use'] for _, row in found if row['key'].startswith('osm:way/1:carriageway')} == {'asphalt-yard'}
+    forest = (shapely.box(200.0, 0.0, 300.0, 100.0), {'key': 'osm:way/9', 'source': 'osm', 'level': 'high', 'use': 'rough', 'rank': 3})
+    laid = ground._with_open_streets([forest], mapped, centre)
+    assert not laid[0][0].contains(shapely.Point(250.0, 50.0)) and laid[0][0].contains(shapely.Point(250.0, 90.0))  # the lane cuts the wood
     assert shape.contains(shapely.Point(250.0, 50.0 + 2.25 + 1.5))        # beside the carriageway
     assert not shape.contains(shapely.Point(250.0, 50.0))                  # not on it
     assert not shape.contains(shapely.Point(220.0, 53.5))                  # not across the driveway

@@ -89,7 +89,9 @@ def kerb_stone(cell, zones) -> str | None:
 # footways or not at all; w2-rules, 2026-11-13, 57 gap street views and the dev and fresh points), against none in
 # the centre. So a strip of VERGE_M beyond the carriageway's assumed half width is a grass verge wherever nothing
 # else covers it, outside the zones of the city's centre typing. A verge is no kerb's reason: of the carriageways
-# the register maps without footways, 11 of 16 read no kerb.
+# the register maps without footways, 11 of 16 read no kerb. The carriageway between the verges is laid too, at the
+# same rank, from the street's surface tag (a gravel lane is gravel), else asphalt: it was the base before, and
+# where the base is meadow (`unseen`) a road must not be.
 VERGE_M = 3.0
 VERGE_RANK = 2 * UNMAPPED_RANK  # under every mapped surface and every orthophoto outline: it replaces only the base
 ROAD_WIDTH = {'motorway': 10.0, 'trunk': 9.0, 'primary': 8.0, 'secondary': 7.5, 'tertiary': 6.5,
@@ -106,7 +108,8 @@ def _road_width(highway: str, tags: dict) -> float:
 
 
 def _verges(mapped, zones) -> list[tuple]:
-    """(shape, row) of the grass verges along the streets of the open map outside the centre typing."""
+    """(shape, row) of the grass verges and the carriageways of the streets of the open map outside the centre typing
+    (both only replace the unmapped base)."""
     if mapped is None or zones is None:
         return []
     lines = mapped[(mapped.geom_type == 'LineString') & mapped.highway.notna()]
@@ -120,13 +123,33 @@ def _verges(mapped, zones) -> list[tuple]:
     roofs = mapped[mapped.building.notna() & mapped.geom_type.isin(('Polygon', 'MultiPolygon'))]
     taken = shapely.unary_union([carriageways, zones, *across, *roofs.geometry])
     found = []
+    blocked = shapely.unary_union([zones, *roofs.geometry])
     for row, w in zip(roads.itertuples(), widths):
+        tags = _tags(row)
+        use = covers.of_osm({'surface': tags.get('surface')}) or 'asphalt-yard'
+        road = row.geometry.buffer(w, cap_style='flat').difference(blocked)
+        for n, part in enumerate(_polygons(road)):
+            if part.area >= 1.0:
+                found.append((part, {'key': f'osm:way/{row.osm_id}:carriageway' + (f'-{n}' if n else ''), 'source': 'osm',
+                                     'level': 'high', 'use': use, 'surface': '', 'rank': VERGE_RANK}))
         strip = row.geometry.buffer(w + VERGE_M, cap_style='flat').difference(taken)
         for n, part in enumerate(_polygons(strip)):
             if part.area >= 1.0:
                 found.append((part, {'key': f'osm:way/{row.osm_id}:verge' + (f'-{n}' if n else ''), 'source': 'osm',
                                      'level': 'high', 'use': 'verge', 'surface': '', 'rank': VERGE_RANK}))
     return found
+
+
+def _with_open_streets(surfaces, mapped, zones) -> list[tuple]:
+    """`surfaces` with the open map's carriageways and verges outside the centre typing (`_verges`). The open map
+    draws its forests and meadows across the lanes in them: those areas end at the carriageways."""
+    streets = _verges(mapped, zones)
+    roads = [shape for shape, row in streets if ':carriageway' in row['key']]
+    if roads:
+        cut = shapely.unary_union(roads)
+        surfaces = [(shape.difference(cut), row) if row['source'] == 'osm' and 3 <= row['rank'] < UNMAPPED_RANK - 1 else (shape, row)
+                    for shape, row in surfaces]
+    return surfaces + streets
 
 
 # Land the orthophoto never saw. The city's orthophoto ends short of its rural outskirts (Paattinen, the south-west
@@ -498,7 +521,7 @@ class Ground:
             surfaces.append((shape, {'key': f'ortho:{name}:{centre.x:.1f}_{centre.y:.1f}', 'source': 'ortho', 'level': 'high',
                                      'use': name, 'surface': '', 'rank': UNMAPPED_RANK + n}))
         zones = centre_zones(sources, box)
-        surfaces += _verges(mapped, zones)
+        surfaces = _with_open_streets(surfaces, mapped, zones)
         imagery = unseen_mask(sources, box)
         wet, quays = banks.quay_lines(box)
         quays = None if quays is None or quays.is_empty else quays
