@@ -122,23 +122,53 @@ def build_unit(store: Store, name: str, uid: str, margin: float = MARGIN, log=pr
     return manifest
 
 
-def _cpu_sampler(path: Path, stop: threading.Event, every: float = 5.0) -> None:
-    """Host CPU busy share and load every few seconds, one JSON line each (Linux /proc/stat; load only elsewhere)."""
-    def ticks():
+def _trees(roots: dict[int, str]) -> dict[str, tuple[float, float]]:
+    """CPU seconds (user + system) and resident MB of each root process with all its descendants (Linux /proc)."""
+    parent, ticks, rss = {}, {}, {}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
         try:
-            parts = [float(v) for v in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
-            return sum(parts), parts[3] + parts[4]
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
         except OSError:
-            return None
-    last = ticks()
+            continue
+        pid = int(entry.name)
+        parent[pid], ticks[pid], rss[pid] = int(fields[1]), int(fields[11]) + int(fields[12]), int(fields[21])
+    hz, page = os.sysconf("SC_CLK_TCK"), os.sysconf("SC_PAGE_SIZE")
+    out = {}
+    for root, uid in roots.items():
+        members, frontier = {root}, [root]
+        while frontier:
+            frontier = [pid for pid, up in parent.items() if up in frontier and pid not in members]
+            members.update(frontier)
+        out[uid] = (sum(ticks.get(pid, 0) for pid in members) / hz, sum(rss.get(pid, 0) for pid in members) * page / 2**20)
+    return out
+
+
+def _cpu_sampler(path: Path, stop: threading.Event, running: dict, every: float = 5.0) -> None:
+    """Every few seconds one JSON line: host CPU busy share and load, and per running unit the cores its process tree
+    used since the last line and its resident memory (Linux /proc; load only elsewhere). The 64-core proof is made
+    from these per-unit profiles (status/w2-region.md)."""
+    linux = Path("/proc/stat").exists()
+
+    def host():
+        parts = [float(v) for v in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+        return sum(parts), parts[3] + parts[4]
+    last, before, then = (host() if linux else None), {}, time.time()
     with path.open("a") as out:
         while not stop.wait(every):
-            current = ticks()
-            row = {"t": round(time.time(), 1), "load": round(os.getloadavg()[0], 2), "cores": os.cpu_count()}
-            if current and last:
+            now_t = time.time()
+            row = {"t": round(now_t, 1), "load": round(os.getloadavg()[0], 2), "cores": os.cpu_count()}
+            if linux:
+                current = host()
                 total, idle = current[0] - last[0], current[1] - last[1]
                 row["busy"] = round(1 - idle / total, 4) if total else None
-            last = current
+                last = current
+                trees = _trees({pid: entry[0] for pid, entry in list(running.items())})
+                row["units"] = {uid: {"cores": round((cpu - before.get(uid, cpu)) / (now_t - then), 2), "mb": round(mb)}
+                                for uid, (cpu, mb) in trees.items()}
+                before = {uid: cpu for uid, (cpu, _) in trees.items()}
+            then = now_t
             out.write(json.dumps(row) + "\n")
             out.flush()
 
@@ -149,9 +179,9 @@ def build_units(store: Store, name: str, units: list[str], parallel: int, margin
     work = Path(os.environ.get("TURKU3D_WORK", store.root.parent)) / "region" / name
     work.mkdir(parents=True, exist_ok=True)
     stop = threading.Event()
-    sampler = threading.Thread(target=_cpu_sampler, args=(work / "cpu.jsonl", stop), daemon=True)
-    sampler.start()
     queue, running, results = list(units), {}, []
+    sampler = threading.Thread(target=_cpu_sampler, args=(work / "cpu.jsonl", stop, running), daemon=True)
+    sampler.start()
     started = time.time()
     try:
         while queue or running:
@@ -281,3 +311,57 @@ def assemble(store: Store, name: str, log=print) -> dict:
         if row["differ"]:
             log(f"  seam {border}: {row['equal']} equal, {row['differ']} differ: {', '.join(row['ids'][:6])}")
     return index
+
+
+# ------------------------------------------------------------------------------------------------- border views
+
+def border_views(store: Store, name: str, per_border: int = 2, back: float = 30.0) -> dict:
+    """A capture view set (`turku-capture-views/1`) that looks across the borders between built units: on each
+    border, the streets that cross it (OpenStreetMap, larger streets first, crossings at least 60 m apart), a camera
+    at eye height `back` metres before the crossing looking along the street over the border."""
+    import shapely
+
+    from .collision import DRIVABLE
+    from .sources import Sources
+
+    plan = read_plan(store, name)
+    built = [u for u in all_units(plan or {"rings": []}) if store.location(f"{name}/{u}") is not None]
+    sources = Sources()
+    kinds = (*DRIVABLE, "pedestrian", "footway", "cycleway")
+    views = []
+    for uid in built:
+        i, j = unit_of(uid)
+        for other, edge in ((unit_id(i + 1, j), "east"), (unit_id(i, j + 1), "south")):
+            if other not in built:
+                continue
+            x0, z0, x1, z1 = square(i, j)
+            a = (x1, z0) if edge == "east" else (x0, z1)
+            b = (x1, z1) if edge == "east" else (x1, z1)
+            (ea, na, _), (eb, nb, _) = to_survey(a[0], 0, a[1]), to_survey(b[0], 0, b[1])
+            border = shapely.LineString([(ea, na), (eb, nb)])
+            rows = sources.osm.features(border.buffer(5).bounds)
+            crossings = []
+            for rank, highway in enumerate(kinds):
+                for line in rows[rows["highway"] == highway].geometry:
+                    if line.geom_type != "LineString" or not line.intersects(border):
+                        continue
+                    hit = line.intersection(border)
+                    point = hit if hit.geom_type == "Point" else hit.representative_point()
+                    if any(point.distance(c[1]) < 60 for c in crossings):
+                        continue
+                    crossings.append((rank, point, line))
+            for rank, point, line in sorted(crossings, key=lambda c: c[0])[:per_border]:
+                along = line.project(point)
+                p, q = line.interpolate(max(along - 3, 0)), line.interpolate(min(along + 3, line.length))
+                d = (q.x - p.x, q.y - p.y)
+                norm = math.hypot(*d) or 1.0
+                d = (d[0] / norm, d[1] / norm)
+                e, n = point.x - back * d[0], point.y - back * d[1]
+                ground = float(sources.terrain.heights(e, n)[0])
+                views.append({"id": f"{name}-{uid}-{edge}-{len(views):02d}", "group": f"{uid}|{other}", "aim": "street",
+                              "pose": {"E": round(e, 2), "N": round(n, 2), "H": round(ground + 1.7, 2),
+                                       "yaw": round(math.degrees(math.atan2(d[0], d[1])) % 360, 1), "pitch": -3.0, "roll": 0.0, "fov": 65.0}})
+    return {"schema": "turku-capture-views/1", "scene": None, "quality": "medium", "time": "2026-06-15T14:00:00+03:00",
+            "weather": "clear", "viewport": [960, 720], "renderScale": 1,
+            "note": f"Region {name}: streets crossing the borders between its built units, seen from {back:g} m before the border "
+                    "(pipeline/turku3d/world/region.py border_views).", "views": views}

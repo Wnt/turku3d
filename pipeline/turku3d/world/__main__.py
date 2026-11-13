@@ -186,10 +186,11 @@ def main() -> None:
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")
     region = commands.add_parser("region", help="one continuous world in 500 m units (docs/design/world-regions.md)")
-    region.add_argument("action", choices=("plan", "build", "unit", "assemble"),
+    region.add_argument("action", choices=("plan", "build", "unit", "assemble", "views"),
                         help="plan: add a ring to the plan and list its units; build: plan, build the units not built yet "
                              "(or --rebuild), assemble; unit: build one unit (what build runs per process); assemble: "
-                             "write the region index and chunk objects from the built units")
+                             "write the region index and chunk objects from the built units; views: a capture view "
+                             "set across the borders between built units (--out)")
     region.add_argument("name")
     region.add_argument("unit", nargs="?", help="unit id u_I_J (action unit)")
     region.add_argument("--at", metavar="E,N", help="the region's centre (first ring)")
@@ -200,6 +201,7 @@ def main() -> None:
     region.add_argument("--rebuild", action="store_true", help="build planned units that are built already too")
     region.add_argument("--parallel", type=int, default=3, help="units built at once (each its own process)")
     region.add_argument("--margin", type=float, default=62.5, help="metres discovered around a unit's square")
+    region.add_argument("--out", help="views: the view set file to write")
     args = parser.parse_args()
     store = Store()
     if args.command == "build":
@@ -231,6 +233,11 @@ def main() -> None:
             return
         if args.action == "assemble":
             regions.assemble(store, args.name)
+            return
+        if args.action == "views":
+            views = regions.border_views(store, args.name)
+            Path(args.out).write_text(json.dumps(views, indent=1))
+            print(f"{len(views['views'])} views across unit borders -> {args.out}")
             return
         at = tuple(float(v) for v in args.at.split(",")) if args.at else None
         plan = regions.extend(store, args.name, at, args.radius, args.with_area, args.units.split(",") if args.units else None)
