@@ -56,17 +56,18 @@ def mode(pixels: np.ndarray, radius: float = CLUSTER_DE) -> tuple[np.ndarray, np
     return centre, near
 
 
+def _box(mask: np.ndarray, px: int, axis: int) -> np.ndarray:
+    """Whether any pixel within `px` along one axis is set (running sums: the cost does not grow with px)."""
+    pad = [(0, 0), (0, 0)]
+    pad[axis] = (px + 1, px)
+    sums = np.cumsum(np.pad(mask.astype(np.int32), pad), axis=axis)
+    n = mask.shape[axis]
+    return (np.take(sums, np.arange(2 * px + 1, 2 * px + 1 + n), axis=axis) - np.take(sums, np.arange(n), axis=axis)) > 0
+
+
 def _grow(mask: np.ndarray, px: int) -> np.ndarray:
-    """The mask grown by `px` pixels (a square, by shifted ORs: no scipy on the hosts' pipeline environment)."""
-    out = mask.copy()
-    for _ in range(max(0, px)):
-        grown = out.copy()
-        grown[1:] |= out[:-1]
-        grown[:-1] |= out[1:]
-        grown[:, 1:] |= out[:, :-1]
-        grown[:, :-1] |= out[:, 1:]
-        out = grown
-    return out
+    """The mask grown by `px` pixels each way (a square; no scipy in the hosts' pipeline environment)."""
+    return _box(_box(mask, px, 0), px, 1) if px > 0 else mask.copy()
 
 
 def _part(lab_pixels: np.ndarray, near: np.ndarray, centre: np.ndarray, of: int) -> dict:
