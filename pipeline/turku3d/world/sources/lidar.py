@@ -362,6 +362,10 @@ def missing(tiles: list[str]) -> list[dict[str, tuple[str, ...]]]:
 
 def _send(sender, job) -> None:
     try:
+        try:  # when the machine runs out of memory, this process goes first: its tile is made again, a build is not
+            Path("/proc/self/oom_score_adj").write_text("500")
+        except OSError:
+            pass
         sender.send(_work(job))
     except BaseException as error:  # the parent raises it; a traceback object does not travel
         import traceback
