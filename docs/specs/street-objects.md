@@ -165,3 +165,17 @@ only. Compile: the post, vehicle heads and pedestrian heads are three shared ass
 | Gate posts | `kanta:Rakenne` 66114 points | | | default |
 | Traffic lights | no register: OSM `highway=traffic_signals` nodes plus lidar poles | | | |
 | Furniture | `GIS:Varusteet` (benches, bins), `GIS:Polkupyoraparkki`, `GIS:Pysakointiautomaatit`, OSM | model name | street direction | defaults |
+
+## Fences read from panoramas (deliverable 4, first part)
+
+`python -m turku3d.world.objects.fenceread E,N,RADIUS [--limit N] [--dry]` reads the fences of an area that have no
+stored description. `objects/fencecrop.py` cuts a strip of the nearest panorama (2.5 to 22 m from the line) on the
+vertical plane through the fence line, at most 16 m long, 56 px per metre, with metre rulers and the drawn height
+marked; `objects/fenceread.py` asks a vision model (JSON schema, only the Read tool) for the family (`board`,
+`picket`, `iron`, `mesh`, `stone-wall`, `railing`, `none`), the height of the fence itself, its paint, whether a
+hedge runs along it, and gates. A reading that is not of low confidence is stored at tier `observed` with only the
+fields it replaces (`family`, `height`, `colour`, `guessed` without them) and the reading itself under `seen`; a
+stored description is never overwritten. `none` builds nothing; `mesh` (a top rail over a grid of wires in the read colour) is a family only a reading gives.
+Measured on three Portsa fences: 6 to 12 s and 0.03 to 0.06 USD notional each at low effort. Gates read this way are
+kept in `seen` and not built yet.
+

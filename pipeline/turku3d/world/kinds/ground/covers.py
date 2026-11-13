@@ -60,7 +60,6 @@ OSM = (
     (('natural', ('grassland', 'heath')), 'grass'),
     (('landuse', ('flowerbed', 'forest', 'allotments')), 'planting'),
     (('natural', ('scrub', 'wood')), 'planting'),
-    (('natural', ('water',)), 'water'),
     (('natural', ('bare_rock',)), 'rock'),
     (('natural', ('sand', 'beach')), 'sand'),
     (('leisure', ('playground',)), 'sand'),
@@ -73,8 +72,6 @@ OSM = (
 NAMED = {
     'grass': {'family': 'grass', 'params': {'mown': 0.8}, 'color': (0.109, 0.165, 0.039), 'roughness': 0.96},
     'planting': {'family': 'soil', 'params': {'kind': 'bed'}, 'color': (0.045, 0.035, 0.02), 'roughness': 0.95},
-    # Under open water: the bed, which the `water` kind's surface lies over.
-    'water': {'family': 'soil', 'params': {'kind': 'bed'}, 'color': (0.03, 0.028, 0.02), 'roughness': 0.95},
     'rock': {'family': 'bedrock', 'params': {}, 'color': (0.183, 0.174, 0.165), 'roughness': 0.85},
     'sand': {'family': 'sand', 'params': {}, 'color': (0.35, 0.292, 0.204), 'roughness': 0.96},
     # A cycle lane on the carriageway: Turku paints them red.

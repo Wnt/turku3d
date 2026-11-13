@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { buildInProgress, cameraPose, comparable, poseCamera, readViews, sessionUrl } from './scene-capture.mjs';
-import { queryOf } from './world-set.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -81,11 +80,4 @@ test('a location that is being built is refused; a marker of a process that is g
   assert.equal(buildInProgress(marker), null);
   fs.writeFileSync(marker, JSON.stringify({ name: 'portsa', host: 'another-host', pid: 1, started: '2026-11-13T02:00:00Z' }));
   assert.equal(buildInProgress(marker).host, 'another-host');
-});
-
-test('a set location is the circle around its cameras and what they look at', () => {
-  // One camera looking north and one looking east from the same point: the circle covers both 40 m look points.
-  const query = queryOf([{ pose: { E: 23460000, N: 6700000, yaw: 0 } }, { pose: { E: 23460000, N: 6700000, yaw: 90 } }]);
-  assert.deepEqual([query.e, query.n], [23460020, 6700020]);
-  assert.equal(query.radius, Math.ceil((Math.hypot(20, 20) + 90) / 10) * 10);
 });

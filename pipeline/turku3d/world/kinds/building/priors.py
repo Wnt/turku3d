@@ -4,9 +4,7 @@
 statement about buildings of a kind in Turku, never about one building.
 """
 
-import colorsys
 import copy
-import math
 import zlib
 
 from .description import expand_storeys
@@ -513,62 +511,6 @@ def raised_wall(wall: dict, described: bool) -> dict:
         out["storeys"], out["bays"] = [], []
         out.pop("verticals", None)
     return out
-
-
-def roof_pitch_deg(doc: dict) -> float:
-    """The area-weighted slope of the shell's roof surfaces."""
-    total = slope = 0.0
-    for surface in doc.get("shell", {}).get("surfaces", []):
-        if surface.get("kind") != "roof":
-            continue
-        ring = surface["rings"][0]
-        nx = ny = nz = 0.0
-        for a, b in zip(ring, ring[1:] + ring[:1]):
-            nx += (a[1] - b[1]) * (a[2] + b[2])
-            ny += (a[2] - b[2]) * (a[0] + b[0])
-            nz += (a[0] - b[0]) * (a[1] + b[1])
-        area = math.sqrt(nx * nx + ny * ny + nz * nz)
-        if area > 1e-6:
-            total += area
-            slope += area * math.degrees(math.acos(min(1.0, abs(nz) / area)))
-    return slope / total if total else 0.0
-
-
-def measured_roof(doc: dict) -> dict | None:
-    """The roofing the orthophoto shows on a building nobody has looked at. The photo is taken in full sun, where
-    roofing reads paler and greyer than its paint: the hue is kept, the colour is deepened to a paint or tile colour.
-    A red pitched roof is clay tile on a small house from 1940 on and painted sheet metal on older and bigger
-    buildings, a green one painted sheet metal; any other roof keeps the roofing of its style in the measured grey.
-    Leaf green is tree crowns: such a roof keeps the colour of its style."""
-    colour = doc.get("register", {}).get("roof_colour")
-    if not colour:
-        return None
-    hue, saturation, value = colorsys.rgb_to_hsv(
-        *(int(colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
-    )
-    red = (hue > 345 / 360 or hue < 30 / 360) and saturation >= 0.2
-    if 60 / 360 < hue < 110 / 360 and saturation >= 0.15:
-        return None  # leaf green: tree crowns over the roof, not roofing
-    green = 110 / 360 <= hue < 170 / 360 and saturation >= 0.12
-    if red or hue > 345 / 360 or hue < 40 / 360:
-        saturation, value = min(0.7, saturation * 2.0), min(0.62, max(0.35, value * 0.8))
-    elif green:
-        saturation, value = min(0.5, saturation * 1.6), min(0.55, max(0.3, value * 0.8))
-    else:
-        saturation, value = min(0.1, saturation), min(0.6, max(0.18, value * 0.75))
-    red_, green_, blue_ = (round(v * 255) for v in colorsys.hsv_to_rgb(hue, saturation, value))
-    colour = f"#{red_:02x}{green_:02x}{blue_:02x}"
-    register = doc.get("register", {})
-    if roof_pitch_deg(doc) > 10 and (red or green):
-        if red and (register.get("year") or 1900) >= 1940 and register.get("storeys", 1) <= 2:
-            return {"family": "clay_tile", "colour": colour, "profile": "pantile", "scale_m": 0.3}
-        return {
-            "family": "sheet_metal",
-            "colour": colour,
-            "profile": "standing_seam",
-            "scale_m": 0.55,
-        }
-    return {**group(doc)["roof"]["material"], "colour": colour}
 
 
 def resolve_roof(doc: dict) -> dict:

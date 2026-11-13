@@ -87,43 +87,11 @@ def footprint_shell(outline, storeys: float | None, outbuilding: bool, sources) 
     return (surfaces, base, top) if surfaces else None
 
 
-def roof_colour(outline, raster) -> str | None:
-    """The colour of a roof in the orthophoto: the median of its lit pixels away from the eaves, without tree crowns
-    and deep shadow (the old game's rule). None where trees hide the roof or there is no imagery."""
-    inner = outline.buffer(-0.75)
-    if inner.is_empty or inner.area < 0.25 * outline.area:
-        inner = outline
-    e0, n0, e1, n1 = inner.bounds
-    step = max(raster.px_m, 0.4)
-    es, ns = np.meshgrid(np.arange(e0 + step / 2, e1, step), np.arange(n0 + step / 2, n1, step))
-    inside = shapely.contains_xy(inner, es, ns)
-    if inside.sum() < 12:
-        return None
-    rgb, valid = raster.at(es[inside], ns[inside])
-    samples = rgb[valid].astype(float)
-    if len(samples) < 12:
-        return None
-    r, g, b = samples.T
-    clean = samples[(samples.max(axis=1) > 5) & ~((g > r * 1.2) & (g > b * 1.15))]
-    if len(clean) < 0.4 * len(samples):
-        return None
-    luma = clean @ [0.2126, 0.7152, 0.0722]
-    lit = (luma >= np.percentile(luma, 75) * 0.6) & (luma <= np.percentile(luma, 98))
-    if lit.any():
-        clean = clean[lit]
-    red, green, blue = (int(round(v)) for v in np.median(clean, axis=0))
-    return f"#{red:02x}{green:02x}{blue:02x}"
-
-
 def discover(area: Area, sources) -> list[Stub]:
     """One stub per building that touches the area: `shell` and `register` as the building description has them.
     A building is a LoD2 building, or a register footprint that no LoD2 building covers."""
     # Neighbours of a building at the rim lie outside the circle: read a margin, select by the circle.
     box = area.bbox(60.0)
-    try:
-        aerial = sources.ortho.image(box, 0.2)  # the level the ground kind reads: one set of cached chunks
-    except Exception:  # no imagery (offline, outside the city's coverage): roofs keep the colour of their style
-        aerial = None
     listed = sources.wfs.features("kanta:Rakennus", box)
     register = {feature.attrs["rakennustunnus"]: feature.attrs for feature in listed if feature.attrs.get("rakennustunnus")}
     found = []
@@ -213,7 +181,6 @@ def discover(area: Area, sources) -> list[Stub]:
                 "storeys": int(storeys) if storeys and storeys >= 1 else None,
                 "use": building["use"], "material": building["material"],
                 "height_m": height if height and height > 0 else None,
-                "roof_colour": roof_colour(outline, aerial) if aerial is not None else None,
             }.items() if value not in (None, "")},
         }
         stubs.append(Stub(building["id"], tuple(round(v, 3) for v in outline.bounds), building["refs"], facts))

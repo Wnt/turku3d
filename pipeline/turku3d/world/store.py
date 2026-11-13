@@ -98,21 +98,6 @@ class Store:
     def building_path(self, name: str) -> Path:
         return self.root / "building" / f"{name}.json"
 
-    def builds_running(self) -> list[dict]:
-        """The markers of builds of this store that still run (a marker of this machine whose process is gone is not one)."""
-        running = []
-        for path in sorted((self.root / "building").glob("*.json")):
-            marker = json.loads(path.read_text())
-            if marker.get("host") == socket.gethostname():
-                try:
-                    os.kill(int(marker["pid"]), 0)
-                except ProcessLookupError:
-                    continue
-                except PermissionError:
-                    pass
-            running.append(marker)
-        return running
-
     @contextmanager
     def building(self, name: str):
         """Marks a location as being built while the block runs: a capture of it is refused meanwhile, because a

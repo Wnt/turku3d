@@ -177,7 +177,7 @@ def child_dir(parent: np.ndarray, angle: np.ndarray, roll: np.ndarray, outward: 
 
 # The crown's cost, as quality parameters: leaf cards per crown relative to the old library's count, and their size
 # relative to its cards. The old game widened every card by about 1.3 to fill the lidar crown (nature/crowns.ts).
-CARD_DENSITY = 1.4
+CARD_DENSITY = 1.0
 CARD_GROWTH = 1.3
 FAR_SHARE = 0.06  # the far level keeps this share of the cards (a prefix of the shuffled list), grown to cover
 
@@ -253,7 +253,7 @@ def broadleaf(shape: Shape, sp: dict, rng) -> dict:
                  0.05, sp["droop3"], 0.2, sway, 0.2, two.phase[parent])
 
     anchors = [along(two, 0.3, sp["spacing"] / dense), along(three, 0.35, sp["spacing"] * 1.2 / dense)]
-    budget = int(np.clip(sp["cards"] * scale * CARD_DENSITY, 200, 3200))
+    budget = int(np.clip(sp["cards"] * scale * CARD_DENSITY, 200, 2400))
     return {"branches": [trunk, one, two, three], "anchors": thin(merge(anchors), budget, rng),
             "crown": (y0, yc, hc, R), "conifer": False, "trunk": r_ground}
 

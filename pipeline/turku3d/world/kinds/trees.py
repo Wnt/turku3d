@@ -160,7 +160,6 @@ def family_of(tree: dict, seed: int) -> tuple[str, str]:
 
 GUESSED = ("lidar: small broadleaf", "lidar: tall and narrow", "lidar: broadleaf")
 TOGETHER = 12.0  # metres between trees of one planting
-ROW = 4  # trees of a like size standing together from this many on are a planted row or avenue
 
 
 def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
@@ -193,12 +192,7 @@ def families(rows: list[dict]) -> dict[str, tuple[str, str]]:
     for leader, rows_of in members.items():
         near = sorted((math.hypot(a["e"] - b["e"], a["n"] - b["n"]), b["id"]) for a in rows_of for b in named if alike(a, b))
         for row in rows_of:
-            if near:
-                out[row["id"]] = first[near[0][1]][0], "the species of the register tree beside it"
-            elif len(rows_of) >= ROW and first[row["id"]][1] == "lidar: broadleaf":
-                out[row["id"]] = "lime", "a planted row of unknown species: the city's commonest planted tree"
-            else:
-                out[row["id"]] = family_of(row, seed_of(leader))
+            out[row["id"]] = (first[near[0][1]][0], "the species of the register tree beside it") if near else family_of(row, seed_of(leader))
     return out
 
 

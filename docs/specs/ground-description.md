@@ -38,7 +38,6 @@ A stored description (`descriptions/ground/c_<i>_<j>.json`) replaces what the re
   measured kerb reveal below what borders them; the drop is a ramp under the kerb stone. Crossings and lane lines
   are regions of the skin with the `road_paint` cover, not layers above it. UVs are engine x, z in metres.
 - **Kerbside strips.** Cycle lanes (`use: cycle-lane`, key `osm:way/<id>:cycle-<side>`) and parking lanes (`use: parking-lane`, key `osm:way/<id>:parking-<side>`, 2 m, from `parking:left|right|both=lane`) are surfaces of their own on the carriageway, so a stored cover can pave them differently from the lanes.
-- **Water.** A mapped water area (OpenStreetMap `natural=water`) is a surface with `use: water`, `level: bed`: every skin vertex it uses lies 1 m under the water level (N2000 0.0), also in the height raster and the far level. It wins over other mapped areas, not over the registers (a bridge deck stays a street). The surface itself is the `water` kind's.
 - **Kerbs.** Closed solids 0.20 m wide along the carriageway edge, from 0.10 m below the carriageway to the level of
   the footway.
 - **Height field.** `Output.heightfield`: the skin's heights at 0.5 m spacing, stored beside the mesh.

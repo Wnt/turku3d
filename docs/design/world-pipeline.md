@@ -263,10 +263,8 @@ its reference views) or `at-<E>-<N>-r<R>` for a free query.
   the registers: `build` fetches them for the area even when no registered kind uses them yet, and a source that
   fails is reported there (`{"error": …}`) without stopping the build.
 - `failures` (`[{ "id", "error" }]`) names the entities whose generator raised: they are left out of `entities`,
-  `build` prints `FAILED <id>: <error>` for each, and the rest of the location is built. A kind whose `discover`
-  raised (a source that could not be read at that place) is one row with the id `<kind>/*`: the location is built
-  without that kind. An empty list is the normal case; a kind fixes its failures, the client never draws a half
-  entity.
+  `build` prints `FAILED <id>: <error>` for each, and the rest of the location is built. An empty list is the
+  normal case; a kind fixes its failures, the client never draws a half entity.
 - Every entity row has `bounds` and a stable `id`; every instance list has the asset's `bounds` and, for objects
   the game addresses, one id per row. A city-wide hierarchy can cull and stream both without opening a mesh.
 - The manifest holds everything the client needs to draw the location: no second request per entity besides its GLB
@@ -427,22 +425,6 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
 - The loader draws entities in chunks: the entities of one renderer layer (ground, buildings, everything else)
   whose origins fall in the same 250 m square are styled, batched and compiled as one model, as a tile is in the
   game. One model per entity did not finish loading 1,952 entities in ten minutes on the M1 Max.
-- A view set whose areas are their own locations (a random street set such as the campaign's dev set) is built
-  and captured by one command:
-  `node scripts/dev/world-set.mjs --views SET/views.json --baseline SET/captures/gen1-frozen --build-host osg
-  --jobs 12 --data raw/osm --drop --out DIR`. Every registry `area` of the set's views becomes a location named after it: the query is
-  the circle around the area's cameras and what they look at, as `--area` derives it for a pilot area; it is
-  built with `world build --at E,N --radius R --name AREA` on the build host (`local`, `air`, `osg`; `--jobs`
-  locations at a time, `--data REL` for what the host needs besides the stored descriptions), captured in a
-  leased browser (`--capture-host auto`: the Mac when a slot is free and nobody queues, else the Air;
-  `mac,air`: one browser on each at once) and, with `--drop`, removed from this store again when the whole set
-  is captured (manifests, then `gc`). `--build-only` and `--skip-build` split the two phases, so a set can be
-  built on several hosts and captured later from what is built; `--refresh` describes and compiles again the
-  locations the build host's store already has (`world refresh`, no discover: after a generator change or new
-  stored descriptions). `DIR` is one capture a judge reads: `current/<view>.png`, `manifest.json` (every view with its location
-  and capture host; `set.locations[]` with query, build and capture timings and failures), `compare.jpg`
-  (photo | baselines | new world), per-location captures under `locations/` and logs under `logs/`. A point
-  that fails to build or load is reported and the rest of the set continues.
 - In-process, for a workbench: `turku3d.world.driver.compile_entity(store, kind, description)` returns the
   record's origin, bounds, output and hash.
 
@@ -466,10 +448,8 @@ Measured 2026-11-12 with the same code at two suburban points (radius 150 m, bac
 - **Kinds that read whole lidar point clouds** (objects, vegetation) fetch hundreds of megabytes per 500 m tile:
   build new places on the Air or osgallery-dev so those caches stay off the Mac, and let the store merge back.
 - **Many locations at once** (a random set, a district): osgallery-dev or a cloud lease, one `build` process per
-  location; objects and build records are named by their content, so results from any host merge without
-  overwriting, and of a location's manifest the newer one wins; `on-host` does both (`--no-merge` leaves the
-  store on the host while a capture of this store runs here). Never start an `on-host` call while builds from
-  the same checkout still run on that host: it replaces the code under them.
+  location; the store is content-addressed, so results from any host merge with `rsync -a --ignore-existing`,
+  which `on-host` does.
 - **Stills:** a browser slot on the Mac or the Air (`~/turku3d/loops/w2/hosts.md`); osgallery-dev has no GPU.
 
 ## 8. Live update of one entity

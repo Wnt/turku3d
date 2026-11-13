@@ -38,6 +38,8 @@ ASSETS = {
     "picket panel": lambda: fence.picket_panel(1.1, "#8a8074").parts(),
     "iron panel": lambda: fence.iron_panel(1.0).parts(),
     "iron post": lambda: fence.post("iron", 1.0, "#1b1c1e").parts(),
+    "mesh panel": lambda: fence.mesh_panel(1.2, "#9a9d9c").parts(),
+    "mesh post": lambda: fence.post("mesh", 1.2, "#9a9d9c").parts(),
     "wall panel": lambda: fence.wall_panel(0.9).parts(),
     "railing panel": lambda: fence.railing_panel(1.0).parts(),
     "fence post": lambda: fence.post("board", 1.8, "#8a8074").parts(),
@@ -193,3 +195,58 @@ def test_plate_front_is_the_face_picture_and_the_store_keeps_it(tmp_path):
     assert (tmp_path / image.url).read_bytes() == image.data
     row = driver.manifest_row({"id": "test-plate/a", "kind": "test-plate", "description": {"tier": "automatic"}, **body}, "target")
     assert row["images"] == [image.url]
+
+
+def test_fence_strip_is_cut_from_the_nearest_panorama_left_to_right_as_seen(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from turku3d.world.objects import fencecrop
+
+    class Pano:
+        position, heading = np.array([5.0, 6.0, 2.5]), 0.0  # north of a fence that runs east: it is seen turned
+
+        def to_dict(self):
+            return {"id": "p"}
+
+    class Panos:
+        def spots(self, bounds, margin=0.0):
+            return [{"E": 5.0, "N": 6.0, "id": "p"}, {"E": 5.0, "N": 60.0, "id": "far"}]
+
+        def resolve(self, spot, base_h=None):
+            return Pano() if spot["id"] == "p" else None
+
+        def upright(self, pano):
+            return {"straightened": False, "up": None, "method": "none"}
+
+        def pixels(self, pano):
+            picture = np.zeros((180, 360, 3), dtype=np.uint8)
+            picture[:, 180:] = (255, 0, 0)  # red east of north, black west of it
+            return picture
+
+    line = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]])
+    record = fencecrop.strip(line, Panos(), tmp_path / "strip.jpg", 1.2)
+    assert record["distance_m"] == 6.0 and record["length_m"] == 10.0
+    picture = np.asarray(Image.open(tmp_path / "strip.jpg"))
+    # Looking south from the north side, east is on the left: the red half of the panorama is the strip's left.
+    assert picture[60, 150, 0] > 200 and picture[60, -100, 0] < 50
+    assert fencecrop.strip(line + [0.0, 100.0, 0.0], Panos(), tmp_path / "none.jpg") is None
+
+
+def test_a_fence_reading_replaces_the_guesses_and_an_unseen_fence_builds_nothing():
+    from turku3d.world.objects import fenceread
+
+    automatic = {"schema": "turku-description/fence/1", "id": "fence/r1", "tier": "auto", "provenance": [], "family": "board",
+                 "height": 2.6, "colour": "#d8d0b6", "guessed": ["family", "colour"], "at": [23459500.0, 6704500.0, 10.0],
+                 "line": [[23459500.0, 6704500.0, 10.0], [23459502.4, 6704500.0, 10.0]]}
+    strip = {"panorama": {"provider": "lookaround", "id": "p1"}}
+    reading = {"family": "mesh", "height_m": 1.2, "colour": "#3a4a3c", "hedge": True, "confidence": "medium", "note": "green mesh"}
+    stored = fenceread.observed(automatic, reading, strip, {"seconds": 6.0})
+    assert (stored["tier"], stored["family"], stored["height"], stored["colour"], stored["guessed"]) == ("observed", "mesh", 1.2, "#3a4a3c", [])
+    assert stored["seen"]["hedge"]  # the whole reading is kept beside the fields it replaces
+    assert fence.Fence().compile({**automatic, **stored}).instances
+    assert fenceread.observed(automatic, {**reading, "confidence": "low"}, strip, {}) is None
+    gone = fenceread.observed(automatic, {**reading, "family": "none", "height_m": 0}, strip, {})
+    assert "height" not in gone
+    output = fence.Fence().compile({**automatic, **gone})
+    assert not output.parts and not output.instances

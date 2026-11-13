@@ -111,9 +111,6 @@ def main() -> None:
         stub = Stub(saved["id"], tuple(saved["box"]), saved["sources"], saved["facts"])
         json.dump(KINDS[stub.kind].describe(stub, read_description(stub.id)), sys.stdout, indent=1, ensure_ascii=False)
     elif args.command == "gc":
-        # A running build has stored meshes that no manifest names yet: collecting now would take them from under it.
-        if running := store.builds_running():
-            raise SystemExit("gc refused: " + ", ".join(f"{m['name']} is being built (pid {m['pid']} on {m['host']})" for m in running))
         keep, dropped, freed = store.referenced(), set(), 0
         for path in (store.root / "objects").glob("*/*"):
             url = f"objects/{path.parent.name}/{path.name}"

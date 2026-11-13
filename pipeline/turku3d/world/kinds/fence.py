@@ -27,7 +27,7 @@ from ..objects.common import GALVANISED, GRANITE, describe, interaction, painted
 from ..objects.mesh import Mesh
 
 VERSION = 1
-PANEL = {"board": 2.4, "picket": 2.4, "iron": 2.0, "stone-wall": 2.0, "railing": 2.0}
+PANEL = {"board": 2.4, "picket": 2.4, "iron": 2.0, "mesh": 2.0, "stone-wall": 2.0, "railing": 2.0}
 LIMITS = {"wood-fence": (0.7, 2.6), "stone-fence": (0.3, 3.0), "railing": (0.8, 1.3)}
 DEFAULT_HEIGHT = {"wood-fence": 1.6, "stone-fence": 0.9, "railing": 1.0}
 PRESENT = {"wood-fence": 0.3, "stone-fence": 0.2, "railing": 0.1}  # share of the line the lidar must see standing
@@ -122,6 +122,20 @@ def wall_panel(height: float) -> Mesh:
     return mesh
 
 
+def mesh_panel(height: float, colour: str) -> Mesh:
+    """A wire-mesh or chain-link fence, 2 m long: a top rail and a grid of wires one sees through, galvanised or
+    coated in the colour read for it. (Read from a panorama only: the scan and the register do not tell it.)"""
+    wire = painted_metal(colour)
+    mesh = Mesh()
+    length, pitch, thick = PANEL["mesh"], 0.2, 0.006
+    mesh.tube("rails", wire, [[-length / 2, height, 0], [length / 2, height, 0]], 0.02, sides=6)
+    for k in range(round(length / pitch)):
+        mesh.box("wires", wire, [-length / 2 + pitch * (k + 0.5), (0.05 + height) / 2, 0], [thick, height - 0.05, thick])
+    for k in range(max(int((height - 0.1) / pitch), 1)):
+        mesh.box("wires", wire, [0, 0.1 + pitch * k, 0], [length, thick, thick])
+    return mesh
+
+
 def railing_panel(height: float) -> Mesh:
     mesh = Mesh()
     length = PANEL["railing"]
@@ -134,6 +148,8 @@ def post(family: str, height: float, colour: str) -> Mesh:
     mesh = Mesh()
     if family == "railing":
         mesh.tube("post", GALVANISED, [[0, -BURY, 0], [0, height + 0.02, 0]], 0.024, sides=8)
+    elif family == "mesh":
+        mesh.tube("post", painted_metal(colour), [[0, -BURY, 0], [0, height + 0.02, 0]], 0.025, sides=8)
     elif family == "iron":
         mesh.box("post", painted_metal(IRON), [0, (height + 0.04 - BURY) / 2, 0], [0.05, height + 0.04 + BURY, 0.05])
     else:
@@ -313,6 +329,8 @@ class Fence:
         colour = description.get("colour", DEFAULT_WOOD)
         block = description.get("interaction") or {}
         entity = description["id"]
+        if family == "none":  # a reader saw no fence on the register's line
+            return Output(tuple(float(v) for v in to_engine(*description["at"])), [], [])
         if family == "gate-post":
             e, n, h = description["at"]
             item = Instances(gate_post(height).parts(), np.array([[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]]), ids=[entity],
@@ -344,7 +362,7 @@ class Fence:
         last = points[-1]
         posts.append([last[0], last[1], last[2], posts[-1][3], 1.0, 1.0, 1.0])
         asset = {"board": lambda: board_panel(height, colour), "picket": lambda: picket_panel(height, colour),
-                 "iron": lambda: iron_panel(height), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
+                 "iron": lambda: iron_panel(height), "mesh": lambda: mesh_panel(height, colour), "stone-wall": lambda: wall_panel(height), "railing": lambda: railing_panel(height)}.get(family, lambda: board_panel(height, colour))()
         items = [Instances(asset.parts(), np.round(np.array(panels), 4), ids=[f"{entity}#p{k}" for k in range(len(panels))],
                            behaviour=block.get("behaviour"), collision=block.get("collision"))]
         if family != "stone-wall":

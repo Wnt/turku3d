@@ -245,15 +245,11 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
     wide = area.grown(max(background, area.radius))
     stubs: list[Stub] = []
     timings: dict[str, float] = {}
-    unread = []
     for kind in KINDS.values():
         t0 = time.perf_counter()
-        try:
-            stubs += kind.discover(wide, sources)
-        except Exception as error:  # one kind's sources failing here must not cost the location its other kinds
-            unread.append({"id": f"{kind.name}/*", "error": f"discover: {type(error).__name__}: {error}"})
-            log(f"  FAILED {kind.name}/*: discover: {type(error).__name__}: {error}")
+        found = kind.discover(wide, sources)
         timings[f"discover:{kind.name}"] = time.perf_counter() - t0
+        stubs += found
     cover = source_cover(area, sources, log)
     discovered = time.perf_counter()
     rows, work, planned = [], {}, []
@@ -273,7 +269,7 @@ def build(name: str, area: Area, background: float, store: Store, log=print) -> 
             done = list(pool.map(compile_job, tasks, chunksize=4))
     else:
         done = [compile_job(task) for task in tasks]
-    failures = list(unread)
+    failures = []
     for entry, (record, seconds, error) in zip(missing, done):
         entry[3] = record
         per_kind = work[entry[0].kind]
