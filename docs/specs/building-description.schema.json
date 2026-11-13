@@ -1779,6 +1779,11 @@
               },
               "src": {
                 "$ref": "#/$defs/src"
+              },
+              "rise_m": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Height of the gable triangle; two fifths of h_m when absent."
               }
             }
           }

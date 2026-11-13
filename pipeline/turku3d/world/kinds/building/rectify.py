@@ -49,6 +49,18 @@ def main(argv=None) -> int:
     parser.add_argument("--facade", type=int)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--scale", type=float, default=40.0, help="pixels per metre")
+    parser.add_argument(
+        "--above",
+        type=float,
+        default=0.5,
+        help="metres shown over the wall's top (dormers, chimneys)",
+    )
+    parser.add_argument(
+        "--setback",
+        type=float,
+        default=0.0,
+        help="rectify a plane this far behind the wall face (a dormer's front)",
+    )
     args = parser.parse_args(argv)
     view = view_pose(args.view)
     pose = view["pose"]
@@ -77,11 +89,13 @@ def main(argv=None) -> int:
     facade = shell.facades[args.facade]
     datum = float(facade.ground[:, 1].min()) if len(facade.ground) else 0.0
     scale = args.scale
-    columns, rows = int(facade.width * scale), int((facade.height - datum + 0.5) * scale)
+    columns, rows = int(facade.width * scale), int((facade.height - datum + args.above) * scale)
     u, v = np.meshgrid(
         (np.arange(columns) + 0.5) / scale, datum + (rows - np.arange(rows) - 0.5) / scale
     )
-    pixels, depth = project(facade.point(u.ravel(), v.ravel()), pose, view["width"], view["height"])
+    pixels, depth = project(
+        facade.point(u.ravel(), v.ravel(), -args.setback), pose, view["width"], view["height"]
+    )
     photo = np.asarray(
         Image.open(
             Path(os.environ.get("TURKU3D_DATA", Path.home() / "turku3d/data"))

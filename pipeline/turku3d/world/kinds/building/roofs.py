@@ -348,7 +348,7 @@ def _dormer(
     if base is None:
         report.append("dormer anchor is not over the roof")
         return
-    rise = 0.0 if kind == "shed" else min(h * 0.4, w * 0.45)
+    rise = 0.0 if kind == "shed" else min(h, dormer.get("rise_m", min(h * 0.4, w * 0.45)))
     eaves, peak = base + h - rise, base + h
     # The body runs back until the roof has risen to the dormer's own ridge.
     depth = max(1.0, w)

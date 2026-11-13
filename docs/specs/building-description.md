@@ -148,6 +148,12 @@ The roof **form** comes from the LoD2 shell. The description says what covers it
 `bargeboard`); `parapet`; `dormers`; `chimneys`; `details` (skylights, ladders, snow guards, ridge crests, plant
 rooms). `form_hint` records what a reader saw, for audits of the shell.
 
+A dormer is `{ "type": gable | hip | shed | wall_dormer, "anchor": { "wall", "u_m", "setback_m" }, "w_m", "h_m",
+"material", "roof_material", "window" }`: `h_m` is its whole height over the roof at its front, `rise_m` the height
+of the gable triangle (two fifths of the height when not given), `window` an opening type (the attic window
+when not given), placed when the front wall under the gable has room for it. A wall dormer that the LoD2 shell
+already has as a wall gable is not built twice.
+
 A roof nobody gave a material takes it from the orthophoto: `register.roof_colour` is the median of the roof's lit
 pixels (tree crowns and deep shadow left out), deepened to a paint or tile colour of the same hue. A red pitched
 roof is clay tile on a small house from 1940 on and painted sheet metal elsewhere; any other roof keeps the
