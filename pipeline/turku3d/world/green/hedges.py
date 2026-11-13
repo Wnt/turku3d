@@ -1,7 +1,7 @@
 """Hedges, shrub masses and single shrubs of one 62.5 m cell, measured from the lidar.
 
 The shrub layer is every vegetation return between 0.35 m and 3 m above the ground, on the global 0.25 m grid:
-a cell is planted where at least two such returns fall in it. Tree trunks and low branches are thin or sparse and
+a cell is planted where at least two such returns fall in it, or where sparser returns form a long narrow run. Tree trunks and low branches are thin or sparse and
 do not survive the area and density tests; returns inside a roof outline are roof noise.
 
 1. **Mapped hedges** (the base map's `kanta:Pensasaita` lines and OSM `barrier=hedge`) are measured along their
@@ -28,6 +28,7 @@ MARGIN = 6.0
 LOW, HIGH = 0.35, 3.0
 MIN_HEDGE_LENGTH = 2.5
 MIN_HEDGE_WIDTH = 0.7  # metres, for a hedge no map shows
+SPARSE_RUN, SPARSE_WIDTH = 4.0, 2.0  # metres: the least length and the most mean width of a run of sparse returns
 
 
 def layer(window: lidar.Window, box) -> dict:
@@ -56,6 +57,16 @@ def layer(window: lidar.Window, box) -> dict:
     off_c = int(round((box[0] - window.col0 * lidar.GRID) / RES))
     roof = np.kron(window.roof, np.ones((2, 2), np.float32))[off_r:off_r + rows, off_c:off_c + cols]
     planted = (count >= np.where(above > 0, 4, 2)) & (roof < 1.0)
+    # A leafless hedge returns little in an April scan (2 to 9 returns a square metre along a line): sparse returns
+    # count where they form a long narrow run, which a trunk, a low bough or a tuft does not.
+    near = ndimage.uniform_filter(count.astype(np.float32), 3) * 9  # returns within a 0.75 m square
+    sparse = (near >= np.where(above > 0, 6, 3)) & (roof < 1.0)
+    runs, found = ndimage.label(sparse, structure=np.ones((3, 3)))
+    for k, run in enumerate(ndimage.find_objects(runs)):
+        reach = float(np.hypot(run[0].stop - run[0].start, run[1].stop - run[1].start)) * RES
+        area = float((runs[run] == k + 1).sum()) * RES * RES
+        if reach >= SPARSE_RUN and area / reach <= SPARSE_WIDTH:
+            planted[run] |= runs[run] == k + 1
     planted = ndimage.binary_closing(planted, np.ones((3, 3), bool))
     planted &= ndimage.uniform_filter(planted.astype(np.float32), 5) > 0.3  # no specks
     return {"planted": planted, "top": top.reshape(rows, cols), "green": green.reshape(rows, cols), "rows": rows, "cols": cols}
