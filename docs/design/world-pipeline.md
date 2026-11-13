@@ -425,6 +425,18 @@ node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area h
 - The loader draws entities in chunks: the entities of one renderer layer (ground, buildings, everything else)
   whose origins fall in the same 250 m square are styled, batched and compiled as one model, as a tile is in the
   game. One model per entity did not finish loading 1,952 entities in ten minutes on the M1 Max.
+- A view set whose areas are their own locations (a random street set such as the campaign's dev set) is built
+  and captured by one command:
+  `node scripts/dev/world-set.mjs --views SET/views.json --baseline SET/captures/gen1-frozen --build-host air
+  --drop --out DIR`. Every registry `area` of the set's views becomes a location named after it: the query is
+  the circle around the area's cameras and what they look at, as `--area` derives it for a pilot area; it is
+  built with `world build --at E,N --radius R --name AREA` on the build host (`local`, `air`, `osg`), captured
+  in a leased browser (`--capture-host auto`: the Mac when a slot is free and nobody queues, else the Air) and,
+  with `--drop`, removed from this store again (manifest, then `gc`), so one point lies on this machine at a
+  time. `DIR` is one capture a judge reads: `current/<view>.png`, `manifest.json` (every view with its location
+  and capture host; `set.locations[]` with query, build and capture timings and failures), `compare.jpg`
+  (photo | baselines | new world), per-location captures under `locations/` and logs under `logs/`. A point
+  that fails to build or load is reported and the rest of the set continues.
 - In-process, for a workbench: `turku3d.world.driver.compile_entity(store, kind, description)` returns the
   record's origin, bounds, output and hash.
 
