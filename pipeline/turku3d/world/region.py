@@ -375,7 +375,8 @@ def border_views(store: Store, name: str, per_border: int = 2, back: float = 30.
                 d = (d[0] / norm, d[1] / norm)
                 e, n = point.x - back * d[0], point.y - back * d[1]
                 ground = float(sources.terrain.heights(e, n)[0])
-                views.append({"id": f"{name}-{uid}-{edge}-{len(views):02d}", "group": f"{uid}|{other}", "aim": "street",
+                slug = uid[2:].replace("-", "m").replace("_", "x")  # view ids are [a-z0-9-]
+                views.append({"id": f"{name}-u{slug}-{edge}-{len(views):02d}", "group": f"{uid}|{other}", "aim": "street",
                               "pose": {"E": round(e, 2), "N": round(n, 2), "H": round(ground + 1.7, 2),
                                        "yaw": round(math.degrees(math.atan2(d[0], d[1])) % 360, 1), "pitch": -3.0, "roll": 0.0, "fov": 65.0}})
     return {"schema": "turku-capture-views/1", "scene": None, "quality": "medium", "time": "2026-06-15T14:00:00+03:00",
