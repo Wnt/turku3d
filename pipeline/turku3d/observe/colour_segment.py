@@ -248,7 +248,9 @@ def main(argv=None) -> int:
             break
         if worked:
             idle_since = time.time()
-        elif stop or (relay is None and (a.root.parent / "batch/stop").exists()) or time.time() - idle_since > a.idle_exit:
+        elif (stop and time.time() - idle_since > 1200.0) or (relay is None and (a.root.parent / "batch/stop").exists()) \
+                or time.time() - idle_since > a.idle_exit:
+            # a stopping batch still finishes the cells in hand: their crops come for a while after the stop file
             break
         else:
             time.sleep(1.0 if relay is None else 3.0)
