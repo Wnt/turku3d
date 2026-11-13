@@ -395,9 +395,10 @@ class Output:
   tile under a named recipe (an edit that leaves the product as it is must not reduce a city again). It gives
   `tile_done(name)` and is listed in `sources.lidar._products`; `build` then makes every tile's products before
   any `discover` runs (`sources.prepare`): one decode per tile for all reductions, in fresh worker processes,
-  at most `TURKU3D_LIDAR_SLOTS` tiles at once over all builds of the machine (default: one per 12 GB of memory
-  and per four cores, three at most; a dense tile's wire search holds about 5 GB), and never the same tile
-  twice at once. A reader that keeps tiles in memory for `discover` keeps only the build's box (`sources.clip`)
+  at most `TURKU3D_LIDAR_SLOTS` tiles at once over all builds that share the data root (default: one per 16 GB
+  of memory and per four cores; a worker holds 1.2 to 3.8 GB on Linux), and never the same tile twice at once.
+  The products live under the data root's `sources/`, or on the disk `TURKU3D_LIDAR_PRODUCTS` names (about
+  134 MB a tile, 170 GB for the survey; a private `TURKU3D_WORLD_DATA` keeps its own). A reader that keeps tiles in memory for `discover` keeps only the build's box (`sources.clip`)
   and gives it back in `Sources.release`, which `build` calls before it compiles.
 - A building is a LoD2 building, or a register footprint (`kanta:Rakennus`, building and outbuilding classes) that
   no LoD2 building covers, raised to a flat-roofed box by its storeys: `shell.source` says which
@@ -426,6 +427,7 @@ bash pipeline/env/run.sh python -m turku3d.world watch --location humalistonkatu
 bash pipeline/env/run.sh python -m turku3d.world describe building/103456789A       # its effective description
 bash pipeline/env/run.sh python -m turku3d.world gc                                 # drop unreferenced meshes
 bash pipeline/env/run.sh python -m turku3d.world warm --at 23459668,6704254 --reach 3000   # lidar products ahead
+bash pipeline/env/run.sh python -m turku3d.world warm --first points.txt --plan    # what tiles near those points lack
 node scripts/dev/scene-capture.mjs --mode render --world humalistonkatu --area humalistonkatu \
   --views scripts/dev/views/pilot-locations.json --out "$TURKU3D_WORK/captures/humalistonkatu"
 ```
