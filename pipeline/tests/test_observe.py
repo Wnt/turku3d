@@ -145,3 +145,36 @@ def test_street_presence_is_the_facade_area_the_street_sees():
     presence = street_presence(building, crops)
     assert presence == {"area_m2": round(10.0 * (wall.eaves - wall.base), 1), "frontage_m": 10.0}
     assert street_presence(building, []) == {"area_m2": 0.0, "frontage_m": 0.0}
+
+
+def test_a_second_look_asks_for_the_complained_walls_only_and_keeps_the_rest():
+    from pathlib import Path
+
+    record = {"register": {"address": "Testikatu 1"}, "contexts": [
+        {"file": "/p/context-1.jpg", "panorama": {"provider": "g", "date": "2026-06"}, "distance_m": 20.0,
+         "pose": {"yaw": 10.0}},
+        {"file": "/p/context-2.jpg", "panorama": {"provider": "g", "date": "2026-06"}, "distance_m": 25.0,
+         "pose": {"yaw": 90.0}}], "walls": [], "crops": []}
+    for name in ("w00", "w01"):
+        record["walls"].append({"id": f"b:{name}", "length_m": 12.0, "bearing_deg": 90.0, "base_h": 5.0,
+                                "eaves_h": 11.0, "top_h": 13.0, "adjoining": []})
+        record["crops"].append({"file": f"/p/{name}-1.jpg", "wall": f"b:{name}", "distance_m": 9.0, "oblique_deg": 4.0,
+                                "px_per_m": 50.0, "x0_m": 0.0, "x1_m": 12.0,
+                                "panorama": {"provider": "g", "date": "2026-06"}})
+    first = {"description": {"materials": {"plaster": {}}, "opening_types": {"win": {"w_m": 1.2}},
+                             "walls": [{"id": "w00", "measured_on": "w00-1.jpg", "bays": {"count": 4}},
+                                       {"id": "w01", "measured_on": "w01-1.jpg", "bays": {"count": 3}}]},
+             "views": [{"file": "w00-1.jpg", "usable": True, "hidden_share": 0.1},
+                       {"file": "w01-1.jpg", "usable": True, "hidden_share": 0.2}]}
+    complaints = "- wall w01 (measured on w01-1.jpg; the wall is 12.0 m long):\n  - window at u 11.8 m: outside"
+    task = reader.task_text(record, Path("/p"), complaints, first)
+    assert "w01-1.jpg: wall w01" in task and "w00-1.jpg" not in task and "context-2.jpg" not in task
+    assert '"id": "w01"' in task and '"id": "w00"' not in task
+    answer = {"walls": [{"id": "w01", "measured_on": "w01-1.jpg", "bays": {"count": 2}}],
+              "opening_types": {"door": {"w_m": 1.0}}, "views": [{"file": "w01-1.jpg", "usable": True, "hidden_share": 0.3}]}
+    merged = reader.corrected(first, answer)
+    assert [w["bays"]["count"] for w in merged["description"]["walls"]] == [4, 2]
+    assert sorted(merged["description"]["opening_types"]) == ["door", "win"]
+    assert [v["hidden_share"] for v in merged["views"]] == [0.1, 0.3]
+    assert first["description"]["walls"][1]["bays"]["count"] == 3  # the first reading itself is untouched
+    assert set(reader.correction_schema()["properties"]) == {"walls", "opening_types", "views", "notes"}

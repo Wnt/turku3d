@@ -125,14 +125,44 @@ def reading_schema() -> dict:
     }
 
 
-def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
+def correction_schema() -> dict:
+    """What a second look answers with: the corrected walls, opening types that changed, and their images."""
+    whole = reading_schema()
+    description = whole["properties"]["description"]["properties"]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["walls", "views"],
+        "properties": {"walls": description["walls"], "opening_types": description["opening_types"],
+                       "views": whole["properties"]["views"], "notes": {"type": "string"}},
+        "$defs": whole["$defs"],
+    }
+
+
+def corrected(reading: dict, correction: dict) -> dict:
+    """The first reading with a second look's walls, opening types and image reports laid over it."""
+    out = copy.deepcopy(reading)
+    walls = {w.get("id"): w for w in correction.get("walls", [])}
+    out["description"]["walls"] = [walls.get(w.get("id"), w) for w in out["description"].get("walls", [])]
+    out["description"].setdefault("opening_types", {}).update(correction.get("opening_types") or {})
+    views = {v["file"]: v for v in correction.get("views", [])}
+    out["views"] = [views.pop(v["file"], v) for v in out.get("views", [])] + list(views.values())
+    return out
+
+
+def task_text(record: dict, packet: Path, feedback_text: str = "", first: dict | None = None) -> str:
     reg = record["register"]
     lines = [f"The packet directory is {packet}. Read {packet / 'FORMAT.md'} first.", "",
              "Building (register priors): "
              + ", ".join(f"{k} {v}" for k, v in reg.items() if v is not None) + ".", "", "Walls of the city model:"]
     seen = {c["wall"] for c in record["crops"]}
+    asked = None  # a second look: only the walls the generator complained about, and only their crops
+    if first is not None:
+        asked = {w["id"] for w in first["description"].get("walls", []) if f"- wall {w['id']} " in feedback_text}
     for w in record["walls"]:
         short = w["id"].split(":")[-1]
+        if asked is not None and short not in asked:
+            continue
         state = "has crops" if w["id"] in seen else "no crop"
         extra = ""
         if w["adjoining"]:
@@ -141,11 +171,13 @@ def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
         lines.append(f"- {short}: {w['length_m']:.1f} m long, faces {w['bearing_deg']:.0f} deg, eaves at v "
                      f"{w['eaves_h'] - w['base_h']:.1f} m, top at v {w['top_h'] - w['base_h']:.1f} m, {state}{extra}")
     lines += ["", "Images:"]
-    for c in record["contexts"]:
+    for c in record["contexts"][:1] if asked is not None else record["contexts"]:
         p = c["panorama"]
         lines.append(f"- {Path(c['file']).name}: context view, {p['provider']} {p['date']}, "
                      f"{c['distance_m']:.0f} m from the building, looking {c['pose']['yaw']:.0f} deg")
     for c in record["crops"]:
+        if asked is not None and c["wall"].split(":")[-1] not in asked:
+            continue
         p = c["panorama"]
         lines.append(f"- {Path(c['file']).name}: wall {c['wall'].split(':')[-1]} rectified, {p['provider']} "
                      f"{p['date']}, camera {c['distance_m']:.0f} m from the wall plane, {c['oblique_deg']:.0f} deg "
@@ -153,6 +185,21 @@ def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
                      f"{c['x1_m']:.1f} m")
     if feedback_text.startswith("Review round."):
         lines += ["", feedback_text]
+    elif asked is not None:
+        mine = first["description"]
+        lines += ["", "A first reading of this building was given to the generator, which could not build the "
+                  "parts below (positions on the rulers of the crop each wall was measured on). Look at those "
+                  "places again. Correct what the photographs show was misread (a position, a width, a storey "
+                  "height, a window that belongs to the roof or to a neighbour); keep what the photographs confirm.",
+                  feedback_text, "",
+                  "Answer with `walls`: the whole corrected entry of each wall named above (it replaces the first "
+                  "one; keep its id and `measured_on`), with `opening_types` only for types you add or change, and "
+                  "with the report of the images you looked at. The first reading of those walls, its opening "
+                  "types and material names:",
+                  json.dumps({"walls": [w for w in mine.get("walls", []) if w.get("id") in asked],
+                              "opening_types": mine.get("opening_types", {}),
+                              "materials": sorted(mine.get("materials", {}))}, ensure_ascii=False)]
+        return "\n".join(lines)
     elif feedback_text:
         lines += ["", "A first reading of these images was given to the generator, which could not build the parts "
                   "below (positions on the rulers of the crop each wall was measured on). Look at those places "
@@ -164,15 +211,19 @@ def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
 
 
 def read(record: dict, packet: Path, *, effort: str = EFFORT, model: str = MODEL,
-         feedback_text: str = "") -> tuple[dict, dict]:
-    """(reading, meta) for one prepared building. Raises on a failed call."""
+         feedback_text: str = "", first: dict | None = None) -> tuple[dict, dict]:
+    """(reading, meta) for one prepared building. Raises on a failed call.
+
+    With `first` (an earlier reading) and the generator's complaints as `feedback_text`, only the walls complained
+    about are read again, and the reading returned is the first one with those walls corrected."""
     shutil.copyfile(SPEC, packet / "FORMAT.md")
-    task = task_text(record, packet, feedback_text)
+    task = task_text(record, packet, feedback_text, first)
     (packet / "task.txt").write_text(task)
     args = ["claude", "-p", "--model", model, "--effort", effort, "--system-prompt", INSTRUCTIONS,
             "--tools", "Read", "--allowedTools", "Read", "--add-dir", str(packet), "--strict-mcp-config",
             "--disable-slash-commands", "--no-session-persistence", "--setting-sources", "",
-            "--json-schema", json.dumps(reading_schema()), "--output-format", "json", task]
+            "--json-schema", json.dumps(reading_schema() if first is None else correction_schema()),
+            "--output-format", "json", task]
     started = time.time()
     done = subprocess.run(args, cwd=packet, capture_output=True, text=True, timeout=TIMEOUT_S,
                           stdin=subprocess.DEVNULL, check=False)
@@ -187,13 +238,16 @@ def read(record: dict, packet: Path, *, effort: str = EFFORT, model: str = MODEL
     if reading is None:
         text = str(answer.get("result", "")).strip().removeprefix("```json").removesuffix("```").strip()
         reading = json.loads(text)
+    if first is not None:
+        reading = corrected(first, reading)
     usage = answer.get("usage") or {}
     meta = {
         "model": next(iter(answer.get("modelUsage") or {}), model), "effort": effort,
         "seconds": round(seconds, 1), "cost_usd": answer.get("total_cost_usd"), "turns": answer.get("num_turns"),
         "input_tokens": (usage.get("input_tokens") or 0) + (usage.get("cache_read_input_tokens") or 0)
         + (usage.get("cache_creation_input_tokens") or 0),
-        "output_tokens": usage.get("output_tokens"), "images": len(record["crops"]) + len(record["contexts"]),
+        "cached_tokens": usage.get("cache_read_input_tokens") or 0,  # of input_tokens, read from the cache
+        "output_tokens": usage.get("output_tokens"), "images": sum(".jpg: " in line for line in task.splitlines()),
         "at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     return reading, meta

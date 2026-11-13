@@ -88,14 +88,14 @@ def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) ->
 
 
 def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dict, first: dict, effort: str):
-    """Ask the reader about the parts the generator dropped; keep whichever reading loses fewer parts."""
+    """Ask the reader about the walls with parts the generator dropped; keep whichever reading loses fewer."""
     from turkutex.streetview.height import ground_height
 
     report = json.loads((packet / "build-report.json").read_text())
     asked = {wall: [i for i in items if i["reader"]] for wall, items in report["walls"].items()}
     text = reader.feedback(record, reading, {w: i for w, i in asked.items() if i}, ground_height)
     try:
-        again, meta_again = reader.read(record, packet, effort=effort, feedback_text=text)
+        again, meta_again = reader.read(record, packet, effort=effort, feedback_text=text, first=reading)
     except Exception as error:  # noqa: BLE001 - the first reading stands
         return reading, meta, {**first, "second_look": f"failed: {error}"[:120]}
     (packet / "reading-first.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
