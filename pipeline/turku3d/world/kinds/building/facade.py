@@ -34,9 +34,7 @@ class Placed:
     recess: object = None  # the balcony recess whose back wall holds this opening
 
 
-RECESS_SHADE = (
-    0.6  # wall colour inside a balcony recess, until the renderer's ambient occlusion does it
-)
+RECESS_SHADE = 0.6  # the wall's colour inside a balcony recess (Palette.occluded)
 
 
 @dataclass
@@ -463,10 +461,7 @@ def build(
         around = next(
             (key for shape, key, _ in reversed(regions) if shape.contains(centre)), wall_key
         )
-        lining = palette.records[around]
-        r.key = palette.key(
-            {**lining, "colour": shade(lining.get("colour", "#8a857d"), RECESS_SHADE)}
-        )
+        r.key = palette.occluded(around, RECESS_SHADE)
     resolved = []
     for k, (shape, key, _record) in enumerate(regions):
         shape = shape.intersection(outline) if k else shape
