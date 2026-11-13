@@ -27,6 +27,7 @@ import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { disposeDraw } from '../../render/sharedMaterials';
+import { enToEngine } from '../../core/origin';
 import { releaseGeometry } from '../modelGeometry';
 import { modelGpuBytes, rendererResidency } from '../gpuBytes';
 import { StreamStats } from '../streamStats';
@@ -38,6 +39,7 @@ import type { PreparedLighting } from '../../render/lights/preparedLighting';
 import { TILE_SHADOW_CHUNK_LAYER, TILE_SHADOW_WHOLE_LAYER } from '../shadowBatch';
 import { InstancePool, type Part, type Rows } from './instancePool';
 import { readLocation, type LocationEntity, type LocationInstances, type LocationManifest } from './manifest';
+import { chunkDistance, isRegion, readChunk, readRegion, regionManifest, REGION_RANGE, REGION_SLACK, REGION_STEP, type RegionIndex } from './region';
 import { dress, familyDrawn, markVertices, storeRoot, type Drawn as Dressing } from './materials';
 import './families/ground';
 import './families/building';
@@ -116,6 +118,9 @@ export class LocationWorld implements WorldSurface {
   /** What capture tools read as the drawn scene: the location and its manifest revision. */
   get data() { return { id: `world:${this.manifest.name}`, release: `r${this.manifest.revision}` }; }
   private shown = new Map<string, Drawn>();
+  /** A region (region.ts): its index, the rows of the chunk objects fetched so far, where the drawn set was chosen
+   *  for, and whether a choice is being drawn now. */
+  private region: { index: RegionIndex; rows: Map<string, LocationEntity[]>; at: { x: number; z: number } | null; busy: boolean } | null = null;
   private chunks = new Map<string, Chunk>();
   private assets = new Map<string, Promise<THREE.Group>>();
   private materials = new Map<string, Dressing>();
@@ -149,15 +154,23 @@ export class LocationWorld implements WorldSurface {
     storeRoot(new URL(STORE, host.pageUrl ?? location.href).href);
   }
 
-  static async start(host: PreparedWorldHost, name: string): Promise<LocationWorld> {
+  /** `at`: engine x, z of the first camera; a region draws the chunks around it before it resolves (its start
+   *  or focus when none is given). */
+  static async start(host: PreparedWorldHost, name: string, at?: { x: number; z: number }): Promise<LocationWorld> {
     const url = new URL(`${STORE}locations/${name}.json`, host.pageUrl ?? location.href).href;
-    const manifest = await LocationWorld.fetchManifest(host, url);
+    const raw = await LocationWorld.fetchJson(host, url);
+    const index = isRegion(raw) ? readRegion(raw) : null;
+    const manifest = index ? regionManifest(index) : readLocation(raw);
     if (manifest.origin.some((n, i) => n !== host.manifest.origin_en[i])) throw new Error('Location origin differs from the active world');
     const world = new LocationWorld(host, manifest, url);
+    if (index) world.region = { index, rows: new Map(), at: null, busy: false };
     host.scene.add(world.group);
     host.manifest.code = world.data.release;
+    const first = at ?? (manifest.start ? (() => { const p = enToEngine(manifest.start!.E, manifest.start!.N); return { x: p.x, z: p.z }; })()
+      : { x: manifest.focus[0], z: manifest.focus[2] });
+    const draw = index ? world.stream(first.x, first.z) : world.install(manifest.entities);
     // Play needs the collision before the drawing is worth waiting for: both load at once.
-    const [, collision] = await Promise.all([world.install(manifest.entities).then(() => world.pool()), world.loadCollision(), world.loadRoads()]);
+    const [, collision] = await Promise.all([draw.then(() => world.pool()), world.loadCollision(), world.loadRoads()]);
     // One entry stands for the location where the tile streamer's consumers look for loaded tiles.
     const [x, , z] = manifest.focus;
     world.entries.set(`t0_${Math.floor(x / 250)}_${Math.floor(z / 250)}`,
@@ -166,10 +179,60 @@ export class LocationWorld implements WorldSurface {
     return world;
   }
 
-  private static async fetchManifest(host: PreparedWorldHost, url: string) {
-    const response = await (host.fetch ?? fetch)(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+  private static async fetchJson(host: PreparedWorldHost, url: string, cache: RequestCache = 'no-store'): Promise<unknown> {
+    const response = await (host.fetch ?? fetch)(url, { cache, signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`Location manifest: HTTP ${response.status} (${url})`);
-    return readLocation(await response.json());
+    return response.json();
+  }
+
+  /**
+   * A region's drawn set for a camera at (x, z): every layer's chunks within its range (REGION_RANGE) are fetched
+   * nearest first and drawn; drawn chunks beyond range + slack are released, and so are the rows of chunk objects
+   * far beyond every range. The manifest's `entities` are the rows drawn now. A chunk that fails is reported in
+   * `errors`, never stops the others.
+   */
+  private async stream(x: number, z: number) {
+    const region = this.region!, { index } = region, side = index.chunk;
+    region.at = { x, z };
+    const reach = Math.max(...Object.values(REGION_RANGE));
+    const keys = Object.keys(index.chunks).map(key => [key, chunkDistance(key, side, x, z)] as const)
+      .filter(([, d]) => d <= reach).sort((a, b) => a[1] - b[1]);
+    const fetch = keys.filter(([key]) => !region.rows.has(key));
+    const failures: string[] = [];
+    await Promise.all(Array.from({ length: Math.min(LOADS, fetch.length) }, async () => {
+      for (let next = fetch.shift(); next; next = fetch.shift()) {
+        const key = next[0];
+        try { region.rows.set(key, readChunk(index, key, await LocationWorld.fetchJson(this.host, this.storeUrl(index.chunks[key].url), 'default'))); }
+        catch (error) { failures.push(`chunk ${key}: ${error instanceof Error ? error.message : error}`); }
+      }
+    }));
+    // The drawn chunk ids (layer:i_j) wanted now, with their rows, nearest first.
+    const wanted = new Map<string, LocationEntity[]>();
+    for (const [key, d] of keys) for (const row of region.rows.get(key) ?? []) {
+      const id = chunkOf(row);
+      if (d <= REGION_RANGE[layerOf(row)] + (this.chunks.has(id) ? REGION_SLACK : 0)) wanted.set(id, [...wanted.get(id) ?? [], row]);
+    }
+    for (const chunk of [...this.chunks.values()]) if (!wanted.has(chunk.id)) this.hide(chunk);
+    for (const key of [...region.rows.keys()]) if (chunkDistance(key, side, x, z) > reach + 2 * REGION_SLACK) region.rows.delete(key);
+    this.manifest.entities = [...wanted.values()].flat();
+    const queue = [...wanted].filter(([id]) => !this.chunks.has(id));
+    await Promise.all(Array.from({ length: Math.min(LOADS, queue.length) }, async () => {
+      for (let next = queue.shift(); next; next = queue.shift()) {
+        try { await this.show(next[0], await this.loadChunk(next[1], failures)); }
+        catch (error) { failures.push(`chunk ${next[0]}: ${error instanceof Error ? error.message : error}`); }
+      }
+    }));
+    if (failures.length) { this.errors = failures; console.warn(`Region ${index.name}: ${failures.length} failures: ${failures.slice(0, 3).join('; ')}`); }
+    this.describe();
+  }
+
+  /** Chooses a region's drawn set again once the camera has moved REGION_STEP since the last choice; one at a time. */
+  private follow(x: number, z: number) {
+    const region = this.region!;
+    if (region.busy || (region.at && Math.hypot(x - region.at.x, z - region.at.z) < REGION_STEP)) return;
+    region.busy = true;
+    const run = this.updating.then(() => this.stream(x, z)).then(() => this.pool());
+    this.updating = run.catch(error => { console.warn('Region streaming failed', error); }).finally(() => { region.busy = false; });
   }
 
   /**
@@ -182,6 +245,15 @@ export class LocationWorld implements WorldSurface {
     if (!host.retainCollision) return cells;
     const queue = Object.entries(this.manifest.collision ?? {});
     if (!queue.length) throw new Error(`Location ${this.manifest.name} was built without collision: rebuild it to play`);
+    if (this.region) {
+      // A region's cells are listed by url and fetched by the collision streamer when the player comes near.
+      for (const [id, cell] of queue) {
+        const entry = { ...cell, url: this.storeUrl(cell.url) };
+        cells.set(id, entry);
+        host.manifest.collision[id] = entry;
+      }
+      return cells;
+    }
     await Promise.all(Array.from({ length: Math.min(LOADS, queue.length) }, async () => {
       for (let next = queue.shift(); next; next = queue.shift()) {
         const [id, cell] = next, url = this.storeUrl(cell.url);
@@ -514,7 +586,8 @@ export class LocationWorld implements WorldSurface {
   private async replace(): Promise<RefreshReport> {
     if (this.disposed) throw new Error('The location has been released');
     const started = performance.now();
-    const next = await LocationWorld.fetchManifest(this.host, this.url);
+    if (this.region) return this.replaceRegion(started);
+    const next = readLocation(await LocationWorld.fetchJson(this.host, this.url));
     if (next.name !== this.manifest.name) throw new Error(`Manifest is ${next.name}, not the loaded ${this.manifest.name}`);
     const wanted = new Map(next.entities.map(row => [row.id, row]));
     const changed: string[] = [], added: string[] = [];
@@ -543,6 +616,30 @@ export class LocationWorld implements WorldSurface {
     return { revision: next.revision, changed, added, removed, ms: Math.round(performance.now() - started) };
   }
 
+  /** A new revision of a region's index: the chunk objects whose url changed are fetched again and their drawn
+   *  chunks redrawn; the drawn set is then chosen again for the camera. */
+  private async replaceRegion(started: number): Promise<RefreshReport> {
+    const region = this.region!, next = readRegion(await LocationWorld.fetchJson(this.host, this.url));
+    const before = new Map([...this.shown].map(([id, drawn]) => [id, drawn.row.hash]));
+    for (const [key, chunk] of Object.entries(region.index.chunks)) {
+      if (next.chunks[key]?.url === chunk.url || !region.rows.has(key)) continue;
+      region.rows.delete(key);
+      const [i, j] = key.split('_');
+      for (const drawn of [...this.chunks.values()]) if (drawn.id.endsWith(`:${i}_${j}`)) this.hide(drawn);
+    }
+    region.index = next;
+    Object.assign(this.manifest, { revision: next.revision, built: next.built, collision: next.collision, roads: next.roads, stats: next.stats });
+    const at = region.at ?? { x: this.manifest.focus[0], z: this.manifest.focus[2] };
+    await this.stream(at.x, at.z);
+    await this.pool();
+    this.host.manifest.code = this.data.release;
+    for (const entry of this.entries.values()) entry.visualHash = this.data.release;
+    const changed: string[] = [], added: string[] = [];
+    for (const [id, drawn] of this.shown) if (!before.has(id)) added.push(id); else if (before.get(id) !== drawn.row.hash) changed.push(id);
+    const removed = [...before.keys()].filter(id => !this.shown.has(id));
+    return { revision: next.revision, changed, added, removed, ms: Math.round(performance.now() - started) };
+  }
+
   /** One drawn entity: its manifest row and three.js object (dev tools and the workbench). */
   entity(id: string) {
     const drawn = this.shown.get(id);
@@ -568,7 +665,8 @@ export class LocationWorld implements WorldSurface {
   }
 
   preload(_points: readonly { x: number; z: number }[], _radius: number, _boot = false, _view?: unknown) { return () => {}; }
-  update(_x: number, _z: number, _now?: number, _motion?: { x: number; z: number }, _scenery = true, _y?: number) {
+  update(x: number, z: number, _now?: number, _motion?: { x: number; z: number }, _scenery = true, _y?: number) {
+    if (this.region && !this.disposed && Number.isFinite(x) && Number.isFinite(z)) this.follow(x, z);
     if (!this.pools || this.disposed) return;
     this.started = true; this.stale = true;
     this.place(this.host.view!.camera.position);
@@ -577,12 +675,19 @@ export class LocationWorld implements WorldSurface {
   setVisualPass(_pass: 'auto' | 'first' | 'full') {}
   /** A location is a query, not a boundary: any camera may look at it. */
   contains(_x: number, _z: number) { return !this.disposed; }
-  progressAt(_x: number, _z: number) {
-    return { loaded: this.shown.size, total: this.manifest.entities.length, errors: this.errors };
+  progressAt(x: number, z: number) {
+    // A region whose drawn set was chosen elsewhere, or is being drawn, is not loaded here yet.
+    const pending = this.region && !this.settledAt(x, z) ? 1 : 0;
+    return { loaded: this.shown.size, total: this.manifest.entities.length + pending, errors: this.errors };
+  }
+  /** Whether a region's drawn set is the one for a camera at (x, z) and fully drawn (always true for a location). */
+  private settledAt(x: number, z: number) {
+    const region = this.region;
+    return !region || (!region.busy && !!region.at && Math.hypot(x - region.at.x, z - region.at.z) < REGION_STEP);
   }
   resolvedAt(_x: number, _z: number) { return !this.disposed; }
   streetsAt(x: number, z: number) { return Number.isFinite(this.groundBelow(x, z)); }
-  detailedAt(_x: number, _z: number) { return this.shown.size === this.manifest.entities.length; }
+  detailedAt(x: number, z: number) { return this.settledAt(x, z) && this.shown.size === this.manifest.entities.length; }
   collisionComing(_id: string) { return false; }
   loadedTiles() { return [...this.entries.keys()]; }
   drawn() { return this.loadedTiles(); }

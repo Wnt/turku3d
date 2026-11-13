@@ -16,6 +16,8 @@
   p { margin: 0 0 12px; color: var(--dim); max-width: 64ch; }
   ul { list-style: none; margin: 28px 0 0; padding: 0; display: grid; gap: 10px; }
   li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  li.region { border-color: var(--accent); padding: 20px 16px; }
+  li.region .name strong { font-size: 22px; }
   .name { flex: 1 1 220px; min-width: 0; }
   .name strong { display: block; font-size: 18px; }
   .name span { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -51,7 +53,9 @@
     name.className = 'name';
     const strong = document.createElement('strong'), detail = document.createElement('span');
     strong.textContent = title(location.name);
-    detail.textContent = `${location.entities.toLocaleString('en')} objects · radius ${Math.round(location.query.radius)} m · built ${location.built.replace('T', ' ').replace('Z', ' UTC')}`;
+    const reach = location.region ? `one continuous world of ${location.region.km2.toLocaleString('en')} km²` : `radius ${Math.round(location.query.radius)} m`;
+    detail.textContent = `${location.entities.toLocaleString('en')} objects · ${reach} · built ${location.built.replace('T', ' ').replace('Z', ' UTC')}`;
+    if (location.region) item.className = 'region';
     name.append(strong, detail);
     item.append(name);
     const link = (text, href, kind) => { const a = document.createElement('a'); a.className = `button ${kind}`; a.textContent = text; a.href = href; item.append(a); };
@@ -65,8 +69,9 @@
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   }).then(index => {
-    // The described pilot locations first, then the automatic points.
-    const rows = [...index.locations].sort((a, b) => /^dev-/.test(a.name) - /^dev-/.test(b.name) || a.name.localeCompare(b.name));
+    // The continuous world first (the lab's default world: docs/design/world-regions.md), then the described pilot
+    // locations, then the automatic points.
+    const rows = [...index.locations].sort((a, b) => !!b.region - !!a.region || /^dev-/.test(a.name) - /^dev-/.test(b.name) || a.name.localeCompare(b.name));
     list.replaceChildren(...rows.map(row));
     if (!rows.length) list.innerHTML = '<li class="note">No location is published yet.</li>';
     document.getElementById('published').textContent = `List published ${index.published.replace('T', ' ').replace('Z', ' UTC')}.`;

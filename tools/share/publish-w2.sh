@@ -120,10 +120,17 @@ for name in sorted(os.listdir(f'{root}/locations')):
         m = json.load(open(f'{root}/locations/{name}'))
     except ValueError:
         continue
-    missing = sum(1 for e in m['entities'] if e.get('url') and not os.path.exists(f"{root}/{e['url']}"))
-    rows.append(dict(name=m['name'], revision=m['revision'], built=m['built'], query=m['query'], focus=m['focus'],
+    if m.get('schema') == 'turku-region/1':
+        # A region (docs/design/world-regions.md): its rows are in chunk objects; a missing chunk object is missing.
+        missing = sum(1 for c in m['chunks'].values() if not os.path.exists(f"{root}/{c['url']}"))
+        query = dict(crs='EPSG:3877', at=m['centre'], radius=0, background=0)
+        extra = dict(region=dict(units=len(m['units']), km2=len(m['units']) * (m['unit'] / 1000) ** 2, chunks=len(m['chunks'])))
+    else:
+        missing = sum(1 for e in m['entities'] if e.get('url') and not os.path.exists(f"{root}/{e['url']}"))
+        query, extra = m['query'], {}
+    rows.append(dict(name=m['name'], revision=m['revision'], built=m['built'], query=query, focus=m['focus'],
                      entities=m['stats']['entities'], triangles=m['stats']['triangles'], bytes=m['stats']['bytes'], missing=missing,
-                     playable=bool(m.get('collision')), failures=len(m.get('failures', []))))
+                     playable=bool(m.get('collision')), failures=len(m.get('failures', [])), **extra))
     print(f"location {m['name']} r{m['revision']} built {m['built']}: {m['stats']['entities']} entities, {missing} missing objects")
 tmp = f'{root}/index.json.tmp'
 json.dump(dict(schema='turku-world-index/1', published=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), locations=rows), open(tmp, 'w'), indent=1)

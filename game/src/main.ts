@@ -747,7 +747,10 @@ async function preparedVisuals(manifest: CoarseHost['manifest'], collision: Pick
     // The location loader of the world pipeline stands where the prepared scene does until it replaces it: it
     // offers the same surface except the prepared scene's appearance patches (world/location/locationWorld.ts).
     if (natureLibrary) registerGreenFamilies((await natureLibrary).materials);
-    const location = await LocationWorld.start(host, params.world);
+    // A region draws the chunks around the first camera: the requested pose, else the requested spawn, else its start.
+    const cam = params.qa && new URLSearchParams(window.location.search).has('cam') ? enToEngine(params.qa.E, params.qa.N)
+      : params.spawnGiven ? enToEngine(params.spawn.E, params.spawn.N) : null;
+    const location = await LocationWorld.start(host, params.world, cam ? { x: cam.x, z: cam.z } : undefined);
     window.__dev!.world = watchLocation(location);
     coarse = location as unknown as PreparedWorld;
     // Play starts on the location's street (open ground is searched around it, world/startGround.ts).
