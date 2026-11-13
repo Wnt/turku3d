@@ -64,13 +64,47 @@ def watch(name: str, store: Store) -> None:
                 print(f"  {type(error).__name__}: {error}", flush=True)
 
 
+def warm_order(tiles: list[str], points: list[tuple[float, float]], reach: float) -> list[str]:
+    """The tiles a location at each point needs (its background of `reach` metres) first, point by point, then
+    the others as they came."""
+    from .sources import lidar
+
+    known, first = set(tiles), []
+    for e, n in points:
+        first += [name for name in lidar.names((e - reach, n - reach, e + reach, n + reach), lidar.RING) if name in known]
+    first = list(dict.fromkeys(first))
+    return first + [name for name in tiles if name not in set(first)]
+
+
 def warm_tiles(args) -> None:
-    """Makes the lidar products of the survey's tiles, nearest first, in rounds, leaving one of the machine's lidar
-    slots to builds someone waits for. A tile that has everything costs nothing, so the command can be stopped
-    and started again."""
+    """Makes the lidar products of the survey's tiles in rounds: first the tiles that locations at the points of
+    `--first` need, then nearest first to `--at`, leaving one of the machine's lidar slots to builds someone waits
+    for. A tile that has everything costs nothing, so the command can be stopped and started again; a tile whose
+    process fails is logged and left to the next run. It waits while a disk is below `--keep-free` or the machine
+    has less than `--keep-memory` available."""
+    import shutil
+
     import numpy as np
 
     from .sources import lidar
+
+    def say(text: str) -> None:
+        print(f"{time.strftime('%H:%M:%SZ', time.gmtime())} {text}", flush=True)
+
+    def room() -> list[str]:
+        short = []
+        for label, path in (("data", lidar.sources_root()), ("products", lidar.products_root())):
+            path.mkdir(parents=True, exist_ok=True)
+            free = shutil.disk_usage(path).free / 2**30
+            if free < args.keep_free:
+                short.append(f"{free:.0f} GiB free on the {label} disk, floor {args.keep_free:g}")
+        try:
+            available = int(re.search(r"MemAvailable:\s+(\d+)", Path("/proc/meminfo").read_text()).group(1)) / 2**20
+            if available < args.keep_memory:
+                short.append(f"{available:.0f} GiB of memory available, floor {args.keep_memory:g}")
+        except OSError:  # not Linux: no guard
+            pass
+        return short
 
     at = tuple(float(v) for v in args.at.split(",")) if args.at else (None, None)
     tiles = lidar.city_tiles(*at)
@@ -78,15 +112,40 @@ def warm_tiles(args) -> None:
         if not args.at:
             raise SystemExit("--reach needs --at")
         tiles = [name for name in tiles if np.hypot(*(np.array(lidar.tile_corner(name)) + lidar.TILE / 2 - at)) <= args.reach]
+    points = []
+    for path in args.first or []:
+        for line in Path(path).read_text().splitlines():
+            numbers = [float(v) for v in re.findall(r"-?\d+(?:\.\d+)?", line) if float(v) > 1e6]
+            if len(numbers) >= 2:
+                points.append((numbers[0], numbers[1]))
+    tiles = warm_order(tiles, points, args.first_reach)
+    known = set(tiles)
     jobs = args.jobs or max(1, lidar.slots() - 1)
-    started, made = time.perf_counter(), 0
-    print(f"{len(tiles)} tiles, {jobs} worker(s), rounds of {args.batch}", flush=True)
+    phases = lidar.missing(tiles)
+    lacking = set(phases[0]) | set(phases[1])
+    say(f"{len(tiles)} tiles, {len(lacking & known)} lack a product ({len(phases[0])} to reduce, {len(phases[1])} to search), "
+        f"{len(points)} points first, {jobs} worker(s) of {lidar.slots()} slots, rounds of {args.batch}; products in {lidar.products_root()}")
+    if args.plan:
+        return
+    started, made, checked, failed = time.perf_counter(), 0, 0, []
     for first in range(0, len(tiles), args.batch):
-        done = lidar.make(tiles[first:first + args.batch], lambda line: print(line, flush=True), jobs, spare=1)
-        made += done["made"]
-        elapsed = time.perf_counter() - started
-        print(f"{time.strftime('%H:%M:%SZ', time.gmtime())} {min(first + args.batch, len(tiles))} of {len(tiles)} tiles checked, {made} made, "
-              f"{elapsed / 60:.1f} min, largest worker {done['peakMb']} MB", flush=True)
+        batch = tiles[first:first + args.batch]
+        checked += len(batch)
+        if not lacking.intersection(batch):
+            continue
+        while short := room():
+            say("waiting 5 min: " + "; ".join(short))
+            time.sleep(300)
+        near = sorted({name for tile in batch for name in lidar.neighbours(tile) if name in known} - set(batch))
+        done = lidar.make(batch, lambda line: print(line, flush=True), jobs, spare=1, also=near, keep_going=True)
+        made += len(lacking.intersection(batch)) - len(set(done["failed"]) & set(batch))
+        failed += done["failed"]
+        hours = (time.perf_counter() - started) / 3600
+        left = len(lacking.intersection(tiles[first + args.batch:]))
+        say(f"{checked} of {len(tiles)} tiles checked, {made} made in {hours * 60:.1f} min ({made / hours:.0f} an hour), {left} left: "
+            f"about {left / max(made / hours, 1e-6):.1f} h; largest worker {done['peakMb']} MB, {len(failed)} failed")
+    say(f"pass complete: {made} tiles made in {(time.perf_counter() - started) / 3600:.2f} h"
+        + (f"; FAILED, made on the next run: {' '.join(sorted(set(failed)))}" if failed else ""))
 
 
 def main() -> None:
@@ -118,6 +177,11 @@ def main() -> None:
     warm.add_argument("--reach", type=float, help="metres from the point to which tiles are made (default: the whole survey)")
     warm.add_argument("--jobs", type=int, help="worker processes (default: all but one of the machine's lidar slots)")
     warm.add_argument("--batch", type=int, default=12, help="tiles per round; each round is complete when it ends")
+    warm.add_argument("--first", action="append", metavar="FILE", help="a file of points, one line each with E and N: the tiles locations there need are made first")
+    warm.add_argument("--first-reach", type=float, default=400.0, help="metres around each point of --first (a location's background)")
+    warm.add_argument("--keep-free", type=float, default=25.0, help="GiB that stay free on the data disk and the products disk; the batch waits below that")
+    warm.add_argument("--keep-memory", type=float, default=10.0, help="GiB of available memory below which no new round starts")
+    warm.add_argument("--plan", action="store_true", help="say what is missing and stop")
     describe = commands.add_parser("describe", help="print the effective description of an entity of a built location")
     describe.add_argument("id")
     commands.add_parser("gc", help="delete objects that no location manifest of this store references")

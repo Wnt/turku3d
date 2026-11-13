@@ -87,7 +87,7 @@ def build_tile(name: str) -> dict | None:
 
 
 def tile_path(name: str) -> Path:
-    return data_root() / "sources" / "object-lidar" / VERSION / f"{name}.npz"
+    return shared.products_root() / "object-lidar" / VERSION / f"{name}.npz"
 
 
 def tile_done(name: str) -> bool:
@@ -123,7 +123,7 @@ class ObjectLidar:
         self.log = log
         self.fetch = fetch
         self.clip = clip
-        self.cache = data_root() / "sources" / "object-lidar" / VERSION
+        self.cache = shared.products_root() / "object-lidar" / VERSION
 
     def tile(self, e0: float, n0: float, whole: bool = False) -> dict | None:
         name = f"{int(e0)}_{int(n0 + TILE)}"

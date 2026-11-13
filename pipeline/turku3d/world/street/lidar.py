@@ -169,7 +169,7 @@ RECIPE = '53a8ebc55ca041e8'
 
 
 def tile_path(name: str) -> Path:
-    return sources_root() / 'lidar-rasters' / RECIPE / f'{name}.npz'
+    return shared.products_root() / 'lidar-rasters' / RECIPE / f'{name}.npz'
 
 
 def tile_done(name: str) -> bool:

@@ -133,7 +133,7 @@ def reduce(name: str) -> dict[str, np.ndarray]:
 
 
 def tile_path(name: str) -> Path:
-    return sources_root() / "green" / f"lidar-{RECIPE}" / f"{name}.npz"
+    return shared.products_root() / "green" / f"lidar-{RECIPE}" / f"{name}.npz"
 
 
 def tile_done(name: str) -> bool:

@@ -46,6 +46,15 @@ def sources_root() -> Path:
     return data_root() / "sources"
 
 
+def products_root() -> Path:
+    """Where the per-tile reductions of the point cloud are kept (ground rasters, vegetation, object returns, rings:
+    about 134 MB a tile, 170 GB for the whole city). The shared source cache, unless the machine names another
+    disk in `TURKU3D_LIDAR_PRODUCTS` (osgallery-dev: on /bulk, its home disk cannot hold the city). A private data
+    root (`TURKU3D_WORLD_DATA`) keeps its own products, so that a build there starts cold."""
+    root = os.environ.get("TURKU3D_LIDAR_PRODUCTS")
+    return Path(root).expanduser() if root and not os.environ.get("TURKU3D_WORLD_DATA") else sources_root()
+
+
 def tile_name(e0: float, n0: float) -> str:
     """The tile whose south-west corner is (e0, n0)."""
     return f"{int(e0)}_{int(n0 + TILE)}"
@@ -195,7 +204,7 @@ def tile_wire_returns(name: str, box: tuple[float, float, float, float] | None =
 
 
 def ring_path(name: str) -> Path:
-    return sources_root() / "laz-rings" / RING_VERSION / f"{name}.npz"
+    return products_root() / "laz-rings" / RING_VERSION / f"{name}.npz"
 
 
 def ring(name: str, fetch: bool = False) -> np.ndarray | None:
@@ -346,16 +355,21 @@ def _work(job: tuple[str, tuple[str, ...], int]) -> tuple[str, list[str], float,
     return name, made, time.perf_counter() - started, peak
 
 
-def missing(tiles: list[str]) -> list[dict[str, tuple[str, ...]]]:
+def missing(tiles: list[str], also: tuple[str, ...] | list[str] = ()) -> list[dict[str, tuple[str, ...]]]:
     """What tiles still lack, as two phases of {tile: products to make}. A tile whose wires are missing needs the
     rings of its neighbours: of those among the tiles, and of the others when this machine has them (the
-    detection takes a neighbour's edge only when it is there)."""
+    detection takes a neighbour's edge only when it is there). The tiles in `also` get their reductions (the
+    first phase) and are not searched: a batch over the city names the neighbours of its tiles there, since the
+    span search reads a neighbour's object returns and would otherwise decode that tile on its own."""
     products = _products()
     lacks = {name: [label for label, (done, _, _) in products.items() if label != "ring" and not done(name)] for name in tiles}
+    reduce_only = {name: [label for label, (done, _, phase) in products.items() if phase == 1 and not done(name)]
+                   for name in also if name not in lacks}
     rings = {near for name in tiles if "wires" in lacks[name] for near in neighbours(name)}
     rings = {name for name in rings if not products["ring"][0](name) and (name in lacks or laz_path(name, fetch=False) is not None)}
     first = {name: tuple(label for label in lacks.get(name, []) if products[label][2] == 1) + (("ring",) if name in rings else ())
              for name in sorted(set(tiles) | rings)}
+    first.update({name: tuple(labels) for name, labels in reduce_only.items()})
     second = {name: tuple(label for label in lacks[name] if products[label][2] == 2) for name in tiles}
     return [{name: labels for name, labels in phase.items() if labels} for phase in (first, second)]
 
@@ -401,27 +415,40 @@ def _in_process(job):
     return outcome
 
 
-def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0) -> dict:
-    """Makes every lidar product the tiles lack on this machine. Returns {tiles, made, s, peakMb}: how many tiles
-    lacked something, how many products' worth of tiles were made, and the largest worker."""
-    from concurrent.futures import ThreadPoolExecutor
+def make(tiles: list[str], log=print, jobs: int | None = None, spare: int = 0, also: tuple[str, ...] | list[str] = (),
+         keep_going: bool = False) -> dict:
+    """Makes every lidar product the tiles lack on this machine (and the reductions of the tiles in `also`).
+    Returns {tiles, made, s, peakMb, failed}: how many tiles lacked something, how many products' worth of tiles
+    were made, the largest worker, and the tiles whose process failed. A failure is raised when the first phase
+    has ended, unless `keep_going`: a batch logs it and goes on, and the tile is made on a later run."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     started = time.perf_counter()
-    phases = missing(tiles)
+    phases = missing(tiles, also)
     count = len(set(phases[0]) | set(phases[1]))
-    made, peak = 0, 0.0
+    made, peak, failed = 0, 0.0, {}
     if count:
         workers = max(1, min(jobs or int(os.environ.get("TURKU3D_JOBS") or 1), slots(), max(len(phase) for phase in phases)))
         log(f"  lidar: {len(phases[0])} tiles to reduce, {len(phases[1])} to search for wires and spans, {workers} at a time "
             f"(this machine has {slots()} slots)")
         with ThreadPoolExecutor(workers) as pool:  # a thread waits for each tile's process
             for phase in phases:
-                for name, labels, seconds, worker_peak in pool.map(_in_process, [(name, labels, spare) for name, labels in phase.items()]):
+                # A tile whose reductions failed is not searched: the search would decode it again in its own process.
+                waiting = {pool.submit(_in_process, (name, labels, spare)): name for name, labels in phase.items() if name not in failed}
+                for done in as_completed(waiting):
+                    try:
+                        name, labels, seconds, worker_peak = done.result()
+                    except Exception as error:  # noqa: BLE001 - the tile's process died or raised; the others go on
+                        failed[waiting[done]] = error
+                        log(f"  lidar tile {waiting[done]} FAILED: {str(error).strip().splitlines()[0][:300]}")
+                        continue
                     peak = max(peak, worker_peak)
                     if labels:
                         made += 1
                         log(f"  lidar tile {name}: {', '.join(labels)} in {seconds:.1f} s, {worker_peak:.0f} MB")
-    return {"tiles": count, "made": made, "s": round(time.perf_counter() - started, 2), "peakMb": round(peak)}
+                if failed and not keep_going:
+                    raise next(iter(failed.values()))
+    return {"tiles": count, "made": made, "s": round(time.perf_counter() - started, 2), "peakMb": round(peak), "failed": sorted(failed)}
 
 
 def prepare(box: tuple[float, float, float, float], log=print, jobs: int | None = None, margin: float = RING) -> dict:
