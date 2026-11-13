@@ -3,12 +3,15 @@
     python -m turku3d.observe views    (--building KEY... | --at E,N [--radius R] | --view ID...)
     python -m turku3d.observe describe (--building KEY... | --at E,N [--radius R] | --view ID...) [--effort low]
     python -m turku3d.observe assemble                descriptions again from the saved readings, no model call
+    python -m turku3d.observe review [--building KEY...]   compare each wall with a drawing of what gets built
 
 `views` writes the crops and views.json of each building under $TURKU3D_WORK/observe/buildings/<key>/ and reports
 the walls no panorama sees. `describe` also reads them and writes the description to
 $TURKU3D_WORK/observe/descriptions/building/<key>.json (the layout of a private descriptions root), and stores it
 through turku3d.world.store (docs/design/world-pipeline.md, section 4.2). `assemble` rebuilds every description of
-the work directory from its views.json and reading.json, for when only the assembly changed.
+the work directory from its views.json and reading.json, for when only the assembly changed. `review` draws what
+the generator builds on each read wall on the rulers of its crop (elevation.py), shows the reader photograph and
+drawing side by side and stores the corrected description at tier `reviewed`.
 `--view` takes reference views of qa/views/views.jsonl and selects every building visible in them.
 """
 
@@ -24,7 +27,7 @@ import numpy as np
 
 from turku3d import config
 
-from . import check, lod2, reader
+from . import check, elevation, lod2, reader
 from .panoramas import REPO, Panoramas
 from .prepare import prepare
 
@@ -32,9 +35,16 @@ VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible 
 
 
 def store(doc: dict) -> str | None:
-    """Store a description in the shared descriptions root; None when the store refuses."""
+    """Store a description in the shared descriptions root; None when the store refuses or when the stored
+    description of the same or a higher tier is somebody else's (a hand-written one)."""
     from turku3d.world import store as world_store
+    from turku3d.world.api import TIERS
 
+    log = world_store.description_path(doc["id"]).with_suffix(".log.jsonl")
+    last = json.loads(log.read_text().splitlines()[-1]) if log.exists() else None
+    if last and last["by"] != "w2-observe" and TIERS.index(last["tier"]) >= TIERS.index(doc["tier"]):
+        print(f"observe: {doc['id']} not stored: {last['by']} stored it at tier {last['tier']}", file=sys.stderr)
+        return None
     try:
         return str(world_store.write_description(doc, by="w2-observe", note=doc["provenance"][0].get("note", "")))
     except ValueError as error:  # a higher tier is stored already
@@ -48,7 +58,7 @@ def finish(record: dict, reading: dict, meta: dict, packet: Path, root: Path) ->
 
     from turkutex.streetview.height import ground_height  # the survey lidar; on sys.path through .panoramas
 
-    doc = reader.assemble(record, reading, meta, ground=ground_height)
+    doc = reader.assemble(record, reading, meta, ground=ground_height, tier=meta.get("tier", "observed"))
     problems = fmt.errors(doc)
     target = root / "descriptions/building" / f"{record['building']}.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +100,51 @@ def second_look(record: dict, packet: Path, root: Path, reading: dict, meta: dic
         kept = finish(record, reading, {**meta, **total}, packet, root)  # the first reading stays stored
         return reading, {**meta, **total}, {**kept, "second_look": note + " (first kept)"}
     return again, {**meta_again, **total}, {**second, "second_look": note}
+
+
+def review(packet: Path, root: Path, effort: str) -> dict:
+    """Render and compare for one read building: drawings of what gets built beside the crops, the reader's
+    corrections, the result stored at tier reviewed when it is valid and loses no more parts than before."""
+    from turku3d.world.kinds.building import description as fmt
+    from turkutex.streetview.height import ground_height
+
+    record = json.loads((packet / "views.json").read_text())
+    saved = json.loads((packet / "reading.json").read_text())
+    reading, meta = saved["reading"], saved["meta"]
+    doc = reader.assemble(record, reading, meta, ground=ground_height)
+    before = check.count(check.build_report(doc), reader_only=True)
+    pairs = {}
+    for wall in reading["description"].get("walls", []):
+        crop = next((c for c in record["crops"] if Path(c["file"]).name == wall.get("measured_on")), None)
+        if crop is None:
+            continue
+        drawing = packet / f"{Path(crop['file']).stem}-built.jpg"
+        registration = reader.wall_registration(record, reading, wall["id"], ground_height)
+        if elevation.draw_wall(doc, wall["id"], crop, registration, drawing):
+            pairs[wall["id"]] = (Path(crop["file"]).name, drawing.name)
+    line = {"building": record["building"], "compared_walls": len(pairs)}
+    if not pairs:
+        return {**line, "skipped": "no read wall lies on a shell wall of the generator"}
+    (packet / "first-description.json").write_text(json.dumps(reading["description"], indent=1, ensure_ascii=False))
+    try:
+        again, meta_again = reader.read(record, packet, effort=effort, feedback_text=reader.review_text(pairs))
+    except Exception as error:  # noqa: BLE001 - the observed description stands
+        return {**line, "error": str(error)[:300]}
+    meta_again["tier"] = "reviewed"
+    (packet / "reading-reviewed.json").write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1,
+                                                             ensure_ascii=False))
+    candidate = reader.assemble(record, again, meta_again, ground=ground_height, tier="reviewed")
+    problems = fmt.errors(candidate)
+    after = None if problems else check.count(check.build_report(candidate), reader_only=True)
+    line.update(read_s=meta_again["seconds"], cost_usd=meta_again["cost_usd"], invalid=problems[:5] or None,
+                dropped_reader=f"{before} -> {after}", changed=str(again.get("notes", ""))[:400])
+    if problems or after > before:
+        return {**line, "kept": "the observed description (the review was invalid or lost more parts)"}
+    (packet / "reading-observed.json").write_text(json.dumps(saved, indent=1, ensure_ascii=False))
+    (packet / "reading.json").write_text(json.dumps({"reading": again, "meta": meta_again}, indent=1,
+                                                    ensure_ascii=False))
+    done = finish(record, again, meta_again, packet, root)
+    return {**done, **line}
 
 
 def visible_in_view(view: dict, scene: lod2.Scene, grid=(96, 72), reach: float = 250.0) -> dict:
@@ -139,7 +194,7 @@ def select(args) -> tuple[lod2.Scene, list, dict]:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="python -m turku3d.observe", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["views", "describe", "assemble"])
+    ap.add_argument("command", choices=["views", "describe", "assemble", "review"])
     ap.add_argument("--building", nargs="*", help="entity keys (with --near)")
     ap.add_argument("--near", help="E,N near the buildings named by --building")
     ap.add_argument("--everywhere", action="store_true", help="load the whole register to find --building keys")
@@ -154,6 +209,25 @@ def main(argv=None) -> int:
                     help="keep the first reading even when the generator drops parts of it")
     a = ap.parse_args(argv)
     root = a.out or config.work_root() / "observe"
+    if a.command == "review":
+        from concurrent.futures import ThreadPoolExecutor
+
+        packets = [p for p in sorted((root / "buildings").iterdir()) if (p / "reading.json").exists()
+                   and (not a.building or p.name in a.building)]
+
+        def one(packet):
+            try:
+                line = review(packet, root, a.effort)
+            except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
+                line = {"building": packet.name, "error": f"{type(error).__name__}: {error}"[:300]}
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+            return line
+
+        with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
+            done = list(pool.map(one, packets))
+        print(json.dumps({"reviewed": sum(bool(x.get("stored")) for x in done), "of": len(done),
+                          "cost_usd": round(sum(x.get("cost_usd") or 0 for x in done), 2)}), flush=True)
+        return 0
     if a.command == "assemble":
         for packet in sorted((root / "buildings").iterdir()):
             if (packet / "reading.json").exists() and (packet / "views.json").exists():

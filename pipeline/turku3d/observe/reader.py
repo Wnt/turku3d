@@ -148,7 +148,9 @@ def task_text(record: dict, packet: Path, feedback_text: str = "") -> str:
                      f"{p['date']}, camera {c['distance_m']:.0f} m from the wall plane, {c['oblique_deg']:.0f} deg "
                      f"off frontal, {c['px_per_m']:.0f} px/m, line of sight free for u {c['x0_m']:.1f}-"
                      f"{c['x1_m']:.1f} m")
-    if feedback_text:
+    if feedback_text.startswith("Review round."):
+        lines += ["", feedback_text]
+    elif feedback_text:
         lines += ["", "A first reading of these images was given to the generator, which could not build the parts "
                   "below (positions on the rulers of the crop each wall was measured on). Look at those places "
                   "again. Correct what the photographs show was misread (a position, a width, a storey height, a "
@@ -316,7 +318,24 @@ def feedback(record: dict, reading: dict, complaints: dict, ground=None) -> str:
     return "\n".join(lines)
 
 
-def assemble(record: dict, reading: dict, meta: dict, ground=None) -> dict:
+def review_text(pairs: dict) -> str:
+    """The task of the review round: {wall id: (crop file, drawing file)} of the walls to compare."""
+    lines = ["Review round. first-description.json in the packet is your first description of this building. For "
+             "each wall below, the packet also holds a drawing of what the generator builds from it, on the same "
+             "rulers as the crop the wall was measured on:"]
+    lines += [f"- {wall}: {drawing} beside {crop}" for wall, (crop, drawing) in pairs.items()]
+    lines += ["Read each pair and compare photograph and drawing place by place: the number and positions of bays "
+              "and openings on every storey, opening widths and heights, sill and head lines, storey lines, the "
+              "plinth and the ground storey's height, zones of another material, and the colours of wall, plinth "
+              "and frames. The drawing is flat and schematic: it shows no relief, balconies, ornaments, surrounds "
+              "or roof, and glass is one dark colour, so judge only what it draws. Return the complete description "
+              "again in the same form: corrected wherever photograph and drawing differ by more than about 0.2 m, "
+              "by a count, or by a visibly different colour, and unchanged elsewhere. Keep each wall's "
+              "`measured_on`. List what you changed in `notes`."]
+    return "\n".join(lines)
+
+
+def assemble(record: dict, reading: dict, meta: dict, ground=None, tier: str = "observed") -> dict:
     """The stored description: the reading in its envelope, with frames, what was seen and where it came from.
 
     `ground(e, n)` gives the surveyed ground height; with it, heights are corrected by the ground line the reader
@@ -382,6 +401,6 @@ def assemble(record: dict, reading: dict, meta: dict, ground=None) -> dict:
             del body["wall_defaults"]["bays"]
     if registered:
         provenance[0]["note"] += "; moved onto the wall: " + ", ".join(registered)
-    doc = {"schema": "turku-description/building/1", "id": f"building/{key}", "tier": "observed",
+    doc = {"schema": "turku-description/building/1", "id": f"building/{key}", "tier": tier,
            "provenance": provenance, **body, "src": run_key}
     return doc
