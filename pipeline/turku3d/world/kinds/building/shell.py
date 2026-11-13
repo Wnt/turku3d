@@ -111,13 +111,17 @@ def read(shell: dict) -> Shell:
         n[2] = 0.0
         length = np.linalg.norm(n)
         normals.append(n / length if length > 1e-9 else None)
-    # LoD2 rings should face out; when most do not (reversed winding in a record), flip the lot.
+    # LoD2 rings should face out; when most do not (reversed winding in a record), flip the lot. Only a wall on
+    # the footprint's edge can tell: a wall of a set-back upper part has the footprint on both sides.
     votes = 0
     for rings, n in zip(walls, normals, strict=True):
         if n is None:
             continue
-        probe = rings[0][:, :2].mean(axis=0) + n[:2] * 0.4
-        votes += -1 if footprint.contains(shapely.Point(probe)) else 1
+        middle = rings[0][:, :2].mean(axis=0)
+        front = footprint.contains(shapely.Point(middle + n[:2] * 0.4))
+        back = footprint.contains(shapely.Point(middle - n[:2] * 0.4))
+        if front != back:
+            votes += -1 if front else 1
     if votes < 0:
         normals = [None if n is None else -n for n in normals]
 

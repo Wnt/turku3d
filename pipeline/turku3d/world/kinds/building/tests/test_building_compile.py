@@ -106,3 +106,23 @@ def test_compile_is_deterministic_and_writes_a_glb(tmp_path):
     glb.write(compile_module.compile(doc), second, doc["id"])
     assert first.read_bytes() == second.read_bytes()
     assert first.read_bytes()[:4] == b"glTF" and stats["triangles"] > 500
+
+
+def test_walls_of_set_back_storeys_do_not_turn_the_shell_inside_out():
+    from turku3d.world.kinds.building import shell as shell_module
+
+    def wall(a, b, z0, z1):  # outward: seen from outside, a is on the left
+        return {"kind": "wall", "rings": [[[*a, z0], [*b, z0], [*b, z1], [*a, z1]]]}
+
+    def ring(x0, y0, x1, y1):  # anticlockwise seen from above, so every wall below faces out
+        return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+    outer, inner = ring(0, 0, 20, 12), ring(4, 3, 16, 9)
+    surfaces = [{"kind": "ground", "rings": [[[x, y, 0.0] for x, y in outer]]}]
+    surfaces += [wall(outer[i], outer[(i + 1) % 4], 0.0, 6.0) for i in range(4)]
+    # Twice as many walls stand inside the footprint (a set-back upper part, cut into pieces) as on its edge.
+    for z0 in (6.0, 9.0):
+        surfaces += [wall(inner[i], inner[(i + 1) % 4], z0, z0 + 3.0) for i in range(4)]
+    shell = shell_module.read({"source": "test", "surfaces": surfaces})
+    south = max(shell.facades, key=lambda f: f.outline.area if abs(f.normal[1]) > 0.9 and f.origin[1] < 1 else 0)
+    assert south.normal[1] < -0.9  # the street wall on the south edge still faces south
