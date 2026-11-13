@@ -22,6 +22,7 @@ GATE_POST = "66114"
 LAMP_LAYERS = ("Kiilai:uv-pylväs mitattu", "rr:js,pylväs,valaisin", "rr:js,uv-pylväs", "Kiilai:uv-pylväs digitoitu")
 LAMP_DUPLICATE = 1.5
 CAR_PARTS = ("Ajorata", "Pyöräkaista")
+DECK_CELL = 250.0  # m: side of the squares the bridge decks under objects are looked up in
 
 
 def lidar_of(sources) -> ObjectLidar:
@@ -31,10 +32,30 @@ def lidar_of(sources) -> ObjectLidar:
     return sources._object_lidar
 
 
+def _decks(sources, e: float, n: float) -> list[dict]:
+    """The bridge decks over the square of `DECK_CELL` around a point, read once per Sources instance."""
+    from ..kinds.ground import decks
+
+    if not hasattr(sources, "_decks"):
+        sources._decks = {}
+    key = (math.floor(e / DECK_CELL), math.floor(n / DECK_CELL))
+    if key not in sources._decks:
+        e0, n0 = key[0] * DECK_CELL, key[1] * DECK_CELL
+        sources._decks[key] = decks.spans((e0, n0, e0 + DECK_CELL, n0 + DECK_CELL))
+    return sources._decks[key]
+
+
 def ground_height(sources, e: float, n: float) -> float:
-    """The ground under a point, from the reader every kind shares so that things meet."""
+    """The ground under a point, from the reader every kind shares so that things meet: on a bridge, its deck (the
+    scan's ground there is the water or the bank under it)."""
+    from ..kinds.ground import decks
+
     height = float(sources.terrain.heights(e, n)[0])
-    return height if math.isfinite(height) else lidar_of(sources).ground(e, n)
+    height = height if math.isfinite(height) else lidar_of(sources).ground(e, n)
+    on = _decks(sources, e, n)
+    if on:
+        height = float(decks.lifted(np.array([height]), np.array([float(e)]), np.array([float(n)]), on)[0])
+    return height
 
 
 def _point(feature):

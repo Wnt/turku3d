@@ -53,13 +53,16 @@ def materials(style: dict) -> dict[str, Material]:
 
 
 def style(description: dict) -> dict:
-    """Type rules from the map's facts (use, era, OpenStreetMap structure and material), then the stored profile."""
+    """Type rules from the map's facts (use, era, OpenStreetMap structure and material) and the profile's body and
+    structure, then the rest of the profile over them."""
     year, use = description.get('year'), description.get('use', 'road')
     material = description.get('material', '')
+    profile = {k: v for k, v in (description.get('profile') or {}).items() if k not in ('name', 'evidence')}
     old = year is not None and year < 1940
-    body = {'stone': 'stone', 'masonry': 'stone', 'granite': 'stone', 'steel': 'steel', 'metal': 'steel', 'wood': 'wood',
-            'concrete': 'concrete', 'reinforced_concrete': 'concrete'}.get(material, 'steel' if use == 'foot' else 'concrete')
-    structure = description.get('structure') or 'beam'
+    body = profile.get('body') or {'stone': 'stone', 'masonry': 'stone', 'granite': 'stone', 'steel': 'steel', 'metal': 'steel',
+                                   'wood': 'wood', 'concrete': 'concrete', 'reinforced_concrete': 'concrete'}.get(
+        material, 'steel' if use == 'foot' else 'concrete')
+    structure = profile.get('structure') or description.get('structure') or 'beam'
     out = {
         'body': body,
         'support': 'stone' if old or body == 'stone' else 'concrete',
@@ -69,10 +72,7 @@ def style(description: dict) -> dict:
         'max_span': {'arch': 60.0, 'cable-stayed': 80.0, 'suspension': 120.0}.get(structure, 35.0 if use == 'foot' else 40.0),
         'slab': decks.SLAB,
     }
-    profile = description.get('profile') or {}
     for key, value in profile.items():
-        if key in ('name', 'evidence'):
-            continue
         out[key] = {**out[key], **value} if isinstance(value, dict) and isinstance(out.get(key), dict) else value
     return out
 
@@ -254,6 +254,7 @@ def compile_bridge(description: dict) -> Output:
             _arched_opening(solids, detail, frame, mats, support_mat, ss, arch, banks[end], bottom, under_deck, base)
 
     # Piers: a cutwater across the deck from below the bed to the girders.
+    stayed = spec['structure'] in ('cable-stayed', 'suspension')
     pier_rows = []
     for pier in piers:
         s = pier['station']
@@ -265,10 +266,13 @@ def compile_bridge(description: dict) -> Output:
         top = float(under_deck(s) - _depths(spec, reach, np.array([0.0]), use)[0])
         on_water = any(a <= s <= b for a, b in water)
         bottom = (WATER_LEVEL - BED_DEPTH - 0.5) if on_water else float(_ground(description, s)) - ROOT
+        if stayed:
+            # A stayed deck hangs from its masts: the pier is a low cutwater the masts stand on.
+            top = min(top, WATER_LEVEL + spec.get('freeboard', 1.0) if on_water else top)
         if top - bottom < 1.0:
             continue
         thickness = (spec.get('piers') or {}).get('thickness', 2.2 if spec['support'] == 'stone' else 1.4)
-        if spec['structure'] in ('cable-stayed', 'suspension'):
+        if stayed:
             thickness = 1.2
         left_off, right_off = float(frame.edge(0, s)), float(frame.edge(1, s))
         inset = 0.6
@@ -321,6 +325,29 @@ def compile_bridge(description: dict) -> Output:
         for run_a, run_b in _runs(ss, standing, a, b):
             for side in (0, 1):
                 _parapet(solids, instances, frame, mats, spec, kind, side, run_a, run_b, base, f'{key}/{zone}-{side}-{run_a:.0f}')
+
+    # Masts of a stayed deck: a steel shaft at both edges over each pier, stays fanning to the deck's edges half way to
+    # the next mast or the abutment.
+    masts = spec.get('masts')
+    if stayed and masts and pier_rows:
+        stations = [p['station'] for p in pier_rows]
+        limits = [f0 + 1.0, *[(a + b) / 2 for a, b in zip(stations[:-1], stations[1:])], f1 - 1.0]
+        height, radius = masts.get('height', 6.0), masts.get('radius', 0.17)
+        for k, pier in enumerate(pier_rows):
+            s = pier['station']
+            for side in (0, 1):
+                offset = float(frame.edge(side, s))
+                offset -= np.sign(offset) * (radius + 0.1)
+                at = frame.xz(frame.point([s], [offset]))[0]
+                top = float(frame.level(s)) + height
+                detail.tube('mast', mats['steel'], [[at[0], pier['top'] - base, at[1]], [at[0], top - base, at[1]]], radius, sides=10)
+                for target in limits[k:k + 2]:
+                    for t in np.linspace(s, target, 4)[1:]:
+                        edge = float(frame.edge(side, t))
+                        q = frame.xz(frame.point([t], [edge - np.sign(edge) * (radius + 0.1)]))[0]
+                        detail.tube('stay', mats['rail'], [[at[0], top - 0.4 - base, at[1]],
+                                                          [q[0], float(frame.level(t)) + EDGE_UP + spec['rail_height'] - base, q[1]]],
+                                    0.025, sides=6)
 
     # End pylons where the spans meet the abutments.
     pylons = spec.get('pylons')
