@@ -175,19 +175,28 @@ def partition(description: dict, e0: float, n1: float):
         layers.append((band, description.get('kerb', NAMED['kerb']), 'kerb'))
     layers += [(shape, s['cover'], s['level']) for shape, s in surfaces]
 
-    pieces, taken = [], shapely.Polygon()
+    # The same overlay once more on the strip just outside the cell: where a piece of a neighbour ends on the shared
+    # edge, this cell needs a vertex there too (`seams`), or the two skins would not meet point for point.
+    rim = NEAR.difference(cell)
+    pieces, taken, beyond, seams = [], shapely.Polygon(), shapely.Polygon(), []
     for shape, cover, role in layers:
         rest = shapely.set_precision(remainder(shape.intersection(cell), taken), 0.001)
         for part in polygons(rest):
             pieces.append((part, cover, role))
         if not rest.is_empty:
             taken = areal(shapely.unary_union([taken, areal(rest)]))
+        outer = shapely.set_precision(remainder(shape.intersection(rim), beyond), 0.001)
+        if not outer.is_empty:
+            seams.append(shapely.get_coordinates(outer))
+            beyond = areal(shapely.unary_union([beyond, areal(outer)]))
     for part in polygons(shapely.set_precision(cell.difference(taken), 0.001)):
         pieces.append((part, description['base'], 'high'))
-    return pieces, low_area, kerb_lines
+    seams = np.concatenate(seams) if seams else np.zeros((0, 2))
+    on_edge = (np.isin(seams, (0.0, CELL)).any(axis=1)) & (seams >= 0).all(axis=1) & (seams <= CELL).all(axis=1)
+    return pieces, low_area, kerb_lines, np.unique(seams[on_edge], axis=0)
 
 
-def triangulate(pieces) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def triangulate(pieces, seams=np.zeros((0, 2))) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One conforming triangulation of all pieces: vertices (n, 2), triangles (m, 3) and the piece of each.
 
     The faces of the planar arrangement of the piece boundaries and a regular grid (the relief resolution of the
@@ -195,6 +204,9 @@ def triangulate(pieces) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     ticks = np.arange(0.0, CELL + 1e-9, GRID)
     lines = [shapely.LineString([(t, 0.0), (t, CELL)]) for t in ticks] + [shapely.LineString([(0.0, t), (CELL, t)]) for t in ticks]
+    # A seam point becomes a node of the cell's edge: a short stub across the edge there, of which only the node stays.
+    lines += [shapely.LineString([(x, y), (x + (0.01 if x == 0 else -0.01 if x == CELL else 0.0),
+                                           y + (0.0 if x in (0.0, CELL) else 0.01 if y == 0 else -0.01))]) for x, y in seams]
     lines += [piece.boundary for piece, _, _ in pieces]
     noded = shapely.unary_union(lines)   # the pieces are on a millimetre lattice already; snapping again opens rings
     faces = shapely.get_parts(shapely.polygonize(list(shapely.get_parts(noded))))
@@ -332,9 +344,9 @@ def compile_cell(description: dict) -> Output:
     origin_xz = np.array([i * CELL, j * CELL])
     relief = Relief(description['relief'])
     base = float(np.floor(relief.height.min()))
-    pieces, low_area, kerb_lines = partition(description, e0, n1)
+    pieces, low_area, kerb_lines, seams = partition(description, e0, n1)
     low, high = levels(relief, low_area, kerb_lines)
-    points, triangles, owner = triangulate(pieces)
+    points, triangles, owner = triangulate(pieces, seams)
 
     def sampler(raster):
         slope_z, slope_x = np.gradient(raster, relief.step)
