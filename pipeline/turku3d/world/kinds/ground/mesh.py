@@ -17,7 +17,6 @@ from shapely.ops import substring
 
 from ...api import Heightfield, Material, Part, Output
 from ...frame import CELL
-from ...geometry import earcut
 from .covers import NAMED
 
 KERB_WIDTH = 0.16        # top of a granite kerb stone
@@ -30,6 +29,7 @@ ZEBRA_STRIPE, ZEBRA_PITCH = 0.5, 1.0
 DASH_WIDTH = 0.12
 NEAR = shapely.box(-0.5, -0.5, CELL + 0.5, CELL + 0.5)   # the cell and a little more, in its own frame
 FLUSH = 0.005          # a kerb stone whose top is this near the skin under it is flush: no solid
+SLIVER = 0.0005        # a triangle lower than this over its longest side is a vertex on an edge
 
 
 def polygons(shape) -> list:
@@ -198,7 +198,7 @@ def triangulate(pieces) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     lines += [piece.boundary for piece, _, _ in pieces]
     noded = shapely.unary_union(lines)   # the pieces are on a millimetre lattice already; snapping again opens rings
     faces = shapely.get_parts(shapely.polygonize(list(shapely.get_parts(noded))))
-    faces = faces[shapely.area(faces) > 1e-6]
+    faces = faces[shapely.area(faces) > 0]
     inside = shapely.point_on_surface(faces)
     tree = shapely.STRtree([piece for piece, _, _ in pieces])
     owner = np.full(len(faces), -1)
@@ -208,19 +208,56 @@ def triangulate(pieces) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if len(lost):
         keep = shapely.contains_xy(shapely.box(0, 0, CELL, CELL), shapely.get_x(inside[lost]), shapely.get_y(inside[lost]))
         owner[lost[keep]] = tree.nearest(inside[lost[keep]])
-    corners, owners = [], []
-    for face, piece in zip(faces, owner):
-        if piece < 0:
-            continue
-        rings = [np.asarray(face.exterior.coords)[:-1], *(np.asarray(r.coords)[:-1] for r in face.interiors)]
-        cut = np.concatenate(rings)[earcut(rings)]
-        corners.append(cut.reshape(-1, 2))
-        owners.append(np.full(len(cut), piece))
-    corners = np.concatenate(corners)
-    points, index = np.unique(np.round(corners, 3), axis=0, return_inverse=True)
+    # Constrained Delaunay keeps every vertex of a face's ring, also one that lies on a straight edge because the
+    # face beyond needs it; an ear-clipper drops those and leaves T-junctions.
+    kept = owner >= 0
+    cut = shapely.constrained_delaunay_triangles(faces[kept])
+    corners = shapely.get_coordinates(shapely.get_exterior_ring(shapely.get_parts(cut))).reshape(-1, 4, 2)[:, :3]
+    owners = np.repeat(owner[kept], shapely.get_num_geometries(cut))
+    points, index = np.unique(np.round(corners.reshape(-1, 2), 3), axis=0, return_inverse=True)
     triangles = index.reshape(-1, 3)
     solid = (triangles[:, 0] != triangles[:, 1]) & (triangles[:, 1] != triangles[:, 2]) & (triangles[:, 0] != triangles[:, 2])
-    return points, triangles[solid], np.concatenate(owners)[solid]
+    triangles, owners = without_slivers(points, triangles[solid], owners[solid])
+    return points, triangles, owners
+
+
+def without_slivers(points: np.ndarray, triangles: np.ndarray, owner: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The triangulation without triangles flatter than SLIVER: each one's apex lies on its longest edge, so the
+    triangle beyond that edge is split at the apex and the flat one goes. The sheet stays closed, with no vertex
+    left on the side of a neighbour's edge."""
+    for _ in range(6):
+        corner = points[triangles]
+        sides = np.linalg.norm(corner[:, [1, 2, 0]] - corner[:, [2, 0, 1]], axis=2)   # the side opposite each corner
+        u, v = corner[:, 1] - corner[:, 0], corner[:, 2] - corner[:, 0]
+        double_area = np.abs(u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0])
+        flat = np.flatnonzero(double_area < SLIVER * sides.max(axis=1))
+        if not len(flat):
+            break
+        across: dict[tuple[int, int], list[int]] = {}
+        for number, (a, b, c) in enumerate(triangles.tolist()):
+            for edge in ((a, b), (b, c), (c, a)):
+                across.setdefault((min(edge), max(edge)), []).append(number)
+        gone, added, added_owner = set(), [], []
+        flat_set = set(flat.tolist())
+        for number in flat.tolist():
+            apex = int(np.argmax(sides[number]))
+            m, a, b = (int(triangles[number][(apex + turn) % 3]) for turn in range(3))
+            beyond = [other for other in across[(min(a, b), max(a, b))] if other != number]
+            if beyond and (beyond[0] in gone or beyond[0] in flat_set):
+                continue   # its neighbour changes in this round: the next round sees the result
+            gone.add(number)
+            if beyond:
+                c = next(v for v in triangles[beyond[0]].tolist() if v not in (a, b))
+                gone.add(beyond[0])
+                added += [(a, m, c), (m, b, c)]
+                added_owner += [owner[beyond[0]]] * 2
+        if not gone:
+            break
+        keep = np.ones(len(triangles), bool)
+        keep[list(gone)] = False
+        triangles = np.concatenate([triangles[keep], np.array(added, dtype=triangles.dtype).reshape(-1, 3)])
+        owner = np.concatenate([owner[keep], np.array(added_owner, dtype=owner.dtype)])
+    return triangles, owner
 
 
 def facing_up(points: np.ndarray, triangles: np.ndarray) -> np.ndarray:

@@ -110,6 +110,18 @@ def _surfaces(box) -> list[tuple]:
     return found
 
 
+def _junctions(roads):
+    """Where roads meet and lane markings stop: the surroundings of every node with three or more arms. A node where
+    one way ends and the next begins (the mapper split the street where a tag changes) has two and is no junction."""
+    arms: dict[tuple[float, float], int] = {}
+    for row in roads.itertuples():
+        points = [(round(x, 2), round(y, 2)) for x, y in row.geometry.coords]
+        for index, point in enumerate(points):
+            arms[point] = arms.get(point, 0) + (1 if index in (0, len(points) - 1) else 2)
+    return shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, count in arms.items() if count > 2]
+                               or [shapely.Polygon()])
+
+
 def _paint(box) -> tuple[list, list]:
     """Marked crossings as walking lines and centre-lined roads as (line, station of its start), survey frame."""
     mapped = osm.features(box)
@@ -143,13 +155,7 @@ def _paint(box) -> tuple[list, list]:
         centre = np.array([row.geometry.x, row.geometry.y])
         crossings.append((shapely.LineString([centre - across * 1.0, centre + across * 1.0]), f'osm:node/{row.osm_id}'))
 
-    # Where roads meet, lane lines stop.
-    ends = {}
-    for row in roads.itertuples():
-        for point in row.geometry.coords:
-            ends.setdefault((round(point[0], 2), round(point[1], 2)), set()).add(row.osm_id)
-    junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
-                                    or [shapely.Polygon()])
+    junctions = _junctions(roads)
     lanes = []
     for row in roads.itertuples():
         if getattr(row, 'oneway', None) == 'yes':
@@ -189,12 +195,7 @@ def _strips(box, surfaces) -> tuple[list, list]:
         carriageway = carriageway.difference(shapely.unary_union(parked).buffer(0.05))
     lines = mapped[mapped.geom_type == 'LineString']
     roads = lines[lines.highway.isin(ROADS)]
-    ends = {}
-    for row in roads.itertuples():
-        for point in row.geometry.coords:
-            ends.setdefault((round(point[0], 2), round(point[1], 2)), set()).add(row.osm_id)
-    junctions = shapely.unary_union([shapely.Point(p).buffer(JUNCTION_CLEAR) for p, ways in ends.items() if len(ways) > 1]
-                                    or [shapely.Polygon()])
+    junctions = _junctions(roads)
 
     def sides_of(row) -> set:
         tags = _tags(row)
