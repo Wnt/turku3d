@@ -612,6 +612,7 @@ LIGHT_WEIGHT = 0.25  # a street view's glance at a gap building is worth this mu
 FRONT_VIEW_M = 25.0  # buildings this near a street piece, and within VIEW_REACH_M of its middle, are taken to show
 VIEW_REACH_M = 45.0  # in its street view until the view is made (a light reading names the near ones with confidence)
 VIEW_STRATA = 3  # building strata one street view is counted to cover at most (its largest)
+SHOWN_SHARE = 0.03  # of a made street view's pixels: a building this large in it counts as glanced at
 STREET_SIDE_M = 20.0  # a building read from panoramas stands this near a street
 ALTERNATES = 2  # other buildings of the stratum prepared too, in case the first is hidden
 FRESH = LOOPS / "fresh/batch-01"  # judged cold and public: its photographs are preferred
@@ -681,10 +682,12 @@ def pick(out: Path, limit: int = 100, log=print) -> dict:
     # reading. A full reading is worth what it adds; so is a glance.
     level = dict.fromkeys(b_share, 0.0)
     picks, done_s, per_district = [], set(), {}
-    readable = {s for s in b_share if ((buildings.stratum == s) & buildings.eligible & (buildings.street_m <= STREET_SIDE_M)).any()}
+    # The reader works on LoD2 walls: a footprint the city has not modelled cannot be read (it still counts).
+    can_read = buildings.eligible & (buildings.street_m <= STREET_SIDE_M) & (buildings.source == "lod0")
+    readable = {s for s in b_share if ((buildings.stratum == s) & can_read).any()}
 
     def building_candidates(stratum):
-        rows = buildings[(buildings.stratum == stratum) & buildings.eligible & (buildings.street_m <= STREET_SIDE_M)]
+        rows = buildings[(buildings.stratum == stratum) & can_read]
         foot = np.log(rows.footprint_m2.clip(lower=1))
         storeys = rows.storeys.fillna(rows.storeys.median() if rows.storeys.notna().any() else 1)
         typical = (np.abs(foot - foot.median()) + 0.3 * np.abs(storeys - storeys.median())
@@ -1007,6 +1010,10 @@ def plan(out: Path) -> dict:
             key = s["chosen"]["key"]
             row.update(key=key, near=f"{s['chosen']['E']},{s['chosen']['N']}", crops=s["chosen"]["crops"],
                        overcast=s["chosen"]["overcast"])
+            from . import lod2
+
+            if key not in lod2.scene_around(s["chosen"]["E"], s["chosen"]["N"], 400).buildings:  # as describe --near finds it
+                row["problems"].append("the key is not in the LoD2 scene describe --near builds")
             packet = local / key / "views.json"
             if packet.exists():
                 record = json.loads(packet.read_text())
@@ -1136,6 +1143,38 @@ def _key(stratum: dict) -> str:
     return " · ".join(str(v) for v in stratum.values())
 
 
+def prepared_coverage(out: Path, data: dict, listing: dict, state: dict) -> dict:
+    """Coverage after the picks whose photos are ready: a building pick fills its stratum; a street view its street
+    stratum and, at a glance, the gap strata of the buildings its view shows (at least SHOWN_SHARE of the picture;
+    the estimate of the list where no view was made here, as for a fresh-batch photo)."""
+    import geopandas as gpd
+
+    strata_of = dict(zip(*(gpd.read_parquet(out / "city/buildings-strata.parquet", columns=["key", "stratum"])[c]
+                           for c in ("key", "stratum")), strict=True))
+    gap_b = {"|".join(str(r["stratum"][c]) for c in STRATUM): r["buildings"] for r in data["buildings"] if r["status"] == "gap"}
+    gap_s = {"|".join(str(r["stratum"][c]) for c in STREET_STRATUM): r["length_m"] for r in data["streets"] if r["status"] == "gap"}
+    total_b = data["summary"]["buildings"]["eligible"]
+    total_s = sum(r["length_m"] for r in data["streets"])
+    full, glance, streets, ready = set(), set(), set(), 0
+    for p in listing["picks"]:
+        s = state.get(p["id"], {})
+        if not s.get("ready"):
+            continue
+        ready += 1
+        if p["kind"] == "building":
+            full.add(p["covers"]["buildings"][0])
+            continue
+        streets.add(p["covers"]["street"])
+        shown = [strata_of.get(b["key"]) for b in s.get("shows", []) if b["share"] >= SHOWN_SHARE] if "shows" in s else p["covers"]["buildings"]
+        glance |= {x for x in shown if x in gap_b}
+    before_b = data["summary"]["buildings"]["read"]["buildings"] + data["summary"]["buildings"]["data"]["buildings"]
+    before_s = sum(r["length_m"] for r in data["streets"] if r["status"] == "read")
+    return {"ready": ready, "buildings_pct": _share(before_b + sum(gap_b[x] for x in full | glance), total_b),
+            "buildings_pct_full": _share(before_b + sum(gap_b[x] for x in full), total_b),
+            "streets_pct": _share(before_s + sum(gap_s[x] for x in streets), total_s),
+            "glanced_strata": len(glance - full), "full_strata": len(full)}
+
+
 def report(out: Path) -> Path:
     """coverage.md: the strata, what covers them, the gaps by size, the list and its state, coverage before and
     after. Made from strata.json, list.json and prepared/prepared.json; no model call."""
@@ -1182,6 +1221,7 @@ def report(out: Path) -> Path:
     lines += ["", "| km | street stratum (class · area · age · trees · profile) |", "| ---: | --- |"]
     for r in [r for r in data["streets"] if r["status"] == "gap"][:20]:
         lines.append(f"| {r['length_m'] / 1000:.1f} | {_key(r['stratum'])} |")
+    prepared = prepared_coverage(out, data, listing, state) if listing and state else None
     if listing:
         m = listing["summary"]
         lines += ["", "## The list", "",
@@ -1194,7 +1234,10 @@ def report(out: Path) -> Path:
                   "| | buildings | streets |", "| --- | ---: | ---: |",
                   f"| before | {m['coverage_before']['buildings_pct']} % | {m['coverage_before']['streets_pct']} % |",
                   f"| after the list | {m['coverage_after']['buildings_pct']} % (full readings alone "
-                  f"{m['coverage_after']['buildings_pct_full_readings_only']} %) | {m['coverage_after']['streets_pct']} % |", "",
+                  f"{m['coverage_after']['buildings_pct_full_readings_only']} %) | {m['coverage_after']['streets_pct']} % |",
+                  *([f"| after the picks whose photos are ready ({prepared['ready']} of {m['readings']}), with the "
+                     f"buildings each street view really shows | {prepared['buildings_pct']} % (full readings alone "
+                     f"{prepared['buildings_pct_full']} %) | {prepared['streets_pct']} % |"] if prepared else []), "",
                   "| id | kind | value % | stratum | where | photo |", "| --- | --- | ---: | --- | --- | --- |"]
         for p in listing["picks"]:
             ready = state.get(p["id"], {})
