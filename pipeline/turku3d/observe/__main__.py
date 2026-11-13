@@ -32,6 +32,9 @@ from .panoramas import REPO, Panoramas
 from .prepare import prepare
 
 VISIBLE_SHARE = 0.004  # of a view's pixels, for a building to count as visible in it
+# Tiers by rule, from what the street sees of a building (prepare.street_presence):
+READ_AREA_M2 = 40.0  # less facade than this in sight: not read, the building stays at the automatic tier
+REVIEW_FRONTAGE_M = 8.0  # a street frontage at least this long is reviewed against its drawing after the reading
 
 
 def store(doc: dict) -> str | None:
@@ -218,6 +221,9 @@ def main(argv=None) -> int:
     ap.add_argument("--out", type=Path, default=None, help="root (default $TURKU3D_WORK/observe)")
     ap.add_argument("--jobs", type=int, default=4, help="readings in parallel")
     ap.add_argument("--force", action="store_true", help="read again even when a description exists")
+    ap.add_argument("--no-review", action="store_true", help="stop at tier observed")
+    ap.add_argument("--budget", type=float, default=None,
+                    help="notional USD: no reading starts once this much is spent (most visible buildings first)")
     ap.add_argument("--no-second-look", action="store_true",
                     help="keep the first reading even when the generator drops parts of it")
     a = ap.parse_args(argv)
@@ -265,13 +271,13 @@ def main(argv=None) -> int:
         line = {"building": b.id, "address": b.register.get("address"), "walls": len(b.walls),
                 "seen": sum(w["seen"] for w in record["walls"]), "crops": len(record["crops"]),
                 "unseen": [f"{u['wall'].split(':')[-1]} ({u['reason']})" for u in record["unseen"]],
-                "views_s": round(time.time() - started, 1)}
+                "street": record["street"], "views_s": round(time.time() - started, 1)}
         lines[b.id] = line
         target = root / "descriptions/building" / f"{b.id}.json"
         if a.command != "describe":
             print(json.dumps(line, ensure_ascii=False), flush=True)
-        elif not record["crops"]:
-            line["skipped"] = "no panorama sees any wall"
+        elif record["street"]["area_m2"] < READ_AREA_M2:
+            line["skipped"] = "the street sees too little of it: it stays at the automatic tier"
             print(json.dumps(line, ensure_ascii=False), flush=True)
         elif target.exists() and not a.force:
             line["description"] = str(target)
@@ -279,10 +285,17 @@ def main(argv=None) -> int:
             print(json.dumps(line, ensure_ascii=False), flush=True)
         else:
             jobs.append((b.id, record, packet))
+    # The buildings the street sees most of come first, so a budget ends on the least salient.
+    jobs.sort(key=lambda job: -job[1]["street"]["area_m2"])
+    spent = [0.0]
 
     def describe(job):
         key, record, packet = job
         line = lines[key]
+        if a.budget is not None and spent[0] >= a.budget:
+            line["skipped"] = "the budget was spent on buildings the street sees more of"
+            print(json.dumps(line, ensure_ascii=False), flush=True)
+            return
         try:
             reading, meta = reader.read(record, packet, effort=a.effort)
         except Exception as error:  # noqa: BLE001 - one failed building must not stop the others
@@ -293,7 +306,20 @@ def main(argv=None) -> int:
                 reading, meta, first = second_look(record, packet, root, reading, meta, first, a.effort)
             (packet / "reading.json").write_text(json.dumps({"reading": reading, "meta": meta}, indent=1,
                                                             ensure_ascii=False))
+            for stale in ("reading-observed.json", "reading-reviewed.json"):  # of an earlier reading's review
+                (packet / stale).unlink(missing_ok=True)
             line.update(first)
+            if record["street"]["frontage_m"] >= REVIEW_FRONTAGE_M and not a.no_review and not first.get("invalid"):
+                try:
+                    reviewed = review(packet, root, a.effort, force=True)
+                except Exception as error:  # noqa: BLE001 - the observed description stands
+                    reviewed = {"error": f"{type(error).__name__}: {error}"[:200]}
+                line["review"] = {k: reviewed.get(k) for k in ("compared_walls", "dropped_reader", "kept", "error",
+                                                              "changed") if reviewed.get(k) is not None}
+                line["cost_usd"] = (line.get("cost_usd") or 0) + (reviewed.get("cost_usd") or 0)
+                line["read_s"] = round((line.get("read_s") or 0) + (reviewed.get("read_s") or 0), 1)
+                line["tier"] = "reviewed" if reviewed.get("stored") else "observed"
+            spent[0] += line.get("cost_usd") or 0
         print(json.dumps(line, ensure_ascii=False), flush=True)
 
     if jobs:

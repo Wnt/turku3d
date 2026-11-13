@@ -12,6 +12,19 @@ from .panoramas import Panoramas
 MAX_MISSING = 0.25  # a crop with more of the wall outside the panorama's picture is dropped
 
 
+def street_presence(building: Building, crops: list) -> dict:
+    """How much of a building the street sees: the salience its tier follows.
+
+    Per wall the longest stretch a chosen panorama sees freely, times the wall's height: the facade area (m2) a
+    passer-by can read, and the longest such stretch (m) as its frontage."""
+    free = {}
+    for crop in crops:
+        free[crop["wall"]] = max(free.get(crop["wall"], 0.0), crop["x1_m"] - crop["x0_m"])
+    height = {w.id: w.eaves - w.base for w in building.walls}
+    return {"area_m2": round(sum(length * height.get(wall, 0.0) for wall, length in free.items()), 1),
+            "frontage_m": round(max(free.values(), default=0.0), 1)}
+
+
 def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, per_wall: int = views.VIEWS_PER_WALL
             ) -> dict:
     """Write the crops of one building under `out` and return the record the reader works from."""
@@ -52,6 +65,7 @@ def prepare(scene: Scene, building: Building, panos: Panoramas, out: Path, *, pe
         "walls": [dict(w.to_dict(), exposed=[[round(a, 2), round(b, 2), round(z - w.base, 2)] for a, b, z in w.exposed()],
                        seen=w.id in seen) for w in building.walls],
         "crops": records,
+        "street": street_presence(building, records),
         "contexts": contexts,
         "unseen": sorted(unseen, key=lambda u: u["wall"]),
         "candidates": found["candidates"],

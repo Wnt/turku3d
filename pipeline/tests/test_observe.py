@@ -132,3 +132,16 @@ def test_registration_trusts_only_the_ends_a_crop_sees():
     right = {"x0_m": 9.0, "x1_m": 20.0}
     assert reader.registration(20.0, right, [1.0, 20.5]) == (0.5, 1.0)  # the left end is out of sight
     assert reader.registration(20.0, right, None) == (0.0, 1.0)
+
+
+def test_street_presence_is_the_facade_area_the_street_sees():
+    from types import SimpleNamespace
+
+    from turku3d.observe.prepare import street_presence
+
+    wall = _wall()
+    building = SimpleNamespace(walls=[wall])
+    crops = [{"wall": wall.id, "x0_m": 2.0, "x1_m": 12.0}, {"wall": wall.id, "x0_m": 0.0, "x1_m": 6.0}]
+    presence = street_presence(building, crops)
+    assert presence == {"area_m2": round(10.0 * (wall.eaves - wall.base), 1), "frontage_m": 10.0}
+    assert street_presence(building, []) == {"area_m2": 0.0, "frontage_m": 0.0}
